@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use OpenDubs in academic work, please cite it as below."
+title: "OpenDubs: a low-cost, open-source mobile robot"
+abstract: >-
+  OpenDubs is a low-cost, low-fabrication, open-source mobile robot platform built from mostly
+  off-the-shelf parts (NVIDIA Jetson AGX Thor, M5Stack StampPLC/Tab5, goBILDA/REV structure,
+  mecanum drive) with open firmware, software, and hardware designs so others can replicate it.
+type: software
+authors:
+  # TODO: replace with the real author list (name + affiliation + ORCID) before publishing.
+  - name: "The OpenDubs Authors"
+repository-code: "https://github.com/OWNER/opendubs"   # TODO: set to the real repo URL
+license:
+  - Apache-2.0
+  - CERN-OHL-W-2.0
+  - CC-BY-4.0
+keywords:
+  - robotics
+  - open hardware
+  - mobile robot
+  - ROS 2
+  - mecanum
+  - open source
+# version: "0.1.0"        # TODO: set on first release
+# date-released: 2026-01-01   # TODO: set on first release
+# doi: 10.5281/zenodo.XXXXXXX # TODO: mint via the Zenodo–GitHub integration on first release

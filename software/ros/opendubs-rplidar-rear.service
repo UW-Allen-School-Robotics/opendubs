@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenDubs RPLIDAR A1 REAR driver (publishes /scan_rear)
+# Start AFTER the front, and the ExecStartPre delay staggers the SDK handshake:
+# the two A1s can't both handshake at once on the shared (marginal) USB hub — one
+# stalls. Staggering fixes it (verified). See [[thor-ros-lidar]] / the flaky-hub note.
+After=network.target opendubs-rplidar.service
+Wants=opendubs-rplidar.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+# Device/topic/frame come from the drop-in (device.conf): REAR = USB port 4.2.4,
+# topic /scan_rear, frame laser_rear.
+ExecStartPre=/bin/sleep 15
+ExecStart=/opt/opendubs/ros/rplidar.sh
+Restart=always
+RestartSec=6
+
+[Install]
+WantedBy=multi-user.target

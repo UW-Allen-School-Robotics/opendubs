@@ -1,0 +1,33 @@
+# --- Secrets / per-unit identity (never commit) ---
+.env
+.env.local
+.env.*.local
+ops/                 # per-deployment private config (network, hostnames, keys) — never public
+
+# --- Dev-machine / agent config ---
+.claude/
+.mcp.json
+.figma_plan.md
+.DS_Store
+
+# --- Python ---
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# --- PlatformIO / firmware build artifacts (matches firmware/*/.pio too) ---
+.pio/
+
+# --- Node / frontend tooling ---
+node_modules/
+
+# --- MkDocs build output ---
+site/
+
+# --- Vendored M5Stack reference libs: pulled at build time via pinned lib_deps,
+#     kept locally only for offline reading. Not part of the published source. ---
+/M5StamPLC/
+/M5Unit-8Servo/
+/M5Unit-Encoder/
+/M5Unit-HUB/

@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> DISABLED
+    DISABLED --> READY : enable / parent allows
+    READY --> ACTIVE : activate
+    ACTIVE --> READY : deactivate
+    READY --> DISABLED : disable
+    ACTIVE --> FAULT : local fault
+    READY --> FAULT : precheck fail
+    FAULT --> DISABLED : reset + safe
+
+    note right of ACTIVE
+      Allowed only when robot-level
+      mode permits this subsystem
+    end note

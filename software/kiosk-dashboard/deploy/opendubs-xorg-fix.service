@@ -1,0 +1,16 @@
+[Unit]
+Description=Ensure OpenDubs forced-HDMI xorg.conf is in place and locked
+Before=display-manager.service gdm.service
+After=local-fs.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The Jetson reverts /etc/X11/xorg.conf to NVIDIA's stock config late in boot,
+# which darkens the no-EDID panel. Re-assert our forced-HDMI config and lock it
+# immutable before the display manager starts. (See thor-kiosk-display notes.)
+ExecStart=/bin/sh -c 'chattr -i /etc/X11/xorg.conf 2>/dev/null; install -m0644 /opt/opendubs/kiosk-dashboard/deploy/xorg-hdmi.conf /etc/X11/xorg.conf; chattr +i /etc/X11/xorg.conf'
+
+[Install]
+WantedBy=multi-user.target

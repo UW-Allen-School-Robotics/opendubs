@@ -1,0 +1,69 @@
+site_name: OpenDubs
+site_description: A low-cost, low-fabrication, open-source mobile robot
+# repo_url: https://github.com/OWNER/opendubs   # TODO: set once the repo exists
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    logo: material/robot-mower
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: light green
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: light green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+nav:
+  - Home: index.md
+  - Build & Flash:
+      - Flash a StampPLC: flashing-stamplc.md
+  - Firmware:
+      - StampPLC ↔ Thor over Ethernet: stamplc-ethernet-transport.md
+  - Electronics & Power:
+      - ESC / PWM safety: pwm-esc-safety.md
+      - REV PDH / CAN feasibility: rev-pdh-can-feasibility.md
+      - Regen clamp sizing: regen-clamp-sizing.md
+  - Software & Bring-up:
+      - Thor setup: thor-setup.md
+      - Deployment & portability: portability-audit.md
+      - Network architecture: network-architecture.md
+  - Hardware:
+      - Bill of materials: hardware-bom.md
+  - Reference:
+      - System overview: system-overview.md
+      - Coordinate frames & naming: naming-frames.md
+      - State machines: state-machines.md
+      - Control authority: control-authority.md
+      - Localization & sensor fusion: localization-fusion.md
+      - Mast control: mast-control.md
+      - Camera selection: camera-selection.md

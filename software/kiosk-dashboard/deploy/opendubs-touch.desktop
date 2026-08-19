@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=OpenDubs Touch Bridge
+Comment=Map the HDMI touch panel to the X cursor via XTEST
+Exec=/opt/opendubs/kiosk-dashboard/deploy/touch-bridge.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

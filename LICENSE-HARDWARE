@@ -1,0 +1,22 @@
+OpenDubs — Hardware License
+===========================
+
+SPDX-License-Identifier: CERN-OHL-W-2.0
+
+Copyright (C) 2026 The OpenDubs Authors.
+
+The hardware designs in this project (mechanical CAD, 3D-printable parts, electrical
+wiring, bill of materials, and related design documentation) are licensed under the
+CERN Open Hardware Licence Version 2 — Weakly Reciprocal (CERN-OHL-W-2.0).
+
+You may copy, modify, and distribute these designs under the terms of that licence.
+There is NO WARRANTY, to the extent permitted by applicable law.
+
+- Full licence text:  https://ohwr.org/cern_ohl_w_v2.txt
+- SPDX reference:      https://spdx.org/licenses/CERN-OHL-W-2.0.html
+
+------------------------------------------------------------------------------------
+NOTE (pre-publication TODO): append the full verbatim CERN-OHL-W-2.0 text below this
+line from the canonical source above before making the repository public, and confirm
+the copyright holder (individual contributors vs. University of Washington).
+------------------------------------------------------------------------------------

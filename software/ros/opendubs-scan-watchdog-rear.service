@@ -1,0 +1,25 @@
+[Unit]
+Description=OpenDubs /scan_rear liveness watchdog (restarts the REAR RPLIDAR driver if scans stop)
+After=network.target opendubs-rplidar-rear.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+# Watch the REAR scan; restart the REAR driver; restart-only (the front watchdog
+# owns /lidar/enable + motor stop). Unique node name to avoid a DDS name clash.
+Environment=OPENDUBS_WD_TOPIC=/scan_rear
+Environment=OPENDUBS_WD_SERVICE=opendubs-rplidar-rear
+Environment=OPENDUBS_WD_NODE=scan_watchdog_rear
+Environment=OPENDUBS_WD_OWN_ENABLE=0
+# REAR unit staggers 15s (ExecStartPre) — grace MUST exceed stagger + SDK init (~19s) or the
+# watchdog re-fires as the driver starts publishing → restart loop. 40s leaves comfortable margin.
+Environment=OPENDUBS_WD_GRACE_S=40
+Environment=OPENDUBS_WD_STALE_S=8
+ExecStart=/opt/opendubs/ros/scan-watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

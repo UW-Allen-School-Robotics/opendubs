@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenDubs camera driver (Orbbec Astra -> /camera/* ROS 2 topics)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+ExecStart=/opt/opendubs/ros/camera.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

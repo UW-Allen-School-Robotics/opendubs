@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=OpenDubs Kiosk
+Comment=Rotate panel, set touch transform, launch dashboard fullscreen
+Exec=/opt/opendubs/kiosk-dashboard/deploy/kiosk-autostart.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

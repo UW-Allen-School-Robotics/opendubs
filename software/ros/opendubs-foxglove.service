@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenDubs Foxglove bridge (ROS graph → Foxglove app, ws :8765)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+ExecStart=/opt/opendubs/ros/foxglove.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

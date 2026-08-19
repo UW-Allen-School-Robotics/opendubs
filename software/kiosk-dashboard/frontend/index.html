@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1920, initial-scale=1" />
+  <title>OpenDubs Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="brand">
+        <span class="logo">◧ OPENDUBS</span>
+        <span id="conn" class="conn down" title="link">●</span>
+      </div>
+      <nav id="tabs">
+        <button class="tab active" data-view="master">MASTER STATUS</button>
+        <button class="tab" data-view="info">INFO</button>
+        <button class="tab" data-view="power">POWER</button>
+        <button class="tab" data-view="thermal">THERMAL</button>
+        <button class="tab" data-view="drive">DRIVE</button>
+        <button class="tab" data-view="thor">THOR</button>
+        <button class="tab" data-view="stamplc">STAMPLC</button>
+        <button class="tab" data-view="nav">NAV</button>
+        <button class="tab" data-view="payload">PAYLOAD</button>
+        <button class="tab" data-view="teleop">TELEOP</button>
+        <button class="tab" data-view="lidar">LIDAR</button>
+      </nav>
+      <div class="meta">
+        <span id="host">—</span>
+        <span id="clock">--:--:--</span>
+        <button id="ackBtn" class="ack">ACK</button>
+      </div>
+    </header>
+
+    <!-- MASTER STATUS view — robot-level FSM (docs/state-machines.md) -->
+    <main id="view-master" class="view active fsmview">
+      <section class="card fsm-state">
+        <h2>ROBOT STATE</h2>
+        <div id="rsState" class="rs-state">—</div>
+        <div id="rsReason" class="sub rs-reason">—</div>
+        <div class="rs-led">LED → <span id="rsLed">—</span></div>
+      </section>
+      <section class="card fsm-mid">
+        <h2>MODE INPUTS</h2>
+        <div class="rs-inputs">
+          <div class="rs-in"><span class="lbl">AUTHORITY (CH5)</span><span id="inAuth" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">DEADMAN (CH6)</span><span id="inDead" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">E-STOP</span><span id="inSafe" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">RC LINK</span><span id="inLink" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">CONTACTOR (R0)</span><span id="inContactor" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">MOTION POWER</span><span id="inMotion" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">CHARGER</span><span id="inCharger" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">DRIVE MODE</span><span id="inDriveMode" class="chip">—</span></div>
+          <div class="rs-in"><span class="lbl">ARMED</span><span id="inArmed" class="chip">—</span></div>
+        </div>
+        <div class="fsm-flow" id="fsmFlow"></div>
+      </section>
+      <section class="card fsm-subs">
+        <h2>SUBSYSTEMS</h2>
+        <div id="rsSubs" class="rs-subs"></div>
+      </section>
+    </main>
+
+    <!-- INFO view (system + subsystem status grid; was MASTER STATUS) -->
+    <main id="view-info" class="view masterview">
+      <div id="safetyBanner" class="safety-banner">
+        <span class="sb-label">SAFETY</span>
+        <span id="sbState" class="sb-state">—</span>
+        <span class="sb-detail">contactor <span id="sbContactor">—</span></span>
+        <span class="sb-detail">e-stop btn <span id="sbBtn">—</span></span>
+        <span class="sb-detail">software <span id="sbSw">—</span></span>
+        <span class="sb-detail">uptime <span id="uptime">—</span></span>
+        <span class="sb-detail">power <span id="pmode">—</span></span>
+      </div>
+      <div class="statusgrid">
+        <div class="stile"><div class="slabel">WIRED NET</div><div class="sval"><span class="sdot" id="stWiredDot"></span><span id="stWired">—</span></div></div>
+        <div class="stile"><div class="slabel">WIFI</div><div class="sval"><span class="sdot" id="stWifiDot"></span><span id="stWifi">—</span></div></div>
+        <div class="stile"><div class="slabel">STAMPLC RC (SBUS)</div><div class="sval"><span class="sdot" id="stMavDot"></span><span id="stMav">—</span></div></div>
+        <div class="stile"><div class="slabel">STAMPLC (USB)</div><div class="sval"><span class="sdot" id="stPlcDot"></span><span id="stPlc">—</span></div></div>
+        <div class="stile"><div class="slabel">LEFT ARM (CAN)</div><div class="sval"><span class="sdot" id="stArmLDot"></span><span id="stArmL">—</span></div></div>
+        <div class="stile"><div class="slabel">RIGHT ARM (CAN)</div><div class="sval"><span class="sdot" id="stArmRDot"></span><span id="stArmR">—</span></div></div>
+        <div class="stile"><div class="slabel">BATTERY</div><div class="sval"><span class="sdot" id="stBattDot"></span><span id="stBatt">—</span></div></div>
+        <div class="stile"><div class="slabel">CHARGER</div><div class="sval"><span class="sdot" id="stChargerDot"></span><span id="stCharger">—</span></div></div>
+        <div class="stile"><div class="slabel">VNC <span class="sdot" id="stVncDot"></span></div>
+          <div class="sval"><span id="stVnc">—</span>
+            <button id="btnVnc" class="vncbtn">—</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- THOR view (Jetson system health) -->
+    <main id="view-thor" class="view">
+      <section class="card control">
+        <h2>SYSTEM</h2>
+        <button id="btnReboot" class="sysbtn">REBOOT</button>
+        <button id="btnShutdown" class="sysbtn danger">SHUTDOWN</button>
+        <div class="sub" id="sysMsg">&nbsp;</div>
+      </section>
+
+      <section class="card cpu">
+        <h2>CPU <span id="cpuPct" class="big">--%</span></h2>
+        <div id="cores" class="cores"></div>
+        <div class="sub"><span id="load">load —</span> · <span id="cores-n">— cores</span></div>
+      </section>
+
+      <section class="card gpu">
+        <h2>GPU</h2>
+        <div class="gauge"><div id="gpuBar" class="gauge-fill"></div><span id="gpuPct" class="gauge-label">--%</span></div>
+        <div class="sub">EMC <span id="emcPct">--%</span></div>
+      </section>
+
+      <section class="card mem">
+        <h2>MEMORY</h2>
+        <div class="bar"><div id="memBar" class="bar-fill"></div></div>
+        <div id="memTxt" class="sub">— / — MB</div>
+        <div class="bar small"><div id="swapBar" class="bar-fill alt"></div></div>
+        <div id="swapTxt" class="sub">swap — / — MB</div>
+      </section>
+
+      <section class="card temps">
+        <h2>TEMPS</h2>
+        <ul id="tempList" class="kv"></ul>
+      </section>
+
+      <section class="card io">
+        <h2>DISK / NET</h2>
+        <div class="bar"><div id="diskBar" class="bar-fill"></div></div>
+        <div id="diskTxt" class="sub">— / — GB</div>
+        <div class="sub net">▲ <span id="netUp">—</span> kbps &nbsp; ▼ <span id="netDown">—</span> kbps</div>
+        <div class="sub" id="ipTxt">ip —</div>
+      </section>
+
+      <section class="card jpwr">
+        <h2>JETSON POWER <span id="pwrMode" class="pill">—</span></h2>
+        <div id="pwrTotal" class="big">— W</div>
+        <ul id="pwrList" class="kv"></ul>
+      </section>
+    </main>
+
+    <!-- DRIVE view — mode selector (jumper-interlocked) · per-wheel command · SBUS -->
+    <main id="view-drive" class="view driveview">
+      <section class="card drive-mode">
+        <h2>DRIVE MODE <span id="drArmed" class="badge dimbadge">—</span></h2>
+        <div class="mode-sel">
+          <div class="mode-opt" id="modeMecanum">
+            <div class="mode-img" style="background-image:url(assets/robot-mecanum.png)"></div>
+            <div class="mode-name">MECANUM</div><div class="mode-desc">strafe · 4-motor</div>
+          </div>
+          <div class="mode-opt" id="mode4wd">
+            <div class="mode-img" style="background-image:url(assets/robot-4wd.png)"></div>
+            <div class="mode-name">4WD TRACTION</div><div class="mode-desc">skid · no strafe</div>
+          </div>
+        </div>
+        <div class="mode-how">
+          <div class="lbl">TO CHANGE MODE · JUMPER-INTERLOCKED</div>
+          <div class="how-steps">① swap wheels &nbsp;·&nbsp; ② set the mode jumper (DI) &nbsp;·&nbsp; ③ dashboard follows</div>
+        </div>
+        <div class="sub dim">software mixer on StampLC → 8Servo → 2× 2x80A ESCs</div>
+      </section>
+
+      <section class="card drive-wheels">
+        <h2>WHEELS · COMMANDED</h2>
+        <div class="chassis">
+          <div class="wheel tl" id="whTL"><i></i><span>—</span></div>
+          <div class="wheel tr" id="whTR"><i></i><span>—</span></div>
+          <div class="wheel bl" id="whBL"><i></i><span>—</span></div>
+          <div class="wheel br" id="whBR"><i></i><span>—</span></div>
+          <div class="chassis-fwd">▲ FWD</div>
+        </div>
+      </section>
+
+      <section class="card drive-intent">
+        <h2>MOVEMENT INTENT <span id="diSpeed" class="badge dimbadge">SPD —</span> <span id="diTurn" class="badge dimbadge">—</span></h2>
+        <div class="intent-body">
+          <svg class="intent-svg" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <polygon id="diTurnL" class="turnsig" points="34,120 60,103 60,137"></polygon>
+            <polygon id="diTurnR" class="turnsig" points="206,120 180,103 180,137"></polygon>
+            <text id="diRotCCW" class="rotglyph" x="150" y="46">↺</text>
+            <text id="diRotCW"  class="rotglyph" x="90"  y="46">↻</text>
+            <rect x="90" y="74" width="60" height="92" rx="12" class="robot"></rect>
+            <text x="120" y="66" class="rlabel">FWD</text>
+            <line id="diVec" class="ivec" x1="120" y1="120" x2="120" y2="120"></line>
+            <polygon id="diHead" class="ihead" points="0,-8 15,0 0,8" transform="translate(120,120)"></polygon>
+            <circle cx="120" cy="120" r="4" class="ihub"></circle>
+          </svg>
+          <div class="intent-nums">
+            <div><span>FWD</span><b id="diFwd">—</b></div>
+            <div><span>STRAFE</span><b id="diStr">—</b></div>
+            <div><span>ROTATE</span><b id="diRotN">—</b></div>
+          </div>
+        </div>
+        <div class="sub dim">arrow = translation (fwd+strafe) · ↻↺ = rotation · side = turn-signal. Verifies the mecanum map with DRIVE_ENABLE=0.</div>
+      </section>
+
+      <section class="card drive-rc">
+        <h2>RC INPUTS · SBUS <span id="rcSrc" class="badge dimbadge">—</span></h2>
+        <div class="rc-badges">
+          <span id="rcAuth" class="badge">AUTH —</span>
+          <span id="rcDead" class="badge">DEADMAN —</span>
+          <span id="rcSpeed" class="badge">SPEED —</span>
+        </div>
+        <div class="rc-table"><div id="rcRows"></div>
+          <div id="rcOverlay" class="rc-overlay hidden">
+            <div class="rc-overlay-txt">RC DISCONNECTED</div>
+            <div class="rc-overlay-sub">—</div>
+          </div>
+        </div>
+        <div id="rcFoot" class="rc-foot">—</div>
+      </section>
+    </main>
+
+    <!-- NAV view — GPS + optical flow (Pixhawk MAVLink) -->
+    <main id="view-nav" class="view navview">
+      <section class="card nav-card">
+        <h2>GPS <span id="gpsFix" class="badge dimbadge">—</span></h2>
+        <div class="navgrid">
+          <div><span class="lbl">SATS</span><span id="gpsSats" class="num">—</span></div>
+          <div><span class="lbl">HDOP</span><span id="gpsHdop" class="num">—</span></div>
+          <div><span class="lbl">SPEED</span><span id="gpsSpeed" class="num">—</span></div>
+          <div><span class="lbl">HEADING</span><span id="gpsHdg" class="num">—</span></div>
+          <div><span class="lbl">LAT</span><span id="gpsLat" class="num">—</span></div>
+          <div><span class="lbl">LON</span><span id="gpsLon" class="num">—</span></div>
+          <div><span class="lbl">ALT</span><span id="gpsAlt" class="num">—</span></div>
+          <div><span class="lbl">REL ALT</span><span id="gpsRel" class="num">—</span></div>
+        </div>
+      </section>
+      <section class="card nav-card">
+        <h2>OPTICAL FLOW <span id="flowState" class="badge dimbadge">—</span></h2>
+        <div class="navgrid">
+          <div><span class="lbl">VEL X</span><span id="flowVx" class="num">—</span></div>
+          <div><span class="lbl">VEL Y</span><span id="flowVy" class="num">—</span></div>
+          <div><span class="lbl">GND DIST</span><span id="flowGnd" class="num">—</span></div>
+          <div><span class="lbl">QUALITY</span><span id="flowQual" class="num">—</span></div>
+        </div>
+        <div class="sub" id="flowRaw">flow — , —</div>
+      </section>
+    </main>
+
+    <!-- PAYLOAD view — mast/scissor lift (variant-agnostic; mast shown) -->
+    <main id="view-payload" class="view mastview">
+      <section class="card">
+        <h2>PAYLOAD · MAST ENCODER <span id="mastEncState" class="badge dimbadge">—</span></h2>
+        <div id="mastCount" class="big">—</div>
+        <div class="sub">raw counts · M5 ExtEncoder (I²C 0x59)</div>
+        <button id="btnEncReset" class="sysbtn">ZERO / HOME</button>
+      </section>
+      <section class="card">
+        <h2>LIMIT SWITCHES</h2>
+        <div class="iolist">
+          <div class="iorow"><span class="iolabel">TOP (DI1)</span><span class="sdot" id="mastTopDot"></span><span id="mastTop">—</span></div>
+          <div class="iorow"><span class="iolabel">BOTTOM (DI2)</span><span class="sdot" id="mastBotDot"></span><span id="mastBot">—</span></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ARMS view (placeholder) -->
+    <main id="view-arms" class="view placeholder">
+      <div class="ph"><h1>ARMS</h1><p>Dual OpenArm 7-DOF</p><p class="dim">telemetry pending — layout to be designed</p></div>
+    </main>
+
+    <!-- POWER view — 52V pack (BMS) · usage/projection · 24V rails + charger + PDH -->
+    <main id="view-power" class="view powerview">
+      <!-- 52V pack -->
+      <section class="card pwr-pack">
+        <h2>52V PACK · BMS <span id="pkState" class="badge dimbadge">—</span></h2>
+        <div class="pack-top">
+          <div id="pkRing" class="soc-ring" style="--p:0"><span class="soc-pc" id="pkSoc">—<small>%</small></span></div>
+          <div class="pack-vi">
+            <div><span class="lbl">PACK</span><span id="pkV" class="num">— V</span></div>
+            <div><span class="lbl">CURRENT</span><span id="pkI" class="num">— A</span></div>
+          </div>
+        </div>
+        <div class="cell-line">
+          <div class="cl-head"><span class="lbl">CELLS · 16s</span><span id="pkCellTxt" class="lbl">—</span></div>
+          <div id="pkCells" class="cellbars"></div>
+        </div>
+        <div class="pack-badges" id="pkBadges"></div>
+      </section>
+
+      <!-- usage history + projection -->
+      <section class="card pwr-usage">
+        <h2>USAGE · PROJECTION</h2>
+        <div class="proj-row">
+          <div><span class="lbl" id="usEtaLbl">EST. REMAINING</span><span id="usTime" class="proj-big">—</span></div>
+          <div class="proj-rate"><span class="lbl">POWER</span><span id="usPower" class="num">—</span></div>
+          <div class="proj-rate"><span class="lbl">RATE</span><span id="usRate" class="num">—</span></div>
+        </div>
+        <canvas id="usSpark" class="spark-canvas"></canvas>
+        <div class="proj-foot"><span id="usFootL" class="lbl">SoC · —</span><span id="usFootR" class="lbl">—</span></div>
+      </section>
+
+      <!-- 24V rails + charger + PDH -->
+      <section class="card pwr-rails">
+        <h2>24V RAILS · PDH</h2>
+        <div class="rail" id="railLogic">
+          <div class="rail-hd"><span class="lbl">LOGIC 24V · always-on</span><span id="rlLogic" class="num">—</span></div>
+        </div>
+        <div class="rail" id="railDrive">
+          <div class="rail-hd"><span class="lbl">DRIVE 24V · behind contactor</span>
+            <span><span id="rlContactor" class="badge dimbadge">—</span> <span id="rlClamp" class="badge dimbadge">—</span></span></div>
+          <div class="rail-v" id="rlDriveV">—</div>
+        </div>
+        <div class="rail interlock" id="railCharger">
+          <div class="rail-hd"><span class="lbl">CHARGER</span><span id="chConn" class="badge dimbadge">—</span></div>
+          <div class="rail-v" id="chInhibit">—</div>
+        </div>
+        <div class="rail pdh-sum">
+          <div class="rail-hd"><span class="lbl">REV PDH · 24ch</span><span id="pdhState" class="badge dimbadge">—</span></div>
+          <div class="pdh-nums"><span id="pdhV" class="num">— V</span><span id="pdhI" class="num">— A</span><span id="pdhP" class="num">— W</span>
+            <button id="btnPdhSw" class="iobtn">—</button></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- THERMAL view — enclosure cooling (ENV + fans) + free component temps -->
+    <main id="view-thermal" class="view thermalview">
+      <section class="card therm-zones">
+        <h2>ENCLOSURE COOLING · ENV + FANS <span id="thState" class="badge dimbadge">—</span></h2>
+        <div id="thZones" class="zone-grid"></div>
+        <div class="sub dim">2-wire fans · on/off hysteresis</div>
+      </section>
+      <section class="card therm-comp">
+        <h2>COMPONENT TEMPS · FREE</h2>
+        <div id="thComp" class="chip-grid"></div>
+        <div class="sub dim">Thor /sys zones · StampLC board · BMS pack — no extra hardware</div>
+      </section>
+    </main>
+
+    <!-- STAMPLC view — DI / relays / e-stop / sensors -->
+    <main id="view-stamplc" class="view stampview">
+      <section class="card">
+        <h2>SAFETY <span id="safState" class="badge dimbadge">—</span></h2>
+        <div class="sub">contactor (R0): <span id="safContactor">—</span></div>
+        <div class="sub">e-stop btn (DI0): <span id="safBtn">—</span></div>
+        <button id="btnEstop" class="sysbtn danger estopbtn">E-STOP</button>
+        <button id="btnEstopClear" class="sysbtn rearmbtn">RE-ARM</button>
+      </section>
+      <section class="card">
+        <h2>DIGITAL INPUTS</h2>
+        <div id="diList" class="iolist"></div>
+      </section>
+      <section class="card">
+        <h2>RELAYS</h2>
+        <div id="relayList" class="iolist"></div>
+      </section>
+      <section class="card">
+        <h2>SENSORS</h2>
+        <ul class="kv">
+          <li><span>bus voltage</span><span id="stBusV">—</span></li>
+          <li><span>board temp</span><span id="stTemp">—</span></li>
+          <li><span>io socket</span><span id="stIsock">—</span></li>
+        </ul>
+        <h2 class="mt">I²C BUS <button id="btnI2cScan" class="iobtn">SCAN</button></h2>
+        <div id="i2cList" class="i2clist"></div>
+        <div class="sub" id="i2cNote">tap SCAN for a full bus sweep (0x08–0x77)</div>
+        <div class="sub note">SBUS/RC is read via the Pixhawk (MAVLink) — see the RC TELEMETRY tab</div>
+      </section>
+    </main>
+
+    <!-- TELEOP view (placeholder — Meta Quest + other teleop) -->
+    <main id="view-teleop" class="view placeholder">
+      <div class="ph"><h1>TELEOP</h1><p>Meta Quest · remote operation</p><p class="dim">teleop methods to be implemented</p></div>
+    </main>
+
+    <!-- LIDAR view — front half-disc (opens left) | robot/controls | rear half-disc (opens right) -->
+    <main id="view-lidar" class="view lidarview">
+      <section class="lidar-panel"><canvas id="lidarFront" class="lidar-canvas"></canvas></section>
+      <div class="lidar-center">
+        <span class="lidar-title">LIDAR</span>
+        <span id="rosConn" class="badge dimbadge">ROSBRIDGE —</span>
+        <div class="lidar-stat"><span class="lbl">◀ FRONT</span><span id="lidarFrontState" class="badge dimbadge">—</span></div>
+        <div id="lidarFrontInfo" class="lidar-info">—</div>
+        <button id="btnLidarStart" class="sysbtn">START SPIN</button>
+        <button id="btnLidarStop" class="sysbtn danger">STOP SPIN</button>
+        <div class="lidar-stat"><span class="lbl">REAR ▶</span><span id="lidarRearState" class="badge dimbadge">—</span></div>
+        <div id="lidarRearInfo" class="lidar-info">—</div>
+      </div>
+      <section class="lidar-panel"><canvas id="lidarRear" class="lidar-canvas"></canvas></section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

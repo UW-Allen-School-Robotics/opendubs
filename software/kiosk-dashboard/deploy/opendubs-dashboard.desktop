@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=OpenDubs Dashboard
+Comment=Fullscreen kiosk dashboard (Chromium)
+Exec=/opt/opendubs/kiosk-dashboard/deploy/dashboard-autostart.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

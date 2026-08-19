@@ -1,0 +1,4 @@
+# Let the scan watchdog (running as emmar) restart the RPLIDAR driver when /scan
+# goes stale. Install to /etc/sudoers.d/opendubs-ros (mode 0440).
+emmar ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar
+emmar ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar-rear

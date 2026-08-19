@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenDubs Kiosk Dashboard backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kiosk
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/opendubs/kiosk-dashboard/backend
+ExecStart=/opt/opendubs/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=2
+# tegrastats/nvpmodel read from /sys. MAVLink now comes from MAVROS (which owns
+# the Pixhawk serial) over a local UDP forward — NOT the raw /dev/ttyACM* port.
+# (dialout kept as a harmless fallback in case of reverting to direct serial.)
+Environment=OPENDUBS_MAVLINK_DEV=udpin:127.0.0.1:14550
+
+[Install]
+WantedBy=multi-user.target

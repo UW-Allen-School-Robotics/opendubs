@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenDubs StampLC -> ROS bridge (republishes dashboard /api/stamplc as ROS topics/services)
+After=network.target opendubs-dash.service opendubs-rosbridge.service
+Wants=opendubs-dash.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+Environment=OPENDUBS_DASH_URL=http://127.0.0.1:8080
+ExecStart=/opt/opendubs/ros/stamplc-bridge.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

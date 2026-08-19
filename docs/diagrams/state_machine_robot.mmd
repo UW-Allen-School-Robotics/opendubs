@@ -1,0 +1,18 @@
+stateDiagram-v2
+    [*] --> INIT
+    INIT --> SAFE_IDLE : boot complete / no hard faults
+    SAFE_IDLE --> MANUAL_CONTROL : operator mode set / RC link healthy
+    SAFE_IDLE --> AUTONOMOUS_CONTROL : autonomy start / autonomy ready + safety clear
+    MANUAL_CONTROL --> AUTONOMOUS_CONTROL : autonomy engage / policy allows transfer
+    AUTONOMOUS_CONTROL --> MANUAL_CONTROL : operator reclaim/override / override accepted
+    INIT --> DEGRADED : subsystem fault / fault is recoverable
+    SAFE_IDLE --> DEGRADED : subsystem fault / fault is recoverable
+    MANUAL_CONTROL --> DEGRADED : subsystem fault / fault is recoverable
+    AUTONOMOUS_CONTROL --> DEGRADED : subsystem fault / fault is recoverable
+    E_STOP_LATCH --> DEGRADED : subsystem fault / fault is recoverable
+    INIT --> E_STOP_LATCH : e-stop/fatal fault
+    SAFE_IDLE --> E_STOP_LATCH : e-stop/fatal fault
+    MANUAL_CONTROL --> E_STOP_LATCH : e-stop/fatal fault
+    AUTONOMOUS_CONTROL --> E_STOP_LATCH : e-stop/fatal fault
+    DEGRADED --> E_STOP_LATCH : e-stop/fatal fault
+    DEGRADED --> SAFE_IDLE : fault cleared / re-entry checks pass

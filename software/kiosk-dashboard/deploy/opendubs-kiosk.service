@@ -1,0 +1,25 @@
+[Unit]
+Description=OpenDubs Kiosk (dedicated Xorg + Chromium dashboard)
+After=systemd-user-sessions.service opendubs-dash.service getty@tty1.service
+Wants=opendubs-dash.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=kiosk
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+# Own a single Xorg on vt1 and run the kiosk client; no display manager, no
+# desktop environment, no session selection.
+ExecStart=/usr/bin/xinit /opt/opendubs/kiosk-dashboard/deploy/kiosk-session.sh -- :0 vt1 -nolisten tcp -keeptty
+Restart=always
+RestartSec=3
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=OpenDubs Panel (rotate+touch)
+Comment=In-session HDMI panel rotate + evdev->XTEST touch bridge (AGX Thor)
+Exec=bash /opt/opendubs/kiosk-dashboard/deploy/session-panel.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

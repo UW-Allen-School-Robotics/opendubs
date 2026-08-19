@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenDubs /scan liveness watchdog (restarts the RPLIDAR driver if scans stop)
+After=network.target opendubs-rplidar.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+ExecStart=/opt/opendubs/ros/scan-watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

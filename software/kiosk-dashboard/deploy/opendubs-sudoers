@@ -1,0 +1,3 @@
+# Allow the kiosk dashboard backend (runs as user `kiosk`) to power-cycle the
+# Thor from the touchscreen. Install to /etc/sudoers.d/opendubs-kiosk (mode 0440).
+kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
