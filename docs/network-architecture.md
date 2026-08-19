@@ -13,7 +13,7 @@ capability-backlog.md (#3 onboard WiFi).
 ## Two boundaries (keep them separate)
 
 - **A — Uplink:** how the robot reaches campus/internet.
-- **B — Onboard island:** the private LAN where the Thor, StampLC, Pixhawk,
+- **B — Onboard island:** the private LAN where the Thor, StampLC,
   cameras, and teleop live.
 
 Decide them independently: **CSE for A, self-hosted dedicated router for B.**
@@ -54,7 +54,7 @@ anyway — don't fight it; reach the robot via its CSE hostname or the fleet VPN
 A single box, not a router+switch+AP stack — the power/packaging budget is 2×DeWalt
 20 V packs, so device count matters. Why it fits the stated requirements:
 - **One device, ≥3 ports:** 4× GbE + 1× 2.5G (the 2.5G → Thor). The built-in switch
-  ports are the wired fan-out (cameras, Pixhawk-if-Ethernet, docking uplink). An
+  ports are the wired fan-out (cameras, docking uplink). An
   *external DIN-rail managed switch* (e.g. Teltonika TSW202) is acceptable **only as
   an experimentation add-on** if a class needs many wired devices — not the baseline.
 - **Dual-band = the "two radios":** STA uplink to campus on one band, local-control
@@ -90,7 +90,7 @@ addressable from outside.
                                    │  NAT · stateful firewall · DNS/DHCP · WireGuard endpoint
                  ┌─────────────────┴─────────────────┐
         LAN-CORE (trusted 10.42.N.0/24)        STUDENT VLAN (guest SSID, isolated)
-        Thor(2.5G) · cameras · Pixhawk ·       student laptops/phones
+        Thor(2.5G) · cameras ·       student laptops/phones
         StampLC-bridge · ROS/DDS island
 ```
 
@@ -147,7 +147,7 @@ NetID) happens at the router's STA uplink, invisible to the internals.
    LAN interface + firewall from WAN (enforces the existing "onboard network only"
    convention).
 3. **Default-deny inbound at the router WAN.** Robot initiates outbound only
-   (updates, NTP, VPN dial-out). ROS/DDS/StampLC/Pixhawk never WAN-reachable.
+   (updates, NTP, VPN dial-out). ROS/DDS/StampLC never WAN-reachable.
 
 ## Open decisions
 

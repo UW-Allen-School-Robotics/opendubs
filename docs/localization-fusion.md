@@ -18,7 +18,6 @@ ground-truth-ish *relative* movement source that survives when **global** source
 | Source | Via | Gives | Strong | Fails when |
 |---|---|---|---|---|
 | **Pinpoint deadwheel odo** | StampLC I²C | 2D pose + twist (x, y, θ) | smooth, high-rate, short-term | pods **retracted by design** (rough terrain / gap crossings), wheel slip, lift |
-| **Pixhawk EKF3** | MAVROS | attitude; global pos (GPS + flow + baro) | packaged IMU/GPS/flow | no GPS (indoor/urban), flow needs texture + height |
 | **RPLIDAR A1 SLAM** | `/scan` | 2D scan-match pose + map | structured indoor | open/featureless/glass, outdoors > 12 m, ~7 Hz |
 | **Visual SLAM / VIO** (future ZED/RealSense, cuVSLAM) | USB3 | 6-DOF VIO + map | textured, lit | low-texture, low-light, motion blur |
 
@@ -46,10 +45,6 @@ stack whenever the pods are down.
 - **Not on the StampLC** — IO/safety controller on an ASCII-serial bridge, wrong
   altitude, no FP muscle. Its only fusion-relevant job: relay the Pinpoint I²C pose
   out as a proper `nav_msgs/Odometry` topic.
-- **Not Pixhawk-as-central-fuser** — EKF3 is excellent for *its own* sensors;
-  treat it as **one packaged source** (attitude + GPS/flow/baro). Don't push
-  deadwheel/LIDAR/visual into it. (Optionally feed a fused pose *back* to ArduPilot
-  later only if we want its position-hold modes.)
 
 ## How sources come and go — the real engineering
 
@@ -70,7 +65,7 @@ distrusts a source *before* it lies:
 Two rules: fuse wheel/deadwheel as **velocity (twist)** (or `_differential:true`)
 so two pose sources don't fight over absolute position — reserve absolute fusion for
 the global tier; and pick **one primary IMU** for the local filter (don't
-double-count the same physical motion from the Pinpoint IMU *and* the Pixhawk IMU).
+double-count the same physical motion across two IMU sources).
 
 ## Transport caveat (the deadwheel is fusion-grade but on a slow path)
 
@@ -88,7 +83,7 @@ serial → dashboard 5 Hz poll** path, stamped at *publish* time, not sample tim
 ## Prerequisite: TF / extrinsics (REP-103/105)
 
 None of this works without correct static transforms
-`base_link → {laser, pinpoint pod, cameras, pixhawk}`. The LIDAR TF-tree TODO
+`base_link → {laser, pinpoint pod, cameras}`. The LIDAR TF-tree TODO
 (capability-backlog #5) is the first domino. Pinpoint reports at the pod location →
 needs its `base_link` extrinsic + heading sign.
 
@@ -97,8 +92,7 @@ needs its `base_link` extrinsic + heading sign.
 - **Global-tier arbitration:** indoor LIDAR/visual SLAM vs outdoor GPS — one global
   EKF that fuses both, or a supervisor that switches which source owns `map→odom`
   (don't run two publishers of `map→odom` fighting).
-- **Primary IMU** choice (Pixhawk vs Pinpoint vs camera).
+- **Primary IMU** choice (Pinpoint vs camera).
 - **Local fuser:** `robot_localization` (off-the-shelf, proven) vs a custom node —
   start with `robot_localization`.
-- Whether to feed the fused pose back to ArduPilot.
 - **Deadwheel slip detection** method (compare deadwheel twist vs IMU / other odom).

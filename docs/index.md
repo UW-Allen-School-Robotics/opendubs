@@ -10,8 +10,8 @@ mostly off-the-shelf parts.
     Then the [coordinate frames & naming](naming-frames.md) convention everything else references.
 
 !!! info "Current baseline (2026-08)"
-    RC comes from the **StampPLC via SBUS** — the StampPLC is the control authority + telemetry hub
-    (the earlier Pixhawk/MAVLink "pilot" layer is gone). Power is a **52 V LiFePO₄ pack (JBD BMS,
+    RC comes from the **StampPLC via SBUS** — the StampPLC is the control authority + telemetry hub.
+    Power is a **52 V LiFePO₄ pack (JBD BMS,
     RS485)** split into an always-on **logic-24 V rail** (upstream of the e-stop contactor) and a
     **drive-24 V rail** (behind the contactor); a connected charger ⇒ drive inhibit. Localization is
     a **ROS 2 EKF on the Thor**.
