@@ -1,6 +1,6 @@
 site_name: OpenDubs
 site_description: A low-cost, low-fabrication, open-source mobile robot
-# repo_url: https://github.com/OWNER/opendubs   # TODO: set once the repo exists
+repo_url: https://github.com/UW-Allen-School-Robotics/opendubs
 docs_dir: docs
 
 theme:

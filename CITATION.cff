@@ -9,7 +9,7 @@ type: software
 authors:
   # TODO: replace with the real author list (name + affiliation + ORCID) before publishing.
   - name: "The OpenDubs Authors"
-repository-code: "https://github.com/OWNER/opendubs"   # TODO: set to the real repo URL
+repository-code: "https://github.com/UW-Allen-School-Robotics/opendubs"
 license:
   - Apache-2.0
   - CERN-OHL-W-2.0
