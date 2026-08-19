@@ -8,7 +8,7 @@ set -euo pipefail
 
 ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
-SERVICES="opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-mavros opendubs-stamplc-bridge opendubs-camera"
+SERVICES="opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera"
 
 echo "== OpenDubs ROS provisioning =="
 
@@ -31,16 +31,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   "ros-${ROS_DISTRO}-rplidar-ros" \
   "ros-${ROS_DISTRO}-rosbridge-suite" \
   "ros-${ROS_DISTRO}-foxglove-bridge" \
-  "ros-${ROS_DISTRO}-mavros" \
-  "ros-${ROS_DISTRO}-mavros-extras" \
   "ros-${ROS_DISTRO}-diagnostic-msgs"
-
-# MAVROS geographiclib datasets (geoid/gravity/magnetic) — required, idempotent.
-GEO="/usr/share/GeographicLib/geoids/egm96-5.pgm"
-if [ ! -f "$GEO" ]; then
-  echo "-- installing geographiclib datasets"
-  bash "/opt/ros/${ROS_DISTRO}/lib/mavros/install_geographiclib_datasets.sh" || true
-fi
 
 # --- sudoers (scan watchdog → restart rplidar) ------------------------------
 install -m0440 "$ROSDIR/opendubs-ros-sudoers" /etc/sudoers.d/opendubs-ros

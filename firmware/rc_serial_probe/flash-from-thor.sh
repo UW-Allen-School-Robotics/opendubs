@@ -5,7 +5,7 @@
 # The dashboard backend (opendubs-dash) holds the stamp's serial port open, so we
 # stop it to free the port, flash, then restart it (restart happens even if the
 # flash fails). PlatformIO auto-detects the Espressif (303a) bootloader port, so
-# it won't grab the Pixhawk.
+# it won't grab another connected board.
 #
 # Usage:  /opt/opendubs/rc_serial_probe/flash-from-thor.sh
 set -u

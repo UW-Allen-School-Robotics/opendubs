@@ -27,7 +27,7 @@ echo "== provisioning $HOST (idempotent) =="
 ssh "$HOST" "sudo bash $DEST/provision-all.sh"
 
 # Post-deploy health readout — every opendubs unit, including the StampLC->ROS bridge.
-SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-mavros opendubs-stamplc-bridge opendubs-camera"
+SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera"
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 

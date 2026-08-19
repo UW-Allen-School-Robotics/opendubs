@@ -63,23 +63,8 @@ console (3D, TF, point clouds, plots, diagnostics, MCAP recording) — it
 - Keep on the onboard network / behind the router — it exposes the full graph.
   (Foxglove-over-Tailscale is the documented remote pattern.)
 
-## MAVROS (Pixhawk → ROS + dashboard)
-
-`ros-jazzy-mavros` + `mavros-extras` own the **Pixhawk 6C serial link** (ArduPilot,
-`apm.launch`) and republish it as **`/mavros/*` ROS topics** (IMU, RC, GPS, battery,
-attitude, …) — visible in **Foxglove** via the existing bridge. Runs as
-**`opendubs-mavros.service`** → `mavros.sh`:
-- `fcu_url` = the Pixhawk `*Holybro*if00` by-id path (globbed; portable).
-- `gcs_url` = `udp://@127.0.0.1:14550` — forwards raw MAVLink so the **kiosk dashboard**
-  still gets RC/GPS/flow with no code change (`opendubs-dash.service` sets
-  `OPENDUBS_MAVLINK_DEV=udpin:127.0.0.1:14550`). This is what freed `/dev/ttyACM0` from
-  the dashboard's old exclusive read.
-- On startup the wrapper backgrounds a `set_stream_rate` (all streams @10 Hz, retried) —
-  ArduPilot's USB (SR0) rates default low, so IMU/GPS/attitude wouldn't publish otherwise.
-- Geographiclib datasets (geoid/gravity/magnetic) are installed by `provision-ros.sh`
-  (`install_geographiclib_datasets.sh`).
-
-Verify: `ros2 topic echo /mavros/state --once` (connected: true) · `ros2 topic hz /mavros/rc/in`.
+> An optional Pixhawk/MAVROS variant (not part of the baseline) is preserved under
+> [`../../optional/pixhawk/`](../../optional/pixhawk/).
 
 ## StampLC → ROS bridge
 

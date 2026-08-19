@@ -37,6 +37,7 @@ To preview the site locally: `pip install mkdocs-material && mkdocs serve`.
 | `hardware/` | `cad/` (Fusion 360 exports), `bom/`, `renders/` — *being populated as the 2nd unit is built* |
 | `tools/` | Repo utilities |
 | `notes/` | Internal planning / design history — in-repo but not part of the published site |
+| `optional/` | Non-baseline variants kept for possible future use (e.g. a Pixhawk build) — in-repo, off the baseline |
 | `deploy-all.sh` · `provision-all.sh` | Provision a Thor from this repo (see below) |
 
 ## Build a copy

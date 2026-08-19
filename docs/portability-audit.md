@@ -50,7 +50,7 @@ exact JetPack build used so units match.
 | Component | On the live Thor | In repo? | Provisioned by |
 |---|---|---|---|
 | Hostname `opendubs2` | set | ❌ | manual (`hostnamectl`) |
-| python venv `/opt/opendubs/venv` + deps | fastapi/uvicorn/pyserial/pymavlink/websockets/psutil | ✅ `backend/requirements.txt` | `provision.sh` |
+| python venv `/opt/opendubs/venv` + deps | fastapi/uvicorn/pyserial/websockets/psutil | ✅ `backend/requirements.txt` | `provision.sh` |
 | Kiosk user + autologin | gdm AutomaticLogin=kiosk | ✅ | `provision.sh` |
 | Panel xorg.conf (forced modeline) | `/etc/X11/xorg.conf` | ✅ `deploy/xorg-hdmi.conf` | `provision.sh` |
 | **xorg.conf immutability (`chattr +i`)** | `----i-----` set | ❌ | **manual** |

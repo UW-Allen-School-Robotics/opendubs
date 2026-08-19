@@ -1,8 +1,7 @@
 """Robot telemetry for the kiosk dashboard — RC from the StampPLC SBUS.
 
-The Pixhawk/MAVLink path is retired. RC now comes from the StampPLC `[RC]` line
-(raw SBUS channels + interpreted mode/deadman/link). GPS + optical flow went away
-with the Pixhawk — position/heading now come from the Thor's fused pose (ROS EKF),
+RC comes from the StampPLC `[RC]` line (raw SBUS channels + interpreted
+mode/deadman/link). Position/heading come from the Thor's fused pose (ROS EKF),
 surfaced on NAV, not here. RC values carry their `range` ({min,max,center}) so the
 RC widget stays source-agnostic.
 
@@ -55,7 +54,7 @@ def collect() -> dict:
         "connected": rc["connected"],
         "source": rc["source"],
         "rc": rc,
-        # Position/heading now come from the ROS fused pose (NAV), not the Pixhawk.
+        # Position/heading come from the ROS fused pose (NAV).
         "gps": {"present": False, "note": "via ROS fused pose (NAV)"},
         "flow": {"present": False},
         "safety": {"mode": rc.get("mode"), "deadman": rc.get("deadman")},

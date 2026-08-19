@@ -226,7 +226,7 @@ def system_power(action: str) -> JSONResponse:
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
     await socket.accept()
-    # RC telemetry is cheap (reads the latest MAVLink frame from memory) → push
+    # RC telemetry is cheap (reads the latest StampPLC frame from memory) → push
     # fast for responsive sticks. System metrics are expensive (nvidia-smi
     # subprocess, sysfs) → include them only ~1x/sec.
     HZ = 20
