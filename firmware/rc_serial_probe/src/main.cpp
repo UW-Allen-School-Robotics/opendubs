@@ -71,14 +71,17 @@ static constexpr uint8_t kServo8ModeServoCtl = 3;     // SERVO_CTL_MODE
 // un-cleared condition, and the hardware e-stop CONTACTOR (relay 0, drive-24V bus)
 // is the true motion kill — commanding neutral here is defense-in-depth.
 #ifndef DRIVE_ENABLE
-#define DRIVE_ENABLE 0
+#define DRIVE_ENABLE 1   // ENABLED 2026-08-19: RC/ROS drive writes the ESCs (bench-verified map below)
 #endif
 
-// 8Servo pins → FL, FR, RL, RR ESC channels. MUST NOT collide with the PRISM pin
-// (ch0). Two 2x80A controllers = 4 channels.
-static constexpr uint8_t  kDriveCh[4]       = {1, 2, 3, 4};
+// 8Servo pins for the 4 ESCs, indexed [FL, FR, RL, RR] to match driveMix's w[]. Bench-mapped
+// 2026-08-19 (wheels off): FL=ch1, FR=ch3, RL=ch0, RR=ch2. PRISM is on I2C now (not ch0).
+static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
+// Per-wheel ESC direction sign. RR (ch2) is wired reversed vs the others → invert it so a
+// forward command drives all four wheels robot-forward. Indexed [FL, FR, RL, RR].
+static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
 static constexpr uint16_t kEscNeutralUs     = 1500;   // 2x80A neutral == arm-zone center
-static constexpr uint16_t kEscSpanUs        = 400;    // ±span → 1100..1900 (inside the 1050..1950 proportional band)
+static constexpr uint16_t kEscSpanUs        = 150;    // ±span → 1350..1650 (gentle re-test band; widen toward 400 once ESCs hold)
 static constexpr uint16_t kEscDeadzoneUs    = 6;      // treat |cmd|<this as 0 (matches the ESC ±10µs deadzone)
 static constexpr uint32_t kArmHoldMs        = 2000;   // hold neutral this long, gate satisfied, to ARM the ESCs
 static constexpr uint16_t kEscSlewUs        = 25;     // max µs step per 20ms tick — the decel/accel ramp (mass!)
@@ -1404,7 +1407,7 @@ static void driveTick()
     const bool driveOut = armOK && g_escArmed;         // physical output only when truly armed
     uint16_t target[4];
     for (int i = 0; i < 4; ++i) {
-        const float wi = driveOut ? g_wheelMix[i] : 0.0f;
+        const float wi = (driveOut ? g_wheelMix[i] : 0.0f) * (float)kDriveInvert[i];
         int us = kEscNeutralUs + (int)lroundf(wi * kEscSpanUs);
         if (abs(us - (int)kEscNeutralUs) < (int)kEscDeadzoneUs) us = kEscNeutralUs;
         target[i] = (uint16_t)constrain(us, (int)kEscNeutralUs - (int)kEscSpanUs,
@@ -1528,7 +1531,7 @@ static void uiPrism(RcMode m)
         case RCM_AUTO:        pulse = kPrismAuto;   break;   // violet pulse (kinetic)
         default:              pulse = kPrismBlue;   break;
     }
-    if (servo8SetPulse(kPrismServoPin, pulse)) last = m;
+    (void)pulse; last = m;   // PRISM is on I2C now (LED_COLOR); ch0 = RL drive motor — never PWM ch0 here
 }
 
 static void uiRender(uint8_t di, UiState st)
@@ -1769,6 +1772,25 @@ void setup()
                       eth_ip_str, (int)Ethernet.linkStatus(), eth_bcast.toString().c_str(), kNetPort);
     } else {
         Serial.printf("[NET] eth DHCP failed link=%d — continuing without LAN\n", (int)Ethernet.linkStatus());
+    }
+
+    // FIX: the internal I2C bus (I2C_NUM_0, SDA=G13/SCL=G15 — AW9523 relays/DIs + power/temp
+    // sensors live here) ends up DEAD after our M5.begin(cfg)+M5StamPLC.begin()+ext-I2C/SPI/Ethernet
+    // init (relays don't actuate, DIs read low, power/temp read 0). Re-assert the bus LAST (mirrors
+    // M5StamPLC::i2c_init) and re-init IOExpander B on it so the relay/DI subsystem works.
+    M5.In_I2C.release();
+    M5.In_I2C.begin(I2C_NUM_0, 13, 15);
+    {
+        auto& b = M5StamPLC.getIOExpanderB();
+        if (b.begin()) {
+            b.configureDirection(0x0);
+            b.openDrainPort0(false);
+            for (int i = 0; i < 4; ++i) { b.pinMode(i, AW9523_Class::AW_OUTPUT); b.digitalWrite(i, false); }
+            for (int i : {4, 5, 6, 7, 12, 13, 14, 15}) b.pinMode(i, AW9523_Class::AW_INPUT);
+            Serial.println("[FIX] In_I2C re-asserted + AW9523 re-init OK");
+        } else {
+            Serial.println("[FIX] AW9523 re-begin FAILED (internal bus still dead)");
+        }
     }
 }
 
