@@ -47,6 +47,7 @@ nav:
   - Home: index.md
   - Build & Flash:
       - Flash a StampPLC: flashing-stamplc.md
+      - Drive bring-up (channel → ESC → wheel): drive-bringup.md
   - Firmware:
       - StampPLC ↔ Thor over Ethernet: stamplc-ethernet-transport.md
   - Electronics & Power:
