@@ -70,6 +70,11 @@ nav:
       - Network architecture: network-architecture.md
   - Hardware:
       - Bill of materials: hardware-bom.md
+  - Design & Interfaces:
+      - Design philosophy: design-philosophy.md
+      - Mechanical mount: interfaces/mechanical-mount.md
+      - Power & data: interfaces/power-data.md
+      - Command & telemetry: interfaces/command-telemetry.md
   - Reference:
       - System overview: system-overview.md
       - Coordinate frames & naming: naming-frames.md
