@@ -71,6 +71,16 @@ If you **solder** the joins instead of using WAGOs, add a soldering iron + heat-
 
 ## Assembly
 
+The wiring harness — the 5 V M5 Grove cable from the PaHub, joined through WAGOs to the Qwiic level
+shifter, then over Qwiic to the OTOS:
+
+<figure markdown="span">
+  ![OTOS wiring harness — M5 Grove cable from the PaHub, four WAGOs, Qwiic level shifter, then the OTOS](../assets/diagrams/otos-wiring-harness.png)
+  <figcaption>The PaHub Grove cable (SCL / SDA / 5 V / GND) joins through four WAGOs to the Qwiic
+  level shifter; its 3.3 V side runs over Qwiic to the OTOS. The level shifter is what keeps the 5 V
+  bus off the 3.3 V sensor.</figcaption>
+</figure>
+
 !!! note "Photos pending"
     Drop step photos into `docs/assets/build/otos/`, then add numbered steps here.
 
