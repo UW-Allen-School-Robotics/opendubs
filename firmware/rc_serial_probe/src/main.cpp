@@ -103,11 +103,9 @@ static constexpr uint32_t kBmsPollMs        = 1000;   // BMS auto-poll cadence w
 static constexpr uint32_t kBmsBackoffMs     = 15000;  // after repeated no-replies, retry this slowly so an absent BMS can't starve the control loop
 static constexpr int      kBmsFailBackoff   = 3;      // consecutive failed polls before backing off to kBmsBackoffMs
 static constexpr int      kSbusCtr = 1000, kSbusHalf = 810;   // SBUS raw (~200..1820) → normalized -1..1
-static constexpr uint8_t  kDriveModeJumperBit = 7;    // DI7 jumper: 0=mecanum, 1=4WD skid (interlocked to wheel swap)
-
 enum DriveMode { DM_MECANUM = 0, DM_SKID4 = 1, DM_DIFF2 = 2 };
-static DriveMode g_driveMode         = DM_MECANUM;    // default; DI7 jumper or DRIVEMODE cmd sets it
-static bool      g_driveModeOverride = false;         // true once DRIVEMODE cmd used (ignores the jumper — bench only)
+static DriveMode g_driveMode         = DM_MECANUM;    // default; changed only by the DRIVEMODE command (software-only, no physical jumper)
+static bool      g_driveModeOverride = false;         // true once a DRIVEMODE command has been issued
 
 // Autonomous command from the Thor/ROS: host `DRIVE <fwd> <rot> <str>` (each -1..1).
 // Under RC_AUTO authority this REPLACES the RC sticks as the command source. The
@@ -1426,10 +1424,7 @@ static void driveTick()
     const bool    rc_live   = (last_valid_frame_ms != 0) && (millis() - last_valid_frame_ms < kRcTimeoutMs);
     const bool    rosFresh  = (g_rosCmd.ms != 0) && (millis() - g_rosCmd.ms < kRosCmdTimeoutMs);
 
-    // Drive mode from the physical jumper (DI7) — interlocked to the wheel swap —
-    // unless a bench DRIVEMODE override is active.
-    if (!g_driveModeOverride)
-        g_driveMode = (di & (1u << kDriveModeJumperBit)) ? DM_SKID4 : DM_MECANUM;
+    // Drive mode is software-only (set by the DRIVEMODE command). DI7 is spare — no physical jumper.
 
     // ==== (B) ARM GATE — EVERY condition must hold, re-checked every tick ====
     const bool manual   = (mode == RCM_MANUAL_LIVE || mode == RCM_MANUAL_SAFE);
@@ -1552,11 +1547,11 @@ static void publishRc()
 static uint8_t uiDi()    { uint8_t v = 0; for (uint8_t i = 0; i < 8; ++i) if (M5StamPLC.readPlcInput(i)) v |= (1u << i); return v; }
 static uint8_t uiRelay() { uint8_t v = 0; for (uint8_t i = 0; i < 4; ++i) if (M5StamPLC.readPlcRelay(i)) v |= (1u << i); return v; }
 
-// Overall state, computed only from things this MCU can trust locally. `di` bit 6 =
-// contactor weld sense (DI6). fault_mask carries the individual fault bits for the buzzer.
+// Overall state, computed only from things this MCU can trust locally. `di` bit 1 =
+// contactor weld sense (DI1). fault_mask carries the individual fault bits for the buzzer.
 static UiState uiState(uint8_t di, uint32_t& fault_mask)
 {
-    const bool weld = (di & (1u << 6)) != 0;
+    const bool weld = (di & (1u << 1)) != 0;
     fault_mask = (weld ? 1u : 0) | (pdh.hardware_fault ? 2u : 0) |
                  (pdh.brownout_fault ? 4u : 0) | (pdh.sticky_breaker ? 8u : 0);
     if (local_estop_active) return ST_ESTOP;
@@ -1694,7 +1689,7 @@ static void uiRender(uint8_t di, UiState st)
         };
         row(22, "E-STOP DI0",   (di & 1)        ? "ACTIVE" : "clear",  (di & 1)        ? TFT_RED : TFT_GREEN);
         row(34, "CONTACTOR R0", (relay & 1)      ? "CLOSED" : "OPEN",   (relay & 1)      ? TFT_GREEN : g.color565(255, 150, 0));
-        row(46, "WELD DI6",     (di & (1 << 6)) ? "WELD!"  : "ok",     (di & (1 << 6)) ? TFT_RED : TFT_GREEN);
+        row(46, "WELD DI1",     (di & (1 << 1)) ? "WELD!"  : "ok",     (di & (1 << 1)) ? TFT_RED : TFT_GREEN);
         snprintf(buf, sizeof(buf), "R1:%d R2:%d R3:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
         row(58, "RELAYS", buf, TFT_WHITE);
         row(70, "IP", eth_ip_str, eth_up ? TFT_GREEN : g.color565(150,150,150));

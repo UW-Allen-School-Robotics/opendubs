@@ -36,18 +36,16 @@ THERMAL_OVERTEMP_C = 70.0
 
 VNC_DISABLED_FLAG = "/home/kiosk/.vnc/disabled"
 
-# Provisional StampLC I/O mapping (sequential — not yet wired; see control-architecture.md).
-# DI3 was "SHORE PRESENT" — retired; charger presence now comes from the BMS (RS485).
-DI_LABELS = ["E-STOP BTN", "MAST LIMIT TOP", "MAST LIMIT BOT", "SPARE (DI3)",
-             "LEFT BATTERY PRESENT", "RIGHT BATTERY PRESENT", "CONTACTOR WELD", "DI7"]
-# R1 was the "battery-leg gate" — the enable line for a battery-leg FET + ideal-diode
-# controller. That controller was removed when the source-OR became the passive Victron
-# Argo DBC (no control input), so R1 has nothing to actuate and is currently unassigned.
-# See docs/power-architecture.md ("battery-leg gate" history).
-RELAY_LABELS = ["E-STOP CONTACTOR", "UNASSIGNED (R1)", "RELAY 2", "RELAY 3"]
-DI_ESTOP_BTN, DI_MAST_TOP, DI_MAST_BOT, DI_SPARE3 = 0, 1, 2, 3
-DI_BATT_L, DI_BATT_R, DI_WELD = 4, 5, 6
-RELAY_ESTOP_CONTACTOR, RELAY_UNASSIGNED = 0, 1
+# StampPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
+# DI0 = e-stop button, DI1 = contactor weld. The payload/mast is independent (Tab5-driven), so
+# there are no mast-limit or battery-present inputs here, and drive mode is software-set (no jumper).
+DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE (DI2)", "SPARE (DI3)",
+             "SPARE (DI4)", "SPARE (DI5)", "SPARE (DI6)", "SPARE (DI7)"]
+# R0 = e-stop contactor coil; R1 = 8Servo 5V power-cycle (the S8RESET command — the reliable clear
+# for a latched ESC solid-red fault); R2/R3 spare.
+RELAY_LABELS = ["E-STOP CONTACTOR", "8SERVO POWER-CYCLE", "SPARE (R2)", "SPARE (R3)"]
+DI_ESTOP_BTN, DI_WELD = 0, 1
+RELAY_ESTOP_CONTACTOR, RELAY_8SERVO = 0, 1
 
 # DI6 = contactor weld sensing (an aux contact of the NO main contactor — see the
 # SAFETY LOGIC inset). It detects a welded/stuck-closed contactor: if the safety
@@ -328,8 +326,7 @@ def _robot_state():
     # NOTE: per-channel PDH breaker faults are intentionally NOT rolled into
     # DEGRADED — on the bench many channels are unfused and fault by design.
 
-    di = s.get("di") or []
-    mast_fault = bool(len(di) > DI_MAST_BOT and di[DI_MAST_TOP] and di[DI_MAST_BOT])
+    mast_fault = False  # mast/payload is independent (Tab5-driven) — no mast-limit inputs on the StampPLC
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
