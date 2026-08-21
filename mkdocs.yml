@@ -81,6 +81,7 @@ nav:
       - Coordinate frames & naming: naming-frames.md
       - State machines: state-machines.md
       - Control authority: control-authority.md
+      - RC control mapping: rc-control-mapping.md
       - Localization & sensor fusion: localization-fusion.md
       - Mast control: mast-control.md
       - Camera selection: camera-selection.md
