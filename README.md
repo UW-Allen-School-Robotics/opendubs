@@ -16,13 +16,15 @@ replicate it.
 
 ## Documentation
 
-The full guide is a documentation site built from [`docs/`](docs/) with MkDocs. Start here:
+📖 **Read the docs → <https://uw-allen-school-robotics.github.io/opendubs/>** — the full guide,
+rendered with navigation and search. Good entry points:
 
-- **[Flash a StampPLC](docs/flashing-stamplc.md)** — the base-controller firmware, over USB
-- **[Coordinate frames & naming](docs/naming-frames.md)** — the convention everything else references
-- **[System overview](docs/system-overview.md)** · **[Bill of materials](docs/hardware-bom.md)**
+- **[Assembly guide](https://uw-allen-school-robotics.github.io/opendubs/build/base-frame/)** — build the robot module by module
+- **[Design & interfaces](https://uw-allen-school-robotics.github.io/opendubs/design-philosophy/)** — the modularity philosophy + the mount / power / command contracts
+- **[Power architecture](https://uw-allen-school-robotics.github.io/opendubs/power-architecture/)** · **[E-stop system](https://uw-allen-school-robotics.github.io/opendubs/e-stop/)** · **[Flash a StampPLC](https://uw-allen-school-robotics.github.io/opendubs/flashing-stamplc/)**
 
-To preview the site locally: `pip install mkdocs-material && mkdocs serve`.
+*Contributing to the docs?* See **[CLAUDE.md](CLAUDE.md)** for the workflow. Preview locally with
+`pip install mkdocs-material && mkdocs serve`.
 
 ## Repository layout
 
