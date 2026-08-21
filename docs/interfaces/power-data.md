@@ -5,9 +5,10 @@ power and comms are organized, and what an add-on payload can draw on and talk t
 
 ## Power architecture + what a payload can tap
 
-- **52 V nominal battery** — the source. DC/DC converters derive the robot's working rails from
-  it. Because the pack is 52 V nominal, a builder can also **run a 48 V-class robotics system on
-  their own add-on bus** off the battery if they want.
+- **~52 V nominal battery** — an **ECO-WORTHY LiFePO4 (16S), JBD BMS** pack is the **locked
+  baseline** source. A 52→24 V DC/DC derives the robot's working rails from it. Because the pack
+  is 52 V nominal, a builder can also **run a 48 V-class robotics system on their own add-on
+  bus** off the battery if they want.
 - **24 V drive rail** — behind the e-stop contactor; de-energizes on e-stop. For actuators/motors.
 - **24 V logic rail** — always-on, upstream of the contactor. For compute/sensors that must
   survive an e-stop.

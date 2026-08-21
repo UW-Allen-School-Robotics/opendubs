@@ -1,5 +1,14 @@
 # Regen Clamp — Placement & Brake-Resistor Sizing
 
+!!! danger "Premise superseded — under revision (power architecture changed)"
+    This analysis predates the current power architecture. The **DeWalt packs, the switcher,
+    and the Victron DBC are removed**; the locked baseline is a single **ECO-WORTHY ~52 V
+    LiFePO4** battery feeding a **52 → 24 V DC/DC** into the drive bus. The old rationale ("the
+    Victron DBC blocks regen from reaching the pack") **no longer applies.** The open question
+    is now whether that **52→24 DC/DC is one-way** — if it is, regen is trapped on the 24 V bus
+    and a clamp is still needed. The **placement decision below may still hold, but the sizing
+    must be re-derived at a 24 V bus** (not the old ~21 V battery-direct bus).
+
 Status: design worked June 2026. Sizes the ODrive Regen Clamp brake resistor(s) for the
 drive motors and **revises the clamp placement** from the spine in `power-architecture.md`.
 Companion to `power-architecture.md` (power spine, source-OR, e-stop) and the Figma board
@@ -13,13 +22,13 @@ All math here is plain-text (no rendered LaTeX): `·` multiply, `²` square, `�
 `power-architecture.md` currently lists a single clamp **upstream** of the contactor:
 
 ```
-DeWalt → switcher → Victron DBC → [regen clamp] → e-stop contactor → REV PDH → drive ESCs
+ECO-WORTHY 52 V → 52→24 DC/DC → [regen clamp] → e-stop contactor → REV PDH → drive ESCs
 ```
 
 **Revised placement — clamp(s) downstream of the PDH, at the ESCs, one per ESC:**
 
 ```
-DeWalt → switcher → Victron DBC → e-stop contactor → REV PDH → [clamp] → ESC-A (2 motors)
+ECO-WORTHY 52 V → 52→24 DC/DC → e-stop contactor → REV PDH → [clamp] → ESC-A (2 motors)
                                                             └────→ [clamp] → ESC-B (2 motors)
 ```
 
@@ -53,8 +62,8 @@ From the goBILDA 2×80A Motor Controller datasheet (SKU 3105-0202-0080):
   the recommended config for mobile robots.
 - "This type of control scheme **can feed voltage back to the supply**." → the bus/clamp
   genuinely sees regen energy; we are in the regen-to-bus regime, not winding-dissipation.
-- "Normally not an issue with batteries" (a battery sinks the regen) — **but our Victron
-  DBC diode blocks regen from reaching the DeWalt packs**, so our bus behaves like the
+- "Normally not an issue with batteries" (a battery sinks the regen) — **but the 52→24 DC/DC
+  now sits between the 24 V bus and the pack (a switching converter, likely one-way)**, so our bus behaves like the
   "switching power supply" case the datasheet warns about, where "a shunt voltage
   suppressor is required." The ODrive clamp is that suppressor. This independently
   confirms `power-architecture.md`'s "clamp must absorb 100 % of braking regen."

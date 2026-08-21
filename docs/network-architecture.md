@@ -51,8 +51,8 @@ anyway — don't fight it; reach the robot via its CSE hostname or the fleet VPN
   ports for Thor / Ethernet cameras / docking uplink.
 
 **Dedicated onboard router — chosen: MikroTik hAP ax³** ([product page](https://mikrotik.com/product/hap_ax3)).
-A single box, not a router+switch+AP stack — the power/packaging budget is 2×DeWalt
-20 V packs, so device count matters. Why it fits the stated requirements:
+A single box, not a router+switch+AP stack — the power/packaging budget is tight (one
+~52 V battery + DC/DC rails), so device count matters. Why it fits the stated requirements:
 - **One device, ≥3 ports:** 4× GbE + 1× 2.5G (the 2.5G → Thor). The built-in switch
   ports are the wired fan-out (cameras, docking uplink). An
   *external DIN-rail managed switch* (e.g. Teltonika TSW202) is acceptable **only as
