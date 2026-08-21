@@ -2,7 +2,11 @@
 .env
 .env.local
 .env.*.local
-ops/                 # per-deployment private config (network, hostnames, keys) — never public
+# per-deployment private config (network, hostnames, keys) — never public
+ops/
+
+# working design notes not yet vetted for the repo (validate before promoting)
+notes/drafts/
 
 # --- Dev-machine / agent config ---
 .claude/

@@ -19,10 +19,11 @@ controller.
 
 ## 1 · Flash the base OS
 
-Jetsons are flashed from an **x86_64 Ubuntu host** — macOS and Windows cannot flash a Jetson, so
-you need a Linux PC (or a spare Ubuntu box).
+Jetsons are flashed with **NVIDIA SDK Manager**, which runs on an **x86_64 Ubuntu host** *or* on
+**Windows** — the Windows installer runs SDK Manager under WSL2. macOS is not supported, so use a
+Linux or Windows PC.
 
-1. Install **NVIDIA SDK Manager** on the Ubuntu host and select **JetPack 7 (L4T R38.4)**.
+1. Install **NVIDIA SDK Manager** on the host (Ubuntu, or Windows via WSL2) and select **JetPack 7 (L4T R38.4)**.
 2. Put the Thor into **force-recovery** (hold the recovery button while powering on) and connect it
    to the host over **USB-C**.
 3. Flash the OS + components with SDK Manager (or `flash.sh` from the BSP). Pin JetPack 7 — don't let
