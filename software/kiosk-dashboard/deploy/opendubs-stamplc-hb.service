@@ -1,0 +1,12 @@
+[Unit]
+Description=OpenDubs StampPLC Ethernet heartbeat (feeds the firmware link watchdog)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/opendubs/kiosk-dashboard/stamplc_hb.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
