@@ -43,7 +43,7 @@ on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvan
   circuit.</figcaption>
 </figure>
 
-- **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs) — anyone with the link can view and export it.
+- **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
 
 !!! note "The board silk is 1-indexed"
     The StampPLC silkscreen labels inputs **IN 1–8** and relays **RELAY 1–4** (1-indexed), while the
