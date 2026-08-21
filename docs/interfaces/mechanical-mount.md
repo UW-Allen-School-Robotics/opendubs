@@ -1,9 +1,9 @@
 # Mechanical mount interface
 
-How anything attaches to the OpenDubs base. There are **two** mounting systems, and together
-they're the mechanical half of the modularity contract: a **structural grid on top** for
-payloads, and an **opengrid cladding ecosystem** on the surfaces for accessories and wire
-management.
+OpenDubs exposes **two mounting systems**: a **structural grid on the top deck** for payloads,
+and an **opengrid pattern in the printed claddings** for accessories and wiring. Together
+they're the mechanical half of the modularity contract — you can add to the robot without
+opening it up.
 
 <figure markdown="span">
   ![OpenDubs base — mount interfaces annotated](../assets/build/placeholder-hero.svg)

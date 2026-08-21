@@ -48,6 +48,11 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Design & Interfaces:
+      - Design philosophy: design-philosophy.md
+      - Mechanical mount: interfaces/mechanical-mount.md
+      - Power & data: interfaces/power-data.md
+      - Command & telemetry: interfaces/command-telemetry.md
   - Assembly Guide:
       - 1 · Base Frame: build/base-frame.md
       - 2 · OTOS Sensor: build/otos.md
@@ -70,11 +75,6 @@ nav:
       - Network architecture: network-architecture.md
   - Hardware:
       - Bill of materials: hardware-bom.md
-  - Design & Interfaces:
-      - Design philosophy: design-philosophy.md
-      - Mechanical mount: interfaces/mechanical-mount.md
-      - Power & data: interfaces/power-data.md
-      - Command & telemetry: interfaces/command-telemetry.md
   - Reference:
       - System overview: system-overview.md
       - Coordinate frames & naming: naming-frames.md

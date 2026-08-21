@@ -24,16 +24,16 @@ If your addition honors those four, it works. That's the whole contract.
 
 ## Where OpenDubs fits in the ecosystem
 
-Projects like [LeRobot](https://github.com/huggingface/lerobot) (and the ~$100 SO-101 arm) have
-made cheap, open manipulation viral. **OpenDubs does not compete on price** — we're at least an
-order of magnitude more expensive, because we're a different tier: a capable **mobile base**
-with autonomy compute, power, and safety, plus a Z-axis and arm mounts.
+Projects like [LeRobot](https://github.com/huggingface/lerobot) (and the ~$300 SO-101 arm) have
+made open, low-cost manipulation widely accessible. OpenDubs is a different piece of that
+stack — a **mobile base** with autonomy compute, power, and safety, plus a Z-axis and arm
+mounts. It costs more because it does more, and the intent is to **complement** that ecosystem,
+not compete with it.
 
-The positioning is deliberate: **bring your own manipulator; OpenDubs gives you mobility and a
-clean integration layer.** We aim to *fit into* the LeRobot / Hugging Face world rather than
-replace it — ROS 2 as the substrate, and the base exposed as a controllable robot (action /
-observation) so teleoperation, dataset recording, and learned policies work the same way they
-do for a tabletop arm.
+In practice, "fitting in" means a manipulator is treated as a **payload, not a fixed part of the
+robot**; ROS 2 is the integration substrate; and the base is exposed as a controllable robot
+(action / observation) so teleoperation, dataset recording, and learned policies apply the same
+way they do to a tabletop arm.
 
 **Payload classes we design for:**
 - **Top-deck payloads** — anything on the goBILDA pattern grid (sensors, compute, bins).

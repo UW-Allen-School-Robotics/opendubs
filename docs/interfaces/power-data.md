@@ -1,32 +1,46 @@
 # Power & data interface
 
-*(Draft — the contract for what a payload can draw and how it talks to the robot.)*
+*(Draft.)* This page is **part architecture, part interface** — it describes how the robot's
+power and comms are organized, and what an add-on payload can draw on and talk to.
 
-## Power rails a payload can tap
+## Power architecture + what a payload can tap
 
-- **Drive-24 V** — behind the e-stop contactor; de-energizes on e-stop. For actuators/motors.
-- **Logic-24 V** — always-on, upstream of the contactor. For compute/sensors that must survive
-  an e-stop.
-- **Fused branch circuits** — from the REV Mini Power Module (or a fuse block); see the
-  [Electronics Bay](../build/electronics-bay.md) and [Power Bay](../build/power-bay.md).
+- **52 V nominal battery** — the source. DC/DC converters derive the robot's working rails from
+  it. Because the pack is 52 V nominal, a builder can also **run a 48 V-class robotics system on
+  their own add-on bus** off the battery if they want.
+- **24 V drive rail** — behind the e-stop contactor; de-energizes on e-stop. For actuators/motors.
+- **24 V logic rail** — always-on, upstream of the contactor. For compute/sensors that must
+  survive an e-stop.
+- **AC (future, not yet spec'd)** — the battery can drive an **inverter** to provide AC to
+  payloads that need it. TODO: rating + placement.
 
-*TODO: a per-payload current budget, and how a payload requests/adds a fused branch.*
+**Fused branch circuits exist on *both* buses:**
+
+- **Logic bus** — fused branches from the **REV Mini Power Module** in the
+  [Electronics Bay](../build/electronics-bay.md).
+- **Drive bus** — fused branches from the **REV PDH** (or a fuse block) in the
+  [Power Bay](../build/power-bay.md).
+
+*TODO: per-payload current budget per rail; how a payload requests/adds a fused branch; the
+payload **connector standard** + pinout.*
 
 ## Data / comms options
 
-A payload can integrate over any of the buses the robot already speaks:
+A payload (or the base's own subsystems) can integrate over any of these:
 
-- **Ethernet** — the robot's LAN (also how the StampPLC talks to Thor, USB-less).
-- **CAN** — via the REV PDH (telemetry / control).
-- **USB** — to Thor (mind the [reliability notes](../build/lidar.md); prefer other buses where
-  possible).
+- **Ethernet** — the robot's LAN (also how the StampPLC reaches Thor, USB-less).
+- **WiFi** — on-robot wireless (dashboard/tablet, offboard links).
+- **CAN** — the **StampPLC is the CAN master**; the **REV PDH is a node** that *provides
+  telemetry*, not a controller.
+- **RS485** — from the StampPLC (currently used only for the **battery / BMS**; spare capacity
+  for other RS485 devices).
+- **USB** — to Thor (mind the [reliability notes](../build/lidar.md); prefer another bus where
+  you can).
 - **I2C** — the M5 bus is **5 V**; 3.3 V devices need a level converter (see
   [OTOS](../build/otos.md) / [Pinpoint](../build/pinpoint.md) for the pattern).
 
-*TODO: the payload **connector standard** (power + data), and a pinout.*
-
 ## The contract
 
-*TODO:* if a payload stays within the current budget on a named rail and speaks one of the
-buses above through the standard connector, it's electrically compatible — no changes to the
+*TODO:* a payload that stays within the current budget on a named rail and speaks one of the
+buses above through the standard connector is electrically compatible with no changes to the
 base.
