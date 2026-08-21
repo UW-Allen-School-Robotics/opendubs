@@ -175,9 +175,19 @@ Assemble the four U-channels into the 432 × 624 mm rectangle and square it up.
     the corners — flipping it later means re-deriving everything.
 
 ### Step 2 — Assemble the four drive pods
-Build each pod: motor → miter gear → hub (see the Strafer tip above).
+Build each pod: motor → miter gear → hub (see the Strafer tip above). The miter gear sub-assembly:
 
-*TODO photo: `02-drive-pod.jpg`*
+<figure markdown="span">
+  ![The 8 mm REX miter gear before assembly](../assets/build/base-frame/02-miter-gear.jpg)
+  <figcaption>The 8 mm REX miter gear (goBILDA `2320-4008-0024`) — two go into each drive pod.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Miter gear assembled onto the hub, showing the hex bore](../assets/build/base-frame/02-miter-gear-assembled.jpg)
+  <figcaption>The gear mated to the hub — the hex bore is what drives the wheel shaft.</figcaption>
+</figure>
+
+*TODO photo: the full pod (motor + gears + hub) — `02-drive-pod.jpg`*
 
 !!! tip "Miter-gear orientation flips wheel direction"
     Which way the miter gears mesh sets the rotation direction of that wheel. Keep the
