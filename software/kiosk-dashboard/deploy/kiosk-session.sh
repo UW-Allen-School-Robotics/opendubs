@@ -9,12 +9,12 @@ echo "=== kiosk session start $(date) ==="
 URL="http://localhost:8080"
 
 # 1) Rotate HDMI-0 to 1920x480 landscape (Tegra nvidia rotates via RandR only).
-xrandr --output HDMI-0 --rotate left || echo "xrandr rotate failed"
+#    The HSD088 mounts right-side-up at "right" (verified on the robot 2026-08-21).
+xrandr --output HDMI-0 --rotate right || echo "xrandr rotate failed"
 
-# 1b) Match the touch coordinate transform to the rotation (belt-and-suspenders
-#     alongside the InputClass). Matrix for xrandr "left" (90deg CCW).
-xinput set-prop "QDtech MPI7019" "Coordinate Transformation Matrix" \
-  0 -1 1 1 0 0 0 0 1 2>/dev/null || echo "touch matrix set failed (device not ready yet)"
+# 1b) Touch coordinate mapping is owned by the touch bridge (touch_bridge.py, which
+#     GRABS the device and maps via TOUCH_ROT=right) — an xinput matrix here would be
+#     a no-op since X never sees the grabbed device. See deploy/touch-bridge.sh.
 
 # 2) Kill all screen blanking / power management.
 xset s off || true

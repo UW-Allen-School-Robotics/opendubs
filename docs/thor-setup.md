@@ -72,6 +72,14 @@ Provisioning is what makes the panel light up and boot straight into the dashboa
   if the panel sleeps, touch stops too. The panel is rotated to 1920×480 landscape at runtime, and
   the touch coordinates are rotated to match.
 
+!!! warning "Plug the panel into USB-C **5b** (or USB-A), not 5a — and not a bus-powered hub"
+    On the AGX Thor devkit, **5a** is the USB-C port *with Force-Recovery* — it comes up in
+    **device/UFP mode**, so a peripheral plugged there never enumerates. Use **5b** (plain USB-C,
+    host) or a **USB Type-A** port (mark 1). Keep the panel **off any bus-powered USB hub**, too:
+    on an overloaded hub the touch controller browns out and flaps (`disabled by hub (EMI?)` in
+    `dmesg`); a root port is stable. Panel orientation is xrandr **`right`** — the display *and* the
+    touch bridge (`TOUCH_ROT`) must agree on it or touches land rotated.
+
 **Kiosk boot.** A passwordless `kiosk` user is created and **auto-logs-in** (GDM, stock GNOME on
 Xorg with Wayland disabled). GNOME autostart launches **Chromium fullscreen** on the dashboard, plus
 the touch bridge and a VNC server for remote viewing. After provisioning, **reboot** (or
