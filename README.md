@@ -11,8 +11,8 @@ replicate it.
 - **Front panel:** M5Stack Tab5 (ESP32-P4) animated face + operator controls
 - **Chassis:** goBILDA / REV structure, mecanum drive, PRISM LED indicators
 
-> **Status: MVP / work in progress.** We're actively building the second unit. Documentation is
-> filling in as we go — the firmware-flashing and bring-up paths are the most complete.
+> **Status: MVP / work in progress.** Documentation is filling in as we go — the firmware-flashing
+> and bring-up paths are the most complete.
 
 ## Documentation
 
@@ -36,7 +36,7 @@ rendered with navigation and search. Good entry points:
 | `software/kiosk-dashboard/` | Touchscreen dashboard — FastAPI backend + vanilla-JS frontend + provisioning. Runs on the Thor |
 | `software/ros/` | ROS 2 (Jazzy) bringup — RPLIDAR drivers, rosbridge, foxglove, watchdogs |
 | `software/teleop/` | Unity VR teleop pipeline |
-| `hardware/` | `cad/` (Fusion 360 exports), `bom/`, `renders/` — *being populated as the 2nd unit is built* |
+| `hardware/` | `cad/` (Fusion 360 exports), `bom/`, `renders/` — *being populated as the build proceeds* |
 | `tools/` | Repo utilities |
 | `notes/` | Internal planning / design history — in-repo but not part of the published site |
 | `optional/` | Non-baseline variants kept for possible future use (e.g. a Pixhawk build) — in-repo, off the baseline |

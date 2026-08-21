@@ -5,9 +5,9 @@ NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StampPLC base controller, meca
 goBILDA/REV chassis, and a Tab5 animated face — designed so a small team can replicate it from
 mostly off-the-shelf parts.
 
-!!! tip "Building the second unit? Start here"
-    **[Flash a StampPLC →](flashing-stamplc.md)** — the base-controller firmware bring-up (over USB).
-    Then the [coordinate frames & naming](naming-frames.md) convention everything else references.
+!!! tip "Start here"
+    **[Flash a StampPLC →](flashing-stamplc.md)** — the base-controller firmware bring-up. Then the
+    [coordinate frames & naming](naming-frames.md) convention everything else references.
 
 !!! info "Current baseline (2026-08)"
     RC comes from the **StampPLC via SBUS** — the StampPLC is the control authority + telemetry hub.
@@ -16,7 +16,7 @@ mostly off-the-shelf parts.
     **drive-24 V rail** (behind the contactor); a connected charger ⇒ drive inhibit. Localization is
     a **ROS 2 EKF on the Thor**.
 
-## Where things are
+## Firmware, software, hardware
 
 - **Firmware** — `firmware/rc_serial_probe/` (StampPLC) and `firmware/tab5_face/` (Tab5). Flashing:
   [Flash a StampPLC](flashing-stamplc.md); transport design: [StampPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
@@ -33,6 +33,6 @@ mostly off-the-shelf parts.
 
 ## Status
 
-Work in progress — actively building the second unit. Firmware flashing and host bring-up are the
-most complete; the physical assembly guide and CAD/BOM are being filled in as the build proceeds.
-Autonomous drive ownership is in progress; the modular mast/scissor payload is deferred.
+Work in progress. Firmware flashing and host bring-up are the most complete; the physical assembly
+guide and CAD/BOM are being filled in as the build proceeds. Autonomous drive ownership is in
+progress; the modular mast/scissor payload is deferred.
