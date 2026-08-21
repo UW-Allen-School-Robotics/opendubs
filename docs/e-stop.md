@@ -3,7 +3,7 @@
 <figure markdown="span">
   ![E-stop wiring — contactor coil chain, buttons, DI sensing, weld sense](assets/diagrams/e-stop-wiring.png)
   <figcaption>E-stop safety logic — the GX11 contactor coil chain, the double-pole e-stop
-  switch, DI0 state sensing, and DI6 weld sensing.</figcaption>
+  switch, DI0 state sensing, and DI1 weld sensing.</figcaption>
 </figure>
 
 - **Diagram source (Figma):** [OpenDubs board — e-stop](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=4-1155) — anyone with the link can view and export it.
@@ -55,10 +55,10 @@ the negative (return) of that 24 V supply**, and INPUT receives the +24 V. You p
 reference by landing the 24 V signal's return on the DI **COM** terminal; the input side is
 galvanically isolated from the StampPLC's logic ground.
 
-## Weld detection — DI6
+## Weld detection — DI1
 
 The GX11's **SPDT auxiliary contact** ("AUX LEG") reports the main contacts' true state to the
-StampPLC on **DI6** (weld sensing). If the main contacts weld shut, the aux state disagrees with
+StampPLC on **DI1** (weld sensing). If the main contacts weld shut, the aux state disagrees with
 the commanded state → the StampPLC flags a **welded-contactor** fault (see
 [State machines](state-machines.md)).
 
@@ -79,5 +79,6 @@ drops the contactor.
 
 - **StampPLC digital inputs** (opto-isolated, INPUT/COM wiring): <https://docs.m5stack.com/en/core/StamPLC>
 - **GIGAVAC GX11 contactor** datasheet: <https://www.sensata.com/sites/default/files/a/sensata-gigavac-gx11-series-open-contactors-datasheet.pdf>
+- [StampPLC connections](stamplc-connections.md) — the full relay / isolated-input pinout (R0, DI0, DI1).
 - [Power architecture](power-architecture.md) — where the contactor sits in the power spine.
 - [Power Bay](build/power-bay.md) — the physical build.
