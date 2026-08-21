@@ -5,6 +5,7 @@
 #include "driver/uart.h"     // ESP-IDF UART for the RS485 port (BMS)
 #include "esp_task_wdt.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
+#include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 
 // ---- Telemetry tee (USB Serial + PoE UDP) -------------------------------------------------
 // Mirror a telemetry line to USB Serial AND, when the PoE link is up, out over UDP so the SAME
@@ -15,6 +16,7 @@
 void netSendLine(const char* buf, int n);
 static bool netBringUp(bool dhcp);   // Ethernet bring-up / self-heal — defined in the Ethernet section, used in setup()
 static void netMaintain();           // Ethernet link watchdog — defined in the Ethernet section, used in loop()
+static void otaHttpPull(const char* url);   // Ethernet OTA — HTTP-GET a .bin off the Thor and self-flash (OTA command)
 
 static void temit(const char* buf, int n)   // raw line (already formatted, includes trailing \n)
 {
@@ -774,18 +776,33 @@ void envStep()
     tprintf("[ENV] z=%u t=%.2f h=%.1f\n", (unsigned)zone, tC, rh);
 }
 
-// Drive one 8Servo channel as a servo PWM pulse (microseconds). Used to feed the goBILDA
-// PRISM's PWM input on 8Servo ch0 — pulse width selects animation/color per the PRISM's
-// PWM table (e.g. 1050-1950us = solid-color hue sweep, 580us = police, 1000us = rainbow).
+// 8Servo per-pin MODE cache. The pin's mode register (SERVO_CTL) latches in the 8Servo until it is
+// reset, so writing it on EVERY pulse (4 channels × 50 Hz = 400 extra I2C txns/s) was pure overhead
+// — and a leading cause of the `s8fail` I2C-write drops that track the ESC red-fault at idle. Set
+// each pin's mode once; re-assert only after a write failure or an explicit 8Servo power-cycle.
+static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
+static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
+
+// Drive one 8Servo channel as a servo PWM pulse (microseconds) — the 4 goBILDA 2x80A ESCs.
+// (PRISM is NOT here: it is an I2C RGB driver at 0x38; ch0 is the Rear-Left ESC.)
 bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 {
     if (extI2C == nullptr || !extI2C->isEnabled()) return false;
     if (pin > 7) return false;
     if (!selectChannel(kChServo8)) return false;
-    // Set the pin to servo-control mode, then write the 16-bit pulse (low byte, high byte).
-    if (!extI2C->writeRegister8(kServo8Addr, kServo8ModeReg + pin, kServo8ModeServoCtl, 400000)) return false;
+    // Put the pin in servo-control mode ONCE (see the mode-cache note above), then write the
+    // 16-bit pulse (low byte, high byte). A pulse-write failure invalidates the pin's mode bit so
+    // mode is re-asserted next call — covers a bus glitch or an 8Servo that lost power/reset.
+    if (!(g_servo8ModeSet & (1u << pin))) {
+        if (!extI2C->writeRegister8(kServo8Addr, kServo8ModeReg + pin, kServo8ModeServoCtl, 400000)) return false;
+        g_servo8ModeSet |= (1u << pin);
+    }
     uint8_t d[2] = { (uint8_t)(pulse_us & 0xFF), (uint8_t)((pulse_us >> 8) & 0xFF) };
-    return extI2C->writeRegister(kServo8Addr, kServo8PulseReg + pin * 2, d, 2, 400000);
+    if (!extI2C->writeRegister(kServo8Addr, kServo8PulseReg + pin * 2, d, 2, 400000)) {
+        g_servo8ModeSet &= ~(1u << pin);
+        return false;
+    }
+    return true;
 }
 
 void handleHostCommand(const char* cmd)
@@ -865,6 +882,30 @@ void handleHostCommand(const char* cmd)
         } else {
             Serial.println("[8SERVO] invalid (pin 0..7, pulse 0..3000)");
         }
+        return;
+    }
+
+    // 8Servo power-cycle via spare relay R1. The ONLY reliable clear for the ESC solid-red fault is
+    // cutting the 8Servo's 5V — a firmware reset does not clear it (the fault rides the ESC BEC).
+    // Assumes R1 gates the PaHub/8Servo 5V feed, CLOSED = powered. Inert until that rewire is done
+    // (R1 is currently spare), so it is safe to ship ahead of the wiring. `S8RESET [off_ms]`.
+    int s8cycle_ms = -1;
+    if (strcmp(cmd, "S8RESET") == 0 || sscanf(cmd, "S8RESET %d", &s8cycle_ms) == 1) {
+        const uint32_t off_ms = (s8cycle_ms >= 50 && s8cycle_ms <= 2000) ? (uint32_t)s8cycle_ms : 300;
+        M5StamPLC.writePlcRelay(1, false);          // R1 open → 8Servo 5V off
+        Serial.printf("[8SERVO] power-cycle: R1 OFF, dwell %lums\n", (unsigned long)off_ms);
+        delay(off_ms);
+        M5StamPLC.writePlcRelay(1, true);           // R1 close → 8Servo 5V on
+        servo8InvalidateModes();                    // re-assert SERVO_CTL mode on the next pulse
+        g_currentHubCh = -1;                        // force a fresh PaHub channel select too
+        Serial.println("[8SERVO] power-cycle: R1 ON, modes invalidated");
+        return;
+    }
+
+    // Ethernet OTA: pull a .bin over HTTP off the Thor and self-flash, then reboot into it. This is
+    // what makes the StampPLC reflashable with USB unplugged. `OTA http://<thor-ip>:<port>/fw.bin`.
+    if (strncmp(cmd, "OTA ", 4) == 0) {
+        otaHttpPull(cmd + 4);
         return;
     }
 
@@ -1181,26 +1222,32 @@ void scanExternalBus()
     // device on its channel; without it, probe Port A flat. Bare 0xNN tokens keep
     // the dashboard parser happy; per-channel detail is in the I2C_SCAN command.
     // Full bus sweep = "I2C_SCAN" host command (scanI2CFull()).
-    Serial.print("[I2C] scan:");
+    // Build the whole line into one buffer, then TEE it (USB + UDP). This line was serial-only, so
+    // the dashboard's I2C device list went blank the moment USB was unplugged — tee it for parity.
+    char sbuf[160];
+    int  p = snprintf(sbuf, sizeof(sbuf), "[I2C] scan:");
     bool any = false;
+    auto add = [&](uint8_t addr) {
+        if (p > 0 && p < (int)sizeof(sbuf) - 6) p += snprintf(sbuf + p, sizeof(sbuf) - p, " 0x%02X", addr);
+        any = true;
+    };
     if (g_paHubPresent) {
         for (const HubDevice& d : kHubDevices) {
             if (!selectChannel(d.channel)) continue;
             if (!probeI2CAddress(*extI2C, d.addr)) continue;
-            Serial.printf(" 0x%02X", d.addr);
-            any = true;
+            add(d.addr);
         }
     } else {
         static const uint8_t kFlat[] = {
             kServo8Addr, kPinpointAddr, kPrismAddr, kExtEncoderAddr, kOtosAddr};
         for (uint8_t addr : kFlat) {
             if (!probeI2CAddress(*extI2C, addr)) continue;
-            Serial.printf(" 0x%02X", addr);
-            any = true;
+            add(addr);
         }
     }
-    if (!any) Serial.print(" none");
-    Serial.println();
+    if (!any && p > 0 && p < (int)sizeof(sbuf) - 6) p += snprintf(sbuf + p, sizeof(sbuf) - p, " none");
+    if (p > 0 && p < (int)sizeof(sbuf) - 1) { sbuf[p++] = '\n'; sbuf[p] = '\0'; }
+    temit(sbuf, p);
 }
 
 // On-demand full 7-bit bus sweep (0x08-0x77). Triggered by the "I2C_SCAN" host
@@ -1958,6 +2005,104 @@ static void pollNetCommands()
             last_host_cmd_ms = millis();                       // host-link heartbeat for the local UI
         }
     }
+}
+
+// -------- Ethernet OTA ------------------------------------------------------------------------
+// HTTP-GET a firmware .bin off the Thor and write it into the inactive OTA partition, then reboot
+// into it. Triggered by `OTA http://<host>:<port>/<path>` over serial OR UDP — the whole point is
+// reflashing with USB unplugged. Plain HTTP only (no TLS over the W5500). We drop the drive
+// contactor first (no motion during a reflash), and on ANY failure we abort and stay on the
+// current firmware. A truncated/corrupt image is caught by Update.end(); a complete-but-buggy
+// image still needs USB recovery, so keep a USB port reachable. Needs a dual-OTA table (default.csv).
+static void otaHttpPull(const char* url)
+{
+    if (!eth_up) { Serial.println("[OTA] abort: Ethernet down"); return; }
+
+    // Safety: open R0 so the drive bus is dead while we reflash + across the reboot.
+    M5StamPLC.writePlcRelay(0, false); local_estop_active = true;
+    Serial.println("[OTA] R0 opened (drive bus down for reflash)");
+
+    // Parse http://host[:port]/path (port defaults to 80).
+    const char* pp = url;
+    if (strncmp(pp, "http://", 7) == 0) pp += 7;
+    char host[64]; char path[96]; int port = 80; int hi = 0;
+    while (*pp && *pp != ':' && *pp != '/' && hi < (int)sizeof(host) - 1) host[hi++] = *pp++;
+    host[hi] = '\0';
+    if (*pp == ':') { port = atoi(pp + 1); while (*pp && *pp != '/') pp++; }
+    snprintf(path, sizeof(path), "%s", (*pp == '/') ? pp : "/");
+    if (hi == 0 || port <= 0) { Serial.println("[OTA] abort: bad URL (want http://host[:port]/path)"); return; }
+    tprintf("[OTA] fetching http://%s:%d%s\n", host, port, path);
+
+    EthernetClient client;
+    client.setConnectionTimeout(5000);
+    IPAddress ip; bool ok;
+    if (ip.fromString(host)) ok = client.connect(ip, (uint16_t)port);   // dotted-quad: skip DNS
+    else                     ok = client.connect(host, (uint16_t)port); // hostname: needs DNS
+    if (!ok) { Serial.println("[OTA] abort: connect failed"); return; }
+
+    char req[192];
+    int rn = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: opendubs-stamplc\r\nConnection: close\r\n\r\n",
+        path, host);
+    client.write((const uint8_t*)req, rn);
+
+    // ---- status line + headers ----
+    long content_len = -1; int status = 0;
+    char line[160]; uint32_t t0 = millis(); bool first = true, headers_done = false;
+    while (!headers_done) {
+        int li = 0;
+        for (;;) {
+            int c = client.read();
+            if (c < 0) {
+                if (!client.connected() && client.available() == 0) { headers_done = true; break; }
+                if (millis() - t0 > 8000) { client.stop(); Serial.println("[OTA] abort: header timeout"); return; }
+                esp_task_wdt_reset(); delay(1); continue;
+            }
+            t0 = millis();
+            if (c == '\r') continue;
+            if (c == '\n') break;
+            if (li < (int)sizeof(line) - 1) line[li++] = (char)c;
+        }
+        if (headers_done) break;
+        line[li] = '\0';
+        if (first) { first = false; sscanf(line, "HTTP/%*s %d", &status); }
+        else if (li == 0) headers_done = true;
+        else if (strncasecmp(line, "Content-Length:", 15) == 0) content_len = atol(line + 15);
+    }
+    if (status != 200) { client.stop(); Serial.printf("[OTA] abort: HTTP status %d\n", status); return; }
+    if (content_len <= 0) { client.stop(); Serial.println("[OTA] abort: no/zero Content-Length"); return; }
+    tprintf("[OTA] status=200 len=%ld — writing…\n", content_len);
+
+    if (!Update.begin((size_t)content_len)) {
+        Serial.printf("[OTA] abort: Update.begin failed: %s\n", Update.errorString());
+        client.stop(); return;
+    }
+
+    // ---- stream body → flash ----
+    size_t written = 0; uint8_t buf[1024]; uint32_t tlast = millis();
+    while (written < (size_t)content_len) {
+        int avail = client.available();
+        if (avail <= 0) {
+            if (!client.connected()) break;
+            if (millis() - tlast > 8000) { Update.abort(); client.stop(); Serial.println("[OTA] abort: body timeout"); return; }
+            esp_task_wdt_reset(); delay(1); continue;
+        }
+        int toread = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
+        int n = client.read(buf, toread);
+        if (n <= 0) continue;
+        if (Update.write(buf, n) != (size_t)n) { Update.abort(); client.stop(); Serial.printf("[OTA] abort: flash write failed: %s\n", Update.errorString()); return; }
+        written += n; tlast = millis();
+        esp_task_wdt_reset();                                  // multi-second write — keep the WDT fed
+        if ((written & 0x1FFFF) == 0) tprintf("[OTA] %u/%ld\n", (unsigned)written, content_len);
+    }
+    client.stop();
+
+    if (written != (size_t)content_len) { Update.abort(); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
+    if (!Update.end(true)) { Serial.printf("[OTA] abort: Update.end failed: %s\n", Update.errorString()); return; }
+
+    tprintf("[OTA] OK %u bytes — rebooting into new firmware\n", (unsigned)written);
+    delay(250);                                               // flush the final line over USB + UDP
+    ESP.restart();
 }
 
 void loop()

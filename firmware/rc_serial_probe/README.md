@@ -23,8 +23,12 @@ Telemetry and commands run over **either** USB serial **or** the PoE Ethernet li
 :5005 and routed through the same handler). The StampPLC has its own 24 V supply, so USB is needed
 **only for flashing** — normal operation can run entirely over Ethernet with USB unplugged.
 
-> **⚠️ Initial flash (and every reflash) is USB-only** — `esptool` uploads over USB-CDC; Ethernet
-> carries runtime data, not firmware. Keep a USB port reachable for reflashing.
+> **Reflash over Ethernet (OTA).** Once this firmware is on the board, reflash with **no USB**:
+> from the Thor, [`./ota-from-thor.sh`](ota-from-thor.sh) builds, serves the `.bin`, and sends the
+> `OTA` command so the board pulls the image and reboots into it. The **initial** flash is still
+> USB-only (`esptool` needs USB-CDC), and a complete-but-buggy OTA image needs a USB reflash to
+> recover — so keep a USB port reachable as the recovery fallback. Requires a dual-OTA partition
+> table (`board_build.partitions = default.csv`, already set).
 
 Full design, transport selection (`OPENDUBS_STAMPLC_TRANSPORT=auto|udp|serial`), and the
 apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-ethernet-transport.md).
@@ -33,8 +37,11 @@ apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-
 
 `PDH_SWITCH 0|1` · `PDH_CLEAR_FAULTS` · `PDH_ID <0..63>` · `PDH_ID_AUTO` ·
 `RELAY <ch> <0|1>` · `ESTOP` · `ENC_RESET` · `I2C_SCAN` · `I2C_INFO` ·
-`LED_COLOR/LED_LEN/LED_OFF` (PRISM-over-I²C, unused since PRISM moved to PWM) ·
-**`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page).
+`LED_COLOR/LED_LEN/LED_OFF` (PRISM RGB over I²C) ·
+**`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page) ·
+**`S8RESET [off_ms]`** (power-cycle the 8Servo via relay R1 — the reliable clear for the ESC
+solid-red fault; inert until R1 gates the 8Servo 5 V) ·
+**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash).
 
 ## Local UI
 
