@@ -1,24 +1,15 @@
 # Regen Clamp — Placement & Brake-Resistor Sizing
 
-!!! note "Source updated to the ECO-WORTHY baseline (analysis unchanged)"
-    The upstream source is now a single **ECO-WORTHY ~52 V LiFePO4** battery feeding a **one-way
-    52 → 24 V buck** (the DeWalt packs, switcher, and Victron DBC are retired). This *reinforces*
-    the design below rather than changing it: **the one-way buck is precisely why the clamp sits
-    downstream at the ESCs** — braking regen can't backfeed the pack through a one-way converter,
-    so it's shunted at the bus. The sizing already works the **24 V bus** case, so the numbers
-    stand; only the old "battery-direct ~21 V" column is retired.
-
-Status: design worked June 2026. Sizes the ODrive Regen Clamp brake resistor(s) for the
-drive motors and **revises the clamp placement** from the spine in `power-architecture.md`.
-Companion to `power-architecture.md` (power spine, source-OR, e-stop) and the Figma board
-(OpenDubsV2) which remains the authoritative schematic.
+This page sizes the ODrive Regen Clamp brake resistor(s) for the drive motors and sets the
+clamp placement. It's a companion to the [Power architecture](power-architecture.md) page (the
+power spine and e-stop) and the Figma board, which is the authoritative schematic.
 
 All math here is plain-text (no rendered LaTeX): `·` multiply, `²` square, `√` root,
 `≈/≤/≥` comparisons, Greek `ω` for angular speed.
 
 ## 1. Placement decision — downstream of the PDH, one clamp per ESC
 
-`power-architecture.md` currently lists a single clamp **upstream** of the contactor:
+The obvious placement is a single clamp **upstream** of the contactor:
 
 ```
 ECO-WORTHY 52 V → 52→24 DC/DC → [regen clamp] → e-stop contactor → REV PDH → drive ESCs
@@ -50,8 +41,7 @@ Rationale:
      10 A PDH fuses into one. Per-ESC preserves each ESC on its own fuse (the low-fuse
      philosophy in `power-architecture.md`).
 
-→ **Two clamps, one per dual-channel ESC (2 motors each).** If adopted, update the spine
-in `power-architecture.md` and the Figma board accordingly.
+→ **Two clamps, one per dual-channel ESC (2 motors each).**
 
 ## 2. The drive train sees *active* regen (not dissipative braking)
 
@@ -148,7 +138,7 @@ binding requirement is **R low enough to clip the transient under 28 V** within 
 - **Brake resistor: 1.5 Ω, 100 W wirewound per ESC.** Covers ~18 A/clamp regen (468 W) at
   the clamp voltage, draws well under 30 A continuous, holds the bus under 28 V, and sits
   in the window for everything but the extreme 60 A case. 100 W is margin, not necessity.
-- Clamp auto-trip ≈ 26.5 V — **verify it lands below Thor's 28 V** on the 24 V shore bus.
+- Clamp auto-trip ≈ 26.5 V — **verify it lands below Thor's 28 V** on the 24 V bus.
 - Use the clamp's **PT1000 RTD + OTP** for stuck-on / over-temp protection.
 
 ## 7. How to finalize (measure, don't hand-calc)
