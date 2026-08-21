@@ -36,18 +36,19 @@ on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvan
 (INPUT + COM terminals, DC 5–36 V) — reference a signal by landing its return on that input's **COM**
 (see the [E-stop system](e-stop.md) page for the DI0 wiring worked example).
 
-<!-- DIAGRAM TODO: export the relay + isolated-input diagram to
-     docs/assets/diagrams/stamplc-relay-di.png and add the Figma source link, then uncomment.
 <figure markdown="span">
-  ![StampPLC relay outputs and isolated inputs](assets/diagrams/stamplc-relay-di.png)
-  <figcaption>The 4 relay outputs and 8 isolated inputs, and what each is wired to.</figcaption>
+  ![StampPLC relay and input connections — e-stop button and contactor weld on the inputs, RELAY 1 to the e-stop contactor](assets/diagrams/stamplc-inputs-and-relays.png)
+  <figcaption>As wired: the e-stop button and contactor-weld sense land on the digital inputs,
+  RELAY&nbsp;1 (R0) drives the e-stop contactor, and the Mini PDH feeds the input COMs + the relay
+  circuit.</figcaption>
 </figure>
-- **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=TODO) — anyone with the link can view and export it.
--->
 
-!!! note "Diagram to be added"
-    Drop the relay + isolated-input diagram at `docs/assets/diagrams/stamplc-relay-di.png` and add
-    its Figma link, then uncomment the figure block above.
+- **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs) — anyone with the link can view and export it.
+
+!!! note "The board silk is 1-indexed"
+    The StampPLC silkscreen labels inputs **IN 1–8** and relays **RELAY 1–4** (1-indexed), while the
+    firmware and dashboard use **DI0–7** and **R0–3** (0-indexed). So **IN 1 = DI0** (e-stop button),
+    **IN 2 = DI1** (contactor weld), and **RELAY 1 = R0** (e-stop contactor).
 
 ### Relay outputs
 
