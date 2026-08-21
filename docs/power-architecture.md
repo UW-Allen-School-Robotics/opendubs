@@ -5,7 +5,7 @@
   <figcaption>Power spine — battery → e-stop contactor → drive &amp; logic buses.</figcaption>
 </figure>
 
-- **Diagram source (Figma):** *TODO — add the Figma share link (view / download).*
+- **Diagram source (Figma):** [OpenDubs board](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=0-1) — anyone with the link can view and export it.
 
 The block diagram above is the authoritative view of the power spine; the notes below are just
 the narrative around it.
@@ -15,8 +15,8 @@ the narrative around it.
 The diagram is the source of truth; this is the summary.
 
 - **Source** — a single **ECO-WORTHY ~52 V LiFePO4** battery (JBD BMS on RS485), feeding two
-  step-down converters: a **35 A** buck for the logic bus and a **60 A** buck for the drive bus.
-- **Logic-24 V bus** — from the **35 A** buck, **always-on** (not gated by the contactor). Its
+  step-down converters: a **20 A** buck for the logic bus and a **60 A** buck for the drive bus.
+- **Logic-24 V bus** — from the **20 A** buck, **always-on** (not gated by the contactor). Its
   fused branches — the **REV Mini Power Module** in the
   [Electronics Bay](build/electronics-bay.md) — feed Thor, the StampPLC, the router, USB hub(s),
   and the E-stop signal.
