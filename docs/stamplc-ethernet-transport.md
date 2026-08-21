@@ -5,18 +5,21 @@ for power or for talking to the Thor. This moves the StampPLC's telemetry + comm
 (and off the shared USB hub, which has been a reliability liability — see the lidar hub notes) onto
 Ethernet, leaving USB for **firmware flashing only**.
 
-## ⚠️ Initial flash is USB-only
+## ⚠️ First flash is USB; reflashes are OTA over Ethernet
 
-**Ethernet cannot flash firmware.** `esptool` talks to the ESP32-S3 bootloader over the USB-CDC
-port; the PoE link only carries the runtime telemetry/command protocol. So:
+**`esptool` cannot flash over Ethernet** — it talks to the ESP32-S3 bootloader over the USB-CDC
+port, and the PoE link only carries the runtime telemetry/command protocol. But once the
+OTA-capable firmware is on the board, **reflashing goes over Ethernet** (no USB):
 
-- **The very first flash of a StampPLC — and every reflash — is over USB.** When replicating a
-  robot, wire and flash the StampPLC over USB first, confirm it boots, then move to Ethernet for
-  normal operation.
-- Keep a USB port physically reachable on the StampPLC for reflashing. During normal operation the
-  USB cable can be unplugged; plug it back in only to reflash.
-- Flash procedure is unchanged: stop `opendubs-dash` (frees the port), `pio run -t upload
-  --upload-port <stamplc by-id>`, restart the dash. See the firmware README.
+- **Only the very first flash of a StampPLC is over USB.** When replicating a robot, wire and flash
+  the StampPLC over USB first, confirm it boots, then move to Ethernet for normal operation.
+- **After that, reflash with OTA** — `firmware/rc_serial_probe/ota-from-thor.sh` builds, serves the
+  `.bin`, and sends the `OTA` command so the board pulls it and reboots into it. No USB, no touching
+  the robot.
+- **Keep a USB port reachable only as a recovery fallback.** A complete-but-corrupt OTA image needs
+  a USB reflash to recover — USB is *not* needed for routine reflashing.
+- USB flash procedure (initial + recovery): stop `opendubs-dash` (frees the port), `pio run -t
+  upload`, restart the dash — or just run `flash-from-thor.sh`. See the firmware README.
 
 ## How it works
 
