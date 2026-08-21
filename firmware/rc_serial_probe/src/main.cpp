@@ -13,6 +13,8 @@
 // availableForWrite() drops to ~0, so we must NOT gate the UDP path on it — telemetry keeps
 // flowing over Ethernet regardless. netSendLine() is defined with the Ethernet section below.
 void netSendLine(const char* buf, int n);
+static bool netBringUp(bool dhcp);   // Ethernet bring-up / self-heal — defined in the Ethernet section, used in setup()
+static void netMaintain();           // Ethernet link watchdog — defined in the Ethernet section, used in loop()
 
 static void temit(const char* buf, int n)   // raw line (already formatted, includes trailing \n)
 {
@@ -84,7 +86,10 @@ static constexpr uint16_t kEscNeutralUs     = 1500;   // 2x80A neutral == arm-zo
 static constexpr uint16_t kEscSpanUs        = 150;    // ±span → 1350..1650 (gentle re-test band; widen toward 400 once ESCs hold)
 static constexpr uint16_t kEscDeadzoneUs    = 6;      // treat |cmd|<this as 0 (matches the ESC ±10µs deadzone)
 static constexpr uint32_t kArmHoldMs        = 2000;   // hold neutral this long, gate satisfied, to ARM the ESCs
-static constexpr uint16_t kEscSlewUs        = 25;     // max µs step per 20ms tick — the decel/accel ramp (mass!)
+static constexpr uint16_t kEscSlewUs        = 12;     // max µs step per 20ms tick — the decel/accel ramp (mass!)
+static constexpr uint8_t  kEscRevDwellTicks = 10;     // on a direction flip: brake to neutral, then hold this many
+                                                      // ticks (×20ms) at neutral before reversing. Spreads regen so
+                                                      // the bus clamp can absorb it — a full FWD→REV slam tripped the ESCs.
 static constexpr uint32_t kDriveTickMs      = 20;     // 50 Hz output (matches the 2x80A's expected RC rate)
 static constexpr uint32_t kRosCmdTimeoutMs  = 250;    // autonomous heartbeat: a stale Thor/ROS cmd → neutral
 static constexpr uint32_t kWdtTimeoutS      = 8;      // task watchdog: loop hang > this → auto chip reset
@@ -122,6 +127,7 @@ static RosDriveCmd g_rosCmd;
 static bool     g_escArmed    = false;                 // ESCs have completed the neutral-hold arm
 static uint32_t g_armStart_ms = 0;
 static uint16_t g_escOut[4]   = {kEscNeutralUs, kEscNeutralUs, kEscNeutralUs, kEscNeutralUs};
+static uint32_t g_s8Fail      = 0;                     // cumulative 8Servo I2C write failures (signal-dropout diag)
 static uint32_t last_drive_ms = 0, last_drive_pub_ms = 0, last_rc_pub_ms = 0;
 // =========================================================================
 
@@ -508,6 +514,15 @@ static EthernetUDP     eth_udp;
 static IPAddress       eth_bcast;
 static char            eth_ip_str[20] = "--";
 static unsigned long   last_net_tx = 0;
+static uint8_t        eth_mac[6]  = {0};      // filled in setup() from the eFuse MAC; reused for self-heal re-init
+static IPAddress      eth_cfg_ip, eth_cfg_dns, eth_cfg_gw, eth_cfg_subnet;  // DHCP-acquired, re-asserted statically on self-heal
+static bool           eth_have_cfg = false;   // we have a captured address to re-assert
+static uint16_t       eth_reinit_count = 0;   // self-heal re-inits since boot (observability)
+static uint8_t        eth_link_down_ticks = 0;
+static unsigned long  last_eth_reinit_ms = 0;
+static unsigned long  last_hb_rx_ms = 0;       // last time we RECEIVED a Thor "HB" over UDP (RX proof-of-life)
+static bool           hb_seen = false;         // we've heard at least one HB → the watchdog is armed
+static constexpr uint32_t kHbTimeoutMs = 6000; // no HB for this long (while link reads up) ⇒ RX wedged ⇒ re-init
 static uint32_t        net_seq = 0;
 static const uint16_t  kNetPort = 5005;
 
@@ -1414,16 +1429,31 @@ static void driveTick()
                                             (int)kEscNeutralUs + (int)kEscSpanUs);
     }
 
-    // ==== SLEW LIMIT (decel/accel ramp) → OUTPUT ====
+    // ==== SLEW LIMIT + brake-through-neutral on reversal → OUTPUT ====
+    // A direct FWD→REV (or REV→FWD) command reverses a still-spinning hub, dumping regen onto
+    // the bus faster than the clamp can bleed → overvoltage trip (all ESC LEDs red). So on any
+    // sign flip we force the target to neutral first, ramp down, hold a dwell at neutral, and
+    // only then ramp up the other way. The slew limit spreads the regen over time either way.
+    static uint8_t revDwell[4] = {0, 0, 0, 0};
     for (int i = 0; i < 4; ++i) {
         int cur = g_escOut[i];
-        const int d = (int)target[i] - cur;
+        int tgt = (int)target[i];
+        const int curOff = cur - (int)kEscNeutralUs;
+        const int tgtOff = tgt - (int)kEscNeutralUs;
+        if (curOff != 0 && tgtOff != 0 && ((curOff > 0) != (tgtOff > 0))) {
+            tgt = (int)kEscNeutralUs;            // sign flip while still moving → brake to neutral first
+            revDwell[i] = kEscRevDwellTicks;     // arm the post-neutral hold
+        } else if (revDwell[i] > 0) {
+            if (abs(curOff) <= (int)kEscDeadzoneUs) revDwell[i]--;  // only count down once actually at neutral
+            tgt = (int)kEscNeutralUs;            // hold neutral through the dwell before the new direction
+        }
+        const int d = tgt - cur;
         if (d >  (int)kEscSlewUs) cur += kEscSlewUs;
         else if (d < -(int)kEscSlewUs) cur -= kEscSlewUs;
-        else cur = target[i];
+        else cur = tgt;
         g_escOut[i] = (uint16_t)cur;
 #if DRIVE_ENABLE
-        servo8SetPulse(kDriveCh[i], g_escOut[i]);   // physical PWM to the ESCs — ONLY when enabled
+        if (!servo8SetPulse(kDriveCh[i], g_escOut[i])) g_s8Fail++;   // physical PWM to the ESCs — count I2C drops
 #endif
     }
 }
@@ -1436,9 +1466,10 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
-                  g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3]);
+                  g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
+                  g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail);
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the
@@ -1758,20 +1789,16 @@ void setup()
     SPI.begin(7, 9, 8, -1);              // SCK=G7, MISO=G9, MOSI=G8, no HW-SS
     Ethernet.init(11);                   // W5500 CS = G11
     uint64_t cid = ESP.getEfuseMac();
-    uint8_t mac[6] = { 0x02, (uint8_t)(cid >> 32), (uint8_t)(cid >> 24),
-                       (uint8_t)(cid >> 16), (uint8_t)(cid >> 8), (uint8_t)cid };
+    eth_mac[0] = 0x02;                 eth_mac[1] = (uint8_t)(cid >> 32); eth_mac[2] = (uint8_t)(cid >> 24);
+    eth_mac[3] = (uint8_t)(cid >> 16); eth_mac[4] = (uint8_t)(cid >> 8);  eth_mac[5] = (uint8_t)cid;
     Serial.printf("[NET] eth mac %02X:%02X:%02X:%02X:%02X:%02X, DHCP...\n",
-                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    if (Ethernet.begin(mac, 6000, 2000) == 1) {          // short timeouts -> no long hang
-        IPAddress ip = Ethernet.localIP();
-        snprintf(eth_ip_str, sizeof(eth_ip_str), "%s", ip.toString().c_str());
-        eth_bcast = IPAddress(255, 255, 255, 255);       // limited broadcast (W5500 maps to bcast MAC w/o ARP)
-        eth_udp.begin(kNetPort);
-        eth_up = true;
+                  eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
+    if (netBringUp(true)) {                               // DHCP acquire (short timeout); captures cfg for self-heal
         Serial.printf("[NET] eth UP ip=%s link=%d  udp->%s:%u\n",
                       eth_ip_str, (int)Ethernet.linkStatus(), eth_bcast.toString().c_str(), kNetPort);
     } else {
-        Serial.printf("[NET] eth DHCP failed link=%d — continuing without LAN\n", (int)Ethernet.linkStatus());
+        Serial.printf("[NET] eth DHCP failed link=%d — netMaintain() will retry in the background\n",
+                      (int)Ethernet.linkStatus());
     }
 
     // FIX: the internal I2C bus (I2C_NUM_0, SDA=G13/SCL=G15 — AW9523 relays/DIs + power/temp
@@ -1824,6 +1851,79 @@ static void netTelemetry()
     }
 }
 
+// Bring the W5500 up. dhcp=true acquires a lease (blocks up to the SHORT timeout — boot/retry only);
+// dhcp=false re-asserts the last-acquired address STATICALLY and non-blocking — the self-heal path,
+// so a mid-run re-init can't stall the 50 Hz control loop. Ethernet.begin() re-runs the W5500 SPI
+// init either way, so this also recovers a chip that has wedged, not just a cable that dropped.
+static bool netBringUp(bool dhcp)
+{
+    if (dhcp) {
+        if (Ethernet.begin(eth_mac, 4000, 1500) != 1) { eth_up = false; return false; }
+        eth_cfg_ip = Ethernet.localIP();  eth_cfg_dns = Ethernet.dnsServerIP();
+        eth_cfg_gw = Ethernet.gatewayIP(); eth_cfg_subnet = Ethernet.subnetMask();
+        eth_have_cfg = true;
+    } else {
+        if (!eth_have_cfg) return false;
+        Ethernet.begin(eth_mac, eth_cfg_ip, eth_cfg_dns, eth_cfg_gw, eth_cfg_subnet);  // static, non-blocking
+    }
+    snprintf(eth_ip_str, sizeof(eth_ip_str), "%s", Ethernet.localIP().toString().c_str());
+    eth_bcast = IPAddress(255, 255, 255, 255);
+    eth_udp.begin(kNetPort);
+    eth_up = true; eth_link_down_ticks = 0;
+    return true;
+}
+
+// Keep Ethernet healthy at 1 Hz: retry if it never came up, watch the PHY link, self-heal on a drop
+// with a fast static re-init, and renew the DHCP lease. This is exactly what the old code lacked —
+// eth_up latched true at boot and nothing ever re-checked the link or re-inited the chip, so a single
+// drop was permanent until a full reset.
+static void netMaintain()
+{
+    if (millis() - last_eth_ms < 1000) return;   // 1 Hz
+    last_eth_ms = millis();
+
+    static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
+    if (millis() - last_net_stat > 5000) {
+        last_net_stat = millis();
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu\n",
+                (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
+                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL);
+    }
+
+    if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
+        if (millis() - last_eth_reinit_ms > 5000) {
+            last_eth_reinit_ms = millis();
+            if (netBringUp(!eth_have_cfg)) Serial.printf("[NET] eth recovered ip=%s\n", eth_ip_str);
+        }
+        return;
+    }
+
+    if (Ethernet.linkStatus() == LinkOFF) {       // cable/PHY down (or a wedged chip reporting no link)
+        if (eth_link_down_ticks < 255) eth_link_down_ticks++;
+        if (eth_link_down_ticks >= 2 && millis() - last_eth_reinit_ms > 3000) {
+            last_eth_reinit_ms = millis();
+            eth_reinit_count++;
+            Serial.printf("[NET] link down — self-heal re-init #%u\n", eth_reinit_count);
+            netBringUp(false);                    // static, non-blocking
+        }
+        return;                                   // don't broadcast into a dead link
+    }
+    eth_link_down_ticks = 0;
+
+    // Heartbeat watchdog: link READS up, but Thor's HB stopped arriving ⇒ the RX stack is wedged
+    // (linkStatus() can't see that) ⇒ force a re-init. Only armed once we've heard at least one HB.
+    if (hb_seen && (millis() - last_hb_rx_ms > kHbTimeoutMs) && (millis() - last_eth_reinit_ms > 3000)) {
+        last_eth_reinit_ms = millis(); eth_reinit_count++;
+        Serial.printf("[NET] heartbeat lost %lums — self-heal re-init #%u\n",
+                      (unsigned long)(millis() - last_hb_rx_ms), eth_reinit_count);
+        netBringUp(false);
+        last_hb_rx_ms = millis();                 // grace window so it can't immediately re-trigger
+    }
+
+    int m = Ethernet.maintain();                  // DHCP renew; 1/3 == renew/rebind FAILED
+    if (m == 1 || m == 3) { Serial.printf("[NET] DHCP maintain fail(%d) — re-assert static\n", m); netBringUp(false); }
+}
+
 // Send one already-formatted telemetry line to the Thor over UDP (broadcast). Called by the
 // telemetry tee (temit/tprintf). No-op until the PoE link is up. Kept tiny + non-blocking.
 void netSendLine(const char* buf, int n)
@@ -1851,6 +1951,9 @@ static void pollNetCommands()
         char* save = nullptr;
         for (char* line = strtok_r(cbuf, "\r\n", &save); line; line = strtok_r(nullptr, "\r\n", &save)) {
             if (line[0] == '\0' || line[0] == '[') continue;   // skip blanks / echoed telemetry
+            if (line[0] == 'H' && line[1] == 'B' && line[2] == '\0') {   // Thor Ethernet heartbeat (not a command)
+                last_hb_rx_ms = millis(); hb_seen = true; continue;
+            }
             handleHostCommand(line);
             last_host_cmd_ms = millis();                       // host-link heartbeat for the local UI
         }
@@ -1972,9 +2075,9 @@ void loop()
     if ((millis() - last_drive_pub_ms) > 100) { publishDrive(); last_drive_pub_ms = millis(); }
     if ((millis() - last_rc_pub_ms) > 100)    { publishRc();    last_rc_pub_ms = millis(); }
 
-    // ---- PoE Ethernet: DHCP maintenance + UDP telemetry broadcast (5 Hz) ----
-    if (eth_up && (millis() - last_eth_ms) > 1000) { Ethernet.maintain(); last_eth_ms = millis(); }
-    if (eth_up && (millis() - last_net_tx) > 200)  { netTelemetry();     last_net_tx = millis(); }
+    // ---- Ethernet (24V-powered board, wired LAN — NOT PoE): self-heal link watchdog + 5 Hz telemetry ----
+    netMaintain();                                                  // link monitor + re-init + DHCP renew (1 Hz inside)
+    if (eth_up && (millis() - last_net_tx) > 200) { netTelemetry(); last_net_tx = millis(); }
 
     // ---- Local UI: buttons every loop (catch edges), screen + LED at ~6 Hz ----
     uiButtons();
