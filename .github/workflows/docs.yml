@@ -6,6 +6,8 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "hardware/parts.csv"
+      - "tools/bom.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -27,7 +29,8 @@ jobs:
         with:
           python-version: "3.x"
       - run: pip install mkdocs-material
-      - run: mkdocs build            # add --strict once legacy cross-links are cleaned up
+      - run: python3 tools/bom.py --check   # validate parts.csv + fail if BOM tables are stale (run `bom.py --inject`)
+      - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

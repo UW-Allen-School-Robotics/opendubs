@@ -1,0 +1,16 @@
+# Base Frame — photo selection manifest
+# Lists ONLY the shots we keep, and what each becomes in the guide.
+# Format:  SOURCE.HEIC   target.jpg      (# comments + blank lines ignored)
+# Convert with:
+#   tools/convert-build-photos.sh <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+#
+# --- currently on Drive ("1 - Base Frame Build") — completed-frame shots ---
+IMG_1480.HEIC    completed-01.jpg
+IMG_1482.HEIC    completed-02.jpg
+IMG_1483.HEIC    completed-03.jpg
+#
+# --- step photos, add as they're shot (names match the steps in base-frame.md) ---
+# IMG_XXXX.HEIC   01-frame-rectangle.jpg
+# IMG_XXXX.HEIC   02-drive-pod.jpg
+# IMG_XXXX.HEIC   03-pods-mounted.jpg
+# IMG_XXXX.HEIC   04-leads-routed.jpg

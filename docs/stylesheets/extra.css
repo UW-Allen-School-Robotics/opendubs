@@ -1,0 +1,42 @@
+/* ── Left-nav: distinguish section HEADERS from clickable page LINKS ──────────
+   With `navigation.sections`, top-level groups ("Firmware", "Assembly Guide", …)
+   render as labels that look too much like the page links under them. Style the
+   headers as quiet uppercase category labels, and give the real links a clear
+   hover/active treatment so what's clickable is obvious. Uses Material's theme
+   variables so it works in both light and dark. */
+
+.md-nav__item--section > .md-nav__link,
+.md-nav__item--section > label.md-nav__link {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--md-default-fg-color--light);
+  opacity: 0.75;
+  margin-top: 0.9rem;
+  margin-bottom: 0.1rem;
+  cursor: default;
+  pointer-events: none;               /* section labels aren't navigation */
+}
+
+/* A hairline under each section header reinforces the grouping */
+.md-nav__item--section > .md-nav__link {
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Page links under a section: normal weight, obvious hover */
+.md-nav__item--section .md-nav__list .md-nav__link {
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.md-nav__item--section .md-nav__list .md-nav__link:hover {
+  color: var(--md-accent-fg-color);
+}
+/* Active page stays accent-colored (Material default) but a touch bolder */
+.md-nav__link--active,
+.md-nav__item--section .md-nav__list .md-nav__link--active {
+  font-weight: 600;
+}

@@ -1,0 +1,7 @@
+# electronics-bay — photo selection manifest
+# Lists the KEPT shots and their target names. Convention: ../README.md
+# Convert:
+#   tools/convert-build-photos.sh <staging-dir> docs/assets/build/electronics-bay/photos.manifest docs/assets/build/electronics-bay
+#
+# SOURCE.HEIC    target.jpg
+# (add one row per kept photo as the build is shot)

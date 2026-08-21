@@ -31,6 +31,9 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
+extra_css:
+  - stylesheets/extra.css
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -45,6 +48,13 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Assembly Guide:
+      - 1 · Base Frame: build/base-frame.md
+      - 2 · OTOS Sensor: build/otos.md
+      - 3 · Pinpoint Odometry: build/pinpoint.md
+      - 4 · Electronics Bay: build/electronics-bay.md
+      - 5 · Power Bay: build/power-bay.md
+      - 6 · Lidar (Front & Rear): build/lidar.md
   - Build & Flash:
       - Flash a StampPLC: flashing-stamplc.md
       - Drive bring-up (channel → ESC → wheel): drive-bringup.md
