@@ -1,13 +1,12 @@
 # Regen Clamp — Placement & Brake-Resistor Sizing
 
-!!! danger "Premise superseded — under revision (power architecture changed)"
-    This analysis predates the current power architecture. The **DeWalt packs, the switcher,
-    and the Victron DBC are removed**; the locked baseline is a single **ECO-WORTHY ~52 V
-    LiFePO4** battery feeding a **52 → 24 V DC/DC** into the drive bus. The old rationale ("the
-    Victron DBC blocks regen from reaching the pack") **no longer applies.** The open question
-    is now whether that **52→24 DC/DC is one-way** — if it is, regen is trapped on the 24 V bus
-    and a clamp is still needed. The **placement decision below may still hold, but the sizing
-    must be re-derived at a 24 V bus** (not the old ~21 V battery-direct bus).
+!!! note "Source updated to the ECO-WORTHY baseline (analysis unchanged)"
+    The upstream source is now a single **ECO-WORTHY ~52 V LiFePO4** battery feeding a **one-way
+    52 → 24 V buck** (the DeWalt packs, switcher, and Victron DBC are retired). This *reinforces*
+    the design below rather than changing it: **the one-way buck is precisely why the clamp sits
+    downstream at the ESCs** — braking regen can't backfeed the pack through a one-way converter,
+    so it's shunted at the bus. The sizing already works the **24 V bus** case, so the numbers
+    stand; only the old "battery-direct ~21 V" column is retired.
 
 Status: design worked June 2026. Sizes the ODrive Regen Clamp brake resistor(s) for the
 drive motors and **revises the clamp placement** from the spine in `power-architecture.md`.
@@ -62,8 +61,8 @@ From the goBILDA 2×80A Motor Controller datasheet (SKU 3105-0202-0080):
   the recommended config for mobile robots.
 - "This type of control scheme **can feed voltage back to the supply**." → the bus/clamp
   genuinely sees regen energy; we are in the regen-to-bus regime, not winding-dissipation.
-- "Normally not an issue with batteries" (a battery sinks the regen) — **but the 52→24 DC/DC
-  now sits between the 24 V bus and the pack (a switching converter, likely one-way)**, so our bus behaves like the
+- "Normally not an issue with batteries" (a battery sinks the regen) — **but the one-way 52→24
+  buck sits between the 24 V bus and the pack**, so our bus behaves like the
   "switching power supply" case the datasheet warns about, where "a shunt voltage
   suppressor is required." The ODrive clamp is that suppressor. This independently
   confirms `power-architecture.md`'s "clamp must absorb 100 % of braking regen."
@@ -83,11 +82,11 @@ at ~80 °C PCB.
 | Per-motor current | 1.3 A no-load, 11 A rated, 60 A stall | power-architecture.md |
 | Measured envelope | each ESC pair <10 A (10 A fuse never blows); base ~20–30 A | power-architecture.md |
 | ESC | goBILDA 2×80A (3105-0202-0080), 2 ch, 160 A chop/ch, active brake | ESC datasheet |
-| Bus voltage | ~21 V battery / 24 V shore | power-architecture.md |
+| Bus voltage | 24 V (52→24 buck output) | — |
 | Clamp voltage Vclamp | 26.5 V default auto-trip — must stay < Thor's 28 V ceiling | ODrive datasheet + power-architecture.md |
 | Clamp ratings | resistor 0.1–10 Ω; 30 A cont / 60 A peak; 800 W; PT1000 OTP | ODrive datasheet |
 
-Size at the **24 V-shore / 26.5 V-clamp** worst case — highest current, and the case where
+Size at the **24 V-bus / 26.5 V-clamp** worst case — highest current, and the case where
 the 28 V Thor ceiling binds.
 
 ## 4. Selection rule and worked numbers (per ESC = 2 channels)
