@@ -66,6 +66,7 @@ nav:
   - Firmware:
       - StampPLC ↔ Thor over Ethernet: stamplc-ethernet-transport.md
   - Electronics & Power:
+      - Power architecture: power-architecture.md
       - ESC / PWM safety: pwm-esc-safety.md
       - REV PDH / CAN feasibility: rev-pdh-can-feasibility.md
       - Regen clamp sizing: regen-clamp-sizing.md
