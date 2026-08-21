@@ -20,10 +20,11 @@ The diagram is the source of truth; this is the summary.
   fused branches — the **REV Mini Power Module** in the
   [Electronics Bay](build/electronics-bay.md) — feed Thor, the StampPLC, the router, USB hub(s),
   and the E-stop signal.
-- **Safety contactor + e-stop** — a GIGAVAC GX11 gates the **drive** path. Its coil is held only
-  when the **RUN** button is engaged, the **E-STOP** button is not pressed, and the StampPLC's
-  **R0** relay is closed — so an e-stop press, a software e-stop (R0 open), or loss of logic
-  power all drop it.
+- **Safety contactor + e-stop** — a GIGAVAC GX11 gates the **drive** path. Its coil is held
+  closed only when the **E-STOP** button is not pressed and the StampPLC's **R0** relay is
+  closed; the **RUN** button is the master switch for the **logic bus** that powers that chain
+  (and the StampPLC itself). So an e-stop press, a software e-stop (R0 open), or switching off
+  the logic bus at RUN all drop it. See [E-stop system](e-stop.md) for the full wiring.
 - **Drive-24 V bus** — the **60 A** buck sits **behind the contactor**, so the drive bus
   de-energizes on e-stop. Its fused branches — the [REV PDH](build/power-bay.md) — feed the drive
   ESCs; the ODrive **regen clamp** sits at the ESCs, downstream because the buck is one-way (see

@@ -33,7 +33,9 @@ Per the wiring, the contactor **opens on no-power / hardware / software e-stop**
 
 - **Physical E-STOP** (built-in or a payload e-stop) pressed → the NC pole opens the chain.
 - **Software e-stop** → the StampPLC opens **R0** (R0 is "open on no-power / SW e-stop").
-- **Loss of logic power** → the coil can't be held, so it fails open.
+- **Loss of logic power** → the coil can't be held, so it fails open. The **RUN button** is the
+  master switch for the logic bus that powers this chain *and* the StampPLC — so with RUN off
+  the StampPLC never powers up, **R0** stays open, and the contactor can't close.
 
 !!! danger "The hardware path is independent of every control source"
     The e-stop button → coil-chain → contactor kill path does **not** depend on RC, WiFi, the
