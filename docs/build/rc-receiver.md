@@ -1,36 +1,45 @@
 # RC receiver wiring
 
 The RC receiver's **SBUS** output feeds the StampPLC's **blue serial port** (signal on **G5**,
-inverted in firmware). The catch: the StampPLC port uses the **M5Stack / Grove** 4-wire convention,
-while the receiver's SBUS pin is a **3-wire servo cable** (Yellow / Red / Black). You make a short
-**Grove-to-servo pigtail** to bridge them — and because the two conventions use *different colors and
-pin orders*, you must wire by **function, not by matching colors**.
+inverted in firmware). You make a short **Grove-to-servo pigtail** to bridge the StampPLC's
+**M5Stack / Grove** 4-wire port to the receiver's **3-wire servo cable** (signal / +5 V / ground).
 
-!!! warning "Wire by function — verify +5 V and GND before plugging in the receiver"
-    Grove ribbon colors do **not** map to servo colors. Reversing +5 V and GND can destroy the
-    receiver. **Meter the pigtail** (5 V present on the right pin, continuity on GND) *before* you
-    connect the receiver.
+<figure markdown="span">
+  ![RC receiver (RadioLink R8EF) wiring — StampPLC blue Grove port to the SBUS servo pins](../assets/diagrams/rc-rcvr-wiring.png)
+  <figcaption>The pigtail: StampPLC blue-port Grove (G4 unused · G5 signal · 5 V · GND) → servo
+  cable → the receiver's SBUS pins (Signal / VCC+ / GND−). Receiver shown: RadioLink R8EF.</figcaption>
+</figure>
+
+- **Diagram source (Figma):** [OpenDubs board — RC controls](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=2-83) — anyone with the link can view and export it.
+
+!!! warning "Verify +5 V and GND before plugging in the receiver"
+    On this M5Stack Grove cable the colors happen to line up (**G5 = yellow/signal, 5 V = red,
+    GND = black**) — but the Grove connector carries a **4th wire, G4 (white), that is unused here**,
+    and pin order varies between cables. Reversing +5 V and GND can destroy the receiver, so **meter
+    the pigtail** (5 V on the right pin, GND continuity) *before* you connect it.
 
 !!! info "At a glance"
     - **Time:** ~15 min · **Difficulty:** easy (one pigtail, three wires)
     - **You make:** a StampPLC blue-port (Grove) ⟷ 3-pin servo pigtail
     - **Result:** RC receiver powered from the port, SBUS on G5, `[SBUS]` frames flowing
 
-## The two conventions
+## Pin / wire map
 
-| Function | StampPLC **blue port** (Grove/M5) | RC receiver **SBUS** (servo cable) |
-|---|---|---|
-| **Signal** | **G5** (RX, inverted) | **Yellow** (or white/orange) |
-| **Power** | **+5 V** | **Red** |
-| **Ground** | **GND** | **Black** (or brown) |
+| Function | StampPLC **blue port** (Grove) | Wire | RC receiver **SBUS** pin |
+|---|---|---|---|
+| **Signal** | **G5** (RX, inverted) | yellow | **Signal** |
+| **Power** | **+5 V** | red | **VCC (+)** |
+| **Ground** | **GND** | black | **GND (−)** |
+| *(unused)* | G4 | white | — |
 
-*Servo (Futaba/JR) SBUS is 3-wire: signal / +5 V / ground. The Grove port is 4-wire — the second
-signal pin is unused here (leave it unconnected).*
+The receiver's SBUS output is the **S.BUS / CH1** pin group (on the RadioLink R8EF shown, the bottom
+row = Signal / VCC+ / GND−). Servo colors vary by brand, so wire by **function** and confirm against
+your receiver's silkscreen.
 
 !!! note "Confirm the blue-port pin positions"
-    Check the exact GND / 5 V / G5 pin positions against the StampPLC silkscreen and the
-    [M5StamPLC pinout](https://docs.m5stack.com/en/core/StamPLC) before crimping — port pin order
-    varies. The map above is by **function**; get GND and +5 V right first.
+    Check the exact GND / 5 V / G5 pin order against the StampPLC silkscreen and the
+    [M5StamPLC pinout](https://docs.m5stack.com/en/core/StamPLC) before crimping — get GND and
+    +5 V right first.
 
 ## Make the pigtail
 

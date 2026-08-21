@@ -8,18 +8,13 @@ follow.
 
 ## External buses
 
-<!-- DIAGRAM TODO: export the bus-connection diagram to docs/assets/diagrams/stamplc-buses.png and
-     add the Figma source link below, then uncomment this figure.
 <figure markdown="span">
   ![StampPLC bus connections — Ethernet, CAN, SBUS, RS485, I²C, power](assets/diagrams/stamplc-buses.png)
-  <figcaption>The buses landing on the StampPLC and which port each uses.</figcaption>
+  <figcaption>The buses landing on the StampPLC: RC (servo ↔ Grove) on the blue port, I²C (Grove)
+  on the red port, plus CAN (XT30), RS485/BMS, PoE Ethernet to the router, and the 24 V logic feed.</figcaption>
 </figure>
-- **Diagram source (Figma):** [OpenDubs board — StampPLC buses](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=TODO) — anyone with the link can view and export it.
--->
 
-!!! note "Diagram to be added"
-    Drop the bus-connection diagram at `docs/assets/diagrams/stamplc-buses.png` and add its Figma
-    link, then uncomment the figure block above.
+- **Diagram source (Figma):** [OpenDubs board — StampPLC buses](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
 
 Every bus below is on a fixed StampPLC pin (from the firmware `pin_config`). Pins are ESP32-S3
 GPIO numbers.
