@@ -77,13 +77,37 @@ Xorg with Wayland disabled). GNOME autostart launches **Chromium fullscreen** on
 the touch bridge and a VNC server for remote viewing. After provisioning, **reboot** (or
 `sudo systemctl restart gdm`) and the panel comes up showing the dashboard within a few seconds.
 
+**The touch bridge.** The panel's touch does **not** work as a normal USB-HID device — this Tegra
+kernel has **no `uinput`** (`CONFIG_INPUT_UINPUT` is unset), so a custom handler
+(`software/kiosk-dashboard/tools/touch_bridge.py`, wrapper `deploy/touch-bridge.sh`, GNOME autostart
+`deploy/opendubs-touch.desktop`) **exclusively grabs** the panel's evdev node (`/dev/input/event1`)
+and injects touch → cursor into X via **XTEST**, applying the display rotation. Because the grab is
+exclusive, **`libinput debug-events` / `evtest` on that device read *silent* even when touch is
+working fine** — the bridge is consuming the events. Don't mistake that for dead hardware.
+
+!!! warning "Touch dead after restarting the display? Restart the bridge too."
+    Restarting `gdm` / the X session (e.g. to recover a black panel) **orphans the running bridge**:
+    it keeps grabbing the device and injecting into the now-dead session, while the autostart spawns
+    new instances that can't grab it — so **touch goes dead and multiple `touch_bridge.py` processes
+    pile up**. Clear them all and start exactly one against the live session:
+    ```bash
+    sudo pkill -f touch_bridge.py; sudo pkill -f touch-bridge.sh
+    sudo rm -f /home/kiosk/.touch-bridge.lock
+    sudo -u kiosk env DISPLAY=:0 XAUTHORITY=/run/user/2003/gdm/Xauthority \
+      setsid bash /opt/opendubs/kiosk-dashboard/deploy/touch-bridge.sh &
+    ```
+    Verify one `touch_bridge.py` running and `grabbed source device` in
+    `/home/kiosk/touch-bridge.log`. **Rule of thumb: any time you restart `gdm`, restart the bridge.**
+
 !!! note "Working with the kiosk"
     - **The panel is 1920×480 — very wide and short.** Dashboard views must lay out horizontally.
     - **To reload the kiosk after a frontend change** (there's no keyboard on the robot), do it over
       SSH — focus the kiosk Chromium window and send `Ctrl+Shift+R` with `xdotool`.
     - **Panel stays black?** Check that `/etc/X11/xorg.conf` is present + immutable and
-      `opendubs-xorg-fix.service` is enabled. **Touch not registering?** Watch raw events with
-      `libinput debug-events` (touch may work even when `xinput` shows nothing).
+      `opendubs-xorg-fix.service` is enabled. **Touch not registering?** It's almost always the
+      **touch bridge** (see *The touch bridge* above) — most often orphaned by a `gdm`/Xorg restart.
+      Do **not** trust `libinput debug-events` / `evtest` on the panel's device: the bridge grabs it
+      exclusively, so it reads silent even when touch is fine.
 
 ## 5 · Verify
 
