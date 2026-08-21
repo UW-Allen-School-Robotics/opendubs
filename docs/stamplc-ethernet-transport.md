@@ -31,8 +31,8 @@ the Thor-side parser (`kiosk-dashboard/backend/stamplc.py`) is transport-agnosti
   `PDH_SWITCH …`) to the StampPLC's IP:5005. The firmware's `pollNetCommands()` reads them and
   routes them through the **same** `handleHostCommand()` dispatcher as the USB serial path. Lines
   starting with `[` are ignored (own telemetry echoed on broadcast).
-- A legacy compact-JSON heartbeat still broadcasts on 5005 (`netTelemetry()`); the Thor ignores it
-  (doesn't match a `[TAG]` regex). Harmless; superseded by the tee.
+- A compact-JSON heartbeat also broadcasts on 5005 (`netTelemetry()`); the Thor ignores it
+  (doesn't match a `[TAG]` regex). Harmless.
 
 ## Transport selection (Thor side)
 

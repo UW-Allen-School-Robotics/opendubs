@@ -39,7 +39,7 @@ Status key:
 | Manipulators | OpenArm 7-DOF | 2 | OpenArm | https://github.com/enactic/OpenArm | https://github.com/enactic/OpenArm | Left and right arms | planned |
 | Power | E-stop main contactor | 1 | GIGAVAC GX11CAB | https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors | https://www.sensata.com/sites/default/files/a/sensata-gigavac-gx11-series-open-contactors-datasheet.pdf | Sealed NO DC, 150A cont/800V; 24Vdc coil (`C`); SPDT aux → DI6 weld sense. In the main power path; opens on HW/SW/no-power e-stop | planned |
 | Power | Regen clamp | 1 | ODrive Regen Clamp | https://shop.odriverobotics.com/products/odrive-regeneration-clamp | https://docs.odriverobotics.com/v/latest/hardware/regen-clamp-datasheet.html | Downstream of the PDH, at the ESCs (one per ESC); absorbs braking regen. The one-way 52→24 buck traps regen on the 24 V bus (can't backfeed the pack), so it's shunted here. See regen-clamp-sizing.md | planned |
-| Power | Battery | 1 | ECO-WORTHY ~52 V LiFePO4 (16S), JBD BMS | https://www.ecoworthy.com/ | tbd | **Locked baseline** (replaces the DeWalt packs, switcher, and Victron combiner). BMS on RS485 to the StampPLC; charged off-robot | in-use |
+| Power | Battery | 1 | ECO-WORTHY ~52 V LiFePO4 (16S), JBD BMS | https://www.ecoworthy.com/ | tbd | **Locked baseline** battery. BMS on RS485 to the StampPLC; charged off-robot | in-use |
 
 ## Tools & consumables
 
@@ -93,7 +93,7 @@ tool links are examples, any equivalent works.
 
 ## Immediate BOM Gaps
 
-- **Shore PSU** (24 V, current-limited) — wattage tbd once Case-2 load is summed.
+- **Bench/shore PSU** (24 V, current-limited) for running off-battery — wattage TBD.
 - **E-stop buttons** (dual-pole NC) part/qty; mini-PDH for logic.
 - Add final mast ESC channel allocation details versus installed ESC hardware.
 - Lock final motor model and gearing for both drive and mast reuse strategy.

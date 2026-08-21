@@ -87,9 +87,8 @@ answer. On the reference base, mapping came out:
 
 → `kDriveCh[4] = {1, 3, 0, 2}`, `kDriveInvert[4] = {1, 1, 1, -1}`.
 
-Note channel **0**: on some earlier firmware, 8Servo ch0 was used to PWM a
-status LED. On this build the PRISM LED is on I2C and **ch0 is a drive ESC** —
-make sure nothing else writes ch0.
+Note channel **0**: the PRISM LED is on I2C, so **ch0 is a drive ESC** — make sure
+nothing else writes ch0.
 
 ## ESC arming and clearing a fault
 
