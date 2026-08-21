@@ -37,10 +37,9 @@ jobs:
 
   deploy:
     needs: build
-    # Only deploy to Pages once the repo is public (private Pages needs a paid plan).
-    # Until then the `build` job still runs and validates the docs; deploy is skipped.
-    # When you flip public: enable Pages (Settings → Pages → Source: GitHub Actions).
-    if: github.event.repository.visibility == 'public'
+    # Deploys docs/ to GitHub Pages. NOTE: on the org's Team plan the published site is PUBLIC
+    # (world-viewable) even though the repo is private — only the built docs/ site is exposed;
+    # firmware, CAD, and notes/ stay in the private repo.
     runs-on: ubuntu-latest
     environment:
       name: github-pages
