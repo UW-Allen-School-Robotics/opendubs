@@ -6,8 +6,10 @@ goBILDA/REV chassis, and a Tab5 animated face — designed so a small team can r
 mostly off-the-shelf parts.
 
 !!! tip "Start here"
-    **[Flash a StampPLC →](flashing-stamplc.md)** — the base-controller firmware bring-up. Then the
-    [coordinate frames & naming](naming-frames.md) convention everything else references.
+    New here? Read the **[System overview →](system-overview.md)** first — the whole robot as buses
+    and interfaces, in one diagram. Then **[flash a StampPLC](flashing-stamplc.md)** to bring up the
+    base controller, and skim the [coordinate frames & naming](naming-frames.md) convention
+    everything else references.
 
 !!! info "Current baseline (2026-08)"
     RC comes from the **StampPLC via SBUS** — the StampPLC is the control authority + telemetry hub.

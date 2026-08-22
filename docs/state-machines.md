@@ -1,5 +1,10 @@
 # Robot and Subsystem State Machines
 
+A **finite state machine (FSM)** models a component as a fixed set of named **states** with
+defined **transitions** between them — at any moment the component is in exactly one state, and it
+moves to another only on a specific event or condition. We use FSMs so the robot's behavior
+(especially its safety behavior) is explicit and reviewable rather than implicit.
+
 This page defines the hierarchical FSM structure:
 
 - One robot-level FSM
