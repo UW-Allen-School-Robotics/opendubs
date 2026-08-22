@@ -39,11 +39,14 @@ VNC_DISABLED_FLAG = "/home/kiosk/.vnc/disabled"
 # StampPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
 # DI0 = e-stop button, DI1 = contactor weld. The payload/mast is independent (Tab5-driven), so
 # there are no mast-limit or battery-present inputs here, and drive mode is software-set (no jumper).
-DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE (DI2)", "SPARE (DI3)",
-             "SPARE (DI4)", "SPARE (DI5)", "SPARE (DI6)", "SPARE (DI7)"]
+# The dashboard prepends the physical 1-indexed terminal number (IN1..IN8 / RELAY1..RELAY4) to
+# match the StampPLC silkscreen; these are just the functional names. (Code/M5 API stays 0-indexed:
+# IN1 = DI0, RELAY1 = R0 — see docs/stamplc-connections.md.)
+DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE", "SPARE",
+             "SPARE", "SPARE", "SPARE", "SPARE"]
 # R0 = e-stop contactor coil; R1 = 8Servo 5V power-cycle (the S8RESET command — the reliable clear
 # for a latched ESC solid-red fault); R2/R3 spare.
-RELAY_LABELS = ["E-STOP CONTACTOR", "8SERVO POWER-CYCLE", "SPARE (R2)", "SPARE (R3)"]
+RELAY_LABELS = ["E-STOP CONTACTOR", "8SERVO POWER-CYCLE", "SPARE", "SPARE"]
 DI_ESTOP_BTN, DI_WELD = 0, 1
 RELAY_ESTOP_CONTACTOR, RELAY_8SERVO = 0, 1
 

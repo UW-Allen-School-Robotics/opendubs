@@ -1687,10 +1687,10 @@ static void uiRender(uint8_t di, UiState st)
             g.setTextColor(TFT_DARKGREY, TFT_BLACK); g.setCursor(6, y);  g.print(k);
             g.setTextColor(vc,          TFT_BLACK); g.setCursor(104, y); g.print(v);
         };
-        row(22, "E-STOP DI0",   (di & 1)        ? "ACTIVE" : "clear",  (di & 1)        ? TFT_RED : TFT_GREEN);
-        row(34, "CONTACTOR R0", (relay & 1)      ? "CLOSED" : "OPEN",   (relay & 1)      ? TFT_GREEN : g.color565(255, 150, 0));
-        row(46, "WELD DI1",     (di & (1 << 1)) ? "WELD!"  : "ok",     (di & (1 << 1)) ? TFT_RED : TFT_GREEN);
-        snprintf(buf, sizeof(buf), "R1:%d R2:%d R3:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
+        row(22, "E-STOP IN1",   (di & 1)        ? "ACTIVE" : "clear",  (di & 1)        ? TFT_RED : TFT_GREEN);
+        row(34, "CONTACTOR R1", (relay & 1)      ? "CLOSED" : "OPEN",   (relay & 1)      ? TFT_GREEN : g.color565(255, 150, 0));
+        row(46, "WELD IN2",     (di & (1 << 1)) ? "WELD!"  : "ok",     (di & (1 << 1)) ? TFT_RED : TFT_GREEN);
+        snprintf(buf, sizeof(buf), "R2:%d R3:%d R4:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
         row(58, "RELAYS", buf, TFT_WHITE);
         row(70, "IP", eth_ip_str, eth_up ? TFT_GREEN : g.color565(150,150,150));
         if (estopc_down && !estopc_fired) {         // hold-to-e-stop progress

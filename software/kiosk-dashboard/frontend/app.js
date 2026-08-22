@@ -587,7 +587,7 @@ function buildRelayRows(labels) {
     const ctl = (i === 2 || i === 3)
       ? `<button class="iobtn" id="relayBtn_${i}" data-ch="${i}">—</button>`
       : `<span class="iolock" title="not dashboard-controllable">🔒</span>`;
-    return `<div class="iorow"><span class="iolabel">R${i} ${lbl}</span>` +
+    return `<div class="iorow"><span class="iolabel">RELAY${i + 1} ${lbl}</span>` +
       `<span class="sdot" id="relayDot_${i}"></span><span id="relayTxt_${i}">—</span>${ctl}</div>`;
   }).join("");
   list.dataset.built = "1";
@@ -629,7 +629,7 @@ function renderStampLC(st) {
   if (diList) {
     if (!diList.dataset.built || diList.children.length !== diLabels.length) {
       diList.innerHTML = diLabels.map((lbl, i) =>
-        `<div class="iorow"><span class="iolabel">DI${i} ${lbl}</span>` +
+        `<div class="iorow"><span class="iolabel">IN${i + 1} ${lbl}</span>` +
         `<span class="sdot" id="diDot_${i}"></span><span id="diTxt_${i}">—</span></div>`).join("");
       diList.dataset.built = "1";
     }

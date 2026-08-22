@@ -45,27 +45,27 @@ on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvan
 
 - **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
 
-!!! note "The board silk is 1-indexed"
-    The StampPLC silkscreen labels inputs **IN 1–8** and relays **RELAY 1–4** (1-indexed), while the
-    firmware and dashboard use **DI0–7** and **R0–3** (0-indexed). So **IN 1 = DI0** (e-stop button),
-    **IN 2 = DI1** (contactor weld), and **RELAY 1 = R0** (e-stop contactor).
+!!! note "Numbering: silk is 1-indexed, the API is 0-indexed"
+    The dashboard and these tables use the **1-indexed silk numbers** (IN 1–8, RELAY 1–4) to match
+    the board. The **M5 firmware API and host commands stay 0-indexed** — so **IN 1 = DI0**,
+    **RELAY 1 = R0**, and the command to close RELAY 1 is `RELAY 0`.
 
 ### Relay outputs
 
 | Relay | Label | Function |
 |---|---|---|
-| **R0** | **E-STOP CONTACTOR** | Drives the GIGAVAC GX11 coil. Held closed = drive bus live; opens on e-stop / software `ESTOP` / logic-power loss. See [E-stop system](e-stop.md). |
-| **R1** | **8Servo power-cycle** | Cuts + restores the 8Servo 5 V feed (`S8RESET`) — the reliable clear for a latched ESC solid-red fault. |
-| **R2** | Spare | — |
-| **R3** | Spare | — |
+| **RELAY 1** *(R0)* | **E-STOP CONTACTOR** | Drives the GIGAVAC GX11 coil. Held closed = drive bus live; opens on e-stop / software `ESTOP` / logic-power loss. See [E-stop system](e-stop.md). |
+| **RELAY 2** *(R1)* | **8Servo power-cycle** | Cuts + restores the 8Servo 5 V feed (`S8RESET`) — the reliable clear for a latched ESC solid-red fault. |
+| **RELAY 3** *(R2)* | Spare | — |
+| **RELAY 4** *(R3)* | Spare | — |
 
 ### Isolated inputs
 
 | Input | Label | Function |
 |---|---|---|
-| **DI0** | **E-STOP BTN** | E-stop button sense. Polarity is the NC fail-safe convention (pressed = circuit open); see [E-stop system](e-stop.md). |
-| **DI1** | **CONTACTOR WELD** | GX11 auxiliary contact → welded-contactor detection (commanded open but aux still closed ⇒ welded). |
-| **DI2 – DI7** | Spare | Unused. The payload/mast is independent (driven by the Tab5), so there are no mast-limit or battery-present inputs here; drive mode is software-set (no physical jumper). |
+| **IN 1** *(DI0)* | **E-STOP BTN** | E-stop button sense. Polarity is the NC fail-safe convention (pressed = circuit open); see [E-stop system](e-stop.md). |
+| **IN 2** *(DI1)* | **CONTACTOR WELD** | GX11 auxiliary contact → welded-contactor detection (commanded open but aux still closed ⇒ welded). |
+| **IN 3 – IN 8** *(DI2–7)* | Spare | Unused. The payload/mast is independent (driven by the Tab5), so there are no mast-limit or battery-present inputs here; drive mode is software-set (no physical jumper). |
 
 ### External I²C devices
 
