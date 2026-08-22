@@ -35,7 +35,7 @@ m10-rivnut,"M10 riv-nut",fastener,Mounting hardware,,pinpoint,2,,https://a.co/d/
 rivnut-tool-manual,"Riv-nut tool (manual)",tool,Mounting tools,,pinpoint,1,,https://a.co/d/0am8KbEV,"Sets the M10 riv-nuts — CHOOSE this OR the drill attachment"
 rivnut-tool-drill,"Riv-nut drill attachment",tool,Mounting tools,,pinpoint,1,,https://a.co/d/09zmlaXE,"Drill-driven alternative to the manual riv-nut tool"
 ebay-power,"REV Mini Power Module (24 V logic bus)",component,Power distribution,REV-11-1956,electronics-bay,1,,https://www.revrobotics.com/rev-11-1956/,"6 fused branch circuits — feeds Thor / StampPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside)"
-ebay-esc,"goBILDA 2x80A ESC",component,Drive electronics,3105-0202-0080,electronics-bay,2,,https://www.servocity.com/,"Drive ESCs; live in the bay (same class as Core BOM)"
+ebay-esc,"goBILDA 2x80A ESC",component,Drive electronics,3105-0202-0080,electronics-bay,2,,https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf,"Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand."
 ebay-8servo,"M5 8Servo unit",component,Drive electronics,,electronics-bay,1,,https://docs.m5stack.com/en/unit/8Servos%20Unit,"PWM source to the ESCs; I2C 0x25 (same as Core BOM)"
 ebay-regen,"ODrive Regen Clamp",component,Regen & protection,,electronics-bay,1,,https://shop.odriverobotics.com/products/odrive-regeneration-clamp,"Absorbs braking regen; the resistor lead requires SOLDERING"
 ebay-pahub,"M5Stack PaHub (I2C hub)",component,I2C bus & level shift,,electronics-bay,1,,https://docs.m5stack.com/en/unit/pahub,"I2C hub for the M5 bus"

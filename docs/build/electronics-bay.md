@@ -73,7 +73,7 @@ the grid plate with **M4 screws**.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [goBILDA 2x80A ESC](https://www.servocity.com/) | `3105-0202-0080` | 2 | Drive ESCs; live in the bay (same class as Core BOM) |
+| [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | PWM source to the ESCs; I2C 0x25 (same as Core BOM) |
 
 **Regen & protection**
