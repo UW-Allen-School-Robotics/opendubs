@@ -22,6 +22,80 @@ interface contracts are what let a *stranger's* module or arm drop in:
 
 If your addition honors those four, it works. That's the whole contract.
 
+## Why goBILDA and 3D printing
+
+The structure is **goBILDA** — an aluminum building system of extruded channel, pattern-hole
+plates, hubs, and shafts (sold through **ServoCity**) — combined with **3D-printed** brackets and
+enclosures for the parts that don't need metal. We chose this pairing deliberately:
+
+- **Modular, no fabrication machinery.** goBILDA parts bolt together on a regular hole grid into
+  rigid frames — no milling, welding, or lathe work. A hobby 3D printer covers the custom
+  brackets. The whole robot is buildable with hand tools and a printer.
+- **A large, proven ecosystem.** goBILDA is the standard structural kit for **FIRST Tech
+  Challenge (FTC)** and is widely used across FIRST Robotics — so it's battle-tested by thousands
+  of teams, and there's a deep catalog of parts that all fit together.
+- **Abundant resources.** Because of that adoption, there's CAD, tutorials, and community
+  know-how for almost anything you'd want to build — you're rarely the first to try it.
+
+!!! tip "goBILDA Product Insight"
+    goBILDA's [**Product Insight**](https://www.servocity.com/product-insights) is an excellent
+    technical reference — it walks through the many ways the system assembles and the design
+    patterns behind it. Worth reading before you extend the structure. Build details and how to
+    read goBILDA part numbers are on the [Base Frame](build/base-frame.md) page.
+
+## The drive system
+
+The baseline is **mecanum drive** — four independently-driven mecanum wheels. Mecanum lets the
+robot **strafe in any direction and rotate in place**, which is ideal for a mobile-manipulation
+base working in tight indoor spaces.
+
+**It's not locked to mecanum.** The goBILDA hubs use a standard bolt/shaft pattern, so you can
+swap the mecanum wheels for other goBILDA-compatible wheels — including
+[all-terrain tires](https://www.servocity.com/all-terrain-wheels-tires/) — and reconfigure the
+mixer for **tank / 4WD** drive. The base is meant to be reconfigured, not to lock you in.
+
+**Why not swerve?** Swerve gives independent steer + drive at each corner, but swerve modules
+typically cost **2–3× per wheel** versus a fixed drive, and add real mechanical and control
+complexity. For the baseline we chose the simpler, cheaper mecanum system; swerve is a great
+community extension (below), not a baseline requirement.
+
+### Load limits — where the drivetrain gives out
+
+The goBILDA **8 mm REX** shaft-and-hub drivetrain is expected to be **good enough for most
+OpenDubs builds**, but it's worth understanding where it gives out.
+
+**Static loading is comfortable.** Take a loaded baseline robot at ~25 kg (frame + Thor + a 52 V
+LiFePO4 pack + electronics — the battery and payload dominate the mass). Spread over four wheels
+that's about **25 kg × 9.81 ÷ 4 ≈ 61 N (~6 kgf) per wheel** of vertical load, well within what
+the 8 mm REX shafts, hubs, and bearings carry statically. Even a heavy top-deck payload keeps the
+*static* margins healthy. *(Estimate — confirm against your actual mass.)*
+
+**Dynamic loading is the real limit.** The failure cases aren't standing still — they're the
+transients:
+
+- **Hard / dynamic braking** and direction slams drive a **torque spike** through the drivetrain.
+  The weakest links there are the **miter gears** (the 90° turn at each wheel) and the
+  **planetary gearsets inside the motors** — shock-loading strips gear teeth long before the frame
+  cares.
+- **Off-roading and impacts** shock-load the **bearings, hubs, and mecanum rollers**. Mecanum
+  wheels especially have small rollers that don't like curbs, drops, or debris.
+- **Overloading the chassis** (a payload well beyond the baseline) pushes the *static* load toward
+  the hub/bearing limits and makes every dynamic event worse.
+
+**Rule of thumb:** drive it like a lab robot — smooth accel/decel, indoor floors, sane payloads —
+and the 8 mm REX system is fine. Treat it like an off-road RC truck — hard braking, jumps,
+overloading — and expect to damage **hubs, bearings, and mecanum wheels** (static/impact) or
+**miter and planetary gears** (dynamic torque) first.
+
+### Contribute a drive system
+
+We plan to — and encourage the community to — develop **alternative drive systems**: off-road
+patterns, higher-load drivetrains, and **swerve** modules. If you build one, contribute it back.
+
+A heavier or more demanding design might step up to goBILDA's **12 mm REX** drive system, whose
+hex drive is compatible with **12 mm RC-style wheels and hubs** — a stronger shaft/hub interface
+with a broader selection of off-road tires.
+
 ## Where OpenDubs fits in the ecosystem
 
 Projects like [LeRobot](https://github.com/huggingface/lerobot) (and the ~$300 SO-101 arm) have

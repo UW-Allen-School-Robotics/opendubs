@@ -19,6 +19,7 @@ so there's a deep catalog of parts, CAD, and tutorials to lean on.
 !!! tip "goBILDA / ServoCity resources"
     - [gobilda.com](https://www.gobilda.com) — parts, CAD downloads, kits
     - [servocity.com](https://www.servocity.com) — same catalog plus user manuals
+    - [Product Insight](https://www.servocity.com/product-insights) — goBILDA's guide to how the system assembles and the design patterns behind it
     - [Strafer Chassis Kit build guide (PDF)](https://www.servocity.com/content/user_manuals/3209-0012-0002_assembly-instructions.min.pdf) — the drivetrain in this build follows it
 
 **Reading goBILDA part numbers.** Structural parts follow the pattern
