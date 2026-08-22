@@ -7,6 +7,16 @@ safety decisions are consistent across repositories.
 
 ## Core Architecture
 
+<figure markdown="span">
+  ![OpenDubs bus map — the core robot's subsystems, buses, and interfaces feeding the payload](assets/diagrams/opendubs-bus-map.png)
+  <figcaption>The core robot as buses and interfaces: power + e-stop, position/spatial, teleop,
+  control, safety/state, drive, comms, and compute — converging on the StampPLC and Thor, and
+  exposed to a payload through the standard interfaces (24 V logic, I²C, CAN, RS485, USB, Ethernet,
+  Wi-Fi, and 24 V safety/e-stopped).</figcaption>
+</figure>
+
+- **Diagram source (Figma):** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — anyone with the link can view and export it. (This board also holds the payload-integrated baseline-full-robot version, which will land here as a second figure once it's baked.)
+
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
 - Embedded control edge: **M5StampPLC**
 - Mobile base: mecanum drive (4 motors + 2 dual-channel ESCs) with mecanum mixer path
