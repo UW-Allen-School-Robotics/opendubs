@@ -8,6 +8,13 @@
 *The electronics bay — power distribution, drive electronics, I²C hub + level-shift, regen clamp,
 and PRISM on one grid plate. **Click to orbit/zoom the live Fusion model.***
 
+<figure class="amap amap--electronics-bay" markdown="1">
+  <div class="amap-frame" markdown="1">
+--8<-- "amap-map.html"
+  </div>
+  <figcaption>Where the <strong>Electronics Bay</strong> sits in the lower frame — see the <a href="../lower-frame/">assembly overview</a>.</figcaption>
+</figure>
+
 The electronics bay occupies the **right / lower side** of the OpenDubs base. The idea is to
 **concentrate the complex wiring in one easily accessible, well-protected place** — so most
 of the fiddly interconnects live here rather than scattered around the robot.

@@ -12,6 +12,13 @@
     safety + PPE guidance:
     [ECO-WORTHY battery manual (PDF)](https://cdn.shopify.com/s/files/1/0253/9752/6580/files/48V_50AH_Rack_Battery_Instruction_Manual.pdf?v=1752224364).
 
+<figure class="amap amap--battery" markdown="1">
+  <div class="amap-frame" markdown="1">
+--8<-- "amap-map.html"
+  </div>
+  <figcaption>Where the <strong>Main Battery</strong> sits in the lower frame — see the <a href="../lower-frame/">assembly overview</a>.</figcaption>
+</figure>
+
 ## At a glance
 
 | | |

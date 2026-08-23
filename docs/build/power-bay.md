@@ -9,6 +9,13 @@ The power bay is **simple**: it holds the **drive-bus distribution** and nothing
 **24 V 60 A DC/DC converter** feeds into the bay from outside, and everything in the bay sits
 **behind the e-stop contactor** — so the whole bus de-energizes on e-stop.
 
+<figure class="amap amap--power-bay" markdown="1">
+  <div class="amap-frame" markdown="1">
+--8<-- "amap-map.html"
+  </div>
+  <figcaption>Where the <strong>Power Bay</strong> sits in the lower frame — see the <a href="../lower-frame/">assembly overview</a>.</figcaption>
+</figure>
+
 !!! danger "Live power — wire it de-energized"
     Build and wire the power bay with **the DC/DC input disconnected / bus de-energized**.
     Everything here is on the **drive-24 V rail behind the e-stop contactor** (see the

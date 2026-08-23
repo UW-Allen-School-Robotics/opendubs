@@ -1,9 +1,8 @@
 # Pinpoint Odometry
 
-<figure markdown="span">
-  ![Pinpoint odometry module — placeholder](../assets/build/placeholder-hero.svg)
-  <figcaption><em>Hero — replace with a CAD render or completed-module photo.</em></figcaption>
-</figure>
+<div class="embed-facade is-placeholder" style="--embed-aspect: 62%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028114c8db9bea74064c0?mode=embed" data-title="Pinpoint odometry module — Fusion 3D viewer">
+  <span class="embed-facade__play">▶ Open the interactive 3D model — Pinpoint module</span>
+</div>
 
 !!! info "Optional module — one of several odometry options"
     Like the [OTOS sensor](otos.md), the Pinpoint dead-wheel system is **optional** — one of

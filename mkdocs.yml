@@ -48,6 +48,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
+  - pymdownx.snippets:
+      base_path: ["includes"]
+      check_paths: true
 
 nav:
   - Home: index.md
@@ -58,6 +61,7 @@ nav:
       - Power & data: interfaces/power-data.md
       - Command & telemetry: interfaces/command-telemetry.md
   - Assembly Guide:
+      - Lower Frame Assembly (overview): build/lower-frame.md
       - 1 · Base Frame: build/base-frame.md
       - 2 · Electronics Bay: build/electronics-bay.md
       - 3 · Power Bay: build/power-bay.md

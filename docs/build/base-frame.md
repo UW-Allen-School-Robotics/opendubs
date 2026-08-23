@@ -10,6 +10,13 @@ also **defines the robot's coordinate origin** (see
 [Coordinate frames & naming](../naming-frames.md)), so get the orientation right
 before anything else goes on.
 
+<figure class="amap amap--base-frame" markdown="1">
+  <div class="amap-frame" markdown="1">
+--8<-- "amap-map.html"
+  </div>
+  <figcaption>Where the <strong>Base Frame</strong> sits in the lower frame — see the <a href="../lower-frame/">assembly overview</a>.</figcaption>
+</figure>
+
 ## The goBILDA (ServoCity) system
 
 This robot is built on **goBILDA** structural components (sold through
