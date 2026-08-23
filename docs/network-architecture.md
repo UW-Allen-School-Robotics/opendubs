@@ -1,162 +1,102 @@
-# Network Architecture — Connectivity, Access Control & Security
+# Network architecture
 
-**Status: design — not yet implemented.** Deployment context: the robot(s) run
-mostly at **UW / Allen School (CSE)**. Companion to
-[control-authority.md](control-authority.md),
-hardening-roadmap.md (track 6 deploy/ops),
-capability-backlog.md (#3 onboard WiFi).
+**Status: design — not fully implemented.** How the robot connects, keeps its internal ROS network
+private, and controls who can reach what.
 
-> UW network *policy* specifics (client isolation, NAT, inbound rules) should be
-> **confirmed with CSE-IT / UW-IT** — the postures below are the usual shape, not
-> a guarantee.
+<div style="position: relative; padding-bottom: 60%; height: 0; overflow: hidden; border: 1px solid var(--md-default-fg-color--lightest); border-radius: 0.2rem; margin: 1em 0;">
+  <iframe style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0;" src="https://embed.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=46-2423&embed-host=opendubs-docs" allowfullscreen loading="lazy" title="OpenDubs network architecture (Figma)"></iframe>
+</div>
 
-## Two boundaries (keep them separate)
+- **Diagram source (Figma):** [OpenDubs board — network architecture](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=46-2423) — anyone with the link can view and export it.
 
-- **A — Uplink:** how the robot reaches campus/internet.
-- **B — Onboard island:** the private LAN where the Thor, StampLC,
-  cameras, and teleop live.
+## Two boundaries — keep them separate
 
-Decide them independently: **CSE for A, self-hosted dedicated router for B.**
+- **A — Uplink:** how the robot reaches the internet / your site network.
+- **B — Onboard island:** the private LAN where the Thor, StampPLC, cameras, and teleop live.
 
-## Part 1 — Uplink: which campus network
+Decide them independently.
 
-| Network | Auth | Inbound reachability | Use as |
-|---|---|---|---|
-| **eduroam** | 802.1X, per-*user* creds | none (isolated + NAT'd); also bakes a personal NetID into a shared robot | last-resort egress only |
-| **UWMPSK** | per-*device* PSK (reg. to NetID) | usually isolated/NAT'd → none | clean headless egress (no 802.1X supplicant) |
-| **CSE / Allen School** (wired + wireless) | MAC-registered → `XXX.cs.washington.edu` | **yes** — stable DNS, CSE-IT firewall policy, on-campus/VPN-gated | **management + access home** |
+## The onboard island — self-hosted, but not on the Thor
 
-**Decision:** home network = **CSE** (registered hostnames; CSE-IT owns firewall
-policy = the institutional "cut access" lever; the only option with real
-reachability + governance). **UWMPSK = opportunistic egress** when roaming out of
-CSE wireless coverage (better than eduroam for headless: per-device PSK, no
-enterprise supplicant, no personal credential on the robot). **eduroam = fallback
-uplink only**, never an access path. On eduroam/UWMPSK inbound is impossible
-anyway — don't fight it; reach the robot via its CSE hostname or the fleet VPN.
+**Run a private LAN on the robot.** ROS 2's **DDS discovery is multicast and chatty**, and
+camera / LIDAR / pointcloud topics are fat — that traffic must **not** cross your site WiFi (it
+floods it, and client isolation breaks DDS discovery). So the ROS graph lives on a private on-robot
+LAN. You get internal comms that stay solid regardless of site coverage (including outdoors), and
+**one controllable wall** between the robot internals (never internet-facing) and the outside.
 
-## Part 2 — Onboard island: self-host, but NOT on the Thor
+**Don't make the Thor the access point** — it's a *client* on the LAN. AP+STA on one radio is
+unreliable / half-duplex, it couples network uptime to the autonomy compute, and it gives you no
+wired switch ports for the Thor, Ethernet cameras, or a docking uplink.
 
-**Self-host: yes.**
-- ROS 2 **DDS discovery is multicast + chatty** and camera/LIDAR/pointcloud topics
-  are fat — must NOT traverse campus WiFi (floods it; client isolation breaks
-  discovery). The ROS graph lives on a private LAN.
-- **Mobility:** internal comms stay solid regardless of campus coverage (incl.
-  outdoors between buildings).
-- **One controllable security wall** between robot internals (never internet-facing)
-  and the outside.
+**Use one dedicated onboard router** — a single box (router + switch + AP), not a stack, because the
+power/packaging budget is tight (one battery + DC/DC rails) so device count matters. What it needs:
 
-**NOT the Thor as AP** — the Thor is a *client* on the LAN:
-- AP+STA on one radio is unreliable/half-duplex (want uplink + local AP on separate
-  radios); hostapd couples network uptime to the autonomy compute; no wired switch
-  ports for Thor / Ethernet cameras / docking uplink.
+- **≥3 wired ports** — the built-in switch is the wired fan-out (Thor, cameras, docking uplink).
+- **Dual-band = "two radios"** — a station (STA) uplink to your site network on one band, and a
+  **local-control AP** (its own SSID, works anywhere) on the other. Don't run uplink + AP on one band.
+- **External antennas** — the base is mostly metal, so mount the radio inside and relocate just the
+  antennas to a non-occluded spot.
+- **A VPN** (e.g. WireGuard) for secure remote / fleet access with zero inbound exposure.
+- **Power it off the always-on logic rail** (upstream of the e-stop contactor) so the network
+  survives an e-stop. Confirm the router's DC-input range and add a buck from the logic rail if needed.
+- PoE-out is a nice-to-have (powers a PoE camera; most depth cams are USB anyway).
 
-**Dedicated onboard router — chosen: MikroTik hAP ax³** ([product page](https://mikrotik.com/product/hap_ax3)).
-A single box, not a router+switch+AP stack — the power/packaging budget is tight (one
-~52 V battery + DC/DC rails), so device count matters. Why it fits the stated requirements:
-- **One device, ≥3 ports:** 4× GbE + 1× 2.5G (the 2.5G → Thor). The built-in switch
-  ports are the wired fan-out (cameras, docking uplink). An
-  *external DIN-rail managed switch* (e.g. Teltonika TSW202) is acceptable **only as
-  an experimentation add-on** if a class needs many wired devices — not the baseline.
-- **Dual-band = the "two radios":** STA uplink to campus on one band, local-control
-  AP (own SSID, works anywhere) on the other. Don't run uplink + AP on the same band.
-- **PoE-out (15 W total)** on the 2.5G port — powers one modest PoE device (verify
-  vs. the actual camera; most depth cams are USB, not PoE).
-- **External antennas** (relocatable via RP-SMA extensions) — the base is mostly
-  metallic, so mount the radio in the base and move just the antennas to a
-  non-occluded spot (corner post / short stub). WiFi 6, WPA3.
-- **WireGuard** (RouterOS native) for secure remote/fleet access, zero inbound exposure.
-- **Powered off the logic mini-PDH** (upstream of the e-stop contactor) so the
-  network survives an e-stop. **Verify the ax³ DC-input range** and add a buck from
-  the ~20–24 V logic rail if needed (unlike the Teltonika RUTX10's native 9–50 V,
-  the ax³'s input is narrower — confirm before wiring).
+*(The baseline uses a single small MikroTik hAP; any router meeting the above works.)*
 
-*Runner-up was the Teltonika RUTX10* (industrial DIN box, native 9–50 V reverse-
-polarity input — bolts straight to the battery rail) — lost on no PoE-out, WiFi 5,
-and higher cost. Reconsider if industrial packaging / direct-battery input ever
-outweigh PoE + cost. (Not a "standard"; chosen on requirement fit.)
+## The uplink
 
-## Connectivity plan & firewall zones
+The router's **WAN interface is the only thing that touches your site network** — from that
+network's view, one robot = one device (the router), with all internal traffic NAT'd out behind it.
+Use whatever uplink your site offers, in priority order — a **wired dock**, **WiFi**, or **cellular**
+(later). Reaching *into* the robot is done by connecting **to the router** over the VPN, which routes
+to the private subnet; internals are never directly addressable from outside.
 
-The router is the **gateway, NAT boundary, and the campus-facing identity**. The
-thing that associates to CSE (registered MAC → `robotN.cs.washington.edu`) is the
-router's WAN interface; the Thor and internals are **never individually on campus**
-— from CSE-IT's view one robot = one registered host (the router), with all internal
-traffic NAT'd out behind it. To reach *into* the robot, an admin connects **to the
-router** (WireGuard) which routes to the private subnet; internals are never directly
-addressable from outside.
+## Firewall zones
 
-```
-   WAN (uplinks, priority): ① wired dock → CSE wired  ② WiFi-STA → CSE/UWMPSK  ③ LTE (later)
-                                   │  NAT · stateful firewall · DNS/DHCP · WireGuard endpoint
-                 ┌─────────────────┴─────────────────┐
-        LAN-CORE (trusted 10.42.N.0/24)        STUDENT VLAN (guest SSID, isolated)
-        Thor(2.5G) · cameras ·       student laptops/phones
-        StampLC-bridge · ROS/DDS island
-```
+The router is the **gateway, NAT boundary, and site-facing identity.**
 
-**"Outbound-only" = stateful NAT, not "nothing comes back."** The firewall blocks
-*unsolicited* inbound, not replies. Updates/downloads (apt, pip, ROS pkgs, container
-pulls, NTP, model weights) are **outbound-initiated**, so they're permitted by the
-`LAN-core → WAN` rule + ESTABLISHED/RELATED — **no inbound hole needed**. Campus auth
-(UWMPSK PSK / CSE MAC-reg / eduroam 802.1X with a *service* identity, not a personal
-NetID) happens at the router's STA uplink, invisible to the internals.
+**"Outbound-only" = stateful NAT, not "nothing comes back."** The firewall blocks *unsolicited*
+inbound, not replies — so updates/downloads (apt, pip, ROS packages, container pulls, NTP) work
+outbound with **no inbound hole needed.**
 
 | From → To | Policy |
 |---|---|
 | LAN-core → WAN | **ALLOW** (stateful) — updates/downloads live here |
 | WAN → internal | **DROP new**; ESTABLISHED/RELATED only |
 | LAN-core → LAN-core | ALLOW (the ROS island) |
-| Admin (WireGuard peer) → LAN-core | ALLOW |
-| Student → dashboard :8080 (+ optional teleop / Foxglove RO) | ALLOW (narrow allowlist) |
-| Student → rest of LAN-core (ROS svcs, StampLC, SSH) | **DENY** |
-| Student → WAN (internet) | **DENY** (robot uplink is for the robot, not a hotspot) |
-| Student → Student | DENY (client isolation) |
+| Admin (VPN peer) → LAN-core | ALLOW |
+| Guest → dashboard `:8080` (+ optional teleop / Foxglove read-only) | ALLOW (narrow allowlist) |
+| Guest → rest of LAN-core (ROS services, StampPLC, SSH) | **DENY** |
+| Guest → internet | **DENY** (the uplink is for the robot, not a hotspot) |
+| Guest → Guest | DENY (client isolation) |
 
-**Policy levers:**
-- **Student internet = denied by default** (decided) — students reach the application
-  surface only, not the internet (avoids campus AUP/bandwidth issues + NAT'ing student
-  traffic under our registered host). Easy to relax later.
-- **Bulk-download / update gating = noted, NOT enforced** (decided) — egress is allowed
-  continuously; too much dev work ahead to bottleneck updates to the dock. Revisit as
-  an ops policy (update-while-docked) once the build settles.
-- *Later hardening:* **egress allowlisting** (restrict the Thor's outbound to known
-  destinations) to shrink blast radius — not now; wide-open egress + default-deny
-  ingress is the fine baseline.
+## Access control
 
-## Access control — grant/revoke as a policy knob
+- **Users never touch robot internals** — only a defined application surface: the kiosk dashboard
+  (HTTP), an optional teleop endpoint, optional Foxglove read-only. ROS actuator services, StampPLC
+  command endpoints, and SSH stay LAN-only / admin-only.
+- **Cut-off is one action** — disable the guest SSID, revoke a VPN peer, flip a router firewall rule,
+  or disable the dashboard's guest role — instantly, and fleet-wide if centrally managed.
 
-- **Students never touch robot internals.** Defined application surface only: the
-  kiosk dashboard (HTTP), optional teleop endpoint, optional Foxglove read-only.
-  ROS actuator services, StampLC command endpoints, SSH → LAN-only / admin-only.
-- **Cut-off = one action:** disable the student SSID / revoke a WireGuard peer /
-  flip a router firewall rule / disable the dashboard student role — instantly,
-  fleet-wide if centrally managed.
+## Fleet (several robots)
 
-## Fleet (several robots for a class)
+- Per-robot subnet (e.g. `10.42.<robot-id>.0/24`) — no collisions; each robot's dashboard is
+  predictably addressable.
+- A small **fleet VPN** (each robot a VPN peer to a coordinator) for management.
 
-- Per-robot subnet plan, e.g. `10.42.<robot-id>.0/24` — no collisions; robot N's
-  dashboard predictably addressable.
-- CSE-IT-registered hostnames per unit; small **fleet VPN** (each robot a WireGuard
-  peer to a coordinator) for management.
+## Secure it before you expose it
 
-## Security debt in what we already run (fix before exposure)
+The baseline runs some services open on the trusted LAN. **Before exposing the robot to any
+untrusted user, close these:**
 
-1. **Dashboard has no authN** (`uvicorn --host 0.0.0.0:8080`). Fine on a trusted
-   LAN; **add auth before any student-facing exposure.**
-2. **rosbridge (:9090) + foxglove (:8765) bind `0.0.0.0`, no auth** → bind to the
-   LAN interface + firewall from WAN (enforces the existing "onboard network only"
-   convention).
-3. **Default-deny inbound at the router WAN.** Robot initiates outbound only
-   (updates, NTP, VPN dial-out). ROS/DDS/StampLC never WAN-reachable.
+1. **The dashboard has no authentication** (`uvicorn 0.0.0.0:8080`) — fine on a trusted LAN; **add
+   auth before any user-facing exposure.**
+2. **rosbridge (`:9090`) and Foxglove (`:8765`) bind `0.0.0.0` with no auth** — bind them to the LAN
+   interface and firewall them off the WAN.
+3. **Default-deny inbound at the router WAN** — the robot initiates outbound only (updates, NTP, VPN
+   dial-out); ROS / DDS / StampPLC are never WAN-reachable.
 
-## Open decisions
+## See also
 
-- ~~Router SKU~~ → **decided: MikroTik hAP ax³** (single device). Pre-buy checks:
-  exact DC-input range (buck from logic rail?), RP-SMA connector match for antenna
-  extensions, and whether 15 W PoE-out covers the actual camera (or it's USB anyway).
-- **Cellular** for true off-campus — deferred (out of scope now). If needed later,
-  add via a USB LTE modem on the ax³ or a cellular-capable router (Teltonika RUTX11).
-- Central fleet management: CSE-IT-managed policy vs. our own coordinator/VPN vs. both.
-- Dashboard auth mechanism (CSE SSO / OIDC vs. local accounts vs. reverse-proxy auth).
-- Whether teleop/VR (capability-backlog #7) gets a dedicated high-rate path/VLAN.
-- Docking connector (power + gigabit) mechanical design.
+- [Control authority & modes](control-authority.md)
+- [Power & data interface](interfaces/power-data.md) — the comms buses a payload can use.
