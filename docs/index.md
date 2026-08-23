@@ -67,7 +67,7 @@ mostly off-the-shelf parts.
 - [System overview](system-overview.md) · [Coordinate frames & naming](naming-frames.md)
 - [Control authority & modes](control-authority.md) · [State machines](state-machines.md)
 - [Localization & sensor fusion](localization-fusion.md) · [Network architecture](network-architecture.md)
-- Safety & power: [ESC / PWM safety](pwm-esc-safety.md) · [Regen clamp sizing](regen-clamp-sizing.md) · [REV PDH / CAN](rev-pdh-can-feasibility.md)
+- Safety & power: [ESC / PWM safety](pwm-esc-safety.md) · [Regen clamp sizing](regen-clamp-sizing.md)
 
 ## Status
 

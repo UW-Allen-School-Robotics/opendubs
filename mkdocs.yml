@@ -82,7 +82,6 @@ nav:
       - Power architecture: power-architecture.md
       - E-stop system: e-stop.md
       - ESC / PWM safety: pwm-esc-safety.md
-      - REV PDH / CAN feasibility: rev-pdh-can-feasibility.md
       - Regen clamp sizing: regen-clamp-sizing.md
   - Software & Bring-up:
       - Thor setup: thor-setup.md

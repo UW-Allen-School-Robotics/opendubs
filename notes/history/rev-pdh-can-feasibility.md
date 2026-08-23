@@ -1,3 +1,9 @@
+> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this feasibility question is
+> resolved. The PDH ↔ StampPLC CAN path is **implemented**: the firmware sniffs `[PDH]` telemetry
+> (bus voltage / current / power) and has `PDH_SWITCH` / `PDH_CLEAR_FAULTS` commands. The only live
+> question is a cost/utility **option** — the REV PDH **or** a cheaper fuse block — which lives on
+> the Power Bay build page (`docs/build/power-bay.md`), not here.
+
 # REV PDH CAN Feasibility (StampPLC Path)
 
 ## Objective
