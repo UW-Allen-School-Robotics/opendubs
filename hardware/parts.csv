@@ -18,6 +18,8 @@ m4x8-shcs,"M4 x 8 mm socket-head screw (bulk)",fastener,,,shared,2-3 packs,recom
 m4x10-shcs,"M4 x 10 mm socket-head screw (bulk)",fastener,,,shared,2-3 packs,recommended,https://a.co/d/07bUYr2o,"105-count pack; DEGREASE before use"
 m4-caphead,"M4 cap-head screw assortment",fastener,,,shared,1 assortment,optional,,"Some parts use cap-head M4 (installed with a 2.5 mm hex); buy an assortment"
 m3-shcs,"M3 socket-head screw assortment",fastener,,,shared,1 assortment,optional,,"For non-goBILDA parts; not used in the base frame"
+ppe-glasses,"Safety glasses (PPE)",tool,,,shared,1,required,,"Wear during ALL assembly — cutting, wiring, battery handling"
+ppe-gloves,"Work gloves (PPE)",tool,,,shared,1,required,,"Protect hands during assembly, wiring, and battery handling"
 tool-hex3,"3 mm hex wrench (4-pack)",tool,,,shared,1,required,https://a.co/d/028aG2GM,"Minimum tool; builds the frame by hand (~$7)"
 tool-driver,"Rechargeable hex driver (incl. 3 mm bit)",tool,,,shared,1,recommended,https://a.co/d/06aqx7Jc,"Much faster for the bulk of the screws"
 tool-hex25,"2.5 mm hex wrench / bit",tool,,,shared,1,recommended,,"For M4 cap-head screws"

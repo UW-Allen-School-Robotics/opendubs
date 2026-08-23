@@ -58,6 +58,16 @@ the grid plate with **M4 screws**.
 - **View in browser (Fusion):** <https://a360.co/4wDfT1I> — or click the hero above to load it inline.
 - **Download:** *TODO — export STEP + the two printed-part STLs into `hardware/`*
 
+## Wiring
+
+The bay's bus + wiring layout — pan/zoom the live board:
+
+<div style="position: relative; padding-bottom: 60%; height: 0; overflow: hidden; border: 1px solid var(--md-default-fg-color--lightest); border-radius: 0.2rem; margin: 1em 0;">
+  <iframe style="position: absolute; inset: 0; width: 100%; height: 100%; border: 0;" src="https://embed.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=35-1657&embed-host=opendubs-docs" allowfullscreen loading="lazy" title="Electronics bay wiring (Figma)"></iframe>
+</div>
+
+- **Diagram source (Figma):** [OpenDubs board — electronics bay](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=35-1657) — anyone with the link can view and export it.
+
 ## Bill of materials
 
 !!! note "Generated from `hardware/parts.csv`"

@@ -65,6 +65,8 @@ tool links are examples, any equivalent works.
 <!-- BOM-AUTO:purchase:tools -->
 | Item | Need | Qty | Source | Notes |
 |---|---|---|---|---|
+| Safety glasses (PPE) | required | 1 | — | Wear during ALL assembly — cutting, wiring, battery handling |
+| Work gloves (PPE) | required | 1 | — | Protect hands during assembly, wiring, and battery handling |
 | 3 mm hex wrench (4-pack) | required | 1 | [buy](https://a.co/d/028aG2GM) | Minimum tool; builds the frame by hand (~$7) |
 | Rechargeable hex driver (incl. 3 mm bit) | recommended | 1 | [buy](https://a.co/d/06aqx7Jc) | Much faster for the bulk of the screws |
 | 2.5 mm hex wrench / bit | recommended | 1 | — | For M4 cap-head screws |
