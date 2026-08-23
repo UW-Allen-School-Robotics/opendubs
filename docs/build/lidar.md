@@ -1,4 +1,4 @@
-# 6 · Lidar — Front & Rear
+# Lidar — Front & Rear
 
 <figure markdown="span">
   ![Lidar mounts (front & rear) — placeholder](../assets/build/placeholder-hero.svg)

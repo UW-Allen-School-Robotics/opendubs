@@ -1,4 +1,4 @@
-# 3 · Pinpoint Odometry
+# Pinpoint Odometry
 
 <figure markdown="span">
   ![Pinpoint odometry module — placeholder](../assets/build/placeholder-hero.svg)
@@ -8,6 +8,8 @@
 !!! info "Optional module — one of several odometry options"
     Like the [OTOS sensor](otos.md), the Pinpoint dead-wheel system is **optional** — one of
     several spatial / odometry sources. Build it if you want wheel-independent odometry.
+    **Install timing:** the dead-wheel pods ride against the floor, so this goes on **toward the
+    end** of the build, once the frame is up on its wheels.
 
 The **Pinpoint** system — the goBILDA
 [4-Bar Odometry Pack](https://www.servocity.com/4-bar-odometry-pack-2-pods-1-pinpoint-computer/)

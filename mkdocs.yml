@@ -59,12 +59,19 @@ nav:
       - Command & telemetry: interfaces/command-telemetry.md
   - Assembly Guide:
       - 1 · Base Frame: build/base-frame.md
-      - 2 · OTOS Sensor: build/otos.md
-      - 3 · Pinpoint Odometry: build/pinpoint.md
-      - 4 · Electronics Bay: build/electronics-bay.md
-      - 5 · Power Bay: build/power-bay.md
-      - 6 · Lidar (Front & Rear): build/lidar.md
-      - 7 · RC Receiver: build/rc-receiver.md
+      - 2 · Electronics Bay: build/electronics-bay.md
+      - 3 · Power Bay: build/power-bay.md
+      - 4 · Charger Port Integration: build/charger-port.md
+      - 5 · Cooling Fan Integration: build/cooling-fan.md
+      - 6 · Compute & USB Installation: build/compute-usb.md
+      - 7 · Wheel Install: build/wheel-install.md
+      - 8 · OTOS Module: build/otos.md
+      - 9 · Battery Install: build/battery-install.md
+      - 10 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
+      - Upper Frame Assembly: build/upper-frame.md
+      - Pinpoint Odometry: build/pinpoint.md
+      - Lidar (Front & Rear): build/lidar.md
+      - RC Receiver: build/rc-receiver.md
   - Build & Flash:
       - Flash a StampPLC: flashing-stamplc.md
       - Drive bring-up (channel → ESC → wheel): drive-bringup.md

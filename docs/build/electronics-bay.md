@@ -1,4 +1,4 @@
-# 4 · Electronics Bay
+# 2 · Electronics Bay
 
 <div class="embed-facade" markdown="1" style="--embed-aspect: 63%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811a889c3ad720963ae?mode=embed" data-title="Electronics bay — Fusion 3D viewer">
 ![OpenDubs electronics bay CAD — click to open the interactive Fusion 3D viewer](../assets/build/electronics-bay/hero.png)

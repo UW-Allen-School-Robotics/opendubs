@@ -1,4 +1,4 @@
-# 5 · Power Bay
+# 3 · Power Bay
 
 <figure markdown="span">
   ![Power bay module — placeholder](../assets/build/placeholder-hero.svg)

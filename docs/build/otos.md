@@ -1,4 +1,4 @@
-# 2 · OTOS Sensor
+# 8 · OTOS Module
 
 <div class="embed-facade" markdown="1" style="--embed-aspect: 78%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811c1903895fbcdd3cf?mode=embed" data-title="OTOS module — Fusion 3D viewer">
 ![OTOS sensor module — click to open the interactive Fusion 3D viewer](../assets/build/otos/hero.png)
@@ -32,6 +32,7 @@ recommended **10 mm** height above the ground plane.
     | **Difficulty** | Beginner–intermediate (a little wiring) |
     | **Prerequisites** | [Base Frame](base-frame.md) |
     | **Mates to** | Frame underside; M5 I2C (Grove) |
+    | **Install timing** | Assemble any time; it mounts to the frame **underside**, so install *after* the [wheels](wheel-install.md) are on (step 7) — or with the robot jacked up for clearance |
     | **Optional?** | Yes — one of several odometry sources |
 
 ## CAD & 3D model
