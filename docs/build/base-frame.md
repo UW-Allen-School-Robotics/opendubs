@@ -53,9 +53,9 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
     apart and see how the pieces fit together — often the fastest way to understand
     a step before you pick up a tool.
 
-<div class="embed-facade" style="--embed-aspect: 52%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811afb16efe62183c83?mode=embed" data-title="Basic Lower Frame — Fusion 3D viewer">
-  <img src="../assets/build/base-frame/cad-explode.png" alt="Base frame CAD — click to open the interactive Fusion 3D viewer (orbit, zoom, explode)" loading="lazy">
-  <span class="embed-facade__play">▶ Open the interactive 3D model</span>
+<div class="embed-facade" markdown="1" style="--embed-aspect: 52%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811afb16efe62183c83?mode=embed" data-title="Basic Lower Frame — Fusion 3D viewer">
+![Base frame CAD — click to open the interactive Fusion 3D viewer (orbit, zoom, explode)](../assets/build/base-frame/cad-explode.png)
+<span class="embed-facade__play">▶ Open the interactive 3D model</span>
 </div>
 
 *Click the model above to load the live Fusion viewer in place — then orbit/zoom, and hit
@@ -88,6 +88,7 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
 | [U-channel, 25-hole, 624 mm](https://www.servocity.com) | `1120-0025-0624` | 2 | Frame long side rails |
 | [U-channel, 17-hole, 432 mm](https://www.servocity.com) | `1120-0017-0432` | 3 | Cross rails (three lower-rail assemblies) |
 | [Quad block mount](https://www.servocity.com/1201-series-quad-block-pattern-mount-43-2/) | `1201-0043-0002` | 10 | 6 for lower rails + 4 for drive assemblies |
+| [1118 Series Open goRAIL, 192 mm](https://www.servocity.com/1118-series-open-gorail-192mm-length/) | `1118-0024-0192` | 4 | 192 mm open goRAIL (T-slot extrusion); 4 per frame |
 
 **Drive assembly (x4)**
 

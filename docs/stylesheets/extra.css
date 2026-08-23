@@ -57,6 +57,7 @@
   border-radius: 0.2rem;
 }
 .embed-facade img { display: block; width: 100%; height: auto; }
+.embed-facade p { margin: 0; line-height: 0; }   /* markdown="1" wraps the poster <img> in a <p> */
 .embed-facade__play {
   position: absolute;
   left: 50%;

@@ -2,6 +2,7 @@ id,name,type,group,sku,module,qty,need,source,notes
 uch-25h-624,"U-channel, 25-hole, 624 mm",structure,Frame structure,1120-0025-0624,base-frame,2,,https://www.servocity.com,"Frame long side rails"
 uch-17h-432,"U-channel, 17-hole, 432 mm",structure,Frame structure,1120-0017-0432,base-frame,3,,https://www.servocity.com,"Cross rails (three lower-rail assemblies)"
 quad-block,"Quad block mount",structure,Frame structure,1201-0043-0002,base-frame,10,,https://www.servocity.com/1201-series-quad-block-pattern-mount-43-2/,"6 for lower rails + 4 for drive assemblies"
+gorail-192,"1118 Series Open goRAIL, 192 mm",structure,Frame structure,1118-0024-0192,base-frame,4,,https://www.servocity.com/1118-series-open-gorail-192mm-length/,"192 mm open goRAIL (T-slot extrusion); 4 per frame"
 hub-shaft,"Hub shaft",structure,Drive assembly (x4),2110-0608-0002,base-frame,4,,https://www.servocity.com,"1 per drive assembly"
 bearing-6id,"Bearing, 6 mm ID",structure,Drive assembly (x4),1611-0514-0006,base-frame,4,,https://www.servocity.com,"1 per drive assembly"
 bearing-8,"Bearing, 8 mm",structure,Drive assembly (x4),1611-0514-0008,base-frame,4,,https://www.servocity.com,"1 per drive assembly"
