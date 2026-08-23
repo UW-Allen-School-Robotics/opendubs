@@ -3,9 +3,16 @@
 This page captures safety constraints and required fallback behavior for PWM
 output to drive and mast ESCs.
 
+## The hardware
+
+The drive ESCs are the **[goBILDA 2×80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf)**
+(SKU `3105-0202-0080`), driven by PWM from the **[M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit)**
+(I²C `0x25`) commanded by the StampPLC. Both are wired together in the
+**[Electronics Bay](build/electronics-bay.md)**.
+
 ## Known ESC Signal Constraints
 
-From current ESC references used by the team:
+From the goBILDA 2×80A ESC datasheet (linked above):
 
 - Nominal center deadzone: `1500 +/- 10 us`
 - Valid signal input range: `500..2500 us`
@@ -48,6 +55,8 @@ Bench-validation checklist (required before finalizing timings):
 
 ## Related Topics
 
+- [Electronics Bay](build/electronics-bay.md) — where the ESCs + 8Servo are wired together
+- [Drive bring-up (channel → ESC → wheel)](drive-bringup.md)
 - [Control Authority and Modes](control-authority.md)
 - [Robot and Subsystem State Machines](state-machines.md)
 - Telemetry specification (archived — see firmware README for the current tags)
