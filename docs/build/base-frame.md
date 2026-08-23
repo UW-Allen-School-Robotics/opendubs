@@ -53,10 +53,13 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
     apart and see how the pieces fit together — often the fastest way to understand
     a step before you pick up a tool.
 
-<figure markdown="span">
-  ![Fusion viewer with the Explode Model button highlighted in the bottom toolbar](../assets/build/base-frame/cad-explode.png)
-  <figcaption>The <strong>Explode Model</strong> button lives in the Fusion viewer's bottom toolbar.</figcaption>
-</figure>
+<div class="embed-facade" style="--embed-aspect: 52%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811afb16efe62183c83?mode=embed" data-title="Basic Lower Frame — Fusion 3D viewer">
+  <img src="../assets/build/base-frame/cad-explode.png" alt="Base frame CAD — click to open the interactive Fusion 3D viewer (orbit, zoom, explode)" loading="lazy">
+  <span class="embed-facade__play">▶ Open the interactive 3D model</span>
+</div>
+
+*Click the model above to load the live Fusion viewer in place — then orbit/zoom, and hit
+**Explode Model** (the box icon in the bottom toolbar) to pull the assembly apart.*
 
 - **Download:** export a STEP from the Fusion link into `hardware/` for offline reference. *(TODO: add exported STEP/STL)*
 

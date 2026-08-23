@@ -1,15 +1,17 @@
-// Figma facade: a static poster image that swaps to the live, pan/zoom Figma
-// embed when the reader clicks it. Keeps pages light + offline-friendly by
-// default (just an <img>), and loads the heavy Figma iframe only on demand.
+// Embed facade: a static poster image that swaps to a live, interactive embed
+// (Figma board, Autodesk Fusion viewer, or any iframe-able URL) when the reader
+// clicks it. Keeps pages light + offline-friendly by default (just an <img>), and
+// loads the heavy iframe only on demand.
 //
-// Usage in a page (raw HTML, md_in_html is enabled):
-//   <div class="figma-facade" data-embed="<figma embed url>" data-title="...">
-//     <img src="assets/diagrams/foo.png" alt="..." loading="lazy">
-//     <span class="figma-facade__play">▶ Pan &amp; zoom the live board</span>
+// Usage in a page (raw HTML; md_in_html is enabled):
+//   <div class="embed-facade" data-embed="<iframe url>" data-title="..."
+//        style="--embed-aspect: 62%">
+//     <img src="assets/.../poster.png" alt="..." loading="lazy">
+//     <span class="embed-facade__play">▶ Explore the live model</span>
 //   </div>
 (function () {
   function init() {
-    document.querySelectorAll(".figma-facade").forEach(function (el) {
+    document.querySelectorAll(".embed-facade").forEach(function (el) {
       if (el.dataset.bound) return;
       el.dataset.bound = "1";
       var url = el.getAttribute("data-embed");
@@ -21,7 +23,7 @@
         var iframe = document.createElement("iframe");
         iframe.src = url;
         iframe.setAttribute("allowfullscreen", "");
-        iframe.setAttribute("title", el.getAttribute("data-title") || "Figma board");
+        iframe.setAttribute("title", el.getAttribute("data-title") || "Embedded viewer");
         el.innerHTML = "";
         el.classList.add("is-active");
         el.appendChild(iframe);

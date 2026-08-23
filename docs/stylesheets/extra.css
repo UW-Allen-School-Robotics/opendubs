@@ -41,12 +41,13 @@
   font-weight: 600;
 }
 
-/* ── Figma facade: static poster → click loads the live pan/zoom embed ────────
+/* ── Embed facade: static poster → click loads a live interactive embed ───────
    A lightweight poster <img> by default (fast, offline-friendly); on click the
-   heavy Figma iframe loads in place and the reader pans/zooms like in Figma.
-   Reusable — any page drops a .figma-facade with data-embed="<figma url>".
-   Behavior lives in javascripts/figma-facade.js. */
-.figma-facade {
+   heavy iframe loads in place — a Figma board, an Autodesk Fusion 3D viewer, or
+   any iframe-able URL. Reusable — any page drops an .embed-facade with
+   data-embed="<url>" (and optional style="--embed-aspect: NN%"). Behavior lives
+   in javascripts/embed-facade.js. */
+.embed-facade {
   position: relative;
   display: block;
   margin: 1em 0;
@@ -55,8 +56,8 @@
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.2rem;
 }
-.figma-facade img { display: block; width: 100%; height: auto; }
-.figma-facade__play {
+.embed-facade img { display: block; width: 100%; height: auto; }
+.embed-facade__play {
   position: absolute;
   left: 50%;
   bottom: 0.9rem;
@@ -71,15 +72,15 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }
-.figma-facade:hover .figma-facade__play { filter: brightness(1.1); }
-.figma-facade:focus-visible { outline: 2px solid var(--md-accent-fg-color); outline-offset: 2px; }
-/* Active: poster replaced by a responsive iframe box */
-.figma-facade.is-active {
+.embed-facade:hover .embed-facade__play { filter: brightness(1.1); }
+.embed-facade:focus-visible { outline: 2px solid var(--md-accent-fg-color); outline-offset: 2px; }
+/* Active: poster replaced by a responsive iframe box (aspect via --embed-aspect) */
+.embed-facade.is-active {
   cursor: default;
   height: 0;
-  padding-bottom: 62%;                 /* board aspect ratio (~wide) */
+  padding-bottom: var(--embed-aspect, 62%);
 }
-.figma-facade.is-active iframe {
+.embed-facade.is-active iframe {
   position: absolute;
   inset: 0;
   width: 100%;

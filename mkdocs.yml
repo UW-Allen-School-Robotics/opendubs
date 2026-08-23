@@ -35,7 +35,7 @@ extra_css:
   - stylesheets/extra.css
 
 extra_javascript:
-  - javascripts/figma-facade.js
+  - javascripts/embed-facade.js
 
 markdown_extensions:
   - admonition
