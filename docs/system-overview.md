@@ -7,19 +7,19 @@ safety decisions are consistent across repositories.
 
 ## Core Architecture
 
-The core robot as buses and interfaces — **pan and zoom the live board** below (the labels are
-small at page scale, so drag to move and scroll/pinch to zoom):
+The core robot as buses and interfaces. **Click the diagram to pan and zoom the live board** — the
+labels are small at page scale:
 
-<div class="figma-embed">
-  <iframe src="https://embed.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995&embed-host=opendubs-docs"
-    allowfullscreen loading="lazy" title="OpenDubs bus map (Figma)"></iframe>
+<div class="figma-facade" data-embed="https://embed.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995&embed-host=opendubs-docs" data-title="OpenDubs bus map (Figma)">
+  <img src="assets/diagrams/opendubs-bus-map.png" alt="OpenDubs bus map — click to pan and zoom the interactive board" loading="lazy">
+  <span class="figma-facade__play">▶ Pan &amp; zoom the live board</span>
 </div>
 
 Power + e-stop, position/spatial, teleop, control, safety/state, drive, comms, and compute —
 converging on the StampPLC and Thor, and exposed to a payload through the standard interfaces
 (24 V logic, I²C, CAN, RS485, USB, Ethernet, Wi-Fi, and 24 V safety/e-stopped).
 
-- **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the board also holds the payload-integrated baseline-full-robot version (coming soon). A static [PNG snapshot](assets/diagrams/opendubs-bus-map.png) is kept in the repo as a fallback.
+- **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the live board also includes the **payload-connected** system bus map (the poster above shows the core version). Clicking the diagram loads the full interactive board.
 
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
 - Embedded control edge: **M5StampPLC**

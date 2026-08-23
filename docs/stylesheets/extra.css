@@ -41,21 +41,45 @@
   font-weight: 600;
 }
 
-/* ── Embedded, pan/zoomable Figma boards ─────────────────────────────────────
-   Live interactive board instead of a tiny static PNG — readers pan/zoom the way
-   they would in Figma, and there's no export-to-PNG step. Responsive: the wrapper
-   holds the aspect ratio and the iframe fills it. */
-.figma-embed {
+/* ── Figma facade: static poster → click loads the live pan/zoom embed ────────
+   A lightweight poster <img> by default (fast, offline-friendly); on click the
+   heavy Figma iframe loads in place and the reader pans/zooms like in Figma.
+   Reusable — any page drops a .figma-facade with data-embed="<figma url>".
+   Behavior lives in javascripts/figma-facade.js. */
+.figma-facade {
   position: relative;
-  width: 100%;
-  padding-bottom: 62%;                 /* board aspect ratio (~wide) */
-  height: 0;
+  display: block;
   margin: 1em 0;
+  cursor: pointer;
   overflow: hidden;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.2rem;
 }
-.figma-embed iframe {
+.figma-facade img { display: block; width: 100%; height: auto; }
+.figma-facade__play {
+  position: absolute;
+  left: 50%;
+  bottom: 0.9rem;
+  transform: translateX(-50%);
+  background: var(--md-accent-fg-color, #5b6cff);
+  color: #fff;
+  border-radius: 2rem;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.figma-facade:hover .figma-facade__play { filter: brightness(1.1); }
+.figma-facade:focus-visible { outline: 2px solid var(--md-accent-fg-color); outline-offset: 2px; }
+/* Active: poster replaced by a responsive iframe box */
+.figma-facade.is-active {
+  cursor: default;
+  height: 0;
+  padding-bottom: 62%;                 /* board aspect ratio (~wide) */
+}
+.figma-facade.is-active iframe {
   position: absolute;
   inset: 0;
   width: 100%;

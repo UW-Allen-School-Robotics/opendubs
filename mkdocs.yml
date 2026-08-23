@@ -34,6 +34,9 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/figma-facade.js
+
 markdown_extensions:
   - admonition
   - attr_list
