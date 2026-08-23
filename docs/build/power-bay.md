@@ -1,8 +1,7 @@
 # 3 · Power Bay
 
 <figure markdown="span">
-  ![Power bay module — placeholder](../assets/build/placeholder-hero.svg)
-  <figcaption><em>Hero — replace with a CAD render or completed-module photo.</em></figcaption>
+  ![OpenDubs power bay — CAD render](../assets/build/power-bay/hero.png)
 </figure>
 
 The power bay is **simple**: it holds the **drive-bus distribution** and nothing else. The

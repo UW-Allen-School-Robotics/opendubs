@@ -1,7 +1,8 @@
 # Lidar — Front & Rear
 
-<div class="embed-facade is-placeholder" style="--embed-aspect: 62%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028110d9d6c06419c7583?mode=embed" data-title="Lidar module — Fusion 3D viewer">
-  <span class="embed-facade__play">▶ Open the interactive 3D model — Lidar module</span>
+<div class="embed-facade" markdown="1" style="--embed-aspect: 83.8%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028110d9d6c06419c7583?mode=embed" data-title="Lidar module — Fusion 3D viewer">
+![OpenDubs lidar module CAD — click to open the interactive Fusion 3D viewer](../assets/build/lidar/hero.png)
+<span class="embed-facade__play">▶ Open the interactive 3D model</span>
 </div>
 
 The front and rear mounts each carry a **[Slamtec RPLIDAR A1](https://www.adafruit.com/product/4010)**
