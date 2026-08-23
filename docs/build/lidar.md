@@ -1,9 +1,8 @@
 # Lidar — Front & Rear
 
-<figure markdown="span">
-  ![Lidar mounts (front & rear) — placeholder](../assets/build/placeholder-hero.svg)
-  <figcaption><em>Hero — replace with a CAD render or completed-module photo.</em></figcaption>
-</figure>
+<div class="embed-facade is-placeholder" style="--embed-aspect: 62%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028110d9d6c06419c7583?mode=embed" data-title="Lidar module — Fusion 3D viewer">
+  <span class="embed-facade__play">▶ Open the interactive 3D model — Lidar module</span>
+</div>
 
 The front and rear mounts each carry a **[Slamtec RPLIDAR A1](https://www.adafruit.com/product/4010)**
 facing outward, for 360° 2-D scan coverage. Each module is mostly **3D-printed mount parts**
