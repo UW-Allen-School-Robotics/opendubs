@@ -1,8 +1,9 @@
 # 2 · OTOS Sensor
 
 <figure markdown="span">
-  ![OTOS sensor module — placeholder](../assets/build/placeholder-hero.svg)
-  <figcaption><em>Hero — replace with a CAD render or completed-module photo.</em></figcaption>
+  ![OTOS sensor module — the 3D-printed enclosure holding the sensor and level converter](../assets/build/otos/hero.png)
+  <figcaption>The OTOS module: the sensor and Adafruit level converter in a printed enclosure that
+  holds the sensor at its 10 mm ride height above the floor.</figcaption>
 </figure>
 
 !!! info "Optional module — one of several odometry options"
