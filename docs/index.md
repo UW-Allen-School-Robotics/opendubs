@@ -68,6 +68,7 @@ mostly off-the-shelf parts.
 - [Control authority & modes](control-authority.md) · [State machines](state-machines.md)
 - [Localization & sensor fusion](localization-fusion.md) · [Network architecture](network-architecture.md)
 - Safety & power: [ESC / PWM safety](pwm-esc-safety.md) · [Regen clamp sizing](regen-clamp-sizing.md)
+- Teaching with this? [Educators & academic access](educators.md) — free/discounted CAD, compute, and parts.
 
 ## Status
 

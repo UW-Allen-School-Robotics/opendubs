@@ -8,7 +8,6 @@ theme:
   icon:
     logo: material/robot-mower
   features:
-    - navigation.sections
     - navigation.top
     - navigation.indexes
     - content.code.copy
@@ -55,6 +54,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - System overview: system-overview.md
+  - Educators: educators.md
   - Design & Interfaces:
       - Design philosophy: design-philosophy.md
       - Mechanical mount: interfaces/mechanical-mount.md
