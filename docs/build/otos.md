@@ -1,10 +1,12 @@
 # 2 · OTOS Sensor
 
-<figure markdown="span">
-  ![OTOS sensor module — the 3D-printed enclosure holding the sensor and level converter](../assets/build/otos/hero.png)
-  <figcaption>The OTOS module: the sensor and Adafruit level converter in a printed enclosure that
-  holds the sensor at its 10 mm ride height above the floor.</figcaption>
-</figure>
+<div class="embed-facade" markdown="1" style="--embed-aspect: 78%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811c1903895fbcdd3cf?mode=embed" data-title="OTOS module — Fusion 3D viewer">
+![OTOS sensor module — click to open the interactive Fusion 3D viewer](../assets/build/otos/hero.png)
+<span class="embed-facade__play">▶ Open the interactive 3D model</span>
+</div>
+
+*The OTOS module — **click to orbit/zoom the live Fusion model**. The sensor and Adafruit level
+converter sit in a printed enclosure that holds the sensor at its 10 mm ride height above the floor.*
 
 !!! info "Optional module — one of several odometry options"
     The OTOS is **optional**. It's one of several spatial / odometry sources for the robot
@@ -34,7 +36,7 @@ recommended **10 mm** height above the ground plane.
 
 ## CAD & 3D model
 
-- **View in browser (Fusion):** *TODO — add permalink*
+- **View in browser (Fusion):** <https://a360.co/3UyyBKq> — or click the hero above to load it inline.
 - **Download:** *TODO — export STEP + the enclosure STLs into `hardware/`*
 
 ## Bill of materials

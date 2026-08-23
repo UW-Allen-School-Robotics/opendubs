@@ -1,9 +1,12 @@
 # 4 · Electronics Bay
 
-<figure markdown="span">
-  ![OpenDubs electronics bay — CAD](../assets/build/electronics-bay/hero.png)
-  <figcaption><em>The electronics bay — power distribution, drive electronics, I2C hub + level-shift, regen clamp, and PRISM on one grid plate.</em></figcaption>
-</figure>
+<div class="embed-facade" markdown="1" style="--embed-aspect: 63%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811a889c3ad720963ae?mode=embed" data-title="Electronics bay — Fusion 3D viewer">
+![OpenDubs electronics bay CAD — click to open the interactive Fusion 3D viewer](../assets/build/electronics-bay/hero.png)
+<span class="embed-facade__play">▶ Open the interactive 3D model</span>
+</div>
+
+*The electronics bay — power distribution, drive electronics, I²C hub + level-shift, regen clamp,
+and PRISM on one grid plate. **Click to orbit/zoom the live Fusion model.***
 
 The electronics bay occupies the **right / lower side** of the OpenDubs base. The idea is to
 **concentrate the complex wiring in one easily accessible, well-protected place** — so most
@@ -52,7 +55,7 @@ the grid plate with **M4 screws**.
 
 ## CAD & 3D model
 
-- **View in browser (Fusion):** <https://a360.co/4wDfT1I>
+- **View in browser (Fusion):** <https://a360.co/4wDfT1I> — or click the hero above to load it inline.
 - **Download:** *TODO — export STEP + the two printed-part STLs into `hardware/`*
 
 ## Bill of materials
