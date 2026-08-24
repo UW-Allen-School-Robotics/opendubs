@@ -1,5 +1,14 @@
 # Lidar — Front & Rear
 
+!!! info "At a glance"
+    | | |
+    |---|---|
+    | **You'll build** | Front lidar (+ GPS stack) **and** rear lidar, built together |
+    | **Time** | *TODO* |
+    | **Difficulty** | Beginner |
+    | **Prerequisites** | [Base Frame](base-frame.md) |
+    | **Mates to** | Frame front/rear; USB hub (in the electronics bay) |
+
 <div class="embed-facade" markdown="1" style="--embed-aspect: 83.8%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028110d9d6c06419c7583?mode=embed" data-title="Lidar module — Fusion 3D viewer">
 ![OpenDubs lidar module CAD — click to open the interactive Fusion 3D viewer](../assets/build/lidar/hero.png)
 <span class="embed-facade__play">▶ Open the interactive 3D model</span>
@@ -16,15 +25,6 @@ identical and built at the same time**.
     above the lidar — the **rear does not**. Otherwise the difference is **position /
     orientation** and cable routing, and each unit is pinned to a stable USB **by-path** (the
     two A1s enumerate identically, so they must be distinguished by port).
-
-!!! info "At a glance"
-    | | |
-    |---|---|
-    | **You'll build** | Front lidar (+ GPS stack) **and** rear lidar, built together |
-    | **Time** | *TODO* |
-    | **Difficulty** | Beginner |
-    | **Prerequisites** | [Base Frame](base-frame.md) |
-    | **Mates to** | Frame front/rear; USB hub (in the electronics bay) |
 
 ## CAD & 3D model
 

@@ -1,5 +1,14 @@
 # 1 · Base Frame
 
+!!! info "At a glance"
+    | | |
+    |---|---|
+    | **You'll build** | The 432 × 624 mm goBILDA frame + the four drive pods (motor + miter gear + hub) |
+    | **Time** | ~TODO |
+    | **Difficulty** | Beginner |
+    | **Prerequisites** | None — this is the first build |
+    | **Mates to** | Mast, electronics tray, payload deck (later modules) |
+
 <figure markdown="span">
   ![OpenDubs base frame — CAD, wheels shown for context only](../assets/build/base-frame/hero.png)
   <figcaption>Assembly shown with wheels attached for visualization purposes — it is recommended <strong>NOT</strong> to install the wheels until significantly later in the build.</figcaption>
@@ -40,15 +49,6 @@ so there's a deep catalog of parts, CAD, and tutorials to lean on.
 
 For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes**,
 **624 mm** long — and this step uses **qty 2** of them for the long sides of the frame.
-
-!!! info "At a glance"
-    | | |
-    |---|---|
-    | **You'll build** | The 432 × 624 mm goBILDA frame + the four drive pods (motor + miter gear + hub) |
-    | **Time** | ~TODO |
-    | **Difficulty** | Beginner |
-    | **Prerequisites** | None — this is the first build |
-    | **Mates to** | Mast, electronics tray, payload deck (later modules) |
 
 ## CAD & 3D model
 

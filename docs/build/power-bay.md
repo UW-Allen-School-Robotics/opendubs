@@ -1,5 +1,14 @@
 # 3 · Power Bay
 
+!!! info "At a glance"
+    | | |
+    |---|---|
+    | **You'll build** | The drive-bus distribution (REV PDH *or* fuse block) mounted in the bay |
+    | **Time** | *TODO* |
+    | **Difficulty** | Beginner |
+    | **Prerequisites** | [Base Frame](base-frame.md) |
+    | **Mates to** | Frame; DC/DC input (from outside); e-stop contactor |
+
 <figure markdown="span">
   ![OpenDubs power bay — CAD render](../assets/build/power-bay/hero.png)
 </figure>
@@ -28,15 +37,6 @@ The power bay is **simple**: it holds the **drive-bus distribution** and nothing
     bus and reports potentially-useful telemetry — but it's arguably **overkill** for simple
     distribution. A plain **[fuse block](https://www.amazon.com/dp/B0FLJV9BDD)** is perfectly
     acceptable. We provide **3D-printed mounting parts for either**, so pick whichever you have.
-
-!!! info "At a glance"
-    | | |
-    |---|---|
-    | **You'll build** | The drive-bus distribution (REV PDH *or* fuse block) mounted in the bay |
-    | **Time** | *TODO* |
-    | **Difficulty** | Beginner |
-    | **Prerequisites** | [Base Frame](base-frame.md) |
-    | **Mates to** | Frame; DC/DC input (from outside); e-stop contactor |
 
 ## CAD & 3D model
 

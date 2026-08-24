@@ -1,5 +1,15 @@
 # Pinpoint Odometry
 
+!!! info "At a glance"
+    | | |
+    |---|---|
+    | **You'll build** | The Pinpoint + 2 pods installed in the 3D-printed housing, rear-mounted via thumb screws |
+    | **Time** | *TODO* |
+    | **Difficulty** | *TODO* |
+    | **Prerequisites** | [Base Frame](base-frame.md); riv-nuts set in the rail (follow-on step) |
+    | **Mates to** | Rear rail (exterior); I2C out to the [Electronics Bay](electronics-bay.md) |
+    | **Optional?** | Yes — one of several odometry sources |
+
 <div class="embed-facade is-placeholder" style="--embed-aspect: 62%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b6028114c8db9bea74064c0?mode=embed" data-title="Pinpoint odometry module — Fusion 3D viewer">
   <span class="embed-facade__play">▶ Open the interactive 3D model — Pinpoint module</span>
 </div>
@@ -31,16 +41,6 @@ The module hand-mounts to the rear rail with **3D-printed M10 thumb screws** tha
     of this housing build — but you need the riv-nuts and a **riv-nut tool** on hand. Choose
     **either** the [manual riv-nut tool](https://a.co/d/0am8KbEV) **or** the
     [drill attachment](https://a.co/d/09zmlaXE).
-
-!!! info "At a glance"
-    | | |
-    |---|---|
-    | **You'll build** | The Pinpoint + 2 pods installed in the 3D-printed housing, rear-mounted via thumb screws |
-    | **Time** | *TODO* |
-    | **Difficulty** | *TODO* |
-    | **Prerequisites** | [Base Frame](base-frame.md); riv-nuts set in the rail (follow-on step) |
-    | **Mates to** | Rear rail (exterior); I2C out to the [Electronics Bay](electronics-bay.md) |
-    | **Optional?** | Yes — one of several odometry sources |
 
 ## CAD & 3D model
 

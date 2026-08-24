@@ -1,5 +1,16 @@
 # 8 · OTOS Module
 
+!!! info "At a glance"
+    | | |
+    |---|---|
+    | **You'll build** | The OTOS mounted at 10 mm, level-shifted and adapted to the M5 Grove bus |
+    | **Time** | *TODO* |
+    | **Difficulty** | Beginner–intermediate (a little wiring) |
+    | **Prerequisites** | [Base Frame](base-frame.md) |
+    | **Mates to** | Frame underside; M5 I2C (Grove) |
+    | **Install timing** | Assemble any time; it mounts to the frame **underside**, so install *after* the [wheels](wheel-install.md) are on (step 7) — or with the robot jacked up for clearance |
+    | **Optional?** | Yes — one of several odometry sources |
+
 <div class="embed-facade" markdown="1" style="--embed-aspect: 78%" data-embed="https://mycs440.autodesk360.com/g/shares/SH90d2dQT28d5b602811c1903895fbcdd3cf?mode=embed" data-title="OTOS module — Fusion 3D viewer">
 ![OTOS sensor module — click to open the interactive Fusion 3D viewer](../assets/build/otos/hero.png)
 <span class="embed-facade__play">▶ Open the interactive 3D model</span>
@@ -23,17 +34,6 @@ recommended **10 mm** height above the ground plane.
     [Adafruit logic level converter](https://www.adafruit.com/product/5637) to shift
     3.3 V ↔ 5 V, and converts the SparkFun/Adafruit **Qwiic** connector over to the **M5
     Grove** connector on the bus side.
-
-!!! info "At a glance"
-    | | |
-    |---|---|
-    | **You'll build** | The OTOS mounted at 10 mm, level-shifted and adapted to the M5 Grove bus |
-    | **Time** | *TODO* |
-    | **Difficulty** | Beginner–intermediate (a little wiring) |
-    | **Prerequisites** | [Base Frame](base-frame.md) |
-    | **Mates to** | Frame underside; M5 I2C (Grove) |
-    | **Install timing** | Assemble any time; it mounts to the frame **underside**, so install *after* the [wheels](wheel-install.md) are on (step 7) — or with the robot jacked up for clearance |
-    | **Optional?** | Yes — one of several odometry sources |
 
 ## CAD & 3D model
 

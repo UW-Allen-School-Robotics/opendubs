@@ -1,5 +1,10 @@
 # RC receiver wiring
 
+!!! info "At a glance"
+    - **Time:** ~15 min · **Difficulty:** easy (one pigtail, three wires)
+    - **You make:** a StampPLC blue-port (Grove) ⟷ 3-pin servo pigtail
+    - **Result:** RC receiver powered from the port, SBUS on G5, `[SBUS]` frames flowing
+
 The RC receiver's **SBUS** output feeds the StampPLC's **blue serial port** (signal on **G5**,
 inverted in firmware). You make a short **Grove-to-servo pigtail** to bridge the StampPLC's
 **M5Stack / Grove** 4-wire port to the receiver's **3-wire servo cable** (signal / +5 V / ground).
@@ -17,11 +22,6 @@ inverted in firmware). You make a short **Grove-to-servo pigtail** to bridge the
     GND = black**) — but the Grove connector carries a **4th wire, G4 (white), that is unused here**,
     and pin order varies between cables. Reversing +5 V and GND can destroy the receiver, so **meter
     the pigtail** (5 V on the right pin, GND continuity) *before* you connect it.
-
-!!! info "At a glance"
-    - **Time:** ~15 min · **Difficulty:** easy (one pigtail, three wires)
-    - **You make:** a StampPLC blue-port (Grove) ⟷ 3-pin servo pigtail
-    - **Result:** RC receiver powered from the port, SBUS on G5, `[SBUS]` frames flowing
 
 ## Pin / wire map
 
