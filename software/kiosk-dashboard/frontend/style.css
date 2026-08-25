@@ -39,11 +39,11 @@ body {
 .conn.up { color: var(--good); }
 .conn.down { color: var(--bad); }
 
-#tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+#tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .tab {
-  font: 600 14px/1 inherit; letter-spacing: .5px; color: var(--dim);
+  font: 600 15px/1 inherit; letter-spacing: .5px; color: var(--dim);
   background: transparent; border: 1px solid var(--line); border-radius: 8px;
-  padding: 9px 11px; min-height: 38px; white-space: nowrap;
+  padding: 12px 16px; min-height: 44px; white-space: nowrap;
 }
 .tab.active { color: #04201d; background: var(--accent); border-color: var(--accent); }
 
