@@ -72,7 +72,9 @@ nav:
       - 8 · OTOS Module: build/otos.md
       - 9 · Battery Install: build/battery-install.md
       - 10 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
-      - Upper Frame Assembly: build/upper-frame.md
+      - Upper Frame Assembly:
+          - build/upper-frame.md
+          - Right Upper Electronics Bay: build/upper-right-electronics-bay.md
       - Pinpoint Odometry: build/pinpoint.md
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md

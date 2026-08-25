@@ -15,7 +15,8 @@
 ## The upper-frame phase, in order
 
 1. **Build the upper frame** — the goBILDA sub-assembly that carries the controls + cladding.
-2. **Install the StampPLC** — the base controller, mounted on the upper frame.
+2. **[Right Upper Electronics Bay](upper-right-electronics-bay.md)** — mount the StampPLC and a
+   DIN rail of WAGO connectors on the right upper frame.
 3. **Install the touchscreen / operator panel.**
 4. **Install the upper claddings.**
 5. **Join upper ↔ lower** — wire the two frames together and **physically fasten** them.
