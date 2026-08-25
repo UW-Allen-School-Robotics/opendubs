@@ -91,8 +91,7 @@ tool links are examples, any equivalent works.
 | WAGO lever connectors | — | a few | [buy](https://a.co/d/09VO6gwP) | PaHub<->PRISM (goBILDA I2C) and PaHub<->LLC<->Pinpoint joins |
 | Heat-shrink assortment / labels | recommended | 1 | [buy](https://a.co/d/04p7f5Vs) | Heat-shrink tube assortment or heat-shrink labels |
 | Crimp connector assortment (butt joints + ring terminals) | recommended | 1 | [buy](https://a.co/d/08GtC4Ql) | Butt joints + ring connectors |
-| WAGO lever connectors | — | a few | [buy](https://a.co/d/09VO6gwP) | Upper-frame field-wiring joins; snap onto the DIN-rail carriers below. |
-| WAGO DIN-rail mounting carriers | — | a few | — | Snap-mount the WAGO connectors to the rail (e.g. WAGO 221-500). Confirm SKU/qty. |
+| WAGO DIN-rail assortment (rail + rail-mount connectors) | — | 1 | [buy](https://a.co/d/07yKPglw) | Includes the DIN rail AND the WAGO connectors — the bay's field-wiring junction. |
 <!-- /BOM-AUTO:purchase:consumables -->
 
 ## Immediate BOM Gaps

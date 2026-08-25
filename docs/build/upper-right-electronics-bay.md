@@ -23,10 +23,13 @@ the model above** to orbit the whole upper integration this bay is part of.*
 - **StampPLC** — the base controller (SBUS RC in, relay + isolated-DI safety I/O, telemetry).
   It mounts to the DIN rail via a 3D-printed clip. See [StampPLC connections](../stamplc-connections.md)
   for the full pinout and [E-stop system](../e-stop.md) for the safety wiring that lands here.
-- **DIN-rail WAGO connectors** — a row of WAGO lever connectors on DIN-rail mounting carriers,
-  used as the **field-wiring junction** for the upper frame: power distribution taps, the e-stop
-  coil chain jumpers, and signal joins. Keeping them on a rail makes the joins serviceable and
-  keeps the harness dress clean.
+- **StampPLC PoE module** — clips onto the StampPLC and gives it **PoE Ethernet**. This is the
+  link the [StampPLC ↔ Thor transport](../stamplc-ethernet-transport.md) rides on, so the robot
+  runs without a USB tether.
+- **DIN-rail WAGO connectors** — a row of WAGO connectors on a DIN rail (both come from the one
+  assortment in the BOM), used as the **field-wiring junction** for the upper frame: power
+  distribution taps, the e-stop coil-chain jumpers, and signal joins. Keeping them on a rail
+  makes the joins serviceable and keeps the harness dress clean.
 
 ## Wiring
 
@@ -63,21 +66,20 @@ all snap to it, so the bay is built up on the bench and dropped in as a unit.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| M5Stack StamPLC controller | — | 1 | The base controller — mounted in this bay on a DIN-rail clip. Confirm the M5Stack purchase link. |
+| [M5Stack StamPLC controller](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/K141/26459381) | `K141` | 1 | The base controller. Available from many sources; DigiKey (shown) stocks well for US-based teams. |
+| [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | Adds PoE Ethernet to the StampPLC — the StampPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
 
 **Mounting**
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| 35 mm top-hat DIN rail | — | 1 | Cut to length; carries the StampPLC clip + the WAGO carriers. Confirm length/SKU. |
 | StampPLC DIN-rail clip (3D-printed) | — | 1 | Clips the StampPLC to the DIN rail; STL in hardware/ TBD. |
-| WAGO DIN-rail mounting carriers | — | a few | Snap-mount the WAGO connectors to the rail (e.g. WAGO 221-500). Confirm SKU/qty. |
 
 **Wiring**
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [WAGO lever connectors](https://a.co/d/09VO6gwP) | — | a few | Upper-frame field-wiring joins; snap onto the DIN-rail carriers below. |
+| [WAGO DIN-rail assortment (rail + rail-mount connectors)](https://a.co/d/07yKPglw) | — | 1 | Includes the DIN rail AND the WAGO connectors — the bay's field-wiring junction. |
 <!-- /BOM-AUTO:build:upper-right-electronics-bay -->
 
 ## Tools
