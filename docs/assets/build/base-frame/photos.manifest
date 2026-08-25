@@ -1,6 +1,6 @@
 # Base Frame — photo selection manifest
 # Lists ONLY the shots we keep, and what each becomes in the guide.
-# Format:  SOURCE.HEIC   target.jpg      (# comments + blank lines ignored)
+# Format:  SOURCE.HEIC   target.webp      (# comments + blank lines ignored)
 # Convert with (macOS):
 #   tools/convert-build-photos.sh <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
 # Convert with (any OS — needs `pip install pillow pillow-heif`):
@@ -8,36 +8,28 @@
 # That holds every output under the 300 KB target in docs/assets/build/README.md,
 # stepping quality down and then shrinking if needed. No flags required.
 #
-# Source: the "1 - Base Frame Build" Drive folder. Sources are numbered in build
-# order; the "done" suffix marks the completed-frame shots.
+# Source: the "1 - Base Frame Build" Drive folder. The sources are already
+# numbered in build order, so the NN prefix here is the SOURCE number — that way
+# a photo on the page can be traced straight back to the shot on Drive. Letter
+# suffixes (12a/12b/12c) are multiple shots of the same moment; "done" in a
+# source name marks a completed-frame shot.
 
-# --- Step 1 — rails and parts laid out ---
-1.jpeg           01-long-rail.jpg
-2.jpeg           01-cross-rail.jpg
-6.jpg            01-parts-laid-out.jpg
-
-# --- Step 2 — motors into the channels ---
-3.jpeg           02-motor-in-channel.jpg
-4.jpeg           02-motor-miter-gear.jpg
-5.jpeg           02-two-motors-per-rail.jpg
-
-# --- Step 3 — close the channel, set the hub shaft ---
-7.jpeg           03-closing-channel.jpg
-8.jpeg           03-hub-shaft-set.jpg
-13.jpg           03-gear-mesh-detail.jpg
-
-# --- Step 4 — join the rails into the rectangle ---
-9.jpg            04-corner-joint.jpg
-10.jpeg          04-two-rails-joined.jpg
-11.jpeg          04-three-sides.jpg
-14.jpg           04-frame-upright.jpg
-
-# --- Step 5 — route the motor leads ---
-15.jpg           05-leads-through-rail.jpg
-
-# --- Reference — completed frame ---
-12done.HEIC      completed-01.jpg
-12done(1).HEIC   completed-02.jpg
-12done(2).HEIC   completed-03.jpg
-16done.jpg       completed-04.jpg
-16done(1).jpg    completed-05.jpg
+1.jpeg           01-long-rail.webp
+2.jpeg           02-cross-rail.webp
+3.jpeg           03-motor-in-channel.webp
+4.jpeg           04-motor-miter-gear.webp
+5.jpeg           05-two-motors-per-rail.webp
+6.jpg            06-parts-laid-out.webp
+7.jpeg           07-closing-channel.webp
+8.jpeg           08-hub-shaft-set.webp
+9.jpg            09-corner-joint.webp
+10.jpeg          10-two-rails-joined.webp
+11.jpeg          11-three-sides.webp
+12done.HEIC      12a-completed-table.webp
+12done(1).HEIC   12b-completed-low-angle.webp
+12done(2).HEIC   12c-completed-three-quarter.webp
+13.jpg           13-gear-mesh-detail.webp
+14.jpg           14-frame-upright.webp
+15.jpg           15-leads-through-rail.webp
+16done.jpg       16a-completed-top-down.webp
+16done(1).jpg    16b-completed-top-down-alt.webp

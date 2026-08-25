@@ -49,24 +49,29 @@ MIN_QUALITY = 68
 MIN_PX = 1200
 
 
-def _try(img, quality):
+def _try(img, quality, fmt):
     buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=quality, optimize=True)
+    if fmt == "WEBP":
+        img.save(buf, "WEBP", quality=quality, method=6)
+    else:
+        img.save(buf, "JPEG", quality=quality, optimize=True)
     return buf
 
 
 def encode(img, path):
-    """Save as JPEG under MAXKB. Returns (bytes, quality, longest_edge).
+    """Save under MAXKB, in the format implied by the target extension.
 
-    Steps quality down first, then shrinks — busy shots (carpet, cluttered benches)
-    hit the quality floor while still oversize, and a slightly smaller photo reads
-    better than a mushy one at full size.
+    Returns (bytes, quality, longest_edge). Steps quality down first, then shrinks —
+    busy shots (carpet, cluttered benches) hit the quality floor while still
+    oversize, and a slightly smaller photo reads better than a mushy one at full
+    size. WebP usually fits at full size where JPEG cannot.
     """
+    fmt = "WEBP" if path.lower().endswith(".webp") else "JPEG"
     budget = MAXKB * 1024
     while True:
         quality = QUALITY
         while True:
-            buf = _try(img, quality)
+            buf = _try(img, quality, fmt)
             if MAXKB <= 0 or buf.tell() <= budget or quality <= MIN_QUALITY:
                 break
             quality -= 4
