@@ -1,7 +1,59 @@
-# power-bay — photo selection manifest
-# Lists the KEPT shots and their target names. Convention: ../README.md
-# Convert:
-#   tools/convert-build-photos.sh <staging-dir> docs/assets/build/power-bay/photos.manifest docs/assets/build/power-bay
+# Power Bay — photo selection manifest
+# Lists ONLY the shots we keep, and what each becomes in the guide.
+# Format:  SOURCE   target.webp      (# comments + blank lines ignored)
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/power-bay/photos.manifest docs/assets/build/power-bay
+# That holds every output under the 300 KB target in docs/assets/build/README.md.
 #
-# SOURCE.HEIC    target.jpg
-# (add one row per kept photo as the build is shot)
+# Source: the "5 - Power Bay Build" Drive folder, which groups shots into
+# sub-folders by PROCESS rather than numbering them across the whole build. Only
+# "1 Back Plate Screw Mount" carries an explicit number; the rest of the order
+# below is inferred from the photos themselves — each process starts from the
+# state the previous one ended in. See the note in docs/build/power-bay.md.
+#
+# Source folder names are kept verbatim on the left (typos and trailing spaces
+# included, since that is what is on Drive); the targets fix them.
+
+# --- Step 1 — back plate + module layout ---
+1 Back Plate Screw Mount /Front.jpg                                       01a-backplate-bare.webp
+1 Back Plate Screw Mount /Back.jpg                                        01b-backplate-underside.webp
+1 Back Plate Screw Mount /Layout.jpg                                      01c-module-dry-fit.webp
+1 Back Plate Screw Mount /LayoutScrewed.jpeg                              01d-modules-screwed-down.webp
+
+# --- Step 2 — regen clamp sub-assembly ("Regan" on Drive is a typo) ---
+Regan Clamp Screw Terminal/Front.jpg                                      02a-regen-clamp-carrier.webp
+Regan Clamp Screw Terminal/Back.jpg                                       02b-regen-clamp-resistor.webp
+Regan Clamp Screw Terminal/ResistorAdd.jpg                                02c-regen-clamp-underside.webp
+
+# --- Step 3 — ESC signal + power wiring ---
+Motor Wire Configuration /1.jpg                                           03a-servo-lead-pins.webp
+Motor Wire Configuration /2.jpg                                           03b-servo-connector.webp
+Motor Wire Configuration /3.jpg                                           03c-servo-extension-lead.webp
+Motor Wire Configuration /4.jpg                                           03d-esc-bec-headers.webp
+Motor Wire Configuration /5.jpg                                           03e-esc-xt90-power.webp
+
+# --- Step 4 — Prism RGB (light) harness ---
+Light Wire Configuration /1.jpg                                           04a-strip-jst-lead.webp
+Light Wire Configuration /2.jpg                                           04b-jst-lead-stripped.webp
+Light Wire Configuration /3.jpg                                           04c-lever-nuts-and-leads.webp
+Light Wire Configuration /4.jpg                                           04d-first-lead-landed.webp
+Light Wire Configuration /5.jpg                                           04e-first-lead-seated.webp
+Light Wire Configuration /6.jpg                                           04f-both-leads-landed.webp
+Light Wire Configuration /7.jpg                                           04g-harness-complete.webp
+Light Wire Configuration /8.jpg                                           04h-harness-to-rgb-driver.webp
+Light Wire Configuration /9.jpg                                           04i-rgb-driver-wired.webp
+
+# --- Step 5 — logic level shifter, 5 V <-> 3.3 V I2C ("GoBUILDA" is a typo) ---
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 1.jpg  05a-level-shifter-parts.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 2.jpg  05b-leads-laid-out.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 3.jpg  05c-leads-stripped.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 4.jpg  05d-leads-cut-to-length.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 5.jpg  05e-shifter-between-blocks.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 6.jpg  05f-blocks-mounted.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 7.jpg  05g-shifter-installed.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 8.jpg  05h-harness-tidied.webp
+Logic Level Shifter 5v-_ 3v to GoBUILDA Rev I2C/LLS5v-_3VGoBuilda Pt 9.jpg  05i-bay-complete.webp
+
+# --- Step 6 — remaining leads ---
+OtherWires1.jpg                                                           06a-strip-spare-jst.webp
+OtherWires2.jpg                                                           06b-bay-overview.webp
