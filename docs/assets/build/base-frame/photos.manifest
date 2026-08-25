@@ -1,19 +1,43 @@
 # Base Frame — photo selection manifest
 # Lists ONLY the shots we keep, and what each becomes in the guide.
 # Format:  SOURCE.HEIC   target.jpg      (# comments + blank lines ignored)
-# Convert with:
+# Convert with (macOS):
 #   tools/convert-build-photos.sh <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   QUALITY=82 python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+# QUALITY=82 (not the 88 default) keeps this folder ~6.6 MB instead of ~9 MB —
+# these get opened on a phone at a workbench.
 #
-# --- currently on Drive ("1 - Base Frame Build") — completed-frame shots ---
-IMG_1480.HEIC    completed-01.jpg
-IMG_1482.HEIC    completed-02.jpg
-IMG_1483.HEIC    completed-03.jpg
-#
-# --- step photos, add as they're shot (names match the steps in base-frame.md) ---
-# IMG_XXXX.HEIC   01-frame-rectangle.jpg
-# Step 2 — miter gear sub-assembly (source: "1 - Base Frame Build" Drive folder):
-20260819_153144.jpg    02-miter-gear.jpg
-20260819_153151.jpg    02-miter-gear-assembled.jpg
-# IMG_XXXX.HEIC   02-drive-pod.jpg
-# IMG_XXXX.HEIC   03-pods-mounted.jpg
-# IMG_XXXX.HEIC   04-leads-routed.jpg
+# Source: the "1 - Base Frame Build" Drive folder. Sources are numbered in build
+# order; the "done" suffix marks the completed-frame shots.
+
+# --- Step 1 — rails and parts laid out ---
+1.jpeg           01-long-rail.jpg
+2.jpeg           01-cross-rail.jpg
+6.jpg            01-parts-laid-out.jpg
+
+# --- Step 2 — motors into the channels ---
+3.jpeg           02-motor-in-channel.jpg
+4.jpeg           02-motor-miter-gear.jpg
+5.jpeg           02-two-motors-per-rail.jpg
+
+# --- Step 3 — close the channel, set the hub shaft ---
+7.jpeg           03-closing-channel.jpg
+8.jpeg           03-hub-shaft-set.jpg
+13.jpg           03-gear-mesh-detail.jpg
+
+# --- Step 4 — join the rails into the rectangle ---
+9.jpg            04-corner-joint.jpg
+10.jpeg          04-two-rails-joined.jpg
+11.jpeg          04-three-sides.jpg
+14.jpg           04-frame-upright.jpg
+
+# --- Step 5 — route the motor leads ---
+15.jpg           05-leads-through-rail.jpg
+
+# --- Reference — completed frame ---
+12done.HEIC      completed-01.jpg
+12done(1).HEIC   completed-02.jpg
+12done(2).HEIC   completed-03.jpg
+16done.jpg       completed-04.jpg
+16done(1).jpg    completed-05.jpg
