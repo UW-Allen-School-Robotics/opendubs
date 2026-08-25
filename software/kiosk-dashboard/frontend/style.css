@@ -469,7 +469,7 @@ body {
    it keeps its exact fixed layout (fallback preserved). Anything narrower —
    tablets, phones, a laptop window — gets a reflowed, scrollable, touch layout.
    ══════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 1600px) {
+@media (max-width: 1600px), (min-height: 561px) {
   html, body { width: 100%; height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
   body { cursor: auto; font-size: 16px; }
   #app { height: auto; min-height: 100vh; min-height: 100dvh; }
@@ -483,11 +483,15 @@ body {
           overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
   .tab { flex: 0 0 auto; }
 
-  /* Every active view: stack its cards vertically, full width; the page scrolls */
-  .view.active { display: flex !important; flex-direction: column; gap: var(--gap);
+  /* Every active view: cards flow into as many columns as fit (1 in portrait,
+     2-3 in landscape); the page scrolls. min(600px,100%) avoids overflow on phones. */
+  .view.active { display: grid !important;
+                 grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr)) !important;
+                 grid-template-rows: none !important; grid-template-areas: none !important;
+                 gap: var(--gap); align-content: start; align-items: start;
                  height: auto; padding: var(--gap); overflow: visible; }
-  .view.active > * { width: 100% !important; min-width: 0 !important; max-width: none !important;
-                     height: auto !important; min-height: 0 !important; }
+  .view.active > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
+                     max-width: none !important; height: auto !important; min-height: 0 !important; }
   .card { height: auto; }
 
   /* Reflow common inner grids to fluid auto-fit so tiles wrap instead of overflowing */
