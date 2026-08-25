@@ -34,6 +34,7 @@ carry EXIF in the ORIGINALS on Drive — this only scrubs the copies in the repo
 """
 
 import io
+import re
 import os
 import sys
 
@@ -114,12 +115,18 @@ def main(argv):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            parts = line.split()
+            # Split on runs of 2+ spaces first, so a source path containing
+            # single spaces ("Motor Wire Configuration /1.jpg" — Drive folders
+            # are named in prose) still parses. Falls back to a plain split for
+            # manifests written with single-space columns.
+            parts = re.split(r"\s{2,}", line)
+            if len(parts) < 2:
+                parts = line.split()
             if len(parts) < 2:
                 print(f"  BAD LINE {line}", file=sys.stderr)
                 fail += 1
                 continue
-            src, dst = parts[0], parts[1]
+            src, dst = parts[0].strip(), parts[1].strip()
 
             in_path = os.path.join(staging, src)
             if not os.path.isfile(in_path):
