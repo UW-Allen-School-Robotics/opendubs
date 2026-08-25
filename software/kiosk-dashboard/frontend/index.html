@@ -16,33 +16,72 @@
 <body>
   <div id="app">
     <!-- Top bar -->
-    <header id="topbar">
+        <header id="topbar" class="opbar">
+      <button class="op-ham" id="opHam" aria-label="menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <div class="brand">
         <span class="logo">◧ OPENDUBS</span>
         <span id="conn" class="conn down" title="link">●</span>
       </div>
-      <nav id="tabs">
-        <button class="tab active" data-view="master">MASTER STATUS</button>
-        <button class="tab" data-view="info">INFO</button>
-        <button class="tab" data-view="power">POWER</button>
-        <button class="tab" data-view="thermal">THERMAL</button>
-        <button class="tab" data-view="drive">DRIVE</button>
-        <button class="tab" data-view="thor">THOR</button>
-        <button class="tab" data-view="stamplc">STAMPLC</button>
-        <button class="tab" data-view="nav">NAV</button>
-        <button class="tab" data-view="payload">PAYLOAD</button>
-        <button class="tab" data-view="teleop">TELEOP</button>
-        <button class="tab" data-view="lidar">LIDAR</button>
-      </nav>
-      <div class="meta">
-        <span id="host">—</span>
-        <span id="clock">--:--:--</span>
-        <button id="ackBtn" class="ack">ACK</button>
-      </div>
+      <span id="opState" class="op-state">—</span>
+      <span class="spacer"></span>
+      <span id="host" class="op-meta">—</span>
+      <span id="clock" class="op-meta">--:--:--</span>
+      <span id="opBatt" class="op-batt">—</span>
+      <button class="op-ham" id="opFs" title="fullscreen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button id="ackBtn" class="ack">ACK</button>
+      <button class="op-estop" id="opEstop"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/></svg> E-STOP</button>
     </header>
+    <!-- OPERATE — driving front door -->
+    <main id="view-operate" class="view active operateview">
+      <div class="op-hero" id="opHero">
+        <span class="op-camtag">FRONT · LIVE</span>
+        <div class="op-camempty">
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M3 7.5h3.2L7.8 5h8.4l1.6 2.5H21v11H3z"/><circle cx="12" cy="13" r="3.6"/></svg>
+          <span class="t">FRONT CAMERA — no feed configured</span>
+        </div>
+        <div class="op-pip" id="opPip">
+          <span class="op-camtag">REAR</span>
+          <div class="op-camempty"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M3 7.5h3.2L7.8 5h8.4l1.6 2.5H21v11H3z"/><circle cx="12" cy="13" r="3.6"/></svg></div>
+        </div>
+        <div id="opNotif"></div>
+      </div>
+      <div class="op-ctl" id="opCtl">
+        <div class="op-zone op-drive"><span class="op-zlbl">TRANSLATE</span>
+          <div class="op-stick" id="opStTrans"><div class="nub"></div></div>
+          <span class="op-axhint">▲▼ fwd · ◀▶ strafe</span>
+        </div>
+        <div class="op-zone" style="justify-content:space-between; gap:12px">
+          <div id="opArmStatus" class="op-armstatus">DRIVE DISARMED</div>
+          <div style="width:100%"><div class="op-cap" style="margin-bottom:5px">SPEED</div>
+            <input class="op-slider" type="range" min="0" max="100" value="35"></div>
+          <div class="op-seg"><button class="on">MECANUM</button><button>4WD</button></div>
+        </div>
+        <div class="op-zone op-drive"><span class="op-zlbl">ROTATE</span>
+          <div class="op-stick rot" id="opStRot"><div class="nub"></div></div>
+          <span class="op-axhint">◀▶ yaw</span>
+        </div>
+        <div id="opArmOverlay">
+          <div class="op-armpad" id="opArmL"><span>HOLD</span></div>
+          <div class="op-armmsg">
+            <div class="op-armt">DRIVE DISARMED</div>
+            <div class="op-arms">hold <b>both</b> pads together to enable the on-screen sticks</div>
+            <div class="op-armp"><i id="opArmProg"></i></div>
+          </div>
+          <div class="op-armpad" id="opArmR"><span>HOLD</span></div>
+        </div>
+      </div>
+      <div id="opCtlPad">
+        <span class="op-gpdot"></span><span class="op-gptxt">GAMEPAD CONNECTED</span>
+        <span style="color:var(--dim)">— driving via joystick · on-screen sticks hidden</span>
+        <span class="spacer"></span>
+        <span class="op-cap" style="align-self:center">SPEED</span>
+        <input class="op-slider" style="max-width:150px" type="range" min="0" max="100" value="35">
+        <div class="op-seg" style="max-width:170px"><button class="on">MECANUM</button><button>4WD</button></div>
+      </div>
+    </main>
 
     <!-- MASTER STATUS view — robot-level FSM (docs/state-machines.md) -->
-    <main id="view-master" class="view active fsmview">
+    <main id="view-master" class="view fsmview">
       <section class="card fsm-state">
         <h2>ROBOT STATE</h2>
         <div id="rsState" class="rs-state">—</div>
@@ -387,6 +426,29 @@
       <section class="lidar-panel"><canvas id="lidarRear" class="lidar-canvas"></canvas></section>
     </main>
   </div>
+  <!-- diagnostics drawer -->
+  <div id="opScrim"></div>
+  <nav id="opDrawer">
+    <div class="op-drawer-hd"><strong style="letter-spacing:.1em; font-size:13px">DIAGNOSTICS</strong>
+      <button class="op-ham" id="opDrawerClose"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="op-drawer-safety" id="opDrawerSafety">system nominal — no active faults</div>
+    <div class="ditem" data-view="operate"><b>◧ Operate</b><span class="ch">›</span></div>
+    <h3>SYSTEM</h3>
+    <div class="ditem" data-view="thor">Thor — CPU / GPU / memory / thermal<span class="ch">›</span></div>
+    <div class="ditem" data-view="thermal">Enclosure cooling<span class="ch">›</span></div>
+    <h3>POWER</h3>
+    <div class="ditem" data-view="power">52 V pack · rails · PDH<span class="ch">›</span></div>
+    <h3>CONTROL &amp; I/O</h3>
+    <div class="ditem" data-view="master">Robot state (FSM)<span class="ch">›</span></div>
+    <div class="ditem" data-view="stamplc">StampPLC — DI / relays / e-stop / I²C<span class="ch">›</span></div>
+    <div class="ditem" data-view="drive">Drive — mode / wheels / RC<span class="ch">›</span></div>
+    <div class="ditem" data-view="nav">Navigation — GPS / flow<span class="ch">›</span></div>
+    <div class="ditem" data-view="lidar">Lidar — front / rear scan<span class="ch">›</span></div>
+    <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
+    <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
+    <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
+  </nav>
   <script src="app.js"></script>
+  <script src="operate.js"></script>
 </body>
 </html>
