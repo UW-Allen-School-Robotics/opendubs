@@ -25,15 +25,58 @@ Manifest format (whitespace-separated, '#' comments and blank lines ignored):
 HEIC support needs `pillow-heif` (pip install pillow pillow-heif). Plain JPG/PNG
 sources only need Pillow. Longest edge defaults to 1600 px — override with MAXPX.
 
+Each output is held under MAXKB (default 300, per docs/assets/build/README.md) by
+stepping quality down from QUALITY until it fits. Set MAXKB=0 to disable and encode
+at QUALITY flat.
+
 Re-encoding drops most camera metadata, including GPS. Photos shot in a lab still
 carry EXIF in the ORIGINALS on Drive — this only scrubs the copies in the repo.
 """
 
+import io
 import os
 import sys
 
+try:
+    from PIL import Image, ImageOps
+except ImportError:  # reported in main() so --help still works without Pillow
+    Image = ImageOps = None
+
 MAXPX = int(os.environ.get("MAXPX", "1600"))
 QUALITY = int(os.environ.get("QUALITY", "88"))
+MAXKB = int(os.environ.get("MAXKB", "300"))
+MIN_QUALITY = 68
+MIN_PX = 1200
+
+
+def _try(img, quality):
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality, optimize=True)
+    return buf
+
+
+def encode(img, path):
+    """Save as JPEG under MAXKB. Returns (bytes, quality, longest_edge).
+
+    Steps quality down first, then shrinks — busy shots (carpet, cluttered benches)
+    hit the quality floor while still oversize, and a slightly smaller photo reads
+    better than a mushy one at full size.
+    """
+    budget = MAXKB * 1024
+    while True:
+        quality = QUALITY
+        while True:
+            buf = _try(img, quality)
+            if MAXKB <= 0 or buf.tell() <= budget or quality <= MIN_QUALITY:
+                break
+            quality -= 4
+        if MAXKB <= 0 or buf.tell() <= budget or max(img.size) <= MIN_PX:
+            with open(path, "wb") as fh:
+                fh.write(buf.getvalue())
+            return buf.tell(), quality, max(img.size)
+        img = img.resize(
+            (round(img.width * 0.9), round(img.height * 0.9)), Image.LANCZOS
+        )
 
 
 def main(argv):
@@ -42,9 +85,7 @@ def main(argv):
         return 2
     staging, manifest, out = argv[1], argv[2], argv[3]
 
-    try:
-        from PIL import Image, ImageOps
-    except ImportError:
+    if Image is None:
         print("Pillow not installed — run: pip install pillow pillow-heif", file=sys.stderr)
         return 1
     try:
@@ -90,13 +131,17 @@ def main(argv):
                 # below drops EXIF — without it, phone shots land sideways.
                 img = ImageOps.exif_transpose(Image.open(in_path)).convert("RGB")
                 img.thumbnail((MAXPX, MAXPX), Image.LANCZOS)
-                img.save(os.path.join(out, dst), "JPEG", quality=QUALITY, optimize=True)
+                size, quality, edge = encode(img, os.path.join(out, dst))
             except Exception as exc:  # noqa: BLE001 — report and keep going
                 print(f"  FAILED   {src}: {exc}", file=sys.stderr)
                 fail += 1
                 continue
 
-            print(f"  ok       {src}  ->  {dst}")
+            over = "  OVER BUDGET" if MAXKB > 0 and size > MAXKB * 1024 else ""
+            print(
+                f"  ok       {src}  ->  {dst}  "
+                f"({size // 1024} KB, q{quality}, {edge}px){over}"
+            )
             n += 1
 
     tail = "".join(

@@ -4,9 +4,9 @@
 # Convert with (macOS):
 #   tools/convert-build-photos.sh <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
 # Convert with (any OS — needs `pip install pillow pillow-heif`):
-#   QUALITY=82 python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
-# QUALITY=82 (not the 88 default) keeps this folder ~6.6 MB instead of ~9 MB —
-# these get opened on a phone at a workbench.
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+# That holds every output under the 300 KB target in docs/assets/build/README.md,
+# stepping quality down and then shrinking if needed. No flags required.
 #
 # Source: the "1 - Base Frame Build" Drive folder. Sources are numbered in build
 # order; the "done" suffix marks the completed-frame shots.
