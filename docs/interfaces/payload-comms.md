@@ -56,16 +56,18 @@ type's specific state/command formats:
 | `0x00` | `STATE` | module → base | module-specific |
 | `0x01` | `CMD` | base → module | module-specific |
 | `0x02` | `FAULT` | module → base | common (below) |
-| `0x03` | `PRESENT` | module → base | common (below) |
 
 **`FAULT`** (common, 2 bytes): byte 0 = fault code (u8 enum, module-type-specific code space —
 e.g. `NONE/SENSOR_FAULT/STUCK_TIMEOUT/RELAY_FAULT`), byte 1 = detail (u8, free-form per code).
 Sent on change, plus a slow resend (~1 Hz) while a fault is active so a late-joining base learns
 current state.
 
-**`PRESENT`** (common, 2 bytes) — the reverse heartbeat: byte 0 = flags (bit0 = ready-for-commands,
-bits 1–7 reserved), byte 1 = counter (u8, wraps, wire-health diagnostic only). Same 20 Hz / 250 ms
-staleness convention as `AUTHORIZE` (below) — one timeout constant for the whole protocol.
+There's deliberately no separate common "presence" message — every module type already
+publishes its own `STATE` at a known rate with a seq counter, so `STATE` staleness *is* presence
+detection at no extra cost (see [Module presence](#module-presence-and-required-module-alerting)).
+A dedicated module-type-agnostic liveness message would only earn its keep once base-side code
+needs to check presence without understanding a specific module type's `STATE` layout — out of
+scope while there's one module type (see [Non-goals](#non-goals)).
 
 ### `AUTHORIZE` — `0x000`, base → broadcast
 
@@ -114,7 +116,7 @@ height sensing, not a PWM/position-servo lift.
 |---|---|---|
 | 0–1 | `heightMm` (u16, big-endian) | mm; matches `Snapshot.heightMm` (0–900 mm today) |
 | 2 | flags | bit0 `inhibit`, bit1 `atTop`, bit2 `atBot`, bit3 `tofOk`, bit4 `relayUpPulse`, bit5 `relayDnPulse`, bits6–7 `motion` (0=STOP/1=UP/2=DOWN) |
-| 3 | seq (u8) | increments per publish — lets the base detect drops distinct from `PRESENT`/`AUTHORIZE` staleness |
+| 3 | seq (u8) | increments per publish — lets the base detect drops/staleness (also doubles as this module's presence signal — see [Module presence](#module-presence-and-required-module-alerting)) |
 
 DLC = 4 (bytes 4–7 reserved). **10 Hz**, flat rate (no idle/moving rate switching — not needed
 while this module rides WiFi/UDP rather than a bandwidth-constrained CAN wire).
@@ -138,13 +140,12 @@ command delivery.
 
 Fault codes: `NONE`, `TOF_FAULT`, `STUCK_TIMEOUT`, `LIMIT_CONFLICT`, `RELAY_FAULT`.
 
-### `LIFT_PRESENT` — `0x083` (uses the common `PRESENT` format)
-
 ## Module presence and required-module alerting
 
-`PRESENT` staleness alone can't distinguish "this robot build doesn't have this module" from
-"this module is supposed to be here and isn't talking" — both look identical on the wire
-(silence). Telling them apart needs an expectation to compare reality against.
+`LIFT_STATE` staleness (via its seq counter) is this module's presence signal — no dedicated
+message needed. But staleness alone can't distinguish "this robot build doesn't have this
+module" from "this module is supposed to be here and isn't talking" — both look identical on the
+wire (silence). Telling them apart needs an expectation to compare reality against.
 
 The base carries a small static table per robot build, e.g.:
 
@@ -152,9 +153,9 @@ The base carries a small static table per robot build, e.g.:
 { MODULE_LIFT, required: true }
 ```
 
-Compared against live `PRESENT` staleness:
+Compared against live `STATE` staleness for that module:
 
-| Declared | `PRESENT` state | Base behavior |
+| Declared | `STATE` freshness | Base behavior |
 |---|---|---|
 | required | fresh | normal |
 | required | stale | **fault surfaced** ("lift not responding") |
@@ -162,7 +163,7 @@ Compared against live `PRESENT` staleness:
 | not required | fresh | anomaly flagged — unexpected module on this build |
 
 This table is a firmware constant per build, not a runtime UI — with one module type today
-there's one entry. A config *screen* was considered and deferred: `PRESENT` staleness already
+there's one entry. A config *screen* was considered and deferred: `STATE` staleness already
 drives per-panel graceful-no-data rendering on the dashboard (matches the existing pattern of
 isolated per-frame renderers) without needing the required-table; the table's only job is
 deciding whether absence should raise an alarm.
@@ -175,8 +176,11 @@ deciding whether absence should raise an alarm.
   parse overhead. Revisit if a module type with genuinely optional/variable telemetry fields
   shows up.
 - **Dynamic runtime module discovery** (an unknown device announcing itself on the bus).
-  Module IDs are static, assigned per robot build at compile time on both ends; `PRESENT` +
-  the required-table above covers the actual need (know if an expected module is talking).
+  Module IDs are static, assigned per robot build at compile time on both ends; `STATE`
+  staleness + the required-table above covers the actual need (know if an expected module is
+  talking).
+- **A dedicated module-type-agnostic presence message.** `STATE` staleness already serves that
+  purpose for a single module type; see [Common message slots](#common-message-slots).
 - **Arm (OpenArm) message catalog.** Out of scope for this pass — this spec is validated only
   against the lift module, the one real target. A second module type is the natural next
   validation point for the schema's generality, not a currently-defined catalog.
