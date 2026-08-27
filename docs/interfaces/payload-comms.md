@@ -168,6 +168,35 @@ drives per-panel graceful-no-data rendering on the dashboard (matches the existi
 isolated per-frame renderers) without needing the required-table; the table's only job is
 deciding whether absence should raise an alarm.
 
+**A required module going silent does not block base drive.** It's a warning, not a safety
+interlock — the module's own motion safety is already independent (comms loss also stales its
+own `AUTHORIZE`, so it halts itself regardless of what the base does). No physical coupling
+between payload state and drive safety is documented for this robot today (e.g. a raised lift
+affecting drive stability) — if one is ever established, it becomes a `robot_state` fault latch
+keyed on "payload state unknown/hazardous," not a special case of comms loss. Until then: display
+only.
+
+### Dashboard integration
+
+Both severities plug into the *existing* fault display, not a new one —
+[`robot_state.py`](../../software/kiosk-dashboard/backend/robot_state.py) already has a `mast`
+subsystem slot and a `mast_fault` input; `status.py` currently hardcodes it (`status.py:332`,
+`mast_fault = False  # mast/payload is independent (Tab5-driven)...`) because nothing feeds it yet:
+
+- **`LIFT_FAULT` active (module reports a problem, still communicating)** → drive `mast_fault=True`.
+  Shows as `mast: FAULT` on the MASTER STATUS subsystem rollup, same as `base_fault` today.
+  Robot-level state is untouched — this is a localized, subsystem-scoped warning.
+- **Required module's `STATE` gone stale** → append a string (e.g. `"lift module not responding"`)
+  to `status.py`'s `raw_faults` list, the same list `"OVERTEMP"`/`"CONTACTOR WELDED"` already use.
+  This flows into `robot_state.derive()`'s top-level `faults` → robot state **`DEGRADED`** (amber
+  banner, reason text lists it). `ENABLE["DEGRADED"]` is `"cond"` for every subsystem, not `"off"`
+  — already non-blocking, so this lands on the display-only decision above with no new state
+  semantics. Also set `mast_fault=True` alongside it, so the subsystem chip pinpoints which
+  module.
+
+No new UI component, no new severity tier — both cases are existing `robot_state` inputs that
+happen to have been unwired until now.
+
 ## Non-goals
 
 - **TLV / self-describing fields.** Considered for the discovery/capability-announce case, but
