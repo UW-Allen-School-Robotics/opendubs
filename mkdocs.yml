@@ -63,16 +63,17 @@ nav:
   - Assembly Guide:
       - Lower Frame Assembly (overview): build/lower-frame.md
       - 1 · Base Frame: build/base-frame.md
-      - 2 · Electronics Bay: build/electronics-bay.md
-      - 3 · Mini Power Module (logic bus): build/mini-power-module.md
-      - 4 · Power Bay: build/power-bay.md
-      - 5 · Charger Port Integration: build/charger-port.md
-      - 6 · Cooling Fan Integration: build/cooling-fan.md
-      - 7 · Compute & USB Installation: build/compute-usb.md
-      - 8 · Wheel Install: build/wheel-install.md
-      - 9 · OTOS Module: build/otos.md
-      - 10 · Battery Install: build/battery-install.md
-      - 11 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
+      - 2 · Rivnut Installation: build/rivnuts.md
+      - 3 · Electronics Bay: build/electronics-bay.md
+      - 4 · Mini Power Module (logic bus): build/mini-power-module.md
+      - 5 · Power Bay: build/power-bay.md
+      - 6 · Charger Port Integration: build/charger-port.md
+      - 7 · Cooling Fan Integration: build/cooling-fan.md
+      - 8 · Compute & USB Installation: build/compute-usb.md
+      - 9 · Wheel Install: build/wheel-install.md
+      - 10 · OTOS Module: build/otos.md
+      - 11 · Battery Install: build/battery-install.md
+      - 12 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
       - Upper Frame Assembly:
           - build/upper-frame.md
           - Right Upper Electronics Bay: build/upper-right-electronics-bay.md

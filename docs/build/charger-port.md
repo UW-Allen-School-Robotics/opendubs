@@ -1,4 +1,4 @@
-# 5 · Charger Port Integration
+# 6 · Charger Port Integration
 
 ## At a glance
 

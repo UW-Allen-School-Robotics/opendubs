@@ -1,4 +1,4 @@
-# 2 · Electronics Bay
+# 3 · Electronics Bay
 
 !!! info "At a glance"
     | | |

@@ -1,0 +1,18 @@
+# photos.manifest — SOURCE   target.jpg   (one kept photo per line). See ../README.md
+# Source photos: Drive → "Deadwheel Odo Pod Install" subfolder.
+# The descriptive source names contain spaces/parens — rename them (or quote) before converting.
+# Put each downloaded source file name on the left, target on the right, then run
+#   tools/convert-build-photos.sh <download-dir> docs/assets/build/rivnuts/photos.manifest docs/assets/build/rivnuts
+#
+# 1) "thread the rivnut onto the installer/tool"                     -> 01-thread-rivnut.jpg
+# 2) "press the rivnut tool TIGHTLY against the gobuilda frame"      -> 02-press-tight.jpg
+#    IMG_1590.jpeg  (alternate view of step 2)                       -> 02-press-tight-alt-a.jpg
+#    IMG_1591.jpeg  (alternate view of step 2)                       -> 02-press-tight-alt-b.jpg
+# 3) "Attach odo pods via the holes in 3d print aligned with rivets" -> 03-attach-pods.jpg
+#
+# example (edit SOURCE to your actual downloaded filenames):
+# 1-thread.HEIC              01-thread-rivnut.jpg
+# 2-press.HEIC               02-press-tight.jpg
+# IMG_1590.jpeg              02-press-tight-alt-a.jpg
+# IMG_1591.jpeg              02-press-tight-alt-b.jpg
+# 3-attach.HEIC              03-attach-pods.jpg

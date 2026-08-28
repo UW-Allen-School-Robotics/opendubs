@@ -1,4 +1,4 @@
-# 9 · OTOS Module
+# 10 · OTOS Module
 
 !!! info "At a glance"
     | | |
