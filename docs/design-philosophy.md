@@ -115,7 +115,8 @@ the **drive system**: TidyBot++ runs a **powered-caster holonomic (swerve-like) 
 OpenDubs runs **mecanum**. Holonomic/swerve is excellent to control, but the drive units currently
 run **~3×** the cost of the mecanum-motor approach and **can't be trivially reconfigured down to a
 cheaper fixed FWD drive** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
-for builds that want it; a detailed **OpenDubs ↔ TidyBot++ comparison chart** is planned.
+for builds that want it. See the full **[OpenDubs ↔ TidyBot++ comparison](comparison-tidybot.md)**
+for a side-by-side of drive, cost, compute, payload, power, and safety.
 
 In practice, "fitting in" means a manipulator is treated as a **payload, not a fixed part of the
 robot**; ROS 2 is the integration substrate; and the base is exposed as a controllable robot

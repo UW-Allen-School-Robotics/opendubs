@@ -57,6 +57,7 @@ nav:
   - Educators: educators.md
   - Design & Interfaces:
       - Design philosophy: design-philosophy.md
+      - OpenDubs vs TidyBot++: comparison-tidybot.md
       - Mechanical mount: interfaces/mechanical-mount.md
       - Power & data: interfaces/power-data.md
       - Command & telemetry: interfaces/command-telemetry.md
