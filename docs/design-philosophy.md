@@ -54,10 +54,13 @@ swap the mecanum wheels for other goBILDA-compatible wheels — including
 [all-terrain tires](https://www.servocity.com/all-terrain-wheels-tires/) — and reconfigure the
 mixer for **tank / 4WD** drive. The base is meant to be reconfigured, not to lock you in.
 
-**Why not swerve?** Swerve gives independent steer + drive at each corner, but swerve modules
-typically cost **2–3× per wheel** versus a fixed drive, and add real mechanical and control
-complexity. For the baseline we chose the simpler, cheaper mecanum system; swerve is a great
-community extension (below), not a baseline requirement.
+**Why not swerve?** Swerve (and powered-caster holonomic drives) give independent steer + drive at
+each corner, but the modules typically cost **~2–3× per wheel** versus a fixed drive, add real
+mechanical and control complexity, and — unlike mecanum — **can't be reconfigured down to a
+cheaper fixed FWD / tank drive** (above). For the baseline we chose the simpler, cheaper mecanum
+system; swerve is a great community extension (below), not a baseline requirement. For a
+swerve-based sibling project, see **[TidyBot++](https://tidybot2.github.io/)** under
+[Where OpenDubs fits in the ecosystem](#where-opendubs-fits-in-the-ecosystem).
 
 ### Load limits — where the drivetrain gives out
 
@@ -103,6 +106,16 @@ made open, low-cost manipulation widely accessible. OpenDubs is a different piec
 stack — a **mobile base** with autonomy compute, power, and safety, plus a Z-axis and arm
 mounts. It costs more because it does more, and the intent is to **complement** that ecosystem,
 not compete with it.
+
+**A closely-related project — TidyBot++.** [TidyBot++](https://tidybot2.github.io/)
+([paper](https://arxiv.org/abs/2412.10447) · [code](https://github.com/jimmyyhwu/tidybot2);
+Princeton / Stanford, 2024) shares much of OpenDubs' intent — an open, affordable,
+learning-friendly mobile-manipulation base — and is well worth studying. The main divergence is
+the **drive system**: TidyBot++ runs a **powered-caster holonomic (swerve-like) base**, where
+OpenDubs runs **mecanum**. Holonomic/swerve is excellent to control, but the drive units currently
+run **~3×** the cost of the mecanum-motor approach and **can't be trivially reconfigured down to a
+cheaper fixed FWD drive** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
+for builds that want it; a detailed **OpenDubs ↔ TidyBot++ comparison chart** is planned.
 
 In practice, "fitting in" means a manipulator is treated as a **payload, not a fixed part of the
 robot**; ROS 2 is the integration substrate; and the base is exposed as a controllable robot
