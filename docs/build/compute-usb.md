@@ -1,4 +1,4 @@
-# 6 · Compute & USB Installation
+# 7 · Compute & USB Installation
 
 ## At a glance
 

@@ -1,4 +1,4 @@
-# 10 · Base Frame Final Assembly + Wiring
+# 11 · Base Frame Final Assembly + Wiring
 
 ## At a glance
 

@@ -92,6 +92,9 @@ tool links are examples, any equivalent works.
 | Heat-shrink assortment / labels | recommended | 1 | [buy](https://a.co/d/04p7f5Vs) | Heat-shrink tube assortment or heat-shrink labels |
 | Crimp connector assortment (butt joints + ring terminals) | recommended | 1 | [buy](https://a.co/d/08GtC4Ql) | Butt joints + ring connectors |
 | WAGO DIN-rail assortment (rail + rail-mount connectors) | — | 1 | [buy](https://a.co/d/07yKPglw) | Includes the DIN rail AND the WAGO connectors — the bay's field-wiring junction. |
+| ATM (mini) blade fuse, 5 A | — | 4 | — | Positions 1/2/3/6 — StampPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
+| ATM (mini) blade fuse, 10 A | — | 1 | — | Position 5 — Thor only. Every other branch is 5 A. |
+| XT30 connector pair (PRISM branch) | — | 1 | — | Position 6 lands on the PRISM light controller through an XT30; see the wiring board |
 <!-- /BOM-AUTO:purchase:consumables -->
 
 ## Immediate BOM Gaps

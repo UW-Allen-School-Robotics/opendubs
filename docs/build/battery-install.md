@@ -1,4 +1,4 @@
-# 9 · Battery Install
+# 10 · Battery Install
 
 ## At a glance
 

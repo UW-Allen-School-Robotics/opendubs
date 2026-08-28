@@ -1,4 +1,4 @@
-# 5 · Cooling Fan Integration
+# 6 · Cooling Fan Integration
 
 ## At a glance
 
