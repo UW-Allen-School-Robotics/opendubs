@@ -73,3 +73,6 @@ mpm-microfit,"Micro-Fit 3.0 4-pin cable (Thor DC input)",component,Thor branch,B
 mpm-fuse-5a,"ATM (mini) blade fuse, 5 A",consumable,Fuses,,mini-power-module,4,,,"Positions 1/2/3/6 — StampPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used."
 mpm-fuse-10a,"ATM (mini) blade fuse, 10 A",consumable,Fuses,,mini-power-module,1,,,"Position 5 — Thor only. Every other branch is 5 A."
 mpm-xt30,"XT30 connector pair (PRISM branch)",consumable,Lighting branch,,mini-power-module,1,,,"Position 6 lands on the PRISM light controller through an XT30; see the wiring board"
+thor-dualblock,"goBILDA 1205-series dual block mount (2-pack)",component,Mounting,,thor-install,1,,https://www.servocity.com/1205-series-dual-block-mount-1-5-2-pack/,"The 2-pack gives the two dual blocks that clamp the Thor cradle to the rail."
+thor-m4-55,"M4 x 55 mm socket-head screws",fastener,Mounting,,thor-install,2,,https://www.amazon.com/gp/product/B0DFYK39N6,"Run up through the dual blocks into the printed Thor cradle; confirm exact qty."
+thor-cradle,"Thor cradle (3D-printed)",printed,Mounting,,thor-install,1,,,"Holds the Thor to the frame; STL in hardware/ TBD."

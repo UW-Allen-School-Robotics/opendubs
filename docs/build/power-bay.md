@@ -1,4 +1,4 @@
-# 5 · Power Bay
+# 6 · Power Bay
 
 !!! info "At a glance"
     | | |

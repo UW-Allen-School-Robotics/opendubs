@@ -58,6 +58,7 @@ tool links are examples, any equivalent works.
 | M3 socket-head screw assortment | optional | 1 assortment | — | For non-goBILDA parts; not used in the base frame |
 | M4 x 55 mm socket-head screw | — | 4 | [buy](https://www.amazon.com/iExcell-Stainless-Socket-Screws-Wrench/dp/B089NGGLZQ) | Long standoff screws for the 10 mm sensor mount; confirm qty |
 | M10 riv-nut | — | 2 | [buy](https://a.co/d/07JbuGAl) | Set into the rail's 14 mm holes; rivnut install is a FOLLOW-ON base-frame step; confirm qty |
+| M4 x 55 mm socket-head screws | — | 2 | [buy](https://www.amazon.com/gp/product/B0DFYK39N6) | Run up through the dual blocks into the printed Thor cradle; confirm exact qty. |
 <!-- /BOM-AUTO:purchase:fasteners -->
 
 ### Tools

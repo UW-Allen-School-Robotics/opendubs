@@ -1,4 +1,4 @@
-# 4 · Mini Power Module (logic bus)
+# 5 · Mini Power Module (logic bus)
 
 !!! info "At a glance"
     | | |

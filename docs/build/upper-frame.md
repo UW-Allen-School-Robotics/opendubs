@@ -8,7 +8,7 @@
 | **Prerequisites** | [Base Frame Final Assembly + Wiring](base-frame-final.md) (lower frame complete) |
 
 !!! note "Stub — the next major phase after the lower frame"
-    Once the [lower frame](base-frame-final.md) (steps 1–12) is complete, the build moves to the
+    Once the [lower frame](base-frame-final.md) (steps 1–13) is complete, the build moves to the
     **upper frame sub-assembly**. This page will be broken into its own numbered steps as it's
     written.
 

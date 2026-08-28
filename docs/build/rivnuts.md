@@ -48,21 +48,25 @@ module uses 3D-printed **M10 thumb screws** that thread into these inserts).
 
 1. **Thread the M10 riv-nut onto the tool.** Spin it fully onto the mandrel so the tool's face
    sits flat against the riv-nut flange.
-   *TODO photo: `01-thread-rivnut.jpg` — riv-nut threaded onto the installer.*
+
+    ![Riv-nut threaded onto the installer tool](../assets/build/rivnuts/01-thread-rivnut.jpg)
+
 2. **Press the tool TIGHTLY and flat against the goBILDA rail, then set the riv-nut** — squeeze
    (manual) or drive (drill-driven) until it clamps. **Keep the tool flush the entire time**
    (see the danger note above), then back the mandrel out.
-   *TODO photos: `02-press-tight.jpg` — plus the two default-named `IMG_1590` / `IMG_1591` as
-   alternate views of this same step.*
+
+    ![Pressing the riv-nut tool tight and flat against the goBILDA rail](../assets/build/rivnuts/02-press-tight.jpg)
+
+    *Alternate views of the same set:*
+
+    ![Alternate view of setting the riv-nut](../assets/build/rivnuts/02-press-tight-alt-a.jpg)
+
+    ![Alternate view of setting the riv-nut](../assets/build/rivnuts/02-press-tight-alt-b.jpg)
+
 3. **Attach the odo pods.** The module's 3D-printed holes line up with the newly-set riv-nuts —
    thread the **M10 thumb screws** through the print into the inserts.
-   *TODO photo: `03-attach-pods.jpg` — pods hung on the new riv-nuts.*
 
-!!! note "Add the photos"
-    Drop the odo-pod riv-nut photos into `docs/assets/build/rivnuts/` (see the folder's
-    `photos.manifest`), convert with `tools/convert-build-photos.sh`, then replace the
-    `*TODO photo:*` placeholders. The **file names describe the activity**; the extra
-    **default-named images are redundant alternate views of step 2**.
+    ![Odo pods attached through the 3D-printed holes onto the new riv-nuts](../assets/build/rivnuts/03-attach-pods.jpg)
 
 ## Other rivnut locations
 
