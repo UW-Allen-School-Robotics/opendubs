@@ -1,7 +1,46 @@
-# otos — photo selection manifest
-# Lists the KEPT shots and their target names. Convention: ../README.md
-# Convert:
-#   tools/convert-build-photos.sh <staging-dir> docs/assets/build/otos/photos.manifest docs/assets/build/otos
+# OTOS Module — photo selection manifest
+# Lists ONLY the shots we keep, and what each becomes in the guide.
+# Format:  SOURCE   target.webp      (# comments + blank lines ignored)
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/otos/photos.manifest docs/assets/build/otos
+# That holds every output under the 300 KB target in docs/assets/build/README.md.
 #
-# SOURCE.HEIC    target.jpg
-# (add one row per kept photo as the build is shot)
+# Source: the "2 - Optical Tracking Odometry Sensor Module Build" Drive folder,
+# split into Construction/ (bench build, already numbered 1-16 in build order)
+# and Attachment/ (fitting the finished module to the robot, labelled Part 1-3).
+#
+# Numbering here runs straight through the page: 01-16 ARE the Construction
+# source numbers, so a photo traces back to its shot. Attachment continues at 17
+# rather than restarting, so the page reads in order top to bottom. The two
+# Wire_setup HEICs sit at 17-18 because they show the bus-side lead being made
+# up, which has to happen before Part 1 puts the shifter in its housing.
+
+# --- Construction — bench build (source numbers preserved) ---
+Construction/1.jpg        01-otos-board-film-on.webp
+Construction/2.jpg        02-otos-board-film-off.webp
+Construction/3.jpg        03-sensor-in-cradle.webp
+Construction/4.jpg        04-cradle-seated-in-housing.webp
+Construction/5.jpg        05-housing-closed-around-sensor.webp
+Construction/6.jpg        06-sensor-aperture-underside.webp
+Construction/7.jpg        07-standoff-screws-inserted.webp
+Construction/8.jpg        08-standoff-screws-seated.webp
+Construction/9.jpg        09-shifter-and-housing-laid-out.webp
+Construction/10.jpg       10-level-shifter-silkscreen.webp
+Construction/11.jpg       11-lever-nut-block.webp
+Construction/12.jpg       12-first-lead-landed.webp
+Construction/13.jpg       13-block-with-lead.webp
+Construction/14.jpg       14-four-leads-landed.webp
+Construction/15.jpg       15-block-both-sides-landed.webp
+Construction/16-Done.jpg  16-bench-harness-complete.webp
+
+# --- Attachment — fitting the module to the robot ---
+Attachment /Wire_setup_IMG_1485.HEIC                  17-crimp-pins-and-lead.webp
+Attachment /Wire_setup_IMG_1484.HEIC                  18-bus-lead-terminated.webp
+Attachment /Part 1_ 5v-_3v stepdown into 3d part.jpg  19-shifter-into-housing.webp
+Attachment /Part 2_ wire management.jpg               20-wire-management.webp
+Attachment /Part 3_ Attach to middle of u-channel.jpg  21a-mounted-to-cross-rail.webp
+Attachment /Part 3_ Top view.jpg                      21b-mounted-top-view.webp
+Attachment /Part 3_ Top angled view.jpg               21c-mounted-top-angled.webp
+Attachment /Part 3_ Side view.jpg                     21d-mounted-side-view.webp
+Attachment /Part 3_ Upside down view.jpg              21e-mounted-underside.webp
+Attachment /Part 3_ Zoomed out top view.jpg           21f-mounted-in-frame.webp
