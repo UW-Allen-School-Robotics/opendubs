@@ -45,8 +45,11 @@ except ImportError:  # reported in main() so --help still works without Pillow
 MAXPX = int(os.environ.get("MAXPX", "1600"))
 QUALITY = int(os.environ.get("QUALITY", "88"))
 MAXKB = int(os.environ.get("MAXKB", "300"))
-MIN_QUALITY = 68
-MIN_PX = 1200
+# Floors the budget search will not push past, so a photo degrades visibly rather
+# than silently. Both are overridable for the occasional shot that busts the budget
+# even here — a full-frame carpet background is the usual culprit.
+MIN_QUALITY = int(os.environ.get("MIN_QUALITY", "68"))
+MIN_PX = int(os.environ.get("MIN_PX", "1200"))
 
 
 def _try(img, quality, fmt):

@@ -1,0 +1,12 @@
+# Cooling Fan — photo selection manifest
+# Format:  SOURCE   target.webp      (# comments + blank lines ignored)
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/cooling-fan/photos.manifest docs/assets/build/cooling-fan
+#
+# Source: the "3 - Fan and Charge Port Install" Drive folder, which covers BOTH
+# this module and charger-port/ in three shots. "Both.jpg" shows the two panels
+# fitted together, so it is converted into each module's folder under a name
+# that suits that page — the duplicate keeps each folder self-contained.
+
+Fan.jpg    01-fan-panel-in-rail.webp
+Both.jpg   02-both-panels-in-frame.webp
