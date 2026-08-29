@@ -4,6 +4,19 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import status
+import supervisor as supervisor_mod
+
+
+def _benign_snapshot():
+    """A StampPLC snapshot that's fresh and reports no faults from any OTHER
+    subsystem (safety/thermal/PDH/charger) and a benign RC state (authority OFF,
+    not e-stopped, not booting) — isolates `_robot_state()`'s lift-wiring effect
+    from everything else it also folds in."""
+    return {
+        "fresh": True,
+        "rc": {"live": True, "mode": "OFF", "dead": False},
+        "di": [], "relay": [], "bms": {}, "env": {}, "fan": {}, "pdh": {},
+    }
 
 
 def test_lift_fresh_no_fault(monkeypatch):
@@ -67,3 +80,36 @@ def test_lift_fault_none_string_is_not_active(monkeypatch):
     })
     out = status._lift()
     assert out["fault_active"] is False
+
+
+# ---- _robot_state()'s lift wiring --------------------------------------------
+# The tests above prove _lift()'s own output is correct in isolation; these prove
+# _robot_state() actually WIRES that output into raw_faults/mast_fault correctly
+# (the `lift = _lift()` / `REQUIRED_MODULES.get("lift") and not lift["fresh"]` /
+# `raw_faults.append(...)` / `mast_fault = lift["fault_active"]` lines themselves).
+# Each test gets its own fresh Supervisor() so a fault raised in one test can't
+# latch and leak into the next (supervisor.fault_latched persists across calls
+# by design — see supervisor.py).
+
+def test_robot_state_wires_required_not_fresh_lift_to_degraded_fault(monkeypatch):
+    monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
+    monkeypatch.setattr(status, "_lift", lambda: {
+        "fresh": False, "height_mm": None, "inhibit": None,
+        "motion": None, "fault": None, "fault_active": False,
+    })
+    out = status._robot_state()
+    assert out["state"] == "DEGRADED"
+    assert "lift module not responding" in out["reason"]
+
+
+def test_robot_state_wires_lift_fault_active_to_mast_without_degrading(monkeypatch):
+    monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
+    monkeypatch.setattr(status, "_lift", lambda: {
+        "fresh": True, "height_mm": 100.0, "inhibit": False,
+        "motion": "STOP", "fault": "STUCK", "fault_active": True,
+    })
+    out = status._robot_state()
+    assert out["state"] != "DEGRADED"
+    assert out["subsystems"]["mast"]["state"] == "FAULT"
