@@ -34,7 +34,6 @@ carry EXIF in the ORIGINALS on Drive — this only scrubs the copies in the repo
 """
 
 import io
-import re
 import os
 import sys
 
@@ -115,13 +114,11 @@ def main(argv):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            # Split on runs of 2+ spaces first, so a source path containing
-            # single spaces ("Motor Wire Configuration /1.jpg" — Drive folders
-            # are named in prose) still parses. Falls back to a plain split for
-            # manifests written with single-space columns.
-            parts = re.split(r"\s{2,}", line)
-            if len(parts) < 2:
-                parts = line.split()
+            # Split at the LAST whitespace run: source paths routinely contain
+            # spaces ("Motor Wire Configuration /1.jpg" — Drive folders are named
+            # in prose) but target names never do. Splitting on the first run
+            # instead would silently truncate such a source to its first word.
+            parts = line.rsplit(None, 1)
             if len(parts) < 2:
                 print(f"  BAD LINE {line}", file=sys.stderr)
                 fail += 1
