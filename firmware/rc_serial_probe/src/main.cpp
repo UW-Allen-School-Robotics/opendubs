@@ -6,6 +6,8 @@
 #include "esp_task_wdt.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
+#include "opendubs_can.h"
+#include "opendubs_can_udp.h"
 
 // ---- Telemetry tee (USB Serial + PoE UDP) -------------------------------------------------
 // Mirror a telemetry line to USB Serial AND, when the PoE link is up, out over UDP so the SAME
@@ -16,6 +18,7 @@
 void netSendLine(const char* buf, int n);
 static bool netBringUp(bool dhcp);   // Ethernet bring-up / self-heal — defined in the Ethernet section, used in setup()
 static void netMaintain();           // Ethernet link watchdog — defined in the Ethernet section, used in loop()
+static void publishLift();   // emits [LIFT] — payload comms bridge (docs/interfaces/payload-comms.md)
 static void otaHttpPull(const char* url);   // Ethernet OTA — HTTP-GET a .bin off the Thor and self-flash (OTA command)
 
 static void temit(const char* buf, int n)   // raw line (already formatted, includes trailing \n)
@@ -526,6 +529,19 @@ static constexpr uint32_t kHbTimeoutMs = 6000; // no HB for this long (while lin
 static uint32_t        net_seq = 0;
 static const uint16_t  kNetPort = 5005;
 
+// --- Payload comms (docs/interfaces/payload-comms.md) — dedicated UDP port, broadcast both ways;
+// the module's CAN ID does the addressing so neither side needs to learn the other's IP. ---
+static EthernetUDP                 payload_udp;
+static const uint16_t              kPayloadPort = 5006;
+static opendubs_can::UdpTransport  payload_tx(payload_udp, IPAddress(255, 255, 255, 255), kPayloadPort);
+static unsigned long               last_authorize_tx_ms  = 0;
+static uint8_t                     authorize_counter     = 0;
+static unsigned long               last_lift_state_rx_ms = 0;
+static opendubs_can::LiftState     last_lift_state{};
+static opendubs_can::Fault         last_lift_fault{};
+static unsigned long               last_lift_pub_ms      = 0;
+static uint8_t                     lift_cmd_seq          = 0;
+
 static inline uint32_t unpackBitsLE(const uint8_t* data, uint8_t start_bit, uint8_t bit_len)
 {
     uint32_t out = 0;
@@ -806,6 +822,20 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 void handleHostCommand(const char* cmd)
 {
     int value = -1;
+    char liftDir[8] = {0};
+    if (sscanf(cmd, "LIFT %7s", liftDir) == 1) {
+        opendubs_can::LiftCmd c;
+        if      (strcmp(liftDir, "UP")   == 0) c = opendubs_can::LiftCmd::UP;
+        else if (strcmp(liftDir, "DOWN") == 0) c = opendubs_can::LiftCmd::DOWN;
+        else if (strcmp(liftDir, "STOP") == 0) c = opendubs_can::LiftCmd::STOP;
+        else { Serial.printf("[LIFT] cmd invalid dir=%s (want UP/DOWN/STOP)\n", liftDir); return; }
+        opendubs_can::LiftCommand lc{c, lift_cmd_seq++};
+        uint8_t buf[8]; uint8_t dlc = opendubs_can::encodeLiftCmd(lc, buf);
+        const bool ok = payload_tx.send(opendubs_can::kIdLiftCmd, dlc, buf);
+        Serial.printf("[LIFT] cmd dir=%s seq=%u %s\n", liftDir, static_cast<unsigned>(lc.seq),
+                      ok ? "sent" : "failed");
+        return;
+    }
     if (sscanf(cmd, "PDH_SWITCH %d", &value) == 1) {
         const bool en = value != 0;
         const bool ok = sendPdhSwitchCommand(en);
@@ -1911,6 +1941,7 @@ static bool netBringUp(bool dhcp)
     snprintf(eth_ip_str, sizeof(eth_ip_str), "%s", Ethernet.localIP().toString().c_str());
     eth_bcast = IPAddress(255, 255, 255, 255);
     eth_udp.begin(kNetPort);
+    payload_udp.begin(kPayloadPort);
     eth_up = true; eth_link_down_ticks = 0;
     return true;
 }
@@ -2000,6 +2031,29 @@ static void pollNetCommands()
             last_host_cmd_ms = millis();                       // host-link heartbeat for the local UI
         }
     }
+}
+
+// Emit the [LIFT] tag (docs/interfaces/payload-comms.md "Dashboard integration"). `live` is
+// THIS module's own staleness check — same pattern as [RC]'s `live=`, independent of the
+// general eth_up / dashboard-link freshness stamplc.py already tracks.
+static void publishLift()
+{
+    const bool live = !opendubs_can::isStale(millis(), last_lift_state_rx_ms,
+                                              opendubs_can::kLiftStateTimeoutMs);
+    const char* motion = last_lift_state.motion == opendubs_can::LiftMotion::UP   ? "UP"
+                        : last_lift_state.motion == opendubs_can::LiftMotion::DOWN ? "DOWN"
+                                                                                    : "STOP";
+    const char* fault =
+        last_lift_fault.code == opendubs_can::FaultCode::NONE           ? "NONE"
+      : last_lift_fault.code == opendubs_can::FaultCode::TOF_FAULT      ? "TOF_FAULT"
+      : last_lift_fault.code == opendubs_can::FaultCode::STUCK_TIMEOUT  ? "STUCK_TIMEOUT"
+      : last_lift_fault.code == opendubs_can::FaultCode::LIMIT_CONFLICT ? "LIMIT_CONFLICT"
+      : last_lift_fault.code == opendubs_can::FaultCode::RELAY_FAULT    ? "RELAY_FAULT"
+                                                                         : "UNKNOWN";
+    tprintf("[LIFT] live=%d height_mm=%u inhibit=%d at_top=%d at_bot=%d tof_ok=%d motion=%s fault=%s\n",
+            live ? 1 : 0, static_cast<unsigned>(last_lift_state.heightMm),
+            last_lift_state.inhibit ? 1 : 0, last_lift_state.atTop ? 1 : 0,
+            last_lift_state.atBot ? 1 : 0, last_lift_state.tofOk ? 1 : 0, motion, fault);
 }
 
 // -------- Ethernet OTA ------------------------------------------------------------------------
@@ -2117,6 +2171,28 @@ void loop()
 
     pollHostCommands();
     pollNetCommands();   // same dispatcher, over Ethernet UDP (works with USB unplugged)
+    // ---- Payload comms: AUTHORIZE broadcast (20 Hz) + STATE/FAULT receive ----
+    if (eth_up && (millis() - last_authorize_tx_ms) >= opendubs_can::kAuthorizePeriodMs) {
+        opendubs_can::Authorize a{authorize_counter++};
+        uint8_t buf[8]; uint8_t dlc = opendubs_can::encodeAuthorize(a, buf);
+        payload_tx.send(opendubs_can::kIdAuthorize, dlc, buf);
+        last_authorize_tx_ms = millis();
+    }
+    if (eth_up) {
+        uint16_t rxId; uint8_t rxDlc; uint8_t rxBuf[8];
+        while (payload_tx.poll(rxId, rxDlc, rxBuf)) {
+            if (rxId == opendubs_can::kIdLiftState) {
+                last_lift_state = opendubs_can::decodeLiftState(rxBuf, rxDlc);
+                last_lift_state_rx_ms = millis();
+            } else if (rxId == opendubs_can::kIdLiftFault) {
+                last_lift_fault = opendubs_can::decodeFault(rxBuf, rxDlc);
+            }
+        }
+    }
+    if ((millis() - last_lift_pub_ms) > 100) {   // 10 Hz, matches LIFT_STATE's own rate
+        publishLift();
+        last_lift_pub_ms = millis();
+    }
     // BMS poll is a NON-BLOCKING state machine (bmsStep) so it never stalls the control loop
     // (the old blocking read caused [RC] gaps → spurious dashboard NO-LINK). Absent-pack
     // backoff is handled inside bmsStep. Manual-probe mode just logs raw RS485 RX.
