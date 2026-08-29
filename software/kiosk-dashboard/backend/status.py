@@ -34,6 +34,11 @@ MODE_TO_AUTHORITY = {"OFF": "OFF", "MANUAL": "RC_MANUAL", "AUTO": "AUTONOMOUS"}
 THERMAL_LABELS = ["REGEN RESISTOR", "ENV ZONE 1", "MOTOR CTRL", "ZONE 3", "ZONE 4"]
 THERMAL_OVERTEMP_C = 70.0
 
+# Modules this robot build has installed — compared against payload-comms `live`/`fresh`
+# staleness to decide whether silence means "not installed" or "not responding"
+# (docs/interfaces/payload-comms.md "Module presence and required-module alerting").
+REQUIRED_MODULES = {"lift": True}
+
 VNC_DISABLED_FLAG = "/home/kiosk/.vnc/disabled"
 
 # StampPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
@@ -136,6 +141,22 @@ def _rc_link():
     return {"link": bool(rc.get("live")), "mode": rc.get("mode"),
             "fresh": bool(s.get("fresh")) and bool(rc.get("live")),
             "source": "stamplc-sbus"}
+
+
+def _lift():
+    """Lift/payload module health from the StampPLC's [LIFT] line
+    (docs/interfaces/payload-comms.md). `fresh` combines the StampPLC link's own
+    freshness with the module's own `live` flag — same pattern as `_rc_link()`."""
+    s = stamplc.reader.snapshot()
+    lift = s.get("lift") or {}
+    return {
+        "fresh": bool(s.get("fresh")) and bool(lift.get("live")),
+        "height_mm": lift.get("height_mm"),
+        "inhibit": lift.get("inhibit"),
+        "motion": lift.get("motion"),
+        "fault": lift.get("fault"),
+        "fault_active": lift.get("fault") not in (None, "NONE"),
+    }
 
 
 def _pack():
@@ -329,7 +350,10 @@ def _robot_state():
     # NOTE: per-channel PDH breaker faults are intentionally NOT rolled into
     # DEGRADED — on the bench many channels are unfused and fault by design.
 
-    mast_fault = False  # mast/payload is independent (Tab5-driven) — no mast-limit inputs on the StampPLC
+    lift = _lift()
+    if REQUIRED_MODULES.get("lift") and not lift["fresh"]:
+        raw_faults.append("lift module not responding")
+    mast_fault = lift["fault_active"]
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
@@ -401,6 +425,7 @@ def collect_fast() -> dict:
         "can": _can_arms(),
         "thermal": _thermal(),
         "drive": _drive(),
+        "lift": _lift(),
         "power": {
             "pack": pack,
             "logic_rail": rails["logic"],

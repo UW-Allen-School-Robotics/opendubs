@@ -40,6 +40,7 @@ _P_SBUS_STAT = re.compile(r"\[SBUS\] prof=.* ok=(\d+) bad=(\d+) last_ok_ms=(\d+)
 #   [RAIL]  logic_v= logic_i= drive_v= clamp=
 #   [RC]    live= mode= dead= spd= mat= fr= rot= str= mast= raw=c1,..,c16
 #   [DRIVE] mode= armed= w=fl,fr,rl,rr  (normalized -1..1)
+#   [LIFT]  live= height_mm= inhibit= at_top= at_bot= tof_ok= motion= fault=
 _KV = re.compile(r"(\w+)=(\S+)")
 
 
@@ -325,6 +326,20 @@ class StampReader:
                                     "fwd": fnum("fwd"), "rot": fnum("rot"), "str": fnum("str"),
                                     "spd": fnum("spd"),       # CH8 speed knob 0..1
                                     "turn": kv.get("turn")}   # "L"/"R"/"0" — net rightward intent
+                self._last = now; return
+            if line.startswith("[LIFT] "):
+                kv = _kv(line)
+                fnum = lambda k: (float(kv[k]) if k in kv else None)
+                self._d["lift"] = {
+                    "live": kv.get("live") == "1",
+                    "height_mm": fnum("height_mm"),
+                    "inhibit": kv.get("inhibit") == "1",
+                    "at_top": kv.get("at_top") == "1",
+                    "at_bot": kv.get("at_bot") == "1",
+                    "tof_ok": kv.get("tof_ok") == "1",
+                    "motion": kv.get("motion"),
+                    "fault": kv.get("fault"),
+                }
                 self._last = now; return
 
     def snapshot(self):
