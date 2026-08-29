@@ -77,31 +77,39 @@ static void commsTask(void*) {
   for (;;) {
     const bool wifiUp = WiFi.status() == WL_CONNECTED;
     g_linkOnline = wifiUp;
-    if (!wifiUp) { g_ipStr[0] = '\0'; vTaskDelay(pdMS_TO_TICKS(20)); continue; }
 
-    IPAddress ip = WiFi.localIP();
-    snprintf(g_ipStr, sizeof(g_ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    if (wifiUp) {
+      IPAddress ip = WiFi.localIP();
+      snprintf(g_ipStr, sizeof(g_ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 
-    uint16_t rxId; uint8_t rxDlc; uint8_t rxBuf[8];
-    while (tx.poll(rxId, rxDlc, rxBuf)) {
-      if (rxId == opendubs_can::kIdAuthorize) {
-        lastAuthorizeRxMs = millis();
-      } else if (rxId == opendubs_can::kIdLiftCmd) {
-        auto c = opendubs_can::decodeLiftCmd(rxBuf, rxDlc);
-        if (!haveCmdSeq || c.seq != lastCmdSeq) {   // edge-detect: only act on a NEW seq
-          lastCmdSeq = c.seq; haveCmdSeq = true;
-          if      (c.cmd == opendubs_can::LiftCmd::UP)   Lift.commandUp();
-          else if (c.cmd == opendubs_can::LiftCmd::DOWN) Lift.commandDown();
-          else                                           Lift.commandStop();
+      uint16_t rxId; uint8_t rxDlc; uint8_t rxBuf[8];
+      while (tx.poll(rxId, rxDlc, rxBuf)) {
+        if (rxId == opendubs_can::kIdAuthorize) {
+          lastAuthorizeRxMs = millis();
+        } else if (rxId == opendubs_can::kIdLiftCmd) {
+          auto c = opendubs_can::decodeLiftCmd(rxBuf, rxDlc);
+          if (!haveCmdSeq || c.seq != lastCmdSeq) {   // edge-detect: only act on a NEW seq
+            lastCmdSeq = c.seq; haveCmdSeq = true;
+            if      (c.cmd == opendubs_can::LiftCmd::UP)   Lift.commandUp();
+            else if (c.cmd == opendubs_can::LiftCmd::DOWN) Lift.commandDown();
+            else                                           Lift.commandStop();
+          }
         }
       }
+    } else {
+      g_ipStr[0] = '\0';
     }
 
+    // Fail-safe-by-omission must be evaluated regardless of link state: no fresh AUTHORIZE
+    // (whether because the content is stale on a live link, or because there's no link at all
+    // to carry it) means inhibited. lastAuthorizeRxMs simply stops advancing while WiFi is down,
+    // so this naturally trips within kAuthorizeTimeoutMs of an outage starting, and is already
+    // tripped at cold boot (lastAuthorizeRxMs's 0 default reads as stale) before any link forms.
     const bool authorized = !opendubs_can::isStale(millis(), lastAuthorizeRxMs,
                                                      opendubs_can::kAuthorizeTimeoutMs);
     Lift.setInhibit(!authorized);   // fail-safe-by-omission: no fresh AUTHORIZE -> inhibited
 
-    if (millis() - lastStateTxMs >= opendubs_can::kLiftStatePeriodMs) {
+    if (wifiUp && millis() - lastStateTxMs >= opendubs_can::kLiftStatePeriodMs) {
       auto snap = Lift.snapshot();
       opendubs_can::LiftState st{};
       st.heightMm     = static_cast<uint16_t>(snap.heightMm < 0.0f ? 0.0f : snap.heightMm);
