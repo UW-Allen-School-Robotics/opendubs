@@ -21,6 +21,10 @@ deploy_sub() { rsync -az --delete "${EXC[@]}" "$REPO/$1/" "$HOST:$DEST/$2/"; }  
 deploy_sub software/kiosk-dashboard kiosk-dashboard
 deploy_sub software/ros             ros
 deploy_sub firmware/rc_serial_probe rc_serial_probe
+# firmware/comms is the shared payload-comms protocol library (docs/interfaces/payload-comms.md)
+# pulled in by rc_serial_probe's platformio.ini via `-I../comms` — without it flashing from the
+# Thor (flash-from-thor.sh/ota-from-thor.sh) can't resolve the include.
+deploy_sub firmware/comms           comms
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
 echo "== provisioning $HOST (idempotent) =="

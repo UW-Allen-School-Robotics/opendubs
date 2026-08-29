@@ -1,9 +1,11 @@
 # Payload communication protocol
 
-**Status: designed, not yet implemented.** The message protocol a payload module speaks to the
-base — command/telemetry frame layout, transport, and presence/safety semantics. Once
-implemented, `firmware/tab5_face`'s `commsTask` stub and the punch-list's
-["CAN payload protocol spec"](../../notes/punch-list.md) item are this document.
+**Status: implemented, not yet hardware bench-verified.** The message protocol a payload module
+speaks to the base — command/telemetry frame layout, transport, and presence/safety semantics.
+`firmware/tab5_face`'s `commsTask` implements this document against the lift module, the
+StampPLC (`firmware/rc_serial_probe`) terminates the UDP link and relays state to the dashboard,
+and the punch-list's ["CAN payload protocol spec"](../../notes/punch-list.md) item is done. Bench
+verification against real hardware (WiFi join, relay/ToF wiring) is still outstanding.
 
 This is the *protocol* only — how bytes are laid out and moved. It does not cover *sending and
 receiving* it (the transport adapter's concrete implementation), which is separate follow-on work.

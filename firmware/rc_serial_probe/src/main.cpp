@@ -2043,8 +2043,12 @@ static void publishLift()
     const char* motion = last_lift_state.motion == opendubs_can::LiftMotion::UP   ? "UP"
                         : last_lift_state.motion == opendubs_can::LiftMotion::DOWN ? "DOWN"
                                                                                     : "STOP";
-    const char* fault =
-        last_lift_fault.code == opendubs_can::FaultCode::NONE           ? "NONE"
+    // While stale (live=0) don't report last_lift_fault — it's a cached value from whichever
+    // module was last talking, and could be wrong/stale itself (e.g. the module power-cycled
+    // or a different, healthy module took its place). Report NONE instead; a reconnecting
+    // module's real fault state gets re-reported automatically once new frames arrive (I3).
+    const char* fault = !live ? "NONE"
+      : last_lift_fault.code == opendubs_can::FaultCode::NONE           ? "NONE"
       : last_lift_fault.code == opendubs_can::FaultCode::TOF_FAULT      ? "TOF_FAULT"
       : last_lift_fault.code == opendubs_can::FaultCode::STUCK_TIMEOUT  ? "STUCK_TIMEOUT"
       : last_lift_fault.code == opendubs_can::FaultCode::LIMIT_CONFLICT ? "LIMIT_CONFLICT"
@@ -2172,7 +2176,10 @@ void loop()
     pollHostCommands();
     pollNetCommands();   // same dispatcher, over Ethernet UDP (works with USB unplugged)
     // ---- Payload comms: AUTHORIZE broadcast (20 Hz) + STATE/FAULT receive ----
-    if (eth_up && (millis() - last_authorize_tx_ms) >= opendubs_can::kAuthorizePeriodMs) {
+    // Gated on local_estop_active (the base's own software/button e-stop latch — the same
+    // variable driveTick()'s ARM GATE already checks) so a payload module never gets motion
+    // permission while the base itself is e-stopped (C2, payload-comms fix pass).
+    if (eth_up && !local_estop_active && (millis() - last_authorize_tx_ms) >= opendubs_can::kAuthorizePeriodMs) {
         opendubs_can::Authorize a{authorize_counter++};
         uint8_t buf[8]; uint8_t dlc = opendubs_can::encodeAuthorize(a, buf);
         payload_tx.send(opendubs_can::kIdAuthorize, dlc, buf);
@@ -2189,7 +2196,7 @@ void loop()
             }
         }
     }
-    if ((millis() - last_lift_pub_ms) > 100) {   // 10 Hz, matches LIFT_STATE's own rate
+    if ((millis() - last_lift_pub_ms) >= opendubs_can::kLiftStatePeriodMs) {   // 10 Hz, matches LIFT_STATE's own rate
         publishLift();
         last_lift_pub_ms = millis();
     }

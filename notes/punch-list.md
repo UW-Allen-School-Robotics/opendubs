@@ -145,7 +145,7 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 - [TODO][HW] **Localization/fusion (ROS on Thor)**: EKF (e.g. robot_localization) fusing Pinpoint(ODO+IMU) + GPS+IMU + visual odom + others → published pose/tilt the dashboard subscribes to. Sensors + calibration are a bench task.
 
 ### F. Payload buildout (DEFERRED)
-- [TODO] CAN payload protocol spec (command/telemetry frames + identity/discovery).
+- [DONE][HW] CAN payload protocol spec (command/telemetry frames + identity/discovery) — spec'd (`docs/interfaces/payload-comms.md`) and implemented end-to-end (protocol lib, StampPLC UDP termination, Tab5 `commsTask`, dashboard wiring); hardware bench-verification still outstanding.
 - [TODO] M5 payload controller (mast: PWM+encoder+limits; scissor: relay-toggle state machine + feedback).
 - [TODO] Backend payload abstraction + type-driven LIFT panel.
 - [TODO] Scissor momentary-toggle safety (known-state init, feedback to confirm motion).

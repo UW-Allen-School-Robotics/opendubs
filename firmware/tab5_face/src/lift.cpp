@@ -51,7 +51,7 @@ float LiftController::readTofMm_() {
 
 // pulse-toggle / pulse-reverse: pressing a leg while already going that way STOPS; otherwise GO.
 void LiftController::moveCmd_(Motion dir) {
-  if (inhibit_) return;
+  if (inhibit_ || commsInhibit_) return;
   uint32_t now = millis();
   if (motion_ == dir) { pulseRelay_(dir == Motion::UP ? 0 : 1, now); motion_ = Motion::STOP; }
   else                { pulseRelay_(dir == Motion::UP ? 0 : 1, now); motion_ = dir; }
@@ -72,6 +72,21 @@ void LiftController::commandStop() {
 void LiftController::setInhibit(bool on) {
   if (!mtx_) return; xSemaphoreTake(mtx_, portMAX_DELAY);
   inhibit_ = on;
+  if (on && motion_ != Motion::STOP) {                 // stop immediately on engage
+    uint32_t now = millis();
+    if (motion_ == Motion::UP) pulseRelay_(0, now); else pulseRelay_(1, now);
+    motion_ = Motion::STOP;
+  }
+  xSemaphoreGive(mtx_);
+}
+
+// Independent comms-authority inhibit (payload-comms AUTHORIZE staleness). Mirrors setInhibit()'s
+// body exactly but writes commsInhibit_ instead of inhibit_, so it can never clobber (or be
+// clobbered by) the local e-stop tap's own state (docs/interfaces/payload-comms.md; see the
+// tab5 commsTask fix for why these two must stay separate flags OR'd at every read site).
+void LiftController::setCommsInhibit(bool on) {
+  if (!mtx_) return; xSemaphoreTake(mtx_, portMAX_DELAY);
+  commsInhibit_ = on;
   if (on && motion_ != Motion::STOP) {                 // stop immediately on engage
     uint32_t now = millis();
     if (motion_ == Motion::UP) pulseRelay_(0, now); else pulseRelay_(1, now);
@@ -108,7 +123,7 @@ void LiftController::tick(uint32_t nowMs) {
 // High-priority safety pass: belt-and-suspenders — if inhibited yet still moving, force stop.
 void LiftController::enforceSafe(uint32_t nowMs) {
   if (!mtx_) return; xSemaphoreTake(mtx_, portMAX_DELAY);
-  if (inhibit_ && motion_ != Motion::STOP) {
+  if ((inhibit_ || commsInhibit_) && motion_ != Motion::STOP) {
     if (motion_ == Motion::UP) pulseRelay_(0, nowMs); else pulseRelay_(1, nowMs);
     motion_ = Motion::STOP;
   }
@@ -120,7 +135,7 @@ LiftController::Snapshot LiftController::snapshot() {
   if (!mtx_) return s;
   xSemaphoreTake(mtx_, portMAX_DELAY);
   uint32_t now = millis();
-  s.heightMm = heightMm_; s.tofMm = tofMm_; s.motion = motion_; s.inhibit = inhibit_;
+  s.heightMm = heightMm_; s.tofMm = tofMm_; s.motion = motion_; s.inhibit = (inhibit_ || commsInhibit_);
   s.atTop = atTop_; s.atBot = atBot_; s.tofOk = tofOk_;
   s.relayUpPulse = upPulseUntil_ && now < upPulseUntil_;
   s.relayDnPulse = dnPulseUntil_ && now < dnPulseUntil_;

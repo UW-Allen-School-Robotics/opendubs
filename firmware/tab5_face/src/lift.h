@@ -55,6 +55,9 @@ public:
   void commandDown();
   void commandStop();           // explicit stop (pulses the active leg)
   void setInhibit(bool on);     // soft e-stop; on=true stops immediately
+  void setCommsInhibit(bool on); // comms-authority inhibit (AUTHORIZE staleness); independent
+                                 // of setInhibit()'s local e-stop — effective gating is the OR
+                                 // of both (see inhibit_/commsInhibit_)
 
   Snapshot snapshot();
 
@@ -66,7 +69,8 @@ private:
 
   SemaphoreHandle_t mtx_ = nullptr;
   Motion   motion_   = Motion::STOP;
-  bool     inhibit_  = false;
+  bool     inhibit_  = false;       // local e-stop (onEstopTap()) — written only by setInhibit()
+  bool     commsInhibit_ = false;   // payload-comms AUTHORIZE gate — written only by setCommsInhibit()
   float    heightMm_ = 420.0f;
   float    tofMm_    = TOF_STANDOFF + 420.0f;
   bool     atTop_ = false, atBot_ = false, tofOk_ = true;

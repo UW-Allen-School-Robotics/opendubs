@@ -21,7 +21,10 @@
 #include "opendubs_can_udp.h"
 
 #ifndef OPENDUBS_WIFI_SSID
-#define OPENDUBS_WIFI_SSID "opendubs-local"   // override via platformio.ini build_flags; see firmware/tab5_face/README
+// Override the WiFi credentials without committing them: add to platformio.ini's build_flags
+// (or a git-ignored platformio_override.ini), e.g.
+//   build_flags = -DOPENDUBS_WIFI_SSID='"my-ssid"' -DOPENDUBS_WIFI_PASS='"my-pass"'
+#define OPENDUBS_WIFI_SSID "opendubs-local"
 #endif
 #ifndef OPENDUBS_WIFI_PASS
 #define OPENDUBS_WIFI_PASS "changeme"
@@ -30,6 +33,15 @@
 static const bool     DEMO_CYCLE = false;    // true = auto-cycle robot states (face demo). false = hold SAFE_IDLE + puns.
 static const uint32_t IDLE_MS     = 10000;   // controller -> face auto-revert
 static const uint32_t CONFIRM_MS  = 2200;    // e-stop release confirm window
+
+// g_linkOnline ("is there ANY live comms link to the base") has two independent sources — the
+// USB-serial STATE/TURN feed (pollStateSerial()/applyLine(), core 1) and commsTask's WiFi/UDP
+// link (core 0). Neither may unconditionally overwrite g_linkOnline with its own view; each
+// tracks its own liveness in one of these two flags, and every writer recomputes g_linkOnline as
+// their OR (see I4 in the payload-comms fix pass) so a live serial link can't be blanked by a
+// down WiFi link, or vice versa.
+static volatile bool wifiLinkOnline   = false;   // written only by commsTask
+static bool          serialLinkOnline = false;   // written only by applyLine()/pollStateSerial()
 
 // ---- UI state (owned by loop) ----
 static uint32_t idleLeft = 0;
@@ -70,13 +82,16 @@ static void commsTask(void*) {
   unsigned long lastAuthorizeRxMs = 0;
   unsigned long lastStateTxMs = 0;
   uint8_t       lastFaultCode = static_cast<uint8_t>(opendubs_can::FaultCode::NONE);
+  unsigned long lastFaultTxMs = 0;   // ~1Hz resend while a fault is active (spec: "Common message
+                                      // slots" / FAULT) — dropped-frame / reboot-mid-fault safety net
   uint8_t       lastCmdSeq = 0;
   bool          haveCmdSeq = false;
   uint8_t       stateSeq = 0;
 
   for (;;) {
     const bool wifiUp = WiFi.status() == WL_CONNECTED;
-    g_linkOnline = wifiUp;
+    wifiLinkOnline = wifiUp;
+    g_linkOnline = wifiLinkOnline || serialLinkOnline;   // combine, never overwrite (see I4)
 
     if (wifiUp) {
       IPAddress ip = WiFi.localIP();
@@ -107,7 +122,9 @@ static void commsTask(void*) {
     // tripped at cold boot (lastAuthorizeRxMs's 0 default reads as stale) before any link forms.
     const bool authorized = !opendubs_can::isStale(millis(), lastAuthorizeRxMs,
                                                      opendubs_can::kAuthorizeTimeoutMs);
-    Lift.setInhibit(!authorized);   // fail-safe-by-omission: no fresh AUTHORIZE -> inhibited
+    Lift.setCommsInhibit(!authorized);   // fail-safe-by-omission: no fresh AUTHORIZE -> inhibited
+                                          // (separate from the local e-stop's setInhibit() —
+                                          // see lift.h/lift.cpp; the two flags OR together)
 
     if (wifiUp && millis() - lastStateTxMs >= opendubs_can::kLiftStatePeriodMs) {
       auto snap = Lift.snapshot();
@@ -128,10 +145,14 @@ static void commsTask(void*) {
       lastStateTxMs = millis();
 
       auto fault = deriveFault(snap);
-      if (static_cast<uint8_t>(fault.code) != lastFaultCode) {
+      const bool faultChanged = static_cast<uint8_t>(fault.code) != lastFaultCode;
+      const bool faultActive  = fault.code != opendubs_can::FaultCode::NONE;
+      const bool resendDue    = faultActive && (millis() - lastFaultTxMs >= 1000);
+      if (faultChanged || resendDue) {
         uint8_t fbuf[8]; uint8_t fdlc = opendubs_can::encodeFault(fault, fbuf);
         tx.send(opendubs_can::kIdLiftFault, fdlc, fbuf);
         lastFaultCode = static_cast<uint8_t>(fault.code);
+        lastFaultTxMs = millis();
       }
     }
 
@@ -176,12 +197,12 @@ static void applyLine(const char* line) {
     const char* name = line + 6;
     for (int i = 0; i < NST; ++i)
       if (strcmp(STATES[i].name, name) == 0) {
-        g_robotState = i; g_linkOnline = true; last_state_ms = millis(); return;
+        g_robotState = i; serialLinkOnline = true; last_state_ms = millis(); return;
       }
   } else if (strncmp(line, "TURN ", 5) == 0) {
     char d = line[5];
     g_turnCmd = (d == 'R') ? 1 : (d == 'L') ? -1 : 0;
-    g_linkOnline = true; last_state_ms = millis();
+    serialLinkOnline = true; last_state_ms = millis();
   }
 }
 
@@ -191,7 +212,8 @@ static void pollStateSerial() {
     if (c == '\n' || c == '\r') { if (g_rxlen > 0) { g_rx[g_rxlen] = 0; applyLine(g_rx); g_rxlen = 0; } }
     else if (g_rxlen < (int)sizeof(g_rx) - 1) g_rx[g_rxlen++] = c;
   }
-  if (g_linkOnline && last_state_ms != 0 && millis() - last_state_ms > 5000) g_linkOnline = false;
+  if (serialLinkOnline && last_state_ms != 0 && millis() - last_state_ms > 5000) serialLinkOnline = false;
+  g_linkOnline = serialLinkOnline || wifiLinkOnline;   // combine, never overwrite (see I4)
 }
 
 // ================= setup / loop =================

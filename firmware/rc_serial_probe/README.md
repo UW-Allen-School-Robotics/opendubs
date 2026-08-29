@@ -7,10 +7,12 @@
 > `provision-firmware.sh`) references it.
 
 The firmware (`src/main.cpp`) is the M5StampPLC's edge-controller program. It emits text
-telemetry over USB-serial (`[SENS]`/`[PDH]`/`[CAN]`/`[IO]`/`[ENC]`/`[SBUS]`/`[I2C]`) consumed by
-the dashboard, and accepts host commands (see below). It owns: REV PDH proprietary-CAN
+telemetry over USB-serial (`[SENS]`/`[PDH]`/`[CAN]`/`[IO]`/`[ENC]`/`[SBUS]`/`[I2C]`/`[LIFT]`)
+consumed by the dashboard, and accepts host commands (see below). It owns: REV PDH proprietary-CAN
 telemetry, DI/relay safety I/O, the external I²C bus (PaHub mux on Port A), IO-socket/INA/LM75
-sensing, **SBUS RC ingest**, a **local screen/LED UI**, and the **PRISM state indicator**.
+sensing, **SBUS RC ingest**, a **local screen/LED UI**, the **PRISM state indicator**, and
+terminates the payload-comms UDP link (`docs/interfaces/payload-comms.md`) that relays the lift
+module's state as `[LIFT]`.
 
 **RC IS read here.** The StampLC is the SBUS mediator: inverted SBUS on blue-port **G5**,
 decoded to `rc_ch[]` (channel map in `../` memory / `docs`). Flash from the Thor with
@@ -41,7 +43,9 @@ apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-
 **`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page) ·
 **`S8RESET [off_ms]`** (power-cycle the 8Servo via relay R1 — the reliable clear for the ESC
 solid-red fault; inert until R1 gates the 8Servo 5 V) ·
-**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash).
+**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash) ·
+**`LIFT <UP|DOWN|STOP>`** (send a `LIFT_CMD` frame to the lift module over the payload-comms UDP
+link — see `docs/interfaces/payload-comms.md`).
 
 ## Local UI
 

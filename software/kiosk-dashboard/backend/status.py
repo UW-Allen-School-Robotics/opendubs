@@ -149,13 +149,16 @@ def _lift():
     freshness with the module's own `live` flag — same pattern as `_rc_link()`."""
     s = stamplc.reader.snapshot()
     lift = s.get("lift") or {}
+    fresh = bool(s.get("fresh")) and bool(lift.get("live"))
     return {
-        "fresh": bool(s.get("fresh")) and bool(lift.get("live")),
+        "fresh": fresh,
         "height_mm": lift.get("height_mm"),
         "inhibit": lift.get("inhibit"),
         "motion": lift.get("motion"),
         "fault": lift.get("fault"),
-        "fault_active": lift.get("fault") not in (None, "NONE"),
+        # Also requires `fresh` (belt-and-suspenders alongside the StampPLC-side I3 fix): a
+        # stale/no-longer-live module must never report an active fault from cached data.
+        "fault_active": fresh and (lift.get("fault") not in (None, "NONE")),
     }
 
 
@@ -351,7 +354,11 @@ def _robot_state():
     # DEGRADED — on the bench many channels are unfused and fault by design.
 
     lift = _lift()
-    if REQUIRED_MODULES.get("lift") and not lift["fresh"]:
+    # Gated on supervisor.ready (previous frame's readiness — status.py polls ~1Hz and this
+    # frame's supervisor.step() hasn't run yet) so a healthy module doesn't trip a
+    # manual-clear-required DEGRADED fault during the first several seconds of every boot,
+    # before the Tab5 has had time to associate WiFi (I1, payload-comms fix pass).
+    if REQUIRED_MODULES.get("lift") and not lift["fresh"] and supervisor.ready:
         raw_faults.append("lift module not responding")
     mast_fault = lift["fault_active"]
 

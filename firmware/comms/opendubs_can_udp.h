@@ -7,6 +7,8 @@
 // (docs/interfaces/payload-comms.md "Transport"). The caller owns the UDP object's
 // begin(port) — this class only frames/sends/polls.
 #include <Udp.h>
+#include <cstring>   // std::memcpy — explicit dependency (was previously only picked up
+                     // transitively via opendubs_can.h's own include)
 #include "opendubs_can.h"
 
 namespace opendubs_can {
