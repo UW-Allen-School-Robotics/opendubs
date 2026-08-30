@@ -24,87 +24,94 @@
 
 ## Assembly
 
-Both this panel and the [charge port](charger-port.md) are **printed panels that slide into
-the goRAIL T-slot from the top** — they are not bolted through the frame. Each panel is
-captured between two vertical goRAIL uprights and locked with corner brackets, so it can be
-slid along the rail to reposition and taken out again without drilling anything.
+The fan is its own **module**: a printed panel carrying the fan, captured between two short
+goRAIL uprights and locked with corner brackets. Build that module first (**Construction**),
+then fit it to the robot (**Installation**) — the assembled module slides into the frame's
+T-slot from the top, so it goes in before the upper frame caps those rails.
 
-!!! tip "Fit them before the upper frame closes the rails"
-    The panel goes in from the open end at the top of the uprights. Once the upper frame caps
-    those rails there is no way in, and you are backing a rail off to fit a panel that would
-    have dropped straight in earlier.
+## Construction
 
 ### Step 1 — Mount the fan to the panel
 
 The printed panel does all the work: the fan fastens to it, and the panel carries the load
-into the frame. The fan never touches the frame directly.
+into the uprights. The fan never touches the frame directly.
 
 <figure markdown="span">
   ![The axial fan sitting in the aperture of the white printed panel on a bench](../assets/build/cooling-fan/01-fan-and-panel.webp)
   <figcaption>The fan and its printed panel before assembly. The fan sits into the square aperture; the recessed pocket above it is part of the panel, not somewhere the fan goes.</figcaption>
 </figure>
 
-!!! tip "Do this on the bench"
-    Both fan screws are easy on a desk and awkward once the panel is between two uprights.
-    Fit the fan, then take the assembly to the frame.
+!!! tip "Do this flat, on a bench"
+    Both fan screws are easy on a desk and awkward once the panel is between the uprights.
 
 ### Step 2 — Set the airflow direction
 
 Axial fans are directional and every case has an arrow moulded into the housing for airflow,
 usually with a second for rotation. Decide **now** whether this fan pulls air in or pushes it
-out, because reversing it later means taking the panel back out of the rail.
+out — reversing it later means taking the module back apart.
 
 !!! warning "Check the arrow, not the blades"
     You cannot reliably tell a fan's direction by looking at the blades. Find the moulded
     arrow on the housing edge and aim the flow across the electronics that actually get hot —
     see [Electronics Bay](electronics-bay.md).
 
-### Step 3 — Offer the panel up to the uprights
+### Step 3 — Slide the panel down onto the uprights
 
-Bring the assembly to the frame and line its edges up with the T-slots in the two uprights,
-fan facing **inward** into the frame. Feed the lead through before the panel goes in.
+Stand the two goRAIL uprights up, then bring the panel down over them so its side edges
+engage the uprights' T-slots. Slide it down to its height and lock it with the corner
+brackets, top and bottom.
 
 <figure markdown="span">
-  ![The fan panel held up against the two goRAIL uprights, not yet slid into the slots](../assets/build/cooling-fan/02-panel-before-slide-in.webp)
-  <figcaption>Offered up, not yet engaged. Check the fan is facing the right way now — turning it round after the panel is seated means taking it all back out.</figcaption>
+  ![The fan panel resting above the two goRAIL uprights, not yet engaged](../assets/build/cooling-fan/02-panel-before-slide-in.webp)
+  <figcaption>Panel brought down over the uprights but not yet engaged — fan facing outward, lead already fed through and hanging clear behind.</figcaption>
 </figure>
 
-### Step 4 — Slide the panel down into the T-slots
-
-With both edges started in the slots, slide the panel down the uprights to its position, then
-lock it with the corner brackets top and bottom.
-
 <figure markdown="span">
-  ![The fan panel seated in the uprights and held by corner brackets](../assets/build/cooling-fan/03-panel-slid-in.webp)
-  <figcaption>Seated. The corner brackets top and bottom are what hold the height once the panel is slid to position.</figcaption>
+  ![The panel slid down over the uprights and locked with corner brackets](../assets/build/cooling-fan/03-panel-slid-in.webp)
+  <figcaption>Slid down and locked. The corner brackets at top and bottom are what hold the panel's height on the uprights — this is the finished fan module.</figcaption>
 </figure>
 
 !!! tip "Slide to height before you tighten"
     The brackets clamp the panel wherever you leave it, so set the height against whatever the
-    fan needs to blow across, then lock it. Loosening and sliding later is easy; drilling is not.
+    fan needs to blow across, then lock it. Loosening and sliding is easy; drilling is not.
+
+## Installation
+
+### Step 4 — Fit the module to the frame
+
+The completed module drops into the frame's rail from the top and slides down to position.
+
+<figure markdown="span">
+  ![Close view along the rail of the installed fan module with its lead routed](../assets/build/cooling-fan/04-fan-installed.webp)
+  <figcaption>The module installed on the frame, seen along the rail.</figcaption>
+</figure>
+
+!!! tip "Fit it before the upper frame closes the rails"
+    The module goes in from the open end at the top of the frame rail. Once the upper frame
+    caps that rail there is no way in, and you are backing a rail off to fit a module that
+    would have dropped straight in earlier.
 
 ### Step 5 — Route and land the fan power
 
-<figure markdown="span">
-  ![Close view along the rail of the installed fan panel with its lead routed](../assets/build/cooling-fan/04-fan-installed.webp)
-  <figcaption>Installed. The supply runs along the inside face of the rail and back toward the bay — not across the frame opening.</figcaption>
-</figure>
+Run the fan lead along the inside face of the rail and back to its supply in the bay, clear
+of the frame opening and of anything that moves.
 
 <figure markdown="span">
-  ![The lower frame with both the fan panel and the charge-port panel fitted](../assets/build/cooling-fan/05-both-panels-in-frame.webp)
-  <figcaption>Both panels in context — fan panel on the right-hand rail, charge-port panel on the left.</figcaption>
+  ![The lower frame with both the fan module and the charge-port panel fitted](../assets/build/cooling-fan/05-both-panels-in-frame.webp)
+  <figcaption>Both in context — fan module on the right-hand rail, charge-port panel on the left.</figcaption>
 </figure>
 
 ## Verify — done when…
 
 - [ ] Fan solidly fastened to the panel; no contact between blades and any cable.
-- [ ] Panel fully seated between the uprights and locked — it should not slide under hand pressure.
+- [ ] Panel locked to the uprights — it should not slide under hand pressure.
 - [ ] Airflow direction confirmed against the housing arrow, aimed at the hot components.
+- [ ] Module seated in the frame rail and locked.
 - [ ] Fan lead routed along the rail, not across the frame opening, with no strain at either end.
 - [ ] Fan spins up on power and runs without rubbing or rattling.
 
 !!! note "Still to document"
     This module has **no rows in `hardware/parts.csv`** yet, so the page has no generated BOM —
-    the fan, its printed panel and the T-slot hardware all need adding, then
-    `python3 tools/bom.py --inject`. The fan's supply voltage and where in the bay it lands are
-    not shown in the photos and are not stated here.
+    the fan, its printed panel, the goRAIL uprights and the corner brackets all need adding,
+    then `python3 tools/bom.py --inject`. The fan's supply voltage and where in the bay it
+    lands are not shown in the photos and are not stated here.
