@@ -1,19 +1,35 @@
 # Base Frame — photo selection manifest
 # Lists ONLY the shots we keep, and what each becomes in the guide.
-# Format:  SOURCE.HEIC   target.jpg      (# comments + blank lines ignored)
-# Convert with:
+# Format:  SOURCE.HEIC   target.webp      (# comments + blank lines ignored)
+# Convert with (macOS):
 #   tools/convert-build-photos.sh <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/base-frame/photos.manifest docs/assets/build/base-frame
+# That holds every output under the 300 KB target in docs/assets/build/README.md,
+# stepping quality down and then shrinking if needed. No flags required.
 #
-# --- currently on Drive ("1 - Base Frame Build") — completed-frame shots ---
-IMG_1480.HEIC    completed-01.jpg
-IMG_1482.HEIC    completed-02.jpg
-IMG_1483.HEIC    completed-03.jpg
-#
-# --- step photos, add as they're shot (names match the steps in base-frame.md) ---
-# IMG_XXXX.HEIC   01-frame-rectangle.jpg
-# Step 2 — miter gear sub-assembly (source: "1 - Base Frame Build" Drive folder):
-20260819_153144.jpg    02-miter-gear.jpg
-20260819_153151.jpg    02-miter-gear-assembled.jpg
-# IMG_XXXX.HEIC   02-drive-pod.jpg
-# IMG_XXXX.HEIC   03-pods-mounted.jpg
-# IMG_XXXX.HEIC   04-leads-routed.jpg
+# Source: the "1 - Base Frame Build" Drive folder. The sources are already
+# numbered in build order, so the NN prefix here is the SOURCE number — that way
+# a photo on the page can be traced straight back to the shot on Drive. Letter
+# suffixes (12a/12b/12c) are multiple shots of the same moment; "done" in a
+# source name marks a completed-frame shot.
+
+1.jpeg           01-long-rail.webp
+2.jpeg           02-cross-rail.webp
+3.jpeg           03-motor-in-channel.webp
+4.jpeg           04-motor-miter-gear.webp
+5.jpeg           05-two-motors-per-rail.webp
+6.jpg            06-parts-laid-out.webp
+7.jpeg           07-closing-channel.webp
+8.jpeg           08-hub-shaft-set.webp
+9.jpg            09-corner-joint.webp
+10.jpeg          10-two-rails-joined.webp
+11.jpeg          11-three-sides.webp
+12done.HEIC      12a-completed-table.webp
+12done(1).HEIC   12b-completed-low-angle.webp
+12done(2).HEIC   12c-completed-three-quarter.webp
+13.jpg           13-gear-mesh-detail.webp
+14.jpg           14-frame-upright.webp
+15.jpg           15-leads-through-rail.webp
+16done.jpg       16a-completed-top-down.webp
+16done(1).jpg    16b-completed-top-down-alt.webp

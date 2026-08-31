@@ -58,6 +58,7 @@ tool links are examples, any equivalent works.
 | M3 socket-head screw assortment | optional | 1 assortment | — | For non-goBILDA parts; not used in the base frame |
 | M4 x 55 mm socket-head screw | — | 4 | [buy](https://www.amazon.com/iExcell-Stainless-Socket-Screws-Wrench/dp/B089NGGLZQ) | Long standoff screws for the 10 mm sensor mount; confirm qty |
 | M10 riv-nut | — | 2 | [buy](https://a.co/d/07JbuGAl) | Set into the rail's 14 mm holes; rivnut install is a FOLLOW-ON base-frame step; confirm qty |
+| M4 x 55 mm socket-head screws | — | 2 | [buy](https://www.amazon.com/gp/product/B0DFYK39N6) | Run up through the dual blocks into the printed Thor cradle; confirm exact qty. |
 <!-- /BOM-AUTO:purchase:fasteners -->
 
 ### Tools
@@ -91,6 +92,10 @@ tool links are examples, any equivalent works.
 | WAGO lever connectors | — | a few | [buy](https://a.co/d/09VO6gwP) | PaHub<->PRISM (goBILDA I2C) and PaHub<->LLC<->Pinpoint joins |
 | Heat-shrink assortment / labels | recommended | 1 | [buy](https://a.co/d/04p7f5Vs) | Heat-shrink tube assortment or heat-shrink labels |
 | Crimp connector assortment (butt joints + ring terminals) | recommended | 1 | [buy](https://a.co/d/08GtC4Ql) | Butt joints + ring connectors |
+| WAGO DIN-rail assortment (rail + rail-mount connectors) | — | 1 | [buy](https://a.co/d/07yKPglw) | Includes the DIN rail AND the WAGO connectors — the bay's field-wiring junction. |
+| ATM (mini) blade fuse, 5 A | — | 4 | — | Positions 1/2/3/6 — StampPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
+| ATM (mini) blade fuse, 10 A | — | 1 | — | Position 5 — Thor only. Every other branch is 5 A. |
+| XT30 connector pair (PRISM branch) | — | 1 | — | Position 6 lands on the PRISM light controller through an XT30; see the wiring board |
 <!-- /BOM-AUTO:purchase:consumables -->
 
 ## Immediate BOM Gaps

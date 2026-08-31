@@ -39,11 +39,11 @@ body {
 .conn.up { color: var(--good); }
 .conn.down { color: var(--bad); }
 
-#tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+#tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .tab {
-  font: 600 14px/1 inherit; letter-spacing: .5px; color: var(--dim);
+  font: 600 15px/1 inherit; letter-spacing: .5px; color: var(--dim);
   background: transparent; border: 1px solid var(--line); border-radius: 8px;
-  padding: 9px 11px; min-height: 38px; white-space: nowrap;
+  padding: 12px 16px; min-height: 44px; white-space: nowrap;
 }
 .tab.active { color: #04201d; background: var(--accent); border-color: var(--accent); }
 
@@ -60,7 +60,7 @@ body {
 
 /* ---------- Views ---------- */
 .view { display: none; flex: 1; padding: var(--gap); gap: var(--gap); }
-.view.active { display: grid; }
+.view.active:not(#view-operate) { display: grid; }
 
 #view-thor {
   grid-template-columns: 0.85fr 1.4fr 1.15fr 1.05fr 1.2fr;
@@ -462,3 +462,125 @@ body {
 .intent-nums div { display: flex; justify-content: space-between; gap: 18px; min-width: 132px; }
 .intent-nums span { color: #6b8494; font-size: 12px; letter-spacing: .08em; align-self: center; }
 .intent-nums b { color: #e8eef2; font-size: 19px; font-variant-numeric: tabular-nums; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TABLET / non-panel responsive — ADDITIVE.
+   The 1920×480 strip panel reports width:1920 and never matches this query, so
+   it keeps its exact fixed layout (fallback preserved). Anything narrower —
+   tablets, phones, a laptop window — gets a reflowed, scrollable, touch layout.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1600px), (min-height: 561px) {
+  html, body { width: 100%; height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  body { cursor: auto; font-size: 16px; }
+  #app { height: auto; min-height: 100vh; min-height: 100dvh; }
+
+  /* Top bar: brand + meta on the first row, tabs as one horizontally-scrollable row */
+  #topbar { height: auto; min-height: 56px; flex-wrap: wrap; row-gap: 8px; padding: 8px 12px;
+            position: sticky; top: 0; z-index: 20; background: var(--panel-2); }
+  .brand { order: 1; }
+  .meta { order: 2; margin-left: auto; }
+  #tabs { order: 3; flex: 1 1 100%; flex-wrap: nowrap; justify-content: flex-start;
+          overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .tab { flex: 0 0 auto; }
+
+  /* Every active view: cards flow into as many columns as fit (1 in portrait,
+     2-3 in landscape); the page scrolls. min(600px,100%) avoids overflow on phones. */
+  .view.active:not(#view-operate) { display: grid !important;
+                 grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr)) !important;
+                 grid-template-rows: none !important; grid-template-areas: none !important;
+                 gap: var(--gap); align-content: start; align-items: start;
+                 height: auto; padding: var(--gap); overflow: visible; }
+  .view.active:not(#view-operate) > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
+                     max-width: none !important; height: auto !important; min-height: 0 !important; }
+  .card { height: auto; }
+
+  /* Reflow common inner grids to fluid auto-fit so tiles wrap instead of overflowing */
+  .statusgrid, .zone-grid, .chip-grid, .navgrid, .rs-inputs {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  }
+  .rs-subs { grid-template-columns: 1fr !important; }
+
+  /* Placeholders + LIDAR canvases need explicit height once un-stretched */
+  .view.placeholder { min-height: 60dvh; }
+  .lidar-canvas { width: 100%; height: 40dvh; }
+
+  /* Touch-sized controls */
+  .sysbtn, .iobtn, .vncbtn, .ack, .mode-opt, .estopbtn, .rearmbtn { min-height: 44px; }
+}
+
+
+/* ═══════════════ OPERATE screen (driving front door) ═══════════════ */
+#topbar.opbar{ justify-content:flex-start; gap:12px; }
+#topbar.opbar .spacer{ flex:1; }
+.op-ham{ color:var(--dim); background:none; border:0; padding:6px; cursor:pointer; line-height:0; }
+.op-ham:hover{ color:var(--txt); }
+.op-state{ padding:6px 15px; border-radius:20px; font-weight:800; letter-spacing:.06em; font-size:14px; white-space:nowrap;
+  background:rgba(46,194,126,.10); color:var(--good); border:1px solid rgba(46,194,126,.30); }
+.op-state.warn{ background:rgba(242,184,75,.10); color:var(--warn); border-color:rgba(242,184,75,.35); }
+.op-state.bad{ background:rgba(239,90,90,.14); color:var(--bad); border-color:rgba(239,90,90,.5); }
+.op-meta{ font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
+.op-batt{ display:inline-flex; align-items:center; gap:6px; color:var(--dim); font-weight:700; font-size:14px; }
+.op-estop{ display:inline-flex; align-items:center; gap:8px; padding:8px 15px; min-height:40px; border-radius:8px; line-height:0;
+  border:1.5px solid var(--bad); background:rgba(239,90,90,.08); color:var(--bad); font-weight:800; letter-spacing:.08em; font-size:14px; cursor:pointer; }
+.op-estop:active,.op-estop.latched{ background:var(--bad); color:#180404; }
+
+#view-operate.active{ display:flex !important; flex-direction:column !important; flex:1 1 auto !important; min-height:0 !important;
+  padding:0 !important; gap:0 !important; overflow:hidden; }
+.op-hero{ position:relative; flex:1; min-height:0; margin:var(--gap); border:1px solid var(--line); border-radius:8px; overflow:hidden;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,255,255,.012) 3px 4px), radial-gradient(120% 90% at 50% 40%, #0d141c 0%, #070a0f 90%); }
+.op-camtag{ position:absolute; top:10px; left:12px; font-size:11px; letter-spacing:.12em; color:var(--dim); background:rgba(0,0,0,.30); padding:3px 8px; border-radius:4px; }
+.op-camempty{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--dim); }
+.op-camempty svg{ opacity:.35; } .op-camempty .t{ font-size:13px; letter-spacing:.10em; }
+.op-pip{ position:absolute; right:12px; bottom:12px; width:210px; height:120px; border:1px solid var(--line); border-radius:6px;
+  background:radial-gradient(120% 90% at 50% 40%, #0d141c, #060809); overflow:hidden; cursor:pointer; transition:width .18s,height .18s; }
+.op-pip.big{ width:44%; height:62%; } .op-pip .op-camtag{ top:6px; left:8px; font-size:10px; } .op-pip .op-camempty svg{ transform:scale(.7); }
+#opNotif{ position:absolute; top:10px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; width:min(560px,80%); z-index:5; }
+.op-nt{ display:flex; align-items:center; gap:11px; padding:9px 13px; border-radius:7px; font-size:13px; font-weight:600;
+  background:rgba(19,27,38,.94); border-left:4px solid var(--dim); box-shadow:0 4px 14px rgba(0,0,0,.4); }
+.op-nt.warn{ border-left-color:var(--warn); color:#f6d79a; } .op-nt.warn svg{ color:var(--warn); }
+.op-nt.bad{ border-left-color:var(--bad); color:#f7b3b3; } .op-nt.bad svg{ color:var(--bad); }
+
+.op-ctl{ position:relative; display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:var(--gap); padding:0 var(--gap) var(--gap); }
+.op-zone{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px; position:relative; }
+.op-zlbl{ position:absolute; top:8px; left:12px; font-size:10px; letter-spacing:.14em; color:var(--dim); }
+.op-stick{ width:132px; height:132px; border-radius:50%; margin-top:14px; position:relative; touch-action:none;
+  background:radial-gradient(circle at 50% 45%, #16202c, #0b1118); border:1px solid var(--line); box-shadow:inset 0 2px 10px rgba(0,0,0,.5); }
+.op-stick::before{ content:""; position:absolute; inset:22%; border:1px dashed rgba(107,124,143,.22); border-radius:50%; }
+.op-stick .nub{ position:absolute; width:52px; height:52px; left:50%; top:50%; transform:translate(-50%,-50%); border-radius:50%;
+  background:radial-gradient(circle at 50% 38%, #1f2f3d, #12202b); border:1px solid #2a3b4c; box-shadow:0 3px 8px rgba(0,0,0,.5); }
+.op-stick.rot{ width:100%; height:60px; border-radius:32px; margin-top:34px; } .op-stick.rot::before{ inset:12% 40%; }
+.op-stick.armed{ border-color:rgba(25,209,196,.5); }
+.op-axhint{ font-size:10px; letter-spacing:.1em; color:var(--dim); }
+.op-armstatus{ width:100%; text-align:center; padding:14px; border-radius:10px; font-weight:800; letter-spacing:.06em; font-size:14px; background:var(--panel-2); border:1px solid var(--line); color:var(--warn); }
+body.op-armed .op-armstatus{ color:var(--good); border-color:rgba(46,194,126,.4); background:rgba(46,194,126,.08); cursor:pointer; }
+.op-seg{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; width:100%; }
+.op-seg button{ flex:1; background:transparent; border:0; color:var(--dim); font-weight:700; font-size:12px; padding:9px 6px; letter-spacing:.05em; cursor:pointer; }
+.op-seg button.on{ background:var(--accent); color:#04201d; }
+.op-slider{ -webkit-appearance:none; width:100%; height:8px; border-radius:5px; background:var(--line); outline:none; }
+.op-slider::-webkit-slider-thumb{ -webkit-appearance:none; width:26px; height:26px; border-radius:50%; background:var(--accent); }
+.op-cap{ font-size:10px; letter-spacing:.12em; color:var(--dim); align-self:flex-start; }
+body:not(.op-armed) .op-drive{ opacity:.35; }
+#opArmOverlay{ position:absolute; inset:0; display:flex; gap:var(--gap); padding:0 var(--gap) var(--gap); background:rgba(7,10,15,.45); z-index:8; }
+body.op-armed #opArmOverlay{ display:none; }
+.op-armpad{ flex:0 0 calc(33% - var(--gap)); display:flex; align-items:center; justify-content:center; border-radius:10px; border:2px dashed var(--line); color:var(--dim); font-weight:800; letter-spacing:.14em; font-size:15px; cursor:pointer; touch-action:none; }
+.op-armpad.on{ border-style:solid; border-color:var(--accent); color:var(--accent); background:rgba(25,209,196,.10); }
+.op-armmsg{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; }
+.op-armt{ font-weight:800; letter-spacing:.12em; color:var(--warn); font-size:15px; } .op-arms{ font-size:12px; color:var(--dim); }
+.op-armp{ width:180px; height:4px; border-radius:3px; background:var(--line); overflow:hidden; } .op-armp i{ display:block; height:100%; width:0; background:var(--accent); }
+#opCtlPad{ display:none; align-items:center; gap:12px; margin:0 var(--gap) var(--gap); padding:13px 16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:13px; }
+#opCtlPad .op-gpdot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); }
+#opCtlPad .op-gptxt{ color:var(--accent); font-weight:800; letter-spacing:.06em; } #opCtlPad .spacer{ flex:1; }
+body.op-gamepad .op-ctl{ display:none; } body.op-gamepad #opCtlPad{ display:flex; }
+
+#opScrim{ position:fixed; inset:0; background:rgba(0,0,0,.5); opacity:0; pointer-events:none; transition:.18s; z-index:40; }
+#opScrim.open{ opacity:1; pointer-events:auto; }
+#opDrawer{ position:fixed; top:0; left:0; height:100%; width:min(340px,82%); background:var(--panel-2); border-right:1px solid var(--line); transform:translateX(-100%); transition:.2s; z-index:41; padding:16px; overflow:auto; }
+#opDrawer.open{ transform:none; }
+#opDrawer h3{ font-size:11px; letter-spacing:.16em; color:var(--dim); margin:16px 4px 4px; }
+#opDrawer .ditem{ display:flex; align-items:center; padding:13px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; font-weight:600; font-size:14px; color:var(--txt); }
+#opDrawer .ditem:hover{ background:var(--panel); border-color:var(--line); } #opDrawer .ditem .ch{ margin-left:auto; color:var(--dim); font-weight:400; }
+.op-drawer-hd{ display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
+.op-drawer-safety{ margin-top:8px; padding:10px 12px; border-radius:8px; background:var(--panel); border:1px solid var(--line); font-size:12px; color:var(--dim); }
+/* neutralize the old tabbed-topbar reflow ordering for the Operate top bar */
+#topbar.opbar .brand{ order:0; }
+#topbar.opbar #host, #topbar.opbar #clock{ order:0; }

@@ -6,7 +6,7 @@
     | **You'll build** | The Pinpoint + 2 pods installed in the 3D-printed housing, rear-mounted via thumb screws |
     | **Time** | *TODO* |
     | **Difficulty** | *TODO* |
-    | **Prerequisites** | [Base Frame](base-frame.md); riv-nuts set in the rail (follow-on step) |
+    | **Prerequisites** | [Base Frame](base-frame.md); riv-nuts set in the rail ([step 2 · Rivnut Installation](rivnuts.md)) |
     | **Mates to** | Rear rail (exterior); I2C out to the [Electronics Bay](electronics-bay.md) |
     | **Optional?** | Yes — one of several odometry sources |
 
@@ -36,11 +36,13 @@ base frame**, so it can be added or removed as a unit.
 The module hand-mounts to the rear rail with **3D-printed M10 thumb screws** that thread into
 **M10 riv-nuts set into the rail's 14 mm holes**.
 
-!!! note "Riv-nuts are installed in a follow-on step"
-    Setting the riv-nuts into the base-frame rail is a **follow-on base-frame step**, not part
-    of this housing build — but you need the riv-nuts and a **riv-nut tool** on hand. Choose
-    **either** the [manual riv-nut tool](https://a.co/d/0am8KbEV) **or** the
-    [drill attachment](https://a.co/d/09zmlaXE).
+!!! note "Riv-nuts are installed earlier, in step 2"
+    Setting the riv-nuts into the base-frame rail is done on the bare frame in
+    **[step 2 · Rivnut Installation](rivnuts.md)** — not part of this housing build. By the time
+    you mount this module the inserts are already there; you just need the **M10 thumb screws**.
+    (For the riv-nut install itself, use **either** the
+    [manual riv-nut tool](https://a.co/d/0am8KbEV) **or** a
+    [drill-driven tool](https://a.co/d/07xBUxUD).)
 
 ## CAD & 3D model
 

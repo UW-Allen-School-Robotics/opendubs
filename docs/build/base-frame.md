@@ -172,47 +172,134 @@ build the whole frame with a hand wrench; a powered driver just makes it much fa
     detailed exploded views:
     [Strafer Kit assembly instructions (PDF)](https://www.servocity.com/content/user_manuals/3209-0012-0002_assembly-instructions.min.pdf).
 
-!!! note "Photos in progress"
-    Only completed-frame photos exist today (see [Reference](#reference-completed-frame)).
-    Step-by-step photos get dropped into `docs/assets/build/base-frame/` as the team
-    shoots them — filenames per the convention in that folder's README, then replace
-    each `TODO photo` below.
+!!! note "Photos are from the first build"
+    Every photo below is from the team's first base-frame build, so a few show the
+    bench mid-mess or a part not yet final. They are accurate about **order and
+    orientation**, which is what the steps below are for.
 
-### Step 1 — Build the frame rectangle
-Assemble the four U-channels into the 432 × 624 mm rectangle and square it up.
+!!! warning "Build the loaded rails first, then the rectangle"
+    It is tempting to bolt the four U-channels into a rectangle and drop the motors
+    in afterwards. **Don't.** The motors and hub shafts live *inside* the channel,
+    and once the rectangle is closed there is no room to swing a hex driver onto the
+    motor-mount screws. Load each side rail first (Steps 2–3), then join them.
 
-*TODO photo: `01-frame-rectangle.jpg`*
+### Step 1 — Lay out the rails and hardware
 
-!!! warning "Orientation sets the origin"
-    The **rear-most 432 mm rail** carries the coordinate origin
-    ([naming-frames](../naming-frames.md)). Note which end is front before you commit
-    the corners — flipping it later means re-deriving everything.
-
-### Step 2 — Assemble the four drive pods
-Build each pod: motor → miter gear → hub (see the Strafer tip above). The miter gear sub-assembly:
+The frame is four goBILDA U-channels: **2 × 624 mm** long side rails and
+**432 mm** cross rails. Check the part numbers before you start — a 25-hole and a
+17-hole channel look alike at a glance and are not interchangeable.
 
 <figure markdown="span">
-  ![The 8 mm REX miter gear before assembly](../assets/build/base-frame/02-miter-gear.jpg)
-  <figcaption>The 8 mm REX miter gear (goBILDA `2320-4008-0024`) — two go into each drive pod.</figcaption>
+  ![A 624 mm goBILDA U-channel on the bench](../assets/build/base-frame/01-long-rail.webp)
+  <figcaption>One of the two <strong>624 mm</strong> long side rails (<code>1120-0025-0624</code>) — 25 large holes. Each of these takes two motors.</figcaption>
 </figure>
 
 <figure markdown="span">
-  ![Miter gear assembled onto the hub, showing the hex bore](../assets/build/base-frame/02-miter-gear-assembled.jpg)
-  <figcaption>The gear mated to the hub — the hex bore is what drives the wheel shaft.</figcaption>
+  ![A 432 mm cross rail with quad block mounts fitted at both ends](../assets/build/base-frame/02-cross-rail.webp)
+  <figcaption>A <strong>432 mm</strong> cross rail (<code>1120-0017-0432</code>) with quad block mounts already fitted at both ends — these are what bolt the corners together.</figcaption>
 </figure>
 
-*TODO photo: the full pod (motor + gears + hub) — `02-drive-pod.jpg`*
+<figure markdown="span">
+  ![Rails, goRAIL extrusion, motor leads and hand tools laid out on the bench](../assets/build/base-frame/06-parts-laid-out.webp)
+  <figcaption>Everything staged before assembly: rails, a length of 1118-series open goRAIL, pre-tinned motor leads, and the 3 mm hex driver.</figcaption>
+</figure>
+
+### Step 2 — Mount the motors inside the side rails
+
+Each **624 mm** side rail carries **two** 5303-series motors, seated *inside* the
+channel and clamped by a goBILDA motor mount. The miter gear goes onto the motor's
+8 mm REX output shaft before the mount is tightened.
+
+<figure markdown="span">
+  ![A motor seated inside the U-channel with its mount bolted to the channel face](../assets/build/base-frame/03-motor-in-channel.webp)
+  <figcaption>Motor seated inside the channel, mount bolted through the channel face. The yellow-and-black tape is the team's own motor labelling, not a goBILDA part.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Close view of the miter gear on the motor output shaft next to the channel bearing](../assets/build/base-frame/04-motor-miter-gear.webp)
+  <figcaption>The 8 mm REX miter gear (<code>2320-4008-0024</code>) on the motor shaft, lined up with the bearing in the channel wall that the hub shaft will drop into.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![A full side rail with two motors mounted and their leads exiting the channel](../assets/build/base-frame/05-two-motors-per-rail.webp)
+  <figcaption>A finished side rail — <strong>two motors per rail, four per robot</strong>. Note both leads exit toward the middle of the rail.</figcaption>
+</figure>
 
 !!! tip "Miter-gear orientation flips wheel direction"
     Which way the miter gears mesh sets the rotation direction of that wheel. Keep the
     four pods consistent — mismatches show up as a wheel driving backwards, and you'd
     then fix it in firmware ([drive bring-up](../drive-bringup.md)) rather than rebuild.
 
-### Step 3 — Mount the pods to the frame corners
-*TODO photo: `03-pods-mounted.jpg`*
+### Step 3 — Close the channel and set the hub shaft
 
-### Step 4 — Route the motor leads
-*TODO photo: `04-leads-routed.jpg`*
+With the motor fixed, the second channel face goes on and the **hub shaft**
+(`2110-0608-0002`) drops through the bearings so its miter gear meshes with the one
+on the motor. Shims and the 9 mm spacer set the mesh depth.
+
+<figure markdown="span">
+  ![The second channel plate being lowered over the mounted motor](../assets/build/base-frame/07-closing-channel.webp)
+  <figcaption>Closing the channel over the motor. Get the bearing in this face lined up with the hub-shaft bore before pushing it down.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The hub shaft installed vertically through the channel with its flange on top](../assets/build/base-frame/08-hub-shaft-set.webp)
+  <figcaption>Hub shaft set through both bearings, flange up. This is the shaft the mecanum wheel eventually bolts to — the wheels stay off until much later.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Close view of the two miter gears meshed at ninety degrees inside the corner](../assets/build/base-frame/13-gear-mesh-detail.webp)
+  <figcaption>The mesh, seen from the open corner: motor gear driving hub-shaft gear through 90°. Spin the shaft by hand — it should turn smoothly with no notchiness.</figcaption>
+</figure>
+
+### Step 4 — Join the rails into the rectangle
+
+Now bolt the loaded side rails to the cross rails through the quad block mounts to
+form the **432 × 624 mm** rectangle.
+
+!!! warning "Orientation sets the origin"
+    The **rear-most 432 mm rail** carries the coordinate origin
+    ([naming-frames](../naming-frames.md)). Note which end is front before you commit
+    the corners — flipping it later means re-deriving everything.
+
+<figure markdown="span">
+  ![A corner joint showing a quad block mount bolted between two rails](../assets/build/base-frame/09-corner-joint.webp)
+  <figcaption>A corner: the quad block mount (<code>1201-0043-0002</code>) bridges the two channels, with a length of goRAIL running off it.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Two rails bolted into an L shape on the floor with motor leads loose](../assets/build/base-frame/10-two-rails-joined.webp)
+  <figcaption>First corner closed. Working on the floor makes it much easier to keep the assembly flat than working on a bench.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Three sides of the frame joined, motors visible on the right-hand rail](../assets/build/base-frame/11-three-sides.webp)
+  <figcaption>Three sides joined, fourth still open. Leave the last corner loose until you have checked the diagonals.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The partly assembled frame stood on a box with goRAIL uprights attached](../assets/build/base-frame/14-frame-upright.webp)
+  <figcaption>Frame propped up to get at the underside. The vertical goRAIL sections are the beginnings of the mast mount, added later.</figcaption>
+</figure>
+
+!!! tip "Square it before you torque it"
+    Measure both diagonals across the rectangle. If they match, it is square. Snug the
+    corner screws first, check, then torque — a frame tightened out of square stays out
+    of square, and every module above it inherits the error.
+
+### Step 5 — Route the motor leads
+
+Bring each motor's power pair up through a hole in the channel and back toward where
+the electronics bay will sit, so nothing is pinched or under tension.
+
+<figure markdown="span">
+  ![Motor leads passed up through a hole in the rail, motor part number visible](../assets/build/base-frame/15-leads-through-rail.webp)
+  <figcaption>Leads brought up through the rail. The <code>5303-2402</code> label on the motor body is visible here — worth photographing your own for the wiring log.</figcaption>
+</figure>
+
+!!! warning "Leave slack at the corners"
+    The leads run past a spinning hub shaft and a gear mesh. Route them along the
+    channel wall, not across the opening, and leave enough slack that lifting the
+    frame does not tug a connector.
 
 ## Verify — done when…
 
@@ -224,8 +311,31 @@ Build each pod: motor → miter gear → hub (see the Strafer tip above). The mi
 
 ## Reference — completed frame
 
-*Completed base frame with drive pods mounted. Source photos are on the team Drive
-("1 - Base Frame Build", HEIC) — convert to JPG/WebP and drop into
-`docs/assets/build/base-frame/` to render here.*
+The completed base frame, before any wheels or upper modules go on. The vertical
+goRAIL stubs are the mast mount; the exposed hub-shaft flanges are where the mecanum
+wheels attach much later in the build.
 
-*TODO photo: `completed-01.jpg`*
+<figure markdown="span">
+  ![The completed base frame on a white table, seen from above](../assets/build/base-frame/12a-completed-table.webp)
+  <figcaption>Completed frame from above — 432 × 624 mm, all four corners closed.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The completed frame at a low angle showing the channel depth](../assets/build/base-frame/12b-completed-low-angle.webp)
+  <figcaption>Low angle: the motors and hub shafts sit entirely inside the channel depth, which is what keeps the underside flat.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The completed frame from a three-quarter angle with motor leads visible](../assets/build/base-frame/12c-completed-three-quarter.webp)
+  <figcaption>Three-quarter view. Motor leads gathered toward the centre, ready for the electronics bay.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Top-down view of the finished frame on the floor with goRAIL stubs at the corners](../assets/build/base-frame/16a-completed-top-down.webp)
+  <figcaption>Top-down on the floor — the clearest look at the rectangle and the inner cross rail.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Second top-down view of the finished frame](../assets/build/base-frame/16b-completed-top-down-alt.webp)
+  <figcaption>Same frame, other end toward camera. Use this one to check your own corner hardware against.</figcaption>
+</figure>
