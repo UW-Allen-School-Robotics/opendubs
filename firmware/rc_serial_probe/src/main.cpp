@@ -607,6 +607,132 @@ bool readExtEncoder(int32_t& out)
     return true;
 }
 
+// ================= goBILDA Pinpoint odometry (0x31, PaHub ch4) =================
+// Protocol per goBILDA's official Arduino library. Registers are INDEXED 4-BYTE WORDS: write the
+// one-byte register index, then read 4 bytes little-endian. Pose/velocity are IEEE-754 floats
+// (position in mm, heading in radians); encoder counts and status are integers. Newer Pinpoint
+// firmware appends a CRC8 byte — we request only 4 bytes and simply never read it, which is
+// harmless. DEVICE_ID reads 2 on a genuine Pinpoint; we use that to confirm identity.
+static constexpr uint8_t kPpRegDeviceId  = 1;
+static constexpr uint8_t kPpRegStatus    = 3;
+static constexpr uint8_t kPpRegLoopTime  = 5;
+static constexpr uint8_t kPpRegEncX      = 6;
+static constexpr uint8_t kPpRegEncY      = 7;
+static constexpr uint8_t kPpRegPosX      = 8;
+static constexpr uint8_t kPpRegPosY      = 9;
+static constexpr uint8_t kPpRegHeading   = 10;
+static constexpr uint8_t kPpRegVelX      = 11;
+static constexpr uint8_t kPpRegVelY      = 12;
+static constexpr uint8_t kPpRegVelH      = 13;
+static constexpr uint8_t kPpDeviceIdVal  = 2;
+
+// Cached last-good Pinpoint state (published even when a frame is missed, with ok=0).
+static bool     pp_present = false;
+static uint32_t pp_status = 0, pp_loop_us = 0, pp_fails = 0;
+static int32_t  pp_encx = 0, pp_ency = 0;
+static float    pp_x = 0, pp_y = 0, pp_h = 0, pp_vx = 0, pp_vy = 0, pp_vh = 0;
+
+// The Pinpoint requires a STOP between the register-pointer write and the read -- goBILDA's own
+// library does endTransmission(TRUE). readRegister() issues a repeated start instead, which the
+// device does not answer (the address probe still ACKs, so it looks present but every register
+// read fails). Compose the two transactions explicitly. Also 100 kHz, not 400: the Pinpoint sits
+// behind the 3.3/5 V level shifter, where fast edges are marginal.
+static constexpr uint32_t kPpHz = 100000;
+
+// CRC-8, poly 0x31, init 0x00, MSB-first — matches goBILDA's crc8_table (CRC(0x01)==0x31).
+// Newer Pinpoint firmware appends this byte after the 4 data bytes. Without checking it,
+// occasional corrupt frames sail through as plausible-looking floats (we saw y=-nan and
+// loop=4294967143), which is far worse than a dropped frame.
+static uint8_t ppCrc8(const uint8_t *d, size_t n)
+{
+    uint8_t c = 0;
+    for (size_t i = 0; i < n; ++i) {
+        c ^= d[i];
+        for (int b = 0; b < 8; ++b) c = (c & 0x80) ? (uint8_t)((c << 1) ^ 0x31) : (uint8_t)(c << 1);
+    }
+    return c;
+}
+
+static int pp_crc_mode = -1;      // -1 = probe, 1 = device sends CRC, 0 = it does not
+static uint32_t pp_crc_bad = 0;
+
+static bool ppXfer(uint8_t reg, uint8_t *buf, uint8_t n)
+{
+    if (!extI2C->start(kPinpointAddr, false, kPpHz)) return false;   // write mode
+    if (!extI2C->write(reg)) { extI2C->stop(); return false; }
+    extI2C->stop();                                                   // STOP, not repeated start
+    if (!extI2C->start(kPinpointAddr, true, kPpHz)) return false;     // read mode
+    const bool ok = extI2C->read(buf, n, true);
+    extI2C->stop();
+    return ok;
+}
+
+static bool ppRead32(uint8_t reg, uint8_t *b4)
+{
+    if (extI2C == nullptr || !extI2C->isEnabled()) return false;
+    if (!selectChannel(kChPinpoint)) return false;
+
+    if (pp_crc_mode != 0) {                       // try the 5-byte (data+CRC) form
+        uint8_t b5[5];
+        if (ppXfer(reg, b5, 5)) {
+            if (ppCrc8(b5, 4) == b5[4]) { memcpy(b4, b5, 4); pp_crc_mode = 1; return true; }
+            if (pp_crc_mode == 1) { pp_crc_bad++; return false; }   // known-CRC device: reject
+        }
+        if (pp_crc_mode == -1) pp_crc_mode = 0;   // no CRC on this firmware — fall through
+    }
+    return ppXfer(reg, b4, 4);
+}
+
+static bool ppU32(uint8_t reg, uint32_t *out)
+{
+    uint8_t b[4]; if (!ppRead32(reg, b)) return false;
+    *out = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+    return true;
+}
+static bool ppI32(uint8_t reg, int32_t *out)
+{ uint32_t u; if (!ppU32(reg, &u)) return false; *out = (int32_t)u; return true; }
+static bool ppF32(uint8_t reg, float *out)
+{ uint32_t u; if (!ppU32(reg, &u)) return false; memcpy(out, &u, sizeof(u)); return true; }
+
+// One poll of the whole pose. Any failed register aborts the frame so we never publish a
+// half-updated pose (mixing a new X with a stale Y would look like a real jump).
+static void pinpointPoll()
+{
+    uint32_t id = 0;
+    if (!ppU32(kPpRegDeviceId, &id) || id != kPpDeviceIdVal) { pp_present = false; pp_fails++; return; }
+    uint32_t st = 0, lt = 0; int32_t ex = 0, ey = 0;
+    float x = 0, y = 0, h = 0, vx = 0, vy = 0, vh = 0;
+    const bool ok = ppU32(kPpRegStatus, &st) && ppU32(kPpRegLoopTime, &lt)
+                 && ppI32(kPpRegEncX, &ex)   && ppI32(kPpRegEncY, &ey)
+                 && ppF32(kPpRegPosX, &x)    && ppF32(kPpRegPosY, &y)  && ppF32(kPpRegHeading, &h)
+                 && ppF32(kPpRegVelX, &vx)   && ppF32(kPpRegVelY, &vy) && ppF32(kPpRegVelH, &vh);
+    if (!ok) { pp_present = false; pp_fails++; return; }
+    pp_present = true; pp_status = st; pp_loop_us = lt;
+    pp_encx = ex; pp_ency = ey;
+    pp_x = x; pp_y = y; pp_h = h; pp_vx = vx; pp_vy = vy; pp_vh = vh;
+}
+
+// [ODO] — pose in mm / rad, plus the raw pod counts and the device status bitfield.
+// Status bits (goBILDA): b0 !ready, b1 calibrating, b2 X pod, b3 Y pod, b4 IMU runaway,
+// b5 bad write CRC, b6 bad read.
+static void publishOdo()
+{
+    // DEVICE_STATUS bits per goBILDA's FTC driver enum (authoritative):
+    //   b0 READY | b1 CALIBRATING | b2 FAULT_X_POD_NOT_DETECTED | b3 FAULT_Y_POD_NOT_DETECTED
+    //   b4 FAULT_IMU_RUNAWAY | b5 FAULT_BAD_READ
+    // NOTE the pod bits are FAULT flags: SET means the pod is MISSING, not present.
+    tprintf("[ODO] ok=%d st=0x%02X rdy=%d cal=%d xpod=%d ypod=%d imurun=%d badread=%d "
+            "x=%.1f y=%.1f h=%.4f vx=%.1f vy=%.1f vh=%.4f "
+            "ex=%ld ey=%ld loop=%lu fail=%lu crcbad=%lu\n",
+            pp_present ? 1 : 0, (unsigned)(pp_status & 0xFF),
+            (pp_status & 0x01) ? 1 : 0, (pp_status & 0x02) ? 1 : 0,
+            (pp_status & 0x04) ? 0 : 1, (pp_status & 0x08) ? 0 : 1,
+            (pp_status & 0x10) ? 1 : 0, (pp_status & 0x20) ? 1 : 0,
+            pp_x, pp_y, pp_h, pp_vx, pp_vy, pp_vh,
+            (long)pp_encx, (long)pp_ency,
+            (unsigned long)pp_loop_us, (unsigned long)pp_fails, (unsigned long)pp_crc_bad);
+}
+
 void publishIo()
 {
     // No txReady() gate: tprintf() self-guards the USB write + always tees over Ethernet.
@@ -2206,6 +2332,8 @@ void loop()
     // I2C reads + one printf.
     if ((millis() - last_io_pub_ms) > 100) {
         publishIo();
+        pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
+        publishOdo();
         last_io_pub_ms = millis();
     }
 

@@ -391,6 +391,7 @@ def collect_fast() -> dict:
         "ts": time.time(),
         "robot_state": _robot_state(),
         "rc_link": _rc_link(),
+        "odo": (stamplc.reader.snapshot().get("odo") or {}),
         # deprecated; RC moved to the StampPLC SBUS — kept so an old frontend degrades.
         "mavlink": {"connected": False, "note": "deprecated — RC now from StampPLC SBUS"},
         "stamplc": _stamplc(),

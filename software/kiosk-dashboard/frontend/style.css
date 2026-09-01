@@ -584,3 +584,7 @@ body.op-gamepad .op-ctl{ display:none; } body.op-gamepad #opCtlPad{ display:flex
 /* neutralize the old tabbed-topbar reflow ordering for the Operate top bar */
 #topbar.opbar .brand{ order:0; }
 #topbar.opbar #host, #topbar.opbar #clock{ order:0; }
+/* ---- Pinpoint odometry card ------------------------------------------------- */
+.odo-warn{ margin:0 0 10px; padding:8px 10px; border-radius:6px; font-size:11px; line-height:1.45;
+  color:var(--warn); background:rgba(255,178,77,.08); border:1px solid rgba(255,178,77,.35); }
+.odo-warn.hide{ display:none; }

@@ -261,6 +261,23 @@
     <!-- NAV view — GPS + optical flow (Pixhawk MAVLink) -->
     <main id="view-nav" class="view navview">
       <section class="card nav-card">
+        <h2>ODOMETRY — goBILDA Pinpoint <span id="odoState" class="badge dimbadge">—</span></h2>
+        <div id="odoWarn" class="odo-warn">NOT CALIBRATED — pod offsets, MM_PER_TICK and encoder
+          directions are still at firmware defaults, so X/Y are not true robot position yet.</div>
+        <div class="navgrid">
+          <div><span class="lbl">X</span><span id="odoX" class="num">—</span></div>
+          <div><span class="lbl">Y</span><span id="odoY" class="num">—</span></div>
+          <div><span class="lbl">HEADING</span><span id="odoH" class="num">—</span></div>
+          <div><span class="lbl">HEADING (rad)</span><span id="odoHr" class="num">—</span></div>
+          <div><span class="lbl">VX</span><span id="odoVx" class="num">—</span></div>
+          <div><span class="lbl">VY</span><span id="odoVy" class="num">—</span></div>
+          <div><span class="lbl">POD X COUNT</span><span id="odoEx" class="num">—</span></div>
+          <div><span class="lbl">POD Y COUNT</span><span id="odoEy" class="num">—</span></div>
+          <div><span class="lbl">LOOP</span><span id="odoLoop" class="num">—</span></div>
+          <div><span class="lbl">READ FAIL / CRC</span><span id="odoErr" class="num">—</span></div>
+        </div>
+      </section>
+      <section class="card nav-card">
         <h2>GPS <span id="gpsFix" class="badge dimbadge">—</span></h2>
         <div class="navgrid">
           <div><span class="lbl">SATS</span><span id="gpsSats" class="num">—</span></div>
