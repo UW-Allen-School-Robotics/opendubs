@@ -1420,7 +1420,9 @@ static void driveTick()
     const RcMode  mode      = computeRcMode();
     const uint8_t di        = uiDi();
     const bool    contactor = M5StamPLC.readPlcRelay(0);        // R0 = e-stop contactor (motion power)
-    const bool    di0estop  = (di & 0x01) != 0;                 // DI0 = e-stop button
+    // DI0 is a NORMALLY-CLOSED e-stop chain: HIGH = released/safe, LOW = pressed OR a broken
+    // wire. Fail-safe, so a severed conductor reads as e-stop rather than as "all clear".
+    const bool    di0estop  = (di & 0x01) == 0;
     const bool    rc_live   = (last_valid_frame_ms != 0) && (millis() - last_valid_frame_ms < kRcTimeoutMs);
     const bool    rosFresh  = (g_rosCmd.ms != 0) && (millis() - g_rosCmd.ms < kRosCmdTimeoutMs);
 

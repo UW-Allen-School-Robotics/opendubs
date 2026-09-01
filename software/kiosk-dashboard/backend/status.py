@@ -57,10 +57,9 @@ RELAY_ESTOP_CONTACTOR, RELAY_8SERVO = 0, 1
 # closed; flip WELD_AUX_ACTIVE_HIGH when the real aux is wired.
 WELD_AUX_ACTIVE_HIGH = True
 
-# Bench/test convention: DI0 HIGH = e-stop button asserted. A real fail-safe
-# e-stop is normally-closed (pressed = circuit OPEN = LOW); flip this to False
-# once the physical NC button is wired so a broken wire reads as "pressed".
-ESTOP_BTN_ACTIVE_HIGH = True
+# The e-stop button is a NORMALLY-CLOSED chain: DI0 HIGH = released/safe, LOW = pressed
+# or a broken wire. Fail-safe by design, and not robot-specific.
+ESTOP_BTN_ACTIVE_HIGH = False   # NC e-stop chain: DI0 HIGH=released/safe, LOW=pressed or wire-break
 
 _software_estop = False
 
