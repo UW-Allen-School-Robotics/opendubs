@@ -584,3 +584,19 @@ body.op-gamepad .op-ctl{ display:none; } body.op-gamepad #opCtlPad{ display:flex
 /* neutralize the old tabbed-topbar reflow ordering for the Operate top bar */
 #topbar.opbar .brand{ order:0; }
 #topbar.opbar #host, #topbar.opbar #clock{ order:0; }
+
+/* ---- Operate: e-stop RE-ARM (only visible while latched) ---------------------- */
+/* Re-arm re-energizes the contactor, so it is hold-to-confirm, never a single tap. */
+.op-rearm{ display:none; position:relative; overflow:hidden; align-items:center; justify-content:center;
+  margin-left:8px; padding:9px 14px; border-radius:8px; cursor:pointer; touch-action:none;
+  background:rgba(46,194,126,.10); border:1px solid rgba(46,194,126,.55); color:var(--good);
+  font-weight:800; font-size:12px; letter-spacing:.08em; }
+body.op-estopped .op-rearm{ display:inline-flex; }
+.op-rearm .op-rearmfill{ position:absolute; left:0; top:0; bottom:0; width:0; background:rgba(46,194,126,.30); }
+.op-rearm .op-rearmtxt{ position:relative; }
+.op-rearm.blocked{ background:rgba(224,74,74,.10); border-color:rgba(224,74,74,.55); color:var(--bad); }
+
+/* ---- Pinpoint odometry card ------------------------------------------------- */
+.odo-warn{ margin:0 0 10px; padding:8px 10px; border-radius:6px; font-size:11px; line-height:1.45;
+  color:var(--warn); background:rgba(255,178,77,.08); border:1px solid rgba(255,178,77,.35); }
+.odo-warn.hide{ display:none; }
