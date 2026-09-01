@@ -90,7 +90,9 @@ static void commsTask(void*) {
 
   for (;;) {
     const bool wifiUp = WiFi.status() == WL_CONNECTED;
-    wifiLinkOnline = wifiUp;
+    const bool wifiAuthFresh = wifiUp && !opendubs_can::isStale(millis(), lastAuthorizeRxMs,
+                                                                opendubs_can::kAuthorizeTimeoutMs);
+    wifiLinkOnline = wifiAuthFresh;
     g_linkOnline = wifiLinkOnline || serialLinkOnline;   // combine, never overwrite (see I4)
 
     if (wifiUp) {
