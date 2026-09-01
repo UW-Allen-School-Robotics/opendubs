@@ -357,9 +357,10 @@ def _robot_state():
     # frame's supervisor.step() hasn't run yet) so a healthy module doesn't trip a
     # manual-clear-required DEGRADED fault during the first several seconds of every boot,
     # before the Tab5 has had time to associate WiFi (I1, payload-comms fix pass).
-    if REQUIRED_MODULES.get("lift") and not lift["fresh"] and supervisor.ready:
+    required_missing = REQUIRED_MODULES.get("lift") and (not lift["fresh"]) and supervisor.ready
+    if required_missing:
         raw_faults.append("lift module not responding")
-    mast_fault = lift["fault_active"]
+    mast_fault = lift["fault_active"] or required_missing
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
