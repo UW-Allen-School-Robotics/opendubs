@@ -40,6 +40,10 @@ _P_SBUS_STAT = re.compile(r"\[SBUS\] prof=.* ok=(\d+) bad=(\d+) last_ok_ms=(\d+)
 #   [RAIL]  logic_v= logic_i= drive_v= clamp=
 #   [RC]    live= mode= dead= spd= mat= fr= rot= str= mast= raw=c1,..,c16
 #   [DRIVE] mode= armed= w=fl,fr,rl,rr  (normalized -1..1)
+#   [ODO]   ok= st= rdy= cal= xpod= ypod= x= y= h= vx= vy= vh= ex= ey= loop= fail= crcbad=
+#           goBILDA Pinpoint: x/y mm, h rad (unnormalized, counts full turns),
+#           ex/ey raw pod counts. Firmware already decodes DEVICE_STATUS, whose pod
+#           bits are FAULT flags (set = pod MISSING) — xpod/ypod here are presence.
 #   [LIFT]  live= height_mm= inhibit= at_top= at_bot= tof_ok= motion= fault=
 _KV = re.compile(r"(\w+)=(\S+)")
 
@@ -312,6 +316,28 @@ class StampReader:
                     "str": inum("str"), "mast": inum("mast"), "raw": raw,
                 }
                 self._last = now; return
+            if line.startswith("[ODO] "):
+                kv = _kv(line)
+                def _f(k):
+                    try: return float(kv.get(k))
+                    except (TypeError, ValueError): return None
+                def _i(k):
+                    try: return int(kv.get(k))
+                    except (TypeError, ValueError): return None
+                self._d["odo"] = {
+                    "ok": kv.get("ok") == "1",
+                    "ready": kv.get("rdy") == "1", "calibrating": kv.get("cal") == "1",
+                    "x_pod": kv.get("xpod") == "1", "y_pod": kv.get("ypod") == "1",
+                    "imu_runaway": kv.get("imurun") == "1", "bad_read": kv.get("badread") == "1",
+                    "status": kv.get("st"),
+                    "x_mm": _f("x"), "y_mm": _f("y"), "heading_rad": _f("h"),
+                    "vx": _f("vx"), "vy": _f("vy"), "vh": _f("vh"),
+                    "enc_x": _i("ex"), "enc_y": _i("ey"),
+                    "loop_us": _i("loop"), "fail": _i("fail"), "crc_bad": _i("crcbad"),
+                }
+                self._last = now
+                return
+
             if line.startswith("[DRIVE] "):
                 kv = _kv(line)
                 w = None

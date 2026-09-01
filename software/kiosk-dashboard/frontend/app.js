@@ -460,7 +460,43 @@ function renderRobotState(rs) {
 /* ---------- INFO (system + subsystem status grid) ---------- */
 function setDot(id, cls) { const e = $(id); if (e) e.className = "sdot " + (cls || ""); }
 
+
+/* ---------- Pinpoint odometry (status.odo, from the StampPLC [ODO] line) ---------- */
+function renderOdo(o) {
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  const badge = $("odoState");
+  if (!o || o.ok !== true) {
+    ["odoX","odoY","odoH","odoHr","odoVx","odoVy","odoEx","odoEy","odoLoop","odoErr"].forEach(i => set(i, "—"));
+    if (badge) { badge.textContent = "NO DATA"; badge.className = "badge badbadge"; }
+    return;
+  }
+  // pod flags here are PRESENCE (firmware already inverted the FAULT_*_NOT_DETECTED bits)
+  const faults = [];
+  if (!o.ready)      faults.push("NOT READY");
+  if (o.calibrating) faults.push("CALIBRATING");
+  if (!o.x_pod)      faults.push("X POD MISSING");
+  if (!o.y_pod)      faults.push("Y POD MISSING");
+  if (o.imu_runaway) faults.push("IMU RUNAWAY");
+  if (o.bad_read)    faults.push("BAD READ");
+  if (badge) {
+    badge.textContent = faults.length ? faults.join(" · ") : "READY";
+    badge.className = "badge " + (faults.length ? "badbadge" : "okbadge");
+  }
+  const n1 = (v, u) => (v == null ? "—" : v.toFixed(1) + u);
+  set("odoX",  n1(o.x_mm, " mm"));
+  set("odoY",  n1(o.y_mm, " mm"));
+  set("odoH",  o.heading_rad == null ? "—" : (o.heading_rad * 180 / Math.PI).toFixed(1) + "°");
+  set("odoHr", o.heading_rad == null ? "—" : o.heading_rad.toFixed(4));
+  set("odoVx", n1(o.vx, " mm/s"));
+  set("odoVy", n1(o.vy, " mm/s"));
+  set("odoEx", o.enc_x == null ? "—" : o.enc_x.toLocaleString());
+  set("odoEy", o.enc_y == null ? "—" : o.enc_y.toLocaleString());
+  set("odoLoop", o.loop_us == null ? "—" : o.loop_us + " µs");
+  set("odoErr", (o.fail ?? "—") + " / " + (o.crc_bad ?? "—"));
+}
+
 function renderStatus(st) {
+  try { renderOdo(st && st.odo); } catch (e) {}
   const w = (st.net && st.net.wired) || {};
   const wf = (st.net && st.net.wifi) || {};
   $("stWired").textContent = w.ip ? `${w.ip} (${w.iface || "eth"})` : (w.up ? "up · no IP" : "down");

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=3e34b5ee" />
 </head>
 <body>
   <div id="app">
@@ -30,6 +30,7 @@
       <button class="op-ham" id="opFs" title="fullscreen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button id="ackBtn" class="ack">ACK</button>
       <button class="op-estop" id="opEstop"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/></svg> E-STOP</button>
+      <button class="op-rearm" id="opRearm" title="Hold to re-arm"><span class="op-rearmfill"></span><span class="op-rearmtxt">HOLD TO RE-ARM</span></button>
     </header>
     <!-- OPERATE — driving front door -->
     <main id="view-operate" class="view active operateview">
@@ -261,6 +262,23 @@
     <!-- NAV view — GPS + optical flow (Pixhawk MAVLink) -->
     <main id="view-nav" class="view navview">
       <section class="card nav-card">
+        <h2>ODOMETRY — goBILDA Pinpoint <span id="odoState" class="badge dimbadge">—</span></h2>
+        <div id="odoWarn" class="odo-warn">NOT CALIBRATED — pod offsets, MM_PER_TICK and encoder
+          directions are still at firmware defaults, so X/Y are not true robot position yet.</div>
+        <div class="navgrid">
+          <div><span class="lbl">X</span><span id="odoX" class="num">—</span></div>
+          <div><span class="lbl">Y</span><span id="odoY" class="num">—</span></div>
+          <div><span class="lbl">HEADING</span><span id="odoH" class="num">—</span></div>
+          <div><span class="lbl">HEADING (rad)</span><span id="odoHr" class="num">—</span></div>
+          <div><span class="lbl">VX</span><span id="odoVx" class="num">—</span></div>
+          <div><span class="lbl">VY</span><span id="odoVy" class="num">—</span></div>
+          <div><span class="lbl">POD X COUNT</span><span id="odoEx" class="num">—</span></div>
+          <div><span class="lbl">POD Y COUNT</span><span id="odoEy" class="num">—</span></div>
+          <div><span class="lbl">LOOP</span><span id="odoLoop" class="num">—</span></div>
+          <div><span class="lbl">READ FAIL / CRC</span><span id="odoErr" class="num">—</span></div>
+        </div>
+      </section>
+      <section class="card nav-card">
         <h2>GPS <span id="gpsFix" class="badge dimbadge">—</span></h2>
         <div class="navgrid">
           <div><span class="lbl">SATS</span><span id="gpsSats" class="num">—</span></div>
@@ -448,7 +466,7 @@
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js"></script>
-  <script src="operate.js"></script>
+  <script src="app.js?v=d9b9787e"></script>
+  <script src="operate.js?v=47d79c8e"></script>
 </body>
 </html>
