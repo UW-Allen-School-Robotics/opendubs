@@ -35,7 +35,13 @@ constexpr uint32_t kLiftStateTimeoutMs = kLiftStatePeriodMs * 3;    // 300ms, ra
 
 // ---- AUTHORIZE — 0x000, base -> broadcast, DLC 1 ----
 struct Authorize {
-  uint8_t counter = 0;
+  uint8_t counter;
+  // Explicit constructor, not a default member initializer + aggregate-init: a default member
+  // initializer disqualifies a struct from being an aggregate under C++11, which breaks
+  // `Authorize a{authorize_counter++};`-style brace-init on the StampPLC's C++11 build even
+  // though it compiles fine on the C++14+ native test / Tab5 targets. An explicit constructor
+  // works identically at every C++ standard this header is built under.
+  explicit Authorize(uint8_t counter_ = 0) : counter(counter_) {}
 };
 inline uint8_t encodeAuthorize(const Authorize& a, uint8_t out[8]) {
   out[0] = a.counter;
@@ -98,8 +104,11 @@ inline LiftState decodeLiftState(const uint8_t* data, uint8_t dlc) {
 enum class LiftCmd : uint8_t { STOP = 0, UP = 1, DOWN = 2 };
 
 struct LiftCommand {
-  LiftCmd cmd = LiftCmd::STOP;
-  uint8_t seq = 0;
+  LiftCmd cmd;
+  uint8_t seq;
+  // See Authorize's comment above — explicit constructor so aggregate-init status (and thus
+  // this struct's C++11 compatibility) doesn't depend on default member initializers.
+  explicit LiftCommand(LiftCmd cmd_ = LiftCmd::STOP, uint8_t seq_ = 0) : cmd(cmd_), seq(seq_) {}
 };
 
 inline uint8_t encodeLiftCmd(const LiftCommand& c, uint8_t out[8]) {
@@ -122,8 +131,15 @@ enum class FaultCode : uint8_t {
 };
 
 struct Fault {
-  FaultCode code = FaultCode::NONE;
-  uint8_t   detail = 0;
+  FaultCode code;
+  uint8_t   detail;
+  // See Authorize's comment above. Deliberately NOT explicit, unlike Authorize/LiftCommand:
+  // Tab5's deriveFault() (firmware/tab5_face/src/main.cpp) returns `{FaultCode::X, 0}` literals
+  // from a function returning Fault, which is copy-initialization — explicit constructors are
+  // excluded from copy-init (only direct `Fault{...}` allows them), so marking this explicit
+  // would break that call site under any standard, not just C++11.
+  Fault(FaultCode code_ = FaultCode::NONE, uint8_t detail_ = 0)
+      : code(code_), detail(detail_) {}
 };
 
 inline uint8_t encodeFault(const Fault& f, uint8_t out[8]) {
