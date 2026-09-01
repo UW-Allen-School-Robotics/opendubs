@@ -31,16 +31,34 @@ public:
   }
 
   bool poll(uint16_t& outCanId, uint8_t& outDlc, uint8_t outPayload[8]) {
-    int psize = udp_.parsePacket();
+    const int psize = udp_.parsePacket();
     if (psize < 3) return false;
+
+    // Wire format max is 11B (2B CAN ID + 1B DLC + 8B payload). Drain and drop oversized packets
+    // so we never leave unread bytes that could corrupt the next poll().
+    if (psize > 11) {
+      uint8_t junk[32];
+      int remaining = psize;
+      while (remaining > 0) {
+        const int want = remaining > (int)sizeof(junk) ? (int)sizeof(junk) : remaining;
+        const int n = udp_.read(junk, want);
+        if (n <= 0) break;
+        remaining -= n;
+      }
+      return false;
+    }
+
     uint8_t buf[11];
-    int len = udp_.read(buf, sizeof(buf));
-    if (len < 3) return false;
+    const int len = udp_.read(buf, psize);
+    if (len != psize) return false;
+
     outCanId = static_cast<uint16_t>((buf[0] << 8) | buf[1]);
-    uint8_t dlc = buf[2];
+    const uint8_t dlc = buf[2];
     if (dlc > 8 || len < 3 + dlc) return false;
+
     outDlc = dlc;
-    std::memcpy(outPayload, buf + 3, dlc);
+    std::memset(outPayload, 0, 8);
+    if (dlc) std::memcpy(outPayload, buf + 3, dlc);
     return true;
   }
 
