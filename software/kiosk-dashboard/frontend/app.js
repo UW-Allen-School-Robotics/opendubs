@@ -460,6 +460,7 @@ function renderRobotState(rs) {
 /* ---------- INFO (system + subsystem status grid) ---------- */
 function setDot(id, cls) { const e = $(id); if (e) e.className = "sdot " + (cls || ""); }
 
+
 /* ---------- Pinpoint odometry (status.odo, from the StampPLC [ODO] line) ---------- */
 function renderOdo(o) {
   const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };

@@ -26,8 +26,50 @@
     setTimeout(() => $("opEstop").classList.remove("latched"), 1500);
   });
 
+  /* ---------- E-STOP RE-ARM (hold to confirm) ----------
+     /api/estop/clear is guarded server-side (button still pressed, stale telemetry, welded
+     contactor, CH5 not OFF) and answers 409 with the blocking reasons -- surface them rather
+     than silently failing. */
+  (function () {
+    const btn = $("opRearm"); if (!btn) return;
+    const fill = btn.querySelector(".op-rearmfill"), txt = btn.querySelector(".op-rearmtxt");
+    const HOLD = 1000; let t0 = 0, raf = 0, done = false;
+    const reset = () => { cancelAnimationFrame(raf); fill.style.width = "0"; done = false; };
+    function tick() {
+      const f = Math.min(1, (performance.now() - t0) / HOLD);
+      fill.style.width = (f * 100) + "%";
+      if (f >= 1 && !done) { done = true; fire(); return; }
+      if (!done) raf = requestAnimationFrame(tick);
+    }
+    async function fire() {
+      txt.textContent = "RE-ARMING…";
+      try {
+        const r = await fetch("/api/estop/clear", { method: "POST" });
+        if (r.ok) { txt.textContent = "HOLD TO RE-ARM"; btn.classList.remove("blocked"); }
+        else {
+          const j = await r.json().catch(() => ({}));
+          const b = (j.blockers || ["refused"]).join(" · ");
+          btn.classList.add("blocked"); txt.textContent = "BLOCKED";
+          setNotifs([{ sev: "bad", txt: "RE-ARM BLOCKED · " + b }]);
+          setTimeout(() => { txt.textContent = "HOLD TO RE-ARM"; btn.classList.remove("blocked"); }, 3000);
+        }
+      } catch (e) { txt.textContent = "HOLD TO RE-ARM"; }
+      reset();
+    }
+    btn.addEventListener("pointerdown", (e) => { btn.setPointerCapture(e.pointerId); t0 = performance.now(); raf = requestAnimationFrame(tick); });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
+      btn.addEventListener(ev, () => { if (!done) reset(); }));
+  })();
+
   /* ---------- rear PiP expand ---------- */
-  $("opPip") && $("opPip").addEventListener("click", () => $("opPip").classList.toggle("big"));
+  /* Guarded: only a click that ORIGINATED on the PiP toggles it. Without this, any click that
+     bubbles up from (or lands on an element overlapping) the control zone expands the rear
+     camera -- which is what made the right stick appear to light up the rear feed. */
+  $("opPip") && $("opPip").addEventListener("click", (e) => {
+    if (!e.target.closest || !e.target.closest("#opPip")) return;
+    if (e.target.closest("#opCtl, #opArmOverlay, .op-stick")) return;
+    $("opPip").classList.toggle("big");
+  });
 
   /* ---------- on-screen joysticks (visual; drive not actuated yet) ---------- */
   function stick(el, horizOnly) {
@@ -107,6 +149,8 @@
   function opFromRS(rs) {
     if (!rs) return; setOpState(rs.label, rs.color);
     const n = [], inp = rs.inputs || {};
+    const latched = !!(inp.estopped || (inp.estop_sources && inp.estop_sources.length));
+    document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
     if (inp.estop_sources && inp.estop_sources.length) n.push({ sev: "bad", txt: "E-STOP · " + inp.estop_sources.join(" + ") });
     if (inp.link === false) n.push({ sev: "bad", txt: "RC LINK LOST" });
     if (lastSoc != null) { if (lastSoc < 15) n.push({ sev: "bad", txt: "PACK " + lastSoc + "% — RETURN" });
