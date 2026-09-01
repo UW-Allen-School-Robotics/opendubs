@@ -62,9 +62,9 @@ static void safetyTask(void*) {
 static opendubs_can::Fault deriveFault(const LiftController::Snapshot& s) {
   // STUCK_TIMEOUT / RELAY_FAULT: no sensor data to detect these yet (SIMULATE has no real
   // relay/motion feedback) — left NONE until the hardware path lands. [TODO-HW]
-  if (s.atTop && s.atBot) return {opendubs_can::FaultCode::LIMIT_CONFLICT, 0};
-  if (!s.tofOk)           return {opendubs_can::FaultCode::TOF_FAULT, 0};
-  return {opendubs_can::FaultCode::NONE, 0};
+  if (s.atTop && s.atBot) return opendubs_can::Fault{opendubs_can::FaultCode::LIMIT_CONFLICT, 0};
+  if (!s.tofOk)           return opendubs_can::Fault{opendubs_can::FaultCode::TOF_FAULT, 0};
+  return opendubs_can::Fault{opendubs_can::FaultCode::NONE, 0};
 }
 
 static void commsTask(void*) {

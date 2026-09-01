@@ -133,12 +133,11 @@ enum class FaultCode : uint8_t {
 struct Fault {
   FaultCode code;
   uint8_t   detail;
-  // See Authorize's comment above. Deliberately NOT explicit, unlike Authorize/LiftCommand:
-  // Tab5's deriveFault() (firmware/tab5_face/src/main.cpp) returns `{FaultCode::X, 0}` literals
-  // from a function returning Fault, which is copy-initialization — explicit constructors are
-  // excluded from copy-init (only direct `Fault{...}` allows them), so marking this explicit
-  // would break that call site under any standard, not just C++11.
-  Fault(FaultCode code_ = FaultCode::NONE, uint8_t detail_ = 0)
+  // See Authorize's comment above. Callers must write `Fault{...}` (direct-list-init), not
+  // `return {...}` (copy-init) — explicit constructors are excluded from copy-init. This is a
+  // call-site requirement, not a C++-standard one: see firmware/tab5_face/src/main.cpp's
+  // deriveFault(), which names the type explicitly for exactly this reason.
+  explicit Fault(FaultCode code_ = FaultCode::NONE, uint8_t detail_ = 0)
       : code(code_), detail(detail_) {}
 };
 
