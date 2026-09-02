@@ -41,7 +41,7 @@ static const uint32_t CONFIRM_MS  = 2200;    // e-stop release confirm window
 // their OR (see I4 in the payload-comms fix pass) so a live serial link can't be blanked by a
 // down WiFi link, or vice versa.
 static volatile bool wifiLinkOnline   = false;   // written only by commsTask
-static bool          serialLinkOnline = false;   // written only by applyLine()/pollStateSerial()
+static volatile bool serialLinkOnline = false;   // written by applyLine()/pollStateSerial(), read by commsTask
 
 // ---- UI state (owned by loop) ----
 static uint32_t idleLeft = 0;
