@@ -35,3 +35,12 @@ site/
 /M5Unit-8Servo/
 /M5Unit-Encoder/
 /M5Unit-HUB/
+
+# --- ESP-IDF (dual-framework Tab5 builds): component-manager downloads and the
+# generated per-env sdkconfig are all reproducible from platformio.ini +
+# sdkconfig.defaults, which ARE tracked. ---
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.*
+!sdkconfig.defaults
