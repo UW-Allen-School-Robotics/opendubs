@@ -117,12 +117,16 @@ stops at 270°, so it will keep winding until something tears.
 
 ### Fixing it
 
-The sanctioned tool is the **goBILDA 3102 Dual Mode Servo Programmer**. Mode is set by
-the press duration of its `P` key (sources disagree on the exact procedure; the
-programmer's own documentation wins).
+**Use the goBILDA 3102 Dual Mode Servo Programmer.** That is the supported route and
+the one to take. Mode is set by the press duration of its `P` key (secondary sources
+disagree on the exact procedure; the programmer's own documentation wins).
 
-We also implemented the mode change in firmware, and it **did not work**. Recorded here
-so the next person doesn't rediscover it from scratch:
+---
+
+Everything below is a **fallback**, only relevant if no programmer is available. We
+attempted the mode change in firmware because we didn't have one to hand, and it did
+**not** work. Recorded so nobody repeats the reverse-engineering, not because it's the
+recommended path:
 
 The servos speak a Feetech/Dynamixel-style protocol on the **signal wire** at
 **76800 baud, 8N1, half-duplex**:
@@ -143,12 +147,12 @@ independently re-derived and verified. Protocol credit: Asaf / FRC 5951 on Chief
 Wiring is `kProgPin` (G49) to the servo's signal pin, ground common, servo powered
 normally. The 8Servo channel must stay in input mode or it fights the line.
 
-**Why it probably failed** — untested, in order of likelihood:
+**Why it probably failed** — both untested:
 
 1. **The packets address servo ID 1.** If this servo isn't ID 1 the writes are silently
-   ignored. `SVPING` was written to sweep all 254 IDs but **was never run** — that needs
-   a second jumper from **G50** to the same signal wire so replies can be read. Do this
-   first; it's a 30-second test that either confirms the whole approach or kills it.
+   ignored. The `SVPING` command sweeps all 254 IDs and reports which answer, but it was
+   never run — it needs a second jumper from **G50** to the same signal wire so the
+   servo's replies can be read back.
 2. **3.3 V drive.** The Tab5's GPIO may not swing the line hard enough for a servo that
    expects a 5 V programmer.
 
@@ -194,9 +198,11 @@ and avoids fighting `M5.begin()` over the I²C ports.
 
 ## Next steps
 
-1. Run `SVPING` (needs the G50 jumper) — settles the servo-programming approach either way
-2. Get pan into positional mode, by programmer or protocol
-3. Bake the tilt limits in as compile-time constants
-4. Characterise pan's range the same way tilt was done
-5. Re-add the IMU via `M5.Ex_I2C`
-6. Merge into `tab5_face` as a dual-framework project, then the SC2356 driver
+1. **Put pan into positional mode with the 3102 programmer.** Nothing else about the
+   head can be finished until this is done — there is no way to command a pan angle
+   otherwise, and continuous rotation will wind the umbilical.
+2. Characterise pan's range the same way tilt was done (creep, watch current, soft-stop)
+3. Bake both axes' limits in as compile-time constants — they are currently session
+   state and reset to 1400–1600 on every boot
+4. Re-add the IMU via `M5.Ex_I2C`
+5. Merge into `tab5_face` as a dual-framework project, then the SC2356 sensor driver
