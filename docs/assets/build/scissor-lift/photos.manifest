@@ -1,0 +1,6 @@
+# scissor-lift — photo selection manifest  (STUB: no photos yet)
+# Lists ONLY the shots we keep, and what each becomes in the guide.
+# Format:  SOURCE   target.webp      (# comments + blank lines ignored)
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/build/scissor-lift/photos.manifest docs/assets/build/scissor-lift
+# That holds every output under the 300 KB target in docs/assets/build/README.md.

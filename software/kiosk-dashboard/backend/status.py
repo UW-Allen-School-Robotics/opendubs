@@ -46,7 +46,7 @@ DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE", "SPARE",
              "SPARE", "SPARE", "SPARE", "SPARE"]
 # R0 = e-stop contactor coil; R1 = 8Servo 5V power-cycle (the S8RESET command — the reliable clear
 # for a latched ESC solid-red fault); R2/R3 spare.
-RELAY_LABELS = ["E-STOP CONTACTOR", "8SERVO POWER-CYCLE", "SPARE", "SPARE"]
+RELAY_LABELS = ["E-STOP CONTACTOR", "MAST DOWN", "MAST UP", "SPARE"]
 DI_ESTOP_BTN, DI_WELD = 0, 1
 RELAY_ESTOP_CONTACTOR, RELAY_8SERVO = 0, 1
 
