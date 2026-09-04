@@ -66,7 +66,14 @@ none of the isolation the base needs applies.
 **1. Confirm both servos are in positional mode.** These are goBILDA dual-mode servos
 and ship either way. A servo in continuous-rotation mode cannot be commanded to an
 angle at all — it takes speed, not position, and will keep turning until something
-stops it. Mode is changed with the goBILDA 3102 programmer.
+stops it.
+
+Mode is changed either with the goBILDA 3102 programmer, or with
+[`firmware/servo_mode_programmer`](https://github.com/UW-Allen-School-Robotics/opendubs/tree/main/firmware/servo_mode_programmer)
+— an Arduino Uno sketch that speaks the servo's own configuration protocol. The Uno is
+used specifically because it drives the signal line at **5 V**; an attempt from a 3.3 V
+GPIO had no effect at all. Run its `PING` first: a reply proves the link before anything
+writes EEPROM, and reports the servo's ID.
 
 Tell them apart by commanding a value and watching current: a positional servo arrives
 and settles to idle; a continuous one draws steadily and never settles.
@@ -122,7 +129,8 @@ _(no parts for module 'pan-tilt-hmi')_
 ## Tools
 
 Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md).
-You will also want the **goBILDA 3102 dual-mode servo programmer**.
+You will also want either the **goBILDA 3102 dual-mode servo programmer** or an
+**Arduino Uno** running [`firmware/servo_mode_programmer`](https://github.com/UW-Allen-School-Robotics/opendubs/tree/main/firmware/servo_mode_programmer).
 
 ## Assembly
 

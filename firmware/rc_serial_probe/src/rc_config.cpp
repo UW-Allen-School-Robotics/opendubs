@@ -178,6 +178,8 @@ bool rcCalCommand(const char *cmd, const uint16_t *ch)
     if (!*arg || !strcasecmp(arg, "SHOW")) { showMap(); return true; }
 
     if (!strcasecmp(arg, "HELP")) {
+        Serial.println("[RCCAL] *** DO THIS WITH THE E-STOP PRESSED *** nothing needs to move to");
+        Serial.println("[RCCAL] read a transmitter, and a half-assigned map could swap an axis.");
         Serial.println("[RCCAL] CENTER            snapshot every channel's resting position");
         Serial.println("[RCCAL] SWEEP [secs]      move every stick/switch to its extremes");
         Serial.println("[RCCAL] SET <fn>          hold that control in its POSITIVE direction, then send");

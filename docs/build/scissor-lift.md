@@ -54,7 +54,7 @@ driver differs. Two consequences worth knowing while you build:
 | **RC channel** | CH2 (right stick, vertical) — up/stop/down |
 | **Deadman** | Required. The lift moves only while CH6 is held, exactly like drive |
 | **Relays** | **R2 → UP leg, R3 → DOWN leg** (silk RELAY3/RELAY4) *— assignment confirmed at commissioning* |
-| **Contact type** | *TBD — determined once for this controller, see below* |
+| **Contact type** | **NO** (normally open) — measured; closure = press |
 | **Height sensor** | ToF on the StampPLC PaHub, **channel 3** |
 | **Power** | Lift motor fed 24 V from the **drive bus**; the StampPLC only switches the controller's own button signal |
 
@@ -76,18 +76,13 @@ correct its belief if a pulse is missed.
 
 ## Relay contact type — a property of the controller
 
-**Determined once for the DIHOOL controller, not per robot.** Meter across its UP
-button terminals and press the physical button:
+**Measured on the DIHOOL controller: a closure is a press, so use the relay's
+NORMALLY-OPEN (NO) contacts.** This is a property of the controller, not a per-robot
+value — re-check only if you substitute a different one.
 
-- Continuity **appears** on press → a closure is a press → use the relay's **NO** contacts
-- Continuity **disappears** on press → use **NC**
-
-The rule that decides it either way: choose so a **de-energized relay means
-not-pressed**. Then a dead StampPLC, a power cut, or crashed firmware all produce no
-motion. Get it backwards and an unpowered robot holds the button down.
-
-*TBD — to be measured and recorded here. Re-check only if you substitute a different
-lift controller.*
+That also satisfies the rule that decides it either way: a **de-energized relay means
+not-pressed**, so a dead StampPLC, a power cut, or crashed firmware all produce no
+motion. Wired to NC instead, an unpowered robot would hold the button down.
 
 ## Commissioning — values discovered per robot
 
