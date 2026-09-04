@@ -3,7 +3,8 @@
 #include <SPI.h>
 #include <M5_Ethernet.h>   // PoE module W5500 (SPI on G7/G9/G8, CS G11)
 #include "driver/uart.h"     // ESP-IDF UART for the RS485 port (BMS)
-#include "esp_task_wdt.h"    // task watchdog — auto-reset if the loop hangs
+#include "esp_task_wdt.h"
+#include "rc_config.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 
@@ -1002,6 +1003,7 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 
 void handleHostCommand(const char* cmd)
 {
+    if (rcCalCommand(cmd, rc_ch)) return;
     int value = -1;
     if (sscanf(cmd, "PDH_SWITCH %d", &value) == 1) {
         const bool en = value != 0;
@@ -1521,8 +1523,12 @@ void consumeByte(uint8_t b)
         // pegged to an extreme (e.g. CH3=0) or bus corruption. Flag it so the drive arm gate
         // blocks motion EVEN IF the SBUS failsafe flag was not set. Switch channels CH5-8
         // legitimately sit at their endpoints, so they are excluded.
-        rc_range_bad = !sbusInBand(ch[0]) || !sbusInBand(ch[1]) ||
-                       !sbusInBand(ch[2]) || !sbusInBand(ch[3]);
+        // Sanitize the channels actually carrying axes, whichever they are.
+        rc_range_bad = false;
+        for (const RcFn f : {FN_FWD, FN_ROT, FN_STR, FN_MAST}) {
+            const int8_t c = rcCfgGet(f).ch;
+            if (c >= 0 && !sbusInBand(ch[c])) { rc_range_bad = true; break; }
+        }
 
         // Print frequently for responsive GUI updates.
         if ((valid_frames % kSbusPrintEveryNFrames) == 0) {
@@ -1572,8 +1578,11 @@ static RcMode computeRcMode()
     const bool rc_live = (last_valid_frame_ms != 0) && (millis() - last_valid_frame_ms < kRcTimeoutMs);
     if (!rc_live)     return RCM_NOLINK;
     if (rc_failsafe || rc_range_bad) return RCM_FAILSAFE;   // flag OR a stick pegged out-of-band
-    const uint16_t m  = rc_ch[4];           // CH5 mode 3-pos
-    const bool     held = rc_ch[5] > 1000;  // CH6 deadman (>1000 = held; polarity TBC)
+    // Channel and polarity come from the per-robot RC map (RCCAL), not from fixed
+    // indices — "which channel is the deadman, and which way round" is a transmitter
+    // question, answered once in rc_config rather than re-litigated per subsystem.
+    const uint16_t m    = rcRaw(FN_AUTH, rc_ch);
+    const bool     held = rcAxis(FN_DEAD, rc_ch) > 0.5f;
     if (m < 600)  return RCM_OFF;
     if (m < 1400) return held ? RCM_MANUAL_LIVE : RCM_MANUAL_SAFE;
     return RCM_AUTO;
@@ -1643,16 +1652,16 @@ static void driveTick()
     // gates only the physical ESC output below, NOT the intent/mix display.
     float fwd = 0, rot = 0, str = 0;
     if (mode == RCM_MANUAL_LIVE) {                     // manual + deadman HELD → sticks
-        const float spd = constrain((float)((int)rc_ch[7] - 200) / 1620.0f, 0.0f, 1.0f);  // CH8 speed
-        fwd = sbusAxis(rc_ch[2]) * spd;                // CH3 FWD/REV
-        rot = sbusAxis(rc_ch[0]) * spd;                // CH1 ROTATE
-        str = sbusAxis(rc_ch[3]) * spd;                // CH4 STRAFE
+        const float spd = rcUnit(FN_SPEED, rc_ch);
+        fwd = rcAxis(FN_FWD, rc_ch) * spd;
+        rot = rcAxis(FN_ROT, rc_ch) * spd;
+        str = rcAxis(FN_STR, rc_ch) * spd;
     } else if (autoAuth) {                             // autonomous → Thor/ROS DRIVE command
         fwd = g_rosCmd.fwd; rot = g_rosCmd.rot; str = g_rosCmd.str;
     }
     // RCM_MANUAL_SAFE (deadman released) → 0,0,0 = idle.
     g_intentFwd = fwd; g_intentRot = rot; g_intentStr = str;
-    g_speed = constrain((float)((int)rc_ch[7] - 200) / 1620.0f, 0.0f, 1.0f);   // CH8 knob (annunciation)
+    g_speed = rcUnit(FN_SPEED, rc_ch);   // speed knob (annunciation)
     if (millis() > g_turnTestUntil) {   // real turn intent unless a TURNTEST override is active
         const float lat = str + rot;
         g_turnDir = (lat > kTurnIntentThresh) ? 1 : (lat < -kTurnIntentThresh) ? -1 : 0;
@@ -2022,6 +2031,7 @@ void setup()
     uiSetup();
     Serial.println("[UI] local screen active: BtnA=page, BtnB=id, BtnC(hold)=E-STOP");
     rs485Init(g_rs485Baud);   // RS485 (BMS) probe — passive RX logged; active via BMS/RS485TX cmds
+    rcCfgBegin();
     esp_task_wdt_init(kWdtTimeoutS, true);   // auto-reset the chip if the loop hangs (feed each loop)
     esp_task_wdt_add(NULL);                  // watch the loop task
     Serial.printf("[WDT] task watchdog %us (panic-reset on loop hang)\n", (unsigned)kWdtTimeoutS);
@@ -2413,7 +2423,11 @@ void loop()
     // [DRIVE] telemetry is live for verification; only the physical PWM write inside
     // it is gated on DRIVE_ENABLE. So you can watch arming/protection work with no
     // signal reaching the ESCs until you flip the flag. ----
-    if ((millis() - last_drive_ms) >= kDriveTickMs) { driveTick(); last_drive_ms = millis(); }
+    if ((millis() - last_drive_ms) >= kDriveTickMs) {
+        driveTick();
+        rcCalTick(rc_ch);   // accumulate endpoints while an RCCAL SWEEP runs
+        last_drive_ms = millis();
+    }
     if ((millis() - last_drive_pub_ms) > 100) { publishDrive(); last_drive_pub_ms = millis(); }
     if ((millis() - last_rc_pub_ms) > 100)    { publishRc();    last_rc_pub_ms = millis(); }
 
