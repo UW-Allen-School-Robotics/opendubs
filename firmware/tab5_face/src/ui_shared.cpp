@@ -1,4 +1,6 @@
 #include "ui_shared.h"
+#include "freertos/FreeRTOS.h"
+#include <stdio.h>
 
 // Same presentation map as the face demo — single source of truth for state color/expression.
 St STATES[] = {
@@ -17,6 +19,26 @@ volatile UiMode g_uiMode     = UiMode::FACE;       // face is home
 volatile int    g_turnCmd    = 0;
 volatile bool   g_linkOnline = false;
 char            g_ipStr[24]  = "\xE2\x80\x94";     // "—"
+static portMUX_TYPE g_ipStrMux = portMUX_INITIALIZER_UNLOCKED;
+
+void setIpStr(const char* ip) {
+  portENTER_CRITICAL(&g_ipStrMux);
+  snprintf(g_ipStr, sizeof(g_ipStr), "%s", ip ? ip : "");
+  portEXIT_CRITICAL(&g_ipStrMux);
+}
+
+void clearIpStr() {
+  portENTER_CRITICAL(&g_ipStrMux);
+  g_ipStr[0] = '\0';
+  portEXIT_CRITICAL(&g_ipStrMux);
+}
+
+void copyIpStr(char* out, size_t outSize) {
+  if (!out || outSize == 0) return;
+  portENTER_CRITICAL(&g_ipStrMux);
+  snprintf(out, outSize, "%s", g_ipStr);
+  portEXIT_CRITICAL(&g_ipStrMux);
+}
 
 const char* const PUNS[] = {
   "Idling at maximum efficiency.",

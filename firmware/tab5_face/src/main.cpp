@@ -97,7 +97,9 @@ static void commsTask(void*) {
 
     if (wifiUp) {
       IPAddress ip = WiFi.localIP();
-      snprintf(g_ipStr, sizeof(g_ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+      char ipStr[24];
+      snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+      setIpStr(ipStr);
 
       uint16_t rxId; uint8_t rxDlc; uint8_t rxBuf[8];
       while (tx.poll(rxId, rxDlc, rxBuf)) {
@@ -114,7 +116,7 @@ static void commsTask(void*) {
         }
       }
     } else {
-      g_ipStr[0] = '\0';
+      clearIpStr();
     }
 
     // Fail-safe-by-omission must be evaluated regardless of link state: no fresh AUTHORIZE

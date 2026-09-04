@@ -2,6 +2,7 @@
 // full face and the collapsed controller chip), the UI mode, and the SAFE_IDLE puns.
 #pragma once
 #include <M5Unified.h>
+#include <stddef.h>
 
 // ---- robot-state presentation map ----
 struct Expr { float h, w, tilt, bow, squint, lookY, brow; };
@@ -22,7 +23,10 @@ extern volatile int g_turnCmd;
 
 // link/identity (set by commsTask once WiFi/CAN is up; stubbed OFFLINE for now)
 extern volatile bool g_linkOnline;
-extern char g_ipStr[24];          // guarded by nothing heavy; written only by commsTask
+extern char g_ipStr[24];
+void setIpStr(const char* ip);
+void clearIpStr();
+void copyIpStr(char* out, size_t outSize);
 
 // SAFE_IDLE pun ticker (humor 60%, discretion 100% — robot/sci-fi, clean)
 extern const char* const PUNS[];

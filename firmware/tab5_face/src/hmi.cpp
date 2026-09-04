@@ -80,13 +80,15 @@ static void panel(const int r[4], const char* label) {
 
 // ---------- components ----------
 static void drawTab5Values() {
+  char ipStr[24];
+  copyIpStr(ipStr, sizeof(ipStr));
   M5.Display.setFont(F_DATA); M5.Display.setTextSize(1); M5.Display.setTextDatum(textdatum_t::middle_right);
   int rx = TAB5[0] + TAB5[2] - 16;
   int y0 = 358, y1 = 392, y2 = 426;
   M5.Display.fillRect(TAB5[0] + 110, 342, TAB5[2] - 110 - 12, 100, PANEL);
   M5.Display.setTextColor(INK);                              M5.Display.drawString("Z-AXIS LIFT", rx, y0);
   M5.Display.setTextColor(g_linkOnline ? UPCOL : DNCOL);     M5.Display.drawString(g_linkOnline ? "ONLINE" : "OFFLINE", rx, y1);
-  M5.Display.setTextColor(INK);                              M5.Display.drawString(g_ipStr, rx, y2);
+  M5.Display.setTextColor(INK);                              M5.Display.drawString(ipStr, rx, y2);
 }
 
 static void drawChrome() {
@@ -218,6 +220,8 @@ static void drawLamps(const LiftController::Snapshot& s) {
 }
 
 static void drawTopRight(const HmiCtx& ctx) {
+  char ipStr[24];
+  copyIpStr(ipStr, sizeof(ipStr));
   int rx = W - 24;
   M5.Display.fillRect(740, 6, W - 740 - 6, TOP - 12, C(15, 20, 26));
   M5.Display.setTextDatum(textdatum_t::middle_right);
@@ -225,7 +229,7 @@ static void drawTopRight(const HmiCtx& ctx) {
   char rv[24]; snprintf(rv, sizeof rv, "\xE2\x86\xA9 face in %ds", ctx.revertSecs);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(rv, rx, TOP / 2); rx -= M5.Display.textWidth(rv) + 24;
   M5.Display.setFont(F_DATA);
-  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", g_ipStr);
+  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", ipStr);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(ipl, rx, TOP / 2); rx -= M5.Display.textWidth(ipl) + 24;
   const char* lk = g_linkOnline ? "LINK ONLINE" : "LINK OFFLINE";
   M5.Display.setTextColor(INKDIM); M5.Display.drawString(lk, rx, TOP / 2); rx -= M5.Display.textWidth(lk) + 14;
