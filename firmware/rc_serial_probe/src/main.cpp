@@ -64,6 +64,7 @@ static constexpr uint8_t kServo8Addr         = 0x25;  // M5 8Servo
 static constexpr uint8_t kServo8ModeReg      = 0x00;  // per-pin mode  (MODE_REG + pin)
 static constexpr uint8_t kServo8PulseReg     = 0x60;  // per-pin pulse (REG + pin*2), 16-bit LE us
 static constexpr uint8_t kServo8ModeServoCtl = 3;     // SERVO_CTL_MODE
+static constexpr uint32_t kServo8Hz          = 400000; // 8Servo bus speed
 
 // ============================ DRIVE OUTPUT ================================
 // RC/ROS command -> mixer -> 8Servo PWM -> two goBILDA 2x80A ESCs.
@@ -907,25 +908,95 @@ void envStep()
 static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
 static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
 
+// ---- I2C bus recovery ---------------------------------------------------------
+// M5Unified's writeRegister() is a short-circuiting && chain:
+//     beginTransaction(..) && writeBytes(&reg,1) && writeBytes(data,len) && endTransaction(..)
+// If ANY step fails, endTransaction() is never reached, so NO STOP is issued and the
+// slave is abandoned mid-transaction. The 8Servo's STM32F030F4 latches in exactly that
+// state: it keeps ACKing its address in hardware but never services data again, and every
+// subsequent write fails. That is what turns a single glitched write into a permanent
+// wedge — and why Pinpoint survives on the same bus, since ppXfer() stops on every path.
+static uint32_t      g_i2cRecoverCount = 0;   // bus recoveries since boot (observability)
+static uint8_t       g_s8ConsecFail    = 0;   // consecutive 8Servo write failures
+static unsigned long g_lastRecover_ms  = 0;
+static constexpr uint8_t  kS8FailBeforeRecover  = 8;    // ~40 ms at 200 writes/s = 2 drive ticks
+static constexpr uint32_t kRecoverMinIntervalMs = 250;  // don't spin on a genuinely dead bus
+
+// Clock out up to 9 pulses on SCL with SDA released, then a manual STOP. A slave stuck
+// mid-byte releases SDA once the rest of that byte is clocked through; the STOP then
+// returns it to idle. Bit-banged, because the peripheral will not drive clocks while it
+// believes the bus is busy.
+static void i2cBusRecover()
+{
+    if (extI2C == nullptr) return;
+    const int sda = extI2C->getSDA();
+    const int scl = extI2C->getSCL();
+    if (sda < 0 || scl < 0) return;
+
+    g_i2cRecoverCount++;
+    g_lastRecover_ms = millis();
+    extI2C->release();                       // hand the pins back to GPIO
+
+    pinMode(sda, INPUT_PULLUP);
+    pinMode(scl, OUTPUT_OPEN_DRAIN);
+    digitalWrite(scl, HIGH);
+    delayMicroseconds(5);
+    for (int i = 0; i < 9 && digitalRead(sda) == LOW; ++i) {
+        digitalWrite(scl, LOW);  delayMicroseconds(5);
+        digitalWrite(scl, HIGH); delayMicroseconds(5);
+    }
+    pinMode(sda, OUTPUT_OPEN_DRAIN);         // manual STOP: SDA low->high while SCL is high
+    digitalWrite(sda, LOW);  delayMicroseconds(5);
+    digitalWrite(scl, HIGH); delayMicroseconds(5);
+    digitalWrite(sda, HIGH); delayMicroseconds(5);
+
+    extI2C->begin(I2C_NUM_1, kPortASda, kPortAScl);
+    g_currentHubCh = -1;                     // mux selection is unknown after a re-init
+    servo8InvalidateModes();                 // the 8Servo may have missed its mode writes
+    tprintf("[I2C] bus recovery #%lu\n", (unsigned long)g_i2cRecoverCount);
+}
+
+// A wedged slave fails every write, so escalate to a bus recovery after a short run of
+// consecutive failures rather than retrying the same broken transaction forever.
+static inline void servo8NoteFail()
+{
+    if (++g_s8ConsecFail < kS8FailBeforeRecover) return;
+    g_s8ConsecFail = 0;
+    if (millis() - g_lastRecover_ms >= kRecoverMinIntervalMs) i2cBusRecover();
+}
+
+// Write to an 8Servo register with a STOP on EVERY exit path — the thing writeRegister()
+// does not do. Mirrors ppXfer()'s discipline.
+static bool servo8Write(uint8_t reg, const uint8_t* d, size_t n)
+{
+    if (!extI2C->start(kServo8Addr, false, kServo8Hz)) { extI2C->stop(); return false; }
+    if (!extI2C->write(reg))                          { extI2C->stop(); return false; }
+    if (n && !extI2C->write(d, n))                    { extI2C->stop(); return false; }
+    return extI2C->stop();
+}
+
 // Drive one 8Servo channel as a servo PWM pulse (microseconds) — the 4 goBILDA 2x80A ESCs.
 // (PRISM is NOT here: it is an I2C RGB driver at 0x38; ch0 is the Rear-Left ESC.)
 bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 {
     if (extI2C == nullptr || !extI2C->isEnabled()) return false;
     if (pin > 7) return false;
-    if (!selectChannel(kChServo8)) return false;
+    if (!selectChannel(kChServo8)) { servo8NoteFail(); return false; }
     // Put the pin in servo-control mode ONCE (see the mode-cache note above), then write the
     // 16-bit pulse (low byte, high byte). A pulse-write failure invalidates the pin's mode bit so
     // mode is re-asserted next call — covers a bus glitch or an 8Servo that lost power/reset.
     if (!(g_servo8ModeSet & (1u << pin))) {
-        if (!extI2C->writeRegister8(kServo8Addr, kServo8ModeReg + pin, kServo8ModeServoCtl, 400000)) return false;
+        const uint8_t m = kServo8ModeServoCtl;
+        if (!servo8Write(kServo8ModeReg + pin, &m, 1)) { servo8NoteFail(); return false; }
         g_servo8ModeSet |= (1u << pin);
     }
-    uint8_t d[2] = { (uint8_t)(pulse_us & 0xFF), (uint8_t)((pulse_us >> 8) & 0xFF) };
-    if (!extI2C->writeRegister(kServo8Addr, kServo8PulseReg + pin * 2, d, 2, 400000)) {
+    const uint8_t d[2] = { (uint8_t)(pulse_us & 0xFF), (uint8_t)((pulse_us >> 8) & 0xFF) };
+    if (!servo8Write(kServo8PulseReg + pin * 2, d, 2)) {
         g_servo8ModeSet &= ~(1u << pin);
+        servo8NoteFail();
         return false;
     }
+    g_s8ConsecFail = 0;   // a clean write means the bus is healthy again
     return true;
 }
 
@@ -1636,10 +1707,11 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
-                  g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail);
+                  g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
+                  (unsigned long)g_i2cRecoverCount);
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the

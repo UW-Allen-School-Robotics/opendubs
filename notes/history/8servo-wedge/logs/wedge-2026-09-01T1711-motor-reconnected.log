@@ -1,0 +1,1277 @@
+1788307881.030 {"seq":2767,"up_s":615,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":707,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307881.035 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307881.045 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0046 ex=-1 ey=0 loop=1032 fail=0 crcbad=0
+1788307881.048 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=-0.29 turn=L w=-0.49,-1.00,-0.99,-0.50 out=1766,2000,1006,1772 s8fail=0 mirror=0:4 mfail=0
+1788307881.049 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=729 mast=1000 raw=1006,1000,200,729,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307881.150 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307881.159 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0020 ex=-1 ey=0 loop=941 fail=0 crcbad=0
+1788307881.163 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=-0.06 turn=0 w=-0.81,-0.94,-0.92,-0.82 out=1798,1984,1022,1804 s8fail=0 mirror=0:4 mfail=0
+1788307881.163 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=946 mast=1000 raw=1006,1000,200,946,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307881.235 {"seq":2768,"up_s":615,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307881.264 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307881.274 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0013 ex=-1 ey=0 loop=976 fail=0 crcbad=0
+1788307881.277 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1838,1944,1062,1844 s8fail=0 mirror=0:4 mfail=0
+1788307881.277 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307881.379 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307881.389 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0025 ex=-1 ey=0 loop=1056 fail=0 crcbad=0
+1788307881.389 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.10 turn=0 w=-0.97,-0.77,-0.76,-0.98 out=1870,1912,1094,1876 s8fail=0 mirror=0:4 mfail=0
+1788307881.390 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1094 mast=1000 raw=1006,1000,200,1094,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307881.439 {"seq":2769,"up_s":616,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1102,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307881.493 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307881.503 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0030 ex=-1 ey=0 loop=951 fail=0 crcbad=0
+1788307881.506 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.88,-0.86,-0.85,-0.89 out=1910,1904,1102,1916 s8fail=0 mirror=0:4 mfail=0
+1788307881.507 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1013 mast=1000 raw=1006,1000,200,1013,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307881.609 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307881.618 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0032 ex=-1 ey=0 loop=1011 fail=0 crcbad=0
+1788307881.622 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1934,1937,1070,1940 s8fail=0 mirror=0:4 mfail=0
+1788307881.622 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1003 mast=1000 raw=1006,1000,200,1003,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307881.651 {"seq":2770,"up_s":616,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1083,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307881.724 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307881.734 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0017 ex=-1 ey=0 loop=995 fail=0 crcbad=0
+1788307881.734 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.14 turn=0 w=-0.99,-0.73,-0.72,-1.00 out=1966,1905,1102,1972 s8fail=0 mirror=0:4 mfail=0
+1788307881.734 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1126 mast=1000 raw=1006,1000,200,1126,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307881.838 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307881.848 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0020 ex=-1 ey=0 loop=1013 fail=0 crcbad=0
+1788307881.851 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1958,1913,1094,1964 s8fail=0 mirror=0:4 mfail=0
+1788307881.852 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307881.855 [SBUS] prof=SBUS (inverted) bytes=2082082 ok=83268 bad=3 last_ok_ms=616439
+1788307881.856 [ENV] z=0 t=23.67 h=53.9
+1788307881.860 {"seq":2771,"up_s":616,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307881.925 [BMS] soc=80 v=53.08 i=-1.06 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307881.954 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307881.963 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0028 ex=-1 ey=0 loop=1037 fail=0 crcbad=0
+1788307881.967 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307881.967 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307881.992 [SENS] power=24.33V
+1788307881.992 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307881.992 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307881.992 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307881.993 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307881.993 [PDH] flt live=0x000000 sticky=0x000000
+1788307882.068 {"seq":2772,"up_s":616,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307882.073 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.083 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0028 ex=-1 ey=0 loop=975 fail=0 crcbad=0
+1788307882.084 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.084 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307882.189 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.199 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0012 ex=-1 ey=0 loop=997 fail=0 crcbad=0
+1788307882.199 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.200 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307882.273 {"seq":2773,"up_s":616,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307882.304 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.313 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0043 ex=-1 ey=0 loop=953 fail=0 crcbad=0
+1788307882.314 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.314 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307882.419 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307882.429 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0049 ex=-1 ey=0 loop=1043 fail=0 crcbad=0
+1788307882.433 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.433 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307882.477 {"seq":2774,"up_s":617,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307882.535 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.545 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0029 ex=-1 ey=0 loop=1015 fail=0 crcbad=0
+1788307882.548 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.548 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307882.650 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.660 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-nan y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0081 ex=-1 ey=0 loop=989 fail=0 crcbad=0
+1788307882.663 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.664 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307882.692 {"seq":2775,"up_s":617,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307882.765 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.775 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=1014 fail=0 crcbad=0
+1788307882.775 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.776 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307882.861 [SBUS] prof=SBUS (inverted) bytes=2085682 ok=83412 bad=3 last_ok_ms=617444
+1788307882.880 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307882.890 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0015 ex=-1 ey=0 loop=1034 fail=0 crcbad=0
+1788307882.893 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307882.893 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307882.896 {"seq":2776,"up_s":617,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307882.902 [ENV] z=0 t=23.68 h=53.8
+1788307882.995 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.005 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0008 ex=-1 ey=0 loop=1061 fail=0 crcbad=0
+1788307883.005 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307883.006 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307883.030 [SENS] power=24.33V
+1788307883.030 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307883.030 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307883.031 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307883.031 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307883.032 [PDH] flt live=0x000000 sticky=0x000000
+1788307883.103 {"seq":2777,"up_s":617,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307883.108 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307883.109 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307883.114 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.126
+1788307883.124 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0028 ex=-1 ey=0 loop=1000 fail=0 crcbad=0
+1788307883.128 [BMS] soc=80 v=53.08 i=-1.10 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307883.212 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307883.212 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307883.229 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.239 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0083 ex=-1 ey=0 loop=920 fail=0 crcbad=0
+1788307883.310 {"seq":2778,"up_s":617,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1000,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.8}}
+1788307883.313 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.00 turn=0 w=-0.86,-0.88,-0.86,-0.88 out=1932,1939,1068,1939 s8fail=0 mirror=0:4 mfail=0
+1788307883.314 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1000 mast=1000 raw=1006,1000,200,1000,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307883.344 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307883.353 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0005 ex=-1 ey=0 loop=1090 fail=0 crcbad=0
+1788307883.417 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.02 turn=0 w=-0.89,-0.85,-0.84,-0.90 out=1944,1927,1080,1951 s8fail=0 mirror=0:4 mfail=0
+1788307883.417 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1026 mast=1000 raw=1006,1000,200,1026,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307883.459 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.469 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0016 ex=-1 ey=0 loop=990 fail=0 crcbad=0
+1788307883.515 {"seq":2779,"up_s":618,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1028,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307883.520 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.89,-0.85,-0.83,-0.91 out=1947,1923,1083,1954 s8fail=0 mirror=0:4 mfail=0
+1788307883.521 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1028 mast=1000 raw=1006,1000,200,1028,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307883.576 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307883.585 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1065 fail=0 crcbad=0
+1788307883.622 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1948,1922,1084,1955 s8fail=0 mirror=0:4 mfail=0
+1788307883.622 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1030 mast=1000 raw=1006,1000,200,1030,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307883.690 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.699 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-nan y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0033 ex=-1 ey=0 loop=1051 fail=0 crcbad=0
+1788307883.726 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1948,1922,1084,1955 s8fail=0 mirror=0:4 mfail=0
+1788307883.726 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1030 mast=1000 raw=1006,1000,200,1030,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307883.730 {"seq":2780,"up_s":618,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1030,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307883.805 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.815 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0057 ex=-1 ey=0 loop=1021 fail=0 crcbad=0
+1788307883.828 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307883.828 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1030 mast=1000 raw=1006,1000,200,1030,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307883.862 [SBUS] prof=SBUS (inverted) bytes=2089257 ok=83555 bad=3 last_ok_ms=618442
+1788307883.922 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307883.932 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0033 ex=-1 ey=0 loop=1033 fail=0 crcbad=0
+1788307883.932 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307883.932 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307883.936 {"seq":2781,"up_s":618,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307883.941 [ENV] z=0 t=23.69 h=53.8
+1788307883.969 [NET] link=1 ip=10.42.2.20 reinit=0 hb_age=0
+1788307884.032 [SENS] power=24.33V
+1788307884.032 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307884.033 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307884.033 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307884.033 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307884.034 [PDH] flt live=0x000000 sticky=0x000000
+1788307884.037 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307884.047 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=-nan vx=0.0 vy=0.0 vh=0.0036 ex=-1 ey=0 loop=1028 fail=0 crcbad=0
+1788307884.050 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.050 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307884.142 {"seq":2782,"up_s":618,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307884.152 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307884.154 [ODO] ok=0 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=-nan vx=0.0 vy=0.0 vh=0.0036 ex=-1 ey=0 loop=1028 fail=1 crcbad=0
+1788307884.154 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.154 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307884.260 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307884.270 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0058 ex=-1 ey=0 loop=981 fail=1 crcbad=0
+1788307884.273 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.274 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307884.346 {"seq":2783,"up_s":618,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307884.349 [BMS] soc=80 v=53.08 i=-1.10 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307884.375 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307884.385 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0001 ex=-1 ey=0 loop=1045 fail=1 crcbad=0
+1788307884.388 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.388 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307884.493 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307884.502 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0019 ex=-1 ey=0 loop=1065 fail=1 crcbad=0
+1788307884.503 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.503 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307884.551 {"seq":2784,"up_s":619,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.8}}
+1788307884.607 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307884.617 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0032 ex=-1 ey=0 loop=965 fail=1 crcbad=0
+1788307884.620 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.620 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307884.722 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307884.732 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0037 ex=-1 ey=0 loop=1089 fail=1 crcbad=0
+1788307884.736 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.736 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307884.765 {"seq":2785,"up_s":619,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307884.837 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307884.847 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0017 ex=-1 ey=0 loop=1062 fail=1 crcbad=0
+1788307884.847 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.848 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307884.864 [SBUS] prof=SBUS (inverted) bytes=2092832 ok=83698 bad=3 last_ok_ms=619443
+1788307884.952 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307884.962 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0104 ex=-1 ey=0 loop=1084 fail=1 crcbad=0
+1788307884.965 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307884.965 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307884.969 {"seq":2786,"up_s":619,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307884.974 [ENV] z=0 t=23.67 h=53.9
+1788307885.036 [SENS] power=24.33V
+1788307885.037 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307885.037 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307885.037 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307885.037 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307885.037 [PDH] flt live=0x000000 sticky=0x000000
+1788307885.068 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.126
+1788307885.078 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0035 ex=-1 ey=0 loop=1049 fail=1 crcbad=0
+1788307885.081 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.081 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307885.174 {"seq":2787,"up_s":619,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307885.184 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307885.195 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0004 ex=-1 ey=0 loop=1204 fail=1 crcbad=0
+1788307885.195 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.195 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307885.298 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.308 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0046 ex=-1 ey=0 loop=1055 fail=1 crcbad=0
+1788307885.311 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.311 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307885.383 {"seq":2788,"up_s":619,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307885.414 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.424 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-nan y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0051 ex=-1 ey=0 loop=1077 fail=1 crcbad=0
+1788307885.427 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.427 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307885.530 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.540 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=959 fail=1 crcbad=0
+1788307885.540 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.541 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1032 mast=1000 raw=1006,1000,200,1032,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307885.584 [BMS] soc=80 v=53.08 i=-1.09 cmin=3.315 cmax=3.321 tmin=22.9 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307885.588 {"seq":2789,"up_s":620,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1031,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307885.644 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.654 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0041 ex=-1 ey=0 loop=1031 fail=1 crcbad=0
+1788307885.657 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.90,-0.84,-0.83,-0.91 out=1949,1922,1085,1955 s8fail=0 mirror=0:4 mfail=0
+1788307885.657 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1031 mast=1000 raw=1006,1000,200,1031,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307885.759 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.768 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0001 ex=-1 ey=0 loop=1075 fail=1 crcbad=0
+1788307885.772 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.89,-0.85,-0.84,-0.90 out=1945,1926,1081,1952 s8fail=0 mirror=0:4 mfail=0
+1788307885.772 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1024 mast=1000 raw=1006,1000,200,1024,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307885.795 [SENS] power=24.33V
+1788307885.796 [I2C] scan: 0x25 0x44 0x31
+1788307885.802 {"seq":2790,"up_s":620,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1023,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307885.866 [SBUS] prof=SBUS (inverted) bytes=2096407 ok=83841 bad=3 last_ok_ms=620444
+1788307885.874 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.883 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1052 fail=1 crcbad=0
+1788307885.884 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.89,-0.85,-0.84,-0.90 out=1945,1926,1081,1952 s8fail=0 mirror=0:4 mfail=0
+1788307885.884 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1024 mast=1000 raw=1006,1000,200,1024,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307885.988 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307885.998 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0035 ex=-1 ey=0 loop=1031 fail=1 crcbad=0
+1788307886.001 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.88,-0.86,-0.85,-0.89 out=1939,1931,1075,1946 s8fail=0 mirror=0:4 mfail=0
+1788307886.002 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1013 mast=1000 raw=1006,1000,200,1013,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307886.007 [ENV] z=0 t=23.65 h=53.8
+1788307886.010 {"seq":2791,"up_s":620,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1012,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307886.039 [SENS] power=24.33V
+1788307886.040 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307886.040 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307886.040 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307886.040 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307886.041 [PDH] flt live=0x000000 sticky=0x000000
+1788307886.103 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307886.113 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0041 ex=-1 ey=0 loop=1038 fail=1 crcbad=0
+1788307886.116 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.88,-0.87,-0.85,-0.89 out=1938,1933,1074,1945 s8fail=0 mirror=0:4 mfail=0
+1788307886.116 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1011 mast=1000 raw=1006,1000,200,1011,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307886.216 {"seq":2792,"up_s":620,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1010,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307886.222 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307886.231 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0027 ex=-1 ey=0 loop=1013 fail=1 crcbad=0
+1788307886.232 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.85,-0.89 out=1937,1933,1073,1944 s8fail=0 mirror=0:4 mfail=0
+1788307886.232 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1010 mast=1000 raw=1006,1000,200,1010,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307886.336 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307886.346 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0017 ex=-1 ey=0 loop=1024 fail=1 crcbad=0
+1788307886.349 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.85,-0.89 out=1937,1934,1073,1943 s8fail=0 mirror=0:4 mfail=0
+1788307886.350 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1009 mast=1000 raw=1006,1000,200,1009,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307886.421 {"seq":2793,"up_s":621,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1008,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307886.452 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307886.461 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0036 ex=-1 ey=0 loop=1001 fail=1 crcbad=0
+1788307886.465 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.89 out=1936,1934,1072,1943 s8fail=0 mirror=0:4 mfail=0
+1788307886.465 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1008 mast=1000 raw=1006,1000,200,1008,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307886.566 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307886.576 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0046 ex=-1 ey=0 loop=1012 fail=1 crcbad=0
+1788307886.576 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.89 out=1936,1934,1072,1943 s8fail=0 mirror=0:4 mfail=0
+1788307886.577 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1008 mast=1000 raw=1006,1000,200,1008,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307886.626 {"seq":2794,"up_s":621,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1008,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307886.681 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307886.691 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=-nan vy=0.0 vh=-0.0026 ex=-1 ey=0 loop=925 fail=1 crcbad=0
+1788307886.694 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307886.694 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307886.796 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307886.806 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0019 ex=-1 ey=0 loop=1014 fail=1 crcbad=0
+1788307886.809 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307886.810 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307886.834 [BMS] soc=80 v=53.08 i=-1.10 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307886.840 {"seq":2795,"up_s":621,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307886.869 [SBUS] prof=SBUS (inverted) bytes=2100007 ok=83985 bad=3 last_ok_ms=621452
+1788307886.912 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307886.922 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0076 ex=-1 ey=0 loop=959 fail=1 crcbad=0
+1788307886.922 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307886.923 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307887.027 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.037 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0015 ex=-1 ey=0 loop=1078 fail=1 crcbad=0
+1788307887.040 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.041 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307887.044 {"seq":2796,"up_s":621,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307887.048 [SENS] power=24.33V
+1788307887.050 [ENV] z=0 t=23.69 h=53.9
+1788307887.050 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307887.050 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307887.050 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307887.051 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307887.051 [PDH] flt live=0x000000 sticky=0x000000
+1788307887.142 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.126
+1788307887.152 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-nan ex=-1 ey=0 loop=963 fail=1 crcbad=0
+1788307887.155 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.156 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307887.250 {"seq":2797,"up_s":621,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307887.259 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.269 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0031 ex=-1 ey=0 loop=1054 fail=1 crcbad=0
+1788307887.269 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.270 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307887.374 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307887.384 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0001 ex=-1 ey=0 loop=1012 fail=1 crcbad=0
+1788307887.388 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.388 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307887.454 {"seq":2798,"up_s":622,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307887.489 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.498 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0027 ex=-1 ey=0 loop=1065 fail=1 crcbad=0
+1788307887.499 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.499 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307887.604 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307887.614 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0039 ex=-1 ey=0 loop=1066 fail=1 crcbad=0
+1788307887.617 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.618 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307887.659 {"seq":2799,"up_s":622,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307887.719 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.728 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0022 ex=-1 ey=0 loop=1049 fail=1 crcbad=0
+1788307887.732 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.732 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307887.835 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.844 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0026 ex=-1 ey=0 loop=1035 fail=1 crcbad=0
+1788307887.847 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.848 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307887.872 [SBUS] prof=SBUS (inverted) bytes=2103582 ok=84128 bad=3 last_ok_ms=622455
+1788307887.877 {"seq":2800,"up_s":622,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307887.951 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307887.960 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=1057 fail=1 crcbad=0
+1788307887.961 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307887.961 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307888.052 [SENS] power=24.33V
+1788307888.053 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307888.053 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307888.053 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307888.054 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307888.054 [PDH] flt live=0x000000 sticky=0x000000
+1788307888.065 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.075 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=941 fail=1 crcbad=0
+1788307888.078 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.079 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307888.082 {"seq":2801,"up_s":622,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307888.087 [ENV] z=0 t=23.67 h=53.9
+1788307888.091 [BMS] soc=80 v=53.08 i=-1.10 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307888.181 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.190 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0033 ex=-1 ey=0 loop=1034 fail=1 crcbad=0
+1788307888.194 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.194 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307888.288 {"seq":2802,"up_s":622,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307888.297 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.307 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0037 ex=-1 ey=0 loop=1084 fail=1 crcbad=0
+1788307888.307 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.308 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307888.412 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.422 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0032 ex=-1 ey=0 loop=1023 fail=1 crcbad=0
+1788307888.425 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.425 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307888.492 {"seq":2803,"up_s":623,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307888.526 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.536 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0031 ex=-1 ey=0 loop=1102 fail=1 crcbad=0
+1788307888.536 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.536 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307888.640 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.650 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=1026 fail=1 crcbad=0
+1788307888.650 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.651 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307888.697 {"seq":2804,"up_s":623,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307888.753 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.754 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307888.759 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307888.769 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0048 ex=-1 ey=0 loop=970 fail=1 crcbad=0
+1788307888.856 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.856 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307888.873 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307888.884 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0023 ex=-1 ey=-256 loop=1065 fail=1 crcbad=0
+1788307888.907 [SBUS] prof=SBUS (inverted) bytes=2107282 ok=84276 bad=3 last_ok_ms=623490
+1788307888.913 {"seq":2805,"up_s":623,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307888.959 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=0 mirror=0:4 mfail=0
+1788307888.959 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307888.978 [NET] link=1 ip=10.42.2.20 reinit=0 hb_age=0
+1788307888.989 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307888.999 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0047 ex=-1 ey=0 loop=1040 fail=1 crcbad=0
+1788307889.075 [SENS] power=24.33V
+1788307889.075 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307889.075 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307889.075 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307889.076 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307889.076 [PDH] flt live=0x000000 sticky=0x000000
+1788307889.079 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.080 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307889.106 [ENV] z=0 t=23.68 h=53.8
+1788307889.109 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.127
+1788307889.119 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=1008 fail=1 crcbad=0
+1788307889.123 {"seq":2806,"up_s":623,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307889.181 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.182 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307889.224 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307889.234 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0020 ex=-1 ey=0 loop=946 fail=1 crcbad=0
+1788307889.284 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.285 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307889.303 [BMS] soc=80 v=53.07 i=-1.08 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307889.327 {"seq":2807,"up_s":623,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307889.338 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307889.348 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0073 ex=-1 ey=0 loop=1037 fail=1 crcbad=0
+1788307889.387 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.387 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307889.452 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307889.462 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0039 ex=-1 ey=0 loop=950 fail=1 crcbad=0
+1788307889.488 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.488 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307889.532 {"seq":2808,"up_s":624,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307889.567 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307889.577 [ODO] ok=1 st=0x00 rdy=0 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0091 ex=-1 ey=0 loop=951 fail=1 crcbad=0
+1788307889.604 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.604 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307889.682 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307889.692 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=1012 fail=1 crcbad=0
+1788307889.706 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.706 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307889.737 {"seq":2809,"up_s":624,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307889.798 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307889.808 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=995 fail=1 crcbad=0
+1788307889.808 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.809 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307889.910 [SBUS] prof=SBUS (inverted) bytes=2110857 ok=84419 bad=3 last_ok_ms=624493
+1788307889.913 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307889.923 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1003 fail=1 crcbad=0
+1788307889.924 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307889.924 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307889.953 {"seq":2810,"up_s":624,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307890.029 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.039 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0025 ex=-1 ey=0 loop=937 fail=1 crcbad=0
+1788307890.042 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.042 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307890.077 [SENS] power=24.33V
+1788307890.077 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307890.077 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307890.077 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307890.078 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307890.078 [PDH] flt live=0x000000 sticky=0x000000
+1788307890.136 [ENV] z=0 t=23.68 h=53.8
+1788307890.146 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.156 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0047 ex=-1 ey=0 loop=1037 fail=1 crcbad=0
+1788307890.157 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.157 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307890.160 {"seq":2811,"up_s":624,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307890.258 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.264 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.274 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0011 ex=-1 ey=0 loop=926 fail=1 crcbad=0
+1788307890.274 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307890.360 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.365 {"seq":2812,"up_s":624,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307890.379 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307890.389 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0022 ex=-1 ey=-256 loop=1049 fail=1 crcbad=0
+1788307890.389 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307890.469 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.492 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307890.496 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307890.506 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0018 ex=-1 ey=0 loop=1037 fail=1 crcbad=0
+1788307890.510 [BMS] soc=80 v=53.07 i=-1.07 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307890.572 {"seq":2813,"up_s":625,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307890.574 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.593 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307890.611 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.621 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0008 ex=-1 ey=0 loop=965 fail=1 crcbad=0
+1788307890.678 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.697 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307890.726 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.736 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0115 ex=-1 ey=0 loop=1034 fail=1 crcbad=0
+1788307890.777 {"seq":2814,"up_s":625,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307890.779 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.813 [SENS] power=24.33V
+1788307890.814 [I2C] scan: 0x25 0x44 0x31
+1788307890.817 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307890.841 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.851 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0069 ex=-1 ey=0 loop=1016 fail=1 crcbad=0
+1788307890.881 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.911 [SBUS] prof=SBUS (inverted) bytes=2114432 ok=84562 bad=3 last_ok_ms=625491
+1788307890.919 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307890.955 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307890.965 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0011 ex=-1 ey=0 loop=1053 fail=1 crcbad=0
+1788307890.991 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=0 mirror=0:4 mfail=0
+1788307890.995 {"seq":2815,"up_s":625,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.31,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307891.022 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307891.070 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307891.080 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0018 ex=-1 ey=0 loop=1027 fail=1 crcbad=0
+1788307891.086 [SENS] power=24.31V
+1788307891.087 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307891.087 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307891.087 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307891.088 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307891.088 [PDH] flt live=0x000000 sticky=0x000000
+1788307891.094 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.123 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307891.176 [ENV] z=0 t=23.69 h=53.8
+1788307891.188 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.127
+1788307891.198 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0008 ex=-1 ey=0 loop=1049 fail=1 crcbad=0
+1788307891.199 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.202 {"seq":2816,"up_s":625,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307891.227 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307891.304 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307891.314 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0056 ex=-1 ey=0 loop=1100 fail=1 crcbad=0
+1788307891.314 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.340 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307891.408 {"seq":2817,"up_s":625,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307891.418 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307891.428 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0030 ex=-1 ey=0 loop=931 fail=1 crcbad=0
+1788307891.429 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.444 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307891.534 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307891.536 [ODO] ok=0 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0030 ex=-1 ey=0 loop=931 fail=2 crcbad=0
+1788307891.539 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.546 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307891.612 {"seq":2818,"up_s":626,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307891.640 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307891.650 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0034 ex=-1 ey=0 loop=1005 fail=2 crcbad=0
+1788307891.650 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.651 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307891.720 [BMS] soc=80 v=53.07 i=-1.13 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307891.754 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307891.764 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0021 ex=-1 ey=0 loop=1056 fail=2 crcbad=0
+1788307891.765 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.765 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307891.817 {"seq":2819,"up_s":626,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307891.870 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307891.880 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0058 ex=-1 ey=0 loop=1098 fail=2 crcbad=0
+1788307891.883 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.884 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307891.914 [SBUS] prof=SBUS (inverted) bytes=2118007 ok=84705 bad=3 last_ok_ms=626493
+1788307891.985 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307891.994 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=981 fail=2 crcbad=0
+1788307891.998 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307891.998 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307892.028 {"seq":2820,"up_s":626,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307892.089 [SENS] power=24.32V
+1788307892.089 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307892.089 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307892.090 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307892.090 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307892.090 [PDH] flt live=0x000000 sticky=0x000000
+1788307892.099 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307892.109 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=972 fail=2 crcbad=0
+1788307892.110 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.110 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307892.210 [ENV] z=0 t=23.68 h=53.8
+1788307892.215 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307892.225 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0031 ex=-1 ey=0 loop=1051 fail=2 crcbad=0
+1788307892.229 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.229 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307892.232 {"seq":2821,"up_s":626,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307892.330 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307892.339 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0042 ex=-1 ey=0 loop=1025 fail=2 crcbad=0
+1788307892.340 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.340 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307892.439 {"seq":2822,"up_s":627,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307892.445 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307892.455 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0121 ex=-1 ey=0 loop=977 fail=2 crcbad=0
+1788307892.455 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.456 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307892.560 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.127
+1788307892.570 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0020 ex=-1 ey=0 loop=1212 fail=2 crcbad=0
+1788307892.573 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.573 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307892.646 {"seq":2823,"up_s":627,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307892.674 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307892.685 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0040 ex=-1 ey=0 loop=1028 fail=2 crcbad=0
+1788307892.685 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.685 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307892.790 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307892.799 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=-nan vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=1011 fail=2 crcbad=0
+1788307892.800 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.800 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307892.850 {"seq":2824,"up_s":627,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307892.904 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307892.915 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1062 fail=2 crcbad=0
+1788307892.918 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307892.918 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307892.923 [SBUS] prof=SBUS (inverted) bytes=2121607 ok=84849 bad=3 last_ok_ms=627505
+1788307892.965 [BMS] soc=80 v=53.07 i=-1.19 cmin=3.314 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307893.019 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307893.029 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0016 ex=-1 ey=0 loop=988 fail=2 crcbad=0
+1788307893.032 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.032 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307893.061 {"seq":2825,"up_s":627,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307893.091 [SENS] power=24.32V
+1788307893.091 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307893.092 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307893.092 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307893.092 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307893.092 [PDH] flt live=0x000000 sticky=0x000000
+1788307893.134 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307893.145 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=949 fail=2 crcbad=0
+1788307893.145 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.145 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307893.245 [ENV] z=0 t=23.67 h=53.8
+1788307893.250 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307893.260 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0024 ex=-1 ey=0 loop=950 fail=2 crcbad=0
+1788307893.264 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.264 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307893.267 {"seq":2826,"up_s":627,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307893.366 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307893.376 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0025 ex=-1 ey=0 loop=1362 fail=2 crcbad=0
+1788307893.379 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.379 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307893.473 {"seq":2827,"up_s":628,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307893.483 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307893.493 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=1009 fail=2 crcbad=0
+1788307893.493 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.494 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307893.597 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.597 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307893.602 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.127
+1788307893.612 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0018 ex=-1 ey=0 loop=938 fail=2 crcbad=0
+1788307893.677 {"seq":2828,"up_s":628,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307893.699 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.699 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307893.717 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307893.727 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0066 ex=-1 ey=0 loop=968 fail=2 crcbad=0
+1788307893.802 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.802 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307893.831 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307893.841 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0014 ex=-1 ey=0 loop=919 fail=2 crcbad=0
+1788307893.882 {"seq":2829,"up_s":628,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307893.922 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307893.922 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307893.926 [SBUS] prof=SBUS (inverted) bytes=2125207 ok=84993 bad=3 last_ok_ms=628508
+1788307893.949 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307893.959 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0026 ex=-1 ey=0 loop=957 fail=2 crcbad=0
+1788307894.000 [NET] link=1 ip=10.42.2.20 reinit=0 hb_age=0
+1788307894.025 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.025 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307894.067 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.077 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0016 ex=-1 ey=0 loop=1049 fail=2 crcbad=0
+1788307894.100 [SENS] power=24.32V
+1788307894.100 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307894.100 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307894.101 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307894.101 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307894.101 [PDH] flt live=0x000000 sticky=0x000000
+1788307894.107 {"seq":2830,"up_s":628,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307894.128 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.128 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307894.166 [BMS] soc=80 v=53.07 i=-1.17 cmin=3.314 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307894.182 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.192 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0050 ex=-1 ey=0 loop=930 fail=2 crcbad=0
+1788307894.231 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.232 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307894.288 [ENV] z=0 t=23.65 h=53.8
+1788307894.297 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.307 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0040 ex=-1 ey=0 loop=1052 fail=2 crcbad=0
+1788307894.313 {"seq":2831,"up_s":628,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307894.334 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.334 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307894.412 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307894.422 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0033 ex=-1 ey=0 loop=999 fail=2 crcbad=0
+1788307894.451 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.451 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307894.518 {"seq":2832,"up_s":629,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307894.526 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.528 [ODO] ok=0 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0033 ex=-1 ey=0 loop=999 fail=3 crcbad=0
+1788307894.554 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.555 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307894.633 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.643 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=1019 fail=3 crcbad=0
+1788307894.656 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.657 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307894.722 {"seq":2833,"up_s":629,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307894.748 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307894.758 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0048 ex=-1 ey=0 loop=997 fail=3 crcbad=0
+1788307894.762 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.762 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307894.864 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307894.874 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0058 ex=-1 ey=0 loop=1013 fail=3 crcbad=0
+1788307894.874 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.875 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307894.927 {"seq":2834,"up_s":629,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307894.930 [SBUS] prof=SBUS (inverted) bytes=2128782 ok=85136 bad=3 last_ok_ms=629512
+1788307894.979 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307894.989 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0049 ex=-1 ey=0 loop=1003 fail=3 crcbad=0
+1788307894.992 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307894.993 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307895.094 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307895.104 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0028 ex=-1 ey=0 loop=1007 fail=3 crcbad=0
+1788307895.107 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.108 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307895.132 [SENS] power=24.32V
+1788307895.132 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307895.132 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307895.133 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307895.133 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307895.133 [PDH] flt live=0x000000 sticky=0x000000
+1788307895.139 {"seq":2835,"up_s":629,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307895.211 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307895.220 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0032 ex=-1 ey=0 loop=981 fail=3 crcbad=0
+1788307895.221 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.221 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307895.318 [ENV] z=0 t=23.68 h=53.8
+1788307895.325 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307895.335 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0050 ex=-1 ey=0 loop=956 fail=3 crcbad=0
+1788307895.338 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.339 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307895.346 {"seq":2836,"up_s":629,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.8}}
+1788307895.378 [BMS] soc=80 v=53.07 i=-1.18 cmin=3.314 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307895.440 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307895.450 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0023 ex=-1 ey=0 loop=942 fail=3 crcbad=0
+1788307895.453 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.453 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307895.550 {"seq":2837,"up_s":630,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307895.555 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307895.566 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0010 ex=-1 ey=0 loop=1008 fail=3 crcbad=0
+1788307895.566 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.567 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307895.670 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307895.680 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0001 ex=-1 ey=0 loop=1043 fail=3 crcbad=0
+1788307895.683 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1936,1935,1072,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.684 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1007 mast=1000 raw=1006,1000,200,1007,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307895.755 {"seq":2838,"up_s":630,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307895.785 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307895.794 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0021 ex=-1 ey=0 loop=1038 fail=3 crcbad=0
+1788307895.798 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.798 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307895.822 [SENS] power=24.32V
+1788307895.823 [I2C] scan: 0x25 0x44 0x31
+1788307895.900 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307895.909 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0126 ex=-1 ey=0 loop=941 fail=3 crcbad=0
+1788307895.910 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307895.910 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307895.932 [SBUS] prof=SBUS (inverted) bytes=2132357 ok=85279 bad=3 last_ok_ms=630511
+1788307895.960 {"seq":2839,"up_s":630,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.32,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307896.014 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307896.024 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0019 ex=-1 ey=0 loop=1050 fail=3 crcbad=0
+1788307896.027 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307896.027 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307896.129 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307896.139 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0016 ex=-1 ey=0 loop=1024 fail=3 crcbad=0
+1788307896.142 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307896.143 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307896.167 [SENS] power=24.30V
+1788307896.167 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307896.167 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307896.168 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307896.168 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307896.168 [PDH] flt live=0x000000 sticky=0x000000
+1788307896.174 {"seq":2840,"up_s":630,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.30,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307896.248 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307896.258 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=926 fail=3 crcbad=0
+1788307896.258 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307896.259 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307896.355 [ENV] z=0 t=23.68 h=53.8
+1788307896.363 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307896.373 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0011 ex=-1 ey=0 loop=967 fail=3 crcbad=0
+1788307896.376 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307896.377 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307896.380 {"seq":2841,"up_s":630,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307896.478 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307896.488 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0069 ex=-1 ey=0 loop=1044 fail=3 crcbad=0
+1788307896.491 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=1 mirror=0:4 mfail=0
+1788307896.491 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307896.589 {"seq":2842,"up_s":631,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307896.594 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307896.604 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0002 vx=0.0 vy=0.0 vh=-0.0015 ex=-1 ey=0 loop=946 fail=3 crcbad=0
+1788307896.604 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=12 mirror=0:4 mfail=3
+1788307896.605 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307896.622 [BMS] soc=80 v=53.07 i=-1.18 cmin=3.314 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307896.709 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307896.719 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0081 ex=-1 ey=0 loop=998 fail=3 crcbad=0
+1788307896.722 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=32 mirror=0:4 mfail=8
+1788307896.722 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307896.794 {"seq":2843,"up_s":631,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307896.823 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307896.833 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=-nan vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=919 fail=3 crcbad=0
+1788307896.836 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=52 mirror=0:4 mfail=13
+1788307896.836 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307896.936 [SBUS] prof=SBUS (inverted) bytes=2135932 ok=85422 bad=3 last_ok_ms=631512
+1788307896.939 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307896.949 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=-0.0038 ex=-1 ey=0 loop=1020 fail=3 crcbad=0
+1788307896.949 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=68 mirror=0:4 mfail=17
+1788307896.950 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307897.000 {"seq":2844,"up_s":631,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307897.053 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.126
+1788307897.063 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0002 vx=0.0 vy=0.0 vh=-0.0022 ex=-1 ey=0 loop=1052 fail=3 crcbad=0
+1788307897.066 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=88 mirror=0:4 mfail=22
+1788307897.066 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307897.168 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.178 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0002 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=1083 fail=3 crcbad=0
+1788307897.181 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=108 mirror=0:4 mfail=27
+1788307897.182 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307897.206 [SENS] power=24.33V
+1788307897.206 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307897.206 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307897.207 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307897.207 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307897.208 [PDH] flt live=0x000000 sticky=0x000000
+1788307897.213 {"seq":2845,"up_s":631,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307897.284 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.294 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0003 vx=0.0 vy=0.0 vh=0.0026 ex=-1 ey=0 loop=963 fail=3 crcbad=0
+1788307897.294 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=124 mirror=0:4 mfail=31
+1788307897.295 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307897.391 [ENV] z=0 t=23.68 h=53.8
+1788307897.399 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.409 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0095 ex=-1 ey=0 loop=1033 fail=3 crcbad=0
+1788307897.412 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=144 mirror=0:4 mfail=36
+1788307897.413 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307897.419 {"seq":2846,"up_s":632,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307897.514 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.524 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=-0.0019 ex=-1 ey=0 loop=1092 fail=3 crcbad=0
+1788307897.524 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=160 mirror=0:4 mfail=40
+1788307897.525 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1211,1068,1068,1068,1024,1024,1024,1024
+1788307897.624 {"seq":2847,"up_s":632,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307897.629 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.639 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=917 fail=3 crcbad=0
+1788307897.642 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=180 mirror=0:4 mfail=45
+1788307897.642 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307897.746 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.756 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0004 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=954 fail=3 crcbad=0
+1788307897.756 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=196 mirror=0:4 mfail=49
+1788307897.757 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307897.825 [BMS] soc=80 v=53.07 i=-1.07 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307897.828 {"seq":2848,"up_s":632,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307897.860 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.870 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=919 fail=3 crcbad=0
+1788307897.870 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=216 mirror=0:4 mfail=54
+1788307897.871 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307897.938 [SBUS] prof=SBUS (inverted) bytes=2139532 ok=85566 bad=3 last_ok_ms=632520
+1788307897.976 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307897.986 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0010 ex=-1 ey=0 loop=1001 fail=3 crcbad=0
+1788307897.989 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=236 mirror=0:4 mfail=59
+1788307897.989 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.033 {"seq":2849,"up_s":632,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307898.092 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.101 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0000 ex=-1 ey=0 loop=1078 fail=3 crcbad=0
+1788307898.104 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=252 mirror=0:4 mfail=63
+1788307898.105 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1228,1068,1068,1068,1024,1024,1024,1024
+1788307898.207 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307898.217 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1027 fail=3 crcbad=0
+1788307898.220 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=272 mirror=0:4 mfail=68
+1788307898.220 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.244 [SENS] power=24.33V
+1788307898.244 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307898.244 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307898.245 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307898.245 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307898.245 [PDH] flt live=0x000000 sticky=0x000000
+1788307898.251 {"seq":2850,"up_s":632,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307898.322 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.332 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0008 ex=-1 ey=0 loop=1200 fail=3 crcbad=0
+1788307898.332 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=288 mirror=0:4 mfail=72
+1788307898.333 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.431 [ENV] z=0 t=23.68 h=53.8
+1788307898.435 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.445 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=1027 fail=3 crcbad=0
+1788307898.449 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=308 mirror=0:4 mfail=77
+1788307898.449 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.456 {"seq":2851,"up_s":633,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1007,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307898.550 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.560 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=1041 fail=3 crcbad=0
+1788307898.563 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=328 mirror=0:4 mfail=82
+1788307898.563 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307898.661 {"seq":2852,"up_s":633,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":200,"rot":1006,"str":1006,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307898.666 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.676 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0005 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=1002 fail=3 crcbad=0
+1788307898.676 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.01 turn=0 w=-0.87,-0.87,-0.86,-0.88 out=1935,1935,1071,1942 s8fail=344 mirror=0:4 mfail=86
+1788307898.677 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1006 mast=1000 raw=1006,1000,200,1006,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.781 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307898.791 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=947 fail=3 crcbad=0
+1788307898.794 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.87 rot=0.01 str=0.03 turn=0 w=-0.89,-0.85,-0.84,-0.90 out=1945,1926,1080,1951 s8fail=364 mirror=0:4 mfail=91
+1788307898.794 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=200 rot=1006 str=1023 mast=1000 raw=1006,1000,200,1023,1000,1800,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307898.867 {"seq":2853,"up_s":633,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":1128,"rot":1006,"str":992,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307898.897 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307898.906 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0005 ex=-1 ey=0 loop=954 fail=3 crcbad=0
+1788307898.910 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=-0.00 rot=0.01 str=-0.01 turn=0 w=0.01,-0.02,-0.00,-0.01 out=1905,1886,1120,1911 s8fail=384 mirror=0:4 mfail=96
+1788307898.910 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=996 rot=1006 str=995 mast=1000 raw=1006,1000,996,995,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307898.941 [SBUS] prof=SBUS (inverted) bytes=2143107 ok=85709 bad=3 last_ok_ms=633522
+1788307899.006 [NET] link=1 ip=10.42.2.20 reinit=0 hb_age=0
+1788307899.010 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.020 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=1014 fail=3 crcbad=0
+1788307899.021 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.01 str=-0.01 turn=0 w=0.01,-0.01,0.00,0.00 out=1873,1854,1152,1879 s8fail=400 mirror=0:4 mfail=100
+1788307899.021 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,1800,1000,1628,1177,1068,1068,1068,1024,1024,1024,1024
+1788307899.038 [BMS] soc=80 v=53.08 i=-0.70 cmin=3.315 cmax=3.321 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307899.072 {"seq":2854,"up_s":633,"rc":{"live":true,"mode":"MANUAL","dead":true,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307899.126 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.127
+1788307899.135 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=1039 fail=3 crcbad=0
+1788307899.138 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.01 str=-0.01 turn=0 w=0.01,-0.01,0.00,-0.00 out=1833,1814,1192,1839 s8fail=420 mirror=0:4 mfail=105
+1788307899.139 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,1800,1000,1628,1194,1068,1068,1068,1024,1024,1024,1024
+1788307899.241 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.250 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=-0.0004 ex=-1 ey=0 loop=1083 fail=3 crcbad=0
+1788307899.254 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.01 str=-0.01 turn=0 w=0.01,-0.01,0.00,-0.00 out=1793,1774,1232,1799 s8fail=440 mirror=0:4 mfail=110
+1788307899.254 [RC] live=1 mode=MANUAL dead=1 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,1800,1000,1628,1262,1068,1068,1068,1024,1024,1024,1024
+1788307899.278 [SENS] power=24.33V
+1788307899.278 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307899.279 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307899.279 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307899.279 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307899.280 [PDH] flt live=0x000000 sticky=0x000000
+1788307899.285 {"seq":2855,"up_s":633,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307899.356 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307899.366 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0006 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=959 fail=3 crcbad=0
+1788307899.366 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1761,1742,1264,1767 s8fail=456 mirror=0:4 mfail=114
+1788307899.367 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307899.465 [ENV] z=0 t=23.68 h=53.8
+1788307899.469 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.479 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=933 fail=3 crcbad=0
+1788307899.483 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1721,1702,1304,1727 s8fail=476 mirror=0:4 mfail=119
+1788307899.483 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1313,1068,1068,1068,1024,1024,1024,1024
+1788307899.490 {"seq":2856,"up_s":634,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307899.585 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.594 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=936 fail=3 crcbad=0
+1788307899.598 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1681,1662,1344,1687 s8fail=496 mirror=0:4 mfail=124
+1788307899.598 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1313,1068,1068,1068,1024,1024,1024,1024
+1788307899.695 {"seq":2857,"up_s":634,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307899.700 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307899.710 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0002 ex=-1 ey=0 loop=944 fail=3 crcbad=0
+1788307899.710 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1649,1630,1376,1655 s8fail=512 mirror=0:4 mfail=128
+1788307899.711 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1296,1068,1068,1068,1024,1024,1024,1024
+1788307899.815 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.824 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0016 ex=-1 ey=0 loop=1020 fail=3 crcbad=0
+1788307899.828 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1609,1590,1416,1615 s8fail=532 mirror=0:4 mfail=133
+1788307899.828 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307899.900 {"seq":2858,"up_s":634,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307899.929 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307899.939 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0005 ex=-1 ey=0 loop=1000 fail=3 crcbad=0
+1788307899.942 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1569,1550,1456,1575 s8fail=552 mirror=0:4 mfail=138
+1788307899.942 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1279,1068,1068,1068,1024,1024,1024,1024
+1788307899.966 [SBUS] prof=SBUS (inverted) bytes=2146757 ok=85855 bad=3 last_ok_ms=634547
+1788307900.044 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.053 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=1077 fail=3 crcbad=0
+1788307900.054 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1537,1518,1488,1543 s8fail=568 mirror=0:4 mfail=142
+1788307900.054 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1296,1068,1068,1068,1024,1024,1024,1024
+1788307900.108 {"seq":2859,"up_s":634,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307900.160 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.170 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0007 ex=-1 ey=0 loop=1047 fail=3 crcbad=0
+1788307900.173 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1503 s8fail=588 mirror=0:4 mfail=147
+1788307900.173 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1330,1068,1068,1068,1024,1024,1024,1024
+1788307900.242 [BMS] soc=80 v=53.09 i=-0.57 cmin=3.316 cmax=3.322 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307900.274 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.284 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=1050 fail=3 crcbad=0
+1788307900.285 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=604 mirror=0:4 mfail=151
+1788307900.285 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307900.309 [SENS] power=24.33V
+1788307900.309 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307900.309 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307900.310 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307900.310 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307900.310 [PDH] flt live=0x000000 sticky=0x000000
+1788307900.316 {"seq":2860,"up_s":634,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307900.390 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.399 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=947 fail=3 crcbad=0
+1788307900.403 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=624 mirror=0:4 mfail=156
+1788307900.403 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307900.496 [ENV] z=0 t=23.69 h=53.8
+1788307900.506 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.516 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=991 fail=3 crcbad=0
+1788307900.517 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=640 mirror=0:4 mfail=160
+1788307900.517 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307900.521 {"seq":2861,"up_s":635,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307900.618 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=660 mirror=0:4 mfail=165
+1788307900.623 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.633 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=1013 fail=3 crcbad=0
+1788307900.633 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307900.721 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=672 mirror=0:4 mfail=168
+1788307900.725 {"seq":2862,"up_s":635,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307900.737 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.747 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=1044 fail=3 crcbad=0
+1788307900.748 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1296,1068,1068,1068,1024,1024,1024,1024
+1788307900.826 [SENS] power=24.33V
+1788307900.827 [I2C] scan: 0x25 0x44 0x31
+1788307900.830 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=692 mirror=0:4 mfail=173
+1788307900.853 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.863 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=947 fail=3 crcbad=0
+1788307900.866 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1245,1068,1068,1068,1024,1024,1024,1024
+1788307900.930 {"seq":2863,"up_s":635,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307900.934 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=708 mirror=0:4 mfail=177
+1788307900.968 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307900.978 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0007 ex=-1 ey=0 loop=1057 fail=3 crcbad=0
+1788307900.981 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1313,1068,1068,1068,1024,1024,1024,1024
+1788307901.004 [SBUS] prof=SBUS (inverted) bytes=2150482 ok=86004 bad=3 last_ok_ms=635586
+1788307901.037 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=724 mirror=0:4 mfail=181
+1788307901.083 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.126
+1788307901.092 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0009 ex=-1 ey=0 loop=1048 fail=3 crcbad=0
+1788307901.093 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307901.135 {"seq":2864,"up_s":635,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.8}}
+1788307901.139 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=740 mirror=0:4 mfail=185
+1788307901.197 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.127
+1788307901.208 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0013 ex=-1 ey=0 loop=987 fail=3 crcbad=0
+1788307901.211 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=999 raw=1006,999,1000,995,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307901.241 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=756 mirror=0:4 mfail=189
+1788307901.311 [SENS] power=24.33V
+1788307901.311 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307901.311 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307901.312 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307901.312 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307901.312 [PDH] flt live=0x000000 sticky=0x000000
+1788307901.315 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307901.326 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0009 ex=-1 ey=0 loop=1034 fail=3 crcbad=0
+1788307901.329 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=997 raw=1006,997,1000,995,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307901.356 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=776 mirror=0:4 mfail=194
+1788307901.359 {"seq":2865,"up_s":635,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":998},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307901.430 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307901.441 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0007 ex=-1 ey=0 loop=1061 fail=3 crcbad=0
+1788307901.441 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=998 raw=1006,998,1000,995,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307901.454 [BMS] soc=80 v=53.09 i=-0.57 cmin=3.316 cmax=3.322 tmin=22.9 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307901.458 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=792 mirror=0:4 mfail=198
+1788307901.539 [ENV] z=0 t=23.68 h=53.8
+1788307901.546 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307901.556 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=951 fail=3 crcbad=0
+1788307901.559 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=808 mirror=0:4 mfail=202
+1788307901.559 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=999 raw=1006,999,1000,995,1000,200,1000,1628,1449,1068,1068,1068,1024,1024,1024,1024
+1788307901.563 {"seq":2866,"up_s":636,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":999},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307901.661 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307901.670 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0004 ex=-1 ey=0 loop=1067 fail=3 crcbad=0
+1788307901.673 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=828 mirror=0:4 mfail=207
+1788307901.674 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=996 raw=1006,996,1000,994,1000,200,1000,1628,1467,1068,1068,1068,1024,1024,1024,1024
+1788307901.768 {"seq":2867,"up_s":636,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":996},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307901.778 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307901.788 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=954 fail=3 crcbad=0
+1788307901.788 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=844 mirror=0:4 mfail=211
+1788307901.789 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=997 raw=1006,997,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307901.893 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307901.902 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0008 ex=-1 ey=0 loop=1031 fail=3 crcbad=0
+1788307901.906 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=864 mirror=0:4 mfail=216
+1788307901.906 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307901.974 {"seq":2868,"up_s":636,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307902.005 [SBUS] prof=SBUS (inverted) bytes=2154057 ok=86147 bad=3 last_ok_ms=636587
+1788307902.009 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307902.019 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0002 ex=-1 ey=0 loop=917 fail=3 crcbad=0
+1788307902.019 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=880 mirror=0:4 mfail=220
+1788307902.019 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1415,1068,1068,1068,1024,1024,1024,1024
+1788307902.125 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.135 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0007 vx=0.0 vy=0.0 vh=-0.0002 ex=-1 ey=0 loop=929 fail=3 crcbad=0
+1788307902.138 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=900 mirror=0:4 mfail=225
+1788307902.138 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1432,1068,1068,1068,1024,1024,1024,1024
+1788307902.178 {"seq":2869,"up_s":636,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307902.239 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.249 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=1033 fail=3 crcbad=0
+1788307902.252 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=916 mirror=0:4 mfail=229
+1788307902.252 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1467,1068,1068,1068,1024,1024,1024,1024
+1788307902.314 [SENS] power=24.33V
+1788307902.314 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307902.314 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307902.314 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307902.315 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307902.315 [PDH] flt live=0x000000 sticky=0x000000
+1788307902.355 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.365 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0011 ex=-1 ey=0 loop=975 fail=3 crcbad=0
+1788307902.368 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=936 mirror=0:4 mfail=234
+1788307902.368 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1501,1068,1068,1068,1024,1024,1024,1024
+1788307902.397 {"seq":2870,"up_s":636,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307902.470 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.480 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=1038 fail=3 crcbad=0
+1788307902.480 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=952 mirror=0:4 mfail=238
+1788307902.481 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1467,1068,1068,1068,1024,1024,1024,1024
+1788307902.579 [ENV] z=0 t=23.69 h=53.8
+1788307902.585 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.595 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=942 fail=3 crcbad=0
+1788307902.598 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=972 mirror=0:4 mfail=243
+1788307902.598 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1432,1068,1068,1068,1024,1024,1024,1024
+1788307902.602 {"seq":2871,"up_s":637,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":995,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307902.668 [BMS] soc=80 v=53.09 i=-0.58 cmin=3.316 cmax=3.322 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307902.700 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.709 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=987 fail=3 crcbad=0
+1788307902.712 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=992 mirror=0:4 mfail=248
+1788307902.713 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=995 mast=1000 raw=1006,1000,1000,995,1000,200,1000,1628,1415,1068,1068,1068,1024,1024,1024,1024
+1788307902.806 {"seq":2872,"up_s":637,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307902.815 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.825 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0000 ex=-1 ey=0 loop=1031 fail=3 crcbad=0
+1788307902.825 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1008 mirror=0:4 mfail=252
+1788307902.826 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1415,1068,1068,1068,1024,1024,1024,1024
+1788307902.929 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307902.939 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0007 ex=-1 ey=0 loop=944 fail=3 crcbad=0
+1788307902.942 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1028 mirror=0:4 mfail=257
+1788307902.943 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1415,1068,1068,1068,1024,1024,1024,1024
+1788307903.007 [SBUS] prof=SBUS (inverted) bytes=2157632 ok=86290 bad=3 last_ok_ms=637588
+1788307903.013 {"seq":2873,"up_s":637,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307903.044 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.054 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=1028 fail=3 crcbad=0
+1788307903.057 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1048 mirror=0:4 mfail=262
+1788307903.058 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1432,1068,1068,1068,1024,1024,1024,1024
+1788307903.159 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.126
+1788307903.169 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=1022 fail=3 crcbad=0
+1788307903.169 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1064 mirror=0:4 mfail=266
+1788307903.170 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307903.218 {"seq":2874,"up_s":637,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1010,"rot":1006,"str":986,"mast":965},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307903.274 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.284 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0008 ex=-1 ey=0 loop=1064 fail=3 crcbad=0
+1788307903.287 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1084 mirror=0:4 mfail=271
+1788307903.287 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307903.316 [SENS] power=24.33V
+1788307903.316 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307903.316 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307903.317 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307903.317 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307903.317 [PDH] flt live=0x000000 sticky=0x000000
+1788307903.389 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307903.399 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0007 ex=-1 ey=0 loop=969 fail=3 crcbad=0
+1788307903.402 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1104 mirror=0:4 mfail=276
+1788307903.402 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307903.430 {"seq":2875,"up_s":638,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307903.504 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.514 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0005 ex=-1 ey=0 loop=1016 fail=3 crcbad=0
+1788307903.514 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1120 mirror=0:4 mfail=280
+1788307903.515 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307903.613 [ENV] z=0 t=23.69 h=53.8
+1788307903.619 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.629 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=940 fail=3 crcbad=0
+1788307903.631 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1140 mirror=0:4 mfail=285
+1788307903.632 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307903.635 {"seq":2876,"up_s":638,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307903.733 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.742 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0006 ex=-1 ey=0 loop=946 fail=3 crcbad=0
+1788307903.743 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1156 mirror=0:4 mfail=289
+1788307903.743 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307903.841 {"seq":2877,"up_s":638,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":993,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307903.848 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307903.858 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=992 fail=3 crcbad=0
+1788307903.861 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1176 mirror=0:4 mfail=294
+1788307903.861 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=993 mast=1000 raw=1006,1000,1000,993,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307903.870 [BMS] soc=80 v=53.09 i=-0.59 cmin=3.316 cmax=3.322 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307903.965 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307903.975 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=1054 fail=3 crcbad=0
+1788307903.975 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1192 mirror=0:4 mfail=298
+1788307903.976 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307904.008 [SBUS] prof=SBUS (inverted) bytes=2161207 ok=86433 bad=3 last_ok_ms=638590
+1788307904.022 [NET] link=1 ip=10.42.2.20 reinit=0 hb_age=0
+1788307904.046 {"seq":2878,"up_s":638,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.8}}
+1788307904.077 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1212 mirror=0:4 mfail=303
+1788307904.078 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307904.084 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307904.094 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=961 fail=3 crcbad=0
+1788307904.179 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1224 mirror=0:4 mfail=306
+1788307904.179 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307904.199 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307904.209 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=998 fail=3 crcbad=0
+1788307904.250 {"seq":2879,"up_s":638,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307904.289 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1244 mirror=0:4 mfail=311
+1788307904.289 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1330,1068,1068,1068,1024,1024,1024,1024
+1788307904.316 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307904.326 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0008 vx=0.0 vy=0.0 vh=0.0004 ex=-1 ey=0 loop=994 fail=3 crcbad=0
+1788307904.330 [SENS] power=24.33V
+1788307904.330 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307904.330 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307904.331 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307904.331 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307904.332 [PDH] flt live=0x000000 sticky=0x000000
+1788307904.390 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1260 mirror=0:4 mfail=315
+1788307904.390 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307904.431 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307904.441 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=941 fail=3 crcbad=0
+1788307904.469 {"seq":2880,"up_s":639,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307904.492 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1276 mirror=0:4 mfail=319
+1788307904.492 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=993 mast=1000 raw=1006,1000,1000,993,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307904.547 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307904.557 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0010 ex=-1 ey=0 loop=931 fail=3 crcbad=0
+1788307904.594 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1292 mirror=0:4 mfail=323
+1788307904.595 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307904.651 [ENV] z=0 t=23.68 h=53.8
+1788307904.664 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307904.674 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0002 ex=-1 ey=0 loop=1036 fail=3 crcbad=0
+1788307904.678 {"seq":2881,"up_s":639,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307904.697 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1308 mirror=0:4 mfail=327
+1788307904.698 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307904.782 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307904.791 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=1026 fail=3 crcbad=0
+1788307904.817 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1328 mirror=0:4 mfail=332
+1788307904.817 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307904.883 {"seq":2882,"up_s":639,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307904.896 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307904.907 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0008 ex=-1 ey=0 loop=1133 fail=3 crcbad=0
+1788307904.919 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1344 mirror=0:4 mfail=336
+1788307904.919 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.010 [SBUS] prof=SBUS (inverted) bytes=2164782 ok=86576 bad=3 last_ok_ms=639591
+1788307905.013 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307905.023 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0007 ex=-1 ey=0 loop=1040 fail=3 crcbad=0
+1788307905.023 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1360 mirror=0:4 mfail=340
+1788307905.023 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307905.083 [BMS] soc=80 v=53.09 i=-0.60 cmin=3.316 cmax=3.322 tmin=23.0 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307905.088 {"seq":2883,"up_s":639,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307905.128 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.126
+1788307905.139 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=910 fail=3 crcbad=0
+1788307905.139 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1380 mirror=0:4 mfail=345
+1788307905.139 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307905.244 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307905.253 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0002 ex=-1 ey=0 loop=975 fail=3 crcbad=0
+1788307905.253 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1396 mirror=0:4 mfail=349
+1788307905.254 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.295 {"seq":2884,"up_s":639,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307905.336 [SENS] power=24.33V
+1788307905.336 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307905.336 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307905.336 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307905.336 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307905.337 [PDH] flt live=0x000000 sticky=0x000000
+1788307905.357 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307905.368 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0001 ex=-1 ey=0 loop=951 fail=3 crcbad=0
+1788307905.371 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1416 mirror=0:4 mfail=354
+1788307905.371 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=993 mast=1000 raw=1006,1000,1000,993,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.473 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307905.483 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=962 fail=3 crcbad=0
+1788307905.486 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1436 mirror=0:4 mfail=359
+1788307905.487 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.515 {"seq":2885,"up_s":640,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":993,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307905.588 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307905.598 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=1050 fail=3 crcbad=0
+1788307905.598 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1452 mirror=0:4 mfail=363
+1788307905.598 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307905.697 [ENV] z=0 t=23.68 h=53.8
+1788307905.702 [IO] di=0x01 relay=0x1 temp=36.0 isocket=0.125
+1788307905.712 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0003 ex=-1 ey=0 loop=921 fail=3 crcbad=0
+1788307905.715 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1472 mirror=0:4 mfail=368
+1788307905.715 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.723 {"seq":2886,"up_s":640,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":36.0}}
+1788307905.816 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307905.826 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1032 fail=3 crcbad=0
+1788307905.829 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1492 mirror=0:4 mfail=373
+1788307905.830 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307905.853 [SENS] power=24.33V
+1788307905.854 [I2C] scan: 0x25 0x44 0x31
+1788307905.929 {"seq":2887,"up_s":640,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":993,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307905.934 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307905.944 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=998 fail=3 crcbad=0
+1788307905.945 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1508 mirror=0:4 mfail=377
+1788307905.945 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1364,1068,1068,1068,1024,1024,1024,1024
+1788307906.024 [SBUS] prof=SBUS (inverted) bytes=2168407 ok=86721 bad=3 last_ok_ms=640605
+1788307906.049 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.059 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0003 ex=-1 ey=0 loop=936 fail=3 crcbad=0
+1788307906.062 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1528 mirror=0:4 mfail=382
+1788307906.062 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307906.134 {"seq":2888,"up_s":640,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307906.164 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.174 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0009 ex=-1 ey=0 loop=942 fail=3 crcbad=0
+1788307906.174 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1544 mirror=0:4 mfail=386
+1788307906.175 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307906.279 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.288 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0005 ex=-1 ey=0 loop=985 fail=3 crcbad=0
+1788307906.289 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1560 mirror=0:4 mfail=390
+1788307906.289 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307906.316 [BMS] soc=80 v=53.09 i=-0.59 cmin=3.316 cmax=3.322 tmin=22.9 tmax=24.2 chg=0 dsg=1 chgr=0 flags=0x0000
+1788307906.339 {"seq":2889,"up_s":640,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307906.342 [SENS] power=24.33V
+1788307906.342 [CANDIAG] state=RUNNING tx_err=0 rx_err=0 bus_err=0 arb_lost=0 tx_failed=0 rx_missed=0 rx_overrun=0 q_tx=0 q_rx=0
+1788307906.342 [CAN] rx=0 uniq_std=0 uniq_ext=0 last_rx_ms=0
+1788307906.343 [PDH] stat id=1 v=0.000V i=0.0A p=0.0W e=0.000Wh sw=0 brn=0 can=0 hw=0 seen=00000
+1788307906.343 [PDH] ch c0=0.000 c1=0.000 c2=0.000 c3=0.000 c4=0.000 c5=0.000 c6=0.000 c7=0.000 c8=0.000 c9=0.000 c10=0.000 c11=0.000 c12=0.000 c13=0.000 c14=0.000 c15=0.000 c16=0.000 c17=0.000 c18=0.000 c19=0.000 c20=0.000 c21=0.000 c22=0.000 c23=0.000
+1788307906.343 [PDH] flt live=0x000000 sticky=0x000000
+1788307906.394 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.404 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0008 ex=-1 ey=0 loop=1038 fail=3 crcbad=0
+1788307906.407 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1580 mirror=0:4 mfail=395
+1788307906.407 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307906.510 [IO] di=0x01 relay=0x1 temp=35.8 isocket=0.125
+1788307906.519 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0006 ex=-1 ey=0 loop=1010 fail=3 crcbad=0
+1788307906.522 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1600 mirror=0:4 mfail=400
+1788307906.523 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1415,1068,1068,1068,1024,1024,1024,1024
+1788307906.551 {"seq":2890,"up_s":641,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307906.624 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.634 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0000 ex=-1 ey=0 loop=957 fail=3 crcbad=0
+1788307906.634 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1616 mirror=0:4 mfail=404
+1788307906.635 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1398,1068,1068,1068,1024,1024,1024,1024
+1788307906.733 [ENV] z=0 t=23.69 h=53.8
+1788307906.738 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.748 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0005 ex=-1 ey=0 loop=978 fail=3 crcbad=0
+1788307906.751 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1636 mirror=0:4 mfail=409
+1788307906.752 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1381,1068,1068,1068,1024,1024,1024,1024
+1788307906.755 {"seq":2891,"up_s":641,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307906.853 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.862 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=0.0002 ex=-1 ey=0 loop=1002 fail=3 crcbad=0
+1788307906.865 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1656 mirror=0:4 mfail=414
+1788307906.866 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1347,1068,1068,1068,1024,1024,1024,1024
+1788307906.963 {"seq":2892,"up_s":641,"rc":{"live":true,"mode":"MANUAL","dead":false,"fr":1000,"rot":1006,"str":994,"mast":1000},"io":{"di":1,"relay":1,"estop":false},"pwr":{"busv":24.33,"pdh_v":0.00,"pdh_w":0.0,"temp":35.9}}
+1788307906.968 [IO] di=0x01 relay=0x1 temp=35.9 isocket=0.125
+1788307906.978 [ODO] ok=1 st=0x01 rdy=1 cal=0 xpod=1 ypod=1 imurun=0 badread=0 x=-0.1 y=0.0 h=0.0009 vx=0.0 vy=0.0 vh=-0.0001 ex=-1 ey=0 loop=1042 fail=3 crcbad=0
+1788307906.979 [DRIVE] mode=MECANUM armed=1 spd=0.88 fwd=0.00 rot=0.00 str=0.00 turn=0 w=0.00,0.00,0.00,0.00 out=1500,1500,1500,1500 s8fail=1672 mirror=0:4 mfail=418
+1788307906.979 [RC] live=1 mode=MANUAL dead=0 spd=88 fs=0 rng=0 mat=1000 fr=1000 rot=1006 str=994 mast=1000 raw=1006,1000,1000,994,1000,200,1000,1628,1330,1068,1068,1068,1024,1024,1024,1024
