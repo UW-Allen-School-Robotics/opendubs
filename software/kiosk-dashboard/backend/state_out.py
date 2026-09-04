@@ -10,8 +10,10 @@ even with no kiosk browser open. Pushes on every state change plus a periodic
 refresh (keeps the Tab5's link-alive from timing out, and re-asserts the PRISM
 color over any transient PWM write from the firmware's local state-sync).
 
-The Tab5 port is opened/written/closed per push (never held) with DTR/RTS
-de-asserted — so it never resets the Tab5 and never blocks a Tab5 reflash.
+The Tab5 port is opened once and held open to prevent continuous resets. 
+DTR/RTS must be explicitly asserted (True), otherwise the ESP32-P4 HWCDC driver
+will silently drop incoming data packets. The first connection will cause a
+single reboot of the Tab5.
 """
 from __future__ import annotations
 
@@ -33,7 +35,7 @@ _MAP = {
 
 _TAB5_GLOB = os.environ.get(
     "OPENDUBS_TAB5_DEV_GLOB",
-    "/dev/serial/by-id/*30:ED:A0:E2:92:EB*if00",  # Tab5 ESP32-P4
+    "/dev/serial/by-id/*30:ED:A0:E1:5D:B6*if00",  # Tab5 ESP32-P4
 )
 _REFRESH_S = 3.0   # re-push at least this often (Tab5 link timeout is 5 s)
 
@@ -51,20 +53,25 @@ def _tab5_write(line: str) -> None:
 
     try:
         if _tab5_ser is None or not _tab5_ser.is_open:
+            import sys
             matches = glob.glob(_TAB5_GLOB)
+            sys.stderr.write(f"TAB5: glob matches={matches}\n")
             if not matches:
                 return
             s = serial.Serial()
             s.port = matches[0]
             s.baudrate = 115200
             s.timeout = 0.2
-            s.dtr = False
-            s.rts = False
+            s.dtr = True
+            s.rts = True
             s.open()          # one-time reset of the Tab5 on (re)connect; then held open = stable
+            sys.stderr.write(f"TAB5: Port {matches[0]} opened.\n")
             _tab5_ser = s
         _tab5_ser.write((line + "\n").encode())
         _tab5_ser.flush()
-    except Exception:
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"TAB5_ERROR: {e}\n")
         try:
             if _tab5_ser:
                 _tab5_ser.close()
@@ -88,6 +95,8 @@ def _push_prism(rs: str) -> None:
 def _push_tab5(rs: str) -> None:
     ent = _MAP.get(rs)
     if ent:
+        import sys
+        sys.stderr.write(f"TAB5: Pushing state {rs} -> {ent[0]}\n")
         _tab5_write(f"STATE {ent[0]}")
 
 

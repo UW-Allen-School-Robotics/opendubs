@@ -4,8 +4,7 @@
 //   loop()      core 1  UI: touch, face<->controller mode, render (owns M5.Display/Touch)
 //   controlTask core 0  lift model tick — ToF read, limit detect, relay-pulse timing (50 Hz)
 //   safetyTask  core 0  HIGH PRIORITY — soft e-stop enforcement + (TODO) hardware watchdog
-//   commsTask   core 0  stub — WiFi(C6)/CAN state feed + authorize heartbeat (fills link/ip)
-//
+//   commsTask   core 0  WiFi(C6 ESP-Hosted) + ArduinoOTA over "Opendubs2"
 // Face is home. Any touch reveals the lift controls; they auto-revert to the face after an idle
 // timeout (unless the lift is moving) or when a software command drives a lift state change.
 #include <M5Unified.h>
@@ -15,6 +14,8 @@
 #include "face.h"
 #include "hmi.h"
 #include "lift.h"
+#include <WiFi.h>
+#include <ArduinoOTA.h>
 
 static const bool     DEMO_CYCLE = false;    // true = auto-cycle robot states (face demo). false = hold SAFE_IDLE + puns.
 static const uint32_t IDLE_MS     = 10000;   // controller -> face auto-revert
@@ -37,11 +38,38 @@ static void safetyTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(20)); }
 }
 static void commsTask(void*) {
-  // TODO-HW: bring up WiFi via the ESP32-C6 co-processor (ESP-Hosted), join OpenDubs, then
-  // consume the transport-agnostic state feed -> g_robotState, feed the authorize heartbeat,
-  // and publish this module's capabilities (Z-axis). Set g_linkOnline / g_ipStr when up.
-  for (;;) { g_linkOnline = false; vTaskDelay(pdMS_TO_TICKS(500)); }
+  // Bring up WiFi via the ESP32-C6 co-processor (ESP-Hosted)
+  bool hosted_ok = false;
+#if defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+  // hostedSetPins(clk, cmd, d0, d1, d2, d3, rst) - M5Stack Tab5 pins
+  hostedSetPins(12, 13, 11, 10, 9, 8, 15);
+  hosted_ok = hostedInitWiFi();
+#endif
+
+  WiFi.begin("Opendubs2", "mush-cleaner-platoon");
+  bool ota_setup = false;
+  for (;;) { 
+    if (WiFi.status() == WL_CONNECTED) {
+      strncpy(g_ipStr, WiFi.localIP().toString().c_str(), sizeof(g_ipStr)-1);
+      if (!ota_setup) {
+        ArduinoOTA.setHostname("opendubs-tab5");
+        ArduinoOTA.begin();
+        ota_setup = true;
+      }
+      ArduinoOTA.handle();
+      // Note: g_linkOnline is currently also managed by pollStateSerial()
+    } else {
+      if (!hosted_ok) {
+        strncpy(g_ipStr, "ERR: ESP-Hosted Failed", sizeof(g_ipStr)-1);
+      } else {
+        snprintf(g_ipStr, sizeof(g_ipStr)-1, "Connecting... (%d)", (int)WiFi.status());
+      }
+      ota_setup = false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // Need fast polling for OTA 
+  }
 }
+
 
 // ================= UI helpers =================
 static void enterController() { g_uiMode = UiMode::CONTROLLER; hmiInvalidate(); idleLeft = IDLE_MS; }
@@ -101,7 +129,7 @@ static void pollStateSerial() {
 // ================= setup / loop =================
 void setup() {
   auto cfg = M5.config(); M5.begin(cfg);
-  M5.Display.setRotation(1);
+  M5.Display.setRotation(3);
   Serial.begin(115200); Serial.setTxTimeoutMs(0);   // non-blocking HWCDC (see tab5-face memory)
 
   faceBegin();
