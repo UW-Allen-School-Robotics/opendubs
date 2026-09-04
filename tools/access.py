@@ -50,7 +50,11 @@ OPERATOR_UNITS = [
 class Person:
     def __init__(self, name, cfg, section):
         self.name = name
-        self.key_file = ACCESS / section.get("key", "")
+        # One person, possibly several machines. Comma-separate the .pub files rather
+        # than creating a second account -- attribution should follow the human, not the
+        # laptop, and revoking someone should not mean hunting down their other entries.
+        self.key_files = [ACCESS / k.strip()
+                          for k in section.get("key", "").split(",") if k.strip()]
         self.group = section.get("group", "")
         self.robots = [r.strip() for r in section.get("robots", "").split(",") if r.strip()]
         self.expires = section.get("expires", "")
@@ -62,8 +66,8 @@ class Person:
     def expired(self, today=None):
         return self.expiry_date < (today or dt.date.today())
 
-    def public_key(self):
-        return self.key_file.read_text(encoding="utf-8").strip()
+    def public_keys(self):
+        return [f.read_text(encoding="utf-8").strip() for f in self.key_files]
 
 
 def load():
@@ -91,14 +95,17 @@ def check(fleet, people):
         for r in p.robots:
             if r not in fleet:
                 problems.append(f"{p.name}: robot '{r}' is not in [fleet]")
-        if not p.key_file.exists():
-            problems.append(f"{p.name}: key file {p.key_file.name} not found")
-        else:
-            key = p.public_key()
+        if not p.key_files:
+            problems.append(f"{p.name}: no key listed")
+        for kf in p.key_files:
+            if not kf.exists():
+                problems.append(f"{p.name}: key file {kf.name} not found")
+                continue
+            key = kf.read_text(encoding="utf-8").strip()
             if not key.startswith(("ssh-ed25519", "ssh-rsa", "ecdsa-sha2-")):
-                problems.append(f"{p.name}: {p.key_file.name} does not look like a public key")
+                problems.append(f"{p.name}: {kf.name} does not look like a public key")
             if "PRIVATE KEY" in key:
-                problems.append(f"{p.name}: {p.key_file.name} IS A PRIVATE KEY — remove it now")
+                problems.append(f"{p.name}: {kf.name} IS A PRIVATE KEY — remove it now")
         if p.name in PROTECTED:
             problems.append(f"{p.name}: name is protected and cannot be managed")
         try:
@@ -159,7 +166,7 @@ def build_script(robot, people):
 
     for name, p in sorted(desired.items()):
         g = GROUPS[p.group]
-        key = p.public_key()
+        keys = p.public_keys()
         lines += [
             f"id -u {name} >/dev/null 2>&1 || useradd -m -s /bin/bash -c 'OpenDubs {p.group}' {name}",
             f"usermod -p '*' {name}",                       # key-only: no password hash
@@ -169,7 +176,7 @@ def build_script(robot, people):
             f">/dev/null 2>&1 || true",
             f"install -d -m 700 -o {name} -g {name} /home/{name}/.ssh",
             f"cat > /home/{name}/.ssh/authorized_keys <<'KEY'",
-            key,
+            "\n".join(keys),          # every machine this person uses
             "KEY",
             f"chown {name}:{name} /home/{name}/.ssh/authorized_keys",
             f"chmod 600 /home/{name}/.ssh/authorized_keys",
@@ -214,7 +221,8 @@ def main():
         print(f"OK — {len(people)} entries, fleet: {', '.join(fleet)}")
         for p in people:
             state = "EXPIRED" if p.expired() else f"until {p.expires}"
-            print(f"  {p.name:12} {p.group:9} {','.join(p.robots):12} {state}")
+            nk = f"{len(p.key_files)} key" + ("s" if len(p.key_files) != 1 else "")
+            print(f"  {p.name:12} {p.group:9} {','.join(p.robots):12} {nk:7} {state}")
         return
 
     robot = a.diff or a.apply
