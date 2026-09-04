@@ -27,7 +27,8 @@ static void temit(const char* buf, int n)   // raw line (already formatted, incl
     netSendLine(buf, n);                                                        // Ethernet: independent
 }
 
-static void tprintf(const char* fmt, ...)
+#include "telem.h"
+void tprintf(const char* fmt, ...)
 {
     char buf[384];
     va_list ap; va_start(ap, fmt);
@@ -62,6 +63,7 @@ static constexpr uint8_t kPaHubAddr          = 0x70;  // PCA9548A mux
 static constexpr uint8_t kExtEncoderAddr     = 0x59;  // M5 ExtEncoder Unit (mast position)
 static constexpr uint8_t kExtEncoderCountReg = 0x00;  // int32 count
 static constexpr uint8_t kExtEncoderResetReg = 0x30;
+static constexpr uint8_t kTofAddr            = 0x29;  // M5 ToF4M (VL53L1X)
 static constexpr uint8_t kServo8Addr         = 0x25;  // M5 8Servo
 static constexpr uint8_t kServo8ModeReg      = 0x00;  // per-pin mode  (MODE_REG + pin)
 static constexpr uint8_t kServo8PulseReg     = 0x60;  // per-pin pulse (REG + pin*2), 16-bit LE us
@@ -348,6 +350,7 @@ static constexpr uint8_t kEnvAddr            = 0x44;  // M5 ENV III SHT30 (temp/
 static constexpr uint8_t kChPrism      = 0;   // PRISM_LED 0x38 measured on ch0 (was 1)
 static constexpr uint8_t kChServo8     = 1;   // 8Servo   0x25 measured on ch1 (was 5) — drive + PRISM PWM
 static constexpr uint8_t kChEnv        = 2;   // ENVIII SHT30 0x44 on ch2 (NEW — regen-resistor thermal)
+static constexpr uint8_t kChTof        = 3;   // M5 ToF4M (VL53L1X) 0x29 — mast height
 static constexpr uint8_t kChExtEncoder = 3;   // ExtEncoder 0x59 (currently absent)
 static constexpr uint8_t kChPinpoint   = 4;   // Pinpoint 0x31 measured on ch4 (was 0)
 static constexpr uint8_t kChOtos       = 5;   // OTOS     0x17 measured on ch5 (was 4)
@@ -910,12 +913,54 @@ void envStep()
 static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
 static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
 
+// ---- ToF4M / VL53L1X (mast height) ------------------------------------------------
+// NOTE the VL53L1X uses SIXTEEN-BIT register addresses, unlike the VL53L0X on the Tab5
+// (8-bit). A driver for one will not read the other, and the ID read below is what tells
+// them apart: VL53L1X answers EA CC 10 at 0x010F; VL53L0X answers EE AA 10 at 0xC0.
+//
+// STOP-separated, not a repeated start — the same thing Pinpoint needed on this bus, and
+// the thing that wedged the 8Servo when we tried a repeated start there.
+static constexpr uint32_t kTofHz = 100000;
+
+static bool tofRead16(uint16_t reg, uint8_t *buf, uint8_t n)
+{
+    if (extI2C == nullptr || !extI2C->isEnabled()) return false;
+    if (!selectChannel(kChTof)) return false;
+    if (!extI2C->start(kTofAddr, false, kTofHz)) { extI2C->stop(); return false; }
+    if (!extI2C->write((uint8_t)(reg >> 8)))     { extI2C->stop(); return false; }
+    if (!extI2C->write((uint8_t)(reg & 0xFF)))   { extI2C->stop(); return false; }
+    extI2C->stop();
+    if (!extI2C->start(kTofAddr, true, kTofHz))  { extI2C->stop(); return false; }
+    const bool ok = extI2C->read(buf, n, true);
+    extI2C->stop();
+    return ok;
+}
+
+// Confirm the sensor is on ch3 and is the part we think it is, before any driver work.
+static void tofProbe()
+{
+    if (!selectChannel(kChTof)) { tprintf("[TOF] mux ch3 select FAILED\n"); return; }
+    const bool ack = probeI2CAddress(*extI2C, kTofAddr);
+    tprintf("[TOF] ch%u addr 0x%02X: %s\n", kChTof, kTofAddr, ack ? "ACK" : "no response");
+    if (!ack) { tprintf("[TOF] check wiring/power before anything else\n"); return; }
+    uint8_t id[3] = {0};
+    if (!tofRead16(0x010F, id, 3)) { tprintf("[TOF] ID read FAILED\n"); return; }
+    tprintf("[TOF] ID @0x010F: %02X %02X %02X  -> %s\n", id[0], id[1], id[2],
+                  (id[0] == 0xEA) ? "VL53L1X (ToF4M) as expected"
+                                  : "NOT a VL53L1X — check the part");
+}
+
 // ---- Z-axis (mast / lift) -------------------------------------------------------
 // R2/R3 are the spare relays; NO contacts, so energized = pressed. WHICH relay drives
 // which leg is a per-robot wiring fact, discovered on the bench with `MAST UP|DOWN` --
 // swap these two if the bench says they are the other way round.
-static constexpr uint8_t kRelayMastUp   = 2;
-static constexpr uint8_t kRelayMastDown = 3;
+// Bench-discovered on opendubs2 2026-09-04 by pulsing each relay and watching the lift:
+//   code R2 (SILK R3) = UP     code R1 (SILK R2) = DOWN
+// Silk is 1-indexed and code is 0-indexed -- that offset cost us a debugging cycle, so
+// both are written out here. Re-discover on any new build; it depends only on which of
+// two wires was landed.
+static constexpr uint8_t kRelayMastUp   = 2;   // silk R3
+static constexpr uint8_t kRelayMastDown = 1;   // silk R2
 // Height source. Returns false until a ToF is wired on the StampPLC PaHub (ch3), which
 // leaves the lift open-loop but working -- enough for relay bring-up. Belief correction
 // switches itself on the moment this starts returning readings.
@@ -1017,13 +1062,24 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 void handleHostCommand(const char* cmd)
 {
     if (rcCalCommand(cmd, rc_ch)) return;
+    if (!strcasecmp(cmd, "TOF")) { tofProbe(); return; }
     // Bench discovery of which relay moves the lift which way -- a per-robot wiring fact.
     // Bypasses intent, so it works with the sticks centred.
+    int mpulse = -1, mgap = -1;
+    if (sscanf(cmd, "MAST PULSE %d %d", &mpulse, &mgap) >= 1) {
+        if (mgap < 0) mgap = (int)g_mast.gapMs();
+        g_mast.setTiming((uint32_t)mpulse, (uint32_t)mgap);
+        tprintf("[MAST] pulse=%lums gap=%lums\n",
+                (unsigned long)g_mast.pulseMs(), (unsigned long)g_mast.gapMs());
+        return;
+    }
     if (!strcasecmp(cmd, "MAST UP") || !strcasecmp(cmd, "MAST DOWN")) {
         const bool up = (strcasecmp(cmd, "MAST UP") == 0);
         g_mast.pulseLeg(up, millis());
-        Serial.printf("[MAST] pulsed %s leg (relay R%u) — note which way it actually went\n",
-                      up ? "UP" : "DOWN", up ? kRelayMastUp : kRelayMastDown);
+        tprintf("[MAST] cmd='%s' -> %s leg, code R%u (silk R%u)\n", cmd,
+                up ? "UP" : "DOWN",
+                up ? kRelayMastUp : kRelayMastDown,
+                (up ? kRelayMastUp : kRelayMastDown) + 1);
         return;
     }
     int value = -1;
@@ -1109,15 +1165,13 @@ void handleHostCommand(const char* cmd)
     // Assumes R1 gates the PaHub/8Servo 5V feed, CLOSED = powered. Inert until that rewire is done
     // (R1 is currently spare), so it is safe to ship ahead of the wiring. `S8RESET [off_ms]`.
     int s8cycle_ms = -1;
-    if (strcmp(cmd, "S8RESET") == 0 || sscanf(cmd, "S8RESET %d", &s8cycle_ms) == 1) {
-        const uint32_t off_ms = (s8cycle_ms >= 50 && s8cycle_ms <= 2000) ? (uint32_t)s8cycle_ms : 300;
-        M5StamPLC.writePlcRelay(1, false);          // R1 open → 8Servo 5V off
-        Serial.printf("[8SERVO] power-cycle: R1 OFF, dwell %lums\n", (unsigned long)off_ms);
-        delay(off_ms);
-        M5StamPLC.writePlcRelay(1, true);           // R1 close → 8Servo 5V on
-        servo8InvalidateModes();                    // re-assert SERVO_CTL mode on the next pulse
-        g_currentHubCh = -1;                        // force a fresh PaHub channel select too
-        Serial.println("[8SERVO] power-cycle: R1 ON, modes invalidated");
+    if (strncmp(cmd, "S8RESET", 7) == 0) {
+        // DISABLED. This used to power-cycle the 8Servo via relay R1, but R1 is now the
+        // lift's DOWN leg -- running it would drive the lift, not reset anything. The
+        // allocation is dead anyway: the wedge was shown to be electrical (ground shift
+        // measured at >=2.8 V against a ~0.7 V injection threshold), not something a
+        // power-cycle prevents.
+        tprintf("[S8RESET] disabled: R1 is now the lift DOWN leg. See notes/history/8servo-wedge/.\n");
         return;
     }
 

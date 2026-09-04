@@ -53,7 +53,7 @@ driver differs. Two consequences worth knowing while you build:
 |---|---|
 | **RC channel** | CH2 (right stick, vertical) — up/stop/down |
 | **Deadman** | Required. The lift moves only while CH6 is held, exactly like drive |
-| **Relays** | **R2 → UP leg, R3 → DOWN leg** (silk RELAY3/RELAY4) *— assignment confirmed at commissioning* |
+| **Relays** | **silk R3 → UP, silk R2 → DOWN** (code R2/R1 — silk is 1-indexed, code is 0-indexed) *— per-robot; re-discover on each build* |
 | **Contact type** | **NO** (normally open) — measured; closure = press |
 | **Height sensor** | ToF on the StampPLC PaHub, **channel 3** |
 | **Power** | Lift motor fed 24 V from the **drive bus**; the StampPLC only switches the controller's own button signal |

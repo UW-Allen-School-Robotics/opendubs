@@ -1,17 +1,33 @@
 #include "mast.h"
 #include <M5StamPLC.h>
 
-void ScissorRelayMast::setRelay_(uint8_t ch, bool on)
+// Set BOTH legs in a single transaction, preserving the other relays.
+//
+// Two back-to-back writePlcRelay() calls do not both land -- the second is lost, which
+// showed up as "whichever leg was pulsed second does nothing". Each call is its own I2C
+// transaction to the relay expander, and this bus has a documented history of dropping
+// closely-spaced transactions. Writing the whole port once sidesteps it, and makes
+// "both legs closed at once" -- both buttons held -- unrepresentable rather than merely
+// avoided.
+//
+// NO contacts: energized = closed = pressed.
+void ScissorRelayMast::applyRelays_(bool upOn, bool downOn)
 {
-    M5StamPLC.writePlcRelay(ch, on);   // NO contacts: energized = closed = pressed
+    uint8_t mask = 0;
+    for (uint8_t c = 0; c < 4; ++c)
+        if (M5StamPLC.readPlcRelay(c)) mask |= (uint8_t)(1u << c);
+    // R0 (e-stop contactor) and any spare keep whatever they currently hold.
+    if (upOn)   mask |=  (uint8_t)(1u << relayUp_);   else mask &= (uint8_t)~(1u << relayUp_);
+    if (downOn) mask |=  (uint8_t)(1u << relayDown_); else mask &= (uint8_t)~(1u << relayDown_);
+    M5StamPLC.writePlcAllRelay(mask);
 }
 
 void ScissorRelayMast::startPulse_(bool up, uint32_t nowMs)
 {
     pulseUp_  = up;
     pulsing_  = true;
-    pulseEnd_ = nowMs + kPulseMs;
-    setRelay_(up ? relayUp_ : relayDown_, true);
+    pulseEnd_ = nowMs + pulseMs_;
+    applyRelays_(up, !up);          // exactly one leg closed, in one write
     // Reset the stall reference: whatever we believe now, judge it from here.
     refMs_ = nowMs;
     refHeight_ = heightMm_;
@@ -19,8 +35,10 @@ void ScissorRelayMast::startPulse_(bool up, uint32_t nowMs)
 
 void ScissorRelayMast::pulseLeg(bool up, uint32_t nowMs)
 {
+    // Bench discovery only: pulse the relay and touch nothing else. Deliberately does NOT
+    // set motion_ -- doing so made tick() see intent(STOP) != motion and immediately fire a
+    // second pulse to "stop", so a single bench command produced two presses.
     startPulse_(up, nowMs);
-    motion_ = up ? MastMotion::UP : MastMotion::DOWN;
 }
 
 void ScissorRelayMast::setIntent(float v)
@@ -35,8 +53,9 @@ void ScissorRelayMast::tick(uint32_t nowMs)
     // Close any pulse that has run its course before deciding anything new — the
     // controller reads a momentary press, so the contact must not stay closed.
     if (pulsing_ && nowMs >= pulseEnd_) {
-        setRelay_(pulseUp_ ? relayUp_ : relayDown_, false);
+        applyRelays_(false, false);
         pulsing_ = false;
+        pulseDone_ = nowMs;
     }
 
     // ---- height, and the belief correction it enables ----
@@ -67,6 +86,9 @@ void ScissorRelayMast::tick(uint32_t nowMs)
     }
 
     if (pulsing_) return;               // one press at a time
+    // Honour the release gap. Returning here defers rather than drops: intent is asserted
+    // every tick, so whatever was wanted still happens once the gap has elapsed.
+    if (nowMs - pulseDone_ < minGapMs_) return;
     if (intent_ == motion_) return;     // already doing what was asked
 
     // Refuse to push further into a limit we have already detected, but always allow

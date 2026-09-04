@@ -84,13 +84,28 @@ public:
     // relay moves the lift which way, which is a per-robot wiring fact.
     void pulseLeg(bool up, uint32_t nowMs);
 
-    static constexpr uint32_t kPulseMs      = 250;   // momentary "button press"
+    // Press duration and release gap are TUNABLE because both are properties of the
+    // controller we have not measured. Defaults are deliberately conservative; use
+    // `MAST PULSE <ms> [gap]` to find where the controller actually stops registering,
+    // then set them from data rather than leaving guesses in the source.
+    void setTiming(uint32_t pulseMs, uint32_t gapMs) { pulseMs_ = pulseMs; minGapMs_ = gapMs; }
+    uint32_t pulseMs() const { return pulseMs_; }
+    uint32_t gapMs()   const { return minGapMs_; }
+
+    static constexpr uint32_t kPulseMs      = 250;   // default momentary "button press"
+    // Minimum release time between presses. The controller debounces its buttons, so a
+    // second press arriving too soon after the first is swallowed -- which showed up as
+    // the stop pulse being ignored when the deadman was released shortly after starting a
+    // move, leaving the lift travelling. A finger always leaves a gap; the code did not.
+    // Deferring is safe because intent is re-asserted every tick: the pulse is delayed,
+    // never dropped. (Diagnosed by Raj.)
+    static constexpr uint32_t kMinGapMs     = 300;
     static constexpr float    kDeadzone     = 0.25f; // stick fraction before we act
     static constexpr uint32_t kStallCheckMs = 900;   // no height change in this while
     static constexpr float    kMovedMm      = 8.0f;  // ... this much = not actually moving
 
 private:
-    void setRelay_(uint8_t ch, bool on);
+    void applyRelays_(bool upOn, bool downOn);
     void startPulse_(bool up, uint32_t nowMs);
 
     const uint8_t relayUp_, relayDown_;
@@ -99,6 +114,9 @@ private:
     MastMotion motion_    = MastMotion::STOP;
     MastMotion intent_    = MastMotion::STOP;
     uint32_t   pulseEnd_  = 0;
+    uint32_t   pulseDone_ = 0;   // when the last pulse released
+    uint32_t   pulseMs_   = kPulseMs;
+    uint32_t   minGapMs_  = kMinGapMs;
     bool       pulseUp_   = false;
     bool       pulsing_   = false;
 
