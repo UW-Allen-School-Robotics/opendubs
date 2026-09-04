@@ -25,11 +25,7 @@
 
 enum class Motion : uint8_t { STOP, UP, DOWN };
 
-// CAN format wrapper for ToF data (structure only, not transmitted over CAN yet)
-struct __attribute__((packed)) CAN_ToF_Distance {
-    uint16_t distance_mm;
-    uint8_t status; // 1 = OK, 0 = Error
-};
+#include "can_protocol.h"
 
 class LiftController {
 public:

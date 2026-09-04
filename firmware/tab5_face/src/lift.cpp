@@ -77,9 +77,13 @@ float LiftController::readTofMm_() {
 // pulse-toggle / pulse-reverse: pressing a leg while already going that way STOPS; otherwise GO.
 void LiftController::moveCmd_(Motion dir) {
   if (inhibit_) return;
+  if (motion_ == dir) return;
   uint32_t now = millis();
-  if (motion_ == dir) { pulseRelay_(dir == Motion::UP ? 0 : 1, now); motion_ = Motion::STOP; }
-  else                { pulseRelay_(dir == Motion::UP ? 0 : 1, now); motion_ = dir; }
+  if (motion_ != Motion::STOP) {
+    pulseRelay_(motion_ == Motion::UP ? 0 : 1, now);
+  }
+  pulseRelay_(dir == Motion::UP ? 0 : 1, now);
+  motion_ = dir;
 }
 
 void LiftController::commandUp()   { if (!mtx_) return; xSemaphoreTake(mtx_, portMAX_DELAY); moveCmd_(Motion::UP);   xSemaphoreGive(mtx_); }
@@ -111,17 +115,16 @@ void LiftController::tick(uint32_t nowMs) {
   if (dt < 0) dt = 0; if (dt > 0.1f) dt = 0.1f;
   xSemaphoreTake(mtx_, portMAX_DELAY);
 
-  if (simulate_) {                                     // model travel + limit auto-stop
-    if (motion_ == Motion::UP)   { heightMm_ += RATE_MM_S * dt; if (heightMm_ >= MAX_MM) { heightMm_ = MAX_MM; motion_ = Motion::STOP; } }
-    else if (motion_ == Motion::DOWN) { heightMm_ -= RATE_MM_S * dt; if (heightMm_ <= MIN_MM) { heightMm_ = MIN_MM; motion_ = Motion::STOP; } }
-    tofMm_ = TOF_STANDOFF + heightMm_;
+  // Model travel for the lift (since ToF is not on the lift, we always simulate height for now)
+  if (motion_ == Motion::UP)   { heightMm_ += RATE_MM_S * dt; if (heightMm_ >= MAX_MM) { heightMm_ = MAX_MM; motion_ = Motion::STOP; } }
+  else if (motion_ == Motion::DOWN) { heightMm_ -= RATE_MM_S * dt; if (heightMm_ <= MIN_MM) { heightMm_ = MIN_MM; motion_ = Motion::STOP; } }
+
+  if (simulate_) {
+    tofMm_ = TOF_STANDOFF + heightMm_; // Fake ToF if simulating
     tofOk_ = true;
   } else {
-    // TODO-HW: real ranging. height = tof - standoff; if commanded-moving but tof stops
-    // changing (or the "all the way up" limit line asserts) => at a limit => motion_=STOP.
     tofMm_ = readTofMm_();
     tofOk_ = (tofMm_ > 1.0f);
-    heightMm_ = tofMm_ - TOF_STANDOFF;
   }
   atBot_ = heightMm_ <= MIN_MM + 0.5f;
   atTop_ = heightMm_ >= MAX_MM - 0.5f;
