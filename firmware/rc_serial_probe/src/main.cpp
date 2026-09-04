@@ -4,7 +4,8 @@
 #include <M5_Ethernet.h>   // PoE module W5500 (SPI on G7/G9/G8, CS G11)
 #include "driver/uart.h"     // ESP-IDF UART for the RS485 port (BMS)
 #include "esp_task_wdt.h"
-#include "rc_config.h"    // task watchdog — auto-reset if the loop hangs
+#include "rc_config.h"
+#include "mast.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 
@@ -909,6 +910,18 @@ void envStep()
 static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
 static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
 
+// ---- Z-axis (mast / lift) -------------------------------------------------------
+// R2/R3 are the spare relays; NO contacts, so energized = pressed. WHICH relay drives
+// which leg is a per-robot wiring fact, discovered on the bench with `MAST UP|DOWN` --
+// swap these two if the bench says they are the other way round.
+static constexpr uint8_t kRelayMastUp   = 2;
+static constexpr uint8_t kRelayMastDown = 3;
+// Height source. Returns false until a ToF is wired on the StampPLC PaHub (ch3), which
+// leaves the lift open-loop but working -- enough for relay bring-up. Belief correction
+// switches itself on the moment this starts returning readings.
+static bool mastHeightMm(float *mm) { (void)mm; return false; }
+static ScissorRelayMast g_mast(kRelayMastUp, kRelayMastDown, mastHeightMm);
+
 // ---- I2C bus recovery ---------------------------------------------------------
 // M5Unified's writeRegister() is a short-circuiting && chain:
 //     beginTransaction(..) && writeBytes(&reg,1) && writeBytes(data,len) && endTransaction(..)
@@ -1004,6 +1017,15 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 void handleHostCommand(const char* cmd)
 {
     if (rcCalCommand(cmd, rc_ch)) return;
+    // Bench discovery of which relay moves the lift which way -- a per-robot wiring fact.
+    // Bypasses intent, so it works with the sticks centred.
+    if (!strcasecmp(cmd, "MAST UP") || !strcasecmp(cmd, "MAST DOWN")) {
+        const bool up = (strcasecmp(cmd, "MAST UP") == 0);
+        g_mast.pulseLeg(up, millis());
+        Serial.printf("[MAST] pulsed %s leg (relay R%u) — note which way it actually went\n",
+                      up ? "UP" : "DOWN", up ? kRelayMastUp : kRelayMastDown);
+        return;
+    }
     int value = -1;
     if (sscanf(cmd, "PDH_SWITCH %d", &value) == 1) {
         const bool en = value != 0;
@@ -1679,6 +1701,15 @@ static void driveTick()
                                             (int)kEscNeutralUs + (int)kEscSpanUs);
     }
 
+    // ==== Z-AXIS ====
+    // Same gate as the wheels: authority, deadman, no e-stop, contactor closed, RC fresh.
+    // The lift's 24 V comes off the drive bus, so it is unpowered whenever the contactor
+    // is open -- software and hardware agree by construction. Intent is asserted EVERY
+    // tick (0 when not permitted), so "stop" is continuous rather than a one-shot that
+    // could go missing.
+    g_mast.setIntent((armOK && mode == RCM_MANUAL_LIVE) ? rcAxis(FN_MAST, rc_ch) : 0.0f);
+    g_mast.tick(millis());
+
     // ==== SLEW LIMIT + brake-through-neutral on reversal → OUTPUT ====
     // A direct FWD→REV (or REV→FWD) command reverses a still-spinning hub, dumping regen onto
     // the bus faster than the clamp can bleed → overvoltage trip (all ESC LEDs red). So on any
@@ -1716,11 +1747,14 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
-                  (unsigned long)g_i2cRecoverCount);
+                  (unsigned long)g_i2cRecoverCount,
+                  g_mast.name(),
+                  (int)g_mast.motion(),
+                  g_mast.heightMm());
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the
