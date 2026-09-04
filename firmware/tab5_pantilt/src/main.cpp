@@ -51,8 +51,8 @@ static constexpr uint8_t kModeServo    = 3;      // SERVO_CTL_MODE
 
 static constexpr uint16_t kNeutralUs = 1500;
 static constexpr uint8_t  kTofCh = 5;    // PaHub channel the VL53L0X sits on
-static constexpr uint8_t  kPan  = 0;
-static constexpr uint8_t  kTilt = 1;
+static constexpr uint8_t  kPan  = 1;
+static constexpr uint8_t  kTilt = 0;
 
 // ---- runtime state -------------------------------------------------------------
 static int      g_hubCh      = -1;      // PaHub channel the 8Servo answers on; -1 = flat bus

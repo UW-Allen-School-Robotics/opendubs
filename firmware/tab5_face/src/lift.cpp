@@ -1,7 +1,9 @@
 #include "lift.h"
 #include <Wire.h>
+#include <VL53L0X.h>
 
 LiftController Lift;
+static VL53L0X tof;
 
 // ---- I2C addresses (verify against the M5 device libs when hardware is attached) ----
 static constexpr uint8_t PBHUB_ADDR = 0x61;   // M5Stack PbHUB
@@ -23,8 +25,17 @@ void LiftController::begin() {
   mtx_ = xSemaphoreCreateMutex();
   lastTickMs_ = millis();
   if (!simulate_) {
-    // TODO-HW: Wire.begin(sda,scl) on the Tab5 Grove Port A pins; init PbHUB + ToF4M ranging.
-    // Wire.begin(G53, G54); ... tof.begin(); tof.startContinuous();
+    // Grove Port A (G53, G54) I2C init
+    Wire.begin(53, 54, 100000);
+    
+    // Init ToF
+    tof.setTimeout(500);
+    if (tof.init()) {
+      tof.startContinuous();
+    } else {
+      Serial.println("[LIFT] Failed to init VL53L0X ToF sensor!");
+    }
+
     // Ensure both relays start CLOSED (NC, no pulse) so nothing moves on boot.
     pbhubDigitalWrite(RELAY_UP_CH, 0);
     pbhubDigitalWrite(RELAY_DN_CH, 0);
@@ -45,8 +56,22 @@ void LiftController::closePulses_(uint32_t nowMs) {
 
 float LiftController::readTofMm_() {
   if (simulate_) return tofMm_;                // sim: tofMm_ is advanced in tick()
-  // TODO-HW: return tof.read();  (0/timeout => tofOk_=false upstream)
-  return tofMm_;
+  
+  uint16_t dist = tof.readRangeContinuousMillimeters();
+  CAN_ToF_Distance canMsg;
+  
+  if (tof.timeoutOccurred() || dist == 8190 || dist == 0) {
+    canMsg.distance_mm = 0;
+    canMsg.status = 0; // Error
+    // We don't send the CAN message here, but we've populated the structure.
+    return 0.0f; 
+  }
+  
+  canMsg.distance_mm = dist;
+  canMsg.status = 1; // OK
+  
+  // We don't actually send over CAN (as per requirements), but the data is wrapped in the format.
+  return (float)dist;
 }
 
 // pulse-toggle / pulse-reverse: pressing a leg while already going that way STOPS; otherwise GO.

@@ -25,6 +25,12 @@
 
 enum class Motion : uint8_t { STOP, UP, DOWN };
 
+// CAN format wrapper for ToF data (structure only, not transmitted over CAN yet)
+struct __attribute__((packed)) CAN_ToF_Distance {
+    uint16_t distance_mm;
+    uint8_t status; // 1 = OK, 0 = Error
+};
+
 class LiftController {
 public:
   // travel + speed model (mm). Tune to the real lift once measured.
@@ -72,7 +78,7 @@ private:
   bool     atTop_ = false, atBot_ = false, tofOk_ = true;
   uint32_t upPulseUntil_ = 0, dnPulseUntil_ = 0;
   uint32_t lastTickMs_   = 0;
-  bool     simulate_     = true;        // flip to false when the ToF/relays are wired
+  bool     simulate_     = false;        // flip to false when the ToF/relays are wired
 };
 
 extern LiftController Lift;

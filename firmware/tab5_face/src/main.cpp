@@ -15,11 +15,14 @@
 #include "hmi.h"
 #include "lift.h"
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 
 static const bool     DEMO_CYCLE = false;    // true = auto-cycle robot states (face demo). false = hold SAFE_IDLE + puns.
 static const uint32_t IDLE_MS     = 10000;   // controller -> face auto-revert
 static const uint32_t CONFIRM_MS  = 2200;    // e-stop release confirm window
+
+static void applyLine(const char* line);
 
 // ---- UI state (owned by loop) ----
 static uint32_t idleLeft = 0;
@@ -37,6 +40,9 @@ static void safetyTask(void*) {
     // heartbeat goes stale while under robot control (fail-safe stop).
     vTaskDelay(pdMS_TO_TICKS(20)); }
 }
+static WiFiUDP Udp;
+static const uint16_t UDP_PORT = 4242;
+
 static void commsTask(void*) {
   // Bring up WiFi via the ESP32-C6 co-processor (ESP-Hosted)
   bool hosted_ok = false;
@@ -48,6 +54,8 @@ static void commsTask(void*) {
 
   WiFi.begin("Opendubs2", "mush-cleaner-platoon");
   bool ota_setup = false;
+  bool udp_setup = false;
+  
   for (;;) { 
     if (WiFi.status() == WL_CONNECTED) {
       strncpy(g_ipStr, WiFi.localIP().toString().c_str(), sizeof(g_ipStr)-1);
@@ -56,8 +64,30 @@ static void commsTask(void*) {
         ArduinoOTA.begin();
         ota_setup = true;
       }
+      if (!udp_setup) {
+        Udp.begin(UDP_PORT);
+        udp_setup = true;
+      }
       ArduinoOTA.handle();
-      // Note: g_linkOnline is currently also managed by pollStateSerial()
+
+      // Receive UDP packets for robot state feed
+      int packetSize = Udp.parsePacket();
+      if (packetSize) {
+        char packetBuffer[64];
+        int len = Udp.read(packetBuffer, sizeof(packetBuffer) - 1);
+        if (len > 0) {
+          packetBuffer[len] = 0;
+          // Trim trailing newlines/carriage returns
+          for(int i = len - 1; i >= 0; i--) {
+            if(packetBuffer[i] == '\n' || packetBuffer[i] == '\r') {
+               packetBuffer[i] = 0;
+            } else {
+               break;
+            }
+          }
+          applyLine(packetBuffer);
+        }
+      }
     } else {
       if (!hosted_ok) {
         strncpy(g_ipStr, "ERR: ESP-Hosted Failed", sizeof(g_ipStr)-1);
@@ -65,8 +95,12 @@ static void commsTask(void*) {
         snprintf(g_ipStr, sizeof(g_ipStr)-1, "Connecting... (%d)", (int)WiFi.status());
       }
       ota_setup = false;
+      if (udp_setup) {
+        Udp.stop();
+        udp_setup = false;
+      }
     }
-    vTaskDelay(pdMS_TO_TICKS(10)); // Need fast polling for OTA 
+    vTaskDelay(pdMS_TO_TICKS(10)); // Need fast polling for OTA and UDP
   }
 }
 
@@ -129,7 +163,10 @@ static void pollStateSerial() {
 // ================= setup / loop =================
 void setup() {
   auto cfg = M5.config(); M5.begin(cfg);
-  M5.Display.setRotation(3);
+  
+  M5.Imu.loadOffsetFromNVS();
+  
+  M5.Display.setRotation(1);
   Serial.begin(115200); Serial.setTxTimeoutMs(0);   // non-blocking HWCDC (see tab5-face memory)
 
   faceBegin();
