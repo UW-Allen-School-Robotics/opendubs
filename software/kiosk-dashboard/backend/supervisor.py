@@ -5,9 +5,12 @@ frame — so on its own it has NO memory and nothing can *latch* (review finding
 1, 4; D2, D3). This module is the small stateful layer that holds memory between
 frames and feeds `derive()` *latched* inputs:
 
-- **E-stop latch:** once any e-stop source asserts, stay latched until an explicit,
-  guarded operator re-arm (review R4 / D2). Releasing the button alone does NOT
-  drop the latch.
+- **E-stop latch:** a SOFTWARE e-stop latches until an explicit, guarded operator
+  re-arm (review R4 / D2) — nothing physical happened, so the clear is the only
+  acknowledgement there is. The physical BUTTON does *not* latch: it is a
+  twist-to-unlock control that cannot release itself, so the operator unlatching it
+  IS the acknowledgement, and demanding a second software ack only teaches people to
+  click past safety prompts. Same treatment STALE TELEMETRY already gets.
 - **Fault latch (DEGRADED):** faults latch until an explicit operator clear, and
   only clear if the underlying condition is absent AND telemetry is ready (review
   R4 / D3). Fatal faults (welded contactor, PDH hardware) are non-clearable from
@@ -21,8 +24,16 @@ Enforcement still lives in hardware + StampPLC — this only governs the *indica
 """
 from __future__ import annotations
 
+import logging
+import time
+from collections import deque
+
+_log = logging.getLogger(__name__)
+
 READY_TIMEOUT_S = 30.0          # no ready-checks within this → TELEMETRY NOT READY fault
 FATAL_FAULTS = {"CONTACTOR WELDED", "PDH hardware"}   # non-clearable from the UI
+# E-stop sources tracked live rather than latched — see step() for the reasoning.
+LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON"}
 
 
 class Supervisor:
@@ -32,6 +43,12 @@ class Supervisor:
         self.fault_latched: list[str] = []
         self.ready = False                 # latches True once ready-checks first pass
         self._clear_fault_req = False
+        # Audit trail. The live indicator deliberately does not latch BUTTON, so
+        # without this there would be no record that an e-stop ever happened.
+        # Edges are the right shape for incident review, and unlike a latch they
+        # can never disagree with the machine's present state.
+        self.events: deque[dict] = deque(maxlen=100)
+        self._prev_raw_sources: set[str] = set()
 
     # ---- operator actions -------------------------------------------------
     def request_clear_fault(self):
@@ -58,6 +75,16 @@ class Supervisor:
             blockers.append("CH5 not OFF")
         return (not blockers), blockers
 
+    # ---- event log --------------------------------------------------------
+    def _record(self, action: str, source: str):
+        self.events.append({"t": time.time(), "action": action, "source": source})
+        # WARNING so it lands in the journal at a level that survives casual
+        # filtering: `journalctl -u opendubs-dash -g E-STOP` is the incident trail.
+        _log.warning("E-STOP %s source=%s", action, source)
+
+    def recent_events(self, n: int = 20) -> list[dict]:
+        return list(self.events)[-n:]
+
     # ---- per-frame step ---------------------------------------------------
     def step(self, *, raw_estop_sources, raw_faults, fresh, control_ok, uptime):
         """Fold raw telemetry into latched inputs for derive(). Returns
@@ -66,19 +93,38 @@ class Supervisor:
         raw_faults = list(raw_faults or [])
         note = None
 
-        # E-stop latch. BUTTON/SOFTWARE are deliberate trips → LATCH (require a
-        # guarded re-arm). STALE TELEMETRY is a *live* fail-safe condition: it forces
-        # the E-stop display while the link is dead, but auto-recovers when telemetry
-        # returns — latching it would force a manual re-arm after every USB blip /
-        # reboot (review R2 watchdog semantics, not a physical-button latch).
-        latching = [s for s in raw_estop_sources if s != "STALE TELEMETRY"]
-        stale_now = "STALE TELEMETRY" in raw_estop_sources
+        # Record edges on the RAW sources, before any latching, so the trail reflects
+        # what physically happened — including a BUTTON release, which the live
+        # indicator now (correctly) acts on but would otherwise leave no trace of.
+        now_raw = set(raw_estop_sources)
+        for src in sorted(now_raw - self._prev_raw_sources):
+            self._record("ASSERT", src)
+        for src in sorted(self._prev_raw_sources - now_raw):
+            self._record("RELEASE", src)
+        self._prev_raw_sources = now_raw
+
+        # E-stop latch, by source.
+        #
+        # LIVE (tracked, never latched) — each has its own acknowledgement already:
+        #   BUTTON          twist-to-unlock; it cannot release itself, so the operator
+        #                   unlatching it IS the deliberate ack. Latching it on top
+        #                   would leave the display reading E-STOP while the StampPLC
+        #                   has already auto-armed and the robot drives — a safety
+        #                   indicator that disagrees with the machine is worse than none.
+        #   STALE TELEMETRY fail-safe while the link is dead; auto-recovers, else every
+        #                   USB blip would demand a manual re-arm (review R2).
+        #
+        # LATCHING — SOFTWARE, and anything new that lacks a physical act behind it.
+        # There the guarded clear is the only acknowledgement that exists.
+        latching = [s for s in raw_estop_sources if s not in LIVE_ESTOP_SOURCES]
+        live_now = [s for s in raw_estop_sources if s in LIVE_ESTOP_SOURCES]
         if latching:
             self.estop_latched = True
             self.estop_sources_held = latching
         eff_estop = list(self.estop_sources_held) if self.estop_latched else []
-        if stale_now and "STALE TELEMETRY" not in eff_estop:
-            eff_estop.append("STALE TELEMETRY")
+        for s in live_now:
+            if s not in eff_estop:
+                eff_estop.append(s)
 
         # Readiness latch (replaces the 4 s wall-clock INIT timer).
         if fresh and control_ok:
