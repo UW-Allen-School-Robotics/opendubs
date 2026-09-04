@@ -343,6 +343,7 @@ def _robot_state():
         welded=saf["welded"], charging=charging)
     if sup["note"]:
         out["reason"] = out["reason"] + " · " + sup["note"]
+    out["estop_events"] = supervisor.recent_events()
     out["latched"] = {"estop": supervisor.estop_latched,
                       "faults": list(supervisor.fault_latched),
                       "ready": supervisor.ready}
