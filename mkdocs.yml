@@ -80,6 +80,9 @@ nav:
           - build/upper-frame.md
           - Right Upper Electronics Bay: build/upper-right-electronics-bay.md
       - Pinpoint Odometry: build/pinpoint.md
+      - Payload Modules:
+          - Scissor Lift Module: build/scissor-lift.md
+          - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md
   - Build & Flash:
