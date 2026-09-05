@@ -27,6 +27,82 @@ That division matters: the lift's own controller keeps its internal limits and m
 protection whatever the robot does. The robot's job is only to press its buttons and
 know the height.
 
+## Safety — the lift is a pinch point
+
+!!! danger "The bottom of the travel is the dangerous part"
+    A scissor linkage can trap a hand anywhere in its travel, but everywhere except the
+    bottom you have to put a limb **into** the mechanism to be caught. Near full-down
+    that is no longer true: the platform simply closes on whatever happens to be under
+    it — a hand resting on the base, a foot, a routed cable. Nothing has to reach in.
+
+    That is why the last few centimetres of descent get their own treatment below.
+
+Two mitigations are built into the firmware:
+
+1. **The lights say when the Z-axis is moving**, so a bystander who is not the operator
+   gets a cue. The lift can move while the robot is otherwise still and silent, which is
+   exactly when there is no other warning.
+2. **Descent stops itself just above full-down** and will not continue without a fresh,
+   deliberate act from a human.
+
+!!! warning "Neither of these is a safety-rated interlock"
+    They are firmware behaviours on a research robot, and they depend on a ToF reading
+    being available and on the lift controller doing what we asked. **The e-stop and
+    keeping clear are the actual protection.** Treat the pinch stop as a courtesy that
+    catches the ordinary mistake, not as a guarantee that the lift cannot close on you.
+
+### What the LEDs do
+
+The PRISM overlay is shared with the turn-signals, and the Z-axis outranks them — it
+takes the **whole strip**, because the pinch hazard has no side: someone standing behind
+the robot is as exposed as the operator.
+
+| Z-axis | PRISM |
+|---|---|
+| Rising | Whole strip amber, slow blink |
+| Lowering | Whole strip amber, **fast** blink — descent is the direction that closes the gap |
+| Held at the pinch stop | Whole strip **red strobe** — waiting for the operator |
+| Stopped | Turn-signals and the state colour as usual |
+
+The lights follow what the driver *believes* the lift is doing. With a ToF fitted, that
+belief is corrected within about a second when a pulse is missed. **Without one it can be
+wrong**, and the lights will be wrong with it.
+
+### The pinch stop
+
+Descending below the threshold requires consent, given one of two ways:
+
+- **Operator** — release the stick to centre, hold it there for the dwell (default 600 ms),
+  then command down again. The stop is what forces the release; pressing again is the
+  acceptance.
+- **Host, for an automated lowering** — `MAST ACK`. Good for **one** descent: it is spent
+  when that descent stops, and goes stale after 15 s, so it cannot be pre-armed and left
+  lying about.
+
+**Up is never gated.** Backing off a hazard has to work instantly, always.
+
+Consent is spent on every stop, so each resumed descent inside the zone is its own
+decision rather than one authorisation covering the whole way down.
+
+!!! danger "No ToF means no guard at all"
+    The threshold is a *height*, so with no height source the zone cannot be detected and
+    descent is completely unguarded. Telemetry reports this as `pinch=nosensor` rather
+    than quietly doing nothing. Wire the ToF before running the lift anywhere near people.
+
+### Commissioning the threshold — per robot
+
+The default is **40 mm**, and that number is not just a finger. It has to cover a finger
+*plus* how far the lift still travels after the stop pulse — a pulse round-trip plus the
+controller's own ramp-down. Both depend on your lift and where the ToF sits, so measure it:
+
+1. E-stop within reach, nobody's hands near the mechanism.
+2. Put an offcut of known thickness (a 25 mm block is a reasonable stand-in for a finger)
+   on the base, under the platform.
+3. Lower into the zone. It should stop with the block still **loose** — you can slide it
+   out without force.
+4. If the block is pinched, raise the threshold with `MAST PINCH <mm>` and repeat.
+5. Record the value. It is per-robot, like the relay assignment.
+
 ## Why a Z-axis is abstracted
 
 This is one of two Z-axis mechanisms. The other is a lead-screw mast driven by an ESC
@@ -53,6 +129,7 @@ driver differs. Two consequences worth knowing while you build:
 |---|---|
 | **RC channel** | CH2 (right stick, vertical) — up/stop/down |
 | **Deadman** | Required. The lift moves only while CH6 is held, exactly like drive |
+| **Pinch stop** | Descent stops at **40 mm** (default) above full-down and needs fresh consent — see [Safety](#safety-the-lift-is-a-pinch-point) |
 | **Relays** | **silk R3 → UP, silk R2 → DOWN** (code R2/R1 — silk is 1-indexed, code is 0-indexed) *— per-robot; re-discover on each build* |
 | **Contact type** | **NO** (normally open) — measured; closure = press |
 | **Height sensor** | ToF on the StampPLC PaHub, **channel 3** |
@@ -137,3 +214,11 @@ to the controller's button terminals, drive-bus feed.*
 - [ ] Deadman release stops the lift.
 - [ ] Opening the e-stop contactor removes lift power entirely.
 - [ ] ToF reports a plausible height across the full travel, with no dropouts at either end.
+- [ ] PRISM goes whole-strip amber while the lift moves, faster on the way down.
+- [ ] Descent stops at the pinch threshold with a test block still loose underneath, and
+      the strip strobes red.
+- [ ] Holding the stick down through the stop does **not** resume it; releasing and
+      pressing again does.
+- [ ] Up still works immediately from the pinch stop, without consent.
+- [ ] Telemetry reads `pinch=nosensor` with the ToF unplugged — so an unguarded descent is
+      visible rather than silent.

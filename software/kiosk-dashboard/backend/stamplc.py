@@ -39,7 +39,8 @@ _P_SBUS_STAT = re.compile(r"\[SBUS\] prof=.* ok=(\d+) bad=(\d+) last_ok_ms=(\d+)
 #   [FAN]   z= on= pct=                 one line per fan zone
 #   [RAIL]  logic_v= logic_i= drive_v= clamp=
 #   [RC]    live= mode= dead= spd= mat= fr= rot= str= mast= raw=c1,..,c16
-#   [DRIVE] mode= armed= w=fl,fr,rl,rr  (normalized -1..1)
+#   [DRIVE] mode= armed= w=fl,fr,rl,rr  (normalized -1..1) mast=<drv>:<0stop/1up/2down>
+#           h=<mm, <0 unknown> pinch=nosensor|ok|HOLD|ack  (Z-axis + its pinch guard)
 #   [ODO]   ok= st= rdy= cal= xpod= ypod= x= y= h= vx= vy= vh= ex= ey= loop= fail= crcbad=
 #           goBILDA Pinpoint: x/y mm, h rad (unnormalized, counts full turns),
 #           ex/ey raw pod counts. Firmware already decodes DEVICE_STATUS, whose pod
@@ -350,7 +351,12 @@ class StampReader:
                                     "wheels": w,
                                     "fwd": fnum("fwd"), "rot": fnum("rot"), "str": fnum("str"),
                                     "spd": fnum("spd"),       # CH8 speed knob 0..1
-                                    "turn": kv.get("turn")}   # "L"/"R"/"0" — net rightward intent
+                                    "turn": kv.get("turn"),   # "L"/"R"/"0" — net rightward intent
+                                    # Z-axis: 0=stop 1=up 2=down, height mm (<0 unknown), and the
+                                    # pinch guard — "nosensor" means descent is UNGUARDED.
+                                    "mast": kv.get("mast"),
+                                    "mast_h_mm": fnum("h"),
+                                    "pinch": kv.get("pinch")}
                 self._last = now; return
 
     def snapshot(self):

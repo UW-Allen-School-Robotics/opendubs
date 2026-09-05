@@ -774,9 +774,13 @@ bool prismSetStripLength(uint8_t len)
 }
 
 // Last base color pushed to LAYER_0 (by the Thor via LED_COLOR). Remembered so the turn-signal
-// overlay on LAYER_1 can be repainted with THIS color to hide it — see prismTurnBase().
+// overlay on LAYER_1 can be repainted with THIS color to hide it — see prismOverlayHide().
 static uint8_t g_baseR = 0, g_baseG = 0, g_baseB = 0, g_baseBr = 100;
-static void prismTurnBase();   // fwd decl (defined with the turn-signal block below)
+// Who currently owns the LAYER_1 overlay. Declared here because prismSolid() has to know
+// whether repainting the hidden overlay would stomp a live hazard signal.
+enum class PrismOverlay : uint8_t { NONE = 0, TURN, MAST_MOVE, MAST_HOLD };
+static PrismOverlay g_overlay = PrismOverlay::NONE;
+static void prismOverlayHide();   // fwd decl (defined with the overlay block below)
 
 // Fill the whole strip with one solid color via a Solid animation on LAYER_0.
 bool prismSolid(uint8_t r, uint8_t g, uint8_t b, uint8_t bright)
@@ -790,9 +794,10 @@ bool prismSolid(uint8_t r, uint8_t g, uint8_t b, uint8_t bright)
     uint8_t sp[2]    = {kPrismSubStop, stop};                ok &= prismWrite(kPrismRegLayer0, sp, 2);    delay(5);
     uint8_t col[4]   = {kPrismSubPrimary, r, g, b};          ok &= prismWrite(kPrismRegLayer0, col, 4);   delay(5);
     g_baseR = r; g_baseG = g; g_baseB = b; g_baseBr = bright;
-    // Keep the (invisible) LAYER_1 overlay in sync with the new base so a later turn-OFF reveals
-    // THIS color, not a stale one. Skip while a turn is live — that's amber, don't stomp it.
-    if (g_turnDir == 0) prismTurnBase();
+    // Keep the (invisible) LAYER_1 overlay in sync with the new base so a later overlay-OFF
+    // reveals THIS color, not a stale one. Skip while an overlay is live — that is a hazard
+    // signal, don't stomp it.
+    if (g_overlay == PrismOverlay::NONE) prismOverlayHide();
     return ok;
 }
 
@@ -802,54 +807,55 @@ bool prismClear()
     return prismWrite(kPrismRegControl, d, sizeof(d));
 }
 
-// --- PRISM turn-signals: amber overlay on LAYER_1, ABOVE the state base color on LAYER_0 ---
-// The turning side's front+rear segments are contiguous per the strip map:
-//   RIGHT = [0..11] (RIGHT FRONT + RIGHT REAR),  LEFT = [24..35] (LEFT REAR + LEFT FRONT).
-// Flash by toggling ONLY the layer brightness (1 write) so it never blocks the RC loop; the
-// segment range/color is (re)configured only when g_turnDir changes. LAYER_1 select=NONE hides
-// it → the LAYER_0 state color shows through.
+// --- PRISM overlay on LAYER_1: turn-signals AND the Z-axis hazard, arbitrated ---
+//
+// LAYER_1 sits above the state base color on LAYER_0, and there is exactly one of it, so
+// the two things that want to flash have to be arbitrated rather than both writing. The
+// order is by hazard, not by who asked first:
+//
+//   MAST_HOLD   red strobe,  whole strip   descent stopped just above full-down, waiting
+//                                          for the operator to consent to the last stretch
+//   MAST_MOVE   amber blink, whole strip   the lift is travelling — DOWN blinks twice as
+//                                          fast as UP, because descent is the direction
+//                                          that closes the gap on a hand
+//   TURN        amber blink, one side      steering intent, as before
+//
+// The Z-axis outranks the turn-signal, and takes the WHOLE strip, because the pinch hazard
+// has no side: someone standing behind the robot is as exposed as the operator. It also
+// moves while the robot is otherwise still and silent, which is exactly when a bystander
+// has no other cue. Losing the turn-signal for the few seconds the lift is moving costs
+// nothing — in that moment the robot is a hazard for a different reason, and that is the
+// thing worth saying.
+//
+// Flash by toggling ONLY the layer brightness (one I2C write) so it never blocks the RC
+// loop; segment range and color are (re)written only when the owner or its shape changes.
 static constexpr uint8_t kPrismRegLayer1 = kPrismRegLayer0 + 1;   // ANIMATION_SLOT_1
 static constexpr uint8_t kPrismAnimNone  = 0;                     // transparent
 static constexpr uint8_t kTurnBright     = 90;
+// Blink half-periods, ms. Tune by eye — these are readability values, not measurements.
+static constexpr uint32_t kBlinkTurn     = 380;
+static constexpr uint32_t kBlinkMastUp   = 400;
+static constexpr uint32_t kBlinkMastDown = 200;   // descent: deliberately more urgent
+static constexpr uint32_t kBlinkMastHold = 110;   // strobe — "this is waiting on you"
 
-static void prismTurnConfig(uint8_t start, uint8_t stop)
+static void prismOverlayConfig(uint8_t start, uint8_t stop,
+                               uint8_t r, uint8_t g, uint8_t b, uint8_t bright)
 {
     uint8_t sel[2] = {kPrismSubSelect, kPrismAnimSolid};   prismWrite(kPrismRegLayer1, sel, 2); delay(3);
     uint8_t st[2]  = {kPrismSubStart, start};              prismWrite(kPrismRegLayer1, st, 2);  delay(3);
     uint8_t sp[2]  = {kPrismSubStop, stop};                prismWrite(kPrismRegLayer1, sp, 2);  delay(3);
-    uint8_t col[4] = {kPrismSubPrimary, 255, 96, 0};       prismWrite(kPrismRegLayer1, col, 4); delay(3);   // amber
-    uint8_t br[2]  = {kPrismSubBright, kTurnBright};       prismWrite(kPrismRegLayer1, br, 2);
+    uint8_t col[4] = {kPrismSubPrimary, r, g, b};          prismWrite(kPrismRegLayer1, col, 4); delay(3);
+    uint8_t br[2]  = {kPrismSubBright, bright};            prismWrite(kPrismRegLayer1, br, 2);
 }
-static void prismTurnBright(uint8_t bright) { uint8_t br[2] = {kPrismSubBright, bright}; prismWrite(kPrismRegLayer1, br, 2); }
+static void prismOverlayBright(uint8_t bright) { uint8_t br[2] = {kPrismSubBright, bright}; prismWrite(kPrismRegLayer1, br, 2); }
 
 // Hide the overlay by repainting LAYER_1 with the CURRENT base color over the whole strip, so it
 // matches LAYER_0 and disappears. On this PRISM, select=NONE does NOT clear a layer's last render
 // (the amber sticks), so we paint-to-match instead of relying on a "none" opcode. (void)kPrismAnimNone.
-static void prismTurnBase()
+static void prismOverlayHide()
 {
     const uint8_t stop = prism_strip_len ? (uint8_t)(prism_strip_len - 1) : 0;
-    uint8_t sel[2] = {kPrismSubSelect, kPrismAnimSolid};            prismWrite(kPrismRegLayer1, sel, 2); delay(3);
-    uint8_t st[2]  = {kPrismSubStart, 0};                          prismWrite(kPrismRegLayer1, st, 2);  delay(3);
-    uint8_t sp[2]  = {kPrismSubStop, stop};                        prismWrite(kPrismRegLayer1, sp, 2);  delay(3);
-    uint8_t col[4] = {kPrismSubPrimary, g_baseR, g_baseG, g_baseB}; prismWrite(kPrismRegLayer1, col, 4); delay(3);
-    uint8_t br[2]  = {kPrismSubBright, g_baseBr};                   prismWrite(kPrismRegLayer1, br, 2);
-}
-static void prismTurnOff() { prismTurnBase(); }
-
-// Call each loop. Reconfigures the segment only on a direction change; otherwise just toggles
-// brightness (fast, non-blocking) to flash ~1.3 Hz.
-void turnSignalStep()
-{
-    static int      prevDir = -99;
-    static bool     flashOn = false;
-    static uint32_t flashMs = 0;
-    const int td = g_turnDir;
-    if (td != prevDir) {
-        prevDir = td;
-        if (td == 0) prismTurnOff();
-        else { prismTurnConfig(td > 0 ? 0 : 24, td > 0 ? 11 : 35); flashOn = true; flashMs = millis(); }
-    }
-    if (td != 0 && millis() - flashMs > 380) { flashMs = millis(); flashOn = !flashOn; prismTurnBright(flashOn ? kTurnBright : 0); }
+    prismOverlayConfig(0, stop, g_baseR, g_baseG, g_baseB, g_baseBr);
 }
 
 void scanI2CFull();  // defined below; invoked on-demand by the I2C_SCAN command
@@ -967,6 +973,47 @@ static constexpr uint8_t kRelayMastDown = 1;   // silk R2
 static bool mastHeightMm(float *mm) { (void)mm; return false; }
 static ScissorRelayMast g_mast(kRelayMastUp, kRelayMastDown, mastHeightMm);
 
+// Drive the LAYER_1 overlay from robot state. Defined here rather than with the other PRISM
+// code because it is the one part that has to see the mast driver. Call every loop.
+void prismOverlayStep()
+{
+    // Who owns the layer this tick, and what it looks like.
+    const uint8_t last = prism_strip_len ? (uint8_t)(prism_strip_len - 1) : 0;
+    PrismOverlay want = PrismOverlay::NONE;
+    uint8_t start = 0, stop = last, r = 255, g = 96, b = 0, bright = kTurnBright;
+    uint32_t half = kBlinkTurn;
+
+    if (g_mast.pinchHold()) {
+        want = PrismOverlay::MAST_HOLD;
+        r = 255; g = 0; b = 0; bright = 100; half = kBlinkMastHold;
+    } else if (g_mast.motion() != MastMotion::STOP) {
+        want = PrismOverlay::MAST_MOVE;
+        half = (g_mast.motion() == MastMotion::DOWN) ? kBlinkMastDown : kBlinkMastUp;
+    } else if (g_turnDir != 0) {
+        want = PrismOverlay::TURN;
+        start = g_turnDir > 0 ? 0 : 24;
+        stop  = g_turnDir > 0 ? 11 : 35;
+    }
+
+    // Reconfigure only when the picture actually changes — the flash itself is one write.
+    static uint8_t prevStart = 255, prevStop = 255, prevR = 0, prevG = 0, prevB = 0;
+    static bool     flashOn = false;
+    static uint32_t flashMs = 0;
+    const bool shapeChanged = (want != g_overlay) || start != prevStart || stop != prevStop
+                              || r != prevR || g != prevG || b != prevB;
+    if (shapeChanged) {
+        g_overlay = want;
+        prevStart = start; prevStop = stop; prevR = r; prevG = g; prevB = b;
+        if (want == PrismOverlay::NONE) prismOverlayHide();
+        else { prismOverlayConfig(start, stop, r, g, b, bright); flashOn = true; flashMs = millis(); }
+    }
+    if (want != PrismOverlay::NONE && millis() - flashMs > half) {
+        flashMs = millis();
+        flashOn = !flashOn;
+        prismOverlayBright(flashOn ? bright : 0);
+    }
+}
+
 // ---- I2C bus recovery ---------------------------------------------------------
 // M5Unified's writeRegister() is a short-circuiting && chain:
 //     beginTransaction(..) && writeBytes(&reg,1) && writeBytes(data,len) && endTransaction(..)
@@ -1071,6 +1118,25 @@ void handleHostCommand(const char* cmd)
         g_mast.setTiming((uint32_t)mpulse, (uint32_t)mgap);
         tprintf("[MAST] pulse=%lums gap=%lums\n",
                 (unsigned long)g_mast.pulseMs(), (unsigned long)g_mast.gapMs());
+        return;
+    }
+    // Pinch-guard threshold + release dwell. Per-robot: it depends on where the ToF is
+    // mounted and how far the lift coasts after the stop pulse, so it is commissioned on
+    // the machine rather than assumed here.
+    int mpinch = -1, mdwell = -1;
+    if (sscanf(cmd, "MAST PINCH %d %d", &mpinch, &mdwell) >= 1) {
+        if (mdwell < 0) mdwell = (int)g_mast.pinchDwellMs();
+        g_mast.setPinch((float)mpinch, (uint32_t)mdwell);
+        tprintf("[MAST] pinch=%.0fmm dwell=%lums guard=%s\n", g_mast.pinchMm(),
+                (unsigned long)g_mast.pinchDwellMs(),
+                g_mast.pinchActive() ? "active" : "NO HEIGHT SENSOR - descent unguarded");
+        return;
+    }
+    // Consent for one descent through the pinch zone, for an automated lowering. Spent when
+    // that descent stops, and stale after 15 s, so it can't be pre-armed and left lying about.
+    if (!strcasecmp(cmd, "MAST ACK")) {
+        g_mast.pinchAck(millis());
+        tprintf("[MAST] pinch ACK — one descent through the zone authorized\n");
         return;
     }
     if (!strcasecmp(cmd, "MAST UP") || !strcasecmp(cmd, "MAST DOWN")) {
@@ -1801,14 +1867,19 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
                   (unsigned long)g_i2cRecoverCount,
                   g_mast.name(),
                   (int)g_mast.motion(),
-                  g_mast.heightMm());
+                  g_mast.heightMm(),
+                  // Pinch guard, in the order an operator needs it: is it even able to work,
+                  // is it holding, has someone consented.
+                  !g_mast.pinchActive() ? "nosensor"
+                  : g_mast.pinchHold()  ? "HOLD"
+                  : g_mast.pinchConsent() ? "ack" : "ok");
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the
@@ -2108,7 +2179,7 @@ void setup()
     // Tell the PRISM its true strip length so ALL segments light — the CONTROL-reg length is
     // NOT set by LED_COLOR (prismSolid), so without this the tail LEDs can stay dark.
     prismSetStripLength(prism_strip_len);
-    prismTurnOff();   // ensure the turn-signal overlay (LAYER_1) starts hidden
+    prismOverlayHide();   // ensure the LAYER_1 overlay (turn / Z-axis) starts hidden
 
     beginProfile(0);
     scanExternalBus();
@@ -2438,7 +2509,7 @@ void loop()
     }
 
     envStep();          // ENVIII (regen-resistor thermal) — non-blocking, self-throttled to ~1 Hz
-    turnSignalStep();   // PRISM turn-signal overlay (LAYER_1), non-blocking flash from g_turnDir
+    prismOverlayStep();   // PRISM LAYER_1: Z-axis hazard over turn-signals, non-blocking flash
 
     if ((millis() - last_i2c_scan_ms) > 5000) {
         scanExternalBus();

@@ -85,25 +85,60 @@ void ScissorRelayMast::tick(uint32_t nowMs)
         }
     }
 
+    // ---- pinch guard ----------------------------------------------------------
+    // Near full-down the platform closes on whatever is under it, so a descent that
+    // reaches the zone is stopped and not resumed without consent. This runs on EVERY
+    // tick, before the early returns below, so the guard latches the instant the zone is
+    // reached rather than whenever the next decision happens to be due.
+    MastMotion want = intent_;
+
+    // Consent by gesture: the operator releases the stick, holds it centred for the
+    // dwell, and commands DOWN again. Tracked continuously, because the release that
+    // matters is the one they make WHILE the guard is holding.
+    if (want != MastMotion::DOWN) {
+        if (!releasing_) { releasing_ = true; releaseStart_ = nowMs; }
+        releaseHeldMs_ = nowMs - releaseStart_;
+        // A stop spends the consent: the next descent is a new decision. Only once it has
+        // actually been acted on, so a host ack issued before the command survives.
+        if (consentUsed_) { consent_ = false; consentUsed_ = false; }
+    } else {
+        if (releasing_ && pinchHold_ && releaseHeldMs_ >= dwellMs_) {
+            consent_ = true; consentMs_ = nowMs; pinchHold_ = false;
+            releaseHeldMs_ = 0;         // one grant per release, not one per tick
+        }
+        releasing_ = false;
+    }
+    if (consent_ && nowMs - consentMs_ > kConsentMs) { consent_ = false; consentUsed_ = false; }
+
+    // No height means no zone, and the guard is simply not in play — see pinchActive().
+    const bool inZone = haveHeight_ && heightMm_ >= 0.0f && heightMm_ <= pinchMm_;
+    if (!inZone) {
+        pinchHold_ = false;             // above the zone there is nothing to consent to
+    } else if (want == MastMotion::DOWN && !consent_) {
+        want = MastMotion::STOP;        // stops a descent that arrives here, refuses a new one
+        pinchHold_ = true;
+    }
+
     if (pulsing_) return;               // one press at a time
     // Honour the release gap. Returning here defers rather than drops: intent is asserted
     // every tick, so whatever was wanted still happens once the gap has elapsed.
     if (nowMs - pulseDone_ < minGapMs_) return;
-    if (intent_ == motion_) return;     // already doing what was asked
+    if (want == motion_) return;        // already doing what was asked
 
     // Refuse to push further into a limit we have already detected, but always allow
     // the opposite direction so the operator can back off it.
-    if (intent_ == MastMotion::UP   && atUpper_) return;
-    if (intent_ == MastMotion::DOWN && atLower_) return;
+    if (want == MastMotion::UP   && atUpper_) return;
+    if (want == MastMotion::DOWN && atLower_) return;
 
-    if (intent_ == MastMotion::STOP) {
+    if (want == MastMotion::STOP) {
         // Pulse-toggle: pressing the leg that is currently running stops it.
         startPulse_(motion_ == MastMotion::UP, nowMs);
         motion_ = MastMotion::STOP;
     } else {
         // Pressing the opposite leg reverses; pressing from stopped starts.
-        startPulse_(intent_ == MastMotion::UP, nowMs);
-        motion_ = intent_;
+        startPulse_(want == MastMotion::UP, nowMs);
+        motion_ = want;
         atUpper_ = atLower_ = false;
+        if (want == MastMotion::DOWN && inZone) consentUsed_ = true;
     }
 }

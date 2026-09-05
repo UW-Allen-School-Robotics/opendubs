@@ -84,6 +84,32 @@ public:
     // relay moves the lift which way, which is a per-robot wiring fact.
     void pulseLeg(bool up, uint32_t nowMs);
 
+    // ---- pinch guard: the last stretch of descent ----
+    // A scissor lift closing on its own base is a shear point, and the bottom of the
+    // travel is where it gets you: everywhere else you have to put a hand INTO the
+    // mechanism to be caught, but near full-down the gap simply closes on whatever is
+    // resting under it. So descent stops on its own at `pinchMm` and will not resume
+    // without a fresh, deliberate act. UP is never gated -- backing off a hazard must
+    // always be possible, instantly.
+    //
+    // Consent can be given two ways, and both mean "a human decided this again":
+    //   * operator  release the stick, hold it centred for `dwellMs`, command DOWN again
+    //   * host      pinchAck(), for an automated lowering
+    // Either way it is spent when the descent stops, so every resumed descent inside the
+    // zone is its own decision, and it expires unused after kConsentMs.
+    //
+    // THE GUARD NEEDS A HEIGHT. With no ToF (height_ == nullptr, or a sensor that has
+    // never read) there is no zone to detect and descent is unguarded -- pinchActive()
+    // reports that, and it is published in telemetry so "the guard is off" is visible
+    // rather than assumed.
+    void setPinch(float mm, uint32_t dwellMs) { pinchMm_ = mm; dwellMs_ = dwellMs; }
+    float    pinchMm() const { return pinchMm_; }
+    uint32_t pinchDwellMs() const { return dwellMs_; }
+    bool     pinchActive() const { return haveHeight_; }   // is the guard able to work at all?
+    bool     pinchHold() const { return pinchHold_; }      // descent stopped, awaiting consent
+    bool     pinchConsent() const { return consent_; }
+    void     pinchAck(uint32_t nowMs) { consent_ = true; consentMs_ = nowMs; pinchHold_ = false; }
+
     // Press duration and release gap are TUNABLE because both are properties of the
     // controller we have not measured. Defaults are deliberately conservative; use
     // `MAST PULSE <ms> [gap]` to find where the controller actually stops registering,
@@ -103,6 +129,15 @@ public:
     static constexpr float    kDeadzone     = 0.25f; // stick fraction before we act
     static constexpr uint32_t kStallCheckMs = 900;   // no height change in this while
     static constexpr float    kMovedMm      = 8.0f;  // ... this much = not actually moving
+
+    // Pinch-guard defaults. The threshold is NOT just a finger: it has to include how far
+    // the lift still travels after we press stop, which is a pulse round-trip plus the
+    // controller's own ramp-down. Commission it on the robot with `MAST PINCH <mm>` --
+    // lower into the zone with a block of known thickness under the platform and confirm
+    // it stops with the block loose.
+    static constexpr float    kPinchMm      = 40.0f;   // ~20 mm finger + stopping distance
+    static constexpr uint32_t kPinchDwellMs = 600;     // stick centred this long = "released"
+    static constexpr uint32_t kConsentMs    = 15000;   // an unused ack goes stale
 
 private:
     void applyRelays_(bool upOn, bool downOn);
@@ -125,4 +160,14 @@ private:
     float refHeight_  = 0.0f;      // height when the current motion began
     uint32_t refMs_   = 0;
     bool  atUpper_ = false, atLower_ = false;
+
+    float    pinchMm_       = kPinchMm;
+    uint32_t dwellMs_       = kPinchDwellMs;
+    bool     pinchHold_     = false;   // in the zone, descent refused
+    bool     consent_       = false;   // a human has agreed to this descent
+    bool     consentUsed_   = false;   // ... and it has since been acted on
+    uint32_t consentMs_     = 0;
+    bool     releasing_     = false;   // stick currently not commanding DOWN
+    uint32_t releaseStart_  = 0;
+    uint32_t releaseHeldMs_ = 0;       // how long the last release lasted
 };
