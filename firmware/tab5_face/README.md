@@ -42,7 +42,7 @@ The ArduinoOTA process requires the ESP32 to open a reverse TCP connection back 
 ## Current State & TODOs
 
 ### Current State
-* **Firmware**: The Tab5 firmware successfully supports toggling between `TRACKING: AI` and `TRACKING: OFF` modes via the HMI controller.
+* **Firmware**: The Tab5 firmware successfully supports toggling between `TRACKING: AI` and `TRACKING: OFF` modes via the HMI controller. (Don't visually do anything different right now since the tracking isn't on thor/working yet)
 * **Control Handoff**: In `TRACKING: AI` mode, the Tab5 accepts UDP `CAN_ID_PAN_TILT_CMD` packets to dynamically control the servos. In `TRACKING: OFF` mode, it relies strictly on the touch screen D-pad.
 * **Link State**: The Tab5 correctly maintains the `g_linkOnline` state when receiving valid UDP packets from Thor.
 * **Thor Backend**: A prototype Python tracker script (`thor_face_tracker.py`) has been written to pull the Tab5 camera stream, perform OpenCV motion tracking (frame differencing), and send UDP pan/tilt commands back.
@@ -51,3 +51,4 @@ The ArduinoOTA process requires the ESP32 to open a reverse TCP connection back 
 * [ ] **Integrate Python Tracker**: The `thor_face_tracker.py` prototype needs to be integrated into Thor's main software stack (e.g. as a systemd service, ROS node, or within the primary python daemon) so that it runs automatically on startup.
 * [ ] **Network Stability**: mDNS resolution (`opendubs2.local`, `opendubs-tab5.local`) on the Windows laptop is currently unstable. The backend script currently relies on hardcoded IP addresses. Need to resolve mDNS routing issues on the network to make the IPs dynamic.
 * [ ] **Advanced Face Detection**: The prototype tracker currently uses motion tracking (frame differencing) because the local OpenCV build was missing `CascadeClassifier`. Once integrated into Thor, this should be upgraded back to a Haar Cascade or a neural network (like YOLO/MediaPipe) for true face detection.
+ 
