@@ -26,10 +26,14 @@ LIFT_CMD_FMT = "<B" # uint8
 ROBOT_STATE_FMT = "<B" # uint8
 PAN_TILT_CMD_FMT = "<hh" # int16, int16
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../kiosk-dashboard/backend'))
+import stamplc
+
 def send_relay(ch, state):
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:8080/api/relay/{ch}/{state}", method="POST")
-        urllib.request.urlopen(req, timeout=0.5)
+        stamplc.reader.send(f"RELAY {ch} {state}")
     except Exception:
         pass
 

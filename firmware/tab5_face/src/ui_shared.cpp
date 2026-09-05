@@ -14,6 +14,7 @@ const int NST = sizeof(STATES) / sizeof(STATES[0]);
 
 volatile int    g_robotState = 1;                 // SAFE_IDLE
 volatile UiMode g_uiMode     = UiMode::FACE;       // face is home
+volatile TrackingMode g_trackingMode = TrackingMode::MANUAL; // default to manual
 volatile int    g_turnCmd    = 0;
 volatile bool   g_linkOnline = false;
 char            g_ipStr[24]  = "\xE2\x80\x94";     // "—"

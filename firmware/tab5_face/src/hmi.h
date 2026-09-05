@@ -3,7 +3,7 @@
 // LOWER stack in the center, and an oversized soft e-stop on the right.
 #pragma once
 
-enum class HmiHit { NONE, RAISE, LOWER, ESTOP, PAN_LEFT, PAN_RIGHT, TILT_UP, TILT_DOWN };
+enum class HmiHit { NONE, RAISE, LOWER, ESTOP, PAN_LEFT, PAN_RIGHT, TILT_UP, TILT_DOWN, MODE_TOGGLE };
 
 struct HmiCtx {
   bool estopConfirm;   // release is armed (waiting for the 2nd tap)

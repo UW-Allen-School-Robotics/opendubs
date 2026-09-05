@@ -44,6 +44,7 @@ static const int PAN_L[4]  = { DP_CX - DP_W - DP_G, DP_CY - DP_W/2, DP_W, DP_W }
 static const int PAN_R[4]  = { DP_CX + DP_G, DP_CY - DP_W/2, DP_W, DP_W };
 static const int TILT_U[4] = { DP_CX - DP_W/2, DP_CY - DP_W - DP_G, DP_W, DP_W };
 static const int TILT_D[4] = { DP_CX - DP_W/2, DP_CY + DP_G, DP_W, DP_W };
+static const int MODE_BTN[4] = { DP_CX - 75, DP_CY + DP_W + DP_G + 20, 150, 44 };
 // relay/limit row baselines
 static const int IO_ROW0 = 556, IO_DY = 42;
 
@@ -285,6 +286,16 @@ static void drawDPad(const HmiCtx& ctx) {
   drawDPadBtn(PAN_R, "RT", ctx.activeHit == HmiHit::PAN_RIGHT);
   drawDPadBtn(TILT_U, "UP", ctx.activeHit == HmiHit::TILT_UP);
   drawDPadBtn(TILT_D, "DN", ctx.activeHit == HmiHit::TILT_DOWN);
+  
+  bool isAI = (g_trackingMode == TrackingMode::AI);
+  uint16_t c = isAI ? CYAN : PANEL2;
+  M5.Display.fillRoundRect(MODE_BTN[0], MODE_BTN[1], MODE_BTN[2], MODE_BTN[3], 12, c);
+  M5.Display.drawRoundRect(MODE_BTN[0], MODE_BTN[1], MODE_BTN[2], MODE_BTN[3], 12, HAIR);
+  M5.Display.setFont(F_LABEL);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(isAI ? GROUND : INKDIM);
+  M5.Display.setTextDatum(textdatum_t::middle_center);
+  M5.Display.drawString(isAI ? "TRACKING: AI" : "TRACKING: OFF", MODE_BTN[0] + MODE_BTN[2]/2, MODE_BTN[1] + MODE_BTN[3]/2);
 }
 
 // ---------- public ----------
@@ -297,6 +308,7 @@ HmiHit hmiHitTest(int x, int y) {
   if (inRect(x, y, PAN_R)) return HmiHit::PAN_RIGHT;
   if (inRect(x, y, TILT_U)) return HmiHit::TILT_UP;
   if (inRect(x, y, TILT_D)) return HmiHit::TILT_DOWN;
+  if (inRect(x, y, MODE_BTN)) return HmiHit::MODE_TOGGLE;
   int dx = x - ES_CX, dy = y - ES_CY;
   if (dx * dx + dy * dy <= ES_R * ES_R) return HmiHit::ESTOP;
   return HmiHit::NONE;
