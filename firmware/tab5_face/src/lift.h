@@ -25,6 +25,8 @@
 
 enum class Motion : uint8_t { STOP, UP, DOWN };
 
+#include "can_protocol.h"
+
 class LiftController {
 public:
   // travel + speed model (mm). Tune to the real lift once measured.
@@ -72,7 +74,7 @@ private:
   bool     atTop_ = false, atBot_ = false, tofOk_ = true;
   uint32_t upPulseUntil_ = 0, dnPulseUntil_ = 0;
   uint32_t lastTickMs_   = 0;
-  bool     simulate_     = true;        // flip to false when the ToF/relays are wired
+  bool     simulate_     = false;        // flip to false when the ToF/relays are wired
 };
 
 extern LiftController Lift;

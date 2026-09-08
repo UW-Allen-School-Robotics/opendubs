@@ -17,6 +17,10 @@ extern volatile int g_robotState;
 enum class UiMode { FACE, CONTROLLER };
 extern volatile UiMode g_uiMode;
 
+// pan/tilt control mode
+enum class TrackingMode { MANUAL, AI };
+extern volatile TrackingMode g_trackingMode;
+
 // turn-signal (movement intent) pushed by the Thor: -1 left, +1 right, 0 straight → face chevrons
 extern volatile int g_turnCmd;
 
