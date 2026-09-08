@@ -5,7 +5,8 @@
 #include "driver/uart.h"     // ESP-IDF UART for the RS485 port (BMS)
 #include "esp_task_wdt.h"
 #include "rc_config.h"
-#include "mast.h"    // task watchdog — auto-reset if the loop hangs
+#include "mast.h"
+#include "tof.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 
@@ -126,6 +127,10 @@ static float g_wheelMix[4] = {0, 0, 0, 0};   // commanded mix (for the DRIVE scr
 static float g_speed = 0;                    // CH8 speed knob 0..1 (DRIVE-screen annunciation)
 static int   g_turnDir = 0;
 static uint32_t g_turnTestUntil = 0;         // TURNTEST override window (bench PRISM turn-signal test)
+// MASTTEST override: force the Z-axis hazard overlay without moving anything, so the colours
+// and blink rates can be judged by eye with the lift unpowered. 0=off 1=up 2=down 3=hold.
+static uint8_t  g_mastTest = 0;
+static uint32_t g_mastTestUntil = 0;
 static constexpr float kTurnIntentThresh = 0.15f;
 static RosDriveCmd g_rosCmd;
 
@@ -967,11 +972,11 @@ static void tofProbe()
 // two wires was landed.
 static constexpr uint8_t kRelayMastUp   = 2;   // silk R3
 static constexpr uint8_t kRelayMastDown = 1;   // silk R2
-// Height source. Returns false until a ToF is wired on the StampPLC PaHub (ch3), which
-// leaves the lift open-loop but working -- enough for relay bring-up. Belief correction
-// switches itself on the moment this starts returning readings.
-static bool mastHeightMm(float *mm) { (void)mm; return false; }
-static ScissorRelayMast g_mast(kRelayMastUp, kRelayMastDown, mastHeightMm);
+// Height source: the ToF on PaHub ch3. Returns false until the sensor is BOTH answering and
+// calibrated (TOFCAL ZERO at the bottom limit), which leaves the lift open-loop but working
+// -- enough for relay bring-up. Belief correction and the pinch guard switch themselves on
+// the moment this starts returning readings, and off again if it stops.
+static ScissorRelayMast g_mast(kRelayMastUp, kRelayMastDown, tofHeightMm);
 
 // Drive the LAYER_1 overlay from robot state. Defined here rather than with the other PRISM
 // code because it is the one part that has to see the mast driver. Call every loop.
@@ -983,12 +988,16 @@ void prismOverlayStep()
     uint8_t start = 0, stop = last, r = 255, g = 96, b = 0, bright = kTurnBright;
     uint32_t half = kBlinkTurn;
 
-    if (g_mast.pinchHold()) {
+    // Bench override (MASTTEST) — same code path as the real thing, so what you tune by eye
+    // is what you get in service.
+    const uint8_t mt = (millis() < g_mastTestUntil) ? g_mastTest : 0;
+    if (mt == 3 || g_mast.pinchHold()) {
         want = PrismOverlay::MAST_HOLD;
         r = 255; g = 0; b = 0; bright = 100; half = kBlinkMastHold;
-    } else if (g_mast.motion() != MastMotion::STOP) {
+    } else if (mt != 0 || g_mast.motion() != MastMotion::STOP) {
         want = PrismOverlay::MAST_MOVE;
-        half = (g_mast.motion() == MastMotion::DOWN) ? kBlinkMastDown : kBlinkMastUp;
+        const bool down = mt ? (mt == 2) : (g_mast.motion() == MastMotion::DOWN);
+        half = down ? kBlinkMastDown : kBlinkMastUp;
     } else if (g_turnDir != 0) {
         want = PrismOverlay::TURN;
         start = g_turnDir > 0 ? 0 : 24;
@@ -1109,6 +1118,7 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
 void handleHostCommand(const char* cmd)
 {
     if (rcCalCommand(cmd, rc_ch)) return;
+    if (tofCalCommand(cmd)) return;
     if (!strcasecmp(cmd, "TOF")) { tofProbe(); return; }
     // Bench discovery of which relay moves the lift which way -- a per-robot wiring fact.
     // Bypasses intent, so it works with the sticks centred.
@@ -1116,7 +1126,8 @@ void handleHostCommand(const char* cmd)
     if (sscanf(cmd, "MAST PULSE %d %d", &mpulse, &mgap) >= 1) {
         if (mgap < 0) mgap = (int)g_mast.gapMs();
         g_mast.setTiming((uint32_t)mpulse, (uint32_t)mgap);
-        tprintf("[MAST] pulse=%lums gap=%lums\n",
+        g_mast.saveCfg();
+        tprintf("[MAST] pulse=%lums gap=%lums (saved)\n",
                 (unsigned long)g_mast.pulseMs(), (unsigned long)g_mast.gapMs());
         return;
     }
@@ -1127,7 +1138,8 @@ void handleHostCommand(const char* cmd)
     if (sscanf(cmd, "MAST PINCH %d %d", &mpinch, &mdwell) >= 1) {
         if (mdwell < 0) mdwell = (int)g_mast.pinchDwellMs();
         g_mast.setPinch((float)mpinch, (uint32_t)mdwell);
-        tprintf("[MAST] pinch=%.0fmm dwell=%lums guard=%s\n", g_mast.pinchMm(),
+        g_mast.saveCfg();               // commissioned value — must survive a reboot
+        tprintf("[MAST] pinch=%.0fmm dwell=%lums (saved) guard=%s\n", g_mast.pinchMm(),
                 (unsigned long)g_mast.pinchDwellMs(),
                 g_mast.pinchActive() ? "active" : "NO HEIGHT SENSOR - descent unguarded");
         return;
@@ -1303,21 +1315,36 @@ void handleHostCommand(const char* cmd)
     if (n >= 3) {
         auto cl = [](int v) { return (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v)); };
         const bool ok = prismSolid(cl(r), cl(g), cl(b), (uint8_t)(br < 0 ? 0 : (br > 100 ? 100 : br)));
-        Serial.printf("[PRISM] color r=%d g=%d b=%d bright=%d len=%d %s\n",
-                      cl(r), cl(g), cl(b), br, prism_strip_len, ok ? "ok" : "FAILED");
+        tprintf("[PRISM] color r=%d g=%d b=%d bright=%d len=%d %s\n",
+                cl(r), cl(g), cl(b), br, prism_strip_len, ok ? "ok" : "FAILED");
         return;
     }
 
     int len = -1;
     if (sscanf(cmd, "LED_LEN %d", &len) == 1) {
         const bool ok = (len >= 0 && len <= 255) && prismSetStripLength((uint8_t)len);
-        Serial.printf("[PRISM] strip_len=%d %s\n", len, ok ? "ok" : "FAILED");
+        tprintf("[PRISM] strip_len=%d %s\n", len, ok ? "ok" : "FAILED");
         return;
     }
 
     if (strcmp(cmd, "LED_OFF") == 0) {
         const bool ok = prismClear();
-        Serial.printf("[PRISM] clear %s\n", ok ? "ok" : "FAILED");
+        tprintf("[PRISM] clear %s\n", ok ? "ok" : "FAILED");
+        return;
+    }
+
+    char mtw[8] = {0};
+    int  mtsecs = 0;
+    if (sscanf(cmd, "MASTTEST %7s %d", mtw, &mtsecs) >= 1) {
+        if (mtsecs <= 0) mtsecs = 10;
+        g_mastTestUntil = millis() + (uint32_t)mtsecs * 1000;
+        if      (!strcasecmp(mtw, "UP"))   g_mastTest = 1;
+        else if (!strcasecmp(mtw, "DOWN")) g_mastTest = 2;
+        else if (!strcasecmp(mtw, "HOLD")) g_mastTest = 3;
+        else { g_mastTest = 0; g_mastTestUntil = 0; }
+        tprintf("[MASTTEST] %s for %ds — LIGHTS ONLY, no relay is touched\n",
+                g_mastTest == 1 ? "UP" : g_mastTest == 2 ? "DOWN" : g_mastTest == 3 ? "HOLD" : "off",
+                mtsecs);
         return;
     }
 
@@ -1325,7 +1352,7 @@ void handleHostCommand(const char* cmd)
     if (sscanf(cmd, "TURNTEST %d", &tval) == 1) {   // bench-force the turn-signal for 12s
         g_turnDir = (tval > 0) ? 1 : (tval < 0) ? -1 : 0;
         g_turnTestUntil = millis() + 12000;
-        Serial.printf("[TURN] test dir=%d (12s)\n", g_turnDir);
+        tprintf("[TURN] test dir=%d (12s)\n", g_turnDir);
         return;
     }
 
@@ -1597,40 +1624,47 @@ void scanExternalBus()
 void scanI2CFull()
 {
     if (extI2C == nullptr || !extI2C->isEnabled()) {
-        Serial.println("[I2C] full: external I2C bus is not enabled");
+        tprintf("[I2C] full: external I2C bus is not enabled\n");
         return;
     }
-    Serial.print("[I2C] full:");
+    // Each line is built into a buffer and TEE'd, so the scan is readable over Ethernet.
+    // It used to be Serial-only, which made it useless without USB — and USB is exactly
+    // what a robot in the field does not have.
+    char b[192];
+    int  n = snprintf(b, sizeof(b), "[I2C] full:");
     bool any = false;
     for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
         if (!probeI2CAddress(*extI2C, addr)) continue;
-        Serial.printf(" 0x%02X", addr);
+        if (n > 0 && n < (int)sizeof(b) - 6) n += snprintf(b + n, sizeof(b) - n, " 0x%02X", addr);
         any = true;
     }
-    if (!any) Serial.print(" none");
-    Serial.println();
+    if (!any) snprintf(b + n, sizeof(b) - n, " none");
+    tprintf("%s\n", b);
+    delay(25);
 
     if (!probeI2CAddress(*extI2C, kPaHubAddr)) {
-        Serial.println("[I2C] hub: not present at 0x70 (flat wiring)");
+        tprintf("[I2C] hub: not present at 0x70 (flat wiring)\n");
         return;
     }
     for (uint8_t ch = 0; ch < 6; ++ch) {
         if (!selectPaHubChannel(*extI2C, ch)) {
-            Serial.printf("[I2C] hub ch%u: select failed\n", ch);
+            tprintf("[I2C] hub ch%u: select failed\n", ch);
             continue;
         }
-        Serial.printf("[I2C] hub ch%u:", ch);
+        n = snprintf(b, sizeof(b), "[I2C] hub ch%u:", ch);
         bool found = false;
         for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
             if (addr == kPaHubAddr) continue;   // the mux doesn't answer behind itself
             if (!probeI2CAddress(*extI2C, addr)) continue;
-            Serial.printf(" 0x%02X", addr);
+            if (n > 0 && n < (int)sizeof(b) - 6) n += snprintf(b + n, sizeof(b) - n, " 0x%02X", addr);
             found = true;
         }
-        if (!found) Serial.print(" none");
+        if (!found && n > 0) n += snprintf(b + n, sizeof(b) - n, " none");
         for (const HubDevice& d : kHubDevices)
-            if (d.channel == ch) Serial.printf(" [exp %s@0x%02X]", d.name, d.addr);
-        Serial.println();
+            if (d.channel == ch && n > 0 && n < (int)sizeof(b) - 32)
+                n += snprintf(b + n, sizeof(b) - n, " [exp %s@0x%02X]", d.name, d.addr);
+        tprintf("%s\n", b);
+        delay(25);
     }
     deselectHub();
 }
@@ -2191,6 +2225,8 @@ void setup()
     Serial.println("[UI] local screen active: BtnA=page, BtnB=id, BtnC(hold)=E-STOP");
     rs485Init(g_rs485Baud);   // RS485 (BMS) probe — passive RX logged; active via BMS/RS485TX cmds
     rcCfgBegin();
+    tofBegin(&extI2C, []() { return selectChannel(kChTof); });
+    g_mast.loadCfg();
     esp_task_wdt_init(kWdtTimeoutS, true);   // auto-reset the chip if the loop hangs (feed each loop)
     esp_task_wdt_add(NULL);                  // watch the loop task
     Serial.printf("[WDT] task watchdog %us (panic-reset on loop hang)\n", (unsigned)kWdtTimeoutS);
@@ -2509,6 +2545,9 @@ void loop()
     }
 
     envStep();          // ENVIII (regen-resistor thermal) — non-blocking, self-throttled to ~1 Hz
+    tofTick(millis());  // Z-height (VL53L1X on ch3) — one I2C transaction per call, at most
+    static uint32_t lastTofPub = 0;
+    if (millis() - lastTofPub > 250) { lastTofPub = millis(); tofPublish(); }
     prismOverlayStep();   // PRISM LAYER_1: Z-axis hazard over turn-signals, non-blocking flash
 
     if ((millis() - last_i2c_scan_ms) > 5000) {
