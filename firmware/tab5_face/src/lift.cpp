@@ -1,230 +1,210 @@
 #include "lift.h"
 #include <VL53L0X.h>
+#include <VL53L1X.h>
 #include <Wire.h>
 
-
 LiftController Lift;
-static VL53L0X tof;
 
-// ---- I2C addresses (verify against the M5 device libs when hardware is
-// attached) ----
-static constexpr uint8_t PBHUB_ADDR = 0x61; // M5Stack PbHUB
-static constexpr uint8_t TOF_ADDR = 0x29;   // M5Stack ToF4M (VL53L1X default)
-// PbHUB channel/pin the relay control lines land on. Relay unit = one digital
-// line, HIGH=coil on.
-static constexpr uint8_t RELAY_UP_CH = 0; // PbHUB CH0
-static constexpr uint8_t RELAY_DN_CH = 1; // PbHUB CH1
+// ---- front rangefinder -------------------------------------------------------------
+// Which M5 ToF unit is fitted is a per-build fact, and getting it wrong is silent: the
+// ToF4M is a VL53L1X with SIXTEEN-BIT registers, the older unit a VL53L0X with 8-bit ones,
+// and a driver for one simply fails to init against the other. That is exactly what was
+// happening here — a VL53L0X driver against a ToF4M, every frame going out as
+// `distance=0, status=0` while looking like a sensor fault.
+//
+// So the part is identified at run time from its model-ID register rather than assumed:
+//   VL53L1X answers 0xEACC at 0x010F,  VL53L0X answers 0xEE at 0xC0.
+// Both drivers are Pololu's and share an API shape, so the dispatch is three branches.
+static constexpr uint8_t TOF_ADDR = 0x29;   // both parts use this by default
+static constexpr int     PIN_SDA  = 53;     // Tab5 Grove Port A
+static constexpr int     PIN_SCL  = 54;
 
-// PbHUB "digital write" register scheme is a placeholder — replace with the M5
-// PbHub call (e.g. Unit_PbHub::digitalWrite(ch, pin, level)) once the unit is
-// on the bus.  [TODO-HW]
-static void pbhubDigitalWrite(uint8_t ch, uint8_t level) {
-  Wire.beginTransmission(PBHUB_ADDR);
-  Wire.write(0x40 + ch); // TODO-HW: confirm PbHUB register map
-  Wire.write(level ? 1 : 0);
-  Wire.endTransmission();
+static VL53L0X tof0;
+static VL53L1X tof1;
+enum class TofPart : uint8_t { NONE, L0X, L1X };
+static TofPart tofPart = TofPart::NONE;
+
+static bool readReg16(uint16_t reg, uint16_t *out) {
+  Wire.beginTransmission(TOF_ADDR);
+  Wire.write((uint8_t)(reg >> 8));
+  Wire.write((uint8_t)reg);
+  if (Wire.endTransmission() != 0) return false;
+  if (Wire.requestFrom((uint8_t)TOF_ADDR, (uint8_t)2) != 2) return false;
+  *out = ((uint16_t)Wire.read() << 8) | Wire.read();
+  return true;
+}
+
+static bool readReg8(uint8_t reg, uint8_t *out) {
+  Wire.beginTransmission(TOF_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission() != 0) return false;
+  if (Wire.requestFrom((uint8_t)TOF_ADDR, (uint8_t)1) != 1) return false;
+  *out = Wire.read();
+  return true;
+}
+
+static void tofBegin() {
+  uint16_t id16 = 0;
+  uint8_t  id8  = 0;
+  if (readReg16(0x010F, &id16) && id16 == 0xEACC) {
+    tof1.setTimeout(500);
+    if (tof1.init()) {
+      tof1.setDistanceMode(VL53L1X::Long);
+      tof1.setMeasurementTimingBudget(50000);
+      tof1.startContinuous(50);
+      tofPart = TofPart::L1X;
+      Serial.println("[TOF] VL53L1X (ToF4M) detected and ranging");
+      return;
+    }
+    Serial.println("[TOF] VL53L1X identified but init FAILED");
+    return;
+  }
+  if (readReg8(0xC0, &id8) && id8 == 0xEE) {
+    tof0.setTimeout(500);
+    if (tof0.init()) {
+      tof0.startContinuous();
+      tofPart = TofPart::L0X;
+      Serial.println("[TOF] VL53L0X detected and ranging");
+      return;
+    }
+    Serial.println("[TOF] VL53L0X identified but init FAILED");
+    return;
+  }
+  Serial.printf("[TOF] no known ToF at 0x%02X (id16=0x%04X id8=0x%02X) — check wiring\n",
+                TOF_ADDR, id16, id8);
 }
 
 void LiftController::begin() {
   mtx_ = xSemaphoreCreateMutex();
   lastTickMs_ = millis();
-  if (!simulate_) {
-    // Grove Port A (G53, G54) I2C init
-    Wire.begin(53, 54, 100000);
+  Wire.begin(PIN_SDA, PIN_SCL, 100000);
+  tofBegin();
+  // Nothing to de-energize: this object no longer drives anything. The lift's relays belong
+  // to the StampPLC, which holds them open unless its own driver says otherwise.
+}
 
-    // Init ToF
-    tof.setTimeout(500);
-    if (tof.init()) {
-      tof.startContinuous();
-    } else {
-      Serial.println("[LIFT] Failed to init VL53L0X ToF sensor!");
+// Returns false on anything the sensor does not vouch for. It deliberately does NOT fall
+// back to 0.0: zero is a plausible-looking distance, and a caller that treats it as one
+// reads a sensor fault as "something is right in front of me".
+bool LiftController::readTofMm_(float *mm) {
+  uint16_t d = 0;
+  switch (tofPart) {
+    case TofPart::L1X:
+      d = tof1.read(false);
+      if (tof1.timeoutOccurred() || tof1.ranging_data.range_status != VL53L1X::RangeValid)
+        return false;
+      break;
+    case TofPart::L0X: {
+      // NOT readRangeContinuousMillimeters(): that one BLOCKS until a sample is ready, up to
+      // the driver timeout. This runs on the 50 Hz control task that also drives the pan/tilt
+      // servos, so a stalled sensor would stutter the head. Poll the interrupt status and
+      // give up immediately if there is nothing waiting.
+      if ((tof0.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07) == 0) return false;
+      d = tof0.readReg16Bit((uint8_t)(VL53L0X::RESULT_RANGE_STATUS + 10));
+      tof0.writeReg(VL53L0X::SYSTEM_INTERRUPT_CLEAR, 0x01);
+      if (d == 8190 || d == 0) return false;
+      break;
     }
-
-    // Ensure both relays start CLOSED (NC, no pulse) so nothing moves on boot.
-    pbhubDigitalWrite(RELAY_UP_CH, 0);
-    pbhubDigitalWrite(RELAY_DN_CH, 0);
+    default:
+      return false;
   }
+  *mm = (float)d;
+  return true;
 }
 
-// The relay is momentary: open (trigger) the NC contact, then closePulses_()
-// releases it.
-void LiftController::pulseRelay_(uint8_t leg, uint32_t nowMs) {
-  if (leg == 0)
-    upPulseUntil_ = nowMs + PULSE_MS;
-  else
-    dnPulseUntil_ = nowMs + PULSE_MS;
-  if (!simulate_)
-    pbhubDigitalWrite(leg == 0 ? RELAY_UP_CH : RELAY_DN_CH,
-                      1); // open NC → trigger
-  Serial.printf("[LIFT] pulse %s leg\n", leg == 0 ? "UP" : "DOWN");
-}
-
-void LiftController::closePulses_(uint32_t nowMs) {
-  if (upPulseUntil_ && nowMs >= upPulseUntil_) {
-    upPulseUntil_ = 0;
-    if (!simulate_)
-      pbhubDigitalWrite(RELAY_UP_CH, 0);
-  }
-  if (dnPulseUntil_ && nowMs >= dnPulseUntil_) {
-    dnPulseUntil_ = 0;
-    if (!simulate_)
-      pbhubDigitalWrite(RELAY_DN_CH, 0);
-  }
-}
-
-float LiftController::readTofMm_() {
-  if (simulate_)
-    return tofMm_; // sim: tofMm_ is advanced in tick()
-
-  uint16_t dist = tof.readRangeContinuousMillimeters();
-  CAN_ToF_Distance canMsg;
-
-  if (tof.timeoutOccurred() || dist == 8190 || dist == 0) {
-    canMsg.distance_mm = 0;
-    canMsg.status = 0; // Error
-    // We don't send the CAN message here, but we've populated the structure.
-    return 0.0f;
-  }
-
-  canMsg.distance_mm = dist;
-  canMsg.status = 1; // OK
-
-  // We don't actually send over CAN (as per requirements), but the data is
-  // wrapped in the format.
-  return (float)dist;
-}
-
-// pulse-toggle / pulse-reverse: pressing a leg while already going that way
-// STOPS; otherwise GO.
-void LiftController::moveCmd_(Motion dir) {
-  if (inhibit_)
-    return;
-  if (motion_ == dir)
-    return;
-  uint32_t now = millis();
-  if (motion_ != Motion::STOP) {
-    pulseRelay_(motion_ == Motion::UP ? 0 : 1, now);
-  }
-  pulseRelay_(dir == Motion::UP ? 0 : 1, now);
-  motion_ = dir;
-}
-
+// ---- requests ----------------------------------------------------------------------
+// Setting an intent is all that happens here. No relay, no pulse timing, no pulse-toggle
+// bookkeeping: the StampPLC's driver owns all of it, including the reversal gap that this
+// code used to violate by firing two pulses back-to-back with both legs briefly energized.
 void LiftController::commandUp() {
-  if (!mtx_)
-    return;
+  if (!mtx_) return;
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  moveCmd_(Motion::UP);
+  if (!inhibit_) { request_ = Motion::UP; requestMs_ = millis(); }
   xSemaphoreGive(mtx_);
 }
+
 void LiftController::commandDown() {
-  if (!mtx_)
-    return;
+  if (!mtx_) return;
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  moveCmd_(Motion::DOWN);
+  if (!inhibit_) { request_ = Motion::DOWN; requestMs_ = millis(); }
   xSemaphoreGive(mtx_);
 }
 
 void LiftController::commandStop() {
-  if (!mtx_)
-    return;
+  if (!mtx_) return;
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  uint32_t now = millis();
-  if (motion_ == Motion::UP)
-    pulseRelay_(0, now);
-  if (motion_ == Motion::DOWN)
-    pulseRelay_(1, now);
-  motion_ = Motion::STOP;
+  request_ = Motion::STOP;
+  requestMs_ = millis();
   xSemaphoreGive(mtx_);
 }
 
 void LiftController::setInhibit(bool on) {
-  if (!mtx_)
-    return;
+  if (!mtx_) return;
   xSemaphoreTake(mtx_, portMAX_DELAY);
   inhibit_ = on;
-  if (on && motion_ != Motion::STOP) { // stop immediately on engage
-    uint32_t now = millis();
-    if (motion_ == Motion::UP)
-      pulseRelay_(0, now);
-    else
-      pulseRelay_(1, now);
-    motion_ = Motion::STOP;
-  }
+  if (on) { request_ = Motion::STOP; requestMs_ = millis(); }   // engaging always asks for stop
+  xSemaphoreGive(mtx_);
+}
+
+Motion LiftController::request() {
+  if (!mtx_) return Motion::STOP;
+  xSemaphoreTake(mtx_, portMAX_DELAY);
+  const Motion r = inhibit_ ? Motion::STOP : request_;
+  xSemaphoreGive(mtx_);
+  return r;
+}
+
+void LiftController::reportFromRobot(float heightMm, Motion motion, bool atTop, bool atBot,
+                                     bool guardHold) {
+  if (!mtx_) return;
+  xSemaphoreTake(mtx_, portMAX_DELAY);
+  heightMm_  = heightMm;
+  motion_    = motion;
+  atTop_     = atTop;
+  atBot_     = atBot;
+  guardHold_ = guardHold;
+  reportMs_  = millis();
   xSemaphoreGive(mtx_);
 }
 
 void LiftController::tick(uint32_t nowMs) {
-  if (!mtx_)
-    return;
-  float dt = (nowMs - lastTickMs_) / 1000.0f;
+  if (!mtx_) return;
   lastTickMs_ = nowMs;
-  if (dt < 0)
-    dt = 0;
-  if (dt > 0.1f)
-    dt = 0.1f;
+  float mm;
+  const bool ok = readTofMm_(&mm);
   xSemaphoreTake(mtx_, portMAX_DELAY);
-
-  // Model travel for the lift (since ToF is not on the lift, we always simulate
-  // height for now)
-  if (motion_ == Motion::UP) {
-    heightMm_ += RATE_MM_S * dt;
-    if (heightMm_ >= MAX_MM) {
-      heightMm_ = MAX_MM;
-      motion_ = Motion::STOP;
-    }
-  } else if (motion_ == Motion::DOWN) {
-    heightMm_ -= RATE_MM_S * dt;
-    if (heightMm_ <= MIN_MM) {
-      heightMm_ = MIN_MM;
-      motion_ = Motion::STOP;
-    }
-  }
-
-  if (simulate_) {
-    tofMm_ = TOF_STANDOFF + heightMm_; // Fake ToF if simulating
-    tofOk_ = true;
-  } else {
-    tofMm_ = readTofMm_();
-    tofOk_ = (tofMm_ > 1.0f);
-  }
-  atBot_ = heightMm_ <= MIN_MM + 0.5f;
-  atTop_ = heightMm_ >= MAX_MM - 0.5f;
-
-  closePulses_(nowMs);
+  tofOk_ = ok;
+  if (ok) tofMm_ = mm;
   xSemaphoreGive(mtx_);
 }
 
-// High-priority safety pass: belt-and-suspenders — if inhibited yet still
-// moving, force stop.
+// The soft e-stop cannot stop the lift itself any more — it has no actuator. What it can do
+// is stop ASKING, immediately and continuously, which the StampPLC reads as stop. The real
+// stop remains the hardware e-stop, which drops the drive bus the lift runs on.
 void LiftController::enforceSafe(uint32_t nowMs) {
-  if (!mtx_)
-    return;
+  (void)nowMs;
+  if (!mtx_) return;
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  if (inhibit_ && motion_ != Motion::STOP) {
-    if (motion_ == Motion::UP)
-      pulseRelay_(0, nowMs);
-    else
-      pulseRelay_(1, nowMs);
-    motion_ = Motion::STOP;
-  }
+  if (inhibit_) request_ = Motion::STOP;
   xSemaphoreGive(mtx_);
 }
 
 LiftController::Snapshot LiftController::snapshot() {
   Snapshot s{};
-  if (!mtx_)
-    return s;
+  if (!mtx_) return s;
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  uint32_t now = millis();
-  s.heightMm = heightMm_;
-  s.tofMm = tofMm_;
-  s.motion = motion_;
-  s.inhibit = inhibit_;
-  s.atTop = atTop_;
-  s.atBot = atBot_;
-  s.tofOk = tofOk_;
-  s.relayUpPulse = upPulseUntil_ && now < upPulseUntil_;
-  s.relayDnPulse = dnPulseUntil_ && now < dnPulseUntil_;
+  const bool fresh = (reportMs_ != 0) && (millis() - reportMs_ < REPORT_STALE_MS);
+  s.heightKnown  = fresh && heightMm_ >= 0.0f;
+  s.heightMm     = s.heightKnown ? heightMm_ : -1.0f;
+  s.motion       = fresh ? motion_ : Motion::STOP;
+  s.atTop        = fresh && atTop_;
+  s.atBot        = fresh && atBot_;
+  s.guardHold    = fresh && guardHold_;
+  s.inhibit      = inhibit_;
+  s.tofMm        = tofMm_;
+  s.tofOk        = tofOk_;
+  s.relayUpPulse = (request_ == Motion::UP);
+  s.relayDnPulse = (request_ == Motion::DOWN);
   xSemaphoreGive(mtx_);
   return s;
 }

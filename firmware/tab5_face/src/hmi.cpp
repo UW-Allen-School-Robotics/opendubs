@@ -93,7 +93,8 @@ static void drawTab5Values() {
   M5.Display.fillRect(TAB5[0] + 110, TAB5[1] + 42, TAB5[2] - 110 - 12, 100, PANEL);
   M5.Display.setTextColor(INK);                              M5.Display.drawString("Z-AXIS LIFT", rx, y0);
   M5.Display.setTextColor(g_linkOnline ? UPCOL : DNCOL);     M5.Display.drawString(g_linkOnline ? "ONLINE" : "OFFLINE", rx, y1);
-  M5.Display.setTextColor(INK);                              M5.Display.drawString(g_ipStr, rx, y2);
+  char ipStr[24]; copyIpStr(ipStr, sizeof(ipStr));
+  M5.Display.setTextColor(INK);                              M5.Display.drawString(ipStr, rx, y2);
 }
 
 static void drawChrome() {
@@ -190,7 +191,10 @@ static void drawReadout(const LiftController::Snapshot& s) {
   M5.Display.fillRect(RDO[0] + 14, RDO[1] + 16, 300, 68, PANEL2);
   M5.Display.setFont(F_BIGNUM); M5.Display.setTextSize(1);
   M5.Display.setTextColor(INK); M5.Display.setTextDatum(textdatum_t::top_left);
-  char buf[8]; snprintf(buf, sizeof buf, "%d", (int)lroundf(s.heightMm));
+  // Unknown height says so. It used to show a locally simulated number as if measured.
+  char buf[8];
+  if (s.heightKnown) snprintf(buf, sizeof buf, "%d", (int)lroundf(s.heightMm));
+  else               snprintf(buf, sizeof buf, "--");
   M5.Display.drawString(buf, RDO[0] + 18, RDO[1] + 20);
   int wpx = RDO[0] + 18 + M5.Display.textWidth(buf) + 8;
   M5.Display.setFont(F_DATA); M5.Display.setTextColor(INKDIM); M5.Display.setTextDatum(textdatum_t::bottom_left);
@@ -207,7 +211,9 @@ static void drawReadout(const LiftController::Snapshot& s) {
 static void drawGauge(const LiftController::Snapshot& s) {
   int ix = GAUGE[0] + 2, iy = GAUGE[1] + 2, iw = GAUGE[2] - 4, ih = GAUGE[3] - 4;
   M5.Display.fillRect(ix, iy, iw, ih, C(11, 17, 22));
-  float frac = (s.heightMm - LiftController::MIN_MM) / (LiftController::MAX_MM - LiftController::MIN_MM);
+  float frac = s.heightKnown
+      ? (s.heightMm - LiftController::MIN_MM) / (LiftController::MAX_MM - LiftController::MIN_MM)
+      : 0.0f;
   if (frac < 0) frac = 0; if (frac > 1) frac = 1;
   int fh = (int)(ih * frac);
   if (fh > 0) M5.Display.fillRect(ix, iy + ih - fh, iw, fh, CYAN);
@@ -232,7 +238,8 @@ static void drawTopRight(const HmiCtx& ctx) {
   char rv[24]; snprintf(rv, sizeof rv, "\xE2\x86\xA9 face in %ds", ctx.revertSecs);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(rv, rx, TOP / 2); rx -= M5.Display.textWidth(rv) + 24;
   M5.Display.setFont(F_DATA);
-  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", g_ipStr);
+  char ipStr[24]; copyIpStr(ipStr, sizeof(ipStr));
+  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", ipStr);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(ipl, rx, TOP / 2); rx -= M5.Display.textWidth(ipl) + 24;
   const char* lk = g_linkOnline ? "LINK ONLINE" : "LINK OFFLINE";
   M5.Display.setTextColor(INKDIM); M5.Display.drawString(lk, rx, TOP / 2); rx -= M5.Display.textWidth(lk) + 14;

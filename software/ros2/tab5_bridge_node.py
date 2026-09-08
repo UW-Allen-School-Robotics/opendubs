@@ -4,9 +4,11 @@ from sensor_msgs.msg import Range
 from std_msgs.msg import String
 import socket
 import struct
+import json
 import threading
 import time
 import urllib.request
+import os
 
 try:
     import cv2
@@ -19,6 +21,11 @@ CAN_ID_TOF_FRONT = 0x101
 CAN_ID_LIFT_CMD = 0x102
 CAN_ID_ROBOT_STATE = 0x103
 CAN_ID_PAN_TILT_CMD = 0x104
+CAN_ID_LIFT_STATE = 0x105
+
+LIFT_STATE_FMT = "<HBB"   # height_mm, motion, flags
+LIFT_HEIGHT_UNKNOWN = 0xFFFF
+LIFT_FLAG_AT_TOP, LIFT_FLAG_AT_BOTTOM, LIFT_FLAG_GUARD = 0x01, 0x02, 0x04
 
 CAN_FRAME_FMT = "<IB8s" # little-endian, uint32, uint8, 8 bytes
 TOF_DATA_FMT = "<HB" # uint16, uint8
@@ -26,16 +33,49 @@ LIFT_CMD_FMT = "<B" # uint8
 ROBOT_STATE_FMT = "<B" # uint8
 PAN_TILT_CMD_FMT = "<hh" # int16, int16
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../kiosk-dashboard/backend'))
-import stamplc
+# Talk to the StampPLC through the dashboard's HTTP API, NOT by importing its reader.
+#
+# Importing `stamplc` spawns a second reader thread that binds UDP:5005 with SO_REUSEPORT —
+# and Linux LOAD-BALANCES datagrams across sockets bound that way rather than duplicating
+# them. Running this node alongside opendubs-dash would therefore have silently stolen
+# roughly half the robot's telemetry from the dashboard. One reader, one owner.
+DASH = os.environ.get("OPENDUBS_DASH", "http://127.0.0.1:8080")
 
-def send_relay(ch, state):
+# Z-axis commands go through the StampPLC's mast driver, NOT to its relays.
+#
+# This used to write `RELAY 2 1` / `RELAY 3 0` straight to the relay expander. Three things
+# were wrong with that, and the third is the one that matters:
+#
+#   * the relay numbers were wrong -- the bench-verified map is code R2 (silk R3) UP and
+#     code R1 (silk R2) DOWN, so "down" was driving R3, which is not the lift;
+#   * it set relay LEVELS, but the lift controller is pulse-toggle, so a held closure is a
+#     held button rather than a press;
+#   * and it bypassed ScissorRelayMast entirely -- no pinch guard, no limit detection, no
+#     belief correction. A network packet could lower the lift through the pinch zone.
+#
+# `MAST CMD <-1..1>` feeds the same setIntent() the RC sticks do. It is heartbeat-gated at
+# the firmware end, so a bridge that dies stops the lift rather than leaving it running.
+MAST_HEARTBEAT_S = 0.1          # firmware drops intent after 250 ms of silence
+
+
+def send_mast(v):
+    """v in -1..1; positive is UP. Returns False if the link is not usable."""
+    cmd = "up" if v > 0.25 else ("down" if v < -0.25 else "stop")
     try:
-        stamplc.reader.send(f"RELAY {ch} {state}")
+        req = urllib.request.Request(f"{DASH}/api/mast/{cmd}", method="POST")
+        urllib.request.urlopen(req, timeout=0.5).read()
+        return True
     except Exception:
-        pass
+        return False
+
+
+def read_lift_state():
+    """Lift state as the StampPLC measures it. {} when unavailable."""
+    try:
+        with urllib.request.urlopen(f"{DASH}/api/stamplc", timeout=0.5) as r:
+            return (json.loads(r.read()).get("drive") or {})
+    except Exception:
+        return {}
 
 class Tab5BridgeNode(Node):
     def __init__(self):
@@ -44,11 +84,23 @@ class Tab5BridgeNode(Node):
         self.state_sub = self.create_subscription(String, '/robot/state', self.state_callback, 10)
         
         self.udp_ip = "0.0.0.0"
-        self.udp_port = 5005
+        # 5006, not 5005. Port 5005 is the StampPLC telemetry port that the Thor's recorder
+        # listens on; the Tab5 was broadcasting binary CAN frames into it and corrupting the
+        # robot's telemetry log.
+        self.udp_port = 5006
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.udp_ip, self.udp_port))
         
         self.last_tab5_ip = None
+
+        # Held Z-axis intent, re-asserted at MAST_HEARTBEAT_S. The firmware drops to stop
+        # after 250 ms of silence, so a crashed or wedged bridge stops the lift instead of
+        # leaving it travelling — the same discipline as the drive command.
+        self.mast_intent = 0.0
+        self.create_timer(MAST_HEARTBEAT_S, self._mast_heartbeat)
+        # Tell the Tab5 what the lift is actually doing, so its HMI shows measured state
+        # instead of a local model.
+        self.create_timer(0.2, self._publish_lift_state)
         
         if HAS_CV:
             self.yolo_model = YOLO('yolov8n.pt')
@@ -127,19 +179,45 @@ class Tab5BridgeNode(Node):
                             
                     elif can_id == CAN_ID_LIFT_CMD:
                         cmd, = struct.unpack(LIFT_CMD_FMT, payload[:1])
-                        self.get_logger().info(f"Lift command received: {cmd}")
-                        if cmd == 1:
-                            send_relay(2, 1)
-                            send_relay(3, 0)
-                        elif cmd == 2:
-                            send_relay(2, 0)
-                            send_relay(3, 1)
-                        else:
-                            send_relay(2, 0)
-                            send_relay(3, 0)
+                        # 1 = up, 2 = down, anything else = stop. Held as an intent and
+                        # re-asserted by _mast_heartbeat below, because the firmware treats
+                        # silence as "stop" -- which is what we want if this node dies.
+                        self.mast_intent = 1.0 if cmd == 1 else (-1.0 if cmd == 2 else 0.0)
+                        self.get_logger().info(
+                            f"Lift command {cmd} -> MAST CMD {self.mast_intent:+.1f}")
+                        send_mast(self.mast_intent)
                         
             except Exception as e:
                 self.get_logger().error(f"UDP Error: {e}")
+
+    def _publish_lift_state(self):
+        if not self.last_tab5_ip:
+            return
+        d = read_lift_state()
+        if not d:
+            return
+        h = d.get("mast_h_mm")
+        height = LIFT_HEIGHT_UNKNOWN if (h is None or h < 0) else min(int(h), 0xFFFE)
+        # "scissor:2" -> 2
+        motion = 0
+        mast = d.get("mast") or ""
+        if ":" in mast:
+            try: motion = int(mast.split(":")[1])
+            except ValueError: motion = 0
+        flags = LIFT_FLAG_GUARD if d.get("pinch") == "HOLD" else 0
+        payload = struct.pack(LIFT_STATE_FMT, height, motion, flags)
+        frame = struct.pack(CAN_FRAME_FMT, CAN_ID_LIFT_STATE, len(payload),
+                            payload.ljust(8, b"\x00"))
+        try:
+            self.sock.sendto(frame, (self.last_tab5_ip, 4242))
+        except Exception:
+            pass
+
+    def _mast_heartbeat(self):
+        # Only speak while there is something to say. Sending a stream of zeros would keep
+        # the firmware's autonomous heartbeat alive for no reason.
+        if self.mast_intent != 0.0:
+            send_mast(self.mast_intent)
 
     def state_callback(self, msg):
         state_map = {"idle": 0, "moving": 1, "error": 2}

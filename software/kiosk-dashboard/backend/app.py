@@ -59,21 +59,52 @@ def stamplc_status() -> JSONResponse:
     (opendubs-stamplc-bridge) — avoids the heavy full snapshot on a fast poll."""
     f = status_mod.collect_fast()
     return JSONResponse({"io": f["io"], "safety": f["safety"],
-                         "encoder": f["encoder"], "power": f["power"]})
+                         "encoder": f["encoder"], "power": f["power"],
+                         # Z-axis state, so the Tab5 bridge can report real lift height and
+                         # guard state instead of running its own StampPLC reader.
+                         "drive": f.get("drive") or {}})
+
+
+@app.post("/api/mast/{cmd}")
+def mast_control(cmd: str) -> JSONResponse:
+    """Z-axis intent: up | down | stop.
+
+    This is the ONLY way anything on the network moves the lift. It becomes `MAST CMD` on
+    the StampPLC, which feeds the same driver the RC sticks do — so the pinch guard, the
+    limit detection and the authority/deadman gate all still apply. Writing the lift's
+    relays directly (as /api/relay used to allow) walks past every one of them.
+
+    The command is an INTENT and the firmware expires it after 250 ms, so a caller has to
+    keep asking. That is deliberate: a caller that dies stops the lift."""
+    import stamplc
+    v = {"up": 1.0, "down": -1.0, "stop": 0.0}.get(cmd.lower())
+    if v is None:
+        return JSONResponse({"ok": False, "error": "use up|down|stop"}, status_code=400)
+    stamplc.reader.send(f"MAST CMD {v:.2f}")
+    return JSONResponse({"ok": True, "mast": cmd.lower(), "v": v})
 
 
 @app.post("/api/relay/{ch}/{state}")
 def relay_control(ch: str, state: str) -> JSONResponse:
-    """Toggle a dashboard-controllable StampLC relay (only 2 & 3 — relay 0 is the
-    e-stop contactor and stays off the free-toggle list; relay 1 is currently
-    unassigned (its battery-leg gate function went away with the passive DBC))."""
+    """Toggle a dashboard-controllable StampLC relay.
+
+    Only relay 3 is free. The others all mean something now:
+      R0  e-stop contactor
+      R1  scissor lift DOWN leg   <- was documented "unassigned"; it is not
+      R2  scissor lift UP leg
+    Relays 1 and 2 are the lift's buttons, and pressing them from here would bypass the
+    mast driver and its pinch guard entirely. Use /api/mast/{up|down|stop} instead."""
     import stamplc
     try:
         c = int(ch)
     except ValueError:
         return JSONResponse({"ok": False, "error": "bad channel"}, status_code=400)
-    if c not in (2, 3):
-        return JSONResponse({"ok": False, "error": "only relays 2,3 are controllable"}, status_code=400)
+    if c in (1, 2):
+        return JSONResponse({"ok": False,
+                             "error": "relays 1 and 2 are the lift legs — use /api/mast/{up|down|stop} "
+                                      "so the pinch guard applies"}, status_code=409)
+    if c != 3:
+        return JSONResponse({"ok": False, "error": "only relay 3 is free"}, status_code=400)
     on = state.lower() in ("1", "on", "true")
     stamplc.reader.send(f"RELAY {c} {1 if on else 0}")
     return JSONResponse({"ok": True, "relay": c, "state": on})

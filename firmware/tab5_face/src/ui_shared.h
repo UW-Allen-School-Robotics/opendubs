@@ -1,6 +1,7 @@
 // OpenDubs Tab5 — shared UI state: the robot-state presentation map (used by both the
 // full face and the collapsed controller chip), the UI mode, and the SAFE_IDLE puns.
 #pragma once
+#include <stddef.h>
 #include <M5Unified.h>
 
 // ---- robot-state presentation map ----
@@ -26,7 +27,12 @@ extern volatile int g_turnCmd;
 
 // link/identity (set by commsTask once WiFi/CAN is up; stubbed OFFLINE for now)
 extern volatile bool g_linkOnline;
-extern char g_ipStr[24];          // guarded by nothing heavy; written only by commsTask
+// Written by commsTask (core 0), read by the UI (core 1) — always through these accessors,
+// never directly. See ui_shared.cpp.
+extern char g_ipStr[24];
+void setIpStr(const char *ip);
+void clearIpStr();
+void copyIpStr(char *out, size_t outSize);
 
 // SAFE_IDLE pun ticker (humor 60%, discretion 100% — robot/sci-fi, clean)
 extern const char* const PUNS[];

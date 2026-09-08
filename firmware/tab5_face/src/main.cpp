@@ -143,7 +143,27 @@ static void streamerTask(void *) {
 }
 
 static WiFiUDP Udp;
-static const uint16_t UDP_PORT = 4242;
+static const uint16_t UDP_PORT = 4242;          // we LISTEN here
+// We used to transmit to 255.255.255.255:5005. Port 5005 is the StampPLC's telemetry port,
+// and the Thor's recorder was ingesting these binary CAN frames into the robot's telemetry
+// log — corrupting the log we diagnose the robot with. Transmit has its own port now, and
+// goes to the subnet broadcast rather than the global one.
+static const uint16_t TX_PORT  = 5006;
+
+// Directed subnet broadcast: 255.255.255.255 is not routed and gets sprayed out of whichever
+// interface the stack picks, which on a multi-homed robot is a coin flip.
+static IPAddress txTarget()
+{
+    const IPAddress ip = WiFi.localIP(), mask = WiFi.subnetMask();
+    return IPAddress((uint8_t)(ip[0] | ~mask[0]), (uint8_t)(ip[1] | ~mask[1]),
+                     (uint8_t)(ip[2] | ~mask[2]), (uint8_t)(ip[3] | ~mask[3]));
+}
+
+// Only the robot's own controller may command this head. Without a source check any host on
+// the network could drive the servos and hold the link "online". The Thor is whoever the
+// robot-state feed comes from, so the first valid state frame pins it.
+static IPAddress g_thorIp;
+static bool      g_haveThor = false;
 
 static void commsTask(void *) {
   // Bring up WiFi via the ESP32-C6 co-processor (ESP-Hosted)
@@ -160,11 +180,21 @@ static void commsTask(void *) {
 
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      strncpy(g_ipStr, WiFi.localIP().toString().c_str(), sizeof(g_ipStr) - 1);
+      setIpStr(WiFi.localIP().toString().c_str());
       if (!ota_setup) {
+        // Explicit port, and callbacks that SAY something. The unit on the bench was found
+        // with tcp/3232 closed while WiFi was up and streaming, and nothing anywhere said
+        // why — begin() returns void and every failure was silent. At minimum the log now
+        // distinguishes "never started" from "started and then died".
         ArduinoOTA.setHostname("opendubs-tab5");
+        ArduinoOTA.setPort(3232);
+        ArduinoOTA.onStart([]() { Serial.println("[OTA] start"); });
+        ArduinoOTA.onEnd([]() { Serial.println("[OTA] done — rebooting"); });
+        ArduinoOTA.onError([](ota_error_t e) { Serial.printf("[OTA] error %u\n", (unsigned)e); });
         ArduinoOTA.begin();
         ota_setup = true;
+        Serial.printf("[OTA] listening on %s:3232 as opendubs-tab5\n",
+                      WiFi.localIP().toString().c_str());
       }
       if (!udp_setup) {
         Udp.begin(UDP_PORT);
@@ -175,25 +205,49 @@ static void commsTask(void *) {
       // Receive UDP packets for robot state feed
       int packetSize = Udp.parsePacket();
       if (packetSize) {
-        char packetBuffer[64];
-        int len = Udp.read(packetBuffer, sizeof(packetBuffer) - 1);
-        if (len >= sizeof(can_frame_udp)) {
-          can_frame_udp *frame = (can_frame_udp *)packetBuffer;
-          if (frame->can_id == CAN_ID_ROBOT_STATE) {
+        // Read into a union rather than casting a packed struct out of a char array: the
+        // buffer is then correctly aligned for the fields, which RISC-V cares about more
+        // than the Xtensa parts did.
+        union { can_frame_udp frame; char text[64]; } pkt;
+        const IPAddress from = Udp.remoteIP();
+        int len = Udp.read((uint8_t *)&pkt, sizeof(pkt) - 1);
+        char *packetBuffer = pkt.text;
+        if (len >= (int)sizeof(can_frame_udp)) {
+          can_frame_udp *frame = &pkt.frame;
+          // can_dlc is checked against each payload before it is read — the length on the
+          // wire is attacker-controlled, and a short frame would otherwise be read past.
+          if (frame->can_id == CAN_ID_ROBOT_STATE
+              && frame->can_dlc >= sizeof(CAN_Robot_State)) {
             CAN_Robot_State *state = (CAN_Robot_State *)frame->data;
             if (state->state_id < NST) {
+              if (!g_haveThor) { g_thorIp = from; g_haveThor = true; }   // pin the controller
               g_robotState = state->state_id;
               last_state_ms = millis();
               extern volatile bool g_linkOnline; // ensure we can set it
               g_linkOnline = true;
             }
-          } else if (frame->can_id == CAN_ID_PAN_TILT_CMD) {
-            CAN_Pan_Tilt_Command *pt = (CAN_Pan_Tilt_Command *)frame->data;
-            
-            // Any valid packet from Thor means the link is online
+          } else if (frame->can_id == CAN_ID_LIFT_STATE
+                     && frame->can_dlc >= sizeof(CAN_Lift_State)
+                     && g_haveThor && from == g_thorIp) {
+            // What the lift is ACTUALLY doing, measured on the StampPLC. The Tab5 used to
+            // model this locally and show the model as if it were real.
+            CAN_Lift_State *ls = (CAN_Lift_State *)frame->data;
+            Lift.reportFromRobot(
+                ls->height_mm == LIFT_HEIGHT_UNKNOWN ? -1.0f : (float)ls->height_mm,
+                ls->motion == 1 ? Motion::UP : ls->motion == 2 ? Motion::DOWN : Motion::STOP,
+                (ls->flags & LIFT_FLAG_AT_TOP) != 0, (ls->flags & LIFT_FLAG_AT_BOTTOM) != 0,
+                (ls->flags & LIFT_FLAG_GUARD) != 0);
             g_linkOnline = true;
             last_state_ms = millis();
-            
+          } else if (frame->can_id == CAN_ID_PAN_TILT_CMD
+                     && frame->can_dlc >= sizeof(CAN_Pan_Tilt_Command)
+                     && g_haveThor && from == g_thorIp) {
+            CAN_Pan_Tilt_Command *pt = (CAN_Pan_Tilt_Command *)frame->data;
+
+            // A packet from the pinned controller means the link is online
+            g_linkOnline = true;
+            last_state_ms = millis();
+
             if (g_trackingMode == TrackingMode::AI) {
               g_targetPan = pt->pan_angle;
               g_targetTilt = pt->tilt_angle;
@@ -230,16 +284,29 @@ static void commsTask(void *) {
         tof->distance_mm = (uint16_t)s.tofMm;
         tof->status = s.tofOk ? 1 : 0;
 
-        Udp.beginPacket(IPAddress(255, 255, 255, 255), 5005);
+        Udp.beginPacket(txTarget(), TX_PORT);
         Udp.write((const uint8_t *)&frame, sizeof(frame));
+        Udp.endPacket();
+
+        // Ask for what the operator pressed. The StampPLC decides whether to honour it —
+        // deadman, authority, limits and the pinch guard all still apply there.
+        can_frame_udp lf = {0};
+        lf.can_id = CAN_ID_LIFT_CMD;
+        lf.can_dlc = sizeof(CAN_Lift_Command);
+        CAN_Lift_Command *lc = (CAN_Lift_Command *)lf.data;
+        const Motion req = Lift.request();
+        lc->command = (req == Motion::UP) ? 1 : (req == Motion::DOWN) ? 2 : 0;
+        Udp.beginPacket(txTarget(), TX_PORT);
+        Udp.write((const uint8_t *)&lf, sizeof(lf));
         Udp.endPacket();
       }
     } else {
       if (!hosted_ok) {
-        strncpy(g_ipStr, "ERR: ESP-Hosted Failed", sizeof(g_ipStr) - 1);
+        setIpStr("ERR: ESP-Hosted Failed");
       } else {
-        snprintf(g_ipStr, sizeof(g_ipStr) - 1, "Connecting... (%d)",
-                 (int)WiFi.status());
+        char st[24];
+        snprintf(st, sizeof(st), "Connecting... (%d)", (int)WiFi.status());
+        setIpStr(st);
       }
       ota_setup = false;
       if (udp_setup) {
