@@ -78,6 +78,7 @@ class StampReader:
         self._transport = None      # "udp" | "serial" | None
         self._peer = None           # (ip, port) to unicast commands to over UDP
         self._txq = []
+        self._parse_errors = 0
         threading.Thread(target=self._run, name="stamplc", daemon=True).start()
 
     def send(self, cmd: str):
@@ -94,8 +95,18 @@ class StampReader:
             return
         for line in text.replace("\r", "").split("\n"):
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 self._parse(line)
+            except Exception as e:
+                # One malformed or unexpected line must not stop the others in this datagram,
+                # and must not stall `_last` into staleness — staleness is a SAFETY input.
+                self._parse_errors += 1
+                if self._parse_errors in (1, 10, 100) or self._parse_errors % 1000 == 0:
+                    import sys
+                    sys.stderr.write(f"STAMPLC: parse error #{self._parse_errors} "
+                                     f"({type(e).__name__}: {e}) on: {line[:120]}\n")
 
     def _run(self):
         # Transport select: 'auto' (default) prefers Ethernet — the StampPLC tees the SAME [TAG]
@@ -352,6 +363,7 @@ class StampReader:
                     except ValueError:
                         w = None
                 fnum = lambda k: (float(kv[k]) if k in kv else None)
+                inum = lambda k: (int(float(kv[k])) if k in kv else None)
                 self._d["drive"] = {"mode": kv.get("mode"), "armed": kv.get("armed") == "1",
                                     "wheels": w,
                                     "fwd": fnum("fwd"), "rot": fnum("rot"), "str": fnum("str"),
@@ -363,7 +375,7 @@ class StampReader:
                                     "mast_h_mm": fnum("h"),
                                     "pinch": kv.get("pinch"),
                                     "safe": kv.get("safe") == "1",
-                                    "loop_max_ms": _i("loopmax")}
+                                    "loop_max_ms": inum("loopmax")}
                 self._last = now; return
 
     def snapshot(self):
