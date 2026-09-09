@@ -4,6 +4,20 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 
 ---
 
+## 0a. DEPLOYMENT DRIFT — run this before trusting the robot to match the repo
+
+- **[TODO] `tools/deploy-audit.py <robot>`** — the repo is not what is running. PR #9 pinned
+  the ESP32 platform on 2026-09-01; opendubs2 never got it, and on 2026-09-08 that broke the
+  StampPLC build mid-session for reasons unrelated to what we were changing. See
+  [deployment-drift.md](deployment-drift.md). Also: `main.cpp` on the robot carries two
+  features that exist nowhere else (PWM mirror, contactor auto-arm) — they would be lost
+  with the SD card.
+- **[DEC] A deploy path that understands per-robot values.** The audit reports drift; it
+  does not prevent it. `tools/access.py` already makes the "shared vs per-machine"
+  distinction for accounts; deployment needs the same idea.
+
+---
+
 ## 0. NEXT RECONNECT — open carryover (captured 2026-08-06, robot disconnected for the day)
 
 - **[DONE] Intermittent RC signal loss — RESOLVED (2026-08-07).** Root cause was NOT wiring: the control loop **blocked on `Serial.printf`**. `kSbusPrintEveryNFrames=1` printed a long `[SBUS] OK` line per frame (~83/s firehose); when the dashboard parser hiccuped, the USB-CDC TX buffer filled and the next printf stalled the loop 0.3–2 s → SBUS unserviced → `publishRc` emitted `[RC] live=0` → dashboard NO-LINK. Fixes: throttled `[SBUS] OK` to ~2/s (kSbusPrintEveryNFrames 1→40); `availableForWrite()` guards on publishRc/Drive/Io (drop, don't block); `Serial.setTxTimeoutMs(0)`; non-blocking BMS state machine `bmsStep()`. Verified 240 s / 521 dashboard polls: rc_link DOWN=0, never not-fresh. Principle enforced: **the control loop never waits on a telemetry consumer.**
