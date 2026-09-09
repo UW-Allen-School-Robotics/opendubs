@@ -96,10 +96,37 @@ static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
 // A RATE, not an angle. The stick is spring-centred — hold to move, release to stop — and
 // the Tab5 owns the position, so two devices can never integrate separately and diverge.
 static constexpr uint16_t kTab5Port   = 4242;
+static constexpr uint16_t kHeadLocalPort = 5007;   // our end of the head link
 static constexpr float    kHeadDps    = 60.0f;   // full stick = 60 deg/s
 static constexpr uint32_t kHeadSendMs = 50;      // 20 Hz; the Tab5 expires it after 600 ms
 static IPAddress g_tab5Ip;
 static bool      g_haveTab5 = false;
+// Its OWN socket, not the one used for telemetry broadcast and command receive. Sending on
+// a W5500 socket that is bound for receive makes the driver tear the socket down and rebuild
+// it around each send, which costs tens of milliseconds — and this transmits at 20 Hz while
+// the operator is aiming, i.e. exactly when the control loop must not stall. The chip has
+// eight sockets; spending one here is cheap.
+// ONE SOCKET AT A TIME. The Ethernet library is built with MAX_SOCK_NUM 2 — eth_udp holds
+// one, so a permanently-open second socket leaves ZERO for anything else, including the
+// OTA's HTTP client. That is exactly what happened: the head socket opened the first time
+// an operator aimed the stick, and every OTA afterwards silently failed to fetch while the
+// board dutifully dropped its drive bus on each attempt. Recovering needed a physical reset.
+//
+// So the head socket is held only while actually aiming, and released shortly after. You do
+// not reflash while aiming a head, so the two uses never need to overlap.
+static EthernetUDP head_udp;
+static bool        head_udp_open = false;
+static uint32_t    head_last_tx_ms = 0;
+static constexpr uint32_t kHeadIdleCloseMs = 1000;
+
+static void headSocketClose()
+{
+    if (!head_udp_open) return;
+    head_udp.stop();
+    head_udp_open = false;
+}
+static uint32_t    g_headTx = 0;      // head packets actually put on the wire
+static bool        g_headSockFail = false;   // begin() refused — no free W5500 socket?
 
 // PWM MIRROR — a diagnostic, off by default.
 //
@@ -129,6 +156,12 @@ static constexpr uint8_t  kEscRevDwellTicks = 10;     // on a direction flip: br
                                                       // the bus clamp can absorb it — a full FWD→REV slam tripped the ESCs.
 static constexpr uint32_t kDriveTickMs      = 20;     // 50 Hz output (matches the 2x80A's expected RC rate)
 static constexpr uint32_t kRosCmdTimeoutMs  = 250;    // autonomous heartbeat: a stale Thor/ROS cmd → neutral
+// Build identity. An OTA that silently does not land is worse than one that fails: it leaves
+// you reading stale firmware while believing you are testing a fix, which cost real time
+// today. The flash script compares this across the reboot and refuses to claim success
+// unless it changed.
+static const char kBuildId[] = __DATE__ " " __TIME__;
+
 static constexpr uint32_t kWdtTimeoutS      = 8;      // task watchdog: loop hang > this → auto chip reset
 
 // ==== DRIVE-SAFE GATE ===============================================================
@@ -1417,6 +1450,18 @@ void handleHostCommand(const char* cmd)
         return;
     }
 
+    if (strcmp(cmd, "REBOOT") == 0) {
+        // Deliberate, and safe-by-order: drop the contactor FIRST so the bus is dead across
+        // the restart, exactly as the OTA path does. Exists because recovering a wedged
+        // Ethernet socket otherwise required physical access to the board.
+        M5StamPLC.writePlcRelay(0, false);
+        local_estop_active = true;
+        tprintf("[SYS] REBOOT — contactor opened, restarting\n");
+        delay(150);                     // let the telemetry line reach the wire
+        ESP.restart();
+        return;
+    }
+
     if (strcmp(cmd, "ESTOP") == 0) {
         // Safe-direction software E-stop: drop the contactor coil (relay 0).
         M5StamPLC.writePlcRelay(0, false);
@@ -2136,6 +2181,8 @@ static void driveTick()
         static uint32_t lastHeadMs = 0;
         const bool aiming = armOK && mode == RCM_MANUAL_LIVE
                          && g_payloadMode == PM_PANTILT && g_pmodeArmed;
+        if (!aiming && head_udp_open && millis() - head_last_tx_ms > kHeadIdleCloseMs)
+            headSocketClose();          // give the socket back; something else will need it
         if (millis() - lastHeadMs >= kHeadSendMs) {
             lastHeadMs = millis();
             // Only transmit while actually aiming. Silence is how the Tab5 knows the stick
@@ -2150,9 +2197,21 @@ static void driveTick()
                 const int16_t tdps = (int16_t)lroundf(tilt * kHeadDps);
                 memcpy(&f.d[0], &pdps, 2);
                 memcpy(&f.d[2], &tdps, 2);
-                eth_udp.beginPacket(g_tab5Ip, kTab5Port);
-                eth_udp.write((const uint8_t *)&f, sizeof(f));
-                eth_udp.endPacket();
+                if (!head_udp_open) {
+                    head_udp_open = head_udp.begin(kHeadLocalPort) == 1;
+                    if (!head_udp_open && !g_headSockFail) {
+                        g_headSockFail = true;
+                        tprintf("[HEAD] UDP begin(%u) FAILED — no free W5500 socket\n",
+                                kHeadLocalPort);
+                    }
+                }
+                if (head_udp_open) {
+                    head_udp.beginPacket(g_tab5Ip, kTab5Port);
+                    head_udp.write((const uint8_t *)&f, sizeof(f));
+                    head_udp.endPacket();
+                    g_headTx++;
+                    head_last_tx_ms = millis();
+                }
             }
         }
     }
@@ -2199,12 +2258,18 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu s8abs=%d mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu s8abs=%d headtx=%lu hsock=%d estop=%d bus=%d mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
                   (unsigned long)g_i2cRecoverCount,
                   g_s8Absent ? 1 : 0,
+                  (unsigned long)g_headTx, head_udp_open ? 1 : 0,
+                  // estop = the firmware's own latch (set by OTA, ESTOP, or BtnC).
+                  // bus   = contactor actually closed. Both were invisible here, so a robot
+                  // with its drive bus down reported nothing but healthy lines.
+                  local_estop_active ? 1 : 0,
+                  M5StamPLC.readPlcRelay(0) ? 1 : 0,
                   g_mast.name(),
                   (int)g_mast.motion(),
                   g_mast.heightMm(),
@@ -2650,9 +2715,9 @@ static void netMaintain()
     static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
     if (millis() - last_net_stat > 5000) {
         last_net_stat = millis();
-        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu\n",
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s\n",
                 (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
-                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL);
+                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId);
     }
 
     if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
@@ -2742,6 +2807,10 @@ static void pollNetCommands()
 static void otaHttpPull(const char* url)
 {
     if (!eth_up) { Serial.println("[OTA] abort: Ethernet down"); return; }
+
+    // Free the head socket first: with MAX_SOCK_NUM 2 the HTTP client cannot open while it
+    // is held, and the fetch would fail AFTER we had already dropped the bus.
+    headSocketClose();
 
     // Safety: open R0 so the drive bus is dead while we reflash + across the reboot.
     M5StamPLC.writePlcRelay(0, false); local_estop_active = true;
@@ -3030,6 +3099,7 @@ void loop()
     // it is gated on DRIVE_ENABLE. So you can watch arming/protection work with no
     // signal reaching the ESCs until you flip the flag. ----
     if ((millis() - last_drive_ms) >= kDriveTickMs) {
+        phaseBegin("drive");
         driveTick();
         rcCalTick(rc_ch);   // accumulate endpoints while an RCCAL SWEEP runs
         last_drive_ms = millis();
