@@ -270,8 +270,12 @@ static void commsTask(void *) {
         // id has to be one we know before this is treated as binary; anything else falls
         // through to the text parser.
         const uint32_t cid = (len >= (int)sizeof(can_frame_udp)) ? pkt.frame.can_id : 0;
+        // Every id handled below MUST be listed here, or the frame falls through to the text
+        // parser and is silently dropped. CAN_ID_PAN_TILT_RATE was added later and missed,
+        // so the RC stick transmitted 20 times a second into a packet this line discarded —
+        // the StampPLC counted 553 sends while the head never saw one.
         const bool isFrame = (cid == CAN_ID_ROBOT_STATE || cid == CAN_ID_PAN_TILT_CMD
-                              || cid == CAN_ID_LIFT_STATE);
+                              || cid == CAN_ID_PAN_TILT_RATE || cid == CAN_ID_LIFT_STATE);
         if (isFrame) {
           can_frame_udp *frame = &pkt.frame;
           // can_dlc is checked against each payload before it is read — the length on the
