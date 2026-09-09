@@ -19,9 +19,17 @@
 // displayed on the HMI as though measured. A plausible-looking fake number next to a real
 // machine is worse than an honest "unknown", so unknown is what it now says.
 //
-// The ToF on this unit is the FRONT rangefinder (CAN_ID_TOF_FRONT). It is not the lift's
-// height sensor; that one is on the StampPLC's PaHub. The old comments here claimed it shot
-// up the lift column, which was never true of this build.
+// TWO DIFFERENT DISTANCES, and keeping them apart is the point:
+//
+//   tofMm     the screen-mounted FRONT rangefinder on this unit. What the head is looking
+//             at. Read locally, published as CAN_ID_TOF_FRONT.
+//   heightMm  the LIFT height, measured by the StampPLC's own ToF, calibrated there against
+//             the lift's limits and feeding the pinch guard. It arrives over UDP, so the
+//             head shows exactly the number the safety logic acts on rather than a second
+//             opinion. This is the "-- mm" between the up/down buttons.
+//
+// The head must never measure its own lift height. Two answers to one question is how this
+// ended up displaying a locally simulated number in the first place.
 #pragma once
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
@@ -41,7 +49,8 @@ public:
   struct Snapshot {
     float   heightMm;      // reported by the StampPLC; < 0 when unknown
     bool    heightKnown;
-    float   tofMm;         // FRONT rangefinder, not lift height
+    float   tofMm;         // FRONT rangefinder on this unit — NOT the lift height
+    uint8_t tofPart;       // TOF_PART_* — which front sensor answered at boot, 0 = none
     Motion  motion;        // reported
     bool    inhibit;       // soft e-stop engaged (refuses to send requests)
     bool    atTop;
@@ -73,6 +82,9 @@ public:
   Snapshot snapshot();
 
   static constexpr uint32_t REPORT_STALE_MS = 1500;
+  // A front reading older than this is not a reading. Longer than the sensor's ~33 ms sample
+  // period, short enough that a dead sensor is noticed promptly.
+  static constexpr uint32_t TOF_STALE_MS = 400;
 
 private:
   bool  readTofMm_(float *mm);   // true only on a reading the sensor vouches for
@@ -88,9 +100,11 @@ private:
   bool     atTop_ = false, atBot_ = false, guardHold_ = false;
   uint32_t reportMs_   = 0;
 
-  float    tofMm_ = -1.0f;
-  bool     tofOk_ = false;
   uint32_t lastTickMs_ = 0;
+
+  float    tofMm_ = -1.0f;      // front rangefinder
+  bool     tofOk_ = false;
+  uint32_t tofFreshMs_ = 0;     // when the last VALID front sample arrived
 };
 
 extern LiftController Lift;

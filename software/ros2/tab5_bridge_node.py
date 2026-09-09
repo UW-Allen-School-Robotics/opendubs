@@ -28,7 +28,8 @@ LIFT_HEIGHT_UNKNOWN = 0xFFFF
 LIFT_FLAG_AT_TOP, LIFT_FLAG_AT_BOTTOM, LIFT_FLAG_GUARD = 0x01, 0x02, 0x04
 
 CAN_FRAME_FMT = "<IB8s" # little-endian, uint32, uint8, 8 bytes
-TOF_DATA_FMT = "<HB" # uint16, uint8
+TOF_DATA_FMT = "<HBB"  # distance_mm, status, part (0=none 1=VL53L0X 2=VL53L1X)
+TOF_PART_NAME = {0: "none-detected", 1: "VL53L0X", 2: "VL53L1X"}
 LIFT_CMD_FMT = "<B" # uint8
 ROBOT_STATE_FMT = "<B" # uint8
 PAN_TILT_CMD_FMT = "<hh" # int16, int16
@@ -165,7 +166,14 @@ class Tab5BridgeNode(Node):
                     self.last_tab5_ip = addr[0]
                     
                     if can_id == CAN_ID_TOF_FRONT:
-                        dist, status = struct.unpack(TOF_DATA_FMT, payload[:3])
+                        dist, status, part = struct.unpack(TOF_DATA_FMT, payload[:4])
+                        # Say which sensor answered, once, and again whenever it changes —
+                        # "no reading" from a missing sensor and from a mis-aimed one look
+                        # identical otherwise, and they need different fixes.
+                        if part != getattr(self, "_tof_part", None):
+                            self._tof_part = part
+                            self.get_logger().info(
+                                f"Front ToF: {TOF_PART_NAME.get(part, part)}")
                         msg = Range()
                         msg.header.stamp = self.get_clock().now().to_msg()
                         msg.header.frame_id = "tof_front_link"

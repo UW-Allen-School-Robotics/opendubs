@@ -5,16 +5,15 @@
 
 LiftController Lift;
 
-// ---- front rangefinder -------------------------------------------------------------
-// Which M5 ToF unit is fitted is a per-build fact, and getting it wrong is silent: the
-// ToF4M is a VL53L1X with SIXTEEN-BIT registers, the older unit a VL53L0X with 8-bit ones,
-// and a driver for one simply fails to init against the other. That is exactly what was
-// happening here — a VL53L0X driver against a ToF4M, every frame going out as
-// `distance=0, status=0` while looking like a sensor fault.
+// ---- FRONT rangefinder (screen-mounted) ------------------------------------------
+// This is what the head is looking at, published as CAN_ID_TOF_FRONT. It is NOT the lift's
+// height sensor — that one is on the StampPLC and arrives over UDP.
 //
-// So the part is identified at run time from its model-ID register rather than assumed:
+// Which M5 ToF unit is fitted is a per-build fact and getting it wrong is silent: the ToF4M
+// is a VL53L1X with SIXTEEN-BIT registers, the older unit a VL53L0X with 8-bit ones, and a
+// driver for one simply fails to init against the other. So the part is identified at run
+// time from its model-ID register instead of assumed:
 //   VL53L1X answers 0xEACC at 0x010F,  VL53L0X answers 0xEE at 0xC0.
-// Both drivers are Pololu's and share an API shape, so the dispatch is three branches.
 static constexpr uint8_t TOF_ADDR = 0x29;   // both parts use this by default
 static constexpr int     PIN_SDA  = 53;     // Tab5 Grove Port A
 static constexpr int     PIN_SCL  = 54;
@@ -53,10 +52,10 @@ static void tofBegin() {
       tof1.setMeasurementTimingBudget(50000);
       tof1.startContinuous(50);
       tofPart = TofPart::L1X;
-      Serial.println("[TOF] VL53L1X (ToF4M) detected and ranging");
+      Serial.println("[TOF] front: VL53L1X (ToF4M) ranging");
       return;
     }
-    Serial.println("[TOF] VL53L1X identified but init FAILED");
+    Serial.println("[TOF] front: VL53L1X identified but init FAILED");
     return;
   }
   if (readReg8(0xC0, &id8) && id8 == 0xEE) {
@@ -64,28 +63,19 @@ static void tofBegin() {
     if (tof0.init()) {
       tof0.startContinuous();
       tofPart = TofPart::L0X;
-      Serial.println("[TOF] VL53L0X detected and ranging");
+      Serial.println("[TOF] front: VL53L0X ranging");
       return;
     }
-    Serial.println("[TOF] VL53L0X identified but init FAILED");
+    Serial.println("[TOF] front: VL53L0X identified but init FAILED");
     return;
   }
-  Serial.printf("[TOF] no known ToF at 0x%02X (id16=0x%04X id8=0x%02X) — check wiring\n",
+  Serial.printf("[TOF] front: no known ToF at 0x%02X (id16=0x%04X id8=0x%02X)\n",
                 TOF_ADDR, id16, id8);
 }
 
-void LiftController::begin() {
-  mtx_ = xSemaphoreCreateMutex();
-  lastTickMs_ = millis();
-  Wire.begin(PIN_SDA, PIN_SCL, 100000);
-  tofBegin();
-  // Nothing to de-energize: this object no longer drives anything. The lift's relays belong
-  // to the StampPLC, which holds them open unless its own driver says otherwise.
-}
-
-// Returns false on anything the sensor does not vouch for. It deliberately does NOT fall
-// back to 0.0: zero is a plausible-looking distance, and a caller that treats it as one
-// reads a sensor fault as "something is right in front of me".
+// Returns false on anything the sensor does not vouch for. Deliberately does NOT fall back
+// to 0.0: zero is a plausible distance, and a caller that treats it as one reads a sensor
+// fault as "something is right in front of me".
 bool LiftController::readTofMm_(float *mm) {
   uint16_t d = 0;
   switch (tofPart) {
@@ -95,10 +85,8 @@ bool LiftController::readTofMm_(float *mm) {
         return false;
       break;
     case TofPart::L0X: {
-      // NOT readRangeContinuousMillimeters(): that one BLOCKS until a sample is ready, up to
-      // the driver timeout. This runs on the 50 Hz control task that also drives the pan/tilt
-      // servos, so a stalled sensor would stutter the head. Poll the interrupt status and
-      // give up immediately if there is nothing waiting.
+      // NOT readRangeContinuousMillimeters(): that BLOCKS until a sample is ready, and this
+      // runs on the 50 Hz task that also drives the pan/tilt servos.
       if ((tof0.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07) == 0) return false;
       d = tof0.readReg16Bit((uint8_t)(VL53L0X::RESULT_RANGE_STATUS + 10));
       tof0.writeReg(VL53L0X::SYSTEM_INTERRUPT_CLEAR, 0x01);
@@ -110,6 +98,15 @@ bool LiftController::readTofMm_(float *mm) {
   }
   *mm = (float)d;
   return true;
+}
+
+void LiftController::begin() {
+  mtx_ = xSemaphoreCreateMutex();
+  lastTickMs_ = millis();
+  Wire.begin(PIN_SDA, PIN_SCL, 100000);
+  tofBegin();
+  // Nothing to de-energize: this object does not actuate. The lift's relays belong to the
+  // StampPLC, which holds them open unless its own driver says otherwise.
 }
 
 // ---- requests ----------------------------------------------------------------------
@@ -173,8 +170,11 @@ void LiftController::tick(uint32_t nowMs) {
   float mm;
   const bool ok = readTofMm_(&mm);
   xSemaphoreTake(mtx_, portMAX_DELAY);
-  tofOk_ = ok;
-  if (ok) tofMm_ = mm;
+  // The sensor produces a sample every ~33 ms and this runs every 20 ms, so most polls
+  // legitimately find nothing ready. Reporting that as "not OK" made the reading flicker.
+  // Hold the last good reading and let it go STALE instead.
+  if (ok) { tofMm_ = mm; tofFreshMs_ = nowMs; }
+  tofOk_ = (tofFreshMs_ != 0) && (nowMs - tofFreshMs_ < TOF_STALE_MS);
   xSemaphoreGive(mtx_);
 }
 
@@ -201,8 +201,10 @@ LiftController::Snapshot LiftController::snapshot() {
   s.atBot        = fresh && atBot_;
   s.guardHold    = fresh && guardHold_;
   s.inhibit      = inhibit_;
-  s.tofMm        = tofMm_;
+  s.tofMm        = tofMm_;      // front rangefinder — a different question from heightMm
   s.tofOk        = tofOk_;
+  s.tofPart      = (tofPart == TofPart::L1X) ? TOF_PART_L1X
+                 : (tofPart == TofPart::L0X) ? TOF_PART_L0X : TOF_PART_NONE;
   s.relayUpPulse = (request_ == Motion::UP);
   s.relayDnPulse = (request_ == Motion::DOWN);
   xSemaphoreGive(mtx_);

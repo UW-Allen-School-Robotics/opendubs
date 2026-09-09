@@ -1876,13 +1876,24 @@ static void driveTick()
     // is open -- software and hardware agree by construction. Intent is asserted EVERY
     // tick (0 when not permitted), so "stop" is continuous rather than a one-shot that
     // could go missing.
-    // Z-axis intent: sticks under manual authority, Thor under autonomous authority. Both go
-    // through the same driver, so neither can skip the pinch guard. Anything else -- no
-    // authority, deadman released, stale heartbeat -- asserts 0, every tick.
+    // Z-axis intent. Both sources go through the same driver, so neither can skip the pinch
+    // guard, and both are gated by armOK -- contactor closed, no e-stop, RC link alive.
+    //
+    // THE STICK WINS while it is being used. Otherwise the Thor's command applies, under
+    // MANUAL authority as well as AUTO: the dashboard is a normal operator interface and the
+    // robot lives in MANUAL, so requiring the RC switch in AUTO just meant the touch buttons
+    // did nothing. Its safety comes from the same place the stick's does -- it is a held
+    // intent with its OWN heartbeat, so releasing the button, closing the browser or losing
+    // the network all stop the lift within 250 ms.
+    //
+    // Note this deliberately does NOT depend on the DRIVE heartbeat (rosFresh): the Z-axis
+    // has its own, and a robot that is not being driven can still need its lift.
+    const float rcMast = (mode == RCM_MANUAL_LIVE) ? rcAxis(FN_MAST, rc_ch) : 0.0f;
+    const bool  thorFresh = (g_rosMast.ms != 0) && (millis() - g_rosMast.ms < kRosCmdTimeoutMs);
     float mastIntent = 0.0f;
-    if (armOK && mode == RCM_MANUAL_LIVE)  mastIntent = rcAxis(FN_MAST, rc_ch);
-    else if (armOK && autoAuth)            mastIntent = (millis() - g_rosMast.ms < kRosCmdTimeoutMs)
-                                                         ? g_rosMast.v : 0.0f;
+    if (!armOK)                              mastIntent = 0.0f;
+    else if (fabsf(rcMast) > 0.05f)          mastIntent = rcMast;      // operator at the stick
+    else if (thorFresh)                      mastIntent = g_rosMast.v;
     g_mast.setIntent(mastIntent);
     g_mast.tick(millis());
 

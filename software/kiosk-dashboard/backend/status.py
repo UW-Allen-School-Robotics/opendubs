@@ -214,6 +214,9 @@ def _drive():
             "wheels": d.get("wheels"),
             "fwd": d.get("fwd"), "rot": d.get("rot"), "str": d.get("str"), "turn": d.get("turn"),
             "spd": d.get("spd"),
+            # Z-axis: what the lift is doing, its measured height, and whether the pinch
+            # guard is holding a descent. "nosensor" means the guard cannot work at all.
+            "mast": d.get("mast"), "mast_h_mm": d.get("mast_h_mm"), "pinch": d.get("pinch"),
             "fresh": s.get("fresh", False)}
 
 

@@ -212,7 +212,14 @@ static void commsTask(void *) {
         const IPAddress from = Udp.remoteIP();
         int len = Udp.read((uint8_t *)&pkt, sizeof(pkt) - 1);
         char *packetBuffer = pkt.text;
-        if (len >= (int)sizeof(can_frame_udp)) {
+        // Length alone does not tell a binary frame from a text line: "STATE SAFE_IDLE" is
+        // 15 bytes and was being read as a CAN frame with a garbage id, then dropped. So the
+        // id has to be one we know before this is treated as binary; anything else falls
+        // through to the text parser.
+        const uint32_t cid = (len >= (int)sizeof(can_frame_udp)) ? pkt.frame.can_id : 0;
+        const bool isFrame = (cid == CAN_ID_ROBOT_STATE || cid == CAN_ID_PAN_TILT_CMD
+                              || cid == CAN_ID_LIFT_STATE);
+        if (isFrame) {
           can_frame_udp *frame = &pkt.frame;
           // can_dlc is checked against each payload before it is read — the length on the
           // wire is attacker-controlled, and a short frame would otherwise be read past.
@@ -260,6 +267,11 @@ static void commsTask(void *) {
           }
         } else if (len > 0) {
           packetBuffer[len] = 0;
+          // A text state line identifies the controller too, so pan/tilt commands from the
+          // same host are accepted afterwards.
+          if (strncmp(packetBuffer, "STATE ", 6) == 0 && !g_haveThor) {
+            g_thorIp = from; g_haveThor = true;
+          }
           // Trim trailing newlines/carriage returns
           for (int i = len - 1; i >= 0; i--) {
             if (packetBuffer[i] == '\n' || packetBuffer[i] == '\r') {
@@ -281,8 +293,9 @@ static void commsTask(void *) {
         frame.can_id = CAN_ID_TOF_FRONT;
         frame.can_dlc = sizeof(CAN_ToF_Distance);
         CAN_ToF_Distance *tof = (CAN_ToF_Distance *)frame.data;
-        tof->distance_mm = (uint16_t)s.tofMm;
+        tof->distance_mm = s.tofOk ? (uint16_t)s.tofMm : 0;
         tof->status = s.tofOk ? 1 : 0;
+        tof->part = s.tofPart;
 
         Udp.beginPacket(txTarget(), TX_PORT);
         Udp.write((const uint8_t *)&frame, sizeof(frame));
@@ -298,6 +311,19 @@ static void commsTask(void *) {
         lc->command = (req == Motion::UP) ? 1 : (req == Motion::DOWN) ? 2 : 0;
         Udp.beginPacket(txTarget(), TX_PORT);
         Udp.write((const uint8_t *)&lf, sizeof(lf));
+        Udp.endPacket();
+
+        // What the head believes, so its state can be checked without a cable.
+        can_frame_udp sf = {0};
+        sf.can_id = CAN_ID_TAB5_STATUS;
+        sf.can_dlc = sizeof(CAN_Tab5_Status);
+        CAN_Tab5_Status *ts = (CAN_Tab5_Status *)sf.data;
+        ts->robot_state = (uint8_t)g_robotState;
+        ts->link_online = g_linkOnline ? 1 : 0;
+        ts->tracking = (g_trackingMode == TrackingMode::AI) ? 1 : 0;
+        ts->ui_mode = (g_uiMode == UiMode::CONTROLLER) ? 1 : 0;
+        Udp.beginPacket(txTarget(), TX_PORT);
+        Udp.write((const uint8_t *)&sf, sizeof(sf));
         Udp.endPacket();
       }
     } else {
@@ -344,18 +370,10 @@ static void onEstopTap() {
   }
 }
 
-static void sendLiftCommandUDP(uint8_t cmd) {
-  if (WiFi.status() == WL_CONNECTED) {
-    can_frame_udp frame = {0};
-    frame.can_id = CAN_ID_LIFT_CMD;
-    frame.can_dlc = sizeof(CAN_Lift_Command);
-    CAN_Lift_Command *lift_cmd = (CAN_Lift_Command *)frame.data;
-    lift_cmd->command = cmd;
-    Udp.beginPacket(IPAddress(255, 255, 255, 255), 5005);
-    Udp.write((const uint8_t *)&frame, sizeof(frame));
-    Udp.endPacket();
-  }
-}
+// NOTE: there is no edge-triggered lift sender any more. The request is published every
+// 50 ms from Lift.request() in commsTask, which is what gives it heartbeat semantics — the
+// far end stops the lift when the stream stops. The old one also broadcast to
+// 255.255.255.255:5005, the StampPLC's telemetry port.
 
 static void handleTouch() {
   auto td = M5.Touch.getDetail();
@@ -383,23 +401,15 @@ static void handleTouch() {
       } else if (g_activeHold != hit) {
         if (g_activeHold == HmiHit::RAISE || g_activeHold == HmiHit::LOWER) {
           Lift.commandStop();
-          sendLiftCommandUDP(0);
         }
-        if (hit == HmiHit::RAISE) {
-          Lift.commandUp();
-          sendLiftCommandUDP(1);
-        }
-        if (hit == HmiHit::LOWER) {
-          Lift.commandDown();
-          sendLiftCommandUDP(2);
-        }
+        if (hit == HmiHit::RAISE) Lift.commandUp();
+        if (hit == HmiHit::LOWER) Lift.commandDown();
         confirming = false;
         g_activeHold = hit;
       }
     } else if (g_activeHold != HmiHit::NONE) {
       if (g_activeHold == HmiHit::RAISE || g_activeHold == HmiHit::LOWER) {
         Lift.commandStop();
-        sendLiftCommandUDP(0);
       }
       g_activeHold = HmiHit::NONE;
     }
@@ -408,7 +418,6 @@ static void handleTouch() {
     if (g_activeHold != HmiHit::NONE) {
       if (g_activeHold == HmiHit::RAISE || g_activeHold == HmiHit::LOWER) {
         Lift.commandStop();
-        sendLiftCommandUDP(0);
       }
       g_activeHold = HmiHit::NONE;
     }
@@ -433,6 +442,18 @@ static void applyLine(const char *line) {
         last_state_ms = millis();
         return;
       }
+  } else if (strncmp(line, "LIFT ", 5) == 0) {
+    // "LIFT <height_mm|-1> <motion 0|1|2> <flags>" — the StampPLC's measured Z-axis state.
+    // Text, like STATE, so neither side can drift on a numeric table the other reorders.
+    int h = -1, m = 0, f = 0;
+    if (sscanf(line + 5, "%d %d %d", &h, &m, &f) >= 2) {
+      Lift.reportFromRobot((float)h,
+                           m == 1 ? Motion::UP : m == 2 ? Motion::DOWN : Motion::STOP,
+                           (f & LIFT_FLAG_AT_TOP) != 0, (f & LIFT_FLAG_AT_BOTTOM) != 0,
+                           (f & LIFT_FLAG_GUARD) != 0);
+      g_linkOnline = true;
+      last_state_ms = millis();
+    }
   } else if (strncmp(line, "TURN ", 5) == 0) {
     char d = line[5];
     g_turnCmd = (d == 'R') ? 1 : (d == 'L') ? -1 : 0;

@@ -6,6 +6,17 @@
 #define CAN_ID_ROBOT_STATE  0x103
 #define CAN_ID_PAN_TILT_CMD 0x104
 #define CAN_ID_LIFT_STATE   0x105   // StampPLC -> Tab5: what the lift is actually doing
+#define CAN_ID_TAB5_STATUS  0x106   // Tab5 -> Thor: what the head believes
+
+// The Tab5 has no USB attached in service, so anything not in telemetry is unknowable.
+// This is how we can tell "the face is showing the wrong state" from "the face never
+// received a state" without walking over and looking at it.
+struct __attribute__((packed)) CAN_Tab5_Status {
+    uint8_t robot_state;   // index into the Tab5's STATES[]
+    uint8_t link_online;   // has it heard from the controller recently
+    uint8_t tracking;      // 0 = off, 1 = AI
+    uint8_t ui_mode;       // 0 = face, 1 = controller
+};
 
 struct __attribute__((packed)) can_frame_udp {
     uint32_t can_id;
@@ -15,8 +26,16 @@ struct __attribute__((packed)) can_frame_udp {
 
 struct __attribute__((packed)) CAN_ToF_Distance {
     uint16_t distance_mm;
-    uint8_t  status; // 1 = OK, 0 = Error
+    uint8_t  status; // 1 = OK, 0 = no valid reading
+    // Which part answered at boot. Without this, "status 0" is ambiguous between a sensor
+    // that is not there and one that is there but cannot see anything — and the difference
+    // is a wiring job versus an aiming job. The Tab5 has no USB attached in service, so if
+    // it is not in telemetry it is not knowable.
+    uint8_t  part;   // 0 = none detected, 1 = VL53L0X, 2 = VL53L1X
 };
+#define TOF_PART_NONE  0
+#define TOF_PART_L0X   1
+#define TOF_PART_L1X   2
 
 struct __attribute__((packed)) CAN_Lift_Command {
     uint8_t command; // 0=STOP, 1=UP, 2=DOWN
