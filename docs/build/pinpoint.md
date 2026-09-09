@@ -95,9 +95,83 @@ Outline (fill in once photos are in):
 3. Hand-mount the housing to the rear rail with the **M10 thumb screws**.
 4. Route the I2C to the electronics bay (step-down is handled there).
 
+## Commissioning — the device forgets everything
+
+!!! danger "The Pinpoint loses its configuration on every power cycle"
+    Straight from goBILDA's user guide: *"Device Configurations are lost on device power
+    cycles, so your I²C Controller device should send the config information over I²C once
+    every time the code starts."*
+
+    The StampPLC does that for you — it applies the stored configuration at boot, and again
+    whenever the device reappears on the bus. **But an unconfigured Pinpoint does not fail
+    visibly.** It returns smooth, plausible, wrong numbers. `PPCAL SHOW` reports
+    `NOT COMMISSIONED` until someone does the steps below; treat pose as untrustworthy
+    until it doesn't.
+
+These are physical facts about *your* robot — where the pods are bolted and which way round
+they ended up — so they are stored on the robot, never in the repo.
+
+**Do it in this order.** Direction comes first because getting it wrong invalidates
+everything measured afterwards.
+
+**1. Encoder directions.** Push the robot **forward** by hand and watch `ex` in the `[ODO]`
+telemetry: it must *increase*. Push the robot **left**: `ey` must *increase*.
+
+```
+PPCAL DIRX FWD     (or REV if X counted backwards)
+PPCAL DIRY FWD     (or REV)
+```
+
+If neither value moves, that pod or its cable is the problem, not the direction.
+
+**2. Encoder resolution** — ticks per mm, which is your encoder's CPR divided by the tracking
+wheel's circumference:
+
+```
+PPCAL POD 4BAR       goBILDA 4-bar pod: 2000 CPR / 100.53 mm = 19.894
+PPCAL POD SWINGARM   goBILDA swingarm pod:                     13.263
+PPCAL TICKS <n>      anything else
+```
+
+**3. Pod offsets.** Each offset is the **perpendicular** distance from a pod to the tracking
+point — the point on the robot whose position the Pinpoint reports. Distance *along* a pod's
+own direction of travel doesn't matter.
+
+| | Measures | Positive when |
+|---|---|---|
+| `x` | how far **sideways** the X (forward) pod sits | pod is **left** of the tracking point |
+| `y` | how far **forwards** the Y (strafe) pod sits | pod is **forward** of the tracking point |
+
+```
+PPCAL OFFSETS <x_mm> <y_mm>
+```
+
+!!! warning "The usual mistake is a sign, not a measurement"
+    goBILDA call this out directly: the most common error is an offset that is positive when
+    it should be negative. Both offsets are frequently negative on a normal build.
+
+**4. Save and check.**
+
+```
+PPCAL SAVE
+```
+
+Then **spin the robot in place around the tracking point**. `x` and `y` should barely move —
+drift over ~100 mm during a full rotation means an offset is wrong, and a *sign* is the first
+thing to suspect. Then drive a measured straight line and compare against a tape measure; a
+large disagreement is the ticks-per-mm.
+
+`PPCAL RESET` zeroes the pose and re-measures the IMU's zero offset — the robot must be
+**stationary**, since a bad zero offset shows up as heading drifting while it sits still.
+
 ## Verify — done when…
 
 - [ ] Both pods held so each dead wheel keeps constant floor contact (preload set).
 - [ ] Housing solid on the rear rail; thumb screws seated in the riv-nuts.
 - [ ] Pinpoint enumerates on the I2C bus (after the electronics-bay step-down).
-- [ ] *TODO*
+- [ ] Status LED is **green** — purple/blue/orange means a pod isn't detected.
+- [ ] Pushing the robot forward increases `ex`; pushing it left increases `ey`.
+- [ ] `PPCAL SHOW` reports **commissioned** and **live**.
+- [ ] Spinning in place leaves `x`/`y` nearly unchanged.
+- [ ] A measured straight-line drive matches a tape measure.
+- [ ] Heading holds steady while the robot sits still (no IMU drift).

@@ -6,7 +6,8 @@
 #include "esp_task_wdt.h"
 #include "rc_config.h"
 #include "mast.h"
-#include "tof.h"    // task watchdog — auto-reset if the loop hangs
+#include "tof.h"
+#include "ppcfg.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 
@@ -1152,6 +1153,7 @@ void handleHostCommand(const char* cmd)
 {
     if (rcCalCommand(cmd, rc_ch)) return;
     if (tofCalCommand(cmd)) return;
+    if (ppCfgCommand(cmd)) return;
     if (!strcasecmp(cmd, "TOF")) { tofProbe(); return; }
     // Bench discovery of which relay moves the lift which way -- a per-robot wiring fact.
     // Bypasses intent, so it works with the sticks centred.
@@ -2313,6 +2315,8 @@ void setup()
     rs485Init(g_rs485Baud);   // RS485 (BMS) probe — passive RX logged; active via BMS/RS485TX cmds
     rcCfgBegin();
     tofBegin(&extI2C, []() { return selectChannel(kChTof); });
+    // The Pinpoint forgets its configuration on every power cycle, so we own sending it.
+    ppCfgBegin(&extI2C, []() { return selectChannel(kChPinpoint); });
     g_mast.loadCfg();
     esp_task_wdt_init(kWdtTimeoutS, true);   // auto-reset the chip if the loop hangs (feed each loop)
     esp_task_wdt_add(NULL);                  // watch the loop task
@@ -2700,6 +2704,9 @@ void loop()
     if ((millis() - last_io_pub_ms) > 100) {
         publishIo();
         pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
+        // Re-sends the config whenever the device reappears — a Pinpoint that power-cycled
+        // is silently back on defaults and will keep reporting a plausible, wrong pose.
+        ppCfgTick(millis(), pp_present);
         publishOdo();
         last_io_pub_ms = millis();
     }
