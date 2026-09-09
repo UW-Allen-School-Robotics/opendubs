@@ -7,6 +7,16 @@
 #define CAN_ID_PAN_TILT_CMD 0x104
 #define CAN_ID_LIFT_STATE   0x105   // StampPLC -> Tab5: what the lift is actually doing
 #define CAN_ID_TAB5_STATUS  0x106   // Tab5 -> Thor: what the head believes
+#define CAN_ID_PAN_TILT_RATE 0x107  // StampPLC -> Tab5: RC stick as a RATE
+
+// Manual pan/tilt is a RATE, not a position, because the source is a spring-centred stick:
+// hold to move, release to stop. It also sidesteps the real problem with sending absolute
+// angles from a second device — two owners integrating separately diverge, and the head
+// jumps whenever ownership changes. The Tab5 owns the position; everyone else nudges it.
+struct __attribute__((packed)) CAN_Pan_Tilt_Rate {
+    int16_t pan_dps;    // degrees/sec, + = pan right
+    int16_t tilt_dps;   // degrees/sec, + = tilt up
+};
 
 // The Tab5 has no USB attached in service, so anything not in telemetry is unknowable.
 // This is how we can tell "the face is showing the wrong state" from "the face never

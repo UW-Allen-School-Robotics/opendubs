@@ -35,8 +35,24 @@ static const bool DEMO_CYCLE = false;  // true = auto-cycle robot states (face
 static const uint32_t IDLE_MS = 10000; // controller -> face auto-revert
 static const uint32_t CONFIRM_MS = 2200; // e-stop release confirm window
 
+// The head's position. The Tab5 OWNS it: manual sources send rates and this integrates
+// them, so nothing has to be kept in sync across devices and no source can make the head
+// jump by having drifted.
+float   g_panDeg = 90.0f, g_tiltDeg = 90.0f;
 int16_t g_targetPan = 90;
 int16_t g_targetTilt = 90;
+
+// Who is driving the head. Priority: the RC stick (a physical operator holding a deadman)
+// beats the on-screen D-pad, which beats AI tracking. AI is suppressed entirely while
+// either manual source is live — a policy being corrected should yield, not argue.
+static float    g_rcPanDps = 0, g_rcTiltDps = 0;
+static uint32_t g_rcCmdMs = 0;
+static float    g_dpadPanDps = 0, g_dpadTiltDps = 0;
+static uint32_t g_dpadMs = 0;
+static constexpr uint32_t kManualHoldMs = 600;   // a manual source owns the head this long
+static constexpr float    kDpadDps = 45.0f;      // on-screen D-pad slew
+static inline bool rcOwnsHead()   { return millis() - g_rcCmdMs   < kManualHoldMs; }
+static inline bool dpadOwnsHead() { return millis() - g_dpadMs    < kManualHoldMs; }
 
 Preferences prefs;
 int16_t g_tiltMin = 0;
@@ -76,8 +92,31 @@ static HmiHit g_activeHold = HmiHit::NONE;
 
 // ================= background tasks =================
 static void controlTask(void *) {
+  uint32_t prevMs = millis();
   for (;;) {
     Lift.tick(millis());
+
+    // Integrate whichever manual source owns the head. AI writes g_targetPan/Tilt directly
+    // and is gated at the receiving end, so it never reaches here.
+    {
+      const uint32_t now = millis();
+      float dt = (now - prevMs) / 1000.0f;
+      prevMs = now;
+      if (dt < 0) dt = 0; else if (dt > 0.1f) dt = 0.1f;
+      float pDps = 0, tDps = 0;
+      if (rcOwnsHead())        { pDps = g_rcPanDps;   tDps = g_rcTiltDps; }
+      else if (dpadOwnsHead()) { pDps = g_dpadPanDps; tDps = g_dpadTiltDps; }
+      if (pDps != 0 || tDps != 0) {
+        g_panDeg  += pDps * dt;
+        g_tiltDeg += tDps * dt;
+        if (g_panDeg  < 0)   g_panDeg  = 0;
+        if (g_panDeg  > 180) g_panDeg  = 180;
+        if (g_tiltDeg < g_tiltMin) g_tiltDeg = g_tiltMin;
+        if (g_tiltDeg > g_tiltMax) g_tiltDeg = g_tiltMax;
+        g_targetPan  = (int16_t)lroundf(g_panDeg);
+        g_targetTilt = (int16_t)lroundf(g_tiltDeg);
+      }
+    }
 
     // Convert angles to microseconds for the 8Servo unit
     uint16_t tiltUs = map(g_targetTilt, 0, 180, 500, 2500);
@@ -164,6 +203,11 @@ static IPAddress txTarget()
 // robot-state feed comes from, so the first valid state frame pins it.
 static IPAddress g_thorIp;
 static bool      g_haveThor = false;
+// The StampPLC commands the head directly (low latency, and it keeps working if the Thor
+// stops), but only once the Thor has vouched for its address over the state channel — so
+// the "no unauthenticated host moves the servos" property survives the second peer.
+static IPAddress g_plcIp;
+static bool      g_havePlc = false;
 
 static void commsTask(void *) {
   // Bring up WiFi via the ESP32-C6 co-processor (ESP-Hosted)
@@ -246,6 +290,17 @@ static void commsTask(void *) {
                 (ls->flags & LIFT_FLAG_GUARD) != 0);
             g_linkOnline = true;
             last_state_ms = millis();
+          } else if (frame->can_id == CAN_ID_PAN_TILT_RATE
+                     && frame->can_dlc >= sizeof(CAN_Pan_Tilt_Rate)
+                     && g_havePlc && from == g_plcIp) {
+            // RC stick, as a rate. Arrives only while the operator holds the deadman with
+            // CH7 in PAN-TILT, so its mere presence is the claim on the head.
+            CAN_Pan_Tilt_Rate *r = (CAN_Pan_Tilt_Rate *)frame->data;
+            g_rcPanDps  = (float)r->pan_dps;
+            g_rcTiltDps = (float)r->tilt_dps;
+            g_rcCmdMs   = millis();
+            g_linkOnline = true;
+            last_state_ms = millis();
           } else if (frame->can_id == CAN_ID_PAN_TILT_CMD
                      && frame->can_dlc >= sizeof(CAN_Pan_Tilt_Command)
                      && g_haveThor && from == g_thorIp) {
@@ -255,7 +310,10 @@ static void commsTask(void *) {
             g_linkOnline = true;
             last_state_ms = millis();
 
-            if (g_trackingMode == TrackingMode::AI) {
+            // AI tracking yields to a human. A policy being corrected should give way.
+            if (g_trackingMode == TrackingMode::AI && !rcOwnsHead() && !dpadOwnsHead()) {
+              g_panDeg  = pt->pan_angle;      // keep the integrator in step with AI, so a
+              g_tiltDeg = pt->tilt_angle;     // later manual nudge starts from here
               g_targetPan = pt->pan_angle;
               g_targetTilt = pt->tilt_angle;
               // Constrain to limits
@@ -407,10 +465,18 @@ static void handleTouch() {
         confirming = false;
         g_activeHold = hit;
       }
+      // The D-pad drives the head. It used to register the touch and set g_activeHold and
+      // nothing else — the arrows had never moved a servo.
+      g_dpadPanDps  = (hit == HmiHit::PAN_RIGHT) ?  kDpadDps
+                    : (hit == HmiHit::PAN_LEFT)  ? -kDpadDps : 0.0f;
+      g_dpadTiltDps = (hit == HmiHit::TILT_UP)   ?  kDpadDps
+                    : (hit == HmiHit::TILT_DOWN) ? -kDpadDps : 0.0f;
+      if (g_dpadPanDps != 0 || g_dpadTiltDps != 0) g_dpadMs = millis();
     } else if (g_activeHold != HmiHit::NONE) {
       if (g_activeHold == HmiHit::RAISE || g_activeHold == HmiHit::LOWER) {
         Lift.commandStop();
       }
+      g_dpadPanDps = g_dpadTiltDps = 0.0f;
       g_activeHold = HmiHit::NONE;
     }
   } else if (td.wasReleased() ||
@@ -419,6 +485,7 @@ static void handleTouch() {
       if (g_activeHold == HmiHit::RAISE || g_activeHold == HmiHit::LOWER) {
         Lift.commandStop();
       }
+      g_dpadPanDps = g_dpadTiltDps = 0.0f;
       g_activeHold = HmiHit::NONE;
     }
   }
@@ -453,6 +520,13 @@ static void applyLine(const char *line) {
                            (f & LIFT_FLAG_GUARD) != 0);
       g_linkOnline = true;
       last_state_ms = millis();
+    }
+  } else if (strncmp(line, "PLCIP ", 6) == 0) {
+    // "PLCIP a.b.c.d" — the Thor naming the StampPLC as an authorised head commander.
+    int a, b, c, d;
+    if (sscanf(line + 6, "%d.%d.%d.%d", &a, &b, &c, &d) == 4) {
+      g_plcIp = IPAddress((uint8_t)a, (uint8_t)b, (uint8_t)c, (uint8_t)d);
+      g_havePlc = true;
     }
   } else if (strncmp(line, "PMODE ", 6) == 0) {
     const char *m = line + 6;

@@ -88,6 +88,19 @@ static constexpr uint32_t kServo8Hz          = 400000; // 8Servo bus speed
 // 8Servo pins for the 4 ESCs, indexed [FL, FR, RL, RR] to match driveMix's w[]. Bench-mapped
 // 2026-08-19 (wheels off): FL=ch1, FR=ch3, RL=ch0, RR=ch2. PRISM is on I2C now (not ch0).
 static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
+// ---- RC pan/tilt: the stick, straight to the head ---------------------------------
+// Sent DIRECTLY to the Tab5 rather than relayed via the Thor: fewer hops, and the head keeps
+// answering the sticks if the dashboard stops. The Thor supplies the address once (TAB5IP)
+// and the StampPLC remembers it, so a Thor that dies later does not take pan/tilt with it.
+//
+// A RATE, not an angle. The stick is spring-centred — hold to move, release to stop — and
+// the Tab5 owns the position, so two devices can never integrate separately and diverge.
+static constexpr uint16_t kTab5Port   = 4242;
+static constexpr float    kHeadDps    = 60.0f;   // full stick = 60 deg/s
+static constexpr uint32_t kHeadSendMs = 50;      // 20 Hz; the Tab5 expires it after 600 ms
+static IPAddress g_tab5Ip;
+static bool      g_haveTab5 = false;
+
 // PWM MIRROR — a diagnostic, off by default.
 //
 // Duplicates one ESC's pulse onto a spare 8Servo channel driving an indicator light, so the
@@ -1282,6 +1295,14 @@ void handleHostCommand(const char* cmd)
                 (up ? kRelayMastUp : kRelayMastDown) + 1);
         return;
     }
+    int ta, tb, tc, td;
+    if (sscanf(cmd, "TAB5IP %d.%d.%d.%d", &ta, &tb, &tc, &td) == 4) {
+        g_tab5Ip = IPAddress((uint8_t)ta, (uint8_t)tb, (uint8_t)tc, (uint8_t)td);
+        g_haveTab5 = true;
+        tprintf("[HEAD] Tab5 at %d.%d.%d.%d — RC pan/tilt enabled\n", ta, tb, tc, td);
+        return;
+    }
+
     int msrc = -1, mpin = -1;
     if (!strcasecmp(cmd, "MIRROR OFF")) {
         g_mirrorSrc = -1;
@@ -2055,6 +2076,35 @@ static void driveTick()
     else if (fabsf(rcMast) > 0.05f)          mastIntent = rcMast;      // operator at the stick
     else if (thorFresh)                      mastIntent = g_rosMast.v;
     g_mast.setIntent(mastIntent);
+
+    // ---- head: the right stick, when CH7 says it is aiming rather than driving ----
+    // Same gate as everything else that moves: authority, contactor, no e-stop, RC alive,
+    // the drive-safe gate, the deadman HELD, and the re-centre latch. Nothing moves on this
+    // robot without a human deliberately asking, and the head is not an exception.
+    if (g_haveTab5 && eth_up) {
+        static uint32_t lastHeadMs = 0;
+        const bool aiming = armOK && mode == RCM_MANUAL_LIVE
+                         && g_payloadMode == PM_PANTILT && g_pmodeArmed;
+        if (millis() - lastHeadMs >= kHeadSendMs) {
+            lastHeadMs = millis();
+            // Only transmit while actually aiming. Silence is how the Tab5 knows the stick
+            // has been released — it expires our claim and hands the head back.
+            if (aiming) {
+                const float pan  = rcAxis(FN_STR,  rc_ch);   // right stick, horizontal
+                const float tilt = rcAxis(FN_MAST, rc_ch);   // right stick, vertical
+                struct __attribute__((packed)) { uint32_t id; uint8_t dlc; uint8_t d[8]; } f = {};
+                f.id = 0x107;                                 // CAN_ID_PAN_TILT_RATE
+                f.dlc = 4;
+                const int16_t pdps = (int16_t)lroundf(pan  * kHeadDps);
+                const int16_t tdps = (int16_t)lroundf(tilt * kHeadDps);
+                memcpy(&f.d[0], &pdps, 2);
+                memcpy(&f.d[2], &tdps, 2);
+                eth_udp.beginPacket(g_tab5Ip, kTab5Port);
+                eth_udp.write((const uint8_t *)&f, sizeof(f));
+                eth_udp.endPacket();
+            }
+        }
+    }
     g_mast.tick(millis());
 
     // ==== SLEW LIMIT + brake-through-neutral on reversal → OUTPUT ====

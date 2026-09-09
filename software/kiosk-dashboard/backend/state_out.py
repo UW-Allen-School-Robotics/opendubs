@@ -55,6 +55,7 @@ _TAB5_UDP_PORT = int(os.environ.get("OPENDUBS_TAB5_UDP_PORT", "4242"))
 _TAB5_RX_PORT = int(os.environ.get("OPENDUBS_TAB5_RX_PORT", "5006"))
 _CAN_ID_LIFT_CMD = 0x102
 _tab5_sock = None
+_peers_introduced = False
 _tab5_addr = None
 _tab5_addr_ts = 0.0
 
@@ -189,6 +190,31 @@ def _tab5_listen() -> None:
             time.sleep(0.2)
 
 
+def _introduce_peers() -> None:
+    """Tell each device where the other one is, once each.
+
+    The head takes pan/tilt commands straight from the StampPLC — direct, so it keeps
+    answering the sticks even if this dashboard stops — but only from an address the Thor
+    has vouched for. The Thor is the one machine that can see both, so it does the
+    introduction; after that the data path does not involve it at all.
+    """
+    global _peers_introduced
+    if _peers_introduced:
+        return
+    try:
+        import socket
+        import stamplc
+        tab5 = socket.gethostbyname(_TAB5_HOST)
+        plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
+        _tab5_write(f"PLCIP {plc}")            # head <- "the StampPLC may command you"
+        stamplc.reader.send(f"TAB5IP {tab5}")  # PLC  <- "the head lives here"
+        _peers_introduced = True
+        import sys
+        sys.stderr.write(f"TAB5: introduced PLC {plc} <-> head {tab5}\n")
+    except Exception:
+        pass          # retried next pass; a missing head must not disturb anything else
+
+
 def _push_lift() -> None:
     """Send the StampPLC's measured Z-axis state to the Tab5, so the head's height readout is
     the SAME number the pinch guard acts on rather than a second opinion from its own sensor.
@@ -248,6 +274,7 @@ def _loop() -> None:
                 _tab5_write(f"TURN {turn or '0'}")
                 prev_turn = turn
             _push_lift()          # every pass — the head's height should not go stale
+            _introduce_peers()    # one-shot: let the StampPLC and the head talk directly
             # CH7 payload mode. The head shows it because the OPERATOR needs to know whether
             # the right stick is aiming them or strafing the robot, and their eyes are on the
             # machine rather than on the transmitter.
