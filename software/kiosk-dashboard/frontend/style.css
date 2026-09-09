@@ -600,3 +600,10 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .odo-warn{ margin:0 0 10px; padding:8px 10px; border-radius:6px; font-size:11px; line-height:1.45;
   color:var(--warn); background:rgba(255,178,77,.08); border:1px solid rgba(255,178,77,.35); }
 .odo-warn.hide{ display:none; }
+
+/* Drive-safe gate: the robot is settling and will not accept motion commands. Deliberately
+   loud — an operator holding the deadman for nothing otherwise reads it as a radio fault. */
+.banner-wait {
+  background: #f3b64a; color: #1a1a1a; font-weight: 700; letter-spacing: .04em;
+  text-align: center; padding: 6px 10px; font-size: 15px;
+}

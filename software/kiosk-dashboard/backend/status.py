@@ -217,6 +217,10 @@ def _drive():
             # Z-axis: what the lift is doing, its measured height, and whether the pinch
             # guard is holding a descent. "nosensor" means the guard cannot work at all.
             "mast": d.get("mast"), "mast_h_mm": d.get("mast_h_mm"), "pinch": d.get("pinch"),
+            # False = the robot is still settling and will not accept motion commands.
+            # The operator needs this: holding the deadman and getting nothing otherwise
+            # looks like a transmitter fault, and the reasonable response is to keep trying.
+            "drive_safe": d.get("safe"), "loop_max_ms": d.get("loop_max_ms"),
             "fresh": s.get("fresh", False)}
 
 
@@ -339,8 +343,15 @@ def _robot_state():
         raw_estop_sources=saf["sources"], raw_faults=raw_faults,
         fresh=saf["fresh"], control_ok=link, uptime=time.monotonic() - _BOOT)
 
+    # The StampPLC's own drive-safe gate is a boot condition too, and a more authoritative
+    # one than our uptime heuristic: it is the controller saying its control loop is not yet
+    # keeping time, so nothing it is told will move. Fold it in so the face and the state
+    # colour say "INIT" for the whole settling window instead of looking ready early.
+    plc_safe = (stamplc.reader.snapshot().get("drive") or {}).get("safe")
+    booting = sup["booting"] or (plc_safe is False)
+
     out = robot_state.derive(
-        booting=sup["booting"], estop_sources=sup["estop_sources"], authority=authority,
+        booting=booting, estop_sources=sup["estop_sources"], authority=authority,
         deadman=deadman, link=link, faults=sup["faults"], mast_fault=mast_fault,
         motion_enabled=saf["motion_enabled"], contactor=saf["contactor"],
         welded=saf["welded"], charging=charging)

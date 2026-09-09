@@ -102,6 +102,46 @@ static constexpr uint8_t  kEscRevDwellTicks = 10;     // on a direction flip: br
 static constexpr uint32_t kDriveTickMs      = 20;     // 50 Hz output (matches the 2x80A's expected RC rate)
 static constexpr uint32_t kRosCmdTimeoutMs  = 250;    // autonomous heartbeat: a stale Thor/ROS cmd → neutral
 static constexpr uint32_t kWdtTimeoutS      = 8;      // task watchdog: loop hang > this → auto chip reset
+
+// ==== DRIVE-SAFE GATE ===============================================================
+// Nothing may be commanded to move until the control loop is demonstrably RUNNING.
+//
+// The 8Servo is a hardware PWM generator: once written it holds that pulse forever, with no
+// help from us. So the failsafe -- release the deadman, output goes neutral -- only exists
+// while the loop is executing. A stalled loop does not stop the robot; it freezes whatever
+// the robot was last told to do, and nothing can interrupt it.
+//
+// That happened. netMaintain() retried DHCP with a BLOCKING Ethernet.begin(mac, 4000, 1500)
+// every 5 s until a lease arrived, so during boot the loop ran about one second in five.
+// SBUS frames were lost in each 4 s stall (hence "RC keeps dropping out" with the
+// transmitter plainly switched on), and twice an operator's legitimate deadman-held input
+// was accepted just before a stall -- leaving the robot driving, uninterruptibly, until the
+// loop came back. The 8 s task watchdog never fired because 4 s is well under it.
+//
+// The gate therefore keys on the property that actually matters -- is the loop keeping
+// time -- rather than on any particular cause:
+//
+//   * minimum uptime, so early init noise is never mistaken for steady state
+//   * RC continuously live, not merely live right now
+//   * no long loop iteration recently
+//
+// It is CONTINUOUS, not boot-only. A stall at any point drops the gate and the robot must
+// re-earn it, which is what makes this a fix for the class rather than for DHCP.
+static constexpr uint32_t kBootSettleMs = 3000;   // never "safe" before this, whatever else says
+static constexpr uint32_t kLoopStallMs  = 250;    // an iteration longer than this = a stall
+static constexpr uint32_t kStableForMs  = 2000;   // ... and this much clean time to recover
+static uint32_t g_lastStallMs = 0;                // last loop iteration that overran
+static uint32_t g_lastRcGapMs = 0;                // last time RC was not live
+static uint32_t g_worstLoopMs = 0;                // worst iteration seen (observability)
+static bool     g_driveSafe   = false;
+
+static inline bool driveSafeNow()
+{
+    const uint32_t t = millis();
+    return t > kBootSettleMs
+        && (t - g_lastStallMs) > kStableForMs
+        && (t - g_lastRcGapMs) > kStableForMs;
+}
 static constexpr uint32_t kRcTimeoutMs      = 500;    // RC FAILSAFE: no valid SBUS frame within this → NO-LINK (disarms drive, PRISM alarm)
 static constexpr uint32_t kBmsQueryTimeoutMs = 200;   // JBD reply window: a PRESENT pack early-breaks in ~50-90 ms; must exceed its latency or frames cross/corrupt. Absent-pack stall is bounded by the backoff below, NOT this.
 static constexpr uint16_t kSbusValidLo      = 160;    // analog stick floor: full deflection is ~172, so anything below is corrupt / a receiver failsafe-preset pegged to an extreme
@@ -817,7 +857,7 @@ bool prismSetStripLength(uint8_t len)
 static uint8_t g_baseR = 0, g_baseG = 0, g_baseB = 0, g_baseBr = 100;
 // Who currently owns the LAYER_1 overlay. Declared here because prismSolid() has to know
 // whether repainting the hidden overlay would stomp a live hazard signal.
-enum class PrismOverlay : uint8_t { NONE = 0, TURN, MAST_MOVE, MAST_HOLD };
+enum class PrismOverlay : uint8_t { NONE = 0, TURN, MAST_MOVE, MAST_HOLD, NOT_READY };
 static PrismOverlay g_overlay = PrismOverlay::NONE;
 static void prismOverlayHide();   // fwd decl (defined with the overlay block below)
 
@@ -876,6 +916,7 @@ static constexpr uint32_t kBlinkTurn     = 380;
 static constexpr uint32_t kBlinkMastUp   = 400;
 static constexpr uint32_t kBlinkMastDown = 200;   // descent: deliberately more urgent
 static constexpr uint32_t kBlinkMastHold = 110;   // strobe — "this is waiting on you"
+static constexpr uint32_t kBlinkNotReady = 700;   // slow breath — "wait, I am not ready"
 
 static void prismOverlayConfig(uint8_t start, uint8_t stop,
                                uint8_t r, uint8_t g, uint8_t b, uint8_t bright)
@@ -1022,6 +1063,15 @@ void prismOverlayStep()
     uint8_t start = 0, stop = last, r = 255, g = 96, b = 0, bright = kTurnBright;
     uint32_t half = kBlinkTurn;
 
+    // NOT READY outranks everything. While the drive gate is shut the robot cannot be
+    // commanded to move at all, and an operator holding the deadman and getting nothing needs
+    // to know it is the robot waiting rather than the transmitter failing — otherwise the
+    // reasonable response is to keep trying, which is precisely what went wrong before.
+    // Slow WHITE breath: unmistakably "not yet", and no other signal on this robot is white.
+    if (!g_driveSafe) {
+        want = PrismOverlay::NOT_READY;
+        r = 255; g = 255; b = 255; bright = 55; half = kBlinkNotReady;
+    } else {
     // Bench override (MASTTEST) — same code path as the real thing, so what you tune by eye
     // is what you get in service.
     const uint8_t mt = (millis() < g_mastTestUntil) ? g_mastTest : 0;
@@ -1036,6 +1086,7 @@ void prismOverlayStep()
         want = PrismOverlay::TURN;
         start = g_turnDir > 0 ? 0 : 24;
         stop  = g_turnDir > 0 ? 11 : 35;
+    }
     }
 
     // Reconfigure only when the picture actually changes — the flash itself is one write.
@@ -1863,7 +1914,8 @@ static void driveTick()
     const bool armOK    = (manual || autoAuth)                  // manual or autonomous authority (CH5)
                        &&  contactor                            // drive bus actually powered
                        && !local_estop_active && !di0estop      // no e-stop (host/btn or DI0)
-                       &&  rc_live && !rc_failsafe && !rc_range_bad;  // RC fresh, not failsafe, sticks in-band
+                       &&  rc_live && !rc_failsafe && !rc_range_bad   // RC fresh, not failsafe, in-band
+                       &&  g_driveSafe;                         // ... and the loop is actually running
 
     // ==== (A) ARM SEQUENCE — 2 s of neutral with the gate satisfied ====
     if (!armOK)            { g_escArmed = false; g_armStart_ms = 0; }
@@ -1988,7 +2040,7 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
@@ -2000,7 +2052,10 @@ static void publishDrive()
                   // is it holding, has someone consented.
                   !g_mast.pinchActive() ? "nosensor"
                   : g_mast.pinchHold()  ? "HOLD"
-                  : g_mast.pinchConsent() ? "ack" : "ok");
+                  : g_mast.pinchConsent() ? "ack" : "ok",
+                  // safe=0 means NOTHING may be commanded to move — the loop is not
+                  // demonstrably keeping time. loopmax is the worst iteration since boot.
+                  g_driveSafe ? 1 : 0, (unsigned long)g_worstLoopMs);
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the
@@ -2430,8 +2485,15 @@ static void netMaintain()
 
     if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
         if (millis() - last_eth_reinit_ms > 5000) {
+            // A DHCP acquire BLOCKS for up to 4 s, and a blocked loop cannot stop the robot
+            // — the 8Servo holds its last pulse. So only reach for it while the drive gate
+            // is shut, when a stall is harmless. Once the robot can move we re-assert the
+            // last known address instead, which does not block. If we have never had a
+            // lease, the gate stays shut anyway, so this converges rather than deadlocking.
+            const bool mayBlock = !g_driveSafe;
             last_eth_reinit_ms = millis();
-            if (netBringUp(!eth_have_cfg)) Serial.printf("[NET] eth recovered ip=%s\n", eth_ip_str);
+            if (netBringUp(mayBlock && !eth_have_cfg))
+                Serial.printf("[NET] eth recovered ip=%s\n", eth_ip_str);
         }
         return;
     }
@@ -2599,6 +2661,34 @@ static void otaHttpPull(const char* url)
 void loop()
 {
     esp_task_wdt_reset();   // feed the task watchdog — a hang > kWdtTimeoutS resets the chip
+
+    // Loop health, measured before anything else runs. This is the evidence the drive-safe
+    // gate rests on: a loop that is not keeping time cannot stop the robot.
+    {
+        static uint32_t lastLoopMs = 0;
+        const uint32_t now = millis();
+        if (lastLoopMs != 0) {
+            const uint32_t dt = now - lastLoopMs;
+            if (dt > g_worstLoopMs) g_worstLoopMs = dt;
+            if (dt > kLoopStallMs) {
+                g_lastStallMs = now;
+                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums — drive output disabled\n",
+                                         (unsigned long)dt);
+            }
+        }
+        lastLoopMs = now;
+        // RC must be CONTINUOUSLY live. A single good frame between two dropouts is not a
+        // link, and treating it as one is what let a stick input through mid-boot.
+        const bool rcLiveNow = (last_valid_frame_ms != 0)
+                            && (now - last_valid_frame_ms < kRcTimeoutMs);
+        if (!rcLiveNow) g_lastRcGapMs = now;
+        const bool safeNow = driveSafeNow();
+        if (safeNow != g_driveSafe) {
+            g_driveSafe = safeNow;
+            tprintf("[SAFE] drive %s\n", safeNow ? "ENABLED — loop stable, RC continuous"
+                                                  : "DISABLED — waiting for a stable loop + RC");
+        }
+    }
     M5.update();
     M5StamPLC.update();
 

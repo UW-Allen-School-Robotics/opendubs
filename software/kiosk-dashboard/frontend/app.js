@@ -727,6 +727,16 @@ function renderStampLC(st) {
     if (i === 3) updateRelayBtn(i);
   });
 
+  // "Not ready" banner. While the drive gate is shut nothing will move, and an operator
+  // holding the deadman for nothing needs to be told it is the robot settling.
+  const nr = $("driveNotReady");
+  if (nr) {
+    const d0 = st.drive || {};
+    const waiting = d0.drive_safe === false;
+    nr.hidden = !waiting;
+    nr.textContent = waiting ? "ROBOT NOT READY — settling, motion is disabled" : "";
+  }
+
   // Z-axis readout: measured height and the pinch guard's state. "no sensor" is shown
   // rather than hidden — it means descent is UNGUARDED, which the operator should know.
   const mt = $("mastTxt");
