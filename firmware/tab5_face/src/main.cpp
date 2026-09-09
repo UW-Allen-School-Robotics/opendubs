@@ -454,6 +454,14 @@ static void applyLine(const char *line) {
       g_linkOnline = true;
       last_state_ms = millis();
     }
+  } else if (strncmp(line, "PMODE ", 6) == 0) {
+    const char *m = line + 6;
+    const int was = g_payloadMode;
+    g_payloadMode = (strcmp(m, "PANTILT") == 0) ? PMODE_PANTILT
+                  : (strcmp(m, "ZAXIS") == 0)   ? PMODE_ZAXIS : PMODE_OFF;
+    if (g_payloadMode != was) faceInvalidate();
+    g_linkOnline = true;
+    last_state_ms = millis();
   } else if (strncmp(line, "TURN ", 5) == 0) {
     char d = line[5];
     g_turnCmd = (d == 'R') ? 1 : (d == 'L') ? -1 : 0;

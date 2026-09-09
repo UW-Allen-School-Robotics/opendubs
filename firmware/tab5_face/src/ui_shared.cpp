@@ -15,6 +15,7 @@ St STATES[] = {
 const int NST = sizeof(STATES) / sizeof(STATES[0]);
 
 volatile int    g_robotState = 1;                 // SAFE_IDLE
+volatile int    g_payloadMode = PMODE_OFF;        // CH7 — what the right stick is driving
 volatile UiMode g_uiMode     = UiMode::FACE;       // face is home
 volatile TrackingMode g_trackingMode = TrackingMode::MANUAL; // default to manual
 volatile int    g_turnCmd    = 0;

@@ -88,6 +88,21 @@ static constexpr uint32_t kServo8Hz          = 400000; // 8Servo bus speed
 // 8Servo pins for the 4 ESCs, indexed [FL, FR, RL, RR] to match driveMix's w[]. Bench-mapped
 // 2026-08-19 (wheels off): FL=ch1, FR=ch3, RL=ch0, RR=ch2. PRISM is on I2C now (not ch0).
 static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
+// PWM MIRROR — a diagnostic, off by default.
+//
+// Duplicates one ESC's pulse onto a spare 8Servo channel driving an indicator light, so the
+// 8Servo's ACTUAL PWM OUTPUT is visible during a wedge. It answers a question the I2C side
+// cannot: when writes start failing, does the 8Servo keep emitting its last pulse (hardware
+// timers alive, firmware hung) or stop emitting entirely (no signal -> ESC red fault)?
+//
+// Lived only on opendubs2 for weeks, which made it invisible to everyone reading the repo
+// and put it one SD-card failure from being lost — and every telemetry change collided with
+// it on deploy. Committed here, defaulting OFF, enabled at runtime: `MIRROR <wheel> <pin>`,
+// `MIRROR OFF`. It refuses any pin already assigned to a drive channel.
+static int8_t   g_mirrorSrc  = -1;    // wheel index 0..3 (FL,FR,RL,RR); -1 = off
+static uint8_t  g_mirrorPin  = 4;     // spare 8Servo channel with the indicator light
+static uint32_t g_mirrorFail = 0;
+
 // Per-wheel ESC direction sign. RR (ch2) is wired reversed vs the others → invert it so a
 // forward command drives all four wheels robot-forward. Indexed [FL, FR, RL, RR].
 static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
@@ -1267,6 +1282,24 @@ void handleHostCommand(const char* cmd)
                 (up ? kRelayMastUp : kRelayMastDown) + 1);
         return;
     }
+    int msrc = -1, mpin = -1;
+    if (!strcasecmp(cmd, "MIRROR OFF")) {
+        g_mirrorSrc = -1;
+        tprintf("[MIRROR] off\n");
+        return;
+    }
+    if (sscanf(cmd, "MIRROR %d %d", &msrc, &mpin) == 2) {
+        bool clash = false;
+        for (int i = 0; i < 4; ++i) if (kDriveCh[i] == (uint8_t)mpin) clash = true;
+        if (msrc < 0 || msrc > 3 || mpin < 0 || mpin > 7 || clash) {
+            tprintf("[MIRROR] refused: wheel 0-3, pin 0-7, and the pin must not be a drive channel\n");
+        } else {
+            g_mirrorSrc = (int8_t)msrc; g_mirrorPin = (uint8_t)mpin;
+            tprintf("[MIRROR] wheel %d -> 8Servo pin %d\n", msrc, mpin);
+        }
+        return;
+    }
+
     int value = -1;
     if (sscanf(cmd, "PDH_SWITCH %d", &value) == 1) {
         const bool en = value != 0;
@@ -2051,6 +2084,10 @@ static void driveTick()
         if (!servo8SetPulse(kDriveCh[i], g_escOut[i])) g_s8Fail++;   // physical PWM to the ESCs — count I2C drops
 #endif
     }
+    // Mirror one ESC pulse onto the indicator-light channel (same 500..2500us band).
+    if (g_mirrorSrc >= 0 && g_mirrorSrc < 4) {
+        if (!servo8SetPulse(g_mirrorPin, g_escOut[g_mirrorSrc])) g_mirrorFail++;
+    }
 }
 
 // [DRIVE] telemetry — always published (even when DRIVE_ENABLE=0, armed=0) so the
@@ -2061,7 +2098,7 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
@@ -2077,7 +2114,8 @@ static void publishDrive()
                   // safe=0 means NOTHING may be commanded to move — the loop is not
                   // demonstrably keeping time. loopmax is the worst iteration since boot.
                   g_driveSafe ? 1 : 0, (unsigned long)g_worstLoopMs,
-                  g_worstPhase, (unsigned long)g_worstPhaseMs);
+                  g_worstPhase, (unsigned long)g_worstPhaseMs,
+                  (int)g_mirrorSrc, (unsigned)g_mirrorPin, (unsigned long)g_mirrorFail);
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the

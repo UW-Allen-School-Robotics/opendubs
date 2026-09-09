@@ -220,6 +220,7 @@ def _loop() -> None:
     prev = None
     last = 0.0
     prev_turn = None
+    prev_pmode = None
     prev_conn = False
     while True:
         try:
@@ -247,6 +248,13 @@ def _loop() -> None:
                 _tab5_write(f"TURN {turn or '0'}")
                 prev_turn = turn
             _push_lift()          # every pass — the head's height should not go stale
+            # CH7 payload mode. The head shows it because the OPERATOR needs to know whether
+            # the right stick is aiming them or strafing the robot, and their eyes are on the
+            # machine rather than on the transmitter.
+            pmode = (stamplc.reader.snapshot().get("rc") or {}).get("pmode")
+            if pmode and pmode != prev_pmode:
+                _tab5_write(f"PMODE {pmode}")
+                prev_pmode = pmode
         except Exception:
             pass
         time.sleep(0.3)

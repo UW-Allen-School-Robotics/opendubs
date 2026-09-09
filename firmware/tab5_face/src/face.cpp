@@ -165,6 +165,22 @@ static void drawTop(int W, int H, uint16_t bg) {
       x += M5.Display.textWidth(c) + sp;
     }
   }
+  // What the operator's RIGHT STICK is doing right now (CH7). Phrased from their point of
+  // view rather than as a mode name: the failure this prevents is pushing the stick
+  // expecting one thing and getting another, and "STICK: HEAD" answers that directly where
+  // "PAN-TILT" would need translating. Colour-coded so it reads at a glance across a room.
+  {
+    const char *what = (g_payloadMode == PMODE_PANTILT) ? "STICK: HEAD"
+                     : (g_payloadMode == PMODE_ZAXIS)   ? "STICK: LIFT" : "STICK: DRIVE";
+    const uint16_t col = (g_payloadMode == PMODE_PANTILT) ? M5.Display.color565(0, 176, 235)
+                       : (g_payloadMode == PMODE_ZAXIS)   ? M5.Display.color565(243, 182, 74)
+                                                          : M5.Display.color565(70, 84, 98);
+    M5.Display.setFont(&fonts::FreeSansBold9pt7b);
+    M5.Display.setTextColor(col);
+    M5.Display.setTextDatum(textdatum_t::top_center);
+    M5.Display.drawString(what, W / 2, 62);
+  }
+
   M5.Display.setFont(&fonts::FreeSans9pt7b);
   M5.Display.setTextColor(M5.Display.color565(70, 84, 98));
   M5.Display.setTextDatum(textdatum_t::top_center);

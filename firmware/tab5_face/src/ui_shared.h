@@ -29,6 +29,13 @@ extern volatile int g_turnCmd;
 extern volatile bool g_linkOnline;
 // Written by commsTask (core 0), read by the UI (core 1) — always through these accessors,
 // never directly. See ui_shared.cpp.
+// CH7 payload mode, pushed by the Thor as "PMODE OFF|ZAXIS|PANTILT". It says what the
+// operator's RIGHT STICK is currently doing, which is the thing they cannot tell by looking
+// at the robot — and getting it wrong means aiming the head when you meant to strafe, or
+// worse, moving the lift when you meant to drive.
+enum PayloadMode : uint8_t { PMODE_OFF = 0, PMODE_ZAXIS = 1, PMODE_PANTILT = 2 };
+extern volatile int g_payloadMode;
+
 extern char g_ipStr[24];
 void setIpStr(const char *ip);
 void clearIpStr();
