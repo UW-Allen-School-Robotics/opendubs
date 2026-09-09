@@ -55,7 +55,8 @@ _TAB5_UDP_PORT = int(os.environ.get("OPENDUBS_TAB5_UDP_PORT", "4242"))
 _TAB5_RX_PORT = int(os.environ.get("OPENDUBS_TAB5_RX_PORT", "5006"))
 _CAN_ID_LIFT_CMD = 0x102
 _tab5_sock = None
-_peers_introduced = False
+_PEER_REINTRO_S = 20.0        # re-assert the pairing this often; both ends hold it in RAM
+_peers_last_intro = 0.0
 _tab5_addr = None
 _tab5_addr_ts = 0.0
 
@@ -197,10 +198,18 @@ def _introduce_peers() -> None:
     answering the sticks even if this dashboard stops — but only from an address the Thor
     has vouched for. The Thor is the one machine that can see both, so it does the
     introduction; after that the data path does not involve it at all.
+
+    RE-ASSERTED PERIODICALLY, not once. Both devices hold the pairing in RAM, so either
+    one rebooting forgets it — and a firmware flash reboots the StampPLC every time. A
+    one-shot handshake left it with nowhere to send and no way to say so: the sticks simply
+    did nothing, with every other indicator healthy. Cheap to repeat, and it means the
+    pairing heals itself instead of needing someone to remember.
     """
-    global _peers_introduced
-    if _peers_introduced:
+    global _peers_last_intro
+    now = time.monotonic()
+    if now - _peers_last_intro < _PEER_REINTRO_S:
         return
+    _peers_last_intro = now
     try:
         import socket
         import stamplc
@@ -208,11 +217,8 @@ def _introduce_peers() -> None:
         plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
         _tab5_write(f"PLCIP {plc}")            # head <- "the StampPLC may command you"
         stamplc.reader.send(f"TAB5IP {tab5}")  # PLC  <- "the head lives here"
-        _peers_introduced = True
-        import sys
-        sys.stderr.write(f"TAB5: introduced PLC {plc} <-> head {tab5}\n")
     except Exception:
-        pass          # retried next pass; a missing head must not disturb anything else
+        _peers_last_intro = 0.0   # retry promptly; a missing head disturbs nothing else
 
 
 def _push_lift() -> None:

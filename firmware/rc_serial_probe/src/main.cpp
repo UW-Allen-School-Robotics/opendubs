@@ -155,8 +155,18 @@ static constexpr uint32_t kWdtTimeoutS      = 8;      // task watchdog: loop han
 //
 // It is CONTINUOUS, not boot-only. A stall at any point drops the gate and the robot must
 // re-earn it, which is what makes this a fix for the class rather than for DHCP.
-// Bytes of SBUS drained per loop iteration. See the drain in loop().
-static constexpr uint32_t kSbusBytesPerTick = 256;
+// Bytes of SBUS drained per loop iteration.
+//
+// This was 256, and that was too tight — my mistake, and an instructive one. The link
+// delivers ~8.3 kB/s, so 256 bytes at 50 Hz gives 12.8 kB/s of drain: a margin of 1.5x that
+// any latency eats. Once behind, the drain hit the cap on EVERY iteration and never caught
+// up, so the UART buffer sat permanently full and the loop stalled 130-250 ms at a time —
+// which dropped the drive-safe gate, which silently suppressed RC pan/tilt. A cap meant to
+// stop a transient backlog monopolising one iteration created a permanent deficit instead.
+//
+// 1024 gives ~50 kB/s of drain capacity: it is never the binding constraint in steady state,
+// and still bounds a backlog to a known worst case rather than handing over the whole ring.
+static constexpr uint32_t kSbusBytesPerTick = 1024;
 static constexpr uint32_t kBootSettleMs = 3000;   // never "safe" before this, whatever else says
 static constexpr uint32_t kLoopStallMs  = 250;    // an iteration longer than this = a stall
 static constexpr uint32_t kStableForMs  = 2000;   // ... and this much clean time to recover
@@ -172,6 +182,7 @@ static const char *g_phaseName = "?";
 static uint32_t    g_phaseStartMs = 0;
 static const char *g_worstPhase = "-";       // worst EVER, for telemetry
 static uint32_t    g_worstPhaseMs = 0;
+static uint32_t    g_iterSbusBytes = 0;      // bytes drained in the CURRENT iteration
 static const char *g_iterPhase = "-";        // worst in the CURRENT iteration
 static uint32_t    g_iterPhaseMs = 0;
 static inline void phaseBegin(const char *name)
@@ -1210,13 +1221,45 @@ static void i2cBusRecover()
     tprintf("[I2C] bus recovery #%lu\n", (unsigned long)g_i2cRecoverCount);
 }
 
-// A wedged slave fails every write, so escalate to a bus recovery after a short run of
-// consecutive failures rather than retrying the same broken transaction forever.
+// ABSENT-DEVICE BACK-OFF. A wedged slave is worth recovering; a device that is simply not
+// there is not, and hammering it is expensive. With the 8Servo dead we were attempting 200
+// writes a second (4 channels x 50 Hz), every one failing, each dragging a mux select and a
+// recovery check behind it — and calling the bit-banged bus recovery four times a second.
+// That cost showed up as loop stalls of 130-340 ms, which backed the SBUS drain up until it
+// hit its byte cap on EVERY iteration and never caught up, which dropped the drive-safe
+// gate, which silently suppressed RC pan/tilt. A dead part on one I2C channel was making
+// the whole control loop miss its deadline.
+//
+// So: recover a few times, and if it keeps failing, stop asking. Retry occasionally, because
+// a replacement 8Servo must come back on its own without a reflash.
+static constexpr uint16_t kS8FailBeforeAbsent = 400;    // ~2 s of solid failure at 200/s
+static constexpr uint32_t kS8RetryMs          = 3000;   // ... then poke it this often
+static bool     g_s8Absent   = false;
+static uint32_t g_s8RetryMs  = 0;
+static uint16_t g_s8FailRun  = 0;      // failures since the last success (saturating)
+
 static inline void servo8NoteFail()
 {
+    if (g_s8FailRun < 0xFFFF) g_s8FailRun++;
+    if (g_s8FailRun >= kS8FailBeforeAbsent && !g_s8Absent) {
+        g_s8Absent = true;
+        g_s8RetryMs = millis() + kS8RetryMs;
+        tprintf("[8SERVO] absent after %u consecutive failures — backing off, retry every %lums\n",
+                g_s8FailRun, (unsigned long)kS8RetryMs);
+    }
     if (++g_s8ConsecFail < kS8FailBeforeRecover) return;
     g_s8ConsecFail = 0;
-    if (millis() - g_lastRecover_ms >= kRecoverMinIntervalMs) i2cBusRecover();
+    if (!g_s8Absent && millis() - g_lastRecover_ms >= kRecoverMinIntervalMs) i2cBusRecover();
+}
+
+// True when a write should be attempted at all. While the part is absent this lets exactly
+// one attempt through every kS8RetryMs, which is enough to notice it come back.
+static inline bool servo8Reachable()
+{
+    if (!g_s8Absent) return true;
+    if ((int32_t)(millis() - g_s8RetryMs) < 0) return false;
+    g_s8RetryMs = millis() + kS8RetryMs;
+    return true;                        // one probe; success clears g_s8Absent below
 }
 
 // Write to an 8Servo register with a STOP on EVERY exit path — the thing writeRegister()
@@ -1251,6 +1294,8 @@ bool servo8SetPulse(uint8_t pin, uint16_t pulse_us)
         return false;
     }
     g_s8ConsecFail = 0;   // a clean write means the bus is healthy again
+    g_s8FailRun = 0;
+    if (g_s8Absent) { g_s8Absent = false; tprintf("[8SERVO] back on the bus\n"); }
     return true;
 }
 
@@ -1884,15 +1929,14 @@ void consumeByte(uint8_t b)
             if (c >= 0 && !sbusInBand(ch[c])) { rc_range_bad = true; break; }
         }
 
-        // Print frequently for responsive GUI updates.
-        if ((valid_frames % kSbusPrintEveryNFrames) == 0) {
-            Serial.printf("[SBUS] OK f=%lu prof=%s ch1=%u ch2=%u ch3=%u ch4=%u ch5=%u ch6=%u ch7=%u ch8=%u fs=%d lost=%d\n",
-                          static_cast<unsigned long>(valid_frames),
-                          kProfiles[0].name,
-                          ch[0], ch[1], ch[2], ch[3], ch[4], ch[5], ch[6], ch[7],
-                          failsafe ? 1 : 0,
-                          lost ? 1 : 0);
-        }
+        // NO PRINT HERE. A Serial.printf on this path blocked the control loop and was
+        // the root cause of the intermittent "RC signal loss" chased in August; the fix
+        // then was to print less often, which reduced the odds rather than removing the
+        // hazard. It came back: 170-250 ms stalls in the SBUS drain, dropping the
+        // drive-safe gate and — because armOK gates it — silently suppressing RC pan/tilt.
+        //
+        // It was redundant anyway. The 1 Hz [SBUS] status line carries the same counters
+        // and is tee'd over Ethernet, which is the only place anyone can read it in service.
     } else {
         invalid_frames++;
     }
@@ -2153,11 +2197,12 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu s8abs=%d mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
                   (unsigned long)g_i2cRecoverCount,
+                  g_s8Absent ? 1 : 0,
                   g_mast.name(),
                   (int)g_mast.motion(),
                   g_mast.heightMm(),
@@ -2797,13 +2842,18 @@ void loop()
             if (dt > g_worstLoopMs) g_worstLoopMs = dt;
             if (dt > kLoopStallMs) {
                 g_lastStallMs = now;
-                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (this iteration: %s %lums) — drive disabled\n",
+                // Bytes drained too: it distinguishes "many bytes, each cheap" from
+                // "few bytes and something on the path is slow", which look identical
+                // from a phase timer alone.
+                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (this iteration: %s %lums, sbus %lub) — drive disabled\n",
                                          (unsigned long)dt, g_iterPhase,
-                                         (unsigned long)g_iterPhaseMs);
+                                         (unsigned long)g_iterPhaseMs,
+                                         (unsigned long)g_iterSbusBytes);
             }
         }
         lastLoopMs = now;
         phaseIterReset();
+        g_iterSbusBytes = 0;
         // RC must be CONTINUOUSLY live. A single good frame between two dropouts is not a
         // link, and treating it as one is what let a stick input through mid-boot.
         const bool rcLiveNow = (last_valid_frame_ms != 0)
@@ -2832,6 +2882,7 @@ void loop()
         const int b = rc.read();
         if (b < 0) break;
         total_bytes++;
+        g_iterSbusBytes++;
         consumeByte(static_cast<uint8_t>(b));
     }
 
