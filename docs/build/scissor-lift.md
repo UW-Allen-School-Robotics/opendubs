@@ -27,6 +27,132 @@ That division matters: the lift's own controller keeps its internal limits and m
 protection whatever the robot does. The robot's job is only to press its buttons and
 know the height.
 
+## Safety — the lift is a pinch point
+
+!!! danger "The bottom of the travel is the dangerous part"
+    A scissor linkage can trap a hand anywhere in its travel, but everywhere except the
+    bottom you have to put a limb **into** the mechanism to be caught. Near full-down
+    that is no longer true: the platform simply closes on whatever happens to be under
+    it — a hand resting on the base, a foot, a routed cable. Nothing has to reach in.
+
+    That is why the last few centimetres of descent get their own treatment below.
+
+Two mitigations are built into the firmware:
+
+1. **The lights say when the Z-axis is moving**, so a bystander who is not the operator
+   gets a cue. The lift can move while the robot is otherwise still and silent, which is
+   exactly when there is no other warning.
+2. **Descent stops itself just above full-down** and will not continue without a fresh,
+   deliberate act from a human.
+
+!!! warning "Neither of these is a safety-rated interlock"
+    They are firmware behaviours on a research robot, and they depend on a ToF reading
+    being available and on the lift controller doing what we asked. **The e-stop and
+    keeping clear are the actual protection.** Treat the pinch stop as a courtesy that
+    catches the ordinary mistake, not as a guarantee that the lift cannot close on you.
+
+### What the LEDs do
+
+The PRISM overlay is shared with the turn-signals, and the Z-axis outranks them — it
+takes the **whole strip**, because the pinch hazard has no side: someone standing behind
+the robot is as exposed as the operator.
+
+| Z-axis | PRISM |
+|---|---|
+| Rising | Whole strip amber, slow blink |
+| Lowering | Whole strip amber, **fast** blink — descent is the direction that closes the gap |
+| Held at the pinch stop | Whole strip **red strobe** — waiting for the operator |
+| Stopped | Turn-signals and the state colour as usual |
+
+The lights follow what the driver *believes* the lift is doing. With a ToF fitted, that
+belief is corrected within about a second when a pulse is missed. **Without one it can be
+wrong**, and the lights will be wrong with it.
+
+### How the stop actually works
+
+Two independent mechanisms, because the first one is not trustworthy on its own:
+
+**The primary path** watches what the driver believes the lift is doing and presses stop when
+a descent reaches the threshold. It depends on the belief being right.
+
+**The backstop** does not trust the belief at all. In the zone without consent it watches the
+*height itself*, and if the platform is still measurably falling it presses stop regardless of
+what the driver thinks. Falling is a strict precondition, never an inference: on a pulse-toggle
+controller a press starts a stopped lift, so the guard will never press one it cannot see
+moving. After each press it tracks the coast rather than judging it, so it cannot read its own
+deceleration as fresh motion and press again.
+
+!!! note "Why the redundancy is not paranoia"
+    During bring-up on OpenDubs 2 the belief was wrong on every one of the first three
+    descents, for two different reasons, while everything else looked healthy — and the
+    backstop was what stopped the lift each time. A pulse-toggle controller gives no
+    feedback, so a belief-only guard fails silently and looks armed while it does.
+
+### The pinch stop
+
+Descending below the threshold requires consent, given one of two ways:
+
+- **Operator** — release the stick to centre, hold it there for the dwell (default 600 ms),
+  then command down again. The stop is what forces the release; pressing again is the
+  acceptance.
+- **Host, for an automated lowering** — `MAST ACK`. Good for **one** descent: it is spent
+  when that descent stops, and goes stale after 15 s, so it cannot be pre-armed and left
+  lying about.
+
+**Up is never gated.** Backing off a hazard has to work instantly, always.
+
+Consent is spent on every stop, so each resumed descent inside the zone is its own
+decision rather than one authorisation covering the whole way down.
+
+!!! danger "No ToF means no guard at all"
+    The threshold is a *height*, so with no height source the zone cannot be detected and
+    descent is completely unguarded. Telemetry reports this as `pinch=nosensor` rather
+    than quietly doing nothing. Wire the ToF before running the lift anywhere near people.
+
+### Calibrating the height — do this first
+
+The ToF measures a **distance**. The lift needs a **height**, and the relationship between
+them is a property of your mounting. Nothing else here works until this is done: with no
+calibration `tofHeightMm()` returns nothing, the lift runs open-loop, and telemetry reports
+the guard as `pinch=nosensor`.
+
+1. Drive the lift to its **bottom limit**, then `TOFCAL ZERO`.
+2. Drive it to the **top**, then `TOFCAL TOP`. This fixes the *sign* — whether distance rises
+   or falls as the lift rises is a mounting question, not something to assume — and records
+   the travel as a sanity check.
+3. `TOFCAL SAVE`. It is stored in NVS on that robot, never in the repo.
+4. `TOFCAL SHOW` to confirm. Captures are refused unless the sensor reports a valid, fresh
+   reading, so a calibration cannot be taken from a bad sample.
+
+*Measured on OpenDubs 2: zero 91 mm, top 363 mm, travel 272 mm, sign +1, ±4 mm of noise.
+Yours will differ.*
+
+### Commissioning the threshold — per robot
+
+The threshold is not just a finger. It has to cover a finger *plus* how far the lift still
+travels after the stop pulse — a pulse round-trip plus the controller's own ramp-down. Both
+depend on your lift and where the ToF sits, so measure it:
+
+1. E-stop within reach, nobody's hands near the mechanism.
+2. Put an offcut of known thickness (a 25 mm block is a reasonable stand-in for a finger)
+   on the base, under the platform.
+3. Lower into the zone. It should stop with the block still **loose** — you can slide it
+   out without force.
+4. If the block is pinched, raise the threshold with `MAST PINCH <mm>` and repeat.
+5. The value is saved to NVS as you set it, so it survives a reboot.
+
+*Measured on OpenDubs 2: at 40 mm it stopped at 22 mm — a ~17 mm overshoot, too close to a
+finger. Set to **60 mm** it stops at ~55 mm. Overshoot fell to ~5 mm once the primary path
+was working, because the backstop needs to see 10 mm of fall before it acts and the primary
+path does not.*
+
+!!! warning "`MAST UP` / `MAST DOWN` bypass the guard entirely"
+    Those are bench commands for discovering the relay wiring. They pulse a relay directly
+    and deliberately do not tell the driver what they did, so the driver believes the lift is
+    stopped, the guard never engages, and the descent runs to the bottom unguarded. Use the
+    stick for anything near a person. `MASTTEST UP|DOWN|HOLD` exercises the *lights* only and
+    touches no relay.
+
 ## Why a Z-axis is abstracted
 
 This is one of two Z-axis mechanisms. The other is a lead-screw mast driven by an ESC
@@ -53,6 +179,7 @@ driver differs. Two consequences worth knowing while you build:
 |---|---|
 | **RC channel** | CH2 (right stick, vertical) — up/stop/down |
 | **Deadman** | Required. The lift moves only while CH6 is held, exactly like drive |
+| **Pinch stop** | Descent stops at **40 mm** (default) above full-down and needs fresh consent — see [Safety](#safety-the-lift-is-a-pinch-point) |
 | **Relays** | **silk R3 → UP, silk R2 → DOWN** (code R2/R1 — silk is 1-indexed, code is 0-indexed) *— per-robot; re-discover on each build* |
 | **Contact type** | **NO** (normally open) — measured; closure = press |
 | **Height sensor** | ToF on the StampPLC PaHub, **channel 3** |
@@ -137,3 +264,17 @@ to the controller's button terminals, drive-bus feed.*
 - [ ] Deadman release stops the lift.
 - [ ] Opening the e-stop contactor removes lift power entirely.
 - [ ] ToF reports a plausible height across the full travel, with no dropouts at either end.
+- [ ] PRISM goes whole-strip amber while the lift moves, faster on the way down.
+- [ ] Descent stops at the pinch threshold with a test block still loose underneath, and
+      the strip strobes red.
+- [ ] Holding the stick down through the stop does **not** resume it; releasing and
+      pressing again does.
+- [ ] Up still works immediately from the pinch stop, without consent.
+- [ ] Telemetry reads `pinch=nosensor` with the ToF unplugged — so an unguarded descent is
+      visible rather than silent.
+- [ ] `TOFCAL SHOW` reports a plausible travel, and the sign matches reality (height rises
+      as the lift rises).
+- [ ] The red strobe **clears** once you stop asking to descend, and never latches at the
+      bottom limit.
+- [ ] After a power cycle, `MAST PINCH` still reports your commissioned value, not the
+      compiled default.
