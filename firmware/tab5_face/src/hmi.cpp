@@ -31,16 +31,22 @@ static inline uint16_t C(uint8_t r, uint8_t g, uint8_t b) { return M5.Display.co
 // ---------- layout (1280x720) ----------
 static const int W = 1280, H = 720;
 static const int TOP = 64;
-static const int CHIP[4]  = { 24,  88, 300, 200 };
-static const int TAB5[4]  = { 24, 300, 300, 150 };
-static const int IOP[4]   = { 24, 464, 300, 224 };
+static const int CHIP[4]  = { 24,  88, 300, 170 };
+static const int TAB5[4]  = { 24, 270, 300, 214 };
+static const int IOP[4]   = { 24, 498, 300, 190 };
 static const int UPB[4]   = { 348,  88, 380, 190 };
 static const int RDO[4]   = { 348, 292, 380, 150 };
 static const int DNB[4]   = { 348, 456, 380, 190 };
 static const int GAUGE[4] = { 662, 304,  52, 126 };
-static const int ES_CX = 1004, ES_CY = 372, ES_R = 178;
+static const int ES_CX = 1090, ES_CY = 372, ES_R = 150;
+static const int DP_CX = 834, DP_CY = 372, DP_W = 66, DP_G = 36;
+static const int PAN_L[4]  = { DP_CX - DP_W - DP_G, DP_CY - DP_W/2, DP_W, DP_W };
+static const int PAN_R[4]  = { DP_CX + DP_G, DP_CY - DP_W/2, DP_W, DP_W };
+static const int TILT_U[4] = { DP_CX - DP_W/2, DP_CY - DP_W - DP_G, DP_W, DP_W };
+static const int TILT_D[4] = { DP_CX - DP_W/2, DP_CY + DP_G, DP_W, DP_W };
+static const int MODE_BTN[4] = { DP_CX - 75, DP_CY + DP_W + DP_G + 20, 150, 44 };
 // relay/limit row baselines
-static const int IO_ROW0 = 522, IO_DY = 42;
+static const int IO_ROW0 = 556, IO_DY = 42;
 
 // ---------- change-tracking ----------
 static bool     fullRedraw = true;
@@ -50,6 +56,7 @@ static bool     pInhibit = false, pConfirm = false, pAtTop = false, pAtBot = fal
 static bool     pInhibitE = false;
 static int      pChip = -2;
 static bool     pLink = false;
+static HmiHit   pActiveHit = HmiHit::NONE;
 
 static inline bool inRect(int x, int y, const int r[4]) { return x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]; }
 
@@ -82,11 +89,12 @@ static void panel(const int r[4], const char* label) {
 static void drawTab5Values() {
   M5.Display.setFont(F_DATA); M5.Display.setTextSize(1); M5.Display.setTextDatum(textdatum_t::middle_right);
   int rx = TAB5[0] + TAB5[2] - 16;
-  int y0 = 358, y1 = 392, y2 = 426;
-  M5.Display.fillRect(TAB5[0] + 110, 342, TAB5[2] - 110 - 12, 100, PANEL);
+  int y0 = TAB5[1] + 58, y1 = TAB5[1] + 92, y2 = TAB5[1] + 126;
+  M5.Display.fillRect(TAB5[0] + 110, TAB5[1] + 42, TAB5[2] - 110 - 12, 100, PANEL);
   M5.Display.setTextColor(INK);                              M5.Display.drawString("Z-AXIS LIFT", rx, y0);
   M5.Display.setTextColor(g_linkOnline ? UPCOL : DNCOL);     M5.Display.drawString(g_linkOnline ? "ONLINE" : "OFFLINE", rx, y1);
-  M5.Display.setTextColor(INK);                              M5.Display.drawString(g_ipStr, rx, y2);
+  char ipStr[24]; copyIpStr(ipStr, sizeof(ipStr));
+  M5.Display.setTextColor(INK);                              M5.Display.drawString(ipStr, rx, y2);
 }
 
 static void drawChrome() {
@@ -104,9 +112,10 @@ static void drawChrome() {
   // Tab5 identity
   panel(TAB5, "TAB5 - PAYLOAD");
   M5.Display.setFont(F_DATA); M5.Display.setTextDatum(textdatum_t::middle_left); M5.Display.setTextColor(INKFT);
-  M5.Display.drawString("MODULE", TAB5[0] + 16, 358);
-  M5.Display.drawString("LINK",   TAB5[0] + 16, 392);
-  M5.Display.drawString("IP",     TAB5[0] + 16, 426);
+  M5.Display.drawString("MODULE", TAB5[0] + 16, TAB5[1] + 58);
+  M5.Display.drawString("LINK",   TAB5[0] + 16, TAB5[1] + 92);
+  M5.Display.drawString("IP",     TAB5[0] + 16, TAB5[1] + 126);
+  M5.Display.drawString("FRONT ToF", TAB5[0] + 16, TAB5[1] + 160);
   drawTab5Values();
 
   // Relays & limits — the row NAMES at the readable floor
@@ -182,25 +191,29 @@ static void drawReadout(const LiftController::Snapshot& s) {
   M5.Display.fillRect(RDO[0] + 14, RDO[1] + 16, 300, 68, PANEL2);
   M5.Display.setFont(F_BIGNUM); M5.Display.setTextSize(1);
   M5.Display.setTextColor(INK); M5.Display.setTextDatum(textdatum_t::top_left);
-  char buf[8]; snprintf(buf, sizeof buf, "%d", (int)lroundf(s.heightMm));
+  // Unknown height says so. It used to show a locally simulated number as if measured.
+  char buf[8];
+  if (s.heightKnown) snprintf(buf, sizeof buf, "%d", (int)lroundf(s.heightMm));
+  else               snprintf(buf, sizeof buf, "--");
   M5.Display.drawString(buf, RDO[0] + 18, RDO[1] + 20);
   int wpx = RDO[0] + 18 + M5.Display.textWidth(buf) + 8;
   M5.Display.setFont(F_DATA); M5.Display.setTextColor(INKDIM); M5.Display.setTextDatum(textdatum_t::bottom_left);
   M5.Display.drawString("mm", wpx, RDO[1] + 72);
-  // status + ToF
+  // status (no ToF here anymore)
   M5.Display.fillRect(RDO[0] + 14, RDO[1] + RDO[3] - 40, RDO[2] - 92, 34, PANEL2);
   const char* st = s.inhibit ? "INHIBITED" : s.motion == Motion::UP ? "RAISING"
                  : s.motion == Motion::DOWN ? "LOWERING" : "STOPPED";
-  char sub[48]; snprintf(sub, sizeof sub, "%s   ToF %d mm", st, s.tofOk ? (int)lroundf(s.tofMm) : 0);
-  M5.Display.setFont(F_DATA); M5.Display.setTextColor(s.tofOk ? INKDIM : DNCOL);
+  M5.Display.setFont(F_DATA); M5.Display.setTextColor(INKDIM);
   M5.Display.setTextDatum(textdatum_t::bottom_left);
-  M5.Display.drawString(sub, RDO[0] + 18, RDO[1] + RDO[3] - 14);
+  M5.Display.drawString(st, RDO[0] + 18, RDO[1] + RDO[3] - 14);
 }
 
 static void drawGauge(const LiftController::Snapshot& s) {
   int ix = GAUGE[0] + 2, iy = GAUGE[1] + 2, iw = GAUGE[2] - 4, ih = GAUGE[3] - 4;
   M5.Display.fillRect(ix, iy, iw, ih, C(11, 17, 22));
-  float frac = (s.heightMm - LiftController::MIN_MM) / (LiftController::MAX_MM - LiftController::MIN_MM);
+  float frac = s.heightKnown
+      ? (s.heightMm - LiftController::MIN_MM) / (LiftController::MAX_MM - LiftController::MIN_MM)
+      : 0.0f;
   if (frac < 0) frac = 0; if (frac > 1) frac = 1;
   int fh = (int)(ih * frac);
   if (fh > 0) M5.Display.fillRect(ix, iy + ih - fh, iw, fh, CYAN);
@@ -225,11 +238,71 @@ static void drawTopRight(const HmiCtx& ctx) {
   char rv[24]; snprintf(rv, sizeof rv, "\xE2\x86\xA9 face in %ds", ctx.revertSecs);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(rv, rx, TOP / 2); rx -= M5.Display.textWidth(rv) + 24;
   M5.Display.setFont(F_DATA);
-  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", g_ipStr);
+  char ipStr[24]; copyIpStr(ipStr, sizeof(ipStr));
+  char ipl[40]; snprintf(ipl, sizeof ipl, "wlan %s", ipStr);
   M5.Display.setTextColor(INKFT); M5.Display.drawString(ipl, rx, TOP / 2); rx -= M5.Display.textWidth(ipl) + 24;
   const char* lk = g_linkOnline ? "LINK ONLINE" : "LINK OFFLINE";
   M5.Display.setTextColor(INKDIM); M5.Display.drawString(lk, rx, TOP / 2); rx -= M5.Display.textWidth(lk) + 14;
   M5.Display.fillCircle(rx, TOP / 2, 6, g_linkOnline ? UPCOL : DNCOL);
+}
+
+static void drawFrontToF(const LiftController::Snapshot& s) {
+  int rx = TAB5[0] + TAB5[2] - 16;
+  int y3 = TAB5[1] + 160;
+  M5.Display.fillRect(TAB5[0] + 110, TAB5[1] + 144, TAB5[2] - 110 - 12, 32, PANEL);
+  M5.Display.setFont(F_DATA); M5.Display.setTextSize(1); M5.Display.setTextDatum(textdatum_t::middle_right);
+  if (s.tofOk) {
+    char buf[32]; snprintf(buf, sizeof buf, "%d mm", (int)lroundf(s.tofMm));
+    M5.Display.setTextColor(CYAN);
+    M5.Display.drawString(buf, rx, y3);
+  } else {
+    M5.Display.setTextColor(DNCOL);
+    M5.Display.drawString("ERR", rx, y3);
+  }
+  
+  // Live servo angles
+  extern int16_t g_targetPan;
+  extern int16_t g_targetTilt;
+  extern bool g_isHoming;
+  char angBuf[64];
+  if (g_isHoming) {
+    snprintf(angBuf, sizeof angBuf, "HOMING... P:%d T:%d", g_targetPan, g_targetTilt);
+  } else {
+    snprintf(angBuf, sizeof angBuf, "PAN: %d\xB0   TILT: %d\xB0", g_targetPan, g_targetTilt);
+  }
+  M5.Display.fillRect(TAB5[0] + 16, TAB5[1] + TAB5[3] - 26, 260, 24, PANEL);
+  M5.Display.setFont(F_LABEL);
+  M5.Display.setTextColor(CYAN);
+  M5.Display.setTextDatum(textdatum_t::bottom_left);
+  M5.Display.drawString(angBuf, TAB5[0] + 16, TAB5[1] + TAB5[3] - 4);
+}
+
+static void drawDPadBtn(const int r[4], const char* label, bool active) {
+  uint16_t c = active ? CYAN : PANEL2;
+  M5.Display.fillRoundRect(r[0], r[1], r[2], r[3], 12, c);
+  M5.Display.drawRoundRect(r[0], r[1], r[2], r[3], 12, HAIR);
+  M5.Display.setFont(F_WORD);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(active ? GROUND : INKDIM);
+  M5.Display.setTextDatum(textdatum_t::middle_center);
+  M5.Display.drawString(label, r[0] + r[2]/2, r[1] + r[3]/2);
+}
+
+static void drawDPad(const HmiCtx& ctx) {
+  drawDPadBtn(PAN_L, "LT", ctx.activeHit == HmiHit::PAN_LEFT);
+  drawDPadBtn(PAN_R, "RT", ctx.activeHit == HmiHit::PAN_RIGHT);
+  drawDPadBtn(TILT_U, "UP", ctx.activeHit == HmiHit::TILT_UP);
+  drawDPadBtn(TILT_D, "DN", ctx.activeHit == HmiHit::TILT_DOWN);
+  
+  bool isAI = (g_trackingMode == TrackingMode::AI);
+  uint16_t c = isAI ? CYAN : PANEL2;
+  M5.Display.fillRoundRect(MODE_BTN[0], MODE_BTN[1], MODE_BTN[2], MODE_BTN[3], 12, c);
+  M5.Display.drawRoundRect(MODE_BTN[0], MODE_BTN[1], MODE_BTN[2], MODE_BTN[3], 12, HAIR);
+  M5.Display.setFont(F_LABEL);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(isAI ? GROUND : INKDIM);
+  M5.Display.setTextDatum(textdatum_t::middle_center);
+  M5.Display.drawString(isAI ? "TRACKING: AI" : "TRACKING: OFF", MODE_BTN[0] + MODE_BTN[2]/2, MODE_BTN[1] + MODE_BTN[3]/2);
 }
 
 // ---------- public ----------
@@ -238,6 +311,11 @@ void hmiInvalidate() { fullRedraw = true; }
 HmiHit hmiHitTest(int x, int y) {
   if (inRect(x, y, UPB)) return HmiHit::RAISE;
   if (inRect(x, y, DNB)) return HmiHit::LOWER;
+  if (inRect(x, y, PAN_L)) return HmiHit::PAN_LEFT;
+  if (inRect(x, y, PAN_R)) return HmiHit::PAN_RIGHT;
+  if (inRect(x, y, TILT_U)) return HmiHit::TILT_UP;
+  if (inRect(x, y, TILT_D)) return HmiHit::TILT_DOWN;
+  if (inRect(x, y, MODE_BTN)) return HmiHit::MODE_TOGGLE;
   int dx = x - ES_CX, dy = y - ES_CY;
   if (dx * dx + dy * dy <= ES_R * ES_R) return HmiHit::ESTOP;
   return HmiHit::NONE;
@@ -249,10 +327,12 @@ void hmiRender(const HmiCtx& ctx) {
 
   if (fullRedraw) {
     drawChrome(); drawChip(g_robotState); drawArrow(UPB, true, s); drawArrow(DNB, false, s);
-    drawEstop(s, ctx, false); drawReadout(s); drawGauge(s); drawLamps(s); drawTopRight(ctx);
+    drawEstop(s, ctx, false); drawReadout(s); drawGauge(s); drawLamps(s); drawTopRight(ctx); drawFrontToF(s);
+    drawDPad(ctx);
     fullRedraw = false;
     pMotion = s.motion; pInhibit = pInhibitE = s.inhibit; pAtTop = s.atTop; pAtBot = s.atBot;
     pConfirm = ctx.estopConfirm; pFlash = false; pChip = g_robotState; pLink = g_linkOnline;
+    pActiveHit = ctx.activeHit;
     lastDyn = now; return;
   }
 
@@ -266,7 +346,12 @@ void hmiRender(const HmiCtx& ctx) {
   }
   if (g_robotState != pChip) { drawChip(g_robotState); pChip = g_robotState; }
   if (g_linkOnline != pLink) { pLink = g_linkOnline; drawTab5Values(); drawTopRight(ctx); }
+  
+  if (ctx.activeHit != pActiveHit) {
+    drawDPad(ctx);
+    pActiveHit = ctx.activeHit;
+  }
 
   if (now - lastDyn >= 50) { lastDyn = now;
-    drawReadout(s); drawGauge(s); drawLamps(s); drawTopRight(ctx); }
+    drawReadout(s); drawGauge(s); drawLamps(s); drawTopRight(ctx); drawFrontToF(s); }
 }

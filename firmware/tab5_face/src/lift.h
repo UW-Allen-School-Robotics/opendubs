@@ -1,23 +1,35 @@
-// OpenDubs Tab5 — scissor-lift controller.
+// OpenDubs Tab5 — scissor-lift PROXY, and the front rangefinder.
 //
-// Physical model (per the module spec):
-//   * Two M5Stack Relay units on the lift's UP and DOWN legs, wired to the NC contacts,
-//     driven through an M5Stack PbHUB (I2C @ 0x61). A momentary relay pulse = one "button
-//     press" to the lift's own controller.
-//   * An M5Stack ToF4M (VL53L1X-class, I2C @ 0x29) shoots UP the column at the underside of
-//     the moving upper platform, so its distance GROWS as the lift rises. It never reads 0
-//     (there is always a standoff, even at the bottom limit switch) — a 0/invalid read means
-//     sensor fault, not "floor".
-//   * The lift runs to its own internal limit switches (bottom, and an "all the way up") and
-//     stops itself. Pulsing the SAME leg again stops it; pulsing the OPPOSITE leg reverses it.
+// This object does NOT drive the lift. It used to: two relays on a PbHUB, pulsed directly
+// from here. That made the Tab5 a second, independent owner of the lift's buttons, alongside
+// the StampPLC — and the StampPLC is where the Z-axis safety lives (pinch guard, limit
+// detection, belief correction against a calibrated ToF). Two owners means either can move
+// the lift without the other knowing, and the guard can be walked straight past.
 //
-// Safety: the soft/touch e-stop is a SOFT INHIBIT (it drops the authorize state and pulses the
-// active leg to stop) — it is NOT the hardware e-stop loop. NC relays are fail-safe by omission:
-// if this controller dies, no new pulse is issued and the lift simply runs to its next limit.
+// So the split is now:
 //
-// NOTE: no hardware is attached yet, so SIMULATE=true drives a modeled ToF + limits. Every real
-// I2C access is written but guarded behind SIMULATE and marked TODO to verify against the M5
-// device libraries/datasheets when the PbHUB + ToF + relays are physically connected.
+//   Tab5        asks. The HMI's up/down/stop buttons set a REQUEST, which the comms task
+//               sends to the Thor as CAN_ID_LIFT_CMD.
+//   Thor        forwards it to the StampPLC as `MAST CMD <-1..1>`.
+//   StampPLC    acts, through ScissorRelayMast — the same path the RC sticks use, so the
+//               pinch guard applies to every descent regardless of who asked for it.
+//
+// Height, motion and limits are therefore REPORTED state, not something this object knows.
+// They were previously simulated here — a modelled height advanced by a rate constant — and
+// displayed on the HMI as though measured. A plausible-looking fake number next to a real
+// machine is worse than an honest "unknown", so unknown is what it now says.
+//
+// TWO DIFFERENT DISTANCES, and keeping them apart is the point:
+//
+//   tofMm     the screen-mounted FRONT rangefinder on this unit. What the head is looking
+//             at. Read locally, published as CAN_ID_TOF_FRONT.
+//   heightMm  the LIFT height, measured by the StampPLC's own ToF, calibrated there against
+//             the lift's limits and feeding the pinch guard. It arrives over UDP, so the
+//             head shows exactly the number the safety logic acts on rather than a second
+//             opinion. This is the "-- mm" between the up/down buttons.
+//
+// The head must never measure its own lift height. Two answers to one question is how this
+// ended up displaying a locally simulated number in the first place.
 #pragma once
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
@@ -25,54 +37,74 @@
 
 enum class Motion : uint8_t { STOP, UP, DOWN };
 
+#include "can_protocol.h"
+
 class LiftController {
 public:
-  // travel + speed model (mm). Tune to the real lift once measured.
-  static constexpr float MIN_MM      = 0.0f;
-  static constexpr float MAX_MM      = 900.0f;
-  static constexpr float RATE_MM_S   = 210.0f;   // simulated travel rate
-  static constexpr float TOF_STANDOFF= 70.0f;    // ToF reading at full-down (never 0)
-  static constexpr uint32_t PULSE_MS = 250;      // momentary relay-open duration
+  // Display range for the HMI's height bar. The real travel is a per-robot commissioned
+  // value on the StampPLC; this is only how the bar is scaled.
+  static constexpr float MIN_MM = 0.0f;
+  static constexpr float MAX_MM = 900.0f;
 
   struct Snapshot {
-    float   heightMm;
-    float   tofMm;
-    Motion  motion;
-    bool    inhibit;      // soft e-stop engaged
+    float   heightMm;      // reported by the StampPLC; < 0 when unknown
+    bool    heightKnown;
+    float   tofMm;         // FRONT rangefinder on this unit — NOT the lift height
+    uint8_t tofPart;       // TOF_PART_* — which front sensor answered at boot, 0 = none
+    Motion  motion;        // reported
+    bool    inhibit;       // soft e-stop engaged (refuses to send requests)
     bool    atTop;
     bool    atBot;
     bool    tofOk;
-    bool    relayUpPulse; // relay leg currently pulsed (for the UI lamps)
-    bool    relayDnPulse;
+    bool    guardHold;     // StampPLC pinch guard is refusing a descent
+    bool    relayUpPulse;  // "up request in flight" lamp
+    bool    relayDnPulse;  // "down request in flight" lamp
   };
 
-  void begin();                 // create mutex, init I2C bus + PbHUB + ToF (stubbed)
-  void tick(uint32_t nowMs);    // advance model / read ToF / detect limits / close pulses
-  void enforceSafe(uint32_t nowMs); // called by the high-priority safety task
+  void begin();
+  void tick(uint32_t nowMs);
+  void enforceSafe(uint32_t nowMs);
 
-  // commands (thread-safe). Follow the pulse-toggle / pulse-reverse semantics.
+  // Requests, not commands. Thread-safe.
   void commandUp();
   void commandDown();
-  void commandStop();           // explicit stop (pulses the active leg)
-  void setInhibit(bool on);     // soft e-stop; on=true stops immediately
+  void commandStop();
+  void setInhibit(bool on);     // soft e-stop; on=true requests stop and refuses further asks
+
+  // What the comms task should be telling the Thor. STOP is meaningful and must be sent:
+  // silence at the far end is treated as stop too, but saying so is faster than timing out.
+  Motion request();
+
+  // Lift state as reported back by the robot. Marks the report fresh; a report older than
+  // REPORT_STALE_MS makes height unknown again rather than leaving a stale number on screen.
+  void reportFromRobot(float heightMm, Motion motion, bool atTop, bool atBot, bool guardHold);
 
   Snapshot snapshot();
 
+  static constexpr uint32_t REPORT_STALE_MS = 1500;
+  // A front reading older than this is not a reading. Longer than the sensor's ~33 ms sample
+  // period, short enough that a dead sensor is noticed promptly.
+  static constexpr uint32_t TOF_STALE_MS = 400;
+
 private:
-  void moveCmd_(Motion dir);            // shared up/down logic (mutex held)
-  void pulseRelay_(uint8_t leg, uint32_t nowMs); // leg 0=UP,1=DOWN — PbHUB write (stub)
-  void closePulses_(uint32_t nowMs);    // return NC relays to closed after PULSE_MS
-  float readTofMm_();                   // ToF4M read (stub → simulated)
+  bool  readTofMm_(float *mm);   // true only on a reading the sensor vouches for
 
   SemaphoreHandle_t mtx_ = nullptr;
-  Motion   motion_   = Motion::STOP;
-  bool     inhibit_  = false;
-  float    heightMm_ = 420.0f;
-  float    tofMm_    = TOF_STANDOFF + 420.0f;
-  bool     atTop_ = false, atBot_ = false, tofOk_ = true;
-  uint32_t upPulseUntil_ = 0, dnPulseUntil_ = 0;
-  uint32_t lastTickMs_   = 0;
-  bool     simulate_     = true;        // flip to false when the ToF/relays are wired
+  Motion   request_   = Motion::STOP;
+  uint32_t requestMs_ = 0;
+  bool     inhibit_   = false;
+
+  // Reported from the StampPLC.
+  Motion   motion_     = Motion::STOP;
+  float    heightMm_   = -1.0f;
+  bool     atTop_ = false, atBot_ = false, guardHold_ = false;
+  uint32_t reportMs_   = 0;
+
+  uint32_t lastTickMs_ = 0;
+
+  float    tofMm_ = -1.0f;      // front rangefinder
+  bool     tofOk_ = false;
+  uint32_t tofFreshMs_ = 0;     // when the last VALID front sample arrived
 };
 
 extern LiftController Lift;

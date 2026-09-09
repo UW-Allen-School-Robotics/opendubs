@@ -133,6 +133,9 @@ static uint8_t  g_mastTest = 0;
 static uint32_t g_mastTestUntil = 0;
 static constexpr float kTurnIntentThresh = 0.15f;
 static RosDriveCmd g_rosCmd;
+// Z-axis intent from the Thor, same heartbeat discipline as the drive command.
+struct RosMastCmd { float v = 0; uint32_t ms = 0; };
+static RosMastCmd g_rosMast;
 
 static bool     g_escArmed    = false;                 // ESCs have completed the neutral-hold arm
 static uint32_t g_armStart_ms = 0;
@@ -1263,6 +1266,18 @@ void handleHostCommand(const char* cmd)
     // Autonomous drive command from the Thor/ROS: `DRIVE <fwd> <rot> <str>` (-1..1).
     // Only takes effect under RC_AUTO authority (CH5) + the arm gate; each message
     // also refreshes the heartbeat, so stopping the stream stops the robot.
+    // Z-axis intent from the Thor/ROS. Deliberately the ONLY remote way to move the lift:
+    // it feeds the same setIntent() the sticks do, so the pinch guard, the limits and the
+    // belief correction all apply. Driving the relays directly from the network -- which is
+    // what the Tab5 bridge used to do -- goes round every one of them.
+    // Heartbeat-gated like DRIVE: stop sending and the lift stops.
+    float dmast = 0;
+    if (sscanf(cmd, "MAST CMD %f", &dmast) == 1) {
+        g_rosMast.v  = constrain(dmast, -1.0f, 1.0f);
+        g_rosMast.ms = millis();          // silent ack — arrives at command rate
+        return;
+    }
+
     float dfwd = 0, drot = 0, dstr = 0;
     if (sscanf(cmd, "DRIVE %f %f %f", &dfwd, &drot, &dstr) == 3) {
         g_rosCmd.fwd = constrain(dfwd, -1.0f, 1.0f);
@@ -1861,7 +1876,25 @@ static void driveTick()
     // is open -- software and hardware agree by construction. Intent is asserted EVERY
     // tick (0 when not permitted), so "stop" is continuous rather than a one-shot that
     // could go missing.
-    g_mast.setIntent((armOK && mode == RCM_MANUAL_LIVE) ? rcAxis(FN_MAST, rc_ch) : 0.0f);
+    // Z-axis intent. Both sources go through the same driver, so neither can skip the pinch
+    // guard, and both are gated by armOK -- contactor closed, no e-stop, RC link alive.
+    //
+    // THE STICK WINS while it is being used. Otherwise the Thor's command applies, under
+    // MANUAL authority as well as AUTO: the dashboard is a normal operator interface and the
+    // robot lives in MANUAL, so requiring the RC switch in AUTO just meant the touch buttons
+    // did nothing. Its safety comes from the same place the stick's does -- it is a held
+    // intent with its OWN heartbeat, so releasing the button, closing the browser or losing
+    // the network all stop the lift within 250 ms.
+    //
+    // Note this deliberately does NOT depend on the DRIVE heartbeat (rosFresh): the Z-axis
+    // has its own, and a robot that is not being driven can still need its lift.
+    const float rcMast = (mode == RCM_MANUAL_LIVE) ? rcAxis(FN_MAST, rc_ch) : 0.0f;
+    const bool  thorFresh = (g_rosMast.ms != 0) && (millis() - g_rosMast.ms < kRosCmdTimeoutMs);
+    float mastIntent = 0.0f;
+    if (!armOK)                              mastIntent = 0.0f;
+    else if (fabsf(rcMast) > 0.05f)          mastIntent = rcMast;      // operator at the stick
+    else if (thorFresh)                      mastIntent = g_rosMast.v;
+    g_mast.setIntent(mastIntent);
     g_mast.tick(millis());
 
     // ==== SLEW LIMIT + brake-through-neutral on reversal → OUTPUT ====

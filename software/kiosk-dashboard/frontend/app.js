@@ -619,21 +619,58 @@ let relayState = [null, null, null, null];   // latest relay states (for toggle 
 function buildRelayRows(labels) {
   const list = $("relayList");
   if (!list || list.dataset.built) return;
+  // R1/R2 are the scissor lift's UP and DOWN legs. They are NOT free relay toggles: pressing
+  // them raw bypasses the mast driver and its pinch guard. They show state only, and the
+  // Z-AXIS row below drives the lift through /api/mast instead. R3 is the only spare.
   list.innerHTML = labels.map((lbl, i) => {
-    const ctl = (i === 2 || i === 3)
+    const ctl = (i === 3)
       ? `<button class="iobtn" id="relayBtn_${i}" data-ch="${i}">—</button>`
-      : `<span class="iolock" title="not dashboard-controllable">🔒</span>`;
+      : `<span class="iolock" title="${i === 1 || i === 2
+            ? 'lift leg — use the Z-AXIS control so the pinch guard applies'
+            : 'not dashboard-controllable'}">🔒</span>`;
     return `<div class="iorow"><span class="iolabel">RELAY${i + 1} ${lbl}</span>` +
       `<span class="sdot" id="relayDot_${i}"></span><span id="relayTxt_${i}">—</span>${ctl}</div>`;
-  }).join("");
+  }).join("") +
+    `<div class="iorow"><span class="iolabel">Z-AXIS (MAST)</span>` +
+    `<span id="mastTxt">—</span>` +
+    `<button class="iobtn" id="mastUp">HOLD ▲</button>` +
+    `<button class="iobtn" id="mastDown">HOLD ▼</button></div>`;
   list.dataset.built = "1";
-  [2, 3].forEach((i) => {
-    confirmButton($("relayBtn_" + i), {
-      url: () => "/api/relay/" + i + "/" + (relayState[i] ? "off" : "on"),
-      confirm: "CONFIRM", pending: "…",
-      label: () => updateRelayBtn(i),
-    });
+  confirmButton($("relayBtn_3"), {
+    url: () => "/api/relay/3/" + (relayState[3] ? "off" : "on"),
+    confirm: "CONFIRM", pending: "…",
+    label: () => updateRelayBtn(3),
   });
+  holdButton($("mastUp"), "up");
+  holdButton($("mastDown"), "down");
+}
+
+// HOLD to move, release to stop — the same contract as the RC stick, and for the same
+// reason: `MAST CMD` is an intent that the firmware expires after 250 ms, so a single tap
+// would start the lift and immediately stop it. Repeating while held is what keeps it going,
+// and letting go (or the browser dying, or the kiosk locking) stops it.
+function holdButton(btn, dir) {
+  if (!btn) return;
+  let timer = null;
+  const send = (d) => fetch("/api/mast/" + d, { method: "POST" }).catch(() => {});
+  const start = (ev) => {
+    ev.preventDefault();
+    if (timer) return;
+    btn.classList.add("on");
+    send(dir);
+    timer = setInterval(() => send(dir), 100);
+  };
+  const stop = () => {
+    if (!timer) return;
+    clearInterval(timer); timer = null;
+    btn.classList.remove("on");
+    send("stop");
+  };
+  btn.addEventListener("pointerdown", start);
+  // pointerup/cancel/leave all stop it. A finger sliding off a touch target must not leave
+  // the lift travelling.
+  ["pointerup", "pointercancel", "pointerleave"].forEach((e) => btn.addEventListener(e, stop));
+  window.addEventListener("blur", stop);
 }
 function updateRelayBtn(i) {
   const b = $("relayBtn_" + i);
@@ -687,8 +724,23 @@ function renderStampLC(st) {
     const t = $("relayTxt_" + i);
     if (t) t.textContent = v == null ? "—" : v ? "CLOSED" : "open";
     setDot("relayDot_" + i, v == null ? "" : v ? "ok" : "");
-    if (i === 2 || i === 3) updateRelayBtn(i);
+    if (i === 3) updateRelayBtn(i);
   });
+
+  // Z-axis readout: measured height and the pinch guard's state. "no sensor" is shown
+  // rather than hidden — it means descent is UNGUARDED, which the operator should know.
+  const mt = $("mastTxt");
+  if (mt) {
+    const d = st.drive || {};
+    const h = d.mast_h_mm;
+    const pinch = d.pinch;
+    const moving = (d.mast || "").endsWith(":1") ? " ▲" : (d.mast || "").endsWith(":2") ? " ▼" : "";
+    let txt = (h == null || h < 0) ? "height —" : Math.round(h) + " mm";
+    if (pinch === "HOLD") txt += " · PINCH HOLD";
+    else if (pinch === "nosensor") txt += " · NO SENSOR (unguarded)";
+    mt.textContent = txt + moving;
+    mt.className = pinch === "HOLD" ? "warn" : (pinch === "nosensor" ? "bad" : "");
+  }
 
   // Sensors
   if ($("stBusV")) $("stBusV").textContent = io.bus_v != null ? io.bus_v.toFixed(1) + " V" : "—";
