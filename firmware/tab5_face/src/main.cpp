@@ -119,8 +119,17 @@ static void controlTask(void *) {
     }
 
     // Convert angles to microseconds for the 8Servo unit
-    uint16_t tiltUs = map(g_targetTilt, 0, 180, 500, 2500);
-    uint16_t panUs = map(g_targetPan, 0, 180, 500, 2500);
+    // Servo direction is a property of the MECHANISM — how the horns and the bracket
+    // happened to go together — so it is corrected once here, at the write, rather than in
+    // each input. Otherwise the RC stick, the D-pad and AI tracking each need their own
+    // sign and they will not agree for long. Both axes are reversed on this head, observed
+    // on the bench: the D-pad drove it mirrored horizontally and vertically.
+    static constexpr bool kPanReverse  = true;
+    static constexpr bool kTiltReverse = true;
+    const int16_t panCmd  = kPanReverse  ? (int16_t)(180 - g_targetPan)  : g_targetPan;
+    const int16_t tiltCmd = kTiltReverse ? (int16_t)(180 - g_targetTilt) : g_targetTilt;
+    uint16_t tiltUs = map(tiltCmd, 0, 180, 500, 2500);
+    uint16_t panUs = map(panCmd, 0, 180, 500, 2500);
 
     // Write Tilt to CH0
     Wire.beginTransmission(kServo8Addr);

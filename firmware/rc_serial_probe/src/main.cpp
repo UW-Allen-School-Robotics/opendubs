@@ -170,19 +170,24 @@ static bool     g_driveSafe   = false;
 // costs one millis() call per phase and names the offender.
 static const char *g_phaseName = "?";
 static uint32_t    g_phaseStartMs = 0;
-static const char *g_worstPhase = "-";
+static const char *g_worstPhase = "-";       // worst EVER, for telemetry
 static uint32_t    g_worstPhaseMs = 0;
+static const char *g_iterPhase = "-";        // worst in the CURRENT iteration
+static uint32_t    g_iterPhaseMs = 0;
 static inline void phaseBegin(const char *name)
 {
     const uint32_t now = millis();
     if (g_phaseStartMs != 0) {
         const uint32_t d = now - g_phaseStartMs;
+        // Per-iteration first: the all-time worst is the wrong thing to blame a specific
+        // stall on, and reporting it as the cause sends you after the wrong phase entirely.
+        if (d > g_iterPhaseMs)  { g_iterPhaseMs = d;  g_iterPhase = g_phaseName; }
         if (d > g_worstPhaseMs) { g_worstPhaseMs = d; g_worstPhase = g_phaseName; }
     }
     g_phaseName = name;
     g_phaseStartMs = now;
 }
-static inline void phaseEnd() { phaseBegin("idle"); g_phaseStartMs = 0; }
+static inline void phaseIterReset() { g_iterPhase = "-"; g_iterPhaseMs = 0; }
 
 static inline bool driveSafeNow()
 {
@@ -2792,12 +2797,13 @@ void loop()
             if (dt > g_worstLoopMs) g_worstLoopMs = dt;
             if (dt > kLoopStallMs) {
                 g_lastStallMs = now;
-                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (worst phase: %s %lums) — drive disabled\n",
-                                         (unsigned long)dt, g_worstPhase,
-                                         (unsigned long)g_worstPhaseMs);
+                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (this iteration: %s %lums) — drive disabled\n",
+                                         (unsigned long)dt, g_iterPhase,
+                                         (unsigned long)g_iterPhaseMs);
             }
         }
         lastLoopMs = now;
+        phaseIterReset();
         // RC must be CONTINUOUSLY live. A single good frame between two dropouts is not a
         // link, and treating it as one is what let a stick input through mid-boot.
         const bool rcLiveNow = (last_valid_frame_ms != 0)
