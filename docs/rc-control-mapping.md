@@ -14,13 +14,46 @@ StampPLC.
 | Channel | Function | Notes |
 |---|---|---|
 | CH1 | **Rotate** (yaw) | mecanum rotate input |
-| CH2 | **Mast** up / down | |
+| CH2 | **Mast** up / down, or **tilt** | right stick, vertical — meaning set by CH7 |
 | CH3 | **Forward / reverse** | mecanum drive input |
-| CH4 | **Strafe** | mecanum strafe input |
+| CH4 | **Strafe**, or **pan** | right stick, horizontal — meaning set by CH7 |
 | CH5 | **Mode** | OFF / MANUAL / AUTO |
 | CH6 | **Deadman** | hold to enable motion; release → neutral |
-| CH7 | **Mast enable** | on/off toggle for the mast (Z-axis) — lets you drive without risk of actuating it |
+| CH7 | **Payload mode** | 3-position: OFF / Z-AXIS / PAN-TILT — see below |
 | CH8 | **Speed** | scales drive output |
+
+## CH7 — what the right stick means
+
+There are two sticks and three things that want one, so a 3-position switch arbitrates.
+**The left stick never changes meaning**; forward/reverse and rotate work in every position.
+
+| CH7 | Right stick, vertical | Right stick, horizontal |
+|---|---|---|
+| **OFF** | *nothing* | strafe |
+| **Z-AXIS** | mast up / down | strafe |
+| **PAN-TILT** | tilt | pan |
+
+OFF exists because the lift used to creep whenever the operator only meant to drive: with
+the switch here, the stick cannot move the Z-axis at all.
+
+**Strafe is unavailable in PAN-TILT** — CH4 is doing something else. Forward/reverse and
+rotate still work, so the robot can be repositioned tank-style while the head is aimed.
+
+!!! note "The right stick must be re-centred after a mode change"
+    The stick means something different in each position, so it is ignored until it returns
+    to centre once. Otherwise flipping from PAN-TILT to Z-AXIS with the stick held down would
+    hand the lift a full-scale command the instant the switch clicked — and flipping the
+    other way, a stick held sideways would lurch the robot into a strafe.
+
+    Telemetry reports this as `pmarm=0` while it waits. If an axis seems dead right after
+    moving the switch, centre the stick.
+
+The deadman still gates everything: nothing moves unless CH6 is held, in any mode.
+
+Only the RC **stick** is gated by CH7. The dashboard and the Tab5's own buttons are separate
+operator interfaces with their own hold-to-move, and they keep working whatever the switch
+is doing — a touchscreen button that silently did nothing because of a switch position on
+the transmitter would be its own kind of bug.
 
 ## See also
 

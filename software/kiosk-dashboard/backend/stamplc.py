@@ -38,7 +38,9 @@ _P_SBUS_STAT = re.compile(r"\[SBUS\] prof=.* ok=(\d+) bad=(\d+) last_ok_ms=(\d+)
 #   [ENV]   z= t= h=                    one line per thermal zone
 #   [FAN]   z= on= pct=                 one line per fan zone
 #   [RAIL]  logic_v= logic_i= drive_v= clamp=
-#   [RC]    live= mode= dead= spd= mat= fr= rot= str= mast= raw=c1,..,c16
+#   [RC]    live= mode= dead= spd= pmode= pmarm= fr= rot= str= mast= raw=c1,..,c16
+#           pmode = payload mode (OFF|ZAXIS|PANTILT): what the RIGHT STICK means.
+#           pmarm = 0 while that stick is waiting to be re-centred after a mode change.
 #   [DRIVE] mode= armed= w=fl,fr,rl,rr  (normalized -1..1) mast=<drv>:<0stop/1up/2down>
 #           h=<mm, <0 unknown> pinch=nosensor|ok|HOLD|ack  (Z-axis + its pinch guard)
 #   [ODO]   ok= st= rdy= cal= xpod= ypod= x= y= h= vx= vy= vh= ex= ey= loop= fail= crcbad=
@@ -312,7 +314,8 @@ class StampReader:
                     "live": kv.get("live") == "1", "mode": kv.get("mode"),
                     "dead": kv.get("dead") == "1",
                     "spd": float(kv["spd"]) if "spd" in kv else None,
-                    "mat": inum("mat"), "fr": inum("fr"), "rot": inum("rot"),
+                    "pmode": kv.get("pmode"), "pmarm": kv.get("pmarm") == "1",
+                    "fr": inum("fr"), "rot": inum("rot"),
                     "str": inum("str"), "mast": inum("mast"), "raw": raw,
                 }
                 self._last = now; return

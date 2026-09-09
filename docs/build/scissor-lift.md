@@ -177,7 +177,8 @@ driver differs. Two consequences worth knowing while you build:
 
 | | |
 |---|---|
-| **RC channel** | CH2 (right stick, vertical) — up/stop/down |
+| **RC channel** | CH2 (right stick, vertical) — up/stop/down, **only when CH7 is in Z-AXIS** |
+| **Payload mode** | CH7 3-position: OFF / Z-AXIS / PAN-TILT. In OFF the stick cannot move the lift at all — see [RC mapping](../rc-control-mapping.md) |
 | **Deadman** | Required. The lift moves only while CH6 is held, exactly like drive |
 | **Pinch stop** | Descent stops at **40 mm** (default) above full-down and needs fresh consent — see [Safety](#safety-the-lift-is-a-pinch-point) |
 | **Relays** | **silk R3 → UP, silk R2 → DOWN** (code R2/R1 — silk is 1-indexed, code is 0-indexed) *— per-robot; re-discover on each build* |

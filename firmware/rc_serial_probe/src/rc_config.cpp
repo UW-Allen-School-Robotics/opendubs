@@ -8,7 +8,7 @@ static constexpr uint16_t kRawLo = 200, kRawMid = 1000, kRawHi = 1820;
 // Historical hardcoded map, kept as the default so an uncalibrated robot behaves
 // exactly as it did before this file existed:
 //   CH1 ROTATE  CH2 MAST  CH3 FWD/REV  CH4 STRAFE
-//   CH5 mode    CH6 deadman  CH7 mat   CH8 speed
+//   CH5 authority  CH6 deadman  CH7 payload mode  CH8 speed
 static const RcFnCfg kDefaults[FN_COUNT] = {
     /* FN_FWD   */ {2,  +1, kRawLo, kRawMid, kRawHi},
     /* FN_ROT   */ {0,  +1, kRawLo, kRawMid, kRawHi},
@@ -17,11 +17,11 @@ static const RcFnCfg kDefaults[FN_COUNT] = {
     /* FN_AUTH  */ {4,  +1, kRawLo, kRawMid, kRawHi},
     /* FN_DEAD  */ {5,  +1, kRawLo, kRawMid, kRawHi},
     /* FN_SPEED */ {7,  +1, kRawLo, kRawMid, kRawHi},
-    /* FN_MAT   */ {6,  +1, kRawLo, kRawMid, kRawHi},
+    /* FN_PMODE */{6,  +1, kRawLo, kRawMid, kRawHi},
 };
 
 static const char *kNames[FN_COUNT] = {
-    "FWD", "ROT", "STR", "MAST", "AUTH", "DEAD", "SPEED", "MAT"
+    "FWD", "ROT", "STR", "MAST", "AUTH", "DEAD", "SPEED", "PMODE"
 };
 
 static RcFnCfg  g_cfg[FN_COUNT];
@@ -131,7 +131,7 @@ void rcCalTick(const uint16_t *ch)
             delay(25);   // one datagram per line; a tight burst gets dropped
         }
         if (!shown) tprintf("   (no channel moved — is the transmitter on and bound?)\n");
-        tprintf("[RCCAL] now assign functions: RCCAL SET <FWD|ROT|STR|MAST|AUTH|DEAD|SPEED|MAT>\n");
+        tprintf("[RCCAL] now assign functions: RCCAL SET <FWD|ROT|STR|MAST|AUTH|DEAD|SPEED|PMODE>\n");
     }
 }
 
@@ -190,7 +190,7 @@ bool rcCalCommand(const char *cmd, const uint16_t *ch)
         tprintf("[RCCAL] CENTER            snapshot every channel's resting position\n");
         tprintf("[RCCAL] SWEEP [secs]      move every stick/switch to its extremes\n");
         tprintf("[RCCAL] SET <fn>          hold that control in its POSITIVE direction, then send\n");
-        tprintf("[RCCAL]                   fn: FWD ROT STR MAST AUTH DEAD SPEED MAT\n");
+        tprintf("[RCCAL]                   fn: FWD ROT STR MAST AUTH DEAD SPEED PMODE\n");
         tprintf("[RCCAL] SAVE | DEFAULTS | SHOW\n");
         tprintf("[RCCAL] positive = forward, nose-right, strafe-right, mast UP, deadman HELD\n");
         return true;

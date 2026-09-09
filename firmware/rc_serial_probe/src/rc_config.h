@@ -25,7 +25,12 @@ enum RcFn : uint8_t {
     FN_AUTH,      // authority (OFF/RC/AUTO) switch, 3-position
     FN_DEAD,      // deadman                 switch, 2-position
     FN_SPEED,     // speed knob              unipolar 0..1
-    FN_MAT,       // mat / aux               switch
+    // Payload mode, 3-position: OFF / Z-AXIS / PAN-TILT. Selects what the RIGHT STICK means,
+    // because there are two sticks and three things that want one. Renamed IN PLACE from the
+    // never-used FN_MAT: the stored map is a raw byte image of this array, so adding a
+    // function would change its size and silently drop every robot back to defaults —
+    // including a calibrated MAST reversal. A rename costs nothing.
+    FN_PMODE,
     FN_COUNT
 };
 

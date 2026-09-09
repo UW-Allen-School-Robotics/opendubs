@@ -337,6 +337,36 @@ static void bmsStep()
 }
 // =========================================================================
 
+// Payload mode — what the RIGHT STICK means. Two sticks, three things that want one, so a
+// 3-position switch (CH7) arbitrates:
+//
+//   OFF       right stick vertical does nothing; horizontal still strafes. Floor driving,
+//             and the Z-axis cannot be moved by the stick at all — which is the whole point:
+//             the lift used to creep whenever the operator meant to drive.
+//   Z-AXIS    vertical drives the lift; horizontal still strafes.
+//   PAN-TILT  vertical tilts, horizontal pans. STRAFE IS UNAVAILABLE here — CH4 is doing
+//             something else — but forward/reverse and rotate are untouched, so the robot
+//             can still be repositioned tank-style while the head is being aimed.
+//
+// The left stick never changes meaning.
+enum PayloadMode : uint8_t { PM_OFF = 0, PM_ZAXIS = 1, PM_PANTILT = 2 };
+static PayloadMode g_payloadMode = PM_OFF;
+// After a mode change the right stick MEANS something different, so it must be centred once
+// before it is honoured again. Without this, flipping from PAN-TILT to Z-AXIS with the stick
+// held down hands the lift a full-scale command the instant the switch clicks — and coming
+// the other way, a stick held sideways would lurch the robot into a strafe.
+static bool g_pmodeArmed = true;
+
+// Decoded through rcUnit() rather than a raw threshold so a switch wired the other way round
+// is fixed by RCCAL reversal instead of by editing firmware.
+static PayloadMode computePayloadMode(const uint16_t *ch)
+{
+    const float u = rcUnit(FN_PMODE, ch);
+    if (u < 0.33f) return PM_OFF;
+    if (u < 0.75f) return PM_ZAXIS;
+    return PM_PANTILT;
+}
+
 // PRISM state indicator: robot state -> PRISM PWM pulse (us), driven on 8Servo ch0.
 // 580 = police (unambiguous alarm). Solid-color hues (1050-1949 sweep) are APPROXIMATE
 // and meant to be tuned by eye — see the PRISM PWM/color table. Prism is on 8Servo pin 0.
@@ -1850,6 +1880,22 @@ static void driveTick()
     } else if (autoAuth) {                             // autonomous → Thor/ROS DRIVE command
         fwd = g_rosCmd.fwd; rot = g_rosCmd.rot; str = g_rosCmd.str;
     }
+    // ---- payload mode: what the right stick means this tick ----
+    const PayloadMode pmodeNow = computePayloadMode(rc_ch);
+    if (pmodeNow != g_payloadMode) {          // the stick just changed meaning
+        g_payloadMode = pmodeNow;
+        g_pmodeArmed = false;
+    }
+    if (!g_pmodeArmed
+        && fabsf(rcAxis(FN_MAST, rc_ch)) < 0.10f
+        && fabsf(rcAxis(FN_STR,  rc_ch)) < 0.10f) {
+        g_pmodeArmed = true;                  // centred: the new meaning may take effect
+    }
+    // Strafe is a right-stick function, so it is gated too: in PAN-TILT that axis is the pan
+    // command, and after any mode change it waits for centre like everything else on that
+    // stick. Forward/reverse and rotate are never affected — the left stick does not change.
+    if (g_payloadMode == PM_PANTILT || !g_pmodeArmed) str = 0.0f;
+
     // RCM_MANUAL_SAFE (deadman released) → 0,0,0 = idle.
     g_intentFwd = fwd; g_intentRot = rot; g_intentStr = str;
     g_speed = rcUnit(FN_SPEED, rc_ch);   // speed knob (annunciation)
@@ -1888,7 +1934,13 @@ static void driveTick()
     //
     // Note this deliberately does NOT depend on the DRIVE heartbeat (rosFresh): the Z-axis
     // has its own, and a robot that is not being driven can still need its lift.
-    const float rcMast = (mode == RCM_MANUAL_LIVE) ? rcAxis(FN_MAST, rc_ch) : 0.0f;
+    // The STICK moves the lift only in Z-AXIS mode, and only once re-centred. The Thor's
+    // MAST CMD is deliberately NOT gated on the switch: the dashboard and the head's buttons
+    // are separate operator interfaces with their own hold-to-move, and a touchscreen button
+    // that silently does nothing because a switch on the transmitter is in the wrong position
+    // would be its own kind of bug.
+    const float rcMast = (mode == RCM_MANUAL_LIVE && g_payloadMode == PM_ZAXIS && g_pmodeArmed)
+                       ? rcAxis(FN_MAST, rc_ch) : 0.0f;
     const bool  thorFresh = (g_rosMast.ms != 0) && (millis() - g_rosMast.ms < kRosCmdTimeoutMs);
     float mastIntent = 0.0f;
     if (!armOK)                              mastIntent = 0.0f;
@@ -1968,9 +2020,11 @@ static void publishRc()
     // line into one buffer so the tee emits it as a SINGLE serial write / UDP datagram (not fragments).
     char b[224];
     int n = snprintf(b, sizeof(b),
-        "[RC] live=%d mode=%s dead=%d spd=%d fs=%d rng=%d mat=%d fr=%d rot=%d str=%d mast=%d raw=",
+        "[RC] live=%d mode=%s dead=%d spd=%d fs=%d rng=%d pmode=%s pmarm=%d fr=%d rot=%d str=%d mast=%d raw=",
         live ? 1 : 0, mode, dead ? 1 : 0, spd, rc_failsafe ? 1 : 0, rc_range_bad ? 1 : 0,
-        rc_ch[6], rc_ch[2], rc_ch[0], rc_ch[3], rc_ch[1]);
+        g_payloadMode == PM_ZAXIS ? "ZAXIS" : g_payloadMode == PM_PANTILT ? "PANTILT" : "OFF",
+        g_pmodeArmed ? 1 : 0,
+        rc_ch[2], rc_ch[0], rc_ch[3], rc_ch[1]);
     if (n < 0) return;
     if (n >= (int)sizeof(b)) n = (int)sizeof(b) - 1;
     for (int i = 0; i < 16 && n < (int)sizeof(b) - 8; ++i)
