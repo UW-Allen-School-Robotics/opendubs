@@ -10,6 +10,21 @@ static constexpr uint32_t kPollMs     = 40;    // how often we ASK if a sample i
 static constexpr uint32_t kStaleMs    = 500;   // a height older than this is not a height
 static constexpr uint32_t kRetryMs    = 2000;  // re-init cadence when the sensor is absent
 
+// BEAM-BREAK REJECTION. A hand passing through the beam returns a short range, so the
+// reported height collapses instantly and recovers just as fast. Downstream that is
+// indistinguishable from the lift falling — and it drove the lift, because the pinch
+// backstop read it as a runaway and pressed a leg to "stop" it.
+//
+// The lift physically travels at roughly 8-20 mm/s. Anything implying a wild multiple of
+// that did not happen, so it is discarded rather than believed. The bound is deliberately
+// generous: this rejects the impossible, not merely the surprising.
+static constexpr float    kMaxMmPerSec = 300.0f;
+static constexpr float    kJumpFloorMm = 15.0f;   // always allow at least this (sensor noise)
+// ... but never reject forever. If the mechanism really did move while the beam was
+// obstructed, the first clear reading is a big step and would be rejected in perpetuity.
+// After this long with nothing accepted, take the next sample as truth and re-sync.
+static constexpr uint32_t kResyncMs   = 1500;
+
 static HubI2C  *g_shim = nullptr;
 static VL53L1X  g_dev;
 
@@ -18,7 +33,7 @@ static uint32_t g_nextMs  = 0;
 static uint16_t g_lastMm  = 0;
 static uint8_t  g_lastSt  = 255;
 static uint32_t g_lastOkMs = 0;
-static uint32_t g_reads = 0, g_errors = 0;
+static uint32_t g_reads = 0, g_errors = 0, g_rejects = 0;
 
 // ---- calibration (per robot, NVS) ----
 static bool     g_haveZero = false;
@@ -92,9 +107,22 @@ void tofTick(uint32_t nowMs)
         g_nextMs = nowMs + kRetryMs;
         return;
     }
-    g_lastMm = mm;
     g_lastSt = (uint8_t)g_dev.ranging_data.range_status;
     g_reads++;
+
+    // Plausibility gate, applied before anything downstream sees the value.
+    if (g_lastOkMs != 0 && g_dev.ranging_data.range_status == VL53L1X::RangeValid) {
+        const uint32_t dtMs = nowMs - g_lastOkMs;
+        const float allow = kJumpFloorMm + kMaxMmPerSec * (float)dtMs / 1000.0f;
+        if (fabsf((float)mm - (float)g_lastMm) > allow) {
+            g_rejects++;
+            if ((nowMs - g_lastOkMs) < kResyncMs) return;      // discard: nothing moved that fast
+            // Obstructed long enough that our reference is untrustworthy. Accept and re-seed
+            // rather than reject for ever.
+            tprintf("[TOF] re-sync after %lums of rejected samples\n", (unsigned long)dtMs);
+        }
+    }
+    g_lastMm = mm;
     // Only a clean status counts as a reading. A wrong height is worse than no height: it
     // feeds the pinch guard, and a bad number there either blocks a safe descent or permits
     // an unsafe one.
@@ -126,9 +154,12 @@ void tofPublish()
 {
     float h;
     const bool haveH = tofHeightMm(&h);
-    tprintf("[TOF] rdy=%d d=%u st=%u cal=%d h=%.0f reads=%lu err=%lu\n",
+    // rej = samples discarded as physically impossible. A hand through the beam shows up
+    // here; a climbing count with the lift still means something is interrupting it.
+    tprintf("[TOF] rdy=%d d=%u st=%u cal=%d h=%.0f reads=%lu err=%lu rej=%lu\n",
             g_ready ? 1 : 0, g_lastMm, g_lastSt, g_haveZero ? 1 : 0,
-            haveH ? h : -1.0f, (unsigned long)g_reads, (unsigned long)g_errors);
+            haveH ? h : -1.0f, (unsigned long)g_reads, (unsigned long)g_errors,
+            (unsigned long)g_rejects);
 }
 
 static void calShow()

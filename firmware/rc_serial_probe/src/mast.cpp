@@ -51,6 +51,11 @@ void ScissorRelayMast::startPulse_(bool up, uint32_t nowMs)
     pulseUp_  = up;
     pulsing_  = true;
     pulseEnd_ = nowMs + pulseMs_;
+    // We have just told the controller something. Until the height proves otherwise, the
+    // lift may be running because of it — and only then may the backstop press a leg.
+    mayBeRunning_  = true;
+    steadyRef_     = heightMm_;
+    steadySinceMs_ = nowMs;
     applyRelays_(up, !up);          // exactly one leg closed, in one write
     // Reset the stall reference: whatever we believe now, judge it from here — but not
     // until the controller has had time to actually respond. See kStartGraceMs.
@@ -90,6 +95,24 @@ void ScissorRelayMast::tick(uint32_t nowMs)
         if (height_(&mm)) {
             haveHeight_ = true;
             heightMm_ = mm;
+        }
+    }
+
+    // Has the mechanism demonstrably stopped? Held still for long enough and nothing we
+    // commanded can still be in flight, so the backstop stands down. This is what stops a
+    // hand waved through the beam from being read as a runaway.
+    if (haveHeight_) {
+        if (steadyRef_ < 0.0f || fabsf(heightMm_ - steadyRef_) > kMovedMm) {
+            steadyRef_ = heightMm_;
+            steadySinceMs_ = nowMs;
+        } else if (mayBeRunning_ && !pulsing_
+                   && (int32_t)(nowMs - stallArmMs_) >= 0          // start-up grace elapsed
+                   && nowMs - steadySinceMs_ > kProvenStoppedMs) {
+            // Only after the mechanism has had time to RESPOND. Judged any earlier, the
+            // ~1 s dead time between the press and any movement reads as "already stopped"
+            // and disarms the backstop before the lift has even begun to move — the same
+            // trap the stall detector fell into, for the same reason.
+            mayBeRunning_ = false;
         }
     }
 
@@ -173,11 +196,15 @@ void ScissorRelayMast::tick(uint32_t nowMs)
     // we are in the zone without consent, watch the height itself: if the platform is still
     // falling, press stop -- whatever motion_ says.
     //
-    // Falling is the PRECONDITION, not an inference. On a pulse-toggle controller a press
-    // starts a stopped lift, so pressing without evidence of motion would cause the very
-    // thing the guard exists to prevent. The mark is seeded on entry and only a fall of
-    // kFallMm past it (well clear of the +-4 mm sensor noise) counts.
-    if (inZone && !consent_ && haveHeight_) {
+    // Falling alone is NOT sufficient evidence. On a pulse-toggle controller a press starts a
+    // stopped lift, and a hand crossing the ToF beam makes the height collapse exactly as a
+    // runaway would -- which drove the lift down for real. So two things must both hold: we
+    // must have commanded something that could still be running (mayBeRunning_), and the
+    // platform must have fallen kFallMm past the mark, well clear of the +-4 mm noise.
+    // mayBeRunning_ is the "active controller command" precondition: without it, a falling
+    // height is a sensor artefact — a hand, a passing object — not a lift we set in motion,
+    // and pressing a leg would CREATE the descent rather than stop one.
+    if (inZone && !consent_ && haveHeight_ && mayBeRunning_) {
         if (guardMark_ < 0.0f) {
             // Just entered the zone. Seed the mark from here and judge immediately — this is
             // the case where the belief may already be wrong, so there is nothing to wait for.

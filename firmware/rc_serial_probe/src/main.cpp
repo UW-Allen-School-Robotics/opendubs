@@ -127,6 +127,8 @@ static constexpr uint32_t kWdtTimeoutS      = 8;      // task watchdog: loop han
 //
 // It is CONTINUOUS, not boot-only. A stall at any point drops the gate and the robot must
 // re-earn it, which is what makes this a fix for the class rather than for DHCP.
+// Bytes of SBUS drained per loop iteration. See the drain in loop().
+static constexpr uint32_t kSbusBytesPerTick = 256;
 static constexpr uint32_t kBootSettleMs = 3000;   // never "safe" before this, whatever else says
 static constexpr uint32_t kLoopStallMs  = 250;    // an iteration longer than this = a stall
 static constexpr uint32_t kStableForMs  = 2000;   // ... and this much clean time to recover
@@ -134,6 +136,25 @@ static uint32_t g_lastStallMs = 0;                // last loop iteration that ov
 static uint32_t g_lastRcGapMs = 0;                // last time RC was not live
 static uint32_t g_worstLoopMs = 0;                // worst iteration seen (observability)
 static bool     g_driveSafe   = false;
+
+// Which part of the loop overran. `loopmax` told us a 396 ms iteration happened at boot but
+// not what did it, and guessing at that is how you end up "fixing" the wrong thing. PHASE()
+// costs one millis() call per phase and names the offender.
+static const char *g_phaseName = "?";
+static uint32_t    g_phaseStartMs = 0;
+static const char *g_worstPhase = "-";
+static uint32_t    g_worstPhaseMs = 0;
+static inline void phaseBegin(const char *name)
+{
+    const uint32_t now = millis();
+    if (g_phaseStartMs != 0) {
+        const uint32_t d = now - g_phaseStartMs;
+        if (d > g_worstPhaseMs) { g_worstPhaseMs = d; g_worstPhase = g_phaseName; }
+    }
+    g_phaseName = name;
+    g_phaseStartMs = now;
+}
+static inline void phaseEnd() { phaseBegin("idle"); g_phaseStartMs = 0; }
 
 static inline bool driveSafeNow()
 {
@@ -2040,7 +2061,7 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
@@ -2055,7 +2076,8 @@ static void publishDrive()
                   : g_mast.pinchConsent() ? "ack" : "ok",
                   // safe=0 means NOTHING may be commanded to move — the loop is not
                   // demonstrably keeping time. loopmax is the worst iteration since boot.
-                  g_driveSafe ? 1 : 0, (unsigned long)g_worstLoopMs);
+                  g_driveSafe ? 1 : 0, (unsigned long)g_worstLoopMs,
+                  g_worstPhase, (unsigned long)g_worstPhaseMs);
 }
 
 // [RC] telemetry — interpreted mode/deadman/speed + raw 16 channels, for the
@@ -2398,6 +2420,16 @@ void setup()
     // sensors live here) ends up DEAD after our M5.begin(cfg)+M5StamPLC.begin()+ext-I2C/SPI/Ethernet
     // init (relays don't actuate, DIs read low, power/temp read 0). Re-assert the bus LAST (mirrors
     // M5StamPLC::i2c_init) and re-init IOExpander B on it so the relay/DI subsystem works.
+    // Throw away everything the receiver sent while setup() was running. Those frames
+    // describe stick positions from seconds ago; parsing them is not merely wasted work, it
+    // briefly presents stale sticks as current.
+    {
+        uint32_t dropped = 0;
+        while (rc.available() > 0 && dropped < 8192) { rc.read(); dropped++; }
+        if (dropped) Serial.printf("[SBUS] dropped %lu stale bytes buffered during boot\n",
+                                   (unsigned long)dropped);
+    }
+
     M5.In_I2C.release();
     M5.In_I2C.begin(I2C_NUM_0, 13, 15);
     {
@@ -2672,8 +2704,9 @@ void loop()
             if (dt > g_worstLoopMs) g_worstLoopMs = dt;
             if (dt > kLoopStallMs) {
                 g_lastStallMs = now;
-                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums — drive output disabled\n",
-                                         (unsigned long)dt);
+                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (worst phase: %s %lums) — drive disabled\n",
+                                         (unsigned long)dt, g_worstPhase,
+                                         (unsigned long)g_worstPhaseMs);
             }
         }
         lastLoopMs = now;
@@ -2692,16 +2725,25 @@ void loop()
     M5.update();
     M5StamPLC.update();
 
-    while (rc.available() > 0) {
+    phaseBegin("sbus");
+    // BOUNDED drain. This was `while (rc.available() > 0)`, which hands the whole backlog to
+    // one iteration: at boot the driver's ring buffer has filled during setup, and draining
+    // it took 351 ms with everything else — including the drive failsafe — waiting behind it.
+    // The input path was starving the path that stops the robot.
+    //
+    // SBUS is 100 kbaud 8E2 ≈ 8.3 kB/s, so ~170 bytes per 20 ms tick keeps up in real time.
+    // The budget is well above that: it never throttles live traffic, it only stops a
+    // backlog from being paid off in a single iteration.
+    for (uint32_t n = 0; n < kSbusBytesPerTick && rc.available() > 0; ++n) {
         const int b = rc.read();
-        if (b < 0) {
-            break;
-        }
+        if (b < 0) break;
         total_bytes++;
         consumeByte(static_cast<uint8_t>(b));
     }
 
+    phaseBegin("hostcmd");
     pollHostCommands();
+    phaseBegin("netcmd");
     pollNetCommands();   // same dispatcher, over Ethernet UDP (works with USB unplugged)
     // BMS poll is a NON-BLOCKING state machine (bmsStep) so it never stalls the control loop
     // (the old blocking read caused [RC] gaps → spurious dashboard NO-LINK). Absent-pack
@@ -2725,10 +2767,13 @@ void loop()
         last_sens_ms = millis();
     }
 
+    phaseBegin("env");
     envStep();          // ENVIII (regen-resistor thermal) — non-blocking, self-throttled to ~1 Hz
+    phaseBegin("tof");
     tofTick(millis());  // Z-height (VL53L1X on ch3) — one I2C transaction per call, at most
     static uint32_t lastTofPub = 0;
     if (millis() - lastTofPub > 250) { lastTofPub = millis(); tofPublish(); }
+    phaseBegin("prism");
     prismOverlayStep();   // PRISM LAYER_1: Z-axis hazard over turn-signals, non-blocking flash
 
     if ((millis() - last_i2c_scan_ms) > 5000) {
@@ -2793,7 +2838,8 @@ void loop()
     // I2C reads + one printf.
     if ((millis() - last_io_pub_ms) > 100) {
         publishIo();
-        pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
+        phaseBegin("pinpoint");
+    pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
         // Re-sends the config whenever the device reappears — a Pinpoint that power-cycled
         // is silently back on defaults and will keep reporting a plausible, wrong pose.
         ppCfgTick(millis(), pp_present);
@@ -2814,6 +2860,7 @@ void loop()
     if ((millis() - last_rc_pub_ms) > 100)    { publishRc();    last_rc_pub_ms = millis(); }
 
     // ---- Ethernet (24V-powered board, wired LAN — NOT PoE): self-heal link watchdog + 5 Hz telemetry ----
+    phaseBegin("net");
     netMaintain();                                                  // link monitor + re-init + DHCP renew (1 Hz inside)
     if (eth_up && (millis() - last_net_tx) > 200) { netTelemetry(); last_net_tx = millis(); }
 

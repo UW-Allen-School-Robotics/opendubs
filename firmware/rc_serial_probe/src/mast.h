@@ -156,6 +156,13 @@ public:
     // press, whatever we believe. Falling is required: pressing DOWN on a controller that
     // is genuinely stopped would START a descent, so evidence of motion is the precondition,
     // never an assumption.
+    // The backstop may only press a leg when the lift COULD still be running because of
+    // something we commanded. A press on a stopped pulse-toggle controller STARTS a descent,
+    // so "the height is falling" is not sufficient evidence on its own: a hand through the
+    // ToF beam forges exactly that signal, and this drove the lift down for real.
+    // mayBeRunning_ is set by every pulse we issue and cleared only once the height has held
+    // still long enough to prove the mechanism is stopped.
+    static constexpr uint32_t kProvenStoppedMs = 1200;
     static constexpr float    kFallMm       = 10.0f;  // fall this far = definitely moving (noise is +-4)
     static constexpr uint32_t kSettleMs     = 900;    // after a press, let it coast before judging again
     // Zone hysteresis. Parked just inside the threshold, sensor noise (+-4 mm) crossed it
@@ -208,6 +215,9 @@ private:
     uint32_t releaseHeldMs_ = 0;       // how long the last release lasted
     uint32_t stallArmMs_    = 0;       // no stall judgement before this
     uint32_t refuseMs_      = 0;       // when the guard last refused a descent
+    bool     mayBeRunning_  = false;   // we pulsed, and have not since proven it stopped
+    float    steadyRef_     = -1.0f;   // height the "has it stopped" test is measured from
+    uint32_t steadySinceMs_ = 0;
     bool     inZone_        = false;   // hysteretic: see kZoneHystMm
     float    guardMark_     = -1.0f;   // height when the guard last looked; <0 = not in zone
     uint32_t guardSettle_   = 0;       // ... and when it may look again
