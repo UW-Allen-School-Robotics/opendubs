@@ -183,6 +183,8 @@ static uint32_t    g_phaseStartMs = 0;
 static const char *g_worstPhase = "-";       // worst EVER, for telemetry
 static uint32_t    g_worstPhaseMs = 0;
 static uint32_t    g_iterSbusBytes = 0;      // bytes drained in the CURRENT iteration
+static uint32_t    g_iterSbusUs = 0;         // ... and how long that took, in us
+static uint32_t    g_iterSbusMaxUs = 0;      // worst SINGLE byte, in us
 static const char *g_iterPhase = "-";        // worst in the CURRENT iteration
 static uint32_t    g_iterPhaseMs = 0;
 static inline void phaseBegin(const char *name)
@@ -2845,15 +2847,19 @@ void loop()
                 // Bytes drained too: it distinguishes "many bytes, each cheap" from
                 // "few bytes and something on the path is slow", which look identical
                 // from a phase timer alone.
-                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (this iteration: %s %lums, sbus %lub) — drive disabled\n",
+                if (g_driveSafe) tprintf("[SAFE] loop stalled %lums (this iteration: %s %lums, sbus %lub in %luus, worst byte %luus) — drive disabled\n",
                                          (unsigned long)dt, g_iterPhase,
                                          (unsigned long)g_iterPhaseMs,
-                                         (unsigned long)g_iterSbusBytes);
+                                         (unsigned long)g_iterSbusBytes,
+                                         (unsigned long)g_iterSbusUs,
+                                         (unsigned long)g_iterSbusMaxUs);
             }
         }
         lastLoopMs = now;
         phaseIterReset();
         g_iterSbusBytes = 0;
+        g_iterSbusUs = 0;
+        g_iterSbusMaxUs = 0;
         // RC must be CONTINUOUSLY live. A single good frame between two dropouts is not a
         // link, and treating it as one is what let a stick input through mid-boot.
         const bool rcLiveNow = (last_valid_frame_ms != 0)
@@ -2878,12 +2884,39 @@ void loop()
     // SBUS is 100 kbaud 8E2 ≈ 8.3 kB/s, so ~170 bytes per 20 ms tick keeps up in real time.
     // The budget is well above that: it never throttles live traffic, it only stops a
     // backlog from being paid off in a single iteration.
-    for (uint32_t n = 0; n < kSbusBytesPerTick && rc.available() > 0; ++n) {
-        const int b = rc.read();
-        if (b < 0) break;
-        total_bytes++;
-        g_iterSbusBytes++;
-        consumeByte(static_cast<uint8_t>(b));
+    // Measured in MICROseconds, per byte, because a phase timer in millis() cannot tell
+    // "many bytes each cheap" from "the task was descheduled mid-drain" — and I have now
+    // guessed wrong about that three times. g_iterSbusMaxUs is the worst SINGLE byte: if
+    // that is large, one call is blocking and the byte count is a red herring.
+    // READ IN BLOCKS, not a byte at a time.
+    //
+    // Measured: single-byte rc.read() cost ~370 US PER BYTE — about 90,000 cycles — and it
+    // was uniform, not one slow call (worst single byte 1.4 ms). Each read() takes the UART
+    // driver's mutex, and the higher-priority UART event task holds it almost continuously
+    // at this data rate, so every byte paid for contention. 400-700 bytes an iteration then
+    // cost 150-250 ms, which dropped the drive-safe gate and silently suppressed RC
+    // pan/tilt. readBytes() takes that lock ONCE per block instead of once per byte.
+    //
+    // This is what the earlier byte cap was really fighting. Capping the count treated the
+    // symptom and made it worse; the per-byte cost was the defect.
+    {
+        const uint32_t t0 = micros();
+        uint8_t buf[128];
+        uint32_t budget = kSbusBytesPerTick;
+        while (budget > 0) {
+            const int avail = rc.available();
+            if (avail <= 0) break;
+            size_t want = (size_t)avail;
+            if (want > sizeof(buf)) want = sizeof(buf);
+            if (want > budget)      want = budget;
+            const size_t got = rc.readBytes(buf, want);
+            if (got == 0) break;
+            for (size_t i = 0; i < got; ++i) consumeByte(buf[i]);
+            total_bytes += got;
+            g_iterSbusBytes += got;
+            budget -= got;
+        }
+        g_iterSbusUs = micros() - t0;
     }
 
     phaseBegin("hostcmd");
