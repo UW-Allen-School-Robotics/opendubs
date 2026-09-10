@@ -619,8 +619,8 @@ let relayState = [null, null, null, null];   // latest relay states (for toggle 
 function buildRelayRows(labels) {
   const list = $("relayList");
   if (!list || list.dataset.built) return;
-  // R1/R2 are the scissor lift's UP and DOWN legs. They are NOT free relay toggles: pressing
-  // them raw bypasses the mast driver and its pinch guard. They show state only, and the
+  // R1/R2 are the scissor lift's DOWN and UP legs. They are NOT free relay toggles: pressing
+  // them raw bypasses the Z-axis driver and its pinch guard. They show state only, and the
   // Z-AXIS row below drives the lift through /api/mast instead. R3 is the only spare.
   list.innerHTML = labels.map((lbl, i) => {
     const ctl = (i === 3)
@@ -631,7 +631,7 @@ function buildRelayRows(labels) {
     return `<div class="iorow"><span class="iolabel">RELAY${i + 1} ${lbl}</span>` +
       `<span class="sdot" id="relayDot_${i}"></span><span id="relayTxt_${i}">—</span>${ctl}</div>`;
   }).join("") +
-    `<div class="iorow"><span class="iolabel">Z-AXIS (MAST)</span>` +
+    `<div class="iorow"><span class="iolabel">Z-AXIS</span>` +
     `<span id="mastTxt">—</span>` +
     `<button class="iobtn" id="mastUp">HOLD ▲</button>` +
     `<button class="iobtn" id="mastDown">HOLD ▼</button></div>`;

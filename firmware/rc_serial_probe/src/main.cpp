@@ -1095,9 +1095,9 @@ void envStep()
 // 8Servo per-pin MODE cache. The pin's mode register (SERVO_CTL) latches in the 8Servo until it is
 // reset, so writing it on EVERY pulse (4 channels × 50 Hz = 400 extra I2C txns/s) was pure overhead
 // — and a leading cause of the `s8fail` I2C-write drops that track the ESC red-fault at idle. Set
-// each pin's mode once; re-assert only after a write failure or an explicit 8Servo power-cycle.
+// each pin's mode once; re-assert only after a write failure or an I2C re-init.
 static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
-static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
+static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (after an I2C re-init)
 
 // ---- ToF4M / VL53L1X (mast height) ------------------------------------------------
 // NOTE the VL53L1X uses SIXTEEN-BIT register addresses, unlike the VL53L0X on the Tab5
@@ -1137,7 +1137,7 @@ static void tofProbe()
 }
 
 // ---- Z-axis (mast / lift) -------------------------------------------------------
-// R2/R3 are the spare relays; NO contacts, so energized = pressed. WHICH relay drives
+// R1/R2 drive the lift's two legs; NO contacts, so energized = pressed. WHICH relay drives
 // which leg is a per-robot wiring fact, discovered on the bench with `MAST UP|DOWN` --
 // swap these two if the bench says they are the other way round.
 // Bench-discovered on opendubs2 2026-09-04 by pulsing each relay and watching the lift:
@@ -1493,21 +1493,6 @@ void handleHostCommand(const char* cmd)
         } else {
             Serial.println("[8SERVO] invalid (pin 0..7, pulse 0..3000)");
         }
-        return;
-    }
-
-    // 8Servo power-cycle via spare relay R1. The ONLY reliable clear for the ESC solid-red fault is
-    // cutting the 8Servo's 5V — a firmware reset does not clear it (the fault rides the ESC BEC).
-    // Assumes R1 gates the PaHub/8Servo 5V feed, CLOSED = powered. Inert until that rewire is done
-    // (R1 is currently spare), so it is safe to ship ahead of the wiring. `S8RESET [off_ms]`.
-    int s8cycle_ms = -1;
-    if (strncmp(cmd, "S8RESET", 7) == 0) {
-        // DISABLED. This used to power-cycle the 8Servo via relay R1, but R1 is now the
-        // lift's DOWN leg -- running it would drive the lift, not reset anything. The
-        // allocation is dead anyway: the wedge was shown to be electrical (ground shift
-        // measured at >=2.8 V against a ~0.7 V injection threshold), not something a
-        // power-cycle prevents.
-        tprintf("[S8RESET] disabled: R1 is now the lift DOWN leg. See notes/history/8servo-wedge/.\n");
         return;
     }
 
@@ -2463,8 +2448,8 @@ static void uiRender(uint8_t di, UiState st)
         row(22, "E-STOP IN1",   (di & 1)        ? "ACTIVE" : "clear",  (di & 1)        ? TFT_RED : TFT_GREEN);
         row(34, "CONTACTOR R1", (relay & 1)      ? "CLOSED" : "OPEN",   (relay & 1)      ? TFT_GREEN : g.color565(255, 150, 0));
         row(46, "WELD IN2",     (di & (1 << 1)) ? "WELD!"  : "ok",     (di & (1 << 1)) ? TFT_RED : TFT_GREEN);
-        snprintf(buf, sizeof(buf), "R2:%d R3:%d R4:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
-        row(58, "RELAYS", buf, TFT_WHITE);
+        snprintf(buf, sizeof(buf), "R2dn:%d R3up:%d R4:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
+        row(58, "Z-AXIS", buf, TFT_WHITE);
         row(70, "IP", eth_ip_str, eth_up ? TFT_GREEN : g.color565(150,150,150));
         if (estopc_down && !estopc_fired) {         // hold-to-e-stop progress
             uint32_t held = millis() - estopc_start_ms; if (held > kEstopHoldMs) held = kEstopHoldMs;
