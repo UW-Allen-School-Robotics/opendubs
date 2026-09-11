@@ -105,7 +105,7 @@ class Tab5Controller:
     def send_auth(self):
         """Send a dummy STATE packet so Tab5 accepts us as the Thor controller."""
         try:
-            self.sock.sendto(b"STATE SAFE_IDLE\n", (self.resolved_ip, self.port))
+            self.sock.sendto(b"STATE PING\n", (self.resolved_ip, self.port))
         except:
             pass
 

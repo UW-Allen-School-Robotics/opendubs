@@ -5,7 +5,7 @@
 # updates. See docs/portability-audit.md.
 #
 # Usage:  ./deploy-all.sh [ssh-host]      (default host: thor)
-set -euo pipefail
+set -eu
 HOST="${1:-thor}"
 REPO="$(cd "$(dirname "$0")" && pwd)"
 DEST=/opt/opendubs
