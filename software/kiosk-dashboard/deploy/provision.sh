@@ -106,11 +106,14 @@ install -m 0644 "$DEPLOY/opendubs-dash.service" /etc/systemd/system/opendubs-das
 # StampPLC Ethernet heartbeat — broadcasts "HB" so the firmware's RX watchdog can spot a wedged
 # link (see stamplc_hb.py). Required for the USB-less (transport=udp) StampPLC link to self-heal.
 install -m 0644 "$DEPLOY/opendubs-stamplc-hb.service" /etc/systemd/system/opendubs-stamplc-hb.service
+install -m 0644 "$DEPLOY/opendubs-yolo-tracker.service" /etc/systemd/system/opendubs-yolo-tracker.service
 systemctl daemon-reload
 systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
+systemctl enable opendubs-yolo-tracker.service
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
+systemctl restart opendubs-yolo-tracker.service
 
 echo
 echo "== done. backend: $(systemctl is-active opendubs-dash) =="

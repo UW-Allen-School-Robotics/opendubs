@@ -12,7 +12,7 @@ DEST=/opt/opendubs
 EXC=(--exclude '__pycache__' --exclude '*.pyc' --exclude '.pio' --exclude '.git' --exclude '.venv')
 
 echo "== deploying repo -> $HOST:$DEST =="
-ssh "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST"
+ssh -t "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST"
 
 # The repo is grouped (firmware/ software/) but the Thor's /opt/opendubs layout stays FLAT — every
 # systemd unit + provision-all.sh references /opt/opendubs/<sub>/... — so map grouped source -> flat
@@ -24,10 +24,10 @@ deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
 echo "== provisioning $HOST (idempotent) =="
-ssh "$HOST" "sudo bash $DEST/provision-all.sh"
+ssh -t "$HOST" "sudo bash $DEST/provision-all.sh"
 
 # Post-deploy health readout — every opendubs unit, including the StampLC->ROS bridge.
-SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera"
+SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera opendubs-yolo-tracker"
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 
