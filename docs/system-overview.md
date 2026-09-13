@@ -1,10 +1,5 @@
 # System Overview
 
-## Purpose
-
-Document the robot architecture and subsystem boundaries so implementation and
-safety decisions are consistent across repositories.
-
 ## Core Architecture
 
 The core robot as buses and interfaces. **Click the diagram to pan and zoom the live board** — the
@@ -22,9 +17,12 @@ converging on the StampPLC and Thor, and exposed to a payload through the standa
 - **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the live board also includes the **payload-connected** system bus map (the poster above shows the core version). Clicking the diagram loads the full interactive board.
 
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
-- Embedded control edge: **M5StampPLC**
-- Mobile base: mecanum drive (4 motors + 2 dual-channel ESCs) with mecanum mixer path
-- Vertical mast: lift mechanism with encoder and limit switches
+- Mobile-base low-level controller: **StampPLC** — one of several low-level controllers on the
+  robot; each payload may bring its own
+- Mobile base: 4 motors + 2 dual-channel ESCs, optimised for **mecanum** drive and switchable to
+  **4WD traction** drive in software
+- Z-axis: the interchangeable payload that raises and lowers the arms — a **scissor lift**
+  (fitted today) or a **mast** (DC motor driving a lead screw)
 - Manipulators: dual OpenArm 7-DOF arms
 
 OpenArm reference:
@@ -50,18 +48,11 @@ OpenArm reference:
 ## Subsystems
 
 - Mobile base subsystem
-- Mast subsystem
+- Z-axis subsystem
 - Left arm subsystem
 - Right arm subsystem
 
 Each subsystem has local state, fault state, and enable state.
-
-## Implementation Reality (May 2026)
-
-- RC driving path: in progress and actively used
-- Telemetry schema: documented in `rc_serial_probe/docs/telemetry-spec.md`
-- Autonomous drive/mast authority: intended, not complete
-- Full robot-level and subsystem FSM implementation: not complete
 
 ## Related Docs
 

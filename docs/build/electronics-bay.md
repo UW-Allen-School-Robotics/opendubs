@@ -157,14 +157,6 @@ Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-
     ESC power leads terminate in XT90s that are easy to mate by reflex — leave them
     unmated until the [verify](#verify--done-when) checks pass.
 
-!!! note "On the ordering of these steps"
-    On Drive these photos are grouped into folders by **process**, not numbered across
-    the build, and only "1 Back Plate Screw Mount" carries an explicit number. The order
-    below is inferred from the photographs — each process picks up from the state the
-    previous one left the plate in, which is what pins the sequence. Steps 4 and 5 are
-    the clearest case: the level-shifter photos show lever-nut blocks on the left of the
-    plate that are absent from every light-wiring photo, so the lights were wired first.
-
 ### Step 1 — Mount the back plate and lay the modules out
 
 Everything in the bay lands on one perforated aluminium back plate, which bolts to the

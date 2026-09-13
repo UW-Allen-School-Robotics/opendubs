@@ -41,18 +41,11 @@ mostly off-the-shelf parts.
     Never short, over-discharge, puncture, submerge, or charge a damaged pack; isolate and stop
     using any pack that is hot, swollen, or smoking.
 
-!!! tip "Start here"
+!!! tip "Start Here"
     New here? Read the **[System overview →](system-overview.md)** first — the whole robot as buses
     and interfaces, in one diagram. Then **[flash a StampPLC](flashing-stamplc.md)** to bring up the
     base controller, and skim the [coordinate frames & naming](naming-frames.md) convention
     everything else references.
-
-!!! info "Current baseline (2026-08)"
-    RC comes from the **StampPLC via SBUS** — the StampPLC is the control authority + telemetry hub.
-    Power is a **52 V LiFePO₄ pack (JBD BMS,
-    RS485)** split into an always-on **logic-24 V rail** (upstream of the e-stop contactor) and a
-    **drive-24 V rail** (behind the contactor); a connected charger ⇒ drive inhibit. Localization is
-    a **ROS 2 EKF on the Thor**.
 
 ## Firmware, software, hardware
 
@@ -69,9 +62,3 @@ mostly off-the-shelf parts.
 - [Localization & sensor fusion](localization-fusion.md) · [Network architecture](network-architecture.md)
 - Safety & power: [ESC / PWM safety](pwm-esc-safety.md) · [Regen clamp sizing](regen-clamp-sizing.md)
 - Teaching with this? [Educators & academic access](educators.md) — free/discounted CAD, compute, and parts.
-
-## Status
-
-Work in progress. Firmware flashing and host bring-up are the most complete; the physical assembly
-guide and CAD/BOM are being filled in as the build proceeds. Autonomous drive ownership is in
-progress; the modular mast/scissor payload is deferred.

@@ -1,14 +1,14 @@
 # Mechanical mount interface
 
 OpenDubs exposes **two mounting systems**: a **structural grid on the top deck** for payloads,
-and an **opengrid pattern in the printed claddings** for accessories and wiring. Together
+and an **[openGrid](https://www.opengrid.world) pattern in the printed claddings** for accessories and wiring. Together
 they're the mechanical half of the modularity contract — you can add to the robot without
 opening it up.
 
 <figure markdown="span">
   ![OpenDubs base — mount interfaces annotated](../assets/build/placeholder-hero.svg)
   <figcaption><em>Annotated render (pending): <strong>yellow</strong> = top-deck pattern-spacer
-  grid; <strong>teal</strong> = opengrid patterns in the printed claddings.</em></figcaption>
+  grid; <strong>teal</strong> = openGrid patterns in the printed claddings.</em></figcaption>
 </figure>
 
 ## 1 · Top-deck payload grid (structural)
@@ -32,17 +32,17 @@ whatever you put on the robot.
 *TODO: load rating, CG envelope, keep-out zones, and the exact grid extents — with the annotated
 photo/render.*
 
-## 2 · opengrid cladding ecosystem (accessories & wiring)
+## 2 · openGrid cladding ecosystem (accessories & wiring)
 
 The **printed claddings** that form the top and sides of the robot expose
-**[opengrid](https://www.opengrid.world)** patterns. That single choice unlocks a whole
+**[openGrid](https://www.opengrid.world)** patterns. That single choice unlocks a whole
 community ecosystem of snap-on accessories:
 
-- **[opengrid](https://www.opengrid.world)** — the base wall/desk mounting framework.
+- **[openGrid](https://www.opengrid.world)** — the base wall/desk mounting framework.
 - **[Gridfinity](https://gridfinity.xyz/)** — modular bins / storage.
 - **[Underware](https://handsonkatie.com/underware-2-0-the-made-to-measure-collection/)** —
   made-to-measure cable channels and covers.
-- **[Multiconnect / opengrid ecosystem](https://www.printables.com/model/1214361-opengrid-walldesk-mounting-framework-and-ecosystem/files)**
+- **[Multiconnect / openGrid ecosystem](https://www.printables.com/model/1214361-opengrid-walldesk-mounting-framework-and-ecosystem/files)**
   — the broader mounting framework.
 
 **Why this matters beyond "stick stuff on":** the **Underware** system lets you route and
@@ -50,12 +50,12 @@ community ecosystem of snap-on accessories:
 sensor leads, etc., without redesigning the robot. Accessories print from open community models
 and clip on.
 
-*TODO: which faces carry opengrid, tile size/orientation, and a few worked examples (a camera
+*TODO: which faces carry openGrid, tile size/orientation, and a few worked examples (a camera
 arm on the top grid with its cable run in Underware).*
 
 ## Design intent
 
 The point of both systems is the same as the [design philosophy](../design-philosophy.md): a
 **stranger can extend the robot without forking it.** Structural loads go on the goBILDA
-top-deck grid; accessories and wiring go on the opengrid claddings; neither requires opening up
+top-deck grid; accessories and wiring go on the openGrid claddings; neither requires opening up
 the base.

@@ -225,10 +225,12 @@ channel and clamped by a goBILDA motor mount. The miter gear goes onto the motor
   <figcaption>A finished side rail — <strong>two motors per rail, four per robot</strong>. Note both leads exit toward the middle of the rail.</figcaption>
 </figure>
 
-!!! tip "Miter-gear orientation flips wheel direction"
-    Which way the miter gears mesh sets the rotation direction of that wheel. Keep the
-    four pods consistent — mismatches show up as a wheel driving backwards, and you'd
-    then fix it in firmware ([drive bring-up](../drive-bringup.md)) rather than rebuild.
+!!! tip "Build the four pods consistently"
+    Which way a pair of miter gears meshes decides which way that wheel turns. Build the
+    four pods consistently — the left and right sides are mirror images of each other,
+    not copies. You do not have to get this right by inspection: any wheel that ends up
+    turning the wrong way is found during [drive bring-up](../drive-bringup.md) and
+    corrected there in firmware. Nothing needs rebuilding.
 
 ### Step 3 — Close the channel and set the hub shaft
 
@@ -248,7 +250,7 @@ on the motor. Shims and the 9 mm spacer set the mesh depth.
 
 <figure markdown="span">
   ![Close view of the two miter gears meshed at ninety degrees inside the corner](../assets/build/base-frame/13-gear-mesh-detail.webp)
-  <figcaption>The mesh, seen from the open corner: motor gear driving hub-shaft gear through 90°. Spin the shaft by hand — it should turn smoothly with no notchiness.</figcaption>
+  <figcaption>The two miter gears correctly assembled and meshed through 90°, motor gear driving hub-shaft gear. Spin the shaft by hand — it should turn smoothly and evenly.</figcaption>
 </figure>
 
 ### Step 4 — Join the rails into the rectangle
@@ -256,10 +258,11 @@ on the motor. Shims and the 9 mm spacer set the mesh depth.
 Now bolt the loaded side rails to the cross rails through the quad block mounts to
 form the **432 × 624 mm** rectangle.
 
-!!! warning "Orientation sets the origin"
-    The **rear-most 432 mm rail** carries the coordinate origin
-    ([naming-frames](../naming-frames.md)). Note which end is front before you commit
-    the corners — flipping it later means re-deriving everything.
+!!! tip "Mark which end is the front"
+    The coordinate frame is measured from the **rear-most 432 mm rail**
+    ([naming-frames](../naming-frames.md)). Mark the front end before you bolt the
+    corners: the frame is symmetric, so once it is closed nothing tells you which end
+    was which, and every module above it is positioned relative to that rail.
 
 <figure markdown="span">
   ![A corner joint showing a quad block mount bolted between two rails](../assets/build/base-frame/09-corner-joint.webp)
@@ -273,18 +276,19 @@ form the **432 × 624 mm** rectangle.
 
 <figure markdown="span">
   ![Three sides of the frame joined, motors visible on the right-hand rail](../assets/build/base-frame/11-three-sides.webp)
-  <figcaption>Three sides joined, fourth still open. Leave the last corner loose until you have checked the diagonals.</figcaption>
+  <figcaption>Side rails and cross rails bolted together through the quad block mounts.</figcaption>
 </figure>
 
 <figure markdown="span">
   ![The partly assembled frame stood on a box with goRAIL uprights attached](../assets/build/base-frame/14-frame-upright.webp)
-  <figcaption>Frame propped up to get at the underside. The vertical goRAIL sections are the beginnings of the mast mount, added later.</figcaption>
+  <figcaption>Frame propped up to get at the underside. The vertical goRAIL sections are the start of the <a href="upper-frame.md">upper frame</a>, added later.</figcaption>
 </figure>
 
-!!! tip "Square it before you torque it"
-    Measure both diagonals across the rectangle. If they match, it is square. Snug the
-    corner screws first, check, then torque — a frame tightened out of square stays out
-    of square, and every module above it inherits the error.
+!!! tip "Check the diagonals, then torque"
+    The quad block mounts hold each corner at ninety degrees, so the rectangle comes out
+    square more or less by construction. Measuring both diagonals before you torque the
+    corner screws is a cheap confirmation rather than a critical step — if they match,
+    carry on.
 
 ### Step 5 — Route the motor leads
 
@@ -293,21 +297,16 @@ the electronics bay will sit, so nothing is pinched or under tension.
 
 <figure markdown="span">
   ![Motor leads passed up through a hole in the rail, motor part number visible](../assets/build/base-frame/15-leads-through-rail.webp)
-  <figcaption>Leads brought up through the rail. The <code>5303-2402</code> label on the motor body is visible here — worth photographing your own for the wiring log.</figcaption>
+  <figcaption>Leads brought up through the rail and routed back toward where the electronics bay will sit.</figcaption>
 </figure>
 
-!!! warning "Leave slack at the corners"
-    The leads run past a spinning hub shaft and a gear mesh. Route them along the
-    channel wall, not across the opening, and leave enough slack that lifting the
-    frame does not tug a connector.
 
 ## Verify — done when…
 
 - [ ] Frame is square (equal diagonals) and the front/rear orientation is marked.
 - [ ] All four drive pods spin freely by hand, no binding.
-- [ ] Motor leads reach their connector positions without strain.
-- [ ] (After electronics) run [Drive bring-up](../drive-bringup.md) to map each
-      channel → wheel → direction.
+- [ ] Motor leads are routed back along the channel with slack, and the left-side leads
+      are run across the frame and zip-tied, ready for the ESCs in the electronics bay.
 
 ## Reference — completed frame
 
