@@ -24,10 +24,16 @@
 
 
 #if __has_include("esp_camera.h")
+#include "esp_log.h"
 #include "esp_camera.h"
+#include "bsp/m5stack_tab5.h"
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <linux/videodev2.h>
+
+// Define to 1 to enable the ESP-IDF camera pipeline
 #define HAS_CAMERA 1
-#else
-#define HAS_CAMERA 0
 #endif
 
 static const bool DEMO_CYCLE = false;  // true = auto-cycle robot states (face
@@ -164,6 +170,42 @@ static void streamerTask(void *) {
 
   WiFiServer server(80);
   server.begin();
+
+#if HAS_CAMERA
+  int cam_fd = open("/dev/video0", O_RDWR);
+  void *buffer_ptr = NULL;
+  if (cam_fd < 0) {
+    Serial.println("Failed to open /dev/video0");
+  } else {
+    struct v4l2_format fmt = {0};
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = 800; // downscale for streaming
+    fmt.fmt.pix.height = 600;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
+    if (ioctl(cam_fd, VIDIOC_S_FMT, &fmt) < 0) {
+      Serial.println("Failed to set format");
+    }
+
+    struct v4l2_requestbuffers req = {0};
+    req.count = 1; 
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    ioctl(cam_fd, VIDIOC_REQBUFS, &req);
+
+    struct v4l2_buffer buf = {0};
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.index = 0;
+    ioctl(cam_fd, VIDIOC_QUERYBUF, &buf);
+    buffer_ptr = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, cam_fd, buf.m.offset);
+    
+    ioctl(cam_fd, VIDIOC_QBUF, &buf);
+
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(cam_fd, VIDIOC_STREAMON, &type);
+  }
+#endif
+
   for (;;) {
     WiFiClient client = server.accept();
     if (client) {
@@ -172,14 +214,18 @@ static void streamerTask(void *) {
       client.println();
       while (client.connected()) {
 #if HAS_CAMERA
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb) {
-          client.println("--frame");
-          client.println("Content-Type: image/jpeg");
-          client.printf("Content-Length: %u\n\n", fb->len);
-          client.write(fb->buf, fb->len);
-          client.println();
-          esp_camera_fb_return(fb);
+        if (cam_fd >= 0) {
+            struct v4l2_buffer dbuf = {0};
+            dbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            dbuf.memory = V4L2_MEMORY_MMAP;
+            if (ioctl(cam_fd, VIDIOC_DQBUF, &dbuf) == 0) {
+              client.println("--frame");
+              client.println("Content-Type: image/jpeg");
+              client.printf("Content-Length: %u\n\n", dbuf.bytesused);
+              client.write((const uint8_t*)buffer_ptr, dbuf.bytesused);
+              client.println();
+              ioctl(cam_fd, VIDIOC_QBUF, &dbuf);
+            }
         }
 #endif
         vTaskDelay(pdMS_TO_TICKS(100)); // 10 FPS
@@ -703,14 +749,12 @@ void setup() {
   }
 
 #if HAS_CAMERA
-  // Note: Tab5 ESP32-P4 requires MIPI CSI camera initialization.
-  // This is a placeholder for the actual MIPI config.
-  camera_config_t config = {0};
-  // config.pin_... = ...;
-  if (ESP_FAIL == ESP_OK) { // esp_camera_init(&config)
-    Serial.println("Camera initialized.");
+  Serial.println("Initializing MIPI-CSI Camera via M5Stack Tab5 BSP...");
+  bsp_camera_cfg_t cam_cfg = {0};
+  if (bsp_camera_start(&cam_cfg) == ESP_OK) {
+    Serial.println("Camera initialized successfully!");
   } else {
-    Serial.println("Camera init failed or missing config.");
+    Serial.println("Camera init failed!");
   }
 #endif
 
