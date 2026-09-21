@@ -39,8 +39,6 @@ apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-
 `RELAY <ch> <0|1>` · `ESTOP` · `ENC_RESET` · `I2C_SCAN` · `I2C_INFO` ·
 `LED_COLOR/LED_LEN/LED_OFF` (PRISM RGB over I²C) ·
 **`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page) ·
-**`S8RESET [off_ms]`** (power-cycle the 8Servo via relay R1 — the reliable clear for the ESC
-solid-red fault; inert until R1 gates the 8Servo 5 V) ·
 **`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash).
 
 ## Local UI

@@ -55,8 +55,8 @@ on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvan
 | Relay | Label | Function |
 |---|---|---|
 | **RELAY 1** *(R0)* | **E-STOP CONTACTOR** | Drives the GIGAVAC GX11 coil. Held closed = drive bus live; opens on e-stop / software `ESTOP` / logic-power loss. See [E-stop system](e-stop.md). |
-| **RELAY 2** *(R1)* | **8Servo power-cycle** | Cuts + restores the 8Servo 5 V feed (`S8RESET`) — the reliable clear for a latched ESC solid-red fault. |
-| **RELAY 3** *(R2)* | Spare | — |
+| **RELAY 2** *(R1)* | **Z-AXIS DOWN** | Pulses the scissor-lift controller's DOWN button (board silk `R2`). Pulse-toggle — see [Scissor lift](build/scissor-lift.md). |
+| **RELAY 3** *(R2)* | **Z-AXIS UP** | Pulses the scissor-lift controller's UP button (board silk `R3`). |
 | **RELAY 4** *(R3)* | Spare | — |
 
 ### Isolated inputs
@@ -65,7 +65,7 @@ on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvan
 |---|---|---|
 | **IN 1** *(DI0)* | **E-STOP BTN** | E-stop button sense. Polarity is the NC fail-safe convention (pressed = circuit open); see [E-stop system](e-stop.md). |
 | **IN 2** *(DI1)* | **CONTACTOR WELD** | GX11 auxiliary contact → welded-contactor detection (commanded open but aux still closed ⇒ welded). |
-| **IN 3 – IN 8** *(DI2–7)* | Spare | Unused. The payload/mast is independent (driven by the Tab5), so there are no mast-limit or battery-present inputs here; drive mode is software-set (no physical jumper). |
+| **IN 3 – IN 8** *(DI2–7)* | Spare | Unused. The Z-axis is driven by this controller (relays R1/R2, behind the pinch guard) and senses height with the ToF on PaHub ch3, so there are no limit-switch or battery-present inputs here; drive mode is software-set (no physical jumper). |
 
 ### External I²C devices
 

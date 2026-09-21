@@ -1,7 +1,22 @@
 # Mast Control — Drivetrain, Homing & Position
 
-The vertical lift. This is the prose/calculation companion; control lands as part of
-the StampLC subsystem (see `control-architecture.md`, `state-machines.md` Mast FSM).
+The **mast** raises and lowers the arms by driving a lead screw with a DC motor. This is the
+prose/calculation companion; control lands as part of the StampLC subsystem (see
+`control-architecture.md`, `state-machines.md` Mast FSM).
+
+!!! note "Mast vs scissor lift — both are Z-axes"
+
+    **Z-axis** is the general term for any payload that raises and lowers the arms. Two
+    exist, and a robot carries one *or* the other — they are alternatives, not stages of one
+    design:
+
+    - the **mast** described on this page — DC motor → lead screw → carriage;
+    - the **[scissor lift](build/scissor-lift.md)** — raises a platform, which the arms
+      mount to. This is what is fitted today.
+
+    They differ in how they are commanded. The scissor lift's pulse-toggle controller is
+    driven from the StampPLC relays; the mast is **not** relay-driven — its motor controller
+    is a separate interface, most likely CAN, and that choice is still open.
 
 ## Drivetrain
 
