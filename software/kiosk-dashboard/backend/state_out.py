@@ -15,7 +15,10 @@ numeric form is an index into the Tab5's STATES[] table, and the two codebases w
 silently the first time anyone reordered it. A name cannot drift.
 
 Runs as a browser-independent background thread so the indicators follow state
-even with no kiosk browser open. Pushes on every state change plus a periodic
+even with no kiosk browser open. All Tab5 I/O runs on a SEPARATE thread behind a queue:
+reaching the head can block for seconds (a failed mDNS lookup of an absent head takes
+5 s), and when that shared the PRISM's loop, a missing Tab5 made the PRISM trail the mode
+rocker by 10-15 s. A missing head must not slow any other indicator. Pushes on every state change plus a periodic
 refresh (keeps the Tab5's link-alive from timing out, and re-asserts the PRISM
 color over any transient PWM write from the firmware's local state-sync).
 
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import glob
 import os
+import queue
 import threading
 import time
 
@@ -59,23 +63,55 @@ _PEER_REINTRO_S = 20.0        # re-assert the pairing this often; both ends hold
 _peers_last_intro = 0.0
 _tab5_addr = None
 _tab5_addr_ts = 0.0
+# A failed lookup of an absent head takes 5 s. Remember the failure rather than paying it
+# on every write, which is what turned the state loop from 0.3 s into 10-15 s.
+_TAB5_RESOLVE_RETRY_S = 30.0
+_tab5_resolve_fail_ts = -_TAB5_RESOLVE_RETRY_S
+# The head's own packets to _TAB5_RX_PORT say where it is, more reliably than mDNS.
+_TAB5_LEARNED_TTL_S = 10.0
+_tab5_learned = None           # (ip, monotonic time) — written by the rx thread
+_tab5_q: "queue.Queue[str]" = queue.Queue(maxsize=64)
+
+
+def _tab5_resolve():
+    """Where the head is right now, or None. In order of trust: the address its own packets
+    came from (fresh within _TAB5_LEARNED_TTL_S), a cached mDNS answer (30 s), then a new
+    lookup — but never more than once per _TAB5_RESOLVE_RETRY_S after a failure. Called only
+    from the Tab5 thread, because a lookup can still block for 5 s."""
+    global _tab5_addr, _tab5_addr_ts, _tab5_resolve_fail_ts
+    import socket
+    now = time.monotonic()
+    learned = _tab5_learned
+    if learned is not None and now - learned[1] < _TAB5_LEARNED_TTL_S:
+        return learned[0]
+    if _tab5_addr is not None and now - _tab5_addr_ts < 30:
+        return _tab5_addr
+    if now - _tab5_resolve_fail_ts < _TAB5_RESOLVE_RETRY_S:
+        return None
+    try:
+        _tab5_addr = socket.gethostbyname(_TAB5_HOST)
+        _tab5_addr_ts = time.monotonic()
+        return _tab5_addr
+    except Exception:
+        _tab5_addr = None
+        _tab5_resolve_fail_ts = time.monotonic()
+        return None
 
 
 def _tab5_udp(line: str) -> None:
     """Best-effort state push to the Tab5 over UDP. Silent on failure: the face is an
     indicator, not a control path, and a missing head must not disturb the dashboard."""
-    global _tab5_sock, _tab5_addr, _tab5_addr_ts
+    global _tab5_sock
     import socket
+    addr = _tab5_resolve()
+    if addr is None:
+        return
     try:
         if _tab5_sock is None:
             _tab5_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        now = time.monotonic()
-        if _tab5_addr is None or now - _tab5_addr_ts > 30:
-            _tab5_addr = socket.gethostbyname(_TAB5_HOST)
-            _tab5_addr_ts = now
-        _tab5_sock.sendto((line + "\n").encode(), (_tab5_addr, _TAB5_UDP_PORT))
+        _tab5_sock.sendto((line + "\n").encode(), (addr, _TAB5_UDP_PORT))
     except Exception:
-        _tab5_addr = None      # force a re-resolve next time
+        pass
 
 
 # Persistent Tab5 serial handle. IMPORTANT: opening the Tab5's USB CDC port RESETS it once
@@ -83,22 +119,56 @@ def _tab5_udp(line: str) -> None:
 # it. Reopening per push was the "screen blacks every couple seconds" bug. (Holding the port
 # means a Tab5 reflash needs the dash stopped first, like the StampPLC.)
 _tab5_ser = None
+_TAB5_SER_RETRY_S = 5.0
+_tab5_ser_try_ts = -_TAB5_SER_RETRY_S
+_tab5_ser_last_matches = None
 
 
 def _tab5_write(line: str) -> None:
-    _tab5_udp(line)            # the path that actually exists on a wireless Tab5
-    _tab5_serial(line)
+    """Queue a line for the head. Never blocks the caller. If the head has been unreachable
+    long enough to fill the queue, the oldest line goes — a stale indicator line is worthless."""
+    try:
+        _tab5_q.put_nowait(line)
+    except queue.Full:
+        try:
+            _tab5_q.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            _tab5_q.put_nowait(line)
+        except queue.Full:
+            pass
+
+
+def _tab5_sender() -> None:
+    """The only thread that talks to the head, so the only one that can be held up by it."""
+    while True:
+        try:
+            line = _tab5_q.get(timeout=1.0)
+            _tab5_udp(line)            # the path that actually exists on a wireless Tab5
+            _tab5_serial(line)
+        except queue.Empty:
+            pass
+        except Exception:
+            time.sleep(0.2)
+        _introduce_peers()             # needs the head's address, so it lives here too
 
 
 def _tab5_serial(line: str) -> None:
-    global _tab5_ser
+    global _tab5_ser, _tab5_ser_try_ts, _tab5_ser_last_matches
     import serial
 
     try:
         if _tab5_ser is None or not _tab5_ser.is_open:
             import sys
+            now = time.monotonic()
+            if now - _tab5_ser_try_ts < _TAB5_SER_RETRY_S:
+                return
+            _tab5_ser_try_ts = now
             matches = glob.glob(_TAB5_GLOB)
-            sys.stderr.write(f"TAB5: glob matches={matches}\n")
+            if matches != _tab5_ser_last_matches:
+                sys.stderr.write(f"TAB5: glob matches={matches}\n")
+                _tab5_ser_last_matches = matches
             if not matches:
                 return
             s = serial.Serial()
@@ -135,11 +205,17 @@ def _push_prism(rs: str) -> None:
         pass
 
 
+_tab5_logged_state = None
+
+
 def _push_tab5(rs: str) -> None:
+    global _tab5_logged_state
     ent = _MAP.get(rs)
     if ent:
-        import sys
-        sys.stderr.write(f"TAB5: Pushing state {rs} -> {ent[0]}\n")
+        if rs != _tab5_logged_state:
+            import sys
+            sys.stderr.write(f"TAB5: Pushing state {rs} -> {ent[0]}\n")
+            _tab5_logged_state = rs
         _tab5_write(f"STATE {ent[0]}")
 
 
@@ -155,6 +231,7 @@ def _tab5_listen() -> None:
     and already owns the StampPLC link. The ROS bridge can do the same job, but it is
     optional, and the head's buttons should not depend on ROS being up.
     """
+    global _tab5_learned
     import socket
     import struct
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -171,9 +248,10 @@ def _tab5_listen() -> None:
     last = None
     while True:
         try:
-            data, _addr = sock.recvfrom(64)
+            data, addr = sock.recvfrom(64)
             if len(data) < 13:
                 continue
+            _tab5_learned = (addr[0], time.monotonic())   # the head is here, right now
             can_id, dlc, payload = struct.unpack("<IB8s", data[:13])
             if can_id != _CAN_ID_LIFT_CMD or dlc < 1:
                 continue
@@ -210,15 +288,18 @@ def _introduce_peers() -> None:
     if now - _peers_last_intro < _PEER_REINTRO_S:
         return
     _peers_last_intro = now
+    tab5 = _tab5_resolve()
+    if tab5 is None:
+        # Retry in ~5 s rather than on every pass: each attempt used to cost a 5 s lookup.
+        _peers_last_intro = now - _PEER_REINTRO_S + 5.0
+        return
     try:
-        import socket
         import stamplc
-        tab5 = socket.gethostbyname(_TAB5_HOST)
         plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
         _tab5_write(f"PLCIP {plc}")            # head <- "the StampPLC may command you"
         stamplc.reader.send(f"TAB5IP {tab5}")  # PLC  <- "the head lives here"
     except Exception:
-        _peers_last_intro = 0.0   # retry promptly; a missing head disturbs nothing else
+        _peers_last_intro = now - _PEER_REINTRO_S + 5.0
 
 
 def _push_lift() -> None:
@@ -280,7 +361,6 @@ def _loop() -> None:
                 _tab5_write(f"TURN {turn or '0'}")
                 prev_turn = turn
             _push_lift()          # every pass — the head's height should not go stale
-            _introduce_peers()    # one-shot: let the StampPLC and the head talk directly
             # CH7 payload mode. The head shows it because the OPERATOR needs to know whether
             # the right stick is aiming them or strafing the robot, and their eyes are on the
             # machine rather than on the transmitter.
@@ -302,5 +382,7 @@ def start() -> None:
         return
     _started = True
     threading.Thread(target=_loop, name="state_out", daemon=True).start()
+    # All Tab5 I/O — separate so an absent or slow head can never delay the PRISM.
+    threading.Thread(target=_tab5_sender, name="tab5_tx", daemon=True).start()
     # Receive side: the head's lift buttons. Separate thread because it blocks on recv.
     threading.Thread(target=_tab5_listen, name="tab5_rx", daemon=True).start()
