@@ -13,11 +13,13 @@
 goBILDA rail's holes, so sub-assemblies can **bolt on and off as modules**. Setting them now,
 on the bare frame, is dramatically easier than after the electronics bays and battery are in.
 
-!!! warning "Not all locations are final yet"
-    This step will **grow** as each module pins down its mounting points. The confirmed set today
-    is the **rear odo-pod / Pinpoint module** connection below; more riv-nut locations will be
-    added here as they're confirmed. **Set the ones you know now, while access is easy** — but you
-    don't have to guess at the unconfirmed ones.
+!!! note "Front and rear are the same"
+    Riv-nuts go in the **same positions on the front and the rear rail**. Set both while the
+    frame is bare.
+
+!!! note "The photos show a more complete frame than yours"
+    The frame in the photographs below has modules fitted that you have not built yet. Ignore
+    them — only the riv-nut positions and the tool technique matter here.
 
 !!! danger "Keep the tool FLAT and TIGHT against the rail"
     The one technique that makes or breaks this: during the squeeze, hold the riv-nut tool
@@ -31,8 +33,9 @@ on the bare frame, is dramatically easier than after the electronics bays and ba
   the goBILDA rail. *(Quantities are counted with the module that uses them — see each module's BOM.)*
 - **Riv-nut tool** — either a **manual** tool ([manual riv-nut tool](https://a.co/d/0am8KbEV), the
   one shown in the photos below) or, **strongly preferred**, a **drill-driven** tool
-  ([example drill-driven riv-nut tool](https://a.co/d/07xBUxUD)). The manual tool takes real hand
-  force to close an M10 riv-nut, so the drill-driven version saves a lot of effort over many holes.
+  ([example drill-driven riv-nut tool](https://a.co/d/07xBUxUD), which needs a drill of your own).
+  Closing an M10 riv-nut by hand takes significant physical force, so the drill-driven version
+  saves a great deal of effort over many holes.
 
 ## Rear rivnuts — Pinpoint / odo-pod module mount
 

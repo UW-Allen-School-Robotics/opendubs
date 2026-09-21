@@ -47,6 +47,14 @@ your account. Discounts typically **exclude tax and shipping** — check each pa
 terms. ServoCity also runs [educational sponsorships](https://www.servocity.com/educational-sponsorships)
 and [scholarships](https://www.servocity.com/scholarships) worth a look for student teams.
 
+## Reduce, reuse, recycle
+
+Much of what this robot is built from — goBILDA structural parts, motors, hubs, wheels, and the
+fastener sets — is the same stock that **FIRST** teams use, both FTC and FRC. If you finish a build
+with parts left over, or retire a robot, consider donating them to a local team rather than letting
+them sit in a drawer. Equally, a nearby team's surplus bin is a good first place to look before
+ordering.
+
 ## See also
 
 - [Bill of materials](hardware-bom.md) — what you'll actually be buying (apply the discounts here).

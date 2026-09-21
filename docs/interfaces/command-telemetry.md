@@ -11,7 +11,7 @@ holding the (virtual) stick.
 
 | Source | Role | Notes |
 |---|---|---|
-| **RC** (2.4 GHz) | Independent safety backstop + manual | Deterministic, low-latency, **long range**, own radio link. Keep it. |
+| **RC** (2.4 GHz) | Independent safety backstop + manual | Deterministic, low-latency, **long range**, own radio link. |
 | **On-robot touchscreen** | Local UI / status | A supported variant of the build. |
 | **WiFi tablet** (PWA + gamepad) | Primary UX, teleop, richer display | Reuses the web dashboard; removable/handheld. Shares fate with the network. |
 | **Autonomy / LeRobot policy** | Programmatic control | Same command topics — teleop, dataset capture, and learned policies all drive here. |
