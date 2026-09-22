@@ -17,6 +17,8 @@
 #include "lift.h"
 #include "ui_shared.h"
 #include <ArduinoOTA.h>
+#include <HTTPClient.h>
+#include <Update.h>
 #include <M5Unified.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -61,6 +63,111 @@ bool g_isHoming = false;
 
 // 8Servo I2C Constants
 static constexpr uint8_t kServo8Addr = 0x25;
+static constexpr uint8_t kSpkVolume  = 96;     // 0-255. Audible across a lab bay, not startling.
+
+// Audio (ES8388 codec on I2S0). Started LATE and ONLY ONCE, from the network task, never from
+// setup(): a first attempt that ran right after M5.begin() left the Tab5 dark — no display, no
+// Wi-Fi, no way in but a cable — because a codec that does not come up takes the boot with it.
+// Nothing above this line depends on audio, the state it reaches is shown on the face beside
+// the IP, and the mic (ES7210) shares I2S0 so it stays off.
+enum class SpkState : uint8_t { OFF = 0, STARTING, READY, FAILED };
+static volatile SpkState g_spk = SpkState::OFF;
+
+static const char *spkTag() {
+  switch (g_spk) {
+    case SpkState::STARTING: return " spk:init";
+    case SpkState::READY:    return " spk:ok";
+    case SpkState::FAILED:   return " spk:FAIL";
+    default:                 return "";
+  }
+}
+
+// True only when the codec is up. Callers must check: a BEEP before that is a no-op, not a hang.
+static bool spkReady() { return g_spk == SpkState::READY; }
+
+// ---- OTA by HTTP pull -------------------------------------------------------------------
+// ArduinoOTA is started below and has never once answered on this board: espota gets "no
+// response" even seconds after a power cycle, with the head pingable at -40 dBm. Its listener
+// goes through the ESP-Hosted co-processor and begin() returns void, so every failure is
+// silent. The StampPLC solved the same problem by PULLING its firmware over HTTP on command,
+// and that has worked all along — so the head now does the same. Serve the .bin from the Thor
+// and send: OTA http://10.42.2.10:8000/firmware.bin
+static void otaHttpPull(const char *url) {
+  if (WiFi.status() != WL_CONNECTED) { Serial.println("[OTA] abort: no WiFi"); return; }
+  Serial.printf("[OTA] fetching %s\n", url);
+  setIpStr("OTA: connecting");
+  HTTPClient http;
+  http.setConnectTimeout(5000);
+  http.setTimeout(15000);
+  if (!http.begin(url)) { Serial.println("[OTA] abort: bad URL"); setIpStr("OTA: bad URL"); return; }
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("[OTA] abort: HTTP %d\n", code);
+    char m[32]; snprintf(m, sizeof(m), "OTA: HTTP %d", code); setIpStr(m);
+    http.end();
+    return;
+  }
+  const int len = http.getSize();
+  if (!Update.begin(len > 0 ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
+    Serial.printf("[OTA] abort: Update.begin (%s)\n", Update.errorString());
+    setIpStr("OTA: no space");
+    http.end();
+    return;
+  }
+  setIpStr("OTA: writing");
+  // Read with a STALL DEADLINE instead of Update.writeStream(): that blocks for ever if the
+  // source goes quiet, and it does not take much — killing the serving side mid-download left
+  // this head wedged on "OTA: writing", network task and all, recoverable only by pulling
+  // power. Nothing that writes firmware should be able to hang the device it runs on.
+  static constexpr uint32_t kStallMs = 10000;
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t buf[1460];
+  size_t written = 0;
+  uint32_t last_rx = millis();
+  bool stalled = false;
+  while (len < 0 || written < (size_t)len) {
+    const size_t avail = stream->available();
+    if (avail) {
+      const int n = stream->readBytes(buf, avail > sizeof(buf) ? sizeof(buf) : avail);
+      if (n > 0) {
+        if (Update.write(buf, (size_t)n) != (size_t)n) { stalled = true; break; }   // flash write failed
+        written += (size_t)n;
+        last_rx = millis();
+        if (len > 0) {                       // progress on the face, so a slow link looks slow
+          static int last_pct = -1;
+          const int pct = (int)((written * 100ULL) / (size_t)len);
+          if (pct != last_pct && pct % 10 == 0) {
+            char m[24]; snprintf(m, sizeof(m), "OTA: %d%%", pct); setIpStr(m); last_pct = pct;
+          }
+        }
+      }
+    } else if (!stream->connected() && stream->available() == 0) {
+      break;                                 // server closed: done if we have it all, short if not
+    } else if (millis() - last_rx > kStallMs) {
+      stalled = true;
+      break;
+    } else {
+      delay(5);
+    }
+  }
+  http.end();
+  if (stalled || (len > 0 && written < (size_t)len)) {
+    Update.abort();
+    Serial.printf("[OTA] aborted after %u of %d bytes (%s)\n", (unsigned)written, len,
+                  stalled ? "stalled" : "short read");
+    setIpStr("OTA: aborted");
+    return;                                  // the running image is untouched
+  }
+  if (!Update.end(true)) {
+    Serial.printf("[OTA] FAILED after %u bytes (%s)\n", (unsigned)written, Update.errorString());
+    setIpStr("OTA: FAILED");
+    return;                                  // the running image is untouched
+  }
+  Serial.printf("[OTA] wrote %u bytes — rebooting\n", (unsigned)written);
+  setIpStr("OTA: ok, rebooting");
+  delay(400);
+  ESP.restart();
+}
 static constexpr uint8_t kModeReg = 0x00;  // + pin
 static constexpr uint8_t kPulseReg = 0x60; // + pin*2, 16-bit LE microseconds
 static constexpr uint8_t kModeServo = 3;   // SERVO_CTL_MODE
@@ -233,7 +340,7 @@ static void commsTask(void *) {
 
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      setIpStr(WiFi.localIP().toString().c_str());
+      setIpStr((WiFi.localIP().toString() + spkTag()).c_str());
       if (!ota_setup) {
         // Explicit port, and callbacks that SAY something. The unit on the bench was found
         // with tcp/3232 closed while WiFi was up and streaming, and nothing anywhere said
@@ -252,6 +359,53 @@ static void commsTask(void *) {
       if (!udp_setup) {
         Udp.begin(UDP_PORT);
         udp_setup = true;
+      }
+      if (g_spk == SpkState::OFF) {
+        // The face already shows "spk:init" at this point, so a codec that hangs here is
+        // visible on the screen instead of looking like a dead head.
+        g_spk = SpkState::STARTING;
+        setIpStr((WiFi.localIP().toString() + spkTag()).c_str());
+        // FULL CODEC RESET BEFORE STARTING. The ES8388 has its OWN power rail, so it keeps
+        // whatever state it was in across an ESP32 software reset — mid-DMA, PLL locked, DAC
+        // powered with a stale configuration. M5Unified's init writes the chip-reset register
+        // with no delay around it, which is not enough to shift it: measured here, sound worked
+        // after a power cycle and never after an OTA, while begin() reported success both times.
+        // Sequence and register values follow amcchord/M5Tab-Macintosh, which hit and fixed the
+        // same thing on this board: quiesce the chip, THEN reset it, and hold the reset long
+        // enough for an in-flight I2S frame and the DAC PLL to finish.
+        // (The amp itself needs no help from us — M5Unified raises it, PI4IO1 0x43 reg 0x05
+        // bit 1, inside its Tab5 speaker callback.)
+        {
+          constexpr uint8_t kEs = 0x10;              // ES8388
+          M5.In_I2C.bitOff(0x43, 0x05, 0b00000010, 400000);       // amp off: no pops while we work
+          delay(5);
+          M5.In_I2C.writeRegister8(kEs, 0x19, 0x04, 400000);      // DAC mute
+          M5.In_I2C.writeRegister8(kEs, 0x2E, 0x00, 400000);      // LOUT1 volume 0
+          M5.In_I2C.writeRegister8(kEs, 0x2F, 0x00, 400000);      // ROUT1 volume 0
+          M5.In_I2C.writeRegister8(kEs, 0x04, 0xC0, 400000);      // DAC L+R powered down
+          M5.In_I2C.writeRegister8(kEs, 0x03, 0xFF, 400000);      // ADC powered down
+          M5.In_I2C.writeRegister8(kEs, 0x02, 0xFF, 400000);      // chip power down
+          delay(20);
+          M5.In_I2C.writeRegister8(kEs, 0x00, 0x80, 400000);      // assert reset...
+          delay(100);                                             // ...and HOLD it
+          M5.In_I2C.writeRegister8(kEs, 0x00, 0x00, 400000);      // release
+          delay(50);                                              // internal power-on reset
+          const uint8_t ctrl1 = M5.In_I2C.readRegister8(kEs, 0x00, 400000);
+          Serial.printf("[SPK] ES8388 reset -> ctrl1=0x%02X%s\n", ctrl1,
+                        ctrl1 == 0xFF ? " (NOT RESPONDING)" : "");
+        }
+        M5.Speaker.setVolume(kSpkVolume);
+        g_spk = M5.Speaker.begin() ? SpkState::READY : SpkState::FAILED;
+        if (g_spk == SpkState::READY) {
+          // Put the amp back. The reset above switched it off to avoid pops, and begin() only
+          // raises it from M5Unified's enable callback — which evidently does not run in the
+          // state a warm boot leaves things in, so it stayed muted: a codec reporting ready,
+          // playing into a disabled amplifier. Same pin M5Unified uses (PI4IO1 0x43, reg 0x05,
+          // bit 1); asserting it twice is harmless.
+          const bool pa = M5.In_I2C.bitOn(0x43, 0x05, 0b00000010, 400000);
+          Serial.printf("[SPK] amp enable: %s\n", pa ? "ok" : "I2C FAILED");
+        }
+        Serial.printf("[SPK] %s\n", g_spk == SpkState::READY ? "ready" : "FAILED to start");
       }
       ArduinoOTA.handle();
 
@@ -533,6 +687,39 @@ static void applyLine(const char *line) {
                            (f & LIFT_FLAG_GUARD) != 0);
       g_linkOnline = true;
       last_state_ms = millis();
+    }
+  } else if (strncmp(line, "OTA ", 4) == 0) {
+    otaHttpPull(line + 4);
+  } else if (strcmp(line, "REBOOT") == 0) {
+    // Remote recovery. Without it, a head whose OTA listener has died needs a cable, which on
+    // a robot means someone walking over to it.
+    Serial.println("[CMD] REBOOT");
+    delay(150);
+    ESP.restart();
+  } else if (strncmp(line, "BEEP", 4) == 0) {
+    // "BEEP [freq_hz] [ms]" — one tone. A BEEP before the codec is up does nothing, and says so.
+    if (!spkReady()) { Serial.println("[SPK] BEEP ignored: codec not ready"); return; }
+    float hz = 880.0f;
+    int ms = 120;
+    sscanf(line + 4, "%f %d", &hz, &ms);
+    if (hz < 50.0f) hz = 50.0f;
+    if (hz > 8000.0f) hz = 8000.0f;
+    if (ms < 10) ms = 10;
+    if (ms > 3000) ms = 3000;              // a stuck caller must not own the speaker
+    M5.Speaker.tone(hz, (uint32_t)ms);
+  } else if (strcmp(line, "CHIME") == 0) {
+    if (!spkReady()) { Serial.println("[SPK] CHIME ignored: codec not ready"); return; }
+    M5.Speaker.tone(660, 110);
+    M5.Speaker.tone(880, 110);
+    M5.Speaker.tone(1320, 160);
+  } else if (strncmp(line, "VOL ", 4) == 0) {
+    if (!spkReady()) { Serial.println("[SPK] VOL ignored: codec not ready"); return; }
+    int v = kSpkVolume;
+    if (sscanf(line + 4, "%d", &v) == 1) {
+      if (v < 0) v = 0;
+      if (v > 255) v = 255;
+      M5.Speaker.setVolume((uint8_t)v);
+      M5.Speaker.tone(880, 80);            // so the new volume is audible immediately
     }
   } else if (strncmp(line, "PLCIP ", 6) == 0) {
     // "PLCIP a.b.c.d" — the Thor naming the StampPLC as an authorised head commander.
