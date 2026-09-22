@@ -1,0 +1,179 @@
+# OpenArm setup
+
+How to run two [OpenArm](https://github.com/enactic/OpenArm) 7-DOF arms from the Thor. It covers
+the host side (the CAN adapter driver, stable interface names, and bringing the links up at boot),
+the container the arm software runs in, and the `openarm-up` command that starts, powers and
+stops the arms.
+
+!!! warning "Arms move when they are activated"
+    When an arm is activated, the arm software **moves it to its zero pose over about 2 s**. Clear
+    the arms' workspace before every activation. When an arm is deactivated or loses power, its
+    motors go limp and the arm **drops under gravity**. If the arms draw power from the drive bus,
+    which is switched by the [e-stop](e-stop.md) contactor, an e-stop drops them too.
+
+## Prerequisites
+
+- A Thor set up per [Thor setup](thor-setup.md) (JetPack 7, kernel `6.8.12-tegra`), with internet
+  access for the first provisioning run.
+- Two OpenArm arms. Each arm has 8 DAMIAO motors (7 joints plus the gripper) on its own CAN-FD bus.
+- A **PEAK PCAN-USB Pro FD** adapter (USB ID `0c72:0011`), with one channel per arm, plugged into
+  the Thor's USB.
+- The arm software: [openarm_robot-code](https://github.com/EricJGoossen/openarm_robot-code), a
+  fork of [personalrobotics/robot-code](https://github.com/personalrobotics/robot-code). It provides
+  the ROS 2 impedance controller (package `openarm_impedance_controller`) and a dev-container
+  Dockerfile.
+
+## How it fits together
+
+| Layer | What | Where |
+|---|---|---|
+| Driver | `peak_usb`, built by **DKMS** (it rebuilds the module automatically when the kernel changes) | `/usr/src/peak_usb-<ver>` |
+| Interface names | a udev rule names the adapter's channel 0 `arm_left` and channel 1 `arm_right` | `/etc/udev/rules.d/70-openarm-can.rules` |
+| Link bring-up | `openarm-can@<name>.service` sets 1 Mbit/s nominal / 5 Mbit/s data CAN-FD and raises the link whenever the channel appears | `/etc/systemd/system/` |
+| Arm software | ROS 2 Jazzy + the impedance controller, in the `openarm` Docker container | image `openarm-ros2:<robot>` |
+| Operator commands | `openarm-up`, `openarm-motors` | `/usr/local/bin` |
+
+Why fixed names: the Thor's on-board CAN controllers (`mttcan`) are a loadable module, so the
+kernel's `canN` numbering for the USB adapter can change between boots. Naming the channels by
+their hardware index keeps "left" meaning left.
+
+## 1 · Provision the host
+
+`deploy-all.sh` copies `software/openarm/` to `/opt/opendubs/openarm`. Then, on the Thor:
+
+```bash
+sudo /opt/opendubs/openarm/provision-openarm.sh
+```
+
+The script is idempotent. It:
+
+1. Builds and installs `peak_usb` with DKMS. The source is the unmodified upstream driver for your
+   kernel version (`drivers/net/can/usb/peak_usb` from Linux `v<version>`). The Jetson kernel ships
+   without USB-CAN drivers. If your kernel already provides `peak_usb`, this step is skipped.
+2. Installs the link service, and the default channel names **only if the robot doesn't already
+   have a `70-openarm-can.rules`**.
+3. Installs `openarm-up` and `openarm-motors`.
+
+Check the result:
+
+```bash
+ip -details link show arm_left     # expect: UP, <FD>, state ERROR-ACTIVE, bitrate 1000000, dbitrate 5000000
+openarm-motors                     # expect: all 16 motors answer, DISABLED
+```
+
+### Left and right are per-robot
+
+Which adapter channel is wired to which arm depends on each robot's wiring, so the mapping lives
+in the robot's own `/etc/udev/rules.d/70-openarm-can.rules`, not in the repo. The default is
+channel 0 (`dev_id 0x0`) → `arm_left`. If your arms come up swapped, swap the two `NAME=` values
+(and the matching `openarm-can@…` names) in the robot's copy, then unplug and replug the adapter or
+reboot. Confirm with `openarm-motors`: moving the left arm by hand should change the positions
+under `arm_left`.
+
+## 2 · Build the arm container
+
+Clone the arm software on the Thor and run its `setup.sh`, which clones the sibling repos it
+builds from (the controllers, robot description, planners and assets). The dev container also
+mounts the [ssik](https://github.com/personalrobotics/ssik) inverse-kinematics library from the
+folder next to the repo, so clone that too:
+
+```bash
+mkdir -p ~/openarm && cd ~/openarm
+git clone https://github.com/EricJGoossen/openarm_robot-code
+git clone https://github.com/personalrobotics/ssik
+cd openarm_robot-code && ./setup.sh
+```
+
+Build the image from the repo's dev-container Dockerfile:
+
+```bash
+sudo docker build --network=host -t openarm-ros2:base .devcontainer
+```
+
+Start a temporary container, then install the workspace dependencies and build. ROS must be
+sourced before the repo's `post-create.sh` runs, or colcon can't find `ament_cmake`:
+
+```bash
+sudo docker run -d --name openarm-setup --privileged --network=host \
+  -v ~/openarm/openarm_robot-code:/openarm_ws/src -v ~/openarm/ssik:/openarm_ws/ssik \
+  openarm-ros2:base sleep infinity
+sudo docker exec -it openarm-setup bash -c \
+  "apt-get update && source /opt/ros/jazzy/setup.bash && bash /openarm_ws/src/.devcontainer/post-create.sh"
+```
+
+`post-create.sh` installs the workspace's ROS dependencies (`rosdep`) into the container. To keep
+them, commit the container as the robot's image. Copy the build out to the host too, so a rebuild
+survives the container being recreated:
+
+```bash
+sudo docker stop openarm-setup
+sudo docker commit openarm-setup openarm-ros2:$(hostname)
+mkdir -p ~/openarm/ws_state
+for d in build install log; do sudo docker cp openarm-setup:/openarm_ws/$d ~/openarm/ws_state/; done
+sudo chown -R $USER: ~/openarm/ws_state
+sudo docker rm openarm-setup
+```
+
+Create the long-running container. `openarm-up` expects the name `openarm` and these mount points:
+
+```bash
+sudo docker run -d --name openarm --restart unless-stopped --privileged --network=host \
+  -e DISPLAY -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v ~/openarm/openarm_robot-code:/openarm_ws/src \
+  -v ~/openarm/ssik:/openarm_ws/ssik \
+  -v ~/openarm/ws_state/build:/openarm_ws/build \
+  -v ~/openarm/ws_state/install:/openarm_ws/install \
+  -v ~/openarm/ws_state/log:/openarm_ws/log \
+  -w /openarm_ws/src openarm-ros2:$(hostname) sleep infinity
+```
+
+`--network=host` gives the container the host's `arm_left` / `arm_right` interfaces. With
+`--restart unless-stopped`, the container comes back after every reboot.
+
+### Start the arms inactive
+
+By default, ros2_control activates hardware as soon as the stack launches, so the arms would power
+up and move to zero with no operator action. Make activation a deliberate step: in
+`openarm_impedance_control/config/openarm_impedance_controllers.yaml`, under
+`controller_manager: ros__parameters:`, add:
+
+```yaml
+hardware_components_initial_state:
+  inactive:
+    - openarm_left_hardware_interface
+    - openarm_right_hardware_interface
+```
+
+`openarm-up` checks this setting. If an arm comes up active on its own, it stops the stack
+straight away.
+
+## 3 · Operate
+
+| Command | What it does |
+|---|---|
+| `openarm-up` | Checks both links and the container, launches the stack, and waits until both arms report **inactive**: motors off, arms limp |
+| `openarm-up activate left` (or `right`, `both`) | Powers the arm, checks all 8 of its motors report enabled, then starts its controller. **The arm moves to zero over ~2 s.** |
+| `openarm-up down` | Stops the controllers, makes the arms inactive (they go limp), stops the stack, and confirms every motor is disabled. If any motor stays enabled, it sends DISABLE frames directly. |
+| `openarm-up status` | Links, container, stack, hardware and controller states, and each motor's status and temperature |
+| `openarm-up logs` | Follows the current launch log |
+| `openarm-motors` | Reads all 16 motors directly over CAN, whether or not the stack is running. It can only send the motors' read-only status query and the DISABLE command. |
+
+With both controllers active, the arms accept `control_msgs/FollowJointTrajectory` goals on
+`/left_controller/follow_joint_trajectory` and `/right_controller/follow_joint_trajectory`.
+
+To work inside the container: `sudo docker exec -it openarm bash`, then
+`source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.
+
+## Troubleshooting
+
+- **`arm_left` / `arm_right` missing.** Check `lsusb -d 0c72:0011` (is the adapter plugged in?) and
+  `modinfo -n peak_usb` (is the driver installed?). After a kernel update, run
+  `dkms status peak_usb`. If the build failed against the new kernel, re-run
+  `provision-openarm.sh`, which fetches driver source matching the new version.
+- **A link is not `ERROR-ACTIVE`.** Restart it with `sudo systemctl restart openarm-can@arm_left`.
+  `BUS-OFF` usually means a wiring or termination fault, or an unpowered arm.
+- **A motor shows `no reply`.** The arm is unpowered, or its CAN wiring is broken at or before
+  that motor.
+- **Never send the DAMIAO set-zero command (`0xFE`).** It redefines that joint's zero as wherever
+  the joint happens to be, and the zero pose is what activation moves the arm to.

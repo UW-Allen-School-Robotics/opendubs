@@ -1,0 +1,156 @@
+#!/bin/bash
+# openarm-up — start, arm, and stop the OpenArm arm stack (impedance control) on this robot.
+#
+#   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
+#   openarm-up activate ARM     power one arm and start its controller: left | right | both
+#                               (the arm then moves itself to its zero pose over ~2 s)
+#   openarm-up down             controllers off, arms inactive, stack stopped, motors verified off
+#   openarm-up status           links, container, stack, hardware + controller states, motors
+#   openarm-up logs             follow the current launch log
+#
+# Boot already provides the pieces this relies on: the peak_usb driver (DKMS), CAN channels
+# named arm_left / arm_right and raised at 1M/5M CAN-FD (70-openarm-can.rules +
+# openarm-can@.service), and the `openarm` container (restart unless-stopped).
+# Activation is deliberately a separate, explicit step: the arms never power up by themselves.
+# See docs/openarm-setup.md.
+set -o pipefail
+
+CONTAINER=openarm
+LAUNCH_MATCH="ros2 launch openarm_impedance_controller"
+LAUNCH="ros2 launch openarm_impedance_controller openarm_impedance_control.launch.py left_can_interface:=arm_left right_can_interface:=arm_right"
+ROS="source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash"
+LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
+MOTORS=/usr/local/lib/openarm/openarm-motors
+
+die() { echo "openarm-up: $*" >&2; exit 1; }
+ros() { sudo docker exec "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }   # strip colour codes
+running() { sudo docker exec "$CONTAINER" pgrep -f "$LAUNCH_MATCH" >/dev/null 2>&1; }
+
+hw_state() {   # hw_state left|right  ->  active | inactive | unconfigured | ... | "" if unknown
+  ros "timeout 15 ros2 control list_hardware_components 2>/dev/null" |
+    awk -v n="openarm_$1_hardware_interface" 'index($0,n){f=1} f && /state:/{print $NF; exit}' |
+    sed 's/.*label=//'
+}
+
+ctrl_state() { # ctrl_state left|right  ->  active | inactive | "" if not loaded
+  ros "timeout 15 ros2 control list_controllers 2>/dev/null" | awk -v c="$1_controller" '$1==c{print $NF}'
+}
+
+check_links() {
+  local i ok=0
+  for i in arm_left arm_right; do
+    local d; d=$(ip -details link show "$i" 2>/dev/null) || { echo "  $i: MISSING (driver loaded? adapter plugged in?)"; ok=1; continue; }
+    local st; st=$(grep -oE "state (ERROR-[A-Z]+|BUS-OFF|STOPPED)" <<<"$d" | head -1)
+    if grep -q "<.*UP.*>" <<<"$d" && [ "$st" = "state ERROR-ACTIVE" ]; then echo "  $i: up, $st"
+    else echo "  $i: NOT READY ($st) — try: sudo systemctl restart openarm-can@$i"; ok=1; fi
+  done
+  return $ok
+}
+
+ensure_container() {
+  local s; s=$(sudo docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null) || die "no '$CONTAINER' container"
+  if [ "$s" != running ]; then echo "  starting container"; sudo docker start "$CONTAINER" >/dev/null || die "container would not start"; fi
+}
+
+cmd_start() {
+  echo "== CAN links"; check_links || die "CAN links not ready — nothing launched"
+  echo "== container"; ensure_container; echo "  $CONTAINER running"
+  running && die "stack is already running (openarm-up status / openarm-up down)"
+  echo "== motors before launch: $($MOTORS summary)"
+  local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
+  sudo docker exec "$CONTAINER" bash -c "mkdir -p $LOGDIR && ln -sfn $log $LOGDIR/latest.log"
+  sudo docker exec -d "$CONTAINER" bash -c "$ROS && exec $LAUNCH > $log 2>&1"
+  echo "== launched; waiting for both arms' hardware (log: openarm-up logs)"
+  local t l r
+  for t in $(seq 1 30); do
+    sleep 1
+    running || die "launch exited — see $log (inside the container)"
+    l=$(hw_state left); r=$(hw_state right)
+    [ -n "$l" ] && [ -n "$r" ] && break
+  done
+  echo "  left: ${l:-?}   right: ${r:-?}"
+  if [ "$l" = active ] || [ "$r" = active ]; then
+    echo "!! an arm came up ACTIVE by itself — the controller config no longer starts arms inactive."
+    echo "!! stopping the stack now."; cmd_down; exit 1
+  fi
+  [ "$l" = inactive ] && [ "$r" = inactive ] || die "arms did not reach 'inactive' in 30 s — check openarm-up logs, then openarm-up down"
+  echo "== motors: $($MOTORS summary)"
+  echo "Ready. Arms are INACTIVE (limp). Next: openarm-up activate left|right|both"
+}
+
+activate_one() {
+  local arm=$1
+  local st; st=$(hw_state "$arm")
+  if [ "$st" != active ]; then
+    echo "== $arm: hardware $st -> active"
+    ros "timeout 30 ros2 control set_hardware_component_state openarm_${arm}_hardware_interface active 2>&1" | tail -1 | sed 's/^/  /'
+    st=$(hw_state "$arm")
+    [ "$st" = active ] || die "$arm hardware is '$st', not active — stopping"
+  fi
+  local en; en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
+  [ "$en" -eq 8 ] || die "$arm: only $en/8 motors report ENABLED — not starting its controller (openarm-up down)"
+  echo "  $arm: 8/8 motors ENABLED"
+  local cs; cs=$(ctrl_state "$arm")
+  if [ -z "$cs" ]; then ros "timeout 30 ros2 control load_controller --set-state active ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
+  elif [ "$cs" != active ]; then ros "timeout 30 ros2 control switch_controllers --activate ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
+  fi
+  cs=$(ctrl_state "$arm")
+  [ "$cs" = active ] || die "${arm}_controller is '${cs:-not loaded}', not active"
+  echo "  ${arm}_controller: active"
+}
+
+cmd_activate() {
+  local which=$1 arms
+  case "$which" in left|right) arms=$which ;; both) arms="left right" ;; *) die "usage: openarm-up activate left|right|both" ;; esac
+  running || die "stack is not running — run openarm-up first"
+  for a in $arms; do activate_one "$a"; done
+  echo "== motors: $($MOTORS summary)"
+}
+
+cmd_down() {
+  if running; then
+    local a cs
+    echo "== controllers off"
+    for a in left right; do
+      cs=$(ctrl_state "$a")
+      [ "$cs" = active ] && ros "timeout 30 ros2 control switch_controllers --deactivate ${a}_controller 2>&1" | tail -1 | sed "s/^/  $a: /"
+    done
+    echo "== arms inactive (limp)"
+    for a in left right; do
+      [ "$(hw_state "$a")" = active ] && ros "timeout 30 ros2 control set_hardware_component_state openarm_${a}_hardware_interface inactive 2>&1" | tail -1 | sed "s/^/  $a: /"
+    done
+    echo "== stopping the stack"
+    sudo docker exec "$CONTAINER" pkill -INT -f "$LAUNCH_MATCH"
+    for _ in $(seq 1 10); do running || break; sleep 1; done
+    running && { echo "  still running after 10 s — terminating"; sudo docker exec "$CONTAINER" pkill -TERM -f "ros2_control_node|$LAUNCH_MATCH"; sleep 2; }
+  else
+    echo "== stack not running"
+  fi
+  local c; c=$($MOTORS summary)
+  if grep -q "enabled=0 " <<<"$c "; then echo "== motors: $c"; return 0; fi
+  echo "!! motors still enabled after shutdown ($c) — sending DISABLE directly"
+  $MOTORS disable && echo "== motors: $($MOTORS summary)" || { echo "!! MOTORS STILL ENABLED — cut arm power"; return 1; }
+}
+
+cmd_status() {
+  echo "== CAN links"; check_links
+  echo "== container: $(sudo docker ps -a --filter name="^${CONTAINER}\$" --format '{{.Status}}')"
+  if running; then
+    echo "== stack: running"
+    local a
+    for a in left right; do echo "  $a: hardware $(hw_state $a)   controller $(ctrl_state $a || true)"; done
+  else
+    echo "== stack: not running"
+  fi
+  echo "== motors"; $MOTORS status | sed 's/^/  /'
+}
+
+case "${1:-start}" in
+  start|up) cmd_start ;;
+  activate) cmd_activate "$2" ;;
+  down|stop) cmd_down ;;
+  status) cmd_status ;;
+  logs) sudo docker exec -it "$CONTAINER" tail -n 200 -F "$LOGDIR/latest.log" ;;
+  -h|--help|help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$1' (openarm-up help)" ;;
+esac

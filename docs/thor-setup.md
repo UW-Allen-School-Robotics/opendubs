@@ -58,6 +58,9 @@ time to push updates). It sets up three subsystems:
 - **Firmware tooling** — PlatformIO in `/opt/opendubs/piovenv` and `flash-from-thor.sh`, so you can
   flash the StampPLC directly from the Thor (see [Flash a StampPLC](flashing-stamplc.md)).
 
+If the robot carries OpenArm arms, set them up afterwards with [OpenArm setup](openarm-setup.md).
+The arms are an optional payload, so `provision-all.sh` doesn't include them.
+
 ## 4 · Touchscreen + kiosk
 
 Provisioning is what makes the panel light up and boot straight into the dashboard.
