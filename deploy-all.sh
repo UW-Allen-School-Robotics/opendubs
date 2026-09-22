@@ -17,10 +17,14 @@ ssh "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST"
 # The repo is grouped (firmware/ software/) but the Thor's /opt/opendubs layout stays FLAT — every
 # systemd unit + provision-all.sh references /opt/opendubs/<sub>/... — so map grouped source -> flat
 # dest. NOTE: path mapping authored offline (Thor down); verify on the first provision of the 2nd bot.
-deploy_sub() { rsync -az --delete "${EXC[@]}" "$REPO/$1/" "$HOST:$DEST/$2/"; }  # $1=repo path  $2=flat dest
+deploy_sub() {  # $1=repo path  $2=flat dest  $3+=extra --exclude patterns
+  local sub=$1 dst=$2; shift 2
+  local extra=(); for p in "$@"; do extra+=(--exclude "$p"); done
+  rsync -az --delete "${EXC[@]}" "${extra[@]}" "$REPO/$sub/" "$HOST:$DEST/$dst/"
+}
 deploy_sub software/kiosk-dashboard kiosk-dashboard
 deploy_sub software/ros             ros
-deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
+deploy_sub software/openarm openarm ws_state   # generated at bring-up; never overwrite
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
