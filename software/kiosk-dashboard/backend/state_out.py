@@ -256,9 +256,15 @@ def _tab5_listen() -> None:
             if can_id != _CAN_ID_LIFT_CMD or dlc < 1:
                 continue
             v = {1: 1.0, 2: -1.0}.get(payload[0], 0.0)
-            # Re-send every frame, not just on change: this IS the heartbeat.
+            # While a button is held, re-send every frame: this IS the heartbeat. An idle head
+            # says STOP 20 times a second, though, and forwarding all of that made it a second,
+            # permanent Z-axis commander: the StampPLC keeps only the latest MAST CMD, so any
+            # other sender (the dashboard's own buttons, a script) saw its UP interleaved with
+            # the head's STOPs and the relays pulsed on every flip. So a STOP is forwarded once,
+            # on release; after that, silence, and the firmware's 250 ms expiry keeps it stopped.
             import stamplc
-            stamplc.reader.send(f"MAST CMD {v:.2f}")
+            if v != 0.0 or last != 0.0:
+                stamplc.reader.send(f"MAST CMD {v:.2f}")
             if v != last:
                 import sys
                 sys.stderr.write(f"TAB5: lift request {v:+.0f}\n")
