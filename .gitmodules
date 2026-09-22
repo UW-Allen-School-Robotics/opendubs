@@ -1,3 +1,6 @@
 [submodule "software/openarm/openarm_robot-code"]
 	path = software/openarm/openarm_robot-code
 	url = https://github.com/EricJGoossen/openarm_robot-code.git
+[submodule "software/openarm/ssik"]
+	path = software/openarm/ssik
+	url = https://github.com/ericjgoossen/ssik
