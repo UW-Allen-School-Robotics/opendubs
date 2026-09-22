@@ -8,6 +8,7 @@ keeps the latest parsed values. The device is found by its stable by-id path
 from __future__ import annotations
 
 import glob
+import math
 import os
 import re
 import threading
@@ -335,7 +336,13 @@ class StampReader:
             if line.startswith("[ODO] "):
                 kv = _kv(line)
                 def _f(k):
-                    try: return float(kv.get(k))
+                    # The Pinpoint reports nan for pose and velocity whenever it is faulted
+                    # (ok=0), and the firmware prints it as "-nan". json.dumps refuses NaN, so
+                    # passing it through took out the WHOLE /api/snapshot with a 500 — every
+                    # dashboard poll, for a fault in one optional sensor. None means "no value".
+                    try:
+                        v = float(kv.get(k))
+                        return v if math.isfinite(v) else None
                     except (TypeError, ValueError): return None
                 def _i(k):
                     try: return int(kv.get(k))
