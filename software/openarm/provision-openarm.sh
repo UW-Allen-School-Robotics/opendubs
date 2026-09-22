@@ -70,7 +70,7 @@ install -m0755 "$DIR/openarm-up" /usr/local/bin/openarm-up
 # --- apply now, if the adapter is plugged in --------------------------------
 if ip link show arm_left >/dev/null 2>&1 && ip link show arm_right >/dev/null 2>&1; then
   echo "-- arm_left / arm_right already present; not reloading the driver"
-elif pgrep -x ros2_control_node >/dev/null; then
+elif sudo docker exec openarm pgrep -x ros2_control_node >/dev/null 2>&1; then
   # Reloading would drop both CAN buses under a running arm stack.
   echo "!! arm stack is running (openarm-up down first); names apply at the next reboot or replug"
 elif lsusb -d 0c72:0011 >/dev/null 2>&1; then
