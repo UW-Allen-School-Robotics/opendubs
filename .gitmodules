@@ -1,0 +1,3 @@
+[submodule "software/openarm/openarm_robot-code"]
+	path = software/openarm/openarm_robot-code
+	url = https://github.com/EricJGoossen/openarm_robot-code.git
