@@ -13,15 +13,19 @@ stops the arms.
 
 ## Prerequisites
 
-- A Thor set up per [Thor setup](thor-setup.md) (JetPack 7, kernel `6.8.12-tegra`), with internet
-  access for the first provisioning run.
+- A Thor set up per [Thor setup](thor-setup.md) (JetPack 7, kernel `6.8.12-tegra`).
 - Two OpenArm arms. Each arm has 8 DAMIAO motors (7 joints plus the gripper) on its own CAN-FD bus.
 - A **PEAK PCAN-USB Pro FD** adapter (USB ID `0c72:0011`), with one channel per arm, plugged into
   the Thor's USB.
-- The arm software: [openarm_robot-code](https://github.com/EricJGoossen/openarm_robot-code), a
-  fork of [personalrobotics/robot-code](https://github.com/personalrobotics/robot-code). It provides
-  the ROS 2 impedance controller (package `openarm_impedance_controller`) and a dev-container
-  Dockerfile.
+- The arm software and IK library are pinned submodules of this repo — see
+  `software/openarm/{openarm_robot-code,ssik}/` — so there's nothing to clone separately. They come
+  in with a normal checkout of `opendubs`:
+    - [openarm_robot-code](https://github.com/EricJGoossen/openarm_robot-code), a fork of
+      [personalrobotics/robot-code](https://github.com/personalrobotics/robot-code). Provides the
+      ROS 2 impedance controller (package `openarm_impedance_controller`), the dev-container
+      Dockerfile, and the `scripts/{build,bake}-image.sh` used below.
+    - [ssik](https://github.com/personalrobotics/ssik), the inverse-kinematics library the dev
+      container mounts in.
 
 ## How it fits together
 
@@ -37,22 +41,32 @@ Why fixed names: the Thor's on-board CAN controllers (`mttcan`) are a loadable m
 kernel's `canN` numbering for the USB adapter can change between boots. Naming the channels by
 their hardware index keeps "left" meaning left.
 
-## 1 · Provision the host
+## Setup (once per robot)
 
-`deploy-all.sh` copies `software/openarm/` to `/opt/opendubs/openarm`. Then, on the Thor:
+`deploy-all.sh`, run from a dev machine, syncs `software/openarm/` — including the pinned
+`openarm_robot-code` and `ssik` submodules — to `/opt/opendubs/openarm`. Then, on the Thor:
 
 ```bash
-sudo /opt/opendubs/openarm/provision-openarm.sh
+sudo /opt/opendubs/openarm/openarm-bringup.sh
 ```
 
-The script is idempotent. It:
+This is setup, not something you run to start a session — it's idempotent (each step below skips
+itself if already done) but installs drivers and bakes an image, which day-to-day operation
+shouldn't repeat. It runs, in order:
 
-1. Builds and installs `peak_usb` with DKMS. The source is the unmodified upstream driver for your
-   kernel version (`drivers/net/can/usb/peak_usb` from Linux `v<version>`). The Jetson kernel ships
-   without USB-CAN drivers. If your kernel already provides `peak_usb`, this step is skipped.
-2. Installs the link service, and the default channel names **only if the robot doesn't already
-   have a `70-openarm-can.rules`**.
-3. Installs `openarm-up` and `openarm-motors`.
+1. **`provision-openarm.sh`** — builds and installs `peak_usb` with DKMS (source: the unmodified
+   upstream driver for your kernel version, since the Jetson kernel ships without USB-CAN drivers;
+   skipped if your kernel already provides it), installs the link service and default channel
+   names (**only if the robot doesn't already have a `70-openarm-can.rules`** — see below),
+   and installs `openarm-up` / `openarm-motors`.
+2. **`openarm_robot-code/scripts/bake-image.sh`** — runs the workspace's own `setup.sh` (clones the
+   sibling ROS/Python packages it builds from), builds the dev-container image, builds the
+   workspace inside a throwaway container the same way a devcontainer's `post-create.sh` would,
+   commits the result as `openarm-ros2:$(hostname)`, and copies `build`/`install`/`log` out to
+   `/opt/opendubs/openarm/ws_state` so a rebuild survives the container being recreated.
+3. Creates the long-running `openarm` container (`--restart unless-stopped --network=host`,
+   mounting the workspace, `ssik`, and `ws_state`) that `openarm-up` expects — stopped; `openarm-up`
+   starts it.
 
 Check the result:
 
@@ -70,73 +84,10 @@ channel 0 (`dev_id 0x0`) → `arm_left`. If your arms come up swapped, swap the 
 reboot. Confirm with `openarm-motors`: moving the left arm by hand should change the positions
 under `arm_left`.
 
-## 2 · Build the arm container
+### Arms start inactive by default
 
-Clone the arm software on the Thor and run its `setup.sh`, which clones the sibling repos it
-builds from (the controllers, robot description, planners and assets). The dev container also
-mounts the [ssik](https://github.com/personalrobotics/ssik) inverse-kinematics library from the
-folder next to the repo, so clone that too:
-
-```bash
-mkdir -p ~/openarm && cd ~/openarm
-git clone https://github.com/EricJGoossen/openarm_robot-code
-git clone https://github.com/personalrobotics/ssik
-cd openarm_robot-code && ./setup.sh
-```
-
-Build the image from the repo's dev-container Dockerfile:
-
-```bash
-sudo docker build --network=host -t openarm-ros2:base .devcontainer
-```
-
-Start a temporary container, then install the workspace dependencies and build. ROS must be
-sourced before the repo's `post-create.sh` runs, or colcon can't find `ament_cmake`:
-
-```bash
-sudo docker run -d --name openarm-setup --privileged --network=host \
-  -v ~/openarm/openarm_robot-code:/openarm_ws/src -v ~/openarm/ssik:/openarm_ws/ssik \
-  openarm-ros2:base sleep infinity
-sudo docker exec -it openarm-setup bash -c \
-  "apt-get update && source /opt/ros/jazzy/setup.bash && bash /openarm_ws/src/.devcontainer/post-create.sh"
-```
-
-`post-create.sh` installs the workspace's ROS dependencies (`rosdep`) into the container. To keep
-them, commit the container as the robot's image. Copy the build out to the host too, so a rebuild
-survives the container being recreated:
-
-```bash
-sudo docker stop openarm-setup
-sudo docker commit openarm-setup openarm-ros2:$(hostname)
-mkdir -p ~/openarm/ws_state
-for d in build install log; do sudo docker cp openarm-setup:/openarm_ws/$d ~/openarm/ws_state/; done
-sudo chown -R $USER: ~/openarm/ws_state
-sudo docker rm openarm-setup
-```
-
-Create the long-running container. `openarm-up` expects the name `openarm` and these mount points:
-
-```bash
-sudo docker run -d --name openarm --restart unless-stopped --privileged --network=host \
-  -e DISPLAY -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v ~/openarm/openarm_robot-code:/openarm_ws/src \
-  -v ~/openarm/ssik:/openarm_ws/ssik \
-  -v ~/openarm/ws_state/build:/openarm_ws/build \
-  -v ~/openarm/ws_state/install:/openarm_ws/install \
-  -v ~/openarm/ws_state/log:/openarm_ws/log \
-  -w /openarm_ws/src openarm-ros2:$(hostname) sleep infinity
-```
-
-`--network=host` gives the container the host's `arm_left` / `arm_right` interfaces. With
-`--restart unless-stopped`, the container comes back after every reboot.
-
-### Start the arms inactive
-
-By default, ros2_control activates hardware as soon as the stack launches, so the arms would power
-up and move to zero with no operator action. Make activation a deliberate step: in
-`openarm_impedance_control/config/openarm_impedance_controllers.yaml`, under
-`controller_manager: ros__parameters:`, add:
+`openarm_impedance_control/config/openarm_impedance_controllers.yaml` ships with, under
+`controller_manager: ros__parameters:`:
 
 ```yaml
 hardware_components_initial_state:
@@ -145,10 +96,12 @@ hardware_components_initial_state:
     - openarm_right_hardware_interface
 ```
 
-`openarm-up` checks this setting. If an arm comes up active on its own, it stops the stack
-straight away.
+Without this, `ros2_control` activates hardware the instant the stack launches, so the arms would
+power up and move to zero with no operator action. `openarm-up` checks for this setting too and
+stops the stack immediately if an arm comes up active on its own — that check is a backstop, not a
+substitute for the config being right.
 
-## 3 · Operate
+## Operate
 
 | Command | What it does |
 |---|---|
@@ -177,3 +130,6 @@ To work inside the container: `sudo docker exec -it openarm bash`, then
   that motor.
 - **Never send the DAMIAO set-zero command (`0xFE`).** It redefines that joint's zero as wherever
   the joint happens to be, and the zero pose is what activation moves the arm to.
+- **Redeploying (`deploy-all.sh`) wipes `ws_state`.** It shouldn't — the `openarm` `deploy_sub` call
+  excludes it — but if you're on a version of `deploy-all.sh` predating that exclude, a redeploy
+  will delete your baked `build`/`install`/`log` and force a full rebake.
