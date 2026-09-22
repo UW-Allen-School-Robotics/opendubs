@@ -812,7 +812,15 @@ static constexpr uint8_t kPpRegVelH      = 13;
 static constexpr uint8_t kPpDeviceIdVal  = 2;
 
 // Cached last-good Pinpoint state (published even when a frame is missed, with ok=0).
+// pp_frame_ok is "did the last poll succeed" — the [ODO] ok= flag. pp_present is DEBOUNCED:
+// it goes false only after kPpFailBeforeAbsent misses in a row. They used to be one flag, so
+// a single glitched read looked like a reboot to ppcfg, which re-zeroed the IMU mid-drive.
+// A gyro zeroed while the robot moves keeps reporting that motion: heading spun at up to
+// 1.3 rad/s with the robot parked (2026-09-21).
 static bool     pp_present = false;
+static bool     pp_frame_ok = false;
+static uint16_t pp_fail_run = 0;
+static constexpr uint16_t kPpFailBeforeAbsent = 10;   // ~1 s of consecutive misses at 10 Hz
 static uint32_t pp_status = 0, pp_loop_us = 0, pp_fails = 0;
 static int32_t  pp_encx = 0, pp_ency = 0;
 static float    pp_x = 0, pp_y = 0, pp_h = 0, pp_vx = 0, pp_vy = 0, pp_vh = 0;
@@ -881,20 +889,49 @@ static bool ppF32(uint8_t reg, float *out)
 
 // One poll of the whole pose. Any failed register aborts the frame so we never publish a
 // half-updated pose (mixing a new X with a stale Y would look like a real jump).
+// One missed frame is a bus glitch, not a missing device.
+static void ppNoteMiss()
+{
+    pp_fails++;
+    pp_frame_ok = false;
+    if (pp_fail_run < 0xFFFF) pp_fail_run++;
+    if (pp_fail_run >= kPpFailBeforeAbsent) pp_present = false;
+}
+
 static void pinpointPoll()
 {
     uint32_t id = 0;
-    if (!ppU32(kPpRegDeviceId, &id) || id != kPpDeviceIdVal) { pp_present = false; pp_fails++; return; }
+    if (!ppU32(kPpRegDeviceId, &id) || id != kPpDeviceIdVal) { ppNoteMiss(); return; }
     uint32_t st = 0, lt = 0; int32_t ex = 0, ey = 0;
     float x = 0, y = 0, h = 0, vx = 0, vy = 0, vh = 0;
     const bool ok = ppU32(kPpRegStatus, &st) && ppU32(kPpRegLoopTime, &lt)
                  && ppI32(kPpRegEncX, &ex)   && ppI32(kPpRegEncY, &ey)
                  && ppF32(kPpRegPosX, &x)    && ppF32(kPpRegPosY, &y)  && ppF32(kPpRegHeading, &h)
                  && ppF32(kPpRegVelX, &vx)   && ppF32(kPpRegVelY, &vy) && ppF32(kPpRegVelH, &vh);
-    if (!ok) { pp_present = false; pp_fails++; return; }
-    pp_present = true; pp_status = st; pp_loop_us = lt;
+    if (!ok) { ppNoteMiss(); return; }
+    pp_fail_run = 0; pp_frame_ok = true; pp_present = true;
+    pp_status = st; pp_loop_us = lt;
     pp_encx = ex; pp_ency = ey;
     pp_x = x; pp_y = y; pp_h = h; pp_vx = vx; pp_vy = vy; pp_vh = vh;
+}
+
+// Is the robot genuinely still? Only then may the Pinpoint re-measure its IMU zero, which
+// takes ~0.25 s and bakes in whatever motion it sees. Still = not commanded (every ESC output
+// at neutral) AND not moving (pod counts steady) for kPpStillMs. Both, because the robot can
+// coast after the sticks centre, or be pushed by hand with nothing commanded.
+static constexpr uint32_t kPpStillMs    = 1500;
+static constexpr int32_t  kPpStillTicks = 40;   // ~3 mm on a swingarm pod; at rest counts jitter ~±20
+static bool ppRobotStill(uint32_t nowMs)
+{
+    static uint32_t sinceMs = 0;
+    static int32_t  refX = 0, refY = 0;
+    bool moving = !pp_frame_ok || sinceMs == 0;
+    for (int i = 0; i < 4 && !moving; ++i)
+        if (abs((int)g_escOut[i] - (int)kEscNeutralUs) > (int)kEscDeadzoneUs) moving = true;
+    if (!moving && (abs(pp_encx - refX) > kPpStillTicks || abs(pp_ency - refY) > kPpStillTicks))
+        moving = true;
+    if (moving) { sinceMs = nowMs; refX = pp_encx; refY = pp_ency; }
+    return nowMs - sinceMs >= kPpStillMs;
 }
 
 // [ODO] — pose in mm / rad, plus the raw pod counts and the device status bitfield.
@@ -908,14 +945,15 @@ static void publishOdo()
     // NOTE the pod bits are FAULT flags: SET means the pod is MISSING, not present.
     tprintf("[ODO] ok=%d st=0x%02X rdy=%d cal=%d xpod=%d ypod=%d imurun=%d badread=%d "
             "x=%.1f y=%.1f h=%.4f vx=%.1f vy=%.1f vh=%.4f "
-            "ex=%ld ey=%ld loop=%lu fail=%lu crcbad=%lu\n",
-            pp_present ? 1 : 0, (unsigned)(pp_status & 0xFF),
+            "ex=%ld ey=%ld loop=%lu fail=%lu crcbad=%lu imupend=%d\n",
+            pp_frame_ok ? 1 : 0, (unsigned)(pp_status & 0xFF),
             (pp_status & 0x01) ? 1 : 0, (pp_status & 0x02) ? 1 : 0,
             (pp_status & 0x04) ? 0 : 1, (pp_status & 0x08) ? 0 : 1,
             (pp_status & 0x10) ? 1 : 0, (pp_status & 0x20) ? 1 : 0,
             pp_x, pp_y, pp_h, pp_vx, pp_vy, pp_vh,
             (long)pp_encx, (long)pp_ency,
-            (unsigned long)pp_loop_us, (unsigned long)pp_fails, (unsigned long)pp_crc_bad);
+            (unsigned long)pp_loop_us, (unsigned long)pp_fails, (unsigned long)pp_crc_bad,
+            ppCfgImuPending() ? 1 : 0);
 }
 
 void publishIo()
@@ -3074,7 +3112,7 @@ void loop()
     pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
         // Re-sends the config whenever the device reappears — a Pinpoint that power-cycled
         // is silently back on defaults and will keep reporting a plausible, wrong pose.
-        ppCfgTick(millis(), pp_present);
+        ppCfgTick(millis(), pp_present, ppRobotStill(millis()));
         publishOdo();
         last_io_pub_ms = millis();
     }

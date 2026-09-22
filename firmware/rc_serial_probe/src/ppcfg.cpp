@@ -39,6 +39,12 @@ static bool     g_commissioned = false;
 static bool     g_applied = false;
 static bool     g_wasPresent = false;
 static uint32_t g_applyCount = 0;
+// Zeroing the pose also re-measures the IMU's zero offset, which the guide says takes ~0.25 s
+// with the robot STATIONARY. Whatever motion it sees is baked in as offset — heading then
+// drifts with the robot parked. So a reset is only ever requested here, and performed when
+// the caller says the robot is still.
+static bool     g_imuResetPending = false;
+static uint32_t g_imuResets = 0;
 
 // ---- I2C ---------------------------------------------------------------------------
 // STOP on every path including failure. An abandoned transaction is what wedges this bus,
@@ -94,7 +100,7 @@ static void save()
 }
 
 // ---- apply -------------------------------------------------------------------------
-static bool apply(bool resetPose)
+static bool apply()
 {
     bool ok = true;
     ok &= writeFloat(kRegMmPerTick, g_cfg.ticksPerMm);        delay(3);
@@ -103,12 +109,6 @@ static bool apply(bool resetPose)
     uint32_t dir = (g_cfg.xReversed ? kCtlXBackward : kCtlXForward)
                  | (g_cfg.yReversed ? kCtlYBackward : kCtlYForward);
     ok &= writeU32(kRegDeviceControl, dir);                   delay(3);
-    if (resetPose) {
-        // Zeroes the estimate AND re-runs the IMU zero-offset calibration, which the guide
-        // says takes ~0.25 s and requires the robot to be STATIONARY. At boot it is.
-        ok &= writeU32(kRegDeviceControl, kCtlResetPosAndImu);
-        delay(5);
-    }
     g_applied = ok;
     if (ok) g_applyCount++;
     return ok;
@@ -125,21 +125,37 @@ void ppCfgBegin(m5::I2C_Class **bus, bool (*select)())
             g_cfg.xReversed ? 1 : 0, g_cfg.yReversed ? 1 : 0);
 }
 
-void ppCfgTick(uint32_t nowMs, bool present)
+void ppCfgTick(uint32_t nowMs, bool present, bool still)
 {
     static uint32_t retryMs = 0;
     if (present && !g_wasPresent) {
-        // Appeared, or re-appeared. Either way it has just booted and is back on defaults.
+        // Appeared, or re-appeared after a sustained absence — the caller debounces single
+        // missed frames. Treat it as booted: back on defaults, and its own power-up IMU zero
+        // may have been taken while the robot was moving.
         g_applied = false;
+        g_imuResetPending = true;
     }
     g_wasPresent = present;
-    if (!present || g_applied) return;
-    if ((int32_t)(nowMs - retryMs) < 0) return;
-    retryMs = nowMs + 1000;
-    if (apply(true))
-        tprintf("[PPCFG] applied to device (#%lu)%s\n", (unsigned long)g_applyCount,
-                g_commissioned ? "" : " — DEFAULTS, not commissioned");
+    if (!present) return;
+    // Geometry and directions go back immediately: they are harmless to rewrite mid-drive.
+    if (!g_applied && (int32_t)(nowMs - retryMs) >= 0) {
+        retryMs = nowMs + 1000;
+        if (apply())
+            tprintf("[PPCFG] applied to device (#%lu)%s\n", (unsigned long)g_applyCount,
+                    g_commissioned ? "" : " — DEFAULTS, not commissioned");
+    }
+    // The pose + IMU zero waits for the robot to be still.
+    if (g_applied && g_imuResetPending && still) {
+        if (writeU32(kRegDeviceControl, kCtlResetPosAndImu)) {
+            g_imuResetPending = false;
+            g_imuResets++;
+            tprintf("[PPCFG] pose + IMU zeroed with the robot still (#%lu)\n",
+                    (unsigned long)g_imuResets);
+        }
+    }
 }
+
+bool ppCfgImuPending() { return g_imuResetPending; }
 
 bool ppCfgCommissioned() { return g_commissioned; }
 bool ppCfgApplied()      { return g_applied; }
@@ -215,7 +231,7 @@ bool ppCfgCommand(const char *cmd)
         tprintf("[PPCAL] Y pod %s (not saved)\n", g_cfg.yReversed ? "REVERSED" : "forward");
         g_applied = false; return true;
     }
-    if (!strcasecmp(arg, "SAVE"))  { save(); apply(false); show(); return true; }
+    if (!strcasecmp(arg, "SAVE"))  { save(); apply(); show(); return true; }
     if (!strcasecmp(arg, "RESET")) {
         // Robot must be stationary: this re-measures the IMU zero offset, and a bad one
         // shows up as heading drifting while the robot sits still.

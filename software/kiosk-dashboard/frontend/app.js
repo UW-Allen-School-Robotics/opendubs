@@ -485,7 +485,10 @@ function renderOdo(o) {
   const n1 = (v, u) => (v == null ? "—" : v.toFixed(1) + u);
   set("odoX",  n1(o.x_mm, " mm"));
   set("odoY",  n1(o.y_mm, " mm"));
-  set("odoH",  o.heading_rad == null ? "—" : (o.heading_rad * 180 / Math.PI).toFixed(1) + "°");
+  // The Pinpoint's heading is continuous — it counts whole turns — and so is the telemetry,
+  // which is what anything fusing odometry wants. Wrap only for display, to (-180, 180].
+  const wrapDeg = (rad) => { const d = (((rad * 180 / Math.PI) % 360) + 360) % 360; return d > 180 ? d - 360 : d; };
+  set("odoH",  o.heading_rad == null ? "—" : wrapDeg(o.heading_rad).toFixed(1) + "°");
   set("odoHr", o.heading_rad == null ? "—" : o.heading_rad.toFixed(4));
   set("odoVx", n1(o.vx, " mm/s"));
   set("odoVy", n1(o.vy, " mm/s"));
