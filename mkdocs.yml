@@ -100,6 +100,7 @@ nav:
       - Thor setup: thor-setup.md
       - Deployment & portability: portability-audit.md
       - Network architecture: network-architecture.md
+      - OpenArm setup: openarm-setup.md
   - Hardware:
       - Bill of materials: hardware-bom.md
   - Reference:

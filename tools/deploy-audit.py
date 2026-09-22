@@ -44,6 +44,7 @@ MAP = [
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
+    ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
 
 # Never compared: build output, caches, editor droppings, and the ad-hoc backups we leave
