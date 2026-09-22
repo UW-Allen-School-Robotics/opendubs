@@ -115,8 +115,49 @@ static void otaHttpPull(const char *url) {
     return;
   }
   setIpStr("OTA: writing");
-  const size_t written = Update.writeStream(*http.getStreamPtr());
+  // Read with a STALL DEADLINE instead of Update.writeStream(): that blocks for ever if the
+  // source goes quiet, and it does not take much — killing the serving side mid-download left
+  // this head wedged on "OTA: writing", network task and all, recoverable only by pulling
+  // power. Nothing that writes firmware should be able to hang the device it runs on.
+  static constexpr uint32_t kStallMs = 10000;
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t buf[1460];
+  size_t written = 0;
+  uint32_t last_rx = millis();
+  bool stalled = false;
+  while (len < 0 || written < (size_t)len) {
+    const size_t avail = stream->available();
+    if (avail) {
+      const int n = stream->readBytes(buf, avail > sizeof(buf) ? sizeof(buf) : avail);
+      if (n > 0) {
+        if (Update.write(buf, (size_t)n) != (size_t)n) { stalled = true; break; }   // flash write failed
+        written += (size_t)n;
+        last_rx = millis();
+        if (len > 0) {                       // progress on the face, so a slow link looks slow
+          static int last_pct = -1;
+          const int pct = (int)((written * 100ULL) / (size_t)len);
+          if (pct != last_pct && pct % 10 == 0) {
+            char m[24]; snprintf(m, sizeof(m), "OTA: %d%%", pct); setIpStr(m); last_pct = pct;
+          }
+        }
+      }
+    } else if (!stream->connected() && stream->available() == 0) {
+      break;                                 // server closed: done if we have it all, short if not
+    } else if (millis() - last_rx > kStallMs) {
+      stalled = true;
+      break;
+    } else {
+      delay(5);
+    }
+  }
   http.end();
+  if (stalled || (len > 0 && written < (size_t)len)) {
+    Update.abort();
+    Serial.printf("[OTA] aborted after %u of %d bytes (%s)\n", (unsigned)written, len,
+                  stalled ? "stalled" : "short read");
+    setIpStr("OTA: aborted");
+    return;                                  // the running image is untouched
+  }
   if (!Update.end(true)) {
     Serial.printf("[OTA] FAILED after %u bytes (%s)\n", (unsigned)written, Update.errorString());
     setIpStr("OTA: FAILED");
@@ -324,27 +365,45 @@ static void commsTask(void *) {
         // visible on the screen instead of looking like a dead head.
         g_spk = SpkState::STARTING;
         setIpStr((WiFi.localIP().toString() + spkTag()).c_str());
-        // COLD-START THE AUDIO PARTS FIRST. Measured on the robot: sound works after a power
-        // cycle and NOT after a software reboot (an OTA), even though begin() reports success
-        // both times. The SoC restarts; the codec and the amplifier do not, and the ES8388
-        // comes back in a state it never leaves on its own. So put both back to a known state
-        // by hand before starting: amp off, codec reset (reg 0x00 = 0x80, then released).
-        M5.In_I2C.bitOff(0x4F, 0x05, 0b00000100, 100000);      // amp off while we reset
-        M5.In_I2C.writeRegister8(0x10, 0x00, 0x80, 100000);    // ES8388: reset
-        delay(20);
-        M5.In_I2C.writeRegister8(0x10, 0x00, 0x00, 100000);    // ES8388: release reset
-        delay(20);
+        // FULL CODEC RESET BEFORE STARTING. The ES8388 has its OWN power rail, so it keeps
+        // whatever state it was in across an ESP32 software reset — mid-DMA, PLL locked, DAC
+        // powered with a stale configuration. M5Unified's init writes the chip-reset register
+        // with no delay around it, which is not enough to shift it: measured here, sound worked
+        // after a power cycle and never after an OTA, while begin() reported success both times.
+        // Sequence and register values follow amcchord/M5Tab-Macintosh, which hit and fixed the
+        // same thing on this board: quiesce the chip, THEN reset it, and hold the reset long
+        // enough for an in-flight I2S frame and the DAC PLL to finish.
+        // (The amp itself needs no help from us — M5Unified raises it, PI4IO1 0x43 reg 0x05
+        // bit 1, inside its Tab5 speaker callback.)
+        {
+          constexpr uint8_t kEs = 0x10;              // ES8388
+          M5.In_I2C.bitOff(0x43, 0x05, 0b00000010, 400000);       // amp off: no pops while we work
+          delay(5);
+          M5.In_I2C.writeRegister8(kEs, 0x19, 0x04, 400000);      // DAC mute
+          M5.In_I2C.writeRegister8(kEs, 0x2E, 0x00, 400000);      // LOUT1 volume 0
+          M5.In_I2C.writeRegister8(kEs, 0x2F, 0x00, 400000);      // ROUT1 volume 0
+          M5.In_I2C.writeRegister8(kEs, 0x04, 0xC0, 400000);      // DAC L+R powered down
+          M5.In_I2C.writeRegister8(kEs, 0x03, 0xFF, 400000);      // ADC powered down
+          M5.In_I2C.writeRegister8(kEs, 0x02, 0xFF, 400000);      // chip power down
+          delay(20);
+          M5.In_I2C.writeRegister8(kEs, 0x00, 0x80, 400000);      // assert reset...
+          delay(100);                                             // ...and HOLD it
+          M5.In_I2C.writeRegister8(kEs, 0x00, 0x00, 400000);      // release
+          delay(50);                                              // internal power-on reset
+          const uint8_t ctrl1 = M5.In_I2C.readRegister8(kEs, 0x00, 400000);
+          Serial.printf("[SPK] ES8388 reset -> ctrl1=0x%02X%s\n", ctrl1,
+                        ctrl1 == 0xFF ? " (NOT RESPONDING)" : "");
+        }
         M5.Speaker.setVolume(kSpkVolume);
         g_spk = M5.Speaker.begin() ? SpkState::READY : SpkState::FAILED;
         if (g_spk == SpkState::READY) {
-          // TURN THE AMPLIFIER ON. The codec (ES8388) comes up happily and reports success
-          // while the speaker amp is still disabled, which sounds exactly like a working
-          // codec playing into nothing: "spk:ok" and silence. M5GFX's Tab5 display init
-          // configures IO3 (AUDIO_EN) on the 0x4F expander as an output and leaves it LOW,
-          // and M5Unified only handles the amp-enable pins of other boards, so nobody ever
-          // raises this one. Bit 2 of the expander's output register (0x05) is that pin.
-          const bool pa = M5.In_I2C.bitOn(0x4F, 0x05, 0b00000100, 100000);
-          Serial.printf("[SPK] audio PA enable: %s\n", pa ? "ok" : "I2C FAILED");
+          // Put the amp back. The reset above switched it off to avoid pops, and begin() only
+          // raises it from M5Unified's enable callback — which evidently does not run in the
+          // state a warm boot leaves things in, so it stayed muted: a codec reporting ready,
+          // playing into a disabled amplifier. Same pin M5Unified uses (PI4IO1 0x43, reg 0x05,
+          // bit 1); asserting it twice is harmless.
+          const bool pa = M5.In_I2C.bitOn(0x43, 0x05, 0b00000010, 400000);
+          Serial.printf("[SPK] amp enable: %s\n", pa ? "ok" : "I2C FAILED");
         }
         Serial.printf("[SPK] %s\n", g_spk == SpkState::READY ? "ready" : "FAILED to start");
       }
