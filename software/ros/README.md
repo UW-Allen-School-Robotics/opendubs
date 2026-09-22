@@ -108,6 +108,18 @@ resume scanning after `/stop_motor` on this driver), so scan returns in ~5–8 s
 STOP stays stopped (driver not restarted), START brings scan back; a genuine wedge while
 enabled still triggers a restart.
 
+## Tab5 ROS bridge (optional, not started)
+
+`tab5_bridge_node.py` bridges the Tab5 head into ROS: it publishes the head's front ToF on
+`/sensors/tof_front` (`sensor_msgs/Range`), follows `/robot/state`, and relays pan/tilt and
+tracking requests. It listens for the Tab5 on UDP 5006 and replies on 4242.
+
+No service starts it. The head's lift buttons don't depend on it: the dashboard listens for
+the Tab5 itself (`kiosk-dashboard/backend/state_out.py`) and forwards lift requests as
+`MAST CMD`, so they go through the same pinch guard as the RC stick. That listener binds the
+same UDP 5006, so this node can't bind its port while the dashboard is running. Give one of
+them a different port before running both.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts
