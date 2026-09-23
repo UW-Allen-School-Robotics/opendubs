@@ -107,7 +107,20 @@
                because MuJoCo refuses a moving body without it. Nominal, not measured. -->
           <inertial pos="0 0 0" mass="0.3" diaginertia="0.001 0.001 0.001"/>
           <body name="head_tilt">
-            <joint name="head_tilt" type="hinge" axis="0 1 0" range="-1.2 1.2" damping="1"/>
+            <!-- TILT TRAVEL IS ASYMMETRIC, and measured — not the +/-1.2 rad placeholder that
+                 was here. From firmware/tab5_pantilt/README.md, characterised by creeping the
+                 servo and watching current, soft-stopping at 0.20 A so it never stalled:
+                   920 us  full up      1545 us  HORIZONTAL      1650 us  full down
+                   7.14 us/deg (280 deg over 500-2500 us);  hard stop measured at 1680 us
+                 which is 87.5 deg up and 14.7 deg down, with the hard stop a further
+                 4.2 deg below that. Positive here is DOWN: the joint turns about
+                 +y, so +x swings toward -z. Confirmed on the model — +30 deg drops the camera
+                 face from z 1313.6 to 1275.2.
+                 Cross-check, independent: firmware/tab5_roller measured the same axis on the
+                 other mechanism at a 99 deg span against the 102.2 deg here. Two
+                 methods, three degrees apart. -->
+            <joint name="head_tilt" type="hinge" axis="0 1 0" damping="1"
+                   range="-1.5278 0.2567"/>
             <geom class="visual" type="mesh" mesh="pt_body"   material="frame"
                   quat="0 0 0 1" pos="0.423 0.00185 -1.245575"/>
             <geom class="visual" type="mesh" mesh="pt_screen" material="plate"

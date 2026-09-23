@@ -58,8 +58,19 @@ head:
   pan_axis_xyz_mm: ASSUMED                   # taken as the vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
-  pan_range_deg: [0, 180]   # servo travel; 90 is centre
-  tilt_range_deg: [0, 180]  # the Tab5 clamps this further from its own NVS limits
+  tilt_travel_deg: { up: 87.5, down: 14.7, hard_stop_down: 18.9 }
+  # MEASURED, and asymmetric. From firmware/tab5_pantilt/README.md: the servo was crept in
+  # small steps watching current, soft-stopping at 0.20 A so it never stalled.
+  #   920 us = full up, 1545 us = HORIZONTAL (home), 1650 us = full down, hard stop 1680 us,
+  #   at 7.14 us/deg (280 deg over 500-2500 us).
+  # Cross-checked against firmware/tab5_roller, which measured 99 deg of span on the other
+  # mechanism against the 102.2 deg total here -- two methods, three degrees apart.
+  # SIGN: in the model, positive tilt is DOWN (rotation about +y swings +x toward -z).
+  tilt_us: { up: 920, horizontal: 1545, down: 1650, hard_stop: 1680, us_per_deg: 7.14 }
+  pan_range_deg: [-90, 90]
+  # NOT measured -- a placeholder. firmware/tab5_pantilt/README.md records pan as still in
+  # CONTINUOUS rotation mode, where no angle can be commanded at all, so it was never
+  # characterised the way tilt was. Treat any pan clearance from this model as unverified.
   parts_frame: >
     pt_tilt_body, pt_screen_cover and D415 are exported IN CAD COORDINATES, so the model places
     them by cancelling the head frame's offset rather than positioning each part. No second
