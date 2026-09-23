@@ -1,0 +1,88 @@
+<mujoco model="opendubs">
+  <!-- OpenDubs: chassis, wheels, and the Z-axis, in the CAD model's own frame.
+
+       THE CAD ORIGIN IS THE DATUM. Meshes are exported at it, and every offset below is the
+       real spatial relationship rather than a convenience frame invented for the simulator.
+       The floor is at z = -94 mm: the wheels are 140 mm across with centres at z = -24, so
+       their contact patch lands there. That is derived from the meshes, not assumed.
+
+       The arms are NOT modelled here. openarm_assets ships a complete bimanual model including
+       the stock V1 extrusion frame they stand on; it gets attached to the lift platform below.
+       Its own root frame has the origin at the BOTTOM of the extrusion, centred in Y, spanning
+       x -155..+95 — so the origin sits 30 mm ahead of that body's geometric centre.
+
+       Units: the meshes are millimetres, MJCF is metres, hence scale 0.001 throughout. -->
+
+  <compiler angle="radian" meshdir="meshes/"/>
+  <option gravity="0 0 -9.81"/>
+  <visual>
+    <!-- Big enough to render a readable preview offscreen; MuJoCo's default is 640x480. -->
+    <global offwidth="1640" offheight="1120"/>
+  </visual>
+
+  <default>
+    <default class="visual">
+      <geom group="2" contype="0" conaffinity="0"/>
+    </default>
+    <default class="collision">
+      <geom group="3"/>
+    </default>
+  </default>
+
+  <asset>
+    <mesh name="chassis"  file="chassis.stl"     scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_fl" file="FL-wheel.stl"    scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_fr" file="FR-wheel.stl"    scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_rl" file="RL-wheel.stl"    scale="0.001 0.001 0.001"/>
+    <mesh name="wheel_rr" file="RR-wheel.stl"    scale="0.001 0.001 0.001"/>
+    <mesh name="zaxis"    file="z-axis-down.stl" scale="0.001 0.001 0.001"/>
+    <material name="frame" rgba="0.25 0.26 0.28 1"/>
+    <material name="rubber" rgba="0.12 0.12 0.13 1"/>
+    <material name="plate" rgba="0.55 0.57 0.60 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1 -1 2.5" dir="-0.3 0.3 -1" diffuse="0.9 0.9 0.9"/>
+    <!-- The floor, placed from the wheels rather than assumed: -94 mm in CAD coordinates. -->
+    <geom name="ground" type="plane" pos="0 0 -0.094" size="4 4 0.05" rgba="0.18 0.19 0.2 1"/>
+
+    <body name="chassis" pos="0 0 0">
+      <!-- Static for now: DRIVE is not a choreography slot, and the base does not move under a
+           show until odometry can say where the robot is. The wheels are drawn, not actuated. -->
+      <geom class="visual"    type="mesh" mesh="chassis" material="frame"/>
+      <geom class="collision" type="mesh" mesh="chassis" name="chassis_collision"/>
+      <geom class="visual" type="mesh" mesh="wheel_fl" material="rubber"/>
+      <geom class="visual" type="mesh" mesh="wheel_fr" material="rubber"/>
+      <geom class="visual" type="mesh" mesh="wheel_rl" material="rubber"/>
+      <geom class="visual" type="mesh" mesh="wheel_rr" material="rubber"/>
+
+      <!-- The Z-axis. A scissor lift in reality; a prismatic joint here, because choreography
+           only cares where the platform ends up. Stroke 275.1 mm = 10.83 in (manufacturer).
+           Zero is the lowered state the mesh was exported in. -->
+      <body name="lift_platform" pos="0 0 0">
+        <joint name="zaxis" type="slide" axis="0 0 1" range="0 0.2751" damping="20"/>
+        <geom class="visual"    type="mesh" mesh="zaxis" material="plate"/>
+        <geom class="collision" type="mesh" mesh="zaxis" name="lift_collision"/>
+        <inertial pos="0.348 0 0.3571" mass="8" diaginertia="0.2 0.2 0.3"/>
+
+        <!-- Where the arms stand. The OpenArm V1 extrusion frame's origin, in CAD coordinates:
+             x 0.453 puts its front face flush with the lift plate's front edge (both at 548 mm),
+             which is what makes 423 mm "to the centre of the root body" work out.
+             z 0.3575 is the plate's top face in the lowered state.
+             ATTACH POINT — the bimanual model goes here:
+               <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
+        <site name="arm_frame_mount" pos="0.453 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
+
+        <!-- The head rides with the extrusion, so it belongs to this body too. Mesh and pivot
+             still to come from CAD; the site marks that it is not forgotten. -->
+        <site name="head_mount_TODO" pos="0.453 0 1.1305" size="0.010" rgba="0.9 0.1 0.1 0.6"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Position control, matching how the real thing is commanded: a target height, with the
+         firmware's guard and relays doing the work of getting there. -->
+    <position name="zaxis_pos" joint="zaxis" kp="4000" ctrlrange="0 0.2751"/>
+  </actuator>
+</mujoco>

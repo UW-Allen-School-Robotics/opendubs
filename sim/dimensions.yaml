@@ -9,17 +9,19 @@
 # units: millimetres, degrees. MJCF is metres, so the model scales by 0.001 like the arm assets.
 
 datum:
-  # Ground plane at z=0, x forward, y left, z up (ROS convention, and MuJoCo's default).
-  # The chassis origin sits on the floor, centred on the wheel footprint.
-  note: "x forward, y left, z up; origin on the floor at the centre of the wheel footprint"
+  # THE CAD MODEL ORIGIN, not a convenience frame invented for the simulator. Meshes are
+  # exported at it and every offset here is the real spatial relationship, so there is one
+  # origin to reason about rather than two that must be kept in agreement.
+  note: "CAD model origin; x forward, y left, z up"
+  floor_z_mm: -94.0   # DERIVED from the wheel meshes: 140 mm wheels centred at z=-24
 
 lift:
   # The Z-axis. Modelled as a PRISMATIC joint along +z: the real mechanism is a scissor, but
   # choreography only cares about where the platform ends up, not how it gets there.
   type: prismatic
   axis: [0, 0, 1]
-  stroke_mm: 275.1          # source: lift manufacturer spec, 10.83 in
-  platform_face_z_mm: TODO  # height of the platform's mounting face above the floor, fully DOWN
+  stroke_mm: 275.1           # source: lift manufacturer spec, 10.83 in
+  platform_face_z_mm: 357.5  # CAD z of the plate's top face, fully DOWN (mesh reads 356.6..357.6)
   # NOTE (bug, not a dimension): firmware/tab5_face/src/lift.h scales its height bar
   # MIN_MM=0 .. MAX_MM=900, so with a 275 mm stroke the bar can only ever reach ~30%.
 
@@ -33,15 +35,24 @@ arms:
   root_mass_kg: 13.89                  # from that model
   shoulder_offset_from_root_mm: [0, 31, 698]   # from that model: left arm link0 pos
   mount:
-    # Where openarm_body_link0's ORIGIN sits. The V1 frame stands on the lift platform, so this
-    # is expressed relative to the lift platform's mounting face.
-    parent: lift_platform
-    xyz_mm: TODO
-    rpy_deg: TODO
+    # Where openarm_body_link0's ORIGIN sits, in CAD coordinates, with the lift fully down.
+    parent: lift_platform      # so it rises with the Z-axis
+    xyz_mm: [453.0, 0.0, 357.5]
+    rpy_deg: [0, 0, 0]
+    # x: CHECK THIS. Stated as "423 mm to the CENTRE of the root body". That body's own mesh
+    # spans x -155..+95 about its origin, so its centre is 30 mm BEHIND the origin, giving
+    # origin = 453. That also puts the frame's front face at 548.0 — flush with the lift plate's
+    # front edge to the tenth of a millimetre, which is unlikely to be coincidence. If 423 was
+    # meant as the ORIGIN, change this to 423 and the frame sits 30 mm back from the edge.
+    # y: shared centreline, 0 = 0 (confirmed: the body mesh is centred in y).
+    # z: 357.5 = the plate's top face lowered; the body's own origin is at the BOTTOM of the
+    #    extrusion (its mesh spans z 0..773), so it simply stands on the plate.
+  derived:
+    shoulder_height_above_floor_mm: { lowered: 1149.5, raised: 1424.6 }
 
 head:
   # Tab5 panel on a pan/tilt bracket. Pan then tilt, both servos through the 8Servo unit.
-  parent: TODO              # chassis, upper frame, or lift_platform — which does it ride?
+  parent: lift_platform     # confirmed: the face/pan-tilt translates in +z with the extrusion
   pivot_xyz_mm: TODO        # pan axis intersection, in the parent's frame
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
@@ -62,7 +73,11 @@ meshes:
   #
   # Format: binary STL, millimetres, z up, ORIGIN AT THE DATUM NAMED BELOW (not the CAD world
   # origin) — that is the part that makes assembly trivial rather than a guessing game.
-  chassis:        { file: TODO, origin: "floor level, centre of the wheel footprint" }
-  lift_platform:  { file: TODO, origin: "the platform's mounting face, fully DOWN" }
-  head_bracket:   { file: TODO, origin: "the pan axis, at the tilt pivot height" }
-  head_panel:     { file: TODO, origin: "centre of the Tab5's screen face" }
+  # Supplied, exported at the CAD origin (so no re-origining is needed):
+  chassis:        { file: meshes/chassis.stl,     span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
+  wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
+                    diameter_mm: 140, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589 }
+  lift_platform:  { file: meshes/z-axis-down.stl, span_mm: { x: [148, 548], y: [-160, 160], z: [356.6, 357.6] } }
+  # Still wanted:
+  head_bracket:   { file: TODO, note: "with the pan and tilt pivot locations, in CAD coordinates" }
+  head_panel:     { file: TODO, note: "Tab5 outline — this is what the arms nearly hit" }
