@@ -28,9 +28,29 @@ The bridge between them is a **URDF/xacro kinematic description**, which Isaac i
 cleanly. MJCF is what MuJoCo runs; the two stay consistent because both are generated from the
 same measured dimensions in `dimensions.yaml`.
 
-## The single most valuable thing this buys
+## Where this fits
 
-**Self-collision checking, which nothing in the real stack has.** `clearance.py` is that:
+**This directory is the robot description, and it is independent of whoever moves the robot.**
+Geometry, and the platform's own dynamics: chassis, wheels, Z-axis, head. It is not a planner
+and does not assume one.
+
+The arms are deliberately not described here — `openarm_assets` owns them and they are attached
+at runtime. Planners are *consumers* of this description, not owners of it:
+
+- **`mj_manipulator`** (the UW Personal Robotics Lab stack, which Eric works in) plans and
+  executes multi-arm trajectories. It moves **the arms and grippers, and nothing else** — not
+  the lift, the head, the base, sound, the face or the lights. Those are ours whatever planner
+  is in use.
+- **Direct joint trajectories** through `ros2_control`, which is what the hand-written demos do
+  today, and which needs no planner at all.
+- **A full-body planner** is on the roadmap. It will consume the same description.
+
+So expect several of these over the robot's life, and expect them to disagree. Anything that
+would have to be rewritten per planner does not belong in here.
+
+## Clearance checking
+
+`clearance.py` answers *how close does the robot come to hitting itself*, from geometry:
 
 ```bash
 python3 clearance.py --joints "right:2=182,right:4=100"     # how close is this pose?
@@ -44,9 +64,21 @@ otherwise hides the number an author cares about.
 **Checked against the robot, and six degrees optimistic.** Contact was felt by hand at J2 182;
 the model reaches zero at 188.3, for both arms, and barely varies with elbow fold (187.5 at
 J4=60, 188.3 at J4=140). Six degrees in the *unsafe* direction, so the measured constant stays
-in charge and this supplies the shape of the curve between the points nobody measured. The gap
-is most likely something physical that no CAD export carries — cable runs are the usual
-suspect — and closing it is real work.
+in charge and this supplies the shape of the curve between the points nobody measured.
+
+**It is a check, not the guard.** Two things already protect the real robot, and this is a third
+opinion rather than the thing standing between the arm and the head:
+
+- the arm model's *collision* geometry is a single `body_link0.stl` that still contains the
+  suppressed chest cover's volume, so torso clearance is conservative by construction;
+- the impedance controller's TCP workspace constraint.
+
+And the poses where the face is reachable at all are unlikely in normal operation.
+
+**The arms cannot reach the lift**, so that pair is not a question this needs to answer: the
+whole arm frame rides on the platform, so its reach envelope moves with it and always sits
+above it. Worth stating because it is easy to model the envelope as if it were fixed to the
+chassis and then go looking for a collision that geometry rules out.
 
 Today `software/choreo/cue.py` refuses a shoulder above 157° because *I measured contact with
 the head at 182° by hand, once, on one axis, with a human watching*. Eric's controller will not

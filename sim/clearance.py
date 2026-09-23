@@ -5,11 +5,19 @@
     python3 clearance.py --contact right:2 --hold right:4=100   find where it touches
     python3 clearance.py --lift 275 --joints "left:2=170"       ... with the lift raised
 
-THIS IS THE REASON THE MODEL EXISTS. `software/choreo/cue.py` refuses a shoulder above 157
-degrees because contact with the head was measured BY HAND, ONCE, ON ONE AXIS, with a human
-watching — and nothing in the arm controller would stop it either, its only Cartesian guard
-being a 1.2 m box that the offending pose satisfies comfortably. Here the question is answered
-by geometry instead: the minimum distance between any two parts, for any pose.
+`software/choreo/cue.py` refuses a shoulder above 157 degrees because contact with the head was
+measured BY HAND, ONCE, ON ONE AXIS, with a human watching. This answers the same question from
+geometry: the minimum distance between any two parts, for any pose.
+
+A THIRD OPINION, NOT THE GUARD. Two things already protect the robot — the arm model's collision
+geometry is a single body_link0.stl that still contains the suppressed chest cover's volume, so
+torso clearance is conservative by construction, and the impedance controller constrains the
+TCP. The poses that can reach the face are unlikely in normal operation. What this adds is a
+number where there was a constant, and a way to check a pose before anyone stands next to it.
+
+NOT A QUESTION HERE: the arms cannot reach the lift. The arm frame rides on the platform, so its
+reach envelope moves with it and stays above it. Easy to get wrong by picturing the envelope as
+fixed to the chassis, and then hunting a collision geometry rules out.
 
 WHAT IT IS ALLOWED TO CLAIM. Distances, and only distances. Geometry in this model traces to
 CAD; its masses and dynamics do not (see the banner in opendubs.xml), so nothing here says
