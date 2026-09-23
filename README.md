@@ -12,7 +12,8 @@ replicate it.
 - **Chassis:** goBILDA / REV structure, mecanum drive, PRISM LED indicators
 - **Manipulation:** bimanual [OpenArm](https://github.com/enactic/openarm), 7 joints per side over
   CAN, riding a 275 mm scissor lift
-- **Sensing:** RPLIDAR A1, a RealSense D415 on the head, wheel + optical odometry
+- **Sensing:** RPLIDAR A1, an Intel RealSense D415 on the head, and two odometry modules —
+  a goBILDA Pinpoint with dead-wheel pods, and a SparkFun OTOS optical sensor
 
 > **Status: MVP / work in progress.** Documentation is filling in as we go — the firmware-flashing
 > and bring-up paths are the most complete.
