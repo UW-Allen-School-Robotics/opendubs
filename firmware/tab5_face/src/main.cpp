@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hmi.h"
+#include "prompt.h"
 #include "lift.h"
 #include "ui_shared.h"
 #include <ArduinoOTA.h>
@@ -64,6 +65,10 @@ bool g_isHoming = false;
 // 8Servo I2C Constants
 static constexpr uint8_t kServo8Addr = 0x25;
 static constexpr uint8_t kSpkVolume  = 96;     // 0-255. Audible across a lab bay, not startling.
+// Tones live between 2 and 4 kHz. Judged by ear on the robot with a sweep (400 Hz .. 4 kHz):
+// everything below ~2 kHz was faint or inaudible across a bay. That is the usual story for a
+// small sealed speaker, and it happens to be where hearing is most sensitive — so anything
+// this robot ever needs a human to NOTICE belongs up here, not at a comfortable 880 Hz.
 
 // Audio (ES8388 codec on I2S0). Started LATE and ONLY ONCE, from the network task, never from
 // setup(): a first attempt that ran right after M5.begin() left the Tab5 dark — no display, no
@@ -83,7 +88,7 @@ static const char *spkTag() {
 }
 
 // True only when the codec is up. Callers must check: a BEEP before that is a no-op, not a hang.
-static bool spkReady() { return g_spk == SpkState::READY; }
+bool spkReady() { return g_spk == SpkState::READY; }
 
 // ---- OTA by HTTP pull -------------------------------------------------------------------
 // ArduinoOTA is started below and has never once answered on this board: espota gets "no
@@ -699,7 +704,7 @@ static void applyLine(const char *line) {
   } else if (strncmp(line, "BEEP", 4) == 0) {
     // "BEEP [freq_hz] [ms]" — one tone. A BEEP before the codec is up does nothing, and says so.
     if (!spkReady()) { Serial.println("[SPK] BEEP ignored: codec not ready"); return; }
-    float hz = 880.0f;
+    float hz = 2600.0f;                      // see kSpkVolume note: 2-4 kHz is what this speaker carries
     int ms = 120;
     sscanf(line + 4, "%f %d", &hz, &ms);
     if (hz < 50.0f) hz = 50.0f;
@@ -709,9 +714,9 @@ static void applyLine(const char *line) {
     M5.Speaker.tone(hz, (uint32_t)ms);
   } else if (strcmp(line, "CHIME") == 0) {
     if (!spkReady()) { Serial.println("[SPK] CHIME ignored: codec not ready"); return; }
-    M5.Speaker.tone(660, 110);
-    M5.Speaker.tone(880, 110);
-    M5.Speaker.tone(1320, 160);
+    M5.Speaker.tone(2000, 110);
+    M5.Speaker.tone(2600, 110);
+    M5.Speaker.tone(3200, 170);
   } else if (strncmp(line, "VOL ", 4) == 0) {
     if (!spkReady()) { Serial.println("[SPK] VOL ignored: codec not ready"); return; }
     int v = kSpkVolume;
@@ -987,4 +992,9 @@ void loop() {
     HmiCtx ctx{confirming, (int)((idleLeft + 999) / 1000), g_activeHold};
     hmiRender(ctx);
   }
+  // The pinch-guard prompt sits on top of whichever screen is showing — the operator needs it
+  // on the controls as much as on the face, and it owns no state of its own.
+  const uint32_t nowUi = millis();
+  promptTick(nowUi);
+  promptRender(nowUi);
 }

@@ -18,6 +18,10 @@ extern volatile int g_robotState;
 enum class UiMode { FACE, CONTROLLER };
 extern volatile UiMode g_uiMode;
 
+// Is the head's speaker up? Defined in main.cpp, where the codec is started. Anything that
+// wants to make a noise must check: a tone before the codec is ready is a silent no-op.
+bool spkReady();
+
 // pan/tilt control mode
 enum class TrackingMode { MANUAL, AI };
 extern volatile TrackingMode g_trackingMode;
