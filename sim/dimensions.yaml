@@ -82,6 +82,12 @@ head:
   # mechanism, with a slip-ring pan, so it is a different head and not evidence about this one.
   # NOBODY HAS PUT A PROTRACTOR ON THIS AXIS. One reading at 920 us would settle it.
   # SIGN: in the model, positive tilt is DOWN (rotation about +y swings +x toward -z).
+  mass_kg: MESH-DERIVED, NOT WEIGHED
+  # The tilt body comes out at 2.97 kg, because MuJoCo takes mass from mesh volume at its
+  # default 1000 kg/m3 -- solid water. The real head is nearer 0.8 kg (Tab5 ~400 g, D415 72 g,
+  # brackets). The viewer's head actuator gains were sized against the 2.97 figure, so they are
+  # conservative rather than wrong, but any statement about servo torque, sag or dynamics from
+  # this model is currently meaningless. Weigh the head, or set a density, before making one.
   parts_frame: >
     pt_tilt_body, pt_screen_cover and D415 are exported IN CAD COORDINATES, so the model places
     them by cancelling the head frame's offset rather than positioning each part. No second

@@ -167,5 +167,22 @@
     <!-- Position control, matching how the real thing is commanded: a target height, with the
          firmware's guard and relays doing the work of getting there. -->
     <position name="zaxis_pos" joint="zaxis" kp="4000" ctrlrange="0 0.2751"/>
+
+    <!-- The head. Without these the two head joints are the only unactuated ones in the whole
+         model — the arms bring their own 18 with them — so the viewer's Control panel had
+         sliders for everything except the thing we most want to aim.
+
+         ctrlrange matches each joint's range exactly, so a slider cannot command past a limit
+         the servo does not have. kp is sized against the real load rather than guessed: the
+         tilt body's centre of mass sits 23.6 mm from its axis, so gravity pulls with up to
+         0.69 Nm, and holding that within a degree needs kp >= 40. 60 gives margin. Pan carries
+         no gravity load at all — its axis is vertical — so it only needs enough to feel crisp.
+
+         Units are RADIANS, which is what the sliders show: tilt runs -1.636 (93.8 deg up) to
+         +0.275 (15.8 deg down), pan +/-2.618 (150 deg). -->
+    <position name="head_pan_pos"  joint="head_pan"  kp="30" dampratio="1"
+              ctrlrange="-2.6180 2.6180"/>
+    <position name="head_tilt_pos" joint="head_tilt" kp="60" dampratio="1"
+              ctrlrange="-1.6362 0.2749"/>
   </actuator>
 </mujoco>
