@@ -1,0 +1,68 @@
+# The numbers the simulation model is built from, each with where it came from.
+#
+# This file exists so the model is never the place a dimension is invented. Anything here that
+# is also a CONTROL value belongs somewhere else and is only mirrored here for geometry:
+#   * arm joint limits    -> the arm software's hw_validation/joint_limits.yaml
+#   * per-robot wiring    -> stays on the robot
+#   * head pan/tilt trim  -> the Tab5's own NVS
+#
+# units: millimetres, degrees. MJCF is metres, so the model scales by 0.001 like the arm assets.
+
+datum:
+  # Ground plane at z=0, x forward, y left, z up (ROS convention, and MuJoCo's default).
+  # The chassis origin sits on the floor, centred on the wheel footprint.
+  note: "x forward, y left, z up; origin on the floor at the centre of the wheel footprint"
+
+lift:
+  # The Z-axis. Modelled as a PRISMATIC joint along +z: the real mechanism is a scissor, but
+  # choreography only cares about where the platform ends up, not how it gets there.
+  type: prismatic
+  axis: [0, 0, 1]
+  stroke_mm: 275.1          # source: lift manufacturer spec, 10.83 in
+  platform_face_z_mm: TODO  # height of the platform's mounting face above the floor, fully DOWN
+  # NOTE (bug, not a dimension): firmware/tab5_face/src/lift.h scales its height bar
+  # MIN_MM=0 .. MAX_MM=900, so with a 275 mm stroke the bar can only ever reach ~30%.
+
+arms:
+  # Not modelled here. The bimanual OpenArm model already carries the arms AND the stock V1
+  # extrusion frame they mount to, with collision meshes and per-motor joint defaults:
+  #   openarm_assets/models/openarm/generated/openarm_bimanual_decorated.xml
+  # We include it and place its ROOT BODY; we do not redraw any of it.
+  model: openarm_bimanual_decorated.xml
+  root_body: openarm_body_link0
+  root_mass_kg: 13.89                  # from that model
+  shoulder_offset_from_root_mm: [0, 31, 698]   # from that model: left arm link0 pos
+  mount:
+    # Where openarm_body_link0's ORIGIN sits. The V1 frame stands on the lift platform, so this
+    # is expressed relative to the lift platform's mounting face.
+    parent: lift_platform
+    xyz_mm: TODO
+    rpy_deg: TODO
+
+head:
+  # Tab5 panel on a pan/tilt bracket. Pan then tilt, both servos through the 8Servo unit.
+  parent: TODO              # chassis, upper frame, or lift_platform — which does it ride?
+  pivot_xyz_mm: TODO        # pan axis intersection, in the parent's frame
+  pan_axis: [0, 0, 1]
+  tilt_axis: [0, 1, 0]
+  pan_range_deg: [0, 180]   # servo travel; 90 is centre
+  tilt_range_deg: [0, 180]  # the Tab5 clamps this further from its own NVS limits
+  panel_size_mm: TODO       # Tab5 outline, for collision against the arms
+
+chassis:
+  footprint_mm: TODO        # frame outline (x by y)
+  height_mm: TODO           # top of the base frame above the floor
+  wheel_positions_mm: TODO  # four mecanum wheel centres, for a visual reference only
+  # Wheels are NOT actuated in the model: DRIVE is not a slot, and the base does not move under
+  # a show until odometry can say where the robot is.
+
+meshes:
+  # What we still need. Simplified is not just acceptable, it is preferred: collision geometry
+  # wants to be coarse and convex-ish, and the arms already carry the detail that matters.
+  #
+  # Format: binary STL, millimetres, z up, ORIGIN AT THE DATUM NAMED BELOW (not the CAD world
+  # origin) — that is the part that makes assembly trivial rather than a guessing game.
+  chassis:        { file: TODO, origin: "floor level, centre of the wheel footprint" }
+  lift_platform:  { file: TODO, origin: "the platform's mounting face, fully DOWN" }
+  head_bracket:   { file: TODO, origin: "the pan axis, at the tilt pivot height" }
+  head_panel:     { file: TODO, origin: "centre of the Tab5's screen face" }
