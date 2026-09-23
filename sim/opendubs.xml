@@ -1,5 +1,20 @@
 <mujoco model="opendubs">
-  <!-- OpenDubs: chassis, wheels, and the Z-axis, in the CAD model's own frame.
+  <!-- ============================ READ THIS FIRST ==================================
+       THE GEOMETRY IS REAL. THE DYNAMICS ARE NOT.
+
+       Every length, axis and pivot here traces to CAD or to a measurement, and where one
+       does not it says so. None of that is true of the masses, inertias, stiffnesses,
+       damping or speeds: the chassis mass is a guess, the head's is mesh volume at the
+       density of water, the arm masses come from someone else's model, and the lift's
+       speed and stiffness were chosen to look right rather than measured.
+
+       So this model can answer: does this pose collide, can the arm reach there, how much
+       clearance is there, does the sequence read. It CANNOT answer anything about force,
+       torque, sag, tipping, motor sizing, how long a move takes, or what the robot does
+       when something pushes it. Numbers of that kind out of this model are decoration.
+       ===============================================================================
+
+       OpenDubs: chassis, wheels, and the Z-axis, in the CAD model's own frame.
 
        THE CAD ORIGIN IS THE DATUM. Meshes are exported at it, and every offset below is the
        real spatial relationship rather than a convenience frame invented for the simulator.
@@ -157,7 +172,7 @@
              stiffness that is rigid at the scale anything here cares about, and damped at the
              joint as well so the lift settles dead rather than ringing. The real mechanism is
              also not backdrivable, which this approximates by simply being hard to move. -->
-        <joint name="zaxis" type="slide" axis="0 0 1" range="0 0.2751" damping="3000"/>
+        <joint name="zaxis" type="slide" axis="0 0 1" range="0 0.2751" damping="40000"/>
         <geom class="visual"    type="mesh" mesh="zaxis" material="plate"/>
         <geom class="collision" type="mesh" mesh="zaxis" name="lift_collision"/>
         <inertial pos="0.348 0 0.3571" mass="8" diaginertia="0.2 0.2 0.3"/>
@@ -253,20 +268,59 @@
     </body>
   </worldbody>
 
+  <tendon>
+    <!-- The mixer, as geometry rather than as code. Each tendon's "length" is one of the three
+         wheel-speed combinations driveMix() produces, so an actuator pulling on it commands
+         exactly that motion and nothing else. Coefficients are 1/4 so a tendon's velocity
+         reads as the average wheel speed in rad/s.
+                            FL     FR     RL     RR      driveMix()
+         fwd               +      +      +      +        fwd term
+         strafe            +      -      -      +        str term
+         rot               +      -      +      -        rot term                     -->
+    <fixed name="drive_fwd">
+      <joint joint="wheel_fl" coef="0.25"/>  <joint joint="wheel_fr" coef="0.25"/>
+      <joint joint="wheel_rl" coef="0.25"/>  <joint joint="wheel_rr" coef="0.25"/>
+    </fixed>
+    <fixed name="drive_strafe">
+      <joint joint="wheel_fl" coef="0.25"/>  <joint joint="wheel_fr" coef="-0.25"/>
+      <joint joint="wheel_rl" coef="-0.25"/> <joint joint="wheel_rr" coef="0.25"/>
+    </fixed>
+    <fixed name="drive_rot">
+      <joint joint="wheel_fl" coef="0.25"/>  <joint joint="wheel_fr" coef="-0.25"/>
+      <joint joint="wheel_rl" coef="0.25"/>  <joint joint="wheel_rr" coef="-0.25"/>
+    </fixed>
+  </tendon>
+
   <actuator>
     <!-- Position control, matching how the real thing is commanded: a target height, with the
          firmware's guard and relays doing the work of getting there. -->
-    <position name="zaxis_pos" joint="zaxis" kp="200000" dampratio="1" ctrlrange="0 0.2751"/>
+    <!-- Stiff, but also SLOW and FORCE-LIMITED. With stiffness alone the actuator drove the
+         platform into its upper stop hard enough to throw the whole robot off the ground,
+         which a screw-driven scissor cannot do: it is slow, and it can only push about as
+         hard as its motor. forcerange caps the push; the joint's damping caps the speed at
+         roughly (2500 - 245 N of load) / 40000 = 0.056 m/s, so the full 275 mm stroke takes
+         about five seconds and arrives with no momentum worth speaking of.
+         BOTH NUMBERS ARE PLACEHOLDERS — nobody has timed this lift or measured its thrust.
+         They are chosen to be physically possible rather than to be right. -->
+    <position name="zaxis_pos" joint="zaxis" kp="1000000" forcerange="-2500 2500"
+              ctrlrange="0 0.2751"/>
 
-    <!-- The wheels. Velocity control, which is what the ESCs take: the firmware sends a
-         throttle per wheel, not a torque. ctrlrange is +/-30 rad/s -- 2.1 m/s at a 70 mm
-         radius, comfortably past anything this robot does -- so a slider cannot ask for a
-         speed and quietly get a clipped one.
-         ORDER IS FL, FR, RL, RR, matching driveMix() in firmware/rc_serial_probe. -->
-    <velocity name="wheel_fl" joint="wheel_fl" kv="1" ctrlrange="-30 30"/>
-    <velocity name="wheel_fr" joint="wheel_fr" kv="1" ctrlrange="-30 30"/>
-    <velocity name="wheel_rl" joint="wheel_rl" kv="1" ctrlrange="-30 30"/>
-    <velocity name="wheel_rr" joint="wheel_rr" kv="1" ctrlrange="-30 30"/>
+    <!-- DRIVE, as the RC sticks give it: forward, strafe, rotate. Not one slider per wheel —
+         a wheel at a time tells you nothing about a mecanum base, because the whole point is
+         what the four do together.
+
+         These drive the TENDONS defined above, whose coefficients ARE driveMix() from
+         firmware/rc_serial_probe. So each slider is one stick: ctrl is in rad/s of wheel
+         speed, and +/-10 is the 0.70 m/s that 10 rad/s gives at a 70 mm radius.
+           drive_fwd     CH3    + forward
+           drive_strafe  CH4    + right
+           drive_rot     CH1    + turning right
+         Three controls over four wheels is not a shortfall: a mecanum base has exactly three
+         degrees of freedom, and the fourth wheel combination is internal slip that no stick
+         commands and no driver wants. -->
+    <velocity name="drive_fwd"    tendon="drive_fwd"    kv="4" ctrlrange="-10 10"/>
+    <velocity name="drive_strafe" tendon="drive_strafe" kv="4" ctrlrange="-10 10"/>
+    <velocity name="drive_rot"    tendon="drive_rot"    kv="4" ctrlrange="-10 10"/>
 
     <!-- The head. Without these the two head joints are the only unactuated ones in the whole
          model — the arms bring their own 18 with them — so the viewer's Control panel had

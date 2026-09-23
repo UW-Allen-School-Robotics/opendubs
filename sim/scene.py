@@ -77,16 +77,11 @@ def _mesh_dir(assets: str) -> str:
 # against the robot: the face points forward, the way the front wheels do.
 HEAD_TILT_AXIS = (0.423, 0.0, 1.245575)
 
-# The drive mixer, copied from driveMix() in firmware/rc_serial_probe/src/main.cpp so a number
-# means the same thing here as it does on the robot. Inputs are the DRIVE command's own -1..1:
-# fwd positive forward, rot positive turning RIGHT, str positive strafing RIGHT. Wheel order is
-# the firmware's: FL, FR, RL, RR.
-WHEELS = ("fl", "fr", "rl", "rr")
+# Drive is commanded the way the RC sticks command it, not a wheel at a time: the model carries
+# three tendons whose coefficients are driveMix() from firmware/rc_serial_probe, so -1..1 here
+# means what -1..1 means on the robot. fwd + is forward, rot + turns RIGHT, str + strafes RIGHT.
+DRIVE_ACTUATORS = ("drive_fwd", "drive_rot", "drive_strafe")
 WHEEL_MAX_RADS = 10.0          # 0.70 m/s at the measured 70 mm radius
-
-
-def drive_mix(fwd: float, rot: float, str_: float):
-    return (fwd + str_ + rot, fwd - str_ - rot, fwd - str_ + rot, fwd + str_ - rot)
 
 
 def build(assets: str | None = None, chest_cover: bool = False):
@@ -161,9 +156,9 @@ def main():
             fwd, rot, str_ = (float(v) for v in a.drive.split(","))
         except ValueError:
             sys.exit('--drive wants three numbers, e.g. --drive "1,0,0"')
-        for name, w in zip(WHEELS, drive_mix(fwd, rot, str_)):
-            i = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"wheel_{name}")
-            data.ctrl[i] = w * WHEEL_MAX_RADS
+        for name, v in zip(DRIVE_ACTUATORS, (fwd, rot, str_)):
+            i = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+            data.ctrl[i] = v * WHEEL_MAX_RADS
     mujoco.mj_forward(model, data)
     for _ in range(int(a.settle / model.opt.timestep)):
         mujoco.mj_step(model, data)

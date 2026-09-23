@@ -1,5 +1,13 @@
 # The numbers the simulation model is built from, each with where it came from.
 #
+# ============================== THE GEOMETRY IS REAL. THE DYNAMICS ARE NOT. =============
+# Lengths, axes and pivots trace to CAD or to a measurement, and where one does not it says
+# so. Masses, inertias, stiffnesses, damping and speeds do NOT: the chassis mass is a guess,
+# the head's is mesh volume at the density of water, the arm masses are someone else's, and
+# the lift's speed and thrust were chosen to be physically possible rather than measured.
+# Anything this model says about force, torque, sag, tipping or timing is decoration.
+# =======================================================================================
+#
 # This file exists so the model is never the place a dimension is invented. Anything here that
 # is also a CONTROL value belongs somewhere else and is only mirrored here for geometry:
 #   * arm joint limits    -> the arm software's hw_validation/joint_limits.yaml
@@ -21,6 +29,13 @@ lift:
   type: prismatic
   axis: [0, 0, 1]
   stroke_mm: 275.1           # source: lift manufacturer spec, 10.83 in
+  speed_mm_s: PLACEHOLDER 56
+  thrust_n: PLACEHOLDER 2500
+  # Nobody has timed this lift or measured its thrust. Both exist so the model cannot do
+  # something the real mechanism cannot: with stiffness alone the actuator drove the platform
+  # into its upper stop hard enough to throw the whole robot off the ground. A screw-driven
+  # scissor is slow and pushes about as hard as its motor. Capped, the full stroke takes ~5 s
+  # and the base rises 0.08 mm on arrival. Time a real stroke and these become real.
   platform_face_z_mm: 357.5  # CAD z of the plate's top face, fully DOWN (mesh reads 356.6..357.6)
   # NOTE (bug, not a dimension): firmware/tab5_face/src/lift.h scales its height bar
   # MIN_MM=0 .. MAX_MM=900, so with a 275 mm stroke the bar can only ever reach ~30%.
@@ -137,6 +152,11 @@ meshes:
   # anything for the simulator's benefit: one origin, and the relationships written down.
   # Supplied, exported at the CAD origin (so no re-origining is needed):
   chassis:        { file: meshes/chassis.stl,     span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
+  # NOT a box: 16 vertices, with two diagonally opposite corners stepped back 8 mm (rear at
+  # -y, front at +y). MuJoCo collides the CONVEX HULL of a mesh, so the collision geometry
+  # fills those notches and stands 8 mm proud of the visual at exactly those two corners.
+  # Harmless here — the mesh is a crude bounding box that already swallows the wheels — but
+  # it is the notch you can see in the render, and it came in the mesh.
   wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
                     diameter_mm: 140, width_mm: 50, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589,
                     centres_mm: { FL: [528, 294.5], FR: [528, -294.5], RL: [120, 294.5], RR: [120, -294.5] } }

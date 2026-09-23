@@ -1,5 +1,18 @@
 # Simulation
 
+> ## The geometry is real. The dynamics are not.
+>
+> Every length, axis and pivot here traces to CAD or to a measurement, and where one does not
+> it says so. **None of that is true of the masses, inertias, stiffnesses, damping or speeds.**
+> The chassis mass is a guess. The head's is mesh volume at the density of water. The arm
+> masses come from someone else's model. The lift's speed and thrust were chosen to be
+> physically possible, not measured.
+>
+> So this model answers: *does this pose collide, can the arm reach there, how much clearance
+> is there, does the sequence read.* It does **not** answer anything about force, torque, sag,
+> tipping, motor sizing, how long a move takes, or what happens when something pushes the
+> robot. Numbers of that kind out of this model are decoration.
+
 Two simulators, one model, different jobs.
 
 **MuJoCo, now, on any laptop.** Fast, runs natively on Apple Silicon, and answers the questions
@@ -47,16 +60,27 @@ origin. We `include` that model and place its root. We do not touch the arms.
 | Part | Why it matters |
 |---|---|
 | Chassis / base frame | what the arms can collide with, and the floor datum |
-| Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame. Stiff: a screw-driven scissor does not bounce, so it steps 275 mm with 0.1 mm of overshoot |
+| Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame. Stiff, slow and force-limited. A screw-driven scissor does not bounce and cannot throw the robot into the air, so the actuator is capped at 2500 N and the joint damped to about 56 mm/s — full stroke in ~5 s, arriving with the base rising 0.08 mm. Both numbers are placeholders |
 | Head bracket + Tab5 panel | **the thing the arms nearly hit** — the reason this is worth doing |
 
 | Mecanum wheels | driven, with rollers — see below |
 
 The wheels are **actuated mecanum**, not scenery. Each is a hub on its axle carrying 16
 free-spinning rollers skewed 45 degrees, so the sideways motion emerges from roller contact
-rather than being imposed. They are driven by `driveMix()` copied from
-`firmware/rc_serial_probe`, so `--drive "1,0,0"` means on this model what `DRIVE 1 0 0` means
-on the robot.
+rather than being imposed. They are driven **as the RC sticks drive them** — forward, strafe, rotate — not one slider per
+wheel, because a wheel at a time tells you nothing about a mecanum base. The three controls are
+actuators on three fixed tendons whose coefficients *are* `driveMix()` from
+`firmware/rc_serial_probe`, so `--drive "1,0,0"` means on this model what `DRIVE 1 0 0` means on
+the robot:
+
+| control | stick | + direction |
+|---|---|---|
+| `drive_fwd` | CH3 | forward |
+| `drive_strafe` | CH4 | right |
+| `drive_rot` | CH1 | turning right |
+
+Three controls over four wheels is not a shortfall: a mecanum base has exactly three degrees of
+freedom, and the fourth wheel combination is internal slip that no stick commands.
 
 The rollers are **authored, not supplied**: all four wheel meshes are byte-identical
 412-triangle cylinders with no roller detail and no handedness. The count and capsule shape are
@@ -110,6 +134,12 @@ supply our own frame collision mesh.
 `dimensions.yaml` holds what we know, with provenance, and `TODO` for what we do not. Nothing
 in the model is invented: a missing dimension stays missing until it is measured or exported
 from CAD.
+
+`chassis.stl` is worth knowing about: it is **not a box**. It has 16 vertices, with two
+diagonally opposite corners stepped back 8 mm — the rear at −y and the front at +y. That step is
+in the supplied mesh, and since MuJoCo collides the *convex hull* of a mesh, the collision
+geometry fills those two notches and is 8 mm proud of the visual there. Irrelevant in practice,
+because the whole mesh is a crude bounding box that already swallows the wheels.
 
 Supplied and in use: the chassis, four wheels, and the lift plate — all exported at the CAD
 origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
