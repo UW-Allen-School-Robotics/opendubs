@@ -37,13 +37,13 @@ arms:
   mount:
     # Where openarm_body_link0's ORIGIN sits, in CAD coordinates, with the lift fully down.
     parent: lift_platform      # so it rises with the Z-axis
-    xyz_mm: [453.0, 0.0, 357.5]
+    xyz_mm: [423.0, 0.0, 357.5]
     rpy_deg: [0, 0, 0]
-    # x: CHECK THIS. Stated as "423 mm to the CENTRE of the root body". That body's own mesh
-    # spans x -155..+95 about its origin, so its centre is 30 mm BEHIND the origin, giving
-    # origin = 453. That also puts the frame's front face at 548.0 — flush with the lift plate's
-    # front edge to the tenth of a millimetre, which is unlikely to be coincidence. If 423 was
-    # meant as the ORIGIN, change this to 423 and the frame sits 30 mm back from the edge.
+    # x: 423 is the ORIGIN, confirmed by eye on a render. An earlier reading took it as the
+    # body's CENTRE and derived 453, which landed the frame's front face exactly flush with the
+    # lift plate's front edge — that looked like confirmation and was coincidence. The arms sat
+    # 30 mm too far forward. Worth remembering: a number that agrees with a guess is not
+    # evidence for the guess.
     # y: shared centreline, 0 = 0 (confirmed: the body mesh is centred in y).
     # z: 357.5 = the plate's top face lowered; the body's own origin is at the BOTTOM of the
     #    extrusion (its mesh spans z 0..773), so it simply stands on the plate.

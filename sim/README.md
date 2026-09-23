@@ -63,6 +63,25 @@ move under a show until odometry can say where the robot is.
 
 Nothing here answers "will the gripper hold this object". Say so out loud when showing it.
 
+## Building the whole robot
+
+```bash
+git clone --depth 1 https://github.com/ericjgoossen/openarm_assets /tmp/oa_assets   # once
+python3 scene.py --check
+python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
+```
+
+`scene.py` attaches the bimanual arm model to the lift platform with MuJoCo's `MjSpec`, so
+neither file is edited or copied — when openarm_assets updates, we get the update. The assets
+are found via `--assets`, `$OPENDUBS_OPENARM_ASSETS`, or the paths the arm software's own
+`setup.sh` uses; they are deliberately **not** vendored here.
+
+**The chest cover is suppressed**, because it is removed on our robot and the face mounts at the
+top of the extrusion it used to cover (`--chest-cover` draws it again for comparison).
+Caveat worth remembering: the arm model's *collision* geometry is a single `body_link0.stl`
+that still contains the cover's volume, so clearance against the torso is conservative until we
+supply our own frame collision mesh.
+
 ## Status
 
 `dimensions.yaml` holds what we know, with provenance, and `TODO` for what we do not. Nothing

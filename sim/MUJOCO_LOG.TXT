@@ -1,0 +1,9 @@
+WARNING Tue Sep 22 21:48:14 2026: Attach conflict when attaching 'openarm' to 'opendubs', policy is 'warning'
+nkey: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep 22 21:48:14 2026: Attach conflict when attaching 'openarm' to 'opendubs', policy is 'warning'
+nkey: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep 22 21:48:15 2026: Attach conflict when attaching 'openarm' to 'opendubs', policy is 'warning'
+nkey: parent has 0 (default), child has 1, keeping parent value
+
