@@ -36,6 +36,10 @@
     <mesh name="wheel_rl" file="RL-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="wheel_rr" file="RR-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="zaxis"    file="z-axis-down.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="channel"  file="1120_channel.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="tab5mnt"  file="Tab_5_Mount.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="screen"   file="face_screen_cover.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="d415mnt"  file="D415_Mount.stl" scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
@@ -76,9 +80,27 @@
                <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
 
-        <!-- The head rides with the extrusion, so it belongs to this body too. Mesh and pivot
-             still to come from CAD; the site marks that it is not forgotten. -->
-        <site name="head_mount_TODO" pos="0.423 0 1.1305" size="0.010" rgba="0.9 0.1 0.1 0.6"/>
+        <!-- THE HEAD. Rides with the extrusion, so it hangs off the lift platform.
+             The TILT AXIS is at CAD (423, 0, 1245.575) — measured — which is 115 mm above the
+             top of the arm extrusion and on the same x as the arm frame.
+             ASSUMED, pending confirmation: the face parts were exported about their own origin,
+             and that origin is taken to sit ON the tilt axis with the same orientation as CAD.
+             ALSO ASSUMED: which parts move with which joint. Pan turns the whole head; tilt
+             takes the Tab5, its cover and the D415 with it, leaving the channel behind. -->
+        <body name="head_pan" pos="0.423 0 1.245575">
+          <joint name="head_pan" type="hinge" axis="0 0 1" range="-1.5708 1.5708" damping="1"/>
+          <geom class="visual" type="mesh" mesh="channel" material="frame"/>
+          <body name="head_tilt">
+            <joint name="head_tilt" type="hinge" axis="0 1 0" range="-1.2 1.2" damping="1"/>
+            <geom class="visual"    type="mesh" mesh="tab5mnt" material="frame"/>
+            <geom class="visual"    type="mesh" mesh="screen"  material="plate"/>
+            <geom class="visual"    type="mesh" mesh="d415mnt" material="frame"/>
+            <!-- What the arms must not hit. Coarse box over the screen and its mount. -->
+            <geom class="collision" type="box" pos="0.041 0 0.026" size="0.045 0.080 0.053"
+                  name="head_collision"/>
+            <site name="d415_optical" pos="0.085 0 -0.040" size="0.006" rgba="0.95 0.65 0.15 1"/>
+          </body>
+        </body>
       </body>
     </body>
   </worldbody>

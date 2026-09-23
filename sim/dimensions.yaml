@@ -53,12 +53,21 @@ arms:
 head:
   # Tab5 panel on a pan/tilt bracket. Pan then tilt, both servos through the 8Servo unit.
   parent: lift_platform     # confirmed: the face/pan-tilt translates in +z with the extrusion
-  pivot_xyz_mm: TODO        # pan axis intersection, in the parent's frame
+  tilt_axis_xyz_mm: [423.0, 0.0, 1245.575]   # MEASURED in CAD, lift fully down
+  pan_axis_xyz_mm: ASSUMED                   # taken as the same x,y — vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
   pan_range_deg: [0, 180]   # servo travel; 90 is centre
   tilt_range_deg: [0, 180]  # the Tab5 clamps this further from its own NVS limits
-  panel_size_mm: TODO       # Tab5 outline, for collision against the arms
+  panel_size_mm: [22.8, 158.0, 105.8]        # screen cover bbox, from the mesh
+  parts_frame: >
+    The face meshes were exported about their OWN origin, not the CAD origin. ASSUMED: that
+    origin lies on the tilt axis and shares CAD's orientation, so placing it is a pure
+    translation to the measured tilt point. Confirm on a render before trusting clearance.
+  moves_with:
+    pan: [1120_channel, Tab 5 Mount, face_screen_cover, D415 Mount]
+    tilt: [Tab 5 Mount, face_screen_cover, D415 Mount]     # ASSUMED split; the channel stays
+  camera: D415                                # the depth camera in service (replacing the Astra)
 
 chassis:
   footprint_mm: TODO        # frame outline (x by y)
@@ -79,5 +88,7 @@ meshes:
                     diameter_mm: 140, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589 }
   lift_platform:  { file: meshes/z-axis-down.stl, span_mm: { x: [148, 548], y: [-160, 160], z: [356.6, 357.6] } }
   # Still wanted:
-  head_bracket:   { file: TODO, note: "with the pan and tilt pivot locations, in CAD coordinates" }
-  head_panel:     { file: TODO, note: "Tab5 outline — this is what the arms nearly hit" }
+  head_channel:   { file: meshes/1120_channel.stl }
+  head_tab5_mount:{ file: meshes/Tab_5_Mount.stl }
+  head_screen:    { file: meshes/face_screen_cover.stl }
+  head_d415_mount:{ file: meshes/D415_Mount.stl }
