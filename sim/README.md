@@ -88,12 +88,14 @@ supply our own frame collision mesh.
 in the model is invented: a missing dimension stays missing until it is measured or exported
 from CAD.
 
-Needed next, as simplified binary STLs in millimetres, **with the origin at the datum named in
-`dimensions.yaml`** rather than the CAD world origin:
+Supplied and in use: the chassis, four wheels, and the lift plate — all exported at the CAD
+origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
+wheel geometry), a 408 mm wheelbase and a 589 mm track.
 
-- chassis / base frame
-- lift platform (the moving stage)
-- head bracket and the Tab5 panel outline
+Still needed, same convention — **binary STL, millimetres, exported at the CAD model origin**:
 
-Plus three transforms: where `openarm_body_link0` sits on the lift platform, the platform's
-face height when fully down, and where the head pivot is — and on which body the head rides.
+- the head bracket and the Tab5 panel outline, with the pan and tilt pivot locations
+
+That one is the point of the exercise: the head is what the arms nearly hit, and while it is
+missing, `software/choreo/cue.py` has to keep refusing shoulder angles based on a constant
+measured by hand once, rather than a clearance the model can compute.
