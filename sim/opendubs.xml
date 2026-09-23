@@ -14,7 +14,12 @@
        Units: the meshes are millimetres, MJCF is metres, hence scale 0.001 throughout. -->
 
   <compiler angle="radian" meshdir="meshes/"/>
-  <option gravity="0 0 -9.81"/>
+  <!-- implicitfast, not the default explicit Euler. Wheel and roller inertias are small
+       against the damping and the velocity actuators driving them: a 0.77 kg wheel at kv 1 has
+       a time constant well under the timestep, which explicit integration turns into a
+       divergence. Driving in reverse used to spin the rear rollers to 16000 rad/s and trip
+       MuJoCo's own reset. Implicit integration of those damping terms costs almost nothing. -->
+  <option gravity="0 0 -9.81" integrator="implicitfast"/>
   <visual>
     <!-- Big enough to render a readable preview offscreen; MuJoCo's default is 640x480. -->
     <global offwidth="1640" offheight="1120"/>
@@ -26,6 +31,16 @@
     </default>
     <default class="collision">
       <geom group="3"/>
+    </default>
+    <default class="roller">
+      <!-- Rollers collide with the GROUND AND NOTHING ELSE. contype 2 / conaffinity 0 against
+           a ground plane whose conaffinity includes bit 2: roller-vs-ground matches, and
+           roller-vs-roller, roller-vs-chassis and roller-vs-arm all fail both tests. Without
+           this the rollers of one wheel fight each other (they overlap, as real ones do) and
+           every wheel sits inside the chassis bounding box, which is a crude box that
+           swallows them. -->
+      <geom type="capsule" size="0.010" contype="2" conaffinity="0" group="3"
+            rgba="0.10 0.10 0.11 1"/>
     </default>
   </default>
 
@@ -51,23 +66,98 @@
   <worldbody>
     <light pos="1 -1 2.5" dir="-0.3 0.3 -1" diffuse="0.9 0.9 0.9"/>
     <!-- The floor, placed from the wheels rather than assumed: -94 mm in CAD coordinates. -->
-    <geom name="ground" type="plane" pos="0 0 -0.094" size="4 4 0.05" rgba="0.18 0.19 0.2 1"/>
+    <geom name="ground" type="plane" pos="0 0 -0.094" size="4 4 0.05" rgba="0.18 0.19 0.2 1"
+          conaffinity="3"/>
 
     <body name="chassis" pos="0 0 0">
-      <!-- Static for now: DRIVE is not a choreography slot, and the base does not move under a
-           show until odometry can say where the robot is. The wheels are drawn, not actuated. -->
+      <!-- The base is FREE: it stands on its wheels and goes where they push it. It used to be
+           welded to the world, back when the wheels were scenery. -->
+      <freejoint name="base"/>
+      <!-- ESTIMATED, not weighed — and the model will not run without it. Taking mass from the
+           chassis mesh would give 169 kg, because that mesh is a bounding box and MuJoCo fills
+           it with water at its default density. 40 kg with the centre of mass low (batteries
+           and motors sit near the floor, not at the box's centroid) is a guess that behaves
+           sanely. Weigh the robot before believing anything dynamic. -->
+      <inertial pos="0.29 0 0.02" mass="40" diaginertia="1.9 1.9 2.8"/>
       <geom class="visual"    type="mesh" mesh="chassis" material="frame"/>
       <geom class="collision" type="mesh" mesh="chassis" name="chassis_collision"/>
-      <geom class="visual" type="mesh" mesh="wheel_fl" material="rubber"/>
-      <geom class="visual" type="mesh" mesh="wheel_fr" material="rubber"/>
-      <geom class="visual" type="mesh" mesh="wheel_rl" material="rubber"/>
-      <geom class="visual" type="mesh" mesh="wheel_rr" material="rubber"/>
+
+
+      <!-- THE WHEELS. Mecanum, so they are not cylinders with sideways grip: each is a hub that
+           turns on its axle carrying a ring of free-spinning rollers skewed 45 degrees. That
+           skew is the whole mechanism — a driven hub pushes along its rollers' perpendicular,
+           and the four diagonal push directions add up to travel in any direction.
+
+           MODELLED, NOT SUPPLIED. The four wheel meshes are byte-identical 412-triangle
+           cylinders with no roller detail and no handedness, so the rollers here are authored:
+           16 capsules of radius 10 mm on a 60 mm hub, giving the measured 140 mm diameter and
+           50 mm width. The count and the capsule shape are a simplification (real rollers are
+           barrels that taper at the ends), which is what this model wants for collision
+           geometry. What is NOT invented is the handedness: FL and RR skew one way, FR and RL
+           the other, taken from the firmware mixer in rc_serial_probe, where FL and RR share a
+           strafe sign and FR and RL share the opposite one.
+
+           Handedness was then CHECKED, not assumed — see scene.py --drive, which runs the
+           firmware's own mixer and reports where the robot actually goes. -->
+      <body name="wheel_fl" pos="0.528 0.2945 -0.024">
+        <joint name="wheel_fl" type="hinge" axis="0 1 0" damping="0.002" armature="0.005"/>
+        <geom class="visual" type="mesh" mesh="wheel_fl" material="rubber"
+              pos="-0.528 -0.2945 0.024"/>
+        <replicate count="16" euler="0 22.5 0">
+          <body pos="0.060 0 0">
+            <joint type="hinge" axis="0 0.70711 -0.70711" damping="0.00002" armature="5e-05"/>
+            <geom class="roller" fromto="0 -0.01499 0.01499 0 0.01499 -0.01499"/>
+          </body>
+        </replicate>
+      </body>
+
+      <body name="wheel_fr" pos="0.528 -0.2945 -0.024">
+        <joint name="wheel_fr" type="hinge" axis="0 1 0" damping="0.002" armature="0.005"/>
+        <geom class="visual" type="mesh" mesh="wheel_fr" material="rubber"
+              pos="-0.528 0.2945 0.024"/>
+        <replicate count="16" euler="0 22.5 0">
+          <body pos="0.060 0 0">
+            <joint type="hinge" axis="0 0.70711 0.70711" damping="0.00002" armature="5e-05"/>
+            <geom class="roller" fromto="0 -0.01499 -0.01499 0 0.01499 0.01499"/>
+          </body>
+        </replicate>
+      </body>
+
+      <body name="wheel_rl" pos="0.12 0.2945 -0.024">
+        <joint name="wheel_rl" type="hinge" axis="0 1 0" damping="0.002" armature="0.005"/>
+        <geom class="visual" type="mesh" mesh="wheel_rl" material="rubber"
+              pos="-0.12 -0.2945 0.024"/>
+        <replicate count="16" euler="0 22.5 0">
+          <body pos="0.060 0 0">
+            <joint type="hinge" axis="0 0.70711 0.70711" damping="0.00002" armature="5e-05"/>
+            <geom class="roller" fromto="0 -0.01499 -0.01499 0 0.01499 0.01499"/>
+          </body>
+        </replicate>
+      </body>
+
+      <body name="wheel_rr" pos="0.12 -0.2945 -0.024">
+        <joint name="wheel_rr" type="hinge" axis="0 1 0" damping="0.002" armature="0.005"/>
+        <geom class="visual" type="mesh" mesh="wheel_rr" material="rubber"
+              pos="-0.12 0.2945 0.024"/>
+        <replicate count="16" euler="0 22.5 0">
+          <body pos="0.060 0 0">
+            <joint type="hinge" axis="0 0.70711 -0.70711" damping="0.00002" armature="5e-05"/>
+            <geom class="roller" fromto="0 -0.01499 0.01499 0 0.01499 -0.01499"/>
+          </body>
+        </replicate>
+      </body>
 
       <!-- The Z-axis. A scissor lift in reality; a prismatic joint here, because choreography
            only cares where the platform ends up. Stroke 275.1 mm = 10.83 in (manufacturer).
            Zero is the lowered state the mesh was exported in. -->
       <body name="lift_platform" pos="0 0 0">
-        <joint name="zaxis" type="slide" axis="0 0 1" range="0 0.2751" damping="20"/>
+        <!-- STIFF. A scissor lift driven through a screw does not bounce, and the model had it
+             springing at about 2 Hz: kp 4000 against the ~25 kg it carries is a soft spring,
+             and damping 20 against a critical 630 is a damping ratio of 0.03. Raised to a
+             stiffness that is rigid at the scale anything here cares about, and damped at the
+             joint as well so the lift settles dead rather than ringing. The real mechanism is
+             also not backdrivable, which this approximates by simply being hard to move. -->
+        <joint name="zaxis" type="slide" axis="0 0 1" range="0 0.2751" damping="3000"/>
         <geom class="visual"    type="mesh" mesh="zaxis" material="plate"/>
         <geom class="collision" type="mesh" mesh="zaxis" name="lift_collision"/>
         <inertial pos="0.348 0 0.3571" mass="8" diaginertia="0.2 0.2 0.3"/>
@@ -166,7 +256,17 @@
   <actuator>
     <!-- Position control, matching how the real thing is commanded: a target height, with the
          firmware's guard and relays doing the work of getting there. -->
-    <position name="zaxis_pos" joint="zaxis" kp="4000" ctrlrange="0 0.2751"/>
+    <position name="zaxis_pos" joint="zaxis" kp="200000" dampratio="1" ctrlrange="0 0.2751"/>
+
+    <!-- The wheels. Velocity control, which is what the ESCs take: the firmware sends a
+         throttle per wheel, not a torque. ctrlrange is +/-30 rad/s -- 2.1 m/s at a 70 mm
+         radius, comfortably past anything this robot does -- so a slider cannot ask for a
+         speed and quietly get a clipped one.
+         ORDER IS FL, FR, RL, RR, matching driveMix() in firmware/rc_serial_probe. -->
+    <velocity name="wheel_fl" joint="wheel_fl" kv="1" ctrlrange="-30 30"/>
+    <velocity name="wheel_fr" joint="wheel_fr" kv="1" ctrlrange="-30 30"/>
+    <velocity name="wheel_rl" joint="wheel_rl" kv="1" ctrlrange="-30 30"/>
+    <velocity name="wheel_rr" joint="wheel_rr" kv="1" ctrlrange="-30 30"/>
 
     <!-- The head. Without these the two head joints are the only unactuated ones in the whole
          model — the arms bring their own 18 with them — so the viewer's Control panel had

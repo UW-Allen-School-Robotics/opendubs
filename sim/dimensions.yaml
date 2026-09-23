@@ -124,8 +124,10 @@ chassis:
   footprint_mm: TODO        # frame outline (x by y)
   height_mm: TODO           # top of the base frame above the floor
   wheel_positions_mm: TODO  # four mecanum wheel centres, for a visual reference only
-  # Wheels are NOT actuated in the model: DRIVE is not a slot, and the base does not move under
-  # a show until odometry can say where the robot is.
+  mass_kg: 40   # ESTIMATED, NOT WEIGHED -- and the model needs it, because the base now moves.
+  # Mesh-derived mass would be 169 kg: chassis.stl is a 28-triangle bounding box and MuJoCo
+  # fills it with water. 40 kg with the centre of mass low (batteries and motors sit near the
+  # floor, not at the box centroid) behaves sanely. Weigh the robot before believing dynamics.
 
 meshes:
   # What we still need. Simplified is not just acceptable, it is preferred: collision geometry
@@ -136,7 +138,19 @@ meshes:
   # Supplied, exported at the CAD origin (so no re-origining is needed):
   chassis:        { file: meshes/chassis.stl,     span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
   wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
-                    diameter_mm: 140, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589 }
+                    diameter_mm: 140, width_mm: 50, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589,
+                    centres_mm: { FL: [528, 294.5], FR: [528, -294.5], RL: [120, 294.5], RR: [120, -294.5] } }
+  # The four wheel meshes are BYTE-IDENTICAL 412-triangle cylinders: no roller detail, no
+  # handedness. The model's rollers are therefore authored -- 16 capsules of radius 10 mm on a
+  # 60 mm hub, reproducing the measured 140 mm diameter and 50 mm width. Count and capsule
+  # shape are a simplification; real rollers are barrels that taper at the ends.
+  rollers:
+    skew_deg: 45
+    handedness: { FL: -45, FR: +45, RL: +45, RR: -45 }
+    # NOT guessed: taken from driveMix() in firmware/rc_serial_probe, where FL and RR share a
+    # strafe sign and FR and RL share the opposite one -- then verified in simulation. The
+    # first attempt had it mirrored, which drove forward and reversed perfectly and only
+    # strafed the wrong way. Check strafe, not drive.
   lift_platform:  { file: meshes/z-axis-down.stl, span_mm: { x: [148, 548], y: [-160, 160], z: [356.6, 357.6] } }
   # The head, supplied IN CAD COORDINATES (see head.extents_cad_mm above):
   head_tilt_body: { file: meshes/pt_tilt_body.stl }

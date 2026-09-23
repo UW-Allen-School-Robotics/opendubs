@@ -47,11 +47,34 @@ origin. We `include` that model and place its root. We do not touch the arms.
 | Part | Why it matters |
 |---|---|
 | Chassis / base frame | what the arms can collide with, and the floor datum |
-| Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame |
+| Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame. Stiff: a screw-driven scissor does not bounce, so it steps 275 mm with 0.1 mm of overshoot |
 | Head bracket + Tab5 panel | **the thing the arms nearly hit** — the reason this is worth doing |
 
-Wheels are drawn but not actuated: `DRIVE` is not a choreography slot, and the base does not
-move under a show until odometry can say where the robot is.
+| Mecanum wheels | driven, with rollers — see below |
+
+The wheels are **actuated mecanum**, not scenery. Each is a hub on its axle carrying 16
+free-spinning rollers skewed 45 degrees, so the sideways motion emerges from roller contact
+rather than being imposed. They are driven by `driveMix()` copied from
+`firmware/rc_serial_probe`, so `--drive "1,0,0"` means on this model what `DRIVE 1 0 0` means
+on the robot.
+
+The rollers are **authored, not supplied**: all four wheel meshes are byte-identical
+412-triangle cylinders with no roller detail and no handedness. The count and capsule shape are
+a simplification. The handedness is not — it comes from the firmware mixer, where FL and RR
+share a strafe sign and FR and RL share the opposite one — and it was then *checked* rather
+than assumed:
+
+```
+DRIVE command      dx mm    dy mm  dyaw deg
+fwd +1            1153.0      3.0      0.38
+fwd -1           -1143.8     -0.9      0.07
+strafe +1           -2.9  -1038.6      0.33      (+y is left, so this is right — correct)
+rot +1             562.6    226.1   -137.95      (turns right; the origin orbits the wheelbase)
+```
+
+That table is the point: a mecanum model with one roller skewed the wrong way still drives
+forward perfectly and only fails in strafe, which is exactly the kind of error that survives a
+visual check.
 
 ## Fidelity ladder — what each stage can and cannot answer
 
