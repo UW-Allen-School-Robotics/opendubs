@@ -71,8 +71,8 @@ meshes:
   # What we still need. Simplified is not just acceptable, it is preferred: collision geometry
   # wants to be coarse and convex-ish, and the arms already carry the detail that matters.
   #
-  # Format: binary STL, millimetres, z up, ORIGIN AT THE DATUM NAMED BELOW (not the CAD world
-  # origin) — that is the part that makes assembly trivial rather than a guessing game.
+  # Format: binary STL, millimetres, z up, exported AT THE CAD MODEL ORIGIN. Do not re-origin
+  # anything for the simulator's benefit: one origin, and the relationships written down.
   # Supplied, exported at the CAD origin (so no re-origining is needed):
   chassis:        { file: meshes/chassis.stl,     span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
   wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
