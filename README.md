@@ -8,8 +8,12 @@ replicate it.
 - **Compute / autonomy:** NVIDIA Jetson AGX Thor (ROS 2 Jazzy)
 - **Base controller:** M5Stack StampPLC (ESP32-S3) — SBUS RC ingest, mecanum drive mixer, safety
   arming + e-stop, power/BMS/CAN telemetry
-- **Front panel:** M5Stack Tab5 (ESP32-P4) animated face + operator controls
+- **Front panel:** M5Stack Tab5 (ESP32-P4) — animated face, head pan/tilt servos, speaker
 - **Chassis:** goBILDA / REV structure, mecanum drive, PRISM LED indicators
+- **Manipulation:** bimanual [OpenArm](https://github.com/enactic/openarm), 7 joints per side over
+  CAN, riding a 275 mm scissor lift
+- **Sensing:** RPLIDAR A1, an Intel RealSense D415 on the head, and two odometry modules —
+  a goBILDA Pinpoint with dead-wheel pods, and a SparkFun OTOS optical sensor
 
 > **Status: MVP / work in progress.** Documentation is filling in as we go — the firmware-flashing
 > and bring-up paths are the most complete.
@@ -26,6 +30,26 @@ rendered with navigation and search. Good entry points:
 *Contributing to the docs?* See **[CLAUDE.md](CLAUDE.md)** for the workflow. Preview locally with
 `pip install mkdocs-material && mkdocs serve`.
 
+## Simulation
+
+`sim/` holds a MuJoCo model of the robot in the **CAD frame** — chassis, mecanum wheels with
+their rollers, the Z-axis and the pan/tilt head. The arms are not redrawn: the upstream OpenArm
+model is attached at runtime, so it stays in step with that project.
+
+```bash
+cd sim
+./view.sh                                                  # interactive viewer
+python3 scene.py --render out.png --lift 275               # offscreen render
+python3 clearance.py --joints "right:2=182,right:4=100"    # distance to self-collision
+```
+
+It is a **description of the robot, not a planner**, so several planners can consume it and
+disagree with each other without any of them owning it. Every length, axis and pivot traces to
+CAD or to a measurement; **masses, stiffnesses and speeds are placeholders**, so it answers
+questions about clearance and reach and not about force, torque or timing.
+[`sim/README.md`](sim/README.md) says which is which, and
+[`sim/dimensions.yaml`](sim/dimensions.yaml) carries the provenance of every number.
+
 ## Repository layout
 
 | Path | What |
@@ -33,10 +57,15 @@ rendered with navigation and search. Good entry points:
 | `docs/` | The documentation site (MkDocs Material) — build/flash guides, reference, safety |
 | `firmware/rc_serial_probe/` | **StampPLC** ESP32-S3 firmware (PlatformIO) — RC, drive mixer, safety I/O, BMS/PDH, `[TAG]` telemetry over USB **or** Ethernet |
 | `firmware/tab5_face/` | **Tab5** ESP32-P4 face + operator UI (pioarduino) |
+| `firmware/tab5_pantilt/` · `tab5_roller/` · `servo_mode_programmer/` | Bring-up tools for the pan/tilt head and its servos — not flashed in normal operation |
 | `software/kiosk-dashboard/` | Touchscreen dashboard — FastAPI backend + vanilla-JS frontend + provisioning. Runs on the Thor |
 | `software/ros/` | ROS 2 (Jazzy) bringup — RPLIDAR drivers, rosbridge, foxglove, watchdogs |
+| `software/openarm/` | Arm permanence — CAN driver packaging, udev naming, boot services, `openarm-up` |
+| `software/choreo/` | Choreography — a show is a validated cue sheet, checked before anything moves |
 | `software/teleop/` | Unity VR teleop pipeline |
-| `hardware/` | `cad/` (Fusion 360 exports), `bom/`, `renders/` — *being populated as the build proceeds* |
+| `sim/` | **MuJoCo model of the robot** (geometry, not a planner) — see [Simulation](#simulation) |
+| `hardware/` | `parts.csv` — **the BOM source of truth**, from which every table in the docs is generated — plus `cad/` (Fusion 360 exports) and `renders/` |
+| `access/` | Public keys and the manifest for operator accounts on the robots |
 | `tools/` | Repo utilities |
 | `notes/` | Internal planning / design history — in-repo but not part of the published site |
 | `optional/` | Non-baseline variants kept for possible future use (e.g. a Pixhawk build) — in-repo, off the baseline |
