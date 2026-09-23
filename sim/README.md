@@ -30,7 +30,23 @@ same measured dimensions in `dimensions.yaml`.
 
 ## The single most valuable thing this buys
 
-**Self-collision checking, which nothing in the real stack has.**
+**Self-collision checking, which nothing in the real stack has.** `clearance.py` is that:
+
+```bash
+python3 clearance.py --joints "right:2=182,right:4=100"     # how close is this pose?
+python3 clearance.py --contact right:2 --hold "right:4=100" # where does it touch?
+```
+
+It reports the closest pairs and marks which ones actually **move** with the pose, because the
+arm frame sits a fixed distance from the head whatever the arms do and that constant floor
+otherwise hides the number an author cares about.
+
+**Checked against the robot, and six degrees optimistic.** Contact was felt by hand at J2 182;
+the model reaches zero at 188.3, for both arms, and barely varies with elbow fold (187.5 at
+J4=60, 188.3 at J4=140). Six degrees in the *unsafe* direction, so the measured constant stays
+in charge and this supplies the shape of the curve between the points nobody measured. The gap
+is most likely something physical that no CAD export carries — cable runs are the usual
+suspect — and closing it is real work.
 
 Today `software/choreo/cue.py` refuses a shoulder above 157° because *I measured contact with
 the head at 182° by hand, once, on one axis, with a human watching*. Eric's controller will not
