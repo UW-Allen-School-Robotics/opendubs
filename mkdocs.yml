@@ -44,7 +44,13 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      # Mermaid. Material ships the renderer; this fence stops superfences from treating the
+      # block as source and highlighting it instead of drawing it.
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.snippets:
