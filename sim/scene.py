@@ -2,7 +2,7 @@
 """Build the whole robot: our chassis and Z-axis, with the OpenArm bimanual model on top.
 
     python3 scene.py --render /tmp/robot.png
-    mjpython scene.py --view                      # interactive, macOS needs mjpython
+    ./view.sh                                     # interactive viewer
     python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
     python3 scene.py --check                      # load, report, and exit
 
@@ -123,7 +123,7 @@ def main():
     ap.add_argument("--render", metavar="PNG")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--view", action="store_true",
-                    help="open the interactive viewer (macOS: launch with mjpython, not python)")
+                    help="open the interactive viewer (see view.sh)")
     ap.add_argument("--lift", type=float, default=0.0, help="Z-axis height in mm (0..275.1)")
     ap.add_argument("--joints", default="", help='e.g. "right:2=150,right:4=100"')
     ap.add_argument("--chest-cover", action="store_true", help="draw the cover we removed")
@@ -148,7 +148,8 @@ def main():
           f"shoulders {(z + 0.094 + 0.698) * 1000:7.1f} mm")
     if a.view:
         import mujoco.viewer
-        # On macOS the viewer must own the main thread, which is why it needs mjpython.
+        # The BLOCKING viewer, which takes over this thread. Deliberately not mjpython — see
+        # view.sh for why. launch_passive would need it, and would not work here.
         mujoco.viewer.launch(model, data)
         return
     if a.check or not a.render:

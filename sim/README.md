@@ -108,9 +108,16 @@ facing -x, while the wheels put forward at +x — FL/FR at x=528, RL/RR at x=120
 ./view.sh          # orbit, zoom, joint sliders; space pauses
 ```
 
-macOS needs `mjpython` (the viewer must own the main thread) and **mujoco pinned to 3.3.5** —
-on 3.14.0 the viewer dies building its window with `RuntimeError: Caught an unknown exception!`
-for *any* model, a single sphere included. Offscreen rendering is fine on either.
+Deliberately **not** `mjpython`, despite MuJoCo's own macOS instructions. On this machine
+mjpython starts fine — `viewer._MJPYTHON` is set — but constructing the viewer then dies with
+`RuntimeError: Caught an unknown exception!`, on 3.14.0 and 3.3.5 alike, for any model
+including a single sphere, from every shell tried. The same construction succeeds under plain
+`python`, which works here because this is the *blocking* viewer and so already owns the main
+thread. `launch_passive` — a script driving the viewer while it runs — would need mjpython, so
+that problem is still there if we ever want it.
+
+`glfw` is an explicit dependency: MuJoCo's simulate dlopens it at runtime and fails with
+`cannot obtain a shared object handle` when the package is missing.
 
 Still needed, same convention — **binary STL, millimetres, at the CAD model origin**:
 
