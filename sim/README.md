@@ -183,13 +183,26 @@ supply our own frame collision mesh.
 in the model is invented: a missing dimension stays missing until it is measured or exported
 from CAD.
 
-`chassis.stl` is worth knowing about: it is **not a box**. It has 16 vertices, with two
-diagonally opposite corners stepped back 8 mm — the rear at −y and the front at +y. That step is
-in the supplied mesh, and since MuJoCo collides the *convex hull* of a mesh, the collision
-geometry fills those two notches and is 8 mm proud of the visual there. Irrelevant in practice,
-because the whole mesh is a crude bounding box that already swallows the wheels.
+The chassis is a **box primitive**, not a mesh. `chassis.stl` was a bounding shape whose extrude
+left an 8 mm step at two diagonally opposite corners — an artefact rather than the robot — and
+MuJoCo filled it back in anyway, since mesh collision uses the convex hull. Stating the same
+volume directly is exact and has no corner to explain. It goes back to a mesh when the chassis
+is drawn for real.
 
-Supplied and in use: the chassis, four wheels, and the lift plate — all exported at the CAD
+## Tripwires
+
+Meshes arrive from CAD by hand, and a re-export can come back mirrored, upside down, or about a
+different origin. All three have happened here, and none of them looks wrong in a render taken
+from the front. So `scene.py --check` asserts a few things a human could confirm by looking at
+the robot — the face points forward, the camera sits above the screen, nothing on the head is
+more than 200 mm from the axis it turns about, and the shoulders land at 1149.5 mm — and exits
+non-zero when one fails:
+
+```
+FAIL: screen is BEHIND the tilt axis (x 363 <= 423) — the face is pointing backwards
+```
+
+Supplied and in use: four wheels and the lift plate — all exported at the CAD
 origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
 wheel geometry), a 408 mm wheelbase and a 589 mm track.
 
@@ -220,7 +233,9 @@ that problem is still there if we ever want it.
 `glfw` is an explicit dependency: MuJoCo's simulate dlopens it at runtime and fails with
 `cannot obtain a shared object handle` when the package is missing.
 
-Still needed, same convention — **binary STL, millimetres, at the CAD model origin**:
+The 1120 channel is not modelled and does not need to be — it fits inside the tilt body, so
+nothing can reach it without reaching that first.
 
-- the 1120 channel's pose. Its mesh is still in its own part frame, so it is left out rather
-  than placed on a guess — and it is the structure an arm would actually strike on the way up.
+What is still missing is not geometry: the **head and chassis masses**. Both are currently mesh
+volume at MuJoCo's default density, which is to say solid water — 2.97 kg for a head that is
+nearer 0.8 kg. A scale would fix both.

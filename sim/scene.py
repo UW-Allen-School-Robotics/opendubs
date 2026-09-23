@@ -108,6 +108,66 @@ def build(assets: str | None = None, chest_cover: bool = False):
     return model
 
 
+# ---- invariants ---------------------------------------------------------------------------
+# Meshes arrive from CAD by hand, and a re-export can silently come back mirrored, upside down
+# or about a different origin. Every one of those has happened here. These are the cheapest
+# possible tripwires: facts about the robot that a human can confirm by looking at it, checked
+# on every --check so a bad export fails loudly instead of quietly moving the head 100 mm.
+HEAD_MAX_REACH_MM = 200.0     # nothing on the head is further than this from the tilt axis
+
+
+def check_invariants(model) -> list[str]:
+    """Return a list of failures; empty means the geometry is placed as the robot is built."""
+    import mujoco
+    import numpy as np
+
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    fails = []
+
+    def extent(mesh_name):
+        for g in range(model.ngeom):
+            if model.geom_type[g] != mujoco.mjtGeom.mjGEOM_MESH:
+                continue
+            if mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_MESH, model.geom_dataid[g]) != mesh_name:
+                continue
+            a, n = model.mesh_vertadr[model.geom_dataid[g]], model.mesh_vertnum[model.geom_dataid[g]]
+            R = np.zeros(9)
+            mujoco.mju_quat2Mat(R, model.geom_quat[g])
+            w = (model.mesh_vert[a:a + n] @ R.reshape(3, 3).T
+                 + model.geom_pos[g] + data.xpos[model.geom_bodyid[g]]) * 1000.0
+            return w.min(axis=0), w.max(axis=0)
+        return None
+
+    axis = np.array(HEAD_TILT_AXIS) * 1000.0
+    screen, cam = extent("pt_screen"), extent("d415")
+    if screen is None or cam is None:
+        return ["head meshes missing from the model"]
+
+    # The face points FORWARD. This is the one that has actually caught a bad export: a head
+    # exported at pan=180 drives and renders perfectly and only looks wrong from the side.
+    if screen[0][0] <= axis[0]:
+        fails.append(f"screen is BEHIND the tilt axis (x {screen[0][0]:.0f} <= {axis[0]:.0f}) "
+                     f"— the face is pointing backwards")
+    # The camera sits on top of the screen, not under it.
+    if cam[0][2] < screen[1][2] - 1.0:
+        fails.append(f"camera is not above the screen (camera bottom z {cam[0][2]:.0f} < "
+                     f"screen top z {screen[1][2]:.0f}) — the face assembly is upside down")
+    # Everything on the head is near the axis it turns about. Catches a mesh exported about a
+    # different origin, which a flip check would happily pass.
+    for name, ext in (("screen", screen), ("camera", cam)):
+        far = max(np.abs(np.array(ext[0]) - axis).max(), np.abs(np.array(ext[1]) - axis).max())
+        if far > HEAD_MAX_REACH_MM:
+            fails.append(f"{name} reaches {far:.0f} mm from the tilt axis, over "
+                         f"{HEAD_MAX_REACH_MM:.0f} — exported about a different origin?")
+
+    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "arm_frame_mount")
+    shoulders = (data.site_xpos[site][2] + 0.094 + 0.698) * 1000.0
+    if abs(shoulders - 1149.5) > 2.0:
+        fails.append(f"shoulders at {shoulders:.1f} mm above the floor, expected 1149.5")
+    return fails
+
+
 def set_joints(model, data, spec: str):
     """--joints "right:2=150,right:4=100,left:4=100" — degrees, in each arm's own sense."""
     import mujoco
@@ -164,6 +224,11 @@ def main():
         mujoco.mj_step(model, data)
 
     print(f"{model.nbody} bodies, {model.njnt} joints, {model.ngeom} geoms")
+    problems = check_invariants(model)
+    for msg in problems:
+        print(f"FAIL: {msg}", file=sys.stderr)
+    if not problems:
+        print("invariants ok — face forward, camera on top, head on its axis, shoulders at height")
     site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "arm_frame_mount")
     z = data.site_xpos[site][2]
     print(f"lift {a.lift:6.1f} mm -> arm frame base {(z + 0.094) * 1000:7.1f} mm above the floor, "
@@ -175,7 +240,7 @@ def main():
         mujoco.viewer.launch(model, data)
         return
     if a.check or not a.render:
-        return
+        sys.exit(1 if problems else 0)
 
     model.vis.headlight.ambient[:] = [0.55] * 3
     model.vis.headlight.diffuse[:] = [0.8] * 3
