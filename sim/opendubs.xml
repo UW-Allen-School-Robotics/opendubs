@@ -102,25 +102,40 @@
              After both, the screen spans x 460.0..482.8 and the camera x 461.6..481.6, ahead of
              the axis and facing +x, with y symmetric about 0. -->
         <body name="head_pan" pos="0.423 0 1.245575">
-          <joint name="head_pan" type="hinge" axis="0 0 1" range="-1.5708 1.5708" damping="1"/>
+          <!-- PAN is limited by nothing but the servo's own travel: the goBILDA 2000-series
+               dual-mode servo turns 300 deg, and the horn was set at the middle of that, so
+               +/-150 deg. No mechanical stop in the bracket and no slip ring on this build.
+               That is deliberately wide — whether the head can actually sweep that far without
+               meeting the arms or the extrusion is a question for the model to answer, not one
+               to pre-empt by narrowing the joint. -->
+          <joint name="head_pan" type="hinge" axis="0 0 1" damping="1"
+                 range="-2.6180 2.6180"/>
           <!-- The pan bearing and its bracket are not separate meshes; this body needs mass
                because MuJoCo refuses a moving body without it. Nominal, not measured. -->
           <inertial pos="0 0 0" mass="0.3" diaginertia="0.001 0.001 0.001"/>
           <body name="head_tilt">
-            <!-- TILT TRAVEL IS ASYMMETRIC, and measured — not the +/-1.2 rad placeholder that
-                 was here. From firmware/tab5_pantilt/README.md, characterised by creeping the
-                 servo and watching current, soft-stopping at 0.20 A so it never stalled:
+            <!-- TILT TRAVEL IS ASYMMETRIC, and measured. From firmware/tab5_pantilt/README.md,
+                 characterised by creeping the servo and watching current, soft-stopping at
+                 0.20 A so it never stalled:
                    920 us  full up      1545 us  HORIZONTAL      1650 us  full down
-                   7.14 us/deg (280 deg over 500-2500 us);  hard stop measured at 1680 us
-                 which is 87.5 deg up and 14.7 deg down, with the hard stop a further
-                 4.2 deg below that. Positive here is DOWN: the joint turns about
-                 +y, so +x swings toward -z. Confirmed on the model — +30 deg drops the camera
-                 face from z 1313.6 to 1275.2.
-                 Cross-check, independent: firmware/tab5_roller measured the same axis on the
-                 other mechanism at a 99 deg span against the 102.2 deg here. Two
-                 methods, three degrees apart. -->
+                   hard stop measured at 1680 us
+                 The goBILDA 2000-series dual-mode servo travels 300 deg out of the box (their
+                 spec), so 500-2500 us is 6.667 us/deg, giving 93.8 deg UP and 15.8 deg
+                 DOWN, with the hard stop a further 4.5 deg below.
+
+                 NOTE that README does its own arithmetic at 7.14 us/deg, from an assumed 280
+                 deg of travel. Its own observation contradicts that: it records 920 us as
+                 "slightly past vertical", which 7.14 makes 87.5 deg — slightly SHORT of
+                 vertical. At 6.667 it is 93.8, past vertical, as observed. The servo
+                 spec and the eye agree; the assumed 280 was the odd one out.
+                 STILL DERIVED, not measured: nobody has put a protractor on this axis. One
+                 reading at 920 us would settle it.
+
+                 Positive here is DOWN: the joint turns about +y, so +x swings toward -z.
+                 Confirmed on the model — +30 deg drops the camera face from z 1313.6 to
+                 1275.2. -->
             <joint name="head_tilt" type="hinge" axis="0 1 0" damping="1"
-                   range="-1.5278 0.2567"/>
+                   range="-1.6362 0.2749"/>
             <geom class="visual" type="mesh" mesh="pt_body"   material="frame"
                   quat="0 0 0 1" pos="0.423 0.00185 -1.245575"/>
             <geom class="visual" type="mesh" mesh="pt_screen" material="plate"

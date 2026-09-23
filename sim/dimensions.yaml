@@ -58,19 +58,30 @@ head:
   pan_axis_xyz_mm: ASSUMED                   # taken as the vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
-  tilt_travel_deg: { up: 87.5, down: 14.7, hard_stop_down: 18.9 }
-  # MEASURED, and asymmetric. From firmware/tab5_pantilt/README.md: the servo was crept in
-  # small steps watching current, soft-stopping at 0.20 A so it never stalled.
-  #   920 us = full up, 1545 us = HORIZONTAL (home), 1650 us = full down, hard stop 1680 us,
-  #   at 7.14 us/deg (280 deg over 500-2500 us).
-  # Cross-checked against firmware/tab5_roller, which measured 99 deg of span on the other
-  # mechanism against the 102.2 deg total here -- two methods, three degrees apart.
+  servo: goBILDA 2000-series dual-mode, 300 deg travel out of the box (manufacturer spec)
+  # https://www.gobilda.com/2000-series-dual-mode-servo-25-2-torque/
+  # 500-2500 us over 300 deg = 6.667 us/deg. Both axes use one of these through the 8Servo.
+  pan_range_deg: [-150, 150]
+  # Pan has NO mechanical limit of its own: no stop in the bracket, no slip ring on this build.
+  # The horn was set at the middle of the servo's travel, so the limit is simply +/-150. Left
+  # deliberately wide -- whether the head can sweep that far without meeting the arms or the
+  # extrusion is for the model to answer, not for the joint range to pre-empt.
+  tilt_travel_deg: { up: 93.75, down: 15.75, hard_stop_down: 20.25 }
+  tilt_us: { up: 920, horizontal: 1545, down: 1650, hard_stop: 1680, us_per_deg: 6.667 }
+  # MEASURED in us, DERIVED in degrees. firmware/tab5_pantilt/README.md crept the servo in
+  # small steps watching current, soft-stopping at 0.20 A so it never stalled; the horizontal
+  # point is independently confirmed by the holding current peaking there, which is where the
+  # gravitational moment is greatest.
+  #
+  # That README converts at 7.14 us/deg from an ASSUMED 280 deg of travel. The servo spec says
+  # 300, and the README's own observation agrees with 300: it calls 920 us "slightly past
+  # vertical", which at 7.14 would be 87.5 deg -- slightly SHORT of vertical. At 6.667 it is
+  # 93.75, past vertical, as seen. The assumed 280 was the odd one out.
+  #
+  # Not cross-checked against firmware/tab5_roller's 99 deg span: that is the Roller485
+  # mechanism, with a slip-ring pan, so it is a different head and not evidence about this one.
+  # NOBODY HAS PUT A PROTRACTOR ON THIS AXIS. One reading at 920 us would settle it.
   # SIGN: in the model, positive tilt is DOWN (rotation about +y swings +x toward -z).
-  tilt_us: { up: 920, horizontal: 1545, down: 1650, hard_stop: 1680, us_per_deg: 7.14 }
-  pan_range_deg: [-90, 90]
-  # NOT measured -- a placeholder. firmware/tab5_pantilt/README.md records pan as still in
-  # CONTINUOUS rotation mode, where no angle can be commanded at all, so it was never
-  # characterised the way tilt was. Treat any pan clearance from this model as unverified.
   parts_frame: >
     pt_tilt_body, pt_screen_cover and D415 are exported IN CAD COORDINATES, so the model places
     them by cancelling the head frame's offset rather than positioning each part. No second
