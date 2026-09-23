@@ -61,12 +61,23 @@ head:
   tilt_range_deg: [0, 180]  # the Tab5 clamps this further from its own NVS limits
   panel_size_mm: [22.8, 158.0, 105.8]        # screen cover bbox, from the mesh
   parts_frame: >
-    The face meshes were exported about their OWN origin, not the CAD origin. ASSUMED: that
-    origin lies on the tilt axis and shares CAD's orientation, so placing it is a pure
-    translation to the measured tilt point. Confirm on a render before trusting clearance.
+    The face meshes were exported about their OWN origin, not the CAD origin, AND a half turn
+    about x from CAD: as authored the D415 hangs below the screen. The model applies
+    quat="0 1 0 0". ASSUMED still: that the export origin lies ON the tilt axis, so placing it
+    is a pure translation to the measured tilt point.
+  extents_about_tilt_axis_mm:
+    # Measured off the meshes as placed, x forward, z up. This is what the collision box covers.
+    tab5_mount:  { x: [-3.6, 71.8], y: [-76.0, 76.0], z: [-75.9, 24.0] }
+    screen:      { x: [63.0, 85.8], y: [-79.0, 79.0], z: [-78.8, 27.0] }
+    d415_mount:  { x: [16.5, 84.6], y: [-49.1, 49.9], z: [ 24.0, 56.5] }
   moves_with:
     pan: [1120_channel, Tab 5 Mount, face_screen_cover, D415 Mount]
     tilt: [Tab 5 Mount, face_screen_cover, D415 Mount]     # ASSUMED split; the channel stays
+  channel_placement: TODO
+  # The 1120 extrusion is NOT in the model. Its mesh arrived in yet another orientation (a
+  # quarter turn out) and its position relative to the tilt axis is unknown. Left out on
+  # purpose: a structural member in the wrong place silently corrupts clearance checks, which
+  # is worse than a missing one. Needs: its pose relative to the tilt axis, in CAD terms.
   camera: D415                                # the depth camera in service (replacing the Astra)
 
 chassis:
