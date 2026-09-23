@@ -97,11 +97,20 @@ so they are placed by cancelling the head frame's offset rather than by position
 That was the point of the exercise: the head is what the arms nearly hit, and until it existed
 `software/choreo/cue.py` had to refuse shoulder angles on a constant measured by hand once.
 
-**One thing about the head is unresolved.** As exported, the screen and the camera sit *behind*
-the tilt axis, so the face looks toward -x — while the wheel meshes put the robot's front at +x
-(FL/FR at x=528, RL/RR at x=120). Either the CAD assembly is posed at pan=180 or it is built
-that way. The meshes load faithfully; `--head-yaw` turns the head round. Settle this before
-trusting any clearance number that involves the face.
+Two corrections are folded into that single transform, both confirmed against the robot: the
+export is **posed at pan=180** (as exported the screen and camera sat behind the tilt axis,
+facing -x, while the wheels put forward at +x — FL/FR at x=528, RL/RR at x=120), and it is
+**1.85 mm off the centreline**, which is an artefact rather than a real offset.
+
+## Poking at it interactively
+
+```bash
+./view.sh          # orbit, zoom, joint sliders; space pauses
+```
+
+macOS needs `mjpython` (the viewer must own the main thread) and **mujoco pinned to 3.3.5** —
+on 3.14.0 the viewer dies building its window with `RuntimeError: Caught an unknown exception!`
+for *any* model, a single sphere included. Offscreen rendering is fine on either.
 
 Still needed, same convention — **binary STL, millimetres, at the CAD model origin**:
 

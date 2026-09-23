@@ -2,6 +2,7 @@
 """Build the whole robot: our chassis and Z-axis, with the OpenArm bimanual model on top.
 
     python3 scene.py --render /tmp/robot.png
+    mjpython scene.py --view                      # interactive, macOS needs mjpython
     python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
     python3 scene.py --check                      # load, report, and exit
 
@@ -71,27 +72,13 @@ def _mesh_dir(assets: str) -> str:
     return d
 
 
-# The head meshes are exported in CAD coordinates, but YAWED 180 deg from forward: as exported
-# the screen and the D415 sit behind the tilt axis, so the face looks toward -x while the wheel
-# meshes put the robot's front at +x. Rather than silently "correcting" the evidence, the export
-# pose is a switch. Both settings place the meshes by cancelling the head frame's offset; the
-# yawed one has that offset turned around by the rotation.
+# The head meshes are exported in CAD coordinates but posed at pan=180 and 1.85 mm off the
+# centreline; opendubs.xml corrects both in the single transform that places them. Confirmed
+# against the robot: the face points forward, the way the front wheels do.
 HEAD_TILT_AXIS = (0.423, 0.0, 1.245575)
-HEAD_GEOMS = ("pt_body", "pt_screen", "d415")
 
 
-def _yaw_head(spec):
-    """Turn the head 180 deg about the pan axis, so the face points forward (+x)."""
-    x, y, z = HEAD_TILT_AXIS
-    for g in spec.body("head_tilt").geoms:
-        if g.meshname in HEAD_GEOMS:
-            g.quat = [0, 0, 0, 1]          # 180 deg about z
-            g.pos = [x, y, -z]
-        elif g.name == "head_collision":
-            g.pos = [-g.pos[0], -g.pos[1], g.pos[2]]
-
-
-def build(assets: str | None = None, chest_cover: bool = False, head_yaw: bool = False):
+def build(assets: str | None = None, chest_cover: bool = False):
     import mujoco
 
     a = find_assets(assets)
@@ -101,9 +88,6 @@ def build(assets: str | None = None, chest_cover: bool = False, head_yaw: bool =
     arms = mujoco.MjSpec.from_file(os.path.join(a, "generated", "openarm_bimanual_decorated.xml"))
     ours.meshdir = meshes
     arms.meshdir = meshes
-
-    if head_yaw:
-        _yaw_head(ours)
 
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
     frame.attach_body(arms.body("openarm_body_link0"), ARM_PREFIX, "")
@@ -138,11 +122,11 @@ def main():
     ap.add_argument("--assets")
     ap.add_argument("--render", metavar="PNG")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--view", action="store_true",
+                    help="open the interactive viewer (macOS: launch with mjpython, not python)")
     ap.add_argument("--lift", type=float, default=0.0, help="Z-axis height in mm (0..275.1)")
     ap.add_argument("--joints", default="", help='e.g. "right:2=150,right:4=100"')
     ap.add_argument("--chest-cover", action="store_true", help="draw the cover we removed")
-    ap.add_argument("--head-yaw", action="store_true",
-                    help="turn the head 180 deg so the face points forward (+x)")
     ap.add_argument("--az", type=float, default=128.0)
     ap.add_argument("--el", type=float, default=-10.0)
     ap.add_argument("--dist", type=float, default=3.0)
@@ -150,7 +134,7 @@ def main():
 
     import mujoco
 
-    model = build(a.assets, a.chest_cover, a.head_yaw)
+    model = build(a.assets, a.chest_cover)
     data = mujoco.MjData(model)
     data.qpos[0] = a.lift / 1000.0
     if a.joints:
@@ -162,6 +146,11 @@ def main():
     z = data.site_xpos[site][2]
     print(f"lift {a.lift:6.1f} mm -> arm frame base {(z + 0.094) * 1000:7.1f} mm above the floor, "
           f"shoulders {(z + 0.094 + 0.698) * 1000:7.1f} mm")
+    if a.view:
+        import mujoco.viewer
+        # On macOS the viewer must own the main thread, which is why it needs mjpython.
+        mujoco.viewer.launch(model, data)
+        return
     if a.check or not a.render:
         return
 

@@ -65,21 +65,25 @@ head:
     them by cancelling the head frame's offset rather than positioning each part. No second
     origin, nothing to re-derive.
   export_pose: yawed_180
-  # As exported the screen (x 363..386) and the camera (x 364..384) sit BEHIND the tilt axis at
-  # 423, so the face looks toward -x. The wheel meshes settle which way forward is -- FL/FR at
-  # x=528, RL/RR at x=120, so +x -- which makes the exported head face the robot's back. Either
-  # the CAD assembly is posed at pan=180 or it is built that way. scene.py --head-yaw turns it
-  # round; the meshes are loaded faithfully by default so the evidence survives. NEEDS CONFIRMING.
+  # RESOLVED: the head faces FORWARD on the robot, so the export is posed at pan=180 and the
+  # model corrects it. As exported the screen (x 363..386) and camera (x 364..384) sat behind
+  # the tilt axis at 423, looking toward -x; the wheel meshes put forward at +x (FL/FR x=528,
+  # RL/RR x=120). opendubs.xml applies the 180 deg yaw in the same transform that places the
+  # meshes, so there is still only one transform per part.
+  y_correction_mm: 1.85
+  # Also RESOLVED: the head is on the centreline, so the export's +1.85 mm y offset is an
+  # artefact and is taken out. Placed, the screen spans y -79..79 and the body -76..76.
   extents_cad_mm:
-    # Measured off the supplied meshes, as exported. x forward, y left, z up.
+    # Measured off the supplied meshes AS EXPORTED (before the yaw and the y correction).
+    # x forward, y left, z up. Placed, they become:
+    #   pt_tilt_body    x 393.37..468.75  y -76..76   z 1192.78..1292.63
+    #   pt_screen_cover x 460.00..482.75  y -79..79   z 1189.78..1295.63
+    #   d415            x 461.55..481.60  y -49..50   z 1302.12..1325.12
     pt_tilt_body:    { x: [377.25, 452.63], y: [-74.15, 77.85], z: [1192.78, 1292.62] }
     pt_screen_cover: { x: [363.25, 386.00], y: [-77.15, 80.85], z: [1189.78, 1295.62] }
     d415:            { x: [364.40, 384.45], y: [-48.04, 50.82], z: [1302.12, 1325.12] }
     # The D415's own dimensions check out against the datasheet: 98.9 wide (y), 20.1 deep (x),
     # 23.0 tall (z) -- so the mesh is the camera, at the right scale, looking along x.
-  y_offset_mm: 1.85
-  # The head sits 1.85 mm off the centreline in the export (parts centred on y=+1.85, not 0).
-  # Small, and it may be real; recorded rather than rounded away.
   camera: D415
   channel_placement: TODO
   # The 1120 extrusion is NOT in the model. Its mesh is still in its own part frame (48 x 48
