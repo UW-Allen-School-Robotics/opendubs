@@ -37,9 +37,12 @@
     <mesh name="wheel_rr" file="RR-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="zaxis"    file="z-axis-down.stl" scale="0.001 0.001 0.001"/>
     <mesh name="channel"  file="1120_channel.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="tab5mnt"  file="Tab_5_Mount.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="screen"   file="face_screen_cover.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="d415mnt"  file="D415_Mount.stl" scale="0.001 0.001 0.001"/>
+    <!-- The pan/tilt head, exported IN CAD COORDINATES: these meshes carry their own absolute
+         position, so they are placed by cancelling the head frame's offset rather than by
+         positioning each part. See the head body below. -->
+    <mesh name="pt_body"   file="pt_tilt_body.stl"   scale="0.001 0.001 0.001"/>
+    <mesh name="pt_screen" file="pt_screen_cover.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="d415"      file="D415.stl"            scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
@@ -81,39 +84,58 @@
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
 
         <!-- THE HEAD. Rides with the extrusion, so it hangs off the lift platform.
-             The TILT AXIS is at CAD (423, 0, 1245.575) — measured — which is 115 mm above the
-             top of the arm extrusion and on the same x as the arm frame.
-             ASSUMED, pending confirmation: the face parts' own export origin lies ON the tilt
-             axis. Their ORIENTATION is not CAD's — see the half turn below.
-             ALSO ASSUMED: pan turns the whole head, tilt takes the screen and camera. -->
+             TILT AXIS at CAD (423, 0, 1245.575), measured — 115.1 mm above the top of the arm
+             extrusion, on the same x as the arm frame. The PAN axis is taken as the vertical
+             through that point (assumed: the two intersect).
+
+             The meshes are exported IN CAD COORDINATES, so they are NOT positioned part by
+             part. Each geom carries pos = -(tilt axis), which cancels this body's own offset
+             and drops every vertex exactly where CAD put it. One transform, no re-origining,
+             nothing to get subtly wrong.
+
+             HOWEVER — the export has the head YAWED 180 deg from forward. As exported the
+             screen sits at x 363..386 and the camera at x 364..384, both BEHIND the tilt axis
+             at 423, so the face looks toward -x. The wheel meshes settle which way is forward
+             (FL/FR at x=528, RL/RR at x=120: +x), so as loaded this head faces the robot's
+             back. Two readings: the CAD assembly is posed at pan=180, or it is built that way.
+             Loaded faithfully until that is confirmed, because the meshes are the evidence and
+             a silent correction would destroy it. To face it forward, swap the two lines
+             marked EXPORT POSE below — that is a 180 deg yaw about the pan axis. -->
         <body name="head_pan" pos="0.423 0 1.245575">
           <joint name="head_pan" type="hinge" axis="0 0 1" range="-1.5708 1.5708" damping="1"/>
-          <!-- Nominal: this body carries the pan bearing and, on the real robot, the extrusion
-               that is not placed here yet. A moving body needs mass. -->
+          <!-- The pan bearing and its bracket are not separate meshes; this body needs mass
+               because MuJoCo refuses a moving body without it. Nominal, not measured. -->
           <inertial pos="0 0 0" mass="0.3" diaginertia="0.001 0.001 0.001"/>
           <body name="head_tilt">
             <joint name="head_tilt" type="hinge" axis="0 1 0" range="-1.2 1.2" damping="1"/>
-            <!-- The face parts are exported about their own origin AND UPSIDE DOWN relative to
-                 CAD: as authored, the D415 sits below the screen. quat 0 1 0 0 is a half turn
-                 about x, which puts the camera on top where it belongs while leaving the screen
-                 facing +x (forward). Checked by eye on a render, which is the only way to catch
-                 this sort of thing. -->
-            <geom class="visual" type="mesh" mesh="tab5mnt" material="frame" quat="0 1 0 0"/>
-            <geom class="visual" type="mesh" mesh="screen"  material="plate" quat="0 1 0 0"/>
-            <geom class="visual" type="mesh" mesh="d415mnt" material="frame" quat="0 1 0 0"/>
-            <!-- What the arms must not hit: one coarse box over the whole head — bracket,
-                 screen AND the camera on top. Sized from the mesh extents in this frame
-                 (x -3.6..85.8, y -79..79, z -78.8..56.5 mm), rounded outward. The arms need to
-                 know the head is there, not its fillets, and erring large is the safe error. -->
-            <geom class="collision" type="box" pos="0.041 0 -0.011" size="0.045 0.080 0.068"
+            <!-- EXPORT POSE: as exported (face toward -x). -->
+            <geom class="visual" type="mesh" mesh="pt_body"   material="frame" pos="-0.423 0 -1.245575"/>
+            <geom class="visual" type="mesh" mesh="pt_screen" material="plate" pos="-0.423 0 -1.245575"/>
+            <geom class="visual" type="mesh" mesh="d415"      material="rubber" pos="-0.423 0 -1.245575"/>
+            <!-- EXPORT POSE: yawed 180 deg, face toward +x (forward). Same cancellation, with
+                 the sign of the offset turned around by the rotation.
+            <geom class="visual" type="mesh" mesh="pt_body"   material="frame"  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
+            <geom class="visual" type="mesh" mesh="pt_screen" material="plate"  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
+            <geom class="visual" type="mesh" mesh="d415"      material="rubber" quat="0 0 0 1" pos="0.423 0 -1.245575"/>
+            -->
+
+            <!-- What the arms must not hit: one coarse box over the whole head — body, screen
+                 and the camera on top. From the mesh extents relative to the tilt axis:
+                 x -59.8..29.6, y -77.2..80.9, z -55.8..79.5 mm, rounded outward. The arms need
+                 to know the head is there, not its fillets, and large is the safe error.
+                 NOTE this box follows the EXPORT POSE above; yawing the head mirrors it in x. -->
+            <geom class="collision" type="box" pos="-0.015 0.002 0.012" size="0.045 0.079 0.068"
                   name="head_collision"/>
-            <site name="d415_optical" pos="0.085 0 0.040" size="0.006" rgba="0.95 0.65 0.15 1"/>
+
+            <!-- Centre of the D415's front face. NOT the optical frame: RealSense puts the
+                 depth origin at the left imager, which we have not located. -->
+            <site name="d415_face" pos="-0.0586 0.0014 0.0680" size="0.006" rgba="0.95 0.65 0.15 1"/>
           </body>
         </body>
-        <!-- The 1120 extrusion is NOT placed. Its mesh came in a different orientation again
-             (a quarter turn out) and its position is not known, so it is left out rather than
-             put somewhere plausible-looking: a structural member in the wrong place is worse
-             than a missing one, because it would silently corrupt clearance checks. -->
+        <!-- The 1120 extrusion is NOT placed. Its mesh is still in its own part frame (48 x 48
+             section, 120 mm long, running along y) and its position is unknown, so it is left
+             out rather than put somewhere plausible-looking: a structural member in the wrong
+             place silently corrupts clearance, which is worse than a missing one. -->
       </body>
     </body>
   </worldbody>

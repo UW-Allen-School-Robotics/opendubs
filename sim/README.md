@@ -92,10 +92,18 @@ Supplied and in use: the chassis, four wheels, and the lift plate — all export
 origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
 wheel geometry), a 408 mm wheelbase and a 589 mm track.
 
-Still needed, same convention — **binary STL, millimetres, exported at the CAD model origin**:
+The head is in too — `pt_tilt_body`, `pt_screen_cover` and `D415`, supplied in CAD coordinates,
+so they are placed by cancelling the head frame's offset rather than by positioning each part.
+That was the point of the exercise: the head is what the arms nearly hit, and until it existed
+`software/choreo/cue.py` had to refuse shoulder angles on a constant measured by hand once.
 
-- the head bracket and the Tab5 panel outline, with the pan and tilt pivot locations
+**One thing about the head is unresolved.** As exported, the screen and the camera sit *behind*
+the tilt axis, so the face looks toward -x — while the wheel meshes put the robot's front at +x
+(FL/FR at x=528, RL/RR at x=120). Either the CAD assembly is posed at pan=180 or it is built
+that way. The meshes load faithfully; `--head-yaw` turns the head round. Settle this before
+trusting any clearance number that involves the face.
 
-That one is the point of the exercise: the head is what the arms nearly hit, and while it is
-missing, `software/choreo/cue.py` has to keep refusing shoulder angles based on a constant
-measured by hand once, rather than a clearance the model can compute.
+Still needed, same convention — **binary STL, millimetres, at the CAD model origin**:
+
+- the 1120 channel's pose. Its mesh is still in its own part frame, so it is left out rather
+  than placed on a guess — and it is the structure an arm would actually strike on the way up.

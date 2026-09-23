@@ -51,34 +51,42 @@ arms:
     shoulder_height_above_floor_mm: { lowered: 1149.5, raised: 1424.6 }
 
 head:
-  # Tab5 panel on a pan/tilt bracket. Pan then tilt, both servos through the 8Servo unit.
+  # Tab5 panel on a pan/tilt bracket, with the D415 on top. Pan then tilt, both servos through
+  # the 8Servo unit.
   parent: lift_platform     # confirmed: the face/pan-tilt translates in +z with the extrusion
   tilt_axis_xyz_mm: [423.0, 0.0, 1245.575]   # MEASURED in CAD, lift fully down
-  pan_axis_xyz_mm: ASSUMED                   # taken as the same x,y — vertical through the tilt point
+  pan_axis_xyz_mm: ASSUMED                   # taken as the vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
   pan_range_deg: [0, 180]   # servo travel; 90 is centre
   tilt_range_deg: [0, 180]  # the Tab5 clamps this further from its own NVS limits
-  panel_size_mm: [22.8, 158.0, 105.8]        # screen cover bbox, from the mesh
   parts_frame: >
-    The face meshes were exported about their OWN origin, not the CAD origin, AND a half turn
-    about x from CAD: as authored the D415 hangs below the screen. The model applies
-    quat="0 1 0 0". ASSUMED still: that the export origin lies ON the tilt axis, so placing it
-    is a pure translation to the measured tilt point.
-  extents_about_tilt_axis_mm:
-    # Measured off the meshes as placed, x forward, z up. This is what the collision box covers.
-    tab5_mount:  { x: [-3.6, 71.8], y: [-76.0, 76.0], z: [-75.9, 24.0] }
-    screen:      { x: [63.0, 85.8], y: [-79.0, 79.0], z: [-78.8, 27.0] }
-    d415_mount:  { x: [16.5, 84.6], y: [-49.1, 49.9], z: [ 24.0, 56.5] }
-  moves_with:
-    pan: [1120_channel, Tab 5 Mount, face_screen_cover, D415 Mount]
-    tilt: [Tab 5 Mount, face_screen_cover, D415 Mount]     # ASSUMED split; the channel stays
+    pt_tilt_body, pt_screen_cover and D415 are exported IN CAD COORDINATES, so the model places
+    them by cancelling the head frame's offset rather than positioning each part. No second
+    origin, nothing to re-derive.
+  export_pose: yawed_180
+  # As exported the screen (x 363..386) and the camera (x 364..384) sit BEHIND the tilt axis at
+  # 423, so the face looks toward -x. The wheel meshes settle which way forward is -- FL/FR at
+  # x=528, RL/RR at x=120, so +x -- which makes the exported head face the robot's back. Either
+  # the CAD assembly is posed at pan=180 or it is built that way. scene.py --head-yaw turns it
+  # round; the meshes are loaded faithfully by default so the evidence survives. NEEDS CONFIRMING.
+  extents_cad_mm:
+    # Measured off the supplied meshes, as exported. x forward, y left, z up.
+    pt_tilt_body:    { x: [377.25, 452.63], y: [-74.15, 77.85], z: [1192.78, 1292.62] }
+    pt_screen_cover: { x: [363.25, 386.00], y: [-77.15, 80.85], z: [1189.78, 1295.62] }
+    d415:            { x: [364.40, 384.45], y: [-48.04, 50.82], z: [1302.12, 1325.12] }
+    # The D415's own dimensions check out against the datasheet: 98.9 wide (y), 20.1 deep (x),
+    # 23.0 tall (z) -- so the mesh is the camera, at the right scale, looking along x.
+  y_offset_mm: 1.85
+  # The head sits 1.85 mm off the centreline in the export (parts centred on y=+1.85, not 0).
+  # Small, and it may be real; recorded rather than rounded away.
+  camera: D415
   channel_placement: TODO
-  # The 1120 extrusion is NOT in the model. Its mesh arrived in yet another orientation (a
-  # quarter turn out) and its position relative to the tilt axis is unknown. Left out on
-  # purpose: a structural member in the wrong place silently corrupts clearance checks, which
-  # is worse than a missing one. Needs: its pose relative to the tilt axis, in CAD terms.
-  camera: D415                                # the depth camera in service (replacing the Astra)
+  # The 1120 extrusion is NOT in the model. Its mesh is still in its own part frame (48 x 48
+  # section, 120 mm long, running along y) and its pose is unknown. Left out on purpose: a
+  # structural member in the wrong place silently corrupts clearance checks, which is worse
+  # than a missing one. Suggestive but NOT acted on: the gap from the arm extrusion top
+  # (1130.5) to the tilt axis is 115.1 mm, near its 120 mm length. A near miss is not a fit.
 
 chassis:
   footprint_mm: TODO        # frame outline (x by y)
@@ -98,8 +106,9 @@ meshes:
   wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
                     diameter_mm: 140, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589 }
   lift_platform:  { file: meshes/z-axis-down.stl, span_mm: { x: [148, 548], y: [-160, 160], z: [356.6, 357.6] } }
-  # Still wanted:
+  # The head, supplied IN CAD COORDINATES (see head.extents_cad_mm above):
+  head_tilt_body: { file: meshes/pt_tilt_body.stl }
+  head_screen:    { file: meshes/pt_screen_cover.stl }
+  head_camera:    { file: meshes/D415.stl }
+  # Still in its own part frame, and so not placed:
   head_channel:   { file: meshes/1120_channel.stl }
-  head_tab5_mount:{ file: meshes/Tab_5_Mount.stl }
-  head_screen:    { file: meshes/face_screen_cover.stl }
-  head_d415_mount:{ file: meshes/D415_Mount.stl }
