@@ -45,3 +45,6 @@ dependencies.lock
 sdkconfig
 sdkconfig.*
 !sdkconfig.defaults
+
+# MuJoCo scribbles a load log next to whatever it compiles
+MUJOCO_LOG.TXT

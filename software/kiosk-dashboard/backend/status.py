@@ -37,18 +37,20 @@ THERMAL_OVERTEMP_C = 70.0
 VNC_DISABLED_FLAG = "/home/kiosk/.vnc/disabled"
 
 # StampPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
-# DI0 = e-stop button, DI1 = contactor weld. The payload/mast is independent (Tab5-driven), so
-# there are no mast-limit or battery-present inputs here, and drive mode is software-set (no jumper).
+# DI0 = e-stop button, DI1 = contactor weld. The Z-axis is driven by the StampPLC itself (relays
+# R1/R2, behind the pinch guard) and senses height with the ToF, so there are no limit-switch or
+# battery-present inputs here, and drive mode is software-set (no jumper).
 # The dashboard prepends the physical 1-indexed terminal number (IN1..IN8 / RELAY1..RELAY4) to
 # match the StampPLC silkscreen; these are just the functional names. (Code/M5 API stays 0-indexed:
 # IN1 = DI0, RELAY1 = R0 — see docs/stamplc-connections.md.)
 DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE", "SPARE",
              "SPARE", "SPARE", "SPARE", "SPARE"]
-# R0 = e-stop contactor coil; R1 = 8Servo 5V power-cycle (the S8RESET command — the reliable clear
-# for a latched ESC solid-red fault); R2/R3 spare.
-RELAY_LABELS = ["E-STOP CONTACTOR", "MAST DOWN", "MAST UP", "SPARE"]
+# R0 = e-stop contactor coil; R1/R2 = the scissor lift's DOWN and UP legs (pulse-toggle, driven
+# only through /api/mast/*, never by a direct relay toggle); R3 spare.
+RELAY_LABELS = ["E-STOP CONTACTOR", "Z-AXIS DOWN", "Z-AXIS UP", "SPARE"]
 DI_ESTOP_BTN, DI_WELD = 0, 1
-RELAY_ESTOP_CONTACTOR, RELAY_8SERVO = 0, 1
+RELAY_ESTOP_CONTACTOR = 0
+RELAY_ZAXIS_DOWN, RELAY_ZAXIS_UP = 1, 2
 
 # DI6 = contactor weld sensing (an aux contact of the NO main contactor — see the
 # SAFETY LOGIC inset). It detects a welded/stuck-closed contactor: if the safety

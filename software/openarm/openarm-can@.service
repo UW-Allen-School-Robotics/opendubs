@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenArm CAN-FD link %i (1 Mbit/s nominal, 5 Mbit/s data)
+# Started by udev (70-openarm-can.rules) when the channel appears; stops if it is unplugged.
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ip link set %i down
+ExecStart=/usr/sbin/ip link set %i type can bitrate 1000000 sample-point 0.75 dbitrate 5000000 dsample-point 0.75 fd on
+ExecStart=/usr/sbin/ip link set %i up
+ExecStop=/usr/sbin/ip link set %i down

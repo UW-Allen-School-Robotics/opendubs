@@ -8,6 +8,7 @@ keeps the latest parsed values. The device is found by its stable by-id path
 from __future__ import annotations
 
 import glob
+import math
 import os
 import re
 import threading
@@ -58,13 +59,36 @@ def _kv(line):
 
 
 def _find_device():
+    """The StampPLC's serial port, or None — and NEVER anything else's port.
+
+    The old version took the first /dev/serial/by-id/*Espressif* match. The Tab5 head is an
+    Espressif USB-JTAG device too, so plugging the head into the Thor to flash it handed its
+    port straight to the dashboard: it opened the port with DTR/RTS asserted, which on that
+    chip drives reset and boot mode, and HELD THE HEAD IN RESET. Dark screen, no Wi-Fi, and a
+    flash that fights whoever is doing it. Sorting made it worse by making the victim depend
+    on which MAC sorted first.
+
+    So: an explicit device wins, the head's port is excluded by name, and an ambiguous choice
+    is refused rather than guessed. Opening the wrong port is not a harmless mistake here —
+    the act of opening it resets that device — so "I cannot tell" must mean "touch nothing".
+    """
     env = os.environ.get("OPENDUBS_STAMPLC_DEV")
     if env:
         return env
+    try:                                   # lazy: state_out imports this module
+        from state_out import _TAB5_GLOB as head_glob
+    except Exception:
+        head_glob = os.environ.get("OPENDUBS_TAB5_DEV_GLOB", "")
+    heads = set(glob.glob(head_glob)) if head_glob else set()
     for pat in ("/dev/serial/by-id/*Espressif*if00", "/dev/serial/by-id/*Espressif*"):
-        m = sorted(glob.glob(pat))
-        if m:
+        m = [d for d in sorted(glob.glob(pat)) if d not in heads]
+        if len(m) == 1:
             return m[0]
+        if len(m) > 1:
+            import sys
+            sys.stderr.write("STAMPLC: %d candidate serial ports (%s) — refusing to guess; "
+                             "set OPENDUBS_STAMPLC_DEV\n" % (len(m), ", ".join(m)))
+            return None
     return None
 
 
@@ -335,7 +359,13 @@ class StampReader:
             if line.startswith("[ODO] "):
                 kv = _kv(line)
                 def _f(k):
-                    try: return float(kv.get(k))
+                    # The Pinpoint reports nan for pose and velocity whenever it is faulted
+                    # (ok=0), and the firmware prints it as "-nan". json.dumps refuses NaN, so
+                    # passing it through took out the WHOLE /api/snapshot with a 500 — every
+                    # dashboard poll, for a fault in one optional sensor. None means "no value".
+                    try:
+                        v = float(kv.get(k))
+                        return v if math.isfinite(v) else None
                     except (TypeError, ValueError): return None
                 def _i(k):
                     try: return int(kv.get(k))

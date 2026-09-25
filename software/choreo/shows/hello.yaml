@@ -1,0 +1,89 @@
+id: hello
+name: Hello wave
+# The demo we have been running by hand (showcase_demo.py), written as data so it can be
+# checked before it moves and edited without touching code.
+#
+# Joint angles for J1/J2/J3 are written in each arm's OWN outward sense: positive is "outward"
+# for both arms, and the validator applies the mirror (the left travels negative where the right
+# travels positive). A show should read the same for both sides.
+slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND]
+requires:
+  arms: active          # both arms powered and their controllers running
+  tab5: true            # head and sound
+  rc_authority: AUTO    # the lift needs it; the arms do not
+notes: >
+  The lift rises while the arms are mid-sequence rather than after them. Its descent is expected
+  to be stopped by the pinch guard near the bottom — that is the guard working, not a fault, and
+  no cue may acknowledge it.
+
+cues:
+  - { t:  0.0, slot: SOUND,  do: chime }
+  - { t:  0.0, slot: HEAD,   pan: 90,  tilt: 90 }
+
+  # open up: elbows out, shoulders outward
+  - { t:  3.0, slot: ARM_L,  joints: { 2: 20, 4: 55 } }
+  - { t:  3.0, slot: ARM_R,  joints: { 2: 20, 4: 55 } }
+  - { t:  1.5, slot: GRIP_L, do: open }
+  - { t:  1.5, slot: GRIP_R, do: open }
+  - { t:  7.0, slot: ARM_L,  joints: { 1: 20, 3: 15 } }
+  - { t:  7.0, slot: ARM_R,  joints: { 1: 20, 3: 15 } }
+
+  # the right arm waves, and grips as it does
+  - { t:  7.0, slot: HEAD,   pan: 120, tilt: 78 }
+  - { t:  8.0, slot: ARM_R,  joints: { 7: 30 } }
+  - { t:  8.5, slot: GRIP_R, do: close }
+  - { t:  9.0, slot: ARM_R,  joints: { 7: -30 } }
+  - { t: 10.0, slot: ARM_R,  joints: { 7: 30 } }
+  - { t: 11.0, slot: GRIP_R, do: open }
+  - { t: 11.0, slot: ARM_R,  joints: { 7: -30 } }
+  - { t: 12.0, slot: ARM_R,  joints: { 7: 0 } }
+
+  # the lift goes up WHILE the arms are still working
+  - { t:  6.0, slot: LIFT,   do: up, secs: 6 }
+  - { t:  6.0, slot: SOUND,  do: beep, hz: 3200, ms: 200 }
+
+  # then the left arm waves
+  - { t: 12.0, slot: HEAD,   pan: 60,  tilt: 78 }
+  - { t: 13.0, slot: ARM_L,  joints: { 7: 30 } }
+  - { t: 13.5, slot: GRIP_L, do: close }
+  - { t: 14.0, slot: ARM_L,  joints: { 7: -30 } }
+  - { t: 15.0, slot: ARM_L,  joints: { 7: 30 } }
+  - { t: 16.0, slot: GRIP_L, do: open }
+  - { t: 16.0, slot: ARM_L,  joints: { 7: -30 } }
+  - { t: 17.0, slot: ARM_L,  joints: { 7: 0 } }
+
+  # both wrists nod, and the head nods with them
+  - { t: 17.0, slot: HEAD,   pan: 90,  tilt: 90 }
+  - { t: 18.5, slot: ARM_L,  joints: { 6: 20, 5: 20 } }
+  - { t: 18.5, slot: ARM_R,  joints: { 6: 20, 5: 20 } }
+  - { t: 18.5, slot: HEAD,   tilt: 74 }
+  - { t: 20.0, slot: ARM_L,  joints: { 6: -20 } }
+  - { t: 20.0, slot: ARM_R,  joints: { 6: -20 } }
+  - { t: 20.0, slot: HEAD,   tilt: 104 }
+
+  # fold the elbows BEFORE the shoulders go up: an extended arm is refused past ~135 deg
+  - { t: 23.0, slot: ARM_L,  joints: { 6: 0, 5: 0, 4: 100 } }
+  - { t: 23.0, slot: ARM_R,  joints: { 6: 0, 5: 0, 4: 100 } }
+  - { t: 21.5, slot: HEAD,   tilt: 72 }
+
+  # ... and now both arms reach up. 150 leaves ~30 deg to the head.
+  - { t: 28.0, slot: ARM_L,  joints: { 2: 150, 1: 10 } }
+  - { t: 28.0, slot: ARM_R,  joints: { 2: 150, 1: 10 } }
+  - { t: 21.0, slot: LIFT,   do: down, secs: 6 }
+  - { t: 21.0, slot: SOUND,  do: beep, hz: 2200, ms: 200 }
+  - { t: 31.0, slot: ARM_L,  joints: { 7: 25 } }
+  - { t: 31.0, slot: ARM_R,  joints: { 7: 25 } }
+  - { t: 29.0, slot: GRIP_L, do: close }
+  - { t: 29.0, slot: GRIP_R, do: close }
+  - { t: 33.0, slot: ARM_L,  joints: { 7: 0 } }
+  - { t: 33.0, slot: ARM_R,  joints: { 7: 0 } }
+
+  # back down, elbows unfold last
+  - { t: 39.0, slot: ARM_L,  joints: { 2: 30 } }
+  - { t: 39.0, slot: ARM_R,  joints: { 2: 30 } }
+  - { t: 39.0, slot: GRIP_L, do: open }
+  - { t: 39.0, slot: GRIP_R, do: open }
+  - { t: 43.0, slot: ARM_L,  joints: { 4: 10, 1: 0, 2: 5, 3: 0, 7: 0 } }
+  - { t: 43.0, slot: ARM_R,  joints: { 4: 10, 1: 0, 2: 5, 3: 0, 7: 0 } }
+  - { t: 43.0, slot: HEAD,   pan: 90, tilt: 90 }
+  - { t: 44.0, slot: SOUND,  do: chime }

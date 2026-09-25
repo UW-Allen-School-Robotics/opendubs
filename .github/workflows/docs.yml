@@ -1,4 +1,9 @@
-name: Deploy docs
+name: Docs
+
+# Validates the docs on every pull request that touches them, and deploys from main.
+# The validation used to run only on a push to main, which meant a broken link or a stale
+# BOM table was found by a red deploy on the branch that publishes the public site —
+# after the merge, not before it.
 
 on:
   push:
@@ -9,19 +14,29 @@ on:
       - "hardware/parts.csv"
       - "tools/bom.py"
       - ".github/workflows/docs.yml"
+  pull_request:
+    # Keep this list in step with the push filter above.
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "hardware/parts.csv"
+      - "tools/bom.py"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
+# Least privilege by default; only the deploy job asks for more.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  # A pull request cancels its own superseded runs. A deploy on main never cancels
+  # mid-flight, so a half-published site can't be left behind.
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,16 +46,26 @@ jobs:
       - run: pip install mkdocs-material
       - run: python3 tools/bom.py --check   # validate parts.csv + fail if BOM tables are stale (run `bom.py --inject`)
       - run: mkdocs build --strict
+      # Only main's build is ever published, so a pull request skips the upload.
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: site
 
   deploy:
+    name: Deploy to Pages
     needs: build
+    if: github.event_name != 'pull_request'
     # Deploys docs/ to GitHub Pages. NOTE: on the org's Team plan the published site is PUBLIC
     # (world-viewable) even though the repo is private — only the built docs/ site is exposed;
     # firmware, CAD, and notes/ stay in the private repo.
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

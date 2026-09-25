@@ -43,14 +43,18 @@
 
 void ppCfgBegin(m5::I2C_Class **bus, bool (*select)());
 
-// Call every loop with the driver's current view of whether the device is answering.
+// Call every loop with the driver's view of whether the device is answering (debounced — a
+// single missed frame must not read as absent) and whether the robot is genuinely still.
 // Applies the config at boot and again on every absent -> present transition, because a
-// Pinpoint that has power-cycled is back to defaults and will not tell you.
-void ppCfgTick(uint32_t nowMs, bool present);
+// Pinpoint that has power-cycled is back to defaults and will not tell you. The pose + IMU
+// zero that goes with it is deferred until `still`: taken while moving, it bakes the motion
+// into the gyro offset and heading drifts with the robot parked.
+void ppCfgTick(uint32_t nowMs, bool present, bool still);
 
 bool ppCfgCommissioned();     // false = running on defaults; tracking is not trustworthy
 bool ppCfgApplied();          // has the current config reached the device
 uint32_t ppCfgApplyCount();   // how many times we have had to re-send it
+bool ppCfgImuPending();       // a pose + IMU zero is owed; the pose is not trustworthy until it lands
 
 // Handles "PPCAL ..." and returns true if it consumed the command.
 bool ppCfgCommand(const char *cmd);

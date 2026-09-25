@@ -34,6 +34,12 @@ static uint16_t g_lastMm  = 0;
 static uint8_t  g_lastSt  = 255;
 static uint32_t g_lastOkMs = 0;
 static uint32_t g_reads = 0, g_errors = 0, g_rejects = 0;
+// Last RAW distance, whatever its status — diagnostics only ([TOF] d=, tofRaw()). The height
+// source is g_lastMm, which only ever takes a sample the sensor called valid.
+static uint16_t g_lastRawMm = 0;
+// No part of this machine is 1.5 m up. A height above this means the reading or the zero is
+// wrong, and a wrong height is worse than none: it feeds the pinch guard.
+static constexpr float kMaxHeightMm = 1500.0f;
 
 // ---- calibration (per robot, NVS) ----
 static bool     g_haveZero = false;
@@ -108,10 +114,21 @@ void tofTick(uint32_t nowMs)
         return;
     }
     g_lastSt = (uint8_t)g_dev.ranging_data.range_status;
+    g_lastRawMm = mm;
     g_reads++;
 
+    // A sample the sensor did not call valid NEVER becomes the height. It used to fall past the
+    // gate below (which only tests valid samples) and get stored anyway, so a single error
+    // reading of 65535 became a height of 65535 - zero, and tofHeightMm() served that for up to
+    // kStaleMs. Seen in service as a 64260 mm "height" — to the pinch guard, a lift nowhere near
+    // the bottom. Holding the last good height until it goes stale is the honest answer.
+    if (g_dev.ranging_data.range_status != VL53L1X::RangeValid) {
+        g_errors++;
+        return;
+    }
+
     // Plausibility gate, applied before anything downstream sees the value.
-    if (g_lastOkMs != 0 && g_dev.ranging_data.range_status == VL53L1X::RangeValid) {
+    if (g_lastOkMs != 0) {
         const uint32_t dtMs = nowMs - g_lastOkMs;
         const float allow = kJumpFloorMm + kMaxMmPerSec * (float)dtMs / 1000.0f;
         if (fabsf((float)mm - (float)g_lastMm) > allow) {
@@ -122,17 +139,14 @@ void tofTick(uint32_t nowMs)
             tprintf("[TOF] re-sync after %lums of rejected samples\n", (unsigned long)dtMs);
         }
     }
+    // Only a clean status gets this far, so this is both the newest reading and a good one.
     g_lastMm = mm;
-    // Only a clean status counts as a reading. A wrong height is worse than no height: it
-    // feeds the pinch guard, and a bad number there either blocks a safe descent or permits
-    // an unsafe one.
-    if (g_dev.ranging_data.range_status == VL53L1X::RangeValid) g_lastOkMs = nowMs;
-    else g_errors++;
+    g_lastOkMs = nowMs;
 }
 
 bool tofRaw(uint16_t *mm, uint8_t *status)
 {
-    if (mm) *mm = g_lastMm;
+    if (mm) *mm = g_lastRawMm;   // raw, including bad-status samples — this is the diagnostic view
     if (status) *status = g_lastSt;
     return g_ready;
 }
@@ -146,6 +160,7 @@ bool tofHeightMm(float *mm)
     if (!g_haveZero || g_lastOkMs == 0) return false;
     if (millis() - g_lastOkMs > kStaleMs) return false;
     const float h = (float)((int)g_lastMm - (int)g_zeroMm) * (float)sign();
+    if (h > kMaxHeightMm) return false;  // impossible: bad reading or a bad zero, not a height
     if (mm) *mm = h < 0.0f ? 0.0f : h;   // below the bottom limit is not a real place
     return true;
 }
@@ -157,7 +172,7 @@ void tofPublish()
     // rej = samples discarded as physically impossible. A hand through the beam shows up
     // here; a climbing count with the lift still means something is interrupting it.
     tprintf("[TOF] rdy=%d d=%u st=%u cal=%d h=%.0f reads=%lu err=%lu rej=%lu\n",
-            g_ready ? 1 : 0, g_lastMm, g_lastSt, g_haveZero ? 1 : 0,
+            g_ready ? 1 : 0, g_lastRawMm, g_lastSt, g_haveZero ? 1 : 0,
             haveH ? h : -1.0f, (unsigned long)g_reads, (unsigned long)g_errors,
             (unsigned long)g_rejects);
 }

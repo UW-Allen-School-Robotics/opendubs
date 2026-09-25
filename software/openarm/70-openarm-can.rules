@@ -1,0 +1,21 @@
+# OpenArm CAN channels (PEAK PCAN-USB Pro FD, USB 0c72:0011, driver peak_usb).
+#
+# Names each adapter channel by its fixed hardware channel index (dev_id), so the arm mapping
+# doesn't depend on kernel enumeration order: canN numbers shift with the Thor's loadable
+# on-board CAN driver (mttcan). Then starts openarm-can@<name>.service, which configures and
+# raises the link.
+#
+# PER-ROBOT: which channel is wired to which arm is a property of each robot's wiring.
+# provision-openarm.sh installs this file only if /etc/udev/rules.d/70-openarm-can.rules does
+# not exist yet, and never overwrites it. If your arms come up swapped, swap the two NAME
+# values IN THE ROBOT'S COPY (and the matching SYSTEMD_WANTS), not here.
+#
+# Two udev details this depends on:
+#   * every parent-matching key in one rule (ATTRS, DRIVERS, ...) must match on the SAME
+#     parent device — idVendor/idProduct live on the USB device, so DRIVERS=="peak_usb"
+#     (which lives on the USB interface) can't be combined with them;
+#   * renaming fires a second "move" event whose properties replace the first's, so the rule
+#     runs on every action except remove, or SYSTEMD_WANTS is lost and the link never comes up.
+# ATTR{type}=="280" is ARPHRD_CAN.
+SUBSYSTEM=="net", ACTION!="remove", ATTR{type}=="280", ATTRS{idVendor}=="0c72", ATTRS{idProduct}=="0011", ATTR{dev_id}=="0x0", NAME="arm_left", TAG+="systemd", ENV{SYSTEMD_WANTS}+="openarm-can@arm_left.service"
+SUBSYSTEM=="net", ACTION!="remove", ATTR{type}=="280", ATTRS{idVendor}=="0c72", ATTRS{idProduct}=="0011", ATTR{dev_id}=="0x1", NAME="arm_right", TAG+="systemd", ENV{SYSTEMD_WANTS}+="openarm-can@arm_right.service"

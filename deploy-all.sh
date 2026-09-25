@@ -20,6 +20,7 @@ ssh -t "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST
 deploy_sub() { rsync -az --delete "${EXC[@]}" "$REPO/$1/" "$HOST:$DEST/$2/"; }  # $1=repo path  $2=flat dest
 deploy_sub software/kiosk-dashboard kiosk-dashboard
 deploy_sub software/ros             ros
+deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 

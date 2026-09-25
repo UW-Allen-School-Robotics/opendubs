@@ -43,7 +43,8 @@ MAP = [
     ("firmware/tab5_face/platformio.ini",       "/opt/opendubs/tab5_face/platformio.ini",       SYNC),
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
-    ("software/ros2",                           "/opt/opendubs/ros",                            SYNC),
+    ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
+    ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
 
 # Never compared: build output, caches, editor droppings, and the ad-hoc backups we leave

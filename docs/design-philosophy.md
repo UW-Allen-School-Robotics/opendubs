@@ -11,7 +11,7 @@ interfaces** that parts plug into. The assembly guide gives you swappable module
 interface contracts are what let a *stranger's* module or arm drop in:
 
 - **[Mechanical mount](interfaces/mechanical-mount.md)** — how anything bolts to the base
-  (top-deck goBILDA pattern grid + the opengrid cladding ecosystem).
+  (top-deck goBILDA pattern grid + the openGrid cladding ecosystem).
 - **[Power & data](interfaces/power-data.md)** — the rails, current budget, connectors, and
   comms options a payload can draw on.
 - **[Command & telemetry](interfaces/command-telemetry.md)** — the failsafe-gated command +
@@ -57,7 +57,7 @@ mixer for **tank / 4WD** drive. The base is meant to be reconfigured, not to loc
 **Why not swerve?** Swerve (and powered-caster holonomic drives) give independent steer + drive at
 each corner, but the modules typically cost **~2–3× per wheel** versus a fixed drive, add real
 mechanical and control complexity, and — unlike mecanum — **can't be reconfigured down to a
-cheaper fixed FWD / tank drive** (above). For the baseline we chose the simpler, cheaper mecanum
+cheaper fixed 4WD or tank drive** (above). For the baseline we chose the simpler, cheaper mecanum
 system; swerve is a great community extension (below), not a baseline requirement. For a
 swerve-based sibling project, see **[TidyBot++](https://tidybot2.github.io/)** under
 [Where OpenDubs fits in the ecosystem](#where-opendubs-fits-in-the-ecosystem).
@@ -114,7 +114,7 @@ learning-friendly mobile-manipulation base — and is well worth studying. The m
 the **drive system**: TidyBot++ runs a **powered-caster holonomic (swerve-like) base**, where
 OpenDubs runs **mecanum**. Holonomic/swerve is excellent to control, but the drive units currently
 run **~3×** the cost of the mecanum-motor approach and **can't be trivially reconfigured down to a
-cheaper fixed FWD drive** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
+cheaper fixed 4WD** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
 for builds that want it. See the full **[OpenDubs ↔ TidyBot++ comparison](comparison-tidybot.md)**
 for a side-by-side of drive, cost, compute, payload, power, and safety.
 

@@ -812,7 +812,15 @@ static constexpr uint8_t kPpRegVelH      = 13;
 static constexpr uint8_t kPpDeviceIdVal  = 2;
 
 // Cached last-good Pinpoint state (published even when a frame is missed, with ok=0).
+// pp_frame_ok is "did the last poll succeed" — the [ODO] ok= flag. pp_present is DEBOUNCED:
+// it goes false only after kPpFailBeforeAbsent misses in a row. They used to be one flag, so
+// a single glitched read looked like a reboot to ppcfg, which re-zeroed the IMU mid-drive.
+// A gyro zeroed while the robot moves keeps reporting that motion: heading spun at up to
+// 1.3 rad/s with the robot parked (2026-09-21).
 static bool     pp_present = false;
+static bool     pp_frame_ok = false;
+static uint16_t pp_fail_run = 0;
+static constexpr uint16_t kPpFailBeforeAbsent = 10;   // ~1 s of consecutive misses at 10 Hz
 static uint32_t pp_status = 0, pp_loop_us = 0, pp_fails = 0;
 static int32_t  pp_encx = 0, pp_ency = 0;
 static float    pp_x = 0, pp_y = 0, pp_h = 0, pp_vx = 0, pp_vy = 0, pp_vh = 0;
@@ -881,20 +889,49 @@ static bool ppF32(uint8_t reg, float *out)
 
 // One poll of the whole pose. Any failed register aborts the frame so we never publish a
 // half-updated pose (mixing a new X with a stale Y would look like a real jump).
+// One missed frame is a bus glitch, not a missing device.
+static void ppNoteMiss()
+{
+    pp_fails++;
+    pp_frame_ok = false;
+    if (pp_fail_run < 0xFFFF) pp_fail_run++;
+    if (pp_fail_run >= kPpFailBeforeAbsent) pp_present = false;
+}
+
 static void pinpointPoll()
 {
     uint32_t id = 0;
-    if (!ppU32(kPpRegDeviceId, &id) || id != kPpDeviceIdVal) { pp_present = false; pp_fails++; return; }
+    if (!ppU32(kPpRegDeviceId, &id) || id != kPpDeviceIdVal) { ppNoteMiss(); return; }
     uint32_t st = 0, lt = 0; int32_t ex = 0, ey = 0;
     float x = 0, y = 0, h = 0, vx = 0, vy = 0, vh = 0;
     const bool ok = ppU32(kPpRegStatus, &st) && ppU32(kPpRegLoopTime, &lt)
                  && ppI32(kPpRegEncX, &ex)   && ppI32(kPpRegEncY, &ey)
                  && ppF32(kPpRegPosX, &x)    && ppF32(kPpRegPosY, &y)  && ppF32(kPpRegHeading, &h)
                  && ppF32(kPpRegVelX, &vx)   && ppF32(kPpRegVelY, &vy) && ppF32(kPpRegVelH, &vh);
-    if (!ok) { pp_present = false; pp_fails++; return; }
-    pp_present = true; pp_status = st; pp_loop_us = lt;
+    if (!ok) { ppNoteMiss(); return; }
+    pp_fail_run = 0; pp_frame_ok = true; pp_present = true;
+    pp_status = st; pp_loop_us = lt;
     pp_encx = ex; pp_ency = ey;
     pp_x = x; pp_y = y; pp_h = h; pp_vx = vx; pp_vy = vy; pp_vh = vh;
+}
+
+// Is the robot genuinely still? Only then may the Pinpoint re-measure its IMU zero, which
+// takes ~0.25 s and bakes in whatever motion it sees. Still = not commanded (every ESC output
+// at neutral) AND not moving (pod counts steady) for kPpStillMs. Both, because the robot can
+// coast after the sticks centre, or be pushed by hand with nothing commanded.
+static constexpr uint32_t kPpStillMs    = 1500;
+static constexpr int32_t  kPpStillTicks = 40;   // ~3 mm on a swingarm pod; at rest counts jitter ~±20
+static bool ppRobotStill(uint32_t nowMs)
+{
+    static uint32_t sinceMs = 0;
+    static int32_t  refX = 0, refY = 0;
+    bool moving = !pp_frame_ok || sinceMs == 0;
+    for (int i = 0; i < 4 && !moving; ++i)
+        if (abs((int)g_escOut[i] - (int)kEscNeutralUs) > (int)kEscDeadzoneUs) moving = true;
+    if (!moving && (abs(pp_encx - refX) > kPpStillTicks || abs(pp_ency - refY) > kPpStillTicks))
+        moving = true;
+    if (moving) { sinceMs = nowMs; refX = pp_encx; refY = pp_ency; }
+    return nowMs - sinceMs >= kPpStillMs;
 }
 
 // [ODO] — pose in mm / rad, plus the raw pod counts and the device status bitfield.
@@ -908,14 +945,15 @@ static void publishOdo()
     // NOTE the pod bits are FAULT flags: SET means the pod is MISSING, not present.
     tprintf("[ODO] ok=%d st=0x%02X rdy=%d cal=%d xpod=%d ypod=%d imurun=%d badread=%d "
             "x=%.1f y=%.1f h=%.4f vx=%.1f vy=%.1f vh=%.4f "
-            "ex=%ld ey=%ld loop=%lu fail=%lu crcbad=%lu\n",
-            pp_present ? 1 : 0, (unsigned)(pp_status & 0xFF),
+            "ex=%ld ey=%ld loop=%lu fail=%lu crcbad=%lu imupend=%d\n",
+            pp_frame_ok ? 1 : 0, (unsigned)(pp_status & 0xFF),
             (pp_status & 0x01) ? 1 : 0, (pp_status & 0x02) ? 1 : 0,
             (pp_status & 0x04) ? 0 : 1, (pp_status & 0x08) ? 0 : 1,
             (pp_status & 0x10) ? 1 : 0, (pp_status & 0x20) ? 1 : 0,
             pp_x, pp_y, pp_h, pp_vx, pp_vy, pp_vh,
             (long)pp_encx, (long)pp_ency,
-            (unsigned long)pp_loop_us, (unsigned long)pp_fails, (unsigned long)pp_crc_bad);
+            (unsigned long)pp_loop_us, (unsigned long)pp_fails, (unsigned long)pp_crc_bad,
+            ppCfgImuPending() ? 1 : 0);
 }
 
 void publishIo()
@@ -1095,9 +1133,9 @@ void envStep()
 // 8Servo per-pin MODE cache. The pin's mode register (SERVO_CTL) latches in the 8Servo until it is
 // reset, so writing it on EVERY pulse (4 channels × 50 Hz = 400 extra I2C txns/s) was pure overhead
 // — and a leading cause of the `s8fail` I2C-write drops that track the ESC red-fault at idle. Set
-// each pin's mode once; re-assert only after a write failure or an explicit 8Servo power-cycle.
+// each pin's mode once; re-assert only after a write failure or an I2C re-init.
 static uint8_t g_servo8ModeSet = 0;                                  // bit p set ⇒ pin p already in SERVO_CTL mode
-static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (In_I2C re-init / S8RESET)
+static inline void servo8InvalidateModes() { g_servo8ModeSet = 0; } // force mode re-assert (after an I2C re-init)
 
 // ---- ToF4M / VL53L1X (mast height) ------------------------------------------------
 // NOTE the VL53L1X uses SIXTEEN-BIT register addresses, unlike the VL53L0X on the Tab5
@@ -1137,7 +1175,7 @@ static void tofProbe()
 }
 
 // ---- Z-axis (mast / lift) -------------------------------------------------------
-// R2/R3 are the spare relays; NO contacts, so energized = pressed. WHICH relay drives
+// R1/R2 drive the lift's two legs; NO contacts, so energized = pressed. WHICH relay drives
 // which leg is a per-robot wiring fact, discovered on the bench with `MAST UP|DOWN` --
 // swap these two if the bench says they are the other way round.
 // Bench-discovered on opendubs2 2026-09-04 by pulsing each relay and watching the lift:
@@ -1493,21 +1531,6 @@ void handleHostCommand(const char* cmd)
         } else {
             Serial.println("[8SERVO] invalid (pin 0..7, pulse 0..3000)");
         }
-        return;
-    }
-
-    // 8Servo power-cycle via spare relay R1. The ONLY reliable clear for the ESC solid-red fault is
-    // cutting the 8Servo's 5V — a firmware reset does not clear it (the fault rides the ESC BEC).
-    // Assumes R1 gates the PaHub/8Servo 5V feed, CLOSED = powered. Inert until that rewire is done
-    // (R1 is currently spare), so it is safe to ship ahead of the wiring. `S8RESET [off_ms]`.
-    int s8cycle_ms = -1;
-    if (strncmp(cmd, "S8RESET", 7) == 0) {
-        // DISABLED. This used to power-cycle the 8Servo via relay R1, but R1 is now the
-        // lift's DOWN leg -- running it would drive the lift, not reset anything. The
-        // allocation is dead anyway: the wedge was shown to be electrical (ground shift
-        // measured at >=2.8 V against a ~0.7 V injection threshold), not something a
-        // power-cycle prevents.
-        tprintf("[S8RESET] disabled: R1 is now the lift DOWN leg. See notes/history/8servo-wedge/.\n");
         return;
     }
 
@@ -2463,8 +2486,8 @@ static void uiRender(uint8_t di, UiState st)
         row(22, "E-STOP IN1",   (di & 1)        ? "ACTIVE" : "clear",  (di & 1)        ? TFT_RED : TFT_GREEN);
         row(34, "CONTACTOR R1", (relay & 1)      ? "CLOSED" : "OPEN",   (relay & 1)      ? TFT_GREEN : g.color565(255, 150, 0));
         row(46, "WELD IN2",     (di & (1 << 1)) ? "WELD!"  : "ok",     (di & (1 << 1)) ? TFT_RED : TFT_GREEN);
-        snprintf(buf, sizeof(buf), "R2:%d R3:%d R4:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
-        row(58, "RELAYS", buf, TFT_WHITE);
+        snprintf(buf, sizeof(buf), "R2dn:%d R3up:%d R4:%d", (relay >> 1) & 1, (relay >> 2) & 1, (relay >> 3) & 1);
+        row(58, "Z-AXIS", buf, TFT_WHITE);
         row(70, "IP", eth_ip_str, eth_up ? TFT_GREEN : g.color565(150,150,150));
         if (estopc_down && !estopc_fired) {         // hold-to-e-stop progress
             uint32_t held = millis() - estopc_start_ms; if (held > kEstopHoldMs) held = kEstopHoldMs;
@@ -3089,7 +3112,7 @@ void loop()
     pinpointPoll();        // goBILDA Pinpoint pose (I2C, PaHub ch4)
         // Re-sends the config whenever the device reappears — a Pinpoint that power-cycled
         // is silently back on defaults and will keep reporting a plausible, wrong pose.
-        ppCfgTick(millis(), pp_present);
+        ppCfgTick(millis(), pp_present, ppRobotStill(millis()));
         publishOdo();
         last_io_pub_ms = millis();
     }
