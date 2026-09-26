@@ -26,6 +26,8 @@ struct __attribute__((packed)) CAN_Tab5_Status {
     uint8_t link_online;   // has it heard from the controller recently
     uint8_t tracking;      // 0 = off, 1 = AI
     uint8_t ui_mode;       // 0 = face, 1 = controller
+    int16_t current_pan;   // new: physical pan angle (g_targetPan)
+    int16_t current_tilt;  // new: physical tilt angle (g_targetTilt)
 };
 
 struct __attribute__((packed)) can_frame_udp {

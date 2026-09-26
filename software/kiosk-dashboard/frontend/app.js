@@ -24,6 +24,14 @@ $("ackBtn").addEventListener("click", () => {
   setTimeout(() => ($("ackBtn").textContent = "ACK"), 1500);
 });
 
+if ($("btnAiToggle")) {
+  $("btnAiToggle").addEventListener("click", () => {
+    const isOff = $("btnAiToggle").classList.contains("off");
+    fetch(`/api/tracker/${isOff ? "on" : "off"}`, { method: "POST" }).catch(() => {});
+    $("btnAiToggle").textContent = isOff ? "STARTING..." : "STOPPING...";
+  });
+}
+
 /* ---------- System power controls (confirm-on-tap to avoid accidental taps) ---------- */
 function armButton(id, action, label) {
   const btn = $(id);
@@ -1238,6 +1246,21 @@ function connect() {
       safe(renderMast, s); safe(renderPower, s); safe(renderThermal, s); safe(renderDrive, s);
     }
     if (d.telemetry) { safe(renderRC, d.telemetry); safe(renderNav, d.telemetry); }
+    if (d.state) safe(renderServerState, d.state);
   };
 }
+
+function renderServerState(st) {
+  const btn = $("btnAiToggle");
+  if (!btn) return;
+  
+  if (st.ai_tracking) {
+    btn.textContent = "AI TRACKING: ON";
+    btn.classList.remove("off");
+  } else {
+    btn.textContent = "AI TRACKING: OFF";
+    btn.classList.add("off");
+  }
+}
+
 connect();
