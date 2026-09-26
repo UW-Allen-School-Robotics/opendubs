@@ -4,3 +4,4 @@ psutil==6.*
 pyserial==3.5
 ultralytics>=8.0.0
 opencv-python>=4.8.0
+pyrealsense2

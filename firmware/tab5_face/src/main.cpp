@@ -591,8 +591,10 @@ static void commsTask(void *) {
         CAN_Tab5_Status *ts = (CAN_Tab5_Status *)sf.data;
         ts->robot_state = (uint8_t)g_robotState;
         ts->link_online = g_linkOnline ? 1 : 0;
-        ts->tracking = (g_trackingMode == TrackingMode::AI) ? 1 : 0;
+        ts->tracking = (g_trackingMode == TrackingMode::AI && !rcOwnsHead() && !dpadOwnsHead()) ? 1 : 0;
         ts->ui_mode = (g_uiMode == UiMode::CONTROLLER) ? 1 : 0;
+        ts->current_pan = g_targetPan;
+        ts->current_tilt = g_targetTilt;
         Udp.beginPacket(txTarget(), TX_PORT);
         Udp.write((const uint8_t *)&sf, sizeof(sf));
         Udp.endPacket();

@@ -23,6 +23,7 @@ __pycache__/
 
 # --- PlatformIO / firmware build artifacts (matches firmware/*/.pio too) ---
 .pio/
+.pio_env/
 
 # --- Node / frontend tooling ---
 node_modules/
