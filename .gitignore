@@ -19,9 +19,11 @@ notes/drafts/
 __pycache__/
 *.pyc
 *.egg-info/
+*.pt
 
 # --- PlatformIO / firmware build artifacts (matches firmware/*/.pio too) ---
 .pio/
+.pio_env/
 
 # --- Node / frontend tooling ---
 node_modules/
@@ -44,3 +46,6 @@ dependencies.lock
 sdkconfig
 sdkconfig.*
 !sdkconfig.defaults
+
+# MuJoCo scribbles a load log next to whatever it compiles
+MUJOCO_LOG.TXT

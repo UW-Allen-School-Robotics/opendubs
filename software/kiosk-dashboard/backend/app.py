@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -30,7 +32,8 @@ VNC_DISABLED_FLAG = status_mod.VNC_DISABLED_FLAG
 app = FastAPI(title="OpenDubs Kiosk Dashboard")
 
 # Server-side state for non-safety soft controls.
-STATE = {"acknowledged_at": None, "last_action": None}
+STATE = {"acknowledged_at": None, "last_action": None, "ai_tracking": False}
+YOLO_PROCESS = None
 
 
 @app.on_event("startup")
@@ -40,6 +43,19 @@ def _start_state_out() -> None:
     state_out.start()
 
 
+@app.on_event("shutdown")
+def _stop_tracker() -> None:
+    """Ensure the AI tracker process dies when the backend shuts down."""
+    global YOLO_PROCESS
+    if YOLO_PROCESS is not None:
+        try:
+            YOLO_PROCESS.terminate()
+            YOLO_PROCESS.wait(timeout=2)
+        except:
+            YOLO_PROCESS.kill()
+        YOLO_PROCESS = None
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "ts": time.time()}
@@ -47,10 +63,51 @@ def health() -> dict:
 
 @app.get("/api/snapshot")
 def snapshot() -> JSONResponse:
+    global YOLO_PROCESS
+    # Sync internal state with actual process state in case it crashed
+    if YOLO_PROCESS is not None and YOLO_PROCESS.poll() is not None:
+        # Process died
+        STATE["ai_tracking"] = False
+        YOLO_PROCESS = None
+
     return JSONResponse({
         "system": metrics.collect(), "telemetry": telemetry.collect(),
         "status": status_mod.collect(), "state": STATE,
     })
+
+
+@app.post("/api/tracker/{state}")
+def tracker_control(state: str) -> JSONResponse:
+    """Toggle the Tab5 AI Face Tracking."""
+    global YOLO_PROCESS
+    target = state.lower()
+    
+    if target == "on":
+        if YOLO_PROCESS is None or YOLO_PROCESS.poll() is not None:
+            script_path = Path(__file__).resolve().parent / "yolo_tracker.py"
+            # Pass the Tab5 IP directly — Python's socket.gethostbyname() cannot
+            # resolve .local mDNS names even though the system ping/resolver can.
+            YOLO_PROCESS = subprocess.Popen(
+                [
+                    sys.executable, "-u", str(script_path), 
+                    "--ip", "10.42.2.14",
+                    "--pan-min", "50", "--pan-max", "130",
+                    "--tilt-min", "65", "--tilt-max", "115"
+                ]
+            )
+            STATE["ai_tracking"] = True
+    elif target == "off":
+        if YOLO_PROCESS is not None:
+            try:
+                YOLO_PROCESS.terminate()
+            except:
+                pass
+            YOLO_PROCESS = None
+        STATE["ai_tracking"] = False
+    else:
+        return JSONResponse({"ok": False, "error": "use on|off"}, status_code=400)
+        
+    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/stamplc")

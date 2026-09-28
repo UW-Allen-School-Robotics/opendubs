@@ -109,6 +109,8 @@ install -m 0644 "$DEPLOY/opendubs-stamplc-hb.service" /etc/systemd/system/opendu
 systemctl daemon-reload
 systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
+systemctl disable --now opendubs-yolo-tracker.service || true
+rm -f /etc/systemd/system/opendubs-yolo-tracker.service
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
 
