@@ -160,8 +160,12 @@ void ScissorRelayMast::tick(uint32_t nowMs)
         // actually been acted on, so a host ack issued before the command survives.
         if (consentUsed_) { consent_ = false; consentUsed_ = false; }
     } else {
-        if (releasing_ && pinchHold_ && releaseHeldMs_ >= dwellMs_) {
-            consent_ = true; consentMs_ = nowMs; pinchHold_ = false;
+        // armed_, not pinchHold_. pinchHold_ is the announcement and it self-clears 2 s after
+        // the operator stops asking DOWN -- so testing it here meant the release had to be
+        // longer than the dwell AND shorter than the announcement timeout, a 1.4 s window
+        // nothing told anyone about. armed_ persists until consent or leaving the zone.
+        if (releasing_ && armed_ && releaseHeldMs_ >= dwellMs_) {
+            consent_ = true; consentMs_ = nowMs; pinchHold_ = false; armed_ = false;
             releaseHeldMs_ = 0;         // one grant per release, not one per tick
         }
         releasing_ = false;
@@ -172,22 +176,31 @@ void ScissorRelayMast::tick(uint32_t nowMs)
     // Entering and leaving use different thresholds: parked just inside, sensor noise crossed
     // a single boundary repeatedly and made the indication stutter.
     if (!haveHeight_ || heightMm_ < 0.0f)                     inZone_ = false;
-    else if (!inZone_ && heightMm_ <= pinchMm_)               inZone_ = true;
-    else if (inZone_ && heightMm_ > pinchMm_ + kZoneHystMm)   inZone_ = false;
+    // Below kFloorMm the platform is down and the gap is under a finger -- out of the band,
+    // same as being above it. Hysteresis on both edges, for the same reason as the top one:
+    // parked just inside a single boundary, noise crosses it repeatedly and the indication
+    // stutters. This is what stops the guard announcing a hold at the bottom of the stroke.
+    else if (!inZone_ && heightMm_ <= pinchMm_ && heightMm_ >= kFloorMm)      inZone_ = true;
+    else if (inZone_ && (heightMm_ > pinchMm_ + kZoneHystMm
+                         || heightMm_ < kFloorMm - kZoneHystMm))              inZone_ = false;
     const bool inZone = inZone_;
 
     if (!inZone) {
         pinchHold_ = false;             // above the zone there is nothing to consent to
+        armed_ = false;                 // ...and nothing to be latched about
         guardMark_ = -1.0f;             // re-arm the backstop for the next entry
     } else if (want == MastMotion::DOWN && !consent_) {
         want = MastMotion::STOP;        // stops a descent that arrives here, refuses a new one
         pinchHold_ = true;
+        armed_ = true;                  // stays set until consent or leaving the zone
         refuseMs_ = nowMs;
     } else if (pinchHold_) {
         // Nobody is asking to go down any more. Stop announcing a refusal that is no longer
         // happening -- and never announce one at the bottom limit, where there is nothing
         // left to refuse. The guard stays ARMED either way: consent_ is untouched, so the
         // next DOWN demand re-latches immediately.
+        // Only the ANNOUNCEMENT stops. armed_ is deliberately untouched here: the operator
+        // has not consented, so the requirement has not gone away just because the banner has.
         if (atLower_ || nowMs - refuseMs_ > kHoldShowMs) pinchHold_ = false;
     }
 
@@ -222,6 +235,7 @@ void ScissorRelayMast::tick(uint32_t nowMs)
             startPulse_(false, nowMs);
             motion_ = MastMotion::STOP;
             pinchHold_ = true;
+            armed_ = true;              // the backstop refuses too, so it latches too
             refuseMs_ = nowMs;
             guardMark_ = heightMm_;
             guardSettle_ = nowMs + kSettleMs;

@@ -219,6 +219,7 @@ def _drive():
             # Z-axis: what the lift is doing, its measured height, and whether the pinch
             # guard is holding a descent. "nosensor" means the guard cannot work at all.
             "mast": d.get("mast"), "mast_h_mm": d.get("mast_h_mm"), "pinch": d.get("pinch"),
+            "guard": d.get("guard"),      # firmware guard internals, verbatim — debugging aid
             # False = the robot is still settling and will not accept motion commands.
             # The operator needs this: holding the deadman and getting nothing otherwise
             # looks like a transmitter fault, and the reasonable response is to keep trying.

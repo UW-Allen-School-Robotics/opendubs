@@ -19,6 +19,33 @@ pio run -t upload
 
 ## Over-The-Air (OTA) Upload
 
+**Use `./ota-from-thor.sh` — do not improvise.** It builds, serves the binary, tells the head to
+pull it, and confirms it came back:
+
+```bash
+./ota-from-thor.sh                    # resolves opendubs-tab5.local
+./ota-from-thor.sh 10.42.2.14         # or pass an address
+```
+
+Requires **Python >= 3.10** for PlatformIO (pioarduino is the only platform that builds the
+ESP32-P4 and refuses 3.9) and `intelhex` for esptool's image packer. The script finds a usable
+`pio` itself, including via `uv`.
+
+The host needs mDNS to resolve `.local`: `sudo apt install -y avahi-daemon libnss-mdns`. Without
+it the dashboard cannot find the head either, and the head sits showing no state.
+
+If the head is reachable but never re-associates after a reboot, **power-cycle it** — the Wi-Fi is
+behind the ESP-Hosted co-processor and a soft reset does not always bring it back.
+
+### The espota path below does not work on this board
+
+Kept only to explain why you should not reach for it. `ArduinoOTA`'s listener sits behind the
+ESP-Hosted co-processor and `begin()` returns void, so every failure is silent and `espota`
+reports "no response" even with the head pingable. See the comment above `otaHttpPull()` in
+`src/main.cpp`.
+
+## Over-The-Air (OTA) Upload — espota (does not work, see above)
+
 Once the Tab5 is connected to the `Opendubs2` network, you can update the firmware wirelessly using ArduinoOTA.
 
 ```bash

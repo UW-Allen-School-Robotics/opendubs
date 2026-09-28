@@ -11,10 +11,24 @@
 // Frequencies live in 2-4 kHz because that is what this speaker actually carries — judged by
 // ear on the robot with a 400 Hz..4 kHz sweep, where everything below ~2 kHz was faint across
 // a bay. PROVISIONAL: to be re-validated before anything depends on them.
-static constexpr uint32_t kAlertHz    = 2600;
-static constexpr uint32_t kConfirmLo  = 2600;
-static constexpr uint32_t kConfirmHi  = 3200;
+// QUIET AND LOW, DELIBERATELY. These were 2600/3200 Hz at whatever volume the speaker came up
+// at, which sits in the ear's most sensitive band (~2-4 kHz) and reads as a smoke alarm. The
+// listener is the person holding the controls, an arm's length from the lift, in a quiet lab --
+// nobody across the room can be pinched by this machine, so the sound does not have to carry.
+// ~900 Hz is unmistakably audible and obviously deliberate without being painful.
+// 1500/1900 Hz, not 900. Two things fight each other here: the ear is most sensitive around
+// 2-4 kHz (which is why the original 2600 Hz read as a smoke alarm) and a speaker this small is
+// badly inefficient below about 1 kHz. Going to 900 Hz lost on BOTH counts at once and the
+// result was inaudible. 1500 Hz is below the harsh band and still within what the driver can
+// actually move air at.
+static constexpr uint32_t kAlertHz    = 1500;
+static constexpr uint32_t kConfirmLo  = 1500;
+static constexpr uint32_t kConfirmHi  = 1900;
 static constexpr uint32_t kToneMs     = 90;
+// M5Unified's range is 0-255 and its DEFAULT IS 64 (Speaker_Class.hpp, _master_volume). 48 was
+// below the default -- quieter than doing nothing, which is not what "set it explicitly" was
+// supposed to mean. 140 is comfortably audible at arm's length without carrying across a lab.
+static constexpr uint8_t  kVolume     = 140;   // of 255; default is 64
 
 // The guard flag can flicker: the zone boundary sits ~60 mm up and the height sensor carries
 // about +/-10 mm of noise, so parking near it crosses back and forth. Debounce before SAYING
@@ -40,12 +54,14 @@ static bool     g_drawn = false;          // banner is on screen
 static uint32_t g_lastDrawMs = 0;
 
 static void beepAlert() {
+  M5.Speaker.setVolume(kVolume);
   if (!spkReady()) return;
   M5.Speaker.tone(kAlertHz, kToneMs);     // two short — "stopped, and waiting on you"
   M5.Speaker.tone(kAlertHz, kToneMs);
 }
 
 static void beepConfirm() {
+  M5.Speaker.setVolume(kVolume);
   if (!spkReady()) return;
   M5.Speaker.tone(kConfirmLo, kToneMs);   // rising — "thank you, going down"
   M5.Speaker.tone(kConfirmHi, kToneMs + 40);

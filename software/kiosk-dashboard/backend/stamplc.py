@@ -405,6 +405,13 @@ class StampReader:
                                     "mast_h_mm": fnum("h"),
                                     "pinch": kv.get("pinch"),
                                     "safe": kv.get("safe") == "1",
+                                    # The guard's internals, `g[...]`, verbatim. Parsed HERE and
+                                    # not at the top of _parse: this dict is rebuilt wholesale on
+                                    # every [DRIVE] line, so anything set elsewhere in self._d is
+                                    # not visible through it.
+                                    "guard": (gm.group(1)
+                                              if (gm := re.search(r"g\[([^\]]*)\]", line))
+                                              else None),
                                     "loop_max_ms": inum("loopmax")}
                 self._last = now; return
 
