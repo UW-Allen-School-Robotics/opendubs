@@ -24,11 +24,16 @@
 static constexpr uint32_t kAlertHz    = 1500;
 static constexpr uint32_t kConfirmLo  = 1500;
 static constexpr uint32_t kConfirmHi  = 1900;
-static constexpr uint32_t kToneMs     = 90;
+static constexpr uint32_t kToneMs     = 120;   // 90 was brief enough to miss at lower volume
 // M5Unified's range is 0-255 and its DEFAULT IS 64 (Speaker_Class.hpp, _master_volume). 48 was
 // below the default -- quieter than doing nothing, which is not what "set it explicitly" was
 // supposed to mean. 140 is comfortably audible at arm's length without carrying across a lab.
-static constexpr uint8_t  kVolume     = 140;   // of 255; default is 64
+// 125. The taper is not linear and there seems to be a threshold low down: 140 was "a little
+// loud", 100 was inaudible, and a 300 ms test tone at the library default of 64 had been clearly
+// audible before that. Rather than keep bisecting a curve nobody has measured, step down from a
+// value that was heard. If this still needs tuning, BEEP <hz> <ms> over UDP 4242 plays a tone
+// with the current master volume and costs no flash cycle.
+static constexpr uint8_t  kVolume     = 125;   // of 255; library default is 64
 
 // The guard flag can flicker: the zone boundary sits ~60 mm up and the height sensor carries
 // about +/-10 mm of noise, so parking near it crosses back and forth. Debounce before SAYING

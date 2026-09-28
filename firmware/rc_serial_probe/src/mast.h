@@ -203,7 +203,16 @@ public:
     // not -- and the guard stops the descent before the platform ever reaches the hard limit,
     // so the stall never happens and the flag never sets. An earlier fix keyed off it and was
     // inert for exactly that reason. Height is the thing actually measured; use it.
-    static constexpr float    kFloorMm      = 18.0f;   // below this the gap is under a finger
+    // 22, and its OWN hysteresis. At 18 with the shared 10 mm band the exit threshold was 8 mm
+    // -- below where the platform actually rests (9-15 mm), so once the zone was entered on the
+    // way down it could never be left and the banner stayed up against the bottom limit. The
+    // hysteresis has to be narrower than the gap between the floor and the resting height.
+    //
+    // Note the sensor offset: fully down reads about 11 mm, not 0. So a 22 mm floor is a real
+    // gap of roughly 11 mm -- still well under the ~20 mm finger kPinchMm is sized around, so
+    // nothing that could be pinched is being given up.
+    static constexpr float    kFloorMm      = 22.0f;   // below this the gap is under a finger
+    static constexpr float    kFloorHystMm  =  4.0f;   // exit at 18: above the resting height
     static constexpr uint32_t kPinchDwellMs = 600;     // stick centred this long = "released"
     static constexpr uint32_t kConsentMs    = 15000;   // an unused ack goes stale
 

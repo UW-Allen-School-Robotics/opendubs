@@ -182,7 +182,7 @@ void ScissorRelayMast::tick(uint32_t nowMs)
     // stutters. This is what stops the guard announcing a hold at the bottom of the stroke.
     else if (!inZone_ && heightMm_ <= pinchMm_ && heightMm_ >= kFloorMm)      inZone_ = true;
     else if (inZone_ && (heightMm_ > pinchMm_ + kZoneHystMm
-                         || heightMm_ < kFloorMm - kZoneHystMm))              inZone_ = false;
+                         || heightMm_ < kFloorMm - kFloorHystMm))            inZone_ = false;
     const bool inZone = inZone_;
 
     if (!inZone) {

@@ -73,11 +73,37 @@ echo "==> building"
 ( cd "$PROJ" && $PIO run ) || { echo "BUILD FAILED — nothing sent." >&2; exit 1; }
 [ -f "$BIN" ] || { echo "ERROR: $BIN missing after a successful build." >&2; exit 1; }
 
+# FIND A FREE PORT rather than insisting on one. A previous run's server -- or anything else --
+# holding the port used to abort the flash, and the failure read as "the head never fetched it",
+# which sent people looking at a blameless head. Three separate sessions lost time to that.
+while ss -tln 2>/dev/null | grep -q ":$HTTP_PORT "; do
+  echo "    port $HTTP_PORT is busy, trying $((HTTP_PORT + 1))"
+  HTTP_PORT=$((HTTP_PORT + 1))
+  [ "$HTTP_PORT" -gt 8020 ] && { echo "ERROR: no free port in 8000-8020." >&2; exit 1; }
+done
+
 SERVE="$(mktemp -d)"; cp "$BIN" "$SERVE/firmware.bin"
 ( cd "$SERVE" && python3 -m http.server "$HTTP_PORT" >"$SERVE/http.log" 2>&1 ) &
 HTTP_PID=$!
 trap 'kill $HTTP_PID 2>/dev/null; rm -rf "$SERVE"' EXIT
 sleep 1
+
+# CHECK THE SERVER ACTUALLY BOUND. It is backgrounded, so a failure here is silent -- and a
+# stale server left behind by an earlier run holds the port, binds nothing, and the head then
+# fetches WHATEVER THAT OTHER SERVER IS SERVING, or nothing at all. This script reported "the
+# head never fetched it" and sent everyone looking at the head, which was blameless.
+if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+  echo "ERROR: the HTTP server died immediately. Its output:" >&2
+  sed 's/^/       /' "$SERVE/http.log" >&2
+  echo "       Something else is probably on port $HTTP_PORT. Find it with:" >&2
+  echo "           pgrep -af '[p]ython3 -m http'" >&2
+  echo "       or pick another port:  OTA_PORT=8123 $0 $HEAD" >&2
+  exit 1
+fi
+if ! curl -sf --max-time 3 "http://$SRC_IP:$HTTP_PORT/firmware.bin" -o /dev/null; then
+  echo "ERROR: cannot fetch our own URL -- the head will not manage it either." >&2
+  exit 1
+fi
 
 URL="http://$SRC_IP:$HTTP_PORT/firmware.bin"
 echo "==> telling $HEAD_IP:$CMD_PORT to pull $URL"
