@@ -107,6 +107,24 @@ A heavier or more demanding design might step up to goBILDA's **12 mm REX** driv
 hex drive is compatible with **12 mm RC-style wheels and hubs** — a stronger shaft/hub interface
 with a broader selection of off-road tires.
 
+## The battery, and what you may swap it for
+
+The baseline is a single **~52 V LiFePO4 pack** with a BMS that reports over RS-485, chosen for
+**indoor lab use**: LiFePO4 tolerates being charged and left on a bench, has a long cycle life,
+and is the least exciting chemistry to keep in a room full of students.
+
+**The 52 V class is the part that matters, not the pack.** A lighter build — the kind you would
+want for an off-road variant — can run a **52 V e-bike pack** instead, which is the same nominal
+class and widely available. That substitution buys weight and loses cycle life and LiFePO4's
+thermal manners, which is a reasonable trade outdoors and a poor one on a lab bench.
+
+Two things a replacement has to preserve, because the robot depends on them:
+
+- **The 52 V nominal window**, because both DC/DC converters and the contactor are sized around it.
+- **A BMS that reports state of charge**, since the StamPLC reads SOC and pack voltage over RS-485
+  rather than inferring them. A pack with a mute BMS works, but the robot stops knowing how full
+  it is.
+
 ## Where OpenDubs fits in the ecosystem
 
 Projects like [LeRobot](https://github.com/huggingface/lerobot) (and the ~$300 SO-101 arm) have
