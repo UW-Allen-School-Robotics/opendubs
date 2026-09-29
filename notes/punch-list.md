@@ -31,8 +31,8 @@ Two counting traps, both of which inflated an earlier sweep:
   the ESP32 platform on 2026-09-01; opendubs2 never got it, and on 2026-09-08 that broke the
   StampPLC build mid-session for reasons unrelated to what we were changing. See
   [deployment-drift.md](deployment-drift.md). Also: `main.cpp` on the robot carries two
-  features that exist nowhere else (PWM mirror, contactor auto-arm) — they would be lost
-  with the SD card.
+  features that exist nowhere else (PWM mirror, contactor auto-arm) — the next flash from the
+  repo overwrites them, and there is no copy anywhere.
 - **[DEC] A deploy path that understands per-robot values.** The audit reports drift; it
   does not prevent it. `tools/access.py` already makes the "shared vs per-machine"
   distinction for accounts; deployment needs the same idea.

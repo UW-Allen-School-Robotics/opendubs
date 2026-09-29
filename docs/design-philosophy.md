@@ -28,14 +28,18 @@ The structure is **goBILDA** — an aluminum building system of extruded channel
 plates, hubs, and shafts (sold through **ServoCity**) — combined with **3D-printed** brackets and
 enclosures for the parts that don't need metal. We chose this pairing deliberately:
 
-- **Modular, no fabrication machinery.** goBILDA parts bolt together on a regular hole grid into
-  rigid frames — no milling, welding, or lathe work. A hobby 3D printer covers the custom
-  brackets. The whole robot is buildable with hand tools and a printer.
-- **A large, proven ecosystem.** goBILDA is the standard structural kit for **FIRST Tech
-  Challenge (FTC)** and is widely used across FIRST Robotics — so it's battle-tested by thousands
-  of teams, and there's a deep catalog of parts that all fit together.
-- **Abundant resources.** Because of that adoption, there's CAD, tutorials, and community
-  know-how for almost anything you'd want to build — you're rarely the first to try it.
+Three reasons, in order of how much they matter to a replicator.
+
+??? note "Why this pairing — no machine shop, a proven ecosystem, abundant CAD"
+    - **Modular, no fabrication machinery.** goBILDA parts bolt together on a regular hole grid into
+      rigid frames — no milling, welding, or lathe work. A hobby 3D printer covers the custom
+      brackets. The whole robot is buildable with hand tools and a printer.
+    - **A large, proven ecosystem.** goBILDA is the standard structural kit for **FIRST Tech
+      Challenge (FTC)** and is widely used across FIRST Robotics — so it's battle-tested by thousands
+      of teams, and there's a deep catalog of parts that all fit together.
+    - **Abundant resources.** Because of that adoption, there's CAD, tutorials, and community
+      know-how for almost anything you'd want to build — you're rarely the first to try it.
+
 
 !!! tip "goBILDA Product Insight"
     goBILDA's [**Product Insight**](https://www.servocity.com/product-insights) is an excellent
@@ -54,36 +58,40 @@ swap the mecanum wheels for other goBILDA-compatible wheels — including
 [all-terrain tires](https://www.servocity.com/all-terrain-wheels-tires/) — and reconfigure the
 mixer for **tank / 4WD** drive. The base is meant to be reconfigured, not to lock you in.
 
-**Why not swerve?** Swerve (and powered-caster holonomic drives) give independent steer + drive at
-each corner, but the modules typically cost **~2–3× per wheel** versus a fixed drive, add real
-mechanical and control complexity, and — unlike mecanum — **can't be reconfigured down to a
-cheaper fixed 4WD or tank drive** (above). For the baseline we chose the simpler, cheaper mecanum
-system; swerve is a great community extension (below), not a baseline requirement. For a
-swerve-based sibling project, see **[TidyBot++](https://tidybot2.github.io/)** under
-[Where OpenDubs fits in the ecosystem](#where-opendubs-fits-in-the-ecosystem).
+??? note "Why not swerve?"
+    **Why not swerve?** Swerve (and powered-caster holonomic drives) give independent steer + drive at
+    each corner, but the modules typically cost **~2–3× per wheel** versus a fixed drive, add real
+    mechanical and control complexity, and — unlike mecanum — **can't be reconfigured down to a
+    cheaper fixed 4WD or tank drive** (above). For the baseline we chose the simpler, cheaper mecanum
+    system; swerve is a great community extension (below), not a baseline requirement. For a
+    swerve-based sibling project, see **[TidyBot++](https://tidybot2.github.io/)** under
+    [Where OpenDubs fits in the ecosystem](#where-opendubs-fits-in-the-ecosystem).
+
 
 ### Load limits — where the drivetrain gives out
 
 The goBILDA **8 mm REX** shaft-and-hub drivetrain is expected to be **good enough for most
 OpenDubs builds**, but it's worth understanding where it gives out.
 
-**Static loading is comfortable.** Take a loaded baseline robot at ~25 kg (frame + Thor + a 52 V
-LiFePO4 pack + electronics — the battery and payload dominate the mass). Spread over four wheels
-that's about **25 kg × 9.81 ÷ 4 ≈ 61 N (~6 kgf) per wheel** of vertical load, well within what
-the 8 mm REX shafts, hubs, and bearings carry statically. Even a heavy top-deck payload keeps the
-*static* margins healthy. *(Estimate — confirm against your actual mass.)*
+??? note "The numbers — static margins are fine, transients are what break it"
+    **Static loading is comfortable.** Take a loaded baseline robot at ~25 kg (frame + Thor + a 52 V
+    LiFePO4 pack + electronics — the battery and payload dominate the mass). Spread over four wheels
+    that's about **25 kg × 9.81 ÷ 4 ≈ 61 N (~6 kgf) per wheel** of vertical load, well within what
+    the 8 mm REX shafts, hubs, and bearings carry statically. Even a heavy top-deck payload keeps the
+    *static* margins healthy. *(Estimate — confirm against your actual mass.)*
 
-**Dynamic loading is the real limit.** The failure cases aren't standing still — they're the
-transients:
+    **Dynamic loading is the real limit.** The failure cases aren't standing still — they're the
+    transients:
 
-- **Hard / dynamic braking** and direction slams drive a **torque spike** through the drivetrain.
-  The weakest links there are the **miter gears** (the 90° turn at each wheel) and the
-  **planetary gearsets inside the motors** — shock-loading strips gear teeth long before the frame
-  cares.
-- **Off-roading and impacts** shock-load the **bearings, hubs, and mecanum rollers**. Mecanum
-  wheels especially have small rollers that don't like curbs, drops, or debris.
-- **Overloading the chassis** (a payload well beyond the baseline) pushes the *static* load toward
-  the hub/bearing limits and makes every dynamic event worse.
+    - **Hard / dynamic braking** and direction slams drive a **torque spike** through the drivetrain.
+      The weakest links there are the **miter gears** (the 90° turn at each wheel) and the
+      **planetary gearsets inside the motors** — shock-loading strips gear teeth long before the frame
+      cares.
+    - **Off-roading and impacts** shock-load the **bearings, hubs, and mecanum rollers**. Mecanum
+      wheels especially have small rollers that don't like curbs, drops, or debris.
+    - **Overloading the chassis** (a payload well beyond the baseline) pushes the *static* load toward
+      the hub/bearing limits and makes every dynamic event worse.
+
 
 **Rule of thumb:** drive it like a lab robot — smooth accel/decel, indoor floors, sane payloads —
 and the 8 mm REX system is fine. Treat it like an off-road RC truck — hard braking, jumps,
@@ -107,16 +115,18 @@ stack — a **mobile base** with autonomy compute, power, and safety, plus a Z-a
 mounts. It costs more because it does more, and the intent is to **complement** that ecosystem,
 not compete with it.
 
-**A closely-related project — TidyBot++.** [TidyBot++](https://tidybot2.github.io/)
-([paper](https://arxiv.org/abs/2412.10447) · [code](https://github.com/jimmyyhwu/tidybot2);
-Princeton / Stanford, 2024) shares much of OpenDubs' intent — an open, affordable,
-learning-friendly mobile-manipulation base — and is well worth studying. The main divergence is
-the **drive system**: TidyBot++ runs a **powered-caster holonomic (swerve-like) base**, where
-OpenDubs runs **mecanum**. Holonomic/swerve is excellent to control, but the drive units currently
-run **~3×** the cost of the mecanum-motor approach and **can't be trivially reconfigured down to a
-cheaper fixed 4WD** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
-for builds that want it. See the full **[OpenDubs ↔ TidyBot++ comparison](comparison-tidybot.md)**
-for a side-by-side of drive, cost, compute, payload, power, and safety.
+??? note "A closely-related project — TidyBot++"
+    **A closely-related project — TidyBot++.** [TidyBot++](https://tidybot2.github.io/)
+    ([paper](https://arxiv.org/abs/2412.10447) · [code](https://github.com/jimmyyhwu/tidybot2);
+    Princeton / Stanford, 2024) shares much of OpenDubs' intent — an open, affordable,
+    learning-friendly mobile-manipulation base — and is well worth studying. The main divergence is
+    the **drive system**: TidyBot++ runs a **powered-caster holonomic (swerve-like) base**, where
+    OpenDubs runs **mecanum**. Holonomic/swerve is excellent to control, but the drive units currently
+    run **~3×** the cost of the mecanum-motor approach and **can't be trivially reconfigured down to a
+    cheaper fixed 4WD** the way OpenDubs mecanum can. We'll likely offer a **swerve alternative**
+    for builds that want it. See the full **[OpenDubs ↔ TidyBot++ comparison](comparison-tidybot.md)**
+    for a side-by-side of drive, cost, compute, payload, power, and safety.
+
 
 In practice, "fitting in" means a manipulator is treated as a **payload, not a fixed part of the
 robot**; ROS 2 is the integration substrate; and the base is exposed as a controllable robot

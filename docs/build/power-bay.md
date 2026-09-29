@@ -3,7 +3,7 @@
 !!! info "At a glance"
     | | |
     |---|---|
-    | **You'll build** | The drive-bus distribution (REV PDH *or* fuse block) mounted in the bay |
+    | **You'll build** | The drive-bus distribution (a fuse block) mounted in the bay |
     | **Time** | *TODO* |
     | **Difficulty** | Beginner |
     | **Prerequisites** | [Base Frame](base-frame.md) |
@@ -29,14 +29,19 @@ The power bay is **simple**: it holds the **drive-bus distribution** and nothing
     Everything here is on the **drive-24 V rail behind the e-stop contactor** (see the
     contactor / e-stop wiring on the [Hardware BOM](../hardware-bom.md)).
 
-## Distribution — REV hub *or* a fuse block
+## Distribution — use a fuse block
 
-!!! note "We use the REV PDH because we already owned it"
-    This build uses the [REV Power Distribution Hub](https://www.revrobotics.com/rev-11-1850/)
-    (`REV-11-1850`) mainly because it was **purchased earlier in the project**. It has a CAN
-    bus and reports potentially-useful telemetry — but it's arguably **overkill** for simple
-    distribution. A plain **[fuse block](https://www.amazon.com/dp/B0FLJV9BDD)** is perfectly
-    acceptable. We provide **3D-printed mounting parts for either**, so pick whichever you have.
+!!! warning "Build this with a fuse block, not the REV PDH"
+    The drive bus is **24 V**. The [REV Power Distribution Hub](https://www.revrobotics.com/rev-11-1850/)
+    (`REV-11-1850`) is built for the 12 V FRC ecosystem, so 24 V is outside what it is
+    specified for. Use a plain **[fuse block](https://www.amazon.com/dp/B0FLJV9BDD)** — it is
+    cheaper, simpler, and correctly rated for this bus.
+
+    **This robot has a PDH fitted**, bought before the bus voltage settled. It distributes
+    power and has not been removed, but its CAN telemetry is not enabled and whether running it
+    at 24 V has degraded it is unknown. It is history, not a pattern to copy.
+
+    Mounting parts are printed for **either**, so the choice costs nothing mechanically.
 
 ## CAD & 3D model
 
@@ -54,8 +59,8 @@ The power bay is **simple**: it holds the **drive-bus distribution** and nothing
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [REV Power Distribution Hub (PDH)](https://www.revrobotics.com/rev-11-1850/) | `REV-11-1850` | 1 | Used because we bought it earlier in the project; CAN bus + useful telemetry, but potentially overkill. CHOOSE this OR the fuse block. |
-| [Fuse block (blade fuses)](https://www.amazon.com/dp/B0FLJV9BDD) | — | 1 | Simpler, perfectly acceptable alternative to the REV PDH |
+| [REV Power Distribution Hub (PDH)](https://www.revrobotics.com/rev-11-1850/) | `REV-11-1850` | 1 | NOT for new builds — designed for the 12 V FRC ecosystem and this drive bus is 24 V. Fitted on this robot because it was bought before the bus voltage settled; its CAN telemetry is not enabled. CHOOSE the fuse block instead. |
+| [Fuse block (blade fuses)](https://www.amazon.com/dp/B0FLJV9BDD) | — | 1 | RECOMMENDED for the 24 V drive bus. Simple, cheap, correctly rated. CHOOSE this OR the REV PDH. |
 
 **Power input**
 

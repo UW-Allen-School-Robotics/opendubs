@@ -40,7 +40,7 @@ Expected to differ, and must not be blindly synced:
   (`kDriveInvert`, `kEscSpanUs`, `kEscSlewUs`, `kEscRevDwellTicks`), the `-str` inversion,
   and two features that exist only on the robot: the PWM mirror diagnostic and the
   contactor auto-arm. **The uncommitted features are a second kind of drift** — work that
-  exists nowhere else and would be lost with the SD card.
+  exists nowhere else, and the next flash from the repo overwrites it.
 - `rc_serial_probe/platformio.ini` — has a local `monitor_port`.
 
 ## The real fix
