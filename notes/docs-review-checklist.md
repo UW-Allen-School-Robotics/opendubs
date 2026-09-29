@@ -162,12 +162,24 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
 
           D13 closed and the taxonomy-mapping half of R11 withdrawn in
           `state-machine-review.md`.
-      - [ ] **B7b the payload contract.** Now unblocked. Merge with **D9** (payloads take power
-            from the drive bus, any data bus, isolation mandatory, self-contained, fail gracefully
-            on an e-stop power cut, no spare logic-bus fuse slots) and **D10** (Raj's payload comms
-            protocol, physical bus independence, the software-mediated e-stop message and state
-            pickup). The term "payload contract" appears nowhere in `docs/` today;
-            `design-philosophy.md` implies it is the four interface pages.
+      - [x] **B7b the payload contract — WRITTEN 2026-09-29** into
+            `interfaces/power-data.md`, which already claimed to be "the contract a payload builds
+            to" while saying only that a compatible payload stays in budget and uses a standard
+            connector. It is six rules now: drive-bus power, mandatory galvanic isolation,
+            self-containment, fail-safe on a power cut, watch the state broadcast if you outlive
+            the e-stop, and go through the arbiter to claim an axis — which ties it to the control
+            authority page written for B7.
+
+            **D9 was wrong on one point.** It said no spare logic-bus fuse slots remain. The Mini
+            Power Module has six branches with five committed (StamPLC, e-stop signal, accessory
+            bus, Thor at 10 A, PRISM) — one spare position, plus the shared accessory branch. The
+            page states the real budget instead of a TODO.
+
+            **D10 is already written, in PR #7.** `docs/interfaces/payload-comms.md` on
+            `worktree-payload-comms-impl` specifies the CAN framing, the 11-bit module/type ID and
+            fail-safe-by-omission heartbeats. Nothing to write — it needs merging. **Note: that
+            branch spells "StampPLC" throughout, so merging it after today's normalisation
+            reintroduces the old spelling.**
 - [x] B8  **RULED 2026-09-29 — collapsible sections, nothing deleted.** Four long argument
           blocks folded into `??? note` details (`pymdownx.details` was already enabled): the
           goBILDA rationale, "Why not swerve?", the static-vs-dynamic load numbers, and the
