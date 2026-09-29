@@ -26,13 +26,6 @@
 #include <WiFiUdp.h>
 
 
-#if __has_include("esp_camera.h")
-#include "esp_camera.h"
-#define HAS_CAMERA 1
-#else
-#define HAS_CAMERA 0
-#endif
-
 static const bool DEMO_CYCLE = false;  // true = auto-cycle robot states (face
                                        // demo). false = hold SAFE_IDLE + puns.
 static const uint32_t IDLE_MS = 10000; // controller -> face auto-revert
@@ -266,39 +259,6 @@ static void safetyTask(void *) {
     // TODO-HW: feed a hardware/task watchdog here; also drop authorize if the
     // robot heartbeat goes stale while under robot control (fail-safe stop).
     vTaskDelay(pdMS_TO_TICKS(20));
-  }
-}
-
-static void streamerTask(void *) {
-  while (WiFi.status() != WL_CONNECTED) {
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-
-  WiFiServer server(80);
-  server.begin();
-  for (;;) {
-    WiFiClient client = server.accept();
-    if (client) {
-      client.println("HTTP/1.1 200 OK");
-      client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
-      client.println();
-      while (client.connected()) {
-#if HAS_CAMERA
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb) {
-          client.println("--frame");
-          client.println("Content-Type: image/jpeg");
-          client.printf("Content-Length: %u\n\n", fb->len);
-          client.write(fb->buf, fb->len);
-          client.println();
-          esp_camera_fb_return(fb);
-        }
-#endif
-        vTaskDelay(pdMS_TO_TICKS(100)); // 10 FPS
-      }
-      client.stop();
-    }
-    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
@@ -896,23 +856,9 @@ void setup() {
     tickUI();
   }
 
-#if HAS_CAMERA
-  // Note: Tab5 ESP32-P4 requires MIPI CSI camera initialization.
-  // This is a placeholder for the actual MIPI config.
-  camera_config_t config = {0};
-  // config.pin_... = ...;
-  if (ESP_FAIL == ESP_OK) { // esp_camera_init(&config)
-    Serial.println("Camera initialized.");
-  } else {
-    Serial.println("Camera init failed or missing config.");
-  }
-#endif
-
   xTaskCreatePinnedToCore(controlTask, "control", 4096, nullptr, 3, nullptr, 0);
   xTaskCreatePinnedToCore(safetyTask, "safety", 3072, nullptr, 6, nullptr, 0);
   xTaskCreatePinnedToCore(commsTask, "comms", 4096, nullptr, 1, nullptr, 0);
-  xTaskCreatePinnedToCore(streamerTask, "streamer", 8192, nullptr, 1, nullptr,
-                          1);
 
   g_robotState = 1; // SAFE_IDLE
   g_uiMode = UiMode::FACE;
