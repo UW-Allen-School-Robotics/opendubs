@@ -114,23 +114,32 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] B3  **RULED 2026-09-29 — PaHub stays as built.** It is what the firmware drives on Port A
           and what the fitted M5Stack sensor units use. No doc change needed; C21 (the I²C
           colour-code decoder ring) still stands on its own.
-- [~] B4  **Half-confirmed 2026-09-29, and it inverts.** Confirmed off the BOM: `parts.csv` and
-          `hardware-bom.md` contain no display, screen, panel, monitor or HDMI line at all.
-          **But a touch panel is fitted and in daily use** — the kiosk display on the Thor, which
-          needs a forced immutable `xorg.conf` to light up and a custom XTEST touch bridge because
-          Tegra has no `uinput`. `camera-selection.md:204` already budgets USB bandwidth for it.
-          So the question is not whether to drop it but **whether it is part of the build**: if it
-          is, it needs a BOM line and a build page; if it is bench equipment, docs should say the
-          robot needs no display. **Needs Emma.**
-- [-] B5  **Closed 2026-09-29 — decided by events.** No live doc mentions Orin; Thor is the
-          platform and two are fielded. The item said itself that it was a discussion rather than
-          a doc edit.
-- [x] B6  **RULED 2026-09-29 — written into `design-philosophy.md`.** Nothing was said about this
-          anywhere, so it is new text rather than a correction. The section states why LiFePO4 for
-          a lab, that the **52 V class** is the portable part of the spec, and the two things a
-          substitute pack must preserve: the nominal window the converters and contactor are sized
-          around, and a BMS that reports SOC, since the StamPLC reads it over RS-485 rather than
-          inferring it.
+- [x] B4  **RULED 2026-09-29 — the robot has no local display, and the kiosk is retired.** The
+          Android tablet is the only operator UI. It is functionally equivalent, it frees a USB
+          port, and the remaining friction is a styling problem rather than a capability gap:
+          `frontend/style.css` is still written base-first for the 1920x480 strip panel with the
+          tablet on a `@media` fallback (line 472), so the tablet has been running the secondary
+          branch of the stylesheet all along.
+
+          Confirmed off the BOM — `parts.csv` and `hardware-bom.md` have no display, screen,
+          panel, monitor or HDMI line — so no BOM change is needed. Docs should state that the
+          robot needs no display. **Follow-on work is tracked as B4a/B4b below.**
+      - [ ] **B4a deprecate the kiosk code.** Dead: `deploy/kiosk-autostart.sh`,
+            `kiosk-session.sh`, `session-panel.sh`, `dashboard-autostart.sh`,
+            `opendubs-kiosk.service`, `opendubs-kiosk.desktop`,
+            `opendubs-kiosk-autostart.desktop`, `opendubs-dashboard.desktop`,
+            `opendubs-panel.desktop`, `opendubs-touch.desktop`, `opendubs-xorg-fix.service`,
+            `99-opendubs-touch.conf`, `tools/touch_bridge.py`, `tools/touch_viz.py`.
+            Alive and must not be touched: the whole `backend/`, `frontend/`,
+            `opendubs-dash.service`, `opendubs-stamplc-hb.service`, `deploy.sh`, `opendubs-sudoers`.
+            `provision.sh` is **mixed** — it sets up the venv and backend service the tablet needs
+            *and* a kiosk user, gdm autologin, chromium snap, immutable panel xorg and touch
+            rotation. It has to be split, not deleted. Removing units from the repo does not remove
+            them from the Thor, so the enabled services need disabling there: **do the robot half
+            in a session on its network.**
+      - [ ] **B4b make the tablet layout primary.** Rewrite `style.css` so the tablet is the base
+            case and the strip panel is dropped entirely, which is where the "slight annoyances"
+            live. Independent of B4a and safe to do off-robot.
 - [ ] B7  Safety rules + the payload contract — needs the control-authority philosophy settled
           first (see `control-authority-model.md`)
 - [x] B8  **RULED 2026-09-29 — collapsible sections, nothing deleted.** Four long argument

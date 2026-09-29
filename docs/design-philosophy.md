@@ -15,8 +15,8 @@ interface contracts are what let a *stranger's* module or arm drop in:
 - **[Power & data](interfaces/power-data.md)** — the rails, current budget, connectors, and
   comms options a payload can draw on.
 - **[Command & telemetry](interfaces/command-telemetry.md)** — the failsafe-gated command +
-  telemetry contract that *every* control source speaks (RC, on-robot touchscreen, WiFi
-  tablet, or an autonomy/LeRobot policy).
+  telemetry contract that *every* control source speaks (RC, the operator's tablet over WiFi,
+  or an autonomy/LeRobot policy).
 - **[Coordinate frames & naming](naming-frames.md)** — REP-103 and the named TF frames, so a
   mounted arm knows where it is.
 

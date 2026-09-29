@@ -161,7 +161,7 @@ physics (baseline), not vendor churn.
   breakdown][webrtc-lat]). Lowering it further means 60 fps capture, short
   exposure, and tuning the capture path — not the encoder.
 - USB3 is fine for this; the camera interface is not the latency bottleneck.
-- The kiosk dashboard CAMERA tab can take a lower-rate WebRTC/MJPEG tap of the
+- The dashboard CAMERA tab can take a lower-rate WebRTC/MJPEG tap of the
   same encoded stream; don't build a second capture path.
 - Off-the-shelf scaffolding exists (e.g. Transitive Robotics webrtc-video uses
   Jetson HW encoders automatically); a GStreamer `nvv4l2h264enc` → `webrtcbin`
@@ -201,9 +201,10 @@ actually becomes a problem.
    GStreamer `nvv4l2*enc` elements under JetPack 7, and whether the chosen
    WebRTC stack picks up the HW encoder.
 4. **USB topology**: how many independent USB3 host controllers does the Thor
-   dev kit expose? ZED 2i + 2× D405 + D455 + RPLIDAR + touch panel must not
-   share one bandwidth-limited bus (also: the touch panel already shows USB
-   instability — hardening roadmap track 6).
+   dev kit expose? ZED 2i + 2× D405 + D455 + RPLIDAR must not share one
+   bandwidth-limited bus. The robot carries **no local display**, so the port the
+   retired touch panel used is free — and the USB instability attributed to that
+   panel is gone with it.
 5. **depthai-ros on Jazzy**: no binary release (Humble/Iron/Kilted only) —
    source-build feasibility on Thor if OAK is pursued.
 6. **ZED X partner carrier boards for Thor**: timeline/pricing — the trigger to

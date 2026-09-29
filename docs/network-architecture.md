@@ -72,7 +72,7 @@ outbound with **no inbound hole needed.**
 
 ## Access control
 
-- **Users never touch robot internals** — only a defined application surface: the kiosk dashboard
+- **Users never touch robot internals** — only a defined application surface: the dashboard
   (HTTP), an optional teleop endpoint, optional Foxglove read-only. ROS actuator services, StamPLC
   command endpoints, and SSH stay LAN-only / admin-only.
 - **Cut-off is one action** — disable the guest SSID, revoke a VPN peer, flip a router firewall rule,
