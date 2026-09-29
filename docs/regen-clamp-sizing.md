@@ -7,7 +7,7 @@ power spine and e-stop) and the Figma board, which is the authoritative schemati
 All math here is plain-text (no rendered LaTeX): `·` multiply, `²` square, `√` root,
 `≈/≤/≥` comparisons, Greek `ω` for angular speed.
 
-## 1. Placement decision — downstream of the PDH, one clamp per ESC
+## 1. Placement decision — downstream of the PDH, one clamp for both ESCs
 
 The obvious placement is a single clamp **upstream** of the contactor:
 
@@ -15,11 +15,11 @@ The obvious placement is a single clamp **upstream** of the contactor:
 ECO-WORTHY 52 V → 52→24 DC/DC → [regen clamp] → e-stop contactor → REV PDH → drive ESCs
 ```
 
-**Revised placement — clamp(s) downstream of the PDH, at the ESCs, one per ESC:**
+**Placement — the clamp sits downstream of the PDH, at the ESCs, shared by both:**
 
 ```
-ECO-WORTHY 52 V → 52→24 DC/DC → e-stop contactor → REV PDH → [clamp] → ESC-A (2 motors)
-                                                            └────→ [clamp] → ESC-B (2 motors)
+ECO-WORTHY 52 V → 52→24 DC/DC → e-stop contactor → REV PDH → [clamp] ─┬→ ESC-A (2 motors)
+                                                                      └→ ESC-B (2 motors)
 ```
 
 Rationale:
@@ -33,15 +33,24 @@ Rationale:
   the clamp *upstream* of the open contactor, that regen has nowhere to go and the ESC
   input caps eat an overvoltage. With the clamp *downstream* (at the ESC), the local
   clamp+resistor still sink it — powered by the regen itself.
-- **One clamp per ESC, not one shared clamp.** Two hard reasons:
-  1. **80 A cap.** The clamp is rated ~80 A peak regen. A single shared clamp would carry
-     all 4 channels' regen (worst case well over 80 A); per-ESC halves it.
-  2. **Fuse independence.** The clamp's series pass element sits in the supply path, so a
-     shared clamp would funnel both ESCs through one node — collapsing the two independent
-     10 A PDH fuses into one. Per-ESC preserves each ESC on its own fuse (the low-fuse
-     philosophy in `power-architecture.md`).
+### One clamp or two
 
-→ **Two clamps, one per dual-channel ESC (2 motors each).**
+An earlier revision of this page called for one clamp per ESC on two grounds. One of them is
+answered by measurement; the other is a deviation the shared arrangement accepts.
+
+**The 80 A concern does not survive the measured envelope.** The clamp is rated ~80 A peak
+regen, and a shared clamp does carry all four channels. But the worst case that motivated
+splitting was the datasheet stall figure, not this robot: measured draw is **under 10 A per ESC
+pair** — the 10 A PDH fuses have never blown — for a base total of **20–30 A** (§3). One clamp
+sits comfortably inside its rating at the currents this drivetrain actually produces.
+
+**Fuse independence is genuinely given up.** The clamp's series pass element sits in the supply
+path, so a shared clamp funnels both ESCs through one node and the two independent 10 A PDH
+fuses no longer isolate each ESC from the other. That is a real departure from the low-fuse
+philosophy in `power-architecture.md`, and it is the reason to revisit this if the drive current
+envelope ever grows — a second clamp restores it without changing anything else.
+
+→ **One clamp, downstream of the PDH, feeding both dual-channel ESCs.**
 
 ## 2. The drive train sees *active* regen (not dissipative braking)
 

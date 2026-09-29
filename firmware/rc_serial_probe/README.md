@@ -7,7 +7,7 @@
 > `provision-firmware.sh`) references it.
 
 The firmware (`src/main.cpp`) is the M5StampPLC's edge-controller program. It emits text
-telemetry over USB-serial (`[SENS]`/`[PDH]`/`[CAN]`/`[IO]`/`[ENC]`/`[SBUS]`/`[I2C]`) consumed by
+telemetry over USB-serial (`[SENS]`/`[PDH]`/`[CAN]`/`[IO]`/`[ENC]`/`[SBUS]`/`[I2C]`/`[RC]`/`[DRIVE]`/`[BMS]`/`[BMSC]`) consumed by
 the dashboard, and accepts host commands (see below). It owns: REV PDH proprietary-CAN
 telemetry, DI/relay safety I/O, the external I²C bus (PaHub mux on Port A), IO-socket/INA/LM75
 sensing, **SBUS RC ingest**, a **local screen/LED UI**, and the **PRISM state indicator**.

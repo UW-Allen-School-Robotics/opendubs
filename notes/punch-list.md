@@ -28,8 +28,27 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 
 ### Docs pre-share cleanup (audit 2026-08-07)
 - **[DONE]** Archived 5 superseded docs → `docs/history/` (control-architecture, power-architecture, data-power-flow, hardening-roadmap, telemetry-spec) with banners + `history/README.md`; repointed all dangling links. Security-redacted the live tree (VNC pw → `OPENDUBS_VNC_PASS`; removed home IPs, SSID "Cat Sounds Central", SSH user/key path, Thor MAC). Rewrote root `README.md` + `docs/README.md` first-impression (Pixhawk removed; StampPLC-SBUS + three-rail + charger baseline stated).
-- **[TODO] Minor content-staleness pass** on the still-live docs (deferred, not yet done): strip Pixhawk/MAVLink from control-authority, state-machines, state-machine-review, capability-backlog, portability-audit (`pymavlink` dep + Holybro device match), localization-fusion, thor-setup (control subsection), network-architecture, ros/README (the live `opendubs-mavros.service` section); add `[RC]/[DRIVE]/[BMS]/[BMSC]` to the firmware README tag list; drop residual "shore"/bus-voltage-battery-stub in capability-backlog + regen-clamp-sizing; note mast is deferred to the CAN payload controller in mast-control + control-authority; soften "de-facto" + add "current = Astra stopgap" note in camera-selection.
-- **[DEC] Engineering reconciliations (need a decision, not just wording):** (1) regen clamp count/placement — BOM qty 1 vs regen-sizing 2-per-ESC vs power-arch 1-upstream; (2) field router SKU — docs say hAP **ax³**, fielded unit is hAP **ac3** (RouterOS 7.20.8) → fix; (3) StampLC→ROS bridge — ros/README describes an HTTP-poll bridge, baseline is the UDP :5005 `stamplc_udp_bridge` → confirm which is current.
+- **[DONE 2026-09-29] Minor content-staleness pass** — Pixhawk/MAVLink is out of `docs/`
+  entirely (`docs/history/` was never created; the archive lives in `notes/history/`).
+  `pymavlink` is gone from `requirements.txt` and `portability-audit.md`. Firmware README tag
+  list now carries `[RC]`/`[DRIVE]`/`[BMS]`/`[BMSC]`. `camera-selection.md` states what is
+  actually fitted and both "de-facto"/"the standard" claims are gone. `mast-control.md`'s
+  Z-axis framing rewritten and its dangling `control-architecture.md` reference removed.
+- **[TODO] Vestigial MAVLink in *code*** — out of scope of the docs pass, so never done:
+  `status.py:3` still describes itself as gathering Pixhawk/MAVLink health and `:413` returns a
+  hard-coded deprecated stub; `opendubs-dash.service:17` still exports
+  `OPENDUBS_MAVLINK_DEV=udpin:127.0.0.1:14550`; the frontend references it in `index.html` and
+  `app.js`. Also `notes/capability-backlog.md` still says "shore" in three places.
+- **[DONE 2026-09-29] Engineering reconciliations.** (1) *Regen clamp* — **one clamp feeding
+  both ESCs**, as built. `regen-clamp-sizing.md` §1 rewritten: the 80 A worry came from the
+  datasheet stall figure, and measured draw is under 10 A per ESC pair for 20–30 A total, well
+  inside the ~80 A rating. Fuse independence *is* given up and is recorded as the reason to
+  revisit if the current envelope grows. (2) *Router SKU* — resolved by generalising:
+  `network-architecture.md` names no SKU, so the fielded hAP ac3 needs no correction.
+  (3) *StampLC→ROS bridge* — the docs were right and this note was the stale thing:
+  `opendubs-stamplc-bridge.service` runs `stamplc-bridge.sh` → `stamplc_bridge.py`, polling
+  `/api/stamplc` over HTTP. `stamplc_udp_bridge.py` sits in the tree unused — **[DEC]** keep as
+  an alternative or delete.
 - **[TODO] Replacement docs for the archived power + control architecture** — the live `docs/` tree now has no standalone power-architecture or control-architecture write-up (current facts live in `system-overview.md` + code). Draft concise current-baseline versions.
 - **[TODO] Git hygiene before first commit** — vendored `M5*` repos carry nested `.git` dirs (strip or convert to submodules; root README already flags this); `.gitignore` is thin but covers `.pio/.venv/.env*`.
 - **[TODO] Diagrams + CAD: decide embed vs. static, one at a time.** The generic *embed facade* (static poster → click loads a live embed; `docs/javascripts/embed-facade.js` + `.embed-facade` CSS + `data-embed` attr + `--embed-aspect`) now serves BOTH Figma boards and Autodesk Fusion 3D viewers. Live so far: the bus map (`system-overview.md`, Figma) and the Base Frame CAD (`build/base-frame.md`, Fusion `?mode=embed`). Go through the rest and decide per item: interactive embed vs. plain static.

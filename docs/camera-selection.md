@@ -6,6 +6,10 @@ hardening-roadmap.md track 5 (Thor utilization: Isaac ROS +
 NITROS, TensorRT, NVENC). Compute is a **Jetson AGX Thor dev kit** (JetPack 7 /
 Ubuntu 24.04 / ROS 2 Jazzy, Isaac ROS 4.0 available).
 
+**Fitted today: one RealSense D415 on the head** — a stopgap, chosen for
+availability rather than from this analysis, and expected to be replaced. Nothing below is
+installed yet.
+
 Researched 2026-06-09. **Thor is new — driver maturity for every camera below is
 less proven than on Orin; verify-on-Thor items are flagged throughout.**
 
@@ -30,7 +34,8 @@ less proven than on Orin; verify-on-Thor items are flagged throughout.**
      gives a real left/right pair for VR passthrough.
    - **RealSense D405 (×2)** — wrists. Purpose-built short-range stereo depth
      (7–50 cm ideal, sub-mm at close range), global shutter, 42×42×23 mm /
-     60 g, USB3. The de-facto eye-in-hand manipulation camera.
+     60 g, USB3. Short range is the point: it is built for a camera that
+     sits on the hand rather than across the room.
 3. **Nav/VSLAM:** start with the head ZED 2i feeding **Isaac ROS cuVSLAM +
    nvblox** (plus the existing RPLIDAR A1 for 2D safety scans); add a
    **RealSense D455** (or second ZED 2i) as a dedicated fixed forward nav
@@ -99,7 +104,7 @@ less proven than on Orin; verify-on-Thor items are flagged throughout.**
   comfort, the D455 is the other alternate.
 
 ### (b) WRIST — one per OpenArm 7-DOF wrist
-- **Primary: RealSense D405 ×2** (~$270 ea). The standard eye-in-hand camera:
+- **Primary: RealSense D405 ×2** (~$270 ea). Suited to eye-in-hand use:
   7–50 cm ideal range, sub-mm close-range depth, global shutter, 60 g, USB3,
   `realsense-ros` on Jazzy. No IMU (irrelevant on a wrist — the arm provides
   kinematics).
