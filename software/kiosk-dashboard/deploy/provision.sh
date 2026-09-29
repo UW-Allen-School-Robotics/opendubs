@@ -103,8 +103,8 @@ PY
 # --- 6) Backend service -----------------------------------------------------
 echo "-- installing backend service"
 install -m 0644 "$DEPLOY/opendubs-dash.service" /etc/systemd/system/opendubs-dash.service
-# StampPLC Ethernet heartbeat — broadcasts "HB" so the firmware's RX watchdog can spot a wedged
-# link (see stamplc_hb.py). Required for the USB-less (transport=udp) StampPLC link to self-heal.
+# StamPLC Ethernet heartbeat — broadcasts "HB" so the firmware's RX watchdog can spot a wedged
+# link (see stamplc_hb.py). Required for the USB-less (transport=udp) StamPLC link to self-heal.
 install -m 0644 "$DEPLOY/opendubs-stamplc-hb.service" /etc/systemd/system/opendubs-stamplc-hb.service
 systemctl daemon-reload
 systemctl enable opendubs-dash.service

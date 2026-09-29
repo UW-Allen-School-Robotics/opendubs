@@ -18,12 +18,12 @@ The diagram is the source of truth; this is the summary.
   step-down converters: a **20 A** buck for the logic bus and a **60 A** buck for the drive bus.
 - **Logic-24 V bus** — from the **20 A** buck, **always-on** (not gated by the contactor). Its
   fused branches — the **REV Mini Power Module** in the
-  [Electronics Bay](build/electronics-bay.md) — feed Thor, the StampPLC, the router, USB hub(s),
+  [Electronics Bay](build/electronics-bay.md) — feed Thor, the StamPLC, the router, USB hub(s),
   and the E-stop signal.
 - **Safety contactor + e-stop** — a GIGAVAC GX11 gates the **drive** path. Its coil is held
-  closed only when the **E-STOP** button is not pressed and the StampPLC's **R0** relay is
+  closed only when the **E-STOP** button is not pressed and the StamPLC's **R0** relay is
   closed; the **RUN** button is the master switch for the **logic bus** that powers that chain
-  (and the StampPLC itself). So an e-stop press, a software e-stop (R0 open), or switching off
+  (and the StamPLC itself). So an e-stop press, a software e-stop (R0 open), or switching off
   the logic bus at RUN all drop it. See [E-stop system](e-stop.md) for the full wiring.
 - **Drive-24 V bus** — the **60 A** buck sits **behind the contactor**, so the drive bus
   de-energizes on e-stop. Its fused branches — the [REV PDH](build/power-bay.md) — feed the drive

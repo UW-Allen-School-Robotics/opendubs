@@ -3,11 +3,11 @@
 !!! info "At a glance"
     | | |
     |---|---|
-    | **You'll build** | The 24 V logic bus — six fused branches out of the REV Mini Power Module to Thor, the StampPLC, the E-stop system, the accessory bus, and the PRISM |
+    | **You'll build** | The 24 V logic bus — six fused branches out of the REV Mini Power Module to Thor, the StamPLC, the E-stop system, the accessory bus, and the PRISM |
     | **Time** | *TODO* |
     | **Difficulty** | Intermediate (wiring; one connector must be re-pinned) |
     | **Prerequisites** | [Electronics Bay](electronics-bay.md) — the module is mounted on the bay's grid plate |
-    | **Mates to** | Thor and the PRISM (lower frame); the StampPLC, E-stop system, and accessory bus (upper frame) |
+    | **Mates to** | Thor and the PRISM (lower frame); the StamPLC, E-stop system, and accessory bus (upper frame) |
 
 <figure class="amap amap--electronics-bay" markdown="1">
   <div class="amap-frame" markdown="1">
@@ -32,7 +32,7 @@ comes in on the larger WAGO input terminal.
 
 | Position | Feeds | Fuse | Lives in |
 |---:|---|---:|---|
-| **1** | StampPLC | 5 A | Upper frame |
+| **1** | StamPLC | 5 A | Upper frame |
 | **2** | E-stop system | 5 A | Upper frame |
 | **3** | Accessory bus → USB hub + Wi-Fi router | 5 A | Upper frame |
 | **4** | *Spare* | — | — |
@@ -71,7 +71,7 @@ Working order:
 2. Land the two **lower-frame branches** — position 5 (Thor) and position 6 (PRISM) — since both
    loads are in the lower frame.
 3. Join the upper and lower frames.
-4. Route positions **1, 2, 3** to the StampPLC, the E-stop system, and the accessory bus, cut to
+4. Route positions **1, 2, 3** to the StamPLC, the E-stop system, and the accessory bus, cut to
    the real length, then **insert into the MPM WAGOs**.
 5. Fuse the module *last* — work through the **Verify** checklist at the foot of this page first.
 
@@ -145,7 +145,7 @@ The full branch map, fuse values, and the Micro-Fit detail — pan/zoom the live
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| ATM (mini) blade fuse, 5 A | — | 4 | Positions 1/2/3/6 — StampPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
+| ATM (mini) blade fuse, 5 A | — | 4 | Positions 1/2/3/6 — StamPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
 | ATM (mini) blade fuse, 10 A | — | 1 | Position 5 — Thor only. Every other branch is 5 A. |
 
 **Lighting branch**

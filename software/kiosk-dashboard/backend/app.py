@@ -3,7 +3,7 @@
 Serves the static dashboard and streams a merged system+telemetry snapshot over
 a websocket once a second. Exposes a small set of NON-SAFETY soft-control
 endpoints (acknowledge, log action). Nothing here commands actuators or acts as
-a safety control — safety authority stays in hardware + StampPLC per
+a safety control — safety authority stays in hardware + StamPLC per
 docs/control-authority.md.
 
 Run:
@@ -112,13 +112,13 @@ def tracker_control(state: str) -> JSONResponse:
 
 @app.get("/api/stamplc")
 def stamplc_status() -> JSONResponse:
-    """Lightweight StampLC view (io / safety / encoder / power) for the ROS bridge
+    """Lightweight StamPLC view (io / safety / encoder / power) for the ROS bridge
     (opendubs-stamplc-bridge) — avoids the heavy full snapshot on a fast poll."""
     f = status_mod.collect_fast()
     return JSONResponse({"io": f["io"], "safety": f["safety"],
                          "encoder": f["encoder"], "power": f["power"],
                          # Z-axis state, so the Tab5 bridge can report real lift height and
-                         # guard state instead of running its own StampPLC reader.
+                         # guard state instead of running its own StamPLC reader.
                          "drive": f.get("drive") or {}})
 
 
@@ -127,7 +127,7 @@ def mast_control(cmd: str) -> JSONResponse:
     """Z-axis intent: up | down | stop.
 
     This is the ONLY way anything on the network moves the lift. It becomes `MAST CMD` on
-    the StampPLC, which feeds the same driver the RC sticks do — so the pinch guard, the
+    the StamPLC, which feeds the same driver the RC sticks do — so the pinch guard, the
     limit detection and the authority/deadman gate all still apply. Writing the lift's
     relays directly (as /api/relay used to allow) walks past every one of them.
 
@@ -143,7 +143,7 @@ def mast_control(cmd: str) -> JSONResponse:
 
 @app.post("/api/relay/{ch}/{state}")
 def relay_control(ch: str, state: str) -> JSONResponse:
-    """Toggle a dashboard-controllable StampLC relay.
+    """Toggle a dashboard-controllable StamPLC relay.
 
     Only relay 3 is free. The others all mean something now:
       R0  e-stop contactor
@@ -199,7 +199,7 @@ def fault_clear() -> JSONResponse:
 
 @app.post("/api/i2c/scan")
 def i2c_scan() -> JSONResponse:
-    """Trigger an on-demand full I2C bus sweep on the StampLC (not run periodically
+    """Trigger an on-demand full I2C bus sweep on the StamPLC (not run periodically
     — probing all 112 addresses is high-latency). Result arrives as the [I2C] full:
     line → status.io.i2c_full."""
     import stamplc
@@ -209,7 +209,7 @@ def i2c_scan() -> JSONResponse:
 
 @app.post("/api/i2c/info")
 def i2c_info() -> JSONResponse:
-    """Ask the StampLC which physical pins the external scan bus is bound to
+    """Ask the StamPLC which physical pins the external scan bus is bound to
     (result arrives as the [I2C] info/bus line → status.io.i2c_bus)."""
     import stamplc
     stamplc.reader.send("I2C_INFO")
@@ -251,7 +251,7 @@ def enc_reset() -> JSONResponse:
 
 @app.post("/api/pdh/{action}")
 def pdh_control(action: str) -> JSONResponse:
-    """Control the REV PDH switchable channel via the StampLC serial."""
+    """Control the REV PDH switchable channel via the StamPLC serial."""
     import stamplc
     if action == "on":
         stamplc.reader.send("PDH_SWITCH 1")
@@ -314,7 +314,7 @@ def system_power(action: str) -> JSONResponse:
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
     await socket.accept()
-    # RC telemetry is cheap (reads the latest StampPLC frame from memory) → push
+    # RC telemetry is cheap (reads the latest StamPLC frame from memory) → push
     # fast for responsive sticks. System metrics are expensive (nvidia-smi
     # subprocess, sysfs) → include them only ~1x/sec.
     HZ = 20

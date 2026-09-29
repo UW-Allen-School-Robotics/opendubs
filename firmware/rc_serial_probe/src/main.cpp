@@ -46,7 +46,7 @@ void tprintf(const char* fmt, ...)
 static constexpr int kBluePortRxPin = 5;
 static constexpr int kBluePortTxPin = 4;
 
-// Port A = StampPLC Grove RED port (external I2C). pin_config.h:
+// Port A = StamPLC Grove RED port (external I2C). pin_config.h:
 //   STAMPLC_PIN_GROVE_RED_SDA = 2  (G2),  STAMPLC_PIN_GROVE_RED_SCL = 1  (G1).
 // This is a SEPARATE bus from the internal peripheral bus (m5::In_I2C, I2C_NUM_0
 // on G13/G15: INA226 0x40, RX8130 0x32, PI4IOE5V6408 0x43, LM75B 0x48, AW9523B 0x59).
@@ -91,7 +91,7 @@ static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
 // ---- RC pan/tilt: the stick, straight to the head ---------------------------------
 // Sent DIRECTLY to the Tab5 rather than relayed via the Thor: fewer hops, and the head keeps
 // answering the sticks if the dashboard stops. The Thor supplies the address once (TAB5IP)
-// and the StampPLC remembers it, so a Thor that dies later does not take pan/tilt with it.
+// and the StamPLC remembers it, so a Thor that dies later does not take pan/tilt with it.
 //
 // A RATE, not an angle. The stick is spring-centred — hold to move, release to stop — and
 // the Tab5 owns the position, so two devices can never integrate separately and diverge.
@@ -1535,7 +1535,7 @@ void handleHostCommand(const char* cmd)
     }
 
     // Ethernet OTA: pull a .bin over HTTP off the Thor and self-flash, then reboot into it. This is
-    // what makes the StampPLC reflashable with USB unplugged. `OTA http://<thor-ip>:<port>/fw.bin`.
+    // what makes the StamPLC reflashable with USB unplugged. `OTA http://<thor-ip>:<port>/fw.bin`.
     if (strncmp(cmd, "OTA ", 4) == 0) {
         otaHttpPull(cmd + 4);
         return;
@@ -2507,7 +2507,7 @@ static void uiRender(uint8_t di, UiState st)
 
 static void uiButtons()
 {
-    // Buttons stubbed: M5.begin()+M5StamPLC.begin() double-init breaks M5Unified's StampPLC
+    // Buttons stubbed: M5.begin()+M5StamPLC.begin() double-init breaks M5Unified's StamPLC
     // button state, so touching BtnA/B/C faults. Our firmware needs that explicit M5.begin()
     // (single-begin panics in setup). Screen + LED work without buttons. See setup() note.
     return;
@@ -2562,7 +2562,7 @@ void setup()
 {
     // NOTE on buttons: our firmware needs this explicit M5.begin(cfg) first (removing it
     // panics during M5StamPLC.begin() with our CAN/ext-I2C/UART setup). But M5StamPLC.begin()
-    // then calls M5.begin() AGAIN, and that double-init leaves M5Unified's StampPLC button
+    // then calls M5.begin() AGAIN, and that double-init leaves M5Unified's StamPLC button
     // state broken, so touching BtnA/B/C faults. The examples avoid this by calling only
     // M5StamPLC.begin(). Reconciling the two needs deeper work — buttons are stubbed for now
     // (see uiButtons). Screen + status LED are unaffected.
@@ -2575,7 +2575,7 @@ void setup()
     // loop was starving SBUS servicing → [RC] gaps → the intermittent dashboard "RC DISCONNECTED".
     Serial.setTxTimeoutMs(0);
 
-    // Enable CAN (TWAI) so we can sniff PDH traffic on the StampPLC CAN pins.
+    // Enable CAN (TWAI) so we can sniff PDH traffic on the StamPLC CAN pins.
     auto stamplc_cfg        = M5StamPLC.config();
     stamplc_cfg.enableCan   = true;
     stamplc_cfg.canBaudRate = 1000000;
@@ -2794,7 +2794,7 @@ void netSendLine(const char* buf, int n)
     eth_udp.endPacket();
 }
 
-// Receive host commands over UDP (unicast from the Thor to this StampPLC's IP:kNetPort) and route
+// Receive host commands over UDP (unicast from the Thor to this StamPLC's IP:kNetPort) and route
 // them through the SAME dispatcher as the USB serial path, so LED_COLOR/PAGE/PDH_SWITCH/etc. keep
 // working with USB unplugged. A datagram may carry one or more newline-separated command lines.
 // Lines beginning with '[' are ignored — that's our own telemetry echoed back on a broadcast, not

@@ -54,7 +54,7 @@ RC_RAW_MIN = 200
 RC_RAW_MAX = 1820
 RC_RAW_CENTER = 1000
 
-# Known I2C addresses on the StampPLC external bus for this robot.
+# Known I2C addresses on the StamPLC external bus for this robot.
 KNOWN_DEVICES = {
     "0x25": "8Servo",
     "0x31": "Pinpoint (plan)",
@@ -148,7 +148,7 @@ _RE_SBUS_STATS = re.compile(
 # [SENS] power=11.96V
 _RE_SENS_POWER = re.compile(r"\[SENS\] power=([\d.]+)V")
 
-# [I2C] direct(0x63)=yes on StampPLC external I2C bus
+# [I2C] direct(0x63)=yes on StamPLC external I2C bus
 _RE_I2C_DIRECT = re.compile(r"\[I2C\] direct\(0x63\)=(yes|no)")
 
 # [I2C] scan: 0x32 0x40 0x59  OR  [I2C] scan: none

@@ -35,7 +35,7 @@ CAN_ID_TAB5_STATUS = 0x106
 
 # Maximum servo command rate. Sending faster than this:
 #   (a) causes current spikes (absolute-angle jumps) that brownout the Tab5's ESP32
-#   (b) floods the LAN, starving the StampPLC telemetry heartbeat which makes the
+#   (b) floods the LAN, starving the StamPLC telemetry heartbeat which makes the
 #       robot display "INIT booting" whenever the AI is running.
 _CMD_INTERVAL_S = 0.10   # 10 Hz — fast enough to track a walking person smoothly
 

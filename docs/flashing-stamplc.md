@@ -1,12 +1,12 @@
-# Flash a StampPLC
+# Flash a StamPLC
 
-The **StampPLC** (M5Stack, ESP32-S3) is the mobile base's edge controller — it reads the RC receiver over
+The **StamPLC** (M5Stack, ESP32-S3) is the mobile base's edge controller — it reads the RC receiver over
 SBUS, runs the mecanum drive mixer and safety arming, watches power/BMS/CAN, and streams telemetry to
 the Thor. This page flashes its firmware (`firmware/rc_serial_probe/`) onto a new board.
 
 ## What you need
 
-- A StampPLC and a **USB-C** cable.
+- A StamPLC and a **USB-C** cable.
 - The firmware source: this repo, `firmware/rc_serial_probe/`.
 - A **build host** — either:
     - a **Thor that is already flashed and provisioned** per **[Thor setup](thor-setup.md)** — the
@@ -35,7 +35,7 @@ lib_deps =
 
 ### Option A — from the Thor (canonical)
 
-If the StampPLC is plugged into a provisioned Thor, use the helper — it frees the serial port (the
+If the StamPLC is plugged into a provisioned Thor, use the helper — it frees the serial port (the
 dashboard holds it), flashes, and restarts the dashboard even if the flash fails:
 
 ```bash
@@ -80,11 +80,11 @@ Open the serial monitor (`pio device monitor -b 115200`) and confirm telemetry i
 - `[NET] eth UP ip=…` — **the PoE Ethernet link came up and got a DHCP IP.** (If you see
   `[NET] eth DHCP failed`, the PoE cable/link or DHCP isn't ready — fine for a USB-only bench flash.)
 
-Plugged into a provisioned Thor with the dashboard running, the StampPLC's panels (power, RC, drive,
+Plugged into a provisioned Thor with the dashboard running, the StamPLC's panels (power, RC, drive,
 IO) populate within a couple of seconds.
 
 ## Next
 
-- Move the StampPLC's link off USB onto Ethernet: [StampPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
+- Move the StamPLC's link off USB onto Ethernet: [StamPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
   **Reflashing always uses USB** — keep a USB port reachable.
 - Firmware internals and the `[TAG]` telemetry contract: `firmware/rc_serial_probe/README.md`.

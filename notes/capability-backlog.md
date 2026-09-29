@@ -25,10 +25,10 @@ on Port A, already detected):
   and the Tab5 reports its actual angles back, so handover between tracking, the RC and the
   on-screen d-pad is visible off-board. Remaining: teleop as a third command source.
 - **Considerations:** servo power budget (PDH channel), limit/stall handling,
-  whether to drive from StampLC firmware now vs. a ROS node later, and how
+  whether to drive from StamPLC firmware now vs. a ROS node later, and how
   raise/lower interacts with subsystem FSM states (mast/base).
 - **Fusion tie-in:** the deadwheel pods feed the Pinpoint odometry computer
-  (StampLC I²C) — a first-class localization input. The raise/lower state IS the
+  (StamPLC I²C) — a first-class localization input. The raise/lower state IS the
   covariance gate for that source. See [localization-fusion.md](localization-fusion.md).
 
 ## 2. Camera control & viewing  ◐
@@ -49,7 +49,7 @@ camera pane but it still reads *"no feed configured"* — nothing is wired into 
 ## 3. Onboard WiFi (router)  ☑ (fielded 2026-09)
 
 - Onboard router so the robot is its own network island (no dependence on venue
-  WiFi). Affects: Thor/StampLC/teleop connectivity, the dashboard's
+  WiFi). Affects: Thor/StamPLC/teleop connectivity, the dashboard's
   network-status logic (`status._net`), VNC reachability, and ROS DDS discovery
   domains.
 - **Fielded**: a MikroTik hAP ac3 running RouterOS at `192.168.88.1`, with UW-MPSK egress on
@@ -63,7 +63,7 @@ camera pane but it still reads *"no feed configured"* — nothing is wired into 
 ## 4. Power usage & runtime prediction  ☐
 
 - **The pack reports its own state of charge.** Its RS-485 BMS already sends SOC and pack
-  voltage/current to the StampPLC, so the battery model, the voltage→SoC curve and coulomb
+  voltage/current to the StamPLC, so the battery model, the voltage→SoC curve and coulomb
   counting from PDH current that this section originally called for are not needed.
 - What is left is the derived figure and its presentation: **time-to-empty** from SOC plus
   measured draw, surfaced on the POWER / MASTER STATUS pages.
@@ -89,7 +89,7 @@ camera pane but it still reads *"no feed configured"* — nothing is wired into 
 ## 6. Failure mode testing  ☐
 
 - Systematic fault injection + observation: e-stop (each source), power loss, serial/USB drop
-  (StampPLC, Tab5), RC link loss, PDH channel faults, subsystem faults, Thor thermal/throttle.
+  (StamPLC, Tab5), RC link loss, PDH channel faults, subsystem faults, Thor thermal/throttle.
 - Verify the state machine transitions correctly (→ DEGRADED / E_STOP_LATCH) and
   the robot reaches a safe state for each. Builds on the bench tests already done
   (software e-stop source discrimination; DI0 high). Produce a test matrix +
@@ -113,7 +113,7 @@ camera pane but it still reads *"no feed configured"* — nothing is wired into 
   CH5→RC_MANUAL preemption; teleop deadman (grip trigger + heartbeat); pose→setpoint
   mapping; then video to headset (NVENC + WebRTC — a D415 is now fitted, so this
   is no longer blocked on hardware).
-- Safety: deadman + e-stop must apply to teleop the same as RC (StampPLC gate
+- Safety: deadman + e-stop must apply to teleop the same as RC (StamPLC gate
   doesn't care *who* fails to assert enable).
 
 ---

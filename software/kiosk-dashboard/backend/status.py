@@ -1,7 +1,7 @@
 """Master status aggregator for the dashboard's MASTER STATUS page.
 
 Gathers the health of major subsystems — network (wired/wifi), Pixhawk/MAVLink,
-StampPLC USB, per-arm CAN, power (battery + charger), and VNC. Sources that don't
+StamPLC USB, per-arm CAN, power (battery + charger), and VNC. Sources that don't
 exist yet report present=False / connected=None so the page can still render
 "no data" rows. Uses subprocesses (nmcli/iwgetid/ip/lsusb/pgrep) so it's called
 at ~1 Hz, not in the fast telemetry loop.
@@ -22,13 +22,13 @@ from supervisor import supervisor
 
 _BOOT = time.monotonic()
 
-# RC now comes from the StampPLC SBUS ([RC] line) — the Pixhawk/MAVLink path is
-# retired. The StampPLC interprets the mode switch itself, so the FSM maps its
+# RC now comes from the StamPLC SBUS ([RC] line) — the Pixhawk/MAVLink path is
+# retired. The StamPLC interprets the mode switch itself, so the FSM maps its
 # reported mode string → authority instead of thresholding raw channels.
 SBUS_RANGE = {"min": 200, "max": 1820, "center": 1000}
 MODE_TO_AUTHORITY = {"OFF": "OFF", "MANUAL": "RC_MANUAL", "AUTO": "AUTONOMOUS"}
 
-# Thermal zones, indexed by the StampPLC [ENV]/[FAN] zone id (see docs/punch-list.md).
+# Thermal zones, indexed by the StamPLC [ENV]/[FAN] zone id (see docs/punch-list.md).
 # PaHub [ENV] zone → label. z0 = ENVIII on ch2 (regen clamp resistor). z1 = ENVIII on ch3
 # (2nd probe, location TBD — relabel when wired). z2+ reserved for future ENV zones.
 THERMAL_LABELS = ["REGEN RESISTOR", "ENV ZONE 1", "MOTOR CTRL", "ZONE 3", "ZONE 4"]
@@ -36,12 +36,12 @@ THERMAL_OVERTEMP_C = 70.0
 
 VNC_DISABLED_FLAG = "/home/kiosk/.vnc/disabled"
 
-# StampPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
-# DI0 = e-stop button, DI1 = contactor weld. The Z-axis is driven by the StampPLC itself (relays
+# StamPLC I/O map (canonical — see docs/stamplc-connections.md). Only two inputs are used:
+# DI0 = e-stop button, DI1 = contactor weld. The Z-axis is driven by the StamPLC itself (relays
 # R1/R2, behind the pinch guard) and senses height with the ToF, so there are no limit-switch or
 # battery-present inputs here, and drive mode is software-set (no jumper).
 # The dashboard prepends the physical 1-indexed terminal number (IN1..IN8 / RELAY1..RELAY4) to
-# match the StampPLC silkscreen; these are just the functional names. (Code/M5 API stays 0-indexed:
+# match the StamPLC silkscreen; these are just the functional names. (Code/M5 API stays 0-indexed:
 # IN1 = DI0, RELAY1 = R0 — see docs/stamplc-connections.md.)
 DI_LABELS = ["E-STOP BTN", "CONTACTOR WELD", "SPARE", "SPARE",
              "SPARE", "SPARE", "SPARE", "SPARE"]
@@ -130,7 +130,7 @@ def _net():
 
 
 def _rc_link():
-    """RC link health, now from the StampPLC SBUS ([RC] line) rather than the
+    """RC link health, now from the StamPLC SBUS ([RC] line) rather than the
     retired Pixhawk/MAVLink path."""
     s = stamplc.reader.snapshot()
     rc = s.get("rc") or {}
@@ -163,7 +163,7 @@ def _pack():
 
 def _rails():
     """The two 24V rails: logic (always-on) and drive (behind the contactor, with the
-    regen clamp). Voltages from the StampPLC [RAIL] line; contactor from relay 0."""
+    regen clamp). Voltages from the StamPLC [RAIL] line; contactor from relay 0."""
     s = stamplc.reader.snapshot()
     rail = s.get("rail") or {}
     relay = s.get("relay") or []
@@ -190,7 +190,7 @@ def _charger():
 
 
 def _thermal():
-    """Internal thermal zones + cooling fans (StampPLC [ENV]/[FAN])."""
+    """Internal thermal zones + cooling fans (StamPLC [ENV]/[FAN])."""
     s = stamplc.reader.snapshot()
     env = s.get("env") or {}
     fan = s.get("fan") or {}
@@ -202,14 +202,14 @@ def _thermal():
                       "label": THERMAL_LABELS[i] if i < len(THERMAL_LABELS) else f"ZONE {i}"})
     overtemp = any(z["temp_c"] is not None and z["temp_c"] >= THERMAL_OVERTEMP_C for z in zones)
     # Free component temps also surface here (board) / on the THERMAL page: the
-    # StampPLC board temp (from [IO]), plus the Thor's multi-zone temps (system
+    # StamPLC board temp (from [IO]), plus the Thor's multi-zone temps (system
     # metrics `temps_c`) and BMS pack temps (power.pack) composed client-side.
     return {"zones": zones, "board_c": s.get("temp_c"),
             "overtemp": overtemp, "fresh": s.get("fresh", False)}
 
 
 def _drive():
-    """Drive summary: mode (mecanum/skid/diff), armed, per-wheel command (StampPLC [DRIVE])."""
+    """Drive summary: mode (mecanum/skid/diff), armed, per-wheel command (StamPLC [DRIVE])."""
     s = stamplc.reader.snapshot()
     d = s.get("drive") or {}
     return {"mode": d.get("mode"), "armed": d.get("armed"),
@@ -262,7 +262,7 @@ def _safety():
         sources.append("SOFTWARE")
     if btn:
         sources.append("BUTTON")
-    # Fail-safe (review R2): a STALE StampLC link freezes the entire safety-sensing
+    # Fail-safe (review R2): a STALE StamPLC link freezes the entire safety-sensing
     # channel at its last values — we can't trust DI/relay, so fail to the safe side
     # and treat it as e-stopped (this is the spec's "system watchdog timeout" event).
     if not fresh:
@@ -291,7 +291,7 @@ def _safety():
         "motion_enabled": motion_enabled,
         "weld_aux_closed": aux_closed,  # DI6 interpreted
         "welded": welded,               # welded/stuck contactor detected
-        "stale": not fresh,             # StampLC link dead → fail-safe e-stop
+        "stale": not fresh,             # StamPLC link dead → fail-safe e-stop
         "fresh": fresh,
     }
 
@@ -304,7 +304,7 @@ def _stamplc():
 
 
 def _can_arms():
-    # The arms do NOT connect over the StampLC CAN bus and aren't wired yet —
+    # The arms do NOT connect over the StamPLC CAN bus and aren't wired yet —
     # report not-connected (no telemetry source) rather than green.
     nc = {"present": False, "up": False, "connected": False}
     return {"left": dict(nc), "right": dict(nc)}
@@ -316,8 +316,8 @@ def _robot_state():
     s = stamplc.reader.snapshot()
     saf = _safety()
 
-    # RC authority/deadman/link now come from the StampPLC SBUS ([RC] line); the
-    # StampPLC already interprets the mode switch, so we map its mode → authority.
+    # RC authority/deadman/link now come from the StamPLC SBUS ([RC] line); the
+    # StamPLC already interprets the mode switch, so we map its mode → authority.
     rc = s.get("rc") or {}
     link = bool(rc.get("live"))
     authority = MODE_TO_AUTHORITY.get(rc.get("mode"))
@@ -337,7 +337,7 @@ def _robot_state():
     # NOTE: per-channel PDH breaker faults are intentionally NOT rolled into
     # DEGRADED — on the bench many channels are unfused and fault by design.
 
-    mast_fault = False  # mast/payload is independent (Tab5-driven) — no mast-limit inputs on the StampPLC
+    mast_fault = False  # mast/payload is independent (Tab5-driven) — no mast-limit inputs on the StamPLC
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
@@ -345,7 +345,7 @@ def _robot_state():
         raw_estop_sources=saf["sources"], raw_faults=raw_faults,
         fresh=saf["fresh"], control_ok=link, uptime=time.monotonic() - _BOOT)
 
-    # The StampPLC's own drive-safe gate is a boot condition too, and a more authoritative
+    # The StamPLC's own drive-safe gate is a boot condition too, and a more authoritative
     # one than our uptime heuristic: it is the controller saying its control loop is not yet
     # keeping time, so nothing it is told will move. Fold it in so the face and the state
     # colour say "INIT" for the whole settling window instead of looking ready early.
@@ -409,8 +409,8 @@ def collect_fast() -> dict:
         "robot_state": _robot_state(),
         "rc_link": _rc_link(),
         "odo": (stamplc.reader.snapshot().get("odo") or {}),
-        # deprecated; RC moved to the StampPLC SBUS — kept so an old frontend degrades.
-        "mavlink": {"connected": False, "note": "deprecated — RC now from StampPLC SBUS"},
+        # deprecated; RC moved to the StamPLC SBUS — kept so an old frontend degrades.
+        "mavlink": {"connected": False, "note": "deprecated — RC now from StamPLC SBUS"},
         "stamplc": _stamplc(),
         "io": _io(),
         "encoder": {"count": s.get("enc_count"), "present": s.get("enc_present")},

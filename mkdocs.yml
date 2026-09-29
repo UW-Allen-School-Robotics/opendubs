@@ -92,12 +92,12 @@ nav:
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md
   - Build & Flash:
-      - Flash a StampPLC: flashing-stamplc.md
+      - Flash a StamPLC: flashing-stamplc.md
       - Drive bring-up (channel → ESC → wheel): drive-bringup.md
   - Firmware:
-      - StampPLC ↔ Thor over Ethernet: stamplc-ethernet-transport.md
+      - StamPLC ↔ Thor over Ethernet: stamplc-ethernet-transport.md
   - Electronics & Power:
-      - StampPLC connections: stamplc-connections.md
+      - StamPLC connections: stamplc-connections.md
       - Power architecture: power-architecture.md
       - E-stop system: e-stop.md
       - ESC / PWM safety: pwm-esc-safety.md

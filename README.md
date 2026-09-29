@@ -6,7 +6,7 @@ and a handful of 3D-printed pieces. All plans, firmware, and software are open s
 replicate it.
 
 - **Compute / autonomy:** NVIDIA Jetson AGX Thor (ROS 2 Jazzy)
-- **Base controller:** M5Stack StampPLC (ESP32-S3) — SBUS RC ingest, mecanum drive mixer, safety
+- **Base controller:** M5Stack StamPLC (ESP32-S3) — SBUS RC ingest, mecanum drive mixer, safety
   arming + e-stop, power/BMS/CAN telemetry
 - **Front panel:** M5Stack Tab5 (ESP32-P4) — animated face, head pan/tilt servos, speaker
 - **Chassis:** goBILDA / REV structure, mecanum drive, PRISM LED indicators
@@ -25,7 +25,7 @@ rendered with navigation and search. Good entry points:
 
 - **[Assembly guide](https://uw-allen-school-robotics.github.io/opendubs/build/base-frame/)** — build the robot module by module
 - **[Design & interfaces](https://uw-allen-school-robotics.github.io/opendubs/design-philosophy/)** — the modularity philosophy + the mount / power / command contracts
-- **[Power architecture](https://uw-allen-school-robotics.github.io/opendubs/power-architecture/)** · **[E-stop system](https://uw-allen-school-robotics.github.io/opendubs/e-stop/)** · **[Flash a StampPLC](https://uw-allen-school-robotics.github.io/opendubs/flashing-stamplc/)**
+- **[Power architecture](https://uw-allen-school-robotics.github.io/opendubs/power-architecture/)** · **[E-stop system](https://uw-allen-school-robotics.github.io/opendubs/e-stop/)** · **[Flash a StamPLC](https://uw-allen-school-robotics.github.io/opendubs/flashing-stamplc/)**
 
 *Contributing to the docs?* See **[CLAUDE.md](CLAUDE.md)** for the workflow. Preview locally with
 `pip install mkdocs-material && mkdocs serve`.
@@ -55,7 +55,7 @@ questions about clearance and reach and not about force, torque or timing.
 | Path | What |
 |---|---|
 | `docs/` | The documentation site (MkDocs Material) — build/flash guides, reference, safety |
-| `firmware/rc_serial_probe/` | **StampPLC** ESP32-S3 firmware (PlatformIO) — RC, drive mixer, safety I/O, BMS/PDH, `[TAG]` telemetry over USB **or** Ethernet |
+| `firmware/rc_serial_probe/` | **StamPLC** ESP32-S3 firmware (PlatformIO) — RC, drive mixer, safety I/O, BMS/PDH, `[TAG]` telemetry over USB **or** Ethernet |
 | `firmware/tab5_face/` | **Tab5** ESP32-P4 face + operator UI (pioarduino) |
 | `firmware/tab5_pantilt/` · `tab5_roller/` · `servo_mode_programmer/` | Bring-up tools for the pan/tilt head and its servos — not flashed in normal operation |
 | `software/kiosk-dashboard/` | Touchscreen dashboard — FastAPI backend + vanilla-JS frontend + provisioning. Runs on the Thor |
@@ -73,8 +73,8 @@ questions about clearance and reach and not about force, torque or timing.
 
 ## Build a copy
 
-1. **Firmware:** flash the StampPLC (and Tab5) — see [Flash a StampPLC](docs/flashing-stamplc.md).
-   The StampPLC **must be flashed over USB** (esptool needs USB-CDC; Ethernet carries only runtime
+1. **Firmware:** flash the StamPLC (and Tab5) — see [Flash a StamPLC](docs/flashing-stamplc.md).
+   The StamPLC **must be flashed over USB** (esptool needs USB-CDC; Ethernet carries only runtime
    data). It builds/flashes from a Mac (local PlatformIO) or the Thor (`/opt/opendubs/piovenv`).
 2. **Thor:** flash the pinned base (JetPack 7 / L4T R38.4 / Ubuntu 24.04), then from a dev machine
    `./deploy-all.sh <host>` rsyncs the subsystems to `/opt/opendubs` and runs `provision-all.sh`

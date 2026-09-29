@@ -8,7 +8,7 @@ robots drift, silently, and the drift is only discovered when it breaks somethin
 It has already cost us. `platform = espressif32` was pinned to 7.0.1 in PR #9 on
 2026-09-01 because an unpinned platform breaks the M5StamPLC build; opendubs2 never
 received that change, and on 2026-09-08 building an unrelated project pulled a newer
-platform and broke the StampPLC build outright. The fix had been merged for a week.
+platform and broke the StamPLC build outright. The fix had been merged for a week.
 
     tools/deploy-audit.py <robot>              what differs, classified
     tools/deploy-audit.py <robot> --diff PATH  the actual difference for one file

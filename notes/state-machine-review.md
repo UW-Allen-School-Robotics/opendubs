@@ -31,9 +31,9 @@ The five most consequential findings:
    A welded contactor (motion power that *cannot be cut*) is arguably the single
    most dangerous fault in the power architecture, and today it is invisible to
    the FSM.
-3. **Stale StampPLC telemetry is not fail-safe.** `stamplc.reader.snapshot()`
+3. **Stale StamPLC telemetry is not fail-safe.** `stamplc.reader.snapshot()`
    returns the *last-seen* DI/relay values forever (`stamplc.py:147-153`), and
-   `_safety()`/`_robot_state()` ignore the `fresh` flag. If the StampPLC USB
+   `_safety()`/`_robot_state()` ignore the `fresh` flag. If the StamPLC USB
    link dies, the dashboard keeps reporting the e-stop button, contactor, weld
    sense, and limit switches as they were — the robot can sit in
    `MANUAL_CONTROL` with its entire safety-sensing channel dead.
@@ -44,7 +44,7 @@ The five most consequential findings:
 5. **INIT is a 4-second wall-clock timer, not a readiness check**
    (`status.py:23`, `status.py:238`). "Boot complete" per the spec means
    telemetry present + no hard faults; the implementation can declare boot
-   complete with neither MAVLink nor StampPLC connected.
+   complete with neither MAVLink nor StamPLC connected.
 
 None of these are bugs in the sense of incorrect code — `robot_state.py` is
 honest about being "an INDICATOR only" (`robot_state.py:7`). But the docstring
@@ -52,7 +52,7 @@ also says it is "the live, implemented FSM" (`state-machines.md:98-99`) and the
 intended source of truth for the PRISM LED scheme, i.e. the thing a bystander
 will read to judge whether the robot is safe to approach. The indicator should
 therefore implement the latching/guard semantics of the spec, even though
-*enforcement* rightly stays in hardware + StampPLC.
+*enforcement* rightly stays in hardware + StamPLC.
 
 ---
 
@@ -65,12 +65,12 @@ therefore implement the latching/guard semantics of the spec, even though
 | D3 | `DEGRADED → SAFE_IDLE` only, guard "re-entry checks pass" (`:30`) | Exit is implicit and unguarded; can exit directly to `MANUAL_CONTROL`/`AUTONOMOUS_CONTROL` (`robot_state.py:100-111`). | High |
 | D4 | `ANY → DEGRADED` guard: "fault is recoverable" (`:28`); unrecoverable faults → `E_STOP_LATCH` (`:29`) | All faults in the list → `DEGRADED` unconditionally; there is no recoverable/fatal classification, so no fault can ever escalate to `E_STOP_LATCH` (`robot_state.py:100-102`). | Medium |
 | D5 | `SAFE_IDLE → AUTONOMOUS_CONTROL` guard: "autonomy ready + safety clear" (`:25`); `MANUAL ↔ AUTONOMOUS` guarded by "policy allows transfer" / "override accepted" (`:26-27`) | CH5 high + RC link is the *only* condition (`robot_state.py:109-111`). No autonomy-ready handshake exists (Thor's autonomy stack has no readiness signal), no transfer policy, no override-accept. | Medium (high once autonomy is real) |
-| D6 | INIT exit guard: "boot complete, no hard faults" (`:23`) | `booting = uptime < INIT_GRACE_S (4.0 s)` (`status.py:22-23,238`). No check that MAVLink/StampPLC telemetry actually arrived. Conversely, e-stop *does* outrank INIT (good), but faults are masked during the grace window (`robot_state.py:97-102` ordering). | Medium |
+| D6 | INIT exit guard: "boot complete, no hard faults" (`:23`) | `booting = uptime < INIT_GRACE_S (4.0 s)` (`status.py:22-23,238`). No check that MAVLink/StamPLC telemetry actually arrived. Conversely, e-stop *does* outrank INIT (good), but faults are masked during the grace window (`robot_state.py:97-102` ordering). | Medium |
 | D7 | Local events map to "local containment **or** global transition" via supervisor policy (`:88-89`) | Mapping is implicit and inconsistent: mast limit inconsistency (DI1∧DI2) → subsystem `FAULT` only, robot mode unaffected (`status.py:236`, passed as `mast_fault`, never appended to `faults`); RC frame loss → **global** `SAFE_IDLE` even from `AUTONOMOUS_CONTROL` (`robot_state.py:103-105`), though the spec calls it a *local base-domain* event (`:84`); `base_fault` is plumbed but never set anywhere (`robot_state.py:84`, no producer in `status.py`); arm controller faults have no source at all (`status.py:204-208`). | Medium |
 | D8 | Enablement matrix (`:68-74`) — rows `SAFE_IDLE`…`E_STOP_LATCH` | `ENABLE` (`robot_state.py:33-41`) matches the doc row-for-row and **adds an `INIT` row** (all off) that the doc lacks. Semantics match: enabled→"on", optional/conditional→"cond", disabled→"off", forced safe→"off". Minor: doc should gain the INIT row. | Low |
 | D9 | `E_STOP_LATCH` forces subsystems to "DISABLED **or local safe state**" (`:44`) | `_subsys()` returns `DISABLED` before checking `has_fault` (`robot_state.py:71-74`), so a faulted subsystem's `FAULT` status is masked during e-stop. Acceptable display choice, but fault info is lost exactly when an operator is diagnosing. | Low |
 | D10 | Subsystems are `ACTIVE` when actually driven (`:43`) | `"cond"` permission always maps to `READY`, never `ACTIVE` (`robot_state.py:78-79`) — the mast can never show ACTIVE in MANUAL, arms never in AUTONOMOUS. Base `ACTIVE` is inferred from mode+deadman, not motion feedback (`robot_state.py:120-121`, acknowledged "best-effort"). | Low |
-| D11 | Global event "system watchdog timeout" (`:80`) | Not implemented anywhere. No Thor↔StampPLC or Thor↔Pixhawk watchdog feeds the FSM. (StampPLC staleness — the natural proxy — is ignored; see Finding 3 / E1.) | High |
+| D11 | Global event "system watchdog timeout" (`:80`) | Not implemented anywhere. No Thor↔StamPLC or Thor↔Pixhawk watchdog feeds the FSM. (StamPLC staleness — the natural proxy — is ignored; see Finding 3 / E1.) | High |
 | D12 | DI0 e-stop is active-low NC, "wire break reads as pushed" (`power-architecture.md:142-143`) | `ESTOP_BTN_ACTIVE_HIGH = True` bench convention (`status.py:42-46`); fail-safe inverted until the flip. Documented and intentional, but it is a one-line global that nothing will force anyone to remember — see R10. Same applies to `WELD_AUX_ACTIVE_HIGH` (`status.py:36-41`). | Medium (tracked) |
 | D13 | `control-authority.md` defines a six-mode taxonomy (`manual_drive`, `assisted_drive`, `autonomous_nav`, `autonomous_override`, `service`, `fault_recovery`) | The FSM has no `service` or `fault_recovery` analog, and `autonomous_override` (RC reclaiming during autonomy, audited entry, timeout policy) has no state or guard. The two documents have never been reconciled. | Medium |
 | D14 | Software e-stop is "logged/recoverable" (`power-architecture.md:46`) | `_software_estop` is a module global, `False` on import (`status.py:48`). A backend restart silently clears the SOFTWARE latch while relay 0 may still be open — producing the inconsistent display "not e-stopped, contactor de-energized, motion_enabled False" with robot state `MANUAL_CONTROL`. Not logged. | Medium |
@@ -87,11 +87,11 @@ by the supervisor until explicitly cleared, not re-derived per frame.
 
 | From | To | Trigger / Event | Guard |
 |---|---|---|---|
-| INIT | SAFE_IDLE | ready-checks pass | StampPLC fresh ∧ MAVLink fresh ∧ no e-stop source ∧ no latched fault ∧ DI/relay map plausible (DI0 readable, relay 0 state known) |
+| INIT | SAFE_IDLE | ready-checks pass | StamPLC fresh ∧ MAVLink fresh ∧ no e-stop source ∧ no latched fault ∧ DI/relay map plausible (DI0 readable, relay 0 state known) |
 | INIT | DEGRADED | ready-check timeout (e.g. 30 s) | telemetry still missing/stale — *do not* fall through to SAFE_IDLE on a timer |
 | SAFE_IDLE | MANUAL_CONTROL (STANDBY sub-state) | CH5 → RC_MANUAL | RC link fresh ∧ safety clear (contactor energized, no latched fault) |
 | MANUAL_CONTROL: STANDBY → ENGAGED | CH6 deadman armed | deadman > center | RC link fresh (outputs enabled only here) |
-| MANUAL_CONTROL: ENGAGED → STANDBY | deadman released **or** RC frame loss | — | force-neutral outputs (StampPLC gate) |
+| MANUAL_CONTROL: ENGAGED → STANDBY | deadman released **or** RC frame loss | — | force-neutral outputs (StamPLC gate) |
 | SAFE_IDLE | AUTONOMOUS_CONTROL | CH5 → AUTONOMOUS ∧ autonomy-start | autonomy stack reports READY (heartbeat) ∧ safety clear ∧ supervisor ack |
 | SAFE_IDLE | TELEOP_CONTROL | teleop session request (Quest connect) | operator-confirmed handover ∧ teleop link fresh ∧ teleop deadman armed ∧ safety clear |
 | MANUAL_CONTROL | AUTONOMOUS_CONTROL | CH5 → AUTONOMOUS | transfer policy: base neutral ∧ autonomy READY; otherwise → SAFE_IDLE, not silent engage |
@@ -99,7 +99,7 @@ by the supervisor until explicitly cleared, not re-derived per frame.
 | AUTONOMOUS_CONTROL | SAFE_IDLE | autonomy stack stops / heartbeat lost / supervisor link loss | force-neutral; latch reason for display |
 | TELEOP_CONTROL | SAFE_IDLE | teleop link stale (> threshold) ∨ teleop deadman released ∨ operator ends session ∨ CH5 leaves OFF? (see §5/R5 authority note) | force-neutral |
 | ANY | DEGRADED | recoverable fault asserted (latched) | fault classified recoverable (fault-class table) |
-| ANY | E_STOP_LATCH | e-stop source asserts (DI0, SOFTWARE) ∨ fatal fault (incl. **latched CONTACTOR WELD**, StampPLC telemetry stale > threshold ⇒ treat as watchdog) | none (unconditional) |
+| ANY | E_STOP_LATCH | e-stop source asserts (DI0, SOFTWARE) ∨ fatal fault (incl. **latched CONTACTOR WELD**, StamPLC telemetry stale > threshold ⇒ treat as watchdog) | none (unconditional) |
 | DEGRADED | SAFE_IDLE | operator clear action | underlying fault condition absent ∧ re-entry checks pass (same checks as INIT exit) — **never** auto-exit on the fault string vanishing |
 | E_STOP_LATCH | SAFE_IDLE | operator re-arm action (UI confirm / physical sequence) | ALL sources released (DI0 read released, SOFTWARE cleared) ∧ weld sense shows contactor opened while it was commanded open ∧ CH5 = OFF (force the operator through neutral) ∧ relay 0 re-energize succeeds |
 | E_STOP_LATCH | DEGRADED | re-arm attempted, weld detected | DI6 aux closed while contactor commanded open ⇒ latch `CONTACTOR_WELDED`; robot must not return to any control mode until physically serviced |
@@ -119,12 +119,12 @@ Spec classification per `state-machines.md:76-89`; sources as implemented today.
 
 | Event | Spec class | Telemetry source | Implemented? | Where |
 |---|---|---|---|---|
-| E-stop button | Global | StampPLC **DI0** (other pole of dual-pole NC buttons; hardware pole trips the coil directly) | Yes — but active-HIGH bench polarity (`ESTOP_BTN_ACTIVE_HIGH`, `status.py:46,161`) | `_safety()` |
-| Software e-stop | Global | Module flag + `ESTOP` serial cmd → StampPLC drops **relay 0** | Yes (`app.py:65-71`, `status.py:48-57`) — non-persistent across restart (D14) | `_safety()` |
+| E-stop button | Global | StamPLC **DI0** (other pole of dual-pole NC buttons; hardware pole trips the coil directly) | Yes — but active-HIGH bench polarity (`ESTOP_BTN_ACTIVE_HIGH`, `status.py:46,161`) | `_safety()` |
+| Software e-stop | Global | Module flag + `ESTOP` serial cmd → StamPLC drops **relay 0** | Yes (`app.py:65-71`, `status.py:48-57`) — non-persistent across restart (D14) | `_safety()` |
 | Contactor state (effect, not cause) | — | **Relay 0** readback (coil drive) | Yes (`status.py:159,171`) — correctly excluded from `estopped` | `_safety()` |
 | Contactor weld | Global (should be **fatal**) | **DI6** = GX11CAB SPDT aux contact (`power-architecture.md:145-147`) | Partially — computed only while estopped, never latched, never visible (Finding 2) | `status.py:174-179,226` |
-| System watchdog timeout | Global | *Should be:* StampPLC snapshot `fresh`/`age` (`stamplc.py:147-153`) and MAVLink heartbeat age | **No** (D11) | — |
-| Major power fault | Global | PDH `brn`/`hw` flags over StampPLC proprietary CAN | Yes → `DEGRADED` (`status.py:227-231`); per-channel breaker faults deliberately excluded (bench) | `_robot_state()` |
+| System watchdog timeout | Global | *Should be:* StamPLC snapshot `fresh`/`age` (`stamplc.py:147-153`) and MAVLink heartbeat age | **No** (D11) | — |
+| Major power fault | Global | PDH `brn`/`hw` flags over StamPLC proprietary CAN | Yes → `DEGRADED` (`status.py:227-231`); per-channel breaker faults deliberately excluded (bench) | `_robot_state()` |
 | RC frame loss | **Local** (base domain) | `RC_CHANNELS` age ≥ 2.0 s via MAVLink `/dev/ttyACM0` (Pixhawk) | Implemented as **global** → `SAFE_IDLE` (`status.py:220`, `robot_state.py:103`) — divergence D7 | `_robot_state()` |
 | Authority select | Mode event | **CH5** (chan5_raw, index 4): <c−q OFF / mid RC_MANUAL / >c+q AUTONOMOUS, q = 25 % of range (`robot_state.py:47-58`) | Yes | `interpret_authority()` |
 | Deadman | Mode guard (base domain per `:51`) | **CH6** (chan6_raw, index 5) > center (`robot_state.py:61-65`) | Read, but does **not** gate the MANUAL state — only annotates the reason string and the base ACTIVE flag (§5/R4) | `derive()` |
@@ -163,7 +163,7 @@ currently unreachable.
 `MANUAL_CONTROL` is entered on CH5=RC_MANUAL regardless of CH6
 (`robot_state.py:106-108`); the unarmed case only changes the reason string and
 keeps the base at `READY` instead of `ACTIVE` (`robot_state.py:120-121`). The
-*hardware* is safe — the StampPLC gate force-neutrals without deadman — but the
+*hardware* is safe — the StamPLC gate force-neutrals without deadman — but the
 display claims "MANUAL" (white/solid LED) when no human is actually holding the
 robot. For a bystander-facing LED scheme that distinction matters: armed-manual
 and parked-in-manual-mode are different risk levels.
@@ -190,7 +190,7 @@ property differs from RC manual:
 - **Deadman:** must be a teleop-native primitive (controller grip/trigger held,
   plus session heartbeat), since the RC transmitter may be off entirely. The
   backlog requirement "deadman + e-stop must apply to teleop the same as RC"
-  (`capability-backlog.md:87-88`) is satisfied structurally: the StampPLC gate
+  (`capability-backlog.md:87-88`) is satisfied structurally: the StamPLC gate
   doesn't care *who* fails to assert enable — same Option-1 gating
   (`notes/history/control-architecture.md:58-71`, archived — line numbers are as of that revision).
 - **Authority:** per the hierarchy (safety > supervisor > autonomy > RC,
@@ -241,7 +241,7 @@ stateful supervisor module — see R1) rather than in the pure `derive()`.
 ### 5.5 INIT / boot grace
 
 Replace the 4 s timer with real ready-checks (D6, transition table above).
-Minimum set: StampPLC `fresh`, MAVLink `connected` + RC_CHANNELS seen at least
+Minimum set: StamPLC `fresh`, MAVLink `connected` + RC_CHANNELS seen at least
 once OR explicitly waived (RC may legitimately be off), relay/DI vectors of
 expected length, software-estop state reconciled with relay-0 readback (fixes
 D14's inconsistent restart state: if relay 0 reads de-energized at boot and no
@@ -268,11 +268,11 @@ fault domain should pick the subset (mast fault ⇒ mast off, base still on).
 
 | # | Scenario | Current behavior | Proposed |
 |---|---|---|---|
-| E1 | **StampPLC telemetry stale** (USB unplugged, firmware hang) | Last DI/relay values reused indefinitely; FSM unchanged (Finding 3) | Treat `not stamplc.fresh` (beyond a short grace) as the spec's *system watchdog timeout* → `E_STOP_LATCH`-equivalent display (safety state unknown = assume unsafe). At minimum `DEGRADED` + all safety fields rendered "STALE". |
+| E1 | **StamPLC telemetry stale** (USB unplugged, firmware hang) | Last DI/relay values reused indefinitely; FSM unchanged (Finding 3) | Treat `not stamplc.fresh` (beyond a short grace) as the spec's *system watchdog timeout* → `E_STOP_LATCH`-equivalent display (safety state unknown = assume unsafe). At minimum `DEGRADED` + all safety fields rendered "STALE". |
 | E2 | **RC link loss mid-AUTONOMOUS** | → `SAFE_IDLE` ("no RC link") — autonomy display dies with the RC link even though autonomy doesn't use RC | Decide and document: either (a) RC link is a deliberate supervisory deadman for autonomy (then say so in `state-machines.md` and keep the behavior, but as `AUTONOMOUS → SAFE_IDLE [RC supervisory link lost]`), or (b) authority is held at last-known and only the *base* domain reacts. (a) is safer and nearly free — recommend (a). |
 | E3 | **E-stop during AUTONOMOUS, then release with CH5 still AUTO** | Straight back to `AUTONOMOUS_CONTROL` next frame | Blocked by the re-arm guard `CH5 = OFF` (§5.4 / transition table). |
-| E4 | **Fault during MANUAL while moving** | → `DEGRADED`; base → `FAULT`/`READY`; physical gating by StampPLC | OK, but add the latch (§5.1) so a flickering fault can't bounce states; force-neutral on entry is already the StampPLC's job — state should record `entered_from: MANUAL_CONTROL` for the operator. |
-| E5 | **MAVLink RC frame older than 2 s but StampPLC fine** | `authority=None` → `SAFE_IDLE` — correct fail-safe | Keep; the 2.0 s threshold appears twice (`status.py:118,220`) — hoist to one constant. |
+| E4 | **Fault during MANUAL while moving** | → `DEGRADED`; base → `FAULT`/`READY`; physical gating by StamPLC | OK, but add the latch (§5.1) so a flickering fault can't bounce states; force-neutral on entry is already the StamPLC's job — state should record `entered_from: MANUAL_CONTROL` for the operator. |
+| E5 | **MAVLink RC frame older than 2 s but StamPLC fine** | `authority=None` → `SAFE_IDLE` — correct fail-safe | Keep; the 2.0 s threshold appears twice (`status.py:118,220`) — hoist to one constant. |
 | E6 | **Backend restart while software-e-stopped** | SOFTWARE source lost; contactor still open; state shows healthy-but-no-motion (D14) | Persist the software latch (file under `/run` or reconcile-from-relay at boot, §5.5). |
 | E7 | **Welded contactor discovered at e-stop** | Invisible (Finding 2) | Latched fatal fault blocking re-arm (§5.4). |
 | E8 | **CH5 flicker / switch bounce across the quarter-range thresholds** | Instant state changes, MANUAL↔AUTONOMOUS with no debounce or transfer policy | Add hysteresis/debounce (e.g. require N consistent frames) in `interpret_authority()` callers, plus the transfer-policy guard (D5). |
@@ -302,7 +302,7 @@ Safety-relevant first. "Supervisor" below = a small stateful layer; see R1.
    state, fault latches, weld latch, e-stop re-arm gating, debounce. Keep
    `derive()` pure — the supervisor feeds it *latched* inputs instead of raw
    ones. This single change is the enabler for R2–R6.
-2. **R2 — Fail-safe on stale StampPLC telemetry** (E1/D11): in
+2. **R2 — Fail-safe on stale StamPLC telemetry** (E1/D11): in
    `status._safety()` and `_robot_state()`, when `snapshot()['fresh']` is
    false beyond ~2 s, report safety fields as unknown and drive the FSM to the
    watchdog-timeout state. Highest-value safety fix; ~10 lines.

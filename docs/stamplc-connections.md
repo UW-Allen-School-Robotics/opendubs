@@ -1,6 +1,6 @@
-# StampPLC connections
+# StamPLC connections
 
-The **M5Stack StampPLC** is the mobile base's edge controller — it ingests RC, mixes the mecanum drive, runs the
+The **M5Stack StamPLC** is the mobile base's edge controller — it ingests RC, mixes the mecanum drive, runs the
 safety I/O (e-stop contactor + weld sense), and is the telemetry hub. This page is the wiring
 reference for **assembly and troubleshooting**: which bus lands on which port, and the canonical
 relay / isolated-input map. It is the source of truth the dashboard labels and the block diagrams
@@ -9,14 +9,14 @@ follow.
 ## External buses
 
 <figure markdown="span">
-  ![StampPLC bus connections — Ethernet, CAN, SBUS, RS485, I²C, power](assets/diagrams/stamplc-buses.png)
-  <figcaption>The buses landing on the StampPLC: RC (servo ↔ Grove) on the blue port, I²C (Grove)
+  ![StamPLC bus connections — Ethernet, CAN, SBUS, RS485, I²C, power](assets/diagrams/stamplc-buses.png)
+  <figcaption>The buses landing on the StamPLC: RC (servo ↔ Grove) on the blue port, I²C (Grove)
   on the red port, plus CAN (XT30), RS485/BMS, PoE Ethernet to the router, and the 24 V logic feed.</figcaption>
 </figure>
 
-- **Diagram source (Figma):** [OpenDubs board — StampPLC buses](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
+- **Diagram source (Figma):** [OpenDubs board — StamPLC buses](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
 
-Every bus below is on a fixed StampPLC pin (from the firmware `pin_config`). Pins are ESP32-S3
+Every bus below is on a fixed StamPLC pin (from the firmware `pin_config`). Pins are ESP32-S3
 GPIO numbers.
 
 | Bus / signal | Port | Pins | Notes |
@@ -31,19 +31,19 @@ GPIO numbers.
 
 ## Relays & isolated inputs
 
-The StampPLC's **4 relay outputs** and **8 opto-isolated digital inputs** are both driven by the
+The StamPLC's **4 relay outputs** and **8 opto-isolated digital inputs** are both driven by the
 on-board **AW9523** I/O expander on the internal I²C bus. The inputs are galvanically isolated
 (INPUT + COM terminals, DC 5–36 V) — reference a signal by landing its return on that input's **COM**
 (see the [E-stop system](e-stop.md) page for the DI0 wiring worked example).
 
 <figure markdown="span">
-  ![StampPLC relay and input connections — e-stop button and contactor weld on the inputs, RELAY 1 to the e-stop contactor](assets/diagrams/stamplc-inputs-and-relays.png)
+  ![StamPLC relay and input connections — e-stop button and contactor weld on the inputs, RELAY 1 to the e-stop contactor](assets/diagrams/stamplc-inputs-and-relays.png)
   <figcaption>As wired: the e-stop button and contactor-weld sense land on the digital inputs,
   RELAY&nbsp;1 (R0) drives the e-stop contactor, and the Mini PDH feeds the input COMs + the relay
   circuit.</figcaption>
 </figure>
 
-- **Diagram source (Figma):** [OpenDubs board — StampPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
+- **Diagram source (Figma):** [OpenDubs board — StamPLC relays & inputs](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=10-268) — anyone with the link can view and export it.
 
 !!! note "Numbering: silk is 1-indexed, the API is 0-indexed"
     The dashboard and these tables use the **1-indexed silk numbers** (IN 1–8, RELAY 1–4) to match
@@ -77,5 +77,5 @@ dashboard.
 
 - [E-stop system](e-stop.md) — the R0 coil chain, DI0 sensing, and DI1 weld detection in detail.
 - [RC receiver wiring](build/rc-receiver.md) — the SBUS blue-port → servo-cable assembly step.
-- [Electronics Bay](build/electronics-bay.md) — where the StampPLC physically mounts.
+- [Electronics Bay](build/electronics-bay.md) — where the StamPLC physically mounts.
 - [Power architecture](power-architecture.md) — the logic vs drive buses this controller sits across.

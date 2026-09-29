@@ -3,7 +3,7 @@
 *(Draft — the contract every control source speaks, and the safety rules around it.)*
 
 The base is driven by a **single failsafe-gated command contract**: a source produces drive and
-lift commands, they pass the **StampPLC arm + failsafe gate**, and telemetry streams back.
+lift commands, they pass the **StamPLC arm + failsafe gate**, and telemetry streams back.
 Swapping control sources never changes the robot's safety behavior — only who's holding the
 (virtual) stick.
 
@@ -26,7 +26,7 @@ flowchart TB
 
   RC["RC transmitter"] -->|"sticks, CH5 mode, CH6 deadman"| AUTH
 
-  subgraph PLC["StampPLC"]
+  subgraph PLC["StamPLC"]
     AUTH["Authority gate"]
     ST["Robot state"]
   end
@@ -53,7 +53,7 @@ flowchart TB
 
 Solid is a command, thick is a command that does not pass the authority gate, dashed is state.
 
-Three controllers share the robot. The **StampPLC** (an ESP32-S3 industrial controller) owns the
+Three controllers share the robot. The **StamPLC** (an ESP32-S3 industrial controller) owns the
 RC receiver, the robot state, drive mixing, the lift relays, the lights and the e-stop
 contactor. The **Tab5** (an ESP32-P4 panel) is the front control panel and the
 human–robot interface, and it drives the pan/tilt system: the face screen, the head servos and
@@ -63,10 +63,10 @@ traffic, and hosts a listener that accepts commands from any source.
 Three things follow from the drawing:
 
 - **Releasing the deadman stops actuators, not software.** The computer keeps listening and
-  keeps sending; the StampPLC stops acting on what arrives.
-- **State is an output**, broadcast from the StampPLC to the Tab5, the computer and the
+  keeps sending; the StamPLC stops acting on what arrives.
+- **State is an output**, broadcast from the StamPLC to the Tab5, the computer and the
   dashboard. The face and the lights follow state rather than being commanded per device.
-- **The Tab5 drives the head servos.** The StampPLC forwards pan and tilt from the
+- **The Tab5 drives the head servos.** The StamPLC forwards pan and tilt from the
   sticks; the computer can also send them directly.
 
 ## Control sources — all speak the same contract
@@ -84,7 +84,7 @@ supported — both are just UIs over this one contract.
 ## Safety rules (non-negotiable)
 
 1. **Every source is heartbeat-gated.** Lose the heartbeat → motion cuts to neutral (the RC
-   failsafe and the StampPLC Ethernet heartbeat watchdog are the existing pattern).
+   failsafe and the StamPLC Ethernet heartbeat watchdog are the existing pattern).
 2. **The hardware e-stop is independent of every source.** The physical button → GX11 contactor
    kill path must not depend on RC, WiFi, the tablet, or Thor. Never let the thing you drive
    with be the only thing that can stop you.

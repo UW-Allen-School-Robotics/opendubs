@@ -95,7 +95,7 @@ All of the previously-manual items now live in provisioning:
 - **Hostname / mDNS** (`opendubs2` → `opendubs3`…) and the dev `ssh thor` alias.
 - **Secrets**: VNC password (set per-unit, e.g. via `OPENDUBS_VNC_PASS` at provision —
   not committed), any keys — template/generate at provision, keep out of git.
-- **Device matching**: StampLC (`*Espressif*if00`)
+- **Device matching**: StamPLC (`*Espressif*if00`)
   already matches by *pattern* (portable). LIDAR CP2102 reports generic `0001`
   (portable, but a 2nd CP210x collides → pin by `by-path`). No per-unit serials
   are hardcoded — good.

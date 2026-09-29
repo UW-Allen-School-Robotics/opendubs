@@ -32,7 +32,7 @@ of the fiddly interconnects live here rather than scattered around the robot.
 
 **Power distribution.** The **24 V "logic" bus** is a
 [REV Mini Power Module](https://www.revrobotics.com/rev-11-1956/) with **6 fused branch
-circuits**. Most branches feed large components **outside** the bay — Thor, the StampPLC, the
+circuits**. Most branches feed large components **outside** the bay — Thor, the StamPLC, the
 wireless router, the USB hub(s), and the E-stop signal — and one feeds the **PRISM** light
 controller, which lives **inside** the bay.
 
@@ -87,7 +87,7 @@ The bay's bus + wiring layout — pan/zoom the live board:
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [REV Mini Power Module (24 V logic bus)](https://www.revrobotics.com/rev-11-1956/) | `REV-11-1956` | 1 | 6 fused branch circuits — feeds Thor / StampPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside) |
+| [REV Mini Power Module (24 V logic bus)](https://www.revrobotics.com/rev-11-1956/) | `REV-11-1956` | 1 | 6 fused branch circuits — feeds Thor / StamPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside) |
 
 **Drive electronics**
 

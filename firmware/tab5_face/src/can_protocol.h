@@ -5,9 +5,9 @@
 #define CAN_ID_LIFT_CMD     0x102
 #define CAN_ID_ROBOT_STATE  0x103
 #define CAN_ID_PAN_TILT_CMD 0x104
-#define CAN_ID_LIFT_STATE   0x105   // StampPLC -> Tab5: what the lift is actually doing
+#define CAN_ID_LIFT_STATE   0x105   // StamPLC -> Tab5: what the lift is actually doing
 #define CAN_ID_TAB5_STATUS  0x106   // Tab5 -> Thor: what the head believes
-#define CAN_ID_PAN_TILT_RATE 0x107  // StampPLC -> Tab5: RC stick as a RATE
+#define CAN_ID_PAN_TILT_RATE 0x107  // StamPLC -> Tab5: RC stick as a RATE
 
 // Manual pan/tilt is a RATE, not a position, because the source is a spring-centred stick:
 // hold to move, release to stop. It also sidesteps the real problem with sending absolute
@@ -62,7 +62,7 @@ struct __attribute__((packed)) CAN_Pan_Tilt_Command {
     int16_t tilt_angle;
 };
 
-// Reported lift state. The Tab5 asks; the StampPLC acts and says what happened, so the HMI
+// Reported lift state. The Tab5 asks; the StamPLC acts and says what happened, so the HMI
 // shows measured height rather than a local guess.
 struct __attribute__((packed)) CAN_Lift_State {
     uint16_t height_mm;    // 0xFFFF = unknown (uncalibrated ToF, or no reading)

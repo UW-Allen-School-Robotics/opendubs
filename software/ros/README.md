@@ -66,10 +66,10 @@ console (3D, TF, point clouds, plots, diagnostics, MCAP recording) — it
 > An optional Pixhawk/MAVROS variant (not part of the baseline) is preserved under
 > [`../../optional/pixhawk/`](../../optional/pixhawk/).
 
-## StampLC → ROS bridge
+## StamPLC → ROS bridge
 
-The kiosk dashboard is the **single owner** of the StampLC serial link. The bridge
-gets StampLC data into ROS/Foxglove **without a serial conflict**: it polls the
+The kiosk dashboard is the **single owner** of the StamPLC serial link. The bridge
+gets StamPLC data into ROS/Foxglove **without a serial conflict**: it polls the
 dashboard's lightweight **`/api/stamplc`** endpoint (io/safety/encoder/PDH) and
 republishes it, and advertises `std_srvs` services that **POST back** to the
 dashboard's existing command endpoints (which keep enforcing the safety policy —

@@ -1,7 +1,7 @@
 // VENDORED from https://github.com/pololu/vl53l1x-arduino (BSD-3 — see LICENSE.txt).
 //
 // Kept as close to upstream as possible so it can be re-synced: the ONLY change is the bus
-// type. Arduino's Wire is not on the StampPLC's external I2C, and every device there sits
+// type. Arduino's Wire is not on the StamPLC's external I2C, and every device there sits
 // behind a PaHub mux, so `HubI2C` presents the same five methods over m5::I2C_Class with a
 // channel select in front of each transaction. Everything else — the register map, the init
 // sequence, the timing-budget maths — is upstream's and should stay that way.

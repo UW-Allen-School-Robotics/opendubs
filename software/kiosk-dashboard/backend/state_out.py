@@ -2,7 +2,7 @@
 state indicators, so the PRISM strip and the Tab5 face always agree with the
 dashboard:
 
-  - goBILDA PRISM: a solid color via the StampPLC's I2C LED_COLOR command (ch0).
+  - goBILDA PRISM: a solid color via the StamPLC's I2C LED_COLOR command (ch0).
   - Tab5 face:     a "STATE <NAME>" line, over UDP to the Tab5 and over its USB CDC serial.
 
 The Tab5 has been wireless since the ESP-Hosted work, and the serial glob has been matching
@@ -117,7 +117,7 @@ def _tab5_udp(line: str) -> None:
 # Persistent Tab5 serial handle. IMPORTANT: opening the Tab5's USB CDC port RESETS it once
 # (even with DTR/RTS de-asserted) — so we open ONCE and HOLD it; subsequent writes never reset
 # it. Reopening per push was the "screen blacks every couple seconds" bug. (Holding the port
-# means a Tab5 reflash needs the dash stopped first, like the StampPLC.)
+# means a Tab5 reflash needs the dash stopped first, like the StamPLC.)
 _tab5_ser = None
 _TAB5_SER_RETRY_S = 5.0
 _tab5_ser_try_ts = -_TAB5_SER_RETRY_S
@@ -200,7 +200,7 @@ def _push_prism(rs: str) -> None:
     _, (r, g, b), bright = ent
     try:
         import stamplc
-        stamplc.reader.send(f"LED_COLOR {r} {g} {b} {bright}")   # PRISM via StampPLC I2C (ch0)
+        stamplc.reader.send(f"LED_COLOR {r} {g} {b} {bright}")   # PRISM via StamPLC I2C (ch0)
     except Exception:
         pass
 
@@ -220,7 +220,7 @@ def _push_tab5(rs: str) -> None:
 
 
 def _tab5_listen() -> None:
-    """Receive the Tab5's lift REQUESTS and turn them into MAST CMD on the StampPLC.
+    """Receive the Tab5's lift REQUESTS and turn them into MAST CMD on the StamPLC.
 
     The head's up/down buttons are hold-to-move and it republishes its request every 50 ms,
     which is exactly the heartbeat `MAST CMD` wants: let go of the button, or lose the head,
@@ -228,7 +228,7 @@ def _tab5_listen() -> None:
     pinch guard applies to the touchscreen the same as to the stick.
 
     This lives in the dashboard because the dashboard is what actually runs on every robot
-    and already owns the StampPLC link. The ROS bridge can do the same job, but it is
+    and already owns the StamPLC link. The ROS bridge can do the same job, but it is
     optional, and the head's buttons should not depend on ROS being up.
     """
     global _tab5_learned
@@ -258,7 +258,7 @@ def _tab5_listen() -> None:
             v = {1: 1.0, 2: -1.0}.get(payload[0], 0.0)
             # While a button is held, re-send every frame: this IS the heartbeat. An idle head
             # says STOP 20 times a second, though, and forwarding all of that made it a second,
-            # permanent Z-axis commander: the StampPLC keeps only the latest MAST CMD, so any
+            # permanent Z-axis commander: the StamPLC keeps only the latest MAST CMD, so any
             # other sender (the dashboard's own buttons, a script) saw its UP interleaved with
             # the head's STOPs and the relays pulsed on every flip. So a STOP is forwarded once,
             # on release; after that, silence, and the firmware's 250 ms expiry keeps it stopped.
@@ -278,13 +278,13 @@ def _tab5_listen() -> None:
 def _introduce_peers() -> None:
     """Tell each device where the other one is, once each.
 
-    The head takes pan/tilt commands straight from the StampPLC — direct, so it keeps
+    The head takes pan/tilt commands straight from the StamPLC — direct, so it keeps
     answering the sticks even if this dashboard stops — but only from an address the Thor
     has vouched for. The Thor is the one machine that can see both, so it does the
     introduction; after that the data path does not involve it at all.
 
     RE-ASSERTED PERIODICALLY, not once. Both devices hold the pairing in RAM, so either
-    one rebooting forgets it — and a firmware flash reboots the StampPLC every time. A
+    one rebooting forgets it — and a firmware flash reboots the StamPLC every time. A
     one-shot handshake left it with nowhere to send and no way to say so: the sticks simply
     did nothing, with every other indicator healthy. Cheap to repeat, and it means the
     pairing heals itself instead of needing someone to remember.
@@ -302,14 +302,14 @@ def _introduce_peers() -> None:
     try:
         import stamplc
         plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
-        _tab5_write(f"PLCIP {plc}")            # head <- "the StampPLC may command you"
+        _tab5_write(f"PLCIP {plc}")            # head <- "the StamPLC may command you"
         stamplc.reader.send(f"TAB5IP {tab5}")  # PLC  <- "the head lives here"
     except Exception:
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
 
 
 def _push_lift() -> None:
-    """Send the StampPLC's measured Z-axis state to the Tab5, so the head's height readout is
+    """Send the StamPLC's measured Z-axis state to the Tab5, so the head's height readout is
     the SAME number the pinch guard acts on rather than a second opinion from its own sensor.
 
     Sent from here rather than from the ROS bridge because this thread actually runs on every
@@ -343,7 +343,7 @@ def _loop() -> None:
     prev_conn = False
     while True:
         try:
-            # StampPLC (re)connect edge — e.g. after a firmware flash or replug the MCU reboots
+            # StamPLC (re)connect edge — e.g. after a firmware flash or replug the MCU reboots
             # with a blank PRISM. Force a base-color re-push so the strip isn't dark (and so the
             # turn-signal overlay has a real color to reveal when it clears) until the next state flip.
             conn = bool(stamplc.reader.snapshot().get("connected"))

@@ -2,7 +2,7 @@
 
 > Preserved but **not part of the baseline build** — treated like the research/planning material in
 > [`../../notes/`](../../notes/). The baseline OpenDubs robot has **no flight controller**: RC comes
-> from the StampPLC over SBUS, and telemetry/commands go StampPLC ↔ Thor over USB/Ethernet.
+> from the StamPLC over SBUS, and telemetry/commands go StamPLC ↔ Thor over USB/Ethernet.
 
 This directory keeps the code for a **possible future variant** that adds a Pixhawk (ArduPilot,
 MAVLink) — e.g. for its GPS/EKF, optical flow, or position-hold modes. It is intentionally kept out

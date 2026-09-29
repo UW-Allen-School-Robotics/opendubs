@@ -5,7 +5,7 @@ there is more than one way to build it. The **[scissor lift](build/scissor-lift.
 and is what is fitted today; the **lead-screw mast** described on this page is in work.
 
 The two are commanded differently. The scissor lift's pulse-toggle controller runs off the
-StampPLC relays; the mast needs its own motor controller on a separate interface, most likely
+StamPLC relays; the mast needs its own motor controller on a separate interface, most likely
 CAN, and that choice is still open.
 
 This page is the mast's drivetrain and position maths. The state machine its control has to
@@ -16,7 +16,7 @@ satisfy is *Mast FSM* in [state-machines.md](state-machines.md).
 ```
 RS-560 brushed motor ─ 71.2:1 planetary ─ 1:1 belt ─ 8 mm-lead screw ─ carriage
                      └ quadrature encoder (Ch.A/Ch.B, 3.3–5 V) on the MOTOR shaft
-                       └ M5 ExtEncoder Unit (I²C 0x59) decodes → StampLC reads `enc_count`
+                       └ M5 ExtEncoder Unit (I²C 0x59) decodes → StamPLC reads `enc_count`
 ```
 
 - **Motor:** goBILDA/ServoCity **5303 Saturn, 71.2:1, 260 rpm no-load, 24 V** (RS-560).
@@ -24,7 +24,7 @@ RS-560 brushed motor ─ 71.2:1 planetary ─ 1:1 belt ─ 8 mm-lead screw ─ c
 - **Lead screw:** ServoCity **37-4, 8 mm lead** (2 mm pitch × 4 starts), 8 mm OD, **950 mm**
   mechanical travel.
 - **Belt:** 1:1 motor-output → leadscrew.
-- **Position feedback:** the motor's quadrature encoder → M5 **ExtEncoder (0x59)** → StampLC
+- **Position feedback:** the motor's quadrature encoder → M5 **ExtEncoder (0x59)** → StamPLC
   (`[ENC] mast=<int32>`). The encoder is **pre-gearbox**, so it reads through the 71.2:1
   planetary + belt (backlash is in the loop — fine for position-hold; if repeatability ever
   matters, move the encoder to the leadscrew side).
@@ -51,7 +51,7 @@ quadrature multiplier (1×/2×/4×) and belt creep. Measure it: home, drive limi
 
 1. Jog **down** slowly until **DI2 (bottom)** triggers → mechanical zero → `ENC_RESET`.
 2. `height = enc_count × mm_per_count`, positive up.
-3. **Direction-clamp** at both limits (stop on DI1/DI2 trigger; the StampLC gates the mast ESC).
+3. **Direction-clamp** at both limits (stop on DI1/DI2 trigger; the StamPLC gates the mast ESC).
 4. **Soft limits** bound the *OpenArm-collision-safe* window, NOT the screw's 950 mm: the arm
    shoulders collide with the base/top, so usable travel is **~2/3 ≈ 633 mm (provisional —
    set from final CAD)**. The DI limit switches stay at the physical ends as the homing
@@ -68,5 +68,5 @@ resolution for more speed (higher-rpm motor / higher-lead screw) if needed.
 
 - **Confirm encoder CPR** (28/rev at motor assumed) — or just rely on the empirical calibration.
 - **Final usable travel** (`usable_min`/`usable_max`) + zero end, from CAD.
-- **Mast ESC + drive**: same ServoCity 2×80A ESC class as drive; PWM gated by the StampLC.
+- **Mast ESC + drive**: same ServoCity 2×80A ESC class as drive; PWM gated by the StamPLC.
 - Whether the 71.2:1/260 rpm speed is sufficient under load, or a further motor/gear change.

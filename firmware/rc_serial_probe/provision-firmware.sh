@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # OpenDubs firmware / PlatformIO provisioning — run ON the Thor (needs sudo).
-# Idempotent. Sets up PlatformIO so the StampLC ESP32-S3 firmware can be flashed
+# Idempotent. Sets up PlatformIO so the StamPLC ESP32-S3 firmware can be flashed
 # from the Thor without moving hardware (see rc_serial_probe/flash-from-thor.sh),
 # plus the udev rules and flashing-user group membership.
 #

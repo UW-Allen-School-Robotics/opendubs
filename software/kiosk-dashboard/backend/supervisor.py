@@ -15,11 +15,11 @@ frames and feeds `derive()` *latched* inputs:
   only clear if the underlying condition is absent AND telemetry is ready (review
   R4 / D3). Fatal faults (welded contactor, PDH hardware) are non-clearable from
   the UI — they require physical service.
-- **INIT readiness:** boot completes on real ready-checks (StampPLC fresh + RC link
+- **INIT readiness:** boot completes on real ready-checks (StamPLC fresh + RC link
   live), not a wall-clock timer; if checks don't pass within a timeout, emit a
   fault rather than silently declaring ready (review R5 / D6).
 
-Enforcement still lives in hardware + StampPLC — this only governs the *indicator*
+Enforcement still lives in hardware + StamPLC — this only governs the *indicator*
 + the software-estop re-arm path, per docs/control-authority.md.
 """
 from __future__ import annotations
@@ -108,7 +108,7 @@ class Supervisor:
         # LIVE (tracked, never latched) — each has its own acknowledgement already:
         #   BUTTON          twist-to-unlock; it cannot release itself, so the operator
         #                   unlatching it IS the deliberate ack. Latching it on top
-        #                   would leave the display reading E-STOP while the StampPLC
+        #                   would leave the display reading E-STOP while the StamPLC
         #                   has already auto-armed and the robot drives — a safety
         #                   indicator that disagrees with the machine is worse than none.
         #   STALE TELEMETRY fail-safe while the link is dead; auto-recovers, else every

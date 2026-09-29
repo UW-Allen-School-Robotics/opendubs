@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""StampLC → ROS 2 bridge.
+"""StamPLC → ROS 2 bridge.
 
-The kiosk dashboard is the SINGLE owner of the StampLC serial link. This node makes
-the StampLC's sensed values + controls available in ROS/Foxglove WITHOUT a serial
+The kiosk dashboard is the SINGLE owner of the StamPLC serial link. This node makes
+the StamPLC's sensed values + controls available in ROS/Foxglove WITHOUT a serial
 conflict: it polls the dashboard's lightweight `/api/stamplc` endpoint and publishes
 ROS topics, and advertises services that POST to the dashboard's command endpoints
 (which already enforce the safety rules — e.g. only relays 2/3 are free toggles).
@@ -26,7 +26,7 @@ Services advertised (std_srvs):
   /stamplc/pdh_switch       SetBool  → POST /api/pdh/{on,off}
 
 Interim bridge — the long-term clean path is micro-ROS on the ESP32-S3 (see
-docs/hardening-roadmap.md). This gets the StampLC into ROS now with NO firmware
+docs/hardening-roadmap.md). This gets the StamPLC into ROS now with NO firmware
 change and NO dashboard rework, and keeps the dashboard as the only serial owner.
 """
 import json
@@ -55,7 +55,7 @@ def _post(path, timeout=3.0):
         return r.status < 300
 
 
-class StampLCBridge(Node):
+class StamPLCBridge(Node):
     def __init__(self):
         super().__init__("stamplc_bridge")
         self.diag = self.create_publisher(DiagnosticArray, "/stamplc/diagnostics", 10)
@@ -81,7 +81,7 @@ class StampLCBridge(Node):
 
         self.create_timer(1.0 / POLL_HZ, self._poll)
         self._warned = False
-        self.get_logger().info("StampLC bridge polling %s/api/stamplc @ %.0f Hz" % (BASE, POLL_HZ))
+        self.get_logger().info("StamPLC bridge polling %s/api/stamplc @ %.0f Hz" % (BASE, POLL_HZ))
 
     # ---- service factories -------------------------------------------------
     def _mk_trigger(self, path):
@@ -160,7 +160,7 @@ class StampLCBridge(Node):
         return KeyValue(key=str(k), value=str(v))
 
     def _safety_status(self, saf):
-        st = DiagnosticStatus(name="StampLC: Safety", hardware_id="stamplc")
+        st = DiagnosticStatus(name="StamPLC: Safety", hardware_id="stamplc")
         if (not saf.get("fresh", True)) or saf.get("welded") or saf.get("estopped"):
             st.level = ERROR
         elif not saf.get("motion_enabled"):
@@ -179,7 +179,7 @@ class StampLCBridge(Node):
         return st
 
     def _di_status(self, io):
-        st = DiagnosticStatus(name="StampLC: Digital Inputs", level=OK, hardware_id="stamplc")
+        st = DiagnosticStatus(name="StamPLC: Digital Inputs", level=OK, hardware_id="stamplc")
         di = io.get("di") or []
         labels = io.get("di_labels") or []
         st.message = "%d inputs" % len(di)
@@ -188,7 +188,7 @@ class StampLCBridge(Node):
         return st
 
     def _relay_status(self, io):
-        st = DiagnosticStatus(name="StampLC: Relays", level=OK, hardware_id="stamplc")
+        st = DiagnosticStatus(name="StamPLC: Relays", level=OK, hardware_id="stamplc")
         relay = io.get("relay") or []
         labels = io.get("relay_labels") or []
         st.message = "%d relays" % len(relay)
@@ -197,7 +197,7 @@ class StampLCBridge(Node):
         return st
 
     def _pdh_status(self, power):
-        st = DiagnosticStatus(name="StampLC: REV PDH", hardware_id="pdh")
+        st = DiagnosticStatus(name="StamPLC: REV PDH", hardware_id="pdh")
         pdh = power.get("pdh") or {}
         faults = power.get("pdh_fault") or []
         nf = sum(1 for x in faults if x)
@@ -215,7 +215,7 @@ class StampLCBridge(Node):
         return st
 
     def _enc_status(self, enc):
-        st = DiagnosticStatus(name="StampLC: Mast Encoder", level=OK, hardware_id="extencoder")
+        st = DiagnosticStatus(name="StamPLC: Mast Encoder", level=OK, hardware_id="extencoder")
         st.message = "present" if enc.get("present") else "no encoder"
         st.values = [self._kv("count", enc.get("count")), self._kv("present", enc.get("present"))]
         return st
@@ -223,7 +223,7 @@ class StampLCBridge(Node):
 
 def main():
     rclpy.init()
-    node = StampLCBridge()
+    node = StamPLCBridge()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

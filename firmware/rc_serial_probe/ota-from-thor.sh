@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Over-the-air flash the StampPLC from the Thor — NO USB. Builds the firmware, serves the .bin
-# over a throwaway HTTP server, tells the StampPLC to pull+self-flash+reboot (via the `OTA`
+# Over-the-air flash the StamPLC from the Thor — NO USB. Builds the firmware, serves the .bin
+# over a throwaway HTTP server, tells the StamPLC to pull+self-flash+reboot (via the `OTA`
 # command over UDP), then watches it recover. This is the everyday reflash path once the
 # ethernet-OTA firmware is on the board; keep a USB port reachable only as a recovery fallback
 # (a complete-but-buggy image still needs USB — see the firmware OTA notes).
 #
 # Usage:  ./ota-from-thor.sh [stamp-ip]      (default stamp IP 192.168.88.253)
 #         OTA_PORT=8099 ./ota-from-thor.sh
-# The StampPLC's address differs per robot (it is a DHCP reservation on that robot's router),
+# The StamPLC's address differs per robot (it is a DHCP reservation on that robot's router),
 # so pass it: ./ota-from-thor.sh 10.42.2.20
 set -u
 
@@ -18,14 +18,14 @@ PROJ="$(cd "$(dirname "$0")" && pwd)"
 PIO=/opt/opendubs/piovenv/bin/pio
 BIN="$PROJ/.pio/build/stamplc/firmware.bin"
 
-# Thor's address ON THE PATH TO THIS StampPLC — that is the URL it will fetch from.
+# Thor's address ON THE PATH TO THIS StamPLC — that is the URL it will fetch from.
 # Asking the routing table means this works on whatever subnet the robot happens to use and
 # picks the right interface on a dual-homed host. It used to grep the host's addresses for
 # 192.168.88.x, which is one robot's LAN: on a robot numbered anything else the script aborted
 # before it built anything, and the everyday reflash path had to be done by hand.
 THOR_IP="$(ip -4 route get "$STAMP_IP" 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print $2}' | head -1)"
 [ -z "$THOR_IP" ] && {
-  echo "ERROR: no route from this host to the StampPLC at $STAMP_IP."
+  echo "ERROR: no route from this host to the StamPLC at $STAMP_IP."
   echo "       Check the address (arg 1) and that this host is on the robot LAN."
   exit 1
 }
@@ -38,7 +38,7 @@ echo "firmware: $(du -h "$BIN" | cut -f1)  ($BIN)"
 echo "== serving it on http://$THOR_IP:$HTTP_PORT =="
 # Bracketed so the pattern cannot match the command running it (it does, over ssh).
 pkill -f "http[.]server $HTTP_PORT" 2>/dev/null; sleep 1
-# Bound to the interface the StampPLC will reach us on, rather than every interface.
+# Bound to the interface the StamPLC will reach us on, rather than every interface.
 ( cd "$(dirname "$BIN")" && exec python3 -m http.server "$HTTP_PORT" --bind "$THOR_IP" ) >/tmp/ota-http.log 2>&1 &
 HTTP_PID=$!
 trap 'kill "$HTTP_PID" 2>/dev/null' EXIT

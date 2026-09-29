@@ -1,7 +1,7 @@
 # OpenDubs
 
 A **low-cost, low-fabrication, open-source mobile robot** built at the University of Washington: an
-NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StampPLC edge controller on the mobile base,
+NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StamPLC edge controller on the mobile base,
 mecanum drive on a goBILDA/REV chassis, and a Tab5 front panel carrying the animated face and
 the pan/tilt head — designed so a small team can replicate it from
 mostly off-the-shelf parts.
@@ -44,14 +44,14 @@ mostly off-the-shelf parts.
 
 !!! tip "Start Here"
     New here? Read the **[System overview →](system-overview.md)** first — the whole robot as buses
-    and interfaces, in one diagram. Then **[flash a StampPLC](flashing-stamplc.md)** to bring up the
-    StampPLC, and skim the [coordinate frames & naming](naming-frames.md) convention
+    and interfaces, in one diagram. Then **[flash a StamPLC](flashing-stamplc.md)** to bring up the
+    StamPLC, and skim the [coordinate frames & naming](naming-frames.md) convention
     everything else references.
 
 ## Firmware, software, hardware
 
-- **Firmware** — `firmware/rc_serial_probe/` (StampPLC) and `firmware/tab5_face/` (Tab5). Flashing:
-  [Flash a StampPLC](flashing-stamplc.md); transport design: [StampPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
+- **Firmware** — `firmware/rc_serial_probe/` (StamPLC) and `firmware/tab5_face/` (Tab5). Flashing:
+  [Flash a StamPLC](flashing-stamplc.md); transport design: [StamPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
 - **Software** — `software/kiosk-dashboard/` (dashboard), `software/ros/` (ROS 2 bringup),
   `software/teleop/`. Bring-up: [Thor setup](thor-setup.md), [Deployment & portability](portability-audit.md).
 - **Hardware** — `hardware/` (CAD/BOM/renders, being populated). Parts: [Bill of materials](hardware-bom.md).

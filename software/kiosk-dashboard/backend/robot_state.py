@@ -4,7 +4,7 @@ Maps live telemetry onto the hierarchical FSM defined in docs/state-machines.md.
 The robot-level state is a *derived view* of the authoritative inputs — the RC
 authority switch (CH5: OFF/RC/AUTO), the deadman (CH6), the safety latch
 (software e-stop + e-stop button + contactor), RC-link health, and subsystem
-faults. This is an INDICATOR only; safety authority stays in hardware + StampPLC
+faults. This is an INDICATOR only; safety authority stays in hardware + StamPLC
 (docs/control-authority.md). The same state→color/animation map is the intended
 single source of truth for the PRISM LED scheme.
 
@@ -114,7 +114,7 @@ def derive(*, booting, estop_sources, authority, deadman, link, faults,
         reason = "authority switch OFF"
     elif not link or authority is None:
         # UNEXPECTED loss of the control link (RC NOLINK / FAILSAFE) — an alarm, not benign
-        # idle (the StampPLC already police-flashes it). NOTE: this only fires if the receiver
+        # idle (the StamPLC already police-flashes it). NOTE: this only fires if the receiver
         # actually SIGNALS the loss; a receiver that holds the last frames keeps the robot in
         # its prior state — fix that in the TX/RX failsafe config (park CH5→OFF, sticks→neutral).
         state = "DEGRADED"

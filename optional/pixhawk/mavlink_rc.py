@@ -1,4 +1,4 @@
-"""RETIRED (2026-08) — the Pixhawk is eliminated; RC comes from the StampPLC SBUS
+"""RETIRED (2026-08) — the Pixhawk is eliminated; RC comes from the StamPLC SBUS
 and pose from the ROS fused estimate. Nothing imports this module now, so its
 background thread does not start. Kept for reference/rollback only.
 

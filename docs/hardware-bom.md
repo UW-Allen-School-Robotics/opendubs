@@ -25,7 +25,7 @@ Status key:
 | Subsystem | Component | Qty | Part / Identifier | Vendor/Product Page | Reference Page | Notes | Status |
 |---|---|---:|---|---|---|---|---|
 | Control/Electronics | NVIDIA Thor AGX Dev Kit | 1 | Thor AGX Dev Kit | https://www.nvidia.com/ | https://developer.nvidia.com/ | Primary autonomy brain | planned |
-| Control/Electronics | M5StampPLC | 1 | M5StampPLC | https://docs.m5stack.com/en/core/stamplc | https://github.com/m5stack/M5StamPLC | Low-level I/O, safety gating, bus interfaces | in-use |
+| Control/Electronics | M5StamPLC | 1 | M5StamPLC | https://docs.m5stack.com/en/core/stamplc | https://github.com/m5stack/M5StamPLC | Low-level I/O, safety gating, bus interfaces | in-use |
 | Control/Electronics | RC TX/RX set | 1 | Radiolink T8S Transmitter/Rcvr | https://a.co/d/0cFzagC4 | tbd | Manual repositioning control path | in-use |
 | Control/Electronics | M5 8Servo Unit (PWM source) | 1 | I2C addr 0x25 | https://docs.m5stack.com/en/unit/8Servos%20Unit | https://github.com/m5stack/M5Unit-8Servo | PWM source for mixer/drive ESC inputs and mast ESC input | planned |
 | Control/Electronics | REV Power Distribution Hub | 1 | REV-11-1850 | https://www.revrobotics.com/rev-11-1850/ | https://docs.revrobotics.com/ion-control-system/pdh/specs | **Not for new builds** — a 12 V FRC part on a 24 V bus; fitted on this robot only. Use a fuse block. | wired-not-enabled |
@@ -39,7 +39,7 @@ Status key:
 | Manipulators | OpenArm 7-DOF | 2 | OpenArm | https://github.com/enactic/OpenArm | https://github.com/enactic/OpenArm | Left and right arms | planned |
 | Power | E-stop main contactor | 1 | GIGAVAC GX11CAB | https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors | https://www.sensata.com/sites/default/files/a/sensata-gigavac-gx11-series-open-contactors-datasheet.pdf | Sealed NO DC, 150A cont/800V; 24Vdc coil (`C`); SPDT aux → DI6 weld sense. In the main power path; opens on HW/SW/no-power e-stop | planned |
 | Power | Regen clamp | 1 | ODrive Regen Clamp | https://shop.odriverobotics.com/products/odrive-regeneration-clamp | https://docs.odriverobotics.com/v/latest/hardware/regen-clamp-datasheet.html | Downstream of the PDH, at the ESCs — **one clamp serving both**; absorbs braking regen. The one-way 52→24 buck traps regen on the 24 V bus (can't backfeed the pack), so it's shunted here. See regen-clamp-sizing.md | planned |
-| Power | Battery | 1 | ECO-WORTHY ~52 V LiFePO4 (16S), JBD BMS | https://www.ecoworthy.com/ | tbd | **Locked baseline** battery. BMS on RS485 to the StampPLC; charged off-robot | in-use |
+| Power | Battery | 1 | ECO-WORTHY ~52 V LiFePO4 (16S), JBD BMS | https://www.ecoworthy.com/ | tbd | **Locked baseline** battery. BMS on RS485 to the StamPLC; charged off-robot | in-use |
 
 ## Tools & consumables
 
@@ -93,7 +93,7 @@ tool links are examples, any equivalent works.
 | Heat-shrink assortment / labels | recommended | 1 | [buy](https://a.co/d/04p7f5Vs) | Heat-shrink tube assortment or heat-shrink labels |
 | Crimp connector assortment (butt joints + ring terminals) | recommended | 1 | [buy](https://a.co/d/08GtC4Ql) | Butt joints + ring connectors |
 | WAGO DIN-rail assortment (rail + rail-mount connectors) | — | 1 | [buy](https://a.co/d/07yKPglw) | Includes the DIN rail AND the WAGO connectors — the bay's field-wiring junction. |
-| ATM (mini) blade fuse, 5 A | — | 4 | — | Positions 1/2/3/6 — StampPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
+| ATM (mini) blade fuse, 5 A | — | 4 | — | Positions 1/2/3/6 — StamPLC, E-stop, accessory bus, PRISM. Leave the spare bay unfused until it is used. |
 | ATM (mini) blade fuse, 10 A | — | 1 | — | Position 5 — Thor only. Every other branch is 5 A. |
 | XT30 connector pair (PRISM branch) | — | 1 | — | Position 6 lands on the PRISM light controller through an XT30; see the wiring board |
 <!-- /BOM-AUTO:purchase:consumables -->

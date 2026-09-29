@@ -9,7 +9,7 @@
 
 The transmitter's sticks and switches map to the robot's drive, mast, and mode functions as
 below; the diagram shows the physical layout. RC reaches the robot as **SBUS** into the
-StampPLC.
+StamPLC.
 
 | Channel | Function | Notes |
 |---|---|---|

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""OpenDubs StampPLC UDP -> ROS 2 bridge.
+"""OpenDubs StamPLC UDP -> ROS 2 bridge.
 
-The StampPLC broadcasts a compact JSON status on UDP 255.255.255.255:5005 (~5 Hz).
+The StamPLC broadcasts a compact JSON status on UDP 255.255.255.255:5005 (~5 Hz).
 This node listens for it and republishes as ROS topics + a diagnostic_msgs array,
-so nothing on the robot needs a USB tether to the StampPLC. Replaces the old
+so nothing on the robot needs a USB tether to the StamPLC. Replaces the old
 serial/HTTP `stamplc-bridge`.
 
 Topics published:
@@ -25,7 +25,7 @@ UDP_PORT = 5005
 STALE_NS = int(1.5e9)   # mark offline if no packet for 1.5 s
 
 
-class StampPLCBridge(Node):
+class StamPLCBridge(Node):
     def __init__(self):
         super().__init__('stamplc_udp_bridge')
         self.pub_json = self.create_publisher(String, 'stamplc/json', 10)
@@ -43,7 +43,7 @@ class StampPLCBridge(Node):
         self.last = None
         self.create_timer(0.05, self._poll)             # drain socket at 20 Hz
         self.create_timer(0.5, self._publish_status)    # status + diagnostics at 2 Hz
-        self.get_logger().info(f'listening for StampPLC JSON on UDP :{UDP_PORT}')
+        self.get_logger().info(f'listening for StamPLC JSON on UDP :{UDP_PORT}')
 
     def _poll(self):
         latest = None
@@ -73,7 +73,7 @@ class StampPLCBridge(Node):
         online = self.last_rx is not None and (now - self.last_rx).nanoseconds < STALE_NS
         self.pub_online.publish(Bool(data=online))
 
-        st = DiagnosticStatus(name='StampPLC', hardware_id='stamplc-udp')
+        st = DiagnosticStatus(name='StamPLC', hardware_id='stamplc-udp')
         if not online:
             st.level = DiagnosticStatus.STALE
             st.message = 'no UDP telemetry'
@@ -101,7 +101,7 @@ class StampPLCBridge(Node):
 
 def main():
     rclpy.init()
-    node = StampPLCBridge()
+    node = StamPLCBridge()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

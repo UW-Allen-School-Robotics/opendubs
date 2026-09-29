@@ -14,7 +14,7 @@ because an unpinned platform resolves forward and breaks M5StamPLC's Modbus code
 the newer ESP-IDF.
 
 opendubs2 never received it. A week later, building an unrelated project on the same
-machine caused PlatformIO to resolve the newer platform, and the StampPLC firmware — the
+machine caused PlatformIO to resolve the newer platform, and the StamPLC firmware — the
 thing that runs the drive, the e-stop and the lift — stopped building entirely, mid-session,
 for reasons that had nothing to do with what we were changing. The fix had been merged for
 seven days.

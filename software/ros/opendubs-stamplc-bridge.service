@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenDubs StampLC -> ROS bridge (republishes dashboard /api/stamplc as ROS topics/services)
+Description=OpenDubs StamPLC -> ROS bridge (republishes dashboard /api/stamplc as ROS topics/services)
 After=network.target opendubs-dash.service opendubs-rosbridge.service
 Wants=opendubs-dash.service
 StartLimitIntervalSec=0

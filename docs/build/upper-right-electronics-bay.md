@@ -3,7 +3,7 @@
 !!! info "At a glance"
     | | |
     |---|---|
-    | **You'll build** | Mount the **StampPLC** and a **DIN rail of WAGO connectors** in the right upper bay |
+    | **You'll build** | Mount the **StamPLC** and a **DIN rail of WAGO connectors** in the right upper bay |
     | **Time** | *TODO* |
     | **Difficulty** | Intermediate (mounting + field wiring) |
     | **Prerequisites** | [Upper Frame Assembly](upper-frame.md) (upper frame built) |
@@ -14,18 +14,18 @@
   <span class="embed-facade__play">▶ Open the interactive 3D model — upper integration</span>
 </div>
 
-*The right upper electronics bay carries the **StampPLC** (the mobile base's edge controller) and a **DIN rail
+*The right upper electronics bay carries the **StamPLC** (the mobile base's edge controller) and a **DIN rail
 of WAGO connectors** that serves as the wiring junction for the upper-frame harnesses. **Click
 the model above** to orbit the whole upper integration this bay is part of.*
 
 ## What lives in the bay
 
-- **StampPLC** — the mobile base's edge controller (SBUS RC in, relay + isolated-DI safety I/O,
+- **StamPLC** — the mobile base's edge controller (SBUS RC in, relay + isolated-DI safety I/O,
   telemetry).
-  It mounts to the DIN rail via a 3D-printed clip. See [StampPLC connections](../stamplc-connections.md)
+  It mounts to the DIN rail via a 3D-printed clip. See [StamPLC connections](../stamplc-connections.md)
   for the full pinout and [E-stop system](../e-stop.md) for the safety wiring that lands here.
-- **StampPLC PoE module** — clips onto the StampPLC and gives it **PoE Ethernet**. This is the
-  link the [StampPLC ↔ Thor transport](../stamplc-ethernet-transport.md) rides on, so the robot
+- **StamPLC PoE module** — clips onto the StamPLC and gives it **PoE Ethernet**. This is the
+  link the [StamPLC ↔ Thor transport](../stamplc-ethernet-transport.md) rides on, so the robot
   runs without a USB tether.
 - **DIN-rail WAGO connectors** — a row of WAGO connectors on a DIN rail (both come from the one
   assortment in the BOM), used as the **field-wiring junction** for the upper frame: power
@@ -42,19 +42,19 @@ the model above** to orbit the whole upper integration this bay is part of.*
 
 ## Mounting
 
-The DIN rail runs along the **right side of the upper frame**; the StampPLC and the WAGO carriers
+The DIN rail runs along the **right side of the upper frame**; the StamPLC and the WAGO carriers
 all snap to it, so the bay is built up on the bench and dropped in as a unit.
 
 1. Cut the **35 mm top-hat DIN rail** to length and fasten it to the right upper frame rail.
-2. Clip the **StampPLC** to the rail on its 3D-printed DIN mount.
+2. Clip the **StamPLC** to the rail on its 3D-printed DIN mount.
 3. Snap the **WAGO mounting carriers** onto the rail and seat the WAGO connectors.
-4. Land the upper-frame harnesses into the WAGOs and the StampPLC terminals (see *Wiring* above).
+4. Land the upper-frame harnesses into the WAGOs and the StamPLC terminals (see *Wiring* above).
 
 ## CAD & 3D model
 
 - **View in browser (Fusion):** [Upper integration (whole assembly)](https://a360.co/4zEiFGw) —
   this bay is a part of it.
-- **Download:** *TODO — export the DIN-rail + StampPLC-clip STLs into `hardware/`.*
+- **Download:** *TODO — export the DIN-rail + StamPLC-clip STLs into `hardware/`.*
 
 ## Bill of materials
 
@@ -68,13 +68,13 @@ all snap to it, so the bay is built up on the bench and dropped in as a unit.
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
 | [M5Stack StamPLC controller](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/K141/26459381) | `K141` | 1 | The mobile base's edge controller. Available from many sources; DigiKey (shown) stocks well for US-based teams. |
-| [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | Adds PoE Ethernet to the StampPLC — the StampPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
+| [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | Adds PoE Ethernet to the StamPLC — the StamPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
 
 **Mounting**
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| StampPLC DIN-rail clip (3D-printed) | — | 1 | Clips the StampPLC to the DIN rail; STL in hardware/ TBD. |
+| StamPLC DIN-rail clip (3D-printed) | — | 1 | Clips the StamPLC to the DIN rail; STL in hardware/ TBD. |
 
 **Wiring**
 
@@ -96,6 +96,6 @@ Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-
 ## Verify — done when…
 
 - [ ] DIN rail solidly fastened to the right upper frame.
-- [ ] StampPLC clipped down and its harnesses landed; powers up and reports telemetry.
+- [ ] StamPLC clipped down and its harnesses landed; powers up and reports telemetry.
 - [ ] WAGO carriers seated; all field joins made and dressed.
 - [ ] *TODO*

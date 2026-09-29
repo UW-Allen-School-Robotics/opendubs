@@ -7,7 +7,7 @@ output to drive and mast ESCs.
 
 The drive ESCs are the **[goBILDA 2×80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf)**
 (SKU `3105-0202-0080`), driven by PWM from the **[M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit)**
-(I²C `0x25`) commanded by the StampPLC. Both are wired together in the
+(I²C `0x25`) commanded by the StamPLC. Both are wired together in the
 **[Electronics Bay](build/electronics-bay.md)**.
 
 ## Known ESC Signal Constraints
@@ -49,7 +49,7 @@ Bench-validation checklist (required before finalizing timings):
 
 ## Power Failure Considerations
 
-- Document behavior when StampPLC resets while ESC power remains on.
+- Document behavior when StamPLC resets while ESC power remains on.
 - Document behavior when ESC power drops while controller remains active.
 - Define safe re-entry sequence after recovery.
 

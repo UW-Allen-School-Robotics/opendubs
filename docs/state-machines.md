@@ -36,7 +36,7 @@ States:
 
 > **Implementation note (2026-06-11):** latching/readiness semantics are now live in
 > `kiosk-dashboard/backend/supervisor.py` (the indicator FSM; enforcement still
-> hardware+StampPLC). Concretely: **INIT** exits on real ready-checks (StampPLC telemetry
+> hardware+StamPLC). Concretely: **INIT** exits on real ready-checks (StamPLC telemetry
 > fresh), not a timer, with a timeout→`TELEMETRY NOT READY` fault;
 > **E_STOP_LATCH** truly latches on `BUTTON`/`SOFTWARE` and exit is a *guarded* re-arm
 > (button released ∧ not stale ∧ not welded ∧ CH5=OFF); **DEGRADED** faults latch and

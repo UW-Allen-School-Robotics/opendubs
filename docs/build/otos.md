@@ -29,7 +29,7 @@ The **OTOS** — a [SparkFun Optical Tracking Odometry Sensor](https://www.spark
 recommended **10 mm** height above the ground plane.
 
 !!! warning "3.3 V sensor on a 5 V bus — level-shift required"
-    The OTOS runs its I2C at **3.3 V**, but the **M5 (StampPLC) I2C bus is 5 V**. Do **not**
+    The OTOS runs its I2C at **3.3 V**, but the **M5 (StamPLC) I2C bus is 5 V**. Do **not**
     wire it straight in. This build uses an
     [Adafruit logic level converter](https://www.adafruit.com/product/5637) to shift
     3.3 V ↔ 5 V, and converts the SparkFun/Adafruit **Qwiic** connector over to the **M5
@@ -91,7 +91,7 @@ robot. Do them in that order — the module is far easier to wire on a desk than
 under a frame.
 
 !!! danger "Never connect the OTOS directly to the 5 V bus"
-    The sensor's I²C runs at **3.3 V**; the M5 StampPLC bus is **5 V**. Every step below keeps
+    The sensor's I²C runs at **3.3 V**; the M5 StamPLC bus is **5 V**. Every step below keeps
     the Adafruit converter in line between them. There is no point in the build where the
     sensor should see the bus directly, not even briefly for a test.
 

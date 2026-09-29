@@ -1,18 +1,18 @@
-# M5StampPLC firmware (PlatformIO)
+# M5StamPLC firmware (PlatformIO)
 
 > **Legacy name:** this directory is still called `rc_serial_probe` (its origin was a
-> one-off probe to read an RC receiver on the StampLC blue Grove port). It has since
-> grown into the **robot's StampLC firmware** and is kept under this path because the
+> one-off probe to read an RC receiver on the StamPLC blue Grove port). It has since
+> grown into the **robot's StamPLC firmware** and is kept under this path because the
 > deploy/flash tooling (`/opt/opendubs/rc_serial_probe`, `flash-from-thor.sh`,
 > `provision-firmware.sh`) references it.
 
-The firmware (`src/main.cpp`) is the M5StampPLC's edge-controller program. It emits text
+The firmware (`src/main.cpp`) is the M5StamPLC's edge-controller program. It emits text
 telemetry over USB-serial (`[SENS]`/`[PDH]`/`[CAN]`/`[IO]`/`[ENC]`/`[SBUS]`/`[I2C]`/`[RC]`/`[DRIVE]`/`[BMS]`/`[BMSC]`) consumed by
 the dashboard, and accepts host commands (see below). It owns: REV PDH proprietary-CAN
 telemetry, DI/relay safety I/O, the external I²C bus (PaHub mux on Port A), IO-socket/INA/LM75
 sensing, **SBUS RC ingest**, a **local screen/LED UI**, and the **PRISM state indicator**.
 
-**RC IS read here.** The StampLC is the SBUS mediator: inverted SBUS on blue-port **G5**,
+**RC IS read here.** The StamPLC is the SBUS mediator: inverted SBUS on blue-port **G5**,
 decoded to `rc_ch[]` (channel map in `../` memory / `docs`). Flash from the Thor with
 `flash-from-thor.sh` (canonical), or `pio run -e stamplc -t upload` from a Mac on USB.
 
@@ -20,7 +20,7 @@ decoded to `rc_ch[]` (channel map in `../` memory / `docs`). Flash from the Thor
 
 Telemetry and commands run over **either** USB serial **or** the PoE Ethernet link — the same
 `[TAG]` text protocol is teed over both (telemetry broadcast on UDP **:5005**; commands received on
-:5005 and routed through the same handler). The StampPLC has its own 24 V supply, so USB is needed
+:5005 and routed through the same handler). The StamPLC has its own 24 V supply, so USB is needed
 **only for flashing** — normal operation can run entirely over Ethernet with USB unplugged.
 
 > **Reflash over Ethernet (OTA).** Once this firmware is on the board, reflash with **no USB**:
@@ -50,7 +50,7 @@ Onboard TFT (M5Canvas sprite) + status LED + PRISM, refreshed ~6 Hz:
 - **PRISM state sync:** robot state → 8Servo **ch0** PWM → goBILDA PRISM (police=alarm,
   blue=OFF, amber=manual/released, green=manual/held, violet-pulse=AUTO).
 - **Buttons are stubbed** — `M5.begin()`+`M5StamPLC.begin()` double-init breaks M5Unified's
-  StampPLC button state (and single-begin panics our setup). Use `PAGE` to switch pages. See
+  StamPLC button state (and single-begin panics our setup). Use `PAGE` to switch pages. See
   the `setup()` / `uiButtons()` comments for the root cause and fix path.
 
 ## External I²C map (PaHub on Port A)

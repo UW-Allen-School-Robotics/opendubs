@@ -9,18 +9,18 @@
 !!! info "At a glance"
     | | |
     |---|---|
-    | **You'll build** | A powered Z-axis: a commercial scissor lift driven through its own controller, commanded by two StampPLC relays and measured by a time-of-flight sensor |
+    | **You'll build** | A powered Z-axis: a commercial scissor lift driven through its own controller, commanded by two StamPLC relays and measured by a time-of-flight sensor |
     | **Time** | *TODO* |
     | **Difficulty** | Intermediate (mains-free, but 24 V motor wiring and a commissioning step) |
-    | **Prerequisites** | [Power Bay](power-bay.md) for drive-bus 24 V; a StampPLC running the drive firmware |
-    | **Mates to** | Drive bus 24 V; StampPLC relays R2/R3 and the I²C (Grove) bus |
+    | **Prerequisites** | [Power Bay](power-bay.md) for drive-bus 24 V; a StamPLC running the drive firmware |
+    | **Mates to** | Drive bus 24 V; StamPLC relays R2/R3 and the I²C (Grove) bus |
     | **Optional?** | Yes — one of two Z-axis options, alongside a lead-screw mast |
 
 ## What this is
 
 The lift raises and lowers whatever the robot carries. It is a **commercial scissor
 lift with its own motor controller** — the robot does not drive the motor directly.
-Instead, the StampPLC's relays stand in for the controller's up/down buttons, and a
+Instead, the StamPLC's relays stand in for the controller's up/down buttons, and a
 downward-looking ToF sensor tells the robot how high it actually is.
 
 That division matters: the lift's own controller keeps its internal limits and motor
@@ -183,8 +183,8 @@ driver differs. Two consequences worth knowing while you build:
 | **Pinch stop** | Descent stops at **40 mm** (default) above full-down and needs fresh consent — see [Safety](#safety-the-lift-is-a-pinch-point) |
 | **Relays** | **silk R3 → UP, silk R2 → DOWN** (code R2/R1 — silk is 1-indexed, code is 0-indexed) *— per-robot; re-discover on each build* |
 | **Contact type** | **NO** (normally open) — measured; closure = press |
-| **Height sensor** | ToF on the StampPLC PaHub, **channel 3** |
-| **Power** | Lift motor fed 24 V from the **drive bus**; the StampPLC only switches the controller's own button signal |
+| **Height sensor** | ToF on the StamPLC PaHub, **channel 3** |
+| **Power** | Lift motor fed 24 V from the **drive bus**; the StamPLC only switches the controller's own button signal |
 
 Because the lift's 24 V comes off the drive bus, it is unpowered whenever the e-stop
 contactor is open. Software and hardware agree by construction — there is no state in
@@ -209,7 +209,7 @@ NORMALLY-OPEN (NO) contacts.** This is a property of the controller, not a per-r
 value — re-check only if you substitute a different one.
 
 That also satisfies the rule that decides it either way: a **de-energized relay means
-not-pressed**, so a dead StampPLC, a power cut, or crashed firmware all produce no
+not-pressed**, so a dead StamPLC, a power cut, or crashed firmware all produce no
 motion. Wired to NC instead, an unpowered robot would hold the button down.
 
 ## Commissioning — values discovered per robot

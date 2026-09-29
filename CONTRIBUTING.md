@@ -36,7 +36,7 @@ Contributions are accepted under the license that matches the material:
 ## Working locally
 
 - **Docs site:** `pip install mkdocs-material && mkdocs serve` — preview at http://127.0.0.1:8000.
-- **StampPLC firmware:** PlatformIO in `firmware/rc_serial_probe/` (`pio run`). Flash **over USB** —
+- **StamPLC firmware:** PlatformIO in `firmware/rc_serial_probe/` (`pio run`). Flash **over USB** —
   see [`docs/flashing-stamplc.md`](docs/flashing-stamplc.md).
 - **Dashboard / ROS:** see `software/kiosk-dashboard/` and `software/ros/`.
 

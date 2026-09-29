@@ -95,7 +95,7 @@ static bool spkReady() { return g_spk == SpkState::READY; }
 // ArduinoOTA is started below and has never once answered on this board: espota gets "no
 // response" even seconds after a power cycle, with the head pingable at -40 dBm. Its listener
 // goes through the ESP-Hosted co-processor and begin() returns void, so every failure is
-// silent. The StampPLC solved the same problem by PULLING its firmware over HTTP on command,
+// silent. The StamPLC solved the same problem by PULLING its firmware over HTTP on command,
 // and that has worked all along — so the head now does the same. Serve the .bin from the Thor
 // and send: OTA http://10.42.2.10:8000/firmware.bin
 static void otaHttpPull(const char *url) {
@@ -345,7 +345,7 @@ static void streamerTask(void *) {
 
 static WiFiUDP Udp;
 static const uint16_t UDP_PORT = 4242;          // we LISTEN here
-// We used to transmit to 255.255.255.255:5005. Port 5005 is the StampPLC's telemetry port,
+// We used to transmit to 255.255.255.255:5005. Port 5005 is the StamPLC's telemetry port,
 // and the Thor's recorder was ingesting these binary CAN frames into the robot's telemetry
 // log — corrupting the log we diagnose the robot with. Transmit has its own port now, and
 // goes to the subnet broadcast rather than the global one.
@@ -365,7 +365,7 @@ static IPAddress txTarget()
 // robot-state feed comes from, so the first valid state frame pins it.
 static IPAddress g_thorIp;
 static bool      g_haveThor = false;
-// The StampPLC commands the head directly (low latency, and it keeps working if the Thor
+// The StamPLC commands the head directly (low latency, and it keeps working if the Thor
 // stops), but only once the Thor has vouched for its address over the state channel — so
 // the "no unauthenticated host moves the servos" property survives the second peer.
 static IPAddress g_plcIp;
@@ -473,7 +473,7 @@ static void commsTask(void *) {
         // Every id handled below MUST be listed here, or the frame falls through to the text
         // parser and is silently dropped. CAN_ID_PAN_TILT_RATE was added later and missed,
         // so the RC stick transmitted 20 times a second into a packet this line discarded —
-        // the StampPLC counted 553 sends while the head never saw one.
+        // the StamPLC counted 553 sends while the head never saw one.
         const bool isFrame = (cid == CAN_ID_ROBOT_STATE || cid == CAN_ID_PAN_TILT_CMD
                               || cid == CAN_ID_PAN_TILT_RATE || cid == CAN_ID_LIFT_STATE);
         if (isFrame) {
@@ -493,7 +493,7 @@ static void commsTask(void *) {
           } else if (frame->can_id == CAN_ID_LIFT_STATE
                      && frame->can_dlc >= sizeof(CAN_Lift_State)
                      && g_haveThor && from == g_thorIp) {
-            // What the lift is ACTUALLY doing, measured on the StampPLC. The Tab5 used to
+            // What the lift is ACTUALLY doing, measured on the StamPLC. The Tab5 used to
             // model this locally and show the model as if it were real.
             CAN_Lift_State *ls = (CAN_Lift_State *)frame->data;
             Lift.reportFromRobot(
@@ -572,7 +572,7 @@ static void commsTask(void *) {
         Udp.write((const uint8_t *)&frame, sizeof(frame));
         Udp.endPacket();
 
-        // Ask for what the operator pressed. The StampPLC decides whether to honour it —
+        // Ask for what the operator pressed. The StamPLC decides whether to honour it —
         // deadman, authority, limits and the pinch guard all still apply there.
         can_frame_udp lf = {0};
         lf.can_id = CAN_ID_LIFT_CMD;
@@ -646,7 +646,7 @@ static void onEstopTap() {
 // NOTE: there is no edge-triggered lift sender any more. The request is published every
 // 50 ms from Lift.request() in commsTask, which is what gives it heartbeat semantics — the
 // far end stops the lift when the stream stops. The old one also broadcast to
-// 255.255.255.255:5005, the StampPLC's telemetry port.
+// 255.255.255.255:5005, the StamPLC's telemetry port.
 
 static void handleTouch() {
   auto td = M5.Touch.getDetail();
@@ -725,7 +725,7 @@ static void applyLine(const char *line) {
         return;
       }
   } else if (strncmp(line, "LIFT ", 5) == 0) {
-    // "LIFT <height_mm|-1> <motion 0|1|2> <flags>" — the StampPLC's measured Z-axis state.
+    // "LIFT <height_mm|-1> <motion 0|1|2> <flags>" — the StamPLC's measured Z-axis state.
     // Text, like STATE, so neither side can drift on a numeric table the other reorders.
     int h = -1, m = 0, f = 0;
     if (sscanf(line + 5, "%d %d %d", &h, &m, &f) >= 2) {
@@ -770,7 +770,7 @@ static void applyLine(const char *line) {
       M5.Speaker.tone(880, 80);            // so the new volume is audible immediately
     }
   } else if (strncmp(line, "PLCIP ", 6) == 0) {
-    // "PLCIP a.b.c.d" — the Thor naming the StampPLC as an authorised head commander.
+    // "PLCIP a.b.c.d" — the Thor naming the StamPLC as an authorised head commander.
     int a, b, c, d;
     if (sscanf(line + 6, "%d.%d.%d.%d", &a, &b, &c, &d) == 4) {
       g_plcIp = IPAddress((uint8_t)a, (uint8_t)b, (uint8_t)c, (uint8_t)d);

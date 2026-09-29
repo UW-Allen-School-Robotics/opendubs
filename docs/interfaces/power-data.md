@@ -24,10 +24,10 @@ Both 24 V buses expose **fused branches** — logic from the **REV Mini Power Mo
 
 How a payload integrates over the base's buses:
 
-- **Ethernet** — the robot LAN (also the StampPLC ↔ Thor USB-less link).
+- **Ethernet** — the robot LAN (also the StamPLC ↔ Thor USB-less link).
 - **WiFi** — on-robot wireless (dashboard / tablet, offboard links).
-- **CAN** — the **StampPLC is the CAN master**; join as a node (the REV PDH is a telemetry node, not a controller).
-- **RS485** — from the StampPLC (currently the **battery / BMS** only; spare capacity for other devices).
+- **CAN** — the **StamPLC is the CAN master**; join as a node (the REV PDH is a telemetry node, not a controller).
+- **RS485** — from the StamPLC (currently the **battery / BMS** only; spare capacity for other devices).
 - **USB** — to Thor; prefer another bus where you can (USB layout matters — see [Thor setup](../thor-setup.md)).
 - **I²C** — the M5 bus is **5 V**; 3.3 V devices need a level converter (pattern: [OTOS](../build/otos.md) / [Pinpoint](../build/pinpoint.md)).
 

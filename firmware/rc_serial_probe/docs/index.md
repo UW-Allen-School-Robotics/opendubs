@@ -18,5 +18,5 @@ For robot-level architecture, safety, modes, and BOM documentation, use the top-
 ## Scope
 
 - RC receiver telemetry (8 channels and derived control intent)
-- StampPLC telemetry (RTC, temperature, power, IO current, relay state, RGB LED state)
+- StamPLC telemetry (RTC, temperature, power, IO current, relay state, RGB LED state)
 - Output architecture for ROS-native and serial-first deployments

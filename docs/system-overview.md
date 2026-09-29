@@ -11,13 +11,13 @@ labels are small at page scale:
 </div>
 
 Power + e-stop, position/spatial, teleop, control, safety/state, drive, comms, and compute —
-converging on the StampPLC and Thor, and exposed to a payload through the standard interfaces
+converging on the StamPLC and Thor, and exposed to a payload through the standard interfaces
 (24 V logic, I²C, CAN, RS485, USB, Ethernet, Wi-Fi, and 24 V safety/e-stopped).
 
 - **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the live board also includes the **payload-connected** system bus map (the poster above shows the core version). Clicking the diagram loads the full interactive board.
 
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
-- Edge controllers: **StampPLC** on the mobile base, **Tab5** on the head — introduced under
+- Edge controllers: **StamPLC** on the mobile base, **Tab5** on the head — introduced under
   *Responsibility split* below. Each payload may bring its own as well
 - Mobile base: 4 motors + 2 dual-channel ESCs, optimised for **mecanum** drive and switchable to
   **4WD traction** drive in software
@@ -40,7 +40,7 @@ introduced here with what it owns — and referred to by name everywhere after t
 - Subsystem enable/disable coordination
 - System-level fault handling policy decisions
 
-### StampPLC — the mobile base
+### StamPLC — the mobile base
 
 It owns the safety-critical edge of the base: it is the RC receiver, the e-stop moderator, the
 source of the ESC and motor commands, and the publisher of hardware telemetry.

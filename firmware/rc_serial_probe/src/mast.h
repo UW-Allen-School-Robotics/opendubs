@@ -47,11 +47,11 @@ public:
 };
 
 // ---------------------------------------------------------------------------------
-// Scissor lift: two StampPLC relays standing in for the controller's up/down buttons.
+// Scissor lift: two StamPLC relays standing in for the controller's up/down buttons.
 //
 // Contacts are NORMALLY OPEN and a closure is a press — measured on the DIHOOL
 // controller. That direction matters: de-energized then means not-pressed, so a dead
-// StampPLC, a power cut or crashed firmware all produce no motion. Wired the other way,
+// StamPLC, a power cut or crashed firmware all produce no motion. Wired the other way,
 // an unpowered robot would hold the button down.
 //
 // The controller is PULSE-TOGGLE, so this driver tracks what it believes the lift is

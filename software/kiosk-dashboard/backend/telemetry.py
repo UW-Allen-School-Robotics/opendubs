@@ -1,6 +1,6 @@
-"""Robot telemetry for the kiosk dashboard — RC from the StampPLC SBUS.
+"""Robot telemetry for the kiosk dashboard — RC from the StamPLC SBUS.
 
-RC comes from the StampPLC `[RC]` line (raw SBUS channels + interpreted
+RC comes from the StamPLC `[RC]` line (raw SBUS channels + interpreted
 mode/deadman/link). Position/heading come from the Thor's fused pose (ROS EKF),
 surfaced on NAV, not here. RC values carry their `range` ({min,max,center}) so the
 RC widget stays source-agnostic.

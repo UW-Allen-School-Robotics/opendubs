@@ -17,7 +17,7 @@ ground-truth-ish *relative* movement source that survives when **global** source
 
 | Source | Via | Gives | Strong | Fails when |
 |---|---|---|---|---|
-| **Pinpoint deadwheel odo** | StampLC I²C | 2D pose + twist (x, y, θ) | smooth, high-rate, short-term | pods **retracted by design** (rough terrain / gap crossings), wheel slip, lift |
+| **Pinpoint deadwheel odo** | StamPLC I²C | 2D pose + twist (x, y, θ) | smooth, high-rate, short-term | pods **retracted by design** (rough terrain / gap crossings), wheel slip, lift |
 | **RPLIDAR A1 SLAM** | `/scan` | 2D scan-match pose + map | structured indoor | open/featureless/glass, outdoors > 12 m, ~7 Hz |
 | **Visual SLAM / VIO** (future ZED/RealSense, cuVSLAM) | USB3 | 6-DOF VIO + map | textured, lit | low-texture, low-light, motion blur |
 
@@ -42,7 +42,7 @@ stack whenever the pods are down.
 ## Where to fuse — and where not to
 
 - **On the Thor, in ROS.** Autonomy brain, the compute, where all topics land.
-- **Not on the StampLC** — IO/safety controller on an ASCII-serial bridge, wrong
+- **Not on the StamPLC** — IO/safety controller on an ASCII-serial bridge, wrong
   altitude, no FP muscle. Its only fusion-relevant job: relay the Pinpoint I²C pose
   out as a proper `nav_msgs/Odometry` topic.
 
@@ -53,7 +53,7 @@ IMU, correct as measurements arrive; a silent source simply stops correcting). T
 work is **honest, dynamic covariance / validity gating** per source, so the filter
 distrusts a source *before* it lies:
 
-- **Deadwheel:** the StampLC commands the raise/lower servos → it *knows* when the
+- **Deadwheel:** the StamPLC commands the raise/lower servos → it *knows* when the
   pods are up. Publish that state; the odom node inflates covariance / mutes the
   topic when retracted or slip-detected. Same mechanism as the "retract on rough
   terrain / gap crossings" policy, now expressed as a fusion input (capability-backlog
@@ -69,14 +69,14 @@ double-count the same physical motion across two IMU sources).
 
 ## Transport caveat (the deadwheel is fusion-grade but on a slow path)
 
-The Pinpoint pose IS a fusion input, but it currently transits the **StampLC ASCII
+The Pinpoint pose IS a fusion input, but it currently transits the **StamPLC ASCII
 serial → dashboard 5 Hz poll** path, stamped at *publish* time, not sample time
 (see hardening track 8) — too slow/jittery for clean odom fusion. Implications:
 
 1. Republish Pinpoint as **`nav_msgs/Odometry` with covariance**, NOT a
    `DiagnosticArray` field.
 2. Either accept it as a low-rate backup with inflated covariance, give it a faster
-   dedicated StampLC→Thor link, or — endgame — **micro-ROS on the ESP32** publishing
+   dedicated StamPLC→Thor link, or — endgame — **micro-ROS on the ESP32** publishing
    stamped `Odometry` *at source* (hardening tracks 3/4). Fusion-grade data wants
    stamp-at-source.
 

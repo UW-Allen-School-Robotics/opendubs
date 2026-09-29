@@ -29,7 +29,7 @@ ToF gives range, the camera gives bearing, and together the head can track a sub
 rather than just emote at one.
 
 Unlike the base, this module is a **payload**: it has its own controller and its own
-power, and it talks to the robot over the network rather than through the StampPLC.
+power, and it talks to the robot over the network rather than through the StamPLC.
 
 ## Architecture
 

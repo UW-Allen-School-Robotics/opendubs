@@ -34,7 +34,7 @@ LIFT_CMD_FMT = "<B" # uint8
 ROBOT_STATE_FMT = "<B" # uint8
 PAN_TILT_CMD_FMT = "<hh" # int16, int16
 
-# Talk to the StampPLC through the dashboard's HTTP API, NOT by importing its reader.
+# Talk to the StamPLC through the dashboard's HTTP API, NOT by importing its reader.
 #
 # Importing `stamplc` spawns a second reader thread that binds UDP:5005 with SO_REUSEPORT —
 # and Linux LOAD-BALANCES datagrams across sockets bound that way rather than duplicating
@@ -42,7 +42,7 @@ PAN_TILT_CMD_FMT = "<hh" # int16, int16
 # roughly half the robot's telemetry from the dashboard. One reader, one owner.
 DASH = os.environ.get("OPENDUBS_DASH", "http://127.0.0.1:8080")
 
-# Z-axis commands go through the StampPLC's mast driver, NOT to its relays.
+# Z-axis commands go through the StamPLC's mast driver, NOT to its relays.
 #
 # This used to write `RELAY 2 1` / `RELAY 3 0` straight to the relay expander. Three things
 # were wrong with that, and the third is the one that matters:
@@ -71,7 +71,7 @@ def send_mast(v):
 
 
 def read_lift_state():
-    """Lift state as the StampPLC measures it. {} when unavailable."""
+    """Lift state as the StamPLC measures it. {} when unavailable."""
     try:
         with urllib.request.urlopen(f"{DASH}/api/stamplc", timeout=0.5) as r:
             return (json.loads(r.read()).get("drive") or {})
@@ -85,7 +85,7 @@ class Tab5BridgeNode(Node):
         self.state_sub = self.create_subscription(String, '/robot/state', self.state_callback, 10)
         
         self.udp_ip = "0.0.0.0"
-        # 5006, not 5005. Port 5005 is the StampPLC telemetry port that the Thor's recorder
+        # 5006, not 5005. Port 5005 is the StamPLC telemetry port that the Thor's recorder
         # listens on; the Tab5 was broadcasting binary CAN frames into it and corrupting the
         # robot's telemetry log.
         self.udp_port = 5006

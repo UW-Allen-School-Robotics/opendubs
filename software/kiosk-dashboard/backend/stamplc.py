@@ -1,6 +1,6 @@
-"""Live StampLC telemetry over serial (ESP32-S3 USB CDC).
+"""Live StamPLC telemetry over serial (ESP32-S3 USB CDC).
 
-Reads the StampLC's text telemetry (the [SENS]/[PDH]/[CAN]/[I2C]/[SBUS] lines,
+Reads the StamPLC's text telemetry (the [SENS]/[PDH]/[CAN]/[I2C]/[SBUS] lines,
 same format as rc_serial_probe/tools/telemetry_gui.py) in a background thread and
 keeps the latest parsed values. The device is found by its stable by-id path
 (Espressif USB JTAG/serial). USB CDC ignores baud, but we set it anyway.
@@ -33,7 +33,7 @@ _P_ENC = re.compile(r"\[ENC\] mast=(-?\d+) present=(\d)")
 _P_SBUS_STAT = re.compile(r"\[SBUS\] prof=.* ok=(\d+) bad=(\d+) last_ok_ms=(\d+)")
 
 # --- New telemetry contract (firmware TODO — parsed here now so the dashboard
-# renders empty panels until the StampPLC emits them). Token form `[TAG] k=v ...`:
+# renders empty panels until the StamPLC emits them). Token form `[TAG] k=v ...`:
 #   [BMS]   soc= v= i=(+chg/-dsg) cmin= cmax= tmin= tmax= chg= dsg= chgr= flags=0x..
 #   [BMSC]  c0= c1= ... c15=            per-cell voltages (optional)
 #   [ENV]   z= t= h=                    one line per thermal zone
@@ -59,7 +59,7 @@ def _kv(line):
 
 
 def _find_device():
-    """The StampPLC's serial port, or None — and NEVER anything else's port.
+    """The StamPLC's serial port, or None — and NEVER anything else's port.
 
     The old version took the first /dev/serial/by-id/*Espressif* match. The Tab5 head is an
     Espressif USB-JTAG device too, so plugging the head into the Thor to flash it handed its
@@ -106,7 +106,7 @@ class StampReader:
         threading.Thread(target=self._run, name="stamplc", daemon=True).start()
 
     def send(self, cmd: str):
-        """Queue a command line for the StampLC (e.g. 'LED_COLOR 30 210 70 100'). Delivered over
+        """Queue a command line for the StamPLC (e.g. 'LED_COLOR 30 210 70 100'). Delivered over
         whichever transport is active — Ethernet UDP or USB serial."""
         with self._lock:
             self._txq.append(cmd)
@@ -133,7 +133,7 @@ class StampReader:
                                      f"({type(e).__name__}: {e}) on: {line[:120]}\n")
 
     def _run(self):
-        # Transport select: 'auto' (default) prefers Ethernet — the StampPLC tees the SAME [TAG]
+        # Transport select: 'auto' (default) prefers Ethernet — the StamPLC tees the SAME [TAG]
         # text protocol over UDP:5005 — and falls back to USB serial; 'udp'/'serial' force one.
         mode = os.environ.get("OPENDUBS_STAMPLC_TRANSPORT", "auto").lower()
         while True:
@@ -147,7 +147,7 @@ class StampReader:
             time.sleep(1)
 
     def _run_udp(self, force: bool) -> bool:
-        """Consume the StampPLC's UDP [TAG] telemetry and unicast queued commands back to it.
+        """Consume the StamPLC's UDP [TAG] telemetry and unicast queued commands back to it.
         Returns True if Ethernet telemetry was seen (consumed until it stalled), False if none
         arrived in the probe window (caller then falls back to serial)."""
         import socket
@@ -197,7 +197,7 @@ class StampReader:
                     break
                 quiet = 0.0
                 with self._lock:
-                    self._peer = (addr[0], port)        # track the StampPLC IP across DHCP changes
+                    self._peer = (addr[0], port)        # track the StamPLC IP across DHCP changes
                 self._ingest(data)
             return True
         finally:

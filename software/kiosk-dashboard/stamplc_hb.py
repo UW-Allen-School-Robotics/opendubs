@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# OpenDubs: broadcast an "HB" heartbeat to the StampPLC every 2s so its firmware Ethernet
+# OpenDubs: broadcast an "HB" heartbeat to the StamPLC every 2s so its firmware Ethernet
 # watchdog can detect a wedged RX stack (linkStatus() reads up but nothing arrives). Broadcast
-# so it is independent of the StampPLC DHCP address.
+# so it is independent of the StamPLC DHCP address.
 import socket, time
 PORT = 5005
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

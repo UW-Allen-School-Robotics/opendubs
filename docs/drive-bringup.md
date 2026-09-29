@@ -13,14 +13,14 @@ mapping can't move the robot.
 
 ## Prerequisites
 
-- StampPLC flashed with the drive firmware and connected over USB
-  (see [Flash a StampPLC](flashing-stamplc.md)).
-- The M5Unit-8Servo wired to the StampPLC, and its four ESC signal leads
+- StamPLC flashed with the drive firmware and connected over USB
+  (see [Flash a StamPLC](flashing-stamplc.md)).
+- The M5Unit-8Servo wired to the StamPLC, and its four ESC signal leads
   connected to the drive ESCs.
 - Drive 24 V available through the e-stop contactor, and a way to open it
   quickly (physical e-stop) if a hub runs away.
 - **Wheels off.** Hubs free to spin.
-- A serial terminal on the StampPLC's USB port (115200 baud).
+- A serial terminal on the StamPLC's USB port (115200 baud).
 
 ## The single-channel test command
 
@@ -115,7 +115,7 @@ these controllers even with the hubs unloaded — see
 
 ## Related Topics
 
-- [Flash a StampPLC](flashing-stamplc.md)
+- [Flash a StamPLC](flashing-stamplc.md)
 - [PWM and ESC Safety](pwm-esc-safety.md)
 - [Coordinate frames & naming](naming-frames.md) — where FL/FR/RL/RR come from
 - [Control Authority and Modes](control-authority.md)

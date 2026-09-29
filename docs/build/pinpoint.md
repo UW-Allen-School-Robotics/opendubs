@@ -102,7 +102,7 @@ Outline (fill in once photos are in):
     cycles, so your I²C Controller device should send the config information over I²C once
     every time the code starts."*
 
-    The StampPLC does that for you — it applies the stored configuration at boot, and again
+    The StamPLC does that for you — it applies the stored configuration at boot, and again
     whenever the device reappears on the bus. **But an unconfigured Pinpoint does not fail
     visibly.** It returns smooth, plausible, wrong numbers. `PPCAL SHOW` reports
     `NOT COMMISSIONED` until someone does the steps below; treat pose as untrustworthy

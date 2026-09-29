@@ -1,7 +1,7 @@
 // A TwoWire-shaped stand-in that speaks to a device behind the PaHub, so the vendored
 // Pololu VL53L1X driver can be used UNMODIFIED apart from its bus type.
 //
-// WHY NOT Wire. The StampPLC's external I2C is an m5::I2C_Class, and every device on it
+// WHY NOT Wire. The StamPLC's external I2C is an m5::I2C_Class, and every device on it
 // sits behind a PCA9548A mux that must be pointed at the right channel before each
 // transaction. Arduino's Wire is not in that path at all. Rather than rewrite the eight
 // I2C helpers inside a 900-line vendored driver -- and re-do it on every upstream update

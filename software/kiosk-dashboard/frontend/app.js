@@ -469,7 +469,7 @@ function renderRobotState(rs) {
 function setDot(id, cls) { const e = $(id); if (e) e.className = "sdot " + (cls || ""); }
 
 
-/* ---------- Pinpoint odometry (status.odo, from the StampPLC [ODO] line) ---------- */
+/* ---------- Pinpoint odometry (status.odo, from the StamPLC [ODO] line) ---------- */
 function renderOdo(o) {
   const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
   const badge = $("odoState");
@@ -690,7 +690,7 @@ function updateRelayBtn(i) {
   else { b.textContent = relayState[i] ? "TURN OFF" : "TURN ON"; b.className = "iobtn" + (relayState[i] ? " on" : ""); }
 }
 
-function renderStampLC(st) {
+function renderStamPLC(st) {
   const io = st.io || {};
   const sf = st.safety || {};
 
@@ -1242,7 +1242,7 @@ function connect() {
     if (d.system) safe(renderSystem, d.system);
     if (d.status) {
       const s = d.status;
-      safe(renderRobotState, s.robot_state); safe(renderStatus, s); safe(renderStampLC, s);
+      safe(renderRobotState, s.robot_state); safe(renderStatus, s); safe(renderStamPLC, s);
       safe(renderMast, s); safe(renderPower, s); safe(renderThermal, s); safe(renderDrive, s);
     }
     if (d.telemetry) { safe(renderRC, d.telemetry); safe(renderNav, d.telemetry); }

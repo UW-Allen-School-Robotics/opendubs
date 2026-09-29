@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **You'll do** | Build the upper frame, add controls (StampPLC + touchscreen), clad it, then mate it to the lower frame and close up the covers |
+| **You'll do** | Build the upper frame, add controls (StamPLC + touchscreen), clad it, then mate it to the lower frame and close up the covers |
 | **Prerequisites** | [Base Frame Final Assembly + Wiring](base-frame-final.md) (lower frame complete) |
 
 !!! note "Stub — the next major phase after the lower frame"
@@ -15,7 +15,7 @@
 ## The upper-frame phase, in order
 
 1. **Build the upper frame** — the goBILDA sub-assembly that carries the controls + cladding.
-2. **[Right Upper Electronics Bay](upper-right-electronics-bay.md)** — mount the StampPLC and a
+2. **[Right Upper Electronics Bay](upper-right-electronics-bay.md)** — mount the StamPLC and a
    DIN rail of WAGO connectors on the right upper frame.
 3. **Install the touchscreen / operator panel.**
 4. **Install the upper claddings.**

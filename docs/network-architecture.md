@@ -12,7 +12,7 @@ private, and controls who can reach what.
 ## Two boundaries — keep them separate
 
 - **A — Uplink:** how the robot reaches the internet / your site network.
-- **B — Onboard island:** the private LAN where the Thor, StampPLC, cameras, and teleop live.
+- **B — Onboard island:** the private LAN where the Thor, StamPLC, cameras, and teleop live.
 
 Decide them independently.
 
@@ -66,14 +66,14 @@ outbound with **no inbound hole needed.**
 | LAN-core → LAN-core | ALLOW (the ROS island) |
 | Admin (VPN peer) → LAN-core | ALLOW |
 | Guest → dashboard `:8080` (+ optional teleop / Foxglove read-only) | ALLOW (narrow allowlist) |
-| Guest → rest of LAN-core (ROS services, StampPLC, SSH) | **DENY** |
+| Guest → rest of LAN-core (ROS services, StamPLC, SSH) | **DENY** |
 | Guest → internet | **DENY** (the uplink is for the robot, not a hotspot) |
 | Guest → Guest | DENY (client isolation) |
 
 ## Access control
 
 - **Users never touch robot internals** — only a defined application surface: the kiosk dashboard
-  (HTTP), an optional teleop endpoint, optional Foxglove read-only. ROS actuator services, StampPLC
+  (HTTP), an optional teleop endpoint, optional Foxglove read-only. ROS actuator services, StamPLC
   command endpoints, and SSH stay LAN-only / admin-only.
 - **Cut-off is one action** — disable the guest SSID, revoke a VPN peer, flip a router firewall rule,
   or disable the dashboard's guest role — instantly, and fleet-wide if centrally managed.
@@ -94,7 +94,7 @@ untrusted user, close these:**
 2. **rosbridge (`:9090`) and Foxglove (`:8765`) bind `0.0.0.0` with no auth** — bind them to the LAN
    interface and firewall them off the WAN.
 3. **Default-deny inbound at the router WAN** — the robot initiates outbound only (updates, NTP, VPN
-   dial-out); ROS / DDS / StampPLC are never WAN-reachable.
+   dial-out); ROS / DDS / StamPLC are never WAN-reachable.
 
 ## See also
 

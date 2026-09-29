@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenDubs StampPLC Ethernet heartbeat (feeds the firmware link watchdog)
+Description=OpenDubs StamPLC Ethernet heartbeat (feeds the firmware link watchdog)
 After=network-online.target
 Wants=network-online.target
 

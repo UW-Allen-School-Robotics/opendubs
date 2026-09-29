@@ -20,7 +20,7 @@ ROS 2 topics on the Thor  →  ros2 topic echo / Foxglove 3D
 Chosen ros-sharp → existing rosbridge over Unity's ROS-TCP-Connector specifically
 to add **zero new robot-side services** (ROS-TCP-Endpoint would need a colcon
 workspace we otherwise don't use). Same thin-client-over-rosbridge pattern as the
-LIDAR tab + StampLC bridge.
+LIDAR tab + StamPLC bridge.
 
 ## Topic contract
 

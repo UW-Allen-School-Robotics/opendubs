@@ -90,7 +90,7 @@ photo filenames — use a short hierarchical ID:
 | `DT` | Drivetrain, per corner → `DT-FL`, `DT-FR`, `DT-RL`, `DT-RR` |
 | `PW` | Power (battery, BMS, PDH, e-stop, contactor) |
 | `CMP` | Compute (Thor + mounts) |
-| `CTL` | Control electronics (StampPLC, Tab5, PRISM, harness) |
+| `CTL` | Control electronics (StamPLC, Tab5, PRISM, harness) |
 | `SEN` | Sensing → `SEN-LID-F`, `SEN-LID-R`, `SEN-CAM`, `SEN-GPS`, `SEN-IMU` |
 | `SHL` | Shell / covers / panels |
 | `MST` | Mast (if in scope) |

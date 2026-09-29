@@ -7,7 +7,7 @@ LiftController Lift;
 
 // ---- FRONT rangefinder (screen-mounted) ------------------------------------------
 // This is what the head is looking at, published as CAN_ID_TOF_FRONT. It is NOT the lift's
-// height sensor — that one is on the StampPLC and arrives over UDP.
+// height sensor — that one is on the StamPLC and arrives over UDP.
 //
 // Which M5 ToF unit is fitted is a per-build fact and getting it wrong is silent: the ToF4M
 // is a VL53L1X with SIXTEEN-BIT registers, the older unit a VL53L0X with 8-bit ones, and a
@@ -106,12 +106,12 @@ void LiftController::begin() {
   Wire.begin(PIN_SDA, PIN_SCL, 100000);
   tofBegin();
   // Nothing to de-energize: this object does not actuate. The lift's relays belong to the
-  // StampPLC, which holds them open unless its own driver says otherwise.
+  // StamPLC, which holds them open unless its own driver says otherwise.
 }
 
 // ---- requests ----------------------------------------------------------------------
 // Setting an intent is all that happens here. No relay, no pulse timing, no pulse-toggle
-// bookkeeping: the StampPLC's driver owns all of it, including the reversal gap that this
+// bookkeeping: the StamPLC's driver owns all of it, including the reversal gap that this
 // code used to violate by firing two pulses back-to-back with both legs briefly energized.
 void LiftController::commandUp() {
   if (!mtx_) return;
@@ -179,7 +179,7 @@ void LiftController::tick(uint32_t nowMs) {
 }
 
 // The soft e-stop cannot stop the lift itself any more — it has no actuator. What it can do
-// is stop ASKING, immediately and continuously, which the StampPLC reads as stop. The real
+// is stop ASKING, immediately and continuously, which the StamPLC reads as stop. The real
 // stop remains the hardware e-stop, which drops the drive bus the lift runs on.
 void LiftController::enforceSafe(uint32_t nowMs) {
   (void)nowMs;

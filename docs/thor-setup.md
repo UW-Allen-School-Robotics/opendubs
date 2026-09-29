@@ -1,8 +1,8 @@
 # Thor setup
 
 The **NVIDIA Jetson AGX Thor** is the robot's autonomy brain — it runs ROS 2, perception, and the
-touchscreen dashboard. Set the Thor up **first**: it's the canonical host for flashing the StampPLC
-firmware and for running the whole software stack. The StampPLC (the mobile base's edge controller — RC over
+touchscreen dashboard. Set the Thor up **first**: it's the canonical host for flashing the StamPLC
+firmware and for running the whole software stack. The StamPLC (the mobile base's edge controller — RC over
 SBUS, drive mixer, safety, power/BMS) talks to the Thor over USB or Ethernet; there is no separate flight
 controller.
 
@@ -15,7 +15,7 @@ controller.
 | OS | Ubuntu 24.04 (Noble) |
 | ROS | ROS 2 Jazzy Jalisco (Tier-1 with 24.04) |
 | Touch panel | Hosyond 8.8″ **1920×480** HDMI (no-EDID; driven as a forced mode) |
-| StampPLC | M5Stack, over USB → Ethernet |
+| StamPLC | M5Stack, over USB → Ethernet |
 
 ## 1 · Flash the base OS
 
@@ -56,7 +56,7 @@ time to push updates). It sets up three subsystems:
 - **Dashboard + kiosk** — the FastAPI backend and the touchscreen kiosk (below).
 - **ROS 2 bringup** — RPLIDAR drivers, rosbridge, Foxglove bridge, and the scan watchdogs.
 - **Firmware tooling** — PlatformIO in `/opt/opendubs/piovenv` and `flash-from-thor.sh`, so you can
-  flash the StampPLC directly from the Thor (see [Flash a StampPLC](flashing-stamplc.md)).
+  flash the StamPLC directly from the Thor (see [Flash a StamPLC](flashing-stamplc.md)).
 
 If the robot carries OpenArm arms, set them up afterwards with [OpenArm setup](openarm-setup.md).
 The arms are an optional payload, so `provision-all.sh` doesn't include them.
@@ -124,7 +124,7 @@ working fine** — the bridge is consuming the events. Don't mistake that for de
 
 `deploy-all.sh` prints a service-status readout at the end — expect `opendubs-dash` and the ROS
 services **active**. On the robot itself, the panel should be showing the live dashboard. From here,
-flash the StampPLC: [Flash a StampPLC](flashing-stamplc.md).
+flash the StamPLC: [Flash a StamPLC](flashing-stamplc.md).
 
 ## Operating notes
 
@@ -134,7 +134,7 @@ flash the StampPLC: [Flash a StampPLC](flashing-stamplc.md).
 - **Power mode** — lock a fixed `nvpmodel` profile (and `jetson_clocks` if you need max clocks) for
   repeatable timing.
 - **Time sync** — run `chrony`. If the robot's network has no internet, point NTP at the local
-  router as the time source; the StampPLC has no reliable RTC, so its telemetry is timestamped on
+  router as the time source; the StamPLC has no reliable RTC, so its telemetry is timestamped on
   arrival at the Thor.
 - **Multi-NIC DDS** — with wired + Wi-Fi both up, default ROS 2 multicast discovery can produce
   phantom/duplicate peers. Pin a fixed `ROS_DOMAIN_ID` and bind discovery to one interface (or use a
