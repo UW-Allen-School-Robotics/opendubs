@@ -17,8 +17,8 @@ converging on the StampPLC and Thor, and exposed to a payload through the standa
 - **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the live board also includes the **payload-connected** system bus map (the poster above shows the core version). Clicking the diagram loads the full interactive board.
 
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
-- Mobile-base low-level controller: **StampPLC** — one of several low-level controllers on the
-  robot; each payload may bring its own
+- Edge controllers: **StampPLC** on the mobile base, **Tab5** on the head — introduced under
+  *Responsibility split* below. Each payload may bring its own as well
 - Mobile base: 4 motors + 2 dual-channel ESCs, optimised for **mecanum** drive and switchable to
   **4WD traction** drive in software
 - Z-axis: the interchangeable payload that raises and lowers the arms — a **scissor lift**
@@ -28,22 +28,40 @@ converging on the StampPLC and Thor, and exposed to a payload through the standa
 OpenArm reference:
 - https://github.com/enactic/OpenArm
 
-## Responsibility Split
+## Responsibility split
 
-### Thor AGX (robot-level)
+Two edge controllers sit beneath the Thor. Neither reduces to a single function, so each is
+introduced here with what it owns — and referred to by name everywhere after that.
+
+### Thor AGX — robot level
 
 - High-level behavior, planning, and autonomy orchestration
 - Robot mode supervision
 - Subsystem enable/disable coordination
 - System-level fault handling policy decisions
 
-### StampPLC (edge controller)
+### StampPLC — the mobile base
 
-- RC/SBUS ingest and normalization
+It owns the safety-critical edge of the base: it is the RC receiver, the e-stop moderator, the
+source of the ESC and motor commands, and the publisher of hardware telemetry.
+
+- RC/SBUS ingest and normalisation
 - PWM output generation and safety gating
-- I2C/CAN edge interactions
-- Fast safety fallback behaviors
+- E-stop moderation — contactor coil, button sense, weld detect
+- Z-axis relay control and the pinch guard
+- I²C and CAN edge interactions
+- Fast safety fallback behaviours
 - Hardware telemetry publishing
+
+### Tab5 — the head
+
+The second edge controller. It is the robot's front control panel and its human–robot
+interface, and it drives the pan/tilt system.
+
+- Front panel — the face display and the on-screen controller UI
+- Pan/tilt head servos over I²C, commanded by the RC, the on-screen d-pad, or the Thor's tracker
+- Z-axis height sensing (ToF) and the operator prompts that go with it
+- Sound
 
 ## Subsystems
 

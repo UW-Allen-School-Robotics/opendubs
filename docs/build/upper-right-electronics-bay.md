@@ -14,13 +14,14 @@
   <span class="embed-facade__play">▶ Open the interactive 3D model — upper integration</span>
 </div>
 
-*The right upper electronics bay carries the **StampPLC** (the base controller) and a **DIN rail
+*The right upper electronics bay carries the **StampPLC** (the mobile base's edge controller) and a **DIN rail
 of WAGO connectors** that serves as the wiring junction for the upper-frame harnesses. **Click
 the model above** to orbit the whole upper integration this bay is part of.*
 
 ## What lives in the bay
 
-- **StampPLC** — the base controller (SBUS RC in, relay + isolated-DI safety I/O, telemetry).
+- **StampPLC** — the mobile base's edge controller (SBUS RC in, relay + isolated-DI safety I/O,
+  telemetry).
   It mounts to the DIN rail via a 3D-printed clip. See [StampPLC connections](../stamplc-connections.md)
   for the full pinout and [E-stop system](../e-stop.md) for the safety wiring that lands here.
 - **StampPLC PoE module** — clips onto the StampPLC and gives it **PoE Ethernet**. This is the
@@ -66,7 +67,7 @@ all snap to it, so the bay is built up on the bench and dropped in as a unit.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [M5Stack StamPLC controller](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/K141/26459381) | `K141` | 1 | The base controller. Available from many sources; DigiKey (shown) stocks well for US-based teams. |
+| [M5Stack StamPLC controller](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/K141/26459381) | `K141` | 1 | The mobile base's edge controller. Available from many sources; DigiKey (shown) stocks well for US-based teams. |
 | [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | Adds PoE Ethernet to the StampPLC — the StampPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
 
 **Mounting**

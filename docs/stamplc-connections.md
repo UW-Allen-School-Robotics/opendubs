@@ -1,6 +1,6 @@
 # StampPLC connections
 
-The **M5Stack StampPLC** is the base controller — it ingests RC, mixes the mecanum drive, runs the
+The **M5Stack StampPLC** is the mobile base's edge controller — it ingests RC, mixes the mecanum drive, runs the
 safety I/O (e-stop contactor + weld sense), and is the telemetry hub. This page is the wiring
 reference for **assembly and troubleshooting**: which bus lands on which port, and the canonical
 relay / isolated-input map. It is the source of truth the dashboard labels and the block diagrams

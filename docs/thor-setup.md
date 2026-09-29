@@ -2,8 +2,8 @@
 
 The **NVIDIA Jetson AGX Thor** is the robot's autonomy brain — it runs ROS 2, perception, and the
 touchscreen dashboard. Set the Thor up **first**: it's the canonical host for flashing the StampPLC
-firmware and for running the whole software stack. The StampPLC (base controller — RC over SBUS,
-drive mixer, safety, power/BMS) talks to the Thor over USB or Ethernet; there is no separate flight
+firmware and for running the whole software stack. The StampPLC (the mobile base's edge controller — RC over
+SBUS, drive mixer, safety, power/BMS) talks to the Thor over USB or Ethernet; there is no separate flight
 controller.
 
 ## Baseline
@@ -15,7 +15,7 @@ controller.
 | OS | Ubuntu 24.04 (Noble) |
 | ROS | ROS 2 Jazzy Jalisco (Tier-1 with 24.04) |
 | Touch panel | Hosyond 8.8″ **1920×480** HDMI (no-EDID; driven as a forced mode) |
-| Base controller | M5Stack StampPLC over USB → Ethernet |
+| StampPLC | M5Stack, over USB → Ethernet |
 
 ## 1 · Flash the base OS
 
@@ -124,7 +124,7 @@ working fine** — the bridge is consuming the events. Don't mistake that for de
 
 `deploy-all.sh` prints a service-status readout at the end — expect `opendubs-dash` and the ROS
 services **active**. On the robot itself, the panel should be showing the live dashboard. From here,
-flash the base controller: [Flash a StampPLC](flashing-stamplc.md).
+flash the StampPLC: [Flash a StampPLC](flashing-stamplc.md).
 
 ## Operating notes
 

@@ -1,8 +1,9 @@
 # OpenDubs
 
 A **low-cost, low-fabrication, open-source mobile robot** built at the University of Washington: an
-NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StampPLC base controller, mecanum drive on a
-goBILDA/REV chassis, and a Tab5 animated face — designed so a small team can replicate it from
+NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StampPLC edge controller on the mobile base,
+mecanum drive on a goBILDA/REV chassis, and a Tab5 front panel carrying the animated face and
+the pan/tilt head — designed so a small team can replicate it from
 mostly off-the-shelf parts.
 
 !!! danger "Safety & disclaimer — read before you build or operate"
@@ -44,7 +45,7 @@ mostly off-the-shelf parts.
 !!! tip "Start Here"
     New here? Read the **[System overview →](system-overview.md)** first — the whole robot as buses
     and interfaces, in one diagram. Then **[flash a StampPLC](flashing-stamplc.md)** to bring up the
-    base controller, and skim the [coordinate frames & naming](naming-frames.md) convention
+    StampPLC, and skim the [coordinate frames & naming](naming-frames.md) convention
     everything else references.
 
 ## Firmware, software, hardware

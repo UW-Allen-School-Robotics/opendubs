@@ -7,7 +7,7 @@ lift commands, they pass the **StampPLC arm + failsafe gate**, and telemetry str
 Swapping control sources never changes the robot's safety behavior — only who's holding the
 (virtual) stick.
 
-**Two paths do not pass that gate today** — the arms and the front panel. See
+**Two paths do not pass that gate today** — the arms and the Tab5. See
 [what the gate does not cover](#what-the-gate-does-not-cover) below, which is a gap rather than
 a design choice.
 
@@ -37,7 +37,7 @@ flowchart TB
   AUTH -->|"pan and tilt forwarded"| TAB5
   ST --> LIGHT["Lights"]
 
-  THOR ==>|"ungated"| TAB5["Front panel"]
+  THOR ==>|"ungated"| TAB5["Tab5 — front panel"]
   THOR ==>|"ungated"| ARMCTL["Arm controllers"]
   ARMCTL --> CAN["CAN bus"]
   CAN --> ARMS["Arms and grippers"]
@@ -55,17 +55,18 @@ Solid is a command, thick is a command that does not pass the authority gate, da
 
 Three controllers share the robot. The **StampPLC** (an ESP32-S3 industrial controller) owns the
 RC receiver, the robot state, drive mixing, the lift relays, the lights and the e-stop
-contactor. The **front panel** (an ESP32-P4 tablet) owns the face screen, the head pan/tilt
-servos and the speaker. The **onboard computer** runs ROS 2, forms and sends the arms' CAN
+contactor. The **Tab5** (an ESP32-P4 panel) is the front control panel and the
+human–robot interface, and it drives the pan/tilt system: the face screen, the head servos and
+the speaker. The **onboard computer** runs ROS 2, forms and sends the arms' CAN
 traffic, and hosts a listener that accepts commands from any source.
 
 Three things follow from the drawing:
 
 - **Releasing the deadman stops actuators, not software.** The computer keeps listening and
   keeps sending; the StampPLC stops acting on what arrives.
-- **State is an output**, broadcast from the StampPLC to the front panel, the computer and the
+- **State is an output**, broadcast from the StampPLC to the Tab5, the computer and the
   dashboard. The face and the lights follow state rather than being commanded per device.
-- **The front panel drives the head servos.** The StampPLC forwards pan and tilt from the
+- **The Tab5 drives the head servos.** The StampPLC forwards pan and tilt from the
   sticks; the computer can also send them directly.
 
 ## Control sources — all speak the same contract
@@ -98,7 +99,7 @@ supported — both are just UIs over this one contract.
 The e-stop contactor gates the **drive bus** only — the 60&nbsp;A step-down sits behind it and
 feeds the power distribution hub and the drive ESCs (see
 [Power architecture](../power-architecture.md)). The arms are not on that bus, and the onboard
-computer forms and sends their CAN traffic itself. The computer also addresses the front panel
+computer forms and sends their CAN traffic itself. The computer also addresses the Tab5
 directly.
 
 So in `MANUAL`, releasing the deadman stops drive and lift, but **not the arms, the head or

@@ -1,6 +1,6 @@
 # Flash a StampPLC
 
-The **StampPLC** (M5Stack, ESP32-S3) is the robot's base controller — it reads the RC receiver over
+The **StampPLC** (M5Stack, ESP32-S3) is the mobile base's edge controller — it reads the RC receiver over
 SBUS, runs the mecanum drive mixer and safety arming, watches power/BMS/CAN, and streams telemetry to
 the Thor. This page flashes its firmware (`firmware/rc_serial_probe/`) onto a new board.
 
