@@ -130,6 +130,55 @@ side errand inside a documentation pass.**
 Prerequisite for none of the above, but related: **0a/B4a** retires the dead kiosk code that the
 tablet replaced.
 
+## 0d. ISAAC ROS — what has to be true before the ROS layer's shape is settled
+
+Raised 2026-09-29 against checklist **B11**. The structural question (one package + launch files
+vs. today's 8 systemd units around loose scripts) was deliberately **not** answered, because
+committing to Isaac ROS across the robot largely decides it. These are the prerequisites, and
+most are not documentation.
+
+**Two hard blockers. Nothing in Isaac ROS is useful until both are cleared.**
+
+- **[TODO] ROS cannot drive the robot.** There is **no `/cmd_vel` subscriber anywhere**. Nav2's
+  entire output is `/cmd_vel`, so there is nothing for it to talk to. The path has to be a
+  network source claiming a lease through the arbiter — the same treatment as a tablet-triggered
+  routine, per [control authority](../docs/control-authority.md) — not a private channel to the
+  ESCs. `MAST CMD`'s 250 ms expiring intent is the pattern to copy.
+- **[TODO] ROS does not know where the robot is.** There is **no `/odom` publisher**. Pinpoint
+  odometry reaches the StamPLC and stops there as an `[ODO]` telemetry line the dashboard renders.
+  `software/choreo` already refuses to move the base for exactly this reason. cuVSLAM and nvblox
+  both need odometry *and* TF.
+
+**Then the graph problems.**
+
+- **[TODO] TF tree.** Three frames — `laser`, `laser_rear`, `tof_front_link` — are published with
+  no transform to `base_link`, so nothing can be fused. The geometry is **not** the hard part:
+  `sim/dimensions.yaml` is the datum source and `sim/opendubs.xml` already places the D415 in CAD
+  coordinates with a `d415_face` site. What is missing is (a) the two RPLIDARs and the ToF, which
+  are in neither file and need CAD positions, and (b) a format — the model is **MuJoCo MJCF**, and
+  `robot_state_publisher` wants URDF. Generating both from `dimensions.yaml` keeps one source of
+  truth; hand-authoring a URDF creates a second place the geometry lives.
+- **[DEC] The D415 is owned by one process.** `yolo_tracker.py` opens it directly through
+  `pyrealsense2` inside the dashboard backend. A RealSense admits a single client, so
+  `realsense-ros` **cannot** publish that camera while the tracker runs. Either the tracker moves
+  to subscribing on ROS image topics, or the camera stays out of the Isaac graph. This is a fork
+  in the road, not a detail.
+- **[TODO] Containers change the structure question.** `docs/thor-setup.md` already records that
+  Isaac ROS runs from NVIDIA's containers rather than host `pip`, because CUDA/cuDNN/TensorRT are
+  pinned to the JetPack version. So "one systemd unit running a launch file" becomes "a systemd
+  unit running a container that runs a launch file", and our package has to build inside it.
+- **[TODO] NITROS is a type contract, not a flag.** GPU-resident image transport only works
+  between NITROS-capable endpoints, which in practice means composable C++ nodes in a shared
+  component container. Python nodes cannot join the zero-copy path — they belong at the edges of
+  the graph, bridging to hardware. That pushes the architecture toward launch files and component
+  containers regardless of taste.
+- **[TODO] DDS is at defaults** — domain 0, localhost, FastDDS. Fine for one host; needs a
+  standardised domain ID and RMW before a second machine or a container joins.
+
+**Already done** (2026-09-29): topics and services are named by function, the duplicate
+`stamplc_udp_bridge.py` is gone, and `/zaxis/{up,down,stop}` gives ROS a guarded lift path where
+previously the only service on offer was a direct relay write the backend refuses.
+
 ## 1. Data-source map (after the architecture changes)
 
 | Source | Provides | Transport | Notes |

@@ -8,22 +8,27 @@ ROS topics, and advertises services that POST to the dashboard's command endpoin
 (which already enforce the safety rules — e.g. only relays 2/3 are free toggles).
 
 Topics published:
-  /stamplc/diagnostics      diagnostic_msgs/DiagnosticArray  (labeled DI/relay/safety/PDH/encoder)
-  /stamplc/bus_voltage      std_msgs/Float32   (logic-bus volts)
-  /stamplc/temperature      std_msgs/Float32   (board LM75B °C)
-  /stamplc/mast_encoder     std_msgs/Int32     (ExtEncoder count)
-  /stamplc/estopped         std_msgs/Bool
-  /stamplc/motion_enabled   std_msgs/Bool
-  /stamplc/pdh/{voltage,current,power}  std_msgs/Float32
+  /diagnostics              diagnostic_msgs/DiagnosticArray  (labeled DI/relay/safety/PDH/encoder)
+  /power/bus_voltage        std_msgs/Float32   (logic-bus volts)
+  /power/temperature        std_msgs/Float32   (board LM75B °C)
+  /zaxis/encoder            std_msgs/Int32     (ExtEncoder count)
+  /robot/estopped           std_msgs/Bool
+  /robot/motion_enabled     std_msgs/Bool
+  /power/pdh/{voltage,current,power}    std_msgs/Float32
 
 Services advertised (std_srvs):
-  /stamplc/estop            Trigger  → POST /api/estop          (software e-stop, SAFE direction)
-  /stamplc/estop_clear      Trigger  → POST /api/estop/clear    (re-arm, guarded by dashboard)
-  /stamplc/enc_reset        Trigger  → POST /api/enc/reset      (home/zero mast encoder)
-  /stamplc/i2c_scan         Trigger  → POST /api/i2c/scan
-  /stamplc/relay2           SetBool  → POST /api/relay/2/{on,off}
-  /stamplc/relay3           SetBool  → POST /api/relay/3/{on,off}
-  /stamplc/pdh_switch       SetBool  → POST /api/pdh/{on,off}
+  /robot/estop              Trigger  → POST /api/estop          (software e-stop, SAFE direction)
+  /robot/estop_clear        Trigger  → POST /api/estop/clear    (re-arm, guarded by dashboard)
+  /robot/i2c_scan           Trigger  → POST /api/i2c/scan
+  /zaxis/{up,down,stop}     Trigger  → POST /api/mast/{cmd}     (guarded — pinch guard applies)
+  /zaxis/encoder_reset      Trigger  → POST /api/enc/reset      (home/zero the encoder)
+  /robot/aux_relay          SetBool  → POST /api/relay/3/{on,off}  (relay 3, the only free one)
+  /power/pdh_switch         SetBool  → POST /api/pdh/{on,off}
+
+Topics are named by FUNCTION, not by the board that happens to send them, so a topic survives
+a function moving between controllers — which has already happened once, when RC moved off the
+Pixhawk. No service writes the lift's relays directly: /zaxis/{up,down,stop} goes through
+`MAST CMD` and the same driver the RC sticks use, so the pinch guard applies.
 
 Interim bridge — the long-term clean path is micro-ROS on the ESP32-S3 (see
 docs/hardening-roadmap.md). This gets the StamPLC into ROS now with NO firmware
@@ -58,26 +63,35 @@ def _post(path, timeout=3.0):
 class StamPLCBridge(Node):
     def __init__(self):
         super().__init__("stamplc_bridge")
-        self.diag = self.create_publisher(DiagnosticArray, "/stamplc/diagnostics", 10)
-        self.p_busv = self.create_publisher(Float32, "/stamplc/bus_voltage", 10)
-        self.p_temp = self.create_publisher(Float32, "/stamplc/temperature", 10)
-        self.p_enc = self.create_publisher(Int32, "/stamplc/mast_encoder", 10)
-        self.p_estop = self.create_publisher(Bool, "/stamplc/estopped", 10)
-        self.p_motion = self.create_publisher(Bool, "/stamplc/motion_enabled", 10)
-        self.p_pv = self.create_publisher(Float32, "/stamplc/pdh/voltage", 10)
-        self.p_pi = self.create_publisher(Float32, "/stamplc/pdh/current", 10)
-        self.p_pp = self.create_publisher(Float32, "/stamplc/pdh/power", 10)
+        self.diag = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
+        self.p_busv = self.create_publisher(Float32, "/power/bus_voltage", 10)
+        self.p_temp = self.create_publisher(Float32, "/power/temperature", 10)
+        self.p_enc = self.create_publisher(Int32, "/zaxis/encoder", 10)
+        self.p_estop = self.create_publisher(Bool, "/robot/estopped", 10)
+        self.p_motion = self.create_publisher(Bool, "/robot/motion_enabled", 10)
+        self.p_pv = self.create_publisher(Float32, "/power/pdh/voltage", 10)
+        self.p_pi = self.create_publisher(Float32, "/power/pdh/current", 10)
+        self.p_pp = self.create_publisher(Float32, "/power/pdh/power", 10)
 
         # Command services → POST to the dashboard's existing endpoints. The
         # dashboard enforces the safety policy (relay 0/1 are NOT exposed here;
         # estop_clear is guarded there) so this bridge can't widen the attack surface.
-        self.create_service(Trigger, "/stamplc/estop", self._mk_trigger("/api/estop"))
-        self.create_service(Trigger, "/stamplc/estop_clear", self._mk_trigger("/api/estop/clear"))
-        self.create_service(Trigger, "/stamplc/enc_reset", self._mk_trigger("/api/enc/reset"))
-        self.create_service(Trigger, "/stamplc/i2c_scan", self._mk_trigger("/api/i2c/scan"))
-        self.create_service(SetBool, "/stamplc/relay2", self._mk_relay(2))
-        self.create_service(SetBool, "/stamplc/relay3", self._mk_relay(3))
-        self.create_service(SetBool, "/stamplc/pdh_switch", self._mk_setbool("/api/pdh/on", "/api/pdh/off"))
+        self.create_service(Trigger, "/robot/estop", self._mk_trigger("/api/estop"))
+        self.create_service(Trigger, "/robot/estop_clear", self._mk_trigger("/api/estop/clear"))
+        self.create_service(Trigger, "/zaxis/encoder_reset", self._mk_trigger("/api/enc/reset"))
+        self.create_service(Trigger, "/robot/i2c_scan", self._mk_trigger("/api/i2c/scan"))
+        # No service writes the lift's relays. The backend refuses channels 1 and 2 with a
+        # 409 because writing them directly bypasses the mast driver, and with it the pinch
+        # guard, the limit detection and the authority/deadman gate. Relay 3 is the only
+        # free channel.
+        self.create_service(SetBool, "/robot/aux_relay", self._mk_relay(3))
+        # The guarded Z-axis path. `MAST CMD` feeds the same driver the RC sticks do, and the
+        # firmware expires the intent after 250 ms — so a caller has to keep asking, and a
+        # caller that dies stops the lift.
+        for cmd in ("up", "down", "stop"):
+            self.create_service(Trigger, "/zaxis/%s" % cmd,
+                                self._mk_trigger("/api/mast/%s" % cmd))
+        self.create_service(SetBool, "/power/pdh_switch", self._mk_setbool("/api/pdh/on", "/api/pdh/off"))
 
         self.create_timer(1.0 / POLL_HZ, self._poll)
         self._warned = False

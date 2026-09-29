@@ -206,7 +206,25 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
           `camera-selection.md` now says so at the top. The "what others are doing" survey is that
           page, researched 2026-06-09. Choosing the *permanent* camera is a live question, but it
           is not a documentation defect.
-- [ ] B11 ROS layer structure — larger architectural question
+- [~] B11 **Partly ruled 2026-09-29. Structure deliberately left open.**
+      - [x] **Topic and service naming — by function, not by device.** `/robot/`, `/power/`,
+            `/sensors/`, `/zaxis/`; `/diagnostics` keeps its standard ROS name. Applied to
+            `stamplc_bridge.py` and documented in `software/ros/README.md`. The rationale is that a
+            topic then survives a function moving between boards, which has already happened once
+            when RC moved off the Pixhawk.
+      - [x] **`stamplc_udp_bridge.py` deleted.** A second, unused StamPLC bridge publishing a
+            different topic set; the systemd unit runs the HTTP-poll one.
+      - [x] **Found and fixed while in there:** `/stamplc/relay2` was a service writing the
+            scissor lift's UP leg. The backend refuses channels 1 and 2 with a `409` precisely
+            because a direct relay write bypasses the mast driver, the pinch guard, the limit
+            detection and the deadman gate — so the service was permanently broken while
+            advertising lift control. Replaced with `/zaxis/{up,down,stop}` through `MAST CMD`,
+            which is the guarded path. **ROS previously had no safe way to move the lift.**
+      - [ ] **Structure (package + launch vs. today's 8 units) — OPEN by decision.** Committing to
+            Isaac ROS across the robot largely settles it, and the prerequisites are captured in
+            `punch-list.md` §0d. Two of them are blockers that make the question moot until
+            cleared: there is **no `/cmd_vel` subscriber** and **no `/odom` publisher**, so ROS can
+            neither drive the robot nor know where it is.
 - [x] B12 **Closed 2026-09-29 — true, and already accommodated.** The premise is correct and the
           build never depended on it: each arm runs its **own CAN-FD bus** at 1 Mbit/s nominal and
           5 Mbit/s data through a **PEAK PCAN-USB Pro FD** on the Thor, one channel per arm

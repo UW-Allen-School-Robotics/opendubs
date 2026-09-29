@@ -66,6 +66,17 @@ console (3D, TF, point clouds, plots, diagnostics, MCAP recording) — it
 > An optional Pixhawk/MAVROS variant (not part of the baseline) is preserved under
 > [`../../optional/pixhawk/`](../../optional/pixhawk/).
 
+## Topic and service naming
+
+**Named by function, not by device.** `/robot/`, `/power/`, `/sensors/`, `/zaxis/` — what the data
+*is*, not which board sent it. A topic then survives a function moving between controllers, which
+has already happened once when RC moved off the Pixhawk onto the StamPLC's SBUS. `/diagnostics`
+keeps its standard ROS name so aggregators find it.
+
+**Nothing writes the lift's relays.** `/zaxis/{up,down,stop}` goes through `MAST CMD` and the same
+driver the RC sticks feed, so the pinch guard, the limit detection and the authority/deadman gate
+all apply. The backend refuses direct relay writes on channels 1 and 2 for the same reason.
+
 ## StamPLC → ROS bridge
 
 The kiosk dashboard is the **single owner** of the StamPLC serial link. The bridge
@@ -76,20 +87,20 @@ dashboard's existing command endpoints (which keep enforcing the safety policy �
 only relays 2/3 are exposed; relay 0/1 are not). Runs as
 **`opendubs-stamplc-bridge.service`** → `stamplc-bridge.sh` → `stamplc_bridge.py`.
 
-- **Topics:** `/stamplc/diagnostics` (`DiagnosticArray`: Safety / Digital Inputs /
-  Relays / REV PDH / Mast Encoder, labeled), plus plain plottables
-  `/stamplc/{bus_voltage,temperature,mast_encoder,estopped,motion_enabled}` and
-  `/stamplc/pdh/{voltage,current,power}`.
-- **Services:** `/stamplc/estop` · `/stamplc/estop_clear` · `/stamplc/enc_reset` ·
-  `/stamplc/i2c_scan` (`Trigger`); `/stamplc/relay2` · `/stamplc/relay3` ·
-  `/stamplc/pdh_switch` (`SetBool`). Each POSTs the matching `/api/*` endpoint.
+- **Topics:** `/diagnostics` (`DiagnosticArray`: Safety / Digital Inputs /
+  Relays / PDH / Encoder), plus `/robot/{estopped,motion_enabled}`,
+  `/power/{bus_voltage,temperature}`, `/power/pdh/{voltage,current,power}` and
+  `/zaxis/encoder`.
+- **Services:** `/robot/estop` · `/robot/estop_clear` · `/robot/i2c_scan` ·
+  `/zaxis/{up,down,stop}` · `/zaxis/encoder_reset` (`Trigger`); `/robot/aux_relay` ·
+  `/power/pdh_switch` (`SetBool`). Each POSTs the matching `/api/*` endpoint.
 - Poll rate `OPENDUBS_STAMPLC_HZ` (default 5 Hz), dashboard URL `OPENDUBS_DASH_URL`.
 
 Interim bridge — the long-term clean path is **micro-ROS on the ESP32-S3** (see
 `../docs/history/hardening-roadmap.md`); this needs no firmware change and no dashboard rework.
 
-Verify: `ros2 topic echo /stamplc/diagnostics --once` · `ros2 service call
-/stamplc/i2c_scan std_srvs/srv/Trigger`.
+Verify: `ros2 topic echo /diagnostics --once` · `ros2 service call
+/robot/i2c_scan std_srvs/srv/Trigger`.
 
 ## /scan watchdog
 
