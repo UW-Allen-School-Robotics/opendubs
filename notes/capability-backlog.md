@@ -1,16 +1,16 @@
 # Capability Backlog
 
 New capabilities to design + implement (distinct from robustness work in
-[hardening-roadmap.md](history/hardening-roadmap.md)). Each is a TODO to be scoped before
+[hardening-roadmap.md](history/hardening-roadmap.md), archived). Each is a TODO to be scoped before
 implementation — captured here so nothing is lost.
 
 Status legend: ☐ backlog · ◐ in progress · ☑ done
 
-Last updated: 2026-06-08
+Last updated: 2026-09-29
 
 ---
 
-## 1. Servo control — odometry pods & pan/tilt head  ☐
+## 1. Servo control — odometry pods & pan/tilt head  ◐
 
 Two distinct servo subsystems (likely both via the M5 8Servo unit at I²C `0x25`
 on Port A, already detected):
@@ -20,9 +20,10 @@ on Port A, already detected):
   uneven terrain and gap crossings (e.g. elevator thresholds)**. Needs: per-pod
   up/down command, position/limit awareness, and a policy for when to retract
   (tie into terrain/IMU + the robot state machine).
-- **Pan/tilt "head."** 2-DOF servo mount for the head/sensor payload. Needs:
-  pan/tilt command, soft limits, home/center, and eventual coordination with
-  camera/perception (gaze control) and teleop.
+- **Pan/tilt "head." ☑** Built and driven from the Tab5 over I²C, with soft limits and
+  home/center. Gaze control is live: the Thor's YOLO tracker sends pan/tilt commands over UDP
+  and the Tab5 reports its actual angles back, so handover between tracking, the RC and the
+  on-screen d-pad is visible off-board. Remaining: teleop as a third command source.
 - **Considerations:** servo power budget (PDH channel), limit/stall handling,
   whether to drive from StampLC firmware now vs. a ROS node later, and how
   raise/lower interacts with subsystem FSM states (mast/base).
@@ -30,34 +31,42 @@ on Port A, already detected):
   (StampLC I²C) — a first-class localization input. The raise/lower state IS the
   covariance gate for that source. See [localization-fusion.md](localization-fusion.md).
 
-## 2. Camera control & viewing  ☐
+## 2. Camera control & viewing  ◐
 
-- Camera selection, live view in the dashboard, and recording/snapshots.
+**A RealSense D415 is fitted to the head** and `opendubs-camera.service` publishes it as ROS
+topics; the YOLO face tracker consumes it directly through `pyrealsense2`. The dashboard has a
+camera pane but it still reads *"no feed configured"* — nothing is wired into it yet.
+
+- Camera selection is a separate question — see [camera-selection.md](../docs/camera-selection.md);
+  the D415 is a stopgap chosen for availability. Still open: live view in the dashboard, and
+  recording/snapshots.
 - Low-latency path should use **Thor NVENC** (see hardening track 5) — design the
   pipeline around hardware encode from the start, especially for teleop.
 - Dashboard: a CAMERA tab; consider WebRTC/MJPEG for the kiosk vs. a separate
   high-rate path for VR teleop.
 - Ties into pan/tilt head (gaze) and perception (Isaac ROS camera pipelines).
 
-## 3. Onboard WiFi (router)  ☐
+## 3. Onboard WiFi (router)  ☑ (fielded 2026-09)
 
 - Onboard router so the robot is its own network island (no dependence on venue
   WiFi). Affects: Thor/StampLC/teleop connectivity, the dashboard's
   network-status logic (`status._net`), VNC reachability, and ROS DDS discovery
   domains.
-- **Design captured in [network-architecture.md](network-architecture.md)** — UW
-  deployment (CSE home net + UWMPSK/eduroam egress), a **dedicated OpenWrt router
-  (not the Thor as AP)**, fleet subnet plan, student access gating, and the
-  security debt to fix before exposure (dashboard authN; rosbridge/foxglove are
-  `0.0.0.0` today). Remaining: router SKU, cellular?, central fleet mgmt, dock.
+- **Fielded**: a MikroTik hAP ac3 running RouterOS at `192.168.88.1`, with UW-MPSK egress on
+  its 5 GHz radio.
+- Design in [network-architecture.md](../docs/network-architecture.md): a dedicated router
+  rather than the Thor as AP, fleet subnet plan, student access gating.
+- **The security debt is not closed** and is tracked in [punch-list.md](punch-list.md) §0:
+  dashboard authN, and rosbridge/Foxglove still bound to `0.0.0.0`. Fix before any untrusted
+  exposure. Still open beyond that: cellular, central fleet management, a dock.
 
 ## 4. Power usage & runtime prediction  ☐
 
-- Use existing telemetry (PDH per-channel current/power, StampLC bus voltage,
-  Jetson rails via tegrastats) to estimate **state of charge and time-to-empty**.
-- Needs a battery model (chemistry, capacity, voltage→SoC curve, sag under load),
-  coulomb counting from PDH current, and a runtime estimate surfaced on the POWER
-  / MASTER STATUS pages.
+- **The pack reports its own state of charge.** Its RS-485 BMS already sends SOC and pack
+  voltage/current to the StampPLC, so the battery model, the voltage→SoC curve and coulomb
+  counting from PDH current that this section originally called for are not needed.
+- What is left is the derived figure and its presentation: **time-to-empty** from SOC plus
+  measured draw, surfaced on the POWER / MASTER STATUS pages.
 - Ties into the LED scheme (low-battery warning) and the state machine (DEGRADED
   on low power).
 
@@ -79,9 +88,8 @@ on Port A, already detected):
 
 ## 6. Failure mode testing  ☐
 
-- Systematic fault injection + observation: e-stop (each source), power loss
-  (battery, shore, total), serial/USB drop (Pixhawk + StampLC), RC link loss,
-  PDH channel faults, subsystem faults, Thor thermal/throttle.
+- Systematic fault injection + observation: e-stop (each source), power loss, serial/USB drop
+  (StampPLC, Tab5), RC link loss, PDH channel faults, subsystem faults, Thor thermal/throttle.
 - Verify the state machine transitions correctly (→ DEGRADED / E_STOP_LATCH) and
   the robot reaches a safe state for each. Builds on the bench tests already done
   (software e-stop source discrimination; DI0 high). Produce a test matrix +
@@ -97,30 +105,15 @@ on Port A, already detected):
   ros-sharp + the 2 publisher scripts + OVRCameraRig + RosConnector + 5 wired publishers.
   In **editor Play mode** all 5 `/quest/*` topics publish to the Thor at **~50 Hz**
   (verified with `ros2 topic hz`/`echo`). Poses are zero (no headset) but path/types are
-  correct. Repo artifacts in [`../teleop/`](../teleop/) (scripts, `sim_quest_client.py`,
+  correct. Repo artifacts in [`software/teleop/`](../software/teleop/) (scripts, `sim_quest_client.py`,
   `verify-quest.sh`, `UNITY_SETUP.md`). **Remaining = APK build to the Quest (or Quest
   Link) for real pose data** — needs `runInBackground=true` (set) + the Android build
   (watch the Meta-XR namespace build issue).
 - **Next (post-PoL):** `TELEOP_CONTROL` FSM state (state-machine-review.md R7) with
   CH5→RC_MANUAL preemption; teleop deadman (grip trigger + heartbeat); pose→setpoint
-  mapping; then video to headset (NVENC + WebRTC — deferred until a camera is wired).
+  mapping; then video to headset (NVENC + WebRTC — a D415 is now fitted, so this
+  is no longer blocked on hardware).
 - Safety: deadman + e-stop must apply to teleop the same as RC (StampPLC gate
   doesn't care *who* fails to assert enable).
 
 ---
-
-## Open design questions
-
-### Ideal-diode / shore-power wiring  ☑ (resolved 2026-06)
-
-Resolved in the Figma schematic + [power-architecture.md](history/power-architecture.md):
-- Source-OR = **Victron Argo Diode Battery Combiner (BCD 802)** — passive
-  highest-voltage-wins + inherent reverse-block; no custom ideal-diode board.
-- E-stop = two-channel: dual-pole NC buttons (one pole → contactor coil in series
-  with StampLC R0; other pole → DI0 active-low sense) + DI6 weld detect.
-- The contactor sits between the OR junction (DBC → regen clamp) and the PDH;
-  **logic (Thor/StampLC/Pixhawk) is on a separate mini-PDH upstream of the
-  contactor**, so an e-stop cuts actuators not the brain.
-
-Remaining bench items live in [power-architecture.md](history/power-architecture.md)
-"Open items" (autobrake current → regen-clamp sizing, shore PSU wattage, etc.).
