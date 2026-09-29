@@ -137,9 +137,8 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
             rotation. It has to be split, not deleted. Removing units from the repo does not remove
             them from the Thor, so the enabled services need disabling there: **do the robot half
             in a session on its network.**
-      - [ ] **B4b make the tablet layout primary.** Rewrite `style.css` so the tablet is the base
-            case and the strip panel is dropped entirely, which is where the "slight annoyances"
-            live. Independent of B4a and safe to do off-robot.
+      - [ ] **B4b make the tablet layout primary** — folded into the tablet-UI project,
+            `punch-list.md` §0b, which is where the screen-sleep, camera and audio work lives too.
 - [ ] B7  Safety rules + the payload contract — needs the control-authority philosophy settled
           first (see `control-authority-model.md`)
 - [x] B8  **RULED 2026-09-29 — collapsible sections, nothing deleted.** Four long argument

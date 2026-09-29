@@ -1,6 +1,0 @@
-[Desktop Entry]
-Name=OpenDubs Kiosk
-Comment=Fullscreen telemetry dashboard
-Exec=/opt/opendubs/kiosk-dashboard/deploy/kiosk-session.sh
-Type=Application
-DesktopNames=OpenDubsKiosk

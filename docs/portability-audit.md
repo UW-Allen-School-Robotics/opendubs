@@ -11,9 +11,10 @@ Audited against the live unit `opendubs2` on 2026-06-09.
 **Status 2026-06-09: the gaps below are now closed.** A fresh Thor (flashed to the
 pinned base) is reproducible via `deploy-all.sh` → `provision-all.sh`, which chains
 three idempotent provisioners:
-- `kiosk-dashboard/deploy/provision.sh` — kiosk/display + dashboard (now also:
-  chromium snap, sudoers, xorg immutability + `opendubs-xorg-fix.service`, GNOME
-  autostart wrappers — reconciled off the old custom-Xsession drift).
+- `kiosk-dashboard/deploy/provision.sh` — the dashboard: python venv + backend
+  deps, the service account and its sudoers rule, `opendubs-dash.service` and the
+  StamPLC heartbeat. It installs no display, browser or X session; the robot has
+  none.
 - `ros/provision-ros.sh` — ROS 2 apt repo + Jazzy base + rplidar/rosbridge/
   foxglove + the 3 `opendubs-*` ROS services.
 - `rc_serial_probe/provision-firmware.sh` — PlatformIO venv + udev rules + flashing
@@ -51,13 +52,8 @@ exact JetPack build used so units match.
 |---|---|---|---|
 | Hostname `opendubs2` | set | ❌ | manual (`hostnamectl`) |
 | python venv `/opt/opendubs/venv` + deps | fastapi/uvicorn/pyserial/websockets/psutil | ✅ `backend/requirements.txt` | `provision.sh` |
-| Kiosk user + autologin | gdm AutomaticLogin=kiosk | ✅ | `provision.sh` |
-| Panel xorg.conf (forced modeline) | `/etc/X11/xorg.conf` | ✅ `deploy/xorg-hdmi.conf` | `provision.sh` |
-| **xorg.conf immutability (`chattr +i`)** | `----i-----` set | ❌ | **manual** |
-| **`opendubs-xorg-fix.service`** (restore oneshot) | enabled | ❌ not in repo | **manual** |
-| Touch rotation `99-opendubs-touch.conf` | installed | ✅ | `provision.sh` |
-| Touch bridge + VNC + dashboard autostart | 3 `.desktop` in `~kiosk/.config/autostart` | ✅ wrappers in `deploy/` | **install step is manual** (provision installs an Xsession instead — drift) |
-| **Chromium** | snap | ❌ | **manual** (`snap install chromium`) |
+| Service account `kiosk` + sudoers | `opendubs-dash.service` runs as it | ✅ | `provision.sh` |
+| ~~Panel xorg, touch bridge, chromium, gdm autologin~~ | — | **retired 2026-09-29** | the robot has no display; an Android tablet browses :8080 |
 | sudoers (kiosk poweroff/reboot) | `/etc/sudoers.d/opendubs-kiosk` | ✅ `deploy/opendubs-sudoers` | **install is manual** |
 | `opendubs-dash.service` | enabled | ✅ | `provision.sh` |
 | **ROS 2 apt repo + key** | `ros2.list` + keyring | ❌ | **manual** |
@@ -74,9 +70,10 @@ All of the previously-manual items now live in provisioning:
 
 1. ✅ **ROS provisioning** — `ros/provision-ros.sh` (apt repo+key, ros-base +
    rplidar/rosbridge/foxglove, installs+enables the 3 services). *Validated.*
-2. ✅ **xorg-fix** — `opendubs-xorg-fix.service` captured to
-   `kiosk-dashboard/deploy/`; `provision.sh` installs it, locks xorg.conf
-   immutable, and enables it.
+2. ➖ **xorg-fix** — was captured to `kiosk-dashboard/deploy/` and installed by
+   `provision.sh`. **Retired 2026-09-29** with the panel; a Thor provisioned
+   before then still has it enabled and needs it disabled by hand — see
+   [Thor setup §4](thor-setup.md).
 3. ✅ **Autostart install** — `provision.sh` installs the three
    `~kiosk/.config/autostart/*.desktop`; the custom-Xsession override is removed
    (drift reconciled → stock GNOME on Xorg).

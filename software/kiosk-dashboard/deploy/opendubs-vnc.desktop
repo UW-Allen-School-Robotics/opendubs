@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=OpenDubs VNC
-Comment=Mirror the kiosk display over VNC (x11vnc)
-Exec=/opt/opendubs/kiosk-dashboard/deploy/vnc.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=true

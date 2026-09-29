@@ -79,6 +79,57 @@ Two counting traps, both of which inflated an earlier sweep:
 
 ---
 
+## 0c. THE YOLO TRACKER SERVICE IS NOT IN THE REPO — and provisioning used to delete it
+
+Found 2026-09-29 while retiring the kiosk.
+
+- **[DONE 2026-09-29]** `kiosk-dashboard/deploy/provision.sh` carried
+  `systemctl disable --now opendubs-yolo-tracker.service` followed by
+  `rm -f /etc/systemd/system/opendubs-yolo-tracker.service`. Running `provision-all.sh` therefore
+  **destroyed the working face tracker**, while `deploy-all.sh` went on listing
+  `opendubs-yolo-tracker` in its service readout — so the report would show it inactive and the
+  cause would look like a crash. Those two lines are gone.
+- **[TODO][HW] Capture the unit into the repo.** There is no `opendubs-yolo-tracker.service`
+  anywhere in the tree, so the service running on the Thor was installed by hand and **cannot be
+  reproduced**. A rebuild of that machine loses the tracker. Copy the live unit off the Thor into
+  `kiosk-dashboard/deploy/`, and have `provision.sh` install and enable it. The venv already
+  covers it — `backend/requirements.txt` carries `ultralytics`, `opencv-python` and
+  `pyrealsense2` — so the gap is the unit plus one runtime detail: `yolo_tracker.py` fetches
+  `face_yolov8n.pt` from Hugging Face on first run, so a freshly rebuilt robot needs either the
+  network up or the model pre-cached. Needs a session on the robot's network.
+
+## 0b. TABLET UI — its own project, not a doc fix
+
+Captured 2026-09-29, when the kiosk panel was confirmed retired. The Android tablet is now the
+**only** operator interface, which promotes a set of previously-discussed annoyances from cosmetic
+to load-bearing. **This is a project with firmware, backend and UX parts — do not start it as a
+side errand inside a documentation pass.**
+
+- **[TODO] The screen sleeps while the robot is in use.** The tablet blanks mid-operation. Needs a
+  deliberate keep-awake while a session is live, and a decision about the mechanism: the Wake Lock
+  API from the page (simple, needs a user gesture and a secure context — note the dashboard is
+  served over plain HTTP today, which the API may refuse), an Android kiosk/launcher setting, or a
+  developer-options screen-timeout change. The choice interacts with the authN work in §0, since
+  HTTPS may be a prerequisite.
+- **[TODO] Use the tablet's camera.** It is a camera the robot already carries to every demo, with
+  no USB cost and no bandwidth against the Thor's controllers. Open: what it is *for* — an operator
+  view, a second perception source, or documentation capture — and whether frames go anywhere near
+  ROS or stay in the browser.
+- **[TODO] Use the tablet's audio.** Speaker and microphone. Overlaps the Tab5, which already owns
+  sound: decide which device is the robot's voice, and whether the tablet's mic implies
+  speech input as a control source — which would have to pass the same failsafe-gated contract as
+  every other source.
+- **[TODO] Tablet-first styling** (the checklist's **B4b**). `frontend/style.css` is written
+  base-first for a 1920x480 strip panel with the tablet on a `@media (max-width: 1600px)`
+  fallback, so the tablet runs the secondary branch of the stylesheet. Make the tablet the base
+  case and delete the strip-panel path.
+- **[DEC] Which tablet, and is it in the BOM?** No display, screen, panel or tablet line exists in
+  `parts.csv` or `hardware-bom.md`. If the tablet is required to operate the robot, a replicator
+  needs to know what to buy; if any Android tablet does, the docs should say that instead.
+
+Prerequisite for none of the above, but related: **0a/B4a** retires the dead kiosk code that the
+tablet replaced.
+
 ## 1. Data-source map (after the architecture changes)
 
 | Source | Provides | Transport | Notes |
