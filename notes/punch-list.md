@@ -4,6 +4,27 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 
 ---
 
+## Where the open work lives
+
+Swept 2026-09-29. Four registers, and nothing else in `notes/` carries open items — the rest are
+design records. Check here before starting a new list.
+
+| register | open | what it is |
+|---|---|---|
+| **this file** | 34 | robot, deployment, security, docs infrastructure |
+| [`drafts/docs-review-checklist.md`](drafts/docs-review-checklist.md) | 48 | the 2026-09-12 documentation review. **A: 1** left (a content decision), **B: 12** blocked on Emma's rulings, **C: 25** need a photo/measurement/part number, **D: 10** platform projects |
+| `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
+| `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
+
+Two counting traps, both of which inflated an earlier sweep:
+
+- **`- [ ]` in `docs/build/` is usually a reader-facing verification checkbox**, not unfinished
+  authoring — "Every lever-nut conductor survives a firm tug". There are 83 of those against 45
+  real authoring TODOs. Do not count them together.
+- **Backticked `*.md` names are invisible to `mkdocs build --strict`**, which only checks real
+  links. Seven had rotted; that is how `mast-control.md` kept pointing at a document archived
+  months earlier. Re-run the check when moving or archiving a doc.
+
 ## 0a. DEPLOYMENT DRIFT — run this before trusting the robot to match the repo
 
 - **[TODO] `tools/deploy-audit.py <robot>`** — the repo is not what is running. PR #9 pinned
@@ -27,13 +48,14 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 - **[TODO][DEPLOY][SECURITY] Configure the router + on-robot services per the security docs before any untrusted exposure.** Apply `docs/network-architecture.md` → "Secure it before you expose it": add dashboard auth; bind rosbridge (`:9090`) + Foxglove (`:8765`) to the LAN and firewall them off the WAN; default-deny inbound at the router WAN; VPN (WireGuard) for remote/admin; guest SSID/VLAN isolated to the app surface only. (Designing the auth *scheme* is the separate [[opendubs-reconnect-todo]] #9 credentials item; this is the config-execution checklist.)
 
 ### Docs pre-share cleanup (audit 2026-08-07)
-- **[DONE]** Archived 5 superseded docs → `docs/history/` (control-architecture, power-architecture, data-power-flow, hardening-roadmap, telemetry-spec) with banners + `history/README.md`; repointed all dangling links. Security-redacted the live tree (VNC pw → `OPENDUBS_VNC_PASS`; removed home IPs, SSID "Cat Sounds Central", SSH user/key path, Thor MAC). Rewrote root `README.md` + `docs/README.md` first-impression (Pixhawk removed; StampPLC-SBUS + three-rail + charger baseline stated).
+- **[DONE]** Archived 5 superseded docs → `notes/history/` (control-architecture, power-architecture, data-power-flow, hardening-roadmap, telemetry-spec) with banners + `history/README.md`; repointed all dangling links. Security-redacted the live tree (VNC pw → `OPENDUBS_VNC_PASS`; removed home IPs, SSID "Cat Sounds Central", SSH user/key path, Thor MAC). Rewrote root `README.md` + `docs/index.md` first-impression (Pixhawk removed; StampPLC-SBUS + three-rail + charger baseline stated).
 - **[DONE 2026-09-29] Minor content-staleness pass** — Pixhawk/MAVLink is out of `docs/`
   entirely (`docs/history/` was never created; the archive lives in `notes/history/`).
   `pymavlink` is gone from `requirements.txt` and `portability-audit.md`. Firmware README tag
   list now carries `[RC]`/`[DRIVE]`/`[BMS]`/`[BMSC]`. `camera-selection.md` states what is
   actually fitted and both "de-facto"/"the standard" claims are gone. `mast-control.md`'s
-  Z-axis framing rewritten and its dangling `control-architecture.md` reference removed.
+  Z-axis framing rewritten, and its dangling reference to the archived control-architecture
+  doc removed.
 - **[TODO] Vestigial MAVLink in *code*** — out of scope of the docs pass, so never done:
   `status.py:3` still describes itself as gathering Pixhawk/MAVLink health and `:413` returns a
   hard-coded deprecated stub; `opendubs-dash.service:17` still exports

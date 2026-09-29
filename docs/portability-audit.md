@@ -62,7 +62,7 @@ exact JetPack build used so units match.
 | `opendubs-dash.service` | enabled | ✅ | `provision.sh` |
 | **ROS 2 apt repo + key** | `ros2.list` + keyring | ❌ | **manual** |
 | **`ros-jazzy-ros-base` + rplidar + rosbridge + foxglove-bridge** (212 ros pkgs) | installed | ❌ | **manual** |
-| **`opendubs-rplidar/rosbridge/foxglove` services** | enabled | ✅ `ros/*.service` | **install is manual** (`ros/README.md` shows the cp/enable) |
+| **`opendubs-rplidar/rosbridge/foxglove` services** | enabled | ✅ `ros/*.service` | **install is manual** (`software/ros/README.md` shows the cp/enable) |
 | **PlatformIO venv `/opt/opendubs/piovenv`** | installed | ❌ | **manual** |
 | **`99-platformio-udev.rules`** | installed | ❌ | **manual** |
 | **emmar groups** dialout, plugdev (flashing) | set | ❌ | **manual** |

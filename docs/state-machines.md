@@ -42,7 +42,7 @@ States:
 > (button released ∧ not stale ∧ not welded ∧ CH5=OFF); **DEGRADED** faults latch and
 > exit only on an operator clear once the condition is absent (fatal faults — welded
 > contactor, PDH hw — are non-clearable from the UI). Stale telemetry is a live,
-> self-recovering source, not a latch. See `docs/state-machine-review.md` §7 for the
+> self-recovering source, not a latch. See `notes/state-machine-review.md` §7 for the
 > full status (R6–R12 still open).
 
 ## Subsystem FSM Pattern

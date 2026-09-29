@@ -4,7 +4,7 @@ Status: review, June 2026. Scope: the robot-level FSM spec (`docs/state-machines
 vs. the implemented derivation (`kiosk-dashboard/backend/robot_state.py` +
 `kiosk-dashboard/backend/status.py`) vs. the safety model
 (`docs/power-architecture.md`, `docs/control-authority.md`,
-`docs/control-architecture.md`). This document records findings and
+`notes/history/control-architecture.md`, since archived). This document records findings and
 recommendations only — no code or spec changes are made here.
 
 ---
@@ -192,7 +192,7 @@ property differs from RC manual:
   backlog requirement "deadman + e-stop must apply to teleop the same as RC"
   (`capability-backlog.md:87-88`) is satisfied structurally: the StampPLC gate
   doesn't care *who* fails to assert enable — same Option-1 gating
-  (`control-architecture.md:58-71`).
+  (`notes/history/control-architecture.md:58-71`, archived — line numbers are as of that revision).
 - **Authority:** per the hierarchy (safety > supervisor > autonomy > RC,
   `control-authority.md:9-16`), teleop is a *supervisor-mediated* source —
   Thor injects setpoints exactly like autonomy does. So `TELEOP_CONTROL` slots
