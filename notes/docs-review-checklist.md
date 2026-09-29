@@ -139,8 +139,35 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
             in a session on its network.**
       - [ ] **B4b make the tablet layout primary** — folded into the tablet-UI project,
             `punch-list.md` §0b, which is where the screen-sleep, camera and audio work lives too.
-- [ ] B7  Safety rules + the payload contract — needs the control-authority philosophy settled
-          first (see `control-authority-model.md`)
+- [~] B7  **Control-authority half RULED and written 2026-09-29; payload contract still to write.**
+
+          The blocker inverted. `docs/control-authority.md` was **fiction**: it published a
+          six-mode taxonomy (`manual_drive`, `assisted_drive`, `autonomous_nav`,
+          `autonomous_override`, `service`, `fault_recovery`) and **not one of those names existed
+          anywhere in firmware or software**. `notes/state-machine-review.md` had flagged exactly
+          this as D13 in June and it sat. Meanwhile the "unvetted" draft described the real robot.
+
+          Rewritten around what exists — CH5 authority `OFF`/`RC`/`AUTO`, CH6 deadman, CH7 payload
+          multiplexer, leases with expiry, monitors that constrain rather than command — plus three
+          rulings:
+      - **Intervention scope is mode-dependent.** NORMAL: a hand on the stick quiets the whole
+        robot, because bystander-legible behaviour is part of the safety story. RESEARCH: per-axis,
+        so a drive correction does not abort an arm policy mid-episode.
+      - **Height vs speed is advisory, not a clamp.** The robot has proven stable; it annunciates
+        that it is tall rather than silently reducing speed. Generalised into a rule for all
+        monitors: *a monitor that changes behaviour must say so* — the robot must never quietly do
+        something different while the operator guesses why.
+      - **Parked base deferred**, with both candidate mechanisms recorded (latched brake vs
+        Pinpoint station-keep) since no arm work depends on it yet.
+
+          D13 closed and the taxonomy-mapping half of R11 withdrawn in
+          `state-machine-review.md`.
+      - [ ] **B7b the payload contract.** Now unblocked. Merge with **D9** (payloads take power
+            from the drive bus, any data bus, isolation mandatory, self-contained, fail gracefully
+            on an e-stop power cut, no spare logic-bus fuse slots) and **D10** (Raj's payload comms
+            protocol, physical bus independence, the software-mediated e-stop message and state
+            pickup). The term "payload contract" appears nowhere in `docs/` today;
+            `design-philosophy.md` implies it is the four interface pages.
 - [x] B8  **RULED 2026-09-29 — collapsible sections, nothing deleted.** Four long argument
           blocks folded into `??? note` details (`pymdownx.details` was already enabled): the
           goBILDA rationale, "Why not swerve?", the static-vs-dynamic load numbers, and the

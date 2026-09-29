@@ -72,7 +72,7 @@ therefore implement the latching/guard semantics of the spec, even though
 | D10 | Subsystems are `ACTIVE` when actually driven (`:43`) | `"cond"` permission always maps to `READY`, never `ACTIVE` (`robot_state.py:78-79`) — the mast can never show ACTIVE in MANUAL, arms never in AUTONOMOUS. Base `ACTIVE` is inferred from mode+deadman, not motion feedback (`robot_state.py:120-121`, acknowledged "best-effort"). | Low |
 | D11 | Global event "system watchdog timeout" (`:80`) | Not implemented anywhere. No Thor↔StamPLC or Thor↔Pixhawk watchdog feeds the FSM. (StamPLC staleness — the natural proxy — is ignored; see Finding 3 / E1.) | High |
 | D12 | DI0 e-stop is active-low NC, "wire break reads as pushed" (`power-architecture.md:142-143`) | `ESTOP_BTN_ACTIVE_HIGH = True` bench convention (`status.py:42-46`); fail-safe inverted until the flip. Documented and intentional, but it is a one-line global that nothing will force anyone to remember — see R10. Same applies to `WELD_AUX_ACTIVE_HIGH` (`status.py:36-41`). | Medium (tracked) |
-| D13 | `control-authority.md` defines a six-mode taxonomy (`manual_drive`, `assisted_drive`, `autonomous_nav`, `autonomous_override`, `service`, `fault_recovery`) | The FSM has no `service` or `fault_recovery` analog, and `autonomous_override` (RC reclaiming during autonomy, audited entry, timeout policy) has no state or guard. The two documents have never been reconciled. | Medium |
+| D13 | ~~`control-authority.md` defines a six-mode taxonomy~~ | **RESOLVED 2026-09-29 — the taxonomy was fiction and is gone.** None of the six names appeared anywhere in firmware or software. `control-authority.md` was rewritten around what the robot actually has: CH5 authority `OFF`/`RC`/`AUTO`, CH6 deadman, CH7 payload multiplexer `OFF`/`Z-AXIS`/`PAN-TILT`, leases with expiry, and monitors that constrain rather than command. Nothing needs reconciling — there is no second taxonomy. | — |
 | D14 | Software e-stop is "logged/recoverable" (`power-architecture.md:46`) | `_software_estop` is a module global, `False` on import (`status.py:48`). A backend restart silently clears the SOFTWARE latch while relay 0 may still be open — producing the inconsistent display "not e-stopped, contactor de-energized, motion_enabled False" with robot state `MANUAL_CONTROL`. Not logged. | Medium |
 
 ---
@@ -336,12 +336,12 @@ Safety-relevant first. "Supervisor" below = a small stateful layer; see R1.
     active-high bench convention is in effect, so the unsafe polarity is
     impossible to forget. (`status.py:36-46`.)
 11. **R11 — Spec hygiene** (D8/D13): add the INIT row to the enablement matrix;
-    reconcile the `control-authority.md` mode taxonomy with the FSM states
-    (map `manual_drive`→MANUAL, `autonomous_nav`→AUTONOMOUS,
-    `fault_recovery`→DEGRADED, `service`→future, `autonomous_override`→guarded
-    sub-mode of AUTONOMOUS or fold into R7's preemption rules); regenerate the
-    Mermaid diagrams (`tools/generate_state_machine_mermaid.py`) once the
-    transition table is updated.
+    regenerate the Mermaid diagrams
+    (`tools/generate_state_machine_mermaid.py`) once the transition table is
+    updated. **The taxonomy-mapping half of this is withdrawn (2026-09-29):** it
+    proposed mapping `manual_drive`→MANUAL and so on, but those names described
+    nothing that existed. `control-authority.md` now documents the real
+    primitives, so there is no mapping to write.
 12. **R12 — Subsystem rollup polish** (D9/D10/D7): surface `FAULT` under
     e-stop, plumb per-subsystem activity, give `base_fault` its RC-frame-loss
     producer.
