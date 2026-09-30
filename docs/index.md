@@ -58,6 +58,7 @@ mostly off-the-shelf parts.
 
 ## Reference
 
+- **[Operating the robot](operating.md)** — power on, make it move, charge it
 - [System overview](system-overview.md) · [Coordinate frames & naming](naming-frames.md)
 - [Control authority & modes](control-authority.md) · [State machines](state-machines.md)
 - [Localization & sensor fusion](localization-fusion.md) · [Network architecture](network-architecture.md)

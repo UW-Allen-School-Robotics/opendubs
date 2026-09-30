@@ -80,5 +80,6 @@ drops the contactor.
 - **StamPLC digital inputs** (opto-isolated, INPUT/COM wiring): <https://docs.m5stack.com/en/core/StamPLC>
 - **GIGAVAC GX11 contactor** datasheet: <https://www.sensata.com/sites/default/files/a/sensata-gigavac-gx11-series-open-contactors-datasheet.pdf>
 - [StamPLC connections](stamplc-connections.md) — the full relay / isolated-input pinout (R0, DI0, DI1).
+- [Operating the robot](operating.md) — the power-on order, and why RUN must be off to charge.
 - [Power architecture](power-architecture.md) — where the contactor sits in the power spine.
 - [Power Bay](build/power-bay.md) — the physical build.

@@ -60,6 +60,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - System overview: system-overview.md
+  - Operating the robot: operating.md
   - Educators: educators.md
   - Design & Interfaces:
       - Design philosophy: design-philosophy.md

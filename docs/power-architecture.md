@@ -32,6 +32,9 @@ The diagram is the source of truth; this is the summary.
 
 ## See also
 
+- [Operating the robot](operating.md) — the BATTERY/RUN combination for charging, and why the
+  wrong one points the charger at the logic bus.
+
 - [Power & data interface](interfaces/power-data.md) — what a payload can tap, and the comms buses.
 - [Power Bay](build/power-bay.md) · [Electronics Bay](build/electronics-bay.md) — the builds.
 - [Regen clamp sizing](regen-clamp-sizing.md) — the brake-resistor sizing.

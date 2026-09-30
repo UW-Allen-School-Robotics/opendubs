@@ -235,7 +235,13 @@ previously the only service on offer was a direct relay write the backend refuse
   - **Future/fleet option — M5 "power guardian":** a low-power ESP32 node that **sips from the pack via a low-Iq buck (NOT a babysat battery)**, drives a **default-off FET** on the logic leg, owns BMS comms (RS485/CAN) so battery telemetry survives the robot being off, and reports SoC/health to an **authenticated (TLS) cloud endpoint** for fleet mgmt (WiFi when the logic bus is up, else UW-MPSK; store-and-forward). **Non-negotiable: a manual override** so a hung guardian can't brick power-on (same watchdog lesson as the StamPLC). Solves the switch parts-hunt (control problem, not exotic part) and enables fleet telemetry; scope it as guardian-as-power-controller first, telemetry/cloud later.
 - **Thermal / ENV I²C** — plenty of room: the unique-address devices (Pinpoint 0x31 / 8Servo 0x25 / ExtEncoder 0x59) can sit directly on Port A, freeing PaHub channels for **3+ ENV units** (each on its own channel; they share 0x44). Keep to **5V-tolerant M5 Grove ENV** units on the 5V bus.
 
-**Open:** (1) regen-clamp count/placement — 1 @ DC/DC output vs 2 per-ESC, gated on the §7 scope measurement of combined ESC current vs the 30A cont / 60A peak clamp rating (+ confirm clamp self-powers from Vout, which drives both coast-braking and manual-push drag); (2) logic-leg break placement — 24V-output (recommended) vs 58V-input; (3) whether to build the M5 power-guardian (fleet telemetry) now or later. Plus bench verification (clamp trip range, final zone count).
+**Note (2026-09-29):** items (1) and (2) below are closed. (1) the regen clamp is **one, shared by
+both ESCs** — see `docs/regen-clamp-sizing.md` §1, where the 80 A objection turned out to come from
+the datasheet stall figure against a measured 20–30 A. (2) the logic-leg break is **built**: it is
+the **RUN** latching button, and the charging rule it exists for is written up in
+[Operating the robot](../docs/operating.md). Item (3), the M5 power guardian, is still open.
+
+**Open (as written 2026-08):** (1) regen-clamp count/placement — 1 @ DC/DC output vs 2 per-ESC, gated on the §7 scope measurement of combined ESC current vs the 30A cont / 60A peak clamp rating (+ confirm clamp self-powers from Vout, which drives both coast-braking and manual-push drag); (2) logic-leg break placement — 24V-output (recommended) vs 58V-input; (3) whether to build the M5 power-guardian (fleet telemetry) now or later. Plus bench verification (clamp trip range, final zone count).
 
 ---
 
