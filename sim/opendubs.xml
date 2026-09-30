@@ -60,7 +60,6 @@
   </default>
 
   <asset>
-    <mesh name="chassis"  file="chassis.stl"     scale="0.001 0.001 0.001"/>
     <mesh name="wheel_fl" file="FL-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="wheel_fr" file="FR-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="wheel_rl" file="RL-wheel.stl"    scale="0.001 0.001 0.001"/>
@@ -94,8 +93,16 @@
            and motors sit near the floor, not at the box's centroid) is a guess that behaves
            sanely. Weigh the robot before believing anything dynamic. -->
       <inertial pos="0.29 0 0.02" mass="40" diaginertia="1.9 1.9 2.8"/>
-      <geom class="visual"    type="mesh" mesh="chassis" material="frame"/>
-      <geom class="collision" type="mesh" mesh="chassis" name="chassis_collision"/>
+      <!-- A BOX, not a mesh. chassis.stl was a bounding shape whose extrude left an 8 mm step
+           at two diagonally opposite corners — not real geometry, and MuJoCo filled it back in
+           anyway because mesh collision uses the convex hull. Stating the same volume as a
+           primitive is exact, has no corner artefact, and removes a file that only ever
+           described a box: x -32..612, y +/-324.5, z -48..356 mm.
+           Replace with a mesh when the chassis is drawn for real. -->
+      <geom class="visual"    type="box" pos="0.290 0 0.154" size="0.322 0.3245 0.202"
+            material="frame"/>
+      <geom class="collision" type="box" pos="0.290 0 0.154" size="0.322 0.3245 0.202"
+            name="chassis_collision"/>
 
 
       <!-- THE WHEELS. Mecanum, so they are not cylinders with sideways grip: each is a hub that
@@ -202,10 +209,13 @@
                  x 364..384, both BEHIND the tilt axis at 423 — the export is posed at pan=180.
                  Confirmed: the head faces forward, the way the front wheels do (FL/FR x=528,
                  RL/RR x=120, so +x is forward).
-               * the 1.85 mm, because the exported parts are centred on y = +1.85 rather than
-                 0. The yaw puts that at -1.85 and the offset brings it back to the centreline.
-             After both, the screen spans x 460.0..482.8 and the camera x 461.6..481.6, ahead of
-             the axis and facing +x, with y symmetric about 0. -->
+             The pan axis IS on the centreline; the parts around it are not. The Tab5 carries a
+             camera on one side, so the assembly sits about 1.85 mm off centre in y and that is
+             real geometry, not an export artefact. An earlier version here subtracted it, which
+             moved the head a millimetre off where CAD puts it. The yaw carries the asymmetry to
+             the other side, which is what physically happens when the head turns round.
+             After the yaw, the screen spans x 460.0..482.8 and the camera x 461.6..481.6, ahead
+             of the axis and facing +x. -->
         <body name="head_pan" pos="0.423 0 1.245575">
           <!-- PAN is limited by nothing but the servo's own travel: the goBILDA 2000-series
                dual-mode servo turns 300 deg, and the horn was set at the middle of that, so
@@ -242,28 +252,28 @@
             <joint name="head_tilt" type="hinge" axis="0 1 0" damping="1"
                    range="-1.6362 0.2749"/>
             <geom class="visual" type="mesh" mesh="pt_body"   material="frame"
-                  quat="0 0 0 1" pos="0.423 0.00185 -1.245575"/>
+                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
             <geom class="visual" type="mesh" mesh="pt_screen" material="plate"
-                  quat="0 0 0 1" pos="0.423 0.00185 -1.245575"/>
+                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
             <geom class="visual" type="mesh" mesh="d415"      material="rubber"
-                  quat="0 0 0 1" pos="0.423 0.00185 -1.245575"/>
+                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
 
             <!-- What the arms must not hit: one coarse box over the whole head — body, screen
                  and the camera on top. From the placed mesh extents, relative to the tilt axis:
-                 x -29.6..59.8, y -79.0..79.0, z -55.8..79.5 mm, rounded outward. The arms need
+                 x -29.6..59.8, y -80.9..77.2, z -55.8..79.5 mm, rounded outward. The arms need
                  to know the head is there, not its fillets, and large is the safe error. -->
-            <geom class="collision" type="box" pos="0.015 0 0.012" size="0.045 0.079 0.068"
+            <geom class="collision" type="box" pos="0.015 -0.0019 0.012" size="0.045 0.079 0.068"
                   name="head_collision"/>
 
             <!-- Centre of the D415's front face. NOT the optical frame: RealSense puts the
                  depth origin at the left imager, which we have not located. -->
-            <site name="d415_face" pos="0.0586 0.0005 0.0680" size="0.006" rgba="0.95 0.65 0.15 1"/>
+            <site name="d415_face" pos="0.0586 -0.0014 0.0680" size="0.006" rgba="0.95 0.65 0.15 1"/>
           </body>
         </body>
-        <!-- The 1120 extrusion is NOT placed. Its mesh is still in its own part frame (48 x 48
-             section, 120 mm long, running along y) and its pose is unknown, so it is left out
-             rather than put somewhere plausible-looking: a structural member in the wrong place
-             silently corrupts clearance, which is worse than a missing one. -->
+        <!-- The 1120 extrusion is deliberately absent, and its absence costs nothing: it fits
+             INSIDE the tilt body already modelled here, so nothing can strike it without
+             striking that first. It was carried as an open gap for a while on the assumption
+             that a missing structural member understates clearance; it does not, here. -->
       </body>
     </body>
   </worldbody>

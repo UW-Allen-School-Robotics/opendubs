@@ -70,7 +70,7 @@ head:
   # the 8Servo unit.
   parent: lift_platform     # confirmed: the face/pan-tilt translates in +z with the extrusion
   tilt_axis_xyz_mm: [423.0, 0.0, 1245.575]   # MEASURED in CAD, lift fully down
-  pan_axis_xyz_mm: ASSUMED                   # taken as the vertical through the tilt point
+  pan_axis_xyz_mm: [423.0, 0.0, 1245.575]    # CONFIRMED on the centreline, vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
   servo: goBILDA 2000-series dual-mode, 300 deg travel out of the box (manufacturer spec)
@@ -113,9 +113,12 @@ head:
   # the tilt axis at 423, looking toward -x; the wheel meshes put forward at +x (FL/FR x=528,
   # RL/RR x=120). opendubs.xml applies the 180 deg yaw in the same transform that places the
   # meshes, so there is still only one transform per part.
-  y_correction_mm: 1.85
-  # Also RESOLVED: the head is on the centreline, so the export's +1.85 mm y offset is an
-  # artefact and is taken out. Placed, the screen spans y -79..79 and the body -76..76.
+  y_asymmetry_mm: 1.85
+  # The PAN AXIS is on the centreline; the parts around it are not. The Tab5 carries a camera on
+  # one side, so the assembly sits about 1.85 mm off centre in y. That is real geometry and is
+  # left alone. An earlier version subtracted it to "centre" the head, which moved it a
+  # millimetre off where CAD puts it. The yaw carries the asymmetry to the other side, which is
+  # what physically happens when the head turns round: placed, the screen spans y -80.9..77.2.
   extents_cad_mm:
     # Measured off the supplied meshes AS EXPORTED (before the yaw and the y correction).
     # x forward, y left, z up. Placed, they become:
@@ -128,12 +131,10 @@ head:
     # The D415's own dimensions check out against the datasheet: 98.9 wide (y), 20.1 deep (x),
     # 23.0 tall (z) -- so the mesh is the camera, at the right scale, looking along x.
   camera: D415
-  channel_placement: TODO
-  # The 1120 extrusion is NOT in the model. Its mesh is still in its own part frame (48 x 48
-  # section, 120 mm long, running along y) and its pose is unknown. Left out on purpose: a
-  # structural member in the wrong place silently corrupts clearance checks, which is worse
-  # than a missing one. Suggestive but NOT acted on: the gap from the arm extrusion top
-  # (1130.5) to the tilt axis is 115.1 mm, near its 120 mm length. A near miss is not a fit.
+  channel: enclosed
+  # The 1120 extrusion is not modelled, and does not need to be: it fits INSIDE the tilt body,
+  # so nothing can strike it without striking that first. Carried as an open gap for a while on
+  # the assumption that a missing structural member understates clearance. Here it does not.
 
 chassis:
   footprint_mm: TODO        # frame outline (x by y)
@@ -151,12 +152,11 @@ meshes:
   # Format: binary STL, millimetres, z up, exported AT THE CAD MODEL ORIGIN. Do not re-origin
   # anything for the simulator's benefit: one origin, and the relationships written down.
   # Supplied, exported at the CAD origin (so no re-origining is needed):
-  chassis:        { file: meshes/chassis.stl,     span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
-  # NOT a box: 16 vertices, with two diagonally opposite corners stepped back 8 mm (rear at
-  # -y, front at +y). MuJoCo collides the CONVEX HULL of a mesh, so the collision geometry
-  # fills those notches and stands 8 mm proud of the visual at exactly those two corners.
-  # Harmless here — the mesh is a crude bounding box that already swallows the wheels — but
-  # it is the notch you can see in the render, and it came in the mesh.
+  chassis:        { primitive: box, span_mm: { x: [-32, 612], y: [-324.5, 324.5], z: [-48, 356] } }
+  # NOT a mesh. chassis.stl was a bounding shape whose extrude left an 8 mm step at two
+  # diagonally opposite corners — an artefact, not the robot. Stating the same volume as a box
+  # primitive is exact and has no corner to explain. Swap back to a mesh when the chassis is
+  # drawn for real.
   wheels:         { files: [meshes/FL-wheel.stl, meshes/FR-wheel.stl, meshes/RL-wheel.stl, meshes/RR-wheel.stl],
                     diameter_mm: 140, width_mm: 50, centre_z_mm: -24, wheelbase_mm: 408, track_mm: 589,
                     centres_mm: { FL: [528, 294.5], FR: [528, -294.5], RL: [120, 294.5], RR: [120, -294.5] } }
@@ -176,5 +176,4 @@ meshes:
   head_tilt_body: { file: meshes/pt_tilt_body.stl }
   head_screen:    { file: meshes/pt_screen_cover.stl }
   head_camera:    { file: meshes/D415.stl }
-  # Still in its own part frame, and so not placed:
-  head_channel:   { file: meshes/1120_channel.stl }
+  head_channel:   { file: meshes/1120_channel.stl }   # kept, but not placed: see head.channel
