@@ -4,28 +4,53 @@ How to power the robot on, make it move, and charge it. This is the operator's p
 things are built this way see [Control authority](control-authority.md),
 [Power architecture](power-architecture.md) and [E-stop system](e-stop.md).
 
-!!! note "Two items outstanding"
-    The **RUN** button's location and the robot's **contactor auto-arm** behaviour are both marked
-    *TODO* below and need confirming at the robot. Everything else on this page is verified against
-    the firmware and the wiring.
+!!! note "One item outstanding"
+    The robot's **contactor auto-arm** behaviour exists on the machine but not in the repo, so the
+    contactor state at power-on may not match step 5 below. It needs settling at the robot.
+    Everything else on this page is verified against the firmware and the wiring.
 
 ## The controls
 
 | Control | Where | What it does |
 |---|---|---|
 | **BATTERY** | latching button, **on the battery itself** | connects the pack. The robot is electrically dead with this off |
-| **RUN** (logic) | latching button, *TODO — location* | master switch for the **logic bus** — the Thor, the StamPLC, the router, the sensors |
+| **RUN** (logic) | latching button, **rear face**, lit green when on | master switch for the **logic bus** — the Thor, the StamPLC, the router, the sensors |
 | **E-STOP** | two, **rear of the robot, left and right** | drops the drive contactor. Cuts motion, not the brain |
 | **CH5** | transmitter, 3-position | **authority**: `OFF` / `MANUAL` / `AUTO` — who may command |
 | **CH6** | transmitter | **deadman** — held means a human is deliberately engaging |
 | **CH7** | transmitter, 3-position | **what the right stick talks to**: `OFF` / `Z-AXIS` / `PAN-TILT` |
 | **CH8** | transmitter, knob | speed scale |
 
-*TODO photo: the rear of the robot showing both emergency-stop buttons, and the battery with its
-latching switch.*
+The RUN button is lit green while the logic bus is up, which is the fastest confirmation that the
+robot is powered.
+
+*TODO photo: the rear face showing the RUN button and both emergency stops, and the battery with
+its latching switch.*
 
 The logic bus is **always on** once RUN is on — it is deliberately *not* behind the e-stop, so the
 robot keeps thinking, reporting and showing state while its actuators are dead.
+
+## The transmitter
+
+<figure markdown="span">
+  ![RC transmitter control mapping — which stick and switch drives which robot function](assets/diagrams/rc-control-mapping.png)
+  <figcaption>Physical layout of the sticks and switches.</figcaption>
+</figure>
+
+| Channel | Function |
+|---|---|
+| CH1 | rotate (yaw) |
+| CH2 | right stick vertical — **Z-axis up/down**, or **tilt**, per CH7 |
+| CH3 | forward / reverse |
+| CH4 | right stick horizontal — **strafe**, or **pan**, per CH7 |
+| CH5 | **authority**: OFF / MANUAL / AUTO |
+| CH6 | **deadman** — hold to enable motion; release commands neutral |
+| CH7 | **payload mode**: OFF / Z-AXIS / PAN-TILT |
+| CH8 | speed scale |
+
+CH7 decides what the **right stick** addresses, because there are two sticks and three things that
+want one. It is not an enable — authority is CH5 and only CH5. Full detail, including the SBUS
+wiring, is in [RC control mapping](rc-control-mapping.md).
 
 ## Powering on
 
@@ -56,6 +81,32 @@ immediately and the two seconds start again.
 
 The arm gate and the neutral hold are re-evaluated continuously, so an intermittent RC link or a
 momentarily released deadman will keep the drive disarmed even though every switch looks correct.
+
+## First drive
+
+For a robot that has not been driven before, or after any change to drive wiring or calibration.
+Do this with the robot on blocks or with its wheels clear of the floor.
+
+1. **Clear the area.** Mecanum wheels move sideways, and a sign error sends the robot the way you
+   did not expect.
+2. **Power on** as above, with **CH5 in `OFF`**.
+3. **Set CH8 (speed) to minimum.** Every later step is safer at low scale.
+4. **Confirm the RC link** on the dashboard before granting authority — a stale link is the one
+   failure that looks identical to a working one until you move a stick.
+5. **CH5 to `MANUAL`**, sticks centred, and let the two-second arm hold elapse. The dashboard
+   reports the drive armed.
+6. **Hold CH6** and give a small forward input. Check that the robot moves **forward**, and that
+   all four wheels turn the way they should.
+7. **Test strafe and rotate** the same way, one axis at a time.
+8. **Release CH6.** Motion must stop immediately. If it does not, press an emergency stop and do
+   not drive again until it does.
+9. **Press an emergency stop while moving.** Motion must stop and the dashboard must report the
+   contactor open. This is worth doing deliberately once, on blocks, rather than discovering it
+   under load.
+
+If an axis is reversed or a wheel turns the wrong way, that is drive calibration, not an operating
+fault — see [Drive bring-up](drive-bringup.md). Those values are **per-robot** and are not carried
+in the repository, so a freshly deployed robot needs its own.
 
 ## Z-axis pinch protection
 

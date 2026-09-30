@@ -118,4 +118,5 @@ these controllers even with the hubs unloaded — see
 - [Flash a StamPLC](flashing-stamplc.md)
 - [PWM and ESC Safety](pwm-esc-safety.md)
 - [Coordinate frames & naming](naming-frames.md) — where FL/FR/RL/RR come from
+- [Operating the robot](operating.md) — day-to-day operation once bring-up is done.
 - [Control Authority and Modes](control-authority.md)

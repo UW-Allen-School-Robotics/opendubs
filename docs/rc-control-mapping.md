@@ -57,6 +57,7 @@ the transmitter would be its own kind of bug.
 
 ## See also
 
+- [Operating the robot](operating.md) — the power-on order, the arm hold, and first drive.
 - [Control authority & modes](control-authority.md) — how RC interacts with autonomy (precedence,
   override).
 - [Command & telemetry interface](interfaces/command-telemetry.md) — RC as one control source, and
