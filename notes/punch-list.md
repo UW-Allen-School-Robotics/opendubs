@@ -25,6 +25,46 @@ Two counting traps, both of which inflated an earlier sweep:
   links. Seven had rotted; that is how `mast-control.md` kept pointing at a document archived
   months earlier. Re-run the check when moving or archiving a doc.
 
+## 0. AT THE ROBOT — next session (agenda captured 2026-09-29)
+
+Everything below needs the robot's network or hands on the machine. Nothing here is desk work.
+
+**1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
+guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
+exercised on `e00920a`; **the merged build has never run on hardware.** Confirm two things
+separately: the guard still behaves at the bottom of the stroke, and the YOLO tracker still drives
+the head. CH5 must be OFF to flash.
+
+**2 · Settle the contactor auto-arm.** It exists on the robot and **nowhere in the repo**
+([deployment-drift.md](deployment-drift.md)). Decide whether it stays, then either commit it or
+remove it — the next flash from the repo overwrites it either way. It blocks step 5 of
+[Operating the robot](../docs/operating.md), which currently cannot state what the contactor does
+at power-on.
+
+**3 · The PWM mirror**, the other uncommitted on-robot feature. Same disposition question.
+
+**4 · Capture `opendubs-yolo-tracker.service` into the repo** (§0c). The unit exists on the Thor
+only; a rebuilt machine loses the tracker silently. The venv already covers its dependencies.
+
+**5 · B9b — rename `rc_serial_probe`.** Ruled. 22 files plus `/opt/opendubs/rc_serial_probe` in the
+Thor's systemd units, so repo and robot land together with a re-provision. Group with the deferred
+`MAST CMD` rename.
+
+**6 · Tear down the kiosk leftovers.** Removing the files from the repo did not undo what an older
+`provision.sh` did to the machine: `opendubs-xorg-fix.service` is still enabled and
+`/etc/X11/xorg.conf` is still immutable. Commands are in [Thor setup §4](../docs/thor-setup.md).
+Leave the `kiosk` **user** — the dashboard still runs as it.
+
+**7 · Photos for the operating page.** The rear face showing the RUN button and both emergency
+stops, and the battery with its latching switch.
+
+**8 · Housekeeping.** Remove `/home/emmar/tab5_build` on opendubs2 — a scratch build directory left
+behind when the robot went off-network mid-session.
+
+**Optional, if there is time:** measure the two RPLIDARs' and the ToF's positions in CAD
+coordinates. They are in neither `sim/dimensions.yaml` nor `sim/opendubs.xml`, and they are what
+stands between the model and a TF tree (§0d).
+
 ## 0a. DEPLOYMENT DRIFT — run this before trusting the robot to match the repo
 
 - **[TODO] `tools/deploy-audit.py <robot>`** — the repo is not what is running. PR #9 pinned
