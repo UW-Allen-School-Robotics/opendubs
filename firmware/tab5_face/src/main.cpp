@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hmi.h"
+#include "prompt.h"
 #include "lift.h"
 #include "ui_shared.h"
 #include <ArduinoOTA.h>
@@ -24,19 +25,6 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-
-#if __has_include("esp_camera.h")
-#include "esp_log.h"
-#include "esp_camera.h"
-#include "bsp/m5stack_tab5.h"
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <linux/videodev2.h>
-
-// Define to 1 to enable the ESP-IDF camera pipeline
-#define HAS_CAMERA 1
-#endif
 
 static const bool DEMO_CYCLE = false;  // true = auto-cycle robot states (face
                                        // demo). false = hold SAFE_IDLE + puns.
@@ -70,6 +58,10 @@ bool g_isHoming = false;
 // 8Servo I2C Constants
 static constexpr uint8_t kServo8Addr = 0x25;
 static constexpr uint8_t kSpkVolume  = 96;     // 0-255. Audible across a lab bay, not startling.
+// Tones live between 2 and 4 kHz. Judged by ear on the robot with a sweep (400 Hz .. 4 kHz):
+// everything below ~2 kHz was faint or inaudible across a bay. That is the usual story for a
+// small sealed speaker, and it happens to be where hearing is most sensitive — so anything
+// this robot ever needs a human to NOTICE belongs up here, not at a comfortable 880 Hz.
 
 // Audio (ES8388 codec on I2S0). Started LATE and ONLY ONCE, from the network task, never from
 // setup(): a first attempt that ran right after M5.begin() left the Tab5 dark — no display, no
@@ -89,7 +81,7 @@ static const char *spkTag() {
 }
 
 // True only when the codec is up. Callers must check: a BEEP before that is a no-op, not a hang.
-static bool spkReady() { return g_spk == SpkState::READY; }
+bool spkReady() { return g_spk == SpkState::READY; }
 
 // ---- OTA by HTTP pull -------------------------------------------------------------------
 // ArduinoOTA is started below and has never once answered on this board: espota gets "no
@@ -267,79 +259,6 @@ static void safetyTask(void *) {
     // TODO-HW: feed a hardware/task watchdog here; also drop authorize if the
     // robot heartbeat goes stale while under robot control (fail-safe stop).
     vTaskDelay(pdMS_TO_TICKS(20));
-  }
-}
-
-static void streamerTask(void *) {
-  while (WiFi.status() != WL_CONNECTED) {
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-
-  WiFiServer server(80);
-  server.begin();
-
-#if HAS_CAMERA
-  int cam_fd = open("/dev/video0", O_RDWR);
-  void *buffer_ptr = NULL;
-  if (cam_fd < 0) {
-    Serial.println("Failed to open /dev/video0");
-  } else {
-    struct v4l2_format fmt = {0};
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = 800; // downscale for streaming
-    fmt.fmt.pix.height = 600;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
-    if (ioctl(cam_fd, VIDIOC_S_FMT, &fmt) < 0) {
-      Serial.println("Failed to set format");
-    }
-
-    struct v4l2_requestbuffers req = {0};
-    req.count = 1; 
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = V4L2_MEMORY_MMAP;
-    ioctl(cam_fd, VIDIOC_REQBUFS, &req);
-
-    struct v4l2_buffer buf = {0};
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    buf.index = 0;
-    ioctl(cam_fd, VIDIOC_QUERYBUF, &buf);
-    buffer_ptr = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, cam_fd, buf.m.offset);
-    
-    ioctl(cam_fd, VIDIOC_QBUF, &buf);
-
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    ioctl(cam_fd, VIDIOC_STREAMON, &type);
-  }
-#endif
-
-  for (;;) {
-    WiFiClient client = server.accept();
-    if (client) {
-      client.println("HTTP/1.1 200 OK");
-      client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
-      client.println();
-      while (client.connected()) {
-#if HAS_CAMERA
-        if (cam_fd >= 0) {
-            struct v4l2_buffer dbuf = {0};
-            dbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            dbuf.memory = V4L2_MEMORY_MMAP;
-            if (ioctl(cam_fd, VIDIOC_DQBUF, &dbuf) == 0) {
-              client.println("--frame");
-              client.println("Content-Type: image/jpeg");
-              client.printf("Content-Length: %u\n\n", dbuf.bytesused);
-              client.write((const uint8_t*)buffer_ptr, dbuf.bytesused);
-              client.println();
-              ioctl(cam_fd, VIDIOC_QBUF, &dbuf);
-            }
-        }
-#endif
-        vTaskDelay(pdMS_TO_TICKS(100)); // 10 FPS
-      }
-      client.stop();
-    }
-    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
@@ -747,7 +666,7 @@ static void applyLine(const char *line) {
   } else if (strncmp(line, "BEEP", 4) == 0) {
     // "BEEP [freq_hz] [ms]" — one tone. A BEEP before the codec is up does nothing, and says so.
     if (!spkReady()) { Serial.println("[SPK] BEEP ignored: codec not ready"); return; }
-    float hz = 880.0f;
+    float hz = 2600.0f;                      // see kSpkVolume note: 2-4 kHz is what this speaker carries
     int ms = 120;
     sscanf(line + 4, "%f %d", &hz, &ms);
     if (hz < 50.0f) hz = 50.0f;
@@ -757,9 +676,9 @@ static void applyLine(const char *line) {
     M5.Speaker.tone(hz, (uint32_t)ms);
   } else if (strcmp(line, "CHIME") == 0) {
     if (!spkReady()) { Serial.println("[SPK] CHIME ignored: codec not ready"); return; }
-    M5.Speaker.tone(660, 110);
-    M5.Speaker.tone(880, 110);
-    M5.Speaker.tone(1320, 160);
+    M5.Speaker.tone(2000, 110);
+    M5.Speaker.tone(2600, 110);
+    M5.Speaker.tone(3200, 170);
   } else if (strncmp(line, "VOL ", 4) == 0) {
     if (!spkReady()) { Serial.println("[SPK] VOL ignored: codec not ready"); return; }
     int v = kSpkVolume;
@@ -937,21 +856,9 @@ void setup() {
     tickUI();
   }
 
-#if HAS_CAMERA
-  Serial.println("Initializing MIPI-CSI Camera via M5Stack Tab5 BSP...");
-  bsp_camera_cfg_t cam_cfg = {0};
-  if (bsp_camera_start(&cam_cfg) == ESP_OK) {
-    Serial.println("Camera initialized successfully!");
-  } else {
-    Serial.println("Camera init failed!");
-  }
-#endif
-
   xTaskCreatePinnedToCore(controlTask, "control", 4096, nullptr, 3, nullptr, 0);
   xTaskCreatePinnedToCore(safetyTask, "safety", 3072, nullptr, 6, nullptr, 0);
   xTaskCreatePinnedToCore(commsTask, "comms", 4096, nullptr, 1, nullptr, 0);
-  xTaskCreatePinnedToCore(streamerTask, "streamer", 8192, nullptr, 1, nullptr,
-                          1);
 
   g_robotState = 1; // SAFE_IDLE
   g_uiMode = UiMode::FACE;
@@ -1033,4 +940,9 @@ void loop() {
     HmiCtx ctx{confirming, (int)((idleLeft + 999) / 1000), g_activeHold};
     hmiRender(ctx);
   }
+  // The pinch-guard prompt sits on top of whichever screen is showing — the operator needs it
+  // on the controls as much as on the face, and it owns no state of its own.
+  const uint32_t nowUi = millis();
+  promptTick(nowUi);
+  promptRender(nowUi);
 }

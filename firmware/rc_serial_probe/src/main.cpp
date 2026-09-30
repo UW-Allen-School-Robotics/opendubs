@@ -2281,7 +2281,7 @@ static void publishDrive()
     const char* mn = (g_driveMode == DM_MECANUM) ? "MECANUM"
                    : (g_driveMode == DM_SKID4)   ? "SKID4" : "DIFF2";
     const char* turn = g_turnDir > 0 ? "R" : g_turnDir < 0 ? "L" : "0";
-    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu s8abs=%d headtx=%lu hsock=%d estop=%d bus=%d mast=%s:%d h=%.0f pinch=%s safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
+    tprintf("[DRIVE] mode=%s armed=%d spd=%.2f fwd=%.2f rot=%.2f str=%.2f turn=%s w=%.2f,%.2f,%.2f,%.2f out=%u,%u,%u,%u s8fail=%lu i2crec=%lu s8abs=%d headtx=%lu hsock=%d estop=%d bus=%d mast=%s:%d h=%.0f pinch=%s g[int=%s rel=%d/%lu dwell=%lu con=%d/%d zone=%d run=%d lo=%d hi=%d] safe=%d loopmax=%lu worst=%s:%lu mirror=%d:%u mfail=%lu\n",
                   mn, g_escArmed ? 1 : 0, g_speed, g_intentFwd, g_intentRot, g_intentStr, turn,
                   g_wheelMix[0], g_wheelMix[1], g_wheelMix[2], g_wheelMix[3],
                   g_escOut[0], g_escOut[1], g_escOut[2], g_escOut[3], (unsigned long)g_s8Fail,
@@ -2298,9 +2298,28 @@ static void publishDrive()
                   g_mast.heightMm(),
                   // Pinch guard, in the order an operator needs it: is it even able to work,
                   // is it holding, has someone consented.
+                  // ARMED is reported before ok: the requirement outlives the refusal, and a
+                  // reader that only ever saw HOLD would watch it flap back to "ok" two
+                  // seconds later and conclude the guard had let go. It has not.
                   !g_mast.pinchActive() ? "nosensor"
                   : g_mast.pinchHold()  ? "HOLD"
-                  : g_mast.pinchConsent() ? "ack" : "ok",
+                  : g_mast.pinchConsent() ? "ack"
+                  : g_mast.pinchArmed() ? "ARMED" : "ok",
+                  // The guard's internals, so a log can say WHY it moved rather than only that
+                  // it did. int=what the operator is asking, rel=stick released (and for how
+                  // long), con=consent granted/spent, zone=in the pinch zone, run=we pulsed and
+                  // have not proven it stopped, lo/hi=limits detected.
+                  g_mast.dbgIntent() == MastMotion::DOWN ? "DN"
+                    : g_mast.dbgIntent() == MastMotion::UP ? "UP" : "--",
+                  g_mast.dbgReleasing() ? 1 : 0,
+                  (unsigned long)g_mast.dbgReleaseMs(),
+                  (unsigned long)g_mast.dbgDwellMs(),
+                  g_mast.dbgConsent() ? 1 : 0,
+                  g_mast.dbgConsentUsed() ? 1 : 0,
+                  g_mast.dbgInZone() ? 1 : 0,
+                  g_mast.dbgMayRun() ? 1 : 0,
+                  g_mast.atLower() ? 1 : 0,
+                  g_mast.atUpper() ? 1 : 0,
                   // safe=0 means NOTHING may be commanded to move — the loop is not
                   // demonstrably keeping time. loopmax is the worst iteration since boot.
                   g_driveSafe ? 1 : 0, (unsigned long)g_worstLoopMs,

@@ -111,9 +111,23 @@ public:
     float    pinchMm() const { return pinchMm_; }
     uint32_t pinchDwellMs() const { return dwellMs_; }
     bool     pinchActive() const { return haveHeight_; }   // is the guard able to work at all?
-    bool     pinchHold() const { return pinchHold_; }      // descent stopped, awaiting consent
+    bool     pinchHold() const { return pinchHold_; }      // refusing RIGHT NOW -- for display
+    bool     pinchArmed() const { return armed_; }        // latched, awaiting consent -- no timeout
+
+    // The guard's internals, for telemetry only. The published pinch= field collapses this
+    // whole state machine to one word, which is enough to operate by and not nearly enough to
+    // DEBUG by: a log showing ARMED -> ack -> ok -> HOLD with the platform stationary says
+    // something walked the machine round, and nothing says what. These are read-only.
+    MastMotion dbgIntent()   const { return intent_; }
+    bool       dbgReleasing() const { return releasing_; }
+    uint32_t   dbgReleaseMs() const { return releaseHeldMs_; }
+    bool       dbgConsent()   const { return consent_; }
+    bool       dbgConsentUsed() const { return consentUsed_; }
+    bool       dbgInZone()    const { return inZone_; }
+    bool       dbgMayRun()    const { return mayBeRunning_; }
+    uint32_t   dbgDwellMs()   const { return dwellMs_; }
     bool     pinchConsent() const { return consent_; }
-    void     pinchAck(uint32_t nowMs) { consent_ = true; consentMs_ = nowMs; pinchHold_ = false; }
+    void     pinchAck(uint32_t nowMs) { consent_ = true; consentMs_ = nowMs; pinchHold_ = false; armed_ = false; }
 
     // Press duration and release gap are TUNABLE because both are properties of the
     // controller we have not measured. Defaults are deliberately conservative; use
@@ -179,6 +193,26 @@ public:
     // lower into the zone with a block of known thickness under the platform and confirm
     // it stops with the block loose.
     static constexpr float    kPinchMm      = 40.0f;   // ~20 mm finger + stopping distance
+    // THE ZONE IS A BAND, NOT EVERYTHING BELOW kPinchMm. Fully down, this platform reads about
+    // 8-15 mm, which is inside the zone -- so the guard refused a descent that had already
+    // finished, could not be consented away, and re-announced itself every tick the operator
+    // leaned on the stick. There is nothing to pinch there: the gap is smaller than the finger
+    // kPinchMm was sized around, and the platform is not going any lower.
+    //
+    // atLower_ cannot be used for this. It is set by STALL detection -- commanded to move, did
+    // not -- and the guard stops the descent before the platform ever reaches the hard limit,
+    // so the stall never happens and the flag never sets. An earlier fix keyed off it and was
+    // inert for exactly that reason. Height is the thing actually measured; use it.
+    // 22, and its OWN hysteresis. At 18 with the shared 10 mm band the exit threshold was 8 mm
+    // -- below where the platform actually rests (9-15 mm), so once the zone was entered on the
+    // way down it could never be left and the banner stayed up against the bottom limit. The
+    // hysteresis has to be narrower than the gap between the floor and the resting height.
+    //
+    // Note the sensor offset: fully down reads about 11 mm, not 0. So a 22 mm floor is a real
+    // gap of roughly 11 mm -- still well under the ~20 mm finger kPinchMm is sized around, so
+    // nothing that could be pinched is being given up.
+    static constexpr float    kFloorMm      = 22.0f;   // below this the gap is under a finger
+    static constexpr float    kFloorHystMm  =  4.0f;   // exit at 18: above the resting height
     static constexpr uint32_t kPinchDwellMs = 600;     // stick centred this long = "released"
     static constexpr uint32_t kConsentMs    = 15000;   // an unused ack goes stale
 
@@ -206,6 +240,20 @@ private:
 
     float    pinchMm_       = kPinchMm;
     uint32_t dwellMs_       = kPinchDwellMs;
+    // ARMED is the safety state; pinchHold_ is only the announcement.
+    //
+    // These were one flag, and consent tested the announcement -- so the gesture only worked
+    // inside a 1.4 s window. pinchHold_ self-clears kHoldShowMs (2 s) after the operator stops
+    // asking DOWN, which is right for an indicator: nobody wants a banner shouting about a
+    // refusal that is no longer happening. But it meant that releasing the stick for longer
+    // than 2 s cleared the very flag consent was looking for, so the re-command was refused
+    // and the operator had to re-command between dwellMs_ (600 ms) and kHoldShowMs (2000 ms).
+    // That is the "just-right flick of the stick" the lift was reported to need, and it also
+    // made the indication flap HOLD -> ok -> HOLD at a constant height.
+    //
+    // armed_ persists until consent is granted or the platform leaves the zone. It is what the
+    // gesture is checked against; pinchHold_ stays exactly as it was, for display.
+    bool     armed_         = false;   // in the zone, awaiting consent -- no timeout
     bool     pinchHold_     = false;   // in the zone, descent refused
     bool     consent_       = false;   // a human has agreed to this descent
     bool     consentUsed_   = false;   // ... and it has since been acted on

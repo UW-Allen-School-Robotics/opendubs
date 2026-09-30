@@ -19,14 +19,34 @@ pio run -t upload
 
 ## Over-The-Air (OTA) Upload
 
-Once the Tab5 is connected to the `Opendubs2` network, you can update the firmware wirelessly using ArduinoOTA.
+**Use `./ota-from-thor.sh` — do not improvise.** It builds, serves the binary, tells the head to
+pull it, and confirms it came back:
 
 ```bash
-# Upload via OTA
-pio run -e tab5_ota -t upload
+./ota-from-thor.sh                    # resolves opendubs-tab5.local
+./ota-from-thor.sh 10.42.2.14         # or pass an address
 ```
 
-## Current Issues
+Requires **Python >= 3.10** for PlatformIO (pioarduino is the only platform that builds the
+ESP32-P4 and refuses 3.9) and `intelhex` for esptool's image packer. The script finds a usable
+`pio` itself, including via `uv`.
 
-When pressing the right bumper to enable stick usage on the controller, the tab5 likes to display "Init" mode in which the controller movement does not cause any action to be performed by the robot. 
-Currently, keep holding the right bumper and wait until it says Manual mode again; once it no longer says "Init" then you will be able to do what you want with the controller.
+The host needs mDNS to resolve `.local`: `sudo apt install -y avahi-daemon libnss-mdns`. Without
+it the dashboard cannot find the head either, and the head sits showing no state.
+
+If the head is reachable but never re-associates after a reboot, **power-cycle it** — the Wi-Fi is
+behind the ESP-Hosted co-processor and a soft reset does not always bring it back.
+
+### Do not use `espota`
+
+`ArduinoOTA`'s listener sits behind the ESP-Hosted co-processor and `begin()` returns void, so
+every failure is silent: `espota` reports "no response from device" even with the head pingable,
+and no amount of firewall or network configuration on the sending host changes that. The
+`tab5_ota` environment is kept in `platformio.ini` only so this note has something to point at.
+See the comment above `otaHttpPull()` in `src/main.cpp`.
+
+## Known issues
+
+**The controller reports `Init` while the right bumper is first held**, and stick movement does
+nothing during that time. Keep the bumper held until the mode reads `Manual` again; the sticks
+respond normally from then on.
