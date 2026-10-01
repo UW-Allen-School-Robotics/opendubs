@@ -269,6 +269,19 @@ static const uint16_t UDP_PORT = 4242;          // we LISTEN here
 // log — corrupting the log we diagnose the robot with. Transmit has its own port now, and
 // goes to the subnet broadcast rather than the global one.
 static const uint16_t TX_PORT  = 5006;
+static const uint16_t PLC_CMD_PORT = 5005;   // the StamPLC's command/telemetry port
+
+// E-STOP REQUEST, set by the on-screen button and sent by commsTask.
+// The screen's E-STOP used to call Lift.setInhibit() and nothing else: it inhibited the lift
+// while the contactor stayed closed and the robot kept driving, under a 24pt button labelled
+// E-STOP. It now sends the StamPLC the SAME `ESTOP` text command the dashboard sends, so there
+// is one stop mechanism rather than two things wearing the same name.
+//
+// Set here and sent from commsTask because the UDP socket belongs to that task; the delay is at
+// most one 50 ms tick. Latched until the StamPLC confirms, and resends while unconfirmed — a
+// dropped datagram must not be the difference between stopping and not.
+static volatile bool g_estopReqPending = false;
+static const int ST_IDX_ESTOP = 5;   // STATES[] index of E_STOP (ui_shared.cpp)
 
 // Directed subnet broadcast: 255.255.255.255 is not routed and gets sprayed out of whichever
 // interface the stack picks, which on a multi-homed robot is a coin flip.
@@ -405,6 +418,10 @@ static void commsTask(void *) {
             if (state->state_id < NST) {
               if (!g_haveThor) { g_thorIp = from; g_haveThor = true; }   // pin the controller
               g_robotState = state->state_id;
+              // The StamPLC has latched the e-stop, so stop resending the request. This is the
+              // only thing that clears it: a dropped datagram keeps asking, and the robot
+              // agreeing is what ends the conversation.
+              if (g_robotState == ST_IDX_ESTOP) g_estopReqPending = false;
               last_state_ms = millis();
               extern volatile bool g_linkOnline; // ensure we can set it
               g_linkOnline = true;
@@ -503,6 +520,15 @@ static void commsTask(void *) {
         Udp.write((const uint8_t *)&lf, sizeof(lf));
         Udp.endPacket();
 
+        // E-stop request: plain text to the StamPLC's command port, exactly as the dashboard
+        // does it. Resent every tick while pending, because this is the one message where a
+        // lost packet matters; the StamPLC clearing its own latch is what stops the resend.
+        if (g_estopReqPending && g_havePlc) {
+          Udp.beginPacket(g_plcIp, PLC_CMD_PORT);
+          Udp.write((const uint8_t *)"ESTOP\n", 6);
+          Udp.endPacket();
+        }
+
         // What the head believes, so its state can be checked without a cable.
         can_frame_udp sf = {0};
         sf.can_id = CAN_ID_TAB5_STATUS;
@@ -549,17 +575,14 @@ static void enterFace() {
 }
 
 static void onEstopTap() {
-  bool inhibited = Lift.snapshot().inhibit;
-  if (!inhibited) {
-    Lift.setInhibit(true);
-    confirming = false;
-  } else if (!confirming) {
-    confirming = true;
-    confirmUntil = millis() + CONFIRM_MS;
-  } else {
-    Lift.setInhibit(false);
-    confirming = false;
-  }
+  // STOPPING IS NEVER CONFIRMED. A stop control that asks "are you sure?" is not a stop control.
+  // Clearing, by contrast, is guarded and does NOT happen here: re-arming requires CH5 OFF, a
+  // released button, fresh telemetry and no weld — checks that live in the dashboard's guarded
+  // re-arm. The head can always stop the robot; only the dashboard can un-stop it.
+  g_estopReqPending = true;
+  Lift.setInhibit(true);        // belt and braces: the lift is ours, stop it locally too
+  confirming = false;
+  hmiInvalidate();
 }
 
 // NOTE: there is no edge-triggered lift sender any more. The request is published every

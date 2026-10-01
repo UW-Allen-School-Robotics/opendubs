@@ -133,7 +133,11 @@ static void drawChrome() {
   M5.Display.setFont(F_LABEL); M5.Display.setTextColor(INKFT); M5.Display.setTextDatum(textdatum_t::top_center);
   M5.Display.drawString("Soft inhibit - drops the authorize-heartbeat.", ES_CX, ES_CY + ES_R + 18);
   M5.Display.setTextColor(DNCOL);
-  M5.Display.drawString("NOT the hardware e-stop loop.", ES_CX, ES_CY + ES_R + 40);
+  // It drops the drive contactor via the StamPLC, the same path the dashboard's e-stop uses.
+  // It is still not the hardware loop: the mushroom buttons break the coil circuit directly and
+  // work with the software dead.
+  M5.Display.drawString("Drops the contactor. The red", ES_CX, ES_CY + ES_R + 40);
+  M5.Display.drawString("mushrooms work even if this does not.", ES_CX, ES_CY + ES_R + 72);
 }
 
 static void drawChip(int idx) {
@@ -173,9 +177,12 @@ static void drawArrow(const int r[4], bool up, const LiftController::Snapshot& s
 
 static void drawEstop(const LiftController::Snapshot& s, const HmiCtx& ctx, bool flashOn) {
   uint16_t fill; const char* lbl; const char* hint;
-  if (ctx.estopConfirm)      { fill = AMBER;  lbl = "RELEASE?"; hint = "tap again to release"; }
+  // No "RELEASE?" affordance. Re-arming is guarded — CH5 OFF, button released, fresh telemetry,
+  // no weld — and those checks live in the dashboard. Offering a release here would either
+  // bypass them or fail confusingly, so the head says where to go instead.
+  if (ctx.estopConfirm)      { fill = AMBER;  lbl = "STOPPED";  hint = "clear at the dashboard"; }
   else if (s.inhibit)        { fill = flashOn ? REDBRT : REDMID; lbl = "STOPPED"; hint = "inhibited"; }
-  else                       { fill = REDMID; lbl = "E-STOP";  hint = "tap to inhibit"; }
+  else                       { fill = REDMID; lbl = "E-STOP";  hint = "tap to STOP"; }
   M5.Display.fillRect(ES_CX - ES_R - 2, ES_CY - ES_R - 2, ES_R * 2 + 4, ES_R * 2 + 4, GROUND);
   fillOct(ES_CX, ES_CY, ES_R, ctx.estopConfirm ? C(138, 74, 8) : REDDEEP);
   fillOct(ES_CX, ES_CY, ES_R - 8, fill);

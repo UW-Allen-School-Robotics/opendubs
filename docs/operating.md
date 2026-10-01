@@ -127,6 +127,33 @@ descent again on the next approach to the bottom.
     pause and carry on, conveying nothing. Requiring a fresh request makes closing the gap an
     explicit operator decision.
 
+## Stopping the robot
+
+| Control | What it does | How to clear it |
+|---|---|---|
+| **The red mushrooms**, rear left and right | Break the contactor coil circuit directly. They work with the software dead or the Thor off — this is the real e-stop | Release the button, then re-arm |
+| **E-STOP on the Tab5** | Sends the controller the same software e-stop the dashboard sends: the contactor drops and the robot latches `E-STOP` | **From the dashboard only** — see below |
+| **E-stop on the dashboard** | Identical mechanism to the Tab5's | The dashboard's guarded re-arm |
+
+!!! warning "The Tab5's E-STOP switches the Tab5 off"
+    The Tab5 is powered from the **drive branch**, behind the contactor. So its own E-STOP button
+    removes its own power: the command reaches the controller, the contactor opens, and the head
+    goes dark a moment later.
+
+    That is correct behaviour, not a fault — but it means **you cannot re-arm from the head**,
+    because the head is off. Re-arm from the dashboard on the tablet, or over the network. The
+    button briefly displays *"clear at the dashboard"* before the screen dies, which is why it is
+    written here instead.
+
+Re-arming is deliberately guarded and will refuse unless **CH5 is OFF**, the button is released,
+telemetry is fresh and no contactor weld is detected. "CH5 not OFF" is the usual refusal.
+
+The robot also **arms itself at power-on**: the contactor closes a couple of seconds after boot,
+provided nothing is latched and authority is OFF. If authority is *not* OFF it waits rather than
+giving up — the PRISM strobes **amber** to say it is waiting on you, and it arms the moment CH5
+reaches OFF. An e-stop disables that self-arming for the rest of the session, so nothing re-arms
+behind you.
+
 ## Charging
 
 !!! danger "The BATTERY switch must be on while the charger is connected"
@@ -170,3 +197,5 @@ bring down the compute — is specified but not yet implemented.
 | Lift stops near the bottom | expected behaviour — see *Z-axis pinch protection* |
 | Drive refused with no other fault | the charger is still connected |
 | Electronics cycling while charging | the BATTERY switch is off — see *Charging* |
+| Tab5 dark after an e-stop | expected — it is powered behind the contactor. Re-arm from the dashboard |
+| PRISM strobing amber at power-on | it is waiting to arm; CH5 is not OFF |

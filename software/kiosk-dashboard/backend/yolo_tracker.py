@@ -222,7 +222,14 @@ class Tab5Controller:
                         # it, so blindly syncing corrupts our reference position and causes
                         # an 89° servo jump when AI next resumes.
                         prev_is_manual = self.is_manual
-                        self.is_manual = (ui_mode == 1) or (tracking == 0)
+                        # `tracking` is the whole answer. The Tab5 already excludes genuine
+                        # manual ownership from it — `AI && !rcOwnsHead() && !dpadOwnsHead()` —
+                        # so which SCREEN happens to be showing is not evidence a human owns the
+                        # head. Including ui_mode cost up to IDLE_MS (10 s) of unannounced dead
+                        # time: you press AI TRACKING on the controller screen, so ui_mode is 1
+                        # by definition, and tracking only began once the UI idled back to the
+                        # face — and every touch while waiting restarted that timer.
+                        self.is_manual = (tracking == 0)
 
                         # On manual → AI transition: reset to safe center position.
                         # This prevents sending a jump from the corrupted 0° position.
