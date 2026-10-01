@@ -124,6 +124,25 @@ stands between the model and a TF tree (§0d).
 
 ---
 
+## 0c-ii. The dashboard's AI TRACKING button — fixed 2026-10-01
+
+Andrew reported it "doesn't work". The endpoint existed; what it did was wrong.
+
+It `subprocess.Popen`'d `yolo_tracker.py` from the backend with the Tab5's address hardcoded as
+`10.42.2.14`, ignoring the systemd unit. Three failure modes: a second copy fought the service for
+the camera and lost, because a RealSense admits exactly one client; the hardcoded IP broke whenever
+DHCP moved the head; and a tracker started by systemd at boot was invisible to the button. A
+shutdown hook also killed the tracker whenever the backend restarted — which happened repeatedly
+during a day of redeploys.
+
+It drives `systemctl start|stop opendubs-yolo-tracker` now, with a sudoers rule for exactly those
+two verbs, and `ai_tracking` is read from `systemctl is-active` rather than remembered — so the
+label cannot claim the tracker is running after it has died, nor claim it is stopped while it
+tracks. A missing sudoers rule returns 503 with the required rule in the response instead of
+failing silently, which is how this got described as "doesn't work" in the first place.
+
+Verified on the robot: `off → inactive`, `on → active`.
+
 ## 0c. THE YOLO TRACKER SERVICE IS NOT IN THE REPO — and provisioning used to delete it
 
 Found 2026-09-29 while retiring the kiosk.

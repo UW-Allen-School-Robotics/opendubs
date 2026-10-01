@@ -1,3 +1,7 @@
 # Allow the kiosk dashboard backend (runs as user `kiosk`) to power-cycle the
 # Thor from the touchscreen. Install to /etc/sudoers.d/opendubs-kiosk (mode 0440).
 kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
+# ...and to start/stop the face tracker from the dashboard's AI TRACKING button. Without this the
+# button returns 503 — which is how it came to be described as "doesn't work", since the old
+# implementation spawned the script itself and failed silently instead.
+kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl start opendubs-yolo-tracker, /usr/bin/systemctl stop opendubs-yolo-tracker

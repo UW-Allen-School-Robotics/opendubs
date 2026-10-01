@@ -33,7 +33,23 @@ app = FastAPI(title="OpenDubs Kiosk Dashboard")
 
 # Server-side state for non-safety soft controls.
 STATE = {"acknowledged_at": None, "last_action": None, "ai_tracking": False}
-YOLO_PROCESS = None
+
+TRACKER_UNIT = "opendubs-yolo-tracker"
+
+
+def _tracker_active() -> bool:
+    """Is the face tracker running? Asked of systemd, not remembered.
+
+    This used to be a flag the dashboard set when it spawned the tracker itself, which went
+    wrong in both directions: the flag survived a crash, and an instance started any other way
+    was invisible. systemd already knows, and it is the only thing that does.
+    """
+    try:
+        r = subprocess.run(["systemctl", "is-active", TRACKER_UNIT],
+                           capture_output=True, text=True, timeout=3)
+        return r.stdout.strip() == "active"
+    except Exception:
+        return False
 
 
 @app.on_event("startup")
@@ -43,17 +59,9 @@ def _start_state_out() -> None:
     state_out.start()
 
 
-@app.on_event("shutdown")
-def _stop_tracker() -> None:
-    """Ensure the AI tracker process dies when the backend shuts down."""
-    global YOLO_PROCESS
-    if YOLO_PROCESS is not None:
-        try:
-            YOLO_PROCESS.terminate()
-            YOLO_PROCESS.wait(timeout=2)
-        except:
-            YOLO_PROCESS.kill()
-        YOLO_PROCESS = None
+# No shutdown hook for the tracker. It is a systemd service with its own lifecycle, and
+# restarting the dashboard must not stop the robot tracking — which is what killing a child
+# process on shutdown did, every time the backend was redeployed.
 
 
 @app.get("/api/health")
@@ -63,12 +71,9 @@ def health() -> dict:
 
 @app.get("/api/snapshot")
 def snapshot() -> JSONResponse:
-    global YOLO_PROCESS
-    # Sync internal state with actual process state in case it crashed
-    if YOLO_PROCESS is not None and YOLO_PROCESS.poll() is not None:
-        # Process died
-        STATE["ai_tracking"] = False
-        YOLO_PROCESS = None
+    # Report what systemd says, so the button cannot claim the tracker is running after it has
+    # died — or claim it is stopped while it happily tracks.
+    STATE["ai_tracking"] = _tracker_active()
 
     return JSONResponse({
         "system": metrics.collect(), "telemetry": telemetry.collect(),
@@ -78,35 +83,34 @@ def snapshot() -> JSONResponse:
 
 @app.post("/api/tracker/{state}")
 def tracker_control(state: str) -> JSONResponse:
-    """Toggle the Tab5 AI Face Tracking."""
-    global YOLO_PROCESS
+    """Start or stop the AI face tracker.
+
+    This drives the systemd unit. It used to `subprocess.Popen` the script itself with the Tab5's
+    address hardcoded, which was wrong three ways: a second copy fought the service for the
+    camera and lost (a RealSense admits one client), the hardcoded IP broke whenever DHCP moved
+    the head, and a tracker started by systemd at boot was invisible to the button.
+    """
     target = state.lower()
-    
-    if target == "on":
-        if YOLO_PROCESS is None or YOLO_PROCESS.poll() is not None:
-            script_path = Path(__file__).resolve().parent / "yolo_tracker.py"
-            # Pass the Tab5 IP directly — Python's socket.gethostbyname() cannot
-            # resolve .local mDNS names even though the system ping/resolver can.
-            YOLO_PROCESS = subprocess.Popen(
-                [
-                    sys.executable, "-u", str(script_path), 
-                    "--ip", "10.42.2.14",
-                    "--pan-min", "50", "--pan-max", "130",
-                    "--tilt-min", "65", "--tilt-max", "115"
-                ]
-            )
-            STATE["ai_tracking"] = True
-    elif target == "off":
-        if YOLO_PROCESS is not None:
-            try:
-                YOLO_PROCESS.terminate()
-            except:
-                pass
-            YOLO_PROCESS = None
-        STATE["ai_tracking"] = False
-    else:
+    if target not in ("on", "off"):
         return JSONResponse({"ok": False, "error": "use on|off"}, status_code=400)
-        
+
+    verb = "start" if target == "on" else "stop"
+    try:
+        r = subprocess.run(["sudo", "-n", "systemctl", verb, TRACKER_UNIT],
+                           capture_output=True, text=True, timeout=15)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"systemctl {verb} failed: {e}"},
+                            status_code=503)
+    if r.returncode != 0:
+        # Almost always a missing sudoers rule — say so rather than failing silently, which is
+        # how this button came to be described as "doesn't work".
+        return JSONResponse({"ok": False,
+                             "error": (r.stderr.strip() or f"systemctl {verb} returned "
+                                       f"{r.returncode}"),
+                             "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
+                            status_code=503)
+
+    STATE["ai_tracking"] = _tracker_active()
     return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
