@@ -14,6 +14,7 @@ design records. Check here before starting a new list.
 | **this file** | 34 | robot, deployment, security, docs infrastructure |
 | [`docs-review-checklist.md`](docs-review-checklist.md) | 41 | the 2026-09-12 documentation review, now tracked so the rulings are durable. **A: 1** left (a content decision), **B: 5** still open, **C: 25** need a photo/measurement/part number, **D: 10** platform projects |
 | `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
+| [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
 | `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
 
 Two counting traps, both of which inflated an earlier sweep:
