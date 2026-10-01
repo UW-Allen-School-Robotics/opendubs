@@ -448,7 +448,10 @@ class StampReader:
                       "live": ("h" in kv) or (_pinch is not None),
                       "height_mm": (_h if (_h is not None and _h >= 0) else None),
                       "inhibit": _pinch == "HOLD",
-                      "motion": {"0": "STOP", "1": "UP", "2": "DOWN"}.get(kv.get("mast")),
+                      # The firmware prints `mast=<type>:<motion>` (`mast=%s:%d`), e.g.
+                      # "scissor:0" — the Z-axis type and what it is doing. Take the motion.
+                      "motion": {"0": "STOP", "1": "UP", "2": "DOWN"}.get(
+                          (kv.get("mast") or "").rsplit(":", 1)[-1]),
                       # at_top/at_bot are deliberately absent: the limits are only in the
                       # guard's verbatim debug string, and parsing a debug format would couple
                       # this to something documented as free to change. _lift() does not use them.

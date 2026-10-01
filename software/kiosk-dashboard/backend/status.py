@@ -450,6 +450,7 @@ def collect_fast() -> dict:
         "io": _io(),
         "encoder": {"count": s.get("enc_count"), "present": s.get("enc_present")},
         "safety": _safety(),
+        "lift": _lift(),
         "can": _can_arms(),
         "thermal": _thermal(),
         "drive": _drive(),

@@ -42,3 +42,27 @@ def test_lift_line_missing_height_is_none_and_fault_carries():
     assert lift["height_mm"] is None
     assert lift["inhibit"] is True
     assert lift["fault"] == "STUCK"
+
+
+def test_drive_line_supplies_lift_when_no_dedicated_line():
+    """No [LIFT] line exists today — the StamPLC owns the Z-axis and reports it inside
+    [DRIVE]. Note `mast=<type>:<motion>`: the firmware's format is `mast=%s:%d`, so the
+    field is "scissor:0", not "0". Taken from a real robot's telemetry."""
+    r = _blank_reader()
+    r._parse("[DRIVE] mode=MECANUM armed=0 spd=0.00 fwd=0.00 rot=0.00 str=0.00 turn=0 "
+             "mast=scissor:2 h=24 pinch=HOLD safe=1")
+    lift = r._d["lift"]
+    assert lift["motion"] == "DOWN"          # not None — the type prefix must be stripped
+    assert lift["height_mm"] == 24.0
+    assert lift["inhibit"] is True           # pinch=HOLD
+    assert lift["tof_ok"] is True
+    assert lift["fault"] == "NONE"
+
+
+def test_no_tof_is_a_fault_because_the_descent_is_unguarded():
+    r = _blank_reader()
+    r._parse("[DRIVE] mode=MECANUM armed=0 mast=scissor:0 h=-1 pinch=nosensor safe=1")
+    lift = r._d["lift"]
+    assert lift["tof_ok"] is False
+    assert lift["fault"] == "TOF_FAULT"
+    assert lift["height_mm"] is None         # h<0 means unknown, not 'minus one millimetre'
