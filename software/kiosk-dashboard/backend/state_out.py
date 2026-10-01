@@ -98,6 +98,32 @@ def _tab5_resolve():
         return None
 
 
+def tab5_set_tracking(ai: bool) -> bool:
+    """Ask the head to enter AI or MANUAL tracking (CAN_ID_TRACK_MODE, 0x108).
+
+    Tracking mode was writable only by the Tab5's own touchscreen, so the dashboard's AI
+    TRACKING button could start the tracker process but never grant it the head — pressing it
+    did nothing visible. This is the missing half.
+
+    A request, not a seizure: the head still reports tracking=0 whenever the RC or the on-screen
+    d-pad actually owns the head, so this cannot take it from someone holding a stick.
+    """
+    global _tab5_sock
+    import socket, struct
+    addr = _tab5_resolve()
+    if addr is None:
+        return False
+    # can_frame_udp is {uint32 can_id; uint8 can_dlc; uint8 data[8]}, packed little-endian.
+    frame = struct.pack("<IB8s", 0x108, 1, bytes([1 if ai else 0]))
+    try:
+        if _tab5_sock is None:
+            _tab5_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        _tab5_sock.sendto(frame, (addr, _TAB5_UDP_PORT))
+        return True
+    except Exception:
+        return False
+
+
 def _tab5_udp(line: str) -> None:
     """Best-effort state push to the Tab5 over UDP. Silent on failure: the face is an
     indicator, not a control path, and a missing head must not disturb the dashboard."""

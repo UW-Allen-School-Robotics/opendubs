@@ -8,6 +8,10 @@
 #define CAN_ID_LIFT_STATE   0x105   // StamPLC -> Tab5: what the lift is actually doing
 #define CAN_ID_TAB5_STATUS  0x106   // Tab5 -> Thor: what the head believes
 #define CAN_ID_PAN_TILT_RATE 0x107  // StamPLC -> Tab5: RC stick as a RATE
+// Thor -> Tab5: ask the head to enter AI or MANUAL tracking. Tracking mode used to be writable
+// ONLY by the Tab5's own touchscreen, so the dashboard's AI TRACKING button could start the
+// tracker process but never grant it the head — it looked like the button did nothing.
+#define CAN_ID_TRACK_MODE   0x108
 
 // Manual pan/tilt is a RATE, not a position, because the source is a spring-centred stick:
 // hold to move, release to stop. It also sidesteps the real problem with sending absolute
@@ -28,6 +32,10 @@ struct __attribute__((packed)) CAN_Tab5_Status {
     uint8_t ui_mode;       // 0 = face, 1 = controller
     int16_t current_pan;   // new: physical pan angle (g_targetPan)
     int16_t current_tilt;  // new: physical tilt angle (g_targetTilt)
+};
+
+struct __attribute__((packed)) CAN_Track_Mode {
+    uint8_t mode;          // 0 = MANUAL, 1 = AI
 };
 
 struct __attribute__((packed)) can_frame_udp {

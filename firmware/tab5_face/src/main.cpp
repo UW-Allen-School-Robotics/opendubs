@@ -407,7 +407,8 @@ static void commsTask(void *) {
         // so the RC stick transmitted 20 times a second into a packet this line discarded —
         // the StamPLC counted 553 sends while the head never saw one.
         const bool isFrame = (cid == CAN_ID_ROBOT_STATE || cid == CAN_ID_PAN_TILT_CMD
-                              || cid == CAN_ID_PAN_TILT_RATE || cid == CAN_ID_LIFT_STATE);
+                              || cid == CAN_ID_PAN_TILT_RATE || cid == CAN_ID_LIFT_STATE
+                              || cid == CAN_ID_TRACK_MODE);
         if (isFrame) {
           can_frame_udp *frame = &pkt.frame;
           // can_dlc is checked against each payload before it is read — the length on the
@@ -450,6 +451,15 @@ static void commsTask(void *) {
             g_rcCmdMs   = millis();
             g_linkOnline = true;
             last_state_ms = millis();
+          } else if (frame->can_id == CAN_ID_TRACK_MODE
+                     && frame->can_dlc >= sizeof(CAN_Track_Mode)) {
+            // The dashboard asking for AI or MANUAL. A REQUEST, not a seizure: the head still
+            // reports tracking=0 whenever the RC or the d-pad actually owns it, so granting AI
+            // here cannot take the head away from someone holding a stick.
+            CAN_Track_Mode *tm = (CAN_Track_Mode *)frame->data;
+            const TrackingMode want = tm->mode ? TrackingMode::AI : TrackingMode::MANUAL;
+            if (want != g_trackingMode) { g_trackingMode = want; hmiInvalidate(); }
+            g_linkOnline = true;
           } else if (frame->can_id == CAN_ID_PAN_TILT_CMD
                      && frame->can_dlc >= sizeof(CAN_Pan_Tilt_Command)
                      && g_haveThor && from == g_thorIp) {
