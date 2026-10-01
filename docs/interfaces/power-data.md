@@ -71,6 +71,7 @@ any other: it holds a lease with an expiry, it is bounded by the same monitors, 
 private path to the actuators. See [Control authority](../control-authority.md).
 
 For the message layout itself — CAN framing, the 11-bit module/type ID, and heartbeat semantics
-where presence grants and absence revokes — see the payload communications specification, which
-lands with the module-comms work. Until it does, this page is the electrical and behavioural half
-of the contract and the protocol is in flight.
+where presence grants and absence revokes — see
+**[Payload communications](payload-comms.md)**. That specification and its unit tests are in the
+tree; neither firmware speaks it yet, so today this page is the half of the contract the robot
+actually enforces.

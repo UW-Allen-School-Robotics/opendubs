@@ -68,6 +68,7 @@ nav:
       - Mechanical mount: interfaces/mechanical-mount.md
       - Power & data: interfaces/power-data.md
       - Command & telemetry: interfaces/command-telemetry.md
+      - Payload communications: interfaces/payload-comms.md
   - Assembly Guide:
       - Lower Frame Assembly (overview): build/lower-frame.md
       - 1 · Base Frame: build/base-frame.md
