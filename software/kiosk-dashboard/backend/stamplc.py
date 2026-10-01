@@ -384,6 +384,27 @@ class StampReader:
                 self._last = now
                 return
 
+            # A dedicated lift line, per docs/interfaces/payload-comms.md's LIFT_STATE. No
+            # firmware emits it yet — the StamPLC owns the Z-axis today and reports it inside
+            # [DRIVE], mapped below. This branch is here so that when the lift moves to its own
+            # payload controller the dashboard already understands it, and takes precedence
+            # because a dedicated module reporting itself beats a field borrowed from [DRIVE].
+            if line.startswith("[LIFT] "):
+                kv = _kv(line)
+                def _b(k):      # firmware prints flags as 1/0
+                    return kv.get(k) == "1"
+                def _h(k):
+                    try: return float(kv[k])
+                    except (KeyError, TypeError, ValueError): return None
+                self._d["lift"] = {"live": _b("live"), "height_mm": _h("height_mm"),
+                                   "inhibit": _b("inhibit"), "at_top": _b("at_top"),
+                                   "at_bot": _b("at_bot"), "tof_ok": _b("tof_ok"),
+                                   "motion": kv.get("motion"), "fault": kv.get("fault")}
+                # Latch the source. Without this the next [DRIVE] line would overwrite a real
+                # module's own report with fields borrowed from the drive line.
+                self._lift_dedicated = True
+                self._last = now; return
+
             if line.startswith("[DRIVE] "):
                 kv = _kv(line)
                 w = None
@@ -413,6 +434,29 @@ class StampReader:
                                               if (gm := re.search(r"g\[([^\]]*)\]", line))
                                               else None),
                                     "loop_max_ms": inum("loopmax")}
+                # The Z-axis as its own subsystem, independent of which telemetry line
+                # happens to carry it. Today the StamPLC owns the lift and reports it inside
+                # [DRIVE]; when the lift moves to its own payload controller it gets its own
+                # line and only this mapping changes, not every consumer. Shape follows
+                # docs/interfaces/payload-comms.md's LIFT_STATE.
+                if not getattr(self, "_lift_dedicated", False):
+                  _pinch = kv.get("pinch")
+                  _h = fnum("h")
+                  self._d["lift"] = {
+                      # The lift reported at all. There is no separate module to go silent
+                      # yet, so this is "the [DRIVE] line carried lift fields".
+                      "live": ("h" in kv) or (_pinch is not None),
+                      "height_mm": (_h if (_h is not None and _h >= 0) else None),
+                      "inhibit": _pinch == "HOLD",
+                      "motion": {"0": "STOP", "1": "UP", "2": "DOWN"}.get(kv.get("mast")),
+                      # at_top/at_bot are deliberately absent: the limits are only in the
+                      # guard's verbatim debug string, and parsing a debug format would couple
+                      # this to something documented as free to change. _lift() does not use them.
+                      "tof_ok": _pinch != "nosensor",
+                      # No sensor means the guard cannot work and a descent is UNGUARDED. That
+                      # is a fault, not a status line — TOF_FAULT in the payload protocol.
+                      "fault": "TOF_FAULT" if _pinch == "nosensor" else "NONE",
+                  }
                 self._last = now; return
 
     def snapshot(self):

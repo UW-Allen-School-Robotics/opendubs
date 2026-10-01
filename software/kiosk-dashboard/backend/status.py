@@ -227,6 +227,32 @@ def _drive():
             "fresh": s.get("fresh", False)}
 
 
+# Modules whose SILENCE is itself a fault, rather than merely an absent reading. A module
+# listed here must report; not hearing from it degrades the robot once the boot window has
+# passed. See docs/interfaces/payload-comms.md — presence grants, absence revokes.
+REQUIRED_MODULES = {"lift": True}
+
+
+def _lift():
+    """The Z-axis as a module: height, motion, inhibit and its own fault.
+
+    `fresh` needs BOTH the StamPLC link and the module's own liveness — the same combination
+    `_rc_link()` uses. A stale module is not trusted even if it last reported a fault code,
+    which is why `fault_active` is gated on freshness: a cached fault from a module that has
+    gone quiet is not evidence of a present fault.
+    """
+    s = stamplc.reader.snapshot()
+    lift = s.get("lift") or {}
+    fresh = bool(s.get("fresh")) and bool(lift.get("live"))
+    fault = lift.get("fault")
+    return {"fresh": fresh,
+            "height_mm": lift.get("height_mm"),
+            "inhibit": lift.get("inhibit"),
+            "motion": lift.get("motion"),
+            "fault": fault,
+            "fault_active": bool(fresh and fault not in (None, "NONE"))}
+
+
 def _io():
     s = stamplc.reader.snapshot()
     return {"di": s.get("di"), "relay": s.get("relay"),
@@ -338,7 +364,15 @@ def _robot_state():
     # NOTE: per-channel PDH breaker faults are intentionally NOT rolled into
     # DEGRADED — on the bench many channels are unfused and fault by design.
 
-    mast_fault = False  # mast/payload is independent (Tab5-driven) — no mast-limit inputs on the StamPLC
+    # The Z-axis is NOT independent of the StamPLC: it owns the ToF, the relays and the pinch
+    # guard, and reports all three. So a lift fault is a real input to the FSM.
+    lift = _lift()
+    mast_fault = lift["fault_active"]
+    # A required module that has gone quiet degrades the robot — but not during boot, when the
+    # link legitimately has not come up yet. Latching that on every power-on would mean a
+    # manual DEGRADED clear every single time.
+    if REQUIRED_MODULES.get("lift") and not lift["fresh"] and supervisor.ready:
+        raw_faults.append("lift module not responding")
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
