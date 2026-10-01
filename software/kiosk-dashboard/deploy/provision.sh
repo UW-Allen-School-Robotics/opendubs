@@ -59,9 +59,14 @@ install -m 0644 "$DEPLOY/opendubs-dash.service" /etc/systemd/system/opendubs-das
 # StamPLC Ethernet heartbeat — broadcasts "HB" so the firmware's RX watchdog can spot a wedged
 # link (see stamplc_hb.py). Required for the USB-less (transport=udp) StamPLC link to self-heal.
 install -m 0644 "$DEPLOY/opendubs-stamplc-hb.service" /etc/systemd/system/opendubs-stamplc-hb.service
+# Face tracker. It used to be installed by hand and an older revision of THIS script deleted it
+# on every run, so a provision silently removed a working demo and nothing could put it back.
+install -m 0644 "$DEPLOY/opendubs-yolo-tracker.service" /etc/systemd/system/opendubs-yolo-tracker.service
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 0755 /opt/opendubs/models   # persistent YOLO weights
 systemctl daemon-reload
 systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
+systemctl enable opendubs-yolo-tracker.service
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
 

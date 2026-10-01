@@ -248,7 +248,14 @@ def main():
     args = parser.parse_args()
 
     print("Initializing YOLOv8 face model...")
-    model_path = "/tmp/face_yolov8n.pt"
+    # /tmp clears on reboot, so the model was re-downloaded from Hugging Face on every boot —
+    # which makes the tracker need the internet to start. Cache it somewhere persistent.
+    model_dir = os.environ.get("OPENDUBS_MODEL_DIR", "/opt/opendubs/models")
+    try:
+        os.makedirs(model_dir, exist_ok=True)
+    except OSError:
+        model_dir = "/tmp"
+    model_path = os.path.join(model_dir, "face_yolov8n.pt")
     if not os.path.exists(model_path):
         print("Downloading dedicated face model (face_yolov8n.pt)...")
         urllib.request.urlretrieve("https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8n.pt", model_path)

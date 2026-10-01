@@ -1,0 +1,29 @@
+[Unit]
+# Face tracking: reads the head's RealSense directly through pyrealsense2, runs YOLOv8, and
+# sends pan/tilt to the Tab5 over UDP 4242. It does NOT use the Tab5's own camera — that
+# experiment was abandoned (the SC2356 has no Arduino driver) and the firmware for it is gone.
+Description=OpenDubs YOLO face tracker (RealSense -> pan/tilt over UDP)
+# The Tab5 is the command target; the dashboard is not in the path, so this does not need it.
+# It does need the network up for mDNS to resolve the head.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kiosk
+SupplementaryGroups=video render
+WorkingDirectory=/opt/opendubs/kiosk-dashboard/backend
+# No --show: the robot has no display. The GUI preview is opt-in and for a laptop.
+ExecStart=/opt/opendubs/venv/bin/python yolo_tracker.py --ip opendubs-tab5.local
+# Persistent model cache — otherwise it re-downloads face_yolov8n.pt from Hugging Face on
+# every boot and cannot start without internet.
+Environment=OPENDUBS_MODEL_DIR=/opt/opendubs/models
+Restart=on-failure
+RestartSec=5
+# The head going quiet is not an emergency: back off rather than hammering a camera that may
+# be unplugged.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

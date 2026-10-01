@@ -129,7 +129,13 @@ Found 2026-09-29 while retiring the kiosk.
   **destroyed the working face tracker**, while `deploy-all.sh` went on listing
   `opendubs-yolo-tracker` in its service readout — so the report would show it inactive and the
   cause would look like a crash. Those two lines are gone.
-- **[TODO][HW] Capture the unit into the repo.** There is no `opendubs-yolo-tracker.service`
+- **[DONE 2026-10-01] Captured.** `kiosk-dashboard/deploy/opendubs-yolo-tracker.service` is in the
+  repo and `provision.sh` installs and enables it, alongside a persistent `/opt/opendubs/models`
+  so the weights survive a reboot (the path was `/tmp`, so every boot re-downloaded them from
+  Hugging Face and the tracker could not start offline). Verified on the robot that the only thing
+  missing was the unit: the script was deployed, the venv already had pyrealsense2 / ultralytics /
+  torch / cv2, and nothing was holding the camera.
+- ~~**[TODO][HW] Capture the unit into the repo.**~~ There is no `opendubs-yolo-tracker.service`
   anywhere in the tree, so the service running on the Thor was installed by hand and **cannot be
   reproduced**. A rebuild of that machine loses the tracker. Copy the live unit off the Thor into
   `kiosk-dashboard/deploy/`, and have `provision.sh` install and enable it. The venv already
