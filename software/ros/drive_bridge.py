@@ -25,6 +25,13 @@ The StamPLC ignores host drive commands unless CH5 is in AUTO, and its arm gate 
 requires the contactor closed, no e-stop, a live in-band RC link and a stable loop. A node that
 tried to enforce authority in software would be a second answer to a question that must have one.
 
+**The firmware is currently stricter than that, on purpose.** Until autonomy has been watched
+enough to trust, AUTO also requires the **deadman held**, and scales the command by
+`kAutoMaxUnit` (0.35) times the CH8 speed knob. So a planner commanding 1.0 m/s moves the robot
+at roughly a third of that, and not at all unless someone is holding the switch. If motion looks
+weak or absent under AUTO, that is this, and the StamPLC logs it on entry:
+`[SAFE] AUTO engaged: cap=0.35 x CH8 knob, deadman REQUIRED`.
+
 ## Staleness is the stop
 
 `DRIVE` carries a heartbeat: the firmware neutralises the drive if commands stop arriving

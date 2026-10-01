@@ -146,6 +146,20 @@ static uint32_t g_mirrorFail = 0;
 // Per-wheel ESC direction sign. RR (ch2) is wired reversed vs the others → invert it so a
 // forward command drives all four wheels robot-forward. Indexed [FL, FR, RL, RR].
 static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
+// AUTONOMOUS IS DELIBERATELY RESTRICTED until autonomy has been watched enough to trust it. Both
+// limits live here so relaxing them is one edit in one place.
+//
+// The deadman: the firmware did NOT require it under AUTO — `autoAuth` alone fed the mixer, so CH5
+// in AUTO plus any live publisher drove the robot with nothing held. Requiring a human to hold a
+// switch is the wrong LONG-TERM design, since a planner cannot hold one and the point of autonomy
+// is that nobody is standing there. It is the right default while we are still establishing
+// whether the Pinpoint even reads the right way round.
+//
+// The cap SCALES rather than clamps, so limiting magnitude cannot rotate the direction the planner
+// asked for. The CH8 speed knob multiplies it, keeping a physical throttle over a software driver.
+static constexpr bool     kAutoRequiresDeadman = true;
+static constexpr float    kAutoMaxUnit         = 0.35f;   // ceiling on |command| under AUTO
+
 static constexpr uint16_t kEscNeutralUs     = 1500;   // 2x80A neutral == arm-zone center
 static constexpr uint16_t kEscSpanUs        = 150;    // ±span → 1350..1650 (gentle re-test band; widen toward 400 once ESCs hold)
 static constexpr uint16_t kEscDeadzoneUs    = 6;      // treat |cmd|<this as 0 (matches the ESC ±10µs deadzone)
@@ -2178,7 +2192,9 @@ static void driveTick()
 
     // ==== (B) ARM GATE — EVERY condition must hold, re-checked every tick ====
     const bool manual   = (mode == RCM_MANUAL_LIVE || mode == RCM_MANUAL_SAFE);
-    const bool autoAuth = (mode == RCM_AUTO) && rosFresh;       // autonomous needs a fresh Thor heartbeat
+    const bool deadHeld = rcAxis(FN_DEAD, rc_ch) > 0.5f;
+    const bool autoAuth = (mode == RCM_AUTO) && rosFresh            // autonomous needs a fresh Thor heartbeat
+                       && (!kAutoRequiresDeadman || deadHeld);      // ...and, for now, a held deadman
     const bool armOK    = (manual || autoAuth)                  // manual or autonomous authority (CH5)
                        &&  contactor                            // drive bus actually powered
                        && !local_estop_active && !di0estop      // no e-stop (host/btn or DI0)
@@ -2200,8 +2216,22 @@ static void driveTick()
         rot = rcAxis(FN_ROT, rc_ch) * spd;
         str = rcAxis(FN_STR, rc_ch) * spd;
     } else if (autoAuth) {                             // autonomous → Thor/ROS DRIVE command
-        fwd = g_rosCmd.fwd; rot = g_rosCmd.rot; str = g_rosCmd.str;
+        // Scale, do not clamp: clamping each axis independently would rotate a diagonal command.
+        const float lim = kAutoMaxUnit * rcUnit(FN_SPEED, rc_ch);
+        fwd = g_rosCmd.fwd * lim;
+        rot = g_rosCmd.rot * lim;
+        str = g_rosCmd.str * lim;
     }
+    // Announce the restriction on entry, once. A capped AUTO that silently under-responds looks
+    // like a broken planner; this makes it one log line instead of an afternoon.
+    static bool wasAuto = false;
+    if (autoAuth != wasAuto) {
+        wasAuto = autoAuth;
+        if (autoAuth) tprintf("[SAFE] AUTO engaged: cap=%.2f x CH8 knob, deadman %s\n",
+                              (double)kAutoMaxUnit, kAutoRequiresDeadman ? "REQUIRED" : "not required");
+        else          tprintf("[SAFE] AUTO disengaged\n");
+    }
+
     // ---- payload mode: what the right stick means this tick ----
     const PayloadMode pmodeNow = computePayloadMode(rc_ch);
     if (pmodeNow != g_payloadMode) {          // the stick just changed meaning

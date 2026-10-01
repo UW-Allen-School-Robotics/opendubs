@@ -132,7 +132,7 @@ Its meaning is constant — **a human is deliberately engaging** — and only th
 | Mode | Holding the deadman |
 |---|---|
 | `RC` | authorises motion |
-| `AUTO` | **arms intervention**, so an accidental knock cannot derail the policy |
+| `AUTO` | **arms intervention**, so an accidental knock cannot derail the policy — and, for now, is *required* for autonomous motion at all (see below) |
 | Choreography | the operator's live stop — releasing aborts the routine |
 
 It is **two-factor: held *and* deliberately deflected**, with a threshold well above the drive
@@ -140,6 +140,26 @@ deadzone. A thumb resting on the deadman must not reintroduce the accidental-kno
 
 An intervention is reported to the rest of the stack — which axis, how long, how much. Silent
 resumption from a state the policy did not plan is a discontinuity it cannot see.
+
+### Autonomy is restricted while it is young
+
+The model above says a planner holds a standing lease and the deadman merely arms intervention.
+The firmware is currently **stricter**, deliberately:
+
+- **AUTO requires the deadman held.** Without it, CH5 in AUTO plus any live `/cmd_vel` publisher
+  moved the robot with nobody touching anything. That is the correct end state — a planner cannot
+  hold a switch, and autonomy whose precondition is a human holding something is not autonomy — but
+  it is the wrong default until the odometry has been proven to read the right way round.
+- **Commanded magnitude is scaled** to `kAutoMaxUnit` (0.35) times the CH8 speed knob, so the
+  operator keeps a physical throttle over a software driver. It scales rather than clamps, because
+  clamping each axis independently would rotate a diagonal command.
+
+Both are one edit in one place in `rc_serial_probe/src/main.cpp`, and the controller announces the
+restriction when AUTO engages so a capped planner does not look like a broken one:
+
+```
+[SAFE] AUTO engaged: cap=0.35 x CH8 knob, deadman REQUIRED
+```
 
 ## Where a mode lives
 
