@@ -368,10 +368,13 @@ def _robot_state():
     # guard, and reports all three. So a lift fault is a real input to the FSM.
     lift = _lift()
     mast_fault = lift["fault_active"]
-    # A required module that has gone quiet degrades the robot — but not during boot, when the
-    # link legitimately has not come up yet. Latching that on every power-on would mean a
-    # manual DEGRADED clear every single time.
-    if REQUIRED_MODULES.get("lift") and not lift["fresh"] and supervisor.ready:
+    # A required module that has gone quiet degrades the robot — but ONLY when the StamPLC link
+    # itself is healthy. If the link is stale the module cannot report by definition, and calling
+    # that a lift fault both mis-attributes it and latches DEGRADED every time the StamPLC
+    # reboots — which is every OTA flash. Observed on the robot doing exactly that.
+    link_fresh = bool(s.get("fresh"))
+    if (REQUIRED_MODULES.get("lift") and link_fresh and not lift["fresh"]
+            and supervisor.ready):
         raw_faults.append("lift module not responding")
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
@@ -413,8 +416,11 @@ def try_estop_clear() -> dict:
         welded=saf["welded"], authority=authority)
     if not ok:
         return {"ok": False, "blockers": blockers}
+    # Deliver FIRST, and only clear the latch if the board can actually be reached. Clearing
+    # our own flag while `RELAY 0 1` goes nowhere reports a closed contactor that is still open.
+    if not stamplc.reader.send("RELAY 0 1"):
+        return {"ok": False, "blockers": ["no link to the StamPLC — command not sent"]}
     set_software_estop(False)
-    stamplc.reader.send("RELAY 0 1")
     supervisor.clear_estop()
     return {"ok": True}
 

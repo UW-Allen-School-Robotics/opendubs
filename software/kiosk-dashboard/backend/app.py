@@ -137,7 +137,9 @@ def mast_control(cmd: str) -> JSONResponse:
     v = {"up": 1.0, "down": -1.0, "stop": 0.0}.get(cmd.lower())
     if v is None:
         return JSONResponse({"ok": False, "error": "use up|down|stop"}, status_code=400)
-    stamplc.reader.send(f"MAST CMD {v:.2f}")
+    if not stamplc.reader.send(f"MAST CMD {v:.2f}"):
+        return JSONResponse({"ok": False, "error": "no link to the StamPLC — command not sent"},
+                            status_code=503)
     return JSONResponse({"ok": True, "mast": cmd.lower(), "v": v})
 
 
@@ -163,7 +165,9 @@ def relay_control(ch: str, state: str) -> JSONResponse:
     if c != 3:
         return JSONResponse({"ok": False, "error": "only relay 3 is free"}, status_code=400)
     on = state.lower() in ("1", "on", "true")
-    stamplc.reader.send(f"RELAY {c} {1 if on else 0}")
+    if not stamplc.reader.send(f"RELAY {c} {1 if on else 0}"):
+        return JSONResponse({"ok": False, "error": "no link to the StamPLC — command not sent"},
+                            status_code=503)
     return JSONResponse({"ok": True, "relay": c, "state": on})
 
 
@@ -171,9 +175,15 @@ def relay_control(ch: str, state: str) -> JSONResponse:
 def estop() -> JSONResponse:
     """Software E-stop — safe direction: latch the flag and drop the contactor (relay 0)."""
     import stamplc
+    # Safe direction, so latch our own flag whatever happens — but the operator must be told if
+    # the board was not reached, because the contactor may still be closed.
     status_mod.set_software_estop(True)
-    stamplc.reader.send("ESTOP")
-    return JSONResponse({"ok": True, "estop": True})
+    delivered = stamplc.reader.send("ESTOP")
+    return JSONResponse({"ok": True, "estop": True, "delivered": delivered,
+                         **({} if delivered else
+                            {"warning": "no link to the StamPLC — the software latch is set but "
+                                        "the contactor may still be closed. Use a physical "
+                                        "E-STOP button."})})
 
 
 @app.post("/api/estop/clear")

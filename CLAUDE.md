@@ -18,7 +18,7 @@ recipe that matches your task.
   Secrets never go in the repo (`.env` / keys belong in the git-ignored `ops/`).
 - **Never re-derive how to talk to the hardware.** Before writing a single command that flashes,
   resets, or reconfigures a board, read the table below and use the script. This rule exists
-  because it has been broken repeatedly, at real cost: sessions have rebuilt the StampPLC and
+  because it has been broken repeatedly, at real cost: sessions have rebuilt the StamPLC and
   Tab5 flash procedures from first principles while `ota-from-thor.sh` and
   `docs/flashing-stamplc.md` sat unread — and one such attempt reset the robot's safety
   controller twice by opening a serial port that was never the right channel. If a procedure
@@ -30,9 +30,9 @@ recipe that matches your task.
 
 | board | how | notes |
 |---|---|---|
-| **StampPLC** (ESP32-S3) | `firmware/rc_serial_probe/ota-from-thor.sh <stamp-ip>` — run **on the Thor** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. The StampPLC's IP is a per-robot DHCP reservation — pass it. |
-| StampPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
-| **Tab5 face** (ESP32-P4) | `firmware/tab5_face/ota-from-thor.sh [host]` — run **on the Thor** | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StampPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). |
+| **StamPLC** (ESP32-S3) | `sudo firmware/rc_serial_probe/ota-from-thor.sh` — on the Thor, **no IP** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. **Do not go hunting for the board's address** — the script finds it (argument → `$OPENDUBS_STAMP_IP` → the dashboard's learned peer → `opendubs-stamplc.local`) and refuses one belonging to the Thor itself. `sudo` because PlatformIO must write `.pio/` under `/opt/opendubs`, which the deploying user owns. |
+| StamPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
+| **Tab5 face** (ESP32-P4) | `firmware/tab5_face/ota-from-thor.sh [host]` — run **on the Thor** | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). |
 
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.

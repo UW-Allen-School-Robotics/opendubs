@@ -25,7 +25,10 @@ echo "== OpenDubs dashboard provisioning =="
 
 # --- 0) System packages ----------------------------------------------------
 apt-get update -qq || true
-apt-get install -y -qq python3.12-venv python3-dev || true
+# avahi + libnss-mdns so `.local` names resolve on this host. Without them nothing on the robot
+# can find the Tab5 or the StamPLC by name and everyone falls back to hardcoded IPs, which is how
+# a wrong address gets written down and then believed.
+apt-get install -y -qq python3.12-venv python3-dev avahi-daemon libnss-mdns || true
 
 # --- 1) Python venv + backend deps -----------------------------------------
 if [ ! -x "$VENV/bin/python" ]; then
@@ -61,6 +64,13 @@ systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
+
+# --- 4) Name the StamPLC ----------------------------------------------------
+# Best-effort: it reads the address from the dashboard, so it only works once the backend is up
+# and hearing the board. Re-runnable at any time.
+echo "-- registering opendubs-stamplc.local"
+sleep 3
+"$DEPLOY/register-stamplc-mdns.sh" || echo "   (skipped — re-run it once the StamPLC is reporting)"
 
 echo
 echo "== done. backend: $(systemctl is-active opendubs-dash) on :8080 =="

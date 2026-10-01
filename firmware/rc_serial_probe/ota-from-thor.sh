@@ -5,14 +5,54 @@
 # ethernet-OTA firmware is on the board; keep a USB port reachable only as a recovery fallback
 # (a complete-but-buggy image still needs USB — see the firmware OTA notes).
 #
-# Usage:  ./ota-from-thor.sh [stamp-ip]      (default stamp IP 192.168.88.253)
+# Usage:  ./ota-from-thor.sh                 <- normal: finds the StamPLC itself
+#         ./ota-from-thor.sh 10.42.2.20      <- override, if discovery cannot
 #         OTA_PORT=8099 ./ota-from-thor.sh
-# The StamPLC's address differs per robot (it is a DHCP reservation on that robot's router),
-# so pass it: ./ota-from-thor.sh 10.42.2.20
+#
+# You should never have to know the StamPLC's IP. It is a per-robot DHCP address, and hunting for
+# it by hand has twice sent someone to the wrong one. Resolution order below; every step prints
+# what it found, so a wrong answer is visible before anything is flashed.
 set -u
 
-STAMP_IP="${1:-192.168.88.253}"
 CMD_PORT=5005                       # firmware UDP command/telemetry port
+
+# --- find the StamPLC ------------------------------------------------------------------------
+# 1) explicit argument, 2) $OPENDUBS_STAMP_IP, 3) the dashboard's learned peer — it is already
+# receiving telemetry from the board, so it knows the address better than any default, 4) mDNS.
+discover_stamp_ip() {
+  [ -n "${1:-}" ]                   && { echo "$1";                   return 0; }
+  [ -n "${OPENDUBS_STAMP_IP:-}" ]   && { echo "$OPENDUBS_STAMP_IP";   return 0; }
+
+  # The dashboard reports the peer it is actually hearing from, as "<ip>:<port>".
+  local peer
+  peer="$(curl -s --max-time 3 http://127.0.0.1:8080/api/snapshot 2>/dev/null \
+          | tr ',{}' '\n\n\n' | grep -oE '"port": *"[0-9.]+:[0-9]+"' \
+          | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -n "$peer" ]; then
+    # Refuse an address that belongs to THIS host. The dashboard once reported 192.168.55.1 —
+    # the Thor's own l4tbr0 — and serving the image at a local address cannot work.
+    if ip -4 addr show 2>/dev/null | grep -qE "inet $peer/"; then
+      echo "WARN: dashboard reports $peer, which is one of this host's own addresses — ignoring." >&2
+    else
+      echo "$peer"; return 0
+    fi
+  fi
+
+  local m
+  m="$(avahi-resolve -n opendubs-stamplc.local 2>/dev/null | awk '{print $2}')"
+  [ -n "$m" ] && { echo "$m"; return 0; }
+  return 1
+}
+
+STAMP_IP="$(discover_stamp_ip "${1:-}")" || {
+  echo "ERROR: could not find the StamPLC."
+  echo "       Tried: argument, \$OPENDUBS_STAMP_IP, the dashboard's learned peer"
+  echo "       (http://127.0.0.1:8080/api/snapshot -> status.stamplc.port), and"
+  echo "       opendubs-stamplc.local over mDNS."
+  echo "       Is opendubs-dash running and hearing the board? Pass the address to override."
+  exit 1
+}
+echo "== StamPLC at $STAMP_IP =="
 HTTP_PORT="${OTA_PORT:-8099}"
 PROJ="$(cd "$(dirname "$0")" && pwd)"
 PIO=/opt/opendubs/piovenv/bin/pio

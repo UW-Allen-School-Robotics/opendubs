@@ -178,7 +178,7 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
             **D10 is already written, in PR #7.** `docs/interfaces/payload-comms.md` on
             `worktree-payload-comms-impl` specifies the CAN framing, the 11-bit module/type ID and
             fail-safe-by-omission heartbeats. Nothing to write — it needs merging. **Note: that
-            branch spells "StampPLC" throughout, so merging it after today's normalisation
+            branch spells "StamPLC" throughout, so merging it after today's normalisation
             reintroduces the old spelling.**
 - [x] B8  **RULED 2026-09-29 — collapsible sections, nothing deleted.** Four long argument
           blocks folded into `??? note` details (`pymdownx.details` was already enabled): the

@@ -42,7 +42,7 @@ static constexpr uint32_t kDebounceMs = 200;
 // One alert per episode, then a reminder if it is still holding. Operators walk away.
 static constexpr uint32_t kRemindMs   = 10000;
 // After the guard clears, a descent that starts within this window is the consent being spent —
-// that is what earns the confirming tone. (Phase 2 replaces this inference with the StampPLC
+// that is what earns the confirming tone. (Phase 2 replaces this inference with the StamPLC
 // publishing the grant itself.)
 static constexpr uint32_t kConfirmWinMs = 1500;
 static constexpr uint32_t kConfirmShowMs = 1200;   // how long "LOWERING" stays up

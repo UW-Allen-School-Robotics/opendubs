@@ -147,3 +147,21 @@ def test_robot_state_wires_lift_fault_active_to_mast_without_degrading(monkeypat
     out = status._robot_state()
     assert out["state"] != "DEGRADED"
     assert out["subsystems"]["mast"]["state"] == "FAULT"
+
+
+def test_stale_link_does_not_raise_a_lift_fault(monkeypatch):
+    """A StamPLC reboot — i.e. every OTA flash — must not latch DEGRADED. With the link stale the
+    module cannot report by definition, so that is a link problem, not a lift problem. Observed
+    on the robot: an OTA left it DEGRADED with 'lift module not responding'."""
+    sup = supervisor_mod.Supervisor()
+    sup.ready = True
+    monkeypatch.setattr(status, "supervisor", sup)
+    snap = _benign_snapshot()
+    snap["fresh"] = False                      # the StamPLC link itself is stale
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: snap)
+    monkeypatch.setattr(status, "_lift", lambda: {
+        "fresh": False, "height_mm": None, "inhibit": None,
+        "motion": None, "fault": None, "fault_active": False,
+    })
+    out = status._robot_state()
+    assert "lift module not responding" not in out["reason"]

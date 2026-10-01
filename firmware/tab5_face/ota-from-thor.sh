@@ -9,7 +9,7 @@
 # WHY THIS EXISTS. The head's README documents `pio run -e tab5_ota -t upload` (espota). That has
 # NEVER worked on this board: ArduinoOTA's listener sits behind the ESP-Hosted co-processor and
 # begin() returns void, so every failure is silent and espota just reports "no response". The
-# StampPLC solved the same problem by PULLING its firmware over HTTP on command; the head does the
+# StamPLC solved the same problem by PULLING its firmware over HTTP on command; the head does the
 # same. See the comment above otaHttpPull() in src/main.cpp.
 #
 # Without this script the procedure gets re-derived from source every time, which has cost real
@@ -36,7 +36,7 @@ fi
 HEAD_IP="$(getent hosts "$HEAD" 2>/dev/null | awk '{print $1}' | head -1)"
 [ -z "$HEAD_IP" ] && HEAD_IP="$HEAD"        # already an IP, or resolution is broken
 # THE HEAD IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH. With the contactor open it has
-# no power at all -- it does not "drop off the network", it is off. So a StampPLC reflash, an
+# no power at all -- it does not "drop off the network", it is off. So a StamPLC reflash, an
 # e-stop, or anything that opens the contactor takes the head down with it, and the head cannot
 # be flashed until the contactor is closed again. Check that FIRST: every other diagnosis of a
 # silent head (mDNS, Wi-Fi association, a stale DHCP lease) is a wild goose chase if the reason
@@ -47,7 +47,7 @@ if [ "$CONTACTOR" = "False" ]; then
   echo "ERROR: the e-stop contactor is OPEN, so the head has no power."
   echo "       The Tab5 sits on the e-stop protected drive branch. Close the contactor first:"
   echo "           set CH5 to OFF, then:  curl -X POST http://127.0.0.1:8080/api/estop/clear"
-  echo "       (A StampPLC reflash opens it. Flash the StampPLC first, clear, THEN the head.)"
+  echo "       (A StamPLC reflash opens it. Flash the StamPLC first, clear, THEN the head.)"
   exit 1
 fi
 

@@ -105,11 +105,20 @@ class StampReader:
         self._parse_errors = 0
         threading.Thread(target=self._run, name="stamplc", daemon=True).start()
 
-    def send(self, cmd: str):
+    def send(self, cmd: str) -> bool:
         """Queue a command line for the StamPLC (e.g. 'LED_COLOR 30 210 70 100'). Delivered over
-        whichever transport is active — Ethernet UDP or USB serial."""
+        whichever transport is active — Ethernet UDP or USB serial.
+
+        Returns False if there is no transport to deliver on, so a caller can say so instead of
+        reporting success. This exists because `/api/estop/clear` once returned `ok: true` having
+        queued `RELAY 0 1` with nothing to send it over: the contactor stayed open and the
+        dashboard said it had closed it.
+        """
         with self._lock:
+            if self._transport is None:
+                return False
             self._txq.append(cmd)
+            return True
 
     def _ingest(self, blob: bytes):
         """Split a serial/UDP blob into lines and parse each [TAG] line (transport-agnostic)."""
@@ -182,6 +191,8 @@ class StampReader:
                     pending, self._txq = self._txq, []
                     peer = self._peer
                 for c in pending:
+                    if peer is None:
+                        continue            # nowhere to send it; send() already refuses this case
                     try:
                         sock.sendto((c + "\n").encode("utf-8"), peer)
                     except OSError:
@@ -204,6 +215,12 @@ class StampReader:
             with self._lock:
                 self._connected = False
                 self._transport = None
+                # Forget the peer. It is learned from received packets, so holding it across a
+                # stall means the next session unicasts commands at an address that may no longer
+                # be the StamPLC — and `_device` is what /api/snapshot reports, so a stale one
+                # sends a human chasing the wrong IP. Both cost real time once already.
+                self._peer = None
+                self._device = None
             try:
                 sock.close()
             except OSError:
