@@ -207,6 +207,13 @@ static uint32_t g_lastStallMs = 0;                // last loop iteration that ov
 static uint32_t g_lastRcGapMs = 0;                // last time RC was not live
 static uint32_t g_worstLoopMs = 0;                // worst iteration seen (observability)
 static bool     g_driveSafe   = false;
+// Contactor auto-arm state. Declared here because the PRISM overlay reads g_autoArmWaiting far
+// above autoArmTick's definition — see the CONTACTOR AUTO-ARM block for what these mean.
+static bool     g_autoArmFired   = false;   // we have closed it once; never again this boot
+static bool     g_autoArmBlocked = false;   // disabled for this boot (latched e-stop, or a weld)
+static bool     g_autoArmWaiting = false;   // conditions unmet — drives the PRISM indication
+static uint32_t g_autoArmBootMs  = 0;
+static constexpr uint32_t kAutoArmSettleMs = 2500;   // let the loop, DI and RC settle first
 
 // Which part of the loop overran. `loopmax` told us a 396 ms iteration happened at boot but
 // not what did it, and guessing at that is how you end up "fixing" the wrong thing. PHASE()
@@ -995,7 +1002,7 @@ bool prismSetStripLength(uint8_t len)
 static uint8_t g_baseR = 0, g_baseG = 0, g_baseB = 0, g_baseBr = 100;
 // Who currently owns the LAYER_1 overlay. Declared here because prismSolid() has to know
 // whether repainting the hidden overlay would stomp a live hazard signal.
-enum class PrismOverlay : uint8_t { NONE = 0, TURN, MAST_MOVE, MAST_HOLD, NOT_READY };
+enum class PrismOverlay : uint8_t { NONE = 0, TURN, MAST_MOVE, MAST_HOLD, NOT_READY, NO_ARM };
 static PrismOverlay g_overlay = PrismOverlay::NONE;
 static void prismOverlayHide();   // fwd decl (defined with the overlay block below)
 
@@ -1055,6 +1062,7 @@ static constexpr uint32_t kBlinkMastUp   = 400;
 static constexpr uint32_t kBlinkMastDown = 200;   // descent: deliberately more urgent
 static constexpr uint32_t kBlinkMastHold = 110;   // strobe — "this is waiting on you"
 static constexpr uint32_t kBlinkNotReady = 700;   // slow breath — "wait, I am not ready"
+static constexpr uint32_t kBlinkNoArm    = 160;   // fast amber — "waiting on you: CH5 to OFF"
 
 static void prismOverlayConfig(uint8_t start, uint8_t stop,
                                uint8_t r, uint8_t g, uint8_t b, uint8_t bright)
@@ -1209,6 +1217,13 @@ void prismOverlayStep()
     if (!g_driveSafe) {
         want = PrismOverlay::NOT_READY;
         r = 255; g = 255; b = 255; bright = 55; half = kBlinkNotReady;
+    } else if (g_autoArmWaiting) {
+        // Motion power is NOT available and the robot is waiting on the operator — almost always
+        // CH5 left out of OFF at power-on. Without a signal this is indistinguishable from a dead
+        // robot, and the reasonable response is to keep flipping switches. AMBER, fast: "I am
+        // waiting on you", distinct from the white "not yet" breath above.
+        want = PrismOverlay::NO_ARM;
+        r = 255; g = 140; b = 0; bright = 70; half = kBlinkNoArm;
     } else {
     // Bench override (MASTTEST) — same code path as the real thing, so what you tune by eye
     // is what you get in service.
@@ -2057,6 +2072,65 @@ static RcMode computeRcMode()
 }
 
 static uint8_t uiDi();   // fwd decl — defined below with the local-UI helpers
+
+// ---- CONTACTOR AUTO-ARM ---------------------------------------------------------------------
+// Closes R0 after startup so the robot comes up with motion power available instead of needing a
+// dashboard re-arm on every power cycle.
+//
+// It KEEPS CHECKING until it arms. Powering on with CH5 already in MANUAL must not be a stuck
+// state — it waits, says why on the PRISM, and arms the moment authority goes to OFF.
+//
+// It arms AT MOST ONCE, and an e-stop disables it for the rest of the boot. That is the safety
+// property, not an optimisation: R0 is the e-stop element — the mushroom, the host ESTOP and the
+// BtnC hold all work by OPENING it. Anything that re-closes it on a timer is a safety system
+// fighting the operator. After an e-stop, re-arming is deliberate and guarded, via the dashboard.
+
+static void autoArmTick(uint32_t now)
+{
+    if (g_autoArmFired || g_autoArmBlocked) { g_autoArmWaiting = false; return; }
+    if (g_autoArmBootMs == 0) g_autoArmBootMs = now;
+    if (now - g_autoArmBootMs < kAutoArmSettleMs) return;
+
+    // A LATCHED e-stop is an explicit operator action, and a weld is a hardware fault. Neither is
+    // something to wait out: stop trying for this boot so nothing arms behind the operator later.
+    const uint8_t di = uiDi();
+    if (local_estop_active) {
+        g_autoArmBlocked = true; g_autoArmWaiting = false;
+        tprintf("[SAFE] auto-arm disabled this boot: e-stop latched\n");
+        return;
+    }
+    if ((di & (1u << 1)) != 0) {
+        g_autoArmBlocked = true; g_autoArmWaiting = false;
+        tprintf("[SAFE] auto-arm disabled this boot: contactor weld on DI1\n");
+        return;
+    }
+
+    // Transient reasons to WAIT rather than give up. The e-stop chain is normally-closed, so a
+    // held button (or a broken conductor) reads as pressed; releasing it should let the robot arm.
+    const bool   di0estop = (di & 0x01) == 0;
+    const RcMode mode     = computeRcMode();
+    // Authority must not already be granted: the robot must not come up drivable. With no RC link
+    // there is nothing to grant it, and the arm gate blocks output anyway, so that case may arm.
+    const bool authorityOff = (mode == RCM_NOLINK) || (mode == RCM_OFF);
+
+    const char* why = nullptr;
+    if (!g_driveSafe)       why = "loop/RC still settling";
+    else if (di0estop)      why = "e-stop chain open — button pressed, or a broken conductor";
+    else if (!authorityOff) why = "CH5 not OFF";
+
+    if (why) {
+        g_autoArmWaiting = true;
+        // Say it once per distinct reason rather than at 50 Hz.
+        static const char* lastWhy = nullptr;
+        if (why != lastWhy) { lastWhy = why; tprintf("[SAFE] not arming: %s\n", why); }
+        return;
+    }
+
+    g_autoArmFired  = true;
+    g_autoArmWaiting = false;
+    M5StamPLC.writePlcRelay(0, true);
+    tprintf("[SAFE] auto-arm: contactor closed (once only; an e-stop will NOT be re-armed)\n");
+}
 
 // ---- Drive: SBUS axis → normalized -1..1 ----
 static float sbusAxis(uint16_t raw)
@@ -2982,6 +3056,7 @@ void loop()
             tprintf("[SAFE] drive %s\n", safeNow ? "ENABLED — loop stable, RC continuous"
                                                   : "DISABLED — waiting for a stable loop + RC");
         }
+        autoArmTick(now);
     }
     M5.update();
     M5StamPLC.update();

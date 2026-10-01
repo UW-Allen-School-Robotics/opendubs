@@ -35,7 +35,12 @@ exercised on `e00920a`; **the merged build has never run on hardware.** Confirm 
 separately: the guard still behaves at the bottom of the stroke, and the YOLO tracker still drives
 the head. CH5 must be OFF to flash.
 
-**2 · Settle the contactor auto-arm.** It exists on the robot and **nowhere in the repo**
+**2 · ~~Settle the contactor auto-arm.~~ DONE 2026-10-01** — implemented in the repo, applied to the
+robot and verified on hardware: it keeps checking (a wrong CH5 at power-on is not a stuck state),
+strobes the PRISM amber while refusing, and arms once authority reaches OFF. It arms at most once
+per boot and an e-stop disables it, so nothing re-arms behind the operator.
+
+**2b · Settle the contactor auto-arm.** It exists on the robot and **nowhere in the repo**
 ([deployment-drift.md](deployment-drift.md)). Decide whether it stays, then either commit it or
 remove it — the next flash from the repo overwrites it either way. It blocks step 5 of
 [Operating the robot](../docs/operating.md), which currently cannot state what the contactor does
