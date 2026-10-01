@@ -1,0 +1,19 @@
+# Operating the robot — photo selection manifest
+# Format:  SOURCE   target.webp      (# comments + blank lines ignored)
+# Convert with (any OS — needs `pip install pillow pillow-heif`):
+#   python3 tools/convert_build_photos.py <staging-dir> docs/assets/operating/photos.manifest docs/assets/operating
+#
+# These are OPERATOR photos, not assembly steps: what to press, and where it is. The page
+# describes three controls in words and shows none of them.
+
+# --- wanted -----------------------------------------------------------------------------------
+# One wide shot of the back covers the first two. RUN lit green matters: "RUN is dark" is the
+# fastest way to tell no-logic-power from logic-up-something-else-wrong.
+# <YOUR-FILE>.HEIC   01-rear-face-run-and-estops.webp
+# <YOUR-FILE>.HEIC   02-battery-latching-switch.webp
+
+# Worth having even though nothing references them yet — both are states nobody can see
+# otherwise: the strobe is new as of 2026-10-01, and the Tab5's screen goes dark the instant
+# its E-STOP is pressed, so a photo is the only way anyone reads that button's own hint.
+# <YOUR-FILE>.HEIC   03-prism-amber-waiting-to-arm.webp
+# <YOUR-FILE>.HEIC   04-tab5-estop-button.webp

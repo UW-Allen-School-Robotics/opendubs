@@ -8,7 +8,7 @@ set -euo pipefail
 
 ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
-SERVICES="opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera"
+SERVICES="opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera opendubs-drive-bridge"
 
 echo "== OpenDubs ROS provisioning =="
 

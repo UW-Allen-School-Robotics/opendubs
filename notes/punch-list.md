@@ -210,12 +210,23 @@ most are not documentation.
 
 **Two hard blockers. Nothing in Isaac ROS is useful until both are cleared.**
 
-- **[TODO] ROS cannot drive the robot.** There is **no `/cmd_vel` subscriber anywhere**. Nav2's
+- **[DONE 2026-10-01] ROS can drive the robot, and knows where it is.**
+  `software/ros/drive_bridge.py` (`opendubs-drive-bridge.service`) subscribes `/cmd_vel` and sends
+  the StamPLC's existing `DRIVE <fwd> <rot> <str>`, and republishes the `[ODO]` line as `/odom`
+  plus TF `odom`→`base_link` (mm→m, radians kept). It speaks UDP 5005 directly — the dashboard is
+  not in a motion path. Verified on the robot: `/odom` publishes a real pose, TF is present, and a
+  `/cmd_vel` of 0.25 m/s with CH5 in MANUAL produced `fwd=0.0` — correctly ignored, because
+  authority is the physical switch.
+  **Two things still open:** the velocity scaling is unmeasured (C2 — `max_linear_mps` defaults to
+  a conservative 0.5 and the node warns at startup), and the odometry covariance is a pessimistic
+  placeholder, not characterised. Also note **AUTO does not require the deadman** — `autoAuth`
+  alone feeds the mixer, so CH5 in AUTO with a live publisher drives the robot.
+- ~~**[TODO] ROS cannot drive the robot.**~~ There is **no `/cmd_vel` subscriber anywhere**. Nav2's
   entire output is `/cmd_vel`, so there is nothing for it to talk to. The path has to be a
   network source claiming a lease through the arbiter — the same treatment as a tablet-triggered
   routine, per [control authority](../docs/control-authority.md) — not a private channel to the
   ESCs. `MAST CMD`'s 250 ms expiring intent is the pattern to copy.
-- **[TODO] ROS does not know where the robot is.** There is **no `/odom` publisher**. Pinpoint
+- ~~**[TODO] ROS does not know where the robot is.**~~ Done with the above. There is **no `/odom` publisher**. Pinpoint
   odometry reaches the StamPLC and stops there as an `[ODO]` telemetry line the dashboard renders.
   `software/choreo` already refuses to move the base for exactly this reason. cuVSLAM and nvblox
   both need odometry *and* TF.
