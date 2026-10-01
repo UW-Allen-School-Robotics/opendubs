@@ -345,6 +345,12 @@ async def ws(socket: WebSocket) -> None:
                 # fast path isn't stalled; cache the slow status between refreshes.
                 payload["system"] = await loop.run_in_executor(None, metrics.collect)
                 slow = await loop.run_in_executor(None, status_mod.collect_slow)
+                # The AI TRACKING button's label lives in `state`, and the DASHBOARD IS DRIVEN BY
+                # THIS WEBSOCKET, not by /api/snapshot. Refreshing it only in the snapshot handler
+                # is why the button appeared to do nothing: the POST worked, the service started,
+                # and the live feed kept sending a stale flag. 1 Hz, off-thread — `systemctl
+                # is-active` is a subprocess and has no business on the fast path.
+                STATE["ai_tracking"] = await loop.run_in_executor(None, _tracker_active)
             if tick % FAST_EVERY == 0:
                 # cheap (reader snapshots only) → safe to run inline at 10 Hz.
                 payload["status"] = {**status_mod.collect_fast(), **slow}
