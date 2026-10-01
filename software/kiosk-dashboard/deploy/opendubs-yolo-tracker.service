@@ -18,6 +18,9 @@ ExecStart=/opt/opendubs/venv/bin/python yolo_tracker.py --ip opendubs-tab5.local
 # Persistent model cache — otherwise it re-downloads face_yolov8n.pt from Hugging Face on
 # every boot and cannot start without internet.
 Environment=OPENDUBS_MODEL_DIR=/opt/opendubs/models
+# Without this the script's prints sit in Python's buffer and journalctl shows nothing but the
+# unit's own start line — which makes "is it seeing anything?" unanswerable from the logs.
+Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=5
 # The head going quiet is not an emergency: back off rather than hammering a camera that may
