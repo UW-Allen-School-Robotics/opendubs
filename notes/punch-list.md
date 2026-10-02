@@ -42,6 +42,7 @@ Goals, not tasks: each one is done when the thing it names is true.
 | 4 | **Contracts / modularity** so SSIK can be swapped for e.g. the NVIDIA stack | [`design/arm-authority.md`](design/arm-authority.md) | the adapter contract — same work as goal 3. Two command paths named; only `FollowJointTrajectory` is standard |
 | 5 | **Arm visualization** on the tablet + arm telemetry to other clients | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | source and transport settled; nothing built |
 | 6 | **LIDAR integration** — both units, and how the stack consumes them | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | drivers done; blocked on measuring the extrinsics |
+| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | — | not started. Wanted once the stack feels ready; goal 5's transport (RMW + FastDDS SHM) is now closed, which is a prerequisite for measuring anything end to end |
 
 Goals 3 and 4 are one piece of work. Goals 5 and 6 share a root cause: **the tablet needs sensor and
 arm geometry, and geometry must have exactly one source** — today the LIDAR's lives in `app.js` as a
@@ -51,14 +52,23 @@ guess, and the arms' only exists as commanded pose in a planning model.
 
 Everything below needs the robot's network or hands on the machine. Nothing here is desk work.
 
-**0 · Get `[AUTH]` onto the robot without eating the calibration.** `publishAuth()` is in the repo
-and compiles (7.75 s, 49.4% flash), but has **never run on hardware**. It cannot arrive by
-`deploy-all.sh`: that rsyncs `--delete` over `/opt/opendubs/rc_serial_probe`, whose `main.cpp` holds
-this robot's `kDriveInvert`/`kStrafeInvert`/`kEscSpanUs` — see
-[`per-robot-calibration.md`](per-robot-calibration.md). Apply the two hunks (`publishAuth()` plus
-its call in the 100 ms tick) to the robot's own copy, then
-`sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. Confirm with one `[AUTH]` line per 100 ms,
-`ch5` tracking the switch, and `ch5=unknown` with the transmitter off.
+**0 · ~~Get `[AUTH]` onto the robot.~~ DONE 2026-10-02.** Applied to the robot's own `main.cpp` by
+anchored edit (never a copy — `publishAuth()` plus its call in the 100 ms tick), calibration
+verified preserved (`kDriveInvert {-1,-1,1,-1}`, `kStrafeInvert -1`, `kEscSpanUs 400`), backup at
+`/home/emmar/main.cpp.bak.20261002-135950`. Built on the robot (7.2 s, 49.4% flash) and flashed with
+`ota-from-thor.sh` — which **correctly rejected the dashboard's stale `192.168.55.1` peer** and
+found the board via mDNS, so the discovery guard works. Verified: `[AUTH]` at 8.8 Hz, every field
+cross-checked against `[RC]`/`[IO]`, the auto-arm re-closed the contactor after reboot, and
+`ch5=unknown` with the transmitter off.
+
+**Note `/opt/opendubs` is owned by `andrew`,** so editing the robot's sources needs `sudo` — the
+first attempt failed with `PermissionError`. Still worth fixing (see housekeeping).
+
+**Found while doing it, still open: the dashboard learns a stale StamPLC peer.** `/api/snapshot`
+reported `stamplc.port 192.168.55.1:5005` — the Thor's own DOWN `l4tbr0` bridge — with
+`connected: None` but a cached `drive.armed: True`. The board was really at `10.42.2.20` all along.
+A stale *peer* presenting a stale *armed* reading is the same class of bug as the IP spiral, and the
+dashboard is the thing an operator looks at.
 
 **0b · Measure two arm things the desk cannot answer.** (a) **What the DAMIAO motors do when the
 container dies mid-hold** — hold the last command, or disable on timeout. That decides whether
