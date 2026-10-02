@@ -16,6 +16,11 @@ recipe that matches your task.
   UW-specific context. Match the existing voice.
 - **Ask the human** before pushing, before anything destructive, or before big restructuring.
   Secrets never go in the repo (`.env` / keys belong in the git-ignored `ops/`).
+- **Never push to `main`. Branch, then open a PR — every time.** `main` requires a pull request,
+  but a maintainer's own push *succeeds anyway* and merely prints
+  `remote: Bypassed rule violations for refs/heads/main`. The guard does not stop you; it only
+  records that you ignored it. So branch **before the first commit**, not after. Let CI run on the
+  PR, and do not merge or enable auto-merge unless asked.
 - **Never re-derive how to talk to the hardware.** Before writing a single command that flashes,
   resets, or reconfigures a board, read the table below and use the script. This rule exists
   because it has been broken repeatedly, at real cost: sessions have rebuilt the StamPLC and

@@ -6,7 +6,7 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 
 ## Where the open work lives
 
-Swept 2026-09-29. Five registers. Everything else in `notes/` is a design record; `design/` files
+Swept 2026-09-29, extended 2026-10-02. Seven registers. Everything else in `notes/` is a design record; `design/` files
 are listed here only when they carry open items of their own. Check here before starting a new list.
 
 | register | open | what it is |
@@ -16,6 +16,8 @@ are listed here only when they carry open items of their own. Check here before 
 | `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
 | [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
 | [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, the arm arbiter chosen (wrap Sidd's `OwnershipRegistry`), and `openarm-up` no longer drops the arms on the way down. Open: report the abort-recovery gap to `personalrobotics/mj_manipulator` |
+| [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | 3 | **goal 5 — arm display on the tablet, and arm telemetry to other clients.** Settled: not Viser (it renders commanded pose), `/joint_states` over rosbridge with per-subscription throttling, and the dashboard backend stays out of it |
+| [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | 2 | **goal 6 — two RPLIDAR A1s and how the stack consumes them.** Drivers are done; the gap is that no `base_link`→sensor TF exists, so the dashboard hardcodes a guessed orientation. Settled: publish extrinsics from a URDF, do not merge the scans |
 | `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
 
 Two counting traps, both of which inflated an earlier sweep:
@@ -26,6 +28,24 @@ Two counting traps, both of which inflated an earlier sweep:
 - **Backticked `*.md` names are invisible to `mkdocs build --strict`**, which only checks real
   links. Seven had rotted; that is how `mast-control.md` kept pointing at a document archived
   months earlier. Re-run the check when moving or archiving a doc.
+
+## The stack goals — what the design notes' numbering refers to
+
+Captured 2026-10-02. The design notes say "goal 4", "goal 5" and so on; this is what they mean.
+Goals, not tasks: each one is done when the thing it names is true.
+
+| # | Goal | Where it lives | State |
+|---|---|---|---|
+| 1 | Documentation for **setting up** teleop in the build docs | — | unblocked: Eric's WebXR is the baseline and the code is at `EricJGoossen/openarm`. Not written |
+| 2 | Documentation for **day-to-day** arm bring-up | [`docs/openarm-setup.md`](../docs/openarm-setup.md) | largely existed; `openarm-up park` closed the bring-down hole |
+| 3 | **UI / mode selection** for the arms — behaviour and which teleop source they answer | [`design/arm-authority.md`](design/arm-authority.md) | model settled, `[AUTH]` in firmware, arbiter chosen. Wrapper node and tablet surface unbuilt |
+| 4 | **Contracts / modularity** so SSIK can be swapped for e.g. the NVIDIA stack | [`design/arm-authority.md`](design/arm-authority.md) | the adapter contract — same work as goal 3. Two command paths named; only `FollowJointTrajectory` is standard |
+| 5 | **Arm visualization** on the tablet + arm telemetry to other clients | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | source and transport settled; nothing built |
+| 6 | **LIDAR integration** — both units, and how the stack consumes them | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | drivers done; blocked on measuring the extrinsics |
+
+Goals 3 and 4 are one piece of work. Goals 5 and 6 share a root cause: **the tablet needs sensor and
+arm geometry, and geometry must have exactly one source** — today the LIDAR's lives in `app.js` as a
+guess, and the arms' only exists as commanded pose in a planning model.
 
 ## 0. AT THE ROBOT — next session (agenda captured 2026-09-29)
 
@@ -47,6 +67,15 @@ container dies mid-hold** — hold the last command, or disable on timeout. That
 because a guessed pose drives the arm into the head. Jog each arm to a pose it can hang limp in,
 read the angles off `openarm-motors status`, and write
 `/etc/opendubs/openarm-stow.conf` — **not** under `/opt/opendubs`, which the deploy deletes.
+
+**0c · Measure what goals 5 and 6 are blocked on.** (a) **`base_link`'s own placement** — settle the
+CAD datum vs ROS question in [frames & naming](../docs/naming-frames.md) FIRST, because every
+extrinsic below is relative to it. (b) **Each LIDAR's x/y/z and yaw** relative to `base_link`; the
+rear is *presumed* yawed π, which is an assumption, and an assumption in `app.js` is what this is
+fixing. (c) **Why the rear A1 is not running** — the staggered start exists for the marginal USB
+hub; confirm whether that is still the cause. (d) **Whether `/joint_states` reaches host rosbridge**
+from the `--network=host` openarm container; if not, suspect `ROS_LOCALHOST_ONLY` or an RMW
+mismatch, not the architecture.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
