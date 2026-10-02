@@ -139,5 +139,45 @@ them a different port before running both.
   occludes the inward half) flanking a center robot/controls column. Orientation
   is a first guess — `FRONT_FACING`/`REAR_FACING` + the `cos(sensorAngle) > 0`
   crop in app.js; calibrate (flip facing by π, or invert the crop) once mounted.
-- Next perception steps: TF tree (`base_link`→`laser`) + real second (rear)
-  LIDAR, SLAM/Nav (cuVSLAM/nvblox).
+  **Do not calibrate those facings against pre-2026-10-02 behaviour** — until then
+  the front service was driving the rear unit, so anything tuned to look right was
+  compensating for a swap.
+- Next perception steps: TF tree (`base_link`→`laser`, `base_link`→`laser_rear`),
+  then SLAM/Nav (cuVSLAM/nvblox). Both LIDARs now publish; the design is in
+  `notes/design/lidar-frames-and-fusion.md`.
+
+## Pinning each LIDAR to a physical unit (per robot)
+
+**Both A1 adapters report CP2102 serial `0001`.** So `/dev/serial/by-id` holds a single ambiguous
+entry, only one unit wins it, and `rplidar.sh`'s defaults (`/dev/ttyUSB0`, topic `scan`, frame
+`laser`) resolve to whichever unit enumerated first. Two unpinned drivers fight for one device and
+publish over one topic.
+
+Each unit is therefore pinned by **USB port path** in a systemd drop-in. This is **per robot** — it
+depends on physical hub wiring — so it lives on the machine and never in this repo, and
+`provision-ros.sh` installs and enables the drivers but **refuses to start** one that has no
+`OPENDUBS_LIDAR_DEV`, printing the recipe instead.
+
+```sh
+ls -l /dev/serial/by-path/        # one entry per connected A1
+```
+
+**Identify which physical unit is which before writing anything.** Unplug one, or hold a panel in
+front of one and watch which topic changes — counting beams in a 0.3–0.8 m band discriminates
+cleanly, where minimum range does not, because the robot's own structure already sits ~0.10 m from
+both heads. Do **not** infer it from plug order.
+
+```sh
+sudo mkdir -p /etc/systemd/system/opendubs-rplidar.service.d
+sudo tee /etc/systemd/system/opendubs-rplidar.service.d/device.conf <<'EOF'
+[Service]
+Environment="OPENDUBS_LIDAR_DEV=/dev/serial/by-path/<front unit's path>"
+Environment="OPENDUBS_LIDAR_TOPIC=scan"
+Environment="OPENDUBS_LIDAR_FRAME=laser"
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart opendubs-rplidar
+```
+
+The rear unit takes `scan_rear` / `laser_rear` in `opendubs-rplidar-rear.service.d/`. The rear
+driver also carries a 15 s `ExecStartPre` stagger, because the two A1s cannot both handshake at once
+on the shared hub.
