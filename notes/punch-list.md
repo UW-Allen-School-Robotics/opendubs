@@ -40,13 +40,17 @@ its call in the 100 ms tick) to the robot's own copy, then
 `sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. Confirm with one `[AUTH]` line per 100 ms,
 `ch5` tracking the switch, and `ch5=unknown` with the transmitter off.
 
-**0b · Measure two arm things the desk cannot answer.** (a) **What the DAMIAO motors do when the
-container dies mid-hold** — hold the last command, or disable on timeout. That decides whether
-`HOLD` can survive a stack restart at all. Activate an arm, kill the stack, and watch
-`openarm-motors status`. (b) **The stow pose for each arm.** `openarm-up park` ships refusing,
-because a guessed pose drives the arm into the head. Jog each arm to a pose it can hang limp in,
-read the angles off `openarm-motors status`, and write
-`/etc/opendubs/openarm-stow.conf` — **not** under `/opt/opendubs`, which the deploy deletes.
+**0b · ~~Measure two arm things the desk cannot answer.~~ MOSTLY DONE 2026-10-02.**
+(a) **Motors hold with torque, forever** — no command timeout. Elbow held 24.38° with 0.00° drift
+for 18 s after the control node was SIGKILLed, and moved 6.2° on explicit DISABLE (the control that
+makes it meaningful). Written up in [`design/arm-authority.md`](design/arm-authority.md). Do **not**
+re-run this on the wrist: joint 6 drifts only 0.9° disabled, so it is friction-dominated and the
+test passes regardless.
+(b) **BOTH stow poses captured** in `/etc/opendubs/openarm-stow.conf` — both arms stow at ZERO,
+verified by driving there, de-energizing and measuring that the arm stayed (right moved 0.04°).
+Zero is a choice, not a discovery: joints 3, 5 and 7 are ROLL joints about the limb axis, so gravity
+exerts no moment about them and they never settle. `openarm-up park` exercised end to end on the
+right arm.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was

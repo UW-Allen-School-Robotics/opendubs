@@ -22,6 +22,69 @@ CONTAINER=openarm
 LAUNCH_MATCH="ros2 launch openarm_impedance_controller"
 LAUNCH="ros2 launch openarm_impedance_controller openarm_impedance_control.launch.py left_can_interface:=arm_left right_can_interface:=arm_right"
 ROS="source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash"
+
+# RMW the arm stack runs under. The container image bakes RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+# into its Config.Env, but the HOST runs the Jazzy default (FastDDS) and has no cyclonedds
+# installed — so host-side nodes (rosbridge on 9090, foxglove, the drive bridge) could not see a
+# single arm topic. Cross-vendor DDS discovery is not a supported ROS 2 configuration, and the
+# tablet needs /joint_states, so the two have to agree.
+#
+# Matching the CONTAINER to the host, rather than the reverse: FastDDS is already installed in the
+# container (nothing to add), while switching the host would change the transport under a live
+# dashboard, LIDAR and StamPLC bridge. Overridden per-exec rather than by recreating the container,
+# so it is reversible and the image stays as upstream built it.
+#
+# Set OPENARM_RMW=rmw_cyclonedds_cpp to go back — the arm stack's hw_validation stages were run
+# under cyclonedds, so if arm control misbehaves, that is the first thing to try.
+OPENARM_RMW="${OPENARM_RMW:-rmw_fastrtps_cpp}"
+
+# FastDDS must also be told NOT to use shared memory, or matching the RMW accomplishes nothing.
+# The container runs with IpcMode=private, so its /dev/shm is a separate 64 MB filesystem from the
+# host's (different device number; host is a 62 GB tmpfs). FastDDS discovers over UDP — which works,
+# because --network=host shares the netns — and then advertises SHM locators for data transfer that
+# the host cannot open. The failure is therefore SILENT AND CONFUSING: `ros2 topic list` and
+# `topic info` on the host show the topic with a publisher, while `topic echo` blocks forever.
+#
+# This is very likely why the container shipped with CycloneDDS, which does not use SHM by default
+# and so crosses the boundary unaided.
+#
+# Forcing UDPv4 costs little at joint-state message sizes. The durable alternative is to recreate
+# the container with --ipc=host, which keeps the faster SHM path; this way needs no recreation.
+FASTDDS_PROFILE=/etc/opendubs-fastdds-udp-only.xml
+DOCKER_ENV=(-e "RMW_IMPLEMENTATION=$OPENARM_RMW")
+if [ "$OPENARM_RMW" = rmw_fastrtps_cpp ]; then
+  DOCKER_ENV+=(-e "FASTDDS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE"
+               -e "FASTRTPS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE")
+fi
+
+# Written into the container rather than mounted, so this needs no change to how the container was
+# created. Re-created on demand: a container rebuild drops it, and this puts it back.
+ensure_fastdds_profile() {
+  [ "$OPENARM_RMW" = rmw_fastrtps_cpp ] || return 0
+  sudo docker exec "$CONTAINER" test -s "$FASTDDS_PROFILE" 2>/dev/null && return 0
+  sudo docker exec "$CONTAINER" bash -c "cat > $FASTDDS_PROFILE" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Forces UDPv4 and disables the built-in shared-memory transport. The container's /dev/shm is
+     not the host's, so SHM locators advertised here are unusable from outside the container. -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_only_participant" is_default_profile="true">
+      <rtps>
+        <userTransports><transport_id>udp_only</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>
+XML
+  echo "  wrote $FASTDDS_PROFILE in the container (FastDDS SHM disabled)"
+}
 LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
 MOTORS=/usr/local/lib/openarm/openarm-motors
 # Stow pose lives OUTSIDE /opt/opendubs: deploy-all.sh rsyncs --delete over /opt/opendubs/openarm,
@@ -31,7 +94,7 @@ MOTORS=/usr/local/lib/openarm/openarm-motors
 STOW_CONF=${OPENARM_STOW_CONF:-/etc/opendubs/openarm-stow.conf}
 
 die() { echo "openarm-up: $*" >&2; exit 1; }
-ros() { sudo docker exec "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }   # strip colour codes
+ros() { sudo docker exec "${DOCKER_ENV[@]}" "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }
 running() { sudo docker exec "$CONTAINER" pgrep -f "$LAUNCH_MATCH" >/dev/null 2>&1; }
 
 hw_state() {   # hw_state left|right  ->  active | inactive | unconfigured | ... | "" if unknown
@@ -63,11 +126,21 @@ ensure_container() {
 cmd_start() {
   echo "== CAN links"; check_links || die "CAN links not ready — nothing launched"
   echo "== container"; ensure_container; echo "  $CONTAINER running"
-  running && die "stack is already running (openarm-up status / openarm-up down)"
+  # `running` tests for the LAUNCH process, which outlives a SIGKILLed ros2_control_node — so a
+  # half-dead stack looks "already running" while nothing answers, and activate then fails with
+  # "rcl node's context is invalid". Name that state instead of refusing opaquely.
+  if running; then
+    if cm_reachable; then
+      die "stack is already running (openarm-up status / openarm-up down)"
+    fi
+    die "a DEAD stack is still holding the launch process — the controller_manager does not answer.
+  Clear it first:  openarm-up down"
+  fi
+  ensure_fastdds_profile
   echo "== motors before launch: $($MOTORS summary)"
   local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
   sudo docker exec "$CONTAINER" bash -c "mkdir -p $LOGDIR && ln -sfn $log $LOGDIR/latest.log"
-  sudo docker exec -d "$CONTAINER" bash -c "$ROS && exec $LAUNCH > $log 2>&1"
+  sudo docker exec -d "${DOCKER_ENV[@]}" "$CONTAINER" bash -c "$ROS && exec $LAUNCH > $log 2>&1"
   echo "== launched; waiting for both arms' hardware (log: openarm-up logs)"
   local t l r
   for t in $(seq 1 30); do
@@ -95,8 +168,19 @@ activate_one() {
     st=$(hw_state "$arm")
     [ "$st" = active ] || die "$arm hardware is '$st', not active — stopping"
   fi
-  local en; en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
-  [ "$en" -eq 8 ] || die "$arm: only $en/8 motors report ENABLED — not starting its controller (openarm-up down)"
+  # The motors do not all answer the instant the hardware goes active — the GRIPPER is reliably
+  # last, and a single immediate read raced it: 2026-10-02 saw "only 7/8 ENABLED" with id 8
+  # reporting `no reply`, which read as a wiring fault, while a read seconds later showed it
+  # ENABLED and healthy. Poll instead of sampling once.
+  local en=0 i
+  for i in $(seq 1 10); do
+    en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
+    [ "$en" -eq 8 ] && break
+    sleep 1
+  done
+  [ "$en" -eq 8 ] || die "$arm: only $en/8 motors report ENABLED after 10 s — not starting its controller.
+  A motor stuck at 'no reply' is unpowered or its CAN wiring is broken at or before it; the gripper
+  is last in the chain. Check with: openarm-motors status   (then: openarm-up down)"
   echo "  $arm: 8/8 motors ENABLED"
   local cs; cs=$(ctrl_state "$arm")
   if [ -z "$cs" ]; then ros "timeout 30 ros2 control load_controller --set-state active ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
@@ -115,15 +199,43 @@ cmd_activate() {
   echo "== motors: $($MOTORS summary)"
 }
 
-# Joint names come from the controller itself rather than a hardcoded list: they are set by
-# openarm_description, which is a submodule we track and do not own.
-joint_names() { ros "timeout 15 ros2 param get ${1}_controller joints 2>/dev/null" |
-                  grep -oE "'[^']+'" | tr -d "'" | paste -sd, -; }
+# Joint names come from the LIVE controller rather than a hardcoded list: they are set by
+# openarm_description, a submodule we track and do not own.
+#
+# NOT via `ros2 param get <ctrl> joints` — that returns "Node not found" on this stack, because
+# the controller_manager does not appear in `ros2 node list` even though its services answer.
+# `list_controllers -v` reports each controller's required command interfaces as
+# <joint>/{position,velocity,effort} triples, so take the unique joint names in order.
+joint_names() {
+  ros "timeout 25 ros2 control list_controllers -v" |
+    awk -v c="$1_controller" '$1==c{f=1;next} f && /^[^[:space:]]/{f=0} f' |
+    grep -oE "openarm_$1_joint[0-9]+" | awk '!seen[$0]++' | paste -sd, -
+}
 
 stow_pose() {  # stow_pose left|right -> "d1,d2,..." in degrees, or "" if unconfigured
   [ -r "$STOW_CONF" ] || return 0
   local key; key=$(tr '[:lower:]' '[:upper:]' <<<"$1")_STOW
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$STOW_CONF" | tail -1 | tr -d ' '
+}
+
+# Is the arm already AT its stow pose? Without this, `down` refuses after a SUCCESSFUL park —
+# the guard would only know "hardware is active", not "the arm is where it is meant to be
+# de-energized", so the normal park-then-down flow would always need --drop and the flag would
+# become reflex. Compared in degrees against openarm-motors, which is the same unit and mapping
+# the stow file uses. Tolerance covers the steady-state error from imperfect gravity
+# compensation, which measures ~1 deg here.
+STOW_TOL_DEG="${OPENARM_STOW_TOL_DEG:-5}"
+at_stow() {
+  local arm=$1 want cur
+  want=$(stow_pose "$arm"); [ -n "$want" ] || return 1
+  cur=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /id [1-7] \(joint/{
+          gsub(/\+/,"",$7); printf "%s%s",(n++?",":""),$7}')
+  [ -n "$cur" ] || return 1
+  awk -v w="$want" -v c="$cur" -v tol="$STOW_TOL_DEG" 'BEGIN{
+    nw=split(w,W,","); nc=split(c,C,",");
+    if (nw != nc || nw == 0) exit 1;
+    for (i=1;i<=nw;i++) { d=W[i]-C[i]; if (d<0) d=-d; if (d>tol) exit 1 }
+    exit 0 }'
 }
 
 # Moving an arm on the way DOWN is as hazardous as moving it on the way UP, so parking is its own
@@ -166,12 +278,32 @@ cmd_park() {
   for a in $arms; do park_one "$a"; done
 }
 
+# Does the controller_manager still answer? After the stack dies — crash, pkill, a container that
+# went away — it does not, and every `ros2 control` call then burns its FULL timeout (30 s each,
+# per arm) failing at something that cannot succeed. On 2026-10-02 that made `down` take so long
+# it was killed before reaching the direct-DISABLE fallback, leaving the arms ENERGIZED. Probe
+# once, cheaply, and skip the graceful path when there is nothing to be graceful with.
+cm_reachable() {
+  sudo docker exec "${DOCKER_ENV[@]}" "$CONTAINER" bash -c \
+    "$ROS && timeout 8 ros2 control list_controllers" >/dev/null 2>&1
+}
+
 cmd_down() {
   # An active arm is an ENERGIZED arm, and the first thing below takes that away. Report where each
   # arm is and refuse, rather than dropping something that may be extended or holding a load.
-  if [ "${DROP:-0}" != 1 ] && running; then
+  # Probed ONCE: hw_state/ctrl_state each wait out a 15 s timeout against a dead controller_manager,
+  # so asking per arm per check is how `down` ends up too slow to finish.
+  local CM=dead
+  if running && cm_reachable; then CM=alive; fi
+
+  if [ "${DROP:-0}" != 1 ] && running && [ "$CM" = alive ]; then
     local a active=""
-    for a in left right; do [ "$(hw_state "$a")" = active ] && active="$active $a"; done
+    # An arm already at its stow pose is fine to de-energize — that is what parking it was for.
+    for a in left right; do
+      [ "$(hw_state "$a")" = active ] || continue
+      at_stow "$a" && { echo "  $a: at its stow pose — safe to de-energize"; continue; }
+      active="$active $a"
+    done
     if [ -n "$active" ]; then
       echo "openarm-up: refusing —$active still active, and 'inactive' removes torque:" >&2
       echo "  the arm goes limp and falls from wherever it is now." >&2
@@ -181,7 +313,30 @@ cmd_down() {
       exit 1
     fi
   fi
-  if running; then
+  if running && [ "$CM" = dead ]; then
+    echo "!! the controller_manager is not answering — the stack is dead, not running cleanly."
+    # The ROS-side refusal above could not run, so guard here instead using the CAN path, which
+    # does not depend on the stack being alive. This is the DANGEROUS case: the DAMIAO motors have
+    # no command timeout (verified 2026-10-02 — they held position and stayed ENABLED 20 s after
+    # the control node was SIGKILLed), so a stack that died mid-motion has left the arm ENERGIZED
+    # and frozen at an arbitrary pose. Disabling here drops it from there.
+    if [ "${DROP:-0}" != 1 ] && ! $MOTORS summary | grep -q "enabled=0 "; then
+      echo "openarm-up: refusing — motors are still ENERGIZED with no controller:" >&2
+      $MOTORS summary | sed "s/^/    /" >&2
+      echo "  The stack died without disabling them, and they hold their last command forever." >&2
+      echo "  Disabling now drops each arm from wherever it froze. Either:" >&2
+      echo "    openarm-up down --drop     if the arms are somewhere safe to drop from, or" >&2
+      echo "    openarm-up && openarm-up activate <arm> && openarm-up park <arm>" >&2
+      echo "  — but note ACTIVATION DRIVES THE ARM TO ZERO, which from a frozen pose far from" >&2
+      echo "  zero is a large unexpected sweep. Clear the workspace before choosing that." >&2
+      exit 1
+    fi
+    echo "!! Skipping the ROS deactivation steps (they would each wait out their timeout) and"
+    echo "!! going straight to disabling the motors over CAN."
+    sudo docker exec "$CONTAINER" pkill -INT -f "$LAUNCH_MATCH" 2>/dev/null
+    sleep 1
+    sudo docker exec "$CONTAINER" pkill -TERM -f "ros2_control_node|$LAUNCH_MATCH" 2>/dev/null
+  elif running; then
     local a cs
     echo "== controllers off"
     for a in left right; do
