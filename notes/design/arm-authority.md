@@ -213,7 +213,30 @@ control and can test without arms attached. If upstream gains expiry later, ours
 The abort-recovery gap is worth reporting upstream rather than patching around, since the fix there
 is a one-line change of `abort_all()` to `force_release_all()` in a path Sidd owns.
 
+## The bring-down — done, with one thing still unmeasured
+
+`openarm-up down` used to set the hardware `inactive` with no warning, which removes torque and
+drops the arm from wherever it is. It now **refuses while either arm is active**, prints that arm's
+motor positions, and points at `openarm-up park`.
+
+Parking is a separate explicit step, not folded into `down`, because moving an arm on the way down is
+exactly as hazardous as moving it on the way up — the same reason activation was already explicit.
+The stow pose is configured in `/etc/opendubs/openarm-stow.conf`, **outside `/opt/opendubs`**,
+because the deploy rsyncs `--delete` over `openarm/` and would eat it. Same lesson as the drive
+calibration. It ships unset and `park` refuses rather than guessing, since a wrong pose drives the
+arm into the robot's own head.
+
+**Still unmeasured:** what the DAMIAO motors do when the container dies while an arm is active —
+hold their last command, or disable on command timeout. That decides whether `HOLD` can survive a
+stack restart at all, or whether `HOLD` is only ever as durable as the process holding it. It needs
+the robot and `openarm-motors` reading status with the stack killed mid-hold.
+
 ## Open
 
-- **Whether `HOLD` survives a container restart.** `openarm-up down` makes the arms limp. A mode
-  model whose fallback is `HOLD` needs a bring-down that does not drop the arms.
+- **Report the abort-recovery gap upstream.** The mechanism and the evidence are in *A verified gap
+  in abort recovery* above. `request_abort()` → `abort_all()` retains ownership, so re-engaging the
+  same teleop afterwards cannot `acquire` (not `IDLE`) and cannot `preempt` (equal priority raises).
+  The fix is in a path Sidd owns — `abort_all()` → `force_release_all()` in `robot.py` — so it wants
+  reporting to `personalrobotics/mj_manipulator` rather than patching in a fork. Verified at Eric's
+  `de0ae13` and upstream's `ab2d408`. **Our wrapper must not depend on recovery working until this
+  is resolved**: it should release leases itself on abort rather than trusting the registry to.

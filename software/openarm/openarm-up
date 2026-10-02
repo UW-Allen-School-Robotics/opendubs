@@ -4,7 +4,10 @@
 #   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
 #   openarm-up activate ARM     power one arm and start its controller: left | right | both
 #                               (the arm then moves itself to its zero pose over ~2 s)
-#   openarm-up down             controllers off, arms inactive, stack stopped, motors verified off
+#   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
+#   openarm-up down [--drop]    controllers off, arms inactive, stack stopped, motors verified off.
+#                               REFUSES while an arm is active, because inactive = limp = the arm
+#                               falls from wherever it is. Park first, or pass --drop deliberately.
 #   openarm-up status           links, container, stack, hardware + controller states, motors
 #   openarm-up logs             follow the current launch log
 #
@@ -21,6 +24,11 @@ LAUNCH="ros2 launch openarm_impedance_controller openarm_impedance_control.launc
 ROS="source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash"
 LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
 MOTORS=/usr/local/lib/openarm/openarm-motors
+# Stow pose lives OUTSIDE /opt/opendubs: deploy-all.sh rsyncs --delete over /opt/opendubs/openarm,
+# which would eat it. Same lesson as the drive calibration in rc_serial_probe's main.cpp.
+# Format, one or both lines, joint angles in DEGREES so they can be eyeballed against
+# `openarm-motors status`:   LEFT_STOW=0,-20,0,95,0,15,0
+STOW_CONF=${OPENARM_STOW_CONF:-/etc/opendubs/openarm-stow.conf}
 
 die() { echo "openarm-up: $*" >&2; exit 1; }
 ros() { sudo docker exec "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }   # strip colour codes
@@ -107,7 +115,72 @@ cmd_activate() {
   echo "== motors: $($MOTORS summary)"
 }
 
+# Joint names come from the controller itself rather than a hardcoded list: they are set by
+# openarm_description, which is a submodule we track and do not own.
+joint_names() { ros "timeout 15 ros2 param get ${1}_controller joints 2>/dev/null" |
+                  grep -oE "'[^']+'" | tr -d "'" | paste -sd, -; }
+
+stow_pose() {  # stow_pose left|right -> "d1,d2,..." in degrees, or "" if unconfigured
+  [ -r "$STOW_CONF" ] || return 0
+  local key; key=$(tr '[:lower:]' '[:upper:]' <<<"$1")_STOW
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$STOW_CONF" | tail -1 | tr -d ' '
+}
+
+# Moving an arm on the way DOWN is as hazardous as moving it on the way UP, so parking is its own
+# explicit step and is never folded into `down`.
+park_one() {
+  local arm=$1
+  [ "$(ctrl_state "$arm")" = active ] || die "$arm: controller is not active — nothing to park (openarm-up activate $arm)"
+
+  local deg; deg=$(stow_pose "$arm")
+  [ -n "$deg" ] || die "$arm: no stow pose configured in $STOW_CONF.
+  It is deliberately unset rather than guessed: a wrong pose drives the arm into the head
+  (J2 ~182 deg with the elbow folded is a measured collision). Jog the arm to a pose it can be
+  de-energized in, read the angles off \`openarm-motors status\`, and write:
+      $(tr '[:lower:]' '[:upper:]' <<<"$arm")_STOW=<7 joint angles in degrees, comma-separated>"
+
+  local names; names=$(joint_names "$arm")
+  [ -n "$names" ] || die "$arm: could not read joint names from ${arm}_controller"
+
+  local nj nd
+  nj=$(tr -cd , <<<"$names" | wc -c); nd=$(tr -cd , <<<"$deg" | wc -c)
+  [ "$nj" -eq "$nd" ] || die "$arm: $STOW_CONF has $((nd+1)) angles but ${arm}_controller has $((nj+1)) joints"
+
+  local rad; rad=$(awk -v s="$deg" 'BEGIN{n=split(s,a,",");for(i=1;i<=n;i++)printf "%s%.6f",(i>1?",":""),a[i]*3.14159265358979/180}')
+  echo "== $arm: parking to [$deg] deg over ${PARK_SECS}s — KEEP CLEAR"
+  ros "timeout $((PARK_SECS + 20)) ros2 action send_goal /${arm}_controller/follow_joint_trajectory \
+control_msgs/action/FollowJointTrajectory \
+'{trajectory: {joint_names: [$names], points: [{positions: [$rad], time_from_start: {sec: $PARK_SECS}}]}}' 2>&1" \
+    | tail -3 | sed 's/^/  /'
+  echo "  $arm motors now:"; $MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b' | sed 's/^/    /'
+  echo "  Verify the arm is where you want it BEFORE openarm-up down."
+}
+
+PARK_SECS=${OPENARM_PARK_SECS:-4}
+
+cmd_park() {
+  local which=${1:-} arms a
+  case "$which" in left|right) arms=$which ;; both) arms="left right" ;;
+    *) die "usage: openarm-up park left|right|both" ;; esac
+  running || die "stack is not running — nothing to park"
+  for a in $arms; do park_one "$a"; done
+}
+
 cmd_down() {
+  # An active arm is an ENERGIZED arm, and the first thing below takes that away. Report where each
+  # arm is and refuse, rather than dropping something that may be extended or holding a load.
+  if [ "${DROP:-0}" != 1 ] && running; then
+    local a active=""
+    for a in left right; do [ "$(hw_state "$a")" = active ] && active="$active $a"; done
+    if [ -n "$active" ]; then
+      echo "openarm-up: refusing —$active still active, and 'inactive' removes torque:" >&2
+      echo "  the arm goes limp and falls from wherever it is now." >&2
+      for a in $active; do $MOTORS status | awk -v b="arm_$a" '/^arm_/{cur=$1} cur==b' | sed 's/^/    /' >&2; done
+      echo "  Park it first:  openarm-up park${active// /,}" >&2
+      echo "  Or, if it is already somewhere it can safely be dropped:  openarm-up down --drop" >&2
+      exit 1
+    fi
+  fi
   if running; then
     local a cs
     echo "== controllers off"
@@ -148,9 +221,10 @@ cmd_status() {
 case "${1:-start}" in
   start|up) cmd_start ;;
   activate) cmd_activate "$2" ;;
-  down|stop) cmd_down ;;
+  park) cmd_park "${2:-}" ;;
+  down|stop) shift; [ "${1:-}" = --drop ] && DROP=1; cmd_down ;;
   status) cmd_status ;;
   logs) sudo docker exec -it "$CONTAINER" tail -n 200 -F "$LOGDIR/latest.log" ;;
-  -h|--help|help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$1' (openarm-up help)" ;;
 esac

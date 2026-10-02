@@ -8,8 +8,9 @@ stops the arms.
 !!! warning "Arms move when they are activated"
     When an arm is activated, the arm software **moves it to its zero pose over about 2 s**. Clear
     the arms' workspace before every activation. When an arm is deactivated or loses power, its
-    motors go limp and the arm **drops under gravity**. If the arms draw power from the drive bus,
-    which is switched by the [e-stop](e-stop.md) contactor, an e-stop drops them too.
+    motors go limp and the arm **drops under gravity**. The arms are on the drive bus, which is
+    switched by the [e-stop](e-stop.md) contactor, so an e-stop drops them too — stopping all driven
+    motion with the e-stop is foundational and is not configurable.
 
 ## Prerequisites
 
@@ -154,13 +155,52 @@ straight away.
 |---|---|
 | `openarm-up` | Checks both links and the container, launches the stack, and waits until both arms report **inactive**: motors off, arms limp |
 | `openarm-up activate left` (or `right`, `both`) | Powers the arm, checks all 8 of its motors report enabled, then starts its controller. **The arm moves to zero over ~2 s.** |
-| `openarm-up down` | Stops the controllers, makes the arms inactive (they go limp), stops the stack, and confirms every motor is disabled. If any motor stays enabled, it sends DISABLE frames directly. |
+| `openarm-up park left` (or `right`, `both`) | Moves the arm to its configured **stow pose**, so that de-energizing it is harmless. Explicit, like activation, and for the same reason: it moves the arm |
+| `openarm-up down` | Stops the controllers, makes the arms inactive (they go limp), stops the stack, and confirms every motor is disabled. If any motor stays enabled, it sends DISABLE frames directly. **Refuses while an arm is active** — see below |
 | `openarm-up status` | Links, container, stack, hardware and controller states, and each motor's status and temperature |
 | `openarm-up logs` | Follows the current launch log |
 | `openarm-motors` | Reads all 16 motors directly over CAN, whether or not the stack is running. It can only send the motors' read-only status query and the DISABLE command. |
 
 With both controllers active, the arms accept `control_msgs/FollowJointTrajectory` goals on
 `/left_controller/follow_joint_trajectory` and `/right_controller/follow_joint_trajectory`.
+
+## Bringing the arms down without dropping them
+
+`inactive` removes torque, so an arm that is brought down while extended **falls from wherever it
+is**. `openarm-up down` therefore refuses while either arm is active, prints the arm's current motor
+positions, and points at the two ways forward:
+
+```
+openarm-up park both        # move somewhere it can safely be de-energized, then
+openarm-up down
+openarm-up down --drop      # or state plainly that it is already safe to drop
+```
+
+Parking is a separate, explicit step rather than part of `down`, because **moving an arm on the way
+down is exactly as hazardous as moving it on the way up**. Clear the workspace first, the same as
+for activation.
+
+### Configuring the stow pose
+
+```ini
+# /etc/opendubs/openarm-stow.conf — joint angles in DEGREES
+LEFT_STOW=0,-20,0,95,0,15,0
+RIGHT_STOW=0,-20,0,-95,0,15,0
+```
+
+Three things about this file:
+
+- **It is in `/etc/opendubs/`, not `/opt/opendubs/`.** The deploy rsyncs `--delete` over
+  `/opt/opendubs/openarm`, which would delete it on the next deploy. Override the path with
+  `$OPENARM_STOW_CONF`.
+- **It ships unset, and `park` refuses rather than guessing.** A wrong stow pose drives the arm into
+  the robot's own head. Jog the arm to a pose it can hang limp in, read the angles off
+  `openarm-motors status`, and write them down. Degrees, so the two can be compared by eye.
+- **The pose is per robot**, since it depends on how the arms are mounted and what is around them.
+
+`park` reads the joint names from the controller rather than assuming them, and refuses if the
+number of angles does not match the number of joints. Travel time defaults to 4 s
+(`$OPENARM_PARK_SECS`).
 
 To work inside the container: `sudo docker exec -it openarm bash`, then
 `source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.

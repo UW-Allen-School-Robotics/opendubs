@@ -15,7 +15,7 @@ are listed here only when they carry open items of their own. Check here before 
 | [`docs-review-checklist.md`](docs-review-checklist.md) | 41 | the 2026-09-12 documentation review, now tracked so the rulings are durable. **A: 1** left (a content decision), **B: 5** still open, **C: 25** need a photo/measurement/part number, **D: 10** platform projects |
 | `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
 | [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
-| [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, and the arm arbiter chosen (wrap Sidd's `OwnershipRegistry`, add expiry + an authority precondition in our layer). Open: a bring-down that does not drop the arms |
+| [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, the arm arbiter chosen (wrap Sidd's `OwnershipRegistry`), and `openarm-up` no longer drops the arms on the way down. Open: report the abort-recovery gap to `personalrobotics/mj_manipulator` |
 | `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
 
 Two counting traps, both of which inflated an earlier sweep:
@@ -39,6 +39,14 @@ this robot's `kDriveInvert`/`kStrafeInvert`/`kEscSpanUs` — see
 its call in the 100 ms tick) to the robot's own copy, then
 `sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. Confirm with one `[AUTH]` line per 100 ms,
 `ch5` tracking the switch, and `ch5=unknown` with the transmitter off.
+
+**0b · Measure two arm things the desk cannot answer.** (a) **What the DAMIAO motors do when the
+container dies mid-hold** — hold the last command, or disable on timeout. That decides whether
+`HOLD` can survive a stack restart at all. Activate an arm, kill the stack, and watch
+`openarm-motors status`. (b) **The stow pose for each arm.** `openarm-up park` ships refusing,
+because a guessed pose drives the arm into the head. Jog each arm to a pose it can hang limp in,
+read the angles off `openarm-motors status`, and write
+`/etc/opendubs/openarm-stow.conf` — **not** under `/opt/opendubs`, which the deploy deletes.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
