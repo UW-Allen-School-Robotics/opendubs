@@ -24,7 +24,7 @@ signs and verifying them by driving.
 | `kDriveInvert[4]` | **`{-1, -1, 1, -1}`** | **Verified by driving.** The repo default `{1, 1, 1, -1}` is the *worked example* in `drive-bringup.md`, not this robot — three of four signs differ |
 | `kStrafeInvert` | **`-1`** | **Verified both directions.** This robot's mecanum roller handedness needs strafe negated; the repo's mixer signs alone give inverted strafe |
 | `kEscNeutralUs` | `1500` | 2×80A neutral / arm-zone centre |
-| `kEscSpanUs` | `150` | **Deliberately gentle, and still open.** The code says "widen toward 400 once ESCs hold". A 2026-09-03 telemetry log implies ~500 was once in use, so the robot is currently at roughly a third of its former authority |
+| `kEscSpanUs` | **`400`** | Raised from the repo's gentle `150` on 2026-10-01, which is what the code's "widen toward 400 once ESCs hold" was waiting for. ±400 → 1100–1900 µs, inside the ESC's ~1050–1950 proportional band. A 2026-09-03 log implies ~500 was once in use, which is *above* this — so "what it used to be" is not reliably known; 400 is the number with reasoning attached |
 | `kEscSlewUs` | `12` | max µs step per 20 ms tick — the accel/decel ramp |
 | `kEscRevDwellTicks` | `10` | on a direction flip: brake to neutral, then hold |
 

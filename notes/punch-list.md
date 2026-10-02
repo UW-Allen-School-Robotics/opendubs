@@ -67,6 +67,28 @@ stops, and the battery with its latching switch.
 **8 · Housekeeping.** Remove `/home/emmar/tab5_build` on opendubs2 — a scratch build directory left
 behind when the robot went off-network mid-session.
 
+**1b · Finish verifying the Pinpoint (carried from 2026-10-01).** Partly done:
+
+- **Yaw sign is CORRECT** — one CCW turn gave **+389°**, so heading increases counter-clockwise
+  viewed from above, per REP-103. Not mirrored.
+- **Yaw scale and the pod offsets are UNPROVEN.** The 4-turn test was spoiled by hitting a desk
+  leg, and `/odom` showed up to 922 mm of apparent translation while physical centre drift was
+  well under 0.5 m.
+- **A harness bug to avoid repeating:** do NOT measure multi-turn rotation from `/odom` — the
+  quaternion wraps, so `turned` jumps backwards past ~±360°. Read the StamPLC's `[ODO] h` field
+  directly over UDP 5005; that one is continuous and unwrapped.
+
+Next tests, in order of information per square metre of floor:
+
+| test | needs | proves |
+|---|---|---|
+| drive forward a tape-measured 2 m | a 2 m clear run | linear scale **and** the x sign |
+| strafe left ~0.5 m | 0.5 m sideways | the y sign — where mirroring would show |
+| one turn against a floor mark, reading `[ODO] h` | room for one spin | yaw scale, properly |
+
+Scale matters beyond odometry: `drive_bridge.py`'s `max_linear_mps` is an unmeasured 0.5 (C2),
+and a wrong figure makes any planner's velocity model wrong.
+
 **Optional, if there is time:** measure the two RPLIDARs' and the ToF's positions in CAD
 coordinates. They are in neither `sim/dimensions.yaml` nor `sim/opendubs.xml`, and they are what
 stands between the model and a TF tree (§0d).
