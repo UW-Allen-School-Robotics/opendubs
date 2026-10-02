@@ -66,6 +66,38 @@ per-motor `ENABLED`/`DISABLED` status that `openarm-motors` reads directly over 
 whether the stack is running. That path is the only one that answers "is this arm energized" when
 the ROS stack is down.
 
+## Measured 2026-10-02: the viewer was the tracking problem
+
+The first real teleop session felt wrong in a way the operator could not name — *"hard to know if
+this is working"*, and unclear whether it was latency or tracking. It was neither the network nor
+the headset. The teleop's own log said so:
+
+```
+WARNING: teleop loop can't keep up with target_hz=150 (6.7ms/tick)
+  -- 28/120 ticks over budget in the last 1.0s, worst overrun +8.9ms.
+  Commanded speed is compensated via use_measured_dt, but tracking is
+  coarser/less responsive at this rate.
+```
+
+`py-spy` (non-blocking, so the sampling did not itself stall the loop) attributed it: **viser in 67%
+of MainThread samples.** Headless: **zero overrun warnings in 40 s.**
+
+Three things worth carrying forward:
+
+- **The expensive part is not rendering.** `viewer.sync()` is already rate-limited to
+  `rendered_fps`. The `TeleopPanel`s are the cost, because they are registered into
+  `PhysicsEventLoop` and update **every tick**. A viewer that merely *renders* slowly would have
+  been harmless.
+- **This is a second reason the tablet display must not be Viser**, independent of the
+  commanded-vs-measured argument above: on real hardware the viewer is not just misleading, it is
+  actively consuming the control loop's budget.
+- **The rate had already been reduced to hide it.** The container runs `target_hz=150` against
+  upstream's `250` — lowering the rate is the symptomatic fix for this exact problem, and it still
+  did not fit. Worth re-testing 250 now the viewer is gone.
+
+The change lives in `software/openarm/patches/` (default unchanged; `OPENARM_TELEOP_VIEWER=0`),
+because the container's copy of Eric's repo has drifted from his published one and has no `.git`.
+
 ## Open
 
 - **Whether `/joint_states` is actually visible to host rosbridge.** `--network=host` says it should

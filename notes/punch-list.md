@@ -42,7 +42,7 @@ Goals, not tasks: each one is done when the thing it names is true.
 | 4 | **Contracts / modularity** so SSIK can be swapped for e.g. the NVIDIA stack | [`design/arm-authority.md`](design/arm-authority.md) | the adapter contract — same work as goal 3. Two command paths named; only `FollowJointTrajectory` is standard |
 | 5 | **Arm visualization** on the tablet + arm telemetry to other clients | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | source and transport settled; nothing built |
 | 6 | **LIDAR integration** — both units, and how the stack consumes them | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | drivers done; blocked on measuring the extrinsics |
-| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | — | not started. Wanted once the stack feels ready; goal 5's transport (RMW + FastDDS SHM) is now closed, which is a prerequisite for measuring anything end to end |
+| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | **run 2026-10-02 on real arms.** Root cause found and fixed: the viser viewer was 67% of the control loop and the loop missed ~23% of its deadlines; headless is clean. Open: gripper analog rework, and a teleop page on the dashboard |
 
 Goals 3 and 4 are one piece of work. Goals 5 and 6 share a root cause: **the tablet needs sensor and
 arm geometry, and geometry must have exactly one source** — today the LIDAR's lives in `app.js` as a
