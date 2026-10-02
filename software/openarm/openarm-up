@@ -37,7 +37,54 @@ ROS="source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash"
 # Set OPENARM_RMW=rmw_cyclonedds_cpp to go back — the arm stack's hw_validation stages were run
 # under cyclonedds, so if arm control misbehaves, that is the first thing to try.
 OPENARM_RMW="${OPENARM_RMW:-rmw_fastrtps_cpp}"
+
+# FastDDS must also be told NOT to use shared memory, or matching the RMW accomplishes nothing.
+# The container runs with IpcMode=private, so its /dev/shm is a separate 64 MB filesystem from the
+# host's (different device number; host is a 62 GB tmpfs). FastDDS discovers over UDP — which works,
+# because --network=host shares the netns — and then advertises SHM locators for data transfer that
+# the host cannot open. The failure is therefore SILENT AND CONFUSING: `ros2 topic list` and
+# `topic info` on the host show the topic with a publisher, while `topic echo` blocks forever.
+#
+# This is very likely why the container shipped with CycloneDDS, which does not use SHM by default
+# and so crosses the boundary unaided.
+#
+# Forcing UDPv4 costs little at joint-state message sizes. The durable alternative is to recreate
+# the container with --ipc=host, which keeps the faster SHM path; this way needs no recreation.
+FASTDDS_PROFILE=/etc/opendubs-fastdds-udp-only.xml
 DOCKER_ENV=(-e "RMW_IMPLEMENTATION=$OPENARM_RMW")
+if [ "$OPENARM_RMW" = rmw_fastrtps_cpp ]; then
+  DOCKER_ENV+=(-e "FASTDDS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE"
+               -e "FASTRTPS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE")
+fi
+
+# Written into the container rather than mounted, so this needs no change to how the container was
+# created. Re-created on demand: a container rebuild drops it, and this puts it back.
+ensure_fastdds_profile() {
+  [ "$OPENARM_RMW" = rmw_fastrtps_cpp ] || return 0
+  sudo docker exec "$CONTAINER" test -s "$FASTDDS_PROFILE" 2>/dev/null && return 0
+  sudo docker exec "$CONTAINER" bash -c "cat > $FASTDDS_PROFILE" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Forces UDPv4 and disables the built-in shared-memory transport. The container's /dev/shm is
+     not the host's, so SHM locators advertised here are unusable from outside the container. -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_only_participant" is_default_profile="true">
+      <rtps>
+        <userTransports><transport_id>udp_only</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>
+XML
+  echo "  wrote $FASTDDS_PROFILE in the container (FastDDS SHM disabled)"
+}
 LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
 MOTORS=/usr/local/lib/openarm/openarm-motors
 # Stow pose lives OUTSIDE /opt/opendubs: deploy-all.sh rsyncs --delete over /opt/opendubs/openarm,
@@ -80,6 +127,7 @@ cmd_start() {
   echo "== CAN links"; check_links || die "CAN links not ready — nothing launched"
   echo "== container"; ensure_container; echo "  $CONTAINER running"
   running && die "stack is already running (openarm-up status / openarm-up down)"
+  ensure_fastdds_profile
   echo "== motors before launch: $($MOTORS summary)"
   local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
   sudo docker exec "$CONTAINER" bash -c "mkdir -p $LOGDIR && ln -sfn $log $LOGDIR/latest.log"
@@ -111,8 +159,19 @@ activate_one() {
     st=$(hw_state "$arm")
     [ "$st" = active ] || die "$arm hardware is '$st', not active — stopping"
   fi
-  local en; en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
-  [ "$en" -eq 8 ] || die "$arm: only $en/8 motors report ENABLED — not starting its controller (openarm-up down)"
+  # The motors do not all answer the instant the hardware goes active — the GRIPPER is reliably
+  # last, and a single immediate read raced it: 2026-10-02 saw "only 7/8 ENABLED" with id 8
+  # reporting `no reply`, which read as a wiring fault, while a read seconds later showed it
+  # ENABLED and healthy. Poll instead of sampling once.
+  local en=0 i
+  for i in $(seq 1 10); do
+    en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
+    [ "$en" -eq 8 ] && break
+    sleep 1
+  done
+  [ "$en" -eq 8 ] || die "$arm: only $en/8 motors report ENABLED after 10 s — not starting its controller.
+  A motor stuck at 'no reply' is unpowered or its CAN wiring is broken at or before it; the gripper
+  is last in the chain. Check with: openarm-motors status   (then: openarm-up down)"
   echo "  $arm: 8/8 motors ENABLED"
   local cs; cs=$(ctrl_state "$arm")
   if [ -z "$cs" ]; then ros "timeout 30 ros2 control load_controller --set-state active ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
@@ -131,10 +190,18 @@ cmd_activate() {
   echo "== motors: $($MOTORS summary)"
 }
 
-# Joint names come from the controller itself rather than a hardcoded list: they are set by
-# openarm_description, which is a submodule we track and do not own.
-joint_names() { ros "timeout 15 ros2 param get ${1}_controller joints 2>/dev/null" |
-                  grep -oE "'[^']+'" | tr -d "'" | paste -sd, -; }
+# Joint names come from the LIVE controller rather than a hardcoded list: they are set by
+# openarm_description, a submodule we track and do not own.
+#
+# NOT via `ros2 param get <ctrl> joints` — that returns "Node not found" on this stack, because
+# the controller_manager does not appear in `ros2 node list` even though its services answer.
+# `list_controllers -v` reports each controller's required command interfaces as
+# <joint>/{position,velocity,effort} triples, so take the unique joint names in order.
+joint_names() {
+  ros "timeout 25 ros2 control list_controllers -v" |
+    awk -v c="$1_controller" '$1==c{f=1;next} f && /^[^[:space:]]/{f=0} f' |
+    grep -oE "openarm_$1_joint[0-9]+" | awk '!seen[$0]++' | paste -sd, -
+}
 
 stow_pose() {  # stow_pose left|right -> "d1,d2,..." in degrees, or "" if unconfigured
   [ -r "$STOW_CONF" ] || return 0
