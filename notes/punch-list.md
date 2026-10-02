@@ -46,10 +46,11 @@ for 18 s after the control node was SIGKILLed, and moved 6.2° on explicit DISAB
 makes it meaningful). Written up in [`design/arm-authority.md`](design/arm-authority.md). Do **not**
 re-run this on the wrist: joint 6 drifts only 0.9° disabled, so it is friction-dominated and the
 test passes regardless.
-(b) **`LEFT_STOW` captured** in `/etc/opendubs/openarm-stow.conf` — the left arm rests at its ZERO
-pose, so activation drives it to where gravity already holds it. **`RIGHT_STOW` still open:**
-the right arm's reading is where it was *left*, not where it rests (joints 3 and 5 hold position
-rather than settling). De-energize it, release, confirm at rest, then read.
+(b) **BOTH stow poses captured** in `/etc/opendubs/openarm-stow.conf` — both arms stow at ZERO,
+verified by driving there, de-energizing and measuring that the arm stayed (right moved 0.04°).
+Zero is a choice, not a discovery: joints 3, 5 and 7 are ROLL joints about the limb axis, so gravity
+exerts no moment about them and they never settle. `openarm-up park` exercised end to end on the
+right arm.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was

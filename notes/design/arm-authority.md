@@ -226,6 +226,21 @@ because the deploy rsyncs `--delete` over `openarm/` and would eat it. Same less
 calibration. It ships unset and `park` refuses rather than guessing, since a wrong pose drives the
 arm into the robot's own head.
 
+**Both arms on opendubs2 stow at zero**, verified 2026-10-02 by driving there, de-energizing and
+measuring that the arm stayed — the right arm moved at most 0.04°. Zero is a *choice*, not a
+discovery (see the roll joints above): it is defined, repeatable, and the pitch joints hang there,
+which is what makes de-energizing at this pose a non-event.
+
+`down` does not refuse an arm that is **already at its stow pose** — it compares the live joint
+angles against the configured pose within `OPENARM_STOW_TOL_DEG` (5°, against a ~1° steady-state
+error) and says so. Without that, a successful `park` was still followed by a refusal, so the normal
+flow would always have needed `--drop` and the flag would have become reflex, which is precisely how
+a guard stops being one.
+
+One quirk of `openarm-motors` worth knowing: a **single read can transiently report a motor
+`missing`** — seen immediately after a stack shutdown, with three consecutive reads straight
+afterwards all clean. Poll rather than sampling once; the 8/8 activation gate does.
+
 ### Measured 2026-10-02: the motors hold, with torque, forever
 
 `HOLD` **is** durable. The DAMIAO motors keep their last commanded position with full torque when
@@ -241,8 +256,26 @@ rather than resting. Then `ros2_control_node` was `SIGKILL`ed, so no DISABLE fra
 
 The second column is the control that makes the first meaningful: disabling moved the arm, so the
 hold was torque, not friction. An earlier attempt at the same test on the **wrist** (joint 6) was
-worthless and should not be repeated that way — it drifted only 0.9° when fully disabled, so it was
-friction-dominated and would have "passed" whatever the motors did.
+worthless and should not be repeated that way — it drifted only 0.9° when fully disabled, because a
+wrist pitch carries nothing but the gripper, so the gravity torque is small beside the friction. It
+would have "passed" whatever the motors did.
+
+### Which joints gravity actually loads
+
+Worth knowing before designing anything that moves these arms, and not a detail to rediscover:
+
+- **Pitch joints — 2, 4, 6 — carry gravity.** Joint 4 is the one with real load behind it, since it
+  carries the forearm, wrist and gripper. Test holding torque here.
+- **Joints 3, 5 and 7 are ROLL joints about the limb axis**, so gravity exerts no moment about them
+  at all. They stay wherever they were last commanded. This is why the right arm sat at
+  `j3 -36.62°, j5 +30.94°` indefinitely, and it is **not** friction — the earlier reading of it as
+  friction was wrong.
+
+Two consequences. **"Where the arm naturally rests" is undefined for the rolls** — they do not
+settle, so there is nothing to discover and a stow pose has to be *chosen* rather than measured.
+And **driving a roll joint on a hanging arm is safe**: the 37° the right arm travelled to reach zero
+was a roll, not a swing, so the arm never moved out of its hanging envelope. A 37° error on a
+*pitch* joint would be a different matter.
 
 **This is the inverse of every other lease on this robot.** Elsewhere silence is the stop — the RC
 failsafe, `kRosCmdTimeoutMs`, the 250 ms `MAST CMD` heartbeat, `[AUTH]`. Here silence is a freeze:

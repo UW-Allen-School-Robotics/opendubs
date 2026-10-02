@@ -218,6 +218,26 @@ stow_pose() {  # stow_pose left|right -> "d1,d2,..." in degrees, or "" if unconf
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$STOW_CONF" | tail -1 | tr -d ' '
 }
 
+# Is the arm already AT its stow pose? Without this, `down` refuses after a SUCCESSFUL park —
+# the guard would only know "hardware is active", not "the arm is where it is meant to be
+# de-energized", so the normal park-then-down flow would always need --drop and the flag would
+# become reflex. Compared in degrees against openarm-motors, which is the same unit and mapping
+# the stow file uses. Tolerance covers the steady-state error from imperfect gravity
+# compensation, which measures ~1 deg here.
+STOW_TOL_DEG="${OPENARM_STOW_TOL_DEG:-5}"
+at_stow() {
+  local arm=$1 want cur
+  want=$(stow_pose "$arm"); [ -n "$want" ] || return 1
+  cur=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /id [1-7] \(joint/{
+          gsub(/\+/,"",$7); printf "%s%s",(n++?",":""),$7}')
+  [ -n "$cur" ] || return 1
+  awk -v w="$want" -v c="$cur" -v tol="$STOW_TOL_DEG" 'BEGIN{
+    nw=split(w,W,","); nc=split(c,C,",");
+    if (nw != nc || nw == 0) exit 1;
+    for (i=1;i<=nw;i++) { d=W[i]-C[i]; if (d<0) d=-d; if (d>tol) exit 1 }
+    exit 0 }'
+}
+
 # Moving an arm on the way DOWN is as hazardous as moving it on the way UP, so parking is its own
 # explicit step and is never folded into `down`.
 park_one() {
@@ -278,7 +298,12 @@ cmd_down() {
 
   if [ "${DROP:-0}" != 1 ] && running && [ "$CM" = alive ]; then
     local a active=""
-    for a in left right; do [ "$(hw_state "$a")" = active ] && active="$active $a"; done
+    # An arm already at its stow pose is fine to de-energize — that is what parking it was for.
+    for a in left right; do
+      [ "$(hw_state "$a")" = active ] || continue
+      at_stow "$a" && { echo "  $a: at its stow pose — safe to de-energize"; continue; }
+      active="$active $a"
+    done
     if [ -n "$active" ]; then
       echo "openarm-up: refusing —$active still active, and 'inactive' removes torque:" >&2
       echo "  the arm goes limp and falls from wherever it is now." >&2
