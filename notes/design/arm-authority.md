@@ -118,12 +118,27 @@ This also closes the annunciation gap left open in
 [Control authority](../../docs/control-authority.md): the operator's eyes are on the machine, and
 an arm's mode is currently invisible.
 
+## The authority broadcast — done
+
+The StamPLC publishes `[AUTH]` every 100 ms on the same tick as `[DRIVE]`
+(`rc_serial_probe/src/main.cpp`, `publishAuth()`), carrying the conditions **separately** rather
+than the AND it computes for the wheels. Contract and field table:
+[Command & telemetry](../../docs/interfaces/command-telemetry.md).
+
+Two things made this more than a printf:
+
+- **`computeRcMode()` could not answer it.** It short-circuits — `local_estop_active`, a dead link
+  and failsafe each return before CH5 is read — so its enum can never report the authority switch
+  independently of link health. `publishAuth()` reads CH5 on its own.
+- **A stale switch position is worse than an absent one.** `rcRaw()` holds the last frame, so
+  `ch5` reports `unknown` whenever the link is untrustworthy and `deadman` reports `0`. Same
+  discipline as `drive_bridge.py` publishing no odometry when `[ODO]` reports `ok=0`.
+
+While documenting it, `docs/interfaces/command-telemetry.md` was found asserting *"The arms are not
+on that bus"*. They are, and an e-stop de-energizes them; corrected in the same change.
+
 ## Open
 
-- **Where the authority facts come from.** The StamPLC already computes `estop`, `contactor`,
-  `ch5`, `rc_live`. These want broadcasting as **separate components, not the AND**: the drive gate
-  requires `rc_live` and the arms should not, because benchtop teleop with the transmitter off is
-  legitimate work. Broadcasting the AND welds arm authority to the RC link.
 - **Reconciling two lease models.** Eric's ownership registry and the firmware's lease model were
   designed independently. One of them has to become the arbiter the other defers to.
 - **Whether `HOLD` survives a container restart.** `openarm-up down` makes the arms limp. A mode

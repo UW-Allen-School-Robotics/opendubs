@@ -96,19 +96,55 @@ supported — both are just UIs over this one contract.
 
 ## What the gate does not cover
 
-The e-stop contactor gates the **drive bus** only — the 60&nbsp;A step-down sits behind it and
-feeds the power distribution hub and the drive ESCs (see
-[Power architecture](../power-architecture.md)). The arms are not on that bus, and the onboard
-computer forms and sends their CAN traffic itself. The computer also addresses the Tab5
-directly.
+**Every driven element is on the drive bus**, including the arms and the front-panel head — the
+60&nbsp;A step-down sits behind the contactor and feeds the power distribution hub, the drive ESCs
+and the arms (see [Power architecture](../power-architecture.md)). So an e-stop de-energizes all of
+them. Stopping all driven motion with the e-stop is foundational and is not configurable.
 
-So in `MANUAL`, releasing the deadman stops drive and lift, but **not the arms, the head or
-sound**. The intent is that the deadman gates motion from every actuator; a replicator should
-know that this build does not yet do that, and that closing it is one of two changes:
+What the contactor does **not** express is authority during normal operation. It is one bit —
+motion power present or absent — and the onboard computer forms and sends the arms' CAN traffic
+itself, so no controller-side gate stands between a publisher and an arm. In `MANUAL`, releasing
+the deadman stops drive and lift but not the arms, the head or sound.
 
-- **software** — the computer already receives state, so the arm and front-panel paths refuse to
-  emit unless authority permits;
-- **hardware** — arm power behind a contactor pole, so releasing the deadman removes torque.
+For the arms that is now deliberate rather than a gap: a teleoperator is in a headset, not holding
+the transmitter, so the teleop session's own engagement is its deadman. The remaining work is
+making normal-operations authority legible to consumers that the contactor cannot gate, which is
+what `[AUTH]` below is for. The model is in `notes/design/arm-authority.md`.
+
+### `[AUTH]` — the authority facts
+
+Published by the StamPLC every **100&nbsp;ms** on the same tick as `[DRIVE]`, over the same
+transport:
+
+```
+[AUTH] ch5=off|manual|auto|unknown deadman=0|1 estop_sw=0|1 estop_btn=0|1 contactor=0|1 \
+       rc_live=0|1 rc_ok=0|1 drive_safe=0|1 drive_armed=0|1 ms=<uptime>
+```
+
+These are the **individual conditions**, not the single AND the controller computes for the wheels,
+because a consumer must choose its own required subset. The drive gate requires `rc_live`; the arms
+should not, since working at a bench with the transmitter off is legitimate and a single AND would
+weld arm authority to the RC link for no safety gain. `estop_*` and `contactor` are nobody's to
+ignore.
+
+| Field | Meaning |
+|---|---|
+| `ch5` | authority switch position — **`unknown` whenever the RC link is not trustworthy**, rather than the last value seen |
+| `deadman` | CH6 held. Reported `0` on an untrusted link |
+| `estop_sw` | the controller's own latch — set by the `ESTOP` command, an OTA, or the panel button |
+| `estop_btn` | the DI0 chain, **normally closed**: `1` means pressed *or* a broken conductor |
+| `contactor` | R0 — motion power actually present |
+| `rc_live` | RC frames arriving within the timeout |
+| `rc_ok` | not in failsafe and no channel out of band |
+| `drive_safe` | the control loop is keeping time; a stalled loop cannot stop anything |
+| `drive_armed` | the **wheels'** resolved outcome, for display and comparison. Not a gate for anyone else — keying off it inherits the drive's `rc_live` requirement, which is the coupling this line exists to avoid |
+| `ms` | controller uptime, so a consumer can distinguish a frozen-but-transmitting board from a current one |
+
+**Absence is a stop.** A consumer must treat a gap of a few periods as loss of authority, not as
+*unchanged* — the same fail-safe-by-omission as the RC failsafe and the 250&nbsp;ms `MAST CMD`
+heartbeat. A stale switch position is reported as `unknown` for the same reason the odometry bridge
+publishes nothing when `[ODO]` reports `ok=0`: a consumer can detect a missing fact, but not a
+confidently wrong one.
 
 ## The contract
 

@@ -2377,6 +2377,68 @@ static void driveTick()
     }
 }
 
+// ---- [AUTH] — the authority FACTS, as separate components ------------------------------------
+// Who may command, published as the individual conditions rather than as the single AND that
+// driveTick() computes for the wheels. Consumers off this controller — the arms being the first,
+// over CAN-FD on the Thor, where no StamPLC gate can reach them — need to pick their own required
+// subset.
+//
+// The drive gate requires rc_live. The ARMS SHOULD NOT: working at a bench with the transmitter
+// switched off is legitimate, and a single AND would weld arm authority to the RC link for no
+// safety gain. Equally, estop and contactor are not anybody's choice to ignore. Publishing the
+// components is what lets those differ honestly instead of by a second, divergent gate.
+//
+// WHY THIS IS NOT JUST computeRcMode(): that function SHORT-CIRCUITS. local_estop_active, a dead
+// link and failsafe each return before CH5 is ever read, so its enum can never answer "where is
+// the authority switch" independently of link health — the conflation is baked in. Here CH5 is
+// read on its own.
+//
+// ch5=unknown WHEN THE LINK IS NOT TRUSTWORTHY, rather than the last value seen. rcRaw() holds
+// the stale frame, and a consumer can detect a missing fact but not a confidently wrong one —
+// the same reason drive_bridge.py publishes no odometry at all when [ODO] reports ok=0.
+//
+// Published every 100 ms alongside [DRIVE]. ABSENCE IS A STOP: a consumer must treat a gap of a
+// few periods as loss of authority, not as "unchanged", which is the fail-safe-by-omission every
+// other lease here uses (kRosCmdTimeoutMs, the 250 ms MAST CMD heartbeat). ms= is this
+// controller's uptime, so a consumer can tell a frozen-but-still-transmitting board from a
+// current one.
+static void publishAuth()
+{
+    const uint8_t di        = uiDi();
+    const bool    rc_live   = (last_valid_frame_ms != 0) && (millis() - last_valid_frame_ms < kRcTimeoutMs);
+    const bool    rc_ok     = !rc_failsafe && !rc_range_bad;
+    const bool    trust_rc  = rc_live && rc_ok;
+
+    // CH5 straight from the per-robot RC map, same thresholds as computeRcMode() but with no
+    // preceding returns. Reported only while the link is trustworthy.
+    const char* ch5 = "unknown";
+    if (trust_rc) {
+        const uint16_t m = rcRaw(FN_AUTH, rc_ch);
+        ch5 = (m < 600) ? "off" : (m < 1400) ? "manual" : "auto";
+    }
+    // Fail-safe: an untrusted link reports the deadman as NOT held.
+    const bool deadman = trust_rc && (rcAxis(FN_DEAD, rc_ch) > 0.5f);
+
+    tprintf("[AUTH] ch5=%s deadman=%d estop_sw=%d estop_btn=%d contactor=%d "
+            "rc_live=%d rc_ok=%d drive_safe=%d drive_armed=%d ms=%lu\n",
+            ch5,
+            deadman ? 1 : 0,
+            // estop_sw  = this firmware's own latch (OTA, the ESTOP command, or BtnC).
+            // estop_btn = the DI0 chain, NORMALLY CLOSED: 1 means pressed OR a broken conductor.
+            // They are separate because they are cleared by different things.
+            local_estop_active ? 1 : 0,
+            ((di & 0x01) == 0) ? 1 : 0,
+            M5StamPLC.readPlcRelay(0) ? 1 : 0,       // R0 — motion power actually present
+            rc_live ? 1 : 0,
+            rc_ok ? 1 : 0,
+            g_driveSafe ? 1 : 0,                     // loop keeping time; a stalled loop cannot stop anything
+            // The WHEELS' resolved outcome, for comparison and display. NOT a gate for anyone
+            // else: a consumer that keys off this inherits the drive's rc_live requirement,
+            // which is the coupling this line exists to avoid.
+            g_escArmed ? 1 : 0,
+            (unsigned long)millis());
+}
+
 // [DRIVE] telemetry — always published (even when DRIVE_ENABLE=0, armed=0) so the
 // dashboard's DRIVE page reflects mode/armed/per-wheel. w[] normalized -1..1.
 static void publishDrive()
@@ -3251,7 +3313,11 @@ void loop()
         rcCalTick(rc_ch);   // accumulate endpoints while an RCCAL SWEEP runs
         last_drive_ms = millis();
     }
-    if ((millis() - last_drive_pub_ms) > 100) { publishDrive(); last_drive_pub_ms = millis(); }
+    if ((millis() - last_drive_pub_ms) > 100) {
+        publishDrive();
+        publishAuth();   // same 100 ms tick: consumers off-board time their authority timeout to it
+        last_drive_pub_ms = millis();
+    }
     if ((millis() - last_rc_pub_ms) > 100)    { publishRc();    last_rc_pub_ms = millis(); }
 
     // ---- Ethernet (24V-powered board, wired LAN — NOT PoE): self-heal link watchdog + 5 Hz telemetry ----

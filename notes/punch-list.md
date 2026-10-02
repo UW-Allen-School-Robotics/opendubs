@@ -15,7 +15,7 @@ are listed here only when they carry open items of their own. Check here before 
 | [`docs-review-checklist.md`](docs-review-checklist.md) | 41 | the 2026-09-12 documentation review, now tracked so the rulings are durable. **A: 1** left (a content decision), **B: 5** still open, **C: 25** need a photo/measurement/part number, **D: 10** platform projects |
 | `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
 | [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
-| [`design/arm-authority.md`](design/arm-authority.md) | 3 | **arm authority, modes and the vendor-swap boundary.** CH5/deadman/mode decisions are settled; open items are the StamPLC authority broadcast, reconciling two lease models, and a bring-down that does not drop the arms |
+| [`design/arm-authority.md`](design/arm-authority.md) | 2 | **arm authority, modes and the vendor-swap boundary.** CH5/deadman/mode decisions settled and the `[AUTH]` broadcast is in firmware; open items are reconciling two lease models and a bring-down that does not drop the arms |
 | `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
 
 Two counting traps, both of which inflated an earlier sweep:
@@ -30,6 +30,15 @@ Two counting traps, both of which inflated an earlier sweep:
 ## 0. AT THE ROBOT — next session (agenda captured 2026-09-29)
 
 Everything below needs the robot's network or hands on the machine. Nothing here is desk work.
+
+**0 · Get `[AUTH]` onto the robot without eating the calibration.** `publishAuth()` is in the repo
+and compiles (7.75 s, 49.4% flash), but has **never run on hardware**. It cannot arrive by
+`deploy-all.sh`: that rsyncs `--delete` over `/opt/opendubs/rc_serial_probe`, whose `main.cpp` holds
+this robot's `kDriveInvert`/`kStrafeInvert`/`kEscSpanUs` — see
+[`per-robot-calibration.md`](per-robot-calibration.md). Apply the two hunks (`publishAuth()` plus
+its call in the 100 ms tick) to the robot's own copy, then
+`sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. Confirm with one `[AUTH]` line per 100 ms,
+`ch5` tracking the switch, and `ch5=unknown` with the transmitter off.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
