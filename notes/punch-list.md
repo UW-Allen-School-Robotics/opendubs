@@ -70,7 +70,7 @@ reported `stamplc.port 192.168.55.1:5005` — the Thor's own DOWN `l4tbr0` bridg
 A stale *peer* presenting a stale *armed* reading is the same class of bug as the IP spiral, and the
 dashboard is the thing an operator looks at.
 
-**0b · ~~Measure two arm things the desk cannot answer.~~ MOSTLY DONE 2026-10-02.**
+**0b · ~~Measure two arm things the desk cannot answer.~~ DONE 2026-10-02.**
 (a) **Motors hold with torque, forever** — no command timeout. Elbow held 24.38° with 0.00° drift
 for 18 s after the control node was SIGKILLed, and moved 6.2° on explicit DISABLE (the control that
 makes it meaningful). Written up in [`design/arm-authority.md`](design/arm-authority.md). Do **not**
