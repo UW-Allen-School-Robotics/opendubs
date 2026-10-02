@@ -137,9 +137,83 @@ Two things made this more than a printf:
 While documenting it, `docs/interfaces/command-telemetry.md` was found asserting *"The arms are not
 on that bus"*. They are, and an e-stop de-energizes them; corrected in the same change.
 
+## Reconciling the two lease models
+
+The question was which of the two becomes the arbiter the other defers to. They are not competing
+arbiters — **they arbitrate different things**, and the honest division is:
+
+- **The firmware is the authority source and owns the physical layer** — motion power, and the
+  drive and lift axes, which it can physically enforce.
+- **`OwnershipRegistry` is the arm arbiter.** The firmware cannot reach the arms (CAN-FD on the
+  Thor), and an arbiter that cannot act is fiction.
+
+The seam is `[AUTH]`. Neither defers to the other wholesale.
+
+### What the registry already is
+
+`mj_manipulator/ownership.py` — **Sidd's code** (`SPDX … Copyright (c) 2025 Siddhartha
+Srinivasa`), reached through Eric's fork. Thread-safe, with four test files:
+
+| | |
+|---|---|
+| `OwnerKind` | `IDLE` / `TELEOP` / `TRAJECTORY` / `GRIPPER` |
+| priority | `IDLE 0 < TRAJECTORY 1 < TELEOP 2 < GRIPPER 3` |
+| `acquire` | succeeds only when the arm is `IDLE` |
+| `preempt` | higher priority only; **raises `ValueError`** on equal or lower |
+| `release` | the current owner only |
+| abort | per-arm flags, plus `abort_all` / `clear_all` / `force_release_all` |
+
+Per-arm granularity gives bimanual concurrency for free — teleop one arm while the other runs a
+trajectory — which is a real requirement and more than the firmware's model offers.
+
+`OwnerKind` is **not** our mode enumeration and must not be mapped onto it one-to-one. It answers
+*who owns*; mode answers *what the arm is doing*, including power state, which `OwnerKind` has no
+concept of. `TELEOP` ⟺ mode `TELEOP`, `TRAJECTORY` ⟺ mode `AUTO`, and `IDLE` covers **both**
+`HOLD` and `OFF`. `FREE` has no `OwnerKind` at all. `GRIPPER` outranking `TELEOP` is a sub-action
+of teleop, not a competing authority.
+
+### What it is missing
+
+**Expiry.** [Control authority](../../docs/control-authority.md) states it as part of the
+primitive: *"Every lease expires. Expiry belongs to the primitive so that no future source can
+forget it."* The registry has none — confirmed in Eric's fork **and upstream**. A teleop process
+that dies holding an arm holds it forever. Every other lease on this robot is fail-safe-by-omission
+(the RC failsafe, `kRosCmdTimeoutMs`, the 250 ms `MAST CMD` heartbeat, `[AUTH]`), so this is the
+one place our model is strictly better, and it is not optional.
+
+**An authority precondition.** The registry has no concept of robot-level authority. It must
+consume `[AUTH]`, refuse `acquire`/`preempt` when authority does not permit, and drive everything
+to `HOLD` when authority drops or the line goes stale.
+
+### A verified gap in abort recovery
+
+`request_abort()` calls `abort_all()`, which sets flags but **retains ownership**. It also calls
+`_deactivate_all_teleop()` → `controller.deactivate()`, which clears targets and state but does
+**not** release. `force_release_all()` — whose own docstring says it is "used by the global
+e-stop" — is reached only from `reset_state()`, a MuJoCo sim-reset helper. The CHANGELOG claims the
+E-Stop system uses it; the `robot.py` path does not.
+
+So after a global abort the arm is still owned, and re-engaging the same teleop cannot recover:
+`acquire()` refuses because the arm is not `IDLE`, and `preempt()` on equal priority
+(`TELEOP` → `TELEOP`) raises `ValueError`. `sim_context.py` documents exactly this failure class in
+the sim-reset context — *"teleop ownership persists after deactivation and `_arm_preempted()` blocks
+subsequent …"* — so the mechanism is known, just not wired to the abort path.
+
+Present upstream too, so it is not a fork artifact. Checked at Eric's `de0ae13` and upstream's
+`ab2d408`; the fork is **ahead of** upstream's default branch, not behind.
+
+### Where the additions live
+
+**Not in `ownership.py`.** It is an upstream safety primitive, and a fork of one is exactly the
+thing that rots. Wrap it instead: expiry and the authority precondition go in a thin arm-authority
+node of **ours**, which is the only caller of `acquire`/`preempt`/`release`. Upstream stays pristine
+and swappable — the same boundary goal 4 needs — and the safety-critical additions sit in code we
+control and can test without arms attached. If upstream gains expiry later, ours drops out.
+
+The abort-recovery gap is worth reporting upstream rather than patching around, since the fix there
+is a one-line change of `abort_all()` to `force_release_all()` in a path Sidd owns.
+
 ## Open
 
-- **Reconciling two lease models.** Eric's ownership registry and the firmware's lease model were
-  designed independently. One of them has to become the arbiter the other defers to.
 - **Whether `HOLD` survives a container restart.** `openarm-up down` makes the arms limp. A mode
   model whose fallback is `HOLD` needs a bring-down that does not drop the arms.
