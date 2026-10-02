@@ -146,6 +146,19 @@ heartbeat. A stale switch position is reported as `unknown` for the same reason 
 publishes nothing when `[ODO]` reports `ok=0`: a consumer can detect a missing fact, but not a
 confidently wrong one.
 
+!!! warning "`rc_live` alone is not enough — this is why the fields are separate"
+    With the transmitter switched **off**, the robot reports `rc_live=1` and `rc_ok=0`. The
+    receiver keeps sending **failsafe frames**, so frames really are arriving and "the link is
+    alive" is literally true — while the channel data in them is worthless.
+
+    A consumer that gated on `rc_live` alone would therefore trust a **stale CH5 position from a
+    transmitter that is switched off.** It takes `rc_live && rc_ok` to establish that the switch
+    reading means anything, which is what suppresses `ch5` to `unknown` here.
+
+    Measured on opendubs2, 2026-10-02. It is the concrete reason this line publishes the
+    conditions separately instead of one `authority_ok` boolean: the two failure modes are
+    distinguishable only if both are on the wire.
+
 ## The contract
 
 *TODO:* the actual ROS 2 topics / message types for command + telemetry, the heartbeat rate and
