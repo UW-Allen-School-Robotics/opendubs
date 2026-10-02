@@ -213,7 +213,7 @@ control and can test without arms attached. If upstream gains expiry later, ours
 The abort-recovery gap is worth reporting upstream rather than patching around, since the fix there
 is a one-line change of `abort_all()` to `force_release_all()` in a path Sidd owns.
 
-## The bring-down — done, with one thing still unmeasured
+## The bring-down — done, and the durability question answered
 
 `openarm-up down` used to set the hardware `inactive` with no warning, which removes torque and
 drops the arm from wherever it is. It now **refuses while either arm is active**, prints that arm's
@@ -226,10 +226,52 @@ because the deploy rsyncs `--delete` over `openarm/` and would eat it. Same less
 calibration. It ships unset and `park` refuses rather than guessing, since a wrong pose drives the
 arm into the robot's own head.
 
-**Still unmeasured:** what the DAMIAO motors do when the container dies while an arm is active —
-hold their last command, or disable on command timeout. That decides whether `HOLD` can survive a
-stack restart at all, or whether `HOLD` is only ever as durable as the process holding it. It needs
-the robot and `openarm-motors` reading status with the stack killed mid-hold.
+### Measured 2026-10-02: the motors hold, with torque, forever
+
+`HOLD` **is** durable. The DAMIAO motors keep their last commanded position with full torque when
+commands stop. There is **no command-timeout watchdog in the motors.**
+
+The left elbow (joint 4, carrying the forearm, wrist and gripper) was commanded to 25° and held at
+24.38° — sagging 0.6° below target, which is how we know it was genuinely loaded against gravity
+rather than resting. Then `ros2_control_node` was `SIGKILL`ed, so no DISABLE frames were sent:
+
+| | enabled, no controller, 18 s | on explicit DISABLE |
+|---|---|---|
+| joint 4 | `24.38 → 24.38` — **0.00° drift** | `24.38 → 18.20` — **6.2°** |
+
+The second column is the control that makes the first meaningful: disabling moved the arm, so the
+hold was torque, not friction. An earlier attempt at the same test on the **wrist** (joint 6) was
+worthless and should not be repeated that way — it drifted only 0.9° when fully disabled, so it was
+friction-dominated and would have "passed" whatever the motors did.
+
+**This is the inverse of every other lease on this robot.** Elsewhere silence is the stop — the RC
+failsafe, `kRosCmdTimeoutMs`, the 250 ms `MAST CMD` heartbeat, `[AUTH]`. Here silence is a freeze:
+
+- Good: `HOLD` as the universal fallback is physically realizable, and a crashed controller does
+  **not** drop the arm.
+- Bad: **fail-safe-by-omission does not exist at the motor level.** A stack that dies mid-trajectory
+  leaves the arm energized and frozen at an arbitrary pose, indefinitely, drawing current. Nothing
+  releases it but an explicit DISABLE, deactivating the hardware, or cutting power — the contactor
+  and the e-stop.
+- So an arm holding deliberately and an arm holding because its software died are
+  **indistinguishable to an operator looking at it.** That is an annunciation requirement, not a
+  nicety, and it belongs with the liveness field in
+  [arm telemetry](arm-telemetry-and-viz.md).
+- And recovery is its own hazard: **activation drives the arm to zero**, so restarting after a
+  freeze sweeps from wherever it froze to zero. `openarm-up` now says so when it refuses.
+
+Three `openarm-up` defects fell out of running this on hardware, all fixed:
+
+- **`down` could leave the arms energized.** Against a dead controller_manager every
+  `ros2 control` call waited out its full 30 s timeout, per arm, so `down` was killed before
+  reaching the direct-DISABLE fallback that actually works. It now probes the controller_manager
+  once and skips straight to the CAN path — 10 s instead of over 70.
+- **The refusal guard was blind in exactly the dangerous case.** It read hardware state over ROS,
+  which returns nothing when the stack is dead. It now also guards on motor status over CAN, which
+  does not depend on the stack, and refuses to drop an arm that is energized and frozen.
+- **A half-dead stack looked healthy.** `running()` tests for the *launch* process, which outlives
+  a `SIGKILL`ed control node, so `start` refused as "already running" while `activate` failed with
+  `rcl node's context is invalid`. That state is now named, with the fix (`down` first).
 
 ## Open
 
