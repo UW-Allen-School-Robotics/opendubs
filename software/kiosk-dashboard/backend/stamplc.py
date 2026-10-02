@@ -11,6 +11,7 @@ import glob
 import math
 import os
 import re
+import socket          # module level: the peer guards below need it, not just _run_udp
 import threading
 import time
 
@@ -56,6 +57,55 @@ _KV = re.compile(r"(\w+)=(\S+)")
 def _kv(line):
     """Parse `key=value` tokens from a telemetry line into a dict of strings."""
     return dict(_KV.findall(line))
+
+
+# A packet arriving on the StamPLC's UDP port is NOT proof it came from the StamPLC. Two things
+# have to hold before its source is adopted as the peer, and each catches a different failure:
+#
+#   1. It must not be one of OUR OWN addresses. The Thor sends to this port itself —
+#      drive_bridge.py and stamplc_hb.py both do — so with SO_REUSEPORT this process hears its own
+#      host's traffic. On 2026-10-02 that made the dashboard adopt 192.168.55.1, the Thor's own
+#      (DOWN) l4tbr0 bridge, while the board was at 10.42.2.20 the whole time. It then reported
+#      that address as the device and served a CACHED armed=True from it.
+#   2. It must LOOK like StamPLC telemetry. Without this, any stray datagram — including an echo
+#      of a command this host sent — marks the link connected and hijacks the peer, even from a
+#      non-local address.
+#
+# ota-from-thor.sh already refuses a Thor-local address for the same reason. This is that guard,
+# for the thing an operator actually looks at.
+_TELEM_LINE = re.compile(rb"\[[A-Z][A-Z0-9]{1,9}\]")
+
+_own_addr_cache: dict[str, bool] = {}
+
+
+def _is_own_address(ip):
+    """True if `ip` belongs to a local interface.
+
+    Tested by trying to bind it: a bind succeeds only for an address assigned to this host. That
+    needs no external dependency and no interface enumeration, and it stays correct as interfaces
+    come and go. Cached because it is checked per packet.
+    """
+    hit = _own_addr_cache.get(ip)
+    if hit is not None:
+        return hit
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((ip, 0))
+        own = True
+    except OSError:
+        own = False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+    _own_addr_cache[ip] = own
+    return own
+
+
+def _is_stamplc_packet(data, ip):
+    """Both guards together: not us, and it looks like telemetry."""
+    return bool(_TELEM_LINE.search(data)) and not _is_own_address(ip)
 
 
 def _find_device():
@@ -173,10 +223,20 @@ class StampReader:
         except OSError:
             return False
         try:
-            sock.settimeout(6.0 if force else 4.0)     # wait for first packet to confirm Ethernet
-            try:
-                data, addr = sock.recvfrom(2048)
-            except (socket.timeout, OSError):
+            # Wait for a packet that is actually the StamPLC's, not merely the first datagram to
+            # land. Our own host's traffic on this port would otherwise "confirm Ethernet".
+            deadline = time.monotonic() + (6.0 if force else 4.0)
+            data = None
+            while time.monotonic() < deadline:
+                sock.settimeout(max(0.2, deadline - time.monotonic()))
+                try:
+                    data, addr = sock.recvfrom(2048)
+                except (socket.timeout, OSError):
+                    return False
+                if _is_stamplc_packet(data, addr[0]):
+                    break
+                data = None             # ours, or not telemetry — keep waiting
+            if data is None:
                 return False
             with self._lock:
                 self._connected = True
@@ -206,9 +266,23 @@ class StampReader:
                     continue
                 except OSError:
                     break
+                if not _is_stamplc_packet(data, addr[0]):
+                    # Our own host's traffic, or not telemetry. Crucially this does NOT reset
+                    # `quiet`: letting it do so would keep the link looking alive on the strength
+                    # of packets this machine sent itself, which is how a dead board stays
+                    # "connected" and its last values keep being served as current.
+                    continue
                 quiet = 0.0
                 with self._lock:
+                    # BOTH, every time. `_device` used to be set only from the first packet and
+                    # never again, so the address an operator SEES froze on first impression while
+                    # `_peer` — where commands actually go — tracked correctly. On 2026-10-02 that
+                    # showed `192.168.55.1:5005`, the Thor's own l4tbr0, for a board at
+                    # 10.42.2.20, and sent a human chasing an address nothing was ever wrong with.
+                    # Commands were being delivered the whole time; only the display lied, which is
+                    # its own kind of expensive.
                     self._peer = (addr[0], port)        # track the StamPLC IP across DHCP changes
+                    self._device = "udp://%s:%d" % (addr[0], port)
                 self._ingest(data)
             return True
         finally:
