@@ -164,6 +164,34 @@ straight away.
 With both controllers active, the arms accept `control_msgs/FollowJointTrajectory` goals on
 `/left_controller/follow_joint_trajectory` and `/right_controller/follow_joint_trajectory`.
 
+## The arm stack and the host must share an RMW
+
+The container image bakes `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` into its environment. The host
+runs ROS 2 Jazzy's **default FastDDS** and does not have CycloneDDS installed. Cross-vendor DDS
+discovery is not a supported ROS 2 configuration, so with the two mismatched **the host sees no arm
+topics at all** — no `/joint_states`, no `/controller_manager`, nothing for `rosbridge` or Foxglove
+to subscribe to.
+
+`openarm-up` therefore runs the stack under **`rmw_fastrtps_cpp`**, passed per-`docker exec` rather
+than by recreating the container, so the image stays as upstream built it and the choice is one
+variable:
+
+```sh
+OPENARM_RMW=rmw_cyclonedds_cpp openarm-up      # go back, if arm control misbehaves
+```
+
+FastDDS is chosen for the container rather than CycloneDDS for the host because it is already
+installed there, while changing the host would alter the transport under a live dashboard, LIDAR and
+StamPLC bridge. The arm stack's `hw_validation` stages were run under CycloneDDS, so that override
+is the first thing to try if the arms behave differently.
+
+!!! warning "A mismatch silently defeats the bring-down checks"
+    `openarm-up` reads hardware and controller state over ROS. Under a mismatched RMW those reads
+    return **empty**, not an error — so `openarm-up status` shows a blank state, and `down` sees
+    nothing active, skips deactivating the controllers and hardware, and stops the stack with the
+    arms still energized. The guard cannot see what it is guarding. If `status` shows a running
+    stack but blank hardware states, suspect the RMW before anything else.
+
 ## Bringing the arms down without dropping them
 
 `inactive` removes torque, so an arm that is brought down while extended **falls from wherever it

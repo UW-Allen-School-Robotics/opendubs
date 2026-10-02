@@ -22,6 +22,22 @@ CONTAINER=openarm
 LAUNCH_MATCH="ros2 launch openarm_impedance_controller"
 LAUNCH="ros2 launch openarm_impedance_controller openarm_impedance_control.launch.py left_can_interface:=arm_left right_can_interface:=arm_right"
 ROS="source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash"
+
+# RMW the arm stack runs under. The container image bakes RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+# into its Config.Env, but the HOST runs the Jazzy default (FastDDS) and has no cyclonedds
+# installed — so host-side nodes (rosbridge on 9090, foxglove, the drive bridge) could not see a
+# single arm topic. Cross-vendor DDS discovery is not a supported ROS 2 configuration, and the
+# tablet needs /joint_states, so the two have to agree.
+#
+# Matching the CONTAINER to the host, rather than the reverse: FastDDS is already installed in the
+# container (nothing to add), while switching the host would change the transport under a live
+# dashboard, LIDAR and StamPLC bridge. Overridden per-exec rather than by recreating the container,
+# so it is reversible and the image stays as upstream built it.
+#
+# Set OPENARM_RMW=rmw_cyclonedds_cpp to go back — the arm stack's hw_validation stages were run
+# under cyclonedds, so if arm control misbehaves, that is the first thing to try.
+OPENARM_RMW="${OPENARM_RMW:-rmw_fastrtps_cpp}"
+DOCKER_ENV=(-e "RMW_IMPLEMENTATION=$OPENARM_RMW")
 LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
 MOTORS=/usr/local/lib/openarm/openarm-motors
 # Stow pose lives OUTSIDE /opt/opendubs: deploy-all.sh rsyncs --delete over /opt/opendubs/openarm,
@@ -31,7 +47,7 @@ MOTORS=/usr/local/lib/openarm/openarm-motors
 STOW_CONF=${OPENARM_STOW_CONF:-/etc/opendubs/openarm-stow.conf}
 
 die() { echo "openarm-up: $*" >&2; exit 1; }
-ros() { sudo docker exec "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }   # strip colour codes
+ros() { sudo docker exec "${DOCKER_ENV[@]}" "$CONTAINER" bash -c "$ROS && $*" | sed 's/\x1b\[[0-9;]*m//g'; }
 running() { sudo docker exec "$CONTAINER" pgrep -f "$LAUNCH_MATCH" >/dev/null 2>&1; }
 
 hw_state() {   # hw_state left|right  ->  active | inactive | unconfigured | ... | "" if unknown
@@ -67,7 +83,7 @@ cmd_start() {
   echo "== motors before launch: $($MOTORS summary)"
   local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
   sudo docker exec "$CONTAINER" bash -c "mkdir -p $LOGDIR && ln -sfn $log $LOGDIR/latest.log"
-  sudo docker exec -d "$CONTAINER" bash -c "$ROS && exec $LAUNCH > $log 2>&1"
+  sudo docker exec -d "${DOCKER_ENV[@]}" "$CONTAINER" bash -c "$ROS && exec $LAUNCH > $log 2>&1"
   echo "== launched; waiting for both arms' hardware (log: openarm-up logs)"
   local t l r
   for t in $(seq 1 30); do
