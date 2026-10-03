@@ -1,0 +1,886 @@
+{
+ "_fk_checks": [
+  {
+   "angles": {},
+   "expect": [
+    0.0,
+    0.1535,
+    0.262
+   ],
+   "label": "all zero",
+   "link": "openarm_left_link6"
+  },
+  {
+   "angles": {
+    "openarm_left_joint4": 0.4363323129985824
+   },
+   "expect": [
+    0.091286,
+    0.1535,
+    0.282238
+   ],
+   "label": "left elbow j4 = +25deg",
+   "link": "openarm_left_link6"
+  },
+  {
+   "angles": {
+    "openarm_left_joint3": 0.6457718232379019
+   },
+   "expect": [
+    0.0,
+    0.1535,
+    0.262
+   ],
+   "label": "left j3 roll = +37deg",
+   "link": "openarm_left_link6"
+  }
+ ],
+ "_generated_by": "tools/arm_chain.py -- do not edit by hand",
+ "_source": "v2.urdf",
+ "joints": [
+  {
+   "child": "openarm_body_link0",
+   "name": "openarm_body_link0_mount_joint",
+   "parent": "world",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "child": "openarm_left_base_link",
+   "name": "openarm_left_base_link_mount_joint",
+   "parent": "openarm_body_link0",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.031,
+    0.698
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_left_link1",
+   "lower": -3.4907,
+   "name": "openarm_left_joint1",
+   "parent": "openarm_left_base_link",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.3963,
+   "xyz": [
+    0.0,
+    0.0625,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_link2",
+   "lower": -3.3161,
+   "name": "openarm_left_joint2",
+   "parent": "openarm_left_link1",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.17453,
+   "xyz": [
+    0.0,
+    0.0600000000000001,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "child": "openarm_left_link3",
+   "lower": -1.5708,
+   "name": "openarm_left_joint3",
+   "parent": "openarm_left_link2",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.0662500000000008
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_left_link4",
+   "lower": 0.0,
+   "name": "openarm_left_joint4",
+   "parent": "openarm_left_link3",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 2.4435,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.15375
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "child": "openarm_left_link5",
+   "lower": -1.5708,
+   "name": "openarm_left_joint5",
+   "parent": "openarm_left_link4",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.0955000000000005
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_left_link6",
+   "lower": -0.7854,
+   "name": "openarm_left_joint6",
+   "parent": "openarm_left_link5",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.7854,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.120499999999998
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_ee_base_link",
+   "lower": -1.5708,
+   "name": "openarm_left_joint7",
+   "parent": "openarm_left_link6",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_ee_link1",
+   "lower": 0.0,
+   "name": "openarm_left_finger_joint1",
+   "parent": "openarm_left_ee_base_link",
+   "rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.7854,
+   "xyz": [
+    -0.0014300000000005003,
+    -0.0180000000000009,
+    -0.0680000000000174
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_ee_link2",
+   "lower": 0.0,
+   "name": "openarm_left_finger_joint2",
+   "parent": "openarm_left_ee_base_link",
+   "rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.7854,
+   "xyz": [
+    -0.0014300000000005003,
+    0.0180000000000012,
+    -0.0680000000000215
+   ]
+  },
+  {
+   "child": "openarm_right_base_link",
+   "name": "openarm_right_base_link_mount_joint",
+   "parent": "openarm_body_link0",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    -0.031,
+    0.698
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_right_link1",
+   "lower": -1.3963,
+   "name": "openarm_right_joint1",
+   "parent": "openarm_right_base_link",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 3.4907,
+   "xyz": [
+    0.0,
+    -0.0625,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_link2",
+   "lower": -0.17453,
+   "name": "openarm_right_joint2",
+   "parent": "openarm_right_link1",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 3.3161,
+   "xyz": [
+    0.0,
+    -0.0600000000000001,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "child": "openarm_right_link3",
+   "lower": -1.5708,
+   "name": "openarm_right_joint3",
+   "parent": "openarm_right_link2",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.0662500000000008
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_right_link4",
+   "lower": 0.0,
+   "name": "openarm_right_joint4",
+   "parent": "openarm_right_link3",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 2.4435,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.15375
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "child": "openarm_right_link5",
+   "lower": -1.5708,
+   "name": "openarm_right_joint5",
+   "parent": "openarm_right_link4",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.0955000000000005
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_right_link6",
+   "lower": -0.7854,
+   "name": "openarm_right_joint6",
+   "parent": "openarm_right_link5",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.7854,
+   "xyz": [
+    0.0,
+    0.0,
+    -0.120499999999998
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_ee_base_link",
+   "lower": -1.5708,
+   "name": "openarm_right_joint7",
+   "parent": "openarm_right_link6",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.5708,
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_ee_link1",
+   "lower": -0.7854,
+   "name": "openarm_right_finger_joint1",
+   "parent": "openarm_right_ee_base_link",
+   "rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.0,
+   "xyz": [
+    -0.0014300000000005003,
+    0.0180000000000009,
+    -0.0680000000000174
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_ee_link2",
+   "lower": -0.7854,
+   "name": "openarm_right_finger_joint2",
+   "parent": "openarm_right_ee_base_link",
+   "rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.0,
+   "xyz": [
+    -0.0014300000000005003,
+    -0.0180000000000012,
+    -0.0680000000000215
+   ]
+  }
+ ],
+ "links": {
+  "openarm_body_link0": {
+   "mesh": "meshes/body_link0_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_base_link": {
+   "mesh": "meshes/base_link.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_ee_base_link": {
+   "mesh": "meshes/ee_base_link.stl",
+   "mesh_rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0205,
+    -0.0,
+    0.0
+   ]
+  },
+  "openarm_left_ee_link1": {
+   "mesh": "meshes/finger_inner.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_ee_link2": {
+   "mesh": "meshes/finger_outer.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link1": {
+   "mesh": "meshes/link1.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link2": {
+   "mesh": "meshes/link2.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link3": {
+   "mesh": "meshes/link3.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link4": {
+   "mesh": "meshes/link4.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link5": {
+   "mesh": "meshes/link5.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link6": {
+   "mesh": "meshes/link6.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    -1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_base_link": {
+   "mesh": "meshes/base_link.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_ee_base_link": {
+   "mesh": "meshes/ee_base_link.stl",
+   "mesh_rpy": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0205,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_ee_link1": {
+   "mesh": "meshes/finger_inner.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_ee_link2": {
+   "mesh": "meshes/finger_outer.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link1": {
+   "mesh": "meshes/link1.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link2": {
+   "mesh": "meshes/link2.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link3": {
+   "mesh": "meshes/link3.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link4": {
+   "mesh": "meshes/link4.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link5": {
+   "mesh": "meshes/link5.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link6": {
+   "mesh": "meshes/link6.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "world": {}
+ },
+ "root": "world"
+}
