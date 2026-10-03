@@ -91,6 +91,37 @@ hub; confirm whether that is still the cause. (d) **Whether `/joint_states` reac
 from the `--network=host` openarm container; if not, suspect `ROS_LOCALHOST_ONLY` or an RMW
 mismatch, not the architecture.
 
+**0d · Install the gripper-controller fix on the robot, then verify it.** The fix is in the repo
+(`openarm-up` brings up each arm's gripper controller, one `switch_controllers` call at a time
+because that call is atomic — background in
+[openarm-setup](../docs/openarm-setup.md#why-the-gripper-controller-is-started-too)). It is
+**desk-verified only**: exercised against a stubbed controller_manager, never run on hardware, and
+the robot's `/usr/local/bin/openarm-up` predates it.
+
+```sh
+sudo install -m0755 /opt/opendubs/openarm/openarm-up /usr/local/bin/openarm-up
+openarm-up && openarm-up activate both     # expect BOTH *_gripper_controller: active
+```
+
+Then start the teleop and confirm it no longer dies with
+`Timed out waiting for left gripper action server`.
+
+**0e · The analog gripper needs the robot to even be written.** The trigger is currently a
+`HysteresisToggle` (press 0.7 / release 0.3), so it throws the analog value away. The agreed
+mapping is trigger 0→0.9 to jaw opening and the top 10% to full-close at grip effort, driving the
+**normalized `t`** so the left/right inversion stays absorbed by `OpenarmGripperSpec`
+(left `finger_open=0.0, finger_closed=-0.044`; right the vendor default) — joints 3/5/7 being roll
+joints is a *different* asymmetry, see [arm authority](design/arm-authority.md).
+
+It is **not** a teleop patch: the gripper API is binary at every layer
+(`open_gripper`/`close_gripper` in `controller.py`, `kinematic_controller.py` and
+`physics_controller.py`) with **no position-taking call anywhere**, so it needs a new API threaded
+through three implementations in `mj_manipulator` plus `ros_gripper_client.py` in
+`mj_manipulator_ros` — a third repo, not cloned here. `GripperCommand` already carries `position`
+**and** `max_effort`, so the mapping lands cleanly once the sources can be read. Needs the robot:
+both repos have already proven to drift from their published versions, so writing this blind would
+be guessing at anchors.
+
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
 exercised on `e00920a`; **the merged build has never run on hardware.** Confirm two things
