@@ -2,8 +2,9 @@
 # openarm-up — start, arm, and stop the OpenArm arm stack (impedance control) on this robot.
 #
 #   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
-#   openarm-up activate ARM     power one arm and start its controller: left | right | both
+#   openarm-up activate ARM     power one arm and start its controllers: left | right | both
 #                               (the arm then moves itself to its zero pose over ~2 s)
+#                               Starts the arm's GRIPPER controller too — teleop needs it.
 #   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
 #   openarm-up down [--drop]    controllers off, arms inactive, stack stopped, motors verified off.
 #                               REFUSES while an arm is active, because inactive = limp = the arm
@@ -103,8 +104,30 @@ hw_state() {   # hw_state left|right  ->  active | inactive | unconfigured | ...
     sed 's/.*label=//'
 }
 
-ctrl_state() { # ctrl_state left|right  ->  active | inactive | "" if not loaded
-  ros "timeout 15 ros2 control list_controllers 2>/dev/null" | awk -v c="$1_controller" '$1==c{print $NF}'
+controller_state() { # controller_state <name>  ->  active | inactive | "" if not loaded
+  ros "timeout 15 ros2 control list_controllers 2>/dev/null" | awk -v c="$1" '$1==c{print $NF}'
+}
+
+ctrl_state() { controller_state "${1}_controller"; }   # the ARM controller, by side
+
+# Bring one controller to active, whether it is unloaded or merely inactive.
+#
+# ONE CONTROLLER PER CALL, always: `ros2 control switch_controllers` is ATOMIC, so a single call
+# naming several fails ENTIRELY if any one of them is unknown — and leaves the rest untouched.
+# On 2026-10-02 asking for both grippers at once failed on right_gripper_controller (declared in
+# the controller YAML but never spawned) and therefore left left_gripper_controller inactive too,
+# which read as the LEFT gripper being broken rather than the right being absent.
+ensure_controller() {
+  local name=$1 cs
+  cs=$(controller_state "$name")
+  if [ -z "$cs" ]; then
+    # Declared in the YAML but never spawned — load_controller, not switch_controllers.
+    ros "timeout 30 ros2 control load_controller --set-state active $name 2>&1" | tail -1 | sed 's/^/  /'
+  elif [ "$cs" != active ]; then
+    ros "timeout 30 ros2 control switch_controllers --activate $name 2>&1" | tail -1 | sed 's/^/  /'
+  fi
+  cs=$(controller_state "$name")
+  [ "$cs" = active ]
 }
 
 check_links() {
@@ -182,13 +205,29 @@ activate_one() {
   A motor stuck at 'no reply' is unpowered or its CAN wiring is broken at or before it; the gripper
   is last in the chain. Check with: openarm-motors status   (then: openarm-up down)"
   echo "  $arm: 8/8 motors ENABLED"
-  local cs; cs=$(ctrl_state "$arm")
-  if [ -z "$cs" ]; then ros "timeout 30 ros2 control load_controller --set-state active ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
-  elif [ "$cs" != active ]; then ros "timeout 30 ros2 control switch_controllers --activate ${arm}_controller 2>&1" | tail -1 | sed 's/^/  /'
+  local cs
+  if ! ensure_controller "${arm}_controller"; then
+    cs=$(controller_state "${arm}_controller")
+    die "${arm}_controller is '${cs:-not loaded}', not active"
   fi
-  cs=$(ctrl_state "$arm")
-  [ "$cs" = active ] || die "${arm}_controller is '${cs:-not loaded}', not active"
   echo "  ${arm}_controller: active"
+
+  # The GRIPPER controller too. Not a nicety: the WebXR teleop opens a GripperCommand action
+  # client per arm and will not start without one, dying 30 s later with
+  # "Timed out waiting for left gripper action server" — a message that points at the wrong arm
+  # and says nothing about controllers.
+  #
+  # A WARNING rather than fatal, because an arm is perfectly usable without its gripper and some
+  # configurations may not declare one. But it says what it costs, so the teleop's timeout is
+  # never the first time anyone hears about it.
+  if ensure_controller "${arm}_gripper_controller"; then
+    echo "  ${arm}_gripper_controller: active"
+  else
+    cs=$(controller_state "${arm}_gripper_controller")
+    echo "  !! ${arm}_gripper_controller is '${cs:-not loaded}', not active."
+    echo "  !! The arm will move, but TELEOP WILL NOT START — it waits on this arm's"
+    echo "  !! GripperCommand action server and then times out."
+  fi
 }
 
 cmd_activate() {
@@ -337,11 +376,16 @@ cmd_down() {
     sleep 1
     sudo docker exec "$CONTAINER" pkill -TERM -f "ros2_control_node|$LAUNCH_MATCH" 2>/dev/null
   elif running; then
-    local a cs
+    local a c cs
     echo "== controllers off"
+    # Grippers first, then arms, and one call each (switch_controllers is atomic). Leaving a
+    # gripper controller active would keep it claiming its joint's interfaces while the hardware
+    # is being taken inactive underneath it.
     for a in left right; do
-      cs=$(ctrl_state "$a")
-      [ "$cs" = active ] && ros "timeout 30 ros2 control switch_controllers --deactivate ${a}_controller 2>&1" | tail -1 | sed "s/^/  $a: /"
+      for c in "${a}_gripper_controller" "${a}_controller"; do
+        [ "$(controller_state "$c")" = active ] || continue
+        ros "timeout 30 ros2 control switch_controllers --deactivate $c 2>&1" | tail -1 | sed "s/^/  $c: /"
+      done
     done
     echo "== arms inactive (limp)"
     for a in left right; do

@@ -154,7 +154,7 @@ straight away.
 | Command | What it does |
 |---|---|
 | `openarm-up` | Checks both links and the container, launches the stack, and waits until both arms report **inactive**: motors off, arms limp |
-| `openarm-up activate left` (or `right`, `both`) | Powers the arm, checks all 8 of its motors report enabled, then starts its controller. **The arm moves to zero over ~2 s.** |
+| `openarm-up activate left` (or `right`, `both`) | Powers the arm, checks all 8 of its motors report enabled, then starts its impedance controller **and its gripper controller**. **The arm moves to zero over ~2 s.** |
 | `openarm-up park left` (or `right`, `both`) | Moves the arm to its configured **stow pose**, so that de-energizing it is harmless. Explicit, like activation, and for the same reason: it moves the arm |
 | `openarm-up down` | Stops the controllers, makes the arms inactive (they go limp), stops the stack, and confirms every motor is disabled. If any motor stays enabled, it sends DISABLE frames directly. **Refuses while an arm is active** — see below |
 | `openarm-up status` | Links, container, stack, hardware and controller states, and each motor's status and temperature |
@@ -163,6 +163,27 @@ straight away.
 
 With both controllers active, the arms accept `control_msgs/FollowJointTrajectory` goals on
 `/left_controller/follow_joint_trajectory` and `/right_controller/follow_joint_trajectory`.
+
+### Why the gripper controller is started too
+
+The WebXR teleop opens a `GripperCommand` action client **per arm** and will not start without one,
+failing ~30 s in with `Timed out waiting for left gripper action server` — a message that names the
+wrong thing and says nothing about controllers.
+
+Two distinct states had to be handled, because they need different commands:
+
+- `left_gripper_controller` is spawned but **inactive** → `switch_controllers --activate`.
+- `right_gripper_controller` is declared in the controller YAML but **never spawned** →
+  `load_controller --set-state active`.
+
+!!! warning "`switch_controllers` is atomic"
+    A single call naming several controllers fails **entirely** if any one of them is unknown, and
+    leaves the others untouched. Asking for both grippers at once therefore failed on the right and
+    left the **left** one inactive as well — which reads as the left gripper being broken rather
+    than the right being absent. `openarm-up` now brings up one controller per call, always.
+
+A gripper that will not activate is a **warning, not a fatal error**: the arm is usable without it.
+But the warning says what it costs, so the teleop's timeout is never the first anyone hears of it.
 
 ## The arm stack and the host must share an RMW
 
