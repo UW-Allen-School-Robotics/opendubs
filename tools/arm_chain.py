@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 ASSETS = REPO / "software/kiosk-dashboard/frontend/assets/arm"
-URDF = ASSETS / "v2.urdf"
+URDF = ASSETS / "v1.urdf"
 OUT = ASSETS / "chain.json"
 
 
@@ -142,7 +142,7 @@ def _fk(tree, angles, target):
 def fk_checks(tree):
     import math
     d = math.radians
-    target = "openarm_left_link6"
+    target = "openarm_left_hand_tcp"
     cases = [
         # The arm hangs straight down at zero, so this pins the whole chain plus the fixed mount.
         ("all zero", {}),
