@@ -485,12 +485,12 @@ body {
 
   /* Every active view: cards flow into as many columns as fit (1 in portrait,
      2-3 in landscape); the page scrolls. min(600px,100%) avoids overflow on phones. */
-  .view.active:not(#view-operate) { display: grid !important;
+  .view.active:not(#view-operate):not(#view-teleop) { display: grid !important;
                  grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr)) !important;
                  grid-template-rows: none !important; grid-template-areas: none !important;
                  gap: var(--gap); align-content: start; align-items: start;
                  height: auto; padding: var(--gap); overflow: visible; }
-  .view.active:not(#view-operate) > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
+  .view.active:not(#view-operate):not(#view-teleop) > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
                      max-width: none !important; height: auto !important; min-height: 0 !important; }
   .card { height: auto; }
 
@@ -608,4 +608,59 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .banner-wait {
   background: #f3b64a; color: #1a1a1a; font-weight: 700; letter-spacing: .04em;
   text-align: center; padding: 6px 10px; font-size: 15px;
+}
+
+/* ═══════════════ TELEOP screen — landscape-first ═══════════════
+   Owns its layout rather than taking the generic auto-fit reflow, like #view-operate. The
+   tablet sits in LANDSCAPE, and the generic rule (one 600px-min column per fit) would stack the
+   control strip into the column flow, which is exactly where controls should not be. */
+#view-teleop.teleopview.active {
+  display: grid; gap: var(--gap); padding: var(--gap);
+  grid-template-columns: 1.5fr 1fr 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "ctl ctl ctl" "pose session server";
+  height: 100%; align-content: start;
+}
+.tp-controls { grid-area: ctl; display: flex; gap: var(--gap); flex-wrap: wrap; }
+.tp-pose { grid-area: pose; min-height: 0; }
+.tp-session { grid-area: session; }
+.tp-server { grid-area: server; }
+
+.tp-ctl { padding: 8px 11px; flex: 0 0 auto; }
+/* ARM POWER is the group that MOVES an arm, so it is set apart from RECOVER rather than lined up
+   beside it — a reach for PARK must not land on DE-ENERGIZE. */
+.tp-ctl.tp-power { border-color: #2a1f1f; margin-left: auto; }
+.tp-warn { color: var(--warn); font-weight: 400; }
+.tp-btns { display: flex; gap: 6px; }
+.tp-btns .sysbtn { min-height: 44px; }
+.tp-accent { border-color: var(--accent); color: var(--accent); }
+
+.tp-views { display: flex; gap: 5px; align-items: center; margin-bottom: 6px; }
+.tp-spacer { flex: 1; }
+.tp-canvas { width: 100%; flex: 1; min-height: 180px; background: #0b1017;
+             border: 1px solid var(--line); border-radius: 6px; display: block; }
+
+.tp-hands { display: flex; gap: 10px; }
+.tp-hand { flex: 1; text-align: center; border: 1px solid var(--line); border-radius: 6px; padding: 6px 0; }
+.tp-hand .dot { font-size: 20px; color: var(--dim); line-height: 1.1; }
+.tp-hand.tracked { border-color: var(--good); }
+.tp-hand.tracked .dot { color: var(--good); }
+.tp-loop { display: flex; gap: 14px; align-items: baseline; margin: 4px 0 2px; }
+.tp-loop > div > span:first-child { font-size: 19px; font-weight: 700; color: var(--txt); }
+.tp-loop .bad { color: var(--bad); } .tp-loop .good { color: var(--good); }
+
+.tp-url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px;
+          color: var(--accent); word-break: break-all; }
+.tp-ready { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; font-size: 12px; }
+.tp-ready .ok::before    { content: "● "; color: var(--good); }
+.tp-ready .warnx::before { content: "● "; color: var(--warn); }
+.tp-ready .badx::before  { content: "● "; color: var(--bad); }
+
+/* Portrait or a narrow window: fall back to a single column, controls still first. */
+@media (max-aspect-ratio: 1/1), (max-width: 900px) {
+  #view-teleop.teleopview.active {
+    grid-template-columns: 1fr; grid-template-rows: auto;
+    grid-template-areas: "ctl" "pose" "session" "server"; height: auto;
+  }
+  .tp-canvas { min-height: 44dvh; }
 }

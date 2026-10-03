@@ -857,6 +857,12 @@ function renderMast(st) {
              throttle_rate: 100, queue_length: 1 });
       send({ op: "subscribe", topic: "/scan_rear", type: "sensor_msgs/msg/LaserScan",
              throttle_rate: 100, queue_length: 1 });
+      // /joint_states for the TELEOP page's arm view. Throttled hard on purpose: the arm
+      // controllers publish at 400 Hz and a display needs ~10, so the rate is asked for at the
+      // SUBSCRIPTION rather than by adding a decimating node — one publisher, many subscribers,
+      // each taking what it can use.
+      send({ op: "subscribe", topic: "/joint_states", type: "sensor_msgs/msg/JointState",
+             throttle_rate: 100, queue_length: 1 });
     };
     ws.onclose = () => { wsReady = false; setRosBadge("DOWN"); setTimeout(rosConnect, 2500); };
     ws.onerror = () => { try { ws.close(); } catch (e) {} };
@@ -864,6 +870,9 @@ function renderMast(st) {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.op === "publish" && m.topic === "/scan") onScan(m.msg);
       else if (m.op === "publish" && m.topic === "/scan_rear") onRearScan(m.msg);
+      // Handed to the teleop page's module, which may not be loaded yet — hence the optional call
+      // rather than a hard reference.
+      else if (m.op === "publish" && m.topic === "/joint_states") window.onJointStates?.(m.msg);
     };
   }
 

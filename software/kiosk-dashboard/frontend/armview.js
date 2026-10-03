@@ -11,8 +11,8 @@
  * that state (right arm at j3 -36.6 deg) looking identical to stowed. Asymmetric geometry shows it
  * for free.
  */
-import * as THREE from "./vendor/three.module.min.js";
-import { STLLoader } from "./vendor/STLLoader.js";
+import * as THREE from "./vendor/three.module.min.js?v=2992ecd7";
+import { STLLoader } from "./vendor/STLLoader.js?v=f513c1ec";
 
 const ASSETS = "assets/arm/";
 
@@ -27,6 +27,8 @@ function urdfQuat(rpy) {
   const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), y);
   return q.copy(qz).multiply(qy).multiply(qx);
 }
+
+function span2(f) { return Math.max(f.w, f.h) * 40 + 10; }
 
 export class ArmView {
   constructor(canvas) {
@@ -144,28 +146,49 @@ export class ArmView {
     this.render();
   }
 
-  /* Fit the camera to the model every time, so the view does not depend on hand-tuned numbers
-   * that would rot the moment the URDF changes. */
+  /* Fit the camera to the model every time, so the view never depends on hand-tuned numbers that
+   * would rot the moment the URDF changes. Fitted to the PROJECTED extents of the bounding box,
+   * not its diagonal: a tall thin robot in a wide panel wastes most of the panel if you size the
+   * frustum by a bounding sphere. */
   frame() {
     if (!this.ready) return;
     this.root.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.root);
     if (box.isEmpty()) return;
     const c = box.getCenter(new THREE.Vector3());
-    const r = Math.max(box.getSize(new THREE.Vector3()).length() * 0.5, 0.1);
-    this.camera.position.copy(c).addScaledVector(this.dir || new THREE.Vector3(1, -1, 0.75), r * 4);
+    const span = box.getSize(new THREE.Vector3()).length();
+    this.camera.position.copy(c).addScaledVector(this.dir || new THREE.Vector3(1, -1, 0.75), span);
     this.camera.up.set(0, 0, 1);
     this.camera.lookAt(c);
-    this.resize(r);
+    this.camera.updateMatrixWorld(true);
+
+    const inv = this.camera.matrixWorldInverse;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      v.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+      v.applyMatrix4(inv);
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+    }
+    this._fit = { w: (maxX - minX) / 2, h: (maxY - minY) / 2,
+                  cx: (maxX + minX) / 2, cy: (maxY + minY) / 2 };
+    this.resize();
   }
 
-  resize(radius) {
+  resize() {
     const w = this.canvas.clientWidth || 400, h = this.canvas.clientHeight || 300;
     this.renderer.setSize(w, h, false);
-    const r = radius || 0.6;
+    const f = this._fit;
+    if (!f) return;
+    const pad = 1.08;
     const aspect = w / h;
-    this.camera.left = -r * 1.15 * aspect; this.camera.right = r * 1.15 * aspect;
-    this.camera.top = r * 1.15; this.camera.bottom = -r * 1.15;
+    // Grow whichever axis the panel has spare room on, so the model is never cropped.
+    let hw = f.w * pad, hh = f.h * pad;
+    if (hw / hh < aspect) hw = hh * aspect; else hh = hw / aspect;
+    this.camera.left = f.cx - hw; this.camera.right = f.cx + hw;
+    this.camera.top = f.cy + hh; this.camera.bottom = f.cy - hh;
+    this.camera.near = -span2(f); this.camera.far = span2(f);
     this.camera.updateProjectionMatrix();
   }
 
