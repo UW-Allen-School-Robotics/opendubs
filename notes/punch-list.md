@@ -6,7 +6,7 @@ _Working document. Core robot first (drive, power, safety, thermal, compute, sen
 
 ## Where the open work lives
 
-Swept 2026-09-29, extended 2026-10-02. Seven registers. Everything else in `notes/` is a design record; `design/` files
+Swept 2026-09-29, extended 2026-10-04. Eight registers. Everything else in `notes/` is a design record; `design/` files
 are listed here only when they carry open items of their own. Check here before starting a new list.
 
 | register | open | what it is |
@@ -17,6 +17,7 @@ are listed here only when they carry open items of their own. Check here before 
 | [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
 | [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, the arm arbiter chosen (wrap Sidd's `OwnershipRegistry`), and `openarm-up` no longer drops the arms on the way down. Open: report the abort-recovery gap to `personalrobotics/mj_manipulator` |
 | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | 3 | **goal 5 — arm display on the tablet, and arm telemetry to other clients.** Settled: not Viser (it renders commanded pose), `/joint_states` over rosbridge with per-subscription throttling, and the dashboard backend stays out of it |
+| [`design/arm-manual-control.md`](design/arm-manual-control.md) | 1 | **moving an arm by hand** — freedrive, the frame selector, and click-to-reach. Freedrive settled: per-arm, requires CH5 `MANUAL`, latched not held (both hands are on the arm), and on exit it holds *where it is*. Open: prototype click-to-reach against jogging before building either |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | 2 | **goal 6 — two RPLIDAR A1s and how the stack consumes them.** Drivers are done; the gap is that no `base_link`→sensor TF exists, so the dashboard hardcodes a guessed orientation. Settled: publish extrinsics from a URDF, do not merge the scans |
 | `docs/` + code | — | no register; staleness is found by sweeping, not tracked |
 

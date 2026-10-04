@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=3e34b5ee" />
+  <link rel="stylesheet" href="style.css?v=f35fc600" />
 </head>
 <body>
   <div id="app">
@@ -426,9 +426,69 @@
       </section>
     </main>
 
-    <!-- TELEOP view (placeholder — Meta Quest + other teleop) -->
-    <main id="view-teleop" class="view placeholder">
-      <div class="ph"><h1>TELEOP</h1><p>Meta Quest · remote operation</p><p class="dim">teleop methods to be implemented</p></div>
+    <!-- TELEOP view — WebXR teleop: controls, arm pose, session health -->
+    <main id="view-teleop" class="view teleopview">
+      <div class="tp-controls">
+        <section class="card tp-ctl">
+          <h2>RECOVER</h2>
+          <div class="tp-btns">
+            <button id="btnArmPark" class="sysbtn tp-accent">PARK BOTH</button>
+            <button id="btnArmHoldL" class="sysbtn">HOLD L</button>
+            <button id="btnArmHoldR" class="sysbtn">HOLD R</button>
+          </div>
+        </section>
+        <section class="card tp-ctl">
+          <h2>TELEOP</h2>
+          <div class="tp-btns">
+            <button id="btnTeleopStart" class="sysbtn">START</button>
+            <button id="btnTeleopStop" class="sysbtn">STOP</button>
+          </div>
+        </section>
+        <section class="card tp-ctl tp-power">
+          <h2>ARM POWER <span class="tp-warn">· moves the arm</span></h2>
+          <div class="tp-btns">
+            <button id="btnArmActL" class="sysbtn">ACTIVATE L</button>
+            <button id="btnArmActR" class="sysbtn">ACTIVATE R</button>
+            <button id="btnArmDown" class="sysbtn danger">DE-ENERGIZE</button>
+          </div>
+        </section>
+      </div>
+
+      <section class="card tp-pose">
+        <h2>ARM POSE <span id="tpPoseSrc" class="badge dimbadge">no joint data</span></h2>
+        <div class="tp-views">
+          <button class="iobtn on" data-armview="iso">ISO</button>
+          <button class="iobtn" data-armview="top">TOP</button>
+          <button class="iobtn" data-armview="side">SIDE</button>
+          <button class="iobtn" data-armview="front">FRONT</button>
+          <span class="tp-spacer"></span>
+          <span id="tpStowL" class="sub">left —</span>
+          <span id="tpStowR" class="sub">right —</span>
+        </div>
+        <canvas id="armCanvas" class="tp-canvas"></canvas>
+      </section>
+
+      <section class="card tp-session">
+        <h2>SESSION <span id="tpSessionState" class="badge dimbadge">—</span></h2>
+        <div class="tp-hands">
+          <div class="tp-hand" id="tpHandL"><div class="dot">○</div><div class="sub">L hand</div></div>
+          <div class="tp-hand" id="tpHandR"><div class="dot">○</div><div class="sub">R hand</div></div>
+        </div>
+        <h2 class="mt">LOOP vs BUDGET</h2>
+        <div class="tp-loop">
+          <div><span id="tpLoopHz">—</span><span class="sub"> target</span></div>
+          <div><span id="tpLoopOver">—</span><span class="sub"> over budget</span></div>
+          <div><span id="tpLoopWorst">—</span><span class="sub"> worst</span></div>
+        </div>
+        <div class="sub" id="tpLoopNote">the loop reports this itself; it is why teleop can feel vague</div>
+      </section>
+
+      <section class="card tp-server">
+        <h2>SERVER <span id="tpServerState" class="badge dimbadge">—</span></h2>
+        <div class="tp-url" id="tpUrl">—</div>
+        <div class="sub">open in the Quest Browser · accept the certificate once</div>
+        <div id="tpReady" class="tp-ready"></div>
+      </section>
     </main>
 
     <!-- LIDAR view — front half-disc (opens left) | robot/controls | rear half-disc (opens right) -->
@@ -469,7 +529,8 @@
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=d9b97880"></script>
-  <script src="operate.js?v=47d79c8e"></script>
+  <script src="app.js?v=0a1c032a"></script>
+  <script src="operate.js?v=7ef5cdb2"></script>
+  <script type="module" src="teleop.js?v=62f2695f"></script>
 </body>
 </html>

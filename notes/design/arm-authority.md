@@ -76,7 +76,7 @@ live, deliberately engaged human, and **omission stops it** — the same fail-sa
 | `HOLD` | energized, holding position, accepting nothing |
 | `TELEOP` | a teleop source holds the lease |
 | `AUTO` | a planner or policy holds the lease |
-| `FREE` | energized, zero stiffness — hand-guiding and kinesthetic teaching |
+| `FREE` | energized, zero stiffness — hand-guiding and kinesthetic teaching. How an operator engages it, and why it is the one mode where a dead stack drops the arm: [manual control](arm-manual-control.md) |
 
 **Everything falls back to `HOLD`.** Lease expiry, source dropout, mode exit, CH5 to `OFF`, a
 software abort — all land in `HOLD`, never `OFF`. That is the controlled stop, and making it the
@@ -88,8 +88,9 @@ specific publisher holds the lease. Select-one with hand-off, per
 [behavior API scope](behavior-api-scope.md) — trajectories are stateful, so a second writer
 mid-trajectory is a collision, not a blend.
 
-`FREE` has no implementation today: the arms run an onboard P+D with gravity compensation and
-nothing exposes a zero-stiffness mode. It is in the enumeration because the adapter below declares
+`FREE` has no implementation today — but it may be nearer than it looks: the controller is
+`openarm_impedance_controller`, so zero stiffness with gravity compensation is plausibly a
+parameter rather than a new capability. Worth checking before building anything. It is in the enumeration because the adapter below declares
 which modes it honours, and adding a mode to that contract later is more disruptive than carrying
 one that reports unsupported.
 

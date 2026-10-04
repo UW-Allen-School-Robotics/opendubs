@@ -124,6 +124,55 @@ def tracker_control(state: str) -> JSONResponse:
                                         "so the tracker will not be given the head"})})
 
 
+@app.get("/api/arms/status")
+def arms_status() -> JSONResponse:
+    """Arm + teleop state for the TELEOP page. Cheap enough to poll; motor reads are cached,
+    because they are CAN traffic on the same bus the controllers are using."""
+    import openarm
+    return JSONResponse(openarm.snapshot())
+
+
+@app.post("/api/arms/{op}")
+def arms_op(op: str, arm: str = "both") -> JSONResponse:
+    """Run one arm operation, in the background, one at a time.
+
+    Everything here goes through `openarm-up` rather than reimplementing its guards: that script
+    knows switch_controllers is atomic, that the gripper controllers must come up or teleop dies on
+    an action-server timeout, and that `down` must refuse an arm which is not at its stow pose.
+    Two sources for those rules would be two answers to the same question.
+
+    Returns immediately: `activate` alone waits up to 10 s for the gripper motor, and an HTTP
+    request held open that long is a browser timeout waiting to happen. Poll /api/arms/status.
+    """
+    import openarm
+    ok, detail = openarm.start_op(op.lower(), arm.lower())
+    if not ok:
+        # 409 for "something else is running" -- a second arm command mid-motion is a collision,
+        # not a queue -- and 400 for a malformed one.
+        code = 409 if "still running" in detail else 400
+        return JSONResponse({"ok": False, "error": detail,
+                             "hint": ("arm operations need a sudoers rule for "
+                                      "/usr/local/bin/openarm-up")}, status_code=code)
+    return JSONResponse({"ok": True, "started": detail, "poll": "/api/arms/status"})
+
+
+@app.post("/api/teleop/{verb}")
+def teleop_control(verb: str) -> JSONResponse:
+    """Start or stop the WebXR teleop bridge via its systemd unit.
+
+    It does NOT start the arm stack or activate the arms; the bridge hard-fails within ~30 s
+    without the gripper action servers, so `openarm-up activate` comes first and deliberately
+    stays a separate, explicit step.
+    """
+    import openarm
+    ok, detail = openarm.teleop(verb.lower())
+    if not ok:
+        return JSONResponse({"ok": False, "error": detail,
+                             "hint": (f"needs a sudoers rule for: systemctl {verb.lower()} "
+                                      f"{openarm.TELEOP_UNIT}")}, status_code=503)
+    return JSONResponse({"ok": True, "detail": detail})
+
+
 @app.get("/api/stamplc")
 def stamplc_status() -> JSONResponse:
     """Lightweight StamPLC view (io / safety / encoder / power) for the ROS bridge

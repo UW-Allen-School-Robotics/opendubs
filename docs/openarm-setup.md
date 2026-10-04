@@ -156,6 +156,7 @@ straight away.
 | `openarm-up` | Checks both links and the container, launches the stack, and waits until both arms report **inactive**: motors off, arms limp |
 | `openarm-up activate left` (or `right`, `both`) | Powers the arm, checks all 8 of its motors report enabled, then starts its impedance controller **and its gripper controller**. **The arm moves to zero over ~2 s.** |
 | `openarm-up park left` (or `right`, `both`) | Moves the arm to its configured **stow pose**, so that de-energizing it is harmless. Explicit, like activation, and for the same reason: it moves the arm |
+| `openarm-up hold left` (or `right`, `both`) | Drives the arm to **where it already is**. That reads like a no-op and is not: sending a trajectory preempts whatever trajectory is running and leaves the arm commanded to its present pose — *stop what you are doing without dropping anything* |
 | `openarm-up down` | Stops the controllers, makes the arms inactive (they go limp), stops the stack, and confirms every motor is disabled. If any motor stays enabled, it sends DISABLE frames directly. **Refuses while an arm is active** — see below |
 | `openarm-up status` | Links, container, stack, hardware and controller states, and each motor's status and temperature |
 | `openarm-up logs` | Follows the current launch log |
@@ -212,6 +213,32 @@ is the first thing to try if the arms behave differently.
     nothing active, skips deactivating the controllers and hardware, and stops the stack with the
     arms still energized. The guard cannot see what it is guarding. If `status` shows a running
     stack but blank hardware states, suspect the RMW before anything else.
+
+## Running teleop from the dashboard
+
+The WebXR bridge runs as **`opendubs-teleop.service`**, and the dashboard's TELEOP page starts and
+stops it. A unit rather than something the dashboard spawns directly, because the face tracker was
+spawned directly once and it went badly: a second copy fought the service, failures were silent,
+and anything started at boot was invisible to the button. Under systemd there is one instance,
+`systemctl status` is the truth, and the journal carries the loop-overrun warnings — which the
+page reads and displays, since that number is the difference between *"teleop feels vague"* and
+*"the loop is missing 23% of its deadlines"*.
+
+The unit sets `OPENARM_TELEOP_VIEWER=0` and the RMW/FastDDS variables, matching what `openarm-up`
+does; see [the patches directory](https://github.com/UW-Allen-School-Robotics/opendubs/tree/main/software/openarm/patches)
+for why the viewer is off.
+
+It is **`Restart=no`** on purpose: a teleop bridge that resurrects itself after the operator
+stopped it is a session they did not ask for, with an arm attached.
+
+!!! warning "It does not start the arms"
+    The bridge opens a `GripperCommand` action client per arm and hard-fails in about 30 s without
+    them. `openarm-up activate` comes first and stays a separate, explicit step.
+
+The dashboard's arm buttons all shell out to `openarm-up` rather than talking to ros2_control
+themselves, so its guards stay in one place. That needs sudoers rules — see
+`kiosk-dashboard/deploy/opendubs-sudoers`; without them the buttons report
+`sudo: a password is required` on screen rather than failing quietly.
 
 ## Bringing the arms down without dropping them
 

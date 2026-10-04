@@ -1,0 +1,920 @@
+{
+ "_fk_checks": [
+  {
+   "angles": {},
+   "expect": [
+    0.0,
+    0.153498,
+    0.262
+   ],
+   "label": "all zero",
+   "link": "openarm_left_hand_tcp"
+  },
+  {
+   "angles": {
+    "openarm_left_joint4": 0.4363323129985824
+   },
+   "expect": [
+    0.091286,
+    0.153498,
+    0.282237
+   ],
+   "label": "left elbow j4 = +25deg",
+   "link": "openarm_left_hand_tcp"
+  },
+  {
+   "angles": {
+    "openarm_left_joint3": 0.6457718232379019
+   },
+   "expect": [
+    0.0,
+    0.153498,
+    0.262
+   ],
+   "label": "left j3 roll = +37deg",
+   "link": "openarm_left_hand_tcp"
+  }
+ ],
+ "_generated_by": "tools/arm_chain.py -- do not edit by hand",
+ "_source": "v1.urdf",
+ "joints": [
+  {
+   "child": "openarm_body_link0",
+   "name": "openarm_body_world_joint",
+   "parent": "world",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "child": "openarm_left_link0",
+   "name": "openarm_left_openarm_body_link0_joint",
+   "parent": "openarm_body_link0",
+   "rpy": [
+    -1.5708,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.031,
+    0.698
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_left_link1",
+   "lower": -3.490659,
+   "name": "openarm_left_joint1",
+   "parent": "openarm_left_link0",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.3962629999999998,
+   "xyz": [
+    0.0,
+    0.0,
+    0.0625
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_link2",
+   "lower": -3.3161253267948965,
+   "name": "openarm_left_joint2",
+   "parent": "openarm_left_link1",
+   "rpy": [
+    -1.57079632679,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.17453267320510335,
+   "xyz": [
+    -0.0301,
+    0.0,
+    0.06
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_left_link3",
+   "lower": -1.570796,
+   "name": "openarm_left_joint3",
+   "parent": "openarm_left_link2",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    0.0301,
+    0.0,
+    0.06625
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_left_link4",
+   "lower": 0.0,
+   "name": "openarm_left_joint4",
+   "parent": "openarm_left_link3",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 2.443461,
+   "xyz": [
+    -0.0,
+    0.0315,
+    0.15375
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_left_link5",
+   "lower": -1.570796,
+   "name": "openarm_left_joint5",
+   "parent": "openarm_left_link4",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    0.0,
+    -0.0315,
+    0.0955
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_left_link6",
+   "lower": -0.785398,
+   "name": "openarm_left_joint6",
+   "parent": "openarm_left_link5",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.785398,
+   "xyz": [
+    0.0375,
+    0.0,
+    0.1205
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_left_link7",
+   "lower": -1.570796,
+   "name": "openarm_left_joint7",
+   "parent": "openarm_left_link6",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    -0.0375,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "child": "openarm_right_link0",
+   "name": "openarm_right_openarm_body_link0_joint",
+   "parent": "openarm_body_link0",
+   "rpy": [
+    1.5708,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    -0.031,
+    0.698
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_right_link1",
+   "lower": -1.396263,
+   "name": "openarm_right_joint1",
+   "parent": "openarm_right_link0",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 3.490659,
+   "xyz": [
+    0.0,
+    0.0,
+    0.0625
+   ]
+  },
+  {
+   "axis": [
+    -1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_link2",
+   "lower": -0.17453267320510335,
+   "name": "openarm_right_joint2",
+   "parent": "openarm_right_link1",
+   "rpy": [
+    1.57079632679,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 3.3161253267948965,
+   "xyz": [
+    -0.0301,
+    0.0,
+    0.06
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_right_link3",
+   "lower": -1.570796,
+   "name": "openarm_right_joint3",
+   "parent": "openarm_right_link2",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    0.0301,
+    0.0,
+    0.06625
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_right_link4",
+   "lower": 0.0,
+   "name": "openarm_right_joint4",
+   "parent": "openarm_right_link3",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 2.443461,
+   "xyz": [
+    -0.0,
+    0.0315,
+    0.15375
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "child": "openarm_right_link5",
+   "lower": -1.570796,
+   "name": "openarm_right_joint5",
+   "parent": "openarm_right_link4",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    0.0,
+    -0.0315,
+    0.0955
+   ]
+  },
+  {
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "child": "openarm_right_link6",
+   "lower": -0.785398,
+   "name": "openarm_right_joint6",
+   "parent": "openarm_right_link5",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 0.785398,
+   "xyz": [
+    0.0375,
+    0.0,
+    0.1205
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_right_link7",
+   "lower": -1.570796,
+   "name": "openarm_right_joint7",
+   "parent": "openarm_right_link6",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "revolute",
+   "upper": 1.570796,
+   "xyz": [
+    -0.0375,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "child": "openarm_left_hand_tcp",
+   "name": "openarm_left_hand_tcp_joint",
+   "parent": "openarm_left_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_left_right_finger",
+   "lower": 0.0,
+   "name": "openarm_left_finger_joint1",
+   "parent": "openarm_left_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "prismatic",
+   "upper": 0.044,
+   "xyz": [
+    0.0,
+    0.0,
+    0.1025
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_left_left_finger",
+   "lower": 0.0,
+   "name": "openarm_left_finger_joint2",
+   "parent": "openarm_left_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "prismatic",
+   "upper": 0.044,
+   "xyz": [
+    0.0,
+    -0.0,
+    0.1025
+   ]
+  },
+  {
+   "child": "openarm_right_hand_tcp",
+   "name": "openarm_right_hand_tcp_joint",
+   "parent": "openarm_right_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "fixed",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "child": "openarm_right_right_finger",
+   "lower": 0.0,
+   "name": "openarm_right_finger_joint1",
+   "parent": "openarm_right_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "prismatic",
+   "upper": 0.044,
+   "xyz": [
+    0.0,
+    0.0,
+    0.1025
+   ]
+  },
+  {
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "child": "openarm_right_left_finger",
+   "lower": 0.0,
+   "name": "openarm_right_finger_joint2",
+   "parent": "openarm_right_link7",
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "prismatic",
+   "upper": 0.044,
+   "xyz": [
+    0.0,
+    -0.0,
+    0.1025
+   ]
+  }
+ ],
+ "links": {
+  "openarm_body_link0": {
+   "mesh": "meshes/body_link0_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_hand_tcp": {},
+  "openarm_left_left_finger": {
+   "mesh": "meshes/finger.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.05,
+    -0.673001
+   ]
+  },
+  "openarm_left_link0": {
+   "mesh": "meshes/link0_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_left_link1": {
+   "mesh": "meshes/link1_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    0.0,
+    -0.0625
+   ]
+  },
+  "openarm_left_link2": {
+   "mesh": "meshes/link2_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0301,
+    0.0,
+    -0.1225
+   ]
+  },
+  "openarm_left_link3": {
+   "mesh": "meshes/link3_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    -0.0,
+    -0.18875
+   ]
+  },
+  "openarm_left_link4": {
+   "mesh": "meshes/link4_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.0315,
+    -0.3425
+   ]
+  },
+  "openarm_left_link5": {
+   "mesh": "meshes/link5_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    -0.0,
+    -0.438
+   ]
+  },
+  "openarm_left_link6": {
+   "mesh": "meshes/link6_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0375,
+    -0.0,
+    -0.5585
+   ]
+  },
+  "openarm_left_link7": {
+   "mesh": "meshes/link7_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.0,
+    -0.5585
+   ]
+  },
+  "openarm_left_right_finger": {
+   "mesh": "meshes/finger.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.05,
+    -0.673001
+   ]
+  },
+  "openarm_right_hand_tcp": {},
+  "openarm_right_left_finger": {
+   "mesh": "meshes/finger.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.05,
+    -0.673001
+   ]
+  },
+  "openarm_right_link0": {
+   "mesh": "meshes/link0_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "openarm_right_link1": {
+   "mesh": "meshes/link1_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    0.0,
+    -0.0625
+   ]
+  },
+  "openarm_right_link2": {
+   "mesh": "meshes/link2_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0301,
+    0.0,
+    -0.1225
+   ]
+  },
+  "openarm_right_link3": {
+   "mesh": "meshes/link3_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    -0.0,
+    -0.18875
+   ]
+  },
+  "openarm_right_link4": {
+   "mesh": "meshes/link4_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.0315,
+    -0.3425
+   ]
+  },
+  "openarm_right_link5": {
+   "mesh": "meshes/link5_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0,
+    -0.0,
+    -0.438
+   ]
+  },
+  "openarm_right_link6": {
+   "mesh": "meshes/link6_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    -0.0375,
+    -0.0,
+    -0.5585
+   ]
+  },
+  "openarm_right_link7": {
+   "mesh": "meshes/link7_symp.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    -0.0,
+    -0.5585
+   ]
+  },
+  "openarm_right_right_finger": {
+   "mesh": "meshes/finger.stl",
+   "mesh_rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mesh_scale": [
+    0.001,
+    -0.001,
+    0.001
+   ],
+   "mesh_xyz": [
+    0.0,
+    0.05,
+    -0.673001
+   ]
+  },
+  "world": {}
+ },
+ "root": "world"
+}

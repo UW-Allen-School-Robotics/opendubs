@@ -6,6 +6,8 @@
 #                               (the arm then moves itself to its zero pose over ~2 s)
 #                               Starts the arm's GRIPPER controller too — teleop needs it.
 #   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
+#   openarm-up hold ARM         stop where it is: drives the arm to its CURRENT pose, which
+#                               preempts any running trajectory without moving anything
 #   openarm-up down [--drop]    controllers off, arms inactive, stack stopped, motors verified off.
 #                               REFUSES while an arm is active, because inactive = limp = the arm
 #                               falls from wherever it is. Park first, or pass --drop deliberately.
@@ -279,6 +281,28 @@ at_stow() {
 
 # Moving an arm on the way DOWN is as hazardous as moving it on the way UP, so parking is its own
 # explicit step and is never folded into `down`.
+# Current joint angles in degrees, joints 1-7, from openarm-motors. The mapping is identity --
+# verified 2026-10-02: after driving to zero, all seven joints read ~0 in these units.
+current_pose() {
+  $MOTORS status | awk -v b="arm_$1" '/^arm_/{cur=$1} cur==b && /id [1-7] \(joint/{
+      gsub(/\+/,"",$7); printf "%s%s",(n++?",":""),$7}'
+}
+
+# HOLD: drive the arm to WHERE IT ALREADY IS. That reads like a no-op and is not — sending a
+# trajectory preempts whatever trajectory is currently running and leaves the arm commanded to its
+# present pose, which is the "stop what you are doing without dropping anything" primitive. Short
+# travel because it is not supposed to move.
+cmd_hold() {
+  local which=${1:-} arms a
+  case "$which" in left|right) arms=$which ;; both) arms="left right" ;;
+    *) die "usage: openarm-up hold left|right|both" ;; esac
+  running || die "stack is not running — nothing to hold"
+  for a in $arms; do
+    [ "$(ctrl_state "$a")" = active ] || die "$a: controller is not active — nothing to hold"
+    move_to "$a" "$(current_pose "$a")" 1 "holding at its current pose"
+  done
+}
+
 park_one() {
   local arm=$1
   [ "$(ctrl_state "$arm")" = active ] || die "$arm: controller is not active — nothing to park (openarm-up activate $arm)"
@@ -290,21 +314,29 @@ park_one() {
   de-energized in, read the angles off \`openarm-motors status\`, and write:
       $(tr '[:lower:]' '[:upper:]' <<<"$arm")_STOW=<7 joint angles in degrees, comma-separated>"
 
+  move_to "$arm" "$deg" "$PARK_SECS" "parking to [$deg] deg"
+  echo "  Verify the arm is where you want it BEFORE openarm-up down."
+}
+
+# move_to <arm> <deg,deg,...> <secs> <what it is doing>
+move_to() {
+  local arm=$1 deg=$2 secs=$3 what=$4
+  [ -n "$deg" ] || die "$arm: no target angles"
+
   local names; names=$(joint_names "$arm")
   [ -n "$names" ] || die "$arm: could not read joint names from ${arm}_controller"
 
   local nj nd
   nj=$(tr -cd , <<<"$names" | wc -c); nd=$(tr -cd , <<<"$deg" | wc -c)
-  [ "$nj" -eq "$nd" ] || die "$arm: $STOW_CONF has $((nd+1)) angles but ${arm}_controller has $((nj+1)) joints"
+  [ "$nj" -eq "$nd" ] || die "$arm: got $((nd+1)) angles but ${arm}_controller has $((nj+1)) joints"
 
   local rad; rad=$(awk -v s="$deg" 'BEGIN{n=split(s,a,",");for(i=1;i<=n;i++)printf "%s%.6f",(i>1?",":""),a[i]*3.14159265358979/180}')
-  echo "== $arm: parking to [$deg] deg over ${PARK_SECS}s — KEEP CLEAR"
-  ros "timeout $((PARK_SECS + 20)) ros2 action send_goal /${arm}_controller/follow_joint_trajectory \
+  echo "== $arm: $what over ${secs}s — KEEP CLEAR"
+  ros "timeout $((secs + 20)) ros2 action send_goal /${arm}_controller/follow_joint_trajectory \
 control_msgs/action/FollowJointTrajectory \
-'{trajectory: {joint_names: [$names], points: [{positions: [$rad], time_from_start: {sec: $PARK_SECS}}]}}' 2>&1" \
+'{trajectory: {joint_names: [$names], points: [{positions: [$rad], time_from_start: {sec: $secs}}]}}' 2>&1" \
     | tail -3 | sed 's/^/  /'
   echo "  $arm motors now:"; $MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b' | sed 's/^/    /'
-  echo "  Verify the arm is where you want it BEFORE openarm-up down."
 }
 
 PARK_SECS=${OPENARM_PARK_SECS:-4}
@@ -421,9 +453,10 @@ case "${1:-start}" in
   start|up) cmd_start ;;
   activate) cmd_activate "$2" ;;
   park) cmd_park "${2:-}" ;;
+  hold) cmd_hold "${2:-}" ;;
   down|stop) shift; [ "${1:-}" = --drop ] && DROP=1; cmd_down ;;
   status) cmd_status ;;
   logs) sudo docker exec -it "$CONTAINER" tail -n 200 -F "$LOGDIR/latest.log" ;;
-  -h|--help|help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$1' (openarm-up help)" ;;
 esac

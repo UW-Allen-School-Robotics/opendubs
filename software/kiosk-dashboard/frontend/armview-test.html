@@ -1,0 +1,85 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>arm view harness</title>
+<style>
+  body { background:#070a0f; color:#d8e2ec; font:14px Inter,system-ui,sans-serif; margin:0; padding:12px; }
+  #wrap { display:grid; grid-template-columns:1fr 320px; gap:12px; align-items:start; }
+  canvas { width:100%; height:62vh; background:#0b1017; border:1px solid #1f2a38; border-radius:6px; display:block; }
+  .row { display:flex; align-items:center; gap:8px; margin:3px 0; font-size:12px; }
+  .row label { width:62px; color:#6b7c8f; }
+  .row input { flex:1; }
+  .row output { width:46px; text-align:right; color:#19d1c4; font-family:ui-monospace,monospace; }
+  button { background:none; border:1px solid #1f2a38; color:#d8e2ec; padding:7px 13px; border-radius:4px; font:inherit; }
+  button.on { border-color:#19d1c4; color:#19d1c4; }
+  #truth { font-family:ui-monospace,monospace; font-size:12px; white-space:pre; color:#6b7c8f; margin-top:10px;
+           border-top:1px solid #1f2a38; padding-top:8px; }
+  .ok { color:#2ec27e; } .bad { color:#ef5a5a; }
+</style>
+<div id="wrap">
+  <div>
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
+      <button id="v-iso" class="on">ISO</button><button id="v-top">TOP</button>
+      <button id="v-side">SIDE</button><button id="v-front">FRONT</button>
+      <span style="flex:1"></span>
+      <button id="zero">ZERO ALL</button><button id="probe">RUN FK CHECKS</button>
+    </div>
+    <canvas id="c"></canvas>
+    <div id="truth">load…</div>
+  </div>
+  <div id="sliders"></div>
+</div>
+<script type="module">
+import { ArmView } from "./armview.js";
+const view = await new ArmView(document.getElementById("c")).load();
+const names = Object.keys(view.joints);
+const S = document.getElementById("sliders");
+const state = {};
+for (const n of names) {
+  const j = view.joints[n];
+  const lo = j.lower ?? -Math.PI, hi = j.upper ?? Math.PI;
+  const row = document.createElement("div"); row.className = "row";
+  row.innerHTML = `<label title="${n}">${n.replace("openarm_","").replace("_joint","·j").replace("_finger·j","·f")}</label>`;
+  const inp = document.createElement("input");
+  Object.assign(inp, { type:"range", min:lo, max:hi, step:0.01, value:0 });
+  const out = document.createElement("output"); out.textContent = "0°";
+  inp.addEventListener("input", () => {
+    state[n] = +inp.value; out.textContent = Math.round(+inp.value*180/Math.PI) + "°";
+    view.setJoints(state);
+  });
+  row.append(inp, out); S.append(row);
+  state[n] = 0;
+}
+for (const v of ["iso","top","side","front"]) {
+  document.getElementById("v-"+v).onclick = (e) => {
+    document.querySelectorAll("#wrap button").forEach(b => b.classList.remove("on"));
+    e.target.classList.add("on"); view.setView(v);
+  };
+}
+document.getElementById("zero").onclick = () => {
+  for (const n of names) state[n] = 0;
+  document.querySelectorAll("#sliders input").forEach(i => { i.value = 0; });
+  document.querySelectorAll("#sliders output").forEach(o => { o.textContent = "0°"; });
+  view.setJoints(state);
+};
+/* Ground truth comes from chain.json, which tools/arm_chain.py generates from the URDF -- NOT
+   hardcoded here, so it cannot drift away from the model the view is rendering. */
+const TRUTH = (view.chain?._fk_checks || []).map(c => [c.label, c.angles, c.expect, c.link]);
+document.getElementById("probe").onclick = () => {
+  let out = "browser FK vs tools/arm_chain.py ground truth (from chain.json)\n";
+  let allOk = true;
+  for (const [label, angles, want, link] of TRUTH) {
+    const z = {}; for (const n of names) z[n] = 0;
+    view.setJoints(Object.assign(z, angles));
+    const p = view.linkWorld(link);
+    const d = Math.hypot(p.x-want[0], p.y-want[1], p.z-want[2]);
+    const ok = d < 1e-4; allOk = allOk && ok;
+    out += `${ok?"  OK  ":"  FAIL"} ${label.padEnd(24)} got [${p.x.toFixed(4)} ${p.y.toFixed(4)} ${p.z.toFixed(4)}]  err ${(d*1000).toFixed(3)} mm\n`;
+  }
+  const t = document.getElementById("truth");
+  t.textContent = out; t.className = allOk ? "ok" : "bad";
+  document.getElementById("zero").click();
+};
+document.getElementById("truth").textContent =
+  `loaded — ${names.length} movable joints, ${Object.keys(view.links).length} links\ntap RUN FK CHECKS to verify against the Python FK`;
+window.addEventListener("resize", () => { view.frame(); });
+</script>
