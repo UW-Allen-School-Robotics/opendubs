@@ -5,3 +5,11 @@ kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboo
 # button returns 503 — which is how it came to be described as "doesn't work", since the old
 # implementation spawned the script itself and failed silently instead.
 kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl start opendubs-yolo-tracker, /usr/bin/systemctl stop opendubs-yolo-tracker
+# ...and to run arm operations and the teleop bridge from the TELEOP page. Everything goes through
+# openarm-up so its guards stay in one place: it knows switch_controllers is atomic, that the
+# gripper controllers must come up or teleop dies on an action-server timeout, and that `down`
+# must refuse an arm which is not at its stow pose. Without these rules the buttons return
+# "sudo: a password is required" — which is at least honest, unlike the tracker button's old
+# silent failure, but still a dead control.
+kiosk ALL=(root) NOPASSWD: /usr/local/bin/openarm-up
+kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl start opendubs-teleop, /usr/bin/systemctl stop opendubs-teleop

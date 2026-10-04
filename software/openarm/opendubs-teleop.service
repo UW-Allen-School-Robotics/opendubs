@@ -1,0 +1,37 @@
+[Unit]
+# WebXR teleop bridge: serves the page the Quest loads over HTTPS (8444) and the pose channel
+# over WSS (8766), and drives the arms through the impedance controllers.
+#
+# A UNIT rather than something the dashboard spawns itself. The AI tracker was spawned directly
+# once and it went badly: a second copy fought the service, failures were silent, and anything
+# started at boot was invisible to the button. Under systemd there is one instance, `systemctl
+# status` is the truth, and the journal has the loop-overrun warnings.
+Description=OpenDubs WebXR arm teleop bridge
+# The arms must already be up: this does not start the stack, and it hard-fails within ~30 s if
+# the gripper action servers are absent. `openarm-up activate` is the prerequisite, by hand.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Headless: the viser viewer was 67% of the control loop and the loop missed ~23% of its 150 Hz
+# deadlines with it on. The robot is the display here. See software/openarm/patches/.
+Environment=OPENARM_TELEOP_VIEWER=0
+# Must match the arm stack, or the host sees no arm topics at all; and FastDDS must be told not to
+# use shared memory, because the container's /dev/shm is not the host's. Both in openarm-up.
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+ExecStart=/usr/bin/docker exec \
+  -e OPENARM_TELEOP_VIEWER \
+  -e RMW_IMPLEMENTATION -e FASTDDS_DEFAULT_PROFILES_FILE -e FASTRTPS_DEFAULT_PROFILES_FILE \
+  openarm bash -lc 'source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash && \
+  cd /openarm_ws/src/openarm && exec /openarm_ws/src/.venv/bin/python -u -m openarm.demos.real_teleop_demo'
+# docker exec leaves the in-container process running if we are killed, so stop it explicitly.
+ExecStopPost=-/usr/bin/docker exec openarm pkill -f openarm.demos
+Restart=no
+# NOT Restart=always: a teleop bridge that resurrects itself after the operator stopped it is a
+# session they did not ask for, with an arm attached.
+
+[Install]
+WantedBy=multi-user.target

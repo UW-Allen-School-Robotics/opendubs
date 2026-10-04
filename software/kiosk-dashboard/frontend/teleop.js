@@ -103,5 +103,93 @@ function wire() {
   mk("btnTeleopStop",  "/api/teleop/stop",  "CONFIRM STOP",  "STOPPING…", "STOP");
 }
 
+/* ---- status poll: server readiness, session, loop health ---------------------------------- */
+
+function badge(el, text, cls) {
+  if (!el) return;
+  el.textContent = text;
+  el.className = "badge " + (cls || "dimbadge");
+}
+
+function paintStatus(s) {
+  const t = s.teleop || {};
+  const up = t.running === true;
+  const serving = t.page && t.poses;
+  badge($("tpServerState"), up && serving ? "READY" : up ? "STARTING…" : "STOPPED",
+        up && serving ? "good" : up ? "warn" : "dimbadge");
+
+  // The address the Quest must open. Derived from whatever host reached this dashboard, so it
+  // follows a DHCP change instead of being a number someone has to remember and re-edit.
+  const u = $("tpUrl");
+  if (u) u.textContent = `https://${location.hostname}:8444/`;
+
+  // Readiness, next to the controls rather than in a log: the real failure was a 30-second
+  // "Timed out waiting for left gripper action server" AFTER the headset was already on.
+  const rows = [
+    [t.page, "HTTPS page :8444"],
+    [t.poses, "pose channel :8766"],
+    [s.energized, "arms energized"],
+  ];
+  const r = $("tpReady");
+  if (r) {
+    r.innerHTML = "";
+    for (const [ok, label] of rows) {
+      const d = document.createElement("div");
+      d.className = ok === true ? "ok" : ok === false ? "badx" : "warnx";
+      d.textContent = label + (ok === null || ok === undefined ? " (unknown)" : "");
+      r.append(d);
+    }
+    if (s.motors) {
+      const d = document.createElement("div");
+      d.className = s.motors.faults ? "badx" : "ok";
+      d.textContent = `motors ${s.motors.enabled ?? "?"} enabled, ${s.motors.faults ?? 0} faults`;
+      r.append(d);
+    }
+    if (s.op && s.op.running) {
+      const d = document.createElement("div");
+      d.className = "warnx";
+      d.textContent = `${s.op.name} running (${s.op.elapsed ?? 0}s)`;
+      r.append(d);
+    } else if (s.op && s.op.error) {
+      const d = document.createElement("div");
+      d.className = "badx";
+      d.textContent = `${s.op.name}: ${s.op.error}`;
+      r.append(d);
+    }
+  }
+
+  // Loop health. Absent warnings is the GOOD case -- the loop only complains when it is late.
+  const L = s.loop;
+  const hz = $("tpLoopHz"), over = $("tpLoopOver"), worst = $("tpLoopWorst");
+  if (!L || L.available === false) {
+    if (hz) hz.textContent = "—";
+    if (over) { over.textContent = "—"; over.className = ""; }
+    if (worst) worst.textContent = "—";
+    $("tpLoopNote").textContent = L ? (L.reason || "unavailable") : "teleop not running";
+  } else {
+    if (hz) hz.textContent = L.target_hz ? `${L.target_hz}` : "—";
+    if (over) {
+      over.textContent = `${L.over_pct}%`;
+      over.className = L.over_pct > 5 ? "bad" : "good";
+    }
+    if (worst) worst.textContent = L.worst_ms ? `+${L.worst_ms}ms` : "—";
+    $("tpLoopNote").textContent = L.over_pct > 5
+      ? "the loop is missing deadlines — tracking will feel coarse"
+      : "the loop reports this itself; no warnings is the good case";
+  }
+
+  badge($("tpSessionState"), up ? (lastJointMs ? "ARMS LIVE" : "NO JOINT DATA") : "NOT RUNNING",
+        up && lastJointMs ? "good" : "dimbadge");
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch("/api/arms/status", { cache: "no-store" });
+    if (r.ok) paintStatus(await r.json());
+  } catch (e) { /* dashboard backend down; the rest of the page already says so */ }
+}
+
 boot();
 wire();
+pollStatus();
+setInterval(pollStatus, 2000);
