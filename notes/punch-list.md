@@ -43,15 +43,21 @@ Goals, not tasks: each one is done when the thing it names is true.
 | 4 | **Contracts / modularity** so SSIK can be swapped for e.g. the NVIDIA stack | [`design/arm-authority.md`](design/arm-authority.md) | the adapter contract — same work as goal 3. Two command paths named; only `FollowJointTrajectory` is standard |
 | 5 | **Arm visualization** on the tablet + arm telemetry to other clients | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | source and transport settled; nothing built |
 | 6 | **LIDAR integration** — both units, and how the stack consumes them | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | drivers done; blocked on measuring the extrinsics |
-| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | **run 2026-10-02 on real arms.** Root cause found and fixed: the viser viewer was 67% of the control loop and the loop missed ~23% of its deadlines; headless is clean. Open: gripper analog rework, and a teleop page on the dashboard |
+| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) · [`design/arm-manual-control.md`](design/arm-manual-control.md) | **run 2026-10-02 on real arms**, root cause found and fixed (the viser viewer was 67% of the control loop). The dashboard TELEOP page is built and merged — real V1 arm geometry from `/joint_states`, controls, loop health — but **has never touched the arms**: see §0f. Open: the analog gripper rework (§0e) |
 
 Goals 3 and 4 are one piece of work. Goals 5 and 6 share a root cause: **the tablet needs sensor and
 arm geometry, and geometry must have exactly one source** — today the LIDAR's lives in `app.js` as a
 guess, and the arms' only exists as commanded pose in a planning model.
 
-## 0. AT THE ROBOT — next session (agenda captured 2026-09-29)
+## 0. AT THE ROBOT — next session (agenda captured 2026-09-29, extended 2026-10-04)
 
 Everything below needs the robot's network or hands on the machine. Nothing here is desk work.
+
+**Order, because several of these gate each other.** `0d` first — it is one file copy and the
+teleop page is useless without the gripper controllers it fixes. Then `0f`, then `0g` (free, and
+it needs teleop running anyway). `0c(a)` must precede `0c(b)`: every LIDAR extrinsic is measured
+relative to `base_link`, so settling where `base_link` *is* afterwards means measuring twice.
+`1b` wants clear floor rather than a bench, so group it with anything else needing space.
 
 **0 · ~~Get `[AUTH]` onto the robot.~~ DONE 2026-10-02.** Applied to the robot's own `main.cpp` by
 anchored edit (never a copy — `publishAuth()` plus its call in the 100 ms tick), calibration
@@ -92,20 +98,28 @@ hub; confirm whether that is still the cause. (d) **Whether `/joint_states` reac
 from the `--network=host` openarm container; if not, suspect `ROS_LOCALHOST_ONLY` or an RMW
 mismatch, not the architecture.
 
-**0d · Install the gripper-controller fix on the robot, then verify it.** The fix is in the repo
-(`openarm-up` brings up each arm's gripper controller, one `switch_controllers` call at a time
-because that call is atomic — background in
-[openarm-setup](../docs/openarm-setup.md#why-the-gripper-controller-is-started-too)). It is
-**desk-verified only**: exercised against a stubbed controller_manager, never run on hardware, and
-the robot's `/usr/local/bin/openarm-up` predates it.
+**0d · Install the current `openarm-up`, then verify both things it gained.** The robot's
+`/usr/local/bin/openarm-up` predates **two** desk-only changes: the gripper controllers now come up
+with `activate`, and there is a new `hold` command. Both are exercised against a stubbed
+controller_manager and **neither has run on hardware**.
+
+**Do NOT reach for `deploy-all.sh`** to get the file there — it rsyncs `--delete` over
+`/opt/opendubs/rc_serial_probe`, whose `main.cpp` holds this robot's drive calibration *and* the
+`[AUTH]` hunks. Copy the one file:
 
 ```sh
-sudo install -m0755 /opt/opendubs/openarm/openarm-up /usr/local/bin/openarm-up
-openarm-up && openarm-up activate both     # expect BOTH *_gripper_controller: active
+scp software/openarm/openarm-up opendubs2:/tmp/oa
+ssh opendubs2 'sudo install -m0755 /tmp/oa /usr/local/bin/openarm-up \
+  && sudo install -m0644 -o andrew -g andrew /tmp/oa /opt/opendubs/openarm/openarm-up'
 ```
 
-Then start the teleop and confirm it no longer dies with
-`Timed out waiting for left gripper action server`.
+Then verify each separately:
+
+- `openarm-up && openarm-up activate both` → expect **both** `*_gripper_controller: active`, and
+  teleop no longer dying on `Timed out waiting for left gripper action server`.
+- `openarm-up hold left` → **the arm should not move.** Hold drives it to its *current* pose to
+  preempt a running trajectory; if it twitches, the measured-position read is wrong, which is the
+  one failure mode worth watching for. Check against `openarm-motors status` before and after.
 
 **0e · The analog gripper needs the robot to even be written.** The trigger is currently a
 `HysteresisToggle` (press 0.7 / release 0.3), so it throws the analog value away. The agreed
@@ -122,6 +136,25 @@ through three implementations in `mj_manipulator` plus `ros_gripper_client.py` i
 **and** `max_effort`, so the mapping lands cleanly once the sources can be read. Needs the robot:
 both repos have already proven to drift from their published versions, so writing this blind would
 be guessing at anchors.
+
+**0f · Make the TELEOP page work on the robot.** The page and its backend are merged (#50) and
+**nothing in them has touched the arms** — the robot has been off since Friday. Three pieces, each
+of which fails visibly rather than silently, so work through them in order:
+
+1. **Sudoers.** `sudo install -m0440 /tmp/opendubs-sudoers /etc/sudoers.d/opendubs-kiosk` from
+   `software/kiosk-dashboard/deploy/opendubs-sudoers`. Until then every arm button reports
+   `sudo: a password is required` on screen — honest, but dead.
+2. **The teleop unit.** Install and enable `software/openarm/opendubs-teleop.service`. It does
+   **not** start the arms; `openarm-up activate` stays a separate step and the bridge hard-fails in
+   ~30 s without the gripper action servers.
+3. **The page itself.** Open the TELEOP tab on the tablet and confirm the arm render tracks real
+   motion, the readiness dots go green, and the loop-health figure appears once teleop runs.
+
+**0g · Try `target_hz=250` now the viewer is gone.** The container runs 150 against upstream's 250.
+Lowering the rate is the symptomatic workaround for exactly the problem the headless patch removed,
+and it still did not fit at 150 — so 250 may now be sustainable, and it is a one-line change to
+test. Watch the journal for `can't keep up`; **no warnings at all is the pass**, since the loop
+only speaks when it is late.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
 guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
