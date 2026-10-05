@@ -12,11 +12,31 @@ Plan of record: [`../../notes/workplan-tab5-idf.md`](../../notes/workplan-tab5-i
 
 ```sh
 brew install cmake ninja sdl2            # IDF needs cmake+ninja; sdl2 is for the desktop build
-git clone -b v5.4.2 --depth 1 --recursive --shallow-submodules \
+git clone -b v5.5.5 --depth 1 --recursive --shallow-submodules \
     https://github.com/espressif/esp-idf.git && (cd esp-idf && ./install.sh esp32p4)
 git clone --depth 1 https://github.com/m5stack/M5Tab5-UserDemo.git demo
 cd demo && python3 fetch_repos.py        # LVGL 9.2.2, mooncake, smooth_ui_toolkit
+ls dependencies/lvgl/src                 # CHECK IT. See the warning below.
 ```
+
+**IDF 5.5.5, not 5.4.2.** This line said `v5.4.2` long after the tree had moved to 5.5.5 — which
+`sdkconfig.defaults` makes obvious (its bootloader-size and `ESP32P4_REV_MIN` notes are 5.5-era) and
+which `notes/design/tab5-face-architecture.md` has assumed throughout. 5.4.2 is not a fallback
+worth keeping: the failure that forced the move was IDF issue #15996, where 5.4.x's allocator
+advertises TCM as byte-capable internal memory and FreeRTOS then rejects a TCB that lands there —
+and it bites exactly when internal DRAM is tight, which is where this firmware lives.
+
+**Two things that fail quietly when reconstructing the tree**, both hit on 2026-10-05:
+
+- A `--recursive` shallow clone of esp-idf can die mid-fetch (`fatal: fetch-pack: invalid
+  index-pack output`) and leave an unusable tree. The published full-source archive
+  (`esp-idf-v5.5.5.zip` from the release assets, submodules included) is one resumable download and
+  is the more reliable path on a flaky connection.
+- **`fetch_repos.py` can skip a repo and still print nothing.** `dependencies/lvgl` was simply
+  absent after a clean run. The *device* build does not notice, because that uses the LVGL managed
+  component from the registry — but the desktop build will not even configure
+  (`add_subdirectory given source "dependencies/lvgl" which is not an existing directory`). Check
+  the directory, do not trust the script.
 
 Then apply our deltas:
 
@@ -65,7 +85,15 @@ Listed so none of it can be invisible again. If you change another, add it here.
 | `platforms/tab5/dependencies.lock` | deleted, so the pins re-resolve | documented above |
 | `app/apps/app_installer.h` | drop `app_launcher`, install `AppFace` | documented above |
 | `app/assets/assets.h` | drop three removed image declarations | documented above |
-| `app/apps/app_face/` | our app | yes, this directory |
+| `app/apps/app_face/` | our app, subdirectories included | yes, this directory |
+| `platforms/tab5/main/CMakeLists.txt` | `canon_in_d.mp3` un-embedded (−934 KB) | patched by `build.sh`, which fails loudly if the anchor moves |
+| `platforms/tab5/main/hal/components/hal_audio.cpp` | the canon symbols aliased to the startup sfx so the vendor's music test still links | same |
+
+`app/apps/app_face/` now has subdirectories: `percept/` is the perception layer and `shared/` holds
+the cross-task primitives. **Nothing under either may include `<lvgl.h>` or `hal/hal.h`** — the
+latter because it includes the former, so reaching into the HAL for something as innocent as a
+millisecond clock would put LVGL into the layer whose entire purpose is not having it. `AUDIT.md`
+holds the greps.
 
 ## Building
 
@@ -75,13 +103,40 @@ desktop went stale without anyone noticing:
 ```sh
 export OPENDUBS_DEMO=/path/to/M5Tab5-UserDemo        # OPENDUBS_IDF defaults to its sibling esp-idf
 ./build.sh both        # device (build + flash) and desktop, from one command
+./build.sh image       # device build ONLY, no board needed; prints the image size
 ./build.sh desktop     # SDL build and run
 ./build.sh asan        # desktop with AddressSanitizer + UndefinedBehaviorSanitizer
+./build.sh percept     # host self-test of the perception layer -- no IDF, no demo tree, no board
 ```
 
-It copies our files into the demo tree first, so the repo is always the source of truth.
+It copies our files into the demo tree first, so the repo is always the source of truth. The copy is
+**recursive** (`app_face/` has subdirectories) and it **deletes its destination first**, because a
+copy that only ever adds leaves a file that was removed from the repo compiling happily in the demo
+tree.
+
+`./build.sh percept` needs neither `OPENDUBS_DEMO` nor an IDF install: the perception layer is pure
+compute with no LVGL, no HAL and no FreeRTOS, so the same translation units that run on the panel
+compile natively. Twelve assertions against a synthetic moving blob, in seconds. It is the only
+verification available to somebody who does not have the hardware, and it is worth running before
+every flash.
+
+### Build flags
+
+All off by default. `build.sh` turns them into one generated header,
+`app_face/percept/percept_config.h`; each instrument's translation unit is wrapped in its own `#if`
+with no-op fallbacks, so "off" means absent from the image rather than merely quiet.
+
+| variable | what it adds |
+|---|---|
+| `OPENDUBS_FACEDET=1` | esp-dl and the face detector (close-range confirmation). +1.2 MB of flash. Also appends the two esp-dl pins to the dependency manifest, which a default build must never inherit — see `idf_component.yml`. |
+| `OPENDUBS_DBG_PERCEPT=1` | the camera preview canvas, the attention reticle (amber = motion, cyan = face), and the perception self-test with its verdict on the panel |
+| `OPENDUBS_DBG_SERIAL=1` | console telemetry from the perception task. **Off by default as a correctness matter**: a USB-serial-JTAG write blocks the calling task when no host is draining the port, so console telemetry is itself a plausible cause of the freeze it would be used to diagnose. Only set it when someone is actually reading the port. |
+
+`OPENDUBS_PROBE_FACEDET` is still accepted as the old name for `OPENDUBS_FACEDET`.
 
 ## Measured
+
+On IDF 5.4.2, before `canon_in_d.mp3` was dropped:
 
 | | |
 |---|---|
@@ -89,6 +144,24 @@ It copies our files into the demo tree first, so the repo is always the source o
 | demo, launcher subtracted | 2.76 MB |
 | **+ `app_face`** | **2.76 MB** (the app adds ~3 KB) |
 | OpenDubs OTA slot | 6.25 MB → **3.49 MB headroom** |
+
+On IDF 5.5.5, launcher subtracted and the MP3 dropped (2026-10-05, `./build.sh image`):
+
+| build | bytes |
+|---|---|
+| the face before motion saliency, same tree, built first | 2,003,024 |
+| face + motion saliency, all flags off | 2,008,608 |
+| `OPENDUBS_DBG_PERCEPT=1` | 2,013,536 |
+| `OPENDUBS_FACEDET=1 OPENDUBS_DBG_PERCEPT=1` | 3,219,200 |
+
+Motion saliency, the self-motion gate and the attention arbiter together cost **5,584 bytes**. The
+1.2 MB is esp-dl and its model, and it buys only the ~1.1 m of close-range face confirmation — which
+is why motion is the primary cue and the detector is gated.
+
+**Compare image sizes only within one freshly resolved tree.** Flipping `OPENDUBS_FACEDET` rewrites
+`idf_component.yml`, so the component manager re-resolves everything — which on its own moved a
+byte-identical baseline by about 7 KB. A before/after taken either side of a detector build is
+measuring the dependency solver, not the change.
 
 ## Warnings
 
