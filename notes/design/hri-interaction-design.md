@@ -11,30 +11,45 @@ can tell, and it closes that document's open item on annunciating the active mod
 
 ---
 
-## 0. The finding that outranks the rest: the face dies in an e-stop
+## 0. Who each channel is for
 
-**The Tab5 is powered from the e-stop-protected drive branch.** Open the contactor and the head has
-no power — it is off, not offline. That is recorded in `CLAUDE.md` as a flashing gotcha, but its
-interaction consequence has not been written down anywhere, and it is severe:
+The robot has **two** annunciation channels and they are not interchangeable.
 
-> **The single channel we would most want during an emergency is the one guaranteed to be dark.**
+**The PRISM LEDs are the first-line state communicator**, and they stay lit through an e-stop —
+they are on their own fused branch (position 6), not the drive branch. `docs/operating.md` already
+relies on this: amber strobe means waiting to arm. This is the channel for anything that must be
+true regardless of robot state.
 
-Every expressive capability below — eye state, colour, gaze, earcons — is unavailable in exactly
-the situation where a bystander most needs to know what is happening. A robot that goes blank is
-read as *broken*, or worse as *still about to move*, not as *safely stopped*.
+**The Tab5 face is a social channel, not a safety channel.** It is powered from the
+e-stop-protected drive branch, so it goes dark when the contactor opens. That is fine, because of
+the audience split below — but it does mean the face must never be the *only* carrier of anything
+that matters when the robot is stopped.
 
-So e-stop annunciation **cannot live on the face**, and no amount of face work substitutes for it.
-It needs a channel on the always-on branch: the PRISM indicator, a separate beacon, or a mechanical
-flag. Until that exists, the honest statement is that OpenDubs has no bystander-legible stopped
-state. This is a prerequisite for public demos, not a nice-to-have, and it is cheap compared to
-anything else here.
+### The audiences want different things
+
+This distinction does more design work than any single behaviour:
+
+| | Bystanders | Operators |
+|---|---|---|
+| What they need | *Is it about to move, and where?* | *What state is it in, and how do I recover it?* |
+| Have training | no | yes |
+| Have a transmitter | no | yes |
+| Care that it is e-stopped | **no** — an e-stopped robot is not a hazard | **yes** — they have to recover it |
+
+**An e-stop message is an operator concern, not a bystander one.** A stopped robot has already
+communicated the only thing a bystander needs by not moving. The people who need detail are the
+ones who must diagnose and restart it, and they are the ones with PRISM in view and a dashboard in
+hand.
+
+So the face's job is **intent before motion**, which is a bystander concern and is only relevant
+while the robot is live and powered — exactly the condition in which the face is up. The
+e-stop-dark property stops being a problem the moment the channels are assigned to the right
+audiences.
 
 **Corollary for the e-stop eye state.** `ui_shared.cpp` defines an `E_STOP` expression with the
 widest eye of any state (`w=1.06, h=1.08`). It can only ever be seen when the *software* believes
-e-stop without the contactor having opened. Worth keeping, but it is not the e-stop indicator and
-should not be mistaken for one.
-
----
+e-stop without the contactor having opened — a real condition, but a narrow one. It is not the
+e-stop indicator; PRISM is.
 
 ## 1. Legibility is not predictability — and it is the frame to use
 
@@ -88,14 +103,16 @@ Nonverbal robot sound maps state onto **pitch, rhythm, timbre, loudness, repetit
 becoming fatiguing or masking speech and environmental warnings, and listeners decode them through
 prior media and cultural convention.
 
-**Our speaker carries roughly 2–4 kHz**, measured by ear on the robot. That removes most of the
-palette: no usable timbre contrast, no low-frequency weight, nothing speech-like. What survives is
-**rhythm, repetition, and pitch contour inside a narrow band**.
+**The audio path is not the constraint.** An earlier draft of this note claimed the speaker
+"carries only 2–4 kHz" and used that to rule timbre out of the palette. That was not a measurement
+— it was `M5.Speaker.tone()` judged by ear in a noisy room — and it is withdrawn. The Tab5 pairs an
+**ES8388** codec with an **NS4150B** amp driving a **1 W 8 Ω** speaker, documented by M5 for
+*"Hi-Fi recording/playback and accurate voice recognition"*, with a 3.5 mm jack as an escape hatch.
+Treat the audio path as capable and spend the effort on what is played through it.
 
-This is a real design constraint, and it has a clear implication: our earcons must be
-distinguishable by **rhythm and contour, never by tone colour**. Two cues at the same tempo in that
-band will be confusable no matter how different they look in a spectrogram. A small vocabulary,
-rhythmically distinct, is the only thing that will work:
+A small vocabulary separated by **rhythm** is still the right starting point, not because the
+speaker is poor but because rhythm survives a noisy room and a listener who is not paying
+attention:
 
 | meaning | why it is needed | shape |
 |---|---|---|
@@ -106,6 +123,24 @@ rhythmically distinct, is the only thing that will work:
 | *mode changed* | authority transitions must be audible, not just visible | single long tone |
 
 Deliberately **five**, and deliberately not an emotional palette — see §5.
+
+### How these get played
+
+**Functional cues are synthesised, not files.** These sounds carry state, and a cue that depends on
+a filesystem read can fail silently — silence being indistinguishable from "the robot did not
+notice". Synthesis cannot go missing, and it is parametric: one generator covers the whole table
+with pitch and tempo as arguments, where five files would be five assets to keep in step with the
+firmware.
+
+**Character audio is WAV in SPIFFS.** Personality, demo-specific voices, anything with a
+recognisable identity cannot be synthesised with `tone()`. The 3.5 MB SPIFFS partition is already
+in `default_16MB.csv` and unused — roughly 3 minutes at 16-bit/11 kHz mono — so this needs no
+partition change and no SD card that can go missing.
+
+**Envelope matters more than waveform.** `M5.Speaker.tone()` gates on and off hard, which clicks
+and reads as cheap. The same frequency rendered into a PCM buffer with a ~10 ms attack and ~60 ms
+decay and played with `playRaw()` reads as deliberate. This is the highest-value craft detail in
+the whole audio story, and it is worth more than any amount of frequency-response characterisation.
 
 ---
 
@@ -120,7 +155,8 @@ Deliberately **five**, and deliberately not an emotional palette — see §5.
 | Gaze direction on screen | exists (`gx`/`gy` in `face.cpp`) | — |
 | Physical head aim | pan-tilt exists as a payload mode (CH7) | `docs/control-authority.md` |
 | Per-state eye expression and colour | exists, 7 states | `ui_shared.cpp` |
-| Audio out | 2–4 kHz only | measured by ear, on-robot |
+| Audio out | ES8388 + NS4150B, 1 W 8 Ω, "Hi-Fi"; 3.5 mm jack | M5 Tab5 documentation |
+| Asset storage for audio | **3.5 MB SPIFFS, already partitioned, unused** | `default_16MB.csv` |
 | **Any annunciation during e-stop** | **none — the face loses power** | `CLAUDE.md`, §0 above |
 
 Listening while speaking deserves a note: it means the robot can be interrupted. Barge-in is
