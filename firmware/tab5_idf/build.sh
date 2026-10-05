@@ -9,6 +9,7 @@
 #   ./build.sh device          idf.py build and flash
 #   ./build.sh desktop         SDL build and run
 #   ./build.sh asan            desktop with AddressSanitizer + UndefinedBehaviorSanitizer
+#   ./build.sh cost            desktop for ~95 s, then print the dirty-area verdict
 #
 # Point OPENDUBS_DEMO at the M5Tab5-UserDemo clone (see README.md for how to construct it).
 set -euo pipefail
@@ -47,6 +48,12 @@ case "$MODE" in
   # float UB that turns into a NaN in a style value.
   asan)    build_desktop "-fsanitize=address,undefined -fno-omit-frame-pointer -g"
            ( cd "$DEMO" && ASAN_OPTIONS=detect_leaks=0 ./build/desktop/app_desktop_build ) ;;
+  # The cost gate: run long enough for the bench to walk every state, emote, activity and theme,
+  # since the expensive frame is a particular combination rather than the average.
+  cost)    build_desktop
+           ( cd "$DEMO" && ./build/desktop/app_desktop_build > /tmp/opendubs-cost.log 2>&1 & )
+           sleep 95; grep '\[cost\]' /tmp/opendubs-cost.log | tail -6
+           pkill -f app_desktop_build 2>/dev/null || true ;;
   both)    build_device; build_desktop
            echo "both built; run the desktop with: (cd $DEMO && ./build/desktop/app_desktop_build)" ;;
   *)       echo "usage: $0 {both|device|desktop|asan}"; exit 2 ;;

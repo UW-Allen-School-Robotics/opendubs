@@ -1,4 +1,5 @@
 #include "app_face.h"
+#include "cost_gate.h"
 #include <hal/hal.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
@@ -676,6 +677,7 @@ void AppFace::onOpen()
 
     GetHAL()->lvglLock();
     buildScene();
+    costGateBegin();          // desktop only; measures what this would cost the device
     GetHAL()->lvglUnlock();
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
@@ -711,6 +713,14 @@ void AppFace::onRunning()
         fflush(stdout);
     }
 #endif
+
+    // Periodic cost report, and a final verdict once the bench has walked the whole matrix of
+    // states, emotes, activities and themes -- which is when the PEAK frame has been seen.
+    static uint32_t nextCost = 10000;
+    if (due(now, nextCost)) {
+        nextCost = now + 10000;
+        costGateReport(now > 80000);
+    }
 
     if (due(now, g_nextSaccade)) newSaccade(now);
     // Bench only: alternate plain and themed so the difference is visible and the reserved

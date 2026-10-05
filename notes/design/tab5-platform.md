@@ -601,6 +601,36 @@ clear of the band's 16 px, sharing no pixels with it.
 The general form: **"free" is a property of the pair, not the object.** A static thing over a static
 thing is free; a static thing over an animating thing is as expensive as the thing underneath.
 
+### The cost gate, and two wrong metrics on the way to it
+
+`firmware/tab5_idf/app_face/cost_gate.cpp` hooks `LV_EVENT_INVALIDATE_AREA` and `LV_EVENT_REFR_READY`
+on the desktop build and reports dirty area per frame against the device's budget. Desktop only; a
+no-op on the device, which should not carry an instrument it cannot act on.
+
+**First measurement, 2026-10-05: mean 2,835 k px/frame — 3.08 screens, 532% of the device's 533 k
+budget.** Allowing for the overcount below, the real figure is likely 1–1.5 screens/frame, which is
+at or over budget and consistent with the face having frozen repeatedly.
+
+**The metric took three attempts, and the reason is the useful part.**
+
+1. **Per `REFR_READY` alone** reported peaks of twenty screens "per frame". LVGL only refreshes when
+   there is work, so invalidations pile up across quiet periods and land in whichever frame follows.
+2. **Pixels per second** imported the *desktop's* frame rate, which is not the device's — and that
+   destroys the only property that makes the gate transferable.
+3. **Per frame, normalised by actual refresh count, then scaled by the device's target fps.** This
+   is the one that works.
+
+The property the gate rests on: **dirty area per frame is geometric — the same layout invalidates
+the same pixels on both machines. Pixels per second is not, because it depends on how fast the
+machine renders.** Getting that backwards once is how attempt 2 happened.
+
+**It overcounts, deliberately.** Areas are summed before LVGL merges overlapping ones, and this face
+is layered on purpose. So the absolute is an upper bound and the gate is most trustworthy
+**comparatively** — did a change make it better or worse — which is also the question that matters
+when deciding whether to ship a configuration.
+
+Run it with `./build.sh cost`.
+
 ### Practices that follow
 
 - **Animate position, not size.** Moving is cheaper than resizing and does not invalidate caches.
