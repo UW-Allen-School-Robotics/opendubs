@@ -13,6 +13,7 @@
 #include "face.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "attention.h"
 #include "hmi.h"
 #include "prompt.h"
 #include "lift.h"
@@ -790,6 +791,7 @@ void setup() {
   Serial.setTxTimeoutMs(0); // non-blocking HWCDC (see tab5-face memory)
 
   faceBegin();
+  attentionBegin();   // mic up; coexists with the speaker on this board
   Lift.begin();
 
   // Initialize 8Servo channels
@@ -923,6 +925,7 @@ void setup() {
 
 void loop() {
   M5.update();
+  attentionTick(millis()); // notice a voice -> glance toward it -> acknowledge it
   pollStateSerial(); // consume "STATE <NAME>" pushed by the Thor
   uint32_t now = millis();
   uint32_t dtms = now - uiPrev;
