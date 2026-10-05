@@ -7,7 +7,11 @@ and it produced four consecutive "found it" claims that were each only partly ri
 
 **The rule: when a symptom resists two hypotheses, stop generating a third and check this list.**
 
-Run it from the repo root against `firmware/tab5_idf/app_face/app_face.cpp`.
+Run it from the repo root against **every file in `firmware/tab5_idf/app_face/`**, not against
+`app_face.cpp` alone. The second run of this checklist missed two bugs because every grep named
+that one file, so `cues.cpp` — added after the checklist was written — was never searched. That is
+the same failure as `build.sh` syncing a hand-maintained list of three files out of nine: **a list
+of files, written once, goes stale silently.** Both now glob the directory.
 
 ---
 
@@ -20,8 +24,8 @@ the symptom was a hang after a *variable* delay with the heap untouched — whic
 accumulation and is not.
 
 ```sh
-grep -c lvglLock   firmware/tab5_idf/app_face/app_face.cpp
-grep -c lvglUnlock firmware/tab5_idf/app_face/app_face.cpp   # must match
+grep -c lvglLock   firmware/tab5_idf/app_face/*.cpp
+grep -c lvglUnlock firmware/tab5_idf/app_face/*.cpp   # must match
 ```
 
 Counting lines is necessary but **not sufficient** — it must be checked by call graph, because the
@@ -43,7 +47,7 @@ allocating a buffer the size of its bounding box **per draw**. This killed the r
 call in the cobweb mirroring.
 
 ```sh
-grep -nE "transform_|blend_mode" firmware/tab5_idf/app_face/app_face.cpp   # expect none
+grep -nE "transform_|blend_mode" firmware/tab5_idf/app_face/*.cpp   # expect none
 ```
 
 Mirror by negating coordinates; angle with `lv_line`, never with rotation.
@@ -54,7 +58,7 @@ Radial and conical gradients are cached **per geometry**, so an object that anim
 a new gradient every frame. Disabled globally in `lv_conf.h`; the eye uses linear `VER`.
 
 ```sh
-grep -nE "LV_GRAD_DIR_(RADIAL|CONICAL)" firmware/tab5_idf/app_face/app_face.cpp   # expect none
+grep -nE "LV_GRAD_DIR_(RADIAL|CONICAL)" firmware/tab5_idf/app_face/*.cpp   # expect none
 # lv_conf.h governs the DESKTOP build only -- the device sets CONFIG_LV_CONF_SKIP=y and is
 # configured by Kconfig, so check BOTH or a flag will appear set when it is not compiled in.
 grep -n  "LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/lv_conf.h           # desktop
@@ -67,7 +71,7 @@ grep -n  "CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/sdkconfig.d
 of times — a CPU hang with the heap untouched. Use `fmodf`, and clamp any `dt` derived from a clock.
 
 ```sh
-grep -nE "while *\(" firmware/tab5_idf/app_face/app_face.cpp   # expect none outside comments
+grep -nE "while *\(" firmware/tab5_idf/app_face/*.cpp   # expect none outside comments
 ```
 
 ## 5. Deadline tests are wrap-safe
@@ -76,8 +80,27 @@ grep -nE "while *\(" firmware/tab5_idf/app_face/app_face.cpp   # expect none out
 which every timer either fires continuously or never again. Use the `due()` helper.
 
 ```sh
-grep -nE "now > (g_next|next)" firmware/tab5_idf/app_face/app_face.cpp   # expect none
+grep -nE "now[A-Za-z]* *[<>]=? *g_" firmware/tab5_idf/app_face/*.cpp   # expect none
 ```
+
+### Second run, 2026-10-05: two findings, both in the file the checklist did not search
+
+`app_face.cpp` passed invariants 1-6 clean (lock 7/7, no layer styles, no complex gradients, no
+unbounded loops, no wrap-unsafe deadlines, every allocation inside a startup builder). `cues.cpp`
+violated invariant 5 **twice**:
+
+| site | raw test | what the wrap does |
+|---|---|---|
+| `cuePlay` busy gate | `now < g_busyUntil` | every cue of priority <= the last one is suppressed until a higher-priority cue happens to fire and rewrites the deadline — recoverable |
+| `cueTick` fault repeat | `nowMs < g_nextFault` | **permanent.** The early return happens *before* `g_nextFault` is advanced, so the repeating fault announcement never fires again |
+
+The second one is the interesting one: the same raw comparison is a transient bug in one place and
+an unrecoverable one in the other, purely because of whether the deadline is updated before or
+after the guard. Fixed with the `due()` helper in both.
+
+Worth noting what this says about the checklist itself: it was written from the bugs that had
+already bitten, and it worked — it found these two by reading, in the time a single reflash costs.
+What it got wrong was its own *scope*.
 
 ## 6. Nothing allocates in the steady state
 
@@ -86,7 +109,7 @@ per theme change, which is churn on a loop. The only remaining steady-state allo
 `lv_label_set_text`, once per emote change.
 
 ```sh
-grep -nE "lv_obj_create|lv_obj_del|lv_line_create" firmware/tab5_idf/app_face/app_face.cpp
+grep -nE "lv_obj_create|lv_obj_del|lv_line_create" firmware/tab5_idf/app_face/*.cpp
 ```
 All hits must be inside `buildScene`/`band::build`/`cobweb`, i.e. startup only.
 

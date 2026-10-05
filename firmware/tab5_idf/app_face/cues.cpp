@@ -54,6 +54,12 @@ constexpr float kGain[(int)Cue::Count] = {
 std::vector<int16_t> g_pcm[(int)Cue::Count];
 uint32_t g_busyUntil = 0;
 uint8_t  g_busyPrio  = 0;
+
+// Wrap-safe deadline test -- AUDIT.md invariant 5. Duplicated from app_face.cpp rather than
+// shared, because the two files are deliberately independent; if a third copy ever appears,
+// promote it to a header. Subtracting first and THEN signing is what makes the wrap vanish:
+// the difference is small and correct across the 32-bit rollover, while `now < at` inverts.
+inline bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
 bool     g_faultOn   = false;
 uint32_t g_nextFault = 0;
 
@@ -138,7 +144,7 @@ void cuePlay(Cue c)
     // logs a warning, so without this a cue would be dropped silently and invisibly. Tracking the
     // in-flight cue's priority here turns that into a deliberate decision: a lower or equal cue is
     // skipped outright rather than attempted and lost.
-    if (now < g_busyUntil && prio <= g_busyPrio) return;
+    if (!due(now, g_busyUntil) && prio <= g_busyPrio) return;
 
     auto& v = g_pcm[(int)c];
     if (v.empty()) return;
@@ -160,7 +166,10 @@ void cueTick(uint32_t nowMs)
     // and went quiet is indistinguishable from a fault nobody noticed. Spaced so it is insistent
     // without masking speech or becoming fatiguing.
     if (!g_faultOn) return;
-    if (nowMs < g_nextFault) return;
+    // Wrap-safe, and this one matters more than the gate above: the early return happens
+    // BEFORE g_nextFault is advanced, so with a raw `<` the 32-bit wrap at ~49 days of uptime
+    // would silence the fault re-announcement for good rather than for one cycle.
+    if (!due(nowMs, g_nextFault)) return;
     g_nextFault = nowMs + 3200;
     cuePlay(Cue::Fault);
 }
