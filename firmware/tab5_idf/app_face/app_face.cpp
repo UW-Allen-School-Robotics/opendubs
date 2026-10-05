@@ -292,16 +292,78 @@ bool reserved(int state)
     return kStates[state].reserved;
 }
 
+// A theme's palette, KEYED BY STATE NAME.
+//
+// This was `switch (state) { case 0 ... case 6 }`, and that was a latent bug of exactly the kind
+// reserved() had just been fixed to avoid: the guard addressed states BY NAME while the palette
+// it guards addressed them BY ORDINAL. Insert a state anywhere above CHARGING and every themed
+// colour is handed to its neighbour, while whichever state is pushed past the last case silently
+// stops being themed at all. The reserved guard would still be correct throughout, so nothing
+// would look broken -- the colours would just be wrong, which is the hardest kind to notice.
+//
+// DEGRADED and E_STOP are deliberately ABSENT rather than listed-and-rejected. Reserved expressed
+// as absence is not a code path; a rejection is, and a code path can have a bug. reserved() still
+// guards independently, so the two mechanisms have to fail together to leak a fault colour.
+const char* name(Id id);   // defined below; validatePalettes() reports by theme name
+
+struct Swatch { const char* state; uint32_t rgb; };
+
+const Swatch kHalloween[] = {
+    {"INIT",       0xe8e2d0},   // bone
+    {"SAFE_IDLE",  0x8ac926},   // toxic green
+    {"MANUAL",     0xd9c2e9},   // pale lavender
+    {"AUTONOMOUS", 0x7b2d8e},   // purple
+    {"CHARGING",   0x2f9e44},   // deep green
+};
+
+struct Palette { const Swatch* sw; int n; };
+
+// Switching on the theme ID is not the same mistake: the enum IS the theme's identity, not its
+// position in some other table. Adding a theme adds a case here and a table above.
+Palette paletteFor(Id id)
+{
+    if (id == HALLOWEEN) return {kHalloween, (int)(sizeof(kHalloween) / sizeof(Swatch))};
+    return {nullptr, 0};
+}
+
 uint32_t stateColour(int state, uint32_t base)
 {
     if (g_active == NONE || reserved(state)) return base;
-    switch (state) {
-        case 0: return 0xe8e2d0;   // INIT       -- bone
-        case 1: return 0x8ac926;   // SAFE_IDLE  -- toxic green
-        case 2: return 0xd9c2e9;   // MANUAL     -- pale lavender
-        case 3: return 0x7b2d8e;   // AUTONOMOUS -- purple
-        case 6: return 0x2f9e44;   // CHARGING   -- deep green
-        default: return base;
+    if (state < 0 || state >= kNStates) return base;
+
+    const Palette p = paletteFor(g_active);
+    const char*   n = kStates[state].name;
+    for (int i = 0; i < p.n; ++i)
+        if (strcmp(p.sw[i].state, n) == 0) return p.sw[i].rgb;
+
+    // A state the theme does not name keeps its own colour. Absence means "inherit", which is what
+    // lets a theme describe only what it changes.
+    return base;
+}
+
+// Lookup by name turns a typo into SILENCE -- the swatch simply never matches and the state keeps
+// its base colour, which looks like a deliberate choice. So check the palettes once at startup and
+// say so loudly. Also catches the authoring error that matters: a theme trying to recolour a
+// reserved state. That is refused by reserved() at runtime regardless, but an author who wrote it
+// should be told rather than quietly ignored.
+void validatePalettes()
+{
+    for (int t = NONE + 1; t < COUNT; ++t) {
+        const Palette p = paletteFor((Id)t);
+        for (int i = 0; i < p.n; ++i) {
+            bool found = false;
+            for (int st = 0; st < kNStates; ++st) {
+                if (strcmp(p.sw[i].state, kStates[st].name) != 0) continue;
+                found = true;
+                if (kStates[st].reserved)
+                    mclog::tagError("theme", "palette '{}' names RESERVED state '{}' -- ignored",
+                                    name((Id)t), p.sw[i].state);
+                break;
+            }
+            if (!found)
+                mclog::tagError("theme", "palette '{}' names unknown state '{}' -- typo?",
+                                name((Id)t), p.sw[i].state);
+        }
     }
 }
 
@@ -374,6 +436,9 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
 // Called once, from buildScene(). Every theme's accessories exist from startup.
 void buildAll(lv_obj_t* scr)
 {
+    // Once, at startup: a mis-named swatch is otherwise silent.
+    validatePalettes();
+
     const int inset = 22;                      // clear of the band's 16 px
     cobweb(scr, inset, inset, +1, 0x9a8fb0);
     cobweb(scr, kScreenW - inset, inset, -1, 0x9a8fb0);
