@@ -95,6 +95,16 @@ PATCH
             > "$DEMO/app/apps/app_face/net_credentials.h"
     fi
 
+    # OPENDUBS_NO_MARK_VALID=1 builds the deliberately-bad image for the rollback test: it runs
+    # normally but never declares itself good, so the next reboot must revert it.
+    if [ "${OPENDUBS_NO_MARK_VALID:-0}" = "1" ]; then
+        echo "#pragma once
+#define OPENDUBS_NO_MARK_VALID 1" > "$DEMO/app/apps/app_face/rollback_test.h"
+        echo "ROLLBACK TEST IMAGE: this build will NOT mark itself valid"
+    else
+        echo "#pragma once" > "$DEMO/app/apps/app_face/rollback_test.h"
+    fi
+
     # The probe toggle is a GENERATED HEADER rather than a -D, because idf.py -D sets a CMake
     # variable, not a compile definition, and bridging it would mean editing the vendor's
     # CMakeLists -- a file we do not own and do not sync.
@@ -159,6 +169,24 @@ build_device() {
     #
     # So: regenerate from an ORDERED list of tracked files -- the vendor's config as the base, our
     # deltas applied on top. Deterministic, reproducible, and our overrides actually take effect.
+    # FORCE THE BOOTLOADER TO REBUILD when our config changes. The bootloader is a separate CMake
+    # subproject with its own generated config, and it does NOT reliably pick up a change to
+    # sdkconfig.defaults. That is not cosmetic: CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is a
+    # BOOTLOADER feature, and enabling it produced an app whose sdkconfig said `=y` while the
+    # bootloader on the device was seven hours stale and had never heard of it. OTA rollback
+    # therefore silently did nothing -- the image state stayed NEW instead of becoming
+    # PENDING_VERIFY, because the transition is the bootloader's job.
+    #
+    # Caught on a bench. On the robot it would have presented as "rollback does not work", after
+    # someone had already relied on it.
+    if [ "$HERE/sdkconfig.defaults" -nt "$DEMO/platforms/tab5/build/bootloader/bootloader.bin" ]; then
+        echo "config is newer than the bootloader -- full rebuild so the bootloader picks it up"
+        # The WHOLE build dir, not just build/bootloader: the parent treats that as a configured
+        # ExternalProject and will not re-configure it, so deleting only the bootloader gives
+        # "not a CMake build directory (missing CMakeCache.txt)". Config changes are rare; a full
+        # rebuild is the cheap, reliable option.
+        rm -rf "$DEMO/platforms/tab5/build"
+    fi
     rm -f "$DEMO/platforms/tab5/sdkconfig"
     SDKCFG="$HERE/sdkconfig.vendor;$HERE/sdkconfig.defaults"
 

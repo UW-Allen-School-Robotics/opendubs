@@ -96,3 +96,10 @@ CONFIG_ESP32P4_REV_MIN_1=y
 #   regardless of how it arrived -- including over a TLS connection to a compromised server. That
 #   is the item to do before student exposure; transport encryption alone would not have helped.
 CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+
+# OTA ROLLBACK. Paired deliberately with esp_ota_mark_app_valid_cancel_rollback() in net.cpp --
+# these two MUST land together. The flag alone makes every freshly-OTA'd image boot in
+# PENDING_VERIFY and revert on the next reboot, which is a self-inflicted unflashable head; the
+# call alone does nothing. Together they mean an image that boots broken reverts to the slot that
+# worked, instead of needing someone to close the contactor and reach into the head with a cable.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

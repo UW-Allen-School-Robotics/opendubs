@@ -19,6 +19,7 @@
 // OPENDUBS_WIFI_SSID as a string literal, or leaves it undefined when none was supplied.
 // The generated file lands in the EPHEMERAL build tree and is never written to this repo.
 #include "net_credentials.h"
+#include "rollback_test.h"
 
 namespace {
 
@@ -48,7 +49,8 @@ void setStatus(const char* s)
     g_status[sizeof(g_status) - 1] = 0;
 }
 
-void cmdTask(void*);   // defined below; started once we hold an IP
+void cmdTask(void*);        // defined below; started once we hold an IP
+void markValidTask(void*);  // defined below; declares the image good once it has proven healthy
 
 void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
 {
@@ -270,6 +272,42 @@ void doOta(const char* url)
     esp_restart();
 }
 
+// Declare this image good, so the bootloader stops holding a rollback over it.
+//
+// WHAT COUNTS AS GOOD is the whole design question. Marking valid in app_main would make the
+// rollback meaningless -- an image that panics two seconds later would still have declared itself
+// healthy. So the criterion is evidence of actually working: the app task has been alive and
+// animating for kHealthyMs, which is exactly what the freeze bugs in this project violated. An
+// image that boots into a frozen face does NOT mark itself valid and is reverted.
+//
+// Deliberately NOT requiring the network: a build with no credentials, or one at a bench with no
+// access point, is not a broken image and must not be rolled back for it.
+constexpr uint32_t kHealthyMs = 12000;
+
+void markValidTask(void*)
+{
+    vTaskDelay(pdMS_TO_TICKS(kHealthyMs));
+
+#ifdef OPENDUBS_NO_MARK_VALID
+    // The deliberately-bad image used to TEST rollback. It boots, runs, and never declares itself
+    // good -- so the next reboot must revert to the previous slot. If it does not, rollback is not
+    // working and we would only have found out on the robot.
+    mclog::tagError(kTag, "OPENDUBS_NO_MARK_VALID: refusing to mark valid (rollback test image)");
+    setStatus("ROLLBACK TEST: not marking valid");
+#else
+    const esp_partition_t* run = esp_ota_get_running_partition();
+    esp_ota_img_states_t   st  = ESP_OTA_IMG_UNDEFINED;
+    if (run && esp_ota_get_state_partition(run, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK)
+            mclog::tagInfo(kTag, "image marked valid after {} ms healthy on slot {}",
+                           (int)kHealthyMs, run->label);
+        else
+            mclog::tagError(kTag, "mark_app_valid FAILED -- this image will roll back");
+    }
+#endif
+    vTaskDelete(nullptr);
+}
+
 void cmdTask(void*)
 {
     const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -305,9 +343,24 @@ void cmdTask(void*)
             const esp_app_desc_t* d = esp_app_get_description();
             const esp_partition_t* run = esp_ota_get_running_partition();
             char tx[160];
-            const int m = snprintf(tx, sizeof(tx), "PONG %s %s %s slot=%s",
+            // Report the OTA STATE too. "which slot" was not enough to diagnose why a rollback
+            // did not fire -- PENDING_VERIFY vs VALID is the whole question, and guessing at it
+            // cost a test cycle.
+            esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+            const char* sn = "?";
+            if (run && esp_ota_get_state_partition(run, &st) == ESP_OK) {
+                switch (st) {
+                    case ESP_OTA_IMG_NEW:            sn = "NEW";            break;
+                    case ESP_OTA_IMG_PENDING_VERIFY: sn = "PENDING_VERIFY"; break;
+                    case ESP_OTA_IMG_VALID:          sn = "VALID";          break;
+                    case ESP_OTA_IMG_INVALID:        sn = "INVALID";        break;
+                    case ESP_OTA_IMG_ABORTED:        sn = "ABORTED";        break;
+                    default:                         sn = "UNDEFINED";      break;
+                }
+            }
+            const int m = snprintf(tx, sizeof(tx), "PONG %s %s %s slot=%s state=%s",
                                    d ? d->project_name : "?", d ? d->version : "?",
-                                   d ? d->date : "?", run ? run->label : "?");
+                                   d ? d->date : "?", run ? run->label : "?", sn);
             sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "REBOOT") == 0) {
             const char* tx = "OK reboot";
@@ -332,6 +385,9 @@ bool        netReady()  { return g_ready; }
 
 void netStart()
 {
+    // Independent of Wi-Fi: health is about the app, not the link.
+    xTaskCreatePinnedToCore(markValidTask, "markok", 3072, nullptr, 1, nullptr, 1);
+
     // Priority 2 PINNED CPU1. `main`, which animates the face, is pinned CPU0 at priority 1 --
     // pinning away from CPU0 is what protects the animation, not the priority number. Association
     // is bursty and event-driven, so this task exits once started and costs nothing steady-state.
