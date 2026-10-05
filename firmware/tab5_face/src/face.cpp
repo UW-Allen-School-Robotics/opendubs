@@ -7,14 +7,30 @@
 // ---- eye sprite: INTERNAL SRAM, glow drawn straight in (no PSRAM
 // template/blit) ---- The 15 fps version kept the eye + a glow template in
 // PSRAM and blitted the glow every frame; that per-frame PSRAM traffic was the
-// bottleneck. Here the sprite fits internal SRAM and the glow is rasterized
-// directly into it each frame — no PSRAM in the hot path.
+// bottleneck. Here the glow is rasterized directly into the sprite each frame —
+// no PSRAM in the hot path.
+//
+// EW IS A MEMORY BUDGET, NOT A TASTE DECISION. The sprite must fit a CONTIGUOUS
+// internal block, and on this hardware the largest is ~247 KB — measured, not
+// assumed. 324x448x16bpp needs 283 KB, so it did NOT fit: createSprite failed
+// and the fallback below silently moved the whole face into PSRAM, where it had
+// been running unnoticed. Benched (firmware/tab5_face/bench/), a two-eye frame:
+//
+//     324x448  PSRAM     27.6 fps   <- what this actually used to do
+//     276x448  internal  39.5 fps   <- +43%
+//
+// 280 is the widest that fits, but leaves 2 KB of headroom against a block that
+// varies with fragmentation; 276 keeps 6 KB. Raising EW past ~280 does not make
+// the face bigger, it makes it PSRAM-resident and a third slower.
 static M5Canvas eye(&M5.Display);
-static const int EW = 324,
-                 EH =
-                     448; // sized to fit INTERNAL SRAM (~290KB) → smooth ~30fps
+static const int EW = 276,
+                 EH = 448;
+// BW MUST TRACK EW. This is the eye BODY inside the sprite, and it is scaled by
+// a per-state multiplier that reaches 1.06 (E_STOP in ui_shared.cpp). At the old
+// EW=324, 284x1.06 = 301 px left 11 px for the glow; left at 284 with EW=276 the
+// widest state would be clipped by 25 px. 242x1.06 = 257 keeps the same margin.
 static const float
-    BW = 284,
+    BW = 242,
     BH = 376; // eye size; E_STOP height capped so the tall eye still fits
 static bool g_eyePsram = false;
 
@@ -196,6 +212,18 @@ void faceBegin() {
     eye.setPsram(true);
     eye.createSprite(EW, EH);
     g_eyePsram = true;
+    // SAY SO LOUDLY. This fallback is not an edge case -- it was the steady
+    // state for every build before EW came down to 276, and it cost a third of
+    // the frame rate while the only evidence was one serial line nobody reads
+    // on a robot with no console attached. If this fires again, EW no longer
+    // fits a contiguous internal block and the number above needs re-measuring.
+    Serial.printf("[FACE] *** WARNING: %dx%d eye would not fit internal SRAM "
+                  "(largest contiguous block %u KB) -- running from PSRAM, "
+                  "expect ~1/3 lower fps. Re-bench EW. ***\n",
+                  EW, EH,
+                  (unsigned)(heap_caps_get_largest_free_block(
+                                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) /
+                             1024));
   }
   P = T = STATES[g_robotState].e;
   shownState = g_robotState;
