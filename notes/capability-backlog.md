@@ -29,7 +29,7 @@ on Port A, already detected):
   raise/lower interacts with subsystem FSM states (mast/base).
 - **Fusion tie-in:** the deadwheel pods feed the Pinpoint odometry computer
   (StamPLC I²C) — a first-class localization input. The raise/lower state IS the
-  covariance gate for that source. See [localization-fusion.md](localization-fusion.md).
+  covariance gate for that source. See [localization-fusion.md](../docs/localization-fusion.md).
 
 ## 2. Camera control & viewing  ◐
 
@@ -77,14 +77,14 @@ camera pane but it still reads *"no feed configured"* — nothing is wired into 
 - **Driver: ☑ DONE** — ROS 2 **Jazzy** installed on the Thor; `ros-jazzy-rplidar-ros`
   runs as boot-persistent **`opendubs-rplidar.service`**, publishing
   `sensor_msgs/LaserScan` on **`/scan`** (~7 Hz, 0.15–12 m). Bringup in
-  [../ros/](../ros/). This is the robot's first ROS 2 node — the start of the ROS
+  [../software/ros/](../software/ros/). This is the robot's first ROS 2 node — the start of the ROS
   migration ([hardening-roadmap.md](history/hardening-roadmap.md) track 4).
 - **Remaining ☐:** TF tree (`base_link`→`laser`) + physical mounting; LIDAR
   dashboard tab (subscribe `/scan` via rosbridge); SLAM/Nav (cuVSLAM/nvblox) and
   obstacle avoidance — land with the rest of the perception stack.
 - **Fusion role:** LIDAR SLAM provides the global `map→odom` tier; deadwheel + IMU
   provide the continuous `odom→base_link` tier — see
-  [localization-fusion.md](localization-fusion.md).
+  [localization-fusion.md](../docs/localization-fusion.md).
 
 ## 6. Failure mode testing  ☐
 

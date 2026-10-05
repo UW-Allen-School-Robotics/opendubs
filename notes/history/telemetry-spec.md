@@ -1,4 +1,4 @@
-> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../system-overview.md).
+> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../../docs/system-overview.md).
 
 # Telemetry Specification Plan
 
@@ -6,12 +6,12 @@
 
 This telemetry plan is intentionally paired with the top-level robot architecture and safety docs:
 
-- [OpenDubs Robot Documentation Hub](../../docs/README.md)
+- [OpenDubs Robot Documentation Hub](../../docs/index.md)
 - [System Overview](../../docs/system-overview.md)
 - [Control Authority and Modes](../../docs/control-authority.md)
 - [Robot and Subsystem State Machines](../../docs/state-machines.md)
 - [PWM and ESC Safety](../../docs/pwm-esc-safety.md)
-- [REV PDH CAN Feasibility](../../docs/rev-pdh-can-feasibility.md)
+- [REV PDH CAN Feasibility](rev-pdh-can-feasibility.md)
 
 ## Purpose
 
