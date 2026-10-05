@@ -67,6 +67,20 @@ Listed so none of it can be invisible again. If you change another, add it here.
 | `app/assets/assets.h` | drop three removed image declarations | documented above |
 | `app/apps/app_face/` | our app | yes, this directory |
 
+## Building
+
+Use `./build.sh` rather than invoking either build alone, because the two drifted once and the
+desktop went stale without anyone noticing:
+
+```sh
+export OPENDUBS_DEMO=/path/to/M5Tab5-UserDemo        # OPENDUBS_IDF defaults to its sibling esp-idf
+./build.sh both        # device (build + flash) and desktop, from one command
+./build.sh desktop     # SDL build and run
+./build.sh asan        # desktop with AddressSanitizer + UndefinedBehaviorSanitizer
+```
+
+It copies our files into the demo tree first, so the repo is always the source of truth.
+
 ## Measured
 
 | | |

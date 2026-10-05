@@ -107,6 +107,31 @@ Dirty area per frame must stay well under one screen: the measured blit rate is 
 
 ---
 
+## 10. The desktop build must be current, and it has a blind spot
+
+**It went stale and nobody noticed**, which is worse than not having it: the simulator was showing
+code 45 minutes and several features old, so it could not have validated anything, and "it looks
+fine on the laptop" meant nothing. `build.sh both` builds device and desktop from one command so
+they cannot diverge — use it rather than building either alone.
+
+**The blind spot matters and is structural.** On the desktop, `app::Update()` calls
+`lv_timer_handler()` on the main thread, so **LVGL is single-threaded there**. The unlocked
+`lv_label_set_text()` that caused the longest freeze is therefore *impossible to reproduce on the
+desktop* — there is no second thread to race with. The simulator will never find a locking bug.
+
+| the desktop is good for | the desktop is blind to |
+|---|---|
+| geometry, proportion, colour, motion feel | **anything involving the LVGL lock** |
+| iterating at full frame rate, no flashing | the real frame budget (it has far more CPU) |
+| **AddressSanitizer / UndefinedBehaviorSanitizer** | layer allocation failures (it has GBs of heap) |
+| crashes with a usable stack trace | panel-specific rendering |
+
+**The sanitizers are the thing the simulator is uniquely good for**, and were not being used.
+`build.sh asan` builds the native binary with `-fsanitize=address,undefined`, which catches exactly
+the classes that are invisible on the device: array overruns — the cobweb point pools were sized at
+precisely their demand — use-after-free, and the integer and float UB that becomes a NaN in a style
+value. Run it after any change to geometry or pool sizing.
+
 ## What is NOT on this list, and why
 
 **Memory.** Three rounds went into leaks, fragmentation and cache churn because the symptom took
