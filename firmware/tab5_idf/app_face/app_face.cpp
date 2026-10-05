@@ -141,16 +141,36 @@ void buildScene()
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
     for (int i = 0; i < 2; ++i) {
-        g_eye[i].body = plainBox(scr, lv_color_hex(0x19d1c4), (int)(kBodyW * kRadiusFrac));
+        g_eye[i].body = plainBox(scr, lv_color_hex(0x22e0d2), (int)(kBodyW * kRadiusFrac));
+        // RADIAL SHADING instead of a flat fill. This is what the bespoke renderer's loop of
+        // fourteen concentric ellipses was approximating by hand; a gradient does it properly and
+        // makes the eye read as a sphere rather than a disc.
+        lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(0x0b6a64), LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(g_eye[i].body, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
+        lv_obj_set_style_bg_main_stop(g_eye[i].body, 40, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_stop(g_eye[i].body, 255, LV_PART_MAIN);
         lv_obj_set_size(g_eye[i].body, kBodyW, kBodyH);
         lv_obj_set_pos(g_eye[i].body, (i == 0 ? kSlotL : kSlotR) - kBodyW / 2, kEyeY - kBodyH / 2);
 
         // The pupil is a CHILD of the body: it inherits clipping, so it can be driven to the rim
         // without ever spilling outside the eye.
         g_eye[i].pupil = plainBox(g_eye[i].body, lv_color_hex(0x04201e), 999);
-        g_eye[i].glint = plainBox(g_eye[i].body, lv_color_hex(0xffffff), 999);
-        // The eyelid is a real object that descends, not a height squash of the body.
+        // SOFT SPECULAR, not a hard disc. White at the core fading to fully transparent at the
+        // rim -- the hard circle was a limitation of hand-rasterising, not a choice.
+        // CHILD OF THE PUPIL. A catchlight is a corneal reflection sitting over the iris and
+        // pupil, not a spot floating on the sclera -- and parenting it here means it travels with
+        // the pupil for free and can never escape the eye, which retires the clamping that was
+        // needed when it was a child of the body.
+        g_eye[i].glint = plainBox(g_eye[i].pupil, lv_color_hex(0xffffff), 999);
+        lv_obj_set_style_bg_grad_color(g_eye[i].glint, lv_color_hex(0xffffff), LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(g_eye[i].glint, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
+        lv_obj_set_style_bg_main_opa(g_eye[i].glint, 235, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_opa(g_eye[i].glint, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_bg_main_stop(g_eye[i].glint, 20, LV_PART_MAIN);
+        // The eyelid is a real object that descends, not a height squash of the body. Created
+        // last so it draws over the pupil and glint, and pinned foreground to keep it that way.
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
+        lv_obj_move_foreground(g_eye[i].lid);
 
         // THE BROW IS A LINE, NOT A ROTATED BOX. A rotated LVGL object is rendered through a
         // layer, which means allocating a buffer the size of its bounding box on every draw --
@@ -311,9 +331,10 @@ void AppFace::onRunning()
             L.pupilX = px; L.pupilY = py;
         }
 
-        // One highlight, FIXED to the body -- a highlight that chases the gaze was tried on the
-        // bespoke face and read as confusing.
-        const int gw = pw / 3, gxo = -w / 5, gyo = -h / 4;
+        // One highlight, inside the pupil. Upper-left is the conventional catchlight position and
+        // it implies a fixed light source up and to the left of the robot.
+        const int gw = pw / 3;
+        const int gxo = -pw / 6, gyo = -pw / 6;
         if (gw != L.glintW) { lv_obj_set_size(g_eye[i].glint, gw, gw); L.glintW = gw; }
         if (gxo != L.glintX || gyo != L.glintY) {
             lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, gxo, gyo);
