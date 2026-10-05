@@ -187,6 +187,33 @@ ignore, or worth knowing. **No code changes in this phase.**
 
 ## Phase 4 — Stack, flashing, OTA and memory
 
+**DESIGN DONE, 2026-10-05 — `notes/design/tab5-idf-ota.md`. Nothing tested over the air**: the bench
+Tab5 is on USB and not associated with a network, which is the one thing that cannot be checked yet.
+
+- **The architecture does not change.** `ota-from-thor.sh` never used ArduinoOTA — it abandoned it
+  because the listener sits behind the ESP-Hosted co-processor and fails silently. It is a *pull*
+  driven by a text command on UDP :4242, and that maps to IDF one-for-one. Only the build command
+  and the binary path change.
+- **Every prerequisite is now satisfied**, including the one that could have sunk the plan: Wi-Fi
+  works on the P4 in IDF, proven by the demo's own `hal_wifi.cpp` over `esp_hosted` +
+  `esp_wifi_remote`. Plus `partitions.csv` (two 5 MB slots, 44% headroom), `app_update`,
+  `esp_http_client`, `esp_https_ota`, and NVS preserved at 0x9000.
+- **The stall deadline survives the port.** `esp_https_ota_perform()` is the non-blocking form, so
+  the loop and the 10 s deadline stay ours. The one-shot `esp_https_ota()` convenience call must be
+  avoided — it hides the loop, and hiding the loop is how the original wedge-on-"OTA: writing" bug
+  happened.
+- **Only one genuinely new piece of work: station mode.** The demo does AP; OTA needs STA.
+  Credentials go in NVS, never committed.
+- **New finding: `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set.** Two slots, no automatic way
+  back from an image that boots broken — and the head is on the e-stop branch, so recovery means
+  closing the contactor and physically reaching it. Must be enabled *together with* a
+  `mark_app_valid` call, or every image reverts after one boot; that pairing is a single decision
+  and needs a bench test that deliberately OTAs a broken image.
+- **`CLAUDE.md`'s flash table is deliberately NOT updated yet.** Its value is that every row is
+  known to work; an untested row would damage exactly that. It graduates when an OTA has succeeded
+  end to end.
+
+
 *Prerequisite for Phase 5. If this is not solved, a robot visit is wasted.*
 
 - **Does the IDF route change flashing?** The `CLAUDE.md` rote procedure is PlatformIO. ESP-IDF uses
