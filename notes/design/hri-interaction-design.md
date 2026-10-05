@@ -124,23 +124,33 @@ attention:
 
 Deliberately **five**, and deliberately not an emotional palette — see §5.
 
-### How these get played
+### How these get played — mostly by configuring M5Unified, not by writing a synth
 
-**Functional cues are synthesised, not files.** These sounds carry state, and a cue that depends on
-a filesystem read can fail silently — silence being indistinguishable from "the robot did not
-notice". Synthesis cannot go missing, and it is parametric: one generator covers the whole table
-with pitch and tempo as arguments, where five files would be five assets to keep in step with the
-firmware.
+`M5.Speaker` already provides the machinery, and the vendored examples
+(`Basic/Speaker`, `Advanced/Speaker_SD_wav_file`, `Advanced/MP3_with_ESP8266Audio`) show the
+patterns. Worth reading before writing anything:
 
-**Character audio is WAV in SPIFFS.** Personality, demo-specific voices, anything with a
-recognisable identity cannot be synthesised with `tone()`. The 3.5 MB SPIFFS partition is already
-in `default_16MB.csv` and unused — roughly 3 minutes at 16-bit/11 kHz mono — so this needs no
-partition change and no SD card that can go missing.
+| Already provided | Consequence for us |
+|---|---|
+| **8 virtual channels (0–7)**, independent volume, `isPlaying(ch)`, `stop(ch)` | A mixer exists. Assign channels by purpose and a cue can never cut off a more important one. |
+| `tone(freq, ms, ch, stop_current, raw_data, len)` | **Timbre is a parameter** — pass a short wavetable. No synth to write. |
+| `playRaw(pcm, len, rate, …)`, int8 or uint8 | The route for an envelope-shaped cue, exactly as `Basic/Speaker` does with its click sample. |
+| `playWav(array, size, …)` from a flash byte array | Short cues need no filesystem at all. |
+| `setBufferReleaseCallback()` | Streaming generated audio, if it is ever wanted. |
+| `spk_cfg.sample_rate`, default 64 kHz, up to 192 kHz | Quality is a config line, not an engineering effort. |
 
-**Envelope matters more than waveform.** `M5.Speaker.tone()` gates on and off hard, which clicks
-and reads as cheap. The same frequency rendered into a PCM buffer with a ~10 ms attack and ~60 ms
-decay and played with `playRaw()` reads as deliberate. This is the highest-value craft detail in
-the whole audio story, and it is worth more than any amount of frequency-response characterisation.
+**So the thin layer we actually write** is a table of cues — frequency, rhythm, channel — and a
+small non-blocking sequencer to step a cue's blips. Everything underneath it exists.
+
+**Channel assignment is the design decision**, and it is what keeps cues from trampling each other:
+give state and mode changes their own channel, attention cues another, and character audio a third,
+with `stop_current_sound = false` so they layer rather than interrupt. Getting this right is worth
+more than any amount of sound authoring, and costs nothing.
+
+**Where files still earn their place:** character audio, in the 3.5 MB SPIFFS partition that
+`default_16MB.csv` already defines and nothing uses (~3 min at 16-bit/11 kHz mono). Functional cues
+stay synthesised, because they carry state and a missing file is silent failure — indistinguishable
+from the robot not noticing.
 
 ---
 
