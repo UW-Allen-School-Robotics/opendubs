@@ -139,8 +139,37 @@ The honest state: the model works, pixels appear to be arriving, and nothing is 
 preview instrument above exists to tell us *which* of those four outcomes we are actually in, and
 it has not yet been looked at.
 
-**Remaining candidates, in the order the preview will discriminate them:** the camera is not
-actually pointed at the user or is covered; exposure is unusable; the sensor's native resolution is
-not 1280×720 and the PPA is being told the wrong input size (`app_video_open` keeps the sensor
-default and only changes format — this is the one I would bet on if the preview looks sheared); or
-the face is too small in frame after downscaling.
+### Suspect eliminated by reading, not by flashing
+
+My leading candidate was that `app_video_open` keeps the sensor's **default** resolution while the
+PPA is hard-coded to a 1280×720 input. **That is not the problem.** The sensor is an **SC202CS**
+(`CONFIG_CAMERA_SC202CS=y`), its format table's entry 0 is
+`MIPI_1lane_24Minput_RAW8_1280x720_30fps`, and the build selects exactly that:
+
+```
+CONFIG_CAMERA_SC202CS_MIPI_IF_FORMAT_INDEX_DAFAULT=0
+```
+
+So: sensor 1280×720 RAW8 → ISP interpolates to RGB565 → PPA 1280×720 → buffer 1280×720. **The whole
+geometry chain is consistent, and no stride or shape in it is wrong.** Confirmed from the Kconfig
+value the build actually used, so it cost nothing and needed no one at the bench.
+
+### What that leaves, in the order the preview discriminates them
+
+1. **The camera is not seeing the person** — not pointed at them, covered, or the room is too dark
+   for the ISP. The preview answers this instantly, and the new status line reports
+   `luma lo/avg/hi` so a black or washed-out frame is explicit rather than inferred.
+2. **The face is too small in the detector's input.** This is now my leading candidate on
+   arithmetic. The reference face that scores 0.835 is **96 px wide in a 320-wide image — 30% of
+   frame width.** A person sitting at arm's length from the panel is maybe 200 px wide in a
+   1280-wide frame, which after downscaling to 320 is **~50 px, about 15%** — half the relative
+   size, and the whole frame is 180 tall rather than 240. If the preview looks like a normal room,
+   this is where to go next, and the fix is cheap and principled: **detect on a centre crop rather
+   than the full frame** — take the middle 640×360 and scale 2:1 to 320×180, which doubles apparent
+   face size for the same detector cost. A person addressing the panel is centred by construction,
+   so a centre crop loses nothing that matters.
+3. Pixel order or ISP output convention differing from the PPA's declared `rgb_swap = false` /
+   `byte_swap = false`. A sheared or false-coloured preview would show it.
+
+**Deliberately not flashed again while nobody is there to look.** The build on the device now
+reports the preview and the luma range; the next move is to read it, not to guess.
