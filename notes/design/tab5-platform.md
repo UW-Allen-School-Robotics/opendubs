@@ -218,3 +218,64 @@ framebuffer that DSI scans out:
 
 Nothing is rasterised per frame. The motion model (saccadic, per *Eyes Alive*) is independent of
 all this and already written — see `face.cpp` — so it carries over unchanged.
+
+---
+
+## 7. The plan: subtract from the demo, do not rebuild it
+
+**Decided approach, and it replaces section 6's "prove it with a sketch first".** The homebrew
+budget offered for hand-calling PPA is declined: the demo firmware *exists to demonstrate this
+device's capabilities*, engineers already did the performance and bring-up work, and subtracting
+from something proven beats additively rebuilding it and rediscovering every constraint. The
+sitting that produced this note is the argument — three separate high-confidence claims that we
+were at the device's limits, all wrong.
+
+### Everything hand-rolled this week already exists in the demo's HAL
+
+| Hand-rolled here | Already in `app/hal/hal.h` |
+|---|---|
+| mic RMS + direction bench | `audioRecord(data, durationMs, gain)`, `startDualMicRecordTest()` + state enum |
+| speaker cue via raw `tone()` | `audioPlay(pcm, async)`, `setSpeakerVolume()`, `playStartupSfx()`/`playShutdownSfx()` |
+| poking ES7210 gain at `0x43`/`0x44` | a **`gain` parameter** on `audioRecord` |
+| — | headphone-jack mic test, music playback, SD mount + scan, USB-A/C detect, external-antenna enable, `startWifiAp()` |
+| — | `powerOff()`, **sleep with touch / shake / RTC wake**, INA226 bus voltage, power, shunt current |
+| — | `startCameraCapture(lv_obj_t*)` — camera into an LVGL object in one call |
+| — | `lvglLock()`/`lvglUnlock()`, display brightness, CPU temperature |
+
+### Architecture, which is already the right shape
+
+`app/hal` is an **interface**, implemented twice: `platforms/tab5` (hardware) and
+`platforms/desktop` (SDL). Apps are written against the HAL, and `app/apps/` holds discrete apps
+with an `app_template` and an `app_generator.py`. Subtracting apps and adding one is the intended
+workflow, not a hack.
+
+**Keep:** `app/hal`, `platforms/tab5` (DSI/LVGL/PPA config, ES8388+ES7210 bring-up, camera, IMU,
+RTC, INA226, SD, `wifi_c6_fw/` for the C6 radio, `sdkconfig`), `platforms/desktop`, and
+LVGL + `smooth_ui_toolkit` + `mooncake`.
+
+**Subtract:** `app_launcher` and the per-function demo test apps; demo assets we do not ship.
+
+**Add:** one app — the OpenDubs face; the StamPLC UDP protocol (`STATE`, `LIFT`, `TURN`, `GAZE`,
+`BEEP`, `CHIME`, `PMODE`, `VOL`, `OTA`); the lift control pages; and OTA, which is the real work.
+
+### The find worth acting on: the demo ships face detection
+
+`partitions.csv` carries `human_face_det, data, spiffs, 400K`. For "notice a person and look at
+them", a **detected face** is a far better gaze target than an inter-channel audio level ratio —
+it gives bearing *and* confirms a person is actually there, which audio cannot. The camera, the
+model and the LVGL plumbing all come in the same box. This reframes the attention work in
+`hri-interaction-design.md`: audio direction becomes the fallback and the attention-getter,
+vision becomes the aim.
+
+### The two real blockers, in order
+
+1. **The demo cannot do OTA.** Its layout is a single 10 M `factory` app with no `otadata` and no
+   second slot. The Tab5 lives inside the robot on the e-stop-protected branch and is flashed over
+   the air (`firmware/tab5_face/ota-from-thor.sh`), so this is not optional. Re-adding two app
+   slots means the image must fit **6.25 M** rather than 10 M, and `ArduinoOTA` has no ESP-IDF
+   equivalent — `esp_https_ota` replaces it, and `ota-from-thor.sh` changes with it. **Measure the
+   subtracted image size early**; it decides feasibility.
+2. **NVS must survive.** Both tables put `nvs` at `0x9000`, which is the good news, but the demo
+   sizes it `0x6000` against our `0x5000`. The per-robot tilt limits and IMU offsets live there.
+   Verify a resize preserves them rather than assuming it; losing them silently is exactly the
+   class of failure that has cost this project days.
