@@ -68,8 +68,12 @@ cat /dev/cu.usbmodem2101          # in a BACKGROUND task, or redirected to a fil
 - **Wait for USB to re-enumerate after any flash or reset before opening the port.** Opening it in
   the same breath as the reset yields a live file handle onto a dead endpoint: it reads **zero
   bytes forever** and looks exactly like crashed firmware. Put the read in a *separate* tool call.
-- **Never `timeout N head -c …`.** `head` buffers, `timeout` kills it, and the buffer is discarded —
-  silently losing output that did arrive. Redirect `cat` to a file and grep the file.
+- **`timeout` DOES NOT EXIST on this Mac** — neither `timeout` nor `gtimeout`. Any read written as
+  `timeout N cat …` or `timeout N head -c …` fails instantly with *command not found*, produces
+  **zero bytes, and looks exactly like dead firmware.** This wasted a sitting on 2026-10-04 and
+  sent two investigations after imaginary faults. **Use a bare, self-terminating
+  `head -c <bytes> /dev/cu.usbmodem2101`** — it blocks until that many bytes arrive and then exits
+  on its own, which is why every read that ever worked here was written that way.
 - Never use pyserial defaults, `screen`, or anything that asserts DTR/RTS: that resets an ESP32,
   and on a robot it has reset the safety controller.
 
@@ -82,10 +86,11 @@ cat /dev/cu.usbmodem2101          # in a BACKGROUND task, or redirected to a fil
    ms between lines** — never one big block.
 3. **Repeat every report on a timer** (5–20 s). Attaching resets nothing, but you will always miss
    boot-time output, and a result printed once is a result you cannot read.
-4. **Do not design around host→device serial commands.** `/dev/cu.*` does not assert DTR by design,
-   USB-CDC RX is gated on it, and written commands are dropped **with no error** — which then looks
-   like a broken feature instead of a dead channel. Anything you need to trigger must be
-   **self-triggering in firmware**, on a timer, under a build flag.
+4. **Do not design around host→device serial commands.** Whether writes to `/dev/cu.*` reach the
+   device is *unverified* — DTR gating is a plausible reason and nothing here has established it.
+   What is certain is that a feature triggered by a serial write cannot be distinguished from a
+   broken feature when nothing happens. Anything you need to trigger must be **self-triggering in
+   firmware**, on a timer, under a build flag, and must print its own verdict.
 5. **A test that needs a human at the bench is not a test.** Nobody is usually there, and "no
    stimulus" reads identically to "broken hardware". Make the firmware produce its own stimulus and
    its own verdict, and have it say *inconclusive* rather than blame the hardware.
