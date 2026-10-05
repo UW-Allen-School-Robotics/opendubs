@@ -88,13 +88,57 @@ default for a machine students will rebuild.
 - Per-robot values must not be committed, so the authored configuration lives **on the robot**, with
   the repo holding only the defaults and the examples.
 
+## Selectable first, authorable as an option
+
+**Decided.** The primary path is **selecting** from a curated set of working options; authoring new
+ones is an **option**, not the main road. But authoring stays available, because this is a research
+robot and the goal is *working examples plus the ability to adapt* — not a locked appliance.
+
+That ordering matters for where effort goes:
+
+| | gets | does not get |
+|---|---|---|
+| **Selectable** (primary) | a curated vocabulary that works, example themes and shows, a way to pick | — |
+| **Authorable** (option) | the same validated ranges, plus a simulation gate | polish, a visual editor, hand-holding |
+
+The argument for this ordering is empirical rather than philosophical: two attempts at inventing
+emote geometry in this project produced faces **worse than the originals**, and the eye geometry
+that works was arrived at by measurement against human proportion and the baby-schema literature.
+The vocabulary is a **design artefact**. The selection is the **configuration**. Someone adapting
+the robot for research can still author, and should expect to do design work when they do.
+
+### Bad options are caught by rule AND by simulation
+
+Two gates, and they catch different things.
+
+**Rules** catch what can be stated: a reserved colour touched, a value out of range, too many
+accessories, a duration below the floor. Cheap, exact, and the firmware enforces them regardless of
+what any editor did.
+
+**Simulation evaluation** catches what can only be observed — and this is a third job for the
+desktop build, alongside design iteration and the sanitizers.
+
+The non-obvious part: **dirty area per frame is a geometric property, not a CPU property.** The
+desktop has far more CPU than the Tab5 and therefore cannot tell you whether something *runs* there
+— but it can count the pixels a configuration would invalidate per frame, and that number is the
+same on both. So the sim can measure an authored configuration's cost and compare it against the
+**device's measured ~16 Mpx/s budget**, catching a theme that would freeze the robot without ever
+putting it on the robot.
+
+That is worth building because the alternative is what this session did: flash, watch, freeze,
+guess. A configuration gate that reports "this would need 1.4 screens per frame" is the thing that
+would have caught the 120-segment band and the oversized eye before either reached hardware.
+
+It also means the examples can be **checked in with their measured cost**, so a shipped theme comes
+with evidence rather than a hope.
+
 ## Open
 
-- **Whether emote parameters should be authorable at all**, or only selectable from a curated set.
-  Two attempts at inventing emote geometry in this project produced worse faces than the originals,
-  which is an argument that the *vocabulary* is a design artefact and the *selection* is the
-  configuration. Worth deciding deliberately rather than by default.
 - **Whether a theme may add accessories, or only select from pre-built ones.** Arbitrary authored
-  geometry reintroduces every cost question the platform note just answered.
-- How the validation failures are **surfaced** — the face can say "default configuration" on the
-  panel, but the author needs to know *which* rule they broke, and that is the editor's job.
+  geometry reintroduces every cost question the platform note just answered — though the simulation
+  gate above is most of the answer, if it measures accessory cost too.
+- How validation failures are **surfaced**. The face can say "default configuration" on the panel,
+  but the author needs to know *which* rule they broke, and that is the editor's job rather than the
+  firmware's.
+- **What the curated set actually is.** The current six emotes and two themes are a starting point,
+  not a considered vocabulary, and choosing the shipped set is design work in its own right.

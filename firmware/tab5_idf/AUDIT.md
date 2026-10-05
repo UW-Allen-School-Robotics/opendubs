@@ -119,6 +119,13 @@ they cannot diverge — use it rather than building either alone.
 `lv_label_set_text()` that caused the longest freeze is therefore *impossible to reproduce on the
 desktop* — there is no second thread to race with. The simulator will never find a locking bug.
 
+A **third** use, beyond design iteration and the sanitizers: **evaluating an authored
+configuration**. Dirty area per frame is a *geometric* property, not a CPU property — so the
+desktop cannot tell you whether something runs on the Tab5, but it *can* count the pixels a
+configuration would invalidate per frame, and that number is identical on both. Measured against
+the device's ~16 Mpx/s, that catches a theme which would freeze the robot without putting it on the
+robot. See `notes/design/face-config.md`.
+
 | the desktop is good for | the desktop is blind to |
 |---|---|
 | geometry, proportion, colour, motion feel | **anything involving the LVGL lock** |
