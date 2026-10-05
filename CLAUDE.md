@@ -42,6 +42,18 @@ recipe that matches your task.
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.
 
+## Config that changes runtime behaviour goes in the repo
+
+If a file can change how the firmware behaves, it is tracked here — even when it belongs to an
+external tree we only clone. For the Tab5 ESP-IDF work that means `firmware/tab5_idf/lv_conf.h`
+and the modification list in `firmware/tab5_idf/README.md`. An untracked flag cannot appear in the
+answer to "what did we change?": `LV_USE_DRAW_SW_COMPLEX_GRADIENTS` lived only in a cloned tree,
+`git log -S` found nothing, and a freeze took several rounds to trace because of it.
+
+Two debugging rules from the same incident. **Run-then-freeze means accumulation** — a cache, a
+leak, fragmentation — where an over-budget frame fails immediately; they are different searches.
+And **change one variable at a time**, or a failure cannot be attributed to either.
+
 ## Tab5 rendering: read `notes/design/tab5-platform.md` first
 
 **Do not optimise the Tab5 face renderer.** It draws through M5GFX's CPU rasteriser on a SoC that

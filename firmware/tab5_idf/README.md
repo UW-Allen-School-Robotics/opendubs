@@ -54,6 +54,19 @@ cd demo && cmake -S . -B build-desktop && cmake --build build-desktop --target a
 ./build/desktop/app_desktop_build
 ```
 
+## Every file we modify in the demo tree
+
+Listed so none of it can be invisible again. If you change another, add it here.
+
+| demo-tree file | what we change | tracked here |
+|---|---|---|
+| `lv_conf.h` | LVGL config — **this is the one that bit us** | yes, copy it over |
+| `platforms/tab5/main/idf_component.yml` | the two dependency pins | documented above |
+| `platforms/tab5/dependencies.lock` | deleted, so the pins re-resolve | documented above |
+| `app/apps/app_installer.h` | drop `app_launcher`, install `AppFace` | documented above |
+| `app/assets/assets.h` | drop three removed image declarations | documented above |
+| `app/apps/app_face/` | our app | yes, this directory |
+
 ## Measured
 
 | | |
