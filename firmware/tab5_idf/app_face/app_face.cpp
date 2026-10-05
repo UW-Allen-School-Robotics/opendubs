@@ -12,16 +12,38 @@ using namespace smooth_ui_toolkit;
 
 namespace {
 
-// Panel geometry. The eyes sit where the bespoke face put them, so the comparison is fair.
+// ---- geometry ------------------------------------------------------------------------------
+// The panel is FIVE INCHES: 1280x720 over 110.7 x 62.3 mm, so 0.0865 mm per pixel. The whole
+// display is physically about the size of a human EYE REGION, not a face, which is why
+// proportions borrowed from whole-face designs mislead here. Numbers below carry their physical
+// size, because that is the only frame in which "too small" means anything.
+//
+// What the previous geometry got wrong was SPACING, not size. Eye width was 284 px = 24.6 mm,
+// already 82% of a human eye's 30 mm visible aperture -- but the eyes sat 380 px = 32.9 mm apart
+// against a human interpupillary distance of 63 mm. FIFTY-TWO PERCENT. Tall (3x a human
+// aperture), narrow and close together is a small animal's face, not a person-scale robot at
+// human eye level, and that -- not size -- is why it did not read right.
+//
+// Research direction: the baby schema, tested on robot faces specifically, finds large eyes, a
+// round face and medium eye positions give the highest perceived trustworthiness. So LARGER than
+// human, and rounder -- and roundness happens to be pushed the same way by both the
+// human-proportion and baby-schema arguments, which is unusual and worth taking.
 constexpr int kScreenW = 1280, kScreenH = 720;
-constexpr int kEyeY    = 376;
-constexpr int kSlotL   = 450, kSlotR = 830;
 
-// Eye body and pupil. The pupil is deliberately a fraction of the body: the ratio IS the gaze
-// budget, and this is the whole point of the exercise.
-constexpr int kBodyW = 284, kBodyH = 376;
+// Human IPD is 63 mm = 729 px on this panel. This is the single biggest change from before.
+constexpr int kIpd   = 729;                       // 63.0 mm -- human scale
+constexpr int kSlotL = kScreenW / 2 - kIpd / 2;   // 276
+constexpr int kSlotR = kScreenW / 2 + kIpd / 2;   // 1004
+constexpr int kEyeY  = kScreenH / 2;              // 360, vertically centred
+
+// 400 x 400 = 34.6 x 34.6 mm. Wider than a human aperture (30 mm) per the baby schema, and SQUARE
+// rather than the old 0.76:1 portrait. Leaves 76 px of side margin and 160 px top and bottom --
+// room for the perimeter band and for the quote strip.
+constexpr int kBodyW = 400, kBodyH = 400;
+constexpr float kRadiusFrac = 0.205f;   // of min(w,h); was 58/284 on the old body
+
 constexpr float kPupilFrac = 0.34f;
-constexpr int kRimPad = 14;   // never let the pupil touch the rim; it destroys the illusion
+constexpr int kRimPad = 14;             // the pupil must never touch the rim
 
 struct Eye {
     lv_obj_t* body    = nullptr;
@@ -36,18 +58,22 @@ lv_obj_t* g_label = nullptr;
 // Gaze is EASED, not sprung: a saccade is ballistic and must not overshoot or wobble.
 AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
 // Shape is SPRUNG: an emote change should settle like something with mass.
-AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH), g_radius(58.0f);
+AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
+             g_radius((float)kBodyW * kRadiusFrac);
 AnimateValue g_lidDrop(0.0f);     // 0 = open, 1 = shut
 AnimateValue g_asym(0.0f);        // per-eye width asymmetry, the pupil-less direction cue
 
-struct Emote { const char* name; float w, h, radius, lid; };
-// A deliberately small set. These are STATES, not emotions -- see notes/design/face-design.md.
+// MULTIPLIERS of the neutral body, not absolute pixels, so the entire face rescales from
+// kBodyW/kBodyH alone -- which is what made the geometry above a one-line experiment rather than
+// a table rewrite. Radius is a fraction of min(w,h) for the same reason.
+struct Emote { const char* name; float wMul, hMul, radiusFrac, lid; };
+// Deliberately small, and these are STATES rather than emotions -- see notes/design/face-design.md.
 const Emote kEmotes[] = {
-    {"NEUTRAL",   284, 376,  58, 0.00f},
-    {"ALERT",     300, 406,  52, 0.00f},
-    {"SQUINT",    290, 210,  90, 0.00f},
-    {"SOFT",      270, 330, 130, 0.12f},
-    {"SLEEPY",    280, 150, 110, 0.35f},
+    {"NEUTRAL",  1.00f, 1.00f, 0.205f, 0.00f},
+    {"ALERT",    1.06f, 1.08f, 0.173f, 0.00f},
+    {"SQUINT",   1.02f, 0.56f, 0.429f, 0.00f},
+    {"SOFT",     0.95f, 0.88f, 0.481f, 0.12f},
+    {"SLEEPY",   0.99f, 0.40f, 0.733f, 0.35f},
 };
 constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
 int g_emote = 0;
@@ -74,7 +100,7 @@ void buildScene()
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
     for (int i = 0; i < 2; ++i) {
-        g_eye[i].body = plainBox(scr, lv_color_hex(0x19d1c4), 58);
+        g_eye[i].body = plainBox(scr, lv_color_hex(0x19d1c4), (int)(kBodyW * kRadiusFrac));
         lv_obj_set_size(g_eye[i].body, kBodyW, kBodyH);
         lv_obj_set_pos(g_eye[i].body, (i == 0 ? kSlotL : kSlotR) - kBodyW / 2, kEyeY - kBodyH / 2);
 
@@ -95,9 +121,10 @@ void buildScene()
 void applyEmote(int idx)
 {
     const Emote& e = kEmotes[idx];
-    g_bodyW  = e.w;        // assignment animates -- spring by default
-    g_bodyH  = e.h;
-    g_radius = e.radius;
+    const float w = kBodyW * e.wMul, h = kBodyH * e.hMul;
+    g_bodyW  = w;          // assignment animates -- spring by default
+    g_bodyH  = h;
+    g_radius = (w < h ? w : h) * e.radiusFrac;
     g_lidDrop = e.lid;
     char buf[96];
     snprintf(buf, sizeof(buf), "%s   gaze: eased saccade   shape: spring", e.name);
@@ -162,6 +189,18 @@ void AppFace::onOpen()
 void AppFace::onRunning()
 {
     const uint32_t now = GetHAL()->millis();
+
+    // Distinguishes three causes of a static face in one line: whether onRunning is called at
+    // all, whether the AnimateValues are advancing, and whether the toolkit's tick source is
+    // moving. Without this the three are indistinguishable from the outside.
+    static uint32_t dbg = 0;
+    if (now - dbg > 1000) {
+        dbg = now;
+        printf("[AppFace] hal_ms=%u ui_tick=%u gaze=%.3f,%.3f bodyW=%.1f lid=%.2f\n",
+               (unsigned)now, (unsigned)smooth_ui_toolkit::ui_hal::get_tick(),
+               (float)g_gazeX, (float)g_gazeY, (float)g_bodyW, (float)g_lidDrop);
+        fflush(stdout);
+    }
 
     if (now > g_nextSaccade) newSaccade(now);
     if (now > g_nextEmote) {
