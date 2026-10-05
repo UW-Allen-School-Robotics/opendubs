@@ -77,3 +77,22 @@ CONFIG_BOOTLOADER_LOG_LEVEL=2
 # constraint to know if a later Tab5 ships a v3 chip: it would need its own build.
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_1=y
+
+# Permit OTA over plain HTTP. IDF labels this "ONLY FOR TESTING PURPOSE" and that warning is
+# fair, so the reasoning is written down rather than assumed:
+#
+#   PARITY, NOT A NEW EXPOSURE. The Arduino firmware shipping on the robot today already pulls
+#   its firmware over plain HTTP from the Thor (firmware/tab5_face/ota-from-thor.sh serves the
+#   .bin from a throwaway HTTP server). Requiring TLS here would not secure the robot; it would
+#   just mean the IDF build cannot be updated the way the robot is updated now.
+#
+#   WHAT IT ACTUALLY COSTS: anyone who can reach the head on the network can tell it to pull
+#   firmware from any URL. On a robot that will be around students, with a dashboard API that
+#   has no authentication either (docs/network-architecture.md), that is a real exposure and it
+#   should not be left standing.
+#
+#   THE RIGHT FIX IS NOT TLS, IT IS SIGNING. CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT makes the
+#   bootloader verify a signature on the image itself, which defends against a hostile image
+#   regardless of how it arrived -- including over a TLS connection to a compromised server. That
+#   is the item to do before student exposure; transport encryption alone would not have helped.
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y

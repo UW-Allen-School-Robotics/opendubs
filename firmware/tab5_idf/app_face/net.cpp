@@ -8,6 +8,10 @@
 #include <freertos/task.h>
 #include <mooncake_log.h>
 #include <nvs_flash.h>
+#include <esp_app_desc.h>
+#include <esp_https_ota.h>
+#include <esp_ota_ops.h>
+#include <lwip/sockets.h>
 #include <cstdio>
 #include <cstring>
 
@@ -44,6 +48,8 @@ void setStatus(const char* s)
     g_status[sizeof(g_status) - 1] = 0;
 }
 
+void cmdTask(void*);   // defined below; started once we hold an IP
+
 void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -78,6 +84,12 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
         setStatus(b);
         g_ready    = true;
         g_failures = 0;
+        // Start the listener only now: binding before association just fails.
+        static bool started = false;
+        if (!started) {
+            started = true;
+            xTaskCreatePinnedToCore(cmdTask, "netcmd", 6144, nullptr, 2, nullptr, 1);
+        }
         mclog::tagInfo(kTag, "got ip " IPSTR, IP2STR(&e->ip_info.ip));
     }
 }
@@ -166,6 +178,151 @@ void task(void*)
 
     // The event handlers drive everything from here.
     vTaskDelete(nullptr);
+}
+
+// ------------------------------------------------------------------------------------------
+// STAGE 2: the UDP command listener, and STAGE 3: OTA by HTTP pull.
+//
+// Port 4242 and a line-oriented text protocol, matching the Arduino firmware exactly so
+// ota-from-thor.sh keeps working. That firmware never used ArduinoOTA either -- its listener sits
+// behind the ESP-Hosted co-processor and fails silently -- so the robot has always been flashed by
+// being TOLD to pull, and that is what we reproduce.
+// ------------------------------------------------------------------------------------------
+constexpr int kCmdPort = 4242;
+
+// THE STALL DEADLINE IS NOT OPTIONAL. The Arduino firmware carries a comment paid for in a
+// physical recovery: killing the serving side mid-download wedged the head on "OTA: writing",
+// network task and all, recoverable only by pulling power. Nothing that writes firmware may be
+// able to hang the device it runs on.
+constexpr uint32_t kStallMs = 10000;
+
+void doOta(const char* url)
+{
+    char b[64];
+    snprintf(b, sizeof(b), "OTA: connecting");
+    setStatus(b);
+    mclog::tagInfo(kTag, "OTA pull from {}", url);
+
+    esp_http_client_config_t http = {};
+    http.url                = url;
+    http.timeout_ms         = 8000;
+    http.keep_alive_enable  = true;
+
+    esp_https_ota_config_t cfg = {};
+    cfg.http_config = &http;
+
+    esp_https_ota_handle_t h = nullptr;
+    if (esp_https_ota_begin(&cfg, &h) != ESP_OK || !h) {
+        setStatus("OTA: begin failed");
+        mclog::tagError(kTag, "esp_https_ota_begin failed");
+        return;
+    }
+
+    // THE NON-BLOCKING FORM, deliberately. esp_https_ota_perform() returns
+    // ESP_ERR_HTTPS_OTA_IN_PROGRESS and expects to be called again, so the loop -- and therefore
+    // the deadline -- stays ours. The one-shot esp_https_ota() convenience call hides the loop,
+    // and hiding the loop is how the original wedge happened. Do not "simplify" this.
+    int      lastLen  = -1;
+    uint32_t lastMove = nowMs();
+    int      pct      = -1;
+    const int total   = esp_https_ota_get_image_size(h);
+
+    for (;;) {
+        const esp_err_t r = esp_https_ota_perform(h);
+        if (r != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            if (r != ESP_OK) {
+                snprintf(b, sizeof(b), "OTA: failed (%s)", esp_err_to_name(r));
+                setStatus(b);
+                esp_https_ota_abort(h);
+                return;
+            }
+            break;
+        }
+
+        const int len = esp_https_ota_get_image_len_read(h);
+        if (len != lastLen) { lastLen = len; lastMove = nowMs(); }
+        else if ((int32_t)(nowMs() - (lastMove + kStallMs)) >= 0) {
+            setStatus("OTA: stalled - aborted");
+            mclog::tagError(kTag, "no progress for {} ms, aborting", (int)kStallMs);
+            esp_https_ota_abort(h);
+            return;
+        }
+
+        if (total > 0) {
+            const int p = len * 100 / total;
+            if (p != pct) { pct = p; snprintf(b, sizeof(b), "OTA: %d%%", p); setStatus(b); }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    if (!esp_https_ota_is_complete_data_received(h)) {
+        setStatus("OTA: truncated - aborted");
+        esp_https_ota_abort(h);
+        return;
+    }
+    if (esp_https_ota_finish(h) != ESP_OK) {
+        setStatus("OTA: finish failed");
+        return;
+    }
+    setStatus("OTA: ok - rebooting");
+    mclog::tagInfo(kTag, "OTA complete, rebooting into the new slot");
+    vTaskDelay(pdMS_TO_TICKS(400));
+    esp_restart();
+}
+
+void cmdTask(void*)
+{
+    const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0) { mclog::tagError(kTag, "socket() failed"); vTaskDelete(nullptr); return; }
+
+    sockaddr_in me = {};
+    me.sin_family      = AF_INET;
+    me.sin_addr.s_addr = htonl(INADDR_ANY);
+    me.sin_port        = htons(kCmdPort);
+    if (bind(sock, (sockaddr*)&me, sizeof(me)) < 0) {
+        mclog::tagError(kTag, "bind({}) failed", kCmdPort);
+        close(sock);
+        vTaskDelete(nullptr);
+        return;
+    }
+    mclog::tagInfo(kTag, "command listener on udp/{}", kCmdPort);
+
+    char        rx[256];
+    sockaddr_in from;
+    socklen_t   fromLen;
+
+    for (;;) {
+        fromLen = sizeof(from);
+        int n = recvfrom(sock, rx, sizeof(rx) - 1, 0, (sockaddr*)&from, &fromLen);
+        if (n <= 0) continue;
+        rx[n] = 0;
+        while (n > 0 && (rx[n - 1] == '\n' || rx[n - 1] == '\r')) rx[--n] = 0;
+
+        // PING is the self-test: it proves association, bind and round trip in one packet, from a
+        // laptop, with nobody watching the panel. Reply with what identifies this image, so a
+        // successful OTA is confirmable by the version changing rather than by someone's memory.
+        if (strcmp(rx, "PING") == 0) {
+            const esp_app_desc_t* d = esp_app_get_description();
+            const esp_partition_t* run = esp_ota_get_running_partition();
+            char tx[160];
+            const int m = snprintf(tx, sizeof(tx), "PONG %s %s %s slot=%s",
+                                   d ? d->project_name : "?", d ? d->version : "?",
+                                   d ? d->date : "?", run ? run->label : "?");
+            sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
+        } else if (strcmp(rx, "REBOOT") == 0) {
+            const char* tx = "OK reboot";
+            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            esp_restart();
+        } else if (strncmp(rx, "OTA ", 4) == 0) {
+            const char* tx = "OK ota";
+            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
+            doOta(rx + 4);
+        } else {
+            const char* tx = "ERR unknown";
+            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
+        }
+    }
 }
 
 }  // namespace

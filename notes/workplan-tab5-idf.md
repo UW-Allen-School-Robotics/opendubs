@@ -423,7 +423,49 @@ ignore, or worth knowing. **No code changes in this phase.**
 
 ## Phase 4 — Stack, flashing, OTA and memory
 
-**DESIGN DONE, 2026-10-05 — `notes/design/tab5-idf-ota.md`. Nothing tested over the air**: the bench
+### WORKING AND VERIFIED OVER THE AIR, 2026-10-05
+
+The whole chain runs on the bench Tab5. Evidence, from the laptop with nobody watching the panel:
+
+```
+before: PONG m5stack_tab5 b4e356b-dirty Oct  5 2026 slot=app0
+ack:    OK ota
+        192.168.68.119 - - "GET /m5stack_tab5.bin HTTP/1.1" 200     <- the DEVICE fetched it
+after:  PONG m5stack_tab5 b4e356b-dirty Oct  5 2026 slot=app1
+```
+
+**The slot flipping app0 -> app1 is the proof**: the image was pulled over the network, written to
+the inactive slot, and booted from. Three stages, each self-verifying without a human at the panel:
+
+1. **STA association** — the status line carries the IP. Stored Arduino-era credentials survived
+   the partition change (the board reported reason 201 NO_AP_FOUND, not "none stored"), confirming
+   the nvs-at-0x9000 preservation was non-destructive.
+2. **UDP :4242 listener** — `PING` replies with project, version, build date and running slot. One
+   packet proves association, bind and round trip, and the version string makes a successful OTA
+   confirmable by what changed rather than by memory.
+3. **`OTA <url>`** — `esp_https_ota_begin` / `_perform` / `_finish`, the NON-BLOCKING form, so the
+   10 s stall deadline stays ours. The one-shot convenience call is deliberately avoided: it hides
+   the loop, and hiding the loop is how the Arduino head once wedged on "OTA: writing",
+   recoverable only by pulling power.
+
+**One configuration decision, made deliberately: `CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y`.** IDF labels
+it "ONLY FOR TESTING PURPOSE". It is parity rather than a new exposure — the Arduino firmware
+already pulls over plain HTTP from the Thor — but it does mean anyone who can reach the head can
+tell it to pull firmware from any URL, on a network that will have students and whose dashboard API
+has no authentication either. **The fix is signing, not TLS**: `SECURE_SIGNED_APPS_NO_SECURE_BOOT`
+makes the bootloader verify the image itself, which defends against a hostile image however it
+arrived, including over TLS from a compromised server. That is a real item for before student
+exposure and is NOT done.
+
+**Still to do here:** rollback (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` paired with
+`esp_ota_mark_app_valid_cancel_rollback()` — they must land together or every image reverts after
+one boot), and updating `firmware/tab5_face/ota-from-thor.sh` for the IDF build command and binary
+path. `CLAUDE.md`'s flash table can now gain an IDF row, because the procedure has actually worked
+end to end.
+
+---
+
+**Superseded design note below:** `notes/design/tab5-idf-ota.md`. **Nothing tested over the air**: the bench
 Tab5 is on USB and not associated with a network, which is the one thing that cannot be checked yet.
 
 - **The architecture does not change.** `ota-from-thor.sh` never used ArduinoOTA — it abandoned it
