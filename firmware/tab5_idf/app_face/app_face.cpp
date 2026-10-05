@@ -30,23 +30,45 @@ namespace {
 // human-proportion and baby-schema arguments, which is unusual and worth taking.
 constexpr int kScreenW = 1280, kScreenH = 720;
 
-// Human IPD is 63 mm = 729 px on this panel. This is the single biggest change from before.
-constexpr int kIpd   = 729;                       // 63.0 mm -- human scale
-constexpr int kSlotL = kScreenW / 2 - kIpd / 2;   // 276
-constexpr int kSlotR = kScreenW / 2 + kIpd / 2;   // 1004
-constexpr int kEyeY  = kScreenH / 2;              // 360, vertically centred
+// SPACING IS SET AS A FRACTION OF EYE WIDTH, not in millimetres, because that is the dial that
+// controls how friendly the face reads. Infants have larger eyes AND proportionally less gap
+// between them, so "bigger and closer together" is a single coherent move toward the baby schema
+// rather than two opposing ones.
+//
+//     adult human (63 mm IPD, 30 mm eye) ..... gap ~1.0 eye-widths
+//     the original OpenDubs face ............. gap  0.34  -- read as cute
+//     human-scale spacing, tried and rejected  gap  0.82  -- read as human but less friendly
+//
+// Optimising for human accuracy cost friendliness, which is the wrong trade for this robot.
+constexpr int   kBodyW    = 480;        // 41.5 mm -- well past a human aperture's 30 mm
+constexpr int   kBodyH    = 480;        // square: rounder than the old 0.76:1 portrait
+constexpr float kGapFrac  = 0.34f;      // inner gap as a fraction of eye width -- THE dial
+constexpr float kRadiusFrac = 0.205f;   // corner radius as a fraction of min(w,h)
 
-// 400 x 400 = 34.6 x 34.6 mm. Wider than a human aperture (30 mm) per the baby schema, and SQUARE
-// rather than the old 0.76:1 portrait. Leaves 76 px of side margin and 160 px top and bottom --
-// room for the perimeter band and for the quote strip.
-constexpr int kBodyW = 400, kBodyH = 400;
-constexpr float kRadiusFrac = 0.205f;   // of min(w,h); was 58/284 on the old body
+constexpr int kIpd   = (int)(kBodyW * (1.0f + kGapFrac));   // 643 px = 55.6 mm
+constexpr int kSlotL = kScreenW / 2 - kIpd / 2;             // 318
+constexpr int kSlotR = kScreenW / 2 + kIpd / 2;             // 962
+constexpr int kEyeY  = kScreenH / 2;                        // 360
 
 constexpr float kPupilFrac = 0.34f;
 constexpr int kRimPad = 14;             // the pupil must never touch the rim
 
+// ---- eyebrows --------------------------------------------------------------------------------
+// Added because they were missing entirely from this app. drawBrow() exists in the OLD Arduino
+// face.cpp; nothing here drew one, so "I still don't see eyebrows" was simply correct.
+//
+// Worth the effort on evidence rather than taste: minimal-face work names brows as the emotion
+// INTENSIFIER ("strongly pulled-down eyebrows for anger"), and a study of animated head gestures
+// found eyebrow-raising measurably increased SPEECH INTELLIGIBILITY versus the same gestures being
+// absent or added randomly -- which gives them a functional payoff once the robot speaks.
+constexpr float kBrowWFrac = 0.86f;     // of eye width
+constexpr float kBrowHFrac = 0.085f;    // of eye height
+constexpr float kBrowGap   = 0.10f;     // resting clearance above the eye, as a fraction of height
+constexpr float kBrowRange = 0.14f;     // how far raise = +/-1 moves it, as a fraction of height
+
 struct Eye {
     lv_obj_t* body    = nullptr;
+    lv_obj_t* brow    = nullptr;
     lv_obj_t* pupil   = nullptr;
     lv_obj_t* glint   = nullptr;
     lv_obj_t* lid     = nullptr;
@@ -61,19 +83,22 @@ AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
 AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
              g_radius((float)kBodyW * kRadiusFrac);
 AnimateValue g_lidDrop(0.0f);     // 0 = open, 1 = shut
+AnimateValue g_browRaise(0.0f), g_browAngle(0.0f);   // sprung, like the rest of the shape
 AnimateValue g_asym(0.0f);        // per-eye width asymmetry, the pupil-less direction cue
 
 // MULTIPLIERS of the neutral body, not absolute pixels, so the entire face rescales from
 // kBodyW/kBodyH alone -- which is what made the geometry above a one-line experiment rather than
 // a table rewrite. Radius is a fraction of min(w,h) for the same reason.
-struct Emote { const char* name; float wMul, hMul, radiusFrac, lid; };
+struct Emote { const char* name; float wMul, hMul, radiusFrac, lid, browRaise, browAngle; };
 // Deliberately small, and these are STATES rather than emotions -- see notes/design/face-design.md.
+// browRaise: -1 lowered .. +1 raised.  browAngle: degrees, positive = INNER end down (the
+// scowl direction). Mirrored per eye inside the render, so one number describes the pair.
 const Emote kEmotes[] = {
-    {"NEUTRAL",  1.00f, 1.00f, 0.205f, 0.00f},
-    {"ALERT",    1.06f, 1.08f, 0.173f, 0.00f},
-    {"SQUINT",   1.02f, 0.56f, 0.429f, 0.00f},
-    {"SOFT",     0.95f, 0.88f, 0.481f, 0.12f},
-    {"SLEEPY",   0.99f, 0.40f, 0.733f, 0.35f},
+    {"NEUTRAL",  1.00f, 1.00f, 0.205f, 0.00f,  0.00f,   0.0f},
+    {"ALERT",    1.06f, 1.08f, 0.173f, 0.00f, +1.00f,  -2.0f},
+    {"SQUINT",   1.02f, 0.56f, 0.429f, 0.00f, -0.45f,  +9.0f},
+    {"SOFT",     0.95f, 0.88f, 0.481f, 0.12f, +0.30f,  -7.0f},
+    {"SLEEPY",   0.99f, 0.40f, 0.733f, 0.35f, -0.60f,  +2.0f},
 };
 constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
 int g_emote = 0;
@@ -110,6 +135,10 @@ void buildScene()
         g_eye[i].glint = plainBox(g_eye[i].body, lv_color_hex(0xffffff), 999);
         // The eyelid is a real object that descends, not a height squash of the body.
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
+
+        // The brow is a child of the SCREEN, not the body: as a child it would be clipped by the
+        // body it has to sit above.
+        g_eye[i].brow = plainBox(scr, lv_color_hex(0x19d1c4), 999);
     }
 
     g_label = lv_label_create(scr);
@@ -126,8 +155,10 @@ void applyEmote(int idx)
     g_bodyH  = h;
     g_radius = (w < h ? w : h) * e.radiusFrac;
     g_lidDrop = e.lid;
-    char buf[96];
-    snprintf(buf, sizeof(buf), "%s   gaze: eased saccade   shape: spring", e.name);
+    g_browRaise = e.browRaise;
+    g_browAngle = e.browAngle;
+    char buf[112];
+    snprintf(buf, sizeof(buf), "%s   gaze: eased saccade   shape+brow: spring", e.name);
     lv_label_set_text(g_label, buf);
 }
 
@@ -179,7 +210,8 @@ void AppFace::onOpen()
     buildScene();
     GetHAL()->lvglUnlock();
 
-    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop, &g_asym})
+    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
+                            &g_asym, &g_browRaise, &g_browAngle})
         v->begin();
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
@@ -243,6 +275,19 @@ void AppFace::onRunning()
         // bespoke face and read as confusing.
         lv_obj_set_size(g_eye[i].glint, pw / 3, pw / 3);
         lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, -w / 5, -h / 4);
+
+        // Brow: width and thickness scale with the eye, height carries the raise, and the angle
+        // is mirrored so one signed number describes a symmetric pair.
+        const int bw = (int)(w * kBrowWFrac), bh = (int)(h * kBrowHFrac);
+        const int browY = kEyeY - h / 2 - (int)(h * kBrowGap) - bh
+                        - (int)((float)g_browRaise * h * kBrowRange);
+        lv_obj_set_size(g_eye[i].brow, bw, bh < 6 ? 6 : bh);
+        lv_obj_set_pos(g_eye[i].brow, (i == 0 ? kSlotL : kSlotR) - bw / 2, browY);
+        lv_obj_set_style_transform_pivot_x(g_eye[i].brow, bw / 2, LV_PART_MAIN);
+        lv_obj_set_style_transform_pivot_y(g_eye[i].brow, bh / 2, LV_PART_MAIN);
+        lv_obj_set_style_transform_rotation(
+            g_eye[i].brow, (int)((i == 0 ? +1.0f : -1.0f) * (float)g_browAngle * 10.0f),
+            LV_PART_MAIN);
 
         const int lidH = (int)((float)g_lidDrop * h);
         lv_obj_set_size(g_eye[i].lid, w, lidH < 0 ? 0 : lidH);
