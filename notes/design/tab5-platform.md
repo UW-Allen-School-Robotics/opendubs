@@ -279,3 +279,68 @@ vision becomes the aim.
    sizes it `0x6000` against our `0x5000`. The per-robot tilt limits and IMU offsets live there.
    Verify a resize preserves them rather than assuming it; losing them silently is exactly the
    class of failure that has cost this project days.
+
+---
+
+## 8. Measured: the subtractive build fits, with room
+
+Built on 2026-10-04 on macOS. **The OTA blocker in §7 does not exist** — the demo fits the OpenDubs
+OTA slot *before* any subtraction.
+
+| build | image | vs the 6.25 MB `app0`/`app1` slot |
+|---|---|---|
+| demo, **unmodified** | **5.49 MB** | fits, 0.76 MB spare |
+| demo, **launcher + 3 images removed** | **2.76 MB** | fits, **3.49 MB spare** |
+| *(current Arduino face, for scale)* | 1.45 MB | — |
+
+One subtraction halved it: deleting `app/apps/app_launcher` plus `launcher_bg.c` (11 MB of source
+array), `porta_i2c_dev_chart.c` and `internal_i2c_dev_chart.c` took `app/assets` from **15 MB to
+692 KB** and the image from 5.49 MB to 2.76 MB. The separation is clean — those three images were
+referenced only by `assets.h` and by `app_launcher`'s own views — and `app.cpp` simply calls
+`on_startup_anim()` then `on_install_apps()`, so swapping `AppLauncher` for `AppTemplate` in
+`app_installer.h` is the whole change.
+
+So the subtracted build carries LVGL 9, the complete HAL, camera, audio, IMU, RTC, INA226, SD and
+the C6 radio in 2.76 MB: about 1.3 MB more than our bespoke firmware, for very much more
+capability, leaving 3.49 MB for the face app, its assets, and OTA.
+
+### Reproducible recipe
+
+```sh
+brew install cmake ninja                       # ESP-IDF needs both; it ships neither on macOS
+git clone -b v5.4.2 --depth 1 --recursive --shallow-submodules \
+    https://github.com/espressif/esp-idf.git && (cd esp-idf && ./install.sh esp32p4)
+git clone --depth 1 https://github.com/m5stack/M5Tab5-UserDemo.git demo
+cd demo && python3 fetch_repos.py              # LVGL 9.2.2, mooncake, smooth_ui_toolkit
+# apply the two pins below to platforms/tab5/main/idf_component.yml, then:
+cd platforms/tab5 && rm -f dependencies.lock
+. ../../../esp-idf/export.sh && idf.py build
+```
+
+### Two upstream inconsistencies — this does NOT build out of the box
+
+Both cost a build cycle, and both are version drift rather than anything about the device:
+
+1. **LVGL.** `esp_lvgl_port` 2.5.0 declares `lvgl/lvgl: '>=8,<10'` and the resolver picks **8.4.0**,
+   but the Tab5 BSP (`m5stack_tab5.c`) calls **LVGL 9** APIs — `lv_indev_create`,
+   `lv_indev_set_type`, `lv_indev_set_read_cb`, `lv_indev_set_display`. Worse, the **committed
+   `dependencies.lock` itself pins 8.4.0**, so the repository as shipped cannot build its own
+   source. `repos.json`'s 9.2.2 serves the *desktop* build; the IDF build resolves separately.
+   Fix: pin `lvgl/lvgl: '~9.2.2'` and delete the lock.
+2. **`esp_codec_dev`.** Nothing pinned it, so it floated to a version that fixed an upstream typo —
+   `ES7120_SEL_MIC*` became `ES7210_SEL_MIC*` — which the BSP still spells the old way. The shipped
+   lock pins **1.3.4**. Fix: `espressif/esp_codec_dev: 1.3.4`.
+
+**Also note the build system globs sources at configure time**, so after deleting an app directory
+`idf.py reconfigure` is required or ninja fails on a file it still expects.
+
+### What is still to do, in order
+
+1. **Restore OTA partitions.** The demo is one 10 MB `factory` app with no `otadata`. Our
+   `default_16MB.csv` already has the right shape; the measurements above say the image fits it.
+   `esp_https_ota` is already compiled into this build, so the capability is present — `ArduinoOTA`
+   is what has no equivalent, and `ota-from-thor.sh` changes with it.
+2. **Verify NVS survives.** Both tables place `nvs` at `0x9000`; the demo sizes it `0x6000` against
+   our `0x5000`. Per-robot tilt limits and IMU offsets live there.
+3. **Port the face as one app** against the HAL, replacing `AppTemplate`.
+4. **Port the StamPLC protocol and the lift pages.**
