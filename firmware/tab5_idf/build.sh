@@ -33,6 +33,44 @@ sync_sources() {
     # The dependency manifest is OURS and tracked -- it holds three version pins that were each
     # found the hard way and that used to exist only inside the clone.
     cp "$HERE/idf_component.yml" "$DEMO/platforms/tab5/main/idf_component.yml"
+
+    # DROP THE 934 KB MP3 WE NEVER PLAY. The vendor embeds audio/canon_in_d.mp3 via
+    # EMBED_TXTFILES for a music demo: 956,208 bytes, about 25% of our entire 3.94 MB image, and
+    # almost exactly what esp-dl costs (~726 KB code + 196 KB model). Nothing in the face plays it.
+    # Removing the embed alone breaks the link, because hal_audio.cpp declares the _binary_
+    # symbols, so the music test's canon case is pointed at the short startup sfx instead. The two
+    # small sfx (42 KB together) stay -- not worth a third vendor edit.
+    #
+    # Patched here rather than tracked as a whole vendor file copy, so a vendor change to
+    # CMakeLists is inherited instead of silently overwritten. Idempotent, and it FAILS LOUDLY if
+    # an anchor moves rather than quietly building the 934 KB version again.
+    python3 - "$DEMO/platforms/tab5" <<'PATCH'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+
+cm = root / "main/CMakeLists.txt"
+t = cm.read_text()
+if '"../audio/canon_in_d.mp3" ' in t:
+    t = t.replace('"../audio/canon_in_d.mp3" ', '')
+    cm.write_text(t)
+    print("  patched: canon_in_d.mp3 un-embedded (-934 KB)")
+elif 'canon_in_d.mp3' in t:
+    sys.exit("REFUSING: canon_in_d.mp3 is embedded in a form this patch does not recognise")
+
+ha = root / "main/hal/components/hal_audio.cpp"
+t = ha.read_text()
+old = """extern const uint8_t canon_in_d_mp3_start[] asm("_binary_canon_in_d_mp3_start");
+extern const uint8_t canon_in_d_mp3_end[] asm("_binary_canon_in_d_mp3_end");"""
+if old in t:
+    t = t.replace(old, """// canon_in_d.mp3 is no longer embedded -- see build.sh. Aliased to the startup sfx so the
+// vendor's music test still links and still makes a noise, without 934 KB of payload.
+#define canon_in_d_mp3_start startup_sfx_mp3_start
+#define canon_in_d_mp3_end   startup_sfx_mp3_end""")
+    ha.write_text(t)
+    print("  patched: hal_audio.cpp canon symbols aliased")
+elif "canon_in_d_mp3_start[] asm" in t:
+    sys.exit("REFUSING: hal_audio.cpp declares the canon symbols in an unrecognised form")
+PATCH
     # esp-dl is appended ONLY for the probe: in the default dependency set it aborts at boot with
     # an i2c driver-generation conflict (see idf_component.yml). Keeping it out of the tracked
     # manifest means a normal build cannot inherit that.

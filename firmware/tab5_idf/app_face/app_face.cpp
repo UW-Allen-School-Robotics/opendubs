@@ -669,7 +669,7 @@ void buildScene()
     g_probeLabel = lv_label_create(scr);
     lv_obj_set_style_text_color(g_probeLabel, lv_color_hex(0xffd24a), LV_PART_MAIN);
     lv_obj_align(g_probeLabel, LV_ALIGN_TOP_MID, 0, 56);
-    lv_label_set_text(g_probeLabel, faceProbeStatus());
+    lv_label_set_text_static(g_probeLabel, faceProbeStatus());
 
     // Built once, hidden, never reallocated -- steady-state allocation is AUDIT.md invariant 6.
     g_reticle = lv_obj_create(scr);
@@ -716,8 +716,12 @@ void applyEmote(int idx)
     snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s   heap %uk / largest %uk",
              kStates[g_state].label, e.name, band::name(band::g_activity),
              theme::name(theme::g_active),
-             (unsigned)(esp_get_free_heap_size() / 1024),
-             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) / 1024));
+             // INTERNAL, not total. esp_get_free_heap_size() counts PSRAM, of which there are
+             // 32 MB -- so it read ~23 MB and looked reassuring while the resource that actually
+             // binds us, internal DRAM, sits at 250-310 KB. A readout that cannot show the
+             // constraint is worse than none, because it gets believed.
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
 #else
     snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s", kStates[g_state].label, e.name,
              band::name(band::g_activity), theme::name(theme::g_active));
@@ -857,7 +861,13 @@ void AppFace::onRunning()
             // bursts around each block that touches LVGL, and this sits between two of them. I
             // wrote a comment below asserting the opposite and it was simply false.
             GetHAL()->lvglLock();
-            lv_label_set_text(g_probeLabel, faceProbeStatus());
+            // _static: no copy, so no malloc. CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384 means
+            // every allocation under 16 KB lands in INTERNAL DRAM, so a 4 Hz lv_label_set_text
+            // was churning the scarcest resource on the chip for a debug string. The source is a
+            // static buffer that outlives the label, which is exactly what _static requires.
+            // The probe task writes it while LVGL may be reading: worst case is a torn line of
+            // debug text, and it is always NUL-terminated.
+            lv_label_set_text_static(g_probeLabel, faceProbeStatus());
             GetHAL()->lvglUnlock();
         }
     }
