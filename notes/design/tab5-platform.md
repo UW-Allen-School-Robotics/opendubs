@@ -607,9 +607,28 @@ thing is free; a static thing over an animating thing is as expensive as the thi
 on the desktop build and reports dirty area per frame against the device's budget. Desktop only; a
 no-op on the device, which should not carry an instrument it cannot act on.
 
-**First measurement, 2026-10-05: mean 2,835 k px/frame — 3.08 screens, 532% of the device's 533 k
-budget.** Allowing for the overcount below, the real figure is likely 1–1.5 screens/frame, which is
-at or over budget and consistent with the face having frozen repeatedly.
+**First measurement, 2026-10-05: mean 2,835 k px/frame — 3.08 screens, 532% of the device's
+533 k budget. Then the device contradicted it by running fine for a long stretch.**
+
+**The absolute calibration is unreliable, and the reason is identifiable: the 16 Mpx/s ceiling came
+from the wrong workload.** It is 55.1 fps × 290 k px from the sprite bench — but that bench was
+rasterising **fourteen `drawEllipse` calls plus two `fillEllipse` per frame**, which measures
+*primitive rasterisation*. It was then applied as a *fill and blit* ceiling, and LVGL filling solid
+rectangles and linear gradients is far cheaper than drawing ellipses. The budget is therefore
+calibrated against a workload several times more expensive than what the face actually does.
+
+Compound that with the overcount being larger than estimated — layered invalidations *plus* LVGL's
+own area merging, which the gate cannot see — and "532% over" is consistent with being comfortably
+under.
+
+**So: treat the gate's absolute verdict as meaningless until it is recalibrated, and use it only
+comparatively.** `LV_USE_PERF_MONITOR` is now enabled, so the device reports its own FPS and CPU
+load on the panel; that measurement replaces the inference, and the gate can be re-anchored to it.
+
+**The general error is worth more than the gate.** A measurement taken from one workload was reused
+as a ceiling for a different one, and because it produced a plausible-looking number it went
+unquestioned until the hardware disagreed. A benchmark is only a budget for the thing it
+benchmarked.
 
 **The metric took three attempts, and the reason is the useful part.**
 

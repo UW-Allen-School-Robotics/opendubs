@@ -854,14 +854,19 @@
 #define LV_USE_SNAPSHOT 1
 
 /*1: Enable system monitor component*/
-#define LV_USE_SYSMON   0
+/* ON, to get LVGL's own FPS and CPU report on the panel. Needed because the cost gate's absolute
+ * calibration is unreliable: the 16 Mpx/s ceiling it compares against came from a bench that was
+ * rasterising fourteen drawEllipse calls per frame, i.e. a PRIMITIVE-RASTERISATION workload, and
+ * was then applied as a FILL/BLIT ceiling. The device reporting its own frame rate replaces that
+ * inference with a measurement. */
+#define LV_USE_SYSMON   1
 #if LV_USE_SYSMON
     /*Get the idle percentage. E.g. uint32_t my_get_idle(void);*/
     #define LV_SYSMON_GET_IDLE lv_timer_get_idle
 
     /*1: Show CPU usage and FPS count
      * Requires `LV_USE_SYSMON = 1`*/
-    #define LV_USE_PERF_MONITOR 0
+    #define LV_USE_PERF_MONITOR 1
     #if LV_USE_PERF_MONITOR
         #define LV_USE_PERF_MONITOR_POS LV_ALIGN_BOTTOM_RIGHT
 

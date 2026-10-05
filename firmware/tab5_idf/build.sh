@@ -26,12 +26,17 @@ sync_sources() {
 }
 
 build_device() {
+    # ALWAYS reconfigure. Both build systems glob app/ at CONFIGURE time, so adding or removing a
+    # source file silently builds the old file list -- which has produced a confusing link error
+    # three separate times (a deleted app_launcher.cpp, and twice a newly added file).
     ( cd "$DEMO/platforms/tab5" && . "$IDF/export.sh" >/dev/null 2>&1 \
-      && idf.py build && idf.py -p "${PORT:-/dev/cu.usbmodem2101}" flash )
+      && idf.py reconfigure >/dev/null && idf.py build \
+      && idf.py -p "${PORT:-/dev/cu.usbmodem2101}" flash )
 }
 
 build_desktop() {
     local extra="${1:-}"
+    # Same reason as build_device: reconfigure so a new or deleted source file is picked up.
     cmake -S "$DEMO" -B "$DEMO/build-desktop" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
           ${extra:+-DCMAKE_CXX_FLAGS="$extra" -DCMAKE_C_FLAGS="$extra" -DCMAKE_EXE_LINKER_FLAGS="$extra"} \
           >/dev/null
