@@ -139,14 +139,30 @@ void faceProbeStart()
     static StackType_t*  stack = nullptr;
     constexpr uint32_t   kStackWords = 6144;
 
-    tcb   = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    stack = (StackType_t*)heap_caps_malloc(kStackWords * sizeof(StackType_t),
-                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // MALLOC_CAP_DMA, not MALLOC_CAP_INTERNAL. INTERNAL was not enough and the reason is specific:
+    // it also covers RTCRAM and TCM, this build has 31 KiB of RTCRAM and 7 KiB of TCM free, a
+    // StaticTask_t is only a couple of hundred bytes -- so the allocator happily placed the TCB in
+    // RTCRAM, which xPortCheckValidTCBMem rejects. DMA-capable means internal DRAM proper, which is
+    // what FreeRTOS actually requires. The allocation SUCCEEDED before; it was in the wrong RAM.
+    constexpr uint32_t kCaps = MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+
+    // Print the budget BEFORE asking for it, so a failure here is still a measurement rather than a
+    // mystery -- "esp-dl leaves N KB of internal DRAM" is exactly the number worth knowing.
+    mclog::tagInfo(kTag, "internal DRAM free={}K largest={}K (need {}K for this task)",
+                   heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024,
+                   heap_caps_get_largest_free_block(MALLOC_CAP_DMA) / 1024,
+                   (unsigned)((sizeof(StaticTask_t) + kStackWords * sizeof(StackType_t)) / 1024));
+
+    tcb   = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), kCaps);
+    stack = (StackType_t*)heap_caps_malloc(kStackWords * sizeof(StackType_t), kCaps);
     if (!tcb || !stack) {
         // Say so, rather than asserting or silently doing nothing. If the probe cannot run, that
         // is itself the measurement: esp-dl does not leave room for another task on this build.
-        mclog::tagError(kTag, "INCONCLUSIVE: no internal RAM for the probe task (free internal={}K)",
-                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+        mclog::tagError(kTag, "INCONCLUSIVE: no internal DRAM for the probe task -- that IS the "
+                              "result: esp-dl does not leave room for another task (free DMA={}K)",
+                        heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024);
+        heap_caps_free(tcb);
+        heap_caps_free(stack);
         return;
     }
     xTaskCreateStatic(task, "faceprobe", kStackWords, nullptr, 2, stack, tcb);

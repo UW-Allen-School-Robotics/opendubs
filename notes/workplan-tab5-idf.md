@@ -82,18 +82,34 @@ that: PASS / FAIL / INCONCLUSIVE, first-pass and steady-state latency, PSRAM, re
 behind `OPENDUBS_PROBE_FACEDET=1`. A fixed image is **better** than a live face — byte-identical
 input, so latency is comparable across builds and a miss is a regression rather than bad lighting.
 
-**It does not run yet, and the blocker is the more interesting cost.** With esp-dl linked, creating
-one more FreeRTOS task asserts:
+**It does not run, and the blocker is far more significant than the flash figure.**
 
 ```
 assert failed: xTaskCreateStaticPinnedToCore (xPortCheckValidTCBMem(pxTaskBuffer))
 ```
 
-A TCB must live in internal DRAM and esp-dl does not leave enough. `MALLOC_CAP_INTERNAL` was not
-sufficient — it can return TCM or RTCRAM, which the check also rejects. `MALLOC_CAP_DMA` is the
-likely answer and is **untried**; stopped there rather than take a third guess in a row.
-**That internal-RAM ceiling, not the flash figure, is face detection's real integration cost**, and
-it is the kind of thing only flashing finds.
+Four experiments, one variable each. The first two killed my own explanations:
+
+| experiment | result |
+|---|---|
+| probe task buffers via `MALLOC_CAP_DMA` (instead of `MALLOC_CAP_INTERNAL`) | **still asserts — and the probe's own log line never prints.** The failing task is not ours. |
+| read the 14 lines before the assert | It fires at **1293 ms, immediately after `H_API: ESP-Hosted starting` and `add_esp_wifi_remote_channels`** — inside **ESP-Hosted's own** task creation, long before `app_face` opens. Our code never runs. |
+| compare internal RAM at `heap_init` | **esp-dl has MORE, not less**: 64+18+**230** KiB against 64+18+**167** KiB. So "esp-dl starves internal DRAM" was wrong too; the linker relayouts memory substantially and something in that relayout puts ESP-Hosted's static task buffers where the TCB check rejects them. |
+| esp-dl **linked but never referenced** | **Boots fine**, byte-identical image (the linker drops it). So declaring the dependency is free and harmless; only *referencing* the detector breaks the boot. |
+| model in its own flash partition instead of rodata | **Still asserts.** So it is not the ~1 MB of model rodata either — it is esp-dl's own code/data. |
+
+**The consequence, and it reaches past 1.4: on this build, face detection and Wi-Fi look mutually
+exclusive.** The thing that breaks is ESP-Hosted — the SDIO link to the ESP32-C6 that *is* the
+Tab5's only radio. Phase 4's OTA depends on it, and so does all of 1B. That makes this a planning
+constraint, not a 1.4 detail.
+
+**Scoped carefully, because the version pin matters.** This is esp-dl **3.1.3** with
+`human_face_detect` **0.2.3**, and 3.1.3 is forced: 3.3.13 does not compile against that consumer.
+A newer *pair* may not have the problem at all, so this is a statement about these versions, not
+about the P4. Checking a newer matched pair is the cheapest next move, ahead of any attempt to
+fix the memory layout by hand.
+
+Mechanism **not established**, and deliberately left that way rather than guessed at a fifth time.
 
 Also corrected: esp-dl was briefly blamed for the i2c abort above. **It was innocent** — that build
 also carried the regenerated `sdkconfig`, which reproduces the abort on its own with no esp-dl
