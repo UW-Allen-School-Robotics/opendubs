@@ -23,6 +23,21 @@ constexpr uint8_t kPrio[(int)Cue::Count] = {
 
 struct Note { float hz; int ms; };
 
+// LOUDNESS IS INVERSELY PROPORTIONAL TO HOW OFTEN A CUE FIRES. Mode sounds on every state change,
+// so it is routine, and a routine cue at the volume of an alarm is the fastest way to make someone
+// mute the robot entirely -- at which point the cue that actually mattered goes with it. Fault is
+// rare and must not be missed, so it keeps the headroom.
+//
+// Per-cue gain, not one master level:
+constexpr float kGain[(int)Cue::Count] = {
+    0.40f,   // Heard  -- frequent, a background acknowledgement
+    0.50f,   // Attend -- less frequent
+    0.70f,   // Refuse -- infrequent and consequential
+    1.00f,   // Fault  -- rare, urgent, keeps the headroom
+    0.30f,   // Mode   -- ROUTINE. Quietest thing that still registers.
+    0.65f,   // Boot   -- once per power cycle
+};
+
 std::vector<int16_t> g_pcm[(int)Cue::Count];
 uint32_t g_busyUntil = 0;
 uint8_t  g_busyPrio  = 0;
@@ -56,10 +71,11 @@ void renderSilence(std::vector<int16_t>& out, int ms)
     for (int i = 0; i < n; ++i) { out.push_back(0); out.push_back(0); }
 }
 
-void build(Cue c, const Note* notes, int count, const int* gaps, float gain = 1.0f)
+void build(Cue c, const Note* notes, int count, const int* gaps)
 {
     auto& v = g_pcm[(int)c];
     v.clear();
+    const float gain = kGain[(int)c];
     for (int i = 0; i < count; ++i) {
         renderNote(v, notes[i].hz, notes[i].ms, gain);
         if (i + 1 < count) renderSilence(v, gaps[i]);

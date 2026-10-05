@@ -150,6 +150,13 @@ Format read from the HAL rather than assumed: **48 kHz, 16-bit, interleaved ster
 | `Mode` | one long tone | an authority or mode transition |
 | `Boot` | rising third | ours, replacing the vendor startup sound |
 
+**Loudness is inversely proportional to how often a cue fires**, and this was got wrong first time.
+`Mode` sounds on every state change, so it is routine — and a routine cue at alarm volume is the
+fastest way to make someone mute the robot entirely, at which point the cue that actually mattered
+goes with it. So gain is per-cue, not one master level: `Mode` is the quietest thing that still
+registers (0.30), `Fault` keeps the headroom (1.00), and the rest sit between by how often they
+fire and how much they cost to miss.
+
 `Fault` repeats and does not stop, because a fault that announced itself once and went quiet is
 indistinguishable from one nobody noticed. Envelope is 8 ms attack, 55 ms decay, with a little
 second harmonic — a pure sine on a small speaker reads thin.
