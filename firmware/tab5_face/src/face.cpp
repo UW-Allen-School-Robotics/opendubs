@@ -165,9 +165,39 @@ static void drawEye(LovyanGFX *g, int cx, int cy, float blink, uint16_t color,
   }
 
   g->fillRoundRect(x0, y0, w, h, r, color);
-  if (blink > 0.5f && h > 70)
-    g->fillEllipse(cx - w / 5, ey - (int)(h * 0.26f), std::max(w / 10, 6),
-                   std::max(h / 12, 5), glintCol);
+
+  // THE GLINT MOVES AGAINST THE EYE, and that is what makes the eye read as turning.
+  //
+  // A specular highlight is a reflection of a FIXED light source off a curved eyeball. When a real
+  // eye rotates, the highlight stays roughly where it is in space and the iris sweeps past it --
+  // so what an observer actually reads as gaze is the CHANGING OFFSET between highlight and eye,
+  // not the eye's absolute displacement.
+  //
+  // This glint used to be positioned off cx, which already carries the gaze offset, so highlight
+  // and eye body moved together as one rigid object: 12 px each, zero relative motion, and the
+  // result looked like a texture sliding rather than an eyeball turning.
+  //
+  // Counter-motion also sidesteps the geometry that makes real travel impossible: at P.w = 1.06
+  // the eye body is 301 px inside a 324 px sprite, leaving ~11 px of margin, so the body simply
+  // cannot move further. The glint has the whole eye interior to move around in, and relative
+  // travel is what counts -- so the perceived turn can be several times larger than the 12 px the
+  // body is allowed.
+  if (blink > 0.5f && h > 70) {
+    const int gdx = (int)(gx * 30.0f);   // opposes the body's +12, for ~42 px of relative sweep
+    const int gdy = (int)(gy * 20.0f);
+    int lx = cx - w / 5 - gdx, ly = ey - (int)(h * 0.26f) - gdy;
+    // Keep it on the eye: a highlight that slides off the edge destroys the illusion outright.
+    const int mx = w / 2 - std::max(w / 10, 6) - 6, my = h / 2 - std::max(h / 12, 5) - 6;
+    lx = std::min(cx + mx, std::max(cx - mx, lx));
+    ly = std::min(ey + my, std::max(ey - my, ly));
+    g->fillEllipse(lx, ly, std::max(w / 10, 6), std::max(h / 12, 5), glintCol);
+    // A second, smaller highlight low on the opposite side. Real eyes catch more than one
+    // reflection, and a lone blob reads as a sticker; this one moves WITH the gaze, so the two
+    // separate as the eye turns and the parallax between them sells the curvature.
+    if (h > 120)
+      g->fillEllipse(cx + w / 6 + gdx / 2, ey + (int)(h * 0.18f) + gdy / 2,
+                     std::max(w / 22, 4), std::max(h / 26, 3), glintCol);
+  }
   float tiltMag = fabsf(P.tilt) * 235.0f;
   if (tiltMag > 3 && h > 40) {
     int tw = (int)(tiltMag * 0.95f), th = (int)tiltMag;
