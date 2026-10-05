@@ -13,7 +13,8 @@
 // EXACTLY what face.cpp uses. The face allocates ONE sprite and pushes it twice (slots[2],
 // mirrored by i==0?-1:+1), so "what does a second eye cost" is already answered by the shipping
 // firmware: nothing. The real question is which memory the one sprite lands in.
-static constexpr int kEyeW = 324;
+static constexpr int kEyeW = 324;      // what face.cpp ships
+static constexpr int kEyeNarrow = 276;  // widest that fits internal SRAM, per the first bench run
 static constexpr int kEyeH = 448;
 static constexpr int kFrames = 60;     // enough to average out a stray scheduler tick
 
@@ -83,69 +84,92 @@ static float timeDraws(M5Canvas &s, int pushes, int frames) {
   return dt ? (1000.0f * frames) / dt : 0.0f;
 }
 
-// Measure FIRST, report AFTER. The benchmark pushes 300x448 sprites to the panel, so anything
-// printed between measurements is immediately painted over by the next draw -- the first run
-// showed an eye and no numbers for exactly that reason. Results are collected, then the screen is
-// cleared once and the whole block printed as text.
+// Measure FIRST, report AFTER. The benchmark pushes full-height sprites to the panel, so
+// anything printed between measurements is immediately painted over by the next draw -- the first
+// run showed an eye and no numbers for exactly that reason. Results are collected, then the
+// screen is cleared once and the whole block printed as text.
+//
+// A MATRIX, not a single number, because narrowing the eye from 324 to 276 changes two things at
+// once: fewer pixels AND internal SRAM instead of PSRAM. Timing both widths in both memories
+// separates them, so "narrowing is worth it" can be attributed rather than assumed.
+struct Cell {
+  int   w       = 0;
+  bool  psram   = false;
+  bool  fit     = false;
+  int   usedKb  = 0;
+  float oneFps  = 0;
+  float twoFps  = 0;
+};
+
+static Cell measureCell(int w, bool psram) {
+  Cell c; c.w = w; c.psram = psram;
+  M5Canvas eye(&M5.Display);
+  eye.setColorDepth(16);
+  eye.setPsram(psram);
+  const size_t before = psram ? freePsram() : freeInternal();
+  c.fit = eye.createSprite(w, kEyeH) != nullptr;
+  if (!c.fit) return c;
+  c.usedKb = (int)((before - (psram ? freePsram() : freeInternal())) / 1024);
+  c.oneFps = timeDraws(eye, 1, kFrames);
+  c.twoFps = timeDraws(eye, 2, kFrames);
+  eye.deleteSprite();
+  return c;
+}
+
 struct RenderResult {
-  bool  fit[2]      = {false, false};
-  int   used[2]     = {0, 0};
-  size_t freeAfter  = 0;
-  float oneFps      = 0;
-  float twoFps      = 0;
-  float psramFps    = 0;
-  bool  psramOk     = false;
+  Cell   cells[4];
+  size_t largestAtStart = 0;
+  int    widestInternal = 0;
 };
 
 static RenderResult measureRender() {
   RenderResult r;
-  M5Canvas eye(&M5.Display);
-  eye.setColorDepth(16);
+  r.largestAtStart = largestInternal();
 
-  // 1. internal, at the face's real size
-  eye.setPsram(false);
-  size_t before = freeInternal();
-  r.fit[0]  = eye.createSprite(kEyeW, kEyeH) != nullptr;
-  r.used[0] = (int)(before - freeInternal());
+  // kEyeW is what face.cpp ships; kEyeNarrow is the widest that fits internal SRAM.
+  r.cells[0] = measureCell(kEyeW,      false);  // expected to FAIL -- 283 KB needed
+  r.cells[1] = measureCell(kEyeW,      true);   // what the face is therefore actually running
+  r.cells[2] = measureCell(kEyeNarrow, false);  // the proposed change
+  r.cells[3] = measureCell(kEyeNarrow, true);   // same pixels, slow memory -> isolates the memory
 
-  // 2. the face's own fallback, so we learn what it would actually be running
-  if (!r.fit[0]) {
-    eye.setPsram(true);
-    r.fit[1] = eye.createSprite(kEyeW, kEyeH) != nullptr;   // fit[1] reused: "landed in PSRAM"
-  }
-  r.freeAfter = largestInternal();
-
-  // The face pushes the SAME sprite twice, so measure that, not two sprites.
-  if (eye.width()) { r.oneFps = timeDraws(eye, 1, kFrames); r.twoFps = timeDraws(eye, 2, kFrames); }
-  eye.deleteSprite();
-
-  // 3. the largest eye that DOES fit internal, which is the real design budget
-  for (int w = kEyeW; w >= 96; w -= 12) {
+  // Confirm the narrow width empirically rather than trusting the constant.
+  for (int w = kEyeW; w >= 96; w -= 4) {
     M5Canvas probe(&M5.Display);
     probe.setColorDepth(16);
     probe.setPsram(false);
-    if (probe.createSprite(w, kEyeH)) {
-      r.psramFps = (float)w;                                 // reused: widest internal-fitting eye
-      r.psramOk = true;
-      probe.deleteSprite();
-      break;
-    }
+    if (probe.createSprite(w, kEyeH)) { r.widestInternal = w; probe.deleteSprite(); break; }
   }
   return r;
 }
 
 static void reportRender(const RenderResult &r) {
   line();
-  rep("A) RENDER  panel %dx%d  eye %dx%d (face's own size)",
-      (int)M5.Display.width(), (int)M5.Display.height(), kEyeW, kEyeH);
-  rep("   needs %d KB CONTIGUOUS", (kEyeW * kEyeH * 2) / 1024);
-  rep("   internal: %s%s", r.fit[0] ? "OK" : "FAILED",
-      r.fit[0] ? "" : (r.fit[1] ? "  -> fell back to PSRAM, as face.cpp does" : "  -> PSRAM FAILED TOO"));
-  rep("   largest contiguous internal now: %u KB", (unsigned)(r.freeAfter / 1024));
-  rep("   ONE push : %5.1f fps", r.oneFps);
-  rep("   TWO pushes (what the face does): %5.1f fps", r.twoFps);
-  if (r.psramOk) rep("   widest eye that FITS internal: %dx%d", (int)r.psramFps, kEyeH);
-  else           rep("   no eye >=96 px wide fits internal SRAM");
+  rep("A) RENDER  panel %dx%d  height %d", (int)M5.Display.width(), (int)M5.Display.height(), kEyeH);
+  rep("   largest contiguous internal at start: %u KB", (unsigned)(r.largestAtStart / 1024));
+  rep("   widest eye that FITS internal: %dx%d", r.widestInternal, kEyeH);
+  rep("   %-16s %-9s %7s %7s %7s", "eye", "memory", "needs", "1 push", "2 push");
+  for (const Cell &c : r.cells) {
+    char geo[24]; snprintf(geo, sizeof(geo), "%dx%d%s", c.w, kEyeH, c.w == kEyeW ? "*" : "");
+    if (!c.fit) {
+      rep("   %-16s %-9s %6dK  %s", geo, c.psram ? "PSRAM" : "internal",
+          (c.w * kEyeH * 2) / 1024, "WOULD NOT ALLOCATE");
+    } else {
+      rep("   %-16s %-9s %6dK %6.1f  %6.1f", geo, c.psram ? "PSRAM" : "internal",
+          (c.w * kEyeH * 2) / 1024, c.oneFps, c.twoFps);
+    }
+  }
+  rep("   (* = the size face.cpp ships)");
+
+  // The comparison the change actually turns on: what the face does today vs what it would do.
+  const Cell &now = r.cells[1], &prop = r.cells[2], &same = r.cells[3];
+  if (now.fit && prop.fit) {
+    rep("   two-eye frame: %.1f -> %.1f fps  (%+.0f%%) by narrowing %d -> %d",
+        now.twoFps, prop.twoFps, 100.0f * (prop.twoFps / now.twoFps - 1.0f), kEyeW, kEyeNarrow);
+  }
+  if (same.fit && prop.fit) {
+    rep("   of which memory, not pixels: %.1f -> %.1f fps at a FIXED %d px (%+.0f%%)",
+        same.twoFps, prop.twoFps, kEyeNarrow, 100.0f * (prop.twoFps / same.twoFps - 1.0f));
+  }
 }
 
 // The ES8388 keeps state across a software reset because it has its own power rail, so it must be
@@ -247,7 +271,7 @@ void setup() {
   reportRender(rr);
   audioBench();
   line();
-  rep("done. Speak near the device; levels print every 2 s.");
+  rep("done. The report above repeats over serial every 5 s.");
 }
 
 void loop() {
@@ -259,26 +283,20 @@ void loop() {
     lastReport = millis();
     Serial.println();
     Serial.println("===== Tab5 bench report (repeats every 5 s) =====");
-    Serial.write((const uint8_t *)g_log, g_logLen);
-    Serial.println("================================================");
-  }
-  static uint32_t last = 0;
-  if (millis() - last > 300 && M5.Mic.isEnabled()) {
-    last = millis();
-    if (M5.Mic.record(rec, kSamples, 16000, true)) {
-      while (M5.Mic.isRecording()) { delay(1); }
-      double l = 0, r = 0;
-      for (size_t i = 0; i < kSamples; ++i) {
-        l += double(rec[2*i]) * rec[2*i]; r += double(rec[2*i+1]) * rec[2*i+1];
+    // LINE BY LINE, with a pause. setTxTimeoutMs(0) above makes Serial writes NON-BLOCKING, so a
+    // single bulk write of the whole log emits only what fits the ~256-byte CDC FIFO and silently
+    // DISCARDS the remainder -- which truncated this report mid-word ("largest contiguou") and
+    // looked like the measurement had failed. Each line is small enough to fit, and the delay
+    // lets the host drain between them.
+    for (size_t i = 0, start = 0; i <= g_logLen; ++i) {
+      if (i == g_logLen || g_log[i] == '\n') {
+        Serial.write((const uint8_t *)(g_log + start), i - start);
+        Serial.println();
+        delay(4);
+        start = i + 1;
       }
-      l = sqrt(l / kSamples); r = sqrt(r / kSamples);
-      char buf[128];
-      // The sign of the difference is the whole point: it is what "turn toward the voice" reads.
-      snprintf(buf, sizeof buf, "LIVE  L %6.0f  R %6.0f  diff %+7.0f  %s",
-               l, r, l - r, (l - r) > 150 ? "<- LEFT" : (r - l) > 150 ? "RIGHT ->" : "centre");
-      liveLine(buf);
-      Serial.println(buf);
     }
+    Serial.println("================================================");
   }
   M5.update();
   delay(10);

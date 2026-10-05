@@ -95,14 +95,32 @@ probably belongs on the Thor, not the P4 — the head has the mic, the Thor has 
 
 On a bench Tab5 with `firmware/tab5_face/bench/`, at the face's own 324×448 geometry:
 
-| | |
-|---|---|
-| sprite needs | **283 KB contiguous** |
-| largest contiguous internal block | **247 KB** |
-| internal allocation | **FAILS — falls back to PSRAM** |
-| one push | 55.1 fps |
-| **two pushes (what the face does)** | **27.6 fps** |
-| widest eye that *does* fit internal | **276×448** |
+Measured at both widths in both memories, because narrowing changes two things at once — fewer
+pixels *and* internal SRAM instead of PSRAM — and only a matrix attributes the gain:
+
+| eye | memory | needs | 1 push | 2 pushes |
+|---|---|---|---|---|
+| **324×448** (what ships) | internal | 283 K | **would not allocate** | — |
+| **324×448** (what ships) | PSRAM | 283 K | 55.1 | **27.6** |
+| **276×448** | internal | 241 K | **82.4** | **39.5** |
+| 276×448 | PSRAM | 241 K | 66.7 | 33.4 |
+
+Largest contiguous internal block at start: **247 KB**.
+
+**Narrowing the eye to 276 takes the two-eye frame from 27.6 to 39.5 fps, +43%**, and the two
+causes separate cleanly: +21% from the 15% pixel reduction (27.6 → 33.4, both in PSRAM) and +18%
+from reaching internal SRAM (33.4 → 39.5, both at 276 px). 1.21 × 1.18 = 1.43, so they multiply as
+they should rather than one explaining the whole effect.
+
+For context, `face.cpp` aims at "smooth ~30fps" in its own comment and is in fact delivering
+**27.6** — slightly under its target, not over it.
+
+**Take 276, not the measured maximum.** A 4-px probe finds **280×448** is the widest that fits, but
+that needs 245 K against a 247 K block — **2 KB of margin**, and when the block comes up short the
+code does not fail loudly, it silently moves to PSRAM. 276 leaves 6 KB, which is still thin. So the
+more valuable half of this change is not the width at all: **make the fallback annunciate.**
+`g_eyePsram` currently reports only over serial, which is why a PSRAM-resident face went unnoticed
+in the field. It belongs on the panel or in telemetry.
 
 **Three of this note's own claims were wrong, and the first matters most.**
 
@@ -131,6 +149,11 @@ overhead-bound — so a faster sprite should translate nearly 1:1.
   e-stop, tracking toggle. Expression cannot own the screen unconditionally.
 - **The head can be held in reset by a cable** — fixed in #28, worth remembering.
 - **Audio only carries 2–4 kHz** on this speaker, measured by ear on the robot.
+- **`Serial.setTxTimeoutMs(0)` makes writes silently lossy.** It is mandatory (without it the
+  first print blocks forever and the firmware hangs in `setup()`), but non-blocking means a bulk
+  `Serial.write()` emits only what fits the ~256-byte CDC FIFO and **discards the rest with no
+  error**. That truncated the bench report mid-word and looked exactly like a failed measurement.
+  Emit line by line with a few ms between lines.
 - **Serial on this board is the USB-serial-JTAG.** Touching DTR/RTS drops it into ROM download
   mode, so a reader must attach without handshaking — `cat /dev/cu.*` works, pyserial's defaults do
   not. And `Serial.setTxTimeoutMs(0)` is mandatory: without it the first print blocks forever when
