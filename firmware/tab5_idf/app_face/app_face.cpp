@@ -233,26 +233,29 @@ uint32_t stateColour(int state, uint32_t base)
 
 void resetPointPools();
 
-void clearAccessories()
+// BUILT ONCE, THEN SHOWN OR HIDDEN. The first version created and deleted these objects on every
+// theme change, which is allocation churn on a loop -- the same run-then-freeze signature as the
+// gradient cache, and not "static" in any sense that matters. Nothing is allocated after startup.
+void hideAll()
 {
-    for (int i = 0; i < g_nAcc; ++i) lv_obj_del(g_acc[i]);
-    g_nAcc = 0;
-    resetPointPools();
+    for (int i = 0; i < g_nAcc; ++i) lv_obj_add_flag(g_acc[i], LV_OBJ_FLAG_HIDDEN);
 }
 
-// A cobweb in a corner: radial strands plus three polyline cross-threads. All lv_line, all
-// static, all drawn once -- so after creation they are never invalidated and cost nothing.
+// A cobweb in a corner: radial strands plus three polyline cross-threads, all lv_line.
 //
-// Mirrored by NEGATING THE POINT COORDINATES, not by a transform. A transform style is
-// layer-inducing: it makes LVGL render the object through a buffer allocated per draw, which is
-// what killed the rotated brow. Arithmetic on the points is free.
+// INSET CLEAR OF THE BAND. "A static object costs nothing" only holds if nothing redraws beneath
+// it -- and the band strips redraw every frame along the whole perimeter, so webs overlapping them
+// would be recomposited on every band write. Starting them inside the band's 16 px keeps the two
+// from sharing any pixels.
+//
+// Mirrored by NEGATING POINT COORDINATES, not by a transform: a transform style is layer-inducing,
+// which is what killed the rotated brow. Arithmetic on points is free.
 void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
 {
     static lv_point_precise_t strand[8][2];
     static lv_point_precise_t cross[6][4];
     static int sN = 0, cN = 0;
-    if (sx == 0) { sN = 0; cN = 0; return; }   // rewind hook, see resetPointPools()
-    const int R[3] = {90, 160, 230};
+    const int R[3] = {80, 145, 210};
     const float ang[4] = {0.0f, 0.42f, 0.90f, 1.5708f};
 
     for (int a = 0; a < 4 && g_nAcc < kMaxAcc && sN < 8; ++a) {
@@ -261,10 +264,11 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
         lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
         lv_obj_set_style_line_width(l, 2, LV_PART_MAIN);
         strand[sN][0].x = 0; strand[sN][0].y = 0;
-        strand[sN][1].x = (lv_coord_t)(sx * cosf(ang[a]) * 250.0f);
-        strand[sN][1].y = (lv_coord_t)(sinf(ang[a]) * 250.0f);
+        strand[sN][1].x = (lv_coord_t)(sx * cosf(ang[a]) * 225.0f);
+        strand[sN][1].y = (lv_coord_t)(sinf(ang[a]) * 225.0f);
         lv_line_set_points(l, strand[sN], 2);
         lv_obj_set_pos(l, cx, cy);
+        lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
         g_acc[g_nAcc++] = l; ++sN;
     }
     for (int r = 0; r < 3 && g_nAcc < kMaxAcc && cN < 6; ++r) {
@@ -278,27 +282,26 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
         }
         lv_line_set_points(l, cross[cN], 4);
         lv_obj_set_pos(l, cx, cy);
+        lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
         g_acc[g_nAcc++] = l; ++cN;
     }
 }
 
-// LVGL keeps the caller's point array, so the pools must persist AND must be rewound whenever the
-// accessories are rebuilt, or a second activation runs off the end of them.
-void resetPointPools();
-
-void apply(lv_obj_t* scr, Id id)
+// Called once, from buildScene(). Every theme's accessories exist from startup.
+void buildAll(lv_obj_t* scr)
 {
-    g_active = id;
-    clearAccessories();
-    if (id == HALLOWEEN) {
-        // Two corners only. The band owns the perimeter and the eyes own the middle, so the
-        // accessories take the space neither is using.
-        cobweb(scr, 18, 26, +1, 0x9a8fb0);
-        cobweb(scr, kScreenW - 18, 26, -1, 0x9a8fb0);
-    }
+    const int inset = 22;                      // clear of the band's 16 px
+    cobweb(scr, inset, inset, +1, 0x9a8fb0);
+    cobweb(scr, kScreenW - inset, inset, -1, 0x9a8fb0);
 }
 
-void resetPointPools() { cobweb(nullptr, 0, 0, 0, 0); }
+void apply(lv_obj_t*, Id id)
+{
+    g_active = id;
+    hideAll();
+    if (id == HALLOWEEN)
+        for (int i = 0; i < g_nAcc; ++i) lv_obj_clear_flag(g_acc[i], LV_OBJ_FLAG_HIDDEN);
+}
 
 const char* name(Id id) { return id == HALLOWEEN ? "halloween" : "plain"; }
 
@@ -541,6 +544,7 @@ void buildScene()
     }
 
     band::build(scr);
+    theme::buildAll(scr);
 
     g_label = lv_label_create(scr);
     lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);

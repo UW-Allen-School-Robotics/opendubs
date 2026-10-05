@@ -524,6 +524,24 @@ because the intermediate positions of a spring carry no information: only where 
 That is the opposite of colour, where the intermediate positions *are* meaning and quantising would
 be visible — which is why colour is eased rather than sprung and is not quantised at all.
 
+### Two corrections to "static objects are free"
+
+Both learned by getting them wrong with the theme accessories.
+
+**"Static" means never allocated, not just never animated.** The first accessory layer created and
+deleted its objects on every theme change. That is allocation churn on a loop, with the same
+run-then-freeze signature as the gradient cache. Build every theme's objects **once at startup** and
+show or hide them; allocate nothing after the scene exists.
+
+**A static object is only free if nothing redraws beneath it.** Overlapping objects are
+recomposited whenever the dirty area touches them, so an accessory placed on top of something that
+redraws every frame costs that redraw too. The cobwebs were put in the corners — exactly where the
+band strips are — so every band opacity write was also recompositing web lines. They are now inset
+clear of the band's 16 px, sharing no pixels with it.
+
+The general form: **"free" is a property of the pair, not the object.** A static thing over a static
+thing is free; a static thing over an animating thing is as expensive as the thing underneath.
+
 ### Practices that follow
 
 - **Animate position, not size.** Moving is cheaper than resizing and does not invalidate caches.
