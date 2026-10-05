@@ -458,3 +458,51 @@ pupil being its own layer.
 4. Keep the pupil at roughly a third of body width; the travel that produces is already ample.
 
 All four are now single constants in `app_face.cpp`, iterable on the desktop build in seconds.
+
+---
+
+## Themes
+
+Worth building as a first-class concept rather than a seasonal hack, because the face already has
+the right shape for it: a state table with a colour per state, plus layered objects. A theme is
+then three things — a **palette**, an **accessory layer**, and a **band motion style** — applied over
+an unchanged state machine.
+
+`m5stack-avatar` already treats this as a concept (it ships an `Accessory` drawable alongside
+`Eyeblow`, `Mouth` and `Balloon`), which is some evidence it is the natural decomposition rather
+than ours alone. In LVGL an accessory is just another layered object, so a hat, a cobweb in the
+screen corner or a prop over one eye costs almost nothing.
+
+### The one rule a theme must not break
+
+**State must stay legible through any theme.** The state channel is partly carrying safety and
+operational meaning — `DEGRADED` is amber, `E_STOP` is red — and a theme that recolours everything
+orange has quietly destroyed the difference between "it is Halloween" and "something is wrong."
+
+So the constraint is: a theme may restyle **everything except the state distinction**. In practice
+that means the perimeter band keeps a reserved, theme-proof vocabulary for fault and e-stop states,
+and themes get the rest. This is the same separation-of-channels argument that justified the band
+in the first place — and it is exactly the kind of thing that is easy to get right now and
+expensive to retrofit after a theme ships.
+
+### Halloween is a deadline, and it collides with the plan
+
+Halloween is **26 days out** (2026-10-31), OpenDubs 2 is wanted for it, and the standing rule in the
+work plan is that **the Arduino firmware remains the shipping image until Phase 5 validates on the
+robot** — and Phase 5 needs the robot. Those two facts are in tension, so the choice should be made
+deliberately rather than discovered late:
+
+- **Option A — theme the existing Arduino face.** Low risk, ships for certain, throws the work away
+  later. The current renderer can do a palette swap and a simple accessory; it cannot do much
+  animation, which is most of the appeal.
+- **Option B — get the IDF face robot-validated before Halloween.** Much better result, and it
+  requires Phase 4 (OTA, partitions, NVS) plus a robot session to land inside three weeks, with the
+  Arduino image kept as a fallback that can be reflashed on the day.
+- **Option C — Halloween on the bench Tab5 only**, as a demonstration piece separate from the robot.
+  Gets the fun animations in front of people with none of the risk, and does not require the port to
+  be finished.
+
+**A theme is also a good vehicle for Phase 1 rather than a distraction from it.** Building one
+exercises the accessory layer, the band's motion vocabulary and the animation system — all of which
+are 1.2 work regardless — with a real deadline and an obvious success test, which is usually when
+this kind of work goes fastest.
