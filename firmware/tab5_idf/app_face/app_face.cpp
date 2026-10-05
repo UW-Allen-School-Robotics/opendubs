@@ -5,7 +5,6 @@
 #include <smooth_ui_toolkit.h>
 #include <lvgl.h>
 #include <cmath>
-#include <math.h>
 #include <cstdio>
 
 using namespace mooncake;
@@ -14,114 +13,95 @@ using namespace smooth_ui_toolkit;
 namespace {
 
 // ---- geometry ------------------------------------------------------------------------------
-// The panel is FIVE INCHES: 1280x720 over 110.7 x 62.3 mm, so 0.0865 mm per pixel. The whole
-// display is physically about the size of a human EYE REGION, not a face, which is why
-// proportions borrowed from whole-face designs mislead here. Numbers below carry their physical
-// size, because that is the only frame in which "too small" means anything.
-//
-// What the previous geometry got wrong was SPACING, not size. Eye width was 284 px = 24.6 mm,
-// already 82% of a human eye's 30 mm visible aperture -- but the eyes sat 380 px = 32.9 mm apart
-// against a human interpupillary distance of 63 mm. FIFTY-TWO PERCENT. Tall (3x a human
-// aperture), narrow and close together is a small animal's face, not a person-scale robot at
-// human eye level, and that -- not size -- is why it did not read right.
-//
-// Research direction: the baby schema, tested on robot faces specifically, finds large eyes, a
-// round face and medium eye positions give the highest perceived trustworthiness. So LARGER than
-// human, and rounder -- and roundness happens to be pushed the same way by both the
-// human-proportion and baby-schema arguments, which is unusual and worth taking.
+// The panel is FIVE INCHES: 1280x720 over 110.7 x 62.3 mm, 0.0865 mm per pixel. The whole display
+// is physically about the size of a human EYE REGION, not a face, which is why proportions
+// borrowed from whole-face designs mislead. Numbers carry their physical size, because that is the
+// only frame in which "too small" means anything.
 constexpr int kScreenW = 1280, kScreenH = 720;
 
-// SPACING IS SET AS A FRACTION OF EYE WIDTH, not in millimetres, because that is the dial that
-// controls how friendly the face reads. Infants have larger eyes AND proportionally less gap
-// between them, so "bigger and closer together" is a single coherent move toward the baby schema
-// rather than two opposing ones.
-//
-//     adult human (63 mm IPD, 30 mm eye) ..... gap ~1.0 eye-widths
-//     the original OpenDubs face ............. gap  0.34  -- read as cute
-//     human-scale spacing, tried and rejected  gap  0.82  -- read as human but less friendly
-//
-// Optimising for human accuracy cost friendliness, which is the wrong trade for this robot.
-constexpr int   kBodyW    = 480;        // 41.5 mm -- well past a human aperture's 30 mm
-constexpr int   kBodyH    = 480;        // square: rounder than the old 0.76:1 portrait
-constexpr float kGapFrac  = 0.34f;      // inner gap as a fraction of eye width -- THE dial
-constexpr float kRadiusFrac = 0.205f;   // corner radius as a fraction of min(w,h)
+// SPACING IS A FRACTION OF EYE WIDTH, not millimetres, because that is the dial that controls how
+// friendly the face reads. Infants have larger eyes AND proportionally less gap, so "bigger and
+// closer" is one coherent move toward the baby schema rather than two opposing ones.
+//     adult human (63 mm IPD, 30 mm eye) .... gap ~1.00 eye-widths
+//     this face ............................. gap  0.34  -- tried human scale, read less friendly
+constexpr int   kBodyW      = 480;      // 41.5 mm, past a human aperture's 30 mm per baby schema
+constexpr int   kBodyH      = 480;
+constexpr float kGapFrac    = 0.34f;
+constexpr float kRadiusFrac = 0.205f;
 
-constexpr int kIpd   = (int)(kBodyW * (1.0f + kGapFrac));   // 643 px = 55.6 mm
-constexpr int kSlotL = kScreenW / 2 - kIpd / 2;             // 318
-constexpr int kSlotR = kScreenW / 2 + kIpd / 2;             // 962
-constexpr int kEyeY  = kScreenH / 2;                        // 360
+constexpr int kIpd   = (int)(kBodyW * (1.0f + kGapFrac));
+constexpr int kSlotL = kScreenW / 2 - kIpd / 2;
+constexpr int kSlotR = kScreenW / 2 + kIpd / 2;
+constexpr int kEyeY  = kScreenH / 2;
 
 constexpr float kPupilFrac = 0.34f;
-constexpr int kRimPad = 14;             // the pupil must never touch the rim
+constexpr int   kRimPad    = 14;
 
-// ---- eyebrows --------------------------------------------------------------------------------
-// Added because they were missing entirely from this app. drawBrow() exists in the OLD Arduino
-// face.cpp; nothing here drew one, so "I still don't see eyebrows" was simply correct.
-//
-// Worth the effort on evidence rather than taste: minimal-face work names brows as the emotion
-// INTENSIFIER ("strongly pulled-down eyebrows for anger"), and a study of animated head gestures
-// found eyebrow-raising measurably increased SPEECH INTELLIGIBILITY versus the same gestures being
-// absent or added randomly -- which gives them a functional payoff once the robot speaks.
-constexpr float kBrowWFrac = 0.86f;     // of eye width
-constexpr float kBrowHFrac = 0.085f;    // of eye height
-constexpr float kBrowGap   = 0.10f;     // resting clearance above the eye, as a fraction of height
-constexpr float kBrowRange = 0.14f;     // how far raise = +/-1 moves it, as a fraction of height
+// Brows: an lv_line, never a rotated object -- a rotated object is rendered through a LAYER, which
+// allocates a buffer the size of its bounding box on every draw and starved the device.
+constexpr float kBrowWFrac = 0.86f, kBrowHFrac = 0.085f, kBrowGap = 0.10f, kBrowRange = 0.14f;
 
-// WRITE ONLY WHAT CHANGED. Every lv_obj_set_* call invalidates the object and schedules a
-// redraw, so writing all of these unconditionally every frame makes the render cost independent
-// of whether anything actually moved. With a rotated brow in the mix that was enough to starve
-// the idle task and trip the task watchdog on the device ("IDLE0 (CPU 0)", main hogging CPU 0) --
-// while the desktop had the headroom to hide it. Caching the last written value per property is
-// the fix, and it is the right shape regardless.
-struct Last {
-    int w = -1, h = -1, radius = -1;
-    int pupilW = -1, pupilX = -1, pupilY = -1;
-    int glintW = -1, glintX = -1, glintY = -1;
-    int lidW = -1, lidH = -1;
-    int browW = -1, browH = -1, browX = -1, browY = -1, browRot = 9999;
+// ---- the REAL state machine ----------------------------------------------------------------
+// Ported verbatim from ui_shared.cpp so the two faces cannot drift. Expr is {h, w, tilt, bow,
+// squint, lookY, brow}, and each parameter gets its OWN AnimateValue rather than one lerp toward
+// the whole tuple -- which is what makes a state change read as a change of posture instead of a
+// crossfade, and was the point of moving to this toolkit.
+struct Expr { float h, w, tilt, bow, squint, lookY, brow; };
+struct St   { const char* name; const char* label; uint8_t r, g, b; Expr e; };
+
+const St kStates[] = {
+    {"INIT",       "INIT",       223, 231, 240, {0.60f, 1.00f,  0.00f, 0.00f, 0.10f, -0.05f,  0.00f}},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, {0.80f, 1.00f,  0.00f, 0.02f, 0.34f,  0.05f, -0.18f}},
+    {"MANUAL",     "MANUAL",     242, 246, 251, {1.02f, 1.02f,  0.00f, 0.00f, 0.02f, -0.06f,  0.12f}},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, {0.94f, 1.02f,  0.00f, 0.03f, 0.06f, -0.02f, -0.04f}},
+    {"DEGRADED",   "DEGRADED",   243, 182,  74, {0.82f, 0.96f, -0.34f, 0.00f, 0.06f,  0.12f,  0.10f}},
+    {"E_STOP",     "E-STOP",     255,  77,  77, {1.06f, 1.08f,  0.02f, 0.00f, 0.00f, -0.02f,  0.55f}},
+    {"CHARGING",   "CHARGING",     0, 196, 168, {0.92f, 1.00f, -0.02f, 0.05f, 0.06f,  0.00f, -0.08f}},
 };
-Last g_last[2];
+constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
+
+// Which state the face shows. On the robot the StamPLC's "STATE <NAME>" drives this; with no link
+// on the bench it cycles, so every state gets looked at.
+int      g_state     = 1;          // SAFE_IDLE, as ui_shared.cpp defaults
+uint32_t g_nextState = 0;
 
 struct Eye {
-    lv_obj_t* body    = nullptr;
-    lv_obj_t* brow    = nullptr;
-    lv_obj_t* pupil   = nullptr;
-    lv_obj_t* glint   = nullptr;
-    lv_obj_t* lid     = nullptr;
+    lv_obj_t* body  = nullptr;
+    lv_obj_t* pupil = nullptr;
+    lv_obj_t* glint = nullptr;
+    lv_obj_t* lid   = nullptr;
+    lv_obj_t* brow  = nullptr;
+    lv_obj_t* cut   = nullptr;     // tilt: an angled wedge off the upper corner
+    lv_obj_t* bow   = nullptr;     // bow: a curve carved out of the lower lid
 };
 Eye g_eye[2];
 lv_obj_t* g_label = nullptr;
 
-// ---- animated state --------------------------------------------------------------------------
-// Gaze is EASED, not sprung: a saccade is ballistic and must not overshoot or wobble.
-AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
-// Shape is SPRUNG: an emote change should settle like something with mass.
-AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
-             g_radius((float)kBodyW * kRadiusFrac);
-AnimateValue g_lidDrop(0.0f);     // 0 = open, 1 = shut
-AnimateValue g_browRaise(0.0f), g_browAngle(0.0f);   // sprung, like the rest of the shape
-AnimateValue g_asym(0.0f);        // per-eye width asymmetry, the pupil-less direction cue
-
-// MULTIPLIERS of the neutral body, not absolute pixels, so the entire face rescales from
-// kBodyW/kBodyH alone -- which is what made the geometry above a one-line experiment rather than
-// a table rewrite. Radius is a fraction of min(w,h) for the same reason.
-struct Emote { const char* name; float wMul, hMul, radiusFrac, lid, browRaise, browAngle; };
-// Deliberately small, and these are STATES rather than emotions -- see notes/design/face-design.md.
-// browRaise: -1 lowered .. +1 raised.  browAngle: degrees, positive = INNER end down (the
-// scowl direction). Mirrored per eye inside the render, so one number describes the pair.
-const Emote kEmotes[] = {
-    {"NEUTRAL",  1.00f, 1.00f, 0.205f, 0.00f,  0.00f,   0.0f},
-    {"ALERT",    1.06f, 1.08f, 0.173f, 0.00f, +1.00f,  -2.0f},
-    {"SQUINT",   1.02f, 0.56f, 0.429f, 0.00f, -0.45f,  +9.0f},
-    {"SOFT",     0.95f, 0.88f, 0.481f, 0.12f, +0.30f,  -7.0f},
-    {"SLEEPY",   0.99f, 0.40f, 0.733f, 0.35f, -0.60f,  +2.0f},
+// WRITE ONLY WHAT CHANGED. Every lv_obj_set_* invalidates the object and schedules a redraw, so
+// writing everything unconditionally makes render cost independent of whether anything moved.
+struct Last {
+    int w = -1, h = -1, y = -1, radius = -1;
+    int pupilW = -1, pupilX = -1, pupilY = -1, glintW = -1, glintX = -1, glintY = -1;
+    int lidW = -1, lidH = -1;
+    int browW = -1, browH = -1, browX = -1, browY = -1, browSpan = 9999;
+    int cutShown = -1, cutW = -1, cutH = -1, cutX = -1, cutY = -1;
+    int bowShown = -1, bowW = -1, bowH = -1, bowX = -1, bowY = -1;
+    uint32_t colour = 0xffffffff;
 };
-constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
-int g_emote = 0;
+Last g_last[2];
 
-uint32_t g_nextSaccade = 0, g_nextEmote = 0, g_nextBlink = 0;
+// ---- animated state ------------------------------------------------------------------------
+// Gaze is EASED: a saccade is ballistic and must not overshoot. Everything else is SPRUNG, so a
+// state change settles like something with mass.
+AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
+AnimateValue g_h(1.0f), g_w(1.0f), g_tilt(0.0f), g_bow(0.0f),
+             g_squint(0.0f), g_lookY(0.0f), g_brow(0.0f);
+AnimateValue g_lidDrop(0.0f);
+AnimateValue g_asym(0.0f);
+AnimateValue g_colR(46.0f), g_colG(204.0f), g_colB(88.0f);   // colour transitions too
+
+uint32_t g_nextSaccade = 0, g_nextBlink = 0, g_blinkEnd = 0;
 bool g_blinking = false;
-uint32_t g_blinkEnd = 0;
 
 lv_obj_t* plainBox(lv_obj_t* parent, lv_color_t colour, int radius)
 {
@@ -141,72 +121,58 @@ void buildScene()
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
     for (int i = 0; i < 2; ++i) {
-        g_eye[i].body = plainBox(scr, lv_color_hex(0x22e0d2), (int)(kBodyW * kRadiusFrac));
-        // RADIAL SHADING instead of a flat fill. This is what the bespoke renderer's loop of
-        // fourteen concentric ellipses was approximating by hand; a gradient does it properly and
-        // makes the eye read as a sphere rather than a disc.
-        lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(0x0b6a64), LV_PART_MAIN);
+        g_eye[i].body = plainBox(scr, lv_color_hex(0x2ecc58), (int)(kBodyW * kRadiusFrac));
+        // Radial shading, which is what the bespoke renderer's loop of fourteen concentric
+        // ellipses was approximating by hand. Makes the eye read as a sphere, not a disc.
         lv_obj_set_style_bg_grad_dir(g_eye[i].body, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
         lv_obj_set_style_bg_main_stop(g_eye[i].body, 40, LV_PART_MAIN);
         lv_obj_set_style_bg_grad_stop(g_eye[i].body, 255, LV_PART_MAIN);
-        lv_obj_set_size(g_eye[i].body, kBodyW, kBodyH);
-        lv_obj_set_pos(g_eye[i].body, (i == 0 ? kSlotL : kSlotR) - kBodyW / 2, kEyeY - kBodyH / 2);
 
-        // The pupil is a CHILD of the body: it inherits clipping, so it can be driven to the rim
-        // without ever spilling outside the eye.
         g_eye[i].pupil = plainBox(g_eye[i].body, lv_color_hex(0x04201e), 999);
-        // SOFT SPECULAR, not a hard disc. White at the core fading to fully transparent at the
-        // rim -- the hard circle was a limitation of hand-rasterising, not a choice.
-        // CHILD OF THE PUPIL. A catchlight is a corneal reflection sitting over the iris and
-        // pupil, not a spot floating on the sclera -- and parenting it here means it travels with
-        // the pupil for free and can never escape the eye, which retires the clamping that was
-        // needed when it was a child of the body.
+
+        // Child of the PUPIL: a catchlight is a corneal reflection over the pupil, so it travels
+        // with the gaze for free and can never escape the eye's rounded silhouette.
         g_eye[i].glint = plainBox(g_eye[i].pupil, lv_color_hex(0xffffff), 999);
         lv_obj_set_style_bg_grad_color(g_eye[i].glint, lv_color_hex(0xffffff), LV_PART_MAIN);
         lv_obj_set_style_bg_grad_dir(g_eye[i].glint, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
         lv_obj_set_style_bg_main_opa(g_eye[i].glint, 235, LV_PART_MAIN);
         lv_obj_set_style_bg_grad_opa(g_eye[i].glint, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_bg_main_stop(g_eye[i].glint, 20, LV_PART_MAIN);
-        // The eyelid is a real object that descends, not a height squash of the body. Created
-        // last so it draws over the pupil and glint, and pinned foreground to keep it that way.
+
+        // tilt and bow are carved in BACKGROUND colour, exactly as the old renderer carved them
+        // with fillTriangle and fillEllipse. Hidden entirely when their parameter is ~0, so they
+        // cost nothing in the states that do not use them.
+        g_eye[i].cut = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
+        g_eye[i].bow = plainBox(g_eye[i].body, lv_color_hex(0x000000), 999);
+        lv_obj_add_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
+
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
         lv_obj_move_foreground(g_eye[i].lid);
 
-        // THE BROW IS A LINE, NOT A ROTATED BOX. A rotated LVGL object is rendered through a
-        // layer, which means allocating a buffer the size of its bounding box on every draw --
-        // "lv_draw_buf_create_ex: No memory: 438x42 ... 73584Byte" repeating until the idle task
-        // starved and the task watchdog fired. An lv_line draws an angled, rounded, thick segment
-        // with no transform and no layer allocation at all.
         // Child of the SCREEN, not the body: as a child it would be clipped by what it sits above.
         g_eye[i].brow = lv_line_create(scr);
         lv_obj_remove_style_all(g_eye[i].brow);
-        lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(0x19d1c4), LV_PART_MAIN);
         lv_obj_set_style_line_rounded(g_eye[i].brow, true, LV_PART_MAIN);
     }
 
     g_label = lv_label_create(scr);
-    lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);
-    lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 24);
-    lv_label_set_text(g_label, "1.1 gate: eased saccades + sprung shape, independent layers");
+    lv_obj_set_style_text_color(g_label, lv_color_hex(0x777777), LV_PART_MAIN);
+    lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 22);
+    lv_label_set_text(g_label, "");
 }
 
-void applyEmote(int idx)
+void applyState(int idx)
 {
-    const Emote& e = kEmotes[idx];
-    const float w = kBodyW * e.wMul, h = kBodyH * e.hMul;
-    g_bodyW  = w;          // assignment animates -- spring by default
-    g_bodyH  = h;
-    g_radius = (w < h ? w : h) * e.radiusFrac;
-    g_lidDrop = e.lid;
-    g_browRaise = e.browRaise;
-    g_browAngle = e.browAngle;
-    char buf[112];
-    snprintf(buf, sizeof(buf), "%s   gaze: eased saccade   shape+brow: spring", e.name);
-    lv_label_set_text(g_label, buf);
+    const St& s = kStates[idx];
+    g_h = s.e.h;  g_w = s.e.w;  g_tilt = s.e.tilt;  g_bow = s.e.bow;
+    g_squint = s.e.squint;  g_lookY = s.e.lookY;  g_brow = s.e.brow;
+    g_colR = (float)s.r;  g_colG = (float)s.g;  g_colB = (float)s.b;
+    lv_label_set_text(g_label, s.label);
 }
 
-// Main-sequence saccade timing: ~20 ms fixed plus 2.2 ms per degree, 30 deg of full deflection.
-// Expressed in seconds because the library works in seconds.
+// Main-sequence saccade timing: ~20 ms fixed plus 2.2 ms per degree over 30 degrees of full
+// deflection, capped at the physiological 200 ms. In seconds, as the library expects.
 float saccadeSeconds(float dx, float dy)
 {
     const float deg = std::sqrt(dx * dx + dy * dy) * 30.0f;
@@ -224,16 +190,16 @@ void newSaccade(uint32_t now)
     const float tx = std::cos(ang) * amp, ty = std::sin(ang) * amp * 0.55f;
 
     const float dur = saccadeSeconds(tx - (float)g_gazeX, ty - (float)g_gazeY);
-    // EASED, with a duration that scales with amplitude. A spring here would overshoot, and an
-    // eye that overshoots its target does not read as an eye.
     g_gazeX.easingOptions().duration = dur;
     g_gazeY.easingOptions().duration = dur;
     g_gazeX = tx;
     g_gazeY = ty;
+    g_asym = -tx * 0.13f;              // the leading eye foreshortens; sprung, so it settles
 
-    g_asym = -tx * 0.13f;   // the leading eye foreshortens; sprung, so it settles
-    g_nextSaccade = now + 320 + (rand() % 1300);
-    if (std::fabs(tx) > 0.55f) g_nextBlink = now;   // large shifts take a blink with them
+    // Arousal sets the rate, per Eyes Alive: a busy state looks about more often and holds briefly.
+    const bool busy = (g_state == 2 || g_state == 3);   // MANUAL or AUTONOMOUS
+    g_nextSaccade = now + (busy ? 200 + (rand() % 500) : 340 + (rand() % 1300));
+    if (std::fabs(tx) > 0.55f) g_nextBlink = now;
 }
 
 } // namespace
@@ -253,41 +219,32 @@ void AppFace::onOpen()
     buildScene();
     GetHAL()->lvglUnlock();
 
-    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
-                            &g_asym, &g_browRaise, &g_browAngle})
+    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_h, &g_w, &g_tilt, &g_bow, &g_squint,
+                            &g_lookY, &g_brow, &g_lidDrop, &g_asym, &g_colR, &g_colG, &g_colB})
         v->begin();
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
-    applyEmote(0);
+
+    GetHAL()->lvglLock();
+    applyState(g_state);
+    GetHAL()->lvglUnlock();
 }
 
 void AppFace::onRunning()
 {
     const uint32_t now = GetHAL()->millis();
 
-    // TELEMETRY IS OFF BY DEFAULT, and that is a correctness matter rather than tidiness.
-    // The ESP-IDF console goes out over USB-serial-JTAG, and when no host is draining the port a
-    // write can BLOCK THE CALLING TASK -- which here is the task driving the animation. So a
-    // debug print in this loop is itself a plausible cause of the face freezing, and it cannot be
-    // used to diagnose a frozen face without becoming a suspect. Build with
-    // -DOPENDUBS_FACE_TELEMETRY to turn it on, and only while a reader is actually attached.
-#ifdef OPENDUBS_FACE_TELEMETRY
-    static uint32_t dbg = 0;
-    if (now - dbg > 1000) {
-        dbg = now;
-        printf("[AppFace] hal_ms=%u ui_tick=%u gaze=%.3f,%.3f bodyW=%.1f lid=%.2f\n",
-               (unsigned)now, (unsigned)smooth_ui_toolkit::ui_hal::get_tick(),
-               (float)g_gazeX, (float)g_gazeY, (float)g_bodyW, (float)g_lidDrop);
-        fflush(stdout);
-    }
-#endif
-
     if (now > g_nextSaccade) newSaccade(now);
-    if (now > g_nextEmote) {
-        g_emote = (g_emote + 1) % kNEmotes;
-        applyEmote(g_emote);
-        g_nextEmote = now + 3200;
+
+    // No StamPLC link on the bench, so walk the states. Phase 2 replaces this with "STATE <NAME>".
+    if (now > g_nextState) {
+        g_nextState = now + 4000;
+        GetHAL()->lvglLock();
+        g_state = (g_state + 1) % kNStates;
+        applyState(g_state);
+        GetHAL()->lvglUnlock();
     }
+
     if (!g_blinking && now > g_nextBlink) {
         g_blinking = true;
         g_lidDrop.easingOptions().duration = 0.07f;
@@ -295,32 +252,49 @@ void AppFace::onRunning()
         g_blinkEnd = now + 90;
     } else if (g_blinking && now > g_blinkEnd) {
         g_blinking = false;
-        g_lidDrop = kEmotes[g_emote].lid;
+        g_lidDrop = 0.0f;
         g_nextBlink = now + 2200 + (rand() % 3000);
     }
 
     GetHAL()->lvglLock();
     const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
+    const float tilt = g_tilt, bow = g_bow, squint = g_squint;
+    const uint32_t colour = ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
+                          | (uint32_t)(float)g_colB;
+
     for (int i = 0; i < 2; ++i) {
         Last& L = g_last[i];
-
-        // Per-eye width: the asymmetry between the two eyes is the gaze cue in a pupil-less face,
-        // and it costs nothing here because each eye is its own object.
-        const int w = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
-        const int h = (int)(float)g_bodyH;
         const int cx = (i == 0 ? kSlotL : kSlotR);
-        if (w != L.w || h != L.h) {
+
+        // squint eats height from the top and shifts the eye centre down by half of what it took,
+        // and lookY biases the whole eye vertically -- both exactly as the old renderer did.
+        const float baseH = kBodyH * (float)g_h;
+        const float squintCut = baseH * squint;
+        const int h = (int)(baseH - squintCut);
+        const int w = (int)(kBodyW * (float)g_w * (1.0f + (i == 0 ? -asym : asym)));
+        const int ey = kEyeY + (int)(squintCut * 0.5f) + (int)((float)g_lookY * 66.0f);
+
+        if (w != L.w || h != L.h || ey != L.y) {
             lv_obj_set_size(g_eye[i].body, w, h);
-            lv_obj_set_pos(g_eye[i].body, cx - w / 2, kEyeY - h / 2);
-            L.w = w; L.h = h;
+            lv_obj_set_pos(g_eye[i].body, cx - w / 2, ey - h / 2);
+            L.w = w; L.h = h; L.y = ey;
         }
-        const int radius = (int)(float)g_radius;
+        const int radius = (int)((w < h ? w : h) * kRadiusFrac);
         if (radius != L.radius) {
             lv_obj_set_style_radius(g_eye[i].body, radius, LV_PART_MAIN);
             L.radius = radius;
         }
+        if (colour != L.colour) {
+            lv_obj_set_style_bg_color(g_eye[i].body, lv_color_hex(colour), LV_PART_MAIN);
+            // Rim is the same hue at 35%, which is what gives the sphere its falloff.
+            const uint32_t dim = (((colour >> 16 & 0xff) * 35 / 100) << 16)
+                               | (((colour >> 8 & 0xff) * 35 / 100) << 8)
+                               | ((colour & 0xff) * 35 / 100);
+            lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(dim), LV_PART_MAIN);
+            lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(colour), LV_PART_MAIN);
+            L.colour = colour;
+        }
 
-        // Pupil travel is (body - pupil)/2 - rim, which is what makes gaze legible at all.
         const int pw = (int)(w * kPupilFrac);
         const int travelX = (w - pw) / 2 - kRimPad, travelY = (h - pw) / 2 - kRimPad;
         const int px = (int)(gx * (travelX > 0 ? travelX : 0));
@@ -331,44 +305,31 @@ void AppFace::onRunning()
             L.pupilX = px; L.pupilY = py;
         }
 
-        // One highlight, inside the pupil. Upper-left is the conventional catchlight position and
-        // it implies a fixed light source up and to the left of the robot.
-        const int gw = pw / 3;
-        const int gxo = -pw / 6, gyo = -pw / 6;
+        const int gw = pw / 3, gxo = -pw / 6, gyo = -pw / 6;
         if (gw != L.glintW) { lv_obj_set_size(g_eye[i].glint, gw, gw); L.glintW = gw; }
         if (gxo != L.glintX || gyo != L.glintY) {
             lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, gxo, gyo);
             L.glintX = gxo; L.glintY = gyo;
         }
 
-        // Brow as an angled line. The angle becomes a vertical offset between the two ends, so
-        // there is no rotation and therefore no layer buffer. "Inner" is the end toward the face
-        // centre, which is the right-hand end for the left eye and vice versa, so one signed
-        // angle still describes a symmetric pair.
+        // TILT drives the brow angle, as it did in the old renderer (innerY = +tilt*90,
+        // outerY = -tilt*34), and also carves the upper corner below.
         const int bw = (int)(w * kBrowWFrac);
         const int bh0 = (int)(h * kBrowHFrac), bh = bh0 < 6 ? 6 : bh0;
-        const float angRad = (float)g_browAngle * 3.14159265f / 180.0f;
-        const int half = (int)(bw * tanf(angRad) * 0.5f);
-        const int span = half < 0 ? -half : half;
+        const int rise = (int)(tilt * 62.0f);          // combined inner/outer swing
+        const int span = rise < 0 ? -rise : rise;
         const int objH = bh + 2 * span;
         const int bx = cx - bw / 2;
-        const int by = kEyeY - h / 2 - (int)(h * kBrowGap) - objH
-                     - (int)((float)g_browRaise * h * kBrowRange);
-
-        // LVGL keeps the pointer, so the points must outlive the call.
+        const int by = ey - h / 2 - (int)(h * kBrowGap) - objH
+                     - (int)((float)g_brow * h * kBrowRange);
         static lv_point_precise_t pts[2][2];
         const int mid = objH / 2;
-        const int inner = mid + (i == 0 ? half : half);
-        const int outer = mid - (i == 0 ? half : half);
-        pts[i][0].x = (i == 0) ? 0 : bw;        // outer end
-        pts[i][0].y = outer;
-        pts[i][1].x = (i == 0) ? bw : 0;        // inner end
-        pts[i][1].y = inner;
-
-        if (bw != L.browW || bh != L.browH || objH != L.browRot) {
+        pts[i][0].x = (i == 0) ? 0 : bw;   pts[i][0].y = mid - rise;   // outer
+        pts[i][1].x = (i == 0) ? bw : 0;   pts[i][1].y = mid + rise;   // inner
+        if (bw != L.browW || bh != L.browH || objH != L.browSpan) {
             lv_obj_set_style_line_width(g_eye[i].brow, bh, LV_PART_MAIN);
             lv_obj_set_size(g_eye[i].brow, bw + bh, objH + bh);
-            L.browW = bw; L.browH = bh; L.browRot = objH;
+            L.browW = bw; L.browH = bh; L.browSpan = objH;
         }
         if (bx != L.browX || by != L.browY) {
             lv_obj_set_pos(g_eye[i].brow, bx, by);
@@ -376,8 +337,45 @@ void AppFace::onRunning()
         }
         lv_line_set_points(g_eye[i].brow, pts[i], 2);
 
-        const int lidH = (int)((float)g_lidDrop * h);
-        const int lh = lidH < 0 ? 0 : lidH;
+        // TILT's corner cut. The old renderer chose which corner from the sign of tilt and which
+        // eye, so a negative tilt cuts the outer corners and a positive one the inner.
+        const int cutMag = (int)(std::fabs(tilt) * 235.0f);
+        const int cutShown = (cutMag > 3 && h > 40) ? 1 : 0;
+        if (cutShown != L.cutShown) {
+            if (cutShown) lv_obj_clear_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
+            else          lv_obj_add_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
+            L.cutShown = cutShown;
+        }
+        if (cutShown) {
+            const int cwid = (int)(cutMag * 0.95f), chei = cutMag;
+            const bool cutLeft = (tilt < 0) ? (i == 0) : (i != 0);
+            const int cxp = cutLeft ? 0 : w - cwid;
+            if (cwid != L.cutW || chei != L.cutH || cxp != L.cutX) {
+                lv_obj_set_size(g_eye[i].cut, cwid, chei);
+                lv_obj_align(g_eye[i].cut, LV_ALIGN_TOP_LEFT, cxp, 0);
+                L.cutW = cwid; L.cutH = chei; L.cutX = cxp;
+            }
+        }
+
+        // BOW: a curve carved out of the lower lid, as fillEllipse did.
+        const int bowMag = (int)(bow * 230.0f);
+        const int bowShown = (bowMag > 3 && h > 40) ? 1 : 0;
+        if (bowShown != L.bowShown) {
+            if (bowShown) lv_obj_clear_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
+            else          lv_obj_add_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
+            L.bowShown = bowShown;
+        }
+        if (bowShown) {
+            const int bwid = (int)(w * 1.20f), bhei = (int)(h * 0.90f);
+            const int byp = h - bowMag;
+            if (bwid != L.bowW || bhei != L.bowH || byp != L.bowY) {
+                lv_obj_set_size(g_eye[i].bow, bwid, bhei);
+                lv_obj_align(g_eye[i].bow, LV_ALIGN_TOP_MID, 0, byp);
+                L.bowW = bwid; L.bowH = bhei; L.bowY = byp;
+            }
+        }
+
+        const int lidH = (int)((float)g_lidDrop * h), lh = lidH < 0 ? 0 : lidH;
         if (w != L.lidW || lh != L.lidH) {
             lv_obj_set_size(g_eye[i].lid, w, lh);
             lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
