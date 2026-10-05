@@ -188,6 +188,122 @@ uint32_t g_blinkEnd = 0;
 // A rotated or arc-filled object is rendered through a layer, which allocates a buffer per draw
 // and starved this device once already. A travelling opacity wave over small rectangles gives the
 // same sweep with no masks, no rotation and no allocation.
+
+// ---- themes ---------------------------------------------------------------------------------
+// A theme is three things laid over an UNCHANGED state machine: a palette, an accessory layer, and
+// (later) a band motion flavour. Nothing about a theme may touch the states themselves.
+//
+// ACCESSORIES ARE STATIC. They are created once when the theme activates and never animated,
+// because a static LVGL object is never invalidated and therefore costs nothing per frame. That is
+// the whole reason an accessory layer is affordable here, and it is also the right constraint: a
+// decoration that animates is competing with the face for the frame budget.
+//
+// THE ONE RULE: a theme may restyle anything EXCEPT the state distinction. DEGRADED's amber and
+// E_STOP's red are reserved and pass through untouched, so a theme can never make "something is
+// wrong" ambiguous.
+//
+// That rule has teeth, and it cost this theme its most obvious colour. Halloween wants pumpkin
+// orange -- which sits close enough to DEGRADED's amber to be confusable. So the palette gives
+// orange up entirely and leans on purple and a toxic green, letting the ACCESSORIES carry the
+// seasonal identity instead. A theme has to yield the hue the reserved states own.
+namespace theme {
+
+enum Id { NONE = 0, HALLOWEEN, COUNT };
+Id g_active = NONE;
+
+constexpr int kMaxAcc = 24;
+lv_obj_t* g_acc[kMaxAcc];
+int g_nAcc = 0;
+
+// Indices of the states whose colour is RESERVED and may never be themed.
+bool reserved(int state) { return state == 4 || state == 5; }   // DEGRADED, E_STOP
+
+uint32_t stateColour(int state, uint32_t base)
+{
+    if (g_active == NONE || reserved(state)) return base;
+    switch (state) {
+        case 0: return 0xe8e2d0;   // INIT       -- bone
+        case 1: return 0x8ac926;   // SAFE_IDLE  -- toxic green
+        case 2: return 0xd9c2e9;   // MANUAL     -- pale lavender
+        case 3: return 0x7b2d8e;   // AUTONOMOUS -- purple
+        case 6: return 0x2f9e44;   // CHARGING   -- deep green
+        default: return base;
+    }
+}
+
+void resetPointPools();
+
+void clearAccessories()
+{
+    for (int i = 0; i < g_nAcc; ++i) lv_obj_del(g_acc[i]);
+    g_nAcc = 0;
+    resetPointPools();
+}
+
+// A cobweb in a corner: radial strands plus three polyline cross-threads. All lv_line, all
+// static, all drawn once -- so after creation they are never invalidated and cost nothing.
+//
+// Mirrored by NEGATING THE POINT COORDINATES, not by a transform. A transform style is
+// layer-inducing: it makes LVGL render the object through a buffer allocated per draw, which is
+// what killed the rotated brow. Arithmetic on the points is free.
+void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
+{
+    static lv_point_precise_t strand[8][2];
+    static lv_point_precise_t cross[6][4];
+    static int sN = 0, cN = 0;
+    if (sx == 0) { sN = 0; cN = 0; return; }   // rewind hook, see resetPointPools()
+    const int R[3] = {90, 160, 230};
+    const float ang[4] = {0.0f, 0.42f, 0.90f, 1.5708f};
+
+    for (int a = 0; a < 4 && g_nAcc < kMaxAcc && sN < 8; ++a) {
+        lv_obj_t* l = lv_line_create(scr);
+        lv_obj_remove_style_all(l);
+        lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
+        lv_obj_set_style_line_width(l, 2, LV_PART_MAIN);
+        strand[sN][0].x = 0; strand[sN][0].y = 0;
+        strand[sN][1].x = (lv_coord_t)(sx * cosf(ang[a]) * 250.0f);
+        strand[sN][1].y = (lv_coord_t)(sinf(ang[a]) * 250.0f);
+        lv_line_set_points(l, strand[sN], 2);
+        lv_obj_set_pos(l, cx, cy);
+        g_acc[g_nAcc++] = l; ++sN;
+    }
+    for (int r = 0; r < 3 && g_nAcc < kMaxAcc && cN < 6; ++r) {
+        lv_obj_t* l = lv_line_create(scr);
+        lv_obj_remove_style_all(l);
+        lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
+        lv_obj_set_style_line_width(l, 2, LV_PART_MAIN);
+        for (int a = 0; a < 4; ++a) {
+            cross[cN][a].x = (lv_coord_t)(sx * cosf(ang[a]) * R[r]);
+            cross[cN][a].y = (lv_coord_t)(sinf(ang[a]) * R[r]);
+        }
+        lv_line_set_points(l, cross[cN], 4);
+        lv_obj_set_pos(l, cx, cy);
+        g_acc[g_nAcc++] = l; ++cN;
+    }
+}
+
+// LVGL keeps the caller's point array, so the pools must persist AND must be rewound whenever the
+// accessories are rebuilt, or a second activation runs off the end of them.
+void resetPointPools();
+
+void apply(lv_obj_t* scr, Id id)
+{
+    g_active = id;
+    clearAccessories();
+    if (id == HALLOWEEN) {
+        // Two corners only. The band owns the perimeter and the eyes own the middle, so the
+        // accessories take the space neither is using.
+        cobweb(scr, 18, 26, +1, 0x9a8fb0);
+        cobweb(scr, kScreenW - 18, 26, -1, 0x9a8fb0);
+    }
+}
+
+void resetPointPools() { cobweb(nullptr, 0, 0, 0, 0); }
+
+const char* name(Id id) { return id == HALLOWEEN ? "halloween" : "plain"; }
+
+} // namespace theme
+
 namespace band {
 
 // FOUR STRIPS, NOT FORTY-EIGHT SEGMENTS.
@@ -437,7 +553,9 @@ void applyEmote(int idx);
 void applyState(int idx)
 {
     const St& s = kStates[idx];
-    g_colR = (float)s.r;  g_colG = (float)s.g;  g_colB = (float)s.b;
+    const uint32_t base = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) | (uint32_t)s.b;
+    const uint32_t c = theme::stateColour(idx, base);
+    g_colR = (float)((c >> 16) & 0xff);  g_colG = (float)((c >> 8) & 0xff);  g_colB = (float)(c & 0xff);
     if (s.locked >= 0) applyEmote(s.locked);
 }
 
@@ -452,8 +570,8 @@ void applyEmote(int idx)
     g_browRaise = e.browRaise;
     g_browAngle = e.browAngle;
     char buf[128];
-    snprintf(buf, sizeof(buf), "%s  -  %s  -  %s", kStates[g_state].label, e.name,
-             band::name(band::g_activity));
+    snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s", kStates[g_state].label, e.name,
+             band::name(band::g_activity), theme::name(theme::g_active));
     lv_label_set_text(g_label, buf);
 }
 
@@ -540,6 +658,18 @@ void AppFace::onRunning()
 #endif
 
     if (now > g_nextSaccade) newSaccade(now);
+    // Bench only: alternate plain and themed so the difference is visible and the reserved
+    // fault colours can be seen passing through untouched.
+    static uint32_t nextTheme = 18000;
+    if (now > nextTheme) {
+        nextTheme = now + 18000;
+        GetHAL()->lvglLock();
+        theme::apply(lv_screen_active(), theme::g_active == theme::NONE ? theme::HALLOWEEN
+                                                                        : theme::NONE);
+        applyState(g_state);
+        GetHAL()->lvglUnlock();
+    }
+
     // No StamPLC link on the bench, so walk the states to see every colour. Phase 2 wires the
     // existing "STATE <NAME>" command to this.
     if (now > g_nextState) {

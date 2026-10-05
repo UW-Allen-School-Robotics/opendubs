@@ -549,6 +549,22 @@ and themes get the rest. This is the same separation-of-channels argument that j
 in the first place — and it is exactly the kind of thing that is easy to get right now and
 expensive to retrofit after a theme ships.
 
+### The reservation rule has teeth — it cost Halloween its best colour
+
+Built 2026-10-05. The rule that a theme may restyle anything *except* the state distinction turns
+out not to be a formality: **Halloween wants pumpkin orange, and orange sits close enough to
+`DEGRADED`'s amber to be confusable.** So the palette gives orange up entirely and leans on purple
+and a toxic green, letting the **accessories** carry the seasonal identity instead.
+
+That is the rule working as intended rather than an inconvenience: the reserved states own a region
+of hue space, and a theme has to yield it. It is also a useful general shape — when a channel is
+contested, move the theming to a different channel rather than compromise the reserved one.
+
+**Accessories are static.** Created once when a theme activates, never animated, deleted on
+deactivation. A static LVGL object is never invalidated, so it costs nothing per frame — which is
+what makes an accessory layer affordable at all, and is also the right constraint: a decoration that
+animates competes with the face for the frame budget.
+
 ### Halloween as the first theme
 
 A good first theme to build, because it is a motivated test case: it exercises the **accessory
