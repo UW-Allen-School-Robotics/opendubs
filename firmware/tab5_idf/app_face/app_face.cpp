@@ -80,6 +80,7 @@ struct Last {
     int lidW = -1, lidH = -1;
     int browW = -1, browH = -1, browX = -1, browY = -1, browRot = 9999;
     uint32_t colour = 0xffffffff;
+    int browP0 = -9999, browP1 = -9999;
 };
 Last g_last[2];
 
@@ -337,7 +338,11 @@ void update(uint32_t now, uint32_t colour)
                 while (d >  0.5f) d -= 1.0f;
                 v = expf(-(d * d) / (2.0f * width * width));
             }
-            const uint8_t opa = (uint8_t)(base + (peak - base) * v);
+            // Quantised to 32 levels. Each strip is 1280x16 or 720x16 of gradient, so a write
+            // here is a big redraw -- and unlike the old 48-segment version the smoothness comes
+            // from the gradient, not from the step size, so coarsening the step costs nothing
+            // visually while halving how often four large areas are invalidated.
+            const uint8_t opa = (uint8_t)(((int)(base + (peak - base) * v) >> 3) << 3);
             if (opa != g_lastOpa[i]) {
                 lv_obj_set_style_bg_opa(g_edge[i], opa, LV_PART_MAIN);
                 g_lastOpa[i] = opa;
@@ -591,8 +596,15 @@ void AppFace::onRunning()
 
         // Per-eye width: the asymmetry between the two eyes is the gaze cue in a pupil-less face,
         // and it costs nothing here because each eye is its own object.
-        const int w = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
-        const int h = (int)(float)g_bodyH;
+        // QUANTISED TO 8 px. Resizing is the most expensive thing we do -- it dirties the old
+        // rectangle and the new one, on the largest object on screen -- and during a sprung
+        // transition the size changes every single frame. Snapping to 8 px makes the resize happen
+        // roughly eight times less often and is invisible at these speeds, because a spring's
+        // intermediate positions are not information.
+        const int wRaw = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
+        const int hRaw = (int)(float)g_bodyH;
+        const int w = (wRaw + 4) & ~7;
+        const int h = (hRaw + 4) & ~7;
         const int cx = (i == 0 ? kSlotL : kSlotR);
         if (w != L.w || h != L.h) {
             lv_obj_set_size(g_eye[i].body, w, h);
@@ -672,7 +684,13 @@ void AppFace::onRunning()
             lv_obj_set_pos(g_eye[i].brow, bx, by);
             L.browX = bx; L.browY = by;
         }
-        lv_line_set_points(g_eye[i].brow, pts[i], 2);
+        // GUARDED. This was the one write with no guard on it: lv_line_set_points invalidates the
+        // brow every frame whether or not a point moved, which on SLEEPY -- where the brow is
+        // static -- was pure waste at ~16 k px per eye per frame.
+        if (pts[i][0].y != L.browP0 || pts[i][1].y != L.browP1) {
+            lv_line_set_points(g_eye[i].brow, pts[i], 2);
+            L.browP0 = (int)pts[i][0].y; L.browP1 = (int)pts[i][1].y;
+        }
 
         const int lidH = (int)((float)g_lidDrop * h);
         const int lh = lidH < 0 ? 0 : lidH;

@@ -473,6 +473,33 @@ of failure as the rotated brow, arrived at slowly instead of immediately.
 6. Linear (`HOR`/`VER`) gradients — cheap, a per-scanline lookup.
 7. Solid fills and plain blits — cheapest thing available.
 
+### Measured after the fixes, 2026-10-05
+
+The second freeze was **AUTONOMOUS / SLEEPY / thinking**, a different cost profile from the first —
+`SLEEPY` is a *small* body (475 × 192), so the eye was not the dominant term there. What was left:
+
+- **`lv_line_set_points()` on the brow had no guard at all.** It invalidated both brows every frame
+  whether or not a point had moved — and on `SLEEPY` the brow is static, so this was pure waste at
+  ~16 k px per eye per frame. Every other write was guarded; this one was simply missed.
+- **"thinking" is the fastest sweep**, so all four large strips (1280 × 16 and 720 × 16 of gradient)
+  were redrawing at maximum rate.
+
+Three fixes, each aimed at a measured term rather than at the symptom:
+
+| fix | effect |
+|---|---|
+| **body size quantised to 8 px** | a resize happens ~8× less often; invisible, because a spring's intermediate positions are not information |
+| **brow points guarded** | ~0 when the brow is static, which is most of the time |
+| **band opacity quantised to 32 levels** | halves how often four large areas are invalidated; costs nothing visually because the smoothness now comes from the gradient, not the step size |
+
+Estimated dirty area for that same frame afterwards: **~131 k px, 14% of a screen, 3.9 Mpx/s at
+30 fps** against the ~16 Mpx/s ceiling — from roughly 460 k px before.
+
+**The general lesson is that quantising an animated value is nearly free when the value is sprung**,
+because the intermediate positions of a spring carry no information: only where it settles does.
+That is the opposite of colour, where the intermediate positions *are* meaning and quantising would
+be visible — which is why colour is eased rather than sprung and is not quantised at all.
+
 ### Practices that follow
 
 - **Animate position, not size.** Moving is cheaper than resizing and does not invalidate caches.
