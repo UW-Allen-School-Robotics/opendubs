@@ -275,10 +275,12 @@ void update(uint32_t now, uint32_t colour)
             v = expf(-(d * d) / (2.0f * width * width));         // a travelling bump
         }
         const float opaF = base + (peak - base) * v;
-        // Quantised to 64 levels and change-guarded. 16 levels was visibly stepped -- a smooth
-        // ramp is exactly what coarse quantisation betrays. The guard is what keeps the cost
-        // bounded, not the step size, so the step can be fine.
-        const uint8_t opa = (uint8_t)(((int)opaF >> 2) << 2);
+        // 16 LEVELS, and the coarseness is deliberate. I claimed finer steps were free because
+        // the change-guard bounds the cost -- that was wrong: the GUARD is what makes writes
+        // conditional, but a finer step makes more of them pass the condition, so 64 levels meant
+        // roughly four times the invalidations per frame and froze the device. The stepping is
+        // visible; it is also what runs.
+        const uint8_t opa = (uint8_t)(((int)opaF >> 4) << 4);
         if (opa != g_lastOpa[i]) {
             lv_obj_set_style_bg_opa(g_seg[i], opa, LV_PART_MAIN);
             g_lastOpa[i] = opa;
