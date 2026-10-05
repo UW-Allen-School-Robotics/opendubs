@@ -398,10 +398,14 @@ which is a real condition — but it should not be treated as the robot's e-stop
 is that, and PRISM survives. Noted for consideration, not for action.
 
 **CHARGING is not necessarily idle.** The robot can charge *and* move, so charging can be an
-attending state as well as a resting one. That makes the current pin of `CHARGING` → `SLEEPY`
-provisional: it is right for a robot parked on a charger and wrong for one working while tethered.
-This has been litigated before and is **not** being reopened here; the pin stands until someone
-decides to revisit it.
+attending state as well as a resting one. **Since resolved**: `CHARGING` no longer pins an emote at
+all — the charge level went onto the band as a gauge, so the condition is *displayed* rather than
+adopted as a mood, and the eyes stay free. The paragraph below is kept because the reasoning is
+what justified the change; the pin it describes is gone.
+
+~~That makes the current pin of `CHARGING` → `SLEEPY`
+provisional: it is right for a robot parked on a charger and wrong for one working while
+tethered.~~
 
 ### Named *and* dimensional, because the research says both
 
@@ -418,9 +422,12 @@ about often and holds briefly while a calm one holds for much longer — so `ALE
 differ in *timing* as well as shape, which is most of what makes them read differently. That is the
 dimensional axis doing real work.
 
-The free vocabulary is `NEUTRAL`, `ALERT`, `SQUINT`, `SOFT`, `SLEEPY`, `HAPPY`. Worth noting that
-happiness is the most reliably recognised expression across the minimal-face literature, which is
-an argument for `HAPPY` carrying more of the load than its share.
+The free vocabulary **as implemented** is `NEUTRAL`, `ALERT`, `SQUINT`, `SOFT`, `SLEEPY` — five,
+not six. **`HAPPY` is designed here and NOT in `app_face.cpp`**: it was written during the
+eyelid-model attempt that was reverted, and did not survive. Worth adding, because happiness is the
+most reliably recognised expression across the minimal-face literature, which argues for it
+carrying more than its share of the load — but it does not exist yet and this note previously read
+as though it did.
 
 ### Colour must be eased, never sprung
 

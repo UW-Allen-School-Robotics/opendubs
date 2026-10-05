@@ -670,8 +670,9 @@ visual complexity — any amount of detail costs the same blit. There is **3.5 M
 partitioned and unused**, and `bg_image_src` with `bg_image_recolor` can even tint one asset per
 state. This is the compositor idea arriving where it is cheapest to adopt.
 
-**State of charge belongs on the band, and costs nothing.** The band is already 48 addressable
-segments: lighting a proportion of them is a gauge with **zero new objects** and at most one opacity
+**State of charge belongs on the band, and costs nothing.** *(Written when the band was 48
+segments; it is now four edge strips, and the gauge sizes them instead of fading them — the
+conclusion held, the mechanism changed.)* The band was then 48 addressable segments: lighting a proportion of them is a gauge with **zero new objects** and at most one opacity
 write each. The old renderer had a `gauge` branch in `drawEye` using `soc` for the same purpose,
 inside the eye — the band is a better home, because it does not spend the eyes.
 
