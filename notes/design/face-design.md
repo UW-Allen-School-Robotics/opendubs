@@ -21,9 +21,9 @@ motor pipeline, and it should be built in that order. Our previous attempts fail
 eye geometry was wrong but because the eyes were looking at nothing: a random saccade generator and
 a 12-pixel travel budget.
 
-It also means the right literature is **non-conversational character gaze** — saliency-driven gaze
-for characters that do not speak. That is exactly what OpenDubs is, and it is a mistake to borrow
-from conversational-agent work that assumes dialogue.
+This holds whether or not the robot speaks — and **it can speak**, so the gaze work is the
+foundation under a conversational robot rather than a substitute for one. See
+[§ Conversation](#conversation-it-is-a-latency-budget-not-a-capability-question).
 
 ---
 
@@ -149,16 +149,97 @@ presence alone.
 - **No pupils** — the Cozmo lesson above.
 - **No emotion palette.** Express *state*, which is true and bystander-legible, not feelings, which
   are not.
-- **No speech-shaped audio.** Five rhythm-distinct earcons. Anything voice-like invites a
-  conversation this robot cannot hold, and spends its credibility immediately.
+- **No speech-shaped NON-SPEECH audio.** Earcons stay clearly abstract so they are not mistaken
+  for words. This is about keeping two channels distinct, not about avoiding speech — the robot
+  speaks, and when it does it should use actual speech.
 - **No continuous smooth tracking.** It reads as a stare and it exposes sensor jitter that discrete
   glances conceal.
 - **Nothing implying recognition.** The robot must not appear to know who you are.
+- **No LLM authority over motion.** See the safety boundary below. This is the one hard line.
 
 ---
 
+## Conversation: it is a latency budget, not a capability question
+
+An earlier draft of this note asserted that OpenDubs "cannot converse" and designed around that.
+That was wrong, and it was asserted rather than checked. The parts are all present:
+
+| Need | What we have |
+|---|---|
+| Audio in | dual ES7210 mics, working and measured |
+| Audio out | ES8388 + NS4150B, documented "Hi-Fi", plus a 3.5 mm jack |
+| Interruption | speaker and mic hold I2S **simultaneously** — measured, so barge-in is available |
+| Speech-to-text | **Jetson AGX Thor, 128 GB** — Whisper-class STT is an unremarkable load |
+| Reasoning | a local model on the Thor, or a hosted API over the existing uplink |
+| Text-to-speech | neural TTS on the Thor |
+| Transport | Wi-Fi 6 via the C6, on the robot's own LAN |
+
+So the question is not *whether* but *how fast*, and what happens while the robot is thinking.
+
+### Reflexes local, cognition remote
+
+The split that makes this work:
+
+- **The Tab5 owns everything that must be fast**: gaze, VOR, blink, the acknowledgement earcon,
+  turn-taking cues, lip movement. Tens of milliseconds, no network in the path.
+- **The Thor owns everything that must be smart**: VAD, STT, reasoning, TTS. Hundreds of
+  milliseconds to seconds, over the network.
+
+This is not an implementation detail, it is the thing that makes conversation feel alive. Humans
+acknowledge being addressed in roughly a quarter of a second, long before they have a reply. A
+robot that stands inert until a full pipeline returns reads as broken even when the eventual answer
+is excellent.
+
+**So the face must never wait for the pipeline.** The sequence is:
+
+1. **Sound onset → glance** (local, < 100 ms). Contingency established immediately.
+2. **Vision confirms a person → mutual gaze** (local).
+3. **Speech detected → a listening posture**, held while audio streams to the Thor (local).
+4. **Thinking** — a visible, honest state while STT and the model run (local animation, remote work).
+5. **Audio returns → speak**, with the mouth driven by the audio envelope.
+6. **Barge-in**: the user interrupts, the robot stops talking and returns to listening.
+
+Steps 1–4 and 6 are all local and all available today. Only step 5 needs the Thor.
+
+### Acoustic echo cancellation now matters
+
+`M5Unified`'s Tab5 init sets `MIC34_PDN = 0xFF`, disabling ES7210 channels 3 and 4 — **which are
+the AEC reference inputs**. That was a curiosity when the robot only chirped. For conversation it is
+a requirement: without it the robot transcribes its own speech and talks to itself. Enabling those
+channels is a concrete, bounded task with a clear payoff.
+
+### Degradation, which is a design requirement not a footnote
+
+The link will drop. When it does the robot must stay **attentive but mute** — gaze, VOR, glances,
+earcons and expression all keep working because they are local, and only speech is lost. That is a
+robot that looks alive and cannot talk right now, which reads as a temporary condition rather than
+as a corpse.
+
+### The one hard line: no LLM authority over motion
+
+Conversation is an **input/output channel, never an authority**. A language model must not be able
+to move the base, the lift or an arm — not directly, and not by asking a planner nicely. Authority
+stays where `docs/control-authority.md` puts it: a physical switch on the transmitter, with a
+deadman. The robot may *say* "I could move over there"; it may not *move* because a model emitted
+tokens. Prompt injection via anything the robot hears or sees is otherwise a motion-command channel
+for any bystander who can talk.
+
+### Expectation calibration, inverted
+
+The earlier draft warned against an expressive face inviting conversation. That warning was
+downstream of the wrong premise. With speech real, expressiveness is **honest** rather than
+over-promising, and the risks move:
+
+- **Latency breaking the illusion** — mitigated by the local/remote split above.
+- **Implying comprehension the model lacks** — a "thinking" state and a visible failure state are
+  better than a confident wrong answer delivered smoothly.
+- **Implying recognition** — still off limits.
+
 ## Build order
 
+0. **Prove the audio round trip** — Tab5 mic → Thor → Tab5 speaker, measured end to end, before any
+   STT or model is involved. That single number decides how conversational this robot can feel, and
+   it is cheap to measure.
 1. **Enable vision** — add `esp-dl`, uncomment `HumanFaceDetect`, and measure what it costs in image
    size and PSRAM. Everything of value depends on this, and it is currently the only unproven item.
 2. **Mutual gaze with aversion rhythm**, vision-gated.
@@ -166,3 +247,7 @@ presence alone.
 4. **Audio-orients-vision-confirms arbitration.**
 5. **Eyes-lead-head-follows** on the pan/tilt.
 6. **Proxemic modulation** from ToF and face size.
+7. **Listening, thinking and speaking states** on the face, with lip movement from the audio
+   envelope — the local half of conversation, useful before the remote half exists.
+8. **ES7210 AEC channels** enabled, without which the robot hears itself.
+9. **STT, model and TTS on the Thor**, last, because by then everything it plugs into exists.
