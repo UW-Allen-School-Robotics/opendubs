@@ -10,18 +10,29 @@
 // bottleneck. Here the glow is rasterized directly into the sprite each frame —
 // no PSRAM in the hot path.
 //
-// EW IS A MEMORY BUDGET, NOT A TASTE DECISION. The sprite must fit a CONTIGUOUS
-// internal block, and on this hardware the largest is ~247 KB — measured, not
-// assumed. 324x448x16bpp needs 283 KB, so it did NOT fit: createSprite failed
-// and the fallback below silently moved the whole face into PSRAM, where it had
-// been running unnoticed. Benched (firmware/tab5_face/bench/), a two-eye frame:
+// EW IS A MEMORY BUDGET, NOT A TASTE DECISION. Benched in
+// firmware/tab5_face/bench/, a two-eye frame:
 //
-//     324x448  PSRAM     27.6 fps   <- what this actually used to do
-//     276x448  internal  39.5 fps   <- +43%
+//     324x448  PSRAM     27.6 fps   <- what this used to do
+//     276x448  PSRAM     33.4 fps   <- what it does now: +21%, from pixels alone
+//     276x448  internal  39.5 fps   <- LOOKS BETTER, BREAKS THE RADIO. See below.
 //
-// 280 is the widest that fits, but leaves 2 KB of headroom against a block that
-// varies with fragmentation; 276 keeps 6 KB. Raising EW past ~280 does not make
-// the face bigger, it makes it PSRAM-resident and a third slower.
+// THE EYE MUST STAY IN PSRAM. 276x448 does fit a contiguous internal block
+// (~247 KB free, sprite needs 241 KB) and putting it there is measurably faster
+// -- but the ESP32-P4 HAS NO RADIO. Wi-Fi is an ESP32-C6 reached over SDIO, and
+// esp_hosted's sdio_mempool_create() needs a DMA-capable INTERNAL pool. Give the
+// eye that memory and the driver asserts at sdio_drv.c:255 and the whole board
+// reboot-loops:
+//
+//     [FACE] up eyePsram=0 freeInt=134KB
+//     assert failed: sdio_mempool_create sdio_drv.c:255 (buf_mp_g)
+//     rst:0xc (SW_CPU_RESET)
+//
+// which costs OTA and payload comms -- i.e. everything -- to buy 6 fps. So the
+// +21% here is from the PIXEL REDUCTION only, which is free; the further +18%
+// from internal SRAM is NOT available on this hardware and should not be chased.
+// A bench that measures a sprite alone cannot see this; only the real firmware,
+// with a radio to starve, can.
 static M5Canvas eye(&M5.Display);
 static const int EW = 276,
                  EH = 448;
@@ -207,19 +218,25 @@ static void drawTop(int W, int H, uint16_t bg) {
 
 void faceBegin() {
   eye.setColorDepth(16);
-  eye.setPsram(false);
+  // DELIBERATELY PSRAM, not a fallback. At 276x448 this sprite WOULD fit internal
+  // SRAM, and asking for it there starves esp_hosted's SDIO pool and reboot-loops
+  // the board (see above). Leave this alone unless the radio stops needing
+  // internal DMA memory.
+  eye.setPsram(true);
+  g_eyePsram = true;
   if (!eye.createSprite(EW, EH)) {
-    eye.setPsram(true);
+    eye.setPsram(false);
     eye.createSprite(EW, EH);
-    g_eyePsram = true;
+    g_eyePsram = false;
     // SAY SO LOUDLY. This fallback is not an edge case -- it was the steady
     // state for every build before EW came down to 276, and it cost a third of
     // the frame rate while the only evidence was one serial line nobody reads
     // on a robot with no console attached. If this fires again, EW no longer
     // fits a contiguous internal block and the number above needs re-measuring.
-    Serial.printf("[FACE] *** WARNING: %dx%d eye would not fit internal SRAM "
-                  "(largest contiguous block %u KB) -- running from PSRAM, "
-                  "expect ~1/3 lower fps. Re-bench EW. ***\n",
+    Serial.printf("[FACE] *** WARNING: %dx%d eye would not fit PSRAM and fell "
+                  "back to INTERNAL SRAM (largest contiguous block %u KB). This "
+                  "may starve the SDIO radio pool -- watch for "
+                  "sdio_mempool_create asserts. ***\n",
                   EW, EH,
                   (unsigned)(heap_caps_get_largest_free_block(
                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) /

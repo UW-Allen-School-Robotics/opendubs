@@ -131,20 +131,35 @@ pixels *and* internal SRAM instead of PSRAM — and only a matrix attributes the
 
 Largest contiguous internal block at start: **247 KB**.
 
-**Narrowing the eye to 276 takes the two-eye frame from 27.6 to 39.5 fps, +43%**, and the two
-causes separate cleanly: +21% from the 15% pixel reduction (27.6 → 33.4, both in PSRAM) and +18%
-from reaching internal SRAM (33.4 → 39.5, both at 276 px). 1.21 × 1.18 = 1.43, so they multiply as
-they should rather than one explaining the whole effect.
+**Narrowing the eye to 276 takes the two-eye frame from 27.6 to 33.4 fps, +21%** — and only
++21%, not the +43% the table above suggests, because **the internal-SRAM half of that win is not
+available on this hardware.**
 
-For context, `face.cpp` aims at "smooth ~30fps" in its own comment and is in fact delivering
-**27.6** — slightly under its target, not over it.
+### The eye must stay in PSRAM. The radio needs internal SRAM.
 
-**Take 276, not the measured maximum.** A 4-px probe finds **280×448** is the widest that fits, but
-that needs 245 K against a 247 K block — **2 KB of margin**, and when the block comes up short the
-code does not fail loudly, it silently moves to PSRAM. 276 leaves 6 KB, which is still thin. So the
-more valuable half of this change is not the width at all: **make the fallback annunciate.**
-`g_eyePsram` currently reports only over serial, which is why a PSRAM-resident face went unnoticed
-in the field. It belongs on the panel or in telemetry.
+276×448 *does* fit a contiguous internal block (241 KB needed, ~247 KB free), and putting it there
+measures 39.5 fps. Flashed to the real face firmware, it reboot-loops the board:
+
+```
+[FACE] up eyePsram=0 freeInt=134KB
+assert failed: sdio_mempool_create sdio_drv.c:255 (buf_mp_g)
+rst:0xc (SW_CPU_RESET)
+```
+
+**The ESP32-P4 has no radio.** Wi-Fi is a separate ESP32-C6 reached over SDIO, and `esp_hosted`'s
+`sdio_mempool_create()` needs a DMA-capable pool out of *internal* memory. Hand the eye 241 KB of
+internal SRAM and 134 KB is left, the pool allocation asserts, and the board resets in a loop —
+costing OTA and payload comms, i.e. everything, to buy 6 fps.
+
+So the pixel reduction is free and worth taking; the memory move is not available and should not be
+chased. `face.cpp` now calls `setPsram(true)` **deliberately**, with the internal path as the
+fallback rather than the preference, and its warning watches for the SDIO assert.
+
+**The methodological lesson is the one to keep.** A bench that measures a sprite in isolation
+cannot see this, because there is no radio in it to starve — it will keep reporting that internal
+SRAM is 18% faster, and it is right, and it is useless. Only the real firmware, with every other
+consumer of internal memory present, can price a change to internal memory. Measure the component
+to find the candidate; measure the system before believing it.
 
 **Three of this note's own claims were wrong, and the first matters most.**
 
