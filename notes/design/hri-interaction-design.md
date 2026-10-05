@@ -124,7 +124,39 @@ attention:
 
 Deliberately **five**, and deliberately not an emotional palette — see §5.
 
-### How these get played — mostly by configuring M5Unified, not by writing a synth
+### Built 1.3, and the channel model in this note was wrong
+
+**This note assumed M5Unified's eight virtual channels. The build does not have them.** The demo
+HAL exposes a single `audioPlay(std::vector<int16_t>&, async)` which **refuses while something is
+already playing** — no queue, no mixing, just a warning.
+
+So "separate channels so an acknowledgement can never cut off an operational cue" is **impossible
+here**, and the real failure mode is worse than the one it guarded against: the second cue is
+**silently dropped**, so an operational cue can be lost to a pleasantry with no sign it happened.
+
+**Replaced with software priority.** `app_face/cues.cpp` tracks the in-flight cue's priority and
+expected end, and suppresses a lower-or-equal cue outright rather than attempting it and losing it.
+Fault outranks Mode outranks the social cues, because a dropped "I heard you" is a missed
+pleasantry while a dropped fault is a missed fault.
+
+Format read from the HAL rather than assumed: **48 kHz, 16-bit, interleaved stereo.**
+
+| cue | rhythm | meaning |
+|---|---|---|
+| `Heard` | one short blip | I noticed you |
+| `Attend` | two quick rising | I am attending to you |
+| `Refuse` | two slow falling | I cannot do that — distinct from a fault |
+| `Fault` | triple, **repeating** | something is wrong |
+| `Mode` | one long tone | an authority or mode transition |
+| `Boot` | rising third | ours, replacing the vendor startup sound |
+
+`Fault` repeats and does not stop, because a fault that announced itself once and went quiet is
+indistinguishable from one nobody noticed. Envelope is 8 ms attack, 55 ms decay, with a little
+second harmonic — a pure sine on a small speaker reads thin.
+
+`Heard` and `Attend` exist but nothing triggers them yet: they are the mic's cues.
+
+### How these get played — the M5Unified plan, superseded but kept for its reasoning
 
 `M5.Speaker` already provides the machinery, and the vendored examples
 (`Basic/Speaker`, `Advanced/Speaker_SD_wav_file`, `Advanced/MP3_with_ESP8266Audio`) show the
