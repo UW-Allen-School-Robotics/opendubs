@@ -21,10 +21,16 @@ static constexpr uint8_t kMic1Gain = 0x43;   // ES7210 MIC1_GAIN
 static constexpr uint8_t kMic2Gain = 0x44;   // ES7210 MIC2_GAIN
 
 // Stepped through live rather than reasoned about: the datasheet's gain encoding is not worth
-// trusting over what the bars actually do.
-static const uint8_t kGains[] = {0x00, 0x05, 0x0A, 0x0F, 0x14, 0x18, 0x1B, 0x1E};
+// trusting over what the bars actually do. 0x00 is deliberately NOT in this table -- writing it
+// at startup, on the assumption that it was "the chip default", silenced a working microphone and
+// cost a round of testing. It is the bottom of the PGA range, not the reset value.
+static const uint8_t kGains[] = {0x05, 0x0A, 0x0F, 0x14, 0x18, 0x1B, 0x1E};
 static constexpr int  kNGains = sizeof(kGains) / sizeof(kGains[0]);
-static int g_gainIdx = 0;
+
+// -1 means UNTOUCHED: whatever _microphone_enabled_cb_tab5() left in the chip. The harness starts
+// here and can always return here exactly, because the real default is read back, never assumed.
+static int     g_gainIdx = -1;
+static uint8_t g_defGain1 = 0, g_defGain2 = 0;
 
 static constexpr size_t kSamples = 512;      // 32 ms at 16 kHz
 static int16_t rec[kSamples * 2];
@@ -32,10 +38,26 @@ static int16_t rec[kSamples * 2];
 static float g_noiseL = 0, g_noiseR = 0;     // measured floor, set by the SILENCE step
 static bool  g_haveFloor = false;
 
-static void applyGain(uint8_t v) {
-  M5.In_I2C.writeRegister8(kEs7210, kMic1Gain, v, 400000);
-  M5.In_I2C.writeRegister8(kEs7210, kMic2Gain, v, 400000);
-  Serial.printf("[MIC] gain regs 0x43/0x44 <- 0x%02X\n", v);
+// idx -1 restores the values the M5Unified init actually left, byte for byte.
+static void applyGain(int idx) {
+  const uint8_t v1 = idx < 0 ? g_defGain1 : kGains[idx];
+  const uint8_t v2 = idx < 0 ? g_defGain2 : kGains[idx];
+  M5.In_I2C.writeRegister8(kEs7210, kMic1Gain, v1, 400000);
+  M5.In_I2C.writeRegister8(kEs7210, kMic2Gain, v2, 400000);
+  Serial.printf("[MIC] gain 0x43<-0x%02X 0x44<-0x%02X %s\n", v1, v2,
+                idx < 0 ? "(restored the init's own values)" : "");
+}
+
+// Read the chip back rather than trusting that a write landed, or that the init ran at all.
+static void dumpRegs(const char *when) {
+  static const uint8_t regs[] = {0x01, 0x06, 0x08, 0x43, 0x44, 0x4B, 0x4C};
+  static const char *names[] = {"CLK_ON_OFF", "DIGITAL_PDN", "MODE_CFG",
+                                "MIC1_GAIN", "MIC2_GAIN", "MIC12_PDN", "MIC34_PDN"};
+  Serial.printf("[MIC] ES7210 registers %s:\n", when);
+  for (size_t i = 0; i < sizeof(regs); ++i) {
+    Serial.printf("[MIC]   0x%02X %-12s = 0x%02X\n", regs[i], names[i],
+                  M5.In_I2C.readRegister8(kEs7210, regs[i], 400000));
+  }
 }
 
 // Returns false when record() refuses, so a dead path cannot masquerade as silence.
@@ -63,7 +85,7 @@ static void drawStatic() {
   M5.Display.setTextSize(2);
   M5.Display.setCursor(20, 640);
   M5.Display.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  M5.Display.print("LEFT third: gain -    MIDDLE: scripted L/R test    RIGHT third: gain +");
+  M5.Display.print("LEFT third: gain down (to DEFAULT)   MIDDLE: scripted test   RIGHT third: gain up");
   M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
   M5.Display.setTextSize(3);
   M5.Display.setCursor(20, 300); M5.Display.print("L");
@@ -87,8 +109,12 @@ static void drawLive(float l, float r) {
   M5.Display.setTextSize(3);
   M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
   M5.Display.setCursor(20, 90);
-  M5.Display.printf("gain 0x%02X (%d/%d)   L %6.0f  R %6.0f      ",
-                    kGains[g_gainIdx], g_gainIdx + 1, kNGains, l, r);
+  if (g_gainIdx < 0)
+    M5.Display.printf("gain DEFAULT 0x%02X/0x%02X   L %6.0f  R %6.0f      ",
+                      g_defGain1, g_defGain2, l, r);
+  else
+    M5.Display.printf("gain 0x%02X (%d/%d)        L %6.0f  R %6.0f      ",
+                      kGains[g_gainIdx], g_gainIdx + 1, kNGains, l, r);
 
   // The sign of the difference is the whole point: it is what "turn toward the voice" reads.
   M5.Display.setCursor(20, 160);
@@ -171,7 +197,8 @@ static void scripted() {
   float cl, cr; window("VOICE CENTRE", 4000, cl, cr);
 
   Serial.println("[MIC] ---- scripted pass ----");
-  Serial.printf("[MIC] gain 0x%02X\n", kGains[g_gainIdx]);
+  Serial.printf("[MIC] gain %s\n", g_gainIdx < 0 ? "DEFAULT (as the init left it)" : "stepped");
+  dumpRegs("during the scripted pass");
   verdict("left",   ll, lr, "LEFT");
   verdict("right",  rl, rr, "RIGHT");
   verdict("centre", cl, cr, "CENTRE");
@@ -194,7 +221,12 @@ void setup() {
   const bool mic = M5.Mic.begin();
   Serial.printf("[MIC] Mic.begin() -> %s   Speaker -> %s\n",
                 mic ? "READY" : "FAILED", M5.Speaker.isEnabled() ? "READY" : "FAILED");
-  applyGain(kGains[g_gainIdx]);
+  // DO NOT WRITE A GAIN HERE. An earlier version wrote 0x00 at startup believing it to be the
+  // default; it is the bottom of the range, and it silenced a microphone that had been working.
+  // Read what the init left instead, and only ever change it on an explicit touch.
+  g_defGain1 = M5.In_I2C.readRegister8(kEs7210, kMic1Gain, 400000);
+  g_defGain2 = M5.In_I2C.readRegister8(kEs7210, kMic2Gain, 400000);
+  dumpRegs("as _microphone_enabled_cb_tab5() left them");
   drawStatic();
 }
 
@@ -203,8 +235,8 @@ void loop() {
   if (M5.Touch.getCount()) {
     const auto p = M5.Touch.getDetail();
     if (p.wasPressed()) {
-      if (p.x < 1280 / 3)        { if (g_gainIdx > 0) applyGain(kGains[--g_gainIdx]); }
-      else if (p.x > 2 * 1280 / 3) { if (g_gainIdx < kNGains - 1) applyGain(kGains[++g_gainIdx]); }
+      if (p.x < 1280 / 3)        { if (g_gainIdx >= 0) applyGain(--g_gainIdx); }
+      else if (p.x > 2 * 1280 / 3) { if (g_gainIdx < kNGains - 1) applyGain(++g_gainIdx); }
       else                       { scripted(); }
     }
   }
@@ -214,7 +246,8 @@ void loop() {
   static uint32_t last = 0;
   if (millis() - last > 1000) {   // 1 Hz to serial: enough to follow, not enough to flood
     last = millis();
-    Serial.printf("[MIC] live gain=0x%02X L %6.0f R %6.0f ratio %5.2f\n",
-                  kGains[g_gainIdx], l, r, (l + 1) / (r + 1));
+    Serial.printf("[MIC] live gain=%-6s L %6.0f R %6.0f ratio %5.2f\n",
+                  g_gainIdx < 0 ? "DEF" : String(kGains[g_gainIdx], HEX).c_str(),
+                  l, r, (l + 1) / (r + 1));
   }
 }
