@@ -55,7 +55,10 @@ a new gradient every frame. Disabled globally in `lv_conf.h`; the eye uses linea
 
 ```sh
 grep -nE "LV_GRAD_DIR_(RADIAL|CONICAL)" firmware/tab5_idf/app_face/app_face.cpp   # expect none
-grep -n  "LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/lv_conf.h           # expect 0
+# lv_conf.h governs the DESKTOP build only -- the device sets CONFIG_LV_CONF_SKIP=y and is
+# configured by Kconfig, so check BOTH or a flag will appear set when it is not compiled in.
+grep -n  "LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/lv_conf.h           # desktop
+grep -n  "CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/sdkconfig.defaults  # device
 ```
 
 ## 4. No unbounded loops in the render path

@@ -98,6 +98,38 @@ struct Eye {
 };
 Eye g_eye[2];
 lv_obj_t* g_label = nullptr;
+lv_obj_t* g_quote = nullptr;
+
+// ---- the quotes ------------------------------------------------------------------------------
+// Kept from the bespoke face, and kept in their PLACE. Two constraints decide where they live:
+//
+// Text is the LEAST ACCESSIBLE channel we have -- it needs literacy, proximity, attention and a
+// shared language -- so it must never carry anything that matters. Jokes are the ideal payload for
+// exactly that reason.
+//
+// And they are an IDLE-STATE artefact. They appear when the robot has nothing else to say, which
+// is precisely the right scope, so they yield the moment there is real state to communicate. In
+// the reporting states -- INIT, DEGRADED, E_STOP, CHARGING -- they are hidden outright, because a
+// robot making jokes while degraded is the same lie as one looking cheerful while degraded.
+//
+// They also get their own strip, clear of the eyes and clear of the band, so three channels can be
+// read at once without competing.
+const char* const kQuotes[] = {
+    "Idling at maximum efficiency.",
+    "This IS the droid you're looking for.",
+    "Standing by. Emphasis on standing.",
+    "All systems nominal. Ambitions: also nominal.",
+    "I could lift things. I'm choosing not to.",
+    "Fully charged. Mildly bored.",
+    "Running on 52 volts and good intentions.",
+    "Waiting for humans. As usual.",
+    "My other mode is autonomous.",
+    "Powered on. Opinions loading...",
+};
+constexpr int kNQuotes = sizeof(kQuotes) / sizeof(kQuotes[0]);
+int      g_quoteIdx  = 0;
+uint32_t g_nextQuote = 0;
+int      g_quoteShown = -1;
 
 // ---- animated state --------------------------------------------------------------------------
 // Gaze is EASED, not sprung: a saccade is ballistic and must not overshoot or wobble.
@@ -581,6 +613,17 @@ void buildScene()
     band::build(scr);
     theme::buildAll(scr);
 
+    // Own strip, below the eyes and above the bottom band. The eyes span y 120..600 and the band
+    // occupies the last 16 px, so 648 sits clear of both.
+    g_quote = lv_label_create(scr);
+    lv_obj_set_style_text_color(g_quote, lv_color_hex(0x5a5a5a), LV_PART_MAIN);
+    lv_obj_set_style_text_font(g_quote, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_width(g_quote, kScreenW - 160);
+    lv_obj_set_style_text_align(g_quote, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(g_quote, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(g_quote, "");
+    lv_obj_align(g_quote, LV_ALIGN_TOP_MID, 0, 648);
+
     g_label = lv_label_create(scr);
     lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 24);
@@ -720,6 +763,27 @@ void AppFace::onRunning()
     if (due(now, nextCost)) {
         nextCost = now + 10000;
         costGateReport(now > 80000);
+    }
+
+    // Quotes: only where the face is free to be idle, and changed slowly enough to be read. The
+    // label text is the only steady-state allocation in the app, so a slow rotation matters.
+    {
+        const bool want = kStates[g_state].locked < 0;
+        if (!want) {
+            if (g_quoteShown != -1) {
+                GetHAL()->lvglLock();
+                lv_label_set_text(g_quote, "");
+                GetHAL()->lvglUnlock();
+                g_quoteShown = -1;
+            }
+        } else if (due(now, g_nextQuote) || g_quoteShown == -1) {
+            g_nextQuote = now + 9000;
+            g_quoteIdx = (g_quoteIdx + 1) % kNQuotes;
+            GetHAL()->lvglLock();
+            lv_label_set_text(g_quote, kQuotes[g_quoteIdx]);
+            GetHAL()->lvglUnlock();
+            g_quoteShown = g_quoteIdx;
+        }
     }
 
     if (due(now, g_nextSaccade)) newSaccade(now);

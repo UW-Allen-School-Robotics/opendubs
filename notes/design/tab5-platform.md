@@ -221,6 +221,36 @@ all this and already written — see `face.cpp` — so it carries over unchanged
 
 ---
 
+## 6a0. THE DEVICE BUILD IGNORES `lv_conf.h`
+
+**`CONFIG_LV_CONF_SKIP=y` in `platforms/tab5/sdkconfig`.** On the device, LVGL is configured through
+**Kconfig/sdkconfig**, and `lv_conf.h` is read only by the **desktop** build. This was discovered by
+accident — a font that `lv_conf.h` enables was undeclared on the device — and it invalidates a
+class of earlier work.
+
+**What this changes, concretely:**
+
+| edit I made to `lv_conf.h` | effect on the device |
+|---|---|
+| `LV_USE_DRAW_SW_COMPLEX_GRADIENTS 1` | **none** — `CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS` is not set, so radial gradients were **never compiled in on the device** |
+| `LV_USE_SYSMON` / `LV_USE_PERF_MONITOR 1` | **none** — the FPS/CPU readout was not actually running |
+| `LV_USE_SNAPSHOT 1` | none on the device (it was only ever used on the desktop) |
+| `LV_USE_LOG` | none |
+
+**So the radial-gradient explanation for the freezes was wrong.** The complex-gradient
+implementation was absent on the device, so there was no per-geometry gradient cache to churn. The
+evidence fits the corrected account: removing radial did not stop the freezing, and fixing the
+unsynchronised `lv_label_set_text()` did. The gradient removal remains defensible on cost grounds,
+but it was not the cause and should not be cited as one.
+
+**The rule:** **device LVGL configuration lives in `sdkconfig` / `sdkconfig.defaults`; `lv_conf.h`
+is desktop-only.** Both are now tracked in `firmware/tab5_idf/`. Check which build you are
+configuring before concluding that a flag did anything — and prefer `sdkconfig.defaults`, so the
+setting survives a `sdkconfig` regeneration.
+
+This is the same failure as the untracked `lv_conf.h` wearing a different hat: I was editing a file
+and reasoning about its effects without establishing that anything read it.
+
 ## 6a. LVGL gotchas measured on this device
 
 **Do not rotate a large object.** `lv_obj_set_style_transform_rotation` makes LVGL render that
