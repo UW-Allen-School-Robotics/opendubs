@@ -457,6 +457,44 @@ makes the bootloader verify the image itself, which defends against a hostile im
 arrived, including over TLS from a compromised server. That is a real item for before student
 exposure and is NOT done.
 
+### THE CANONICAL FLASH PATH DOES NOT CHANGE YET — GATED, 2026-10-05
+
+Emma's call, and it is the right one: *"we need to get the whole stack up and running and have a
+viable ready-to-ship product before we change the canonical flash method."* A documented procedure's
+entire value is that every row is known to work; swapping one for a path whose firmware is still
+~40% of a head controller would spend that credibility to buy nothing.
+
+**So, deliberately NOT done, and not to be done opportunistically:**
+- `firmware/tab5_face/ota-from-thor.sh` is **unmodified** and keeps flashing the Arduino firmware.
+- `CLAUDE.md`'s flash table gets **no IDF row**.
+- The IDF OTA is a bench capability. It works; it is not the procedure.
+
+**Blast-radius check, verified rather than assumed (2026-10-05):**
+
+| | |
+|---|---|
+| `firmware/rc_serial_probe/**` | **entirely untouched** on this branch |
+| `rc_serial_probe/ota-from-thor.sh`, `flash-from-thor.sh`, `tab5_face/ota-from-thor.sh` | **byte-identical to `main`** |
+| `tab5_face/platformio.ini` | additive only — new bench envs; `[env:tab5]` extended from, not modified |
+| UDP ports | StamPLC **5005**, Tab5 **4242** — already separate, and the IDF listener reuses the Tab5's existing port |
+| USB flashing | `idf.py` passes `--chip esp32p4`; esptool **refuses** a mismatched chip, so pointing at the StamPLC's S3 aborts instead of writing face firmware to the safety controller |
+
+**The gate — what "appropriately confident" has to mean, so it is checkable rather than a feeling:**
+
+1. **Phase 2 complete.** Pan/tilt, the front ToF, the lift pages and the StamPLC `STATE` link all
+   ported and working. Until then the IDF image is not a replacement for anything.
+2. **Rollback paired and proven.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` together with
+   `esp_ota_mark_app_valid_cancel_rollback()`, demonstrated by deliberately OTA-ing a broken image
+   and watching it revert — **on the bench, where USB recovery is free.** Without this, one bad
+   OTA means closing the contactor and reaching into the head.
+3. **The signing decision made.** Plain-HTTP OTA is parity with today, but it lets anyone who can
+   reach the head tell it to pull firmware from any URL, on a network that will have students.
+   `SECURE_SIGNED_APPS_NO_SECURE_BOOT` is the fix and it is independent of transport.
+4. **A full robot session without a USB recovery.** The procedure earns the table by surviving
+   real use, not by passing a bench test.
+
+Only then: update `ota-from-thor.sh`, add the `CLAUDE.md` row, and retire the Arduino path.
+
 **Still to do here:** rollback (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` paired with
 `esp_ota_mark_app_valid_cancel_rollback()` — they must land together or every image reverts after
 one boot), and updating `firmware/tab5_face/ota-from-thor.sh` for the IDF build command and binary
