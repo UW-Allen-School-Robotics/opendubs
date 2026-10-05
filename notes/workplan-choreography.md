@@ -617,3 +617,100 @@ Stated so none of it is read as settled.
   Compile* and any link between her and a Boston Dynamics authoring tool; a paper titled
   "Choreographic interfaces"; and behaviour formats for Keepon, Tapia and OPSORO, none of which were
   documented in anything reachable.
+
+---
+
+## Carry-over from the Tab5 session, 2026-10-05
+
+Captured while the Tab5 work was fresh, because these are things the choreography effort will hit
+and they were learned expensively.
+
+### A validation rule outlives the claim it was built on
+
+`cue.py` carried `SOUND_BAND_HZ = (1800, 4500)`, commented *"what the head's speaker actually
+carries, judged on the robot"*. That was a by-ear impression of `M5.Speaker.tone()` in a noisy room.
+It was **withdrawn** in `design/tab5-platform.md` §3 once the hardware was looked at — and it stayed
+in the validator for days afterwards, **rejecting legitimate shows as physically impossible**, with
+a unit test asserting it.
+
+Now `SOUND_SANITY_HZ = (150, 12000)`, with the name carrying the semantics because the old one did
+not. The lesson is about **propagation**: by the time the claim was retracted it had become a rule
+*and* a test. **Withdrawing a claim means finding what was built on it** — and a validator is
+exactly the kind of thing that quietly turns a guess into a constraint on other people's work.
+
+This matters disproportionately here, because a choreography validator's whole job is encoding
+assumptions about the robot. Every bound in `cue.py` should be traceable to a measurement or
+labelled as a sanity check, and the ones already there deserve that audit.
+
+### The reservation rule is currently magic numbers
+
+`theme::reserved()` in `app_face.cpp` is `state == 4 || state == 5`. That is the **safety-bearing**
+rule — which states' colours may never be themed — expressed as indices into `kStates`, in the file
+that is about to become authorable data. Reorder the table and the rule silently protects the wrong
+states.
+
+**Prerequisite for choreography owning face configuration:** the reservation must be *derived from
+the table* (a flag on the state) rather than hardcoded beside it. Cheap now, and a silent
+safety-rule inversion later.
+
+### The face configuration boundary is settled, not open
+
+`design/face-config.md` has it: **Reserved / Bounded / Free**, with the firmware **rejecting**
+rather than discouraging an invalid configuration, because an editor is a convenience and not a
+safety boundary. Treat that as a decision to build against.
+
+Also decided after the plan was drafted: **selectable is the primary path and authoring is the
+option** — the vocabulary is a design artefact, the selection is the configuration — with bad
+options caught by rule *and* by simulation evaluation.
+
+### The cost gate is comparative only, and why
+
+`firmware/tab5_idf/app_face/cost_gate.cpp` measures dirty area per frame on the desktop. The idea is
+sound: **dirty area per frame is geometric and transfers between machines; pixels per second does
+not**, because it depends on how fast the machine renders.
+
+But **its absolute verdict is retracted.** It compared against ~16 Mpx/s, which came from a bench
+that was rasterising fourteen `drawEllipse` calls per frame — a *primitive rasterisation* workload
+applied as a *fill and blit* ceiling. The device then ran happily while the gate claimed 532% over.
+`LV_USE_PERF_MONITOR` is now on so the device reports its own FPS and CPU, which is what the gate
+should be re-anchored to.
+
+**So: a benchmark is only a budget for the thing it benchmarked.** Use the gate to compare before
+and after a change. Do not quote its absolute number at anyone.
+
+### The simulator has three jobs and one structural blind spot
+
+Relevant because this plan leans on `sim/`:
+
+| the sim is good for | the sim cannot see |
+|---|---|
+| geometry, proportion, colour, motion feel | **anything involving the LVGL lock** — it is single-threaded there |
+| full-rate iteration with no flashing | the real frame budget (far more CPU) |
+| **ASan / UBSan**, which caught nothing but would have caught the pool sizing | layer allocation failures (GBs of heap) |
+| **comparative cost evaluation** | panel-specific rendering |
+
+The blind spot is not a gap to close: on the desktop `lv_timer_handler()` runs on the main thread,
+so the unsynchronised `lv_label_set_text()` that caused the longest freeze **cannot be reproduced
+there**. Do not expect the sim to validate a runner's threading.
+
+### Invariants any face-driving runner inherits
+
+`firmware/tab5_idf/AUDIT.md` lists ten classes, each of which has already caused a failure. The four
+a choreography runner is most likely to reintroduce:
+
+1. **Every LVGL call holds the lock.** The longest freeze was one call site of five that did not.
+2. **No unbounded loops** normalising an accumulator — `fmodf`, not `while`. One slow frame made an
+   O(value) loop iterate millions of times inside the render path.
+3. **Wrap-safe deadlines.** `now > deadline` inverts at ~49 days of uptime.
+4. **Guard every per-frame write**, and remember a guard reduces how *many* writes happen, not what
+   each costs.
+
+### And a process note, since this plan will span sessions
+
+**Notes drift from code, and a revert is exactly when it happens.** Four claims in the face notes
+described a face that did not exist — an emote documented but never implemented, a pin that had been
+removed, a band segment count two refactors stale. The subagent found them by reading the code
+against the prose, which nobody had done.
+
+Worth doing at every phase boundary here, because a workplan that describes a system inaccurately
+is worse than no workplan: it is confidently wrong in a form people trust.
