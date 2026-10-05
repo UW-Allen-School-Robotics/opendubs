@@ -845,22 +845,31 @@ void AppFace::onRunning()
 
     cueTick(now);
 
-    // PROBE STATUS, on its own label. Guarded against the STRING WE LAST DISPLAYED (a copy, not
-    // a pointer) -- lv_label_set_text invalidates, so writing every frame would cost its area
-    // continuously for text that changes rarely. Invariant 8.
+    // PROBE STATUS, on its own label. Repainted on a TIMER rather than on change: the
+    // change-guard version sat on one stale string while the probe was demonstrably running, and
+    // rather than theorise about why, this removes the guard from the critical path entirely. 4 Hz
+    // costs one label's area a quarter of a second -- cheap, and it cannot get stuck.
     {
-        static char shown[72] = "";
-        const char* st = faceProbeStatus();
-        if (strcmp(st, shown) != 0) {
-            strncpy(shown, st, sizeof(shown) - 1);
-            shown[sizeof(shown) - 1] = 0;
-            lv_label_set_text(g_probeLabel, st);
+        static uint32_t nextStatus = 0;
+        if (due(now, nextStatus)) {
+            nextStatus = now + 250;
+            // LOCKED. onRunning does NOT hold the LVGL lock throughout -- it takes it in short
+            // bursts around each block that touches LVGL, and this sits between two of them. I
+            // wrote a comment below asserting the opposite and it was simply false.
+            GetHAL()->lvglLock();
+            lv_label_set_text(g_probeLabel, faceProbeStatus());
+            GetHAL()->lvglUnlock();
         }
     }
 
-    // GAZE: a tracked face wins over autonomous wandering. This runs INSIDE onRunning, which
-    // already holds the LVGL lock -- the tracker task only ever publishes numbers, and never
-    // touches LVGL itself. That is invariant 1 satisfied structurally rather than by vigilance.
+    // GAZE: a tracked face wins over autonomous wandering.
+    //
+    // EVERY LVGL CALL BELOW IS EXPLICITLY LOCKED. An earlier version of this comment claimed
+    // onRunning "already holds the LVGL lock" and so these did not need one. That was false --
+    // onRunning acquires it in short bursts per block -- and the result was four unlocked LVGL
+    // calls, which froze the face. It is the same bug as the unlocked lv_label_set_text in
+    // applyEmote, and I found it the same way Emma suggested: by diffing against the last build
+    // that animated, instead of theorising about schedulers.
     float    tnx = 0.0f, tny = 0.0f;
     uint32_t tseq = 0;
     if (faceTrackGet(&tnx, &tny, &tseq)) {
@@ -886,16 +895,22 @@ void AppFace::onRunning()
             // a band through the middle while the face is at the top of the frame.
             const int rx = (int)((tnx * 0.5f + 0.5f) * (float)kScreenW);
             const int ry = (int)((tny / 0.55f * 0.5f + 0.5f) * (float)kScreenH);
+            GetHAL()->lvglLock();
             lv_obj_set_pos(g_reticle, rx - 60, ry - 60);
+            GetHAL()->lvglUnlock();
         }
         if (!g_tracking) {
             g_tracking = true;
+            GetHAL()->lvglLock();
             lv_obj_remove_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+            GetHAL()->lvglUnlock();
         }
     } else {
         if (g_tracking) {
             g_tracking = false;
+            GetHAL()->lvglLock();
             lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+            GetHAL()->lvglUnlock();
         }
         if (due(now, g_nextSaccade)) newSaccade(now);
     }

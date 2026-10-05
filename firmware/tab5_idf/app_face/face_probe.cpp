@@ -151,10 +151,18 @@ constexpr uint32_t kHoldMs = 900;
 constexpr int kCamW = 1280;
 constexpr int kCamH = 720;
 
-// Orientation. The PPA stage sets mirror_x = true for the preview, so a tracker reading the same
-// buffer inherits that mirroring. These two signs decide whether the eyes follow you or run from
-// you, and they are settled BY WATCHING THE RETICLE -- which is why the reticle exists.
-constexpr bool kMirrorX = true;
+// Orientation. SETTLED BY WATCHING THE RETICLE, which is why the reticle exists -- it tracked
+// backwards, and that is the whole evidence needed.
+//
+// The reasoning, now that it can be checked rather than argued: the PPA already applies
+// mirror_x = true, which flips the camera's view into a MIRROR image. So in the frame we read,
+// a person moving to their own right moves toward larger x -- which is exactly the direction the
+// gaze wants, since the eyes should look toward the side of the panel the person is on. Applying
+// our own flip on top of the hardware's made two mirrors, which cancel into backwards.
+//
+// So kMirrorX is FALSE: the hardware did the mirroring, and we must not repeat it. kMirrorY stays
+// false because the PPA does not flip Y (mirror_y = false) and nothing else inverts it.
+constexpr bool kMirrorX = false;
 constexpr bool kMirrorY = false;
 
 // The detection marker, drawn ON the preview as a child of it, in preview pixel coordinates.
@@ -162,6 +170,23 @@ constexpr bool kMirrorY = false;
 // so it never hides what it is marking. Created once, then only moved or hidden -- steady-state
 // allocation is AUDIT.md invariant 6. Called with the LVGL lock already held.
 lv_obj_t* g_mark = nullptr;
+lv_obj_t* g_diag = nullptr;
+
+// What state is the task that runs onRunning actually in? onRunning lives in ESP-IDF's "main"
+// task (app_main's `while (!app::IsDone())` loop), so FreeRTOS can be asked directly instead of
+// guessed at. eBlocked with a healthy stack means it is waiting on something -- most likely the
+// LVGL mutex. A tiny high-water mark means it overflowed its stack. eDeleted means it is gone.
+const char* taskStateName(eTaskState s)
+{
+    switch (s) {
+        case eRunning:   return "RUN";
+        case eReady:     return "READY";
+        case eBlocked:   return "BLOCKED";
+        case eSuspended: return "SUSP";
+        case eDeleted:   return "DELETED";
+        default:         return "INVALID";
+    }
+}
 void faceReticleAt(int x, int y, lv_obj_t* parent)
 {
     if (!g_mark) {
@@ -186,7 +211,24 @@ void faceReticleAt(int x, int y, lv_obj_t* parent)
 // the whole point: if the preview looks like a room, the conversion is right; if the preview looks
 // like a sheared mess, the conversion is wrong -- and either way the detector saw exactly what you
 // are looking at. No inference.
-constexpr int kDetW = 320, kDetH = 180;   // 16:9, same aspect as 1280x720, so no distortion
+// MATCH THE MODEL, not the camera. Read from human_face_detect's README and its anchor config:
+// the MSR first stage takes 120*160*3 -- a 4:3 input -- and its anchors are 16/32/64/128 px IN
+// THAT SPACE. Two consequences, and both were hurting us:
+//
+//   ASPECT: feeding 320x180 (16:9) meant the preprocessor resized x and y independently
+//   (get_resize_scale_x / _y are separate) down to 160x120, arriving horizontally squashed.
+//   The reference image that scores 0.835 is 320x240 -- 4:3.
+//
+//   SIZE: a person ~200 px wide in a 1280 frame becomes ~25 px in a 160-wide model input, UNDER
+//   the 32 px anchor. That is precisely the reported symptom: it only fires when the face fills
+//   most of the frame.
+//
+// So crop the centre 960x720 of the 1280x720 frame -- which IS 4:3, costs no vertical field of
+// view, and trims only the outer edges -- and scale it to 320x240, the exact geometry the
+// self-test passes on. The same person now lands at ~33 px in model space, on the 32 px anchor.
+constexpr int kDetW = 320, kDetH = 240;        // 4:3, matching the model's native input
+constexpr int kCropW = 960, kCropH = 720;      // 4:3 centre crop of the 1280x720 frame
+constexpr int kCropX = (kCamW - kCropW) / 2;   // 160
 
 void trackLoop(HumanFaceDetect* det)
 {
@@ -212,6 +254,19 @@ void trackLoop(HumanFaceDetect* det)
     lv_obj_move_foreground(prev);
     GetHAL()->lvglUnlock();
 
+    // A SECOND status line, painted by THIS task rather than by onRunning. Emma's observation
+    // localises the fault precisely: the camera feed and LVGL's FPS counter are live while the
+    // animation AND the counter are frozen -- and both of those are driven by onRunning. So the
+    // app task is stuck and the probe task is not. Reporting through onRunning therefore cannot
+    // tell us anything about onRunning. This line bypasses it, and having the two side by side
+    // makes the fault location visible: yellow (onRunning) frozen, cyan (probe) still counting.
+    GetHAL()->lvglLock();
+    g_diag = lv_label_create(lv_screen_active());
+    lv_obj_set_style_text_color(g_diag, lv_color_hex(0x00e5ff), LV_PART_MAIN);
+    lv_obj_align(g_diag, LV_ALIGN_TOP_MID, 0, 86);
+    lv_label_set_text(g_diag, "probe label: live");
+    GetHAL()->lvglUnlock();
+
     GetHAL()->startCameraCapture(cam);
     setStatus("camera on - waiting for first frame");
     mclog::tagInfo(kTag, "camera started; preview %dx%d bottom-left", kDetW, kDetH);
@@ -232,7 +287,11 @@ void trackLoop(HumanFaceDetect* det)
     int64_t  accum = 0;
 
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(60));
+        // 200 ms, not 60. Gaze does not need more: a saccade takes ~20-200 ms and the face holds
+        // a fix for 900 ms, so detecting 5x a second is already faster than the eyes can act on.
+        // 60 ms was three times the work for no behavioural gain, and duty cycle is what starved
+        // the app task.
+        vTaskDelay(pdMS_TO_TICKS(200));
 
         // ---- ONE PASS: downscale + convert. NO LVGL LOCK HELD. ----------------------------
         // Reading the camera buffer needs no lock: the camera task writes it via PPA without
@@ -241,11 +300,11 @@ void trackLoop(HumanFaceDetect* det)
         // ticking. Tearing across a frame boundary is harmless for detection.
         uint32_t sum = 0, lo = 255, hi = 0;
         for (int y = 0; y < kDetH; ++y) {
-            const uint16_t* srow = src + (size_t)(y * kCamH / kDetH) * kCamW;
+            const uint16_t* srow = src + (size_t)(y * kCropH / kDetH) * kCamW + kCropX;
             uint16_t*       prow = prev565 + (size_t)y * kDetW;
             uint8_t*        drow = rgb888 + (size_t)y * kDetW * 3;
             for (int x = 0; x < kDetW; ++x) {
-                const uint16_t p = srow[x * kCamW / kDetW];
+                const uint16_t p = srow[x * kCropW / kDetW];
                 prow[x] = p;                                  // preview: straight copy
                 const uint8_t r = (uint8_t)(((p >> 11) & 0x1f) << 3);
                 const uint8_t g = (uint8_t)(((p >> 5) & 0x3f) << 2);
@@ -303,8 +362,8 @@ void trackLoop(HumanFaceDetect* det)
             hits++;
 
             char b[72];
-            snprintf(b, sizeof(b), "FACE %.2f  gaze %+.2f,%+.2f  %.0fms", best->score, nx, ny,
-                     accum / 1000.0f / frames);
+            snprintf(b, sizeof(b), "#%lu FACE %.2f  gaze %+.2f,%+.2f  %.0fms",
+                     (unsigned long)frames, best->score, nx, ny, accum / 1000.0f / frames);
             setStatus(b);
             if ((hits % 8) == 1) {
                 mclog::tagInfo(kTag, "TRACK {:.2f} box=({},{})-({},{}) gaze={:.2f},{:.2f}",
@@ -316,9 +375,9 @@ void trackLoop(HumanFaceDetect* det)
             // real picture, a black frame (lens covered, capture dead) or a white-out -- which is
             // the difference between "my code is wrong" and "the camera cannot see anything".
             char b[72];
-            snprintf(b, sizeof(b), "no face  luma %lu/%lu/%lu  %.0fms",
-                     (unsigned long)lo, (unsigned long)avg, (unsigned long)hi,
-                     accum / 1000.0f / frames);
+            snprintf(b, sizeof(b), "#%lu no face  luma %lu/%lu/%lu  %.0fms",
+                     (unsigned long)frames, (unsigned long)lo, (unsigned long)avg,
+                     (unsigned long)hi, accum / 1000.0f / frames);
             setStatus(b);
             if (g_trackStamp.load() != 0 && due(now, g_trackStamp.load() + kHoldMs)) {
                 g_trackStamp.store(0);
@@ -326,9 +385,22 @@ void trackLoop(HumanFaceDetect* det)
         }
 
         // Only now take the lock, and only to repaint the preview and move the reticle.
+        // Diagnose the app task, then paint both the preview and the diagnosis in one locked
+        // section. uxTaskGetStackHighWaterMark reports the MINIMUM free stack ever seen, in words.
+        char diag[80];
+        TaskHandle_t mainTask = xTaskGetHandle("main");
+        if (mainTask) {
+            snprintf(diag, sizeof(diag), "#%lu main=%s stack=%luw  probe alive",
+                     (unsigned long)frames, taskStateName(eTaskGetState(mainTask)),
+                     (unsigned long)uxTaskGetStackHighWaterMark(mainTask));
+        } else {
+            snprintf(diag, sizeof(diag), "#%lu main task NOT FOUND", (unsigned long)frames);
+        }
+
         GetHAL()->lvglLock();
         lv_obj_invalidate(prev);
         faceReticleAt(rx, ry, prev);
+        if (g_diag) lv_label_set_text(g_diag, diag);
         GetHAL()->lvglUnlock();
     }
 }
@@ -381,7 +453,19 @@ void faceProbeStart()
     // merely unnecessary -- it is HARMFUL. Asking for ~24 KB of contiguous DMA-capable internal
     // memory can simply fail, and when it did, the probe logged a line nobody could read and
     // silently never started. That is precisely what happened.
-    if (xTaskCreate(task, "faceprobe", 6144, nullptr, 2, nullptr) != pdPASS) {
+    // PRIORITY 1, PINNED TO CORE 1. Measured, not guessed: with the probe at priority 2 and
+    // UNPINNED, FreeRTOS scheduled it on CPU0 -- where the `main` task that runs onRunning is
+    // pinned at priority 1 -- and preempted it. The probe's cycle is a 76,800-sample strided read
+    // across a 1280-wide PSRAM buffer plus ~35 ms of inference, so main sat in eReady and the face
+    // animation stopped while LVGL's own task kept rendering. That is exactly the reported
+    // symptom: video live, FPS live, animation and the onRunning-painted counter frozen.
+    //
+    // Core 1 is where the vendor camera task already lives (priority 5, pinned), so perception
+    // work is now confined to one core and CPU0 belongs to the face. Priority 1 means that even
+    // if affinity were ever relaxed it would round-robin with main rather than starve it.
+    //
+    // THE RULE: a best-effort perception task must never outrank the task that animates the face.
+    if (xTaskCreatePinnedToCore(task, "faceprobe", 6144, nullptr, 1, nullptr, 1) != pdPASS) {
         setStatus("probe: TASK CREATE FAILED");
         mclog::tagError(kTag, "task create failed");
     }
