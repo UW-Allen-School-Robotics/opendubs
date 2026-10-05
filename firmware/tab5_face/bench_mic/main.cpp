@@ -117,7 +117,11 @@ static void drawLive(float l, float r) {
                       kGains[g_gainIdx], g_gainIdx + 1, kNGains, l, r);
 
   // The sign of the difference is the whole point: it is what "turn toward the voice" reads.
-  M5.Display.setCursor(20, 160);
+  //
+  // BELOW the bars, not at y=160, because banner() owns that band. This readout is repainted by
+  // every measurement iteration, so sharing a row with the scripted prompt meant the live text
+  // erased the instruction the operator was trying to follow.
+  M5.Display.setCursor(20, 520);
   M5.Display.setTextSize(4);
   const float lo = g_haveFloor ? (g_noiseL + g_noiseR) * 1.6f : 60.0f;
   if ((l + r) * 0.5f < lo) {
@@ -133,6 +137,7 @@ static void drawLive(float l, float r) {
 }
 
 // ---- scripted pass: silence floor, then a self-stimulated tone, then left/right by voice.
+// The scripted prompt owns y=160..250 exclusively. drawLive() must not write into it.
 static void banner(const char *s, uint16_t col) {
   M5.Display.fillRect(0, 160, 1280, 90, TFT_BLACK);
   M5.Display.setTextSize(4);
@@ -153,7 +158,7 @@ static void window(const char *tag, int ms, float &pl, float &pr) {
     drawLive(l, r);
     M5.Display.setTextSize(3);
     M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
-    M5.Display.setCursor(20, 470);
+    M5.Display.setCursor(20, 466);
     M5.Display.printf("%s  %.1fs left   ", tag, (ms - (int)(millis() - t0)) / 1000.0f);
   }
   Serial.printf("[MIC] %-22s peak L %6.0f  R %6.0f  ratio %5.2f\n", tag, pl, pr, (pl + 1) / (pr + 1));

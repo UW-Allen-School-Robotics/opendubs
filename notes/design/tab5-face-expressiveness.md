@@ -70,15 +70,39 @@ The ES7210 gives two channels, and **M5Unified does configure it on this board**
 (Do not conclude otherwise from the S3-only `es7210_write_reg` helper: the P4 path writes the same
 chip through `In_I2C.writeRegister8`/`in_i2c_bulk_write` instead, and reasoning from that one
 helper's `#if` guard produced a confidently wrong "the mic is never configured" claim on
-2026-10-04.) **Spatial separation has been observed working** during voice testing on the bench.
+2026-10-04.) **Spatial separation works at the default gain**, confirmed interactively on 2026-10-04 with the
+operator-paced harness in `firmware/tab5_face/bench_mic/`: a left/right/centre voice test reads the
+intended direction from the inter-channel level ratio reasonably reliably. So the input side of
+"turn toward a voice" is not the hard part, and no driver work is needed to get there.
+
+**What is actually unresolved** is quality, not capability:
+
+- **Robustness in a crowd.** Every reading so far is a quiet room with one deliberate speaker. A
+  demo is the opposite, and the failure that matters is a head that twitches at the loudest
+  bystander rather than the person addressing it.
+- **Angular resolution.** The ratio is a crude level difference, which supports about three
+  answers — left, right, centre. Real bearing needs the inter-channel *time* delay, i.e.
+  cross-correlating the two channels at sample level. That is a meaningful step up in work and
+  should only be taken if three answers prove insufficient, which for a head that turns toward a
+  speaker they may well not be.
 
 Two details of that init matter for the behaviours below:
 
 - `MIC12_PDN=0x00`, `MIC34_PDN=0xFF` — **two of the four channels are enabled**, which is the
   left/right pair these behaviours need.
-- **No gain register is written.** The Tab5 path leaves the PGA at the chip default, where the
-  sibling `_microphone_enabled_cb_corep4x` path writes `0x44`/`0x45`/`0x46 = 0x1B`. If levels ever
-  read low, registers `0x43`/`0x44` (MIC1/MIC2 gain) are the first knob, not the driver.
+- **No gain register is written**, where the sibling `_microphone_enabled_cb_corep4x` path writes
+  `0x44`/`0x45`/`0x46 = 0x1B`. That looked like the obvious knob. **Tried interactively on
+  2026-10-04 and it is not one** — stepping `0x43`/`0x44` across `0x05`–`0x1E` made little
+  difference to the levels, and the chip default is fine. Do not spend time here again.
+
+    Two explanations fit that result and this bench did not separate them: the PGA genuinely is
+    not the limiting factor, or a gain write does not take effect without re-enabling the channel.
+    `dumpRegs()` in the mic harness prints the registers back during a scripted pass, which is
+    where to settle it *if* a reason ever appears to care. None does today.
+
+    One thing that is settled: **writing `0x00` there silences the microphone.** It is the bottom
+    of the range, not a default, and an earlier version of the harness wrote it at startup
+    believing otherwise — which silently killed a working mic and cost a round of testing.
 
 **Testing this needs a stimulus the firmware itself produces.** A mic test whose stimulus is
 "someone makes a noise" measures the room's noise floor whenever nobody is at the bench, and a
