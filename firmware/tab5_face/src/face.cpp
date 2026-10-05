@@ -13,9 +13,11 @@
 // EW IS A MEMORY BUDGET, NOT A TASTE DECISION. Benched in
 // firmware/tab5_face/bench/, a two-eye frame:
 //
-//     324x448  PSRAM     27.6 fps   <- what this used to do
-//     276x448  PSRAM     33.4 fps   <- what it does now: +21%, from pixels alone
-//     276x448  internal  39.5 fps   <- LOOKS BETTER, BREAKS THE RADIO. See below.
+//     324x448  PSRAM     27.6 fps   <- what this does, and what it should do
+//     276x448  PSRAM     33.4 fps   <- +21%, and NOT WORTH IT: nobody asked for
+//                                       frame rate, and smaller eyes are a
+//                                       regression. Shrinking was the wrong axis.
+//     276x448  internal  39.5 fps   <- LOOKS BEST, BREAKS THE RADIO. See below.
 //
 // THE EYE MUST STAY IN PSRAM. 276x448 does fit a contiguous internal block
 // (~247 KB free, sprite needs 241 KB) and putting it there is measurably faster
@@ -28,20 +30,25 @@
 //     assert failed: sdio_mempool_create sdio_drv.c:255 (buf_mp_g)
 //     rst:0xc (SW_CPU_RESET)
 //
-// which costs OTA and payload comms -- i.e. everything -- to buy 6 fps. So the
-// +21% here is from the PIXEL REDUCTION only, which is free; the further +18%
-// from internal SRAM is NOT available on this hardware and should not be chased.
-// A bench that measures a sprite alone cannot see this; only the real firmware,
-// with a radio to starve, can.
+// which costs OTA and payload comms -- i.e. everything -- to buy 6 fps.
+//
+// AND BECAUSE THE EYE LIVES IN PSRAM, 247 KB IS NOT THE CEILING. PSRAM is 32 MB.
+// EW/EH are limited by the frame rate you will accept and by the panel, not by a
+// memory block -- so the eye can grow well past 324 if a bigger face is wanted.
+// That is the direction worth exploring; shrinking it was not.
+//
+// A bench that measures a sprite alone cannot see the SDIO problem, because there
+// is no radio in it to starve. Measure the component to find a candidate; measure
+// the system before believing it.
 static M5Canvas eye(&M5.Display);
-static const int EW = 276,
+static const int EW = 324,
                  EH = 448;
-// BW MUST TRACK EW. This is the eye BODY inside the sprite, and it is scaled by
-// a per-state multiplier that reaches 1.06 (E_STOP in ui_shared.cpp). At the old
-// EW=324, 284x1.06 = 301 px left 11 px for the glow; left at 284 with EW=276 the
-// widest state would be clipped by 25 px. 242x1.06 = 257 keeps the same margin.
+// BW MUST TRACK EW. This is the eye BODY inside the sprite, scaled by a per-state
+// multiplier reaching 1.06 (E_STOP in ui_shared.cpp): 284 x 1.06 = 301 px, which
+// leaves 11 px for the glow in a 324-wide sprite. Change EW and this must move
+// with it, or the widest state is clipped.
 static const float
-    BW = 242,
+    BW = 284,
     BH = 376; // eye size; E_STOP height capped so the tall eye still fits
 static bool g_eyePsram = false;
 
