@@ -379,3 +379,82 @@ which is how a state change reads as a change of posture rather than a crossfade
 What the band adds is a **second axis**: state no longer has to be inferred from eye colour, so the
 table grows a band behaviour per state (colour **and** motion) while the `Expr` can be re-tuned
 purely for how the face should *hold itself* in that state.
+
+---
+
+## Eye sizing and spacing: the numbers, and they do not say what we assumed
+
+The eyes read as small for the screen. Measured against the panel's real physical dimensions and
+against a human face, **size turns out not to be the main problem.**
+
+The Tab5 is a **5-inch** panel: 1280×720 over **110.7 × 62.3 mm**, so **0.0865 mm per pixel**. That
+is worth sitting with — the whole display is physically about the size of a human **eye region**,
+not a whole face. It is a mask over the eyes, which is why proportions borrowed from whole-face
+designs mislead.
+
+| | OpenDubs today | Human | |
+|---|---|---|---|
+| eye width | 284 px = **24.6 mm** | 30 mm (visible aperture) | 82% — close to right |
+| eye height | 376 px = **32.5 mm** | ~11 mm | **3.0×** |
+| **interpupillary distance** | 380 px = **32.9 mm** | 63 mm | **52%** |
+
+**The dominant error is spacing, not size.** The eyes sit at **half human interpupillary distance**,
+and are three times as tall as a human eye's aperture. Tall, narrow and close together is the
+geometry of a small animal's face, or of a narrow mask — not of a person-scale robot standing at
+eye level. That explains "it does not read right" better than size does, and it is also why making
+the eyes *smaller* earlier in this project made things worse rather than merely different.
+
+**Human-scale proportions fit the panel**, with room to spare:
+
+```
+IPD 63 mm   = 729 px  ->  slots at x=276 and x=1004
+eye 30 mm   = 347 px  ->  eyes span 102..449 and 831..1178
+                          side margin 102 px, inner gap 382 px
+```
+
+An inner gap of roughly one eye width is also the human proportion (63 mm centres minus a 30 mm
+eye leaves 33 mm between them), so that falls out for free.
+
+### What the research adds on top of human scale
+
+The **baby schema** (Lorenz's *Kindchenschema*) is the relevant body of work, and it has been tested
+on robot faces specifically: **large eyes, round face, and medium vertical and horizontal eye
+positions produce the highest perceived trustworthiness and cuteness**
+([facial features and robot trustworthiness](https://arxiv.org/pdf/2509.13948),
+[Hong Kong PolyU study](https://research.polyu.edu.hk/en/publications/the-effect-of-facial-features-on-facial-anthropomorphic-trustwort/)).
+Eye **shape and size** are called out as having significant effect. So the research-supported
+direction is **larger than human**, not merely human-scale — with one recorded caveat: *excessively*
+high baby schema can become counterproductive for some robot types, so this is a dial, not a
+maximum.
+
+**Roundness matters as much as scale.** A human eye aperture is strongly landscape (~2.7:1); ours is
+portrait (0.76:1). Baby schema asks for round. Moving from tall-and-narrow toward round is a change
+in the *same* direction as both the human-proportion argument and the baby-schema argument, which is
+unusual and worth taking.
+
+### Why this matters more for this robot than for a desk toy
+
+The robot **stands at human eye level with the Z-axis up, and a little below it when down.** A
+machine at eye height is socially salient in a way a tabletop robot is not — it is read as a
+counterpart rather than an object, and it can read as confrontational. Baby-schema features are the
+established mitigation. And with Z down the robot looks slightly *up* at people, which is
+intrinsically a non-threatening posture and pairs naturally with those same features.
+
+### The gaze cue is already strong — do not spend effort there
+
+Pupil travel is now **±80 px = ±6.9 mm**, where a human eye rotating 15° displaces its pupil about
+**3.1 mm**. Our gaze displacement is therefore **2.2× a 15-degree human saccade**. Gaze geometry is
+not the weak link, and no further travel is needed; the earlier ±11 px problem is solved by the
+pupil being its own layer.
+
+### Proposed geometry
+
+1. **Widen the IPD to roughly human scale first** (380 → ~729 px). Largest single improvement, costs
+   nothing, and the panel has room.
+2. **Move the aspect ratio toward round.** Both the human-proportion and baby-schema arguments push
+   the same way.
+3. **Then scale up past human** as taste allows, which is where baby schema points — bounded by
+   leaving perimeter space for the state band.
+4. Keep the pupil at roughly a third of body width; the travel that produces is already ample.
+
+All four are now single constants in `app_face.cpp`, iterable on the desktop build in seconds.
