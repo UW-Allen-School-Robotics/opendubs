@@ -15,7 +15,7 @@ morph rather than a cut.
 **Life between states.** Blink on a timer with a real blink phase, a breathing oscillation, gaze
 drift with random targets, a radar sweep, turn-signal response, and a pun ticker.
 
-**The renderer is fast and was hard-won.** The eye sprite lives in internal SRAM (448 px tall)
+**The renderer is fast and was hard-won.** The eye sprite is *meant* to live in internal SRAM (448 px tall)
 with the glow rasterised straight into it each frame; an earlier version kept a glow template in
 PSRAM and blitted per frame, and that traffic is what held it to ~15 fps. Dirty-rect repaints:
 a state change remakes the glow and label without a `fillScreen`, so it never flashes.
@@ -65,17 +65,64 @@ on the screen. Sounds must sit in 2–4 kHz to be heard, which constrains the pa
 
 ### 4. Listening (larger, and the biggest step)
 
-The ES7210 gives two channels. That is not Sprout's four-mic array with source localisation, but
+The ES7210 gives two channels, and **M5Unified does configure it on this board** —
+`_microphone_enabled_cb_tab5` in `M5Unified.inl` is a complete ESP32-P4-guarded init at I2C 0x40.
+(Do not conclude otherwise from the S3-only `es7210_write_reg` helper: the P4 path writes the same
+chip through `In_I2C.writeRegister8`/`in_i2c_bulk_write` instead, and reasoning from that one
+helper's `#if` guard produced a confidently wrong "the mic is never configured" claim on
+2026-10-04.) **Spatial separation has been observed working** during voice testing on the bench.
+
+Two details of that init matter for the behaviours below:
+
+- `MIC12_PDN=0x00`, `MIC34_PDN=0xFF` — **two of the four channels are enabled**, which is the
+  left/right pair these behaviours need.
+- **No gain register is written.** The Tab5 path leaves the PGA at the chip default, where the
+  sibling `_microphone_enabled_cb_corep4x` path writes `0x44`/`0x45`/`0x46 = 0x1B`. If levels ever
+  read low, registers `0x43`/`0x44` (MIC1/MIC2 gain) are the first knob, not the driver.
+
+**Testing this needs a stimulus the firmware itself produces.** A mic test whose stimulus is
+"someone makes a noise" measures the room's noise floor whenever nobody is at the bench, and a
+quiet room reads as low, correlated levels on both channels — indistinguishable from a dead chip.
+Any mic bench here must drive the device's own speaker and report level-during-tone against
+level-during-silence, and must report *inconclusive* when no stimulus is detected rather than
+blaming the microphone. Usefully, the speaker and mic **can hold the I2S port at the same time**
+(measured), so a self-stimulating test is possible — and so is listening while speaking. That is not Sprout's four-mic array with source localisation, but
 left/right energy difference is enough for "turn toward the voice", which is the behaviour people
 actually notice. A wake word ("hey robot", as they use) is a separate, bigger piece of work and
 probably belongs on the Thor, not the P4 — the head has the mic, the Thor has the compute.
 
-### 5. Render headroom (unknown, needs measuring)
+### 5. Render headroom — MEASURED 2026-10-04
 
-The panel is 720×1280 and the eye sprite is 448 px in internal SRAM. Unknown: what frame rate a
-*two*-eye layout costs, whether a second sprite fits in internal SRAM, and whether PSRAM can be
-used for anything off the hot path. Before designing richer faces, measure — the previous PSRAM
-lesson cost a 5× frame rate.
+On a bench Tab5 with `firmware/tab5_face/bench/`, at the face's own 324×448 geometry:
+
+| | |
+|---|---|
+| sprite needs | **283 KB contiguous** |
+| largest contiguous internal block | **247 KB** |
+| internal allocation | **FAILS — falls back to PSRAM** |
+| one push | 55.1 fps |
+| **two pushes (what the face does)** | **27.6 fps** |
+| widest eye that *does* fit internal | **276×448** |
+
+**Three of this note's own claims were wrong, and the first matters most.**
+
+**The eye does NOT live in internal SRAM.** `face.cpp` says "sized to fit INTERNAL SRAM (~290KB)",
+but it needs 283 KB *contiguous* and the largest block is 247 KB, so `createSprite` fails and the
+code silently takes its own PSRAM fallback. `g_eyePsram` records this — to **serial only**, which
+on the robot nobody reads. The shipping face is almost certainly running from PSRAM in the field
+and has been all along.
+
+**The two-eye question was already answered by the shipping firmware.** `face.cpp` allocates *one*
+sprite and pushes it twice at `slots[2]`, mirrored by `i == 0 ? -1 : +1`. There is no second
+sprite and never was.
+
+**PSRAM is not the disaster recorded here.** 55 fps for a single push, not 1.3. The old 15 fps
+figure was a specific access pattern — blitting a glow *template* out of PSRAM every frame — not
+PSRAM sprites as such. Worth not repeating as a general rule.
+
+**The actionable number is 276×448**: 15% narrower and the eye fits internal SRAM. And since one
+push to two is 55.1 → 27.6 fps, almost exactly half, this is draw-bound rather than
+overhead-bound — so a faster sprite should translate nearly 1:1.
 
 ## Constraints to design within
 
@@ -84,6 +131,12 @@ lesson cost a 5× frame rate.
   e-stop, tracking toggle. Expression cannot own the screen unconditionally.
 - **The head can be held in reset by a cable** — fixed in #28, worth remembering.
 - **Audio only carries 2–4 kHz** on this speaker, measured by ear on the robot.
+- **Serial on this board is the USB-serial-JTAG.** Touching DTR/RTS drops it into ROM download
+  mode, so a reader must attach without handshaking — `cat /dev/cu.*` works, pyserial's defaults do
+  not. And `Serial.setTxTimeoutMs(0)` is mandatory: without it the first print blocks forever when
+  no host is draining the port, and the firmware hangs in `setup()`. Anything worth reading should
+  be **re-emitted on a timer**, because attaching resets the chip and so destroys the boot output
+  you attached to read.
 - **AI tracking mode is a physical tap.** Any behaviour that aims the head remotely depends on a
   mode nobody can set over the network. That should change.
 
