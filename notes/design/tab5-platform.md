@@ -348,32 +348,40 @@ Both cost a build cycle, and both are version drift rather than anything about t
 ### Port A devices: the ToF and the 8Servo
 
 Both hang off the Tab5's **Grove Port A, GPIO 53 (SDA) / 54 (SCL) at 100 kHz**, on Arduino `Wire`.
-Worth stating because it is easy to assume otherwise: **the Tab5 drives the 8Servo itself** at
-`0x25`, including `readServoCurrent()` and the angle-to-microsecond conversion. It is not on the
-StamPLC.
+Two things are easy to get wrong here, and an earlier draft of this section got both wrong.
 
-The BSP already covers the bus. `bsp_ext_i2c_init()`, `bsp_ext_i2c_deinit()` and
-`bsp_ext_i2c_get_handle()` hand back an `i2c_master_bus_handle_t`, and `BSP_EXT_I2C_SDA`/`SCL` are
-**GPIO 53/54** — the same physical port, already brought up.
+**There are TWO ToF sensors and this is not the lift's.** `lift.cpp` says so in its own header
+comment: the Port A part is the **FRONT rangefinder, screen-mounted** — "what the head is looking
+at", published as `CAN_ID_TOF_FRONT`. **The lift's height sensor is on the StamPLC and arrives over
+UDP.** So this sensor is HRI-relevant (how far away is the person) and is *not* in the pinch-guard
+or height-safety path. Despite living in a file called `lift.cpp`.
 
-| | risk | why |
+**The Tab5 drives the 8Servo itself** at `0x25`, including `readServoCurrent()` and the
+angle-to-microsecond conversion. It is not on the StamPLC.
+
+The bus needs no work: `bsp_ext_i2c_init()`, `bsp_ext_i2c_deinit()` and `bsp_ext_i2c_get_handle()`
+return an `i2c_master_bus_handle_t`, and `BSP_EXT_I2C_SDA`/`SCL` are **GPIO 53/54** — the same
+physical port, already brought up by the BSP.
+
+**This is register work, not driver authorship.** The API surface actually used is thin, and the
+VL53L0X read path is *already* raw register access in our own code:
+
+| device | what the code actually does | port effort |
 |---|---|---|
-| **8Servo `0x25`** | **low** | register-level reads/writes, no vendor library. `Wire.beginTransmission/write/endTransmission` becomes `i2c_master_transmit` on the BSP handle. Mechanical. |
-| **ToF (VL53L0X / VL53L1X)** | **the real work** | depends on Pololu's Arduino `Wire` libraries, and **no VL53L0X/L1X component is published in the Espressif registry** (checked). The drivers must be ported: single-file and register-level, so tedious rather than hard, though the VL53L1X init is a long register blob. |
+| 8Servo `0x25` | register reads/writes, no vendor library | mechanical |
+| VL53L0X | `readReg(RESULT_INTERRUPT_STATUS)`, `readReg16Bit(RESULT_RANGE_STATUS+10)`, `writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01)` — raw already | mechanical |
+| VL53L1X | `setDistanceMode`, `setMeasurementTimingBudget`, `startContinuous`, `read` — all register writes underneath | mechanical, plus the init blob |
 
-The dual-model autodetect ports in minutes — `lift.cpp` already hand-rolls raw `Wire` transactions
-to probe the model ID (VL53L1X answers `0xEACC` at `0x010F`, VL53L0X answers `0xEE` at `0xC0`).
+The only piece that is not a trivial transaction is `init()`, and on the VL53L1X that is a **fixed
+default-configuration byte array** — data, not logic, and lifted wholesale. The dual-model
+autodetect ports in minutes because `lift.cpp` already hand-rolls the model-ID probe over raw
+`Wire` (VL53L1X answers `0xEACC` at `0x010F`, VL53L0X answers `0xEE` at `0xC0`). M5's own
+documentation also ships ToF unit demos whose register sequences are the reusable part.
 
-**The risk is validation, not feasibility.** Neither device is on the bench Tab5:
+So: `Wire.beginTransmission/write/endTransmission/requestFrom` becomes `i2c_master_transmit` and
+`i2c_master_transmit_receive` against the BSP handle. No library needs porting.
 
-- *Bench can confirm:* it compiles, Port A initialises, a scan correctly finds nothing.
-- *Only the robot can confirm:* ToF ranging, servo motion, the pinch guard.
-
-And the ToF feeds the **lift's pinch guard and height logic**, so a ported driver returning
-plausible-but-wrong distances is the dangerous failure mode, not an outright broken one.
-Separately, `notes/` records the 8Servo/I2C path as implicated in the ESC red-fault, so rewriting
-that driver touches a path with history.
-
-**Therefore:** keep the ToF and servo code behind the existing interfaces (`lift.h`, the servo
-helpers) so they are swappable, keep the Arduino image as the shipping firmware, and do not cut
-over until both are validated **on the robot**.
+**What the bench still cannot tell us**, since neither part is attached: that ranging returns
+sensible distances, and that the servos move. Those need the hardware. Not safety-critical for the
+front ToF, but it is the input to any "how close is the person" behaviour, so a plausible-but-wrong
+distance would be quietly wrong rather than obviously broken.
