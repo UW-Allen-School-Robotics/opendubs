@@ -251,3 +251,131 @@ over-promising, and the risks move:
    envelope — the local half of conversation, useful before the remote half exists.
 8. **ES7210 AEC channels** enabled, without which the robot hears itself.
 9. **STT, model and TTS on the Thor**, last, because by then everything it plugs into exists.
+
+---
+
+## Features: what the research says about a mouth and eyebrows
+
+Asked directly, because an earlier decision against a mouth was made when the graphics were
+believed to be the constraint, and that premise is gone.
+
+### Eyebrows: keep them, and make them do more
+
+**You already have them.** `drawBrow()` exists in `face.cpp` and is called from two places, and the
+expression tuple is `{h, w, tilt, bow, squint, lookY, brow}` — a brow parameter has been there all
+along. If they read as absent, they are too subtle, which is a tuning problem rather than a missing
+feature.
+
+The evidence supports investing in them:
+
+- They are named as the **emotion intensifier** in minimal-face work — "dominant and strongly
+  pulled-down eyebrows for anger"
+  ([geometric simplification study](https://openaccess.cms-conferences.org/publications/book/979-8-950676-13-0/article/979-8-950676-13-0_86)).
+- More surprisingly, **eyebrow-raising measurably improves speech intelligibility.** A study of
+  animated head gestures found that **head-nods and eyebrow-raising significantly increased speech
+  intelligibility** relative to the same gestures being absent *or added randomly*
+  ([audiovisual speech work](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10686424/)).
+
+That second finding is worth more to us than the first, for two reasons. It means brows have a
+**functional** payoff once the robot speaks, not merely an expressive one. And **we also have a
+pan/tilt neck**, so head-nods — the other half of that result — are available for free.
+
+**The condition attached to it matters: the gestures must be correlated with the speech.** Randomly
+added gestures did *not* help. So brow-raises and nods belong on prosodic events — emphasis,
+phrase boundaries, question intonation — not on a timer.
+
+### A mouth: the evidence does not support adding one
+
+Two independent findings, pointing the same way:
+
+- **Eyes on a large display, with the mouth omitted, was best for conveying emotion** — especially
+  happiness and anger — in
+  [*It's in Your Eyes: Which Facial Design is Best Suited to Let a Robot Express Emotions?*](https://dl.gi.de/items/77a25433-cb05-4265-8125-b76ef074d124/full).
+  That is close to a description of our hardware.
+- The audiovisual-benefit literature is clear that seeing a talker helps, and helps **more as the
+  room gets noisier** — which would be the argument for a mouth at a demo. But the one study of a
+  **robot head** specifically found intelligibility was **not** increased by its visual speech cues
+  against noisy audio alone, and concluded that this "underlines the importance of carefully
+  designing and controlling the facial co-speech movements."
+
+So the honest statement is **not** "a mouth cannot work" — it is that the audiovisual benefit is
+established for *human* faces and **unproven for robot faces**, while the cost is high: lip-sync
+accurate enough to help is exactly the thing that study found hard, and an inaccurate one buys
+nothing. Meanwhile brow-raises and nods delivered a measured intelligibility gain on the same
+problem for far less work, using parts we already have.
+
+**Recommendation: no mouth. Invest the same effort in brows and nods, which have the measured
+result.** Revisit only if speech intelligibility proves to be a real problem in a real demo — and
+then measure it rather than assume a mouth fixes it.
+
+---
+
+## The perimeter band: a second channel, and a good idea
+
+Modelled on the band that races around the iOS screen edge during a Siri invocation. **Adopt it**,
+for a reason stronger than aesthetics: it separates two messages that currently share one carrier.
+
+Today the robot's **state** is encoded in eye **colour and shape** — so the eyes carry both *where I
+am looking* and *what mode I am in*. Those are different messages to different audiences, and
+making one carrier do both is why neither reads cleanly.
+
+| Channel | Carries | Audience | Readable |
+|---|---|---|---|
+| **Eyes** | attention — where I am looking, am I engaged with you | whoever is in front | needs to be roughly face-on |
+| **Perimeter band** | state — mode, busy, listening, thinking, fault | anyone, including bystanders | from any angle, at distance, peripherally |
+
+Three things follow:
+
+1. **The band is the right home for the conversational states.** Listening, thinking, speaking — the
+   exact problem the local/remote latency split creates, where the robot must visibly be *doing
+   something* while the Thor works. Siri's band is literally that affordance.
+2. **It frees the eyes.** If state lives on the perimeter, the eyes can hold a consistent colour and
+   spend their whole vocabulary on gaze and expression, which is what the pupil-less-gaze problem
+   needs.
+3. **It is peripherally legible**, which no eye detail is. A band at the screen edge is visible to
+   someone beside the robot or glancing past it — closer to the PRISM LEDs in function, and a
+   natural partner to them.
+
+Implementation is unremarkable in LVGL: an arc or a set of edge segments with an animated gradient,
+driven by the same `AnimateValue` machinery. Motion style carries meaning — a slow pulse for idle,
+a travelling sweep for thinking, a fast flash for a fault — so the band should have a small,
+deliberate vocabulary of *motions*, not just colours, for the same reason the earcons are
+rhythm-distinct.
+
+**One hard limit:** the band is on the Tab5, so it dies with the e-stop and with the link. It is a
+social and operational channel, not a safety one. PRISM remains the safety annunciator.
+
+---
+
+## The funny quotes: keep them, and keep them in their place
+
+They stay. Two design constraints on where:
+
+- **Text is the least accessible channel we have.** It needs literacy, proximity, attention and a
+  shared language — so it must never carry anything that matters. Jokes are the perfect payload for
+  exactly that reason.
+- **They are an idle-state artefact and should remain one.** They appear when the robot has nothing
+  else to say, which is precisely the right scope. They must not compete with the band or the eyes,
+  so they keep their own region — the bottom strip — and vanish the moment there is real state to
+  communicate or a person to attend to.
+
+Now that speech is on the table, the temptation is to have the robot *say* them. **Resist it for
+now:** a spoken joke invites a conversational turn, which lands straight in the
+expectation-calibration risk, and a visual gag that someone has to walk up and read is self-limiting
+in a way that is actually desirable.
+
+---
+
+## State machine: the port
+
+The existing table in `ui_shared.cpp` is good and carries over directly — seven states (`INIT`,
+`SAFE_IDLE`, `MANUAL`, `AUTONOMOUS`, `DEGRADED`, `E_STOP`, `CHARGING`), each with a colour and an
+`Expr` of `{h, w, tilt, bow, squint, lookY, brow}`.
+
+What changes is that each parameter becomes its own `AnimateValue`, so a state transition is seven
+independent springs rather than one lerp toward a tuple — and transitions can differ per parameter,
+which is how a state change reads as a change of posture rather than a crossfade.
+
+What the band adds is a **second axis**: state no longer has to be inferred from eye colour, so the
+table grows a band behaviour per state (colour **and** motion) while the `Expr` can be re-tuned
+purely for how the face should *hold itself* in that state.
