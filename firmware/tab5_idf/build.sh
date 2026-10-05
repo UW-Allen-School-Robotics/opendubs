@@ -44,6 +44,15 @@ sync_sources() {
 }
 
 build_device() {
+    # sdkconfig is GENERATED and ACCUMULATES. It is not regenerated when sdkconfig.defaults
+    # changes, so it silently drifts from the file we actually track: a stale one made every
+    # build today 64 KB larger than the repo describes, and the drift is invisible because
+    # both builds succeed. If our defaults are newer, delete it and let it regenerate.
+    if [ "$HERE/sdkconfig.defaults" -nt "$DEMO/platforms/tab5/sdkconfig" ]; then
+        echo "sdkconfig.defaults is newer -- regenerating sdkconfig"
+        rm -f "$DEMO/platforms/tab5/sdkconfig"
+    fi
+
     # ALWAYS reconfigure. Both build systems glob app/ at CONFIGURE time, so adding or removing a
     # source file silently builds the old file list -- which has produced a confusing link error
     # three separate times (a deleted app_launcher.cpp, and twice a newly added file).

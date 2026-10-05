@@ -34,16 +34,64 @@ getting the function and the aesthetics right. Trying things is the point; untra
 |---|---|---|
 | **1.1** | ~~Does LVGL + PPA give better eye animation than we could hand-build?~~ | **PASSED, 2026-10-05 — "a clear unequivocal go for abandoning the bespoke approach".** Judged materially better on the desktop build, then built at 2.76 MB and **animating on the Tab5**. `smooth_ui_toolkit` is a motion.dev-style system — springs, easings, sequences, delay/repeat, completion callbacks — against one exponential lerp. **The IDF route is the target architecture; the bespoke M5GFX face is superseded.** |
 | 1.2 | **Eyes and emotes.** Core geometry and rendering settled in 1.2a; remaining sub-items below: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
-| 1.2b | **Replace the M5Stack splash with an OpenDubs splash.** The boot currently shows the Tab5 vendor splash. `app_startup_anim` is the demo's own startup animation app and is the natural place; the robot should not boot into someone else's branding. | Looks like our robot, not a dev board. |
+| 1.2b | ~~OpenDubs splash~~ **DONE, 2026-10-05** (commit 7732192).** Replace the M5Stack splash.** The boot currently shows the Tab5 vendor splash. `app_startup_anim` is the demo's own startup animation app and is the natural place; the robot should not boot into someone else's branding. | Looks like our robot, not a dev board. |
 | 1.2a | ~~Eye geometry~~ | **DONE, 2026-10-05** — "generally this is much better". 480×480 (41.5 mm) at a 0.34 eye-width gap, radial body shading, soft radial catchlight **inside the pupil**, `lv_line` eyebrows with sprung raise and angle. Human-scale IPD was tried and **rejected**: it read human but less friendly, so gap-as-a-fraction-of-eye-width is the dial and 0.34 is the value. Minor tweaks deferred. |
 | 1.2c | ~~State machine port~~ | **DONE, 2026-10-05.** All seven states ported verbatim from `ui_shared.cpp`, each of the seven `Expr` parameters on its own `AnimateValue`. `tilt` drives both the brow angle and the upper-corner cut, `bow` carves the lower lid, `squint` eats height and shifts the centre, `lookY` biases vertically, and state colour animates too. Cuts and bows are **hidden** when their parameter is ~0, so unused states cost nothing. State currently cycles on the bench; Phase 2 wires `STATE <NAME>` from the StamPLC. |
 | 1.2d | ~~Perimeter band~~ | **DONE, 2026-10-05.** Full perimeter, 16 px, 48 opacity-animated segments — not a gradient ring or `lv_arc`, which render through a layer. **Colour = state, motion = activity**: idle breathes, listening sweeps slowly, thinking sweeps fast and tight, speaking pulses (envelope stubbed), **fault flashes hard and is owned by DEGRADED/E_STOP so no theme can re-time it**. Eyes keep state colour for now, to be judged by eye. |
-| 1.2e | **Funny quotes** preserved in their own bottom region; yield immediately to real state or a person. | Still funny, never in the way. |
+| 1.2e | ~~Funny quotes~~ **DONE, 2026-10-05** (commit 7732192). **Funny quotes** preserved in their own bottom region; yield immediately to real state or a person. | Still funny, never in the way. |
 | 1.2f | ~~Themes~~ | **DONE, 2026-10-05.** Palette + static accessory layer over an unchanged state machine. **Accessories are static** — created once per theme, never animated, so they cost nothing per frame. `DEGRADED` and `E_STOP` colours pass through untouched. Halloween is the first theme; notably it had to **give up orange**, which sits too close to DEGRADED's amber, so it leans on purple and toxic green and lets the cobweb accessories carry the identity. |
 | 1.3 | ~~Audio cues~~ | **DONE, 2026-10-05.** Six cues in `app_face/cues.cpp`, rendered once to 48 kHz stereo PCM with an 8/55 ms envelope. **The channel model in the design was wrong** — this HAL has one player that *refuses* while busy, so a silently dropped cue was the real risk and software priority replaces channels. `Fault` repeats, `Mode` fires on every state change, the vendor startup sound is gone, and `Heard`/`Attend` await the mic. |
 | 1.3b | **Beep enable and volume, resident on the Tab5 and settable from the dashboard.** The settings live on the head so it behaves correctly with no link, and the dashboard is the editor rather than the owner. **The decision this forces: whether a global mute may silence the `Fault` cue.** A mute that takes the fault cue with it is a safety-communication regression arrived at by a convenience setting — and the reservation rule in `face-config.md` exists for exactly this shape of problem. Options: exempt `Fault` from mute, give it a volume floor, or allow full mute but annunciate it on the panel and the band so a muted robot is visibly muted. | Routine cues can be turned down to nothing without anyone accidentally disabling the one cue that matters. |
-| 1.4 | **Face detection.** Add `esp-dl`, uncomment `HumanFaceDetect`, measure image size, PSRAM and detections/second. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
+| 1.4 | ~~Face detection — the **flash cost** half~~ **MEASURED, 2026-10-05, see below.** `esp-dl` resolves, compiles and links; the cost is **+0.75 MB of app image and a 187 KB model partition**, leaving ~30% free in the 5 MB OTA slot. Detections/second and quality still need the camera and a face. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
 | 1.5 | **Voice, as a probe.** Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
+
+#### 1.4 measured, 2026-10-05 — flash cost only
+
+Built four times in the ephemeral tree; **nothing was committed and no dependency was added to the
+repo.** Each delta below compares two builds that share one `sdkconfig`, because mixing configs is
+exactly the mistake that produced a wrong number mid-measurement (see the drift note).
+
+| build | app image | free in the 5 MB slot |
+|---|---|---|
+| no face detection | 0x2bd9d0 — 2.74 MB | 45% |
+| + face detection, model in **flash_rodata** (the component's default) | — | — |
+| + face detection, model in **flash_partition** | 0x37e4f0 — 3.49 MB | **30%** |
+
+- **model in its own partition (recommended): +0.75 MB** of app image, plus a **187 KB** packed
+  `.espdl` in the `human_face_det` partition — which is *why* the vendor's table reserves 512 KB
+  there, a detail I had preserved without knowing its purpose.
+- **model in rodata (the default): +1.05 MB** of app image and nothing in the partition.
+- So moving the model out of the app saves ~304 KB while the packed model is 187 KB. The residual
+  ~117 KB is **not explained** by the file size; the plausible reason is that rodata mode embeds the
+  two unpacked models (`msr_s8_v1` + `mnp_s8_v1`) rather than the single packed blob. Stated as a
+  hypothesis, not a finding.
+- **The OTA trade-off is the real reason to choose.** In rodata the model ships *inside* the app, so
+  one OTA updates both. In a partition it does not, so a model change needs a separate flash. For a
+  head on the e-stop branch that is a meaningful difference, and it argues for rodata once there is
+  room — 23% free is still workable.
+
+**Verdict: affordable, and not a constraint on the graphics decision.** 1.5 MB of headroom remains
+with the model in its partition.
+
+**A pin is required, and it is the third instance of the same upstream pattern.** `human_face_detect`
+declares `esp-dl: ^3.1.3`; the solver takes that to 3.3.13, which **does not compile against its own
+consumer** (`DL_IMAGE_CAP_RGB_SWAP` undeclared, `MSRPostprocessor` ctor mismatch,
+`set_resize_scale_x` gone). Pinning `espressif/esp-dl: "3.1.3"` alongside
+`espressif/human_face_detect: "0.2.3"` builds clean. That is the same failure as the LVGL 9 pin and
+the `esp_codec_dev` 1.3.4 pin: **an M5/Espressif component's own declared range resolves to
+something that breaks it.** Three for three — treat a caret range in this ecosystem as a bug until
+proven otherwise.
+
+**Drift found while measuring: `sdkconfig` is generated and accumulates.** It is *not* regenerated
+when `sdkconfig.defaults` changes, so it had diverged from the file we track — every build today was
+64 KB larger than the repo describes, invisibly, because both configurations build and run. Our
+`sdkconfig.defaults` is a strict superset of the vendor's (checked with `comm`), so nothing was
+lost; the stale file simply was not our file. `build.sh` now deletes `sdkconfig` when
+`sdkconfig.defaults` is newer.
+
+This is the **third** "a stale generated or hand-maintained list diverges silently" bug found today,
+after `build.sh`'s three-of-nine file list and `AUDIT.md`'s single-file greps. That is the pattern
+worth carrying forward, more than any of the three individually.
 
 **Keep hold of why we are doing this.** The reason to move to ESP-IDF is to inherit established
 best-practice graphics so that **we have options for eye animation** — that is the whole thesis, and
