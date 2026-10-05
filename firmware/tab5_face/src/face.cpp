@@ -1,4 +1,5 @@
 #include "face.h"
+#include "lift.h"   // Lift.request() -- the gaze leads on INTENT, not on reported motion
 #include "ui_shared.h"
 #include <M5Unified.h>
 #include <cstring>
@@ -62,6 +63,9 @@ static uint32_t lastFpsMs = 0, tPrev = 0, frames = 0, nextBlink = 1500,
                 gNext = 0;
 static float fps = 0, blinkPhase = 0, soc = 0.6f, breathe = 0;
 static float gx = 0, gy = 0, gTX = 0, gTY = 0, radarAng = 0, radarPrev = 0;
+// Explicit "look here" intent, in SCREEN coordinates (already mirrored by faceLookAt).
+static float lookX = 0, lookY = 0;
+static uint32_t lookUntil = 0;
 static bool blinking = false;
 static int turnDir = 0, prevTurn = 0;
 static uint32_t turnMs = 0;
@@ -257,6 +261,15 @@ void faceBegin() {
       (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
 }
 
+void faceLookAt(float x, float y, uint32_t hold_ms) {
+  // Mirror into the viewer's frame (the robot's right is the observer's left) and into screen
+  // coordinates (y positive downward). Both negations are here, in one place, so no caller has to
+  // reason about them -- and so this cannot disagree with the TURN handling above.
+  lookX = -(x < -1 ? -1 : (x > 1 ? 1 : x));
+  lookY = -(y < -1 ? -1 : (y > 1 ? 1 : y));
+  lookUntil = millis() + (hold_ms ? hold_ms : 600);
+}
+
 void faceInvalidate() {
   fullRepaint = true;
   punDirty = true;
@@ -300,6 +313,9 @@ void faceRender() {
                        // chevrons + gaze-lean
 
   float dgx = 0, dgy = 0;
+  // Fastest gaze wins: a committed look-at is a deliberate signal and must not be averaged with
+  // an idle saccade. Priority, highest first: explicit look-at, turn, lift intent, then state.
+  bool committed = false;
   if (is("SAFE_IDLE")) {
     if (t > gNext) {
       gTX = random(-100, 101) / 100.0f;
@@ -313,9 +329,29 @@ void faceRender() {
   if (turnDir != 0) {
     dgx = -turnDir * 0.85f;
     dgy = 0;
+    committed = true;
   } // gaze leans toward the turn in the VIEWER frame
-  gx = lp(gx, dgx, k * 0.5f);
-  gy = lp(gy, dgy, k * 0.5f);
+
+  // LIFT INTENT, NOT LIFT MOTION. Lift.request() is what the operator asked for and is set here
+  // on the Tab5; state().motion is what the StamPLC reports back after the relay has closed. So
+  // gazing on the REQUEST genuinely precedes visible travel by a full round trip, where gazing on
+  // the report would only ever accompany it.
+  if (!committed) {
+    const Motion want = Lift.request();
+    if (want != Motion::STOP) {
+      dgy = (want == Motion::UP) ? -0.75f : 0.75f;  // screen y is positive DOWNWARD
+      dgx = 0;
+      committed = true;
+    }
+  }
+
+  if (t < lookUntil) { dgx = lookX; dgy = lookY; committed = true; }
+
+  // A committed gaze snaps; an idle one drifts. Using the same slow rate for both would make a
+  // deliberate glance arrive too late to lead anything.
+  const float gk = committed ? k * 1.6f : k * 0.5f;
+  gx = lp(gx, dgx, gk > 1.0f ? 1.0f : gk);
+  gy = lp(gy, dgy, gk > 1.0f ? 1.0f : gk);
 
   if (!blinking && t > nextBlink) {
     blinking = true;

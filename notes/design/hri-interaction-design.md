@@ -203,8 +203,25 @@ Priced by value over effort, using only measured capability.
 
 **Then, cheap and high-value**
 
-2. **Gaze leads motion.** Before the base drives, the lift moves, or an arm starts, aim the eyes
-   (and head, where pan-tilt is live) at the destination first. Pure legibility, no planner change.
+2. **Gaze leads motion.** *Mechanism built — see `faceLookAt()` in `face.h` and the `GAZE x y [ms]`
+   protocol command.* Three things were learned building it:
+
+    - **The face is downstream of every mover and cannot delay the robot.** True gaze-leading needs
+      the mover to wait, so the lead time belongs to the *caller*: send `GAZE`, wait, then command
+      motion. Discrete actions — a park, a lift move, an arm reach, a routine — can afford that
+      wait. An analog stick cannot, and does not need to (below).
+    - **Lift gaze reads `Lift.request()`, not `state().motion`.** The request is set on the Tab5;
+      the reported motion comes back only after the relay closes. Gazing on intent therefore leads
+      visible travel by a full round trip, where gazing on the report could only ever accompany it.
+      Any future axis should look for the same intent/actuality pair.
+    - **Even a reactive gaze beats visible motion**, because the drivetrain ramps (`kEscSlewUs`,
+      `kEscRevDwellTicks`). So RC driving gets legibility for free, without the stick having to be
+      predicted.
+
+    Still to do: the robot does not *send* `GAZE` yet — no drive vector exists in the Tab5 protocol
+    at all, so the dashboard and StamPLC callers are the next step. And **a lead delay must never be
+    inserted ahead of a stop** — only ahead of a start. Delaying a halt to look pretty is the one
+    way this idea could hurt someone.
 3. **Acknowledge inside one second.** A glance plus one short blip whenever the robot notices it is
    being addressed, whether or not it can act. Silence reads as ignoring or as broken.
 4. **Glance toward a voice.** Discrete, brief, L/R/centre only. Explicitly *not* continuous tracking.

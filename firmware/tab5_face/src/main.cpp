@@ -741,6 +741,22 @@ static void applyLine(const char *line) {
     g_turnCmd = (d == 'R') ? 1 : (d == 'L') ? -1 : 0;
     g_linkOnline = true;
     last_state_ms = millis();
+  } else if (strncmp(line, "GAZE ", 5) == 0) {
+    // "GAZE <x> <y> [hold_ms]" -- aim the eyes at where the robot is ABOUT to go, in the robot's
+    // own frame (x +1 = its right, y +1 = up). Let an observer infer the goal before the motion
+    // starts; see faceLookAt() in face.h.
+    //
+    // THE LEAD TIME BELONGS TO THE CALLER. This face is downstream of every mover and cannot
+    // delay the robot, so a caller that wants the gaze to genuinely arrive first must send GAZE,
+    // wait, and only then command the motion. Discrete actions -- a park, a lift move, an arm
+    // reach, a routine -- can afford that wait. A human on an analog stick cannot, and does not
+    // need to: the drivetrain's own ramp means the eyes still move before the robot visibly does.
+    float x = 0, y = 0; int hold = 0;
+    if (sscanf(line + 5, "%f %f %d", &x, &y, &hold) >= 2) {
+      faceLookAt(x, y, (uint32_t)(hold > 0 ? hold : 0));
+      g_linkOnline = true;
+      last_state_ms = millis();
+    }
   }
 }
 
