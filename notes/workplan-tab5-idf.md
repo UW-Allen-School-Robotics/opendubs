@@ -73,6 +73,33 @@ exactly the mistake that produced a wrong number mid-measurement (see the drift 
 **Verdict: affordable, and not a constraint on the graphics decision.** 1.5 MB of headroom remains
 with the model in its partition.
 
+**The remaining half is no longer human-gated, and recording it as such was wrong.** It was listed
+as "needs the camera and a face", against a rule already in `CLAUDE.md`: *a test that needs a human
+at the bench is not a test.* esp-dl's own example embeds a reference JPEG and prints scores and
+boxes, so the firmware can supply its own stimulus and state its own verdict.
+`app_face/face_probe.{h,cpp}` + `probe/human_face.jpg` (esp-dl's own 320×240 reference image) does
+that: PASS / FAIL / INCONCLUSIVE, first-pass and steady-state latency, PSRAM, repeated on a timer,
+behind `OPENDUBS_PROBE_FACEDET=1`. A fixed image is **better** than a live face — byte-identical
+input, so latency is comparable across builds and a miss is a regression rather than bad lighting.
+
+**It does not run yet, and the blocker is the more interesting cost.** With esp-dl linked, creating
+one more FreeRTOS task asserts:
+
+```
+assert failed: xTaskCreateStaticPinnedToCore (xPortCheckValidTCBMem(pxTaskBuffer))
+```
+
+A TCB must live in internal DRAM and esp-dl does not leave enough. `MALLOC_CAP_INTERNAL` was not
+sufficient — it can return TCM or RTCRAM, which the check also rejects. `MALLOC_CAP_DMA` is the
+likely answer and is **untried**; stopped there rather than take a third guess in a row.
+**That internal-RAM ceiling, not the flash figure, is face detection's real integration cost**, and
+it is the kind of thing only flashing finds.
+
+Also corrected: esp-dl was briefly blamed for the i2c abort above. **It was innocent** — that build
+also carried the regenerated `sdkconfig`, which reproduces the abort on its own with no esp-dl
+present. Two variables changed at once and the conclusion went to the interesting one instead of
+the established one.
+
 **A pin is required, and it is the third instance of the same upstream pattern.** `human_face_detect`
 declares `esp-dl: ^3.1.3`; the solver takes that to 3.3.13, which **does not compile against its own
 consumer** (`DL_IMAGE_CAP_RGB_SWAP` undeclared, `MSRPostprocessor` ctor mismatch,
@@ -82,16 +109,34 @@ the `esp_codec_dev` 1.3.4 pin: **an M5/Espressif component's own declared range 
 something that breaks it.** Three for three — treat a caret range in this ecosystem as a bug until
 proven otherwise.
 
-**Drift found while measuring: `sdkconfig` is generated and accumulates.** It is *not* regenerated
-when `sdkconfig.defaults` changes, so it had diverged from the file we track — every build today was
-64 KB larger than the repo describes, invisibly, because both configurations build and run. Our
-`sdkconfig.defaults` is a strict superset of the vendor's (checked with `comm`), so nothing was
-lost; the stale file simply was not our file. `build.sh` now deletes `sdkconfig` when
-`sdkconfig.defaults` is newer.
+**RETRACTED — I had this backwards, and acting on it broke the boot.** I claimed `sdkconfig` was a
+generated, accumulating artifact that had drifted, and made `build.sh` delete it whenever
+`sdkconfig.defaults` was newer. That is true of most IDF projects and **false here**: the Tab5 demo
+**commits** `platforms/tab5/sdkconfig` — 94 KB, 3245 lines, the vendor's known-good configuration.
+Deleting it replaced all of that with whatever our 1.7 KB defaults plus Kconfig defaults produced,
+and the result aborted at 1307 ms with `i2c: CONFLICT! driver_ng is not allowed to be used with
+this old driver`. Proven by bisection: restoring the vendor's exact `sdkconfig` and changing nothing
+else boots clean. The 64 KB size change I reported as "drift closed" was this bug's symptom.
 
-This is the **third** "a stale generated or hand-maintained list diverges silently" bug found today,
-after `build.sh`'s three-of-nine file list and `AUDIT.md`'s single-file greps. That is the pattern
-worth carrying forward, more than any of the three individually.
+**What the dig did find, and it invalidates a standing assumption: `sdkconfig.defaults` had never
+applied to a device build.** IDF consults it only when `sdkconfig` is *absent*, and `sdkconfig` has
+existed since the clone — so our settings were inert. Concretely, `CONFIG_LV_USE_PERF_MONITOR`
+reads as enabled in our tracked file and was **not set** in the config actually built: the FPS
+counter was never on screen, which I had been recording as "never looked at". Two claims do survive,
+checked directly against the vendor config: `CONFIG_LV_CONF_SKIP=y` and complex gradients off are
+both genuinely true on device.
+
+Fixed properly: `sdkconfig.vendor` (the demo's committed config, vendored into our repo so we notice
+if the clone moves) is the base, `sdkconfig.defaults` is applied **on top**, and `build.sh`
+regenerates from that ordered list every build. The whole configuration is now reproducible from
+tracked files, and our overrides take effect for the first time — so the perf monitor is now
+genuinely on.
+
+So the pattern found today is **not** "stale generated files drift" three times over. It is the
+narrower and more useful one: **a file nobody owns is dangerous in both directions** — `build.sh`'s
+three-of-nine list and `AUDIT.md`'s single-file greps went stale because nothing regenerated them,
+and `sdkconfig` broke because I regenerated something that was never mine to regenerate. The test
+is not "is it generated?" but **"who owns this file, and does the tool agree?"**
 
 **Keep hold of why we are doing this.** The reason to move to ESP-IDF is to inherit established
 best-practice graphics so that **we have options for eye animation** — that is the whole thesis, and
@@ -151,6 +196,32 @@ already exists as HTML on the Thor.
   at 48 fps), or **both** — a native face with a streamed dashboard page behind a touch.
 - The streamed route is attractive because it reuses the real dashboard and needs no duplicate UI.
   It is also the one that dies when the link drops, so it must not carry anything safety-bearing.
+
+**DECIDED, 2026-10-05 — `notes/design/tab5-dashboard.md`.** Desk work; no robot, no network.
+
+- **It is a question about AUTHORITY, not information.** 17 of the dashboard's 24 endpoints POST
+  *actuation* — estop/clear, relay, mast, teleop, arms, pdh, system. The Tab5 is a touchscreen on
+  the front of the robot at roughly human eye height, reachable by anyone in the room, and the API
+  has no authN yet. "Put the dashboard on the Tab5" naively means unauthenticated drive and
+  arm controls within reach of a passer-by.
+- **The rule: the head displays; it does not command.** Read-only, plus at most a single
+  de-energize affordance — the same asymmetry `rc_serial_probe` already settled for the StamPLC's
+  buttons ("buttons may only DE-energize; re-arm stays host/dashboard-guarded"). This also kills
+  the "both" route: a streamed page behind a gesture hands over the whole control surface at once.
+- **Route: native LVGL reading the existing `/api/snapshot` + `/ws`. Do NOT build the Chromium
+  pipeline.** The thing worth reusing is the data, not the pixels, and the backend needs no change.
+  The deciding argument is link loss and it is a safety one: **a streamed JPEG that stops arriving
+  is pixel-identical to a live panel showing steady values**, so nobody at the robot can tell
+  "SOC is 71%" from "SOC was 71% when the link died". Native holds the values *and* the age.
+- **Being fair to streaming:** the three things genuinely hard to redraw are the lidar scan
+  canvases, the arm-pose canvas and a sparkline — and all three are operator-analysis views that
+  do not belong on the robot's face. The only content that justified streaming is content that
+  should be on the tablet, so the hybrid collapses. The option does not expire if one view ever
+  needs it.
+- **Content: not 13 views.** One screen the face yields to: the face (default), a read-only
+  technician card, and an automatic fault screen saying what failed and what clears it. The fault
+  screen is the genuinely novel thing the panel can do, because the person who needs it is the one
+  who walked over.
 
 ### 1B — Communication architecture, Tab5 ↔ Thor
 
