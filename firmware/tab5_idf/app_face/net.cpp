@@ -124,12 +124,21 @@ void task(void*)
     const bool stored = esp_wifi_get_config(WIFI_IF_STA, &have) == ESP_OK && have.sta.ssid[0] != 0;
 
 #ifdef OPENDUBS_WIFI_SSID
-    if (!stored) {
+    // EXPLICIT INTENT OVERRIDES STORED. The first version only applied build-time credentials
+    // when NVS was empty -- which made the provisioning path useless in the one situation that
+    // actually occurs: NVS already holds credentials for a DIFFERENT network (the robot's), and
+    // someone is trying to move the board to a new one. Passing OPENDUBS_WIFI_SSID is a deliberate
+    // act; it should win over whatever was left behind.
+    {
         wifi_config_t c = {};
         strncpy((char*)c.sta.ssid, OPENDUBS_WIFI_SSID, sizeof(c.sta.ssid) - 1);
         strncpy((char*)c.sta.password, OPENDUBS_WIFI_PASS, sizeof(c.sta.password) - 1);
         esp_wifi_set_config(WIFI_IF_STA, &c);
-        mclog::tagInfo(kTag, "provisioning from build-time credentials (once; esp_wifi persists)");
+        char b[64];
+        snprintf(b, sizeof(b), "wifi: provisioning '%s'", (const char*)OPENDUBS_WIFI_SSID);
+        setStatus(b);
+        mclog::tagInfo(kTag, "provisioning '{}' from build-time credentials -- overriding{}",
+                       OPENDUBS_WIFI_SSID, stored ? " the stored network" : " nothing stored");
     }
 #else
     if (!stored) {
