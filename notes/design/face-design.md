@@ -389,6 +389,20 @@ a robot whose eyes have stopped moving reads as broken rather than as stopped.
 communicating a condition, and a robot that looks cheerful while degraded is lying. `INIT` and
 `CHARGING` are likewise fixed. `SAFE_IDLE`, `MANUAL` and `AUTONOMOUS` are free.
 
+### Two things noted and deliberately not chased
+
+**The E_STOP face will usually not be seen.** The Tab5 is powered from the e-stop-protected drive
+branch, so when the contactor opens the panel loses power. The `E_STOP` state is still worth
+keeping — it is reachable whenever *software* believes e-stop without the contactor having opened,
+which is a real condition — but it should not be treated as the robot's e-stop annunciation. PRISM
+is that, and PRISM survives. Noted for consideration, not for action.
+
+**CHARGING is not necessarily idle.** The robot can charge *and* move, so charging can be an
+attending state as well as a resting one. That makes the current pin of `CHARGING` → `SLEEPY`
+provisional: it is right for a robot parked on a charger and wrong for one working while tethered.
+This has been litigated before and is **not** being reopened here; the pin stands until someone
+decides to revisit it.
+
 ### Named *and* dimensional, because the research says both
 
 The categorical-versus-dimensional question has an answer: **together beats either alone.**
