@@ -165,6 +165,26 @@ point is the general audit, not the buttons specifically.
 Deliverable: a table of demo/library capability against ours, with a recommendation per row — adopt,
 ignore, or worth knowing. **No code changes in this phase.**
 
+**DONE, 2026-10-05 — `notes/design/stamplc-demo-audit.md`.** Three results worth pulling forward:
+
+- **The premise inverted.** The StamPLC demo contains **zero LVGL** — mooncake + smooth_ui_toolkit +
+  **M5GFX**. M5Stack chose LVGL for the Tab5 and M5GFX for the StamPLC, so the renderer choice is
+  screen-driven rather than a vendor standard, and *our bespoke StamPLC UI is already on the
+  renderer the vendor picked for this board.* The Tab5 lesson does not transfer. **Recommendation:
+  do not port.**
+- **The buttons are root-caused, by reading, with no hardware.** The stub's comment blames the
+  double `begin()`; the actual mechanism is that our loop calls `M5.update()` and then
+  `M5StamPLC.update()` — which *is* `M5.update()` — so the second call recomputes the button state
+  machine and discards the click edge before `uiButtons()` can read it. `wasClicked()` is a
+  per-update verdict, not a latch. Likely a one-line fix, **but** `uiButtons()` holds a BtnC
+  hold-to-confirm local e-stop, so it needs a decision and a bench test, not a drive-by edit.
+- **Two things worth adopting**, both additive and touching no control path: the battery-backed
+  **RTC** (absolute fault timestamps — our logs are `millis()`-relative, so a reboot erases *when*)
+  and **SD logging** (a black box that does not depend on the Thor, the network, or a host draining
+  a serial port). Plus one to read: the demo's `trigger_relay` is a persisted if/then/else rule
+  engine with an on-device editor — the shape we specified for choreography configuration, already
+  working.
+
 ## Phase 4 — Stack, flashing, OTA and memory
 
 *Prerequisite for Phase 5. If this is not solved, a robot visit is wasted.*
