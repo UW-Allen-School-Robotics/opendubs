@@ -1,6 +1,7 @@
 #include "app_face.h"
 #include "cost_gate.h"
 #include "cues.h"
+#include "face_probe.h"
 #include <hal/hal.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
@@ -743,6 +744,7 @@ void AppFace::onOpen()
     buildScene();
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
+    faceProbeStart();         // no-op unless built with OPENDUBS_PROBE_FACEDET=1
     GetHAL()->lvglUnlock();
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,

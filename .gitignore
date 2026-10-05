@@ -46,6 +46,8 @@ dependencies.lock
 sdkconfig
 sdkconfig.*
 !sdkconfig.defaults
+# ...and sdkconfig.vendor, the Tab5 demo's own committed config, which we build ON TOP of.
+!sdkconfig.vendor
 
 # MuJoCo scribbles a load log next to whatever it compiles
 MUJOCO_LOG.TXT
