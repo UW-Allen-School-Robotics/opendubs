@@ -186,19 +186,30 @@ int g_emote = 0;
 //   DEGRADED  -> SQUINT,  the narrowed, troubled form
 //   E_STOP    -> ALERT,   wide eyes and high brows, which is ALARM rather than anger
 //   CHARGING  -> SLEEPY,  genuinely apt for a robot parked on a charger
-struct St { const char* name; const char* label; uint8_t r, g, b; int locked; };  // locked < 0 = free
+// `reserved` is the SAFETY-BEARING field: a theme may never recolour a reserved state, because
+// that is how "something is wrong" stops being distinguishable from a decoration. It is a property
+// OF THE STATE rather than an index comparison beside the table -- it used to be
+// `state == 4 || state == 5`, which silently protects the wrong states the moment anyone reorders
+// kStates, in a table that is about to become authorable data.
+struct St {
+    const char* name; const char* label;
+    uint8_t r, g, b;
+    int  locked;      // < 0 = the face may emote freely in this state
+    bool reserved;    // colour is never themed, and the firmware enforces it
+};
 const St kStates[] = {
-    {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL},
-    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, -1},
-    {"MANUAL",     "MANUAL",     242, 246, 251, -1},
-    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1},
-    {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT},
-    {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT},
+    //  name         label        r    g    b   locked emote  reserved
+    {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL, false},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, -1,         false},
+    {"MANUAL",     "MANUAL",     242, 246, 251, -1,         false},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1,         false},
+    {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT,  true },
+    {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT,   true },
     // CHARGING no longer pins an emote. Charging is a CONDITION TO DISPLAY, not a mood to adopt:
     // the level goes on the band and the eyes stay free to be attending or idle as the situation
     // warrants -- which also settles the "charging is not necessarily idle" objection without
     // having to decide it, because the face no longer has to claim either.
-    {"CHARGING",   "CHARGING",     0, 196, 168, -1},
+    {"CHARGING",   "CHARGING",     0, 196, 168, -1,         false},
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
@@ -253,8 +264,17 @@ constexpr int kMaxAcc = 24;
 lv_obj_t* g_acc[kMaxAcc];
 int g_nAcc = 0;
 
-// Indices of the states whose colour is RESERVED and may never be themed.
-bool reserved(int state) { return state == 4 || state == 5; }   // DEGRADED, E_STOP
+// DERIVED FROM THE TABLE, not from indices. It used to be `state == 4 || state == 5`, which
+// silently protects the wrong states the moment anyone reorders kStates -- in a table that is
+// about to become authorable data, where reordering is exactly what an editor does.
+//
+// An out-of-range index is treated as RESERVED, so the failure mode of a bad index is "refuses to
+// theme" rather than "themes a fault colour". Fail toward the safe answer.
+bool reserved(int state)
+{
+    if (state < 0 || state >= kNStates) return true;
+    return kStates[state].reserved;
+}
 
 uint32_t stateColour(int state, uint32_t base)
 {

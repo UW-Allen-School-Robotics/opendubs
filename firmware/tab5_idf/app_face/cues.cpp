@@ -6,6 +6,19 @@
 
 namespace {
 
+// ============================================================================================
+// CUES ARE DISABLED. Emma asked for beeps off until she says otherwise: the Mode tone was still
+// too loud AND TOO SHRILL for something that fires on every state change. Flip this one flag to
+// bring them back.
+//
+// "Shrill" is a pitch complaint, not a volume one, so lowering the gain again would not have
+// fixed it -- 2000 Hz is in the band the ear is most sensitive to and reads as piercing however
+// quiet it is. The Mode cue below is retuned to 950 Hz at 0.22 gain so that re-enabling starts
+// from a warmer place rather than from the thing that was rejected. Untested by ear, and marked
+// as such: it is a better guess, not a verified fix.
+// ============================================================================================
+constexpr bool kCuesEnabled = false;
+
 // What the HAL actually wants: 48 kHz, 16-bit, interleaved stereo. Read from
 // hal_audio.cpp's i2s_reconfig_clk_fn(48000, 16, I2S_SLOT_MODE_STEREO) rather than assumed.
 constexpr int kRate = 48000;
@@ -34,7 +47,7 @@ constexpr float kGain[(int)Cue::Count] = {
     0.50f,   // Attend -- less frequent
     0.70f,   // Refuse -- infrequent and consequential
     1.00f,   // Fault  -- rare, urgent, keeps the headroom
-    0.30f,   // Mode   -- ROUTINE. Quietest thing that still registers.
+    0.22f,   // Mode   -- ROUTINE, and retuned low. See kCuesEnabled above.
     0.65f,   // Boot   -- once per power cycle
 };
 
@@ -92,6 +105,7 @@ uint32_t durationMs(Cue c)
 
 void cuesBegin()
 {
+    if (!kCuesEnabled) { mclog::tagInfo("cues", "disabled (kCuesEnabled=false)"); return; }
     // The vocabulary. Five meanings, each identifiable by RHYTHM alone -- one, two-fast, two-slow,
     // three-repeating, one-long -- so none depends on hearing the pitch correctly.
     { const Note n[] = {{2200, 70}};                       build(Cue::Heard,  n, 1, nullptr); }
@@ -101,7 +115,9 @@ void cuesBegin()
       const int  g[] = {110};                              build(Cue::Refuse, n, 2, g); }
     { const Note n[] = {{2800, 70}, {2800, 70}, {2800, 70}};
       const int  g[] = {55, 55};                           build(Cue::Fault,  n, 3, g); }
-    { const Note n[] = {{2000, 300}};                      build(Cue::Mode,   n, 1, nullptr); }
+    // 950 Hz, not 2000. The ear is most sensitive around 2-4 kHz, so a routine cue placed there
+    // reads as piercing no matter how far the gain comes down. Lower and a touch longer.
+    { const Note n[] = {{950, 340}};                       build(Cue::Mode,   n, 1, nullptr); }
     // Ours, replacing the vendor startup sound -- a rising third, which is about as much identity
     // as a boot cue should claim.
     { const Note n[] = {{1600, 90}, {2000, 90}, {2500, 160}};
@@ -114,6 +130,7 @@ void cuesBegin()
 
 void cuePlay(Cue c)
 {
+    if (!kCuesEnabled) return;
     const uint32_t now = GetHAL()->millis();
     const uint8_t prio = kPrio[(int)c];
 

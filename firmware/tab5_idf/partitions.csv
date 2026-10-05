@@ -1,0 +1,28 @@
+# OpenDubs Tab5 — OTA-capable partition table for the ESP-IDF build.
+#
+# The demo's own table is a single 10 MB `factory` app with no otadata and no second slot, so
+# flashing it removes OTA entirely — and OTA is how the head is updated, because it lives inside
+# the robot on the e-stop-protected branch and is awkward to reach with a cable.
+#
+# nvs STAYS AT 0x9000 WITH SIZE 0x5000, exactly matching the Arduino firmware's default_16MB.csv.
+# That is deliberate: the per-robot tilt limits and IMU offsets live in NVS, and NVS is page-based,
+# so a region that starts at the same offset and is the same size or larger keeps its existing
+# pages. Shrinking would truncate them. The demo uses 0x6000, which would also have been safe, but
+# matching exactly means zero change in the one region that holds unrecoverable per-robot state.
+#
+# NO phy_init, also matching the Arduino layout. The ESP32-P4 has no radio of its own — Wi-Fi is a
+# separate C6 reached over SDIO via esp_hosted — and the Arduino firmware has worked with Wi-Fi for
+# a long time without a phy_init partition, which is the evidence that the P4 does not need one.
+# It also cannot coexist with otadata: both want the 0x9000–0x10000 gap, and otadata is the one OTA
+# requires.
+#
+# App slots are 5 MB each against a 2.80 MB image, so there is 2.2 MB of headroom for the camera
+# and face-detection work before the slot size has to be revisited.
+#
+# Name,            Type, SubType, Offset,   Size,     Flags
+nvs,               data, nvs,     0x9000,   0x5000,
+otadata,           data, ota,     0xe000,   0x2000,
+app0,              app,  ota_0,   0x10000,  0x500000,
+app1,              app,  ota_1,   0x510000, 0x500000,
+human_face_det,    data, spiffs,  0xa10000, 0x80000,
+storage,           data, spiffs,  0xa90000, 0x560000,

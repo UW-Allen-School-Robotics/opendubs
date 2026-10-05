@@ -20,9 +20,27 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 MODE="${1:-both}"
 
 sync_sources() {
-    cp "$HERE/app_face/app_face.cpp" "$HERE/app_face/app_face.h" "$DEMO/app/apps/app_face/"
+    # Sync whole DIRECTORIES, not a hand-maintained file list. The list version copied three of
+    # the nine files we own; cues.cpp, cost_gate.* and the startup anim were only ever in the
+    # build tree because they had been copied by hand. That is the "I don't know what you
+    # flashed" failure waiting to happen: edit cues.cpp, run build.sh, flash the previous image.
+    for d in app_face app_startup_anim; do
+        mkdir -p "$DEMO/app/apps/$d"
+        cp "$HERE/$d/"*.cpp "$HERE/$d/"*.h "$DEMO/app/apps/$d/"
+    done
     cp "$HERE/lv_conf.h" "$DEMO/lv_conf.h"
-    echo "synced our files into the demo tree"
+    cp "$HERE/partitions.csv" "$HERE/sdkconfig.defaults" "$DEMO/platforms/tab5/"
+
+    # Then PROVE it synced. A silent cp failure looks exactly like a stale build.
+    local drift=0
+    for f in "$HERE"/app_face/*.cpp "$HERE"/app_face/*.h "$HERE"/app_startup_anim/*.cpp \
+             "$HERE"/app_startup_anim/*.h; do
+        local rel="${f#$HERE/}"
+        cmp -s "$f" "$DEMO/app/apps/$rel" || { echo "NOT SYNCED: $rel"; drift=1; }
+    done
+    [ "$drift" -eq 0 ] || { echo "refusing to build from a tree that does not match the repo"; exit 1; }
+    echo "synced and verified $(ls "$HERE"/app_face/*.cpp "$HERE"/app_face/*.h \
+        "$HERE"/app_startup_anim/* | wc -l | tr -d ' ') files into the demo tree"
 }
 
 build_device() {
