@@ -6,6 +6,7 @@
 #include <lvgl.h>
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
@@ -41,29 +42,67 @@ constexpr int   kRimPad    = 14;
 // allocates a buffer the size of its bounding box on every draw and starved the device.
 constexpr float kBrowWFrac = 0.86f, kBrowHFrac = 0.085f, kBrowGap = 0.10f, kBrowRange = 0.14f;
 
-// ---- the REAL state machine ----------------------------------------------------------------
-// Ported verbatim from ui_shared.cpp so the two faces cannot drift. Expr is {h, w, tilt, bow,
-// squint, lookY, brow}, and each parameter gets its OWN AnimateValue rather than one lerp toward
-// the whole tuple -- which is what makes a state change read as a change of posture instead of a
-// crossfade, and was the point of moving to this toolkit.
+// ---- states and emotes are DIFFERENT THINGS ------------------------------------------------
+// An earlier version mapped one state to one expression, which conflated them. A state is
+// mostly a COLOUR plus a policy; an emote is an EXPRESSION, and in the calm states the face
+// should be free to be emotive rather than locked to a posture.
+//
+// The split is also what the research supports. Categorical labels and continuous
+// valence/arousal are better together than either alone (CAGE; Handrich et al.), so emotes keep
+// NAMES -- which is what makes them designable and discussable -- and each also carries a point
+// in valence/arousal space. Arousal is not decoration: per "Eyes Alive" it sets the SACCADE RATE,
+// so the dimensional axis does real work rather than labelling.
 struct Expr { float h, w, tilt, bow, squint, lookY, brow; };
-struct St   { const char* name; const char* label; uint8_t r, g, b; Expr e; };
+
+// valence -1..+1 (unpleasant..pleasant), arousal 0..1 (calm..activated)
+struct Emote { const char* name; Expr e; float valence, arousal; };
+
+enum EmoteId {
+    EM_NEUTRAL = 0, EM_ALERT, EM_SQUINT, EM_SOFT, EM_SLEEPY, EM_HAPPY,
+    EM_INIT, EM_DEGRADED, EM_ESTOP, EM_CHARGING, EM_COUNT
+};
+
+// The first six are the FREE vocabulary -- these are the ones worth keeping from the earlier
+// presets, now expressed in the same seven parameters as everything else. The last four are
+// state-locked postures, carried over from ui_shared.cpp so nothing is lost in the move.
+const Emote kEmotes[EM_COUNT] = {
+    // name          h      w     tilt   bow   squint  lookY   brow    val    aro
+    {"NEUTRAL",  {1.00f, 1.00f,  0.00f, 0.00f, 0.00f,  0.00f,  0.00f},  0.00f, 0.30f},
+    {"ALERT",    {1.08f, 1.06f, -0.03f, 0.00f, 0.00f, -0.02f,  1.00f},  0.10f, 0.90f},
+    {"SQUINT",   {0.95f, 1.02f,  0.12f, 0.00f, 0.40f,  0.00f, -0.45f}, -0.30f, 0.60f},
+    {"SOFT",     {0.88f, 0.95f, -0.09f, 0.10f, 0.00f,  0.02f,  0.30f},  0.60f, 0.25f},
+    {"SLEEPY",   {0.45f, 0.99f,  0.00f, 0.00f, 0.35f,  0.04f, -0.60f},  0.10f, 0.05f},
+    {"HAPPY",    {0.78f, 1.00f, -0.04f, 0.30f, 0.00f,  0.00f,  0.35f},  0.90f, 0.60f},
+    // state-locked
+    {"INIT",     {0.60f, 1.00f,  0.00f, 0.00f, 0.10f, -0.05f,  0.00f},  0.00f, 0.20f},
+    {"DEGRADED", {0.82f, 0.96f, -0.34f, 0.00f, 0.06f,  0.12f,  0.10f}, -0.60f, 0.50f},
+    {"E_STOP",   {1.06f, 1.08f,  0.02f, 0.00f, 0.00f, -0.02f,  0.55f}, -0.50f, 1.00f},
+    {"CHARGING", {0.92f, 1.00f, -0.02f, 0.05f, 0.06f,  0.00f, -0.08f},  0.30f, 0.10f},
+};
+
+// A state owns the COLOUR and decides whether the face may emote freely. E_STOP and DEGRADED are
+// locked deliberately: those postures are communicating a condition, and a robot that looks
+// cheerful while degraded is lying.
+struct St { const char* name; const char* label; uint8_t r, g, b; bool freeEmotes; EmoteId locked; };
 
 const St kStates[] = {
-    {"INIT",       "INIT",       223, 231, 240, {0.60f, 1.00f,  0.00f, 0.00f, 0.10f, -0.05f,  0.00f}},
-    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, {0.80f, 1.00f,  0.00f, 0.02f, 0.34f,  0.05f, -0.18f}},
-    {"MANUAL",     "MANUAL",     242, 246, 251, {1.02f, 1.02f,  0.00f, 0.00f, 0.02f, -0.06f,  0.12f}},
-    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, {0.94f, 1.02f,  0.00f, 0.03f, 0.06f, -0.02f, -0.04f}},
-    {"DEGRADED",   "DEGRADED",   243, 182,  74, {0.82f, 0.96f, -0.34f, 0.00f, 0.06f,  0.12f,  0.10f}},
-    {"E_STOP",     "E-STOP",     255,  77,  77, {1.06f, 1.08f,  0.02f, 0.00f, 0.00f, -0.02f,  0.55f}},
-    {"CHARGING",   "CHARGING",     0, 196, 168, {0.92f, 1.00f, -0.02f, 0.05f, 0.06f,  0.00f, -0.08f}},
+    {"INIT",       "INIT",       223, 231, 240, false, EM_INIT},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, true,  EM_NEUTRAL},
+    {"MANUAL",     "MANUAL",     242, 246, 251, true,  EM_NEUTRAL},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, true,  EM_NEUTRAL},
+    {"DEGRADED",   "DEGRADED",   243, 182,  74, false, EM_DEGRADED},
+    {"E_STOP",     "E-STOP",     255,  77,  77, false, EM_ESTOP},
+    {"CHARGING",   "CHARGING",     0, 196, 168, false, EM_CHARGING},
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 
-// Which state the face shows. On the robot the StamPLC's "STATE <NAME>" drives this; with no link
-// on the bench it cycles, so every state gets looked at.
+// The free vocabulary is the first six entries; locked postures are not chosen at random.
+constexpr int kNFreeEmotes = EM_HAPPY + 1;
+
 int      g_state     = 1;          // SAFE_IDLE, as ui_shared.cpp defaults
-uint32_t g_nextState = 0;
+int      g_emote     = EM_NEUTRAL;
+uint32_t g_nextState = 0, g_nextEmote = 0;
+float    g_arousal   = 0.30f;      // drives saccade rate
 
 struct Eye {
     lv_obj_t* body  = nullptr;
@@ -162,12 +201,23 @@ void buildScene()
     lv_label_set_text(g_label, "");
 }
 
+void applyEmote(EmoteId id)
+{
+    const Expr& e = kEmotes[id].e;
+    g_h = e.h;  g_w = e.w;  g_tilt = e.tilt;  g_bow = e.bow;
+    g_squint = e.squint;  g_lookY = e.lookY;  g_brow = e.brow;
+    g_arousal = kEmotes[id].arousal;
+    g_emote = id;
+}
+
 void applyState(int idx)
 {
     const St& s = kStates[idx];
-    g_h = s.e.h;  g_w = s.e.w;  g_tilt = s.e.tilt;  g_bow = s.e.bow;
-    g_squint = s.e.squint;  g_lookY = s.e.lookY;  g_brow = s.e.brow;
+    // COLOUR IS EASED, NOT SPRUNG. R, G and B were three independent springs, and a spring
+    // overshoots -- an overshoot in RGB lands on a genuinely different hue, which is why
+    // transitions flashed through other states' colours on the way. Easing cannot overshoot.
     g_colR = (float)s.r;  g_colG = (float)s.g;  g_colB = (float)s.b;
+    if (!s.freeEmotes) applyEmote(s.locked);
     lv_label_set_text(g_label, s.label);
 }
 
@@ -196,9 +246,11 @@ void newSaccade(uint32_t now)
     g_gazeY = ty;
     g_asym = -tx * 0.13f;              // the leading eye foreshortens; sprung, so it settles
 
-    // Arousal sets the rate, per Eyes Alive: a busy state looks about more often and holds briefly.
-    const bool busy = (g_state == 2 || g_state == 3);   // MANUAL or AUTONOMOUS
-    g_nextSaccade = now + (busy ? 200 + (rand() % 500) : 340 + (rand() % 1300));
+    // AROUSAL SETS THE RATE, per Eyes Alive: activated looks about often and holds briefly, calm
+    // holds for much longer. This is what makes the dimensional axis functional rather than a
+    // label -- an ALERT face and a SLEEPY one differ in timing, not only in shape.
+    const float hold = 1500.0f - g_arousal * 1250.0f;         // ~250 ms at 1.0, ~1500 ms at 0.0
+    g_nextSaccade = now + (uint32_t)(hold * 0.5f) + (rand() % (uint32_t)(hold + 1));
     if (std::fabs(tx) > 0.55f) g_nextBlink = now;
 }
 
@@ -224,6 +276,10 @@ void AppFace::onOpen()
         v->begin();
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
+    for (AnimateValue* v : {&g_colR, &g_colG, &g_colB}) {
+        v->animationType = animation_type::easing;
+        v->easingOptions().duration = 0.45f;
+    }
 
     GetHAL()->lvglLock();
     applyState(g_state);
@@ -238,10 +294,22 @@ void AppFace::onRunning()
 
     // No StamPLC link on the bench, so walk the states. Phase 2 replaces this with "STATE <NAME>".
     if (now > g_nextState) {
-        g_nextState = now + 4000;
+        g_nextState = now + 7000;
         GetHAL()->lvglLock();
         g_state = (g_state + 1) % kNStates;
         applyState(g_state);
+        GetHAL()->lvglUnlock();
+        g_nextEmote = now + 2200;
+    }
+    // In a free state the face is allowed to be emotive. Later this is driven by what the robot
+    // notices -- a person, a sound, a task event -- which is the whole point of the attention
+    // model; cycling is a stand-in so the vocabulary can be judged.
+    if (kStates[g_state].freeEmotes && now > g_nextEmote) {
+        g_nextEmote = now + 2400;
+        GetHAL()->lvglLock();
+        applyEmote((EmoteId)((g_emote + 1) % kNFreeEmotes));
+        lv_label_set_text(g_label, (std::string(kStates[g_state].label) + "  ·  "
+                                    + kEmotes[g_emote].name).c_str());
         GetHAL()->lvglUnlock();
     }
 

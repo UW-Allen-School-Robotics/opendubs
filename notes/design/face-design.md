@@ -366,6 +366,48 @@ in a way that is actually desirable.
 
 ---
 
+## States and emotes are different things
+
+A state is **mostly a colour**, plus a policy. An emote is an **expression**. Mapping one state to
+one expression conflates them, and it throws away the thing that makes a face worth having: in the
+calm states the face should be free to be *emotive*, not locked to a posture.
+
+| | carries | when it changes |
+|---|---|---|
+| **State** | colour (and later the band), plus whether emotes are free | the robot's mode changes |
+| **Emote** | the seven-parameter expression, plus a point in valence/arousal | what the robot notices or is doing |
+
+**Emotes are locked in the states where the posture is the message.** `E_STOP` and `DEGRADED` are
+communicating a condition, and a robot that looks cheerful while degraded is lying. `INIT` and
+`CHARGING` are likewise fixed. `SAFE_IDLE`, `MANUAL` and `AUTONOMOUS` are free.
+
+### Named *and* dimensional, because the research says both
+
+The categorical-versus-dimensional question has an answer: **together beats either alone.**
+Predicting discrete categories and continuous valence/arousal simultaneously improves both
+([CAGE](https://cs.paperswithcode.com/paper/cage-circumplex-affect-guided-expression),
+[Handrich et al.](https://repo.bibliothek.uni-halle.de/bitstream/1981185920/82354/1/Handrich%20et%20al._Simultaneous_2021.pdf)).
+
+So emotes keep **names** — which is what makes them designable, discussable and reviewable — and
+each also carries a **valence** (−1..+1) and an **arousal** (0..1).
+
+**Arousal is not a label: it sets the saccade rate.** Per *Eyes Alive*, an activated face looks
+about often and holds briefly while a calm one holds for much longer — so `ALERT` and `SLEEPY`
+differ in *timing* as well as shape, which is most of what makes them read differently. That is the
+dimensional axis doing real work.
+
+The free vocabulary is `NEUTRAL`, `ALERT`, `SQUINT`, `SOFT`, `SLEEPY`, `HAPPY`. Worth noting that
+happiness is the most reliably recognised expression across the minimal-face literature, which is
+an argument for `HAPPY` carrying more of the load than its share.
+
+### Colour must be eased, never sprung
+
+Transitions were flashing through other states' colours. The cause: R, G and B were three
+independent **springs**, and a spring overshoots — an overshoot in RGB space lands on a genuinely
+different hue, so a green-to-amber transition could pass through something that reads as a third
+state. Easing cannot overshoot. **Any value whose intermediate positions carry meaning must not be
+sprung**, which covers colour and would also cover anything mapped to a discrete annunciation.
+
 ## State machine: the port
 
 The existing table in `ui_shared.cpp` is good and carries over directly — seven states (`INIT`,
