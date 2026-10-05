@@ -48,3 +48,32 @@ CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 # which is why edits to that file had no effect on the device.
 CONFIG_LV_USE_SYSMON=y
 CONFIG_LV_USE_PERF_MONITOR=y
+
+# IDF 5.5's bootloader grew past the space before the partition table: 0x6120 bytes against a
+# 0x6000 ceiling (0x2000 -> PARTITION_TABLE_OFFSET 0x8000). On 5.4.2 it was 0x5a60 -- already 94%
+# full, so 5.5 simply tipped it over.
+#
+# The obvious fix -- move PARTITION_TABLE_OFFSET to 0xA000 -- is the WRONG one: nvs sits at 0x9000
+# specifically to match the Arduino default_16MB.csv layout so per-robot tilt limits and IMU
+# offsets survive the switch, and shifting the table shifts nvs out from under them.
+#
+# So shrink the bootloader instead. It is already compiled for size; the remaining slack is its log
+# strings, and INFO (3) -> WARN (2) buys far more than the ~288 bytes needed. The cost is real but
+# small: we lose the bootloader's own chatter, including the partition-table dump that confirmed
+# this layout. Raise it back to 3 temporarily if that dump is ever needed again -- an app panic
+# still prints either way, so crash-loop detection is unaffected.
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL=2
+
+# IDF 5.5 changed the P4 minimum-revision DEFAULT to v3.01, and the Tab5's P4 is revision v1.0 --
+# so a default 5.5 build produces a bootloader esptool refuses to flash:
+#   "bootloader.bin requires chip revision in range [v3.1 - v3.99] (this chip is revision v1.0)"
+# Support is not dropped; REV_MIN_0/1/100/300/301 all still exist. Pin it to match the hardware we
+# actually have, as the vendor's 5.4.2 config did.
+# The pre-v3 revisions are GATED: REV_MIN_0/1/100 all "depend on ESP32P4_SELECTS_REV_LESS_V3",
+# which defaults to n, so setting a revision alone silently does nothing (the choice stayed at
+# 301). IDF states the two families are mutually exclusive -- "revisions >=3.0 and <3.0 have huge
+# hardware difference" -- so this build supports 0.x/1.x silicon and NOT >=3.x. That is a real
+# constraint to know if a later Tab5 ships a v3 chip: it would need its own build.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_1=y

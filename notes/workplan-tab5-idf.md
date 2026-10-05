@@ -98,6 +98,75 @@ Four experiments, one variable each. The first two killed my own explanations:
 | esp-dl **linked but never referenced** | **Boots fine**, byte-identical image (the linker drops it). So declaring the dependency is free and harmless; only *referencing* the detector breaks the boot. |
 | model in its own flash partition instead of rodata | **Still asserts.** So it is not the ~1 MB of model rodata either — it is esp-dl's own code/data. |
 
+### RESOLVED, 2026-10-05 — IDF 5.5.5. Face detection WORKS, and the fix was the newer IDF
+
+Emma said "try a newer IDF version". That was right, and it was right for a reason I had to find in
+the source rather than in the issue tracker.
+
+**Verified on device, read back off the chip rather than scraped from a build log:**
+
+```
+Chip is ESP32-P4 (revision v1.0)
+m5stack_tab5   Oct  5 2026 09:29:21   v5.5.5      <- app descriptor at 0x10000
+```
+
+```
+[faceprobe] decoded 320x240 rgb888
+[faceprobe]   face score=0.835 box=(97,67)-(193,189)
+[faceprobe] first=24.6ms steady=24.7ms (40.5 fps) faces=1 expect=1
+[faceprobe] psram free=21238K largest=20992K
+[faceprobe] VERDICT: PASS -- detector works, 24.7ms per frame steady
+```
+
+**~25 ms per inference, ~38 fps, score 0.835, and the identical bounding box on eight consecutive
+runs** — the determinism the fixed reference image was chosen for. No assert. ESP-Hosted starts
+normally.
+
+**Why 5.5 and not 5.4.** `heap_idf.c`, which defines the check that was failing, is **byte-identical
+across 5.4.2, 5.4.4 and 5.5.5** — so "upgrade" was not automatically the answer, and 5.4.4 would
+have been a wasted day. The fix is on the *allocator* side, in `heap/port/esp32p4/memory_layout.c`:
+
+| | 5.4.2 | 5.5.5 |
+|---|---|---|
+| memory types | L2MEM, SPIRAM, **TCM**, RTCRAM | L2MEM, RETENT_MEM, SPIRAM, SPM, RTCRAM |
+| TCM's caps | `MALLOC_CAP_TCM \| COMMON_CAPS \| MALLOC_CAP_INTERNAL` | **TCM is not registered in the heap at all** |
+
+In 5.4.2 TCM was advertised as internal *and* byte-capable, so a generic internal allocation could
+land there — and then FreeRTOS's `esp_ptr_byte_accessible()` rejected it. 5.5.5 removes TCM from the
+allocator, so the fallback cannot happen.
+
+**Three config changes were needed, and two were traps:**
+
+1. **The bootloader outgrew its slot.** 5.5's is 0x6120 against a 0x6000 ceiling (0x2000 →
+   `PARTITION_TABLE_OFFSET` 0x8000); on 5.4.2 it was 0x5a60, already 94% full. The obvious fix —
+   move the partition table to 0xA000 — is wrong, because `nvs` sits at 0x9000 *specifically* to
+   match the Arduino layout so per-robot values survive. Shrank the bootloader instead:
+   `BOOTLOADER_LOG_LEVEL` 3 → 2. It is already compiled for size, so log strings were the slack.
+   Cost: we lose the bootloader's partition-table dump; an app panic still prints, so crash-loop
+   detection is unaffected.
+2. **5.5 changed the P4 minimum-revision default to v3.01**, and this Tab5's P4 is **rev v1.0**, so
+   esptool refused the image outright. Support is not dropped.
+3. **The pre-v3 revisions are gated.** `REV_MIN_0/1/100` all `depend on
+   ESP32P4_SELECTS_REV_LESS_V3`, default n — so setting a revision *alone silently does nothing*
+   and the choice stayed at 301. Both are needed.
+
+**A constraint worth carrying:** IDF states the two silicon families are mutually exclusive —
+"revisions >=3.0 and <3.0 have huge hardware difference". This build therefore supports 0.x/1.x
+and **not** >=3.x. **If a replacement or second Tab5 ships a v3 chip it needs its own build**, and
+that is exactly the kind of thing that presents as "the new board is bricked".
+
+**Still unverified: whether the FACE still renders correctly on 5.5.5.** The probe proves the
+detector and the radio; it says nothing about the graphics, and that needs eyes on the panel. The
+bench device currently holds the 5.5.5 + probe build.
+
+**Incidental corroboration of a Phase 3 recommendation:** every probe log line is stamped
+`2007-12-31` — the clock is unset. That is the RTC gap the StamPLC audit called the best-value item
+on its list, showing up unprompted.
+
+---
+
+**Superseded below, kept because the reasoning errors are the useful part:**
+
 **"MUTUALLY EXCLUSIVE" IS WITHDRAWN — it is a known upstream ESP-IDF bug on the P4, and the
 premise of this whole item was wrong as well. Checked against what M5Stack actually ships:**
 
