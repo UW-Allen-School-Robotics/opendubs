@@ -28,6 +28,29 @@ grep -c lvglLock   firmware/tab5_idf/app_face/*.cpp
 grep -c lvglUnlock firmware/tab5_idf/app_face/*.cpp   # must match
 ```
 
+**THIS CHECK FAILED IN PRACTICE, 2026-10-05, and the failure was mine.** I ran the balance count,
+got 7/7, wrote "invariant 1 clean" — and there were **four unlocked LVGL calls** in `onRunning` at
+that moment, which were freezing the face. I then spent an hour on task priorities, core affinity,
+mutex identity and scheduler starvation. The document already said balance was insufficient; I
+checked it anyway because it is the easy check. So: **run the call-graph check below, not the
+count.** The count cannot find the bug this invariant exists to catch.
+
+```sh
+# Flags any LVGL mutation reached while the lock is NOT held, per function.
+awk '/^(void|bool|int|float|lv_obj_t\*).*\(/ {fn=$0; d=0}
+     /lvglLock/   {d=1}
+     /lvglUnlock/ {d=0}
+     /lv_[a-z_]*_(set|add|remove|create|del)/ && d==0 && !/^[[:space:]]*\/\// {
+         print FILENAME":"NR"  UNLOCKED in "fn"\n    "$0 }' \
+  firmware/tab5_idf/app_face/*.cpp
+```
+
+It is crude — it tracks lock depth linearly and does not follow calls into helpers — so it
+**over**-reports (comments, and anything after an early `return` inside a locked block) and must be
+read rather than trusted. That is still strictly better than a count, which cannot report at all.
+Builder helpers called from a locked caller are the known false positives; the table below records
+which those are.
+
 Counting lines is necessary but **not sufficient** — it must be checked by call graph, because the
 build helpers (`buildScene`, `band::build`, `theme::buildAll`, `cobweb`) touch LVGL while their
 caller holds the lock. Current call graph, all covered:
