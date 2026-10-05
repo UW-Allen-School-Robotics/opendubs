@@ -256,13 +256,15 @@ void hideAll()
 // which is what killed the rotated brow. Arithmetic on points is free.
 void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
 {
-    static lv_point_precise_t strand[8][2];
-    static lv_point_precise_t cross[6][4];
+    // HEADROOM, and the guards below fail silently when it runs out -- a third cobweb would
+    // simply not draw, with no error anywhere. Sized for four webs rather than the two used.
+    static lv_point_precise_t strand[16][2];
+    static lv_point_precise_t cross[12][4];
     static int sN = 0, cN = 0;
     const int R[3] = {80, 145, 210};
     const float ang[4] = {0.0f, 0.42f, 0.90f, 1.5708f};
 
-    for (int a = 0; a < 4 && g_nAcc < kMaxAcc && sN < 8; ++a) {
+    for (int a = 0; a < 4 && g_nAcc < kMaxAcc && sN < 16; ++a) {
         lv_obj_t* l = lv_line_create(scr);
         lv_obj_remove_style_all(l);
         lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
@@ -281,7 +283,7 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
         lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
         g_acc[g_nAcc++] = l; ++sN;
     }
-    for (int r = 0; r < 3 && g_nAcc < kMaxAcc && cN < 6; ++r) {
+    for (int r = 0; r < 3 && g_nAcc < kMaxAcc && cN < 12; ++r) {
         lv_obj_t* l = lv_line_create(scr);
         lv_obj_remove_style_all(l);
         lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
@@ -478,7 +480,11 @@ void update(uint32_t now, uint32_t colour)
                 float d = fmodf(at - g_phase, 1.0f);
                 if (d < 0.0f) d += 1.0f;
                 if (d > 0.5f) d -= 1.0f;
-                v = expf(-(d * d) / (2.0f * width * width));
+                // GUARDED. width is only non-zero today because no case that reaches this branch
+                // leaves it at its initialiser -- one added activity away from a divide by zero,
+                // an inf, and a NaN propagating into a style value.
+                const float wsq = (width > 0.01f) ? (width * width) : 0.0001f;
+                v = expf(-(d * d) / (2.0f * wsq));
             }
             // Quantised to 32 levels. Each strip is 1280x16 or 720x16 of gradient, so a write
             // here is a big redraw -- and unlike the old 48-segment version the smoothness comes
@@ -502,6 +508,11 @@ void update(uint32_t now, uint32_t colour)
 }
 
 } // namespace band
+
+// WRAP-SAFE DEADLINE TEST. `now > deadline` inverts when the 32-bit millisecond counter wraps at
+// ~49 days of uptime, which a robot head reaches easily -- and then every timer in the face either
+// fires continuously or never again. Signed difference is correct across the wrap.
+inline bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
 
 lv_obj_t* plainBox(lv_obj_t* parent, lv_color_t colour, int radius)
 {
@@ -659,6 +670,10 @@ void AppFace::onCreate()
 void AppFace::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
+    // Seeded, so saccade and blink timing are not identical on every unit and every boot. An
+    // unseeded rand() made every robot's idle behaviour the same sequence.
+    srand((unsigned)GetHAL()->millis());
+
     GetHAL()->lvglLock();
     buildScene();
     GetHAL()->lvglUnlock();
@@ -688,7 +703,7 @@ void AppFace::onRunning()
     // -DOPENDUBS_FACE_TELEMETRY to turn it on, and only while a reader is actually attached.
 #ifdef OPENDUBS_FACE_TELEMETRY
     static uint32_t dbg = 0;
-    if (now - dbg > 1000) {
+    if (due(now, dbg + 1000)) {
         dbg = now;
         printf("[AppFace] hal_ms=%u ui_tick=%u gaze=%.3f,%.3f bodyW=%.1f lid=%.2f\n",
                (unsigned)now, (unsigned)smooth_ui_toolkit::ui_hal::get_tick(),
@@ -697,11 +712,11 @@ void AppFace::onRunning()
     }
 #endif
 
-    if (now > g_nextSaccade) newSaccade(now);
+    if (due(now, g_nextSaccade)) newSaccade(now);
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
     static uint32_t nextTheme = 18000;
-    if (now > nextTheme) {
+    if (due(now, nextTheme)) {
         nextTheme = now + 18000;
         GetHAL()->lvglLock();
         theme::apply(lv_screen_active(), theme::g_active == theme::NONE ? theme::HALLOWEEN
@@ -712,7 +727,7 @@ void AppFace::onRunning()
 
     // No StamPLC link on the bench, so walk the states to see every colour. Phase 2 wires the
     // existing "STATE <NAME>" command to this.
-    if (now > g_nextState) {
+    if (due(now, g_nextState)) {
         g_nextState = now + 6000;
         g_state = (g_state + 1) % kNStates;
         GetHAL()->lvglLock();
@@ -723,7 +738,7 @@ void AppFace::onRunning()
     }
     // Emotes cycle only where the face is free. In a reporting state the pinned emote stands,
     // while saccades and blinks carry on as normal.
-    if (kStates[g_state].locked < 0 && now > g_nextEmote) {
+    if (kStates[g_state].locked < 0 && due(now, g_nextEmote)) {
         g_emote = (g_emote + 1) % kNEmotes;
         // LOCK HELD. applyEmote() calls lv_label_set_text(), and this was the ONE call site that
         // did not take the lock -- so every 3.2 s it mutated LVGL's label buffer and invalidation
@@ -735,12 +750,12 @@ void AppFace::onRunning()
         GetHAL()->lvglUnlock();
         g_nextEmote = now + 3200;
     }
-    if (!g_blinking && now > g_nextBlink) {
+    if (!g_blinking && due(now, g_nextBlink)) {
         g_blinking = true;
         g_lidDrop.easingOptions().duration = 0.07f;
         g_lidDrop = 1.0f;
         g_blinkEnd = now + 90;
-    } else if (g_blinking && now > g_blinkEnd) {
+    } else if (g_blinking && due(now, g_blinkEnd)) {
         g_blinking = false;
         g_lidDrop = kEmotes[g_emote].lid;
         g_nextBlink = now + 2200 + (rand() % 3000);
@@ -758,7 +773,7 @@ void AppFace::onRunning()
     } else {
         // No audio or Thor on the bench, so walk the vocabulary to see the motions.
         static uint32_t nextAct = 0;
-        if (now > nextAct) {
+        if (due(now, nextAct)) {
             nextAct = now + 5000;
             const band::Activity cycle[] = {band::IDLE, band::LISTEN, band::THINK, band::SPEAK};
             static int k = 0;
