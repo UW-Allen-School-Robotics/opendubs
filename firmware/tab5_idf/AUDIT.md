@@ -126,6 +126,15 @@ desktop* — there is no second thread to race with. The simulator will never fi
 | **AddressSanitizer / UndefinedBehaviorSanitizer** | layer allocation failures (it has GBs of heap) |
 | crashes with a usable stack trace | panel-specific rendering |
 
+**First run, 2026-10-05: clean.** 1,877 sanitizer symbols and the ASan runtime confirmed linked,
+run through several full theme cycles — **no AddressSanitizer or UndefinedBehavior findings at
+all.** That is a real if negative result: the point-pool sizing, the loop guards and the `expf`
+divisor hold up under instrumentation.
+
+One caveat on coverage, worth knowing before trusting a clean run: **`mclog` output does not reach
+stdout on the desktop build**, so a clean log cannot by itself prove which code paths were
+exercised. Confidence here comes from the run length against the 18 s theme cycle, not from the log.
+
 **The sanitizers are the thing the simulator is uniquely good for**, and were not being used.
 `build.sh asan` builds the native binary with `-fsanitize=address,undefined`, which catches exactly
 the classes that are invisible on the device: array overruns — the cobweb point pools were sized at

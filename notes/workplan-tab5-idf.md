@@ -50,6 +50,46 @@ best-practice graphics so that **we have options for eye animation** — that is
 detection first and treated it as the gate, which lost the point: we would have been deciding the
 graphics question on a computer-vision result.
 
+### 1.3a — The choreography creator, as the home for configuration
+
+**Taken up immediately after the simulator work, and deliberately so**: the face now has several
+things that are *configuration* rather than code — themes, the emote vocabulary, the state→colour
+table, the band's motion vocabulary, the earcon set — and they are currently all compiled-in C
+tables. That is the wrong home for them, and it is the right moment to say so, because every one of
+them was just designed and the shape of the data is fresh.
+
+**Why these belong in the choreography system rather than in firmware:**
+
+- They are **authored, not programmed.** A theme is a palette plus an accessory set; an emote is
+  seven numbers. Neither needs a compiler, and putting them behind one means every tweak costs a
+  flash — which this session has demonstrated at length.
+- They are **per-robot and per-occasion.** A Halloween theme, a demo-day palette, a calmer emote set
+  for a classroom. Per-robot values must not live in committed source; that rule already exists for
+  drive calibration (`per-robot-values-not-in-repo`) and applies here for the same reason.
+- They are **the same kind of thing a routine is.** A choreographed routine is a timeline of
+  commanded states; a theme is a lookup from state to appearance. Both are declarative descriptions
+  of behaviour that the robot interprets, which is exactly what the choreography system is for.
+- The face already has the **right internal shape** for it: states carry a colour and a policy,
+  emotes carry seven parameters and a valence/arousal point, themes carry a palette and an accessory
+  list. These are tables, and tables want to be data.
+
+**What to settle in this step** (design, not implementation):
+
+1. **Where the data lives** — on the robot, in the dashboard, or in the repo — and how it reaches
+   the Tab5. The existing StamPLC protocol is line-based UDP and was not built to carry a payload
+   like this.
+2. **What is authorable and what is not.** The reserved fault colours and the fault band motion must
+   **not** be authorable, by the same argument that keeps them theme-proof. This is the first real
+   test of that rule against a system designed to let people change things.
+3. **Whether the face validates what it is given.** A theme that recolours `E_STOP` must be rejected
+   by the firmware, not merely discouraged by the editor — an editor is a convenience, not a
+   safety boundary.
+4. **How it degrades.** If the configuration is absent or unreadable, the face must fall back to the
+   compiled-in defaults rather than to nothing.
+
+**Not** to be built in this step: the editor UI, or the transport. The deliverable is the data model
+and the boundary of what may be authored.
+
 ### 1A — The Tab5 as a dashboard
 
 Not to be lost: the Tab5 is a 1280×720 touchscreen on the front of the robot, and the dashboard
