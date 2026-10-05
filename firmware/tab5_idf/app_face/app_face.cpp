@@ -52,9 +52,27 @@ constexpr float kBrowWFrac = 0.86f, kBrowHFrac = 0.085f, kBrowGap = 0.10f, kBrow
 // NAMES -- which is what makes them designable and discussable -- and each also carries a point
 // in valence/arousal space. Arousal is not decoration: per "Eyes Alive" it sets the SACCADE RATE,
 // so the dimensional axis does real work rather than labelling.
-struct Expr { float h, w, tilt, bow, squint, lookY, brow; };
+// EXPRESSION LIVES IN THE EYELIDS, NOT IN THE EYEBALL. The eyelid-shape literature
+// parameterises a lid by horizontal shift, vertical shift and CURVATURE, over an eye model of
+// upper lid, lower lid, iris, cornea and sclera -- i.e. the eyeball is a constant and the lids
+// move across it.
+//
+// The previous model deformed the eyeball instead (scaling h and w, carving a notch out of a
+// corner), and every complaint about it followed from that: SLEEPY collapsed the eye's height
+// rather than drooping the upper lid, so it read as malformed; HAPPY shrank the eye from below
+// when the smiling eye is the LOWER LID ARCING UP; SQUINT scaled height instead of converging
+// both lids; and the corner notch put slant in the eyeball when slant belongs to the lid edge.
+//
+//   upper      0 = fully retracted .. 1 = closed, the upper lid descending
+//   upperSlant -1 = outer corner down .. +1 = inner corner down (the scowl direction)
+//   lower      0 = none .. 1 = lower lid well up; THIS is what makes an eye smile
+//   lookY      vertical gaze bias
+//   brow       -1 lowered .. +1 raised
+//   browAngle  degrees, positive = inner end down
+struct Expr { float upper, upperSlant, lower, lookY, brow, browAngle; };
 
-// valence -1..+1 (unpleasant..pleasant), arousal 0..1 (calm..activated)
+// Named AND dimensional, because the research supports both together rather than either alone:
+// valence -1..+1 (unpleasant..pleasant), arousal 0..1 (calm..activated).
 struct Emote { const char* name; Expr e; float valence, arousal; };
 
 enum EmoteId {
@@ -66,18 +84,25 @@ enum EmoteId {
 // presets, now expressed in the same seven parameters as everything else. The last four are
 // state-locked postures, carried over from ui_shared.cpp so nothing is lost in the move.
 const Emote kEmotes[EM_COUNT] = {
-    // name          h      w     tilt   bow   squint  lookY   brow    val    aro
-    {"NEUTRAL",  {1.00f, 1.00f,  0.00f, 0.00f, 0.00f,  0.00f,  0.00f},  0.00f, 0.30f},
-    {"ALERT",    {1.08f, 1.06f, -0.03f, 0.00f, 0.00f, -0.02f,  1.00f},  0.10f, 0.90f},
-    {"SQUINT",   {0.95f, 1.02f,  0.12f, 0.00f, 0.40f,  0.00f, -0.45f}, -0.30f, 0.60f},
-    {"SOFT",     {0.88f, 0.95f, -0.09f, 0.10f, 0.00f,  0.02f,  0.30f},  0.60f, 0.25f},
-    {"SLEEPY",   {0.45f, 0.99f,  0.00f, 0.00f, 0.35f,  0.04f, -0.60f},  0.10f, 0.05f},
-    {"HAPPY",    {0.78f, 1.00f, -0.04f, 0.30f, 0.00f,  0.00f,  0.35f},  0.90f, 0.60f},
+    // name        upper  slant  lower  lookY  brow  bAngle   val    aro
+    {"NEUTRAL",  {0.08f,  0.00f, 0.06f,  0.00f, 0.00f,  0.0f},  0.00f, 0.30f},
+    // Surprise/alert: lids fully retracted, brows high. The most legible high-arousal form.
+    {"ALERT",    {0.00f,  0.00f, 0.00f, -0.02f, 1.00f, -4.0f},  0.10f, 0.90f},
+    // Suspicion: both lids converge and the brow comes down with an inward slant.
+    {"SQUINT",   {0.30f,  0.14f, 0.26f,  0.00f,-0.45f, +9.0f}, -0.30f, 0.55f},
+    // Warm: slight lower-lid lift and a gently raised inner brow.
+    {"SOFT",     {0.12f, -0.06f, 0.20f,  0.02f, 0.30f, -7.0f},  0.60f, 0.25f},
+    // Sleepy: the UPPER LID DROOPS and the brow follows it down. The eyeball is unchanged.
+    {"SLEEPY",   {0.56f,  0.00f, 0.04f,  0.04f,-0.55f, +2.0f},  0.10f, 0.05f},
+    // Happy: the lower lid arcs UP -- the "smiling eye" -- with the upper lid barely moved.
+    {"HAPPY",    {0.10f,  0.00f, 0.44f,  0.00f, 0.28f, -5.0f},  0.90f, 0.60f},
     // state-locked
-    {"INIT",     {0.60f, 1.00f,  0.00f, 0.00f, 0.10f, -0.05f,  0.00f},  0.00f, 0.20f},
-    {"DEGRADED", {0.82f, 0.96f, -0.34f, 0.00f, 0.06f,  0.12f,  0.10f}, -0.60f, 0.50f},
-    {"E_STOP",   {1.06f, 1.08f,  0.02f, 0.00f, 0.00f, -0.02f,  0.55f}, -0.50f, 1.00f},
-    {"CHARGING", {0.92f, 1.00f, -0.02f, 0.05f, 0.06f,  0.00f, -0.08f},  0.30f, 0.10f},
+    {"INIT",     {0.34f,  0.00f, 0.08f, -0.05f, 0.00f,  0.0f},  0.00f, 0.20f},
+    // Degraded reads as displeasure: inner corners down, brow low and scowling.
+    {"DEGRADED", {0.26f,  0.40f, 0.04f,  0.08f,-0.60f, +14.0f}, -0.60f, 0.50f},
+    // E-stop is alarm, not anger: lids wide open, brows high and level.
+    {"E_STOP",   {0.00f,  0.00f, 0.00f, -0.02f, 0.95f, -2.0f}, -0.50f, 1.00f},
+    {"CHARGING", {0.20f, -0.04f, 0.14f,  0.00f,-0.10f, -2.0f},  0.30f, 0.10f},
 };
 
 // A state owns the COLOUR and decides whether the face may emote freely. E_STOP and DEGRADED are
@@ -110,8 +135,9 @@ struct Eye {
     lv_obj_t* glint = nullptr;
     lv_obj_t* lid   = nullptr;
     lv_obj_t* brow  = nullptr;
-    lv_obj_t* cut   = nullptr;     // tilt: an angled wedge off the upper corner
-    lv_obj_t* bow   = nullptr;     // bow: a curve carved out of the lower lid
+    lv_obj_t* upper = nullptr;     // upper eyelid: a curved mass descending from above
+    lv_obj_t* slant = nullptr;     // the upper lid's slanted edge, as a thick angled line
+    lv_obj_t* lower = nullptr;     // lower eyelid: curved, rising -- this is what makes it smile
 };
 Eye g_eye[2];
 lv_obj_t* g_label = nullptr;
@@ -123,18 +149,21 @@ struct Last {
     int pupilW = -1, pupilX = -1, pupilY = -1, glintW = -1, glintX = -1, glintY = -1;
     int lidW = -1, lidH = -1;
     int browW = -1, browH = -1, browX = -1, browY = -1, browSpan = 9999;
-    int cutShown = -1, cutW = -1, cutH = -1, cutX = -1, cutY = -1;
-    int bowShown = -1, bowW = -1, bowH = -1, bowX = -1, bowY = -1;
+    int upW = -1, upH = -1, upY = -1;
+    int loW = -1, loH = -1, loY = -1;
+    int slShown = -1, slW = -1, slH = -1, slY = -1;
     uint32_t colour = 0xffffffff;
 };
 Last g_last[2];
+
+bool slW_changed(const Last& L, int w, int thick) { return L.slW != w || L.slH != thick; }
 
 // ---- animated state ------------------------------------------------------------------------
 // Gaze is EASED: a saccade is ballistic and must not overshoot. Everything else is SPRUNG, so a
 // state change settles like something with mass.
 AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
-AnimateValue g_h(1.0f), g_w(1.0f), g_tilt(0.0f), g_bow(0.0f),
-             g_squint(0.0f), g_lookY(0.0f), g_brow(0.0f);
+AnimateValue g_upper(0.08f), g_slant(0.0f), g_lower(0.06f),
+             g_lookY(0.0f), g_brow(0.0f), g_browAngle(0.0f);
 AnimateValue g_lidDrop(0.0f);
 AnimateValue g_asym(0.0f);
 AnimateValue g_colR(46.0f), g_colG(204.0f), g_colB(88.0f);   // colour transitions too
@@ -178,13 +207,16 @@ void buildScene()
         lv_obj_set_style_bg_grad_opa(g_eye[i].glint, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_bg_main_stop(g_eye[i].glint, 20, LV_PART_MAIN);
 
-        // tilt and bow are carved in BACKGROUND colour, exactly as the old renderer carved them
-        // with fillTriangle and fillEllipse. Hidden entirely when their parameter is ~0, so they
-        // cost nothing in the states that do not use them.
-        g_eye[i].cut = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
-        g_eye[i].bow = plainBox(g_eye[i].body, lv_color_hex(0x000000), 999);
-        lv_obj_add_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
+        // The lids are background-coloured ellipses whose CURVED EDGE cuts across the eyeball --
+        // which is how an eyelid actually occludes an eye, and gives curvature for free without
+        // masks or rotation. The slant is a thick angled lv_line, for the same reason the brow is.
+        g_eye[i].upper = plainBox(g_eye[i].body, lv_color_hex(0x000000), 999);
+        g_eye[i].lower = plainBox(g_eye[i].body, lv_color_hex(0x000000), 999);
+        g_eye[i].slant = lv_line_create(g_eye[i].body);
+        lv_obj_remove_style_all(g_eye[i].slant);
+        lv_obj_set_style_line_color(g_eye[i].slant, lv_color_hex(0x000000), LV_PART_MAIN);
+        lv_obj_set_style_line_rounded(g_eye[i].slant, false, LV_PART_MAIN);
+        lv_obj_add_flag(g_eye[i].slant, LV_OBJ_FLAG_HIDDEN);
 
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
         lv_obj_move_foreground(g_eye[i].lid);
@@ -204,8 +236,8 @@ void buildScene()
 void applyEmote(EmoteId id)
 {
     const Expr& e = kEmotes[id].e;
-    g_h = e.h;  g_w = e.w;  g_tilt = e.tilt;  g_bow = e.bow;
-    g_squint = e.squint;  g_lookY = e.lookY;  g_brow = e.brow;
+    g_upper = e.upper;  g_slant = e.upperSlant;  g_lower = e.lower;
+    g_lookY = e.lookY;  g_brow = e.brow;  g_browAngle = e.browAngle;
     g_arousal = kEmotes[id].arousal;
     g_emote = id;
 }
@@ -271,8 +303,8 @@ void AppFace::onOpen()
     buildScene();
     GetHAL()->lvglUnlock();
 
-    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_h, &g_w, &g_tilt, &g_bow, &g_squint,
-                            &g_lookY, &g_brow, &g_lidDrop, &g_asym, &g_colR, &g_colG, &g_colB})
+    for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_upper, &g_slant, &g_lower, &g_lookY,
+                            &g_brow, &g_browAngle, &g_lidDrop, &g_asym, &g_colR, &g_colG, &g_colB})
         v->begin();
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
@@ -326,7 +358,6 @@ void AppFace::onRunning()
 
     GetHAL()->lvglLock();
     const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
-    const float tilt = g_tilt, bow = g_bow, squint = g_squint;
     const uint32_t colour = ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
                           | (uint32_t)(float)g_colB;
 
@@ -334,13 +365,11 @@ void AppFace::onRunning()
         Last& L = g_last[i];
         const int cx = (i == 0 ? kSlotL : kSlotR);
 
-        // squint eats height from the top and shifts the eye centre down by half of what it took,
-        // and lookY biases the whole eye vertically -- both exactly as the old renderer did.
-        const float baseH = kBodyH * (float)g_h;
-        const float squintCut = baseH * squint;
-        const int h = (int)(baseH - squintCut);
-        const int w = (int)(kBodyW * (float)g_w * (1.0f + (i == 0 ? -asym : asym)));
-        const int ey = kEyeY + (int)(squintCut * 0.5f) + (int)((float)g_lookY * 66.0f);
+        // THE EYEBALL IS A CONSTANT. Only the lids move across it. lookY biases the whole eye
+        // vertically, as a real eye and its socket do together.
+        const int h = kBodyH;
+        const int w = (int)(kBodyW * (1.0f + (i == 0 ? -asym : asym)));
+        const int ey = kEyeY + (int)((float)g_lookY * 66.0f);
 
         if (w != L.w || h != L.h || ey != L.y) {
             lv_obj_set_size(g_eye[i].body, w, h);
@@ -354,7 +383,6 @@ void AppFace::onRunning()
         }
         if (colour != L.colour) {
             lv_obj_set_style_bg_color(g_eye[i].body, lv_color_hex(colour), LV_PART_MAIN);
-            // Rim is the same hue at 35%, which is what gives the sphere its falloff.
             const uint32_t dim = (((colour >> 16 & 0xff) * 35 / 100) << 16)
                                | (((colour >> 8 & 0xff) * 35 / 100) << 8)
                                | ((colour & 0xff) * 35 / 100);
@@ -384,12 +412,15 @@ void AppFace::onRunning()
         // outerY = -tilt*34), and also carves the upper corner below.
         const int bw = (int)(w * kBrowWFrac);
         const int bh0 = (int)(h * kBrowHFrac), bh = bh0 < 6 ? 6 : bh0;
-        const int rise = (int)(tilt * 62.0f);          // combined inner/outer swing
+        const int rise = (int)((float)g_browAngle * 3.2f);   // degrees -> pixel swing
         const int span = rise < 0 ? -rise : rise;
         const int objH = bh + 2 * span;
         const int bx = cx - bw / 2;
-        const int by = ey - h / 2 - (int)(h * kBrowGap) - objH
-                     - (int)((float)g_brow * h * kBrowRange);
+        int by = ey - h / 2 - (int)(h * kBrowGap) - objH
+               - (int)((float)g_brow * h * kBrowRange);
+        // CLAMPED TO THE PANEL. E_STOP raises the brow hardest and it was running off the top
+        // edge; the old renderer clamped the same way with std::max(15, ...).
+        if (by < 12) by = 12;
         static lv_point_precise_t pts[2][2];
         const int mid = objH / 2;
         pts[i][0].x = (i == 0) ? 0 : bw;   pts[i][0].y = mid - rise;   // outer
@@ -405,50 +436,64 @@ void AppFace::onRunning()
         }
         lv_line_set_points(g_eye[i].brow, pts[i], 2);
 
-        // TILT's corner cut. The old renderer chose which corner from the sign of tilt and which
-        // eye, so a negative tilt cuts the outer corners and a positive one the inner.
-        const int cutMag = (int)(std::fabs(tilt) * 235.0f);
-        const int cutShown = (cutMag > 3 && h > 40) ? 1 : 0;
-        if (cutShown != L.cutShown) {
-            if (cutShown) lv_obj_clear_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
-            else          lv_obj_add_flag(g_eye[i].cut, LV_OBJ_FLAG_HIDDEN);
-            L.cutShown = cutShown;
+        // UPPER EYELID. A wide background ellipse whose BOTTOM edge arcs down across the eye, so
+        // its curvature is the lid's curvature. Coverage is how far down that edge reaches.
+        const float upperAmt = (float)g_upper + (float)g_lidDrop * (1.0f - (float)g_upper);
+        const int upW = (int)(w * 1.9f);
+        const int upH = (int)(h * 1.5f);
+        const int upBottom = (int)(upperAmt * h);          // relative to the eye's top
+        const int upY = upBottom - upH;
+        if (upW != L.upW || upH != L.upH) {
+            lv_obj_set_size(g_eye[i].upper, upW, upH);
+            L.upW = upW; L.upH = upH;
         }
-        if (cutShown) {
-            const int cwid = (int)(cutMag * 0.95f), chei = cutMag;
-            const bool cutLeft = (tilt < 0) ? (i == 0) : (i != 0);
-            const int cxp = cutLeft ? 0 : w - cwid;
-            if (cwid != L.cutW || chei != L.cutH || cxp != L.cutX) {
-                lv_obj_set_size(g_eye[i].cut, cwid, chei);
-                lv_obj_align(g_eye[i].cut, LV_ALIGN_TOP_LEFT, cxp, 0);
-                L.cutW = cwid; L.cutH = chei; L.cutX = cxp;
-            }
+        if (upY != L.upY) {
+            lv_obj_align(g_eye[i].upper, LV_ALIGN_TOP_MID, 0, upY);
+            L.upY = upY;
         }
 
-        // BOW: a curve carved out of the lower lid, as fillEllipse did.
-        const int bowMag = (int)(bow * 230.0f);
-        const int bowShown = (bowMag > 3 && h > 40) ? 1 : 0;
-        if (bowShown != L.bowShown) {
-            if (bowShown) lv_obj_clear_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
-            else          lv_obj_add_flag(g_eye[i].bow, LV_OBJ_FLAG_HIDDEN);
-            L.bowShown = bowShown;
+        // The upper lid's SLANT, as a thick angled line in background colour laid along its edge.
+        // Positive slant drops the inner corner, which is the scowl direction.
+        const float slant = (float)g_slant;
+        const int slShown = (std::fabs(slant) > 0.02f) ? 1 : 0;
+        if (slShown != L.slShown) {
+            if (slShown) lv_obj_clear_flag(g_eye[i].slant, LV_OBJ_FLAG_HIDDEN);
+            else         lv_obj_add_flag(g_eye[i].slant, LV_OBJ_FLAG_HIDDEN);
+            L.slShown = slShown;
         }
-        if (bowShown) {
-            const int bwid = (int)(w * 1.20f), bhei = (int)(h * 0.90f);
-            const int byp = h - bowMag;
-            if (bwid != L.bowW || bhei != L.bowH || byp != L.bowY) {
-                lv_obj_set_size(g_eye[i].bow, bwid, bhei);
-                lv_obj_align(g_eye[i].bow, LV_ALIGN_TOP_MID, 0, byp);
-                L.bowW = bwid; L.bowH = bhei; L.bowY = byp;
+        if (slShown) {
+            const int slDrop = (int)(slant * h * 0.55f);
+            const int slThick = (int)(h * 0.52f);
+            const int slH = (slDrop < 0 ? -slDrop : slDrop) * 2 + slThick;
+            static lv_point_precise_t slPts[2][2];
+            // Thick line centred above the eye top so only its lower edge cuts in.
+            const int base = -slThick / 2 + upBottom;
+            slPts[i][0].x = (i == 0) ? 0 : w;  slPts[i][0].y = base - slDrop;   // outer
+            slPts[i][1].x = (i == 0) ? w : 0;  slPts[i][1].y = base + slDrop;   // inner
+            if (slW_changed(L, w, slThick)) {
+                lv_obj_set_style_line_width(g_eye[i].slant, slThick, LV_PART_MAIN);
+                lv_obj_set_size(g_eye[i].slant, w, slH + slThick);
+                L.slW = w; L.slH = slThick;
             }
+            if (L.slY != base) { lv_obj_align(g_eye[i].slant, LV_ALIGN_TOP_LEFT, 0, 0); L.slY = base; }
+            lv_line_set_points(g_eye[i].slant, slPts[i], 2);
         }
 
-        const int lidH = (int)((float)g_lidDrop * h), lh = lidH < 0 ? 0 : lidH;
-        if (w != L.lidW || lh != L.lidH) {
-            lv_obj_set_size(g_eye[i].lid, w, lh);
-            lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
-            L.lidW = w; L.lidH = lh;
+        // LOWER EYELID. The same trick inverted: a wide ellipse whose TOP edge arcs UP into the
+        // eye. This is the "smiling eye" -- the single most important form for reading as happy,
+        // and the thing the previous model got wrong by shrinking the eyeball instead.
+        const int loW = (int)(w * 1.9f);
+        const int loH = (int)(h * 1.5f);
+        const int loY = h - (int)((float)g_lower * h);
+        if (loW != L.loW || loH != L.loH) {
+            lv_obj_set_size(g_eye[i].lower, loW, loH);
+            L.loW = loW; L.loH = loH;
         }
+        if (loY != L.loY) {
+            lv_obj_align(g_eye[i].lower, LV_ALIGN_TOP_MID, 0, loY);
+            L.loY = loY;
+        }
+
     }
     GetHAL()->lvglUnlock();
 }
