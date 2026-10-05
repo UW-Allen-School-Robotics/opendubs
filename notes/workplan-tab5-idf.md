@@ -50,7 +50,7 @@ best-practice graphics so that **we have options for eye animation** — that is
 detection first and treated it as the gate, which lost the point: we would have been deciding the
 graphics question on a computer-vision result.
 
-### 1.3a — The choreography creator, as the home for configuration
+### 1.3a — The choreography creator, as the home for configuration  ·  **data model DONE, see [`design/face-config.md`](design/face-config.md)**
 
 **Taken up immediately after the simulator work, and deliberately so**: the face now has several
 things that are *configuration* rather than code — themes, the emote vocabulary, the state→colour
