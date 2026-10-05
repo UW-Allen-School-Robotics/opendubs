@@ -514,6 +514,35 @@ line and eliminated an entire category in a single glance.
 which makes the worst case unbounded and timing-dependent, which makes it rare and therefore
 exactly the kind of bug that survives a lot of testing.
 
+### And the actual cause: an unsynchronised LVGL call
+
+After the `fmodf` fix it still froze. The cause was found by **auditing the code statically instead
+of flashing another hypothesis** — one call site mutated LVGL without holding the lock:
+
+```c
+if (... && now > g_nextEmote) {
+    g_emote = (g_emote + 1) % kNEmotes;
+    applyEmote(g_emote);          // calls lv_label_set_text() with NO LOCK HELD
+```
+
+Every other call site took `GetHAL()->lvglLock()`. This one did not, so every 3.2 seconds it
+mutated LVGL's label buffer and invalidation list while the LVGL task could be mid-render.
+
+**An unsynchronised LVGL call corrupts internal state rather than failing cleanly**, which is
+exactly why the symptom was so misleading: a render task that hung after a *variable* delay, with
+the heap completely untouched. It looked like accumulation because it took time, and it looked like
+a budget problem because it correlated loosely with busy frames — it was neither.
+
+**Rule: every call that touches LVGL from the app task is inside the lock, with no exceptions.**
+The file now has five lock sites and five unlock sites, and that balance is worth checking whenever
+one is added.
+
+**And the method lesson, which is the expensive one.** This was findable by reading the file —
+`grep -n "lvglLock\|lvglUnlock"` and counting — at any point in the preceding several rounds. Instead
+each round picked a plausible mechanism, changed it, and reflashed, which costs a flash and a wait
+and someone's attention every time. **When a symptom resists two hypotheses, stop generating a third
+and audit the code against its own invariants.**
+
 ### Cost hierarchy, most expensive first
 
 1. **Layer-inducing styles** — rotation, and some blend modes. Allocates a bounding-box buffer

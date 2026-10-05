@@ -725,7 +725,14 @@ void AppFace::onRunning()
     // while saccades and blinks carry on as normal.
     if (kStates[g_state].locked < 0 && now > g_nextEmote) {
         g_emote = (g_emote + 1) % kNEmotes;
+        // LOCK HELD. applyEmote() calls lv_label_set_text(), and this was the ONE call site that
+        // did not take the lock -- so every 3.2 s it mutated LVGL's label buffer and invalidation
+        // list while the LVGL task could be mid-render. An unsynchronised LVGL call corrupts
+        // internal state rather than failing cleanly, which is why the symptom was a render task
+        // that hung after a variable delay with the heap completely untouched.
+        GetHAL()->lvglLock();
         applyEmote(g_emote);
+        GetHAL()->lvglUnlock();
         g_nextEmote = now + 3200;
     }
     if (!g_blinking && now > g_nextBlink) {
