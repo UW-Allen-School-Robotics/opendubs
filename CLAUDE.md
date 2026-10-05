@@ -42,6 +42,16 @@ recipe that matches your task.
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.
 
+## Tab5 rendering: read `notes/design/tab5-platform.md` first
+
+**Do not optimise the Tab5 face renderer.** It draws through M5GFX's CPU rasteriser on a SoC that
+has a Pixel Processing Accelerator, 2D-DMA, a hardware JPEG codec and a DSI framebuffer, none of
+which are in use — so every apparent limit (eye size, gaze travel, the cost of a second eye) is an
+artefact of that, not of the hardware. **LVGL is not a dead end; it is the stack M5Stack's own
+factory firmware uses**, and that firmware plays live 1280x720 camera video. The note covers the
+full hardware inventory, what the audio subsystem can really do, what an LVGL port would cost, and
+how to put the existing HTML dashboard on the panel instead of drawing it.
+
 ## Bench work on an M5Stack board over USB — the rote procedure
 
 **This is settled. Do not investigate it, do not experiment, do not "verify" it. Follow it.**

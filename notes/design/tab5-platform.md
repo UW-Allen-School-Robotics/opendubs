@@ -1,0 +1,220 @@
+# The Tab5 platform — what the hardware is, and what we have been doing wrong
+
+**Read this before any work on the Tab5 face or its rendering.** It exists because an enormous
+amount of time has gone into extracting performance from this device while the capabilities that
+make the question moot sat unused, and because a decision recorded long ago — "LVGL is a dead end"
+— was wrong and kept us on the slow path.
+
+---
+
+## 0. The standing error, stated plainly
+
+**We have been hand-optimising a software rasteriser on a chip with a dedicated 2D graphics
+engine.**
+
+`face.cpp` renders through M5GFX/LovyanGFX: 14 `drawEllipse` calls, `fillRoundRect`, `fillEllipse`,
+all on the CPU, then `pushSprite` to copy pixels out. Two 324×448 eyes at 27.6 fps is about
+16 Mpx/s — on a SoC whose own factory demo plays live 1280×720 camera video.
+
+The ESP32-P4 has a **Pixel Processing Accelerator (PPA)** and **2D-DMA** that fill, blend, scale,
+rotate and **mirror** without the CPU, with DMA reading **PSRAM directly, zero-copy**; a
+**MIPI-DSI** controller that scans a PSRAM framebuffer out in hardware; and a **hardware JPEG
+codec** that decodes Full HD at 48 fps. We use none of it.
+
+Everything that felt like a hard limit was a consequence of that choice:
+
+| What it looked like | What it actually was |
+|---|---|
+| "The eye must shrink to fit internal SRAM for speed" | A software blit bottleneck. Shrinking cost eye size and bought 21%. |
+| "Mirroring the second eye is 22% *slower*" | LovyanGFX's **software** affine sampler was benchmarked. The P4 mirrors **in hardware, free**. |
+| "Gaze can only travel ±11 px" | The eye body is 88% of its sprite and the sprite is pushed at a fixed spot. With a compositor the pupil is its own layer, positioned anywhere — the limit does not exist. |
+| "Two eyes cost half the frame rate" | Both eyes are re-rasterised on the CPU each frame. |
+
+**Rule: do not micro-optimise this renderer again.** If the face is too slow or too constrained,
+the answer is the architecture below, not another benchmark. See [[m5stack-bench-rote]] for the
+companion rule about not re-deriving the flashing and telemetry procedure.
+
+---
+
+## 1. LVGL is not a dead end — it is the official stack
+
+This was recorded as a dead end some time ago. That was wrong, and it cost us the whole bespoke
+renderer.
+
+**M5Stack's own Tab5 factory firmware** (`m5stack/M5Tab5-UserDemo`) — the demo that plays camera
+output — is an **LVGL application**. `lv_conf.h` sits at its repository root, and `repos.json`
+pins:
+
+| Dependency | Version | What it is |
+|---|---|---|
+| `lvgl/lvgl` | **v9.2.2** | the UI toolkit |
+| `espressif/esp_lvgl_port` | — | Espressif's own LVGL integration for ESP-IDF |
+| `Forairaaaaa/smooth_ui_toolkit` | v2.0.0 | animation and easing |
+| `Forairaaaaa/mooncake` | v2.1.0 | app framework |
+
+Built with **ESP-IDF v5.4.2** (`cd platforms/tab5 && idf.py build`). LVGL also has a **PPA draw
+unit**, so work expressed in LVGL can dispatch to the hardware accelerator instead of the software
+renderer.
+
+**And it builds for the desktop.** The same repo has an SDL target
+(`sudo apt install libsdl2-dev`, `./desktop/app_desktop_build`). The face could be designed and
+iterated **on a laptop at full frame rate**, which is worth more than any on-device optimisation:
+every eye-geometry question in this project so far has been answered by flashing a board and asking
+whoever happened to be standing in front of it.
+
+---
+
+## 2. Full hardware inventory
+
+From the [official Tab5 documentation](https://docs.m5stack.com/en/core/Tab5).
+
+| | |
+|---|---|
+| **SoC** | ESP32-P4NRW32, RISC-V dual-core @ 360 MHz + LP core @ 40 MHz |
+| **Radio** | **separate ESP32-C6-MINI-1U** — Wi-Fi 6 (2.4 GHz), **Thread, Zigbee**; 3D antenna + 2× MMCX external |
+| **PSRAM / Flash** | **32 MB octal** / 16 MB |
+| **Display** | 5" IPS **1280×720**, **MIPI-DSI**, ST7123/ST7121 integrated display-touch (or ILI9881C + GT911) |
+| **Camera** | SC2356 2 MP (1600×1200), **MIPI-CSI** |
+| **Audio** | **ES8388** codec, **ES7210 AEC front-end**, dual mics, **1 W 8 Ω NS4150B** amp, 3.5 mm jack |
+| **Accelerators** | **PPA**, **2D-DMA**, **hardware JPEG encode/decode** (FHD @ 48 fps decode) |
+| **Power** | IP2326 charger, **NP-F550 removable 7.4 V 2000 mAh**, ~6 h, **INA226** bus current/voltage monitor |
+| **Sensors** | **BMI270** 6-axis IMU (interrupt wake), **RX8130CE** RTC (timed interrupt wake) |
+| **Ports** | **USB-A host**, USB-C OTG, **RS485** (SIT3088, switchable 120 Ω, 6–24 V), microSD, HY2.0-4P, **M5-Bus**, GPIO_EXT |
+| **Expansion** | stamp pads for Cat.M / NB-IoT / LoRaWAN |
+| **Mounting** | 1/4"-20 tripod nut |
+| **I/O expanders** | PI4IOE5V6408 at **0x43** and **0x44** |
+
+### What we are not using at all
+
+Worth knowing before building anything new: **camera** (MIPI-CSI), **hardware JPEG**, **PPA /
+2D-DMA**, **USB-A host**, **RS485** (the robot already speaks RS485 to the battery BMS), **microSD**,
+**BMI270 IMU** beyond offsets, **RX8130CE RTC** including its timed wake, **INA226** power
+monitoring, the **3.5 mm jack**, the removable battery, and the C6's **Thread/Zigbee** radios.
+
+---
+
+## 3. Audio — what is settled
+
+Measured on the bench and in the code, not assumed:
+
+- **The speaker is not the limitation.** A claim that it "carries only 2–4 kHz" was a by-ear
+  judgement of `M5.Speaker.tone()` in a noisy room, and is withdrawn. ES8388 + NS4150B into 1 W
+  8 Ω, documented by M5 for *"Hi-Fi recording/playback and accurate voice recognition"*, plus a
+  3.5 mm jack if an external speaker is ever wanted.
+- **The ES7210 IS configured on this board.** `_microphone_enabled_cb_tab5()` in `M5Unified.inl`
+  is a complete ESP32-P4-guarded init at I²C 0x40. Do not conclude otherwise from the S3-only
+  `es7210_write_reg` helper — the P4 path writes the same chip through `In_I2C` directly.
+- **Two of four mic channels are enabled** (`MIC12_PDN=0x00`, `MIC34_PDN=0xFF`). Channels 3/4 are
+  the **AEC reference** inputs and are off, which is why the robot cannot cancel its own output in
+  hardware.
+- **Direction works at the default gain.** Left/right/centre from the inter-channel level ratio,
+  confirmed interactively. **Gain is a dead end** — stepping `0x43`/`0x44` across `0x05`–`0x1E`
+  changed little. **Writing `0x00` there silences the microphone**; it is the bottom of the range,
+  not a default.
+- **Speaker and microphone hold I²S simultaneously**, so the robot can listen while it speaks.
+- **Levels are small**: a quiet room reads ~15–20 RMS against speech peaks of a few hundred. A
+  quiet room reading low is *not* evidence of a broken microphone — that mistake has been made.
+- **Speaker bring-up is nested inside the Wi-Fi-up branch of `commsTask`**, alongside
+  `ArduinoOTA.begin()`. On a bench Tab5 with no network, `M5.Speaker.begin()` is **never called**
+  and no sound is possible. On the robot there is a link, so this is a bench-only symptom —
+  deliberately left alone rather than refactored.
+- **Bring-up is fiddly and already solved**: full ES8388 reset, `begin()`, then **manually
+  re-enable the amplifier** (PI4IO1 `0x43`, reg `0x05`, bit 1), because M5Unified's enable callback
+  does not run in the state a warm boot leaves things in — a codec reporting ready into a disabled
+  amp. Do not rewrite this sequence.
+- **`M5.Speaker` has 8 virtual channels** with independent volume, `isPlaying(ch)` and `stop(ch)`;
+  `tone()` accepts **your own wavetable**; `playRaw()` takes PCM; `playWav()` reads a flash array.
+  A cue system is channel assignment, not a synth.
+- **3.5 MB SPIFFS is already partitioned and unused** (`default_16MB.csv`) — roughly 3 minutes of
+  16-bit 11 kHz mono, available for audio assets without touching the partition table.
+
+---
+
+## 4. Can it render HTML? Yes — and I previously said no
+
+Three genuinely different answers, and the one I rejected long ago was the wrong one to reject.
+
+**(a) Remote rendering, streamed as JPEG — the strong option.** A host renders the page in headless
+Chromium and streams only the **changed regions** as JPEG tiles over a WebSocket; the device
+decodes and blits them, and sends touch events back. This is a working pattern on ESP32-S3, and the
+P4 is a far better fit because its **hardware JPEG decoder does Full HD at 48 fps**.
+
+For us this is unusually well-matched: **the dashboard is already HTML served by FastAPI on the
+Thor**, and the Thor is a Jetson AGX — headless Chromium is nothing to it. That would put the real
+dashboard on the Tab5 with **no bespoke graphics at all**, and the touch panel would work.
+
+**(b) On-device HTML/CSS — possible, limited.** `libwebsockets` can parse and render a **subset**
+of HTML5 + CSS on ESP32-class hardware. Not a browser, but not nothing, and more than "no".
+
+**(c) A real browser engine on-device — no.** There is no Chromium/WebKit for ESP32-P4 and there
+will not be.
+
+**Honest limits of (a).** It needs the network link; if the link drops the panel has nothing, so
+nothing safety-bearing may depend on it (PRISM already carries that — see
+`hri-interaction-design.md`). And a per-frame network round trip is wrong for the face, which has
+to acknowledge a person inside about a second. So:
+
+> **Dashboard: streamed HTML from the Thor. Face: native and local.** The split falls out of
+> latency and failure behaviour, not preference.
+
+---
+
+## 5. What an LVGL port actually costs
+
+Not a drop-in. The gap is the build system as much as the graphics.
+
+| | Today | LVGL route |
+|---|---|---|
+| Framework | **Arduino** via PlatformIO + pioarduino | **ESP-IDF 5.4.2**, `idf.py` |
+| Graphics | M5GFX / LovyanGFX, CPU rasteriser | LVGL 9.2.2 + `esp_lvgl_port`, PPA draw unit |
+| Board HAL | M5Unified (`M5.Display`, `M5.Speaker`, `M5.Mic`, `M5.Touch`, `M5.Imu`, `M5.In_I2C`) | ESP-IDF BSP, or M5Unified alongside |
+| Desktop iteration | none | **SDL build** |
+
+**What would have to be reworked.** The face is the easy part; everything else on M5GFX is the
+cost:
+
+- `hmi.cpp` — the lift control pages, touch hit-testing, every `M5.Display` call
+- `prompt.cpp`, the pun ticker, all text rendering
+- `lift.cpp`'s ToF/I²C work is HAL, not graphics, so it mostly survives — but it is reached through
+  M5Unified's I²C
+- `main.cpp`'s tasks, OTA (`ArduinoOTA` is Arduino-only — ESP-IDF has its own OTA), UDP comms,
+  the ES8388 bring-up sequence, the PI4IO amp poke
+- The OTA path and `ota-from-thor.sh` assume the current image layout; `default_16MB.csv` carries
+  two 6.5 MB slots and 3.5 MB SPIFFS, which must be preserved or the NVS-stored tilt limits and IMU
+  offsets are lost
+
+**Three ways to stage it, cheapest first:**
+
+1. **Keep M5GFX, add PPA by hand.** Call the PPA/2D-DMA driver for the specific operations that
+   hurt (fills, the mirrored second eye, blits of pre-rendered layers) and leave everything else.
+   Smallest change, no framework migration, and it tests the premise that the accelerator is the
+   win before anything is bet on it.
+2. **Face in LVGL, rest on M5GFX.** Both can draw to the same panel in principle but sharing one
+   display driver between two toolkits is where this gets unpleasant. Probably the worst option.
+3. **Full ESP-IDF + LVGL port**, matching the factory firmware, gaining `esp_lvgl_port`,
+   `smooth_ui_toolkit` and the desktop SDL build. Largest cost, lands on the stack M5Stack
+   themselves support, and is the only route that gets laptop iteration.
+
+**Prove it before porting.** A standalone ESP-IDF sketch — one pre-rendered eye layer plus a pupil
+layer, composited by PPA into a DSI framebuffer, pupil swept across its full travel — measures the
+frame rate and settles whether the accelerator delivers. That is a bench afternoon against a port
+of several days, and 32 MB of PSRAM means layers can simply be pre-rendered once (a full
+1280×720×16bpp frame is 1.8 MB; PSRAM holds about seventeen of them, or hundreds of component
+tiles).
+
+---
+
+## 6. The clean-sheet face, if the premise holds
+
+**The face is a compositor, not a rasteriser.** Layers blitted by PPA into a double-buffered PSRAM
+framebuffer that DSI scans out:
+
+- background — PPA fill
+- eye body — pre-rendered bitmap; **second eye mirrored in hardware**
+- **pupil — an independent layer, positioned anywhere**, which is what dissolves the ±11 px gaze
+  budget rather than working around it
+- highlight and eyelid — blits
+- per-eye scale via hardware, which makes Anki's size-and-ratio gaze cue free
+
+Nothing is rasterised per frame. The motion model (saccadic, per *Eyes Alive*) is independent of
+all this and already written — see `face.cpp` — so it carries over unchanged.
