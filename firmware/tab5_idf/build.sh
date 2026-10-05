@@ -81,6 +81,20 @@ PATCH
 
     # Generate the probe's reference image from the committed .jpg EVERY build. Generated, never
     # committed: a checked-in generated file is the thing that drifts (today's lesson, three times).
+    # Wi-Fi credentials, if supplied, as a GENERATED HEADER in the ephemeral build tree.
+    # NEVER written into this repo: per-robot secrets do not belong in git, and the generated
+    # file lives only in the clone. Needed once per board -- esp_wifi persists to NVS after a
+    # successful association, so later builds can omit them entirely.
+    if [ -n "${OPENDUBS_WIFI_SSID:-}" ]; then
+        printf '#pragma once\n#define OPENDUBS_WIFI_SSID "%s"\n#define OPENDUBS_WIFI_PASS "%s"\n' \
+            "$OPENDUBS_WIFI_SSID" "${OPENDUBS_WIFI_PASS:-}" \
+            > "$DEMO/app/apps/app_face/net_credentials.h"
+        echo "wifi credentials: compiled in for SSID '$OPENDUBS_WIFI_SSID' (one-time provisioning)"
+    else
+        printf '#pragma once\n// no build-time credentials; NVS-stored ones will be used\n' \
+            > "$DEMO/app/apps/app_face/net_credentials.h"
+    fi
+
     # The probe toggle is a GENERATED HEADER rather than a -D, because idf.py -D sets a CMake
     # variable, not a compile definition, and bridging it would mean editing the vendor's
     # CMakeLists -- a file we do not own and do not sync.
@@ -123,6 +137,15 @@ EMBED
 # is byte-identical, because the linker drops it, model data included.
 PROBE_FACEDET="${OPENDUBS_PROBE_FACEDET:-0}"
 
+# PORT defaults to whichever /dev/cu.usbmodem* is present, because macOS numbers the physical USB
+# SOCKET, not the device: the same Tab5 was usbmodem2101 in one port and usbmodem101 in another,
+# and CLAUDE.md's documented number is only true for one socket.
+#
+# Auto-detecting is safe here for a specific reason, not by luck: idf.py passes --chip esp32p4, and
+# esptool REFUSES to write to a chip that does not match. So if the port that happens to be present
+# is the StamPLC (an ESP32-S3, and whose own platformio.ini names /dev/cu.usbmodem101), the flash
+# aborts instead of writing face firmware onto the robot's safety controller. Do not remove the
+# --chip argument to "make flashing more flexible"; it is the guard.
 build_device() {
     # sdkconfig IS TRACKED BY THE VENDOR -- it is not a throwaway artifact, and deleting it to
     # "regenerate cleanly" is what broke the boot: 94 KB of vendor configuration was replaced by
@@ -145,7 +168,7 @@ build_device() {
     ( cd "$DEMO/platforms/tab5" && . "$IDF/export.sh" >/dev/null 2>&1 \
       && idf.py -DSDKCONFIG_DEFAULTS="$SDKCFG" reconfigure >/dev/null \
       && idf.py -DSDKCONFIG_DEFAULTS="$SDKCFG" build \
-      && idf.py -p "${PORT:-/dev/cu.usbmodem2101}" flash )
+      && idf.py -p "${PORT:-$(ls -1 /dev/cu.usbmodem* 2>/dev/null | head -1)}" flash )
 }
 
 build_desktop() {

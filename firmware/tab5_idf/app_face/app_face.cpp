@@ -2,6 +2,7 @@
 #include "cost_gate.h"
 #include "cues.h"
 #include "face_probe.h"
+#include "net.h"
 #include <cstring>
 #include <hal/hal.h>
 #include <mooncake.h>
@@ -787,6 +788,11 @@ void applyEmote(int idx)
              // constraint is worse than none, because it gets believed.
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+    // Append the network state to the SAME line rather than adding a third label: the panel
+    // already carries two, and an IP address is exactly the thing someone at the bench needs to
+    // read off the glass before they can OTA to it.
+    strncat(buf, "  ", sizeof(buf) - strlen(buf) - 1);
+    strncat(buf, netStatus(), sizeof(buf) - strlen(buf) - 1);
 #else
     snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s", kStates[g_state].label, e.name,
              band::name(band::g_activity), theme::name(theme::g_active));
@@ -847,6 +853,7 @@ void AppFace::onOpen()
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
     faceProbeStart();         // no-op unless built with OPENDUBS_PROBE_FACEDET=1
+    netStart();               // Wi-Fi station: stage 1 of the OTA chain
     GetHAL()->lvglUnlock();
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
