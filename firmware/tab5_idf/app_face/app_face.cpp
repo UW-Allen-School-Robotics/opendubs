@@ -5,6 +5,7 @@
 #include <smooth_ui_toolkit.h>
 #include <lvgl.h>
 #include <cmath>
+#include <math.h>
 #include <cstdio>
 
 using namespace mooncake;
@@ -65,6 +66,21 @@ constexpr float kBrowWFrac = 0.86f;     // of eye width
 constexpr float kBrowHFrac = 0.085f;    // of eye height
 constexpr float kBrowGap   = 0.10f;     // resting clearance above the eye, as a fraction of height
 constexpr float kBrowRange = 0.14f;     // how far raise = +/-1 moves it, as a fraction of height
+
+// WRITE ONLY WHAT CHANGED. Every lv_obj_set_* call invalidates the object and schedules a
+// redraw, so writing all of these unconditionally every frame makes the render cost independent
+// of whether anything actually moved. With a rotated brow in the mix that was enough to starve
+// the idle task and trip the task watchdog on the device ("IDLE0 (CPU 0)", main hogging CPU 0) --
+// while the desktop had the headroom to hide it. Caching the last written value per property is
+// the fix, and it is the right shape regardless.
+struct Last {
+    int w = -1, h = -1, radius = -1;
+    int pupilW = -1, pupilX = -1, pupilY = -1;
+    int glintW = -1, glintX = -1, glintY = -1;
+    int lidW = -1, lidH = -1;
+    int browW = -1, browH = -1, browX = -1, browY = -1, browRot = 9999;
+};
+Last g_last[2];
 
 struct Eye {
     lv_obj_t* body    = nullptr;
@@ -136,9 +152,16 @@ void buildScene()
         // The eyelid is a real object that descends, not a height squash of the body.
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
 
-        // The brow is a child of the SCREEN, not the body: as a child it would be clipped by the
-        // body it has to sit above.
-        g_eye[i].brow = plainBox(scr, lv_color_hex(0x19d1c4), 999);
+        // THE BROW IS A LINE, NOT A ROTATED BOX. A rotated LVGL object is rendered through a
+        // layer, which means allocating a buffer the size of its bounding box on every draw --
+        // "lv_draw_buf_create_ex: No memory: 438x42 ... 73584Byte" repeating until the idle task
+        // starved and the task watchdog fired. An lv_line draws an angled, rounded, thick segment
+        // with no transform and no layer allocation at all.
+        // Child of the SCREEN, not the body: as a child it would be clipped by what it sits above.
+        g_eye[i].brow = lv_line_create(scr);
+        lv_obj_remove_style_all(g_eye[i].brow);
+        lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(0x19d1c4), LV_PART_MAIN);
+        lv_obj_set_style_line_rounded(g_eye[i].brow, true, LV_PART_MAIN);
     }
 
     g_label = lv_label_create(scr);
@@ -254,44 +277,86 @@ void AppFace::onRunning()
     GetHAL()->lvglLock();
     const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
     for (int i = 0; i < 2; ++i) {
+        Last& L = g_last[i];
+
         // Per-eye width: the asymmetry between the two eyes is the gaze cue in a pupil-less face,
         // and it costs nothing here because each eye is its own object.
         const int w = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
         const int h = (int)(float)g_bodyH;
-        lv_obj_set_size(g_eye[i].body, w, h);
-        lv_obj_set_pos(g_eye[i].body, (i == 0 ? kSlotL : kSlotR) - w / 2, kEyeY - h / 2);
-        lv_obj_set_style_radius(g_eye[i].body, (int)(float)g_radius, LV_PART_MAIN);
+        const int cx = (i == 0 ? kSlotL : kSlotR);
+        if (w != L.w || h != L.h) {
+            lv_obj_set_size(g_eye[i].body, w, h);
+            lv_obj_set_pos(g_eye[i].body, cx - w / 2, kEyeY - h / 2);
+            L.w = w; L.h = h;
+        }
+        const int radius = (int)(float)g_radius;
+        if (radius != L.radius) {
+            lv_obj_set_style_radius(g_eye[i].body, radius, LV_PART_MAIN);
+            L.radius = radius;
+        }
 
-        // THE POINT: pupil travel is (body - pupil)/2 - rim, not 11 px.
-        const int pw = (int)(w * kPupilFrac), ph = pw;
-        const int travelX = (w - pw) / 2 - kRimPad;
-        const int travelY = (h - ph) / 2 - kRimPad;
-        lv_obj_set_size(g_eye[i].pupil, pw, ph);
-        lv_obj_align(g_eye[i].pupil, LV_ALIGN_CENTER,
-                     (int)(gx * (travelX > 0 ? travelX : 0)),
-                     (int)(gy * (travelY > 0 ? travelY : 0)));
+        // Pupil travel is (body - pupil)/2 - rim, which is what makes gaze legible at all.
+        const int pw = (int)(w * kPupilFrac);
+        const int travelX = (w - pw) / 2 - kRimPad, travelY = (h - pw) / 2 - kRimPad;
+        const int px = (int)(gx * (travelX > 0 ? travelX : 0));
+        const int py = (int)(gy * (travelY > 0 ? travelY : 0));
+        if (pw != L.pupilW) { lv_obj_set_size(g_eye[i].pupil, pw, pw); L.pupilW = pw; }
+        if (px != L.pupilX || py != L.pupilY) {
+            lv_obj_align(g_eye[i].pupil, LV_ALIGN_CENTER, px, py);
+            L.pupilX = px; L.pupilY = py;
+        }
 
-        // One highlight, FIXED to the body. A highlight that chases the gaze was tried on the
+        // One highlight, FIXED to the body -- a highlight that chases the gaze was tried on the
         // bespoke face and read as confusing.
-        lv_obj_set_size(g_eye[i].glint, pw / 3, pw / 3);
-        lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, -w / 5, -h / 4);
+        const int gw = pw / 3, gxo = -w / 5, gyo = -h / 4;
+        if (gw != L.glintW) { lv_obj_set_size(g_eye[i].glint, gw, gw); L.glintW = gw; }
+        if (gxo != L.glintX || gyo != L.glintY) {
+            lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, gxo, gyo);
+            L.glintX = gxo; L.glintY = gyo;
+        }
 
-        // Brow: width and thickness scale with the eye, height carries the raise, and the angle
-        // is mirrored so one signed number describes a symmetric pair.
-        const int bw = (int)(w * kBrowWFrac), bh = (int)(h * kBrowHFrac);
-        const int browY = kEyeY - h / 2 - (int)(h * kBrowGap) - bh
-                        - (int)((float)g_browRaise * h * kBrowRange);
-        lv_obj_set_size(g_eye[i].brow, bw, bh < 6 ? 6 : bh);
-        lv_obj_set_pos(g_eye[i].brow, (i == 0 ? kSlotL : kSlotR) - bw / 2, browY);
-        lv_obj_set_style_transform_pivot_x(g_eye[i].brow, bw / 2, LV_PART_MAIN);
-        lv_obj_set_style_transform_pivot_y(g_eye[i].brow, bh / 2, LV_PART_MAIN);
-        lv_obj_set_style_transform_rotation(
-            g_eye[i].brow, (int)((i == 0 ? +1.0f : -1.0f) * (float)g_browAngle * 10.0f),
-            LV_PART_MAIN);
+        // Brow as an angled line. The angle becomes a vertical offset between the two ends, so
+        // there is no rotation and therefore no layer buffer. "Inner" is the end toward the face
+        // centre, which is the right-hand end for the left eye and vice versa, so one signed
+        // angle still describes a symmetric pair.
+        const int bw = (int)(w * kBrowWFrac);
+        const int bh0 = (int)(h * kBrowHFrac), bh = bh0 < 6 ? 6 : bh0;
+        const float angRad = (float)g_browAngle * 3.14159265f / 180.0f;
+        const int half = (int)(bw * tanf(angRad) * 0.5f);
+        const int span = half < 0 ? -half : half;
+        const int objH = bh + 2 * span;
+        const int bx = cx - bw / 2;
+        const int by = kEyeY - h / 2 - (int)(h * kBrowGap) - objH
+                     - (int)((float)g_browRaise * h * kBrowRange);
+
+        // LVGL keeps the pointer, so the points must outlive the call.
+        static lv_point_precise_t pts[2][2];
+        const int mid = objH / 2;
+        const int inner = mid + (i == 0 ? half : half);
+        const int outer = mid - (i == 0 ? half : half);
+        pts[i][0].x = (i == 0) ? 0 : bw;        // outer end
+        pts[i][0].y = outer;
+        pts[i][1].x = (i == 0) ? bw : 0;        // inner end
+        pts[i][1].y = inner;
+
+        if (bw != L.browW || bh != L.browH || objH != L.browRot) {
+            lv_obj_set_style_line_width(g_eye[i].brow, bh, LV_PART_MAIN);
+            lv_obj_set_size(g_eye[i].brow, bw + bh, objH + bh);
+            L.browW = bw; L.browH = bh; L.browRot = objH;
+        }
+        if (bx != L.browX || by != L.browY) {
+            lv_obj_set_pos(g_eye[i].brow, bx, by);
+            L.browX = bx; L.browY = by;
+        }
+        lv_line_set_points(g_eye[i].brow, pts[i], 2);
 
         const int lidH = (int)((float)g_lidDrop * h);
-        lv_obj_set_size(g_eye[i].lid, w, lidH < 0 ? 0 : lidH);
-        lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
+        const int lh = lidH < 0 ? 0 : lidH;
+        if (w != L.lidW || lh != L.lidH) {
+            lv_obj_set_size(g_eye[i].lid, w, lh);
+            lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
+            L.lidW = w; L.lidH = lh;
+        }
     }
     GetHAL()->lvglUnlock();
 }

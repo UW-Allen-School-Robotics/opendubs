@@ -221,6 +221,34 @@ all this and already written — see `face.cpp` — so it carries over unchanged
 
 ---
 
+## 6a. LVGL gotchas measured on this device
+
+**Do not rotate a large object.** `lv_obj_set_style_transform_rotation` makes LVGL render that
+object through a **layer**, which means allocating a buffer the size of its bounding box **on every
+draw**. A 438×42 eyebrow asked for 73 KB per draw, the allocation failed, LVGL retried in a tight
+loop, and the idle task starved until the task watchdog fired:
+
+```
+lv_draw_buf_create_ex: No memory: 438x42, cf: 16, stride: 1752, 73584Byte
+lv_draw_layer_alloc_buf: Allocating layer buffer failed. Try later
+E (90746) task_wdt: Task watchdog got triggered.  - IDLE0 (CPU 0)
+```
+
+Quantising the angle so the style was written less often **did not help**, because the cost is per
+*draw*, not per *write*. An **`lv_line`** draws an angled, rounded, thick segment with no transform
+and no layer allocation, and is the right tool for anything that just needs to sit at an angle.
+
+**Write only what changed.** Every `lv_obj_set_*` invalidates the object and schedules a redraw, so
+writing all properties unconditionally each frame makes the render cost independent of whether
+anything moved. Caching the last written value per property is cheap and is what keeps headroom
+available for the things that genuinely animate.
+
+**The desktop build will hide both of these.** It has the CPU and the heap to absorb a layer
+allocation per draw, so a face that is smooth on a laptop can watchdog on the device. Design on the
+desktop; **confirm frame health on the Tab5**, which is why the gate was specified as both.
+
+---
+
 ## 7. The plan: subtract from the demo, do not rebuild it
 
 **Decided approach, and it replaces section 6's "prove it with a sketch first".** The homebrew
