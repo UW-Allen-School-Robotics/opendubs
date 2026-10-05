@@ -498,6 +498,39 @@ segments: lighting a proportion of them is a gauge with **zero new objects** and
 write each. The old renderer had a `gauge` branch in `drawEye` using `soc` for the same purpose,
 inside the eye — the band is a better home, because it does not spend the eyes.
 
+### Pre-rendered gradient strips versus generated ones
+
+Asked directly: should the band's gradient be a loaded asset — a 16 px strip the length of the
+screen — rather than generated? **Yes, and the win is bigger than removing the gradient cost.**
+
+Three reasons, in increasing order of importance:
+
+1. **The gradient is computed once at build time**, so the per-pixel radial/conical cost and the
+   geometry-keyed cache churn both disappear. That is the category that has frozen this device
+   twice.
+2. **A strip is tiny.** 16 × 1280 at 16 bpp is **41 KB**; both orientations come to ~82 KB against
+   3.5 MB of unused SPIFFS. Irrelevant.
+3. **Animation becomes POSITION instead of opacity.** A pre-rendered strip longer than its edge,
+   *slid* along, makes the bump travel — one position write per edge instead of 48 opacity writes
+   per frame. That is **4 objects rather than 48**, and it moves the work into the cheapest
+   category in the hierarchy above. This is the real reason to do it.
+
+**But the two band uses want different structures, and that is worth knowing before building it.**
+
+| use | wants | why |
+|---|---|---|
+| the **sweep** | one pre-rendered strip per edge, slid | smooth, 4 objects, position-animated |
+| the **gauge** | addressable segments, or one bar per edge sized to the level | a level is a length, not a phase |
+
+A slid strip cannot light "N segments of 48", so the gauge cannot ride on it. Fortunately the gauge
+is the easy case: **a level changes on a timescale of minutes**, so even resizing a bar costs
+nothing in practice. So the clean end state is *strips for the sweep, a sized bar for the gauge* —
+not one mechanism serving both.
+
+The segments implemented today serve both adequately and the gauge barely writes at all, so this is
+recorded as the direction rather than done. The sweep is the only part that would benefit, and the
+only part that is visibly imperfect.
+
 **And that resolves the charging question** rather than re-opening it. The tension was that charging
 is sometimes idle and sometimes attending, so pinning an emote to it is wrong either way. But
 charging is a **condition to display, not a mood to adopt**: put the charge level on the band and

@@ -155,7 +155,11 @@ const St kStates[] = {
     {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1},
     {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT},
     {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT},
-    {"CHARGING",   "CHARGING",     0, 196, 168, EM_SLEEPY},
+    // CHARGING no longer pins an emote. Charging is a CONDITION TO DISPLAY, not a mood to adopt:
+    // the level goes on the band and the eyes stay free to be attending or idle as the situation
+    // warrants -- which also settles the "charging is not necessarily idle" objection without
+    // having to decide it, because the face no longer has to claim either.
+    {"CHARGING",   "CHARGING",     0, 196, 168, -1},
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
@@ -197,7 +201,11 @@ float     g_at[kSegs];                                 // 0..1 position around t
 uint8_t   g_lastOpa[kSegs];
 uint32_t  g_lastColour = 0xffffffff;
 
-enum Activity { IDLE = 0, LISTEN, THINK, SPEAK, FAULT };
+enum Activity { IDLE = 0, LISTEN, THINK, SPEAK, FAULT, GAUGE };
+
+// State of charge, 0..1. On the robot this comes from the pack's RS485 BMS, which already reports
+// SOC to the StamPLC -- so nothing new has to be sensed for this.
+float g_soc = 0.62f;
 Activity g_activity = IDLE;
 float    g_phase = 0.0f;
 uint32_t g_lastMs = 0;
@@ -209,6 +217,7 @@ const char* name(Activity a)
         case THINK:  return "thinking";
         case SPEAK:  return "speaking";
         case FAULT:  return "fault";
+        case GAUGE:  return "charge";
         default:     return "idle";
     }
 }
@@ -257,6 +266,12 @@ void update(uint32_t now, uint32_t colour)
         case THINK:  speed = 0.95f; width = 0.07f; base = 18.0f; peak = 235.0f; break;
         case SPEAK:  speed = 0.0f;  base = 60.0f; peak = 220.0f; break;   // envelope, stubbed
         case FAULT:  speed = 0.0f;  base = 0.0f;  peak = 255.0f; break;   // hard flash, all at once
+        // A GAUGE, not a motion. The band is already 48 addressable segments, so reading charge
+        // off it costs ZERO new objects and one opacity write per segment -- and SOC changes on a
+        // timescale of minutes, so almost every frame writes nothing at all. The old renderer did
+        // this inside the eye (drawEye's `gauge` branch); the band is a better home because it
+        // does not spend the eyes on it.
+        case GAUGE:  speed = 0.0f;  base = 16.0f; peak = 235.0f; break;
     }
     g_phase += speed * dt;
     while (g_phase > 1.0f) g_phase -= 1.0f;
@@ -268,6 +283,12 @@ void update(uint32_t now, uint32_t colour)
             v = (fmodf(tsec, 0.7f) < 0.35f) ? 1.0f : 0.06f;      // unmistakable, and theme-proof
         } else if (g_activity == IDLE) {
             v = 0.5f + 0.5f * sinf(tsec * 1.1f);                 // slow, whole-ring breath
+        } else if (g_activity == GAUGE) {
+            // Filled proportion reads as a level. A slow travelling shimmer over the FILLED part
+            // only distinguishes "charging" from "this is simply how full it is".
+            const bool filled = (g_at[i] <= g_soc);
+            const float shimmer = 0.75f + 0.25f * sinf(tsec * 2.0f - g_at[i] * 6.28f);
+            v = filled ? shimmer : 0.0f;
         } else if (g_activity == SPEAK) {
             v = 0.5f + 0.5f * sinf(tsec * 7.0f);                 // placeholder for the audio envelope
         } else {
@@ -506,6 +527,11 @@ void AppFace::onRunning()
     // theme can never recolour or re-time it into ambiguity.
     if (g_state == 4 || g_state == 5) {                    // DEGRADED, E_STOP
         band::g_activity = band::FAULT;
+    } else if (g_state == 6) {                             // CHARGING
+        band::g_activity = band::GAUGE;
+        // Bench stand-in: walk the level so it is visibly a gauge. On the robot this is the
+        // pack SOC the BMS already reports.
+        band::g_soc = 0.05f + 0.90f * (0.5f + 0.5f * sinf(now / 9000.0f));
     } else {
         // No audio or Thor on the bench, so walk the vocabulary to see the motions.
         static uint32_t nextAct = 0;
