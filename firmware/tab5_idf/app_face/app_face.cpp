@@ -79,6 +79,7 @@ struct Last {
     int glintW = -1, glintX = -1, glintY = -1;
     int lidW = -1, lidH = -1;
     int browW = -1, browH = -1, browX = -1, browY = -1, browRot = 9999;
+    uint32_t colour = 0xffffffff;
 };
 Last g_last[2];
 
@@ -100,7 +101,10 @@ AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
              g_radius((float)kBodyW * kRadiusFrac);
 AnimateValue g_lidDrop(0.0f);     // 0 = open, 1 = shut
 AnimateValue g_browRaise(0.0f), g_browAngle(0.0f);   // sprung, like the rest of the shape
-AnimateValue g_asym(0.0f);        // per-eye width asymmetry, the pupil-less direction cue
+AnimateValue g_asym(0.0f);
+// EASED, NOT SPRUNG. R, G and B as independent springs overshoot, and an overshoot in RGB lands
+// on a genuinely different hue -- which made transitions flash through other states' colours.
+AnimateValue g_colR(46.0f), g_colG(204.0f), g_colB(88.0f);        // per-eye width asymmetry, the pupil-less direction cue
 
 // MULTIPLIERS of the neutral body, not absolute pixels, so the entire face rescales from
 // kBodyW/kBodyH alone -- which is what made the geometry above a one-line experiment rather than
@@ -118,6 +122,26 @@ const Emote kEmotes[] = {
 };
 constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
 int g_emote = 0;
+
+// ---- states: COLOUR ONLY ---------------------------------------------------------------------
+// A state is mostly a colour. Two previous attempts also gave each state an expression, which
+// made the face worse both times -- so this carries the colour and the label and nothing else.
+// The emote table above is untouched and keeps driving every shape.
+//
+// Colours copied from ui_shared.cpp so the two faces cannot drift on them.
+struct St { const char* name; const char* label; uint8_t r, g, b; };
+const St kStates[] = {
+    {"INIT",       "INIT",       223, 231, 240},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88},   // clear GREEN
+    {"MANUAL",     "MANUAL",     242, 246, 251},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235},   // clear CYAN, distinct from the green
+    {"DEGRADED",   "DEGRADED",   243, 182,  74},
+    {"E_STOP",     "E-STOP",     255,  77,  77},
+    {"CHARGING",   "CHARGING",     0, 196, 168},   // teal, between green and cyan
+};
+constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
+int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
+uint32_t g_nextState = 0;
 
 uint32_t g_nextSaccade = 0, g_nextEmote = 0, g_nextBlink = 0;
 bool g_blinking = false;
@@ -190,6 +214,12 @@ void buildScene()
     lv_label_set_text(g_label, "1.1 gate: eased saccades + sprung shape, independent layers");
 }
 
+void applyState(int idx)
+{
+    const St& s = kStates[idx];
+    g_colR = (float)s.r;  g_colG = (float)s.g;  g_colB = (float)s.b;
+}
+
 void applyEmote(int idx)
 {
     const Emote& e = kEmotes[idx];
@@ -200,8 +230,8 @@ void applyEmote(int idx)
     g_lidDrop = e.lid;
     g_browRaise = e.browRaise;
     g_browAngle = e.browAngle;
-    char buf[112];
-    snprintf(buf, sizeof(buf), "%s   gaze: eased saccade   shape+brow: spring", e.name);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s  -  %s", kStates[g_state].label, e.name);
     lv_label_set_text(g_label, buf);
 }
 
@@ -254,10 +284,15 @@ void AppFace::onOpen()
     GetHAL()->lvglUnlock();
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
-                            &g_asym, &g_browRaise, &g_browAngle})
+                            &g_asym, &g_browRaise, &g_browAngle, &g_colR, &g_colG, &g_colB})
         v->begin();
+    for (AnimateValue* v : {&g_colR, &g_colG, &g_colB}) {
+        v->animationType = animation_type::easing;
+        v->easingOptions().duration = 0.45f;
+    }
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
+    applyState(g_state);
     applyEmote(0);
 }
 
@@ -283,6 +318,15 @@ void AppFace::onRunning()
 #endif
 
     if (now > g_nextSaccade) newSaccade(now);
+    // No StamPLC link on the bench, so walk the states to see every colour. Phase 2 wires the
+    // existing "STATE <NAME>" command to this.
+    if (now > g_nextState) {
+        g_nextState = now + 6000;
+        g_state = (g_state + 1) % kNStates;
+        GetHAL()->lvglLock();
+        applyState(g_state);
+        GetHAL()->lvglUnlock();
+    }
     if (now > g_nextEmote) {
         g_emote = (g_emote + 1) % kNEmotes;
         applyEmote(g_emote);
@@ -318,6 +362,19 @@ void AppFace::onRunning()
         if (radius != L.radius) {
             lv_obj_set_style_radius(g_eye[i].body, radius, LV_PART_MAIN);
             L.radius = radius;
+        }
+        // State colour: the eye's base, its gradient rim at 35% of the same hue so the sphere
+        // falloff follows, and the brow.
+        const uint32_t colour = ((uint32_t)(float)g_colR << 16)
+                              | ((uint32_t)(float)g_colG << 8) | (uint32_t)(float)g_colB;
+        if (colour != L.colour) {
+            const uint32_t dim = (((colour >> 16 & 0xff) * 35 / 100) << 16)
+                               | (((colour >> 8 & 0xff) * 35 / 100) << 8)
+                               | ((colour & 0xff) * 35 / 100);
+            lv_obj_set_style_bg_color(g_eye[i].body, lv_color_hex(colour), LV_PART_MAIN);
+            lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(dim), LV_PART_MAIN);
+            lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(colour), LV_PART_MAIN);
+            L.colour = colour;
         }
 
         // Pupil travel is (body - pupil)/2 - rim, which is what makes gaze legible at all.
