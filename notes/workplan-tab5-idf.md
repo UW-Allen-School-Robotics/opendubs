@@ -98,8 +98,34 @@ Four experiments, one variable each. The first two killed my own explanations:
 | esp-dl **linked but never referenced** | **Boots fine**, byte-identical image (the linker drops it). So declaring the dependency is free and harmless; only *referencing* the detector breaks the boot. |
 | model in its own flash partition instead of rodata | **Still asserts.** So it is not the ~1 MB of model rodata either — it is esp-dl's own code/data. |
 
-**The consequence, and it reaches past 1.4: on this build, face detection and Wi-Fi look mutually
-exclusive.** The thing that breaks is ESP-Hosted — the SDIO link to the ESP32-C6 that *is* the
+**"MUTUALLY EXCLUSIVE" IS WITHDRAWN — it is a known upstream ESP-IDF bug on the P4, and the
+premise of this whole item was wrong as well. Checked against what M5Stack actually ships:**
+
+1. **M5Stack never shipped face detection on the Tab5.** Their `idf_component.yml` has **zero**
+   esp-dl references, `HumanFaceDetect` exists only as three commented-out lines in
+   `hal_camera.cpp`, their partition table reserves `human_face_det` at 400K and **nothing ever
+   fills it**, and the M5Stack org has no face-detection repository. This item was written as
+   "add `esp-dl`, **uncomment** `HumanFaceDetect`" — language that assumed a working vendor feature
+   merely switched off. There is no such feature. It is abandoned scaffolding, and the reserved
+   partition is what made it look finished.
+2. **The crash is a documented ESP-IDF defect on the ESP32-P4**, not a property of the Tab5 and not
+   a face-detection-versus-Wi-Fi law:
+   [espressif/esp-idf#15996](https://github.com/espressif/esp-idf/issues/15996). When internal DRAM
+   gets tight the allocator falls back to **TCM** (0x30100000–0x30102000) or PSRAM for a task's
+   control block or stack, and FreeRTOS's own validity check then rejects it. Reported against
+   v5.4.1 and v5.5-dev; **we are on v5.4.2**. Marked resolved upstream. The reporter's project also
+   used `esp_hosted`, which is exactly where ours fails.
+
+So esp-dl is not incompatible with Wi-Fi. It simply consumes enough internal memory to trip an
+allocator fallback that this IDF version mishandles. **Fix path: a newer IDF, or free internal
+DRAM** — not a choice between the camera and the radio.
+
+**Also correcting my own reasoning:** experiment 3 below ("esp-dl has MORE internal RAM, so it is
+not a shortage") is what steered me wrong. `heap_init` reports the **total pools at startup**, which
+is not the same as DRAM still free at the moment ESP-Hosted creates its task. The shortage is real
+and local; I measured the wrong quantity and then drew a confident conclusion from it.
+
+**The original, now-superseded framing of the consequence:** The thing that breaks is ESP-Hosted — the SDIO link to the ESP32-C6 that *is* the
 Tab5's only radio. Phase 4's OTA depends on it, and so does all of 1B. That makes this a planning
 constraint, not a 1.4 detail.
 
