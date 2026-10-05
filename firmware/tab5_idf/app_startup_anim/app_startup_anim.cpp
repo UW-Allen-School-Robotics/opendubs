@@ -3,6 +3,7 @@
 #include <mooncake.h>
 #include <mooncake_log.h>
 #include <lvgl.h>
+#include "../app_face/cues.h"
 
 // montserrat_40, not 48: the DEVICE build configures LVGL through sdkconfig (CONFIG_LV_CONF_SKIP=y)
 // and CONFIG_LV_FONT_MONTSERRAT_48 is not enabled there. lv_conf.h governs only the desktop build.
@@ -71,12 +72,13 @@ void AppStartupAnim::onRunning()
     lv_obj_set_style_text_letter_space(g_name, (int)(float)_gap, LV_PART_MAIN);
     GetHAL()->lvglUnlock();
 
-    // An audible boot cue is worth keeping -- a robot that comes up silently looks dead for the
-    // second before the face appears. This is still M5's startup sound; 1.3 replaces it with one
-    // of ours, at which point the last of the vendor's identity goes.
+    // OUR boot cue, not the vendor's -- a rising third, which is about as much identity as a boot
+    // sound should claim. Keeping an audible cue at all matters: a robot that comes up silently
+    // looks dead for the second before the face appears.
     if (!_sfx && now - _t0 > 120) {
         GetHAL()->setSpeakerVolume(80);
-        GetHAL()->playStartupSfx();
+        cuesBegin();
+        cuePlay(Cue::Boot);
         _sfx = true;
     }
 

@@ -1,5 +1,6 @@
 #include "app_face.h"
 #include "cost_gate.h"
+#include "cues.h"
 #include <hal/hal.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
@@ -721,6 +722,7 @@ void AppFace::onOpen()
     GetHAL()->lvglLock();
     buildScene();
     costGateBegin();          // desktop only; measures what this would cost the device
+    cuesBegin();              // render the earcon PCM once
     GetHAL()->lvglUnlock();
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
@@ -786,6 +788,8 @@ void AppFace::onRunning()
         }
     }
 
+    cueTick(now);
+
     if (due(now, g_nextSaccade)) newSaccade(now);
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
@@ -804,6 +808,9 @@ void AppFace::onRunning()
     if (due(now, g_nextState)) {
         g_nextState = now + 6000;
         g_state = (g_state + 1) % kNStates;
+        // A mode transition must be AUDIBLE, not only visible: an operator whose eyes are on the
+        // machine rather than the panel still needs to know authority changed.
+        cuePlay(Cue::Mode);
         GetHAL()->lvglLock();
         applyState(g_state);
         if (kStates[g_state].locked < 0) applyEmote(g_emote);   // refresh the label
@@ -839,12 +846,15 @@ void AppFace::onRunning()
     // theme can never recolour or re-time it into ambiguity.
     if (g_state == 4 || g_state == 5) {                    // DEGRADED, E_STOP
         band::g_activity = band::FAULT;
+        cueFaultActive(true);
     } else if (g_state == 6) {                             // CHARGING
+        cueFaultActive(false);
         band::g_activity = band::GAUGE;
         // Bench stand-in: walk the level so it is visibly a gauge. On the robot this is the
         // pack SOC the BMS already reports.
         band::g_soc = 0.05f + 0.90f * (0.5f + 0.5f * sinf(now / 9000.0f));
     } else {
+        cueFaultActive(false);
         // No audio or Thor on the bench, so walk the vocabulary to see the motions.
         static uint32_t nextAct = 0;
         if (due(now, nextAct)) {
