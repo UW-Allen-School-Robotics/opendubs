@@ -186,7 +186,9 @@ uint32_t g_blinkEnd = 0;
 namespace band {
 
 constexpr int kThick = 16;
-constexpr int kTop = 15, kSide = 9;                    // segments per edge, ~83 px each
+// 120 segments, ~33 px each. At 48 the wave was sampled too coarsely around a 4000 px
+// perimeter and the sweep read as chunky rather than smooth.
+constexpr int kTop = 37, kSide = 23;                   // segments per edge, ~33 px each
 constexpr int kSegs = 2 * kTop + 2 * kSide;            // 48
 
 lv_obj_t* g_seg[kSegs];
@@ -272,9 +274,10 @@ void update(uint32_t now, uint32_t colour)
             v = expf(-(d * d) / (2.0f * width * width));         // a travelling bump
         }
         const float opaF = base + (peak - base) * v;
-        // QUANTISED TO 16 LEVELS and change-guarded. 48 segments written every frame would be 48
-        // invalidations per frame for motion the eye cannot resolve that finely.
-        const uint8_t opa = (uint8_t)(((int)opaF >> 4) << 4);
+        // Quantised to 64 levels and change-guarded. 16 levels was visibly stepped -- a smooth
+        // ramp is exactly what coarse quantisation betrays. The guard is what keeps the cost
+        // bounded, not the step size, so the step can be fine.
+        const uint8_t opa = (uint8_t)(((int)opaF >> 2) << 2);
         if (opa != g_lastOpa[i]) {
             lv_obj_set_style_bg_opa(g_seg[i], opa, LV_PART_MAIN);
             g_lastOpa[i] = opa;
