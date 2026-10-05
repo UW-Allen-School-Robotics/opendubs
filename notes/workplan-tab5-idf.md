@@ -19,7 +19,9 @@ can't do X" that followed.
    ask whether they are there.
 5. **Flashing and serial telemetry are rote** — `CLAUDE.md`. Not subjects for investigation.
 6. **The Arduino firmware stays the shipping image** until Phase 5 signs off. It is not deleted,
-   and the robot is not cut over mid-season.
+   and the robot is not cut over mid-season. **This is unchanged by 1.1 passing**: the IDF route is
+   now the target, but "target" and "shipping" are different things, and the robot is wanted
+   working.
 
 ---
 
@@ -30,8 +32,9 @@ getting the function and the aesthetics right. Trying things is the point; untra
 
 | # | Question | Kill criterion |
 |---|---|---|
-| **1.1** | ~~Does LVGL + PPA give better eye animation than we could hand-build?~~ | **PASSED, 2026-10-05.** Desktop build judged materially better by Emma; the same app then built at 2.76 MB and ran on the Tab5. `smooth_ui_toolkit` is a motion.dev-style system — springs, easings, sequences, delay/repeat, completion callbacks — against one exponential lerp. **The IDF switch is adopted.** |
+| **1.1** | ~~Does LVGL + PPA give better eye animation than we could hand-build?~~ | **PASSED, 2026-10-05 — "a clear unequivocal go for abandoning the bespoke approach".** Judged materially better on the desktop build, then built at 2.76 MB and **animating on the Tab5**. `smooth_ui_toolkit` is a motion.dev-style system — springs, easings, sequences, delay/repeat, completion callbacks — against one exponential lerp. **The IDF route is the target architecture; the bespoke M5GFX face is superseded.** |
 | 1.2 | **Eyes and emotes.** `firmware/tab5_idf/app_face/` exists and runs; now iterate the aesthetics on the desktop build: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
+| 1.2b | **Replace the M5Stack splash with an OpenDubs splash.** The boot currently shows the Tab5 vendor splash. `app_startup_anim` is the demo's own startup animation app and is the natural place; the robot should not boot into someone else's branding. | Looks like our robot, not a dev board. |
 | 1.3 | **Audio cues.** The five rhythm-distinct earcons, on separate virtual channels, envelope-shaped via `playRaw`. | Audible and distinguishable across a room. |
 | 1.4 | **Face detection.** Add `esp-dl`, uncomment `HumanFaceDetect`, measure image size, PSRAM and detections/second. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
 | 1.5 | **Voice, as a probe.** Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
