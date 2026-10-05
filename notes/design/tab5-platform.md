@@ -460,6 +460,30 @@ not explain: **complex gradients are cached per geometry**, so a body whose size
 mints a new gradient every frame. The churn accumulates until an allocation fails — the same class
 of failure as the rotated brow, arrived at slowly instead of immediately.
 
+### What actually caused the freezes, and why it took so long to find
+
+**Radial gradients on the eye body.** The freezes begin exactly at the commit that enabled
+`LV_USE_DRAW_SW_COMPLEX_GRADIENTS` and put a radial gradient on the eye body and the glint.
+Everything before it ran. Complex gradients are cached **per geometry**, and the body animates its
+size every frame, so every frame minted a new gradient and the churn accumulated until an
+allocation failed — the run-for-a-while-then-freeze signature.
+
+**Two process failures made this take far longer than it should have.**
+
+First, the mechanism was *written down in this very section* as the likely cause of
+run-then-freeze, and then not acted on. Object count, quantisation levels and write guards were all
+chased instead — each a real cost, none the cause.
+
+Second, and more usefully: **the change was outside version control.** `lv_conf.h` lived only in
+the untracked demo tree, so `git log -S"LV_USE_DRAW_SW_COMPLEX_GRADIENTS"` returned nothing and the
+one change that mattered was invisible to the history being reasoned over. `lv_conf.h` is now
+tracked in `firmware/tab5_idf/`. **Any config that can change runtime behaviour belongs under
+version control**, or it cannot appear in the answer to "what did we change?"
+
+The body now uses a **linear `VER`** gradient — a per-scanline lookup, nearly free, and top-lit
+still reads as a sphere — and the glint is solid. Radial is disabled outright so it cannot return
+by accident.
+
 ### Cost hierarchy, most expensive first
 
 1. **Layer-inducing styles** — rotation, and some blend modes. Allocates a bounding-box buffer

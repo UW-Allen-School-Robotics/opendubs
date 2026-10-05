@@ -26,8 +26,12 @@ Then apply our deltas:
    lvgl/lvgl: '~9.2.2'              # esp_lvgl_port allows >=8,<10; the BSP needs LVGL 9 APIs
    espressif/esp_codec_dev: 1.3.4   # newer versions renamed ES7120_SEL_MIC* -> ES7210_SEL_MIC*
    ```
-2. **`lv_conf.h`**: `LV_USE_SNAPSHOT 1` only if frame export is wanted (it is off by default and
-   `lv_snapshot_take` returned NULL on the desktop build, so it is not currently used).
+2. **`lv_conf.h` is now tracked here** — copy `lv_conf.h` from this directory over the demo's.
+   It is tracked because it was NOT, and that cost a long debugging detour: enabling
+   `LV_USE_DRAW_SW_COMPLEX_GRADIENTS` there is where a run-for-a-while-then-freeze began, and
+   because the file lived only in the untracked demo tree, `git log -S` on that flag returned
+   nothing and the change was invisible to the record. **Any config that can change runtime
+   behaviour belongs under version control.**
 3. **Subtract the demo launcher**, which is 14.8 MB of the 15 MB of assets:
    - `rm -rf app/apps/app_launcher`
    - `rm -f app/assets/images/{launcher_bg,porta_i2c_dev_chart,internal_i2c_dev_chart}.c`

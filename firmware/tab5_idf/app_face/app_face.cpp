@@ -384,7 +384,10 @@ void buildScene()
         // fourteen concentric ellipses was approximating by hand; a gradient does it properly and
         // makes the eye read as a sphere rather than a disc.
         lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(0x0b6a64), LV_PART_MAIN);
-        lv_obj_set_style_bg_grad_dir(g_eye[i].body, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
+        // VERTICAL, not radial. A radial gradient is cached per geometry and this body animates
+        // its size, so every frame minted a new one until an allocation failed. A linear gradient
+        // is a per-scanline lookup, costs almost nothing, and top-lit still reads as a sphere.
+        lv_obj_set_style_bg_grad_dir(g_eye[i].body, LV_GRAD_DIR_VER, LV_PART_MAIN);
         lv_obj_set_style_bg_main_stop(g_eye[i].body, 40, LV_PART_MAIN);
         lv_obj_set_style_bg_grad_stop(g_eye[i].body, 255, LV_PART_MAIN);
         lv_obj_set_size(g_eye[i].body, kBodyW, kBodyH);
@@ -400,11 +403,10 @@ void buildScene()
         // the pupil for free and can never escape the eye, which retires the clamping that was
         // needed when it was a child of the body.
         g_eye[i].glint = plainBox(g_eye[i].pupil, lv_color_hex(0xffffff), 999);
-        lv_obj_set_style_bg_grad_color(g_eye[i].glint, lv_color_hex(0xffffff), LV_PART_MAIN);
-        lv_obj_set_style_bg_grad_dir(g_eye[i].glint, LV_GRAD_DIR_RADIAL, LV_PART_MAIN);
-        lv_obj_set_style_bg_main_opa(g_eye[i].glint, 235, LV_PART_MAIN);
-        lv_obj_set_style_bg_grad_opa(g_eye[i].glint, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_bg_main_stop(g_eye[i].glint, 20, LV_PART_MAIN);
+        // Solid, not a radial fade. The glint's size tracks the pupil, which tracks the body,
+        // so it animates too -- same cache churn, smaller object. A hard-edged highlight is a
+        // small aesthetic price for not minting a gradient per frame.
+        lv_obj_set_style_bg_opa(g_eye[i].glint, 235, LV_PART_MAIN);
         // The eyelid is a real object that descends, not a height squash of the body. Created
         // last so it draws over the pupil and glint, and pinned foreground to keep it that way.
         g_eye[i].lid = plainBox(g_eye[i].body, lv_color_hex(0x000000), 0);
