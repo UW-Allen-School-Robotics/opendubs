@@ -22,6 +22,13 @@ constexpr float kOnsetRatio = 2.2f;     // how far above the floor counts as "so
 constexpr float kFloorMin   = 25.0f;    // never trust a floor so low that noise trips it
 
 uint32_t nextSample = 0;
+// THE ROBOT MUST NOT HEAR ITSELF. The first run of this loop chirped, heard the chirp as a fresh
+// onset at ~14000 RMS against a floor of 20, glanced at itself, chirped again -- and dragged the
+// tracked floor up to 327, going deaf to actual people in the process. The speaker and microphone
+// share this board, and the ES7210's echo-cancellation channels are disabled by M5Unified's Tab5
+// init, so nothing upstream is going to solve this.
+uint32_t deafUntil = 0;
+constexpr uint32_t kSelfSoundTailMs = 220;   // ring-out after the tone stops
 uint32_t glanceUntil = 0;               // the current glance is committed until this moment
 uint32_t quietUntil  = 0;               // no new cue before this -- one blip per utterance
 uint32_t lastOnset   = 0;
@@ -31,19 +38,32 @@ int      heldDir     = 0;
 // an acknowledgement can never cut off a BEEP or CHIME that means something operational.
 constexpr int kCueChannel = 3;
 
-void blip() { M5.Speaker.tone(2200, 70, kCueChannel, false); }
+void blip() {
+  M5.Speaker.tone(2200, 70, kCueChannel, false);
+  deafUntil = millis() + 70 + kSelfSoundTailMs;
+}
 
 } // namespace
 
 void attentionBegin() {
-  M5.Mic.begin();          // coexists with the speaker on this board; both hold I2S together
+  const bool ok = M5.Mic.begin();   // coexists with the speaker here; both hold I2S together
   nextSample = 0;
+  Serial.printf("[ATTN] mic %s -- social attention %s\n", ok ? "up" : "FAILED",
+                ok ? "active" : "DISABLED");
 }
 
 void attentionTick(uint32_t now) {
   if (!M5.Mic.isEnabled()) return;
   if (now < nextSample) return;
   nextSample = now + 40;                // ~25 Hz is plenty to catch a voice onset
+
+  // Ignore everything while we are making noise, and do not let our own sound pollute the floor.
+  // Checking isPlaying() as well as the timer covers a BEEP or CHIME the robot was told to make
+  // by the StamPLC, which this module never knows about in advance.
+  if (now < deafUntil || M5.Speaker.isPlaying()) {
+    if (M5.Speaker.isPlaying()) deafUntil = now + kSelfSoundTailMs;
+    return;
+  }
 
   if (!M5.Mic.record(rec, kSamples, 16000, true)) return;
   while (M5.Mic.isRecording()) { delay(1); }
@@ -62,6 +82,15 @@ void attentionTick(uint32_t now) {
     floorR += ((r < floorR) ? 0.08f : 0.01f) * (r - floorR);
     if (floorL < kFloorMin) floorL = kFloorMin;
     if (floorR < kFloorMin) floorR = kFloorMin;
+  }
+
+  // Heartbeat. Without it, a correctly-silent quiet room and a dead loop look identical from a
+  // desk -- and "no output" has already been misread as broken hardware twice in this project.
+  static uint32_t hb = 0;
+  if (now - hb > 3000) {
+    hb = now;
+    Serial.printf("[ATTN] idle  L%4.0f R%4.0f  floor %3.0f/%3.0f  (fires above %3.0f)\n",
+                  l, r, floorL, floorR, floorL * kOnsetRatio);
   }
 
   const bool onset = (l > floorL * kOnsetRatio) || (r > floorR * kOnsetRatio);
@@ -83,9 +112,16 @@ void attentionTick(uint32_t now) {
   faceLookAt(dir == 0 ? 0.0f : dir * 0.85f, dir == 0 ? 0.25f : 0.0f, 900);
   glanceUntil = now + 900;
 
-  if (now > quietUntil) {                       // acknowledge the utterance, not each syllable
+  const bool cued = now > quietUntil;
+  if (cued) {                                   // acknowledge the utterance, not each syllable
     blip();
     quietUntil = now + 1500;
   }
   lastOnset = now;
+
+  // One line per glance. Enough to confirm from a desk that the loop detects, decides a
+  // direction and cues -- without anyone having to be in front of the panel to report it.
+  Serial.printf("[ATTN] onset L%4.0f R%4.0f floor %3.0f/%3.0f -> look %-6s %s\n", l, r,
+                floorL, floorR,
+                dir < 0 ? "LEFT" : dir > 0 ? "RIGHT" : "CENTRE", cued ? "+chirp" : "");
 }
