@@ -30,8 +30,8 @@ getting the function and the aesthetics right. Trying things is the point; untra
 
 | # | Question | Kill criterion |
 |---|---|---|
-| **1.1** | **Does LVGL + PPA actually give us better eye animation than we could hand-build?** Layered compositing, hardware blit/scale/mirror, unbounded gaze travel, `smooth_ui_toolkit` easing. | **THIS IS THE GO/NO-GO.** If the animation options are not materially better than the bespoke renderer, the IDF switch is not worth it and we stop. |
-| 1.2 | **Eyes and emotes.** Build the compositor face on top of 1.1: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
+| **1.1** | ~~Does LVGL + PPA give better eye animation than we could hand-build?~~ | **PASSED, 2026-10-05.** Desktop build judged materially better by Emma; the same app then built at 2.76 MB and ran on the Tab5. `smooth_ui_toolkit` is a motion.dev-style system — springs, easings, sequences, delay/repeat, completion callbacks — against one exponential lerp. **The IDF switch is adopted.** |
+| 1.2 | **Eyes and emotes.** `firmware/tab5_idf/app_face/` exists and runs; now iterate the aesthetics on the desktop build: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
 | 1.3 | **Audio cues.** The five rhythm-distinct earcons, on separate virtual channels, envelope-shaped via `playRaw`. | Audible and distinguishable across a room. |
 | 1.4 | **Face detection.** Add `esp-dl`, uncomment `HumanFaceDetect`, measure image size, PSRAM and detections/second. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
 | 1.5 | **Voice, as a probe.** Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
