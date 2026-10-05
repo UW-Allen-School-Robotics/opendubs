@@ -165,6 +165,131 @@ uint32_t g_nextSaccade = 0, g_nextEmote = 0, g_nextBlink = 0;
 bool g_blinking = false;
 uint32_t g_blinkEnd = 0;
 
+
+// ---- the perimeter band ---------------------------------------------------------------------
+// A second channel, so the eyes stop carrying two messages at once. The eyes say WHERE I AM
+// LOOKING; the band says WHAT I AM DOING. The band is also peripherally legible -- visible from
+// beside the robot or at a glance, where no eye detail is -- which is the half of the audience
+// the eyes cannot reach.
+//
+// COLOUR IS STATE, MOTION IS ACTIVITY. Two independent dimensions on one channel, so neither is
+// lost when the other is absent: a state with no activity still shows its colour, and an activity
+// with no state change still reads from its motion.
+//
+// NOT A SAFETY CHANNEL. It is on the Tab5, so it dies with the e-stop and with the link. PRISM is
+// the safety annunciator and survives both. Nothing may depend on this band alone.
+//
+// Built from discrete SEGMENTS with animated opacity rather than a gradient ring or an lv_arc.
+// A rotated or arc-filled object is rendered through a layer, which allocates a buffer per draw
+// and starved this device once already. A travelling opacity wave over small rectangles gives the
+// same sweep with no masks, no rotation and no allocation.
+namespace band {
+
+constexpr int kThick = 16;
+constexpr int kTop = 15, kSide = 9;                    // segments per edge, ~83 px each
+constexpr int kSegs = 2 * kTop + 2 * kSide;            // 48
+
+lv_obj_t* g_seg[kSegs];
+float     g_at[kSegs];                                 // 0..1 position around the ring
+uint8_t   g_lastOpa[kSegs];
+uint32_t  g_lastColour = 0xffffffff;
+
+enum Activity { IDLE = 0, LISTEN, THINK, SPEAK, FAULT };
+Activity g_activity = IDLE;
+float    g_phase = 0.0f;
+uint32_t g_lastMs = 0;
+
+const char* name(Activity a)
+{
+    switch (a) {
+        case LISTEN: return "listening";
+        case THINK:  return "thinking";
+        case SPEAK:  return "speaking";
+        case FAULT:  return "fault";
+        default:     return "idle";
+    }
+}
+
+void build(lv_obj_t* scr)
+{
+    int n = 0;
+    auto place = [&](int x, int y, int w, int h, float at) {
+        lv_obj_t* o = lv_obj_create(scr);
+        lv_obj_remove_style_all(o);
+        lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(o, lv_color_hex(0x2ecc58), LV_PART_MAIN);
+        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(o, w, h);
+        lv_obj_set_pos(o, x, y);
+        g_seg[n] = o; g_at[n] = at; g_lastOpa[n] = 0xff; ++n;
+    };
+    // Clockwise from the top-left, so a sweep travels the way a clock does.
+    const float per = 1.0f / (float)kSegs;
+    for (int i = 0; i < kTop;  ++i) place(i * kScreenW / kTop, 0, kScreenW / kTop + 1, kThick, n * per);
+    for (int i = 0; i < kSide; ++i) place(kScreenW - kThick, i * kScreenH / kSide, kThick, kScreenH / kSide + 1, n * per);
+    for (int i = 0; i < kTop;  ++i) place(kScreenW - (i + 1) * kScreenW / kTop, kScreenH - kThick, kScreenW / kTop + 1, kThick, n * per);
+    for (int i = 0; i < kSide; ++i) place(0, kScreenH - (i + 1) * kScreenH / kSide, kThick, kScreenH / kSide + 1, n * per);
+}
+
+// Distance around a 0..1 ring, shortest way.
+float ringDist(float a, float b)
+{
+    float d = a - b;
+    while (d < -0.5f) d += 1.0f;
+    while (d >  0.5f) d -= 1.0f;
+    return d < 0 ? -d : d;
+}
+
+void update(uint32_t now, uint32_t colour)
+{
+    const float dt = (g_lastMs == 0) ? 0.0f : (now - g_lastMs) / 1000.0f;
+    g_lastMs = now;
+
+    // Motion IS the vocabulary, the same argument as the earcons being rhythm-distinct: a cue
+    // separated only by colour is lost on anyone glancing, colour-blind, or at an angle.
+    float speed = 0.0f, width = 0.12f, base = 26.0f, peak = 170.0f;
+    switch (g_activity) {
+        case IDLE:   speed = 0.0f;  base = 22.0f; peak = 54.0f;  break;   // whole ring breathes
+        case LISTEN: speed = 0.35f; width = 0.16f; base = 24.0f; peak = 190.0f; break;
+        case THINK:  speed = 0.95f; width = 0.07f; base = 18.0f; peak = 235.0f; break;
+        case SPEAK:  speed = 0.0f;  base = 60.0f; peak = 220.0f; break;   // envelope, stubbed
+        case FAULT:  speed = 0.0f;  base = 0.0f;  peak = 255.0f; break;   // hard flash, all at once
+    }
+    g_phase += speed * dt;
+    while (g_phase > 1.0f) g_phase -= 1.0f;
+
+    const float tsec = now / 1000.0f;
+    for (int i = 0; i < kSegs; ++i) {
+        float v;
+        if (g_activity == FAULT) {
+            v = (fmodf(tsec, 0.7f) < 0.35f) ? 1.0f : 0.06f;      // unmistakable, and theme-proof
+        } else if (g_activity == IDLE) {
+            v = 0.5f + 0.5f * sinf(tsec * 1.1f);                 // slow, whole-ring breath
+        } else if (g_activity == SPEAK) {
+            v = 0.5f + 0.5f * sinf(tsec * 7.0f);                 // placeholder for the audio envelope
+        } else {
+            const float d = ringDist(g_at[i], g_phase);
+            v = expf(-(d * d) / (2.0f * width * width));         // a travelling bump
+        }
+        const float opaF = base + (peak - base) * v;
+        // QUANTISED TO 16 LEVELS and change-guarded. 48 segments written every frame would be 48
+        // invalidations per frame for motion the eye cannot resolve that finely.
+        const uint8_t opa = (uint8_t)(((int)opaF >> 4) << 4);
+        if (opa != g_lastOpa[i]) {
+            lv_obj_set_style_bg_opa(g_seg[i], opa, LV_PART_MAIN);
+            g_lastOpa[i] = opa;
+        }
+    }
+
+    if (colour != g_lastColour) {
+        for (int i = 0; i < kSegs; ++i)
+            lv_obj_set_style_bg_color(g_seg[i], lv_color_hex(colour), LV_PART_MAIN);
+        g_lastColour = colour;
+    }
+}
+
+} // namespace band
+
 lv_obj_t* plainBox(lv_obj_t* parent, lv_color_t colour, int radius)
 {
     lv_obj_t* o = lv_obj_create(parent);
@@ -226,6 +351,8 @@ void buildScene()
         lv_obj_set_style_line_rounded(g_eye[i].brow, true, LV_PART_MAIN);
     }
 
+    band::build(scr);
+
     g_label = lv_label_create(scr);
     lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 24);
@@ -252,7 +379,8 @@ void applyEmote(int idx)
     g_browRaise = e.browRaise;
     g_browAngle = e.browAngle;
     char buf[128];
-    snprintf(buf, sizeof(buf), "%s  -  %s", kStates[g_state].label, e.name);
+    snprintf(buf, sizeof(buf), "%s  -  %s  -  %s", kStates[g_state].label, e.name,
+             band::name(band::g_activity));
     lv_label_set_text(g_label, buf);
 }
 
@@ -368,8 +496,25 @@ void AppFace::onRunning()
         g_nextBlink = now + 2200 + (rand() % 3000);
     }
 
+    // FAULT is not a choice: the two reporting states that mean something is wrong own it, and a
+    // theme can never recolour or re-time it into ambiguity.
+    if (g_state == 4 || g_state == 5) {                    // DEGRADED, E_STOP
+        band::g_activity = band::FAULT;
+    } else {
+        // No audio or Thor on the bench, so walk the vocabulary to see the motions.
+        static uint32_t nextAct = 0;
+        if (now > nextAct) {
+            nextAct = now + 5000;
+            const band::Activity cycle[] = {band::IDLE, band::LISTEN, band::THINK, band::SPEAK};
+            static int k = 0;
+            band::g_activity = cycle[k++ % 4];
+        }
+    }
+
     GetHAL()->lvglLock();
     const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
+    band::update(now, ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
+                      | (uint32_t)(float)g_colB);
     for (int i = 0; i < 2; ++i) {
         Last& L = g_last[i];
 
