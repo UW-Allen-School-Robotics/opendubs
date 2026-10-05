@@ -118,6 +118,12 @@ m5stack_tab5   Oct  5 2026 09:29:21   v5.5.5      <- app descriptor at 0x10000
 [faceprobe] VERDICT: PASS -- detector works, 24.7ms per frame steady
 ```
 
+**CORRECTION, same day: I over-claimed this, and the over-claim caused a long bad detour.** What
+is proven below is that **the MODEL runs**. It exercises **no part of the camera** — the live path
+had not run once when I wrote "face detection WORKS". Live camera detection is **not working**; see
+`notes/design/tab5-face-tracking.md` §4. Emma's words for the error, which are the right ones: *a
+test without me in frame won't prove anything.*
+
 **~25 ms per inference, ~38 fps, score 0.835, and the identical bounding box on eight consecutive
 runs** — the determinism the fixed reference image was chosen for. No assert. ESP-Hosted starts
 normally.

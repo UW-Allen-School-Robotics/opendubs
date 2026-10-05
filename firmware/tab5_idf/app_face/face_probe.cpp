@@ -5,7 +5,11 @@
 
 #ifndef OPENDUBS_PROBE_FACEDET
 
-void faceProbeStart() {}   // deliberately empty -- see face_probe.h
+// Deliberately empty -- see face_probe.h. esp-dl is never referenced from here, so the linker
+// drops it and the image is byte-identical to a build without the dependency (measured).
+void faceProbeStart() {}
+bool faceTrackGet(float*, float*, uint32_t*) { return false; }
+const char* faceProbeStatus() { return "probe: off"; }
 
 #else
 
@@ -14,6 +18,11 @@ void faceProbeStart() {}   // deliberately empty -- see face_probe.h
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <mooncake_log.h>
+#include <hal/hal.h>
+#include <lvgl.h>
+#include <atomic>
+#include <cstring>
+#include <cstdio>
 
 #include "dl_image.hpp"
 #include "human_face_detect.hpp"
@@ -25,6 +34,21 @@ void faceProbeStart() {}   // deliberately empty -- see face_probe.h
 namespace {
 
 constexpr const char* kTag = "faceprobe";
+
+// ON-PANEL STATUS. CLAUDE.md warns against a bench that reports ONLY on the panel, because
+// usually nobody is there. Today the inverse failed just as badly: a probe reporting only over a
+// serial port I could not reliably read left someone standing at the device with no way to tell
+// whether it worked. So report BOTH. The face app draws this string.
+// Wrap-safe deadline test -- AUDIT.md invariant 5. Third copy in this directory after
+// app_face.cpp and cues.cpp, which is one too many: a fourth should become a shared header.
+inline bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
+
+char g_status[72] = "probe: starting";
+void setStatus(const char* s)
+{
+    strncpy(g_status, s, sizeof(g_status) - 1);
+    g_status[sizeof(g_status) - 1] = 0;
+}
 
 // The reference image ships with esp-dl's own human_face_detect example, so it is the input the
 // model was demonstrated against -- which is what makes a miss meaningful rather than arguable.
@@ -90,8 +114,11 @@ void report(HumanFaceDetect* det)
     // hardware for a result the probe cannot distinguish.
     if (faces == kExpectFaces) {
         mclog::tagInfo(kTag, "VERDICT: PASS -- detector works, {:.1f}ms per frame steady", steadyMs);
+        { char b[72]; snprintf(b, sizeof(b), "selftest PASS %.0fms - starting camera", steadyMs);
+          setStatus(b); }
     } else if (faces == 0) {
         mclog::tagError(kTag, "VERDICT: FAIL -- no face in an image that contains one");
+        setStatus("selftest FAIL - no face in reference image");
     } else {
         mclog::tagError(kTag, "VERDICT: FAIL -- {} faces in an image containing {}",
                         (int)faces, kExpectFaces);
@@ -100,72 +127,264 @@ void report(HumanFaceDetect* det)
     heap_caps_free(img.data);
 }
 
+// ------------------------------------------------------------------------------------------
+// STAGE 2: live tracking off the camera. Stage 1 proves the MODEL; only this proves the CAMERA.
+//
+// Published as plain atomics, read by the face app's own render loop. The tracker NEVER touches
+// LVGL -- an unlocked LVGL call from a second task corrupts internal state rather than failing
+// cleanly, and that was the longest-running freeze in this app. AUDIT.md invariant 1, satisfied
+// structurally instead of by vigilance.
+// ------------------------------------------------------------------------------------------
+std::atomic<float>    g_trackX{0.0f};
+std::atomic<float>    g_trackY{0.0f};
+std::atomic<uint32_t> g_trackSeq{0};
+std::atomic<uint32_t> g_trackStamp{0};
+
+// How long a fix stays good after the face leaves: long enough to ride out a dropped frame,
+// short enough that the eyes do not stare at nobody.
+constexpr uint32_t kHoldMs = 900;
+
+// Camera canvas geometry, read from hal_camera.cpp rather than assumed --
+//   lv_canvas_set_buffer(camera_canvas, img_show->data, CAMERA_WIDTH, CAMERA_HEIGHT, RGB565)
+// with CAMERA_WIDTH 1280, CAMERA_HEIGHT 720. img_show is separately allocated 720x1280, and
+// guessing between the two would skew every coordinate.
+constexpr int kCamW = 1280;
+constexpr int kCamH = 720;
+
+// Orientation. The PPA stage sets mirror_x = true for the preview, so a tracker reading the same
+// buffer inherits that mirroring. These two signs decide whether the eyes follow you or run from
+// you, and they are settled BY WATCHING THE RETICLE -- which is why the reticle exists.
+constexpr bool kMirrorX = true;
+constexpr bool kMirrorY = false;
+
+// The detection marker, drawn ON the preview as a child of it, in preview pixel coordinates.
+// A child, so it cannot drift relative to the image and needs no coordinate translation; hollow,
+// so it never hides what it is marking. Created once, then only moved or hidden -- steady-state
+// allocation is AUDIT.md invariant 6. Called with the LVGL lock already held.
+lv_obj_t* g_mark = nullptr;
+void faceReticleAt(int x, int y, lv_obj_t* parent)
+{
+    if (!g_mark) {
+        g_mark = lv_obj_create(parent);
+        lv_obj_remove_style_all(g_mark);
+        lv_obj_set_size(g_mark, 44, 44);
+        lv_obj_set_style_bg_opa(g_mark, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(g_mark, 3, 0);
+        lv_obj_set_style_border_color(g_mark, lv_color_hex(0x00ff66), 0);
+        lv_obj_add_flag(g_mark, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (x < 0) {
+        lv_obj_add_flag(g_mark, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(g_mark, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(g_mark, x - 22, y - 22);
+}
+
+// Preview size. ONE software downscale produces both the picture shown on the panel and the
+// picture handed to the detector, from the same pass over the same source pixels. That identity is
+// the whole point: if the preview looks like a room, the conversion is right; if the preview looks
+// like a sheared mess, the conversion is wrong -- and either way the detector saw exactly what you
+// are looking at. No inference.
+constexpr int kDetW = 320, kDetH = 180;   // 16:9, same aspect as 1280x720, so no distortion
+
+void trackLoop(HumanFaceDetect* det)
+{
+    // Two buffers, allocated once. RGB565 for the panel (the canvas format), RGB888 for the model
+    // (the only format this model is proven on -- the self-test decodes its JPEG to RGB888).
+    uint16_t* prev565 = (uint16_t*)heap_caps_malloc(kDetW * kDetH * 2, MALLOC_CAP_SPIRAM);
+    uint8_t*  rgb888  = (uint8_t*)heap_caps_malloc(kDetW * kDetH * 3, MALLOC_CAP_SPIRAM);
+    if (!prev565 || !rgb888) { setStatus("probe: no PSRAM for preview"); return; }
+    memset(prev565, 0, kDetW * kDetH * 2);
+
+    GetHAL()->lvglLock();
+    // The HAL hands over frames by pointing a canvas at the PPA output. This one stays hidden --
+    // it is 1280x720 and would cover the face. We only want its buffer pointer.
+    lv_obj_t* cam = lv_canvas_create(lv_screen_active());
+    lv_obj_add_flag(cam, LV_OBJ_FLAG_HIDDEN);
+
+    // The VISIBLE preview: a 320x180 canvas pointed at our own downscaled buffer. No LVGL scaling
+    // anywhere, so no layer allocation -- the scaling is the software pass we already do. Bottom
+    // left, out of the eyes' way.
+    lv_obj_t* prev = lv_canvas_create(lv_screen_active());
+    lv_canvas_set_buffer(prev, prev565, kDetW, kDetH, LV_COLOR_FORMAT_RGB565);
+    lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 8, -8);
+    lv_obj_move_foreground(prev);
+    GetHAL()->lvglUnlock();
+
+    GetHAL()->startCameraCapture(cam);
+    setStatus("camera on - waiting for first frame");
+    mclog::tagInfo(kTag, "camera started; preview %dx%d bottom-left", kDetW, kDetH);
+
+    // Grab the source pointer ONCE. hal_camera.cpp calls lv_canvas_set_buffer with the same
+    // img_show->data every frame, so it never changes -- and caching it means the hot loop needs
+    // no LVGL lock at all to read pixels.
+    const uint16_t* src = nullptr;
+    for (int i = 0; i < 100 && !src; ++i) {
+        GetHAL()->lvglLock();
+        src = (const uint16_t*)lv_canvas_get_buf(cam);
+        GetHAL()->lvglUnlock();
+        if (!src) vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (!src) { setStatus("camera: NO FRAME BUFFER - capture never started"); return; }
+
+    uint32_t frames = 0, hits = 0;
+    int64_t  accum = 0;
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(60));
+
+        // ---- ONE PASS: downscale + convert. NO LVGL LOCK HELD. ----------------------------
+        // Reading the camera buffer needs no lock: the camera task writes it via PPA without
+        // holding the LVGL lock either, so the lock protects nothing here. Holding it only blocked
+        // the render loop -- which is what froze the animation while LVGL's FPS counter kept
+        // ticking. Tearing across a frame boundary is harmless for detection.
+        uint32_t sum = 0, lo = 255, hi = 0;
+        for (int y = 0; y < kDetH; ++y) {
+            const uint16_t* srow = src + (size_t)(y * kCamH / kDetH) * kCamW;
+            uint16_t*       prow = prev565 + (size_t)y * kDetW;
+            uint8_t*        drow = rgb888 + (size_t)y * kDetW * 3;
+            for (int x = 0; x < kDetW; ++x) {
+                const uint16_t p = srow[x * kCamW / kDetW];
+                prow[x] = p;                                  // preview: straight copy
+                const uint8_t r = (uint8_t)(((p >> 11) & 0x1f) << 3);
+                const uint8_t g = (uint8_t)(((p >> 5) & 0x3f) << 2);
+                const uint8_t b = (uint8_t)((p & 0x1f) << 3);
+                drow[x * 3 + 0] = r;
+                drow[x * 3 + 1] = g;
+                drow[x * 3 + 2] = b;
+                const uint8_t l = (uint8_t)((r + g + b) / 3);
+                sum += l; if (l < lo) lo = l; if (l > hi) hi = l;
+            }
+        }
+        const uint32_t avg = sum / (kDetW * kDetH);
+
+        dl::image::img_t frame = {};
+        frame.data     = rgb888;
+        frame.width    = kDetW;
+        frame.height   = kDetH;
+        frame.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
+
+        const int64_t t0 = esp_timer_get_time();
+        auto& res        = det->run(frame);
+        accum += esp_timer_get_time() - t0;
+        frames++;
+
+        const uint32_t now = (uint32_t)GetHAL()->millis();
+        int rx = -1, ry = -1;
+
+        if (!res.empty()) {
+            const dl::detect::result_t* best = nullptr;
+            int bestArea = -1;
+            for (const auto& r : res) {
+                const int a = (r.box[2] - r.box[0]) * (r.box[3] - r.box[1]);
+                if (a > bestArea) { bestArea = a; best = &r; }
+            }
+            const float cx = (best->box[0] + best->box[2]) * 0.5f;
+            const float cy = (best->box[1] + best->box[3]) * 0.5f;
+
+            // Reticle position in PREVIEW pixels -- drawn over the very image it was found in, so
+            // a correct detection is unmistakable and a wrong one is obvious.
+            rx = (int)cx;
+            ry = (int)cy;
+
+            float nx = (cx / (float)kDetW) * 2.0f - 1.0f;
+            float ny = (cy / (float)kDetH) * 2.0f - 1.0f;
+            if (kMirrorX) nx = -nx;
+            if (kMirrorY) ny = -ny;
+            nx = nx < -1.0f ? -1.0f : (nx > 1.0f ? 1.0f : nx);
+            // Match the face's own narrower vertical range (newSaccade uses amp * 0.55).
+            ny = (ny < -1.0f ? -1.0f : (ny > 1.0f ? 1.0f : ny)) * 0.55f;
+
+            g_trackX.store(nx);
+            g_trackY.store(ny);
+            g_trackStamp.store(now);
+            g_trackSeq.fetch_add(1);
+            hits++;
+
+            char b[72];
+            snprintf(b, sizeof(b), "FACE %.2f  gaze %+.2f,%+.2f  %.0fms", best->score, nx, ny,
+                     accum / 1000.0f / frames);
+            setStatus(b);
+            if ((hits % 8) == 1) {
+                mclog::tagInfo(kTag, "TRACK {:.2f} box=({},{})-({},{}) gaze={:.2f},{:.2f}",
+                               best->score, best->box[0], best->box[1], best->box[2], best->box[3],
+                               nx, ny);
+            }
+        } else {
+            // Report the EXPOSURE, not just "no face". lo/hi/avg says whether the preview is a
+            // real picture, a black frame (lens covered, capture dead) or a white-out -- which is
+            // the difference between "my code is wrong" and "the camera cannot see anything".
+            char b[72];
+            snprintf(b, sizeof(b), "no face  luma %lu/%lu/%lu  %.0fms",
+                     (unsigned long)lo, (unsigned long)avg, (unsigned long)hi,
+                     accum / 1000.0f / frames);
+            setStatus(b);
+            if (g_trackStamp.load() != 0 && due(now, g_trackStamp.load() + kHoldMs)) {
+                g_trackStamp.store(0);
+            }
+        }
+
+        // Only now take the lock, and only to repaint the preview and move the reticle.
+        GetHAL()->lvglLock();
+        lv_obj_invalidate(prev);
+        faceReticleAt(rx, ry, prev);
+        GetHAL()->lvglUnlock();
+    }
+}
+
 void task(void*)
 {
-    // Let the face app finish building its scene first. The probe is a guest here: it allocates
-    // several MB of PSRAM for the model and must not race the eye's own allocation at startup.
+    // Let the face app build its scene first: this allocates several MB of PSRAM for the model and
+    // must not race the eye's own startup allocation.
     vTaskDelay(pdMS_TO_TICKS(4000));
 
+    setStatus("probe: loading model");
     mclog::tagInfo(kTag, "constructing HumanFaceDetect (model load)");
     const int64_t t0  = esp_timer_get_time();
     auto*         det = new HumanFaceDetect();
     mclog::tagInfo(kTag, "model loaded in {:.0f}ms", (esp_timer_get_time() - t0) / 1000.0f);
 
-    for (;;) {
-        report(det);
-        // Repeat, because attaching to the port resets nothing and a result printed once at boot is
-        // a result nobody can read.
-        vTaskDelay(pdMS_TO_TICKS(15000));
-    }
+    // STAGE 1: the reference image, once. If this fails, nothing about the camera matters yet, and
+    // the log says which half is broken.
+    report(det);
+
+    // STAGE 2: live, same model instance -- a second would cost another copy of the weights.
+    trackLoop(det);
 }
 
 }  // namespace
 
+const char* faceProbeStatus() { return g_status; }
+
+bool faceTrackGet(float* nx, float* ny, uint32_t* seq)
+{
+    const uint32_t stamp = g_trackStamp.load();
+    if (stamp == 0) return false;
+    // Wrap-safe, same reasoning as due(): subtract first, then sign. This is the public entry
+    // point and sits outside the anonymous namespace, so it cannot see that helper.
+    const uint32_t now = (uint32_t)GetHAL()->millis();
+    if ((int32_t)(now - (stamp + kHoldMs)) < 0) {
+        *nx  = g_trackX.load();
+        *ny  = g_trackY.load();
+        *seq = g_trackSeq.load();
+        return true;
+    }
+    return false;
+}
+
 void faceProbeStart()
 {
-    // Its own task, at LOW priority, off the LVGL task. Inference takes tens of milliseconds and
-    // running it inline would stall the render loop -- which would then look like the freezes we
-    // spent several rounds chasing.
-    //
-    // STATIC, with both buffers forced INTERNAL. A plain xTaskCreate() here asserted:
-    //
-    //   assert failed: xTaskCreateStaticPinnedToCore (xPortCheckValidTCBMem(pxTaskBuffer))
-    //
-    // A FreeRTOS task control block MUST live in internal RAM, and this build has little left --
-    // esp-dl's own allocations crowd it, and the vendor config permits task memory in external
-    // RAM, so the allocator handed back PSRAM and the check fired. Allocating both the TCB and the
-    // stack with MALLOC_CAP_INTERNAL says what is actually required instead of hoping.
-    static StaticTask_t* tcb   = nullptr;
-    static StackType_t*  stack = nullptr;
-    constexpr uint32_t   kStackWords = 6144;
-
-    // MALLOC_CAP_DMA, not MALLOC_CAP_INTERNAL. INTERNAL was not enough and the reason is specific:
-    // it also covers RTCRAM and TCM, this build has 31 KiB of RTCRAM and 7 KiB of TCM free, a
-    // StaticTask_t is only a couple of hundred bytes -- so the allocator happily placed the TCB in
-    // RTCRAM, which xPortCheckValidTCBMem rejects. DMA-capable means internal DRAM proper, which is
-    // what FreeRTOS actually requires. The allocation SUCCEEDED before; it was in the wrong RAM.
-    constexpr uint32_t kCaps = MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
-
-    // Print the budget BEFORE asking for it, so a failure here is still a measurement rather than a
-    // mystery -- "esp-dl leaves N KB of internal DRAM" is exactly the number worth knowing.
-    mclog::tagInfo(kTag, "internal DRAM free={}K largest={}K (need {}K for this task)",
-                   heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024,
-                   heap_caps_get_largest_free_block(MALLOC_CAP_DMA) / 1024,
-                   (unsigned)((sizeof(StaticTask_t) + kStackWords * sizeof(StackType_t)) / 1024));
-
-    tcb   = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), kCaps);
-    stack = (StackType_t*)heap_caps_malloc(kStackWords * sizeof(StackType_t), kCaps);
-    if (!tcb || !stack) {
-        // Say so, rather than asserting or silently doing nothing. If the probe cannot run, that
-        // is itself the measurement: esp-dl does not leave room for another task on this build.
-        mclog::tagError(kTag, "INCONCLUSIVE: no internal DRAM for the probe task -- that IS the "
-                              "result: esp-dl does not leave room for another task (free DMA={}K)",
-                        heap_caps_get_free_size(MALLOC_CAP_DMA) / 1024);
-        heap_caps_free(tcb);
-        heap_caps_free(stack);
-        return;
+    // A PLAIN task. This previously allocated its own TCB and stack with MALLOC_CAP_DMA, which was
+    // a workaround for exactly one thing: the IDF 5.4.2 allocator handing out TCM for task memory,
+    // which FreeRTOS then rejected. IDF 5.5.5 drops TCM from the heap, so the workaround is not
+    // merely unnecessary -- it is HARMFUL. Asking for ~24 KB of contiguous DMA-capable internal
+    // memory can simply fail, and when it did, the probe logged a line nobody could read and
+    // silently never started. That is precisely what happened.
+    if (xTaskCreate(task, "faceprobe", 6144, nullptr, 2, nullptr) != pdPASS) {
+        setStatus("probe: TASK CREATE FAILED");
+        mclog::tagError(kTag, "task create failed");
     }
-    xTaskCreateStatic(task, "faceprobe", kStackWords, nullptr, 2, stack, tcb);
 }
 
 #endif  // OPENDUBS_PROBE_FACEDET

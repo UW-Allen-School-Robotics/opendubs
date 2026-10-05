@@ -2,6 +2,7 @@
 #include "cost_gate.h"
 #include "cues.h"
 #include "face_probe.h"
+#include <cstring>
 #include <hal/hal.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
@@ -100,6 +101,11 @@ struct Eye {
 };
 Eye g_eye[2];
 lv_obj_t* g_label = nullptr;
+// The probe gets its OWN label. It first shared g_label with the state/heap HUD and lost: that
+// HUD is rewritten on every state and emote change, so the status was clobbered within a frame --
+// and the change-guard compared against WHAT THIS CODE LAST WROTE rather than what is on the
+// label, so once clobbered it was never rewritten. Two writers, one widget, guaranteed to fail.
+lv_obj_t* g_probeLabel = nullptr;
 lv_obj_t* g_quote = nullptr;
 
 // ---- the quotes ------------------------------------------------------------------------------
@@ -136,6 +142,15 @@ int      g_quoteShown = -1;
 // ---- animated state --------------------------------------------------------------------------
 // Gaze is EASED, not sprung: a saccade is ballistic and must not overshoot or wobble.
 AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
+
+// The reticle: a hollow box showing WHERE THE FIRMWARE THINKS THE FACE IS. It exists because
+// "the eyes follow me" is not actually falsifiable by looking at it -- the eyes are always moving,
+// so a wrong mapping reads as ordinary wandering. The reticle makes the mapping visible: if it
+// sits on you and moves with you, tracking is right; if it moves the wrong way, the sign is wrong
+// and that is a one-line fix rather than an investigation.
+lv_obj_t* g_reticle     = nullptr;
+uint32_t  g_lastTrackSeq = 0;
+bool      g_tracking     = false;
 // Shape is SPRUNG: an emote change should settle like something with mass.
 AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
              g_radius((float)kBodyW * kRadiusFrac);
@@ -650,7 +665,25 @@ void buildScene()
     lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 24);
     lv_label_set_text(g_label, "1.1 gate: eased saccades + sprung shape, independent layers");
+
+    g_probeLabel = lv_label_create(scr);
+    lv_obj_set_style_text_color(g_probeLabel, lv_color_hex(0xffd24a), LV_PART_MAIN);
+    lv_obj_align(g_probeLabel, LV_ALIGN_TOP_MID, 0, 56);
+    lv_label_set_text(g_probeLabel, faceProbeStatus());
+
+    // Built once, hidden, never reallocated -- steady-state allocation is AUDIT.md invariant 6.
+    g_reticle = lv_obj_create(scr);
+    lv_obj_remove_style_all(g_reticle);
+    lv_obj_set_size(g_reticle, 120, 120);
+    lv_obj_set_style_radius(g_reticle, 8, 0);
+    lv_obj_set_style_bg_opa(g_reticle, LV_OPA_TRANSP, 0);          // hollow: never hide the face
+    lv_obj_set_style_border_width(g_reticle, 4, 0);
+    lv_obj_set_style_border_color(g_reticle, lv_color_hex(0x00e5ff), 0);
+    lv_obj_set_style_border_opa(g_reticle, LV_OPA_80, 0);
+    lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(g_reticle);
 }
+
 
 void applyEmote(int idx);
 
@@ -812,7 +845,60 @@ void AppFace::onRunning()
 
     cueTick(now);
 
-    if (due(now, g_nextSaccade)) newSaccade(now);
+    // PROBE STATUS, on its own label. Guarded against the STRING WE LAST DISPLAYED (a copy, not
+    // a pointer) -- lv_label_set_text invalidates, so writing every frame would cost its area
+    // continuously for text that changes rarely. Invariant 8.
+    {
+        static char shown[72] = "";
+        const char* st = faceProbeStatus();
+        if (strcmp(st, shown) != 0) {
+            strncpy(shown, st, sizeof(shown) - 1);
+            shown[sizeof(shown) - 1] = 0;
+            lv_label_set_text(g_probeLabel, st);
+        }
+    }
+
+    // GAZE: a tracked face wins over autonomous wandering. This runs INSIDE onRunning, which
+    // already holds the LVGL lock -- the tracker task only ever publishes numbers, and never
+    // touches LVGL itself. That is invariant 1 satisfied structurally rather than by vigilance.
+    float    tnx = 0.0f, tny = 0.0f;
+    uint32_t tseq = 0;
+    if (faceTrackGet(&tnx, &tny, &tseq)) {
+        if (tseq != g_lastTrackSeq) {
+            g_lastTrackSeq = tseq;
+
+            // Same main-sequence timing as a spontaneous saccade, so a tracked glance does not
+            // move in a visibly different way from a natural one.
+            const float dur = saccadeSeconds(tnx - (float)g_gazeX, tny - (float)g_gazeY);
+            g_gazeX.easingOptions().duration = dur;
+            g_gazeY.easingOptions().duration = dur;
+            g_gazeX = tnx;
+            g_gazeY = tny;
+            g_asym  = -tnx * 0.13f;
+
+            // Hold off the random saccade while a face is present. Without this the two fight and
+            // the result looks like a malfunction rather than attention.
+            g_nextSaccade = now + 1200;
+
+            // Reticle follows, in SCREEN space: invert the same normalization the tracker applied.
+            // Straight inverse of the tracker's normalization, across the whole 1280x720 panel.
+            // ty carries the 0.55 vertical compression, so undo that first or the reticle sits in
+            // a band through the middle while the face is at the top of the frame.
+            const int rx = (int)((tnx * 0.5f + 0.5f) * (float)kScreenW);
+            const int ry = (int)((tny / 0.55f * 0.5f + 0.5f) * (float)kScreenH);
+            lv_obj_set_pos(g_reticle, rx - 60, ry - 60);
+        }
+        if (!g_tracking) {
+            g_tracking = true;
+            lv_obj_remove_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        if (g_tracking) {
+            g_tracking = false;
+            lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (due(now, g_nextSaccade)) newSaccade(now);
+    }
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
     static uint32_t nextTheme = 18000;
