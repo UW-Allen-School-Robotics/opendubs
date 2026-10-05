@@ -344,3 +344,36 @@ Both cost a build cycle, and both are version drift rather than anything about t
    our `0x5000`. Per-robot tilt limits and IMU offsets live there.
 3. **Port the face as one app** against the HAL, replacing `AppTemplate`.
 4. **Port the StamPLC protocol and the lift pages.**
+
+### Port A devices: the ToF and the 8Servo
+
+Both hang off the Tab5's **Grove Port A, GPIO 53 (SDA) / 54 (SCL) at 100 kHz**, on Arduino `Wire`.
+Worth stating because it is easy to assume otherwise: **the Tab5 drives the 8Servo itself** at
+`0x25`, including `readServoCurrent()` and the angle-to-microsecond conversion. It is not on the
+StamPLC.
+
+The BSP already covers the bus. `bsp_ext_i2c_init()`, `bsp_ext_i2c_deinit()` and
+`bsp_ext_i2c_get_handle()` hand back an `i2c_master_bus_handle_t`, and `BSP_EXT_I2C_SDA`/`SCL` are
+**GPIO 53/54** — the same physical port, already brought up.
+
+| | risk | why |
+|---|---|---|
+| **8Servo `0x25`** | **low** | register-level reads/writes, no vendor library. `Wire.beginTransmission/write/endTransmission` becomes `i2c_master_transmit` on the BSP handle. Mechanical. |
+| **ToF (VL53L0X / VL53L1X)** | **the real work** | depends on Pololu's Arduino `Wire` libraries, and **no VL53L0X/L1X component is published in the Espressif registry** (checked). The drivers must be ported: single-file and register-level, so tedious rather than hard, though the VL53L1X init is a long register blob. |
+
+The dual-model autodetect ports in minutes — `lift.cpp` already hand-rolls raw `Wire` transactions
+to probe the model ID (VL53L1X answers `0xEACC` at `0x010F`, VL53L0X answers `0xEE` at `0xC0`).
+
+**The risk is validation, not feasibility.** Neither device is on the bench Tab5:
+
+- *Bench can confirm:* it compiles, Port A initialises, a scan correctly finds nothing.
+- *Only the robot can confirm:* ToF ranging, servo motion, the pinch guard.
+
+And the ToF feeds the **lift's pinch guard and height logic**, so a ported driver returning
+plausible-but-wrong distances is the dangerous failure mode, not an outright broken one.
+Separately, `notes/` records the 8Servo/I2C path as implicated in the ESC red-fault, so rewriting
+that driver touches a path with history.
+
+**Therefore:** keep the ToF and servo code behind the existing interfaces (`lift.h`, the servo
+helpers) so they are swappable, keep the Arduino image as the shipping firmware, and do not cut
+over until both are validated **on the robot**.
