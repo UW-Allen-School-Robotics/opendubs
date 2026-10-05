@@ -66,6 +66,21 @@ static float gx = 0, gy = 0, gTX = 0, gTY = 0, radarAng = 0, radarPrev = 0;
 // Explicit "look here" intent, in SCREEN coordinates (already mirrored by faceLookAt).
 static float lookX = 0, lookY = 0;
 static uint32_t lookUntil = 0;
+
+// ---- gaze self-test ----------------------------------------------------------------------
+// Steps on faceRender() rather than blocking, because gx/gy are integrated INSIDE the render
+// loop: a handler that slept waiting for the gaze to settle would stop the very updates it was
+// waiting for, and read back the starting value every time.
+struct GazeStep { float x, y; const char *what; char axis; int wantSign; };
+static const GazeStep kGazeTest[] = {
+  {+1,  0, "robot RIGHT", 'x', -1},   // viewer mirror: the robot's right is the observer's left
+  {-1,  0, "robot LEFT",  'x', +1},
+  { 0, +1, "robot UP",    'y', -1},   // screen y is positive downward
+  { 0, -1, "robot DOWN",  'y', +1},
+};
+static constexpr int kNGazeTest = sizeof(kGazeTest) / sizeof(kGazeTest[0]);
+static int      gtIdx  = -1;
+static uint32_t gtNext = 0;
 static bool blinking = false;
 static int turnDir = 0, prevTurn = 0;
 static uint32_t turnMs = 0;
@@ -261,6 +276,49 @@ void faceBegin() {
       (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
 }
 
+void faceGazeSelfTest() {
+  gtIdx = 0;
+  gtNext = 0;
+  Serial.println("[GAZE] self-test: commanded direction -> resulting screen gaze");
+}
+
+// Called once per rendered frame, after gx/gy have been integrated for this frame.
+static void gazeSelfTestTick(uint32_t now) {
+#ifdef GAZE_SELFTEST_AT_BOOT
+  // Fire once, a few seconds in, WITHOUT needing anything sent to the device. Serial input cannot
+  // be relied on here: the host's /dev/cu.* does not assert DTR (on purpose -- asserting it resets
+  // an ESP32), and USB-CDC RX is gated on it, so commands written to the port are silently
+  // dropped. A test that depends on them reports nothing and looks like a failure of the feature
+  // instead of a failure of the channel.
+  static bool fired = false;
+  if (!fired && now > 4000) { fired = true; faceGazeSelfTest(); }
+#endif
+  if (gtIdx < 0) return;
+  if (gtNext == 0) {                       // first entry: issue step 0
+    faceLookAt(kGazeTest[0].x, kGazeTest[0].y, 1400);
+    gtNext = now + 1100;                   // longer than the lerp needs to settle
+    return;
+  }
+  if (now < gtNext) return;
+
+  const GazeStep &s = kGazeTest[gtIdx];
+  const float got = (s.axis == 'x') ? gx : gy;
+  // A sign test, not a magnitude one: magnitude is a tuning choice, but a flipped sign means the
+  // robot looks away from where it is going, which is worse than not looking at all.
+  const bool ok = (s.wantSign > 0) ? (got > 0.15f) : (got < -0.15f);
+  Serial.printf("[GAZE] %-12s -> g%c=%+.2f  want %s  %s\n", s.what, s.axis, got,
+                s.wantSign > 0 ? "positive" : "negative",
+                ok ? "OK" : (got > -0.15f && got < 0.15f ? "FAIL (no movement)" : "FAIL (INVERTED)"));
+
+  if (++gtIdx < kNGazeTest) {
+    faceLookAt(kGazeTest[gtIdx].x, kGazeTest[gtIdx].y, 1400);
+    gtNext = now + 1100;
+  } else {
+    gtIdx = -1; gtNext = 0;
+    Serial.println("[GAZE] self-test done");
+  }
+}
+
 void faceLookAt(float x, float y, uint32_t hold_ms) {
   // Mirror into the viewer's frame (the robot's right is the observer's left) and into screen
   // coordinates (y positive downward). Both negations are here, in one place, so no caller has to
@@ -352,6 +410,7 @@ void faceRender() {
   const float gk = committed ? k * 1.6f : k * 0.5f;
   gx = lp(gx, dgx, gk > 1.0f ? 1.0f : gk);
   gy = lp(gy, dgy, gk > 1.0f ? 1.0f : gk);
+  gazeSelfTestTick(t);
 
   if (!blinking && t > nextBlink) {
     blinking = true;

@@ -42,6 +42,60 @@ recipe that matches your task.
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.
 
+## Bench work on an M5Stack board over USB — the rote procedure
+
+**This is settled. Do not investigate it, do not experiment, do not "verify" it. Follow it.**
+It applies to every M5Stack board on a desk — Tab5, StamPLC, M5Dial — and only the port name and
+the `-e` env differ. Re-deriving any of this has cost multiple sessions; everything below is the
+answer, not a starting point.
+
+### Flash
+
+```sh
+uv run --python 3.12 --with platformio --with intelhex pio run -e <env> -t upload --upload-port <port>
+```
+
+Ports: Tab5 `/dev/cu.usbmodem2101`. Always `/dev/cu.*`, never `/dev/tty.*`. No stub flags, no
+`esptool` invocations, no bootloader button dance — **except M5Dial, which needs
+`esptool --no-stub`** and whose crash-loop escape is holding G0 at power-on.
+
+### Read telemetry
+
+```sh
+cat /dev/cu.usbmodem2101          # in a BACKGROUND task, or redirected to a file
+```
+
+- **Wait for USB to re-enumerate after any flash or reset before opening the port.** Opening it in
+  the same breath as the reset yields a live file handle onto a dead endpoint: it reads **zero
+  bytes forever** and looks exactly like crashed firmware. Put the read in a *separate* tool call.
+- **Never `timeout N head -c …`.** `head` buffers, `timeout` kills it, and the buffer is discarded —
+  silently losing output that did arrive. Redirect `cat` to a file and grep the file.
+- Never use pyserial defaults, `screen`, or anything that asserts DTR/RTS: that resets an ESP32,
+  and on a robot it has reset the safety controller.
+
+### Getting data OFF a board — the rules that make it work first time
+
+1. **`Serial.setTxTimeoutMs(0)` is mandatory** in `setup()`. Without it the first print blocks
+   forever when no host is draining the port and the firmware hangs before doing anything.
+2. **It also makes writes non-blocking, therefore lossy.** A bulk `Serial.write()` of more than
+   roughly the 256-byte CDC FIFO silently discards the remainder. **Print line by line with a few
+   ms between lines** — never one big block.
+3. **Repeat every report on a timer** (5–20 s). Attaching resets nothing, but you will always miss
+   boot-time output, and a result printed once is a result you cannot read.
+4. **Do not design around host→device serial commands.** `/dev/cu.*` does not assert DTR by design,
+   USB-CDC RX is gated on it, and written commands are dropped **with no error** — which then looks
+   like a broken feature instead of a dead channel. Anything you need to trigger must be
+   **self-triggering in firmware**, on a timer, under a build flag.
+5. **A test that needs a human at the bench is not a test.** Nobody is usually there, and "no
+   stimulus" reads identically to "broken hardware". Make the firmware produce its own stimulus and
+   its own verdict, and have it say *inconclusive* rather than blame the hardware.
+
+### Do not do these
+
+Do not go looking for a board's IP. Do not add stub/no-stub flags to a working flash. Do not open a
+serial port to "check" whether flashing worked. Do not re-measure a documented feature. Do not
+write a bench that only reports on the panel.
+
 **Build environment**, which has cost a session more than once:
 
 - PlatformIO must run on **Python ≥ 3.10** — pioarduino (the only platform that builds ESP32-P4)

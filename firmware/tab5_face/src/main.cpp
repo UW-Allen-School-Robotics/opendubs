@@ -741,6 +741,8 @@ static void applyLine(const char *line) {
     g_turnCmd = (d == 'R') ? 1 : (d == 'L') ? -1 : 0;
     g_linkOnline = true;
     last_state_ms = millis();
+  } else if (strcmp(line, "GAZETEST") == 0) {
+    faceGazeSelfTest();   // self-contained; leaves its verdict in the serial log
   } else if (strncmp(line, "GAZE ", 5) == 0) {
     // "GAZE <x> <y> [hold_ms]" -- aim the eyes at where the robot is ABOUT to go, in the robot's
     // own frame (x +1 = its right, y +1 = up). Let an observer infer the goal before the motion

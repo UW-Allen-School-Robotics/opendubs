@@ -23,3 +23,11 @@ void faceRender();       // draw one frame of the face (owns M5.Display; call on
 // genuinely wants the gaze to arrive first must call this, wait, and only then command motion --
 // the lead time belongs to whoever is moving, not here.
 void faceLookAt(float x, float y, uint32_t hold_ms);
+
+// Drive faceLookAt() through the four cardinal directions and print the gaze each one actually
+// produced, with a pass/fail on the SIGN. Self-contained on purpose: the previous way of checking
+// this was to send GAZE commands over serial and ask a person watching the panel what they saw,
+// which is not a test -- it silently becomes "no data" whenever nobody is at the bench, and it
+// cannot tell an inverted axis from an absent one. This leaves the answer in the serial log
+// whether or not anyone is present. Trigger with the GAZETEST command.
+void faceGazeSelfTest();
