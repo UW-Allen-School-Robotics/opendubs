@@ -485,24 +485,10 @@ and themes get the rest. This is the same separation-of-channels argument that j
 in the first place — and it is exactly the kind of thing that is easy to get right now and
 expensive to retrofit after a theme ships.
 
-### Halloween is a deadline, and it collides with the plan
+### Halloween as the first theme
 
-Halloween is **26 days out** (2026-10-31), OpenDubs 2 is wanted for it, and the standing rule in the
-work plan is that **the Arduino firmware remains the shipping image until Phase 5 validates on the
-robot** — and Phase 5 needs the robot. Those two facts are in tension, so the choice should be made
-deliberately rather than discovered late:
-
-- **Option A — theme the existing Arduino face.** Low risk, ships for certain, throws the work away
-  later. The current renderer can do a palette swap and a simple accessory; it cannot do much
-  animation, which is most of the appeal.
-- **Option B — get the IDF face robot-validated before Halloween.** Much better result, and it
-  requires Phase 4 (OTA, partitions, NVS) plus a robot session to land inside three weeks, with the
-  Arduino image kept as a fallback that can be reflashed on the day.
-- **Option C — Halloween on the bench Tab5 only**, as a demonstration piece separate from the robot.
-  Gets the fun animations in front of people with none of the risk, and does not require the port to
-  be finished.
-
-**A theme is also a good vehicle for Phase 1 rather than a distraction from it.** Building one
-exercises the accessory layer, the band's motion vocabulary and the animation system — all of which
-are 1.2 work regardless — with a real deadline and an obvious success test, which is usually when
-this kind of work goes fastest.
+A good first theme to build, because it is a motivated test case: it exercises the **accessory
+layer**, the **band's motion vocabulary** and the **animation system** — all of which are 1.2 work
+regardless — and it has an obvious success test, which is usually when this kind of work goes
+fastest. Things worth trying: a prop over or beside an eye, something in a screen corner, a theme
+palette, and a band motion that is seasonal rather than operational.
