@@ -243,6 +243,14 @@ writing all properties unconditionally each frame makes the render cost independ
 anything moved. Caching the last written value per property is cheap and is what keeps headroom
 available for the things that genuinely animate.
 
+**Debug printing from the render loop is itself a suspect.** The ESP-IDF console goes out over
+USB-serial-JTAG, and when no host is draining the port a write can **block the calling task**. A
+diagnostic `printf` in the loop that drives the animation is therefore a plausible cause of the
+animation freezing — and it cannot be used to diagnose a frozen animation without being part of the
+problem. It also changes behaviour depending on whether a reader happens to be attached, and a
+byte-limited reader like `head -c N` exits and stops draining partway through. Keep such telemetry
+behind a build flag, off by default, and enable it only while a reader is genuinely attached.
+
 **The desktop build will hide both of these.** It has the CPU and the heap to absorb a layer
 allocation per draw, so a face that is smooth on a laptop can watchdog on the device. Design on the
 desktop; **confirm frame health on the Tab5**, which is why the gate was specified as both.

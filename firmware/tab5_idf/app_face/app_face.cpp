@@ -245,9 +245,13 @@ void AppFace::onRunning()
 {
     const uint32_t now = GetHAL()->millis();
 
-    // Distinguishes three causes of a static face in one line: whether onRunning is called at
-    // all, whether the AnimateValues are advancing, and whether the toolkit's tick source is
-    // moving. Without this the three are indistinguishable from the outside.
+    // TELEMETRY IS OFF BY DEFAULT, and that is a correctness matter rather than tidiness.
+    // The ESP-IDF console goes out over USB-serial-JTAG, and when no host is draining the port a
+    // write can BLOCK THE CALLING TASK -- which here is the task driving the animation. So a
+    // debug print in this loop is itself a plausible cause of the face freezing, and it cannot be
+    // used to diagnose a frozen face without becoming a suspect. Build with
+    // -DOPENDUBS_FACE_TELEMETRY to turn it on, and only while a reader is actually attached.
+#ifdef OPENDUBS_FACE_TELEMETRY
     static uint32_t dbg = 0;
     if (now - dbg > 1000) {
         dbg = now;
@@ -256,6 +260,7 @@ void AppFace::onRunning()
                (float)g_gazeX, (float)g_gazeY, (float)g_bodyW, (float)g_lidDrop);
         fflush(stdout);
     }
+#endif
 
     if (now > g_nextSaccade) newSaccade(now);
     if (now > g_nextEmote) {
