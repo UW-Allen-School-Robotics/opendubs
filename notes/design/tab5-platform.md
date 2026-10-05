@@ -421,3 +421,84 @@ So: `Wire.beginTransmission/write/endTransmission/requestFrom` becomes `i2c_mast
 sensible distances, and that the servos move. Those need the hardware. Not safety-critical for the
 front ToF, but it is the input to any "how close is the person" behaviour, so a plausible-but-wrong
 distance would be quietly wrong rather than obviously broken.
+
+---
+
+## 6b. The graphics budget, and how to spend it
+
+Written because the face ran for a while and then froze, and "add code until it stops" is not a
+method. The numbers below are the frame budget; the practices after them follow from the numbers
+rather than from taste.
+
+### The budget
+
+| | |
+|---|---|
+| Panel | 1280 × 720 = **921,600 px** |
+| Measured software blit rate | **~16 Mpx/s** (from the sprite bench: 55.1 fps × 290 k px) |
+| Full-screen redraw at 30 fps | 27.6 Mpx/s — **1.7× over budget** |
+
+**So full-screen redraw is not affordable, and never was.** Everything depends on keeping the dirty
+region small. LVGL only redraws invalidated areas, which is why this works at all — and which makes
+*dirty area per frame* the number that matters, not object count or arithmetic.
+
+### Where the frame actually goes
+
+| what we animate | dirty px/frame | share of a screen |
+|---|---|---|
+| **eye body resizing (×2)** | **~922,000** | **~100%** |
+| pupil moving (×2) | 53,000 | 5.8% |
+| band, 48 segments | 65,000 | 7.1% |
+| brow re-point (×2) | 33,000 | 3.6% |
+
+**The eye body spends the whole budget on its own**, because a resize dirties both the old and the
+new rectangle, twice, on a 480 × 480 object. Everything else together is 16% of one screen. A
+fixed-size body with only the pupil moving would be **17× cheaper**.
+
+That is also the likely reason it ran and *then* froze, which a simple over-budget condition would
+not explain: **complex gradients are cached per geometry**, so a body whose size changes every frame
+mints a new gradient every frame. The churn accumulates until an allocation fails — the same class
+of failure as the rotated brow, arrived at slowly instead of immediately.
+
+### Cost hierarchy, most expensive first
+
+1. **Layer-inducing styles** — rotation, and some blend modes. Allocates a bounding-box buffer
+   **per draw**. Catastrophic at any size; killed the brow outright.
+2. **Complex (radial/conical) gradients on animated geometry.** Per-pixel maths, and the cache is
+   keyed on geometry, so animating size thrashes it. Fine on things that hold still.
+3. **Resizing large objects.** Dirties old area plus new, and re-derives radius and gradient.
+4. **Dirty area.** Linear in pixels redrawn. This is the budget.
+5. **Number of invalidations per frame** — each `lv_obj_set_*` schedules one; overlapping areas
+   compound. A write-guard reduces the *count*, not the cost of each.
+6. Linear (`HOR`/`VER`) gradients — cheap, a per-scanline lookup.
+7. Solid fills and plain blits — cheapest thing available.
+
+### Practices that follow
+
+- **Animate position, not size.** Moving is cheaper than resizing and does not invalidate caches.
+- **Keep the moving thing small.** Move the pupil, not the eyeball. The cost is pixels.
+- **Separate what changes from what does not**, and never touch the static part.
+- **Complex gradients only on static geometry.** If a thing must both shade and move, pre-render it.
+- **Guard every write**, while remembering the guard reduces how many writes happen, not what each
+  costs — finer quantisation makes *more* writes pass the guard, which is how 64 opacity levels
+  froze a band that ran at 16.
+- **Change one variable at a time.** Both freezes this session came from changing two together and
+  then being unable to attribute the failure.
+
+### What this means for the things we have not built yet
+
+**Themes should be ASSETS, not primitives.** A themed eye pre-rendered as an image and blitted is
+cheaper than a gradient-filled rounded rect re-derived every frame, and it removes the ceiling on
+visual complexity — any amount of detail costs the same blit. There is **3.5 MB of SPIFFS already
+partitioned and unused**, and `bg_image_src` with `bg_image_recolor` can even tint one asset per
+state. This is the compositor idea arriving where it is cheapest to adopt.
+
+**State of charge belongs on the band, and costs nothing.** The band is already 48 addressable
+segments: lighting a proportion of them is a gauge with **zero new objects** and at most one opacity
+write each. The old renderer had a `gauge` branch in `drawEye` using `soc` for the same purpose,
+inside the eye — the band is a better home, because it does not spend the eyes.
+
+**And that resolves the charging question** rather than re-opening it. The tension was that charging
+is sometimes idle and sometimes attending, so pinning an emote to it is wrong either way. But
+charging is a **condition to display, not a mood to adopt**: put the charge level on the band and
+the eyes stay free to be attending or idle as the situation warrants. No emote pin needed.
