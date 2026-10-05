@@ -402,7 +402,11 @@ void build(lv_obj_t* scr)
 
 void update(uint32_t now, uint32_t colour)
 {
-    const float dt = (g_lastMs == 0) ? 0.0f : (now - g_lastMs) / 1000.0f;
+    // dt IS CLAMPED. It feeds a phase accumulator, and one long frame -- a scheduling hiccup, a
+    // slow redraw, a wrap -- would otherwise make the phase enormous. Nothing good comes of a
+    // frame step longer than a tenth of a second anyway.
+    float dt = (g_lastMs == 0) ? 0.0f : (now - g_lastMs) / 1000.0f;
+    if (dt < 0.0f || dt > 0.1f) dt = 0.1f;
     g_lastMs = now;
     const float tsec = now / 1000.0f;
 
@@ -416,7 +420,12 @@ void update(uint32_t now, uint32_t colour)
         case GAUGE:  speed = 0.00f; base = 16.0f; peak = 235.0f; break;
     }
     g_phase += speed * dt;
-    while (g_phase > 1.0f) g_phase -= 1.0f;
+    // fmodf, NOT a while loop. `while (g_phase > 1.0f) g_phase -= 1.0f;` iterates once per unit,
+    // so a phase of 3.6e6 -- which one long frame could produce before dt was clamped -- means
+    // millions of iterations inside the render path. That is a CPU hang with the heap untouched,
+    // which is exactly the freeze signature we were seeing: 23 MB free and still stopped.
+    g_phase = fmodf(g_phase, 1.0f);
+    if (g_phase < 0.0f) g_phase += 1.0f;
 
     // THE GAUGE IS A LENGTH, not a phase, so it sizes the strips instead of fading them. SOC moves
     // over minutes, so these writes almost never happen -- which is why a level can afford to
@@ -464,9 +473,11 @@ void update(uint32_t now, uint32_t colour)
             else {
                 // Phase-offset per edge, so the bright region circulates the perimeter.
                 const float at = (float)i / (float)kEdges;
-                float d = at - g_phase;
-                while (d < -0.5f) d += 1.0f;
-                while (d >  0.5f) d -= 1.0f;
+                // Same hazard, same fix: wrap into -0.5..+0.5 arithmetically rather than by
+                // repeated addition, so the cost cannot depend on the magnitude of the input.
+                float d = fmodf(at - g_phase, 1.0f);
+                if (d < 0.0f) d += 1.0f;
+                if (d > 0.5f) d -= 1.0f;
                 v = expf(-(d * d) / (2.0f * width * width));
             }
             // Quantised to 32 levels. Each strip is 1280x16 or 720x16 of gradient, so a write

@@ -484,6 +484,36 @@ The body now uses a **linear `VER`** gradient — a per-scanline lookup, nearly 
 still reads as a sphere — and the glint is solid. Radial is disabled outright so it cannot return
 by accident.
 
+### The freeze was a CPU hang, not a memory problem
+
+The on-screen heap readout settled it: **23 MB free, 22 MB largest block, and frozen.** Not a leak,
+not fragmentation, not an allocation failure — every memory hypothesis was wrong, including the
+gradient-cache one that had looked so convincing.
+
+The cause was **unbounded `while` loops normalising a float** in the band's phase accumulator:
+
+```c
+while (g_phase > 1.0f) g_phase -= 1.0f;     // iterates ONCE PER UNIT
+while (d < -0.5f)      d += 1.0f;
+```
+
+`dt` comes from `now - g_lastMs`, so a single long frame — a scheduling hiccup, a slow redraw —
+makes the phase large, and those loops then iterate **millions of times per edge per frame** inside
+the render path. CPU pinned, heap untouched, display stopped. That is precisely
+runs-for-a-while-then-freezes, and no amount of looking at memory would ever have found it.
+
+Fixed with `fmodf` and a clamped `dt`, so the cost cannot depend on the magnitude of the input.
+
+**The lesson is about instrumentation, not loops.** Several rounds went into memory hypotheses
+because the symptom *looked* like accumulation, and the thing that actually resolved it was putting
+one number on screen where it could be read without an instrument that was itself a suspect. **Get
+a measurement that can falsify your hypothesis before you act on it** — the heap readout cost one
+line and eliminated an entire category in a single glance.
+
+**And: never normalise an accumulator with a loop.** `fmodf` is O(1); repeated addition is O(value),
+which makes the worst case unbounded and timing-dependent, which makes it rare and therefore
+exactly the kind of bug that survives a lot of testing.
+
 ### Cost hierarchy, most expensive first
 
 1. **Layer-inducing styles** — rotation, and some blend modes. Allocates a bounding-box buffer
