@@ -186,9 +186,10 @@ uint32_t g_blinkEnd = 0;
 namespace band {
 
 constexpr int kThick = 16;
-// 120 segments, ~33 px each. At 48 the wave was sampled too coarsely around a 4000 px
-// perimeter and the sweep read as chunky rather than smooth.
-constexpr int kTop = 37, kSide = 23;                   // segments per edge, ~33 px each
+// BACK TO 48. 120 segments froze the device, and 48 was running. The smoothness came from the
+// opacity quantisation below (16 -> 64 levels), which costs nothing, rather than from the object
+// count, which evidently does.
+constexpr int kTop = 15, kSide = 9;                    // segments per edge, ~83 px each
 constexpr int kSegs = 2 * kTop + 2 * kSide;            // 48
 
 lv_obj_t* g_seg[kSegs];
