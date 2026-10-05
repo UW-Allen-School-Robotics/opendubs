@@ -61,6 +61,64 @@ caller holds the lock. Current call graph, all covered:
 | `theme::apply`, `theme::hideAll` | theme-cycle block | yes |
 | `applyEmote`, `applyState` | `onOpen`, theme block, state block, emote block | yes |
 | `band::update`, the eye render loop | `onRunning` | yes |
+| `touchUiBuild` → `uiControlsBuild` → `buildTech`/`buildFault`/`buildBtn` → `box`/`text`/`gradeAdd` | `onOpen`, inside its lock | yes |
+| `touchUiTick` → `tickGate`/`tickCrosshair`/`uiControlsTick` → `gradeTick`/`renderRow`/`applyGate`/`setStatic` | `onRunning`, in its own `lvglLock`/`lvglUnlock` pair placed FIRST | yes |
+| `uiControlsSetDeliberate`, `uiControlsShowTech`, `uiControlsShowFault`, `gradeAbortAll`, `gradeSetEnabled` | `touchUiTick` (locked) and `onFire` (see below) | yes |
+
+### Invariant 1b: an LVGL event callback is locked BY CONSTRUCTION, and must not lock again
+
+The touch code adds a second way an LVGL call happens, and it does *not* look like the rows
+above. `esp_lvgl_port`'s task loop is
+
+```
+lvgl_port_lock(0) → read every indev → lv_timer_handler() → lvgl_port_unlock()
+```
+
+(`platforms/tab5/components/espressif__esp_lvgl_port/src/lvgl9/esp_lvgl_port.c`, the
+`LVGL_PORT_EVENT_TOUCH` branch). An `lv_obj_add_event_cb` handler is dispatched from inside
+`lv_indev_read` / `lv_timer_handler`, i.e. **inside that lock**. So `ui_grade.cpp`'s `onEvent`
+and everything it reaches — `ui_controls.cpp`'s `onFire` and `onHold`, `publishMast`,
+`publishReq`, `uiControlsSetDeliberate` — are already holding the mutex, and none of them calls
+`lvglLock()`.
+
+Two things to know before "fixing" that:
+
+- **The port's mutex is recursive** (`xSemaphoreTakeRecursive` / `xSemaphoreGiveRecursive`, same
+  file), so a nested lock would *not* deadlock. It would simply be a lie about who owns what,
+  and this project's freezes have all been locks **missing from the app task**, never locks
+  nested in a callback.
+- **The awk call-graph check cannot see this.** It tracks lock depth linearly within one file,
+  so it will report every `lv_*_set_*` inside an event callback as `UNLOCKED`. Those are the new
+  known false positives. The check is still worth running — it is strictly better than the
+  balance count that reported "clean" over four live bugs — but the rule for reading it is now:
+  **a hit inside a function reached only from `onEvent` is correct; a hit anywhere reached from
+  `onRunning` or `onOpen` outside a lock pair is the bug.**
+
+**What the check reports today, so a change in the number means something.** Run on
+2026-10-05 with the touch UI at its defaults, every hit read and accounted for:
+
+| file | flagged | verdict |
+|---|---|---|
+| `app_face.cpp` | 83 | all inside a lock pair or inside a startup builder the locked caller invokes |
+| `ui_controls.cpp` | 57 | all reached from `uiControlsBuild` (locked), `uiControlsTick` (locked) or `onFire` (callback) |
+| `ui_touch.cpp` | 37 | all reached from `touchUiBuild` (locked) or `touchUiTick` (locked) |
+| `face_probe.cpp` | 10 | pre-existing |
+| `ui_grade.cpp` | 6 | all reached from `onEvent` (callback) or `gradeTick` (locked) |
+| `cost_gate.cpp` | 2 | desktop only |
+| `cues.cpp`, `face_mailbox.cpp`, `dbg_stimulus.cpp` | 0 | they touch no LVGL at all, by design |
+
+The entry points from unlocked code are exactly four — `touchUiBuild` and `touchUiTick` (both
+wrapped by `app_face.cpp`), plus `onEvent` and `gradeTick` (both inside the LVGL task) — and
+every one of the 100 new hits is downstream of one of them. A NEW entry point is the thing to
+look for; a changed count on its own is not news.
+
+The one-line version of this invariant, which a grep *can* check:
+
+```sh
+grep -n lvglLock firmware/tab5_idf/app_face/ui_*.cpp     # expect NONE: callbacks are locked
+grep -n lvglLock firmware/tab5_idf/app_face/*mailbox*    # expect NONE: no LVGL in shared/
+grep -n 'lvgl.h' firmware/tab5_idf/app_face/*mailbox*    # expect NONE
+```
 
 ## 2. No layer-inducing styles
 
@@ -70,10 +128,34 @@ allocating a buffer the size of its bounding box **per draw**. This killed the r
 call in the cobweb mirroring.
 
 ```sh
-grep -nE "transform_|blend_mode" firmware/tab5_idf/app_face/*.cpp   # expect none
+grep -nE "transform_|blend_mode|opa_layered|bitmap_mask" firmware/tab5_idf/app_face/*.cpp   # expect none
 ```
 
 Mirror by negating coordinates; angle with `lv_line`, never with rotation.
+
+**The exact trigger list, read from LVGL 9.2.2 rather than remembered.**
+`calculate_layer_type()` in `src/core/lv_obj_style.c` returns a layer for exactly six properties:
+
+| property | layer |
+|---|---|
+| `transform_rotation` != 0 | TRANSFORM |
+| `transform_scale_x` / `transform_scale_y` != 256 | TRANSFORM |
+| `transform_skew_x` / `transform_skew_y` != 0 | TRANSFORM |
+| **`opa_layered`** != `LV_OPA_COVER` | SIMPLE |
+| `bitmap_mask_src` != NULL | SIMPLE |
+| `blend_mode` != `LV_BLEND_MODE_NORMAL` | SIMPLE |
+
+Two consequences worth having in writing, because both were guessed wrong while writing the
+touch UI:
+
+- **`lv_obj_set_style_opa` is NOT on the list; `opa_layered` is.** Plain object opacity, and
+  every per-part opacity (`bg_opa`, `border_opa`, `text_opa`, `line_opa`), is free. So "dim the
+  disabled button" may be an opacity change — but `ui_grade.cpp` does it as a **colour** change
+  anyway, which is free under any future reading of this table.
+- **An `lv_arc` is not on the list either**, so a progress *ring* would not allocate a layer.
+  It still goes through the arc draw task and a circle mask, which is a different and unmeasured
+  cost; `ui_grade.cpp` uses a width-driven rectangle instead and says so. If a ring is ever
+  wanted, measure it with `build.sh cost` first rather than reasoning from this table.
 
 ## 3. No complex gradients on animated geometry
 

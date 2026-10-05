@@ -2,6 +2,7 @@
 #include "cost_gate.h"
 #include "cues.h"
 #include "face_probe.h"
+#include "ui_touch.h"
 #include <cstring>
 #include <hal/hal.h>
 #include <mooncake.h>
@@ -106,6 +107,13 @@ lv_obj_t* g_label = nullptr;
 // and the change-guard compared against WHAT THIS CODE LAST WROTE rather than what is on the
 // label, so once clobbered it was never rewritten. Two writers, one widget, guaranteed to fail.
 lv_obj_t* g_probeLabel = nullptr;
+// And the touch UI gets its own, for the same reason the probe does. It carries the one fact
+// nothing else can report on a head with no cable and no network yet: WHETHER AN LVGL INPUT
+// DEVICE WAS FOUND AT ALL. Without it, "touch does nothing" has three indistinguishable causes
+// — no indev, a wrong coordinate mapping, or a bug in the gesture — and this line eliminates
+// the first in one glance. AUDIT.md's closing lesson, applied: "Put a falsifying measurement on
+// the panel *first* — it costs one line and eliminates a whole category."
+lv_obj_t* g_touchLabel = nullptr;
 lv_obj_t* g_quote = nullptr;
 
 // ---- the quotes ------------------------------------------------------------------------------
@@ -671,6 +679,11 @@ void buildScene()
     lv_obj_align(g_probeLabel, LV_ALIGN_TOP_MID, 0, 56);
     lv_label_set_text_static(g_probeLabel, faceProbeStatus());
 
+    g_touchLabel = lv_label_create(scr);
+    lv_obj_set_style_text_color(g_touchLabel, lv_color_hex(0x7ad6e8), LV_PART_MAIN);
+    lv_obj_align(g_touchLabel, LV_ALIGN_TOP_MID, 0, 84);
+    lv_label_set_text_static(g_touchLabel, touchUiStatus());
+
     // Built once, hidden, never reallocated -- steady-state allocation is AUDIT.md invariant 6.
     g_reticle = lv_obj_create(scr);
     lv_obj_remove_style_all(g_reticle);
@@ -779,6 +792,11 @@ void AppFace::onOpen()
 
     GetHAL()->lvglLock();
     buildScene();
+    // The technician and fault screens, built here and hidden: "a second pre-built LVGL screen
+    // of ~30 objects, built once at startup, hidden" (architecture note §1.7). They go up AFTER
+    // buildScene so that lv_obj_move_foreground puts them above the face, the band and the
+    // reticle, and so that nothing re-orders the z-stack per frame.
+    touchUiBuild(lv_screen_active());
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
     faceProbeStart();         // no-op unless built with OPENDUBS_PROBE_FACEDET=1
@@ -817,6 +835,27 @@ void AppFace::onRunning()
         fflush(stdout);
     }
 #endif
+
+    // TOUCH, FIRST AND UNCONDITIONALLY. It arbitrates which screen owns the panel, drives the
+    // entry gesture and runs the grade machinery -- and the grade machinery must run even when
+    // the face is up, because a jog that was held when the screen changed still has to reach its
+    // stop. LOCKED: onRunning does NOT hold the LVGL lock throughout, it takes it in short
+    // bursts per block, and four calls that forgot that froze the face (AUDIT.md invariant 1).
+    GetHAL()->lvglLock();
+    touchUiTick(now);
+    GetHAL()->lvglUnlock();
+
+    // THE FACE YIELDS THE GLASS COMPLETELY. Architecture note §1.7: "While the controls screen
+    // is shown the face timers are paused, so the two never compete." Everything below this
+    // point writes LVGL; none of it would be visible under an opaque full-screen layer, and all
+    // of it would still cost its dirty area. What survives the early return is the audio, which
+    // is not on the glass and whose fault latch must not be left stale -- a repeating fault
+    // announcement that stops because someone opened a readout screen is a lie by omission.
+    if (touchUiOwnsPanel()) {
+        cueFaultActive(g_state == 4 || g_state == 5);   // DEGRADED, E_STOP
+        cueTick(now);
+        return;
+    }
 
     // Periodic cost report, and a final verdict once the bench has walked the whole matrix of
     // states, emotes, activities and themes -- which is when the PEAK frame has been seen.
@@ -868,6 +907,11 @@ void AppFace::onRunning()
             // The probe task writes it while LVGL may be reading: worst case is a torn line of
             // debug text, and it is always NUL-terminated.
             lv_label_set_text_static(g_probeLabel, faceProbeStatus());
+            // Same deal, same reason, separate widget: two writers on one label is guaranteed to
+            // fail, and this app has already proved it once. Re-setting the SAME pointer is what
+            // makes the repaint happen — _static keeps our buffer, so mutating it behind LVGL's
+            // back would leave the old string on screen until something else invalidated it.
+            lv_label_set_text_static(g_touchLabel, touchUiStatus());
             GetHAL()->lvglUnlock();
         }
     }
