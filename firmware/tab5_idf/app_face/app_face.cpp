@@ -7,6 +7,10 @@
 #include <cmath>
 #include <math.h>
 #include <cstdio>
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#include "esp_system.h"
+#endif
 
 using namespace mooncake;
 using namespace smooth_ui_toolkit;
@@ -263,11 +267,17 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
         lv_obj_remove_style_all(l);
         lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
         lv_obj_set_style_line_width(l, 2, LV_PART_MAIN);
-        strand[sN][0].x = 0; strand[sN][0].y = 0;
-        strand[sN][1].x = (lv_coord_t)(sx * cosf(ang[a]) * 225.0f);
-        strand[sN][1].y = (lv_coord_t)(sinf(ang[a]) * 225.0f);
+        // POINTS MUST BE POSITIVE. lv_line coordinates are relative to the object's own box, so
+        // the negative coordinates the mirror produced fell outside it and LVGL clipped them --
+        // which is why the right-hand web was missing rather than mirrored.
+        const float span = 225.0f;
+        const float ox = (sx > 0) ? 0.0f : span;
+        strand[sN][0].x = (lv_coord_t)ox; strand[sN][0].y = 0;
+        strand[sN][1].x = (lv_coord_t)(ox + sx * cosf(ang[a]) * span);
+        strand[sN][1].y = (lv_coord_t)(sinf(ang[a]) * span);
         lv_line_set_points(l, strand[sN], 2);
-        lv_obj_set_pos(l, cx, cy);
+        lv_obj_set_size(l, 232, 232);
+        lv_obj_set_pos(l, (sx > 0) ? cx : cx - 225, cy);
         lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
         g_acc[g_nAcc++] = l; ++sN;
     }
@@ -276,12 +286,14 @@ void cobweb(lv_obj_t* scr, int cx, int cy, int sx, uint32_t colour)
         lv_obj_remove_style_all(l);
         lv_obj_set_style_line_color(l, lv_color_hex(colour), LV_PART_MAIN);
         lv_obj_set_style_line_width(l, 2, LV_PART_MAIN);
+        const float ox2 = (sx > 0) ? 0.0f : 225.0f;
         for (int a = 0; a < 4; ++a) {
-            cross[cN][a].x = (lv_coord_t)(sx * cosf(ang[a]) * R[r]);
+            cross[cN][a].x = (lv_coord_t)(ox2 + sx * cosf(ang[a]) * R[r]);
             cross[cN][a].y = (lv_coord_t)(sinf(ang[a]) * R[r]);
         }
         lv_line_set_points(l, cross[cN], 4);
-        lv_obj_set_pos(l, cx, cy);
+        lv_obj_set_size(l, 232, 232);
+        lv_obj_set_pos(l, (sx > 0) ? cx : cx - 225, cy);
         lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
         g_acc[g_nAcc++] = l; ++cN;
     }
@@ -573,9 +585,22 @@ void applyEmote(int idx)
     g_lidDrop = e.lid;
     g_browRaise = e.browRaise;
     g_browAngle = e.browAngle;
-    char buf[128];
+    // HEAP ON SCREEN, not over serial. A console write can block the render task when no host is
+    // draining the port, so console telemetry is itself a suspect for a freeze and cannot be used
+    // to diagnose one. Everything that has frozen so far has taken a while to do it, which points
+    // at accumulation rather than an over-budget frame -- so what matters is whether free heap
+    // TRENDS DOWN, and that is readable from the panel without any instrument.
+    char buf[160];
+#ifdef ESP_PLATFORM
+    snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s   heap %uk / largest %uk",
+             kStates[g_state].label, e.name, band::name(band::g_activity),
+             theme::name(theme::g_active),
+             (unsigned)(esp_get_free_heap_size() / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) / 1024));
+#else
     snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s", kStates[g_state].label, e.name,
              band::name(band::g_activity), theme::name(theme::g_active));
+#endif
     lv_label_set_text(g_label, buf);
 }
 
