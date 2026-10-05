@@ -52,6 +52,10 @@ static const float
     BW = 284,
     BH = 376; // eye size; E_STOP height capped so the tall eye still fits
 static bool g_eyePsram = false;
+// Per-eye horizontal scale for this frame's gaze; 1.0 is symmetric. Set by the render loop just
+// before each eye is drawn, read by drawEye -- the two eyes are drawn one after the other, so a
+// single shared value is correct and avoids threading another argument through drawEye's signature.
+static float gazeW = 1.0f;
 
 static Expr P, T;
 static int shownState = -1; // which STATES[] index is currently painted
@@ -145,7 +149,7 @@ static void drawEye(LovyanGFX *g, int cx, int cy, float blink, uint16_t color,
                     uint16_t glintCol) {
   float baseH = BH * P.h, squintCut = baseH * P.squint;
   int h = (int)std::max((baseH - squintCut) * blink, 12.0f);
-  int w = (int)(BW * P.w);
+  int w = (int)(BW * P.w * gazeW);
   int ey = cy + (int)(squintCut * 0.5f) + (int)(P.lookY * 66);
   int r = std::min(58, std::min(w, h) / 2);
   int x0 = cx - w / 2, y0 = ey - h / 2;
@@ -166,38 +170,13 @@ static void drawEye(LovyanGFX *g, int cx, int cy, float blink, uint16_t color,
 
   g->fillRoundRect(x0, y0, w, h, r, color);
 
-  // THE GLINT MOVES AGAINST THE EYE, and that is what makes the eye read as turning.
-  //
-  // A specular highlight is a reflection of a FIXED light source off a curved eyeball. When a real
-  // eye rotates, the highlight stays roughly where it is in space and the iris sweeps past it --
-  // so what an observer actually reads as gaze is the CHANGING OFFSET between highlight and eye,
-  // not the eye's absolute displacement.
-  //
-  // This glint used to be positioned off cx, which already carries the gaze offset, so highlight
-  // and eye body moved together as one rigid object: 12 px each, zero relative motion, and the
-  // result looked like a texture sliding rather than an eyeball turning.
-  //
-  // Counter-motion also sidesteps the geometry that makes real travel impossible: at P.w = 1.06
-  // the eye body is 301 px inside a 324 px sprite, leaving ~11 px of margin, so the body simply
-  // cannot move further. The glint has the whole eye interior to move around in, and relative
-  // travel is what counts -- so the perceived turn can be several times larger than the 12 px the
-  // body is allowed.
-  if (blink > 0.5f && h > 70) {
-    const int gdx = (int)(gx * 30.0f);   // opposes the body's +12, for ~42 px of relative sweep
-    const int gdy = (int)(gy * 20.0f);
-    int lx = cx - w / 5 - gdx, ly = ey - (int)(h * 0.26f) - gdy;
-    // Keep it on the eye: a highlight that slides off the edge destroys the illusion outright.
-    const int mx = w / 2 - std::max(w / 10, 6) - 6, my = h / 2 - std::max(h / 12, 5) - 6;
-    lx = std::min(cx + mx, std::max(cx - mx, lx));
-    ly = std::min(ey + my, std::max(ey - my, ly));
-    g->fillEllipse(lx, ly, std::max(w / 10, 6), std::max(h / 12, 5), glintCol);
-    // A second, smaller highlight low on the opposite side. Real eyes catch more than one
-    // reflection, and a lone blob reads as a sticker; this one moves WITH the gaze, so the two
-    // separate as the eye turns and the parallax between them sells the curvature.
-    if (h > 120)
-      g->fillEllipse(cx + w / 6 + gdx / 2, ey + (int)(h * 0.18f) + gdy / 2,
-                     std::max(w / 22, 4), std::max(h / 26, 3), glintCol);
-  }
+  // ONE highlight, and it stays put. A second competing glint read as confusing and less like an
+  // eye, and a highlight that chases the gaze is the wrong primitive for this kind of eye at all
+  // -- see the per-eye shaping in the caller for what actually carries gaze here.
+  if (blink > 0.5f && h > 70)
+    g->fillEllipse(cx - w / 5, ey - (int)(h * 0.26f), std::max(w / 10, 6),
+                   std::max(h / 12, 5), glintCol);
+
   float tiltMag = fabsf(P.tilt) * 235.0f;
   if (tiltMag > 3 && h > 40) {
     int tw = (int)(tiltMag * 0.95f), th = (int)tiltMag;
@@ -514,7 +493,29 @@ void faceRender() {
   int slots[2] = {W / 2 - 190, W / 2 + 190}; // spacing for the eyes
   for (int i = 0; i < 2; ++i) {
     drawGlow(eye, s.r, s.g, s.b); // glow straight into the (internal) sprite
-    int ecx = EW / 2 + (int)(gx * 12), ecy = EH / 2 + (int)(gy * 12);
+
+    // GAZE LIVES IN THE ASYMMETRY BETWEEN THE TWO EYES, not inside either one.
+    //
+    // These eyes have no pupil, and a pupil is the strongest gaze cue there is. Anki hit exactly
+    // this when building Cozmo: he originally HAD pupils, which made it easy to tell where he was
+    // looking, but they made him read as too human -- so they removed them and recovered the same
+    // effect through eye SIZE AND RATIO. Shape, not a marker inside the eye.
+    //
+    // This renderer could not do that, for a structural reason. Both eyes come from one sprite
+    // pushed twice and mirrored, so the pair was ALWAYS perfectly symmetric -- and a symmetric
+    // pair of pupil-less eyes has almost nothing left to say about direction. Moving both eyes
+    // 12 px in lockstep is the whole vocabulary, which is why the gaze read as subtle, and why
+    // faking a rotating specular highlight instead was solving the wrong problem.
+    //
+    // It costs nothing to fix: the loop already re-rasterises for each eye, so per-eye geometry is
+    // free. The symmetry was a choice, not a performance constraint.
+    //
+    // Physically: turning toward one side foreshortens the eye on that side and opens up the far
+    // one. So the leading eye narrows, the trailing eye widens, and both translate. Small numbers
+    // on purpose -- asymmetry reads strongly, and overdoing it looks like a squint or a wink.
+    const float lead = (i == 0) ? -gx : gx;        // +1 when this eye leads the turn
+    gazeW = 1.0f - lead * 0.13f;                   // leading eye foreshortens
+    const int ecx = EW / 2 + (int)(gx * 12), ecy = EH / 2 + (int)(gy * 12);
     drawEye(&eye, ecx, ecy, open, col, bg, i == 0 ? -1 : +1, gauge, dimCol,
             glintCol);
     eye.pushSprite(slots[i] - EW / 2, eyeY - EH / 2);
