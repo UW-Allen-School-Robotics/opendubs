@@ -120,6 +120,8 @@ const Emote kEmotes[] = {
     {"SOFT",     0.95f, 0.88f, 0.481f, 0.12f, +0.30f,  -7.0f},
     {"SLEEPY",   0.99f, 0.40f, 0.733f, 0.35f, -0.60f,  +2.0f},
 };
+// Indices into kEmotes, so the state table can name what it pins.
+enum { EM_NEUTRAL = 0, EM_ALERT, EM_SQUINT, EM_SOFT, EM_SLEEPY };
 constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
 int g_emote = 0;
 
@@ -129,15 +131,31 @@ int g_emote = 0;
 // The emote table above is untouched and keeps driving every shape.
 //
 // Colours copied from ui_shared.cpp so the two faces cannot drift on them.
-struct St { const char* name; const char* label; uint8_t r, g, b; };
+// A state carries a colour, a label, and WHETHER THE FACE MAY EMOTE FREELY.
+//
+// The distinction is whether the robot is ATTENDING TO THE WORLD or REPORTING A CONDITION.
+// SAFE_IDLE, MANUAL and AUTONOMOUS are attending, so the face is free to be emotive. INIT,
+// DEGRADED, E_STOP and CHARGING are reporting, and cycling through moods while reporting one is
+// incoherent -- SLEEPY during an e-stop says nothing true about anything. Those states pin one
+// appropriate emote.
+//
+// Pinning the EMOTE does not freeze the FACE: saccades and blinks continue in every state,
+// because a robot whose eyes have stopped moving reads as broken rather than as stopped.
+//
+// The pinned emotes are chosen from the existing vocabulary rather than invented:
+//   INIT      -> NEUTRAL, because there is nothing to express yet
+//   DEGRADED  -> SQUINT,  the narrowed, troubled form
+//   E_STOP    -> ALERT,   wide eyes and high brows, which is ALARM rather than anger
+//   CHARGING  -> SLEEPY,  genuinely apt for a robot parked on a charger
+struct St { const char* name; const char* label; uint8_t r, g, b; int locked; };  // locked < 0 = free
 const St kStates[] = {
-    {"INIT",       "INIT",       223, 231, 240},
-    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88},   // clear GREEN
-    {"MANUAL",     "MANUAL",     242, 246, 251},
-    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235},   // clear CYAN, distinct from the green
-    {"DEGRADED",   "DEGRADED",   243, 182,  74},
-    {"E_STOP",     "E-STOP",     255,  77,  77},
-    {"CHARGING",   "CHARGING",     0, 196, 168},   // teal, between green and cyan
+    {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, -1},
+    {"MANUAL",     "MANUAL",     242, 246, 251, -1},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1},
+    {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT},
+    {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT},
+    {"CHARGING",   "CHARGING",     0, 196, 168, EM_SLEEPY},
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
@@ -214,10 +232,13 @@ void buildScene()
     lv_label_set_text(g_label, "1.1 gate: eased saccades + sprung shape, independent layers");
 }
 
+void applyEmote(int idx);
+
 void applyState(int idx)
 {
     const St& s = kStates[idx];
     g_colR = (float)s.r;  g_colG = (float)s.g;  g_colB = (float)s.b;
+    if (s.locked >= 0) applyEmote(s.locked);
 }
 
 void applyEmote(int idx)
@@ -325,9 +346,13 @@ void AppFace::onRunning()
         g_state = (g_state + 1) % kNStates;
         GetHAL()->lvglLock();
         applyState(g_state);
+        if (kStates[g_state].locked < 0) applyEmote(g_emote);   // refresh the label
         GetHAL()->lvglUnlock();
+        g_nextEmote = now + 2400;
     }
-    if (now > g_nextEmote) {
+    // Emotes cycle only where the face is free. In a reporting state the pinned emote stands,
+    // while saccades and blinks carry on as normal.
+    if (kStates[g_state].locked < 0 && now > g_nextEmote) {
         g_emote = (g_emote + 1) % kNEmotes;
         applyEmote(g_emote);
         g_nextEmote = now + 3200;

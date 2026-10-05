@@ -377,6 +377,14 @@ calm states the face should be free to be *emotive*, not locked to a posture.
 | **State** | colour (and later the band), plus whether emotes are free | the robot's mode changes |
 | **Emote** | the seven-parameter expression, plus a point in valence/arousal | what the robot notices or is doing |
 
+**The test is whether the robot is ATTENDING TO THE WORLD or REPORTING A CONDITION.** Attending
+states — `SAFE_IDLE`, `MANUAL`, `AUTONOMOUS` — are free to be emotive. Reporting states — `INIT`,
+`DEGRADED`, `E_STOP`, `CHARGING` — pin one appropriate emote, because cycling through moods while
+reporting a condition is incoherent: `SLEEPY` during an e-stop says nothing true about anything.
+
+**Pinning the emote does not freeze the face.** Saccades and blinks continue in every state, because
+a robot whose eyes have stopped moving reads as broken rather than as stopped.
+
 **Emotes are locked in the states where the posture is the message.** `E_STOP` and `DEGRADED` are
 communicating a condition, and a robot that looks cheerful while degraded is lying. `INIT` and
 `CHARGING` are likewise fixed. `SAFE_IDLE`, `MANUAL` and `AUTONOMOUS` are free.
