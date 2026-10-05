@@ -30,13 +30,17 @@ getting the function and the aesthetics right. Trying things is the point; untra
 
 | # | Question | Kill criterion |
 |---|---|---|
-| 1.1 | **Does face detection work, and what does it cost?** Add `esp-dl`, uncomment `HumanFaceDetect`, measure image size, PSRAM, and detections/second. | If it cannot run at ≥5 Hz alongside the face render, the attention design in `face-design.md` changes and we say so. |
-| 1.2 | **Eyes and emotes.** Build the compositor face: layered, PPA-blitted, pupil or shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
+| **1.1** | **Does LVGL + PPA actually give us better eye animation than we could hand-build?** Layered compositing, hardware blit/scale/mirror, unbounded gaze travel, `smooth_ui_toolkit` easing. | **THIS IS THE GO/NO-GO.** If the animation options are not materially better than the bespoke renderer, the IDF switch is not worth it and we stop. |
+| 1.2 | **Eyes and emotes.** Build the compositor face on top of 1.1: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
 | 1.3 | **Audio cues.** The five rhythm-distinct earcons, on separate virtual channels, envelope-shaped via `playRaw`. | Audible and distinguishable across a room. |
-| 1.4 | **Voice, as a probe.** Capture → encode → (loopback) → play, to find out what the Tab5 end of a conversation costs in CPU and latency. | A round trip that cannot hold under ~150 ms locally means the architecture needs revisiting. |
+| 1.4 | **Face detection.** Add `esp-dl`, uncomment `HumanFaceDetect`, measure image size, PSRAM and detections/second. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
+| 1.5 | **Voice, as a probe.** Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
 
-**1.1 goes first.** It is the only unproven capability and the whole attention design rests on it,
-so it has the highest information value per hour.
+**Keep hold of why we are doing this.** The reason to move to ESP-IDF is to inherit established
+best-practice graphics so that **we have options for eye animation** — that is the whole thesis, and
+1.1 tests it directly. Face detection is a bonus on top. An earlier draft of this plan put face
+detection first and treated it as the gate, which lost the point: we would have been deciding the
+graphics question on a computer-vision result.
 
 ### 1A — The Tab5 as a dashboard
 
@@ -65,9 +69,17 @@ This is about *how* and about efficiency, and it is the piece most likely to be 
 - **Transport:** UDP for audio (loss-tolerant, latency-critical) versus TCP/WebSocket for control.
   The existing StamPLC protocol is already line-based UDP; conversation should not be bolted onto
   it.
-- **Measurable without the robot:** a laptop on the same LAN can stand in for the Thor. **Do this
-  rather than deferring 1B to Phase 5** — the protocol and the latency budget are testable now, and
-  discovering them at the robot is the expensive version.
+- **Get the Tab5 onto Wi-Fi and OTA it.** It is currently on USB only. This is worth doing as a
+  functional check regardless of anything else, because it exercises the C6 radio, the network
+  stack and the OTA path that Phase 4 depends on.
+- **But this bench network is NOT a latency test, and conclusions drawn from it would be close to
+  meaningless.** The bench sits on a large, busy home Wi-Fi network. The robot has its own small
+  network with a handful of clients and a **hard-wired Thor**. They are not comparable, and a bad
+  number here would say nothing about the robot.
+- **The inference only runs one way:** if the protocol performs acceptably on this network, it will
+  perform at least as well on the robot's. So treat the bench as a **functional proof and a
+  worst-case floor** — does the protocol work, does the audio arrive intact, does it survive packet
+  loss — and leave the latency budget to Phase 5 on the real network.
 
 ---
 
@@ -87,17 +99,22 @@ This is about *how* and about efficiency, and it is the piece most likely to be 
 
 ## Phase 3 — StamPLC: what did we leave on the table?
 
-*Independent of everything else, cheap, and read-only. Can run in parallel whenever Phase 1 or 2 is
-blocked.*
+*Independent of everything else, cheap, and read-only. Runs whenever Phase 1 or 2 is blocked.*
 
-The StamPLC also ships demo firmware, and we replaced it with bespoke code. The question is what
-capability we walked away from without noticing — exactly the mistake the Tab5 audit uncovered,
-where `audioRecord()` had a gain parameter while we poked ES7210 registers by hand.
+The StamPLC has demo firmware exactly as the Tab5 does — **`m5stack/M5StamPLC-UserDemo`** ("user
+demo for hardware evaluation"), plus the **`m5stack/M5StamPLC`** library — and we replaced it with
+bespoke code (`firmware/rc_serial_probe`). **It works, and the goal is not to replace it.**
 
-Deliverable: a table of demo capability versus ours, with a recommendation for each. No code
-changes in this phase.
+The goal is to find out whether we left **better-performing code or unused hardware capability**
+behind by building our own. The Tab5 audit is the cautionary precedent: `audioRecord()` exposed a
+gain parameter while we were poking ES7210 registers by hand, and a dual-microphone test already
+existed while we wrote a bench harness for it.
 
----
+The buttons are the one known gap — they are stubbed in our firmware and never worked — but the
+point is the general audit, not the buttons specifically.
+
+Deliverable: a table of demo/library capability against ours, with a recommendation per row — adopt,
+ignore, or worth knowing. **No code changes in this phase.**
 
 ## Phase 4 — Stack, flashing, OTA and memory
 
@@ -144,15 +161,18 @@ Filled in during Phase 2. Every entry needs an owner question for Phase 5.
 
 Offered for acceptance or rejection rather than assumed:
 
-1. **Add an explicit go/no-go gate between Phase 1 and Phase 2.** Phase 1 could show the IDF route
-   is not worth it — most plausibly if face detection cannot run alongside the render. A named gate
-   stops sunk cost from making that decision for us. The two branches stay unmerged until it.
+1. ~~Gate on face detection.~~ **Rejected, and rightly.** The gate is 1.1 — whether LVGL and PPA
+   give materially better eye-animation options than the bespoke renderer — because that is the
+   reason for the switch. Face detection is upside. The gate itself stands: branches stay unmerged
+   until 1.1 is answered.
 2. **Use the demo's desktop SDL build for 1.2 and 1A.** The factory firmware builds for a laptop.
    Eye, emote and UI design can be iterated at full frame rate with no flashing and no hardware —
    which is exactly the constraint Phase 1 is operating under, and it removes the need for someone
    to be standing at the bench to judge every change. **This is the single highest-leverage item in
    the plan.**
-3. **Do 1B against a laptop now rather than at the robot.** Same LAN, same protocol, real numbers.
+3. **Amended:** get the Tab5 on Wi-Fi and OTA it now as a *functional* check, but do not treat this
+   network as a latency measurement — it is a sprawling home network against the robot's small one
+   with a wired Thor. Functional proof and worst-case floor only.
 4. **Move Phase 4's partition and NVS work earlier**, into Phase 2, since the port has to pick a
    partition table anyway and NVS loss is silent and expensive.
 5. **Run Phase 3 as filler.** It is read-only and independent, so it fits whenever something else is
