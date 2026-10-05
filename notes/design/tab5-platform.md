@@ -527,9 +527,19 @@ is the easy case: **a level changes on a timescale of minutes**, so even resizin
 nothing in practice. So the clean end state is *strips for the sweep, a sized bar for the gauge* —
 not one mechanism serving both.
 
-The segments implemented today serve both adequately and the gauge barely writes at all, so this is
-recorded as the direction rather than done. The sweep is the only part that would benefit, and the
-only part that is visibly imperfect.
+**Built, 2026-10-05, and the freeze located it precisely.** The segment band went on
+**MANUAL / ALERT / idle**, which is the peak-cost frame: `ALERT` is the largest body (1.06 × 1.08,
+so the biggest dirty area on every resize) and **IDLE is the band's worst case**, because breathing
+is *uniform* — all 48 segments change opacity every frame, where a sweep only touches the few the
+bump passes over. Maximum eye area plus a guaranteed 48 writes per frame.
+
+Now four strips, one per edge, each carrying a fixed linear gradient, with opacity the only
+per-frame write: **4 objects and at most 4 writes per frame, down from 48**. Travel comes from
+phase-offsetting the four edges. The gauge sizes the strips instead of fading them, which is
+affordable precisely because a level changes over minutes.
+
+It fixes both complaints at once — the freeze, by writing 12× less, and the pixelation, because a
+linear gradient is smooth by construction and replaces the 16 discrete opacity levels entirely.
 
 **And that resolves the charging question** rather than re-opening it. The tension was that charging
 is sometimes idle and sometimes attending, so pinning an emote to it is wrong either way. But

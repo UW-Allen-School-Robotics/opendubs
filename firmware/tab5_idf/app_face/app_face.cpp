@@ -189,16 +189,30 @@ uint32_t g_blinkEnd = 0;
 // same sweep with no masks, no rotation and no allocation.
 namespace band {
 
+// FOUR STRIPS, NOT FORTY-EIGHT SEGMENTS.
+//
+// The segment version froze, and Emma's observation located it precisely: it went on
+// MANUAL / ALERT / idle, which is the peak-cost frame. ALERT is the largest body (1.06 x 1.08,
+// so the biggest dirty area on every resize) and IDLE is the band's worst case, because breathing
+// is UNIFORM -- all 48 segments change opacity every frame, where a sweep only touches the few the
+// bump is passing over. Maximum eye area plus a guaranteed 48 writes per frame.
+//
+// So: one strip per edge, each carrying a FIXED LINEAR GRADIENT along its length, and the only
+// per-frame write is each strip's opacity. That is:
+//
+//   * 4 objects instead of 48, and at most 4 writes per frame instead of 48
+//   * smoothness from the RENDERER rather than from quantisation steps -- a linear gradient is a
+//     per-scanline lookup, which is the cheap category, and it has no visible stepping
+//   * travel from phase-offsetting the four edges, so the bright region still circulates
+//
+// It fixes both complaints at once: the freeze (fewer writes) and the pixelation (the gradient
+// replaces 16 discrete opacity levels).
 constexpr int kThick = 16;
-// BACK TO 48. 120 segments froze the device, and 48 was running. The smoothness came from the
-// opacity quantisation below (16 -> 64 levels), which costs nothing, rather than from the object
-// count, which evidently does.
-constexpr int kTop = 15, kSide = 9;                    // segments per edge, ~83 px each
-constexpr int kSegs = 2 * kTop + 2 * kSide;            // 48
+constexpr int kEdges = 4;                 // top, right, bottom, left
 
-lv_obj_t* g_seg[kSegs];
-float     g_at[kSegs];                                 // 0..1 position around the ring
-uint8_t   g_lastOpa[kSegs];
+lv_obj_t* g_edge[kEdges];
+uint8_t   g_lastOpa[kEdges];
+int       g_lastLen[kEdges];
 uint32_t  g_lastColour = 0xffffffff;
 
 enum Activity { IDLE = 0, LISTEN, THINK, SPEAK, FAULT, GAUGE };
@@ -206,6 +220,7 @@ enum Activity { IDLE = 0, LISTEN, THINK, SPEAK, FAULT, GAUGE };
 // State of charge, 0..1. On the robot this comes from the pack's RS485 BMS, which already reports
 // SOC to the StamPLC -- so nothing new has to be sensed for this.
 float g_soc = 0.62f;
+
 Activity g_activity = IDLE;
 float    g_phase = 0.0f;
 uint32_t g_lastMs = 0;
@@ -224,93 +239,117 @@ const char* name(Activity a)
 
 void build(lv_obj_t* scr)
 {
-    int n = 0;
-    auto place = [&](int x, int y, int w, int h, float at) {
+    struct Spec { int x, y, w, h; lv_grad_dir_t dir; };
+    const Spec spec[kEdges] = {
+        {0,                0,                kScreenW, kThick,   LV_GRAD_DIR_HOR},   // top
+        {kScreenW - kThick, 0,               kThick,   kScreenH, LV_GRAD_DIR_VER},   // right
+        {0,                kScreenH - kThick, kScreenW, kThick,  LV_GRAD_DIR_HOR},   // bottom
+        {0,                0,                kThick,   kScreenH, LV_GRAD_DIR_VER},   // left
+    };
+    for (int i = 0; i < kEdges; ++i) {
         lv_obj_t* o = lv_obj_create(scr);
         lv_obj_remove_style_all(o);
+        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_pos(o, spec[i].x, spec[i].y);
+        lv_obj_set_size(o, spec[i].w, spec[i].h);
+        // A LINEAR gradient, which is a per-scanline lookup -- the cheap category -- and smooth
+        // without any quantisation. Dim at one end, full at the other; the direction alternates so
+        // the bright ends meet at the corners and the ring reads as continuous.
         lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_bg_color(o, lv_color_hex(0x2ecc58), LV_PART_MAIN);
-        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_size(o, w, h);
-        lv_obj_set_pos(o, x, y);
-        g_seg[n] = o; g_at[n] = at; g_lastOpa[n] = 0xff; ++n;
-    };
-    // Clockwise from the top-left, so a sweep travels the way a clock does.
-    const float per = 1.0f / (float)kSegs;
-    for (int i = 0; i < kTop;  ++i) place(i * kScreenW / kTop, 0, kScreenW / kTop + 1, kThick, n * per);
-    for (int i = 0; i < kSide; ++i) place(kScreenW - kThick, i * kScreenH / kSide, kThick, kScreenH / kSide + 1, n * per);
-    for (int i = 0; i < kTop;  ++i) place(kScreenW - (i + 1) * kScreenW / kTop, kScreenH - kThick, kScreenW / kTop + 1, kThick, n * per);
-    for (int i = 0; i < kSide; ++i) place(0, kScreenH - (i + 1) * kScreenH / kSide, kThick, kScreenH / kSide + 1, n * per);
-}
-
-// Distance around a 0..1 ring, shortest way.
-float ringDist(float a, float b)
-{
-    float d = a - b;
-    while (d < -0.5f) d += 1.0f;
-    while (d >  0.5f) d -= 1.0f;
-    return d < 0 ? -d : d;
+        lv_obj_set_style_bg_grad_color(o, lv_color_hex(0x2ecc58), LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(o, spec[i].dir, LV_PART_MAIN);
+        lv_obj_set_style_bg_main_opa(o, LV_OPA_20, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_opa(o, LV_OPA_COVER, LV_PART_MAIN);
+        g_edge[i] = o; g_lastOpa[i] = 0xff; g_lastLen[i] = -1;
+    }
+    // Sides sit between top and bottom so the corners overlap cleanly.
+    lv_obj_move_background(g_edge[1]);
+    lv_obj_move_background(g_edge[3]);
 }
 
 void update(uint32_t now, uint32_t colour)
 {
     const float dt = (g_lastMs == 0) ? 0.0f : (now - g_lastMs) / 1000.0f;
     g_lastMs = now;
+    const float tsec = now / 1000.0f;
 
-    // Motion IS the vocabulary, the same argument as the earcons being rhythm-distinct: a cue
-    // separated only by colour is lost on anyone glancing, colour-blind, or at an angle.
-    float speed = 0.0f, width = 0.12f, base = 26.0f, peak = 170.0f;
+    float speed = 0.0f, base = 26.0f, peak = 170.0f, width = 0.30f;
     switch (g_activity) {
-        case IDLE:   speed = 0.0f;  base = 22.0f; peak = 54.0f;  break;   // whole ring breathes
-        case LISTEN: speed = 0.35f; width = 0.16f; base = 24.0f; peak = 190.0f; break;
-        case THINK:  speed = 0.95f; width = 0.07f; base = 18.0f; peak = 235.0f; break;
-        case SPEAK:  speed = 0.0f;  base = 60.0f; peak = 220.0f; break;   // envelope, stubbed
-        case FAULT:  speed = 0.0f;  base = 0.0f;  peak = 255.0f; break;   // hard flash, all at once
-        // A GAUGE, not a motion. The band is already 48 addressable segments, so reading charge
-        // off it costs ZERO new objects and one opacity write per segment -- and SOC changes on a
-        // timescale of minutes, so almost every frame writes nothing at all. The old renderer did
-        // this inside the eye (drawEye's `gauge` branch); the band is a better home because it
-        // does not spend the eyes on it.
-        case GAUGE:  speed = 0.0f;  base = 16.0f; peak = 235.0f; break;
+        case IDLE:   speed = 0.00f; base = 22.0f; peak =  60.0f; break;
+        case LISTEN: speed = 0.30f; base = 24.0f; peak = 200.0f; width = 0.34f; break;
+        case THINK:  speed = 0.85f; base = 18.0f; peak = 240.0f; width = 0.20f; break;
+        case SPEAK:  speed = 0.00f; base = 60.0f; peak = 220.0f; break;
+        case FAULT:  speed = 0.00f; base =  0.0f; peak = 255.0f; break;
+        case GAUGE:  speed = 0.00f; base = 16.0f; peak = 235.0f; break;
     }
     g_phase += speed * dt;
     while (g_phase > 1.0f) g_phase -= 1.0f;
 
-    const float tsec = now / 1000.0f;
-    for (int i = 0; i < kSegs; ++i) {
-        float v;
-        if (g_activity == FAULT) {
-            v = (fmodf(tsec, 0.7f) < 0.35f) ? 1.0f : 0.06f;      // unmistakable, and theme-proof
-        } else if (g_activity == IDLE) {
-            v = 0.5f + 0.5f * sinf(tsec * 1.1f);                 // slow, whole-ring breath
-        } else if (g_activity == GAUGE) {
-            // Filled proportion reads as a level. A slow travelling shimmer over the FILLED part
-            // only distinguishes "charging" from "this is simply how full it is".
-            const bool filled = (g_at[i] <= g_soc);
-            const float shimmer = 0.75f + 0.25f * sinf(tsec * 2.0f - g_at[i] * 6.28f);
-            v = filled ? shimmer : 0.0f;
-        } else if (g_activity == SPEAK) {
-            v = 0.5f + 0.5f * sinf(tsec * 7.0f);                 // placeholder for the audio envelope
-        } else {
-            const float d = ringDist(g_at[i], g_phase);
-            v = expf(-(d * d) / (2.0f * width * width));         // a travelling bump
+    // THE GAUGE IS A LENGTH, not a phase, so it sizes the strips instead of fading them. SOC moves
+    // over minutes, so these writes almost never happen -- which is why a level can afford to
+    // resize where a sweep cannot.
+    if (g_activity == GAUGE) {
+        const float peri = 2.0f * (kScreenW + kScreenH);
+        float left = g_soc * peri;
+        const float lenOf[kEdges] = {(float)kScreenW, (float)kScreenH, (float)kScreenW, (float)kScreenH};
+        for (int i = 0; i < kEdges; ++i) {
+            const float take = left < lenOf[i] ? left : lenOf[i];
+            left -= take;
+            if (left < 0) left = 0;
+            const int L = (int)take;
+            if (L != g_lastLen[i]) {
+                if (i == 0)      lv_obj_set_size(g_edge[i], L, kThick);
+                else if (i == 2) { lv_obj_set_size(g_edge[i], L, kThick);
+                                   lv_obj_set_pos(g_edge[i], kScreenW - L, kScreenH - kThick); }
+                else             lv_obj_set_size(g_edge[i], kThick, L);
+                g_lastLen[i] = L;
+            }
+            const float shimmer = 0.78f + 0.22f * sinf(tsec * 2.0f - i * 1.4f);
+            const uint8_t opa = (uint8_t)(base + (peak - base) * (L > 0 ? shimmer : 0.0f));
+            if (opa != g_lastOpa[i]) {
+                lv_obj_set_style_bg_opa(g_edge[i], opa, LV_PART_MAIN);
+                g_lastOpa[i] = opa;
+            }
         }
-        const float opaF = base + (peak - base) * v;
-        // 16 LEVELS, and the coarseness is deliberate. I claimed finer steps were free because
-        // the change-guard bounds the cost -- that was wrong: the GUARD is what makes writes
-        // conditional, but a finer step makes more of them pass the condition, so 64 levels meant
-        // roughly four times the invalidations per frame and froze the device. The stepping is
-        // visible; it is also what runs.
-        const uint8_t opa = (uint8_t)(((int)opaF >> 4) << 4);
-        if (opa != g_lastOpa[i]) {
-            lv_obj_set_style_bg_opa(g_seg[i], opa, LV_PART_MAIN);
-            g_lastOpa[i] = opa;
+    } else {
+        // Restore full-length edges if we have just left the gauge.
+        for (int i = 0; i < kEdges; ++i) {
+            const int full = (i == 0 || i == 2) ? kScreenW : kScreenH;
+            if (g_lastLen[i] != full) {
+                if (i == 0)      lv_obj_set_size(g_edge[i], kScreenW, kThick);
+                else if (i == 2) { lv_obj_set_size(g_edge[i], kScreenW, kThick);
+                                   lv_obj_set_pos(g_edge[i], 0, kScreenH - kThick); }
+                else             lv_obj_set_size(g_edge[i], kThick, kScreenH);
+                g_lastLen[i] = full;
+            }
+        }
+        for (int i = 0; i < kEdges; ++i) {
+            float v;
+            if (g_activity == FAULT)      v = (fmodf(tsec, 0.7f) < 0.35f) ? 1.0f : 0.06f;
+            else if (g_activity == IDLE)  v = 0.5f + 0.5f * sinf(tsec * 1.1f);
+            else if (g_activity == SPEAK) v = 0.5f + 0.5f * sinf(tsec * 7.0f);
+            else {
+                // Phase-offset per edge, so the bright region circulates the perimeter.
+                const float at = (float)i / (float)kEdges;
+                float d = at - g_phase;
+                while (d < -0.5f) d += 1.0f;
+                while (d >  0.5f) d -= 1.0f;
+                v = expf(-(d * d) / (2.0f * width * width));
+            }
+            const uint8_t opa = (uint8_t)(base + (peak - base) * v);
+            if (opa != g_lastOpa[i]) {
+                lv_obj_set_style_bg_opa(g_edge[i], opa, LV_PART_MAIN);
+                g_lastOpa[i] = opa;
+            }
         }
     }
 
     if (colour != g_lastColour) {
-        for (int i = 0; i < kSegs; ++i)
-            lv_obj_set_style_bg_color(g_seg[i], lv_color_hex(colour), LV_PART_MAIN);
+        for (int i = 0; i < kEdges; ++i) {
+            lv_obj_set_style_bg_color(g_edge[i], lv_color_hex(colour), LV_PART_MAIN);
+            lv_obj_set_style_bg_grad_color(g_edge[i], lv_color_hex(colour), LV_PART_MAIN);
+        }
         g_lastColour = colour;
     }
 }
