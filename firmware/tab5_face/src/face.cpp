@@ -63,13 +63,55 @@ static bool fullRepaint =
     true; // needs a fillScreen (boot / returned from controller)
 static bool stateDirty = false; // state changed → remake glow+label, NO
                                 // fillScreen (smooth, no flash)
-static uint32_t lastFpsMs = 0, tPrev = 0, frames = 0, nextBlink = 1500,
-                gNext = 0;
+static uint32_t lastFpsMs = 0, tPrev = 0, frames = 0, gNext = 0;
 static float fps = 0, blinkPhase = 0, soc = 0.6f, breathe = 0;
 static float gx = 0, gy = 0, gTX = 0, gTY = 0, radarAng = 0, radarPrev = 0;
+static uint32_t nextBlink = 1500;   // declared before startSaccade(), which fires a blink
 // Explicit "look here" intent, in SCREEN coordinates (already mirrored by faceLookAt).
 static float lookX = 0, lookY = 0;
 static uint32_t lookUntil = 0;
+
+// ---- gaze is SACCADIC -------------------------------------------------------------------
+// Eyes do not drift. They make ballistic jumps between dead-still fixations, and the stillness
+// is half of what makes a fixation legible -- an observer reads WHERE a gaze settled, not the
+// path it took. The previous model was `gx = lp(gx, target, k)`, an exponential approach that
+// never settles, so the eyes were permanently in motion and never fixated on anything. That is
+// what "jittery and conveys nothing" was: no fixations to read, and in AUTONOMOUS a literal
+// continuous sine sweep, which is smooth pursuit of a target that does not exist.
+//
+// Model follows Lee, Badler & Badler, "Eyes Alive" (SIGGRAPH 2002), the standard statistical
+// eye-movement model for character animation. The pieces that matter here:
+//   * saccades last 20-200 ms, and successive fixations are typically 20-30 ms apart;
+//   * duration follows the MAIN SEQUENCE -- a fixed relationship between amplitude, duration and
+//     peak velocity -- so a big jump takes measurably longer than a small one, and getting that
+//     ratio wrong is itself a cue that something is not alive;
+//   * the inter-saccadic interval (fixation duration) is a modelled quantity, not a leftover;
+//   * saccade RATE tracks arousal: excited or agitated raises it, lethargic lowers it.
+static float    sacFromX = 0, sacFromY = 0, sacToX = 0, sacToY = 0;
+static uint32_t sacStart = 0, sacDur = 0;     // sacDur == 0 means FIXATING, holding dead still
+static uint32_t fixUntil = 0;                 // when the current idle fixation expires
+
+// Full gaze deflection is about 30 degrees of eye rotation; the main sequence is then roughly
+// 20 ms of fixed cost plus 2.2 ms per degree. Amplitude 1.0 -> ~86 ms, 0.1 -> ~27 ms.
+static uint32_t saccadeMs(float dx, float dy) {
+  const float deg = sqrtf(dx * dx + dy * dy) * 30.0f;
+  const uint32_t ms = (uint32_t)(20.0f + deg * 2.2f);
+  return ms > 200 ? 200 : ms;                 // physiological ceiling
+}
+
+static void startSaccade(float tx, float ty, uint32_t now) {
+  if (tx < -1) tx = -1; else if (tx > 1) tx = 1;
+  if (ty < -1) ty = -1; else if (ty > 1) ty = 1;
+  const float dx = tx - sacToX, dy = ty - sacToY;
+  if (fabsf(dx) < 0.03f && fabsf(dy) < 0.03f) return;   // below the smallest real saccade
+  sacFromX = gx; sacFromY = gy;
+  sacToX = tx;   sacToY = ty;
+  sacDur = saccadeMs(dx, dy);
+  sacStart = now;
+  // A large gaze shift in a real face is often accompanied by a blink. Firing one here hides the
+  // transit and makes the arrival read as deliberate rather than as a slide.
+  if (fabsf(dx) > 0.55f) nextBlink = now;
+}
 
 // ---- gaze self-test ----------------------------------------------------------------------
 // Steps on faceRender() rather than blocking, because gx/gy are integrated INSIDE the render
@@ -379,46 +421,54 @@ void faceRender() {
   turnDir = g_turnCmd; // real turn intent pushed by the Thor (TURN L/R/0) →
                        // chevrons + gaze-lean
 
-  float dgx = 0, dgy = 0;
-  // Fastest gaze wins: a committed look-at is a deliberate signal and must not be averaged with
-  // an idle saccade. Priority, highest first: explicit look-at, turn, lift intent, then state.
+  // Decide WHERE to look. Committed intent (a deliberate signal) outranks idle looking around.
+  float tx = sacToX, ty = sacToY;
   bool committed = false;
-  if (is("SAFE_IDLE")) {
-    if (t > gNext) {
-      gTX = random(-100, 101) / 100.0f;
-      gTY = random(-55, 56) / 100.0f;
-      gNext = t + 1200 + random(2400);
-    }
-    dgx = gTX;
-    dgy = gTY;
-  } else if (is("AUTONOMOUS"))
-    dgx = sinf(breathe * 0.7f) * 0.6f;
-  if (turnDir != 0) {
-    dgx = -turnDir * 0.85f;
-    dgy = 0;
-    committed = true;
-  } // gaze leans toward the turn in the VIEWER frame
-
-  // LIFT INTENT, NOT LIFT MOTION. Lift.request() is what the operator asked for and is set here
-  // on the Tab5; state().motion is what the StamPLC reports back after the relay has closed. So
-  // gazing on the REQUEST genuinely precedes visible travel by a full round trip, where gazing on
-  // the report would only ever accompany it.
+  if (turnDir != 0) { tx = -turnDir * 0.85f; ty = 0; committed = true; }
   if (!committed) {
+    // LIFT INTENT, NOT LIFT MOTION. Lift.request() is what the operator asked for and is set here
+    // on the Tab5; state().motion comes back only after the StamPLC closes the relay. Gazing on
+    // the request precedes visible travel by a full round trip.
     const Motion want = Lift.request();
-    if (want != Motion::STOP) {
-      dgy = (want == Motion::UP) ? -0.75f : 0.75f;  // screen y is positive DOWNWARD
-      dgx = 0;
-      committed = true;
-    }
+    if (want != Motion::STOP) { ty = (want == Motion::UP) ? -0.75f : 0.75f; tx = 0; committed = true; }
+  }
+  if (t < lookUntil) { tx = lookX; ty = lookY; committed = true; }
+
+  // Idle looking around, when nothing is being attended to. Amplitude is deliberately skewed
+  // small: most real saccades are short, and a face that makes nothing but wide sweeps reads as
+  // frantic. Arousal sets the rate, per Eyes Alive -- AUTONOMOUS is busy and looks about more
+  // often; SAFE_IDLE is calm and holds longer.
+  if (!committed && sacDur == 0 && t > fixUntil) {
+    const bool busy = is("AUTONOMOUS");
+    const long roll = random(100);
+    const float amp = (roll < 60) ? random(0, 25) / 100.0f        // small, most of the time
+                    : (roll < 90) ? random(25, 60) / 100.0f       // mid
+                                  : random(60, 100) / 100.0f;     // occasional wide look
+    const float ang = random(0, 628) / 100.0f;
+    tx = cosf(ang) * amp;
+    ty = sinf(ang) * amp * 0.55f;                                 // eyes range less vertically
+    fixUntil = t + (busy ? 180 + random(420) : 320 + random(1300));
   }
 
-  if (t < lookUntil) { dgx = lookX; dgy = lookY; committed = true; }
+  if (!committed || fabsf(tx - sacToX) > 0.03f || fabsf(ty - sacToY) > 0.03f)
+    startSaccade(tx, ty, t);
 
-  // A committed gaze snaps; an idle one drifts. Using the same slow rate for both would make a
-  // deliberate glance arrive too late to lead anything.
-  const float gk = committed ? k * 1.6f : k * 0.5f;
-  gx = lp(gx, dgx, gk > 1.0f ? 1.0f : gk);
-  gy = lp(gy, dgy, gk > 1.0f ? 1.0f : gk);
+  // Execute: ballistic during the saccade, EXACTLY still afterwards. The hold is the point --
+  // any residual motion between saccades is what made this look jittery before.
+  if (sacDur) {
+    const uint32_t el = t - sacStart;
+    if (el >= sacDur) {
+      gx = sacToX; gy = sacToY; sacDur = 0;
+      if (committed) fixUntil = t;            // let idle resume immediately once intent clears
+    } else {
+      const float u = (float)el / (float)sacDur;
+      const float e = u * u * (3.0f - 2.0f * u);   // ease: fast middle, settles without overshoot
+      gx = sacFromX + (sacToX - sacFromX) * e;
+      gy = sacFromY + (sacToY - sacFromY) * e;
+    }
+  } else {
+    gx = sacToX; gy = sacToY;                 // dead still
+  }
   gazeSelfTestTick(t);
 
   if (!blinking && t > nextBlink) {
