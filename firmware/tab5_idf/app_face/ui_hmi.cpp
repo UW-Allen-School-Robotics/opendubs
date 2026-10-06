@@ -177,25 +177,58 @@ lv_obj_t* g_bannerTx = nullptr;
 void onFacePress(lv_event_t*);
 void onVeilPress(lv_event_t*);
 
-// One handler per direction. user_data carries the rate pair so there is no switch to get wrong.
+// HOLD-TO-MOVE WITHOUT TRUSTING LV_EVENT_PRESSING.
+//
+// The e-stop (LV_EVENT_PRESSED) worked while RAISE, LOWER and all four arrows (LV_EVENT_PRESSING)
+// did nothing, which points at PRESSING never being delivered. The mechanism is not established:
+// this panel's GT911 is read by a POLLED lv_timer, and whether the controller keeps yielding
+// coordinates between interrupts -- which is what makes LVGL re-send PRESSING on the next read --
+// is exactly the kind of thing that has been guessed wrong on this board before.
+//
+// So do not depend on it either way. PRESSED latches an intent with a short lease; hmiTick(), which
+// runs every frame regardless of input, re-asserts it while the lease is alive; RELEASED and
+// PRESS_LOST clear it. If PRESSING does fire, every one of them refreshes the lease and this is a
+// true hold. If it never fires, each PRESSED still buys kHoldLeaseMs of motion, so the control
+// responds instead of being dead. Either way the lease -- not an event -- is what stops the motion,
+// which is the property that matters for a lift.
+constexpr uint32_t kHoldLeaseMs = 400;
+
+enum class Held : uint8_t { NONE, PAN_L, PAN_R, TILT_U, TILT_D, RAISE, LOWER };
+Held     g_held   = Held::NONE;
+uint32_t g_heldMs = 0;
+// Event census, read back over PING: it settles which events actually arrive on this hardware
+// rather than leaving it a theory.
+uint32_t g_evPressed = 0, g_evPressing = 0, g_evReleased = 0;
+
 struct DpadRate { float pan, tilt; };
 DpadRate g_dpadL{-kDpadDpsUi, 0}, g_dpadR{kDpadDpsUi, 0},
          g_dpadU{0, kDpadDpsUi},  g_dpadD{0, -kDpadDpsUi};
 
-void onDpadHold(lv_event_t* e)
+void holdSet(Held h)
 {
-    auto* r = (DpadRate*)lv_event_get_user_data(e);
-    pantiltTouchRate(r->pan, r->tilt);
+    g_held   = h;
+    g_heldMs = 0;      // 0 = "stamp me on the next tick", as g_lastTouch does
 }
-void onDpadRelease(lv_event_t*) { pantiltTouchRate(0.0f, 0.0f); }
+void holdClear()
+{
+    g_held = Held::NONE;
+    pantiltTouchRate(0.0f, 0.0f);
+    netLiftRequest(0.0f);
+}
+
+void onHoldPress(lv_event_t* e)
+{
+    const lv_event_code_t c = lv_event_get_code(e);
+    if (c == LV_EVENT_PRESSED) g_evPressed++; else g_evPressing++;
+    holdSet((Held)(uintptr_t)lv_event_get_user_data(e));
+}
+void onHoldRelease(lv_event_t*) { g_evReleased++; holdClear(); }
 
 void onModeToggle(lv_event_t*) { pantiltSetTracking(!pantiltTracking()); }
 
 // RAISE / LOWER. HOLD-TO-MOVE, exactly as on the Arduino: PRESSING refreshes the request every
 // frame, so letting go stops the lift even if the RELEASED event is missed, and so does the head
 // dying -- the StamPLC's own 250 ms heartbeat window closes.
-void onLiftHold(lv_event_t* e)    { netLiftRequest(*(const float*)lv_event_get_user_data(e)); }
-void onLiftRelease(lv_event_t*)   { netLiftRequest(0.0f); }
 constexpr float kLiftUp = 1.0f, kLiftDown = -1.0f;   // the StamPLC's convention: positive is UP
 
 // STOPPING IS NEVER CONFIRMED. A stop control that asks "are you sure?" is not a stop control.
@@ -237,13 +270,12 @@ bool hmiOwnsPanel() { return g_open; }
 // diagnosed -- and so nobody has to sit at the bench pressing the glass and describing it.
 const char* hmiDiag()
 {
-    static char buf[96];
-    lv_obj_t*   scr = lv_screen_active();
-    snprintf(buf, sizeof(buf), "built=%d veil=%lu scr=%lu open=%d scrClick=%d veilClick=%d",
-             g_built ? 1 : 0, (unsigned long)g_veilPresses, (unsigned long)g_scrPresses,
-             g_open ? 1 : 0,
-             scr && lv_obj_has_flag(scr, LV_OBJ_FLAG_CLICKABLE) ? 1 : 0,
-             g_veil && lv_obj_has_flag(g_veil, LV_OBJ_FLAG_CLICKABLE) ? 1 : 0);
+    static char buf[128];
+    snprintf(buf, sizeof(buf),
+             "built=%d veil=%lu open=%d | ctl pressed=%lu pressing=%lu released=%lu held=%d",
+             g_built ? 1 : 0, (unsigned long)g_veilPresses, g_open ? 1 : 0,
+             (unsigned long)g_evPressed, (unsigned long)g_evPressing,
+             (unsigned long)g_evReleased, (int)g_held);
     return buf;
 }
 
@@ -283,6 +315,15 @@ void deferRevert(lv_obj_t* o)
 {
     lv_obj_add_event_cb(o, onAnyHmiPress, LV_EVENT_PRESSED,  nullptr);
     lv_obj_add_event_cb(o, onAnyHmiPress, LV_EVENT_PRESSING, nullptr);
+}
+
+void attachHold(lv_obj_t* o, Held h)
+{
+    void* u = (void*)(uintptr_t)h;
+    lv_obj_add_event_cb(o, onHoldPress,   LV_EVENT_PRESSED,    u);
+    lv_obj_add_event_cb(o, onHoldPress,   LV_EVENT_PRESSING,   u);
+    lv_obj_add_event_cb(o, onHoldRelease, LV_EVENT_RELEASED,   nullptr);
+    lv_obj_add_event_cb(o, onHoldRelease, LV_EVENT_PRESS_LOST, nullptr);
 }
 
 }  // namespace
@@ -368,17 +409,13 @@ void hmiBuild()
 
     // ---- RAISE / readout / LOWER ----
     lv_obj_t* upB = commandBox(g_root, UPB, "RAISE", UPCOL);
-    lv_obj_add_event_cb(upB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftUp);
-    lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
-    lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
+    attachHold(upB, Held::RAISE);
     deferRevert(upB);
     panel(g_root, RDO, "HEIGHT");
     g_height = text(g_root, "---", F_BIG, INKFT, RDO[0] + 24, RDO[1] + 56);
     text(g_root, "mm", F_DATA, INKFT, RDO[0] + 180, RDO[1] + 80);
     lv_obj_t* dnB = commandBox(g_root, DNB, "LOWER", DNCOL);
-    lv_obj_add_event_cb(dnB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftDown);
-    lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
-    lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
+    attachHold(dnB, Held::LOWER);
     deferRevert(dnB);
 
     // ---- pan / tilt d-pad + mode ----
@@ -389,15 +426,13 @@ void hmiBuild()
     const int mode[4]  = {DP_CX - 75,          DP_CY + DP_W + DP_G + 20, 150, 44};
     // THE D-PAD AND MODE ARE LIVE. They drive servos and state this board owns, so they need no
     // command link -- which is why they work now while RAISE/LOWER and the e-stop do not.
-    struct { const int* r; const char* sym; DpadRate* rate; } dp[] = {
-        {tiltU, LV_SYMBOL_UP,    &g_dpadU}, {tiltD, LV_SYMBOL_DOWN,  &g_dpadD},
-        {panL,  LV_SYMBOL_LEFT,  &g_dpadL}, {panR,  LV_SYMBOL_RIGHT, &g_dpadR},
+    struct { const int* r; const char* sym; Held h; } dp[] = {
+        {tiltU, LV_SYMBOL_UP,    Held::TILT_U}, {tiltD, LV_SYMBOL_DOWN,  Held::TILT_D},
+        {panL,  LV_SYMBOL_LEFT,  Held::PAN_L},  {panR,  LV_SYMBOL_RIGHT, Held::PAN_R},
     };
     for (auto& d : dp) {
         lv_obj_t* b = liveBox(g_root, d.r, d.sym, CYAN, 12);
-        lv_obj_add_event_cb(b, onDpadHold,    LV_EVENT_PRESSING, d.rate);
-        lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_RELEASED, nullptr);
-        lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_PRESS_LOST, nullptr);
+        attachHold(b, d.h);
         deferRevert(b);
     }
     lv_obj_t* modeBtn = liveBox(g_root, mode, nullptr, CYAN, 10);
@@ -497,6 +532,28 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
     if (g_lastTouch == 0) g_lastTouch = nowMs;
 
     static char buf[48];
+
+    // ---- re-assert whatever is being held ----
+    // This, not the event, is what moves things: hmiTick runs every frame whether or not any input
+    // event was delivered, so a control works even if LVGL sends PRESSED exactly once. The lease is
+    // the stop: nothing keeps moving once it lapses, so a missed RELEASED costs kHoldLeaseMs.
+    if (g_held != Held::NONE) {
+        if (g_heldMs == 0) g_heldMs = nowMs;
+        if (nowMs - g_heldMs >= kHoldLeaseMs) {
+            holdClear();
+        } else {
+            switch (g_held) {
+                case Held::PAN_L:  pantiltTouchRate(-kDpadDpsUi, 0.0f); break;
+                case Held::PAN_R:  pantiltTouchRate( kDpadDpsUi, 0.0f); break;
+                case Held::TILT_U: pantiltTouchRate(0.0f,  kDpadDpsUi); break;
+                case Held::TILT_D: pantiltTouchRate(0.0f, -kDpadDpsUi); break;
+                case Held::RAISE:  netLiftRequest(kLiftUp);             break;
+                case Held::LOWER:  netLiftRequest(kLiftDown);           break;
+                default: break;
+            }
+            g_lastTouch = 0;   // holding a control is activity, so the panel must not revert
+        }
+    }
 
     // ---- the command-link banner, reported rather than assumed ----
     // Three distinct things, and conflating them is how an operator ends up trusting a dead

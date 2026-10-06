@@ -1373,6 +1373,27 @@ void AppFace::onRunning()
         }
     }
 
+    // HEAD MOTION, HOISTED ABOVE EVERY EARLY RETURN -- and that placement is the whole fix.
+    //
+    // This used to sit after the `settingsOwnsPanel() || hmiOwnsPanel()` return, so pan/tilt
+    // stopped being ticked exactly while the controller panel was open: the d-pad set a rate that
+    // nothing ever integrated, and the servos were not written either. The arrows looked dead
+    // while the e-stop beside them worked, because the e-stop's effect leaves over the network and
+    // does not need this loop.
+    //
+    // While a panel owns the screen there is no gaze to follow -- the face is not even drawn -- so
+    // autonomous tracking is passed haveTarget=false and only the touch lease steers. An OTA is
+    // the one case that still skips it: nothing should be commanding servos mid-update.
+    // The gaze inputs are computed further down, after this returns, so this call covers ONLY the
+    // panel case and passes no target: with a panel over the face there is nothing to look at and
+    // only the touch lease should steer. The normal path still ticks at its original place below,
+    // so the head is ticked exactly once per frame either way.
+    if ((settingsOwnsPanel() || hmiOwnsPanel()) && !netOtaActive()) {
+        const bool known   = g_linkUp && g_linkState >= 0;
+        const bool stopped = (g_state == 4 || g_state == 5);        // DEGRADED, E_STOP
+        pantiltTick(now, known && !stopped, false, 0.0f, 0.0f, 0.0f);
+    }
+
     // QUIESCE WHILE AN OTA IS DOWNLOADING.
     //
     // The OTA runs on the network task at priority 2. The LVGL task is priority 4 and this face is
@@ -1613,19 +1634,17 @@ void AppFace::onRunning()
         if (due(now, g_nextSaccade)) newSaccade(now);
     }
 
-    // HEAD MOTION. Ticked every frame rather than only on a new gaze sample, because the slew and
-    // the return to centre are continuous and must keep running when perception goes quiet.
-    //
-    // MOTION IS ALLOWED ONLY WHEN WE KNOW THE ROBOT IS NOT STOPPED. Autonomous head motion while
-    // the base is e-stopped is the wrong behaviour, and with NO LINK we do not know the state -- so
-    // "unknown" reads as "do not move" rather than "assume idle". That is deliberately the
-    // conservative direction: head motion is physical motion near people and it is the first
-    // autonomous motion this robot will make.
+    // HEAD MOTION, normal path. Ticked every frame rather than only on a new gaze sample, because
+    // the slew and the return to centre are continuous and must keep running when perception goes
+    // quiet. MOTION IS ALLOWED ONLY WHEN WE KNOW THE ROBOT IS NOT STOPPED: autonomous head motion
+    // while the base is e-stopped is the wrong behaviour, and with NO LINK we do not know the state
+    // -- so "unknown" reads as "do not move" rather than "assume idle".
     {
         const bool known   = g_linkUp && g_linkState >= 0;
         const bool stopped = (g_state == 4 || g_state == 5);        // DEGRADED, E_STOP
         pantiltTick(now, known && !stopped, haveGaze, gi.nx, gi.ny, gi.confidence);
     }
+
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
     static uint32_t nextTheme = 18000;

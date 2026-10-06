@@ -79,6 +79,12 @@ volatile float    g_liftReq   = 0.0f;    // -1 lower, +1 raise, 0 stop
 volatile uint32_t g_liftMs    = 0;
 volatile bool     g_estopReq  = false;
 volatile bool     g_plcByName = false;   // resolved rather than heard
+volatile uint32_t g_plcTelem  = 0;       // JSON telemetry lines accepted
+
+// The robot state the face displays. Written by the `STATE <NAME>` command AND by the
+// StamPLC telemetry listener below -- same destination, so the display path is unchanged.
+char     g_stateName[24] = "";
+uint32_t g_stateStamp    = 0;   // 0 means "never heard from the robot at all"
 
 // OTA IN PROGRESS. The face quiesces while this is set -- see netOtaActive(). The OTA runs on this
 // task at priority 2 while the LVGL task runs at priority 4 and the face is already measured at
@@ -113,6 +119,70 @@ void setStatus(const char* s)
 // Resolve the StamPLC by name, and keep doing so. Its own task because mdns_query_a() blocks for
 // up to its timeout, and the command socket's loop is also the 20 Hz lift publisher -- a two-second
 // stall there would be two seconds of a held RAISE button not being sent.
+// Derive the robot state from the StamPLC's own telemetry, which it ALREADY BROADCASTS.
+//
+// The state chip had no source: it only ever moved on an inbound `STATE <NAME>`, and nothing on
+// this robot sends one -- the Arduino got state as CAN_ID_ROBOT_STATE from the Thor's dashboard,
+// so with the dashboard down the chip simply never changed. The StamPLC, meanwhile, broadcasts a
+// JSON line to 255.255.255.255:5005 about three times a second carrying rc.mode and io.estop,
+// which is exactly the authority we want: the StamPLC owns the contactor, not the Thor.
+//
+// So we LISTEN. No StamPLC change, no dashboard dependency, and the state comes from the device
+// that actually decides it. ~43 packets a second arrive on that port, almost all of them the
+// firmware's own `[TAG] ...` text telemetry, so the first byte is the filter.
+const char* plcStateFromJson(const char* j)
+{
+    // io.estop wins outright: it is the latch, and a mode string can lag it.
+    const char* e = strstr(j, "\"estop\":");
+    if (e && strncmp(e + 8, "true", 4) == 0) return "E_STOP";
+
+    const char* m = strstr(j, "\"mode\":\"");
+    if (!m) return nullptr;
+    m += 8;
+    if (strncmp(m, "ESTOP",       5) == 0) return "E_STOP";
+    if (strncmp(m, "NOLINK",      6) == 0) return "DEGRADED";
+    if (strncmp(m, "FAILSAFE",    8) == 0) return "DEGRADED";
+    if (strncmp(m, "MANUAL_LIVE", 11) == 0) return "MANUAL";      // before MANUAL_SAFE: prefixes
+    if (strncmp(m, "MANUAL_SAFE", 11) == 0) return "SAFE_IDLE";
+    if (strncmp(m, "AUTO",        4) == 0) return "AUTONOMOUS";
+    if (strncmp(m, "OFF",         3) == 0) return "SAFE_IDLE";
+    return nullptr;
+}
+
+void plcTelemetryTask(void*)
+{
+    const int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (s < 0) { mclog::tagError(kTag, "telemetry socket() failed"); vTaskDelete(nullptr); return; }
+    int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
+    sockaddr_in me = {};
+    me.sin_family      = AF_INET;
+    me.sin_addr.s_addr = htonl(INADDR_ANY);
+    me.sin_port        = htons(kPlcCmdPort);
+    if (bind(s, (sockaddr*)&me, sizeof(me)) < 0) {
+        mclog::tagError(kTag, "telemetry bind({}) failed", kPlcCmdPort);
+        close(s); vTaskDelete(nullptr); return;
+    }
+    mclog::tagInfo(kTag, "listening for stamplc telemetry on udp/{}", kPlcCmdPort);
+
+    char rx[1024];
+    for (;;) {
+        sockaddr_in from; socklen_t fl = sizeof(from);
+        const int n = recvfrom(s, rx, sizeof(rx) - 1, 0, (sockaddr*)&from, &fl);
+        if (n <= 0) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+        if (rx[0] != '{') continue;                 // the cheap filter: text telemetry, not state
+        rx[n] = 0;
+        g_plcTelem++;
+        const char* st = plcStateFromJson(rx);
+        if (!st) continue;
+        if (strcmp(g_stateName, st) != 0)
+            mclog::tagInfo(kTag, "state <- {} (stamplc telemetry)", st);
+        snprintf(g_stateName, sizeof(g_stateName), "%.23s", st);
+        g_stateStamp = perceptNowMs();
+    }
+}
+
 void plcResolveTask(void*)
 {
     for (;;) {
@@ -139,6 +209,7 @@ void plcResolveTask(void*)
 
 void cmdTask(void*);        // defined below; started once we hold an IP
 void plcResolveTask(void*);
+void plcTelemetryTask(void*);
 void markValidTask(void*);  // defined below; declares the image good once it has proven healthy
 
 void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
@@ -192,6 +263,7 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
             started = true;
             xTaskCreatePinnedToCore(cmdTask, "netcmd", 6144, nullptr, 2, nullptr, 1);
             xTaskCreatePinnedToCore(plcResolveTask, "plcres", 4096, nullptr, 1, nullptr, 1);
+            xTaskCreatePinnedToCore(plcTelemetryTask, "plctel", 4096, nullptr, 2, nullptr, 1);
         }
         // {} NOT IPSTR. IPSTR is a printf format ("%d.%d.%d.%d") and mclog is fmt-style, so the
         // tokens printed literally and the address never appeared -- the one line someone needs in
@@ -346,8 +418,6 @@ void logVisibleAps()
 // kCmdPort is declared earlier: mDNS advertises it before this point in the file.
 
 // The last STATE we were told, and when. Never parsed into an index here -- see net.h.
-char     g_stateName[24] = "";
-uint32_t g_stateStamp    = 0;   // 0 means "never heard from the robot at all"
 
 // THE STALL DEADLINE IS NOT OPTIONAL. The Arduino firmware carries a comment paid for in a
 // physical recovery: killing the serving side mid-download wedged the head on "OTA: writing",
@@ -576,9 +646,11 @@ void cmdTask(void*)
                 }
             }
             const int m = snprintf(tx, sizeof(tx),
-                                   "PONG slot=%s state=%s sha=%s | plc=%s | %s | tp polls=%lu "
+                                   "PONG slot=%s state=%s sha=%s | plc=%s st=%s/%lu | %s | tp polls=%lu "
                                    "presses=%lu errs=%lu last=%lu,%lu | %s",
-                                   run ? run->label : "?", sn, sha, plc, hmiDiag(),
+                                   run ? run->label : "?", sn, sha, plc,
+                                   g_stateName[0] ? g_stateName : "-",
+                                   (unsigned long)g_plcTelem, hmiDiag(),
                                    (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
                                    (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
                                    (unsigned long)od_tp_lasty, pantiltStatus());
