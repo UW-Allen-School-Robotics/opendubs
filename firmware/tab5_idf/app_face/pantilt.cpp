@@ -372,9 +372,14 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
         if (writePulse(kChPan, panUs)) g_lastPanUs = panUs;
     }
 
-    snprintf(g_status, sizeof(g_status), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s%s",
+    // REPORT THE OWNER, not a guess inferred from the target. "centring" was derived from
+    // g_panTgt == kCentreDeg, which is also true of a hand-aimed head left near centre -- so the
+    // one thing worth knowing, who is driving, was exactly what it could not distinguish.
+    snprintf(g_status, sizeof(g_status), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s %s",
              g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : "FB",
-             (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? " centring" : " tracking");
+             !g_tracking ? "HOLD(manual)"
+                         : (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? "centring"
+                                                                               : "tracking");
 }
 
 // The VOR term: the fraction of the available range the head has taken on. The eyes subtract this

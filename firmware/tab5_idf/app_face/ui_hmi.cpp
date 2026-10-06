@@ -31,7 +31,9 @@ constexpr bool kCommandLink = true;
 
 // Idle auto-revert. The Arduino HMI did this too (HmiCtx::revertSecs): a controller screen left
 // up on a robot's face is a face that has stopped being a face, and nobody remembers to close it.
-constexpr uint32_t kRevertMs = 30000;
+// 30 s was too short to work with: the panel reverted mid-task at the robot. The countdown is on
+// screen, so a long timeout is not a mystery -- and holding any control resets it.
+constexpr uint32_t kRevertMs = 120000;
 
 // ---- palette, lifted from hmi.cpp so the two builds look like the same product ----------------
 constexpr uint32_t GROUND  = 0x0a0e13;
@@ -175,6 +177,8 @@ lv_obj_t* commandBox(lv_obj_t* parent, const int r[4], const char* word, uint32_
     return b;
 }
 
+const char* g_lastClose = "-";
+uint32_t    g_closes = 0, g_idleShown = 0;
 lv_obj_t* g_banner = nullptr;
 lv_obj_t* g_upB = nullptr, *g_dnB = nullptr;
 lv_obj_t* g_liftWhyTx = nullptr, *g_modeTx = nullptr;
@@ -278,8 +282,8 @@ const char* hmiDiag()
 {
     static char buf[128];
     snprintf(buf, sizeof(buf),
-             "built=%d veil=%lu open=%d | ctl pressed=%lu pressing=%lu released=%lu held=%d",
-             g_built ? 1 : 0, (unsigned long)g_veilPresses, g_open ? 1 : 0,
+             "open=%d idle=%lums closes=%lu/%s | ctl P=%lu G=%lu R=%lu held=%d",
+             g_open ? 1 : 0, (unsigned long)g_idleShown, (unsigned long)g_closes, g_lastClose,
              (unsigned long)g_evPressed, (unsigned long)g_evPressing,
              (unsigned long)g_evReleased, (int)g_held);
     return buf;
@@ -302,10 +306,11 @@ void onVeilPress(lv_event_t*)
     if (!g_open && !settingsOwnsPanel()) setOpen(true);
 }
 
-void onClose(lv_event_t*) { setOpen(false); }
+void onClose(lv_event_t*) { g_lastClose = "CLOSE-btn"; g_closes++; setOpen(false); }
 
 void onSettings(lv_event_t*)
 {
+    g_lastClose = "SETTINGS"; g_closes++;
     setOpen(false);
     settingsOpen();
 }
@@ -570,7 +575,14 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
                 case Held::LOWER:  if (netLiftAllowed(nullptr)) netLiftRequest(kLiftDown); break;
                 default: break;
             }
-            g_lastTouch = 0;   // holding a control is activity, so the panel must not revert
+            // nowMs, NOT 0. This line is why the panel slammed shut the instant a d-pad arrow was
+            // touched. 0 is the "stamp me on the next tick" flag that onAnyHmiPress uses from an
+            // event callback, and the top of this function converts it -- but that conversion has
+            // ALREADY RUN by the time we get here, and the revert check below reads g_lastTouch as
+            // a timestamp. So 0 meant "last touched at boot", idle became the whole uptime, and the
+            // revert fired on the first frame of the first press. It was never the timeout: it was
+            // a sentinel value read as a clock, one screenful below where it was written.
+            g_lastTouch = nowMs;
         }
     }
 
@@ -639,7 +651,9 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
 
     // ---- idle auto-revert ----
     const uint32_t idle = nowMs - g_lastTouch;
+    g_idleShown = idle;
     if (idle >= kRevertMs) {
+        g_lastClose = "IDLE"; g_closes++;
         setOpen(false);
         return;
     }
