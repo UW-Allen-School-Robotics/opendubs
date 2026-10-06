@@ -1,6 +1,11 @@
 #include "pantilt.h"
+#include "touch_ui_config.h"
 
-#ifdef ESP_PLATFORM
+#ifndef OPENDUBS_PANTILT
+#define OPENDUBS_PANTILT 0
+#endif
+
+#if defined(ESP_PLATFORM) && OPENDUBS_PANTILT
 
 #include <bsp/m5stack_tab5.h>
 #include <driver/i2c_master.h>
@@ -203,13 +208,13 @@ float pantiltHeadOffsetY()
 
 const char* pantiltStatus() { return g_status; }
 
-#else   // desktop SDL build: no I2C, no head
+#else   // pan/tilt disabled by flag, or the desktop SDL build: no I2C, no head
 
 void pantiltBegin() {}
 bool pantiltPresent() { return false; }
 void pantiltTick(uint32_t, bool, bool, float, float, float) {}
 float pantiltHeadOffsetX() { return 0.0f; }
 float pantiltHeadOffsetY() { return 0.0f; }
-const char* pantiltStatus() { return "pantilt: desktop build"; }
+const char* pantiltStatus() { return "pantilt: off"; }
 
 #endif  // ESP_PLATFORM
