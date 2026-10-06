@@ -65,8 +65,10 @@ responded.
 
 ## The lesson, which is the point of keeping this
 
-**Every candidate above sits ABOVE the layer where the fault lived, and each was investigated
-before anyone looked at what the driver actually delivered.** The measurement that settled it —
+**Instrument the lowest layer first — with an instrument that cannot alter what it observes.**
+
+Every candidate above sits ABOVE the layer where the fault lived, and each was investigated
+before anyone looked at what the driver actually delivered. The measurement that settled it —
 counters inside the vendor's own `lvgl_read_cb`, counting what the GT911 hands to LVGL before any
 hit-testing — cost one flash and one press, and it exonerated the entire UI stack in a single
 observation. It should have been the first step, not the twentieth.
@@ -81,8 +83,10 @@ Two instrument failures worth naming, because both produced confident wrong answ
   `0x8041 == 0xAA` while nothing in this stack arms ESD, so it could not pass whatever the chip
   did. It reported FAIL on boots indistinguishable from working ones.
 
-**An instrument that writes to the thing it measures is worse than no instrument**, and a verdict
-from an uncalibrated test is worse than no verdict.
+Both failed the same way: each measured something other than what it claimed, and one of them
+changed the thing under test. **An instrument that writes to the thing it measures is worse than no
+instrument**, and a verdict from an uncalibrated test is worse than no verdict. The driver-layer
+counters were decisive precisely because they write nothing to the chip.
 
 ## Residual, open
 
