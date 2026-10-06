@@ -97,7 +97,7 @@ sync_sources() {
     # Patched here rather than tracked as a whole vendor file copy, so a vendor change to
     # CMakeLists is inherited instead of silently overwritten. Idempotent, and it FAILS LOUDLY if
     # an anchor moves rather than quietly building the 934 KB version again.
-    python3 - "$DEMO/platforms/tab5" <<'PATCH'
+    python3 - "$DEMO/platforms/tab5" "$HERE/patches" <<'PATCH'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
 
@@ -123,6 +123,46 @@ if old in t:
     print("  patched: hal_audio.cpp canon symbols aliased")
 elif "canon_in_d_mp3_start[] asm" in t:
     sys.exit("REFUSING: hal_audio.cpp declares the canon symbols in an unrecognised form")
+
+# ---- GT911 self-test + recovery -------------------------------------------------------------
+# Touch dies intermittently on this board: the GT911 keeps ACKing I2C while its firmware stops
+# reporting, so LVGL sees RELEASED forever and the display is unaffected. Four candidates were
+# eliminated by measurement (poll sparsity, wrong I2C address, out-of-range coordinates, the
+# board's controller revision) and init order, reset timing and sleep were cleared in source.
+# Goodix's own reference driver ships a heartbeat watchdog for exactly this, so what goes in is a
+# verify-and-recover that logs its own verdict -- not a fix for a root cause we do not have.
+#
+# The C lives in firmware/tab5_idf/patches/*.c.inc, NOT in this heredoc: it has to be reviewable,
+# greppable and diffable like any other source we own.
+bsp = root / "components/m5stack_tab5/m5stack_tab5.c"
+# RESTORE THE VENDOR FILE FIRST, THEN ALWAYS RE-PATCH.  Without this the patch is idempotent
+# against a file that persists between builds, so EDITING THE .inc WOULD SILENTLY DO NOTHING --
+# and the next edit due here is flipping OD_GT911_WATCHDOG, which must actually take effect.
+# Only this one file is restored; the CMakeLists and hal_audio patches above stay applied.
+import subprocess
+r = subprocess.run(["git", "-C", str(root.parent.parent), "checkout", "--",
+                    "platforms/tab5/components/m5stack_tab5/m5stack_tab5.c"],
+                   capture_output=True, text=True)
+if r.returncode != 0:
+    sys.exit("REFUSING: could not restore m5stack_tab5.c from git (%s) -- a stale GT911 patch "
+             "would silently ignore edits to patches/*.c.inc" % r.stderr.strip())
+
+t = bsp.read_text()
+if "od_gt911_selftest" not in t:
+    anchor_call = "    esp_lcd_touch_exit_sleep(tp);  // !!!\n"
+    anchor_fn   = "static lv_indev_t* bsp_display_indev_init(lv_display_t* disp)\n"
+    if anchor_call not in t or anchor_fn not in t:
+        sys.exit("REFUSING: GT911 patch anchors not found in m5stack_tab5.c -- the vendor file moved")
+    pdir    = pathlib.Path(sys.argv[2])
+    helpers = (pdir / "gt911_selftest.c.inc").read_text()
+    init    = (pdir / "gt911_init.c.inc").read_text()
+    t = t.replace(anchor_fn, helpers + "\n" + anchor_fn, 1)
+    t = t.replace(anchor_call, init, 1)
+    bsp.write_text(t)
+    print("  patched: GT911 self-test + recovery (exit_sleep replaced)")
+else:
+    # Unreachable: the file was just restored from git, so it cannot already carry the patch.
+    sys.exit("REFUSING: m5stack_tab5.c still carries the GT911 patch after a git restore")
 PATCH
     # esp-dl is appended ONLY when the detector is wanted: in the default dependency set it aborts
     # at boot with an i2c driver-generation conflict (see idf_component.yml). Keeping it out of the
