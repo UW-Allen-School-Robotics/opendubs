@@ -53,5 +53,26 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
 float pantiltHeadOffsetX();
 float pantiltHeadOffsetY();
 
+// RC OWNS THE HEAD ABOVE THE LOCAL TRACKER -- the precedence in head-ownership.md. Called from
+// net.cpp on each CAN_ID_PAN_TILT_RATE frame the StamPLC sends (20 Hz while someone is aiming).
+// A RATE in deg/s, because the stick is spring-centred and the HEAD owns the position: two
+// devices integrating separately is how they diverge.
+//
+// This is a LEASE, not a latch: ownership lasts kRcHoldMs past the last frame, matching the
+// Arduino firmware's 600 ms, so releasing the stick hands the head back to tracking. Latches are
+// designed in head-ownership.md and are NOT built yet.
+void pantiltRcRate(float panDps, float tiltDps);
+
+// AN I2C SCAN OF BOTH BUSES, RETURNED AS TEXT FOR THE UDP REPLY.
+//
+// Over UDP rather than serial on purpose. The serial path has produced several false readings
+// today -- a reset re-enumerating USB under an open handle, and a cat on a device path that did
+// not exist with stderr suppressed, both of which read as "the firmware printed nothing". The UDP
+// command port has been reliable throughout, so the measurement goes where the measurement works.
+//
+// Lives here, not in net.cpp, because this needs GetHAL() and net.cpp deliberately does not
+// include hal/hal.h -- that header pulls in lvgl.h, and net.cpp is kept clear of it.
+const char* pantiltI2cScan();
+
 // For the panel and the UDP reply. Stable buffer.
 const char* pantiltStatus();

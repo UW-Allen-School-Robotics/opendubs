@@ -23,6 +23,18 @@ dependencies:
   espressif/led_strip: 3.0.0
   espressif/esp_lcd_ili9881c: ^1.0.1
 
+  # mDNS, so the head is discoverable by name like the other two devices on the robot's network.
+  # opendubs-stamplc.local and opendubs2.local both resolve; the head was the only box without a
+  # name, which is what forced a configured IP address into the StamPLC link. Pinned exact rather
+  # than a caret range, per this file's standing lesson.
+  #
+  # IT CREATES A TASK, and that is the risk to watch. The note at the bottom of this file records
+  # that with esp-dl linked, one more FreeRTOS task asserts in xPortCheckValidTCBMem because a TCB
+  # must live in internal DRAM and there is not enough left. We build the robot image with
+  # OPENDUBS_FACEDET=1, so this dependency and face detection are in direct competition for the
+  # scarcest resource on the chip.
+  espressif/mdns: 1.14.0
+
   # Face detection. BOTH must be pinned: human_face_detect 0.2.3 declares esp-dl '^3.1.3', and
   # the solver takes that to 3.3.13, which DOES NOT COMPILE against its own consumer
   # (DL_IMAGE_CAP_RGB_SWAP undeclared, MSRPostprocessor ctor mismatch, set_resize_scale_x gone).

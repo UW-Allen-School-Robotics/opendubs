@@ -8,8 +8,10 @@
 #if defined(ESP_PLATFORM) && OPENDUBS_PANTILT
 
 #include <bsp/m5stack_tab5.h>
+#include <hal/hal.h>
 #include <driver/i2c_master.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -48,6 +50,17 @@ constexpr float kSlewDps        = 25.0f;  // SLOW on purpose. "Err slow; this is
 constexpr float kDeadbandDeg    = 1.5f;   // servo jitter at rest is worse than no motion
 constexpr float kCentreDeg      = 90.0f;
 constexpr uint32_t kPeriodMs    = 20;     // 50 Hz, matching the Arduino control task
+constexpr uint32_t kRcHoldMs    = 600;    // RC's lease, matching the Arduino's kManualHoldMs
+
+// RC GETS THE FULL TRAVEL; autonomous motion does not.
+//
+// The conservative +/-30 / +/-18 envelope exists because autonomous motion near people should be
+// modest and legible. An operator on a stick is a human deciding where to look, and per the
+// authority boundary in head-ownership.md the head cannot realistically damage anything -- so
+// clamping a human to a third of the travel is paternalistic rather than careful. The Arduino
+// firmware gave the stick 0..180 and that is what it gets back.
+constexpr float kRcPanMin  = 0.0f,   kRcPanMax  = 180.0f;
+constexpr float kRcTiltMin = 0.0f,   kRcTiltMax = 180.0f;
 
 i2c_master_dev_handle_t g_dev = nullptr;
 bool     g_present  = false;
@@ -58,11 +71,16 @@ float    g_tiltTgt  = kCentreDeg;
 uint32_t g_lastMs   = 0;
 int      g_lastPanUs = -1, g_lastTiltUs = -1;
 char     g_status[64] = "pantilt: not started";
+float    g_rcPan = 0.0f, g_rcTilt = 0.0f;   // deg/s, as sent
+uint32_t g_rcMs  = 0;                        // when the last frame arrived
 
 bool write2(uint8_t reg, uint8_t v)
 {
+    if (!g_dev) return false;
     const uint8_t b[2] = {reg, v};
-    return g_dev && i2c_master_transmit(g_dev, b, 2, 50) == ESP_OK;
+    const esp_err_t e = i2c_master_transmit(g_dev, b, 2, 100);
+    if (e != ESP_OK) ESP_LOGE(kTag, "write reg 0x%02x = %u failed: %s", reg, v, esp_err_to_name(e));
+    return e == ESP_OK;
 }
 
 bool writePulse(uint8_t ch, uint16_t us)
@@ -85,11 +103,40 @@ float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : 
 
 void pantiltBegin()
 {
-    if (bsp_ext_i2c_init() != ESP_OK) {
-        snprintf(g_status, sizeof(g_status), "pantilt: ext i2c init failed");
-        ESP_LOGW(kTag, "%s -- eyes-only mode", g_status);
-        return;
+    // PORT A NEEDS ITS 5 V RAIL ENABLED FIRST, and that is the piece that was missing.
+    //
+    // Straight from the vendor demo's own working Port A code
+    // (app_launcher/view/panel_i2c_scan.cpp), which REFUSES to touch the bus unless ext 5 V is on
+    // and says why: "Scan without ext 5v cause no response blocking". It enables the rail, calls
+    // initPortAI2c(), and only then scans. Our version called bsp_ext_i2c_init() directly and
+    // never powered the port -- so transmits returned ESP_ERR_INVALID_STATE on a bus whose handle
+    // was perfectly valid, which sent me chasing probes, clock rates and an imagined camera port
+    // conflict instead of reading the one piece of code in this tree that drives this bus.
+    //
+    // The Arduino firmware never needed this because the rail was already on; the IO expander
+    // retains its state across a soft reset, which is also why an early probe at 0x25 answered and
+    // made the port look powered when it was not.
+    GetHAL()->setExt5vEnable(true);
+
+    // The 8Servo has to boot after its rail comes up. The demo gates on a user pressing a button,
+    // so it never needed a figure; 150 ms is a modest allowance for a small MCU's power-on.
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    GetHAL()->initPortAI2c();
+
+    // SCAN BOTH BUSES AND LOG WHAT IS ACTUALLY THERE, via the HAL's own i2cScan() -- the vendor
+    // demo's working Port A pattern (app_launcher/view/panel_i2c_scan.cpp). Facts before theories:
+    // the writes to 0x25 are reaching the wire and going unacknowledged, and this says whether
+    // anything is at that address on either bus at this moment.
+    {
+        auto ext = GetHAL()->i2cScan(false);   // Port A, G53/G54
+        auto in  = GetHAL()->i2cScan(true);    // internal, G31/G32
+        ESP_LOGI(kTag, "I2C SCAN ext(PortA) %d device(s):", (int)ext.size());
+        for (auto a : ext) ESP_LOGI(kTag, "   ext 0x%02x", a);
+        ESP_LOGI(kTag, "I2C SCAN internal %d device(s):", (int)in.size());
+        for (auto a : in)  ESP_LOGI(kTag, "   int 0x%02x", a);
     }
+
     i2c_master_bus_handle_t bus = bsp_ext_i2c_get_handle();
     if (!bus) {
         snprintf(g_status, sizeof(g_status), "pantilt: no ext i2c bus");
@@ -97,18 +144,13 @@ void pantiltBegin()
         return;
     }
 
-    // PROBE BEFORE CLAIMING THE HEAD EXISTS. The bench Tab5 has no 8Servo, and a module that
-    // reports a head it cannot see is how a bench result gets mistaken for a robot one.
-    if (i2c_master_probe(bus, kAddr, 100) != ESP_OK) {
-        snprintf(g_status, sizeof(g_status), "pantilt: no 8Servo at 0x25 (eyes only)");
-        ESP_LOGI(kTag, "%s", g_status);
-        return;
-    }
-
     i2c_device_config_t cfg = {};
     cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     cfg.device_address  = kAddr;
-    cfg.scl_speed_hz    = 400000;
+    // 100 kHz, NOT 400. The Arduino firmware drove this unit through Wire at its default
+    // 100 kHz and it worked for a long time; 400 kHz was my assumption and the mode-register
+    // write failed with the device plainly answering a probe at 0x25.
+    cfg.scl_speed_hz    = 100000;
     if (i2c_master_bus_add_device(bus, &cfg, &g_dev) != ESP_OK) {
         snprintf(g_status, sizeof(g_status), "pantilt: add device failed");
         ESP_LOGW(kTag, "%s -- eyes-only mode", g_status);
@@ -150,6 +192,25 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // which we should not decide to move somewhere nicer.
     if (!motionAllowed) {
         snprintf(g_status, sizeof(g_status), "pantilt: held (p%.0f t%.0f)", g_pan, g_tilt);
+        return;
+    }
+
+    // ---- ARBITRATION. RC first: a human on a stick outranks the tracker. ----
+    //
+    // A LEASE, not a latch -- ownership expires kRcHoldMs after the last frame, so letting go of
+    // the stick hands the head back to tracking. head-ownership.md specifies latches (and puts
+    // on-face touch above RC); neither is built yet, and this is the increment that gives the
+    // operator back what the Arduino firmware had.
+    if (g_rcMs != 0 && (nowMs - g_rcMs) < kRcHoldMs) {
+        g_pan  = clampf(g_pan  + g_rcPan  * dt, kRcPanMin,  kRcPanMax);
+        g_tilt = clampf(g_tilt + g_rcTilt * dt, kRcTiltMin, kRcTiltMax);
+        g_panTgt  = g_pan;          // no slew on top of a rate the operator is already shaping
+        g_tiltTgt = g_tilt;
+        writePulse(kChTilt, degToUs(g_tilt, kTiltReverse));
+        writePulse(kChPan,  degToUs(g_pan,  kPanReverse));
+        g_lastTiltUs = degToUs(g_tilt, kTiltReverse);
+        g_lastPanUs  = degToUs(g_pan,  kPanReverse);
+        snprintf(g_status, sizeof(g_status), "pantilt: RC p%.0f t%.0f", g_pan, g_tilt);
         return;
     }
 
@@ -206,6 +267,27 @@ float pantiltHeadOffsetY()
     return -(g_tilt - kCentreDeg) / kTiltRangeDeg;
 }
 
+void pantiltRcRate(float panDps, float tiltDps)
+{
+    g_rcPan  = panDps;
+    g_rcTilt = tiltDps;
+    g_rcMs   = (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+const char* pantiltI2cScan()
+{
+    static char buf[256];
+    int n = snprintf(buf, sizeof(buf), "i2c ext(PortA G53/54):");
+    auto ext = GetHAL()->i2cScan(false);
+    if (ext.empty()) n += snprintf(buf + n, sizeof(buf) - n, " none");
+    for (auto a : ext) n += snprintf(buf + n, sizeof(buf) - n, " 0x%02x", a);
+    n += snprintf(buf + n, sizeof(buf) - n, " | internal(G31/32):");
+    auto in = GetHAL()->i2cScan(true);
+    if (in.empty()) n += snprintf(buf + n, sizeof(buf) - n, " none");
+    for (auto a : in) n += snprintf(buf + n, sizeof(buf) - n, " 0x%02x", a);
+    return buf;
+}
+
 const char* pantiltStatus() { return g_status; }
 
 #else   // pan/tilt disabled by flag, or the desktop SDL build: no I2C, no head
@@ -213,8 +295,10 @@ const char* pantiltStatus() { return g_status; }
 void pantiltBegin() {}
 bool pantiltPresent() { return false; }
 void pantiltTick(uint32_t, bool, bool, float, float, float) {}
+void pantiltRcRate(float, float) {}
 float pantiltHeadOffsetX() { return 0.0f; }
 float pantiltHeadOffsetY() { return 0.0f; }
 const char* pantiltStatus() { return "pantilt: off"; }
+const char* pantiltI2cScan() { return "i2c scan: pantilt compiled out"; }
 
 #endif  // ESP_PLATFORM

@@ -98,7 +98,7 @@ sync_sources() {
     # CMakeLists is inherited instead of silently overwritten. Idempotent, and it FAILS LOUDLY if
     # an anchor moves rather than quietly building the 934 KB version again.
     python3 - "$DEMO/platforms/tab5" "$HERE/patches" <<'PATCH'
-import pathlib, sys
+import pathlib, sys, subprocess
 root = pathlib.Path(sys.argv[1])
 
 cm = root / "main/CMakeLists.txt"

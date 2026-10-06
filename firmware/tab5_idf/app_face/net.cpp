@@ -30,6 +30,7 @@
 // The generated file lands in the EPHEMERAL build tree and is never written to this repo.
 #include "net_credentials.h"
 #include "rollback_test.h"
+#include <mdns.h>
 #include "shared/clock.h"
 #include "ui_hmi.h"
 #include "pantilt.h"
@@ -44,6 +45,10 @@ extern volatile uint32_t od_tp_polls, od_tp_presses, od_tp_errs, od_tp_lastx, od
 namespace {
 
 constexpr const char* kTag = "net";
+
+// Declared here rather than beside the listener: the mDNS service record advertises this port
+// and is set up earlier in the file.
+constexpr int kCmdPort = 4242;
 
 // Deliberately NOT including <hal/hal.h> here, and this is not fussiness.
 //
@@ -210,6 +215,28 @@ void task(void*)
         mclog::tagInfo(kTag, "using credentials already in NVS: ssid '{}'", (char*)have.sta.ssid);
     }
 
+    // ADVERTISE A NAME, so nothing has to be told the head's address.
+    //
+    // opendubs-stamplc.local and opendubs2.local already resolve on this network -- the head was
+    // the only device without a name, which is exactly why the StamPLC link needs a configured
+    // TAB5IP and why a DHCP change silently kills RC head control. The Arduino firmware intended
+    // this (ArduinoOTA.setHostname("opendubs-tab5")) but hung it on ArduinoOTA, which never worked
+    // on this board because its listener sits behind the ESP-Hosted co-processor.
+    //
+    // The service record is advertised as well as the hostname: it makes the UDP command port
+    // discoverable by browsing rather than by resolving a name someone has to know.
+    {
+        esp_err_t e = mdns_init();
+        if (e != ESP_OK) {
+            mclog::tagError(kTag, "mdns_init failed: {}", esp_err_to_name(e));
+        } else {
+            mdns_hostname_set("opendubs-tab5");
+            mdns_instance_name_set("OpenDubs head");
+            mdns_service_add(NULL, "_opendubs", "_udp", kCmdPort, NULL, 0);
+            mclog::tagInfo(kTag, "mdns: opendubs-tab5.local, _opendubs._udp on {}", kCmdPort);
+        }
+    }
+
     setStatus("wifi: starting");
     if (esp_wifi_start() != ESP_OK) { setStatus("wifi: start failed"); vTaskDelete(nullptr); return; }
 
@@ -252,7 +279,7 @@ void logVisibleAps()
 // behind the ESP-Hosted co-processor and fails silently -- so the robot has always been flashed by
 // being TOLD to pull, and that is what we reproduce.
 // ------------------------------------------------------------------------------------------
-constexpr int kCmdPort = 4242;
+// kCmdPort is declared earlier: mDNS advertises it before this point in the file.
 
 // The last STATE we were told, and when. Never parsed into an index here -- see net.h.
 char     g_stateName[24] = "";
@@ -432,6 +459,25 @@ void cmdTask(void*)
                                    (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
                                    (unsigned long)od_tp_lasty, pantiltStatus());
             sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
+        } else if (n == 13 && (uint32_t)(rx[0] | (rx[1] << 8) | (rx[2] << 16) | ((uint32_t)rx[3] << 24)) == 0x107u
+                   && (uint8_t)rx[4] == 4) {
+            // CAN_ID_PAN_TILT_RATE from the StamPLC, which addresses the head DIRECTLY rather than
+            // via the Thor -- so the sticks keep aiming the head even if the dashboard stops.
+            // Layout is rc_serial_probe/src/main.cpp verbatim: packed { u32 id; u8 dlc; u8 d[8] },
+            // int16 LE pan deg/s at d[0], tilt at d[2], full stick = 60 deg/s, sent at 20 Hz.
+            //
+            // A RATE, NOT AN ANGLE, and that is load-bearing: the stick is spring-centred and the
+            // HEAD owns the position, so two devices can never integrate separately and diverge.
+            int16_t p = 0, q = 0;
+            memcpy(&p, rx + 5, 2);
+            memcpy(&q, rx + 7, 2);
+            pantiltRcRate((float)p, (float)q);
+            // No reply: this arrives 20 times a second while someone is aiming.
+        } else if (strcmp(rx, "I2CSCAN") == 0) {
+            // On demand, not at boot: a scan probes 112 addresses on two buses and that is not
+            // something to do on every start.
+            const char* s = pantiltI2cScan();
+            sendto(sock, s, strlen(s), 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "REBOOT") == 0) {
             const char* tx = "OK reboot";
             sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
