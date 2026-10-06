@@ -981,21 +981,22 @@ void applyNoLink()
     band::g_activity = band::IDLE;
 }
 
-void applyEmote(int idx)
+// THE STATUS LINE, COMPOSED ON ITS OWN so it can be refreshed without side effects.
+//
+// It used to live inside applyEmote(), which meant the only way to update the text was to re-run
+// a function that ALSO retargets every animation -- so refreshing the label would have restarted
+// the springs. That is why the line was a boot-time snapshot: applyEmote runs once in onOpen and
+// then only on a state or emote change, and with no StamPLC link neither ever happens. The panel
+// therefore sat on "wifi: idle" -- the initial value of net.cpp's status buffer, never
+// overwritten -- while the radio was in a NO_AP_FOUND retry loop. The one place a person would
+// look for the wifi state was the one place guaranteed not to have it.
+//
+// Caller holds the LVGL lock.
+int g_shownEmote = 0;   // which emote the label is describing; see refreshLabel()
+
+void refreshLabel()
 {
-    const Emote& e = kEmotes[idx];
-    const float w = kBodyW * e.wMul, h = kBodyH * e.hMul;
-    g_bodyW  = w;          // assignment animates -- spring by default
-    g_bodyH  = h;
-    g_radius = (w < h ? w : h) * e.radiusFrac;
-    g_lidDrop = e.lid;
-    g_browRaise = e.browRaise;
-    g_browAngle = e.browAngle;
-    // HEAP ON SCREEN, not over serial. A console write can block the render task when no host is
-    // draining the port, so console telemetry is itself a suspect for a freeze and cannot be used
-    // to diagnose one. Everything that has frozen so far has taken a while to do it, which points
-    // at accumulation rather than an over-budget frame -- so what matters is whether free heap
-    // TRENDS DOWN, and that is readable from the panel without any instrument.
+    const Emote& e = kEmotes[g_shownEmote];
     char buf[160];
 #ifdef ESP_PLATFORM
     snprintf(buf, sizeof(buf), "%s  -  %s  -  %s  -  %s   heap %uk / largest %uk",
@@ -1017,6 +1018,25 @@ void applyEmote(int idx)
              band::name(band::g_activity), theme::name(theme::g_active));
 #endif
     lv_label_set_text(g_label, buf);
+}
+
+void applyEmote(int idx)
+{
+    const Emote& e = kEmotes[idx];
+    g_shownEmote = idx;
+    const float w = kBodyW * e.wMul, h = kBodyH * e.hMul;
+    g_bodyW  = w;          // assignment animates -- spring by default
+    g_bodyH  = h;
+    g_radius = (w < h ? w : h) * e.radiusFrac;
+    g_lidDrop = e.lid;
+    g_browRaise = e.browRaise;
+    g_browAngle = e.browAngle;
+    // HEAP ON SCREEN, not over serial. A console write can block the render task when no host is
+    // draining the port, so console telemetry is itself a suspect for a freeze and cannot be used
+    // to diagnose one. Everything that has frozen so far has taken a while to do it, which points
+    // at accumulation rather than an over-budget frame -- so what matters is whether free heap
+    // TRENDS DOWN, and that is readable from the panel without any instrument.
+    refreshLabel();
 }
 
 // Main-sequence saccade timing: ~20 ms fixed plus 2.2 ms per degree, 30 deg of full deflection.
@@ -1462,6 +1482,17 @@ void AppFace::onRunning()
             // saved a flag that nothing read, so flipping it changed no pixel: a dead control,
             // which is worse than no control because it teaches the operator the panel lies.
             // Default off, so a face shows a face.
+            // Keep the status line LIVE. Cheap guard: only recompose when the network string
+            // actually changed, so a healthy head costs one strcmp per 250 ms rather than an
+            // snprintf and a label invalidation.
+            {
+                static char lastNet[64] = {0};
+                if (strncmp(lastNet, netStatus(), sizeof(lastNet) - 1) != 0) {
+                    strncpy(lastNet, netStatus(), sizeof(lastNet) - 1);
+                    refreshLabel();
+                }
+            }
+
             if (settingsTelemetryVisible()) {
                 lv_label_set_text_static(g_probeLabel,
                                          g_camStatus[0] ? g_camStatus : perceptStatus());

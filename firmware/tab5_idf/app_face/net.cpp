@@ -59,6 +59,7 @@ uint32_t nowMs()
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
+void logVisibleAps();        // defined below; called from the disconnect handler
 char g_status[64] = "wifi: idle";
 bool g_ready      = false;
 int  g_failures   = 0;
@@ -76,6 +77,7 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         setStatus("wifi: associating");
+        mclog::tagInfo(kTag, "associating");
         esp_wifi_connect();
         return;
     }
@@ -93,6 +95,16 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
         const char* why = (rs == 201) ? "not found" : (rs == 15 || rs == 205) ? "bad password" : "disconnected";
         snprintf(b, sizeof(b), "wifi: %s (reason %d, %d fails)", why, rs, g_failures);
         setStatus(b);
+        // ALSO TO THE CONSOLE, and that is a fix rather than noise. The reason previously went
+        // ONLY to the panel string -- and that string is appended to the face's label by
+        // applyEmote(), which re-runs only on a state or emote change. With no StamPLC link the
+        // label is a boot-time snapshot, so the panel sat on "wifi: idle" (the buffer's INITIAL
+        // value, never overwritten) while the radio retried in a loop. The one number that
+        // identifies the fault was therefore unreachable by either route.
+        mclog::tagError(kTag, "disconnected: {} (reason {}), {} failures", why, rs, g_failures);
+        // After a few failures, say what IS out there. Costs one scan, once, and it is the only
+        // thing that distinguishes "wrong SSID" from "AP down" without guessing.
+        if (g_failures == 3) logVisibleAps();
         // Back off rather than hammer: a wrong password retried at full speed is indistinguishable
         // from an attack to an access point, and some will blacklist the MAC.
         vTaskDelay(pdMS_TO_TICKS(g_failures < 5 ? 2000 : 15000));
@@ -112,7 +124,10 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
             started = true;
             xTaskCreatePinnedToCore(cmdTask, "netcmd", 6144, nullptr, 2, nullptr, 1);
         }
-        mclog::tagInfo(kTag, "got ip " IPSTR, IP2STR(&e->ip_info.ip));
+        // {} NOT IPSTR. IPSTR is a printf format ("%d.%d.%d.%d") and mclog is fmt-style, so the
+        // tokens printed literally and the address never appeared -- the one line someone needs in
+        // order to OTA to the head.
+        mclog::tagInfo(kTag, "got ip {}.{}.{}.{}", IP2STR(&e->ip_info.ip));
     }
 }
 
@@ -200,6 +215,33 @@ void task(void*)
 
     // The event handlers drive everything from here.
     vTaskDelete(nullptr);
+}
+
+// WHAT THE RADIO CAN SEE, logged ONCE after association keeps failing.
+//
+// Not at every boot: ten AP lines on a healthy boot is noise. But a NO_AP_FOUND loop is exactly
+// the case where the SSID we were told to join and the SSID that exists may differ, and no amount
+// of reasoning settles that -- only the radio can. This is what found it: the head was asked for
+// 'opendubs' while the air carried 'Opendubs2' at -37 dBm, and reason 201 had been correct all
+// along while three different theories were proposed about bands and hidden networks.
+void logVisibleAps()
+{
+    wifi_scan_config_t sc = {};
+    sc.show_hidden = true;
+    const esp_err_t se = esp_wifi_scan_start(&sc, true);   // blocking
+    if (se != ESP_OK) {
+        mclog::tagError(kTag, "scan failed: {}", esp_err_to_name(se));
+        return;
+    }
+    uint16_t n = 0;
+    esp_wifi_scan_get_ap_num(&n);
+    mclog::tagInfo(kTag, "cannot associate; the radio can see {} APs:", (int)n);
+    if (n > 20) n = 20;
+    static wifi_ap_record_t recs[20];
+    if (esp_wifi_scan_get_ap_records(&n, recs) == ESP_OK)
+        for (int i = 0; i < (int)n; ++i)
+            mclog::tagInfo(kTag, "  '{}' ch{} rssi {} auth {}", (const char*)recs[i].ssid,
+                           (int)recs[i].primary, (int)recs[i].rssi, (int)recs[i].authmode);
 }
 
 // ------------------------------------------------------------------------------------------
