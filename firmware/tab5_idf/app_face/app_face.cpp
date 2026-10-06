@@ -1049,6 +1049,142 @@ void newSaccade(uint32_t now)
     if (std::fabs(tx) > 0.55f) g_nextBlink = now;   // large shifts take a blink with them
 }
 
+
+// ONE PASS OF THE FACE'S GEOMETRY. Extracted from onRunning so that it can also run ONCE in
+// onOpen, under the lock, before anything is presented.
+//
+// WHY THIS EXISTS. plainBox() creates an object and removes all its styles but never sizes it, and
+// buildScene() sizes only the eye BODY -- so until the first render pass ran, each eye's children
+// sat at LVGL's default 130x130. Measured on the desktop build: body 480x480 (correct), pupil
+// 130 (should be 163), GLINT 130 (should be 54, so a white blob filling the whole pupil), and LID
+// 130x130 (should be 480x0, so a black square over the eye). That, plus the body still wearing
+// buildScene's teal instead of the state colour, is the distorted face seen at boot.
+//
+// It was VISIBLE rather than a one-frame flicker because this pass sits at the END of onRunning,
+// behind cameraStep() -- so on the device the first correct frame waited on camera and perception
+// bring-up, seconds rather than milliseconds. Calling it from onOpen decouples the face entirely
+// from perception, which never had anything to do with whether the face looks right.
+//
+// CALLER HOLDS THE LVGL LOCK. There is deliberately no lock call in here, so the one in onOpen can
+// span build -> style -> this pass as a single hold. LVGL cannot render while that mutex is held,
+// which means the barrier is structural: no half-built frame can reach the panel, rather than
+// merely being unlikely to.
+void renderFace(uint32_t now)
+{
+    const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
+    band::update(now, ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
+                      | (uint32_t)(float)g_colB);
+    for (int i = 0; i < 2; ++i) {
+        Last& L = g_last[i];
+
+        // Per-eye width: the asymmetry between the two eyes is the gaze cue in a pupil-less face,
+        // and it costs nothing here because each eye is its own object.
+        // QUANTISED TO 8 px. Resizing is the most expensive thing we do -- it dirties the old
+        // rectangle and the new one, on the largest object on screen -- and during a sprung
+        // transition the size changes every single frame. Snapping to 8 px makes the resize happen
+        // roughly eight times less often and is invisible at these speeds, because a spring's
+        // intermediate positions are not information.
+        const int wRaw = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
+        const int hRaw = (int)(float)g_bodyH;
+        const int w = (wRaw + 4) & ~7;
+        const int h = (hRaw + 4) & ~7;
+        const int cx = (i == 0 ? kSlotL : kSlotR);
+        if (w != L.w || h != L.h) {
+            lv_obj_set_size(g_eye[i].body, w, h);
+            lv_obj_set_pos(g_eye[i].body, cx - w / 2, kEyeY - h / 2);
+            L.w = w; L.h = h;
+        }
+        const int radius = (int)(float)g_radius;
+        if (radius != L.radius) {
+            lv_obj_set_style_radius(g_eye[i].body, radius, LV_PART_MAIN);
+            L.radius = radius;
+        }
+        // State colour: the eye's base, its gradient rim at 35% of the same hue so the sphere
+        // falloff follows, and the brow.
+        const uint32_t colour = ((uint32_t)(float)g_colR << 16)
+                              | ((uint32_t)(float)g_colG << 8) | (uint32_t)(float)g_colB;
+        if (colour != L.colour) {
+            const uint32_t dim = (((colour >> 16 & 0xff) * 35 / 100) << 16)
+                               | (((colour >> 8 & 0xff) * 35 / 100) << 8)
+                               | ((colour & 0xff) * 35 / 100);
+            lv_obj_set_style_bg_color(g_eye[i].body, lv_color_hex(colour), LV_PART_MAIN);
+            lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(dim), LV_PART_MAIN);
+            lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(colour), LV_PART_MAIN);
+            L.colour = colour;
+        }
+
+        // Pupil travel is (body - pupil)/2 - rim, which is what makes gaze legible at all.
+        const int pw = (int)(w * kPupilFrac);
+        const int travelX = (w - pw) / 2 - kRimPad, travelY = (h - pw) / 2 - kRimPad;
+        const int px = (int)(gx * (travelX > 0 ? travelX : 0));
+        const int py = (int)(gy * (travelY > 0 ? travelY : 0));
+        if (pw != L.pupilW) { lv_obj_set_size(g_eye[i].pupil, pw, pw); L.pupilW = pw; }
+        if (px != L.pupilX || py != L.pupilY) {
+            lv_obj_align(g_eye[i].pupil, LV_ALIGN_CENTER, px, py);
+            L.pupilX = px; L.pupilY = py;
+        }
+
+        // One highlight, inside the pupil. Upper-left is the conventional catchlight position and
+        // it implies a fixed light source up and to the left of the robot.
+        const int gw = pw / 3;
+        const int gxo = -pw / 6, gyo = -pw / 6;
+        if (gw != L.glintW) { lv_obj_set_size(g_eye[i].glint, gw, gw); L.glintW = gw; }
+        if (gxo != L.glintX || gyo != L.glintY) {
+            lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, gxo, gyo);
+            L.glintX = gxo; L.glintY = gyo;
+        }
+
+        // Brow as an angled line. The angle becomes a vertical offset between the two ends, so
+        // there is no rotation and therefore no layer buffer. "Inner" is the end toward the face
+        // centre, which is the right-hand end for the left eye and vice versa, so one signed
+        // angle still describes a symmetric pair.
+        const int bw = (int)(w * kBrowWFrac);
+        const int bh0 = (int)(h * kBrowHFrac), bh = bh0 < 6 ? 6 : bh0;
+        const float angRad = (float)g_browAngle * 3.14159265f / 180.0f;
+        const int half = (int)(bw * tanf(angRad) * 0.5f);
+        const int span = half < 0 ? -half : half;
+        const int objH = bh + 2 * span;
+        const int bx = cx - bw / 2;
+        const int by = kEyeY - h / 2 - (int)(h * kBrowGap) - objH
+                     - (int)((float)g_browRaise * h * kBrowRange);
+
+        // LVGL keeps the pointer, so the points must outlive the call.
+        static lv_point_precise_t pts[2][2];
+        const int mid = objH / 2;
+        const int inner = mid + (i == 0 ? half : half);
+        const int outer = mid - (i == 0 ? half : half);
+        pts[i][0].x = (i == 0) ? 0 : bw;        // outer end
+        pts[i][0].y = outer;
+        pts[i][1].x = (i == 0) ? bw : 0;        // inner end
+        pts[i][1].y = inner;
+
+        if (bw != L.browW || bh != L.browH || objH != L.browRot) {
+            lv_obj_set_style_line_width(g_eye[i].brow, bh, LV_PART_MAIN);
+            lv_obj_set_size(g_eye[i].brow, bw + bh, objH + bh);
+            L.browW = bw; L.browH = bh; L.browRot = objH;
+        }
+        if (bx != L.browX || by != L.browY) {
+            lv_obj_set_pos(g_eye[i].brow, bx, by);
+            L.browX = bx; L.browY = by;
+        }
+        // GUARDED. This was the one write with no guard on it: lv_line_set_points invalidates the
+        // brow every frame whether or not a point moved, which on SLEEPY -- where the brow is
+        // static -- was pure waste at ~16 k px per eye per frame.
+        if (pts[i][0].y != L.browP0 || pts[i][1].y != L.browP1) {
+            lv_line_set_points(g_eye[i].brow, pts[i], 2);
+            L.browP0 = (int)pts[i][0].y; L.browP1 = (int)pts[i][1].y;
+        }
+
+        const int lidH = (int)((float)g_lidDrop * h);
+        const int lh = lidH < 0 ? 0 : lidH;
+        if (w != L.lidW || lh != L.lidH) {
+            lv_obj_set_size(g_eye[i].lid, w, lh);
+            lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
+            L.lidW = w; L.lidH = lh;
+        }
+    }
+}
+
 } // namespace
 
 AppFace::AppFace() { setAppInfo().name = "AppFace"; }
@@ -1106,7 +1242,14 @@ void AppFace::onOpen()
     settingsBuild();          // audio + telemetry, persisted in NVS
     hmiBuild();               // the lift-controller HMI + touch-anywhere reveal
     walkinBuild();            // no-op unless OPENDUBS_WALKIN=1
-    GetHAL()->lvglUnlock();
+    // THE LOCK IS NOT RELEASED HERE, and that single fact is the fix. LVGL cannot render while
+    // this mutex is held, so holding it from buildScene() all the way through the first geometry
+    // pass below makes the barrier STRUCTURAL: there is no window in which a half-built frame
+    // could reach the panel, rather than merely a narrow one. Releasing here is what made the
+    // as-built state -- teal bodies, 130x130 glint and lid -- visible at boot.
+    //
+    // What sits between here and the geometry pass is the AnimateValue setup, which touches no
+    // LVGL object at all, so extending the hold across it costs microseconds.
     // Perception is NOT started here. It needs a camera frame buffer, which does not exist until
     // the vendor cam task has produced one, so cameraStep() brings it up from onRunning in
     // non-blocking steps. Nothing about the face waits for it.
@@ -1120,8 +1263,23 @@ void AppFace::onOpen()
     }
     g_gazeX.animationType = animation_type::easing;
     g_gazeY.animationType = animation_type::easing;
+    // STILL INSIDE THE LOCK TAKEN ABOVE, and that is a fix rather than tidying: applyEmote()
+    // calls lv_label_set_text(), so when the lock was released earlier this was an
+    // unsynchronised LVGL write during startup -- AUDIT.md invariant 1, the class of bug that
+    // froze this face before.
     applyState(g_state);
     applyEmote(0);
+
+    // THE EYES START SHUT, and the boot reads as the robot waking up instead of a face appearing.
+    // teleport() rather than assignment: this must be instant, not animated, because it has to be
+    // true before the single geometry pass below. onRunning opens them once, on its first frame.
+    g_lidDrop.teleport(1.0f);
+
+    // ONE GEOMETRY PASS BEFORE ANYTHING IS SHOWN. Still holding the lock taken above, so the whole
+    // sequence -- build, style, lids shut, geometry -- is atomic with respect to the LVGL task and
+    // the first frame the panel ever receives is a correct, closed-eyed face.
+    renderFace(0);
+    GetHAL()->lvglUnlock();
 }
 
 void AppFace::onRunning()
@@ -1440,6 +1598,20 @@ void AppFace::onRunning()
         g_nextEmote = now + 3200;
     }
 #endif
+    // THE EYES OPEN, ONCE, as the first thing the face does. onOpen leaves the lids shut so the
+    // first presented frame cannot be a half-built one; this is what turns that constraint into
+    // something deliberate. The target is the current emote's own lid value, so nothing here
+    // special-cases the resting pose, and animationType is left alone -- g_lidDrop is a spring,
+    // and a spring's slight overshoot is exactly how an eyelid opens.
+    static bool woke = false;
+    if (!woke) {
+        woke = true;
+        g_lidDrop = kEmotes[g_emote].lid;
+        // g_nextBlink initialises to 0, so without this a blink would fire on this very frame and
+        // fight the wake.
+        g_nextBlink = now + 2600;
+    }
+
     if (!g_blinking && due(now, g_nextBlink)) {
         g_blinking = true;
         g_lidDrop.easingOptions().duration = 0.07f;
@@ -1475,118 +1647,7 @@ void AppFace::onRunning()
     }
 
     GetHAL()->lvglLock();
-    const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
-    band::update(now, ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
-                      | (uint32_t)(float)g_colB);
-    for (int i = 0; i < 2; ++i) {
-        Last& L = g_last[i];
-
-        // Per-eye width: the asymmetry between the two eyes is the gaze cue in a pupil-less face,
-        // and it costs nothing here because each eye is its own object.
-        // QUANTISED TO 8 px. Resizing is the most expensive thing we do -- it dirties the old
-        // rectangle and the new one, on the largest object on screen -- and during a sprung
-        // transition the size changes every single frame. Snapping to 8 px makes the resize happen
-        // roughly eight times less often and is invisible at these speeds, because a spring's
-        // intermediate positions are not information.
-        const int wRaw = (int)((float)g_bodyW * (1.0f + (i == 0 ? -asym : asym)));
-        const int hRaw = (int)(float)g_bodyH;
-        const int w = (wRaw + 4) & ~7;
-        const int h = (hRaw + 4) & ~7;
-        const int cx = (i == 0 ? kSlotL : kSlotR);
-        if (w != L.w || h != L.h) {
-            lv_obj_set_size(g_eye[i].body, w, h);
-            lv_obj_set_pos(g_eye[i].body, cx - w / 2, kEyeY - h / 2);
-            L.w = w; L.h = h;
-        }
-        const int radius = (int)(float)g_radius;
-        if (radius != L.radius) {
-            lv_obj_set_style_radius(g_eye[i].body, radius, LV_PART_MAIN);
-            L.radius = radius;
-        }
-        // State colour: the eye's base, its gradient rim at 35% of the same hue so the sphere
-        // falloff follows, and the brow.
-        const uint32_t colour = ((uint32_t)(float)g_colR << 16)
-                              | ((uint32_t)(float)g_colG << 8) | (uint32_t)(float)g_colB;
-        if (colour != L.colour) {
-            const uint32_t dim = (((colour >> 16 & 0xff) * 35 / 100) << 16)
-                               | (((colour >> 8 & 0xff) * 35 / 100) << 8)
-                               | ((colour & 0xff) * 35 / 100);
-            lv_obj_set_style_bg_color(g_eye[i].body, lv_color_hex(colour), LV_PART_MAIN);
-            lv_obj_set_style_bg_grad_color(g_eye[i].body, lv_color_hex(dim), LV_PART_MAIN);
-            lv_obj_set_style_line_color(g_eye[i].brow, lv_color_hex(colour), LV_PART_MAIN);
-            L.colour = colour;
-        }
-
-        // Pupil travel is (body - pupil)/2 - rim, which is what makes gaze legible at all.
-        const int pw = (int)(w * kPupilFrac);
-        const int travelX = (w - pw) / 2 - kRimPad, travelY = (h - pw) / 2 - kRimPad;
-        const int px = (int)(gx * (travelX > 0 ? travelX : 0));
-        const int py = (int)(gy * (travelY > 0 ? travelY : 0));
-        if (pw != L.pupilW) { lv_obj_set_size(g_eye[i].pupil, pw, pw); L.pupilW = pw; }
-        if (px != L.pupilX || py != L.pupilY) {
-            lv_obj_align(g_eye[i].pupil, LV_ALIGN_CENTER, px, py);
-            L.pupilX = px; L.pupilY = py;
-        }
-
-        // One highlight, inside the pupil. Upper-left is the conventional catchlight position and
-        // it implies a fixed light source up and to the left of the robot.
-        const int gw = pw / 3;
-        const int gxo = -pw / 6, gyo = -pw / 6;
-        if (gw != L.glintW) { lv_obj_set_size(g_eye[i].glint, gw, gw); L.glintW = gw; }
-        if (gxo != L.glintX || gyo != L.glintY) {
-            lv_obj_align(g_eye[i].glint, LV_ALIGN_CENTER, gxo, gyo);
-            L.glintX = gxo; L.glintY = gyo;
-        }
-
-        // Brow as an angled line. The angle becomes a vertical offset between the two ends, so
-        // there is no rotation and therefore no layer buffer. "Inner" is the end toward the face
-        // centre, which is the right-hand end for the left eye and vice versa, so one signed
-        // angle still describes a symmetric pair.
-        const int bw = (int)(w * kBrowWFrac);
-        const int bh0 = (int)(h * kBrowHFrac), bh = bh0 < 6 ? 6 : bh0;
-        const float angRad = (float)g_browAngle * 3.14159265f / 180.0f;
-        const int half = (int)(bw * tanf(angRad) * 0.5f);
-        const int span = half < 0 ? -half : half;
-        const int objH = bh + 2 * span;
-        const int bx = cx - bw / 2;
-        const int by = kEyeY - h / 2 - (int)(h * kBrowGap) - objH
-                     - (int)((float)g_browRaise * h * kBrowRange);
-
-        // LVGL keeps the pointer, so the points must outlive the call.
-        static lv_point_precise_t pts[2][2];
-        const int mid = objH / 2;
-        const int inner = mid + (i == 0 ? half : half);
-        const int outer = mid - (i == 0 ? half : half);
-        pts[i][0].x = (i == 0) ? 0 : bw;        // outer end
-        pts[i][0].y = outer;
-        pts[i][1].x = (i == 0) ? bw : 0;        // inner end
-        pts[i][1].y = inner;
-
-        if (bw != L.browW || bh != L.browH || objH != L.browRot) {
-            lv_obj_set_style_line_width(g_eye[i].brow, bh, LV_PART_MAIN);
-            lv_obj_set_size(g_eye[i].brow, bw + bh, objH + bh);
-            L.browW = bw; L.browH = bh; L.browRot = objH;
-        }
-        if (bx != L.browX || by != L.browY) {
-            lv_obj_set_pos(g_eye[i].brow, bx, by);
-            L.browX = bx; L.browY = by;
-        }
-        // GUARDED. This was the one write with no guard on it: lv_line_set_points invalidates the
-        // brow every frame whether or not a point moved, which on SLEEPY -- where the brow is
-        // static -- was pure waste at ~16 k px per eye per frame.
-        if (pts[i][0].y != L.browP0 || pts[i][1].y != L.browP1) {
-            lv_line_set_points(g_eye[i].brow, pts[i], 2);
-            L.browP0 = (int)pts[i][0].y; L.browP1 = (int)pts[i][1].y;
-        }
-
-        const int lidH = (int)((float)g_lidDrop * h);
-        const int lh = lidH < 0 ? 0 : lidH;
-        if (w != L.lidW || lh != L.lidH) {
-            lv_obj_set_size(g_eye[i].lid, w, lh);
-            lv_obj_align(g_eye[i].lid, LV_ALIGN_TOP_MID, 0, 0);
-            L.lidW = w; L.lidH = lh;
-        }
-    }
+    renderFace(now);
     GetHAL()->lvglUnlock();
 }
 

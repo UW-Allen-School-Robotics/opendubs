@@ -594,3 +594,22 @@ Offered for acceptance or rejection rather than assumed:
    listening to the device. Those are the only steps that need Emma present, so they should be
    batched into deliberate review points instead of interrupting continuously — and everything else
    should be self-verifying.
+
+---
+
+## Polish backlog — deliberately NOT critical path
+
+Added 2026-10-06 at Emma's direction, after the startup-geometry fix. All four are cosmetic or
+hygiene; none blocks a robot flash. Parked here so they are not mistaken for gaps.
+
+| # | item | note |
+|---|---|---|
+| P1 | **Fade the splash wordmark out.** `app_startup_anim` fades the OpenDubs mark IN (`_opa` 0 -> 255) and then `onClose()` simply `lv_obj_del`s it, so it vanishes abruptly. Fading out would make splash -> face continuous. Cheap and safe: animate the LABEL's own `text_opa`, never a parent's opacity — a parent composites through a layer buffer, which is what produced `lv_draw_buf_create_ex: No memory` until the watchdog fired and why the brow is an `lv_line`. |
+| P2 | **Gate the tracking reticle behind a flag.** `g_reticle` is created hidden but unhidden whenever perception tracks, and nothing gates it. On a robot it is a yellow/cyan box tracking people across the face. Same family as the state cycling and the theme toggle: an instrument that would ship. |
+| P3 | **Gate the remaining on-screen diagnostic text.** The yellow perception/camera status line is already behind the settings telemetry switch, but the main status label (`g_label`) still carries state/emote/band/theme plus internal heap and the IP address unconditionally. Useful at a bench, noise on a machine. |
+| P4 | **Start on the INIT state colour.** `buildScene()` builds each eye teal (`0x22e0d2`) as a construction placeholder and the state colour is applied by the first `renderFace()` pass. Now that that pass runs inside `onOpen`'s lock the placeholder is never visible — so this is tidiness, not a defect. Building in `kStates[0]`'s colour would remove the dead value. |
+
+**Related, and a judgement call rather than polish:** the 18 s plain/Halloween theme toggle at
+`app_face.cpp` is still ungated and is NOT behind `OPENDUBS_DBG_UI`, so a release build ships a face
+that changes its decorative theme every 18 seconds. Cosmetic, not safety — but unlike P1-P4 it is
+active misbehaviour on a robot rather than a missing nicety.
