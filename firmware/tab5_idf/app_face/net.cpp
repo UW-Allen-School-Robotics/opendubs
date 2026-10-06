@@ -80,6 +80,8 @@ volatile uint32_t g_liftMs    = 0;
 volatile bool     g_estopReq  = false;
 volatile bool     g_plcByName = false;   // resolved rather than heard
 volatile uint32_t g_plcTelem  = 0;       // JSON telemetry lines accepted
+const char*       g_liftWhy    = nullptr; // why the lift would refuse; nullptr == it would not
+uint32_t          g_liftGateStamp = 0;
 
 // The robot state the face displays. Written by the `STATE <NAME>` command AND by the
 // StamPLC telemetry listener below -- same destination, so the display path is unchanged.
@@ -130,6 +132,9 @@ void setStatus(const char* s)
 // So we LISTEN. No StamPLC change, no dashboard dependency, and the state comes from the device
 // that actually decides it. ~43 packets a second arrive on that port, almost all of them the
 // firmware's own `[TAG] ...` text telemetry, so the first byte is the filter.
+// The exact strings netTelemetry() emits, and nothing else: OFF, MANUAL, AUTO, ESTOP, FAILSAFE,
+// NOLINK. My first version matched MANUAL_LIVE/MANUAL_SAFE -- the StamPLC's INTERNAL enum names,
+// which never appear in the JSON -- so "MANUAL" fell through and mapped to nothing.
 const char* plcStateFromJson(const char* j)
 {
     // io.estop wins outright: it is the latch, and a mode string can lag it.
@@ -142,11 +147,38 @@ const char* plcStateFromJson(const char* j)
     if (strncmp(m, "ESTOP",       5) == 0) return "E_STOP";
     if (strncmp(m, "NOLINK",      6) == 0) return "DEGRADED";
     if (strncmp(m, "FAILSAFE",    8) == 0) return "DEGRADED";
-    if (strncmp(m, "MANUAL_LIVE", 11) == 0) return "MANUAL";      // before MANUAL_SAFE: prefixes
-    if (strncmp(m, "MANUAL_SAFE", 11) == 0) return "SAFE_IDLE";
+    if (strncmp(m, "MANUAL",      6) == 0) return "MANUAL";
     if (strncmp(m, "AUTO",        4) == 0) return "AUTONOMOUS";
     if (strncmp(m, "OFF",         3) == 0) return "SAFE_IDLE";
     return nullptr;
+}
+
+// WHY THE LIFT WOULD REFUSE, in the operator's terms. The StamPLC zeroes mastIntent unless armOK,
+// and a button that silently does nothing is the worst of both worlds -- so the head works out the
+// reason from the same telemetry line and the panel says it.
+//
+// This mirrors armOK rather than duplicating its authority: the StamPLC still decides, and this is
+// only ever an explanation. g_driveSafe is not in the telemetry, so a refusal with every visible
+// gate satisfied is possible; the wording says "the robot is refusing" rather than claiming to
+// know everything.
+void plcGateFromJson(const char* j)
+{
+    const char* m = strstr(j, "\"mode\":\"");
+    const char* e = strstr(j, "\"estop\":");
+    const char* r = strstr(j, "\"relay\":");
+    const bool  estop = e && strncmp(e + 8, "true", 4) == 0;
+    const int   relay = r ? atoi(r + 8) : 0;
+    const bool  contactor = (relay & 0x01) != 0;        // RELAY1/R0 is the e-stop contactor
+
+    const char* why = nullptr;
+    if (estop)                                      why = "clear the e-stop at the dashboard";
+    else if (!m)                                    why = "no robot state";
+    else if (strncmp(m + 8, "ESTOP",    5) == 0)    why = "clear the e-stop at the dashboard";
+    else if (strncmp(m + 8, "NOLINK",   6) == 0)    why = "transmitter is off or out of range";
+    else if (strncmp(m + 8, "FAILSAFE", 8) == 0)    why = "RC failsafe - check the transmitter";
+    else if (strncmp(m + 8, "OFF",      3) == 0)    why = "set CH5 to MANUAL";
+    else if (!contactor)                            why = "close the contactor";
+    g_liftWhy = why;                                 // nullptr == allowed
 }
 
 void plcTelemetryTask(void*)
@@ -174,6 +206,8 @@ void plcTelemetryTask(void*)
         if (rx[0] != '{') continue;                 // the cheap filter: text telemetry, not state
         rx[n] = 0;
         g_plcTelem++;
+        plcGateFromJson(rx);
+        g_liftGateStamp = perceptNowMs();
         const char* st = plcStateFromJson(rx);
         if (!st) continue;
         if (strcmp(g_stateName, st) != 0)
@@ -738,6 +772,18 @@ bool netCommandLink(unsigned* ageMsOut)
 }
 bool netEstopPending() { return g_estopReq; }
 
+bool netLiftAllowed(const char** whyOut)
+{
+    // Stale telemetry is not permission. If the StamPLC has gone quiet we do not know the gate, and
+    // the honest answer is no.
+    if (g_liftGateStamp == 0 || (perceptNowMs() - g_liftGateStamp) > 3000) {
+        if (whyOut) *whyOut = "no link to the robot";
+        return false;
+    }
+    if (whyOut) *whyOut = g_liftWhy;
+    return g_liftWhy == nullptr;
+}
+
 void netStart()
 {
     // Independent of Wi-Fi: health is about the app, not the link.
@@ -762,6 +808,7 @@ void netLiftRequest(float)        {}
 void netEstopRequest()            {}
 bool netCommandLink(unsigned*)    { return false; }
 bool netEstopPending()            { return false; }
+bool netLiftAllowed(const char** w) { if (w) *w = "no robot on the desktop build"; return false; }
 bool linkState(const char**, unsigned*) { return false; }
 
 #endif  // ESP_PLATFORM

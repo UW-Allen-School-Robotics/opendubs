@@ -54,6 +54,9 @@ void netEstopRequest();
 // sticks have spoken once there is nowhere to send a lift or e-stop request.
 bool netCommandLink(unsigned* ageMsOut);
 bool netEstopPending();
+// Would the robot accept a lift command right now, and if not, what should the operator do? The
+// StamPLC still decides; this is the explanation the panel shows beside a greyed button.
+bool netLiftAllowed(const char** whyOut);
 
 // ---- the StamPLC STATE link -----------------------------------------------------------------
 // "STATE <NAME>" arrives on UDP 4242, exactly as the Arduino firmware receives it, so whatever

@@ -812,6 +812,7 @@ void buildScene()
     lv_obj_align(g_quote, LV_ALIGN_TOP_MID, 0, 648);
 
     g_label = lv_label_create(scr);
+    lv_obj_add_flag(g_label, LV_OBJ_FLAG_HIDDEN);   // off until SETTINGS asks for it
     lv_obj_set_style_text_color(g_label, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_align(g_label, LV_ALIGN_TOP_MID, 0, 24);
     lv_label_set_text(g_label, "1.1 gate: eased saccades + sprung shape, independent layers");
@@ -1018,6 +1019,12 @@ void refreshLabel()
              band::name(band::g_activity), theme::name(theme::g_active));
 #endif
     lv_label_set_text(g_label, buf);
+    // THE BENCH HUD IS NOT SHIP SURFACE. state/emote/band/theme plus internal heap plus the IP
+    // address is exactly what someone at a desk wants and exactly what a robot in a room should
+    // not be covered in. It goes behind the SETTINGS telemetry switch that already gates the
+    // perception line -- the same control, persisted in NVS, so it comes back without a reflash.
+    if (settingsTelemetryVisible()) lv_obj_remove_flag(g_label, LV_OBJ_FLAG_HIDDEN);
+    else                            lv_obj_add_flag(g_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 void applyEmote(int idx)
@@ -1528,6 +1535,9 @@ void AppFace::onRunning()
                     refreshLabel();
                 }
             }
+
+            if (settingsTelemetryVisible()) lv_obj_remove_flag(g_label, LV_OBJ_FLAG_HIDDEN);
+            else                            lv_obj_add_flag(g_label, LV_OBJ_FLAG_HIDDEN);
 
             if (settingsTelemetryVisible()) {
                 lv_label_set_text_static(g_probeLabel,

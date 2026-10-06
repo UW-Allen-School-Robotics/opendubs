@@ -323,8 +323,21 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
         // while x grows right, and the two servos are mounted differently, so each axis's mapping
         // is its own empirical fact. Do not "tidy" these into one rule.
         g_tiltTgt = clampf(kCentreDeg - ny * kTiltRangeDeg, aLo, aHi);
-    } else {
+    } else if (g_tracking) {
+        // Tracking, with nothing to track: return to centre, slowly, under the same slew limit.
         g_panTgt = g_tiltTgt = kCentreDeg;
+    } else {
+        // MANUAL: HOLD WHERE THE OPERATOR LEFT IT. This is the fix for the authority struggle --
+        // the head used to re-centre the instant the 600 ms touch lease lapsed, so aiming it and
+        // letting go made it crawl back, and with tracking live a detected face yanked it away as
+        // well. The Arduino had no such fight because TrackingMode was a PERSISTENT mode, not a
+        // lease: AI tracked, MANUAL did not, and MANUAL held its position indefinitely.
+        //
+        // That persistence is the point of the control. Emma: the utility of the on-face steering
+        // "is mostly to move it to make whatever text is on the screen readable" -- a heading that
+        // expires after half a second cannot do that job.
+        g_panTgt  = g_pan;
+        g_tiltTgt = g_tilt;
     }
 
     // SLEW LIMIT IN FIRMWARE. This is the line that makes a target jump a slow turn rather than a
@@ -335,8 +348,17 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     if (fabsf(g_tiltTgt - g_tilt) > step) g_tilt += (g_tiltTgt > g_tilt ? step : -step);
     else                                  g_tilt  = g_tiltTgt;
 
-    g_pan  = clampf(g_pan,  kCentreDeg - kPanRangeDeg,  kCentreDeg + kPanRangeDeg);
-    g_tilt = clampf(g_tilt, kCentreDeg - kTiltRangeDeg, kCentreDeg + kTiltRangeDeg);
+    // THE ENVELOPE DEPENDS ON WHO IS DRIVING. kPanRangeDeg/kTiltRangeDeg are the deliberately
+    // conservative AUTONOMOUS envelope; a human aiming the head by hand gets the mechanism's real
+    // limits, which is what the touch and RC branches above already clamp to. Applying the narrow
+    // envelope here as well silently undid them.
+    if (g_tracking) {
+        g_pan  = clampf(g_pan,  kCentreDeg - kPanRangeDeg,  kCentreDeg + kPanRangeDeg);
+        g_tilt = clampf(g_tilt, kCentreDeg - kTiltRangeDeg, kCentreDeg + kTiltRangeDeg);
+    } else {
+        g_pan  = clampf(g_pan,  kRcPanMin,  kRcPanMax);
+        g_tilt = clampf(g_tilt, g_tiltMin,  g_tiltMax);
+    }
 
     // DEADBAND ON THE WRITE, not on the angle: the angle may creep as finely as it likes, but a
     // servo asked to hold a position a microsecond away from its current one just buzzes.

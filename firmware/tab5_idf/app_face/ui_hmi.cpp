@@ -158,12 +158,16 @@ lv_obj_t* liveBox(lv_obj_t* parent, const int r[4], const char* word, uint32_t a
 lv_obj_t* commandBox(lv_obj_t* parent, const int r[4], const char* word, uint32_t accent,
                      int radius = 14)
 {
-    lv_obj_t* b = box(parent, r, kCommandLink ? 0x18202a : PANEL2, radius);
+    lv_obj_t* b = box(parent, r, 0x18202a, radius);
     lv_obj_set_style_border_width(b, 2, 0);
-    lv_obj_set_style_border_color(b, lv_color_hex(kCommandLink ? accent : HAIR), 0);
-    lv_obj_set_style_opa(b, kCommandLink ? LV_OPA_COVER : LV_OPA_60, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(accent), 0);
+    // THIS FLAG WAS MISSING, and it is why RAISE and LOWER did nothing. box() does not make an
+    // object clickable, so neither button ever received a press: no command was sent and the
+    // robot's arm gate was never reached. liveBox() and the e-stop each added it explicitly; this
+    // one was written back when the plan was to attach no handler at all.
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
     if (word) {
-        lv_obj_t* l = text(parent, word, F_WORD, kCommandLink ? accent : INKFT, 0, 0);
+        lv_obj_t* l = text(parent, word, F_WORD, accent, 0, 0);
         lv_obj_set_width(l, r[2]);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(l, r[0], r[1] + r[3] / 2 - 20);
@@ -172,6 +176,8 @@ lv_obj_t* commandBox(lv_obj_t* parent, const int r[4], const char* word, uint32_
 }
 
 lv_obj_t* g_banner = nullptr;
+lv_obj_t* g_upB = nullptr, *g_dnB = nullptr;
+lv_obj_t* g_liftWhyTx = nullptr, *g_modeTx = nullptr;
 lv_obj_t* g_bannerTx = nullptr;
 
 void onFacePress(lv_event_t*);
@@ -367,7 +373,9 @@ void hmiBuild()
 
     // ---- chrome: "OpenDubs . Lift Module" ----
     text(g_root, "OpenDubs", F_DATA, INK, 24, TOPBAR / 2 - 14);
-    text(g_root, "\xC2\xB7", F_DATA, CYAN, 150, TOPBAR / 2 - 14);
+    // "-", not U+00B7 MIDDLE DOT: the Montserrat subset in this build has no glyph for it, so
+    // it rendered as the missing-glyph box. Any non-ASCII separator has the same problem.
+    text(g_root, "-", F_DATA, CYAN, 150, TOPBAR / 2 - 14);
     text(g_root, "Lift Module", F_DATA, INK, 172, TOPBAR / 2 - 14);
     lv_obj_t* hair = lv_obj_create(g_root);
     lv_obj_remove_style_all(hair);
@@ -408,13 +416,18 @@ void hmiBuild()
     }
 
     // ---- RAISE / readout / LOWER ----
-    lv_obj_t* upB = commandBox(g_root, UPB, "RAISE", UPCOL);
+    lv_obj_t* upB = g_upB = commandBox(g_root, UPB, "RAISE", UPCOL);
     attachHold(upB, Held::RAISE);
     deferRevert(upB);
     panel(g_root, RDO, "HEIGHT");
     g_height = text(g_root, "---", F_BIG, INKFT, RDO[0] + 24, RDO[1] + 56);
     text(g_root, "mm", F_DATA, INKFT, RDO[0] + 180, RDO[1] + 80);
-    lv_obj_t* dnB = commandBox(g_root, DNB, "LOWER", DNCOL);
+    // Why the lift will not move, in the operator's terms, right where they are looking.
+    g_liftWhyTx = text(g_root, "", F_LABEL, AMBER, 0, 0);
+    lv_obj_set_width(g_liftWhyTx, RDO[2]);
+    lv_obj_set_style_text_align(g_liftWhyTx, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(g_liftWhyTx, RDO[0], RDO[1] + RDO[3] - 34);
+    lv_obj_t* dnB = g_dnB = commandBox(g_root, DNB, "LOWER", DNCOL);
     attachHold(dnB, Held::LOWER);
     deferRevert(dnB);
 
@@ -436,6 +449,10 @@ void hmiBuild()
         deferRevert(b);
     }
     lv_obj_t* modeBtn = liveBox(g_root, mode, nullptr, CYAN, 10);
+    g_modeTx = text(g_root, "TRACKING: AI", F_LABEL, CYAN, 0, 0);
+    lv_obj_set_width(g_modeTx, mode[2]);
+    lv_obj_set_style_text_align(g_modeTx, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(g_modeTx, mode[0], mode[1] + mode[3] / 2 - 10);
     lv_obj_add_event_cb(modeBtn, onModeToggle, LV_EVENT_CLICKED, nullptr);
     deferRevert(modeBtn);
     text(g_root, "PAN / TILT", F_LABEL, INKFT, DP_CX - 54, DP_CY + DP_W + DP_G + 32);
@@ -547,12 +564,37 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
                 case Held::PAN_R:  pantiltTouchRate( kDpadDpsUi, 0.0f); break;
                 case Held::TILT_U: pantiltTouchRate(0.0f,  kDpadDpsUi); break;
                 case Held::TILT_D: pantiltTouchRate(0.0f, -kDpadDpsUi); break;
-                case Held::RAISE:  netLiftRequest(kLiftUp);             break;
-                case Held::LOWER:  netLiftRequest(kLiftDown);           break;
+                // Do not even send a lift request the robot would discard: the panel has already
+                // said why, and a request that is refused far away looks identical to a bug.
+                case Held::RAISE:  if (netLiftAllowed(nullptr)) netLiftRequest(kLiftUp);   break;
+                case Held::LOWER:  if (netLiftAllowed(nullptr)) netLiftRequest(kLiftDown); break;
                 default: break;
             }
             g_lastTouch = 0;   // holding a control is activity, so the panel must not revert
         }
+    }
+
+    // ---- the lift gate: grey the buttons and say what to do about it ----
+    // GATING THE LIFT BEHIND MANUAL IS THE DESIGN, not a limitation to hide. What was wrong was
+    // leaving it silent: the buttons looked live, did nothing, and gave the operator no idea that
+    // CH5 was the reason.
+    {
+        const char* why = nullptr;
+        const bool  ok  = netLiftAllowed(&why);
+        for (lv_obj_t* b : {g_upB, g_dnB}) {
+            if (!b) continue;
+            lv_obj_set_style_opa(b, ok ? LV_OPA_COVER : LV_OPA_40, 0);
+            if (ok) lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            else    lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        }
+        if (g_liftWhyTx) lv_label_set_text(g_liftWhyTx, ok ? "" : (why ? why : "robot is refusing"));
+    }
+
+    // ---- MODE reports which mode it is IN, not what it would do ----
+    if (g_modeTx) {
+        const bool ai = pantiltTracking();
+        lv_label_set_text(g_modeTx, ai ? "TRACKING: AI" : "TRACKING: OFF - aimed by hand");
+        lv_obj_set_style_text_color(g_modeTx, lv_color_hex(ai ? CYAN : AMBER), 0);
     }
 
     // ---- the command-link banner, reported rather than assumed ----

@@ -613,3 +613,75 @@ hygiene; none blocks a robot flash. Parked here so they are not mistaken for gap
 `app_face.cpp` is still ungated and is NOT behind `OPENDUBS_DBG_UI`, so a release build ships a face
 that changes its decorative theme every 18 seconds. Cosmetic, not safety — but unlike P1-P4 it is
 active misbehaviour on a robot rather than a missing nicety.
+
+---
+
+## On-robot findings, 2026-10-06 — raised by Emma at the robot
+
+Four items from the first real session in front of the panel. **1 and 2 are design questions and
+need a decision, not a patch.** 3 and 4 were one-liners and are already done.
+
+### F1 — The face only ever shows the big neutral eyes. Where are the other emotes? · **OPEN, needs a decision**
+
+All seven states are ported and so are the emote shapes, but **nothing drives the emote channel on
+a robot.** `applyEmote()` is reached from the bench's own state cycling and from the per-state
+`locked` emote (only `INIT`, `DEGRADED` and `E_STOP` pin one) — so in normal operation the face
+sits on `EM_NEUTRAL` indefinitely and every other emote is dead code wearing a test harness.
+
+This is the same shape of gap as the state chip having no source: the capability exists and nothing
+is connected to it. The decision is **what an emote should MEAN**, and it is a product question:
+
+- an emote per *activity* (listening / thinking / speaking) — but the perimeter band already carries
+  activity, and duplicating it in two channels invites them to disagree;
+- an emote per *event* (heard you, lost you, cannot comply) — momentary, returning to neutral, which
+  is what the cue sounds already do, so the two could share one trigger;
+- an emote per *perception* (a person close by, a person leaving) — the only one the robot can
+  currently source by itself, since face detection works.
+
+Until this is decided the honest position is that the emote library is **unexercised**, and a demo
+that cycles it is a demo, not a behaviour.
+
+### F2 — The "Siri-like" status spins continuously and means nothing · **OPEN, needs a decision**
+
+Same defect as F1 and worse, because it is actively misleading: a perpetual motion signal reads as
+"the robot is doing something" at all times, so it carries no information and trains people to
+ignore the one channel that should carry urgency. **Either give it utility or stop it.**
+
+If it earns its place, the band's four behaviours must map to things the robot actually knows:
+`idle` breathes, `listening` sweeps slowly, `thinking` sweeps fast, `speaking` pulses — but
+`band::g_activity` is set by the bench cycler today, exactly as the emotes are. Options are to
+drive it from real activity (mic gate, inference running, audio playing), or to reduce it to
+**state colour only, motionless**, and let motion mean something later.
+
+Recommendation: motionless until there is a real source. A still band that occasionally moves is
+legible; a band that always moves is decoration.
+
+### F3 — Missing-glyph box in the top bar · **DONE, 2026-10-06**
+
+"OpenDubs ▯ Lift Module" was U+00B7 MIDDLE DOT. The Montserrat subset this build ships has no glyph
+for it, so LVGL drew the missing-glyph box. Replaced with an ASCII hyphen. **Any non-ASCII character
+in this UI has the same problem** — adding one means extending the font range in Kconfig, not just
+typing it.
+
+### F4 — FPS/CPU readout and the eyebrow telemetry text are off · **DONE, 2026-10-06**
+
+`g_label` carried state/emote/band/theme plus internal-DRAM heap plus the IP address
+unconditionally, directly under the brows. It now follows the **SETTINGS → On-screen telemetry**
+switch that already gated the perception line: same control, persisted in NVS, so it comes back
+without a reflash. This closes **P3** in the polish backlog above.
+
+### Also fixed in this session, for the record
+
+- **The lift buttons were not clickable.** `commandBox()` never set `LV_OBJ_FLAG_CLICKABLE`, so
+  RAISE and LOWER received no press events at all — nothing was ever sent and the robot's arm gate
+  was never reached. The e-stop worked only because it set the flag explicitly.
+- **The head fought the d-pad.** Manual aiming was a 600 ms LEASE, so the head re-centred the
+  instant it lapsed and a detected face pulled it away as well. The Arduino had no such fight
+  because tracking was a PERSISTENT MODE. Aiming by hand now takes ownership and HOLDS, and MODE
+  hands it back; the narrow autonomous envelope no longer clamps a hand-aimed heading.
+- **The lift gate is annunciated.** Gating the lift behind MANUAL is the design; leaving it silent
+  was the defect. RAISE/LOWER grey out and the panel says what to do — "set CH5 to MANUAL", "close
+  the contactor", "clear the e-stop at the dashboard".
+- **OTA rollback demonstrated in anger**, unplanned: a bad image booted, failed to mark itself
+  healthy inside 12 s, and the bootloader reverted to the previous slot. That is Phase 5 item 3's
+  deliberate-failure test, arrived at accidentally — a scripted version is still worth doing.
