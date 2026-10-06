@@ -202,7 +202,7 @@ if "od_gt911_selftest" not in t:
     t = t.replace(body_anchor, body_new, 1)
 
     bsp.write_text(t)
-    print("  patched: GT911 self-test logging (exit_sleep kept)")
+    print("  patched: GT911 M5GFX bring-up + self-test + raw counters")
 else:
     # Unreachable: the file was just restored from git, so it cannot already carry the patch.
     sys.exit("REFUSING: m5stack_tab5.c still carries the GT911 patch after a git restore")

@@ -54,6 +54,75 @@ static void od_tp_int_pin_safe(void)
     gpio_reset_pin(GPIO_NUM_23);
 }
 
+/* THE KNOWN-GOOD BRING-UP, transcribed from the path that has never failed on this board.
+ *
+ * Sources, both in firmware/tab5_face/.pio/libdeps/tab5/M5GFX/src/:
+ *   M5GFX.cpp:2687-2729       -- INT driven HIGH (push-pull) BEFORE and across the TP reset,
+ *                                P5 low 10 ms, then INT to plain input and 100 ms. Its own
+ *                                comments name bit5 as "GT911 TouchReset", which is what finally
+ *                                confirms P5 is the touch reset rather than our inference.
+ *   Touch_GT911.cpp:51-126    -- init() clears the buffer-status register 0x814E, then wakeup()
+ *                                drives INT LOW 58 ms, HIGH 2 ms, and leaves it INPUT_PULLUP.
+ *
+ * WHY THIS AND NOT A CONFIG WRITE. M5GFX writes no configuration block either -- its only config
+ * writers are never called -- and the chip reported Config_Version 0 on the two boots where touch
+ * measured WORKING. So a zeroed config block is normal on this unit and was never the fault.
+ * What differs between the working path and ours is the INT pin, in three ways: driven high vs a
+ * weak internal pull-up across the reset release (INT level is what latches the I2C address);
+ * esp_lcd_touch_exit_sleep() driving INT push-pull for 5 ms against a chip that is already
+ * running and driving INT itself; and INT left floating open-drain afterwards instead of
+ * input-with-pull-up.
+ *
+ * P5 ONLY, deliberately: the display panel is already initialised by the time this runs, so
+ * LCD_RST (P4) must not move or the panel would need re-initialising. */
+static void od_gt911_m5gfx_bringup(esp_lcd_touch_handle_t tp)
+{
+    uint8_t w[2] = {PI4IO_REG_OUT_SET, 0};
+    uint8_t r[1] = {0};
+    uint8_t zero = 0;
+    gpio_config_t out  = {.pin_bit_mask = BIT64(GPIO_NUM_23), .mode = GPIO_MODE_OUTPUT};
+    gpio_config_t in   = {.pin_bit_mask = BIT64(GPIO_NUM_23), .mode = GPIO_MODE_INPUT};
+    gpio_config_t inpu = {.pin_bit_mask = BIT64(GPIO_NUM_23), .mode = GPIO_MODE_INPUT,
+                          .pull_up_en = GPIO_PULLUP_ENABLE};
+
+    /* 1. INT driven HIGH, push-pull, before and across the reset: the address is selected by a
+     *    DRIVEN level here, not by a weak pull-up as the IDF path does it. */
+    gpio_config(&out);
+    gpio_set_level(GPIO_NUM_23, 1);
+
+    /* 2. TP_RST (PI4IOE1 P5): low 10 ms, then high. Read-then-write with the read CHECKED -- the
+     *    vendor helpers write 0x00|bit on a failed read, which would clear every other output. */
+    if (i2c_master_transmit_receive(i2c_dev_handle_pi4ioe1, w, 1, r, 1, I2C_MASTER_TIMEOUT_MS) != ESP_OK) {
+        ESP_LOGE(TAG, "m5gfx bringup: expander read failed -- aborting, nothing written");
+        return;
+    }
+    w[1] = r[0];
+    clrbit(w[1], 5);
+    i2c_master_transmit(i2c_dev_handle_pi4ioe1, w, 2, I2C_MASTER_TIMEOUT_MS);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    setbit(w[1], 5);
+    i2c_master_transmit(i2c_dev_handle_pi4ioe1, w, 2, I2C_MASTER_TIMEOUT_MS);
+
+    /* 3. INT to plain input, then 100 ms (M5GFX.cpp:2727-2729). */
+    gpio_config(&in);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    /* 4. Touch_GT911::init(): clear the buffer-status register. */
+    esp_lcd_panel_io_tx_param(tp->io, 0x814E, &zero, 1);
+
+    /* 5. Touch_GT911::wakeup(): INT low 58 ms, high 2 ms, then input WITH PULL-UP -- and it stays
+     *    there, unlike the IDF path which leaves it floating. */
+    gpio_config(&out);
+    gpio_set_level(GPIO_NUM_23, 0);
+    vTaskDelay(pdMS_TO_TICKS(58));
+    gpio_set_level(GPIO_NUM_23, 1);
+    vTaskDelay(pdMS_TO_TICKS(2));
+    gpio_config(&inpu);
+
+    ESP_LOGI(TAG, "GT911: M5GFX bring-up applied (reset w/ INT driven, 0x814E cleared, "
+                  "wake pulse, INT input+pullup)");
+}
+
 /* TP_RST is PI4IOE1 P5. This pulses P5 ONLY.
  *
  * Deliberately NOT bsp_reset_tp(): that also drives LCD_RST (P4) low for 100 ms, which on a
