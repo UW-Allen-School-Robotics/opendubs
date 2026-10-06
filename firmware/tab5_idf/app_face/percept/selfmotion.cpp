@@ -13,7 +13,18 @@
 
 namespace {
 
-// ---- thresholds. REASONED, NOT MEASURED ----------------------------------------------------
+// ---- thresholds. kGyroDps is now MEASURED; the rest are still reasoned ----
+//
+// MEASURED ON DEVICE 2026-10-05, via the walk-in panel's IMU readout: the Tab5 sitting flat on a
+// bench reads 0 dps, and picking it up and moving it reads 100+ dps. That is the first time this
+// gate's input has been observed at all -- it had only ever been reasoned about, and the code's
+// fallback (four consecutive zero reads disable the gate and the panel says "gate:noimu") existed
+// precisely because nobody knew whether the read worked.
+//
+// So 15 dps is confirmed as a sensible floor rather than a guess: roughly 15x the observed resting
+// noise and about 7x below a deliberate hand movement, with no overlap between the two. Left
+// unchanged, which is the point -- the value was right, and now it is KNOWN to be right.
+// ----------------------------------------------------
 // The BMI270 is configured by the vendor at +-1000 dps with 1/32.768 LSB per dps and a 200 Hz ODR
 // -- read from accel_gyro_bmi270_enable_sensor(), not assumed.
 //
