@@ -18,7 +18,7 @@ CONFIG_LV_MEMCPY_MEMSET_STD=y
 CONFIG_LV_DISP_DEF_REFR_PERIOD=25
 CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_PRINTF=y
-CONFIG_LV_USE_PERF_MONITOR=y
+# CONFIG_LV_USE_PERF_MONITOR is not set   # LVGL's own FPS/CPU overlay: a dev tool, not ship surface
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 CONFIG_LV_FONT_MONTSERRAT_8=y
 CONFIG_LV_FONT_MONTSERRAT_10=y
@@ -47,7 +47,7 @@ CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 # sets CONFIG_LV_CONF_SKIP=y, so LVGL is configured by Kconfig and lv_conf.h is ignored entirely --
 # which is why edits to that file had no effect on the device.
 CONFIG_LV_USE_SYSMON=y
-CONFIG_LV_USE_PERF_MONITOR=y
+# CONFIG_LV_USE_PERF_MONITOR is not set   # LVGL's own FPS/CPU overlay: a dev tool, not ship surface
 
 # IDF 5.5's bootloader grew past the space before the partition table: 0x6120 bytes against a
 # 0x6000 ceiling (0x2000 -> PARTITION_TABLE_OFFSET 0x8000). On 5.4.2 it was 0x5a60 -- already 94%

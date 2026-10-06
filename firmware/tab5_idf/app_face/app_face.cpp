@@ -28,6 +28,9 @@
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
 #include "esp_system.h"
+#ifdef ESP_PLATFORM
+#include "esp_random.h"
+#endif
 #endif
 
 using namespace mooncake;
@@ -221,6 +224,24 @@ const Emote kEmotes[] = {
 enum { EM_NEUTRAL = 0, EM_ALERT, EM_SQUINT, EM_SOFT, EM_SLEEPY };
 constexpr int kNEmotes = sizeof(kEmotes) / sizeof(kEmotes[0]);
 int g_emote = 0;
+
+// A uniform random in [0,n). esp_random() is in esp_random.h, not esp_system.h, and the desktop
+// SDL build has neither -- so the choice is made once here rather than at each call site.
+inline uint32_t rnd(uint32_t n)
+{
+    if (n == 0) return 0;
+#ifdef ESP_PLATFORM
+    return esp_random() % n;
+#else
+    return (uint32_t)rand() % n;
+#endif
+}
+
+// The perimeter band. OFF by default -- see band::build() for why. Build with
+// -DOPENDUBS_FACE_BAND=1 to get it back for an experiment.
+#ifndef OPENDUBS_FACE_BAND
+#define OPENDUBS_FACE_BAND 0
+#endif
 
 // ---- states: COLOUR ONLY ---------------------------------------------------------------------
 // A state is mostly a colour. Two previous attempts also gave each state an expression, which
@@ -797,7 +818,18 @@ void buildScene()
         lv_obj_set_style_line_rounded(g_eye[i].brow, true, LV_PART_MAIN);
     }
 
+    // THE BAND IS SUPPRESSED. Emma, 2026-10-06: it spun continuously and meant nothing, so it
+    // carried no information and trained people to ignore the one channel that should carry
+    // urgency. Not deleted -- F2 in the workplan still holds that motion could earn its place once
+    // there is a real source for it (mic gate, inference running, audio playing). Until then it is
+    // not built, which also removes 48 animated segments from every frame.
+    //
+    // band::update() tolerates never having been built: it writes only to g_edge[]/g_seg[], which
+    // stay null, and every write is guarded. The FAULT path is the one loss worth naming -- a hard
+    // flash on DEGRADED/E_STOP -- and the state colour plus the fault cue still carry that.
+#if OPENDUBS_FACE_BAND
     band::build(scr);
+#endif
     theme::buildAll(scr);
 
     // Own strip, below the eyes and above the bottom band. The eyes span y 120..600 and the band
@@ -1100,8 +1132,10 @@ void newSaccade(uint32_t now)
 void renderFace(uint32_t now)
 {
     const float gx = g_gazeX, gy = g_gazeY, asym = g_asym;
+#if OPENDUBS_FACE_BAND
     band::update(now, ((uint32_t)(float)g_colR << 16) | ((uint32_t)(float)g_colG << 8)
                       | (uint32_t)(float)g_colB);
+#endif
     for (int i = 0; i < 2; ++i) {
         Last& L = g_last[i];
 
@@ -1628,8 +1662,21 @@ void AppFace::onRunning()
         }
         if (!g_tracking) {
             g_tracking = true;
+            // ONLY IF ASKED FOR. The reticle was created hidden and then unhidden by this line
+            // whenever perception tracked, with nothing gating it -- so on a robot it was a box
+            // chasing people across the face. Now behind SETTINGS -> Tracking reticle, off by
+            // default. g_tracking still flips, so turning the switch on mid-run is picked up by
+            // the per-frame sync below rather than needing a fresh detection.
+            if (settingsReticleVisible()) {
+                GetHAL()->lvglLock();
+                lv_obj_remove_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+                GetHAL()->lvglUnlock();
+            }
+        }
+        // Keep it in step with the switch while tracking, so flipping it takes effect at once.
+        if (!settingsReticleVisible() && !lv_obj_has_flag(g_reticle, LV_OBJ_FLAG_HIDDEN)) {
             GetHAL()->lvglLock();
-            lv_obj_remove_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
             GetHAL()->lvglUnlock();
         }
     } else {
@@ -1688,9 +1735,23 @@ void AppFace::onRunning()
 #endif
     // Emotes cycle only where the face is free. In a reporting state the pinned emote stands,
     // while saccades and blinks carry on as normal.
-#if OPENDUBS_DBG_UI
+    // NOT behind OPENDUBS_DBG_UI any more, and random rather than sequential. Emma, 2026-10-06:
+    // the robot only ever showed the big neutral eyes because the only thing driving the emote
+    // channel was a bench cycler compiled out of the robot build -- so every other emote was dead
+    // code. Random cycling is an INTERIM answer, not the design: F1 in the workplan still asks
+    // what an emote should MEAN. Until that is decided a face that varies reads as alive, and a
+    // sequential walk reads as a demo loop.
+    //
+    // Only where the face is free: a reporting state's pinned emote still stands, because
+    // DEGRADED and E_STOP are communicating something and must not drift off it.
     if (kStates[g_state].locked < 0 && due(now, g_nextEmote)) {
-        g_emote = (g_emote + 1) % kNEmotes;
+        // Never repeat the current one -- a "change" that changes nothing looks like a freeze.
+        int pick = g_emote;
+        if (kNEmotes > 1) {
+            pick = (int)rnd((uint32_t)(kNEmotes - 1));
+            if (pick >= g_emote) ++pick;
+        }
+        g_emote = pick;
         // LOCK HELD. applyEmote() calls lv_label_set_text(), and this was the ONE call site that
         // did not take the lock -- so every 3.2 s it mutated LVGL's label buffer and invalidation
         // list while the LVGL task could be mid-render. An unsynchronised LVGL call corrupts
@@ -1699,9 +1760,9 @@ void AppFace::onRunning()
         GetHAL()->lvglLock();
         applyEmote(g_emote);
         GetHAL()->lvglUnlock();
-        g_nextEmote = now + 3200;
+        // A fixed period is itself a tell. 4-9 s, so it never settles into a rhythm.
+        g_nextEmote = now + 4000 + rnd(5000);
     }
-#endif
     // THE EYES OPEN, ONCE, as the first thing the face does. onOpen leaves the lids shut so the
     // first presented frame cannot be a half-built one; this is what turns that constraint into
     // something deliberate. The target is the current emote's own lid value, so nothing here

@@ -3,6 +3,7 @@
 #include "touch_ui_config.h"
 #include "pantilt.h"
 #include "net.h"
+#include "tof.h"
 
 #include <lvgl.h>
 #include <mooncake_log.h>
@@ -645,9 +646,27 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
     lv_obj_set_style_text_color(g_linkVal, lv_color_hex(online ? UPCOL : DNCOL), 0);
     lv_label_set_text(g_ipVal, feed.net ? feed.net : "--");
 
-    // ---- height and ToF have no source in this firmware yet; say so rather than show a zero ----
+    // ---- the front ToF, read live ----
+    // Sampled here rather than on a timer: this runs only while the panel is open, which is the
+    // only time the number is visible. HEIGHT still has no source -- that sensor is on the
+    // StamPLC and arrives over UDP, which is not wired yet -- so it stays honest rather than
+    // borrowing the ToF's number, which measures something else entirely.
     lv_label_set_text(g_height, "---");
-    lv_label_set_text(g_tofVal, "not wired");
+    {
+        float mm = 0.0f;
+        static char tb[24];
+        static float lastMm = -1.0f;
+        static uint32_t lastGood = 0;
+        if (tofReadMm(&mm)) { lastMm = mm; lastGood = nowMs; }
+        // Hold the last reading briefly: at ~30 Hz most frames have no new sample, and a value
+        // that blinks to "---" between samples is unreadable.
+        if (lastMm >= 0.0f && (nowMs - lastGood) < 1000) {
+            snprintf(tb, sizeof(tb), "%d mm", (int)lastMm);
+            lv_label_set_text(g_tofVal, tb);
+        } else {
+            lv_label_set_text(g_tofVal, tofReason());
+        }
+    }
 
     // ---- idle auto-revert ----
     const uint32_t idle = nowMs - g_lastTouch;

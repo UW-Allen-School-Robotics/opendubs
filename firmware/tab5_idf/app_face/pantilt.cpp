@@ -1,4 +1,5 @@
 #include "pantilt.h"
+#include "tof.h"
 #include "touch_ui_config.h"
 
 #ifndef OPENDUBS_PANTILT
@@ -235,6 +236,11 @@ void pantiltBegin()
     writePulse(kChTilt, degToUs(g_tilt, kTiltReverse));
     writePulse(kChPan,  degToUs(g_pan,  kPanReverse));
     g_present = true;
+
+    // The front ToF shares Port A and the same EXT_5V rail, so it is brought up here rather than
+    // racing the servo init for the bus. A failure is reported, not fatal: no ToF is not a reason
+    // for the head to stop aiming.
+    tofBegin();
     snprintf(g_status, sizeof(g_status), "pantilt: ready p%.0f t%.0f tilt[%.0f..%.0f]%s",
              g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : " FALLBACK");
     ESP_LOGI(kTag, "8Servo at 0x25, tilt=ch%u pan=ch%u, centred", kChTilt, kChPan);
@@ -408,6 +414,48 @@ void pantiltRcRate(float panDps, float tiltDps)
     g_rcMs   = (uint32_t)(esp_timer_get_time() / 1000);
 }
 
+// IDENTIFY THE FRONT ToF BEFORE WRITING A DRIVER FOR IT.
+//
+// 0x29 answers on Port A, but which part is fitted is a per-build fact and getting it wrong is
+// silent: the ToF4M is a VL53L1X with SIXTEEN-BIT registers, the older unit a VL53L0X with 8-bit
+// ones, and a driver for one simply fails to init against the other. The Arduino firmware made the
+// same point and identified at run time; it could then lean on Pololu's Arduino libraries, which
+// do not exist here, so the init sequence has to be written out and it is worth writing exactly
+// one of them.
+//
+//   VL53L1X answers 0xEACC at 16-bit register 0x010F
+//   VL53L0X answers 0xEE   at  8-bit register 0xC0
+const char* pantiltTofId()
+{
+    static char out[96];
+    i2c_master_bus_handle_t bus = bsp_ext_i2c_get_handle();
+    if (!bus) { snprintf(out, sizeof(out), "tof: port A bus not up"); return out; }
+
+    i2c_master_dev_handle_t dev = nullptr;
+    i2c_device_config_t cfg = {};
+    cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    cfg.device_address  = 0x29;
+    cfg.scl_speed_hz    = 100000;
+    if (i2c_master_bus_add_device(bus, &cfg, &dev) != ESP_OK || !dev) {
+        snprintf(out, sizeof(out), "tof: add_device(0x29) failed");
+        return out;
+    }
+
+    uint8_t  w16[2] = {0x01, 0x0F}, r16[2] = {0, 0};
+    uint8_t  w8     = 0xC0,         r8     = 0;
+    const esp_err_t e16 = i2c_master_transmit_receive(dev, w16, 2, r16, 2, 100);
+    const esp_err_t e8  = i2c_master_transmit_receive(dev, &w8, 1, &r8, 1, 100);
+    const uint16_t id16 = (uint16_t)((r16[0] << 8) | r16[1]);
+
+    const char* part = (e16 == ESP_OK && id16 == 0xEACC) ? "VL53L1X (ToF4M)"
+                     : (e8  == ESP_OK && r8   == 0xEE)   ? "VL53L0X"
+                                                         : "UNKNOWN";
+    snprintf(out, sizeof(out), "tof 0x29: %s | id16=0x%04x(%s) id8=0x%02x(%s)",
+             part, id16, esp_err_to_name(e16), r8, esp_err_to_name(e8));
+    i2c_master_bus_rm_device(dev);
+    return out;
+}
+
 const char* pantiltI2cScan()
 {
     static char buf[256];
@@ -453,5 +501,6 @@ float pantiltHeadOffsetX() { return 0.0f; }
 float pantiltHeadOffsetY() { return 0.0f; }
 const char* pantiltStatus() { return "pantilt: off"; }
 const char* pantiltI2cScan() { return "i2c scan: pantilt compiled out"; }
+const char* pantiltTofId()   { return "tof: pantilt compiled out"; }
 
 #endif  // ESP_PLATFORM

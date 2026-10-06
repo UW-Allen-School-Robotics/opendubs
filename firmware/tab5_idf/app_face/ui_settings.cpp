@@ -39,12 +39,17 @@ bool g_audio     = false;                      // default OFF: the Mode tone was
                                                // loud, and shipping it on would re-make that call
                                                // for the operator. Opt-in, not opt-out.
 bool g_telemetry = false;
+// The tracking reticle. DEFAULT OFF: on a robot it is a box chasing people across the face, which
+// reads as surveillance rather than attention. It is a developer instrument for confirming that
+// the gaze mapping is right, so it is opt-in like the rest of them.
+bool g_reticle   = false;
 
 lv_obj_t* g_root = nullptr;                    // the panel; hidden unless open
 
 std::unique_ptr<Container> g_close;
 std::unique_ptr<Switch>    g_swAudio;
 std::unique_ptr<Switch>    g_swTelem;
+std::unique_ptr<Switch>    g_swRetic;
 std::unique_ptr<Slider>    g_slVol;
 std::unique_ptr<Label>     g_lblVol;
 
@@ -81,6 +86,7 @@ void load()
     uint8_t v = 0;
     if (nvs_get_u8(h, "audio", &v) == ESP_OK) g_audio = (v != 0);
     if (nvs_get_u8(h, "telem", &v) == ESP_OK) g_telemetry = (v != 0);
+    if (nvs_get_u8(h, "retic", &v) == ESP_OK) g_reticle = (v != 0);
     if (nvs_get_u8(h, "vol", &v) == ESP_OK) GetHAL()->setSpeakerVolume(v);
     nvs_close(h);
     mclog::tagInfo(kTag, "loaded: audio={} telem={} vol={}", g_audio, g_telemetry,
@@ -97,6 +103,7 @@ void save()
     }
     nvs_set_u8(h, "audio", g_audio ? 1 : 0);
     nvs_set_u8(h, "telem", g_telemetry ? 1 : 0);
+    nvs_set_u8(h, "retic", g_reticle ? 1 : 0);
     nvs_set_u8(h, "vol", GetHAL()->getSpeakerVolume());
     nvs_commit(h);
     nvs_close(h);
@@ -141,6 +148,7 @@ Label* rowLabel(lv_obj_t* parent, const char* text, int y)
 
 bool settingsAudioEnabled()     { return g_audio; }
 bool settingsTelemetryVisible() { return g_telemetry; }
+bool settingsReticleVisible()   { return g_reticle; }
 bool settingsOwnsPanel()        { return g_open; }
 void settingsOpen()             { setOpen(true); }
 
@@ -270,12 +278,22 @@ void settingsBuild()
         save();
     });
 
+    // ---- tracking reticle ----
+    rowLabel(g_root, "Tracking reticle", 380);
+    g_swRetic = std::make_unique<Switch>(g_root);
+    g_swRetic->align(LV_ALIGN_TOP_LEFT, 420, 378);
+    if (g_reticle) lv_obj_add_state(g_swRetic->get(), LV_STATE_CHECKED);
+    g_swRetic->onValueChanged().connect([](bool on) {
+        g_reticle = on;
+        save();
+    });
+
     auto* note = new Label(g_root);
     note->setTextFont(&lv_font_montserrat_20);
     note->setTextColor(lv_color_hex(0x8a94a0));
     note->setText("Dev instruments (camera preview, perception overlay, serial)\n"
                   "are compiled out of a release and are not listed here.");
-    note->align(LV_ALIGN_TOP_LEFT, 60, 410);
+    note->align(LV_ALIGN_TOP_LEFT, 60, 450);
 
     // ---- close ----
     g_close = std::make_unique<Container>(g_root);
@@ -302,5 +320,6 @@ void settingsOpen()              {}
 bool settingsOwnsPanel()         { return false; }
 bool settingsAudioEnabled()      { return false; }
 bool settingsTelemetryVisible()  { return false; }
+bool settingsReticleVisible()    { return false; }
 
 #endif  // OPENDUBS_TOUCH_UI

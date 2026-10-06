@@ -36,4 +36,6 @@ bool settingsOwnsPanel();
 
 // ---- the settings themselves, read by the rest of the firmware -------------------------------
 bool settingsAudioEnabled();      // replaces kCuesEnabled
-bool settingsTelemetryVisible();  // the on-screen readouts
+bool settingsTelemetryVisible();
+// The tracking reticle, off by default: on a robot it is a box chasing people across the face.
+bool settingsReticleVisible();  // the on-screen readouts

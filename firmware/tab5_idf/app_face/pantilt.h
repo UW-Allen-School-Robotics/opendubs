@@ -91,6 +91,8 @@ bool pantiltTracking();
 // Lives here, not in net.cpp, because this needs GetHAL() and net.cpp deliberately does not
 // include hal/hal.h -- that header pulls in lvgl.h, and net.cpp is kept clear of it.
 const char* pantiltI2cScan();
+// Identify the front ToF at 0x29 so the right driver gets written. See pantilt.cpp.
+const char* pantiltTofId();
 
 // For the panel and the UDP reply. Stable buffer.
 const char* pantiltStatus();

@@ -685,3 +685,69 @@ without a reflash. This closes **P3** in the polish backlog above.
 - **OTA rollback demonstrated in anger**, unplanned: a bad image booted, failed to mark itself
   healthy inside 12 s, and the bootloader reverted to the previous slot. That is Phase 5 item 3's
   deliberate-failure test, arrived at accidentally — a scripted version is still worth doing.
+
+---
+
+## Second round of on-robot findings, 2026-10-06
+
+### F5 — Front ToF now has a driver · **PORTED, needs one physical check**
+
+It was never "unwired" — the panel said so because no driver existed. Identified on the robot from
+its model ID: **VL53L0X** (0xEE at register 0xC0), not the VL53L1X. That distinction matters and is
+why it was measured rather than assumed — the L1X has sixteen-bit registers and a driver for one
+silently fails against the other.
+
+`app_face/tof.cpp` ports ST's bring-up sequence (the one Pololu's Arduino library implements, which
+does not exist here): 2V8 mode, stop variable, SPAD reference map, the default tuning table, VHV
+and phase reference calibration, then continuous back-to-back ranging polled non-blocking.
+
+**It is ranging.** `start=0x02`, interrupt status shows new-sample-ready, 17 reference SPADs
+(aperture type). Every sample comes back `raw=8190 rs=6` — the out-of-range sentinel with ST range
+status 6, SIGMA THRESHOLD CHECK failed, i.e. the sensor does not trust the return.
+
+**Two candidate causes, and one free test tells them apart.** Put a hand ~20 cm in front of the
+sensor:
+- a number appears → there was simply no target in range, and the driver is done;
+- still fails with a strong return → it is the **measurement timing budget**, which this port
+  deliberately omits. Pololu reads the budget, writes `SYSTEM_SEQUENCE_CONFIG = 0xE8`, then
+  re-applies it; omitting both was documented in `tof.cpp` as preserving the default, and sigma
+  failure is exactly what too-short an integration time produces. Fixing it means porting the
+  macro-period / timeout encoding math (~150 lines).
+
+Deliberately NOT guessed between the two: changing the budget and re-testing at the same time
+would make the result unattributable, which is the repo's own rule.
+
+HEIGHT still reads `---` and should: that sensor is on the StamPLC and arrives over UDP, which is
+not wired. It must not borrow the ToF's number — they measure different things.
+
+### F6 — LVGL's FPS/CPU overlay is off · **DONE**
+
+The "FPS telemetry" was not ours: `CONFIG_LV_USE_PERF_MONITOR`, LVGL's own sysmon overlay, bottom
+right. Our OWN `sdkconfig.defaults` was turning it on — twice. It had been set in a session when
+sdkconfig.defaults was inert (IDF only consults it when `sdkconfig` is absent), so it appeared
+harmless; the later fix that made our deltas actually apply turned the overlay on for real. Now
+unset. It is a Kconfig-time feature, so unlike the brow-level HUD it cannot follow the SETTINGS
+switch.
+
+### F7 — Emotes cycle randomly on unpinned states · **DONE, interim**
+
+The cycler existed but was behind `OPENDUBS_DBG_UI`, compiled out of the robot build — which is
+why the face only ever showed neutral eyes. Now ungated, random rather than sequential (never
+repeating the current one), with a 4-9 s jittered dwell so it does not settle into a rhythm.
+Pinned states are untouched: DEGRADED and E_STOP are communicating something and must not drift
+off it. **This answers F1 provisionally and does not close it** — what an emote should MEAN is
+still open.
+
+### F8 — The perimeter band is suppressed · **DONE**
+
+Not built and not updated, behind `OPENDUBS_FACE_BAND` (default 0). Emma: it spun continuously and
+meant nothing, so it carried no information and trained people to ignore the one channel that
+should carry urgency. Also removes 48 animated segments from every frame. The one real loss is the
+hard FAULT flash on DEGRADED/E_STOP; state colour and the fault cue still carry that. F2 stays open
+for whether motion can earn its place.
+
+### F9 — Tracking reticle behind a settings switch · **DONE**
+
+**SETTINGS -> Tracking reticle**, default OFF, persisted in NVS. It was created hidden and then
+unhidden whenever perception tracked, with nothing gating it — a box chasing people across the
+face. Closes **P2** in the polish backlog.

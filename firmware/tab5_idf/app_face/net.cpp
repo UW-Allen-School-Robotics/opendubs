@@ -34,6 +34,7 @@
 #include "shared/clock.h"
 #include "ui_hmi.h"
 #include "pantilt.h"
+#include "tof.h"
 
 // Patched into the vendor BSP's lvgl_read_cb by build.sh (patches/gt911_rawcount.c.inc). These
 // count what the GT911 DRIVER delivers, before hit-testing -- the layer between the chip and the
@@ -707,6 +708,18 @@ void cmdTask(void*)
             g_plcStamp = (uint32_t)(esp_timer_get_time() / 1000);
             g_plcByName = false;
             // No reply: this arrives 20 times a second while someone is aiming.
+        } else if (strcmp(rx, "TOF") == 0) {
+            // The driver's own verdict plus a live sample. pantiltTofId() did the identification
+            // that told us which part to write a driver for; now that one exists and HOLDS the
+            // device handle, a second add_device for 0x29 would just fail -- so report the driver.
+            char tb[128];
+            float mm = 0.0f;
+            const bool got = tofReadMm(&mm);
+            char tb2[320];
+            const int m = snprintf(tb2, sizeof(tb2), "%s | sample=%s%.0f | %s",
+                                   tofStatus(), got ? "" : "none ", got ? mm : 0.0f, tofRegs());
+            (void)tb;
+            sendto(sock, tb2, m, 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "I2CSCAN") == 0) {
             // On demand, not at boot: a scan probes 112 addresses on two buses and that is not
             // something to do on every start.
