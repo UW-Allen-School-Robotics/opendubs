@@ -17,8 +17,10 @@
 #include <hal/hal.h>
 #include <lvgl.h>
 #include <mooncake_log.h>
+#ifdef ESP_PLATFORM
 #include <nvs.h>
 #include <nvs_flash.h>
+#endif
 #include <smooth_lvgl.h>
 #include <algorithm>
 #include <memory>
@@ -49,6 +51,7 @@ std::unique_ptr<Label>     g_lblVol;
 // ---- persistence ---------------------------------------------------------------------------
 // NVS, so a setting survives a reboot. A volume someone set at the robot and lost on the next
 // power cycle is worse than no control at all -- they would set it again, and stop trusting it.
+#ifdef ESP_PLATFORM
 // NVS MUST BE INITIALISED HERE, and that is a bug fix rather than belt-and-braces.
 // settingsBuild() runs during scene build; net.cpp called nvs_flash_init() from the network task
 // AFTER a 2500 ms delay. So every nvs_open() below ran against uninitialised NVS, failed, and
@@ -98,6 +101,17 @@ void save()
     nvs_commit(h);
     nvs_close(h);
 }
+
+#else   // desktop SDL build: the controls work, they just do not persist
+
+// NO NVS OFF-DEVICE. The settings page is fully interactive on the desktop -- which is the point,
+// since judging it is why the desktop build exists -- but a value set here lasts only as long as
+// the process. Deliberately silent rather than logging a failure every time: on the desktop
+// "settings did not persist" is the expected behaviour, not a fault worth reporting.
+void load() {}
+void save() {}
+
+#endif  // ESP_PLATFORM
 
 void setOpen(bool open)
 {

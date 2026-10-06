@@ -1,3 +1,13 @@
+// DEVICE ONLY. Everything below needs ESP-IDF -- Wi-Fi, NVS, OTA, FreeRTOS -- so on the desktop
+// SDL build it compiles to stubs instead. ESP_PLATFORM is defined by the IDF build and by nothing
+// else, which is what makes it the right guard.
+//
+// The desktop build exists so the face and the touch UI can be judged and iterated at full frame
+// rate with a mouse, with no flashing and nobody standing at the bench. A network stack is not
+// part of that, and "no link" is a state the face already renders honestly, so stubbing this out
+// costs the desktop build nothing it needs.
+#ifdef ESP_PLATFORM
+
 #include "net.h"
 
 #include <esp_event.h>
@@ -428,3 +438,15 @@ void netStart()
     // is bursty and event-driven, so this task exits once started and costs nothing steady-state.
     xTaskCreatePinnedToCore(task, "net", 4096, nullptr, 2, nullptr, 1);
 }
+
+#else   // !ESP_PLATFORM -- desktop SDL build
+
+// NO NETWORK ON THE DESKTOP. netStatus() reports what is true rather than something plausible,
+// and linkState() returns false, which is the same "no StamPLC has ever spoken to us" condition
+// the face already handles on a bench Tab5 -- so the desktop shows the real no-link face.
+void netStart() {}
+const char* netStatus() { return "wifi: desktop build (no network)"; }
+bool netReady() { return false; }
+bool linkState(const char**, unsigned*) { return false; }
+
+#endif  // ESP_PLATFORM
