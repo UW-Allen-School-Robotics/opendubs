@@ -13,6 +13,13 @@ that one file, so `cues.cpp` — added after the checklist was written — was n
 the same failure as `build.sh` syncing a hand-maintained list of three files out of nine: **a list
 of files, written once, goes stale silently.** Both now glob the directory.
 
+**Third time: every grep below is now `grep -r`, because `app_face/*.cpp` stopped meaning "every
+file" the moment `app_face/` gained subdirectories (`percept/`, `shared/`).** A flat glob against a
+tree with subdirectories is the same silent-staleness bug one level down, and it would have skipped
+the entire perception layer. `build.sh`'s sync and its drift check went recursive in the same
+change — and the sync now *deletes* its destination first, because a copy that never removes
+anything left `face_probe.cpp` compiling in the demo tree after it had been replaced.
+
 ---
 
 ## 1. Every LVGL call from the app task holds the lock
@@ -24,8 +31,8 @@ the symptom was a hang after a *variable* delay with the heap untouched — whic
 accumulation and is not.
 
 ```sh
-grep -c lvglLock   firmware/tab5_idf/app_face/*.cpp
-grep -c lvglUnlock firmware/tab5_idf/app_face/*.cpp   # must match
+grep -rc lvglLock   firmware/tab5_idf/app_face/
+grep -rc lvglUnlock firmware/tab5_idf/app_face/   # must match
 ```
 
 **THIS CHECK FAILED IN PRACTICE, 2026-10-05, and the failure was mine.** I ran the balance count,
@@ -42,8 +49,39 @@ awk '/^(void|bool|int|float|lv_obj_t\*).*\(/ {fn=$0; d=0}
      /lvglUnlock/ {d=0}
      /lv_[a-z_]*_(set|add|remove|create|del)/ && d==0 && !/^[[:space:]]*\/\// {
          print FILENAME":"NR"  UNLOCKED in "fn"\n    "$0 }' \
-  firmware/tab5_idf/app_face/*.cpp
+  $(find firmware/tab5_idf/app_face -name '*.cpp')
 ```
+
+### The structural check that makes the call-graph check small
+
+The call-graph check above is still the one that finds the bug — but as of the motion-saliency
+change there is far less for it to search, because **most of the code that used to be able to make
+an LVGL call now cannot name an LVGL symbol at all.** `app_face/percept/` is pure compute: it is
+handed a pixel buffer, it writes pixel buffers, it publishes POD structs through a seqlock. It
+includes neither `<lvgl.h>` nor `hal/hal.h` — and *both* halves of that matter, because `hal/hal.h`
+includes `<lvgl.h>` itself, so a module that reached for `GetHAL()->millis()` would have pulled LVGL
+in while passing a grep for `#include <lvgl.h>`. That is why `shared/clock.h` exists instead of one
+convenient include.
+
+```sh
+# Perception may not reach LVGL, directly or through the HAL. Expect NO output.
+# Anchored at the start of the line, so a COMMENT that quotes the include it is forbidding does
+# not read as a violation of it. (It did.)
+grep -rnE '^ *#include *[<"](lvgl\.h|hal/hal\.h)[>"]' firmware/tab5_idf/app_face/percept/ \
+                                                      firmware/tab5_idf/app_face/shared/
+# Nor may it name an LVGL symbol or take the lock. Expect NO output.
+grep -rnE '\blv_[a-z_]+\(|lvglLock|lvglUnlock' firmware/tab5_idf/app_face/percept/ \
+                                               firmware/tab5_idf/app_face/shared/
+# Every task is pinned. An UNPINNED priority-2 perception task preempting the priority-1
+# animation task on its own core is a failure this project has already had, and pinning -- not
+# the priority number -- is what prevents it. Expect NO output.
+grep -rn 'xTaskCreate(' firmware/tab5_idf/app_face/
+```
+
+Current call graph for the perception side, all covered: **nothing in `percept/` is on it.** The
+LVGL work that used to live in the detector task — a hidden camera canvas, a preview canvas, a
+reticle, and a lock acquisition per frame — is now `cameraStep()`, `buildPerceptDebug()` and the
+gaze block in `app_face.cpp`, all on the main task, each taking the lock around its own calls.
 
 It is crude — it tracks lock depth linearly and does not follow calls into helpers — so it
 **over**-reports (comments, and anything after an early `return` inside a locked block) and must be
@@ -57,10 +95,20 @@ caller holds the lock. Current call graph, all covered:
 
 | function | callers | locked |
 |---|---|---|
-| `buildScene`, `band::build`, `theme::buildAll`, `cobweb` | `onOpen` | yes |
+| `buildScene`, `band::build`, `theme::buildAll`, `cobweb`, `plainBox` | `onOpen` | yes |
 | `theme::apply`, `theme::hideAll` | theme-cycle block | yes |
 | `applyEmote`, `applyState` | `onOpen`, theme block, state block, emote block | yes |
 | `band::update`, the eye render loop | `onRunning` | yes |
+| `buildPerceptDebug` | `cameraStep` only, one call site | yes |
+| `reticleColourFor` | the gaze block only, one call site | yes |
+| `costGateBegin` | `onOpen`; desktop-only translation unit | yes |
+
+**Run, 2026-10-05, motion-saliency change: clean.** Lock balance 15/15 in `app_face.cpp` and zero
+in every other file; the call-graph pass reports only the ten builder/helper functions in the table
+above, each verified at its call sites; the structural greps for `<lvgl.h>`/`hal/hal.h`, for any
+`lv_*` symbol and for an unpinned `xTaskCreate(` under `percept/` and `shared/` all return nothing.
+The balance count is reported here only because the call-graph pass was also run — on its own it
+means nothing, as the note above it says at length.
 
 ## 2. No layer-inducing styles
 
@@ -70,7 +118,7 @@ allocating a buffer the size of its bounding box **per draw**. This killed the r
 call in the cobweb mirroring.
 
 ```sh
-grep -nE "transform_|blend_mode" firmware/tab5_idf/app_face/*.cpp   # expect none
+grep -rnE "transform_|blend_mode" firmware/tab5_idf/app_face/   # expect none
 ```
 
 Mirror by negating coordinates; angle with `lv_line`, never with rotation.
@@ -81,7 +129,7 @@ Radial and conical gradients are cached **per geometry**, so an object that anim
 a new gradient every frame. Disabled globally in `lv_conf.h`; the eye uses linear `VER`.
 
 ```sh
-grep -nE "LV_GRAD_DIR_(RADIAL|CONICAL)" firmware/tab5_idf/app_face/*.cpp   # expect none
+grep -rnE "LV_GRAD_DIR_(RADIAL|CONICAL)" firmware/tab5_idf/app_face/   # expect none
 # lv_conf.h governs the DESKTOP build only -- the device sets CONFIG_LV_CONF_SKIP=y and is
 # configured by Kconfig, so check BOTH or a flag will appear set when it is not compiled in.
 grep -n  "LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/lv_conf.h           # desktop
@@ -94,7 +142,7 @@ grep -n  "CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS" firmware/tab5_idf/sdkconfig.d
 of times — a CPU hang with the heap untouched. Use `fmodf`, and clamp any `dt` derived from a clock.
 
 ```sh
-grep -nE "while *\(" firmware/tab5_idf/app_face/*.cpp   # expect none outside comments
+grep -rnE "while *\(" firmware/tab5_idf/app_face/   # expect none outside comments
 ```
 
 ## 5. Deadline tests are wrap-safe
@@ -103,7 +151,7 @@ grep -nE "while *\(" firmware/tab5_idf/app_face/*.cpp   # expect none outside co
 which every timer either fires continuously or never again. Use the `due()` helper.
 
 ```sh
-grep -nE "now[A-Za-z]* *[<>]=? *g_" firmware/tab5_idf/app_face/*.cpp   # expect none
+grep -rnE "now[A-Za-z]* *[<>]=? *g_" firmware/tab5_idf/app_face/   # expect none
 ```
 
 ### Second run, 2026-10-05: two findings, both in the file the checklist did not search
@@ -132,7 +180,7 @@ per theme change, which is churn on a loop. The only remaining steady-state allo
 `lv_label_set_text`, once per emote change.
 
 ```sh
-grep -nE "lv_obj_create|lv_obj_del|lv_line_create" firmware/tab5_idf/app_face/*.cpp
+grep -rnE "lv_obj_create|lv_obj_del|lv_line_create|lv_canvas_create" firmware/tab5_idf/app_face/
 ```
 All hits must be inside `buildScene`/`band::build`/`cobweb`, i.e. startup only.
 

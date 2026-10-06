@@ -1,4 +1,5 @@
 #include "cues.h"
+#include "shared/due.h"
 #include <hal/hal.h>
 #include <mooncake_log.h>
 #include <vector>
@@ -55,11 +56,8 @@ std::vector<int16_t> g_pcm[(int)Cue::Count];
 uint32_t g_busyUntil = 0;
 uint8_t  g_busyPrio  = 0;
 
-// Wrap-safe deadline test -- AUDIT.md invariant 5. Duplicated from app_face.cpp rather than
-// shared, because the two files are deliberately independent; if a third copy ever appears,
-// promote it to a header. Subtracting first and THEN signing is what makes the wrap vanish:
-// the difference is small and correct across the 32-bit rollover, while `now < at` inverts.
-inline bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
+// due() is now shared/due.h -- the copy that used to live here said "if a third copy ever appears,
+// promote it to a header", a third had appeared in face_probe.cpp, and a fourth was about to.
 bool     g_faultOn   = false;
 uint32_t g_nextFault = 0;
 

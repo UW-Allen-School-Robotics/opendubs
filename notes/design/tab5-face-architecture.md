@@ -753,3 +753,201 @@ grep -rn  'lv_label_set_text('  firmware/tab5_idf/app_face/            # none: _
 | `platforms/tab5/main/hal/components/hal_audio.cpp` | remove the music test (`canon_in_d` reference) | §5.1 |
 | `platforms/tab5/main/hal/components/hal_camera.cpp` | **not modified** — `startCameraCapture` is simply not called | §2.3 |
 | `platforms/tab5/sdkconfig` (via `sdkconfig.defaults`) | table offset 0x10000, bootloader INFO, rollback, coredump-to-flash, lwIP affinity CPU1, log level per build type | §5, §7 |
+
+---
+
+## 11. Implemented: motion saliency as the primary attention cue (2026-10-05)
+
+**Branch `feat/tab5-motion-saliency`.** Written with **no access to the Tab5 or the robot**, so this
+section is explicit about which claims are measured, which are reasoned, and what someone at the
+bench should look at. Four builds compile; **nothing here has been flashed.**
+
+### 11.1 What was built
+
+| file | what it is | may touch LVGL |
+|---|---|---|
+| `app_face/percept/frame.cpp` | one strided pass over the 1280×720 RGB565 camera buffer → 320×180 luma, plus optional RGB565 preview and RGB888 detector input from the same pass | no |
+| `app_face/percept/motion.cpp` | frame differencing, 16×9 cell accumulation, smoothing, sub-cell centroid, the global-change gate | no |
+| `app_face/percept/selfmotion.cpp` | the IMU gate (BMI270 direct) and the hook for commanded head movement | no |
+| `app_face/percept/attention.cpp` | the arbiter: face > motion > none, confidence grading, retarget hysteresis, seqlock publication | no |
+| `app_face/percept/facedet.cpp` | esp-dl behind `OPENDUBS_FACEDET`; the compiled-in reference-image self-test; the internal-DRAM measurement §8.3 asks for | no |
+| `app_face/percept/percept.cpp` | the one perception task: priority 2, **pinned CPU1**, stack in PSRAM | no |
+| `app_face/percept/selftest.cpp` | synthetic-stimulus self-test, the same code on the device and on a laptop | no |
+| `app_face/shared/{due,clock,alloc,pub}.h` | wrap-safe deadlines, a clock that is not the HAL's, `bigAlloc` (explicit `MALLOC_CAP_SPIRAM`), the seqlock | no |
+| `app_face/app_face.cpp` | camera bring-up, the debug preview and reticle, gaze consumption — **every LVGL call in the change is here** | yes |
+
+`app_face/face_probe.{h,cpp}` is gone: its model self-test and its tracking became `facedet.cpp`
+and `percept.cpp`; its LVGL half became `cameraStep()` and the gaze block in the face app.
+
+### 11.2 The three structural rules, each now impossible to break rather than merely intended
+
+**1. Perception cannot reach LVGL.** `percept/` and `shared/` include neither `<lvgl.h>` nor
+`hal/hal.h`, and the second half is the part that was nearly missed: **`hal/hal.h` includes
+`<lvgl.h>` itself**, so a module reaching for `GetHAL()->millis()` would have pulled LVGL in while
+passing a grep for `#include <lvgl.h>`. That is why `shared/clock.h` exists for the clock, and why
+`selfmotion.cpp` talks to `accel_gyro_bmi270.h` directly rather than to the HAL's `updateImuData()`.
+The acquisition dependency is inverted for the same reason: the HAL hands over camera frames through
+`startCameraCapture(lv_obj_t*)`, so **the face app obtains the buffer pointer and hands it to
+perception**, which only ever reads through it. There is no LVGL symbol reachable from `percept/` to
+misuse. `AUDIT.md` gained the three greps that say so.
+
+One consequence is worth stating because it deletes a class of bug: percept's timestamps are **not
+comparable** with `GetHAL()->millis()`, so every staleness test on a published perception value
+happens *inside* percept against percept's own clock. The face app asks "is there a target" and gets
+yes or no. A clock mismatch cannot produce a wrong answer; it can only fail to compile.
+
+**2. Perception cannot outrank the animation.** The task is priority 2 **pinned to CPU1**. The
+pinning is the protection; the priority number is hygiene. It is also **one task replacing one
+task**, not an additional one — which matters, because `idf_component.yml` records that with esp-dl
+linked, creating one more FreeRTOS task has already asserted in `xPortCheckValidTCBMem` for want of
+internal DRAM. Its stack is in PSRAM via `xTaskCreatePinnedToCoreWithCaps`
+(`CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y` is already set, and IDF 5.5.5's
+`freertos_tasks_c_additions.h` was read to confirm the TCB still goes to internal memory
+regardless), so the change **frees about 5 KB of internal DRAM** rather than spending any.
+
+**3. Every instrument compiles out.** `build.sh` generates one header,
+`percept/percept_config.h`, from `OPENDUBS_FACEDET`, `OPENDUBS_DBG_PERCEPT` and
+`OPENDUBS_DBG_SERIAL`, all off by default. Each instrument's translation unit is wrapped in its own
+`#if` with no-op fallbacks (the `face_probe.cpp` pattern). **The perception task writes nothing to
+the console in any build** unless `OPENDUBS_DBG_SERIAL` is set: a USB-serial-JTAG write blocks the
+calling task when no host is draining the port, which makes console telemetry a suspect for the
+freeze it would be diagnosing. The panel status line is the channel, and it is double-buffered
+behind an atomic pointer so a reader holding it through `lv_label_set_text_static` never sees a
+half-rewritten string.
+
+### 11.3 Measured
+
+Real builds against a reconstructed tree (IDF **5.5.5**, M5Tab5-UserDemo at today's `main`, launcher
+subtracted, `canon_in_d.mp3` dropped by `build.sh`'s patch), via the new `./build.sh image`, which
+builds without needing a board attached:
+
+| build | bytes | delta |
+|---|---|---|
+| baseline — `feat/tab5-idf-subtractive` exported to its own tree, built first | 2,003,024 | — |
+| **release: all flags off** | **2,008,608** | **+5,584 (+0.28%)** |
+| `OPENDUBS_DBG_PERCEPT=1` | 2,013,536 | +4,928 over release |
+| `OPENDUBS_FACEDET=1 OPENDUBS_DBG_PERCEPT=1` | 3,219,200 | +1.21 MB — **but see the caveat below** |
+| desktop / SDL build | configures and compiles | — |
+
+**The first A/B of this was invalid and the correction is worth recording**, because it is the
+"change one variable at a time" rule catching itself. The first baseline and release numbers were
+taken either side of an `OPENDUBS_FACEDET=1` build — which rewrites `idf_component.yml`, so the
+component manager re-resolves the whole dependency set. That alone moved the baseline by about 7 KB
+(1,995,888 → 2,003,024) with not one line of our source changed. The table above is a single
+freshly-resolved tree with the two builds taken back to back and the manifests verified identical by
+diff. The esp-dl row is **not** comparable with the others for exactly that reason: turning the
+detector on changes the dependency set, so its figure carries that re-resolution too.
+
+Note the release figure: **motion saliency, the self-motion gate and the arbiter cost 5.6 KB of
+flash and no model.** The 1.2 MB buys only the thing that works inside 1.1 m.
+
+`./build.sh percept` compiles `frame/motion/attention/selfmotion/selftest` natively with
+`-Wall -Wextra -Werror` — no IDF, no demo tree, no board — and runs twelve assertions. All pass:
+
+```
+ok   static scene: no target over 10 frames
+ok   moving blob: 31/31 frames tracked (100%), worst |dnx| 0.140
+ok   sign convention: top-left blob -> -0.49,-0.51
+ok   global gate: 100% of the frame changed -> discarded
+ok   global gate: the following frame is clean too
+ok   suppression: 8 moving frames produced no target
+ok   suppression: the frame after it lifts is clean
+ok   motion alone: kind=motion conf=0.49
+ok   precedence: weak face (0.35) outranks saturated motion, conf=0.30
+ok   grading: strong+repeated conf=1.00 dwell=2400ms vs weak conf=0.30 dwell=1062ms
+ok   hysteresis: 0.02 drift holds seq, 0.48 move bumps it
+ok   degradation: an old fix ages out to 'none'
+```
+
+PSRAM, read off the code: previous luma 57,600 B + working luma 57,600 B always; preview 115,200 B
+only in a debug build; RGB888 detector input 172,800 B only once the model has loaded. 115 KB
+release, 403 KB with everything on, against ~10 MB free. Internal DRAM: net **negative**, because of
+the PSRAM stack.
+
+`AUDIT.md`'s invariant 1 was checked **by call graph**, not by count: lock balance 15/15 in
+`app_face.cpp` and zero in every other file, the call-graph pass reporting only the ten
+builder/helper functions tabulated there, with `buildPerceptDebug` and `reticleColourFor` each
+verified locked at their single call sites. The structural greps return nothing.
+
+### 11.4 Reasoned, not measured — the numbers a bench session should replace
+
+Every threshold is a judgement about what the cue can know, not a reading from a scene. They are
+grouped at the top of their own files so that tuning any of them is one edit in one place.
+
+| number | file | value | what would settle it |
+|---|---|---|---|
+| per-pixel luma delta | `motion.cpp` | 16/255 | point the camera at a still scene in dim light and read `chg%` off the status line: it should sit near 0. If it does not, the threshold is under this sensor's noise floor. |
+| cell floor | `motion.cpp` | 6% of 400 px | walk toward the robot from 6 m and note where `mot` first clears the floor. **That distance is the actual reach of this cue, and the whole "motion is primary" argument rests on it being well past 1.1 m.** |
+| global-change gate | `motion.cpp` | 30% of the frame | switch the room lights: expect `gate:glob` and no target. Then walk across the frame close up and confirm it does *not* trip. |
+| smoothing α | `motion.cpp` | 1/4 per frame at 15 Hz | whether a person crossing the room gives a steady target rather than a stutter. Visible on the preview with the reticle. |
+| gyro gate | `selfmotion.cpp` | 15 °/s, 300 ms settle | pick the panel up and shake it: `gate:self` must appear and nothing may be published. The `dps` readout says how much headroom the threshold has. |
+| confidence grading | `attention.cpp` | the constants block at the top | subjective, and the right judge is somebody watching the face: does a weak hit read as a glance and a confident one as a look? |
+| detector gating | `percept.cpp` | 2 Hz idle, 8 Hz when motion is hot and central | CPU1 load from the run-time stats, and whether the faster rate actually catches people sooner. |
+| perception period | `percept.cpp` | 66 ms (15 Hz) | frame-time jitter on the face with the LVGL perf monitor on, and whether 15 Hz tracks a walking person smoothly. |
+
+### 11.5 What is NOT verified, stated plainly
+
+- **Nothing has been flashed.** Four builds compile; none has run on hardware.
+- **The sign conventions are inherited, not re-established.** Motion and the detector normalise
+  identically over the same buffer with no extra flip, exactly as the live tracker settled by
+  watching a reticle (the PPA stage already applies `mirror_x`, so a second flip made two mirrors
+  that cancelled into backwards tracking). The host test proves `motion.cpp` does not invert the
+  convention it documents. It cannot prove the convention is right for this lens. **The reticle is
+  still the only instrument that can** — which is why it now colours amber for motion and cyan for
+  a confirmed face: "the detector finally works" and "motion happened to be on your face" are
+  otherwise the same picture, and this project has already drawn a confident conclusion from that
+  kind of ambiguity.
+- **The IMU read is unexercised.** `accel_gyro_bmi270_get_data()` is called directly; the vendor
+  initialises the BMI270 at boot (`HalEsp32::imu_init`) and configures ±1000 dps at 200 Hz — read
+  out of `accel_gyro_bmi270_enable_sensor()`, not assumed — and only the rate *magnitude* is used,
+  so no axis mapping or sign can be wrong. Whether it returns anything on a real board is untested.
+  Four consecutive all-zero reads disable the gate and the status line then says `gate:noimu` rather
+  than silently reporting a gate that is watching nothing.
+- **Cache coherency between the PPA's DMA writes and our cached reads is assumed, on evidence.**
+  Open question 5 in §10 is still open in the sense that `ppa_srm.c` was not read. The evidence for
+  the assumption is that LVGL already rasterises the vendor's canvas straight out of that same PSRAM
+  buffer and the factory preview works — if a stale view were possible there, it would be visible
+  there.
+- **`perceptNoteHeadCommand()` has no caller.** The pan/tilt servos (§1.5) do not exist yet. The
+  gate input is there so that when they do, a commanded move cannot be mistaken for the world
+  moving — the command is an earlier and better signal than the IMU, which is the backstop.
+- **Frame pairing is not synchronised to the camera.** We poll a buffer the vendor's cam task
+  overwrites, so a difference may straddle two captures or skip one. Both read as slightly more or
+  slightly less motion, never as a wrong location. Exact pairing needs the `cam` task of §2.3.
+- **Face detection has still never fired on a live frame.** Nothing here changes that: it is
+  demoted, gated and graded, and §8.3's criteria remain unmet because they remain unmeasured. The
+  internal-DRAM measurement they turn on is now taken, at all three points, and reported on the
+  panel.
+- **The README's reconstruction recipe says `-b v5.4.2`** while this note and this build are on
+  **5.5.5**. The recipe was followed with 5.5.5 substituted. It should be corrected before somebody
+  follows it literally.
+- **`fetch_repos.py` can silently fail to fetch a dependency.** `dependencies/lvgl` was absent after
+  a clean run and the script said nothing. The device build does not need it (that uses the
+  registry's managed component), but the desktop build will not configure without it. Check the
+  directory exists rather than trusting the script's output.
+
+### 11.6 The bench sequence, in order, each step with its own verdict
+
+Steps 1–3 report themselves; nobody has to watch them.
+
+1. **`./build.sh percept`** on any machine. Twelve assertions, seconds, no hardware. If this fails
+   the arithmetic is broken and nothing else is worth doing.
+2. **Flash a debug build** (`OPENDUBS_DBG_PERCEPT=1`). The panel's status line leads with
+   `st:PASS` — the same twelve assertions, run on the device against the same synthetic stimulus. An
+   `st:FAIL …` takes over the whole line, because perception that failed its own arithmetic is not
+   perception whose live numbers are worth reading.
+3. **Read the status line with nothing happening.** Expect `att none`, `mot 0.00`, `chg 0%`,
+   `gate:-`, and a `luma` triple with real range in it (e.g. `12/88/201`). All zeros, or
+   `luma 0/0/0`, means the camera is not delivering — a different problem from perception not
+   working, which is exactly what that triple is for.
+4. **Walk across the frame at 3–5 m.** The amber reticle should follow you and the eyes should turn
+   toward you. This is the claim the whole change rests on: attention beyond the detector's 1.1 m.
+   Write down the furthest distance at which it still tracks.
+5. **Walk in to under a metre, facing the panel,** with `OPENDUBS_FACEDET=1`. The reticle should turn
+   cyan and the look should become sustained. Record the hit rate against §8.3's 80%-at-1 m
+   criterion.
+6. **Switch the room lights.** `gate:glob`, no target, and no false target on the frame after.
+7. **Pick the panel up and shake it.** `gate:self`, no target, `dps` comfortably above 15.
+8. **Soak for 30 minutes** with the face animating and perception running. Internal heap flat on the
+   HUD, no watchdog panic, frame rate unchanged with the detector at 8 Hz. That covers invariant 1
+   and §8.3's lock-pressure criterion in one test.

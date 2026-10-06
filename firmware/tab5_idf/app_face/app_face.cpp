@@ -1,8 +1,11 @@
 #include "app_face.h"
 #include "cost_gate.h"
 #include "cues.h"
-#include "face_probe.h"
 #include "net.h"
+#include "walkin.h"
+#include "percept/percept.h"
+#include "percept/percept_config.h"
+#include "shared/due.h"
 #include <cstring>
 #include <hal/hal.h>
 #include <mooncake.h>
@@ -102,7 +105,7 @@ struct Eye {
 };
 Eye g_eye[2];
 lv_obj_t* g_label = nullptr;
-// The probe gets its OWN label. It first shared g_label with the state/heap HUD and lost: that
+// Perception gets its OWN label. It first shared g_label with the state/heap HUD and lost: that
 // HUD is rewritten on every state and emote change, so the status was clobbered within a frame --
 // and the change-guard compared against WHAT THIS CODE LAST WROTE rather than what is on the
 // label, so once clobbered it was never rewritten. Two writers, one widget, guaranteed to fail.
@@ -144,14 +147,36 @@ int      g_quoteShown = -1;
 // Gaze is EASED, not sprung: a saccade is ballistic and must not overshoot or wobble.
 AnimateValue g_gazeX(0.0f), g_gazeY(0.0f);
 
-// The reticle: a hollow box showing WHERE THE FIRMWARE THINKS THE FACE IS. It exists because
+// The reticle: a hollow box showing WHERE THE FIRMWARE THINKS THE TARGET IS. It exists because
 // "the eyes follow me" is not actually falsifiable by looking at it -- the eyes are always moving,
 // so a wrong mapping reads as ordinary wandering. The reticle makes the mapping visible: if it
 // sits on you and moves with you, tracking is right; if it moves the wrong way, the sign is wrong
 // and that is a one-line fix rather than an investigation.
-lv_obj_t* g_reticle     = nullptr;
-uint32_t  g_lastTrackSeq = 0;
-bool      g_tracking     = false;
+//
+// It is now also the only way to tell the two cues apart by eye: AMBER for motion, CYAN for a
+// confirmed face. Without that, "the detector finally works" and "motion happened to be on your
+// face" look identical, and this project has already drawn a confident conclusion from exactly
+// that kind of ambiguity.
+lv_obj_t* g_reticle = nullptr;
+uint32_t g_lastGazeSeq = 0;
+bool g_tracking = false;
+uint8_t g_reticleKind = 0xff;   // last kind written, so the colour is change-guarded
+
+// ---- attention -> gaze ----------------------------------------------------------------------
+// HOW FAR THE EYES COMMIT IS THE ARBITER'S CONFIDENCE, scaled from this floor to full travel. A
+// low-confidence target therefore gets a GLANCE in its direction rather than a fixation, and a
+// confident one gets the full turn -- which is the behaviour "a weak hit is a brief low-amplitude
+// glance; a strong, repeated hit earns a sustained look" asks for, with the dwell half of it
+// handled by the target's own expiry (percept/attention.cpp).
+//
+// The floor is not zero: a target worth publishing is worth looking at a little, and an amplitude
+// that collapses to nothing would make a weak hit indistinguishable from no hit at all.
+constexpr float kGazeAmpFloor = 0.35f;
+
+// The face's own vertical range is narrower than its horizontal one (newSaccade uses amp * 0.55),
+// because eyes move less vertically than horizontally. A perception target has to be compressed
+// the same way or a target near the top of the frame drives the pupil into the eyelid.
+constexpr float kGazeVerticalScale = 0.55f;
 // Shape is SPRUNG: an emote change should settle like something with mass.
 AnimateValue g_bodyW((float)kBodyW), g_bodyH((float)kBodyH),
              g_radius((float)kBodyW * kRadiusFrac);
@@ -235,6 +260,9 @@ uint32_t g_nextState = 0;
 uint32_t g_nextSaccade = 0, g_nextEmote = 0, g_nextBlink = 0;
 bool g_blinking = false;
 uint32_t g_blinkEnd = 0;
+// Wall-clock at onOpen, so "3 s after the face came up" is expressible without comparing the HAL's
+// clock against anything else.
+uint32_t g_openMs = 0;
 
 
 // ---- the perimeter band ---------------------------------------------------------------------
@@ -368,7 +396,9 @@ void validatePalettes()
     }
 }
 
-void resetPointPools();
+// (A forward declaration of a resetPointPools() that was never defined used to sit here. The
+// compiler had been saying so -- "declared 'static' but never defined" -- for as long as it has
+// existed. Removed rather than left as noise next to the warnings that matter.)
 
 // BUILT ONCE, THEN SHOWN OR HIDDEN. The first version created and deleted these objects on every
 // theme change, which is allocation churn on a loop -- the same run-then-freeze signature as the
@@ -645,10 +675,8 @@ void update(uint32_t now, uint32_t colour)
 
 } // namespace band
 
-// WRAP-SAFE DEADLINE TEST. `now > deadline` inverts when the 32-bit millisecond counter wraps at
-// ~49 days of uptime, which a robot head reaches easily -- and then every timer in the face either
-// fires continuously or never again. Signed difference is correct across the wrap.
-inline bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
+// due() now lives in shared/due.h. It was defined identically in three files, and the third copy
+// carried a note saying a fourth should become a header; the fourth was about to be written.
 
 lv_obj_t* plainBox(lv_obj_t* parent, lv_color_t colour, int radius)
 {
@@ -735,7 +763,7 @@ void buildScene()
     g_probeLabel = lv_label_create(scr);
     lv_obj_set_style_text_color(g_probeLabel, lv_color_hex(0xffd24a), LV_PART_MAIN);
     lv_obj_align(g_probeLabel, LV_ALIGN_TOP_MID, 0, 56);
-    lv_label_set_text_static(g_probeLabel, faceProbeStatus());
+    lv_label_set_text_static(g_probeLabel, perceptStatus());
 
     // Built once, hidden, never reallocated -- steady-state allocation is AUDIT.md invariant 6.
     g_reticle = lv_obj_create(scr);
@@ -750,6 +778,121 @@ void buildScene()
     lv_obj_move_foreground(g_reticle);
 }
 
+// ---- camera bring-up, and why it lives in the FACE app --------------------------------------
+//
+// THE FACE APP OWNS EVERY LVGL CALL, INCLUDING THE ONES PERCEPTION WOULD OTHERWISE NEED. The
+// vendor HAL hands over camera frames by pointing an lv_canvas at its PPA output, so acquiring a
+// frame buffer means creating an LVGL object and reading from it -- which the perception layer is
+// not allowed to do, and which is the structural reason percept/ is handed a pointer rather than
+// fetching one (percept/percept.h).
+//
+// So this runs HERE, on the main task, in short non-blocking steps. The old arrangement did it
+// inside the detector task: that task created a hidden canvas, a visible preview canvas and a
+// reticle, took the LVGL lock to invalidate them every frame, and was a best-effort worker holding
+// the one lock the renderer needs. Four unlocked LVGL calls in this file froze the face earlier
+// today and a lock/unlock balance count reported it clean; the fix is not more careful locking, it
+// is having nothing outside the UI that could take the lock at all.
+//
+// Nothing below blocks. A step that is not ready returns and is retried on the next tick, so a
+// camera that never starts costs the animation nothing and says so on the panel.
+constexpr int kCamW = 1280, kCamH = 720;     // read from hal_camera.cpp, not assumed
+constexpr uint32_t kCamStartDelayMs = 3000;  // let the scene and the startup animation finish
+constexpr uint32_t kCamPollMs = 250;
+constexpr int kCamPollGiveUp = 120;          // 30 s before we call it dead
+
+enum CamPhase { CAM_IDLE = 0, CAM_WAITING, CAM_UP, CAM_FAILED };
+CamPhase g_camPhase = CAM_IDLE;
+lv_obj_t* g_camCanvas = nullptr;
+uint32_t g_camNext = 0;
+int g_camPolls = 0;
+char g_camStatus[48] = "camera: not started";
+
+#if defined(OPENDUBS_DBG_PERCEPT)
+// THE DEBUG PREVIEW, sized so it cannot starve the UI. A canvas pointed straight at percept's own
+// 320x180 RGB565 buffer: no copy, no LVGL scaling, so no layer allocation (AUDIT.md invariant 2).
+// It is invalidated from the main task at 10 Hz at most -- 57,600 px per invalidation, bounded
+// regardless of camera frame rate. The 20 Hz full-rate version of this is what parked the main
+// task in eBlocked.
+lv_obj_t* g_preview = nullptr;
+uint32_t g_nextPreview = 0;
+uint32_t g_lastPreviewSeq = 0;
+constexpr uint32_t kPreviewMs = 100;
+
+void buildPerceptDebug()
+{
+    const uint16_t* buf = perceptPreview();
+    if (!buf || g_preview) return;
+    g_preview = lv_canvas_create(lv_screen_active());
+    lv_canvas_set_buffer(g_preview, (void*)buf, perceptPreviewW(), perceptPreviewH(),
+                         LV_COLOR_FORMAT_RGB565);
+    lv_obj_align(g_preview, LV_ALIGN_BOTTOM_LEFT, 8, -8);
+    lv_obj_move_foreground(g_preview);
+}
+#else
+inline void buildPerceptDebug() {}
+#endif
+
+// Called from onRunning with NO lock held; takes it only around the LVGL calls.
+void cameraStep(uint32_t now, uint32_t sinceOpen)
+{
+    if (g_camPhase == CAM_UP || g_camPhase == CAM_FAILED) return;
+
+    if (g_camPhase == CAM_IDLE) {
+        if (sinceOpen < kCamStartDelayMs) return;
+        GetHAL()->lvglLock();
+        // 1280x720 and HIDDEN: we want the HAL's buffer pointer, not its picture. Showing it would
+        // cover the face, and LVGL never rasterises a hidden object, so it costs nothing per frame.
+        g_camCanvas = lv_canvas_create(lv_screen_active());
+        lv_obj_add_flag(g_camCanvas, LV_OBJ_FLAG_HIDDEN);
+        GetHAL()->lvglUnlock();
+        // Outside the lock: startCameraCapture only stores the canvas pointer and spawns the
+        // vendor's own cam task (priority 5, pinned CPU1 -- read from hal_camera.cpp).
+        GetHAL()->startCameraCapture(g_camCanvas);
+        strncpy(g_camStatus, "camera: waiting for first frame", sizeof(g_camStatus) - 1);
+        g_camPhase = CAM_WAITING;
+        g_camNext = now + kCamPollMs;
+        return;
+    }
+
+    if (!due(now, g_camNext)) return;
+    g_camNext = now + kCamPollMs;
+
+    // The HAL calls lv_canvas_set_buffer with the SAME pointer every frame, so one read is enough
+    // and the perception loop then needs no lock at all to read pixels.
+    GetHAL()->lvglLock();
+    const uint16_t* src = (const uint16_t*)lv_canvas_get_buf(g_camCanvas);
+    GetHAL()->lvglUnlock();
+
+    if (!src) {
+        if (++g_camPolls > kCamPollGiveUp) {
+            // NOT "the camera is broken". This says what was observed: capture never produced a
+            // buffer. A verdict the firmware cannot distinguish must not be stated as fact.
+            strncpy(g_camStatus, "camera: NO BUFFER after 30s", sizeof(g_camStatus) - 1);
+            g_camPhase = CAM_FAILED;
+        }
+        return;
+    }
+
+    if (perceptStart(src, kCamW, kCamH)) {
+        GetHAL()->lvglLock();
+        buildPerceptDebug();
+        GetHAL()->lvglUnlock();
+        g_camStatus[0] = 0;              // percept owns the status line from here
+        g_camPhase = CAM_UP;
+    } else {
+        strncpy(g_camStatus, "percept: start failed", sizeof(g_camStatus) - 1);
+        g_camPhase = CAM_FAILED;
+    }
+}
+
+// Called with the LVGL lock HELD.
+void reticleColourFor(uint8_t kind)
+{
+    if (kind == g_reticleKind) return;   // change-guarded: a style write invalidates
+    g_reticleKind = kind;
+    lv_obj_set_style_border_color(g_reticle,
+                                  lv_color_hex(kind == GAZE_FACE ? 0x00e5ff : 0xffb020), 0);
+}
 
 void applyEmote(int idx);
 
@@ -848,13 +991,18 @@ void AppFace::onOpen()
     // unseeded rand() made every robot's idle behaviour the same sequence.
     srand((unsigned)GetHAL()->millis());
 
+    g_openMs = (uint32_t)GetHAL()->millis();
+
     GetHAL()->lvglLock();
     buildScene();
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
-    faceProbeStart();         // no-op unless built with OPENDUBS_PROBE_FACEDET=1
-    netStart();               // Wi-Fi station: stage 1 of the OTA chain
+    netStart();               // Wi-Fi station + UDP command port + OTA. Independent of perception.
+    walkinBuild();            // no-op unless OPENDUBS_WALKIN=1
     GetHAL()->lvglUnlock();
+    // Perception is NOT started here. It needs a camera frame buffer, which does not exist until
+    // the vendor cam task has produced one, so cameraStep() brings it up from onRunning in
+    // non-blocking steps. Nothing about the face waits for it.
 
     for (AnimateValue* v : {&g_gazeX, &g_gazeY, &g_bodyW, &g_bodyH, &g_radius, &g_lidDrop,
                             &g_asym, &g_browRaise, &g_browAngle, &g_colR, &g_colG, &g_colB})
@@ -872,6 +1020,7 @@ void AppFace::onOpen()
 void AppFace::onRunning()
 {
     const uint32_t now = GetHAL()->millis();
+
 
     // TELEMETRY IS OFF BY DEFAULT, and that is a correctness matter rather than tidiness.
     // The ESP-IDF console goes out over USB-serial-JTAG, and when no host is draining the port a
@@ -921,7 +1070,22 @@ void AppFace::onRunning()
 
     cueTick(now);
 
-    // PROBE STATUS, on its own label. Repainted on a TIMER rather than on change: the
+    // Camera and perception bring-up, in non-blocking steps on this task. See cameraStep().
+    cameraStep(now, now - g_openMs);
+
+    // WALK-IN TEST MODE takes the rest of the frame. It must come AFTER cameraStep(), not before:
+    // perception is brought up FROM THIS LOOP in non-blocking steps, so returning early above it
+    // means the camera never starts, perceptGaze() never has anything to report, and the panel
+    // sits on NOTHING forever -- with the face hidden, which is a screen that cannot change by
+    // construction rather than a crash. That is exactly what the first flash of this did.
+    {
+        GetHAL()->lvglLock();
+        const bool took = walkinTick(now);
+        GetHAL()->lvglUnlock();
+        if (took) return;
+    }
+
+    // PERCEPTION STATUS, on its own label. Repainted on a TIMER rather than on change: the
     // change-guard version sat on one stale string while the probe was demonstrably running, and
     // rather than theorise about why, this removes the guard from the critical path entirely. 4 Hz
     // costs one label's area a quarter of a second -- cheap, and it cannot get stuck.
@@ -937,48 +1101,74 @@ void AppFace::onRunning()
             // every allocation under 16 KB lands in INTERNAL DRAM, so a 4 Hz lv_label_set_text
             // was churning the scarcest resource on the chip for a debug string. The source is a
             // static buffer that outlives the label, which is exactly what _static requires.
-            // The probe task writes it while LVGL may be reading: worst case is a torn line of
-            // debug text, and it is always NUL-terminated.
-            lv_label_set_text_static(g_probeLabel, faceProbeStatus());
+            // percept double-buffers its status and swaps an atomic pointer, so the string a
+            // reader holds is never the one being rewritten.
+            lv_label_set_text_static(g_probeLabel, g_camStatus[0] ? g_camStatus : perceptStatus());
             GetHAL()->lvglUnlock();
         }
     }
 
-    // GAZE: a tracked face wins over autonomous wandering.
+#if defined(OPENDUBS_DBG_PERCEPT)
+    // Preview repaint, rate-limited HERE rather than driven by the camera: 10 Hz of a 320x180
+    // canvas is 0.58 Mpx/s and bounded whatever the camera does. Only repaint when percept has
+    // actually produced a new frame, so a stalled pipeline costs nothing.
+    if (g_preview && due(now, g_nextPreview)) {
+        g_nextPreview = now + kPreviewMs;
+        const uint32_t seq = perceptFrameSeq();
+        if (seq != g_lastPreviewSeq) {
+            g_lastPreviewSeq = seq;
+            GetHAL()->lvglLock();
+            lv_obj_invalidate(g_preview);
+            GetHAL()->lvglUnlock();
+        }
+    }
+#endif
+
+    // GAZE: face (close, confident) > motion (any range) > autonomous saccades.
+    //
+    // The precedence and the grading are decided in percept/attention.cpp; what is decided HERE is
+    // the only thing the face owns -- how much of its gaze range a target of a given confidence
+    // earns. Everything below is one read of a seqlock and some arithmetic: no blocking, no lock
+    // the perception task could be holding, and nothing that waits on an inference.
     //
     // EVERY LVGL CALL BELOW IS EXPLICITLY LOCKED. An earlier version of this comment claimed
     // onRunning "already holds the LVGL lock" and so these did not need one. That was false --
     // onRunning acquires it in short bursts per block -- and the result was four unlocked LVGL
-    // calls, which froze the face. It is the same bug as the unlocked lv_label_set_text in
-    // applyEmote, and I found it the same way Emma suggested: by diffing against the last build
-    // that animated, instead of theorising about schedulers.
-    float    tnx = 0.0f, tny = 0.0f;
-    uint32_t tseq = 0;
-    if (faceTrackGet(&tnx, &tny, &tseq)) {
-        if (tseq != g_lastTrackSeq) {
-            g_lastTrackSeq = tseq;
+    // calls, which froze the face.
+    GazeIntent gi = {};
+    if (perceptGaze(&gi)) {
+        if (gi.seq != g_lastGazeSeq) {
+            g_lastGazeSeq = gi.seq;
 
-            // Same main-sequence timing as a spontaneous saccade, so a tracked glance does not
+            // AMPLITUDE SCALES WITH CONFIDENCE. A confident face gets the full turn; a weak hit
+            // gets a glance in its direction. The target's own expiry handles the other half --
+            // how long the eyes stay there -- so one graded number produces both behaviours.
+            const float amp = kGazeAmpFloor + (1.0f - kGazeAmpFloor) * gi.confidence;
+            const float tx = gi.nx * amp;
+            const float ty = gi.ny * amp * kGazeVerticalScale;
+
+            // Same main-sequence timing as a spontaneous saccade, so an attentive glance does not
             // move in a visibly different way from a natural one.
-            const float dur = saccadeSeconds(tnx - (float)g_gazeX, tny - (float)g_gazeY);
+            const float dur = saccadeSeconds(tx - (float)g_gazeX, ty - (float)g_gazeY);
             g_gazeX.easingOptions().duration = dur;
             g_gazeY.easingOptions().duration = dur;
-            g_gazeX = tnx;
-            g_gazeY = tny;
-            g_asym  = -tnx * 0.13f;
+            g_gazeX = tx;
+            g_gazeY = ty;
+            g_asym = -tx * 0.13f;
 
-            // Hold off the random saccade while a face is present. Without this the two fight and
+            // Hold off the random saccade while a target is live. Without this the two fight and
             // the result looks like a malfunction rather than attention.
             g_nextSaccade = now + 1200;
 
-            // Reticle follows, in SCREEN space: invert the same normalization the tracker applied.
-            // Straight inverse of the tracker's normalization, across the whole 1280x720 panel.
-            // ty carries the 0.55 vertical compression, so undo that first or the reticle sits in
-            // a band through the middle while the face is at the top of the frame.
-            const int rx = (int)((tnx * 0.5f + 0.5f) * (float)kScreenW);
-            const int ry = (int)((tny / 0.55f * 0.5f + 0.5f) * (float)kScreenH);
+            // Reticle in SCREEN space: the straight inverse of percept's normalisation across the
+            // whole panel. It shows the RAW target, not the amplitude-scaled gaze, because its job
+            // is to make the mapping falsifiable -- scaling it would hide a sign error behind the
+            // same compression that makes a weak glance look like wandering.
+            const int rx = (int)((gi.nx * 0.5f + 0.5f) * (float)kScreenW);
+            const int ry = (int)((gi.ny * 0.5f + 0.5f) * (float)kScreenH);
             GetHAL()->lvglLock();
             lv_obj_set_pos(g_reticle, rx - 60, ry - 60);
+            reticleColourFor(gi.kind);
             GetHAL()->lvglUnlock();
         }
         if (!g_tracking) {
@@ -994,6 +1184,8 @@ void AppFace::onRunning()
             lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
             GetHAL()->lvglUnlock();
         }
+        // DEGRADES INTO THE AUTONOMOUS SACCADE. Not a fallback: this is the resting behaviour, and
+        // a face whose eyes stop moving when nothing is detected reads as broken, not as calm.
         if (due(now, g_nextSaccade)) newSaccade(now);
     }
     // Bench only: alternate plain and themed so the difference is visible and the reserved
