@@ -134,6 +134,22 @@ with no-op fallbacks, so "off" means absent from the image rather than merely qu
 
 `OPENDUBS_PROBE_FACEDET` is still accepted as the old name for `OPENDUBS_FACEDET`.
 
+### Build flags
+
+Each is an environment variable read by `build.sh`, which turns it into a **generated header**
+in the demo tree rather than a `-D`. The reason is in `build.sh`: `idf.py -D` sets a CMake
+variable, not a compile definition, and bridging it would mean editing the vendor's
+`CMakeLists.txt`, a file we neither own nor sync.
+
+| variable | default | what it does |
+|---|---|---|
+| `OPENDUBS_TOUCH_UI` | **1** | The technician screen, the fault screen and the grade machinery (`ui_touch.cpp`, `ui_controls.cpp`, `ui_grade.cpp`). `0` compiles them out: every function has an `#else` no-op body, so `app_face.cpp` compiles unchanged and the linker drops the lot. Defaults ON because it is product, not instrument. |
+| `OPENDUBS_TOUCH_DEBUG` | 0 | Adds a magenta crosshair at the live touch point. This is the instrument that settles whether the 90-degree display rotation's handedness matches the digitiser — see `TOUCH_UI.md`. |
+| `OPENDUBS_PROBE_FACEDET` | 0 | The face-detection self-test, and the only flag that pulls in esp-dl. |
+
+Both `0` and `1` of `OPENDUBS_TOUCH_UI` are built and linked clean on the desktop target; the
+device target has not been built (no ESP-IDF on the machine that wrote this).
+
 ## Measured
 
 On IDF 5.4.2, before `canon_in_d.mp3` was dropped:

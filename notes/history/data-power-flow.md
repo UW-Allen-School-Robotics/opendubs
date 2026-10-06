@@ -1,4 +1,4 @@
-> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../system-overview.md).
+> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../../docs/system-overview.md).
 
 # Schematics & Diagrams
 
@@ -20,7 +20,7 @@ Main schematic regions:
   table, I²C level-shifter (5 V↔3.3 V), RC (RadioLink).
 
 Prose companions: [power-architecture.md](power-architecture.md),
-[control-architecture.md](control-architecture.md), [control-authority.md](control-authority.md).
+[control-architecture.md](control-architecture.md), [control-authority.md](../../docs/control-authority.md).
 
 ## Reading the Figma board programmatically
 
@@ -31,7 +31,7 @@ node tree.
 
 ## Generated diagrams (in-repo)
 
-State-machine diagrams are generated from [state-machines.md](state-machines.md):
+State-machine diagrams are generated from [state-machines.md](../../docs/state-machines.md):
 - `docs/diagrams/state_machine_robot.mmd`
 - `docs/diagrams/state_machine_subsystem_pattern.mmd`
 

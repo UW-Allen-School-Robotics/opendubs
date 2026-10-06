@@ -6,7 +6,9 @@ themes, the emote vocabulary, the state→colour table, the band's motion vocabu
 importantly, the **boundary of what may be authored**. It does not build an editor or a transport;
 those belong to the choreography work.
 
-Companion notes: [`face-design.md`](face-design.md) for what the parameters mean,
+Companion notes: [`face-config-data-model.md`](face-config-data-model.md) for the schema, the
+on-flash format and the failure table this note's policy is implemented by,
+[`face-design.md`](face-design.md) for what the parameters mean,
 [`tab5-platform.md`](tab5-platform.md) for what they cost,
 [`../../docs/control-authority.md`](../../docs/control-authority.md) for the authority model this
 must not undermine.
@@ -59,7 +61,7 @@ them. A configuration format that accepts any number invites a theme that freeze
 |---|---|---|
 | eye body size | ≤ panel minus band and margins | a resize dirties old area plus new; the body already spends most of the frame budget |
 | accessory count | a hard cap | each one is an object, and objects over an animating region are recomposited every frame |
-| band segment count | fixed, not authorable | 120 segments froze the device; 48 ran |
+| band geometry | not authorable, and there is no segment count | The band is **four edge strips**, one per edge, each a fixed linear gradient whose only per-frame write is its opacity. The 48-segment version froze the device because breathing is uniform — all 48 changed opacity every frame. The authorable band parameters are per-activity period, depth and phase. |
 | animation durations | a floor | a very short duration means more frames of change, which means more invalidations |
 | anything sprung | spring, not for colour | an overshoot in RGB lands on a different hue, which is how a state change flashed through other states |
 
@@ -121,9 +123,17 @@ desktop build, alongside design iteration and the sanitizers.
 The non-obvious part: **dirty area per frame is a geometric property, not a CPU property.** The
 desktop has far more CPU than the Tab5 and therefore cannot tell you whether something *runs* there
 — but it can count the pixels a configuration would invalidate per frame, and that number is the
-same on both. So the sim can measure an authored configuration's cost and compare it against the
-**device's measured ~16 Mpx/s budget**, catching a theme that would freeze the robot without ever
-putting it on the robot.
+same on both. So the sim can measure an authored configuration's cost **against the cost of the set
+that is already shipping**, catching a theme that would freeze the robot without ever putting it on
+the robot.
+
+**The comparison is the verdict; there is no absolute ceiling to compare against.** The ~16 Mpx/s
+figure the gate was first anchored to came from a bench rasterising fourteen `drawEllipse` calls
+per frame — a primitive-rasterisation workload applied as a fill-and-blit ceiling — and the device
+ran happily while the gate claimed 532% over. `LV_USE_PERF_MONITOR` is on so the device reports its
+own FPS and CPU, and re-anchoring the gate to that is what would make an absolute verdict
+meaningful. Until then: "this set invalidates 2.3× what the shipping set does" is useful and
+honest, and a percentage over budget is not.
 
 That is worth building because the alternative is what this session did: flash, watch, freeze,
 guess. A configuration gate that reports "this would need 1.4 screens per frame" is the thing that

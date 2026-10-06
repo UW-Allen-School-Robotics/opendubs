@@ -1,10 +1,10 @@
-> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../system-overview.md).
+> ⚠️ **ARCHIVED / SUPERSEDED (2026-08).** Kept for decision history — this does NOT describe the current robot. RC is now StampPLC-SBUS (Pixhawk/MAVLink eliminated); power is a 52V LiFePO4 + JBD BMS + three-rail split (no DeWalt/shore). See [history/README.md](README.md) and [../system-overview.md](../../docs/system-overview.md).
 
 # Hardening Roadmap
 
 Prioritized tracks for making the existing OpenDubs stack robust enough for an
 assembled, operating robot. This is about hardening *what exists* — new
-capabilities live in [capability-backlog.md](capability-backlog.md).
+capabilities live in [capability-backlog.md](../capability-backlog.md).
 
 Status legend: ☐ todo · ◐ in progress · ☑ done
 
@@ -15,7 +15,7 @@ Last updated: 2026-06-10
 ## 1. Safety wiring & logic  ☐
 
 The e-stop indication exists in software, but the safety *function* must be in
-hardware (see [control-authority.md](control-authority.md)).
+hardware (see [control-authority.md](../../docs/control-authority.md)).
 
 - **NC, dual-pole e-stops in series.** Normally-closed so a press *or* a broken
   wire opens the loop (fail-safe). Multiple buttons in series → any one trips.
@@ -29,7 +29,7 @@ hardware (see [control-authority.md](control-authority.md)).
   reads tripped on total power loss; noise-immune over long runs. Tie DI COM to
   bus ground (high-level input config).
   - ⚠ Gated by the unresolved ideal-diode/shore-power design — see
-    [capability-backlog.md](capability-backlog.md) open questions.
+    [capability-backlog.md](../capability-backlog.md) open questions.
 - **Code changes (do at wiring time):**
   - `status.py ESTOP_BTN_ACTIVE_HIGH = False` (NC: pressed = LOW). Currently
     `True` for bench injection.
@@ -70,7 +70,7 @@ The durable architecture; dissolves several problems above at once.
 - **One driver node per port** (mavros / micro-ROS / serial bridge) publishes
   topics → kills the port-exclusivity problem.
 - **Robot supervisor = a managed ROS node** (the FSM from
-  [state-machines.md](state-machines.md)) subscribing to RC/safety/subsystem
+  [state-machines.md](../../docs/state-machines.md)) subscribing to RC/safety/subsystem
   topics, publishing `/robot_state` at a fixed rate with reliable QoS. Moves the
   state logic out of the dashboard backend so autonomy can consume it too.
 - **Dashboard becomes a thin subscriber** via `rosbridge_suite` (websocket → the
@@ -100,7 +100,7 @@ autonomy-stack concern, addressed when perception/ROS stands up:
 - **Reproducible provisioning — DONE (2026-06-09).** Full host setup is now
   captured: `deploy-all.sh` → `provision-all.sh` chains kiosk + ROS + firmware
   provisioners; a fresh Thor is rebuildable from the repo. See
-  [portability-audit.md](portability-audit.md) for the inventory + runbook.
+  [portability-audit.md](../../docs/portability-audit.md) for the inventory + runbook.
 - **`rsync -a` strips the execute bit** if local scripts aren't +x → autostart
   silently fails on next boot (cost us a debugging session 2026-06-08). Fixed by
   keeping `deploy/*.sh` +x in-repo; consider `rsync --chmod=ug=rwx,Fa+r` or a
@@ -194,4 +194,4 @@ GPS) — RTC→Thor one-way, never in the streaming path.
 > matters because the StampLC **does** carry a fusion input: the **Pinpoint
 > deadwheel odometry** transits its I²C. That pose needs stamp-at-source (a faster
 > StampLC→Thor link or micro-ROS), not the ASCII-serial poll path — see
-> [localization-fusion.md](localization-fusion.md).
+> [localization-fusion.md](../../docs/localization-fusion.md).

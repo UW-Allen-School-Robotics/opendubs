@@ -134,6 +134,13 @@ Harvest instead, in this order:
 2. **SD black-box log** — fault/RC-dropout history that does not depend on the Thor, the network, or
    a host draining a serial port.
 3. **Read `trigger_relay`** before designing choreography configuration. No porting; just read it.
+
+Designs for 1 and 2 are in [`stamplc-rtc-and-blackbox.md`](stamplc-rtc-and-blackbox.md), which
+qualifies "touches no existing control path" in one place: the loop measures its own period and
+disables drive past 250 ms, so a blocking write anywhere in this firmware is a change to the
+control path, and the SD card shares its SPI bus with the Ethernet transport. `trigger_relay` was
+read; what it is a good reference for and the four specifics not to copy from it are in
+[`face-config-data-model.md`](face-config-data-model.md) §1.
 4. **Buttons** — one line plus un-stubbing, *but* it changes e-stop behaviour, so it needs a
    deliberate decision and a bench test. Not a drive-by.
 

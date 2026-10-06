@@ -21,6 +21,7 @@
 #include "net_credentials.h"
 #include "rollback_test.h"
 #include "shared/clock.h"
+#include "ui_hmi.h"
 
 namespace {
 
@@ -363,9 +364,8 @@ void cmdTask(void*)
                     default:                         sn = "UNDEFINED";      break;
                 }
             }
-            const int m = snprintf(tx, sizeof(tx), "PONG %s %s %s slot=%s state=%s",
-                                   d ? d->project_name : "?", d ? d->version : "?",
-                                   d ? d->date : "?", run ? run->label : "?", sn);
+            const int m = snprintf(tx, sizeof(tx), "PONG slot=%s state=%s | %s",
+                                   run ? run->label : "?", sn, hmiDiag());
             sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "REBOOT") == 0) {
             const char* tx = "OK reboot";
@@ -394,6 +394,7 @@ void cmdTask(void*)
 }  // namespace
 
 const char* netStatus() { return g_status; }
+
 
 bool linkState(const char** nameOut, unsigned* ageMsOut)
 {

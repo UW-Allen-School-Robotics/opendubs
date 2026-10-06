@@ -1,4 +1,5 @@
 #include "cues.h"
+#include "ui_settings.h"
 #include "shared/due.h"
 #include <hal/hal.h>
 #include <mooncake_log.h>
@@ -18,7 +19,12 @@ namespace {
 // from a warmer place rather than from the thing that was rejected. Untested by ear, and marked
 // as such: it is a better guess, not a verified fix.
 // ============================================================================================
-constexpr bool kCuesEnabled = false;
+// RETIRED: this was a compile-time constant hard-disabling audio because the Mode tone was too
+// loud. It was a compile-time lie about a runtime setting -- there is no way to change it at the
+// robot, and a shipped image would carry "audio off" as an unchangeable property. Audio is now a
+// setting on the settings panel, persisted in NVS, defaulting OFF so nobody re-makes the "too
+// loud" call on an operator's behalf.
+constexpr bool kCuesEnabled = true;
 
 // What the HAL actually wants: 48 kHz, 16-bit, interleaved stereo. Read from
 // hal_audio.cpp's i2s_reconfig_clk_fn(48000, 16, I2S_SLOT_MODE_STEREO) rather than assumed.
@@ -109,7 +115,28 @@ uint32_t durationMs(Cue c)
 
 void cuesBegin()
 {
-    if (!kCuesEnabled) { mclog::tagInfo("cues", "disabled (kCuesEnabled=false)"); return; }
+    // IDEMPOTENT, AND IT DOES NOT ALLOCATE UNLESS AUDIO IS ON.
+    //
+    // This rendered 306 kB of PCM at startup -- TWICE, because the startup animation and the face
+    // app both call it -- and with CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384 a std::vector of this
+    // size lands in INTERNAL DRAM, of which the whole chip has 250-310 kB. The allocation failed,
+    // the result was dereferenced, and the board panicked with a load access fault on boot.
+    //
+    // I knew this: an earlier commit message records that the earcon PCM lands internal because
+    // the HAL's audioPlay() takes std::vector<int16_t>& with the default allocator, and says it
+    // was deliberately not hacked around. Then kCuesEnabled was flipped to true and it allocated
+    // anyway. The compile-time guard had been hiding a real memory problem, not just a loud beep.
+    //
+    // So: render on demand, once, and only when audio is actually enabled.
+    static bool rendered = false;
+    if (rendered) return;
+    if (!settingsAudioEnabled()) {
+        mclog::tagInfo("cues", "audio off -- PCM not rendered (saves ~306 kB internal)");
+        return;
+    }
+    rendered = true;
+
+    if (!kCuesEnabled) return;
     // The vocabulary. Five meanings, each identifiable by RHYTHM alone -- one, two-fast, two-slow,
     // three-repeating, one-long -- so none depends on hearing the pitch correctly.
     { const Note n[] = {{2200, 70}};                       build(Cue::Heard,  n, 1, nullptr); }
@@ -134,7 +161,7 @@ void cuesBegin()
 
 void cuePlay(Cue c)
 {
-    if (!kCuesEnabled) return;
+    if (!kCuesEnabled || !settingsAudioEnabled()) return;
     const uint32_t now = GetHAL()->millis();
     const uint8_t prio = kPrio[(int)c];
 

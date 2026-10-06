@@ -3,6 +3,8 @@
 #include "cues.h"
 #include "net.h"
 #include "walkin.h"
+#include "ui_settings.h"
+#include "ui_hmi.h"
 #include "percept/percept.h"
 #include "percept/percept_config.h"
 
@@ -117,6 +119,12 @@ lv_obj_t* g_label = nullptr;
 // and the change-guard compared against WHAT THIS CODE LAST WROTE rather than what is on the
 // label, so once clobbered it was never rewritten. Two writers, one widget, guaranteed to fail.
 lv_obj_t* g_probeLabel = nullptr;
+// And the touch UI gets its own, for the same reason the probe does. It carries the one fact
+// nothing else can report on a head with no cable and no network yet: WHETHER AN LVGL INPUT
+// DEVICE WAS FOUND AT ALL. Without it, "touch does nothing" has three indistinguishable causes
+// — no indev, a wrong coordinate mapping, or a bug in the gesture — and this line eliminates
+// the first in one glance. AUDIT.md's closing lesson, applied: "Put a falsifying measurement on
+// the panel *first* — it costs one line and eliminates a whole category."
 lv_obj_t* g_quote = nullptr;
 
 // ---- the quotes ------------------------------------------------------------------------------
@@ -246,6 +254,20 @@ struct St {
     int  locked;      // < 0 = the face may emote freely in this state
     bool reserved;    // colour is never themed, and the firmware enforces it
 };
+// Ported from firmware/tab5_face/src/hmi.cpp. The chip shows the state's NAME large and this
+// underneath it: an operator who does not know the vocabulary still learns what the robot is
+// doing, which is the whole point of putting a state on a face.
+const char* stateDesc(const char* n)
+{
+    if (!strcmp(n, "SAFE_IDLE"))  return "Motion disabled";
+    if (!strcmp(n, "MANUAL"))     return "RC teleop";
+    if (!strcmp(n, "AUTONOMOUS")) return "Mission active";
+    if (!strcmp(n, "CHARGING"))   return "On charger";
+    if (!strcmp(n, "DEGRADED"))   return "Reduced function";
+    if (!strcmp(n, "E_STOP"))     return "E-stop latched";
+    return "Booting";
+}
+
 const St kStates[] = {
     //  name         label        r    g    b   locked emote  reserved
     {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL, false},
@@ -708,6 +730,12 @@ void update(uint32_t now, uint32_t colour)
 lv_obj_t* plainBox(lv_obj_t* parent, lv_color_t colour, int radius)
 {
     lv_obj_t* o = lv_obj_create(parent);
+    // THE FACE IS DECORATIVE AND MUST NOT CONSUME INPUT. lv_obj_create() sets LV_OBJ_FLAG_CLICKABLE
+    // by DEFAULT in LVGL 9, so every eye body, pupil, glint, band strip and accessory was quietly
+    // swallowing touch events before they could reach anything that wanted them. Nothing in this
+    // file ever cleared it, which is why touch "did not work": it worked perfectly and was being
+    // absorbed by a 480x480 eye.
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_style_all(o);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(o, colour, LV_PART_MAIN);
@@ -791,10 +819,15 @@ void buildScene()
     lv_obj_set_style_text_color(g_probeLabel, lv_color_hex(0xffd24a), LV_PART_MAIN);
     lv_obj_align(g_probeLabel, LV_ALIGN_TOP_MID, 0, 56);
     lv_label_set_text_static(g_probeLabel, perceptStatus());
+    // Hidden until the 4 Hz block below consults the telemetry switch, so a release does not show
+    // a diagnostic line for the first quarter-second of every boot.
+    lv_obj_add_flag(g_probeLabel, LV_OBJ_FLAG_HIDDEN);
+
 
     // Built once, hidden, never reallocated -- steady-state allocation is AUDIT.md invariant 6.
     g_reticle = lv_obj_create(scr);
     lv_obj_remove_style_all(g_reticle);
+    lv_obj_remove_flag(g_reticle, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(g_reticle, 120, 120);
     lv_obj_set_style_radius(g_reticle, 8, 0);
     lv_obj_set_style_bg_opa(g_reticle, LV_OPA_TRANSP, 0);          // hollow: never hide the face
@@ -1036,10 +1069,42 @@ void AppFace::onOpen()
     g_openMs = (uint32_t)GetHAL()->millis();
 
     GetHAL()->lvglLock();
+#ifndef OPENDUBS_NO_SCENE
     buildScene();
+#else
+    // BISECT: face scene not built, so only the settings panel and its touch probe exist. If
+    // touch works here and not with the scene, the scene is eating input -- which is a fact, not
+    // a theory about z-order.
+    mclog::tagInfo("bisect", "face scene SKIPPED");
+#endif
+    // The technician and fault screens, built here and hidden: "a second pre-built LVGL screen
+    // of ~30 objects, built once at startup, hidden" (architecture note §1.7). They go up AFTER
+    // buildScene so that lv_obj_move_foreground puts them above the face, the band and the
+    // reticle, and so that nothing re-orders the z-stack per frame.
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
+    // NOTHING THE FACE DRAWS MAY ABSORB INPUT.
+    //
+    // lv_obj_create() sets LV_OBJ_FLAG_CLICKABLE by default in LVGL 9. Clearing it inside
+    // plainBox() covered the eyes but NOT the band strips, which are created directly and cover
+    // all four screen edges -- so any press landing near an edge was swallowed by a strip with no
+    // handler, propagated nowhere, and never reached the screen. Verified: the GT911 initialises
+    // and answers (TouchPad_ID 0x39,0x31,0x31), so presses were being read and then eaten.
+    //
+    // Walking the children is deliberate rather than fixing each creation site: the face gains
+    // objects over time (accessories, themes, the preview canvas), and a per-site fix is a list
+    // that goes stale -- which is how the band strips were missed in the first place.
+    {
+        lv_obj_t* scr = lv_screen_active();
+        const uint32_t n = lv_obj_get_child_count(scr);
+        for (uint32_t i = 0; i < n; ++i)
+            lv_obj_remove_flag(lv_obj_get_child(scr, i), LV_OBJ_FLAG_CLICKABLE);
+        mclog::tagInfo("touch", "cleared CLICKABLE on {} scene objects", (int)n);
+    }
+
     netStart();               // Wi-Fi station + UDP command port + OTA. Independent of perception.
+    settingsBuild();          // audio + telemetry, persisted in NVS
+    hmiBuild();               // the lift-controller HMI + touch-anywhere reveal
     walkinBuild();            // no-op unless OPENDUBS_WALKIN=1
     GetHAL()->lvglUnlock();
     // Perception is NOT started here. It needs a camera frame buffer, which does not exist until
@@ -1063,6 +1128,14 @@ void AppFace::onRunning()
 {
     const uint32_t now = GetHAL()->millis();
 
+#ifdef OPENDUBS_NO_SCENE
+    // BISECT: with the scene unbuilt, every object below is nullptr and the render loop faults --
+    // which is what the first attempt at this did. Skip the whole body; the settings panel and its
+    // touch probe are built independently and keep working.
+    (void)now;
+    return;
+#endif
+
 
     // TELEMETRY IS OFF BY DEFAULT, and that is a correctness matter rather than tidiness.
     // The ESP-IDF console goes out over USB-serial-JTAG, and when no host is draining the port a
@@ -1080,6 +1153,51 @@ void AppFace::onRunning()
         fflush(stdout);
     }
 #endif
+
+    // TOUCH, FIRST AND UNCONDITIONALLY. It arbitrates which screen owns the panel, drives the
+    // entry gesture and runs the grade machinery -- and the grade machinery must run even when
+    // the face is up, because a jog that was held when the screen changed still has to reach its
+    // stop. LOCKED: onRunning does NOT hold the LVGL lock throughout, it takes it in short
+    // bursts per block, and four calls that forgot that froze the face (AUDIT.md invariant 1).
+    GetHAL()->lvglLock();
+    GetHAL()->lvglUnlock();
+
+    // THE FACE YIELDS THE GLASS COMPLETELY. Architecture note §1.7: "While the controls screen
+    // is shown the face timers are paused, so the two never compete." Everything below this
+    // point writes LVGL; none of it would be visible under an opaque full-screen layer, and all
+    // of it would still cost its dirty area. What survives the early return is the audio, which
+    // is not on the glass and whose fault latch must not be left stale -- a repeating fault
+    // announcement that stops because someone opened a readout screen is a lie by omission.
+    // THE HMI, which is the screen a touch on the face reveals. Fed rather than reaching into
+    // this file's state table: the face owns the state, ui_hmi.cpp owns the pixels.
+    {
+        const bool linked = g_linkUp && g_linkState >= 0;
+        const St&  st     = kStates[linked ? g_linkState : 0];
+        HmiFeed    f{};
+        f.stateLabel  = linked ? st.label : "NO LINK";
+        f.stateDesc   = linked ? stateDesc(st.name) : "no controller";
+        f.stateColour = ((uint32_t)st.r << 16) | ((uint32_t)st.g << 8) | (uint32_t)st.b;
+        f.stateLinked = linked;
+        f.net         = netStatus();
+        // ONLY WHEN IT IS OPEN, and that is the whole point rather than an optimisation.
+        // hmiTick() early-returns when the HMI is closed, so taking the LVGL lock to call it was
+        // pure churn -- and an extra per-frame lvglLock/lvglUnlock pair in this loop is the one
+        // variable that tracks every touch failure today: the probe build that worked for minutes
+        // and then stopped, and all three HMI builds. The touchscreen is POLLED by a 16 ms LVGL
+        // timer that runs inside lv_timer_handler() and needs this same recursive mutex, and a
+        // starved poll does not see a short press at all. Closed, this now costs nothing.
+        if (hmiOwnsPanel()) {
+            GetHAL()->lvglLock();
+            hmiTick(now, f);
+            GetHAL()->lvglUnlock();
+        }
+    }
+
+    if (settingsOwnsPanel() || hmiOwnsPanel()) {
+        cueFaultActive(g_state == 4 || g_state == 5);   // DEGRADED, E_STOP
+        cueTick(now);
+        return;
+    }
 
     // Periodic cost report, and a final verdict once the bench has walked the whole matrix of
     // states, emotes, activities and themes -- which is when the PEAK frame has been seen.
@@ -1179,7 +1297,18 @@ void AppFace::onRunning()
             // static buffer that outlives the label, which is exactly what _static requires.
             // percept double-buffers its status and swaps an atomic pointer, so the string a
             // reader holds is never the one being rewritten.
-            lv_label_set_text_static(g_probeLabel, g_camStatus[0] ? g_camStatus : perceptStatus());
+            // THE TELEMETRY SWITCH GOVERNS THIS LABEL. It is the on-screen readout the operator
+            // can turn on in the field -- the perception/camera status line. Until now the switch
+            // saved a flag that nothing read, so flipping it changed no pixel: a dead control,
+            // which is worse than no control because it teaches the operator the panel lies.
+            // Default off, so a face shows a face.
+            if (settingsTelemetryVisible()) {
+                lv_label_set_text_static(g_probeLabel,
+                                         g_camStatus[0] ? g_camStatus : perceptStatus());
+                lv_obj_remove_flag(g_probeLabel, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(g_probeLabel, LV_OBJ_FLAG_HIDDEN);
+            }
             GetHAL()->lvglUnlock();
         }
     }
