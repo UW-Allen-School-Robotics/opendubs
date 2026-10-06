@@ -23,6 +23,13 @@
 #include "shared/clock.h"
 #include "ui_hmi.h"
 
+// Patched into the vendor BSP's lvgl_read_cb by build.sh (patches/gt911_rawcount.c.inc). These
+// count what the GT911 DRIVER delivers, before hit-testing -- the layer between the chip and the
+// widget that has never been observed. Defined in a C file, hence extern "C".
+extern "C" {
+extern volatile uint32_t od_tp_polls, od_tp_presses, od_tp_errs, od_tp_lastx, od_tp_lasty;
+}
+
 namespace {
 
 constexpr const char* kTag = "net";
@@ -348,7 +355,7 @@ void cmdTask(void*)
         if (strcmp(rx, "PING") == 0) {
             const esp_app_desc_t* d = esp_app_get_description();
             const esp_partition_t* run = esp_ota_get_running_partition();
-            char tx[160];
+            char tx[256];   // widened for the raw touch counters
             // Report the OTA STATE too. "which slot" was not enough to diagnose why a rollback
             // did not fire -- PENDING_VERIFY vs VALID is the whole question, and guessing at it
             // cost a test cycle.
@@ -364,8 +371,13 @@ void cmdTask(void*)
                     default:                         sn = "UNDEFINED";      break;
                 }
             }
-            const int m = snprintf(tx, sizeof(tx), "PONG slot=%s state=%s | %s",
-                                   run ? run->label : "?", sn, hmiDiag());
+            const int m = snprintf(tx, sizeof(tx),
+                                   "PONG slot=%s state=%s | %s | tp polls=%lu presses=%lu "
+                                   "errs=%lu last=%lu,%lu",
+                                   run ? run->label : "?", sn, hmiDiag(),
+                                   (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
+                                   (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
+                                   (unsigned long)od_tp_lasty);
             sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "REBOOT") == 0) {
             const char* tx = "OK reboot";

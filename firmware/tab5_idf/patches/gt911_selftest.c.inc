@@ -41,6 +41,9 @@
 /* OFF until the heartbeat above has been calibrated on a working unit. Flipping this to 1 is the
  * whole change; it is deliberately not wired to a build flag so that enabling it is a visible,
  * reviewed edit rather than an environment variable someone forgets they set. */
+/* STAYS 0, and now for a second reason: the watchdog below ALSO writes 0xAA to the command
+ * register, which is the very thing suspected of breaking touch. It must not be enabled until a
+ * non-destructive liveness test exists. */
 #define OD_GT911_WATCHDOG 0
 
 /* INT must be an input with its pull-up on across any reset release: that is what selects the
@@ -81,21 +84,30 @@ static void od_tp_reset_only(void)
     vTaskDelay(pdMS_TO_TICKS(100));     /* >= 50 ms required before the first I2C transaction */
 }
 
-/* THE VERDICT, WITH NO HUMAN AT THE GLASS -- which is the point. A test that needs someone to
- * touch the panel is not a test: nobody is usually at the bench, and "no stimulus" reads exactly
- * like "broken hardware".
+/* READ-ONLY. NO WRITES TO THE CHIP, AND THAT IS THE WHOLE POINT OF THIS REVISION.
  *
- * Two layers: the chip must ANSWER (product ID), and its firmware must be EXECUTING (heartbeat).
- * The first alone is what init already proves and is not sufficient -- answering while hung is
- * precisely the failure mode. */
+ * The previous version wrote 0xAA to 0x8040 as a liveness probe. 0x8040 is the GT911's COMMAND
+ * register: 0x00 means "read coordinate state", and per the GT911 programming guide the host is
+ * expected to return it to 0x00 after issuing any command. This test wrote 0xAA and never
+ * restored it, so it left the chip parked on a command instead of reporting coordinates.
+ *
+ * That is almost certainly why touch stopped: it worked before this patch and then failed on
+ * EVERY boot afterwards -- a flash reset, a cold power pull, and a reflash with the wake call
+ * restored -- because the write happens at every boot, which is exactly why power-cycling could
+ * not help. And the 0x8040=aa we kept reading back was never a hang signature; it was our own
+ * value sitting where we put it.
+ *
+ * So: the product ID only. It proves the I2C path and that the chip answers, which is all a
+ * read-only test can prove. It CANNOT distinguish a healthy chip from one that answers while
+ * hung -- that was what the heartbeat was for, and until a non-destructive liveness test has been
+ * validated against a known-good AND a known-bad boot, not having one is better than having one
+ * that writes to a command register. An instrument that changes what it measures is worse than
+ * no instrument. */
 static esp_err_t od_gt911_selftest(esp_lcd_touch_handle_t tp, const char* when)
 {
     uint8_t pid[3] = {0};
-    uint8_t esd[2] = {0};
-    uint8_t aa     = 0xAA;
+    uint8_t cfg    = 0;
 
-    /* tp->io is public (esp_lcd_touch.h), and rx/tx_param with lcd_cmd_bits = 16 puts the 16-bit
-     * register address on the wire exactly as the driver's own touch_gt911_i2c_read/write do. */
     esp_err_t e = esp_lcd_panel_io_rx_param(tp->io, OD_GT911_PID_REG, pid, 3);
     if (e != ESP_OK || pid[0] != '9' || pid[1] != '1' || pid[2] != '1') {
         ESP_LOGE(TAG, "GT911 SELFTEST FAIL (%s): chip not answering: pid %02x %02x %02x (%s)",
@@ -103,22 +115,39 @@ static esp_err_t od_gt911_selftest(esp_lcd_touch_handle_t tp, const char* when)
         return ESP_FAIL;
     }
 
-    esp_lcd_panel_io_tx_param(tp->io, OD_GT911_CMD_REG, &aa, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    e = esp_lcd_panel_io_rx_param(tp->io, OD_GT911_CMD_REG, esd, 2);   /* 0x8040 then 0x8041 */
+    /* 0x8040 is READ, never written: if it is non-zero the chip is parked on a command rather
+     * than reporting coordinates, and whoever left it there is the bug. Reported, not corrected,
+     * because silently writing 0x00 here would hide exactly that. */
+    esp_lcd_panel_io_rx_param(tp->io, OD_GT911_CMD_REG, &cfg, 1);
 
-    if (e != ESP_OK || esd[0] == 0xAA || esd[1] != 0xAA) {
-        ESP_LOGE(TAG, "GT911 SELFTEST FAIL (%s): chip answers but firmware NOT running: "
-                      "0x8040=%02x 0x8041=%02x (%s)",
-                 when, esd[0], esd[1], esp_err_to_name(e));
-        return ESP_FAIL;
-    }
+    /* THE CHIP'S OWN CONFIGURATION, ALL READS.
+     *
+     * The ESP-IDF GT911 driver writes NO configuration -- nothing in esp_lcd_touch_gt911.c
+     * touches 0x8047..0x8100 -- so the chip scans with whatever block lives in its own flash.
+     * M5GFX/LovyanGFX's driver, which is what the Arduino firmware uses and which has never
+     * failed on this board, DOES write a config at init. If the stored block is corrupt, or its
+     * coordinate maxima or touch count are zero, the chip will ACK I2C forever and never report a
+     * coordinate -- which is precisely the measured state: ~3200 error-free reads, zero presses.
+     *
+     * Register map from the GT911 programming guide: 0x8140 info block (pid[4] fw[2] xres[2]
+     * yres[2] vendor), 0x8047 config block (ver, xmax[2], ymax[2], touches, modsw1, ...,
+     * refresh at +15), 0x80FF checksum, 0x8100 config_fresh, 0x814E buffer status. 0x814E is
+     * safe to read without clearing -- the driver clears it on its next poll. */
+    uint8_t info[11] = {0}, cfgb[16] = {0}, chk[2] = {0}, st = 0;
+    esp_lcd_panel_io_rx_param(tp->io, 0x8140, info, 11);
+    esp_lcd_panel_io_rx_param(tp->io, 0x8047, cfgb, 16);
+    esp_lcd_panel_io_rx_param(tp->io, 0x80FF, chk, 2);
+    esp_lcd_panel_io_rx_param(tp->io, 0x814E, &st, 1);
+    ESP_LOGI(TAG, "GT911 INFO (%s): pid %c%c%c fw %02x%02x xres %u yres %u vendor %02x", when,
+             info[0], info[1], info[2], info[5], info[4],
+             (unsigned)(info[6] | info[7] << 8), (unsigned)(info[8] | info[9] << 8), info[10]);
+    ESP_LOGI(TAG, "GT911 CFG  (%s): ver %02x xmax %u ymax %u touches %u modsw1 %02x refresh %02x "
+                  "chksum %02x fresh %02x status814E %02x",
+             when, cfgb[0], (unsigned)(cfgb[1] | cfgb[2] << 8), (unsigned)(cfgb[3] | cfgb[4] << 8),
+             cfgb[5], cfgb[6], cfgb[15], chk[0], chk[1], st);
 
-    /* CALIBRATION LINE. On a unit where touch is known to work this must print
-     * 0x8040=00 0x8041=aa. Anything else means the heartbeat semantics above are wrong for this
-     * chip's firmware and OD_GT911_WATCHDOG must stay 0 until they are corrected from the
-     * reading. */
-    ESP_LOGI(TAG, "GT911 SELFTEST PASS (%s): pid 911, 0x8040=%02x 0x8041=%02x", when, esd[0], esd[1]);
+    ESP_LOGI(TAG, "GT911 SELFTEST PASS (%s): pid 911, command reg 0x8040=%02x%s",
+             when, cfg, cfg ? "  <-- NOT ZERO: chip is not in coordinate-read mode" : "");
     return ESP_OK;
 }
 

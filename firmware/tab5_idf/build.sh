@@ -158,8 +158,51 @@ if "od_gt911_selftest" not in t:
     init    = (pdir / "gt911_init.c.inc").read_text()
     t = t.replace(anchor_fn, helpers + "\n" + anchor_fn, 1)
     t = t.replace(anchor_call, init, 1)
+
+    # Instrument the vendor's LVGL read callback itself. Anchors are matched byte-for-byte and the
+    # script refuses if either is not unique, so a vendor change cannot be silently half-applied.
+    rb_anchor = "static void lvgl_read_cb(lv_indev_t* indev, lv_indev_data_t* data)\n"
+    body_anchor = (
+        "    esp_lcd_touch_read_data(_lcd_touch_handle);\n"
+        "    bool touchpad_pressed =\n"
+        "        esp_lcd_touch_get_coordinates(_lcd_touch_handle, touch_x, touch_y, touch_strength, &touch_cnt, 1);\n"
+        "\n"
+        "    if (!touchpad_pressed) {\n"
+        "        data->state = LV_INDEV_STATE_REL;\n"
+        "    } else {\n"
+        "        data->state   = LV_INDEV_STATE_PR;\n"
+        "        data->point.x = touch_x[0];\n"
+        "        data->point.y = touch_y[0];\n"
+        "    }\n")
+    if t.count(rb_anchor) != 1 or t.count(body_anchor) != 1:
+        sys.exit("REFUSING: lvgl_read_cb anchors not unique in m5stack_tab5.c")
+    body_new = (
+        "    od_tp_polls++;\n"
+        "    if (esp_lcd_touch_read_data(_lcd_touch_handle) != ESP_OK) od_tp_errs++;\n"
+        "    bool touchpad_pressed =\n"
+        "        esp_lcd_touch_get_coordinates(_lcd_touch_handle, touch_x, touch_y, touch_strength, &touch_cnt, 1);\n"
+        "\n"
+        "    if (!touchpad_pressed) {\n"
+        "        data->state = LV_INDEV_STATE_REL;\n"
+        "    } else {\n"
+        "        data->state   = LV_INDEV_STATE_PR;\n"
+        "        data->point.x = touch_x[0];\n"
+        "        data->point.y = touch_y[0];\n"
+        "        od_tp_lastx = touch_x[0]; od_tp_lasty = touch_y[0];\n"
+        "        if ((od_tp_presses++ % 25) == 0)\n"
+        "            ESP_LOGI(TAG, \"TP RAW press #%lu at %u,%u cnt=%u (polls %lu errs %lu)\",\n"
+        "                     (unsigned long)od_tp_presses, touch_x[0], touch_y[0], touch_cnt,\n"
+        "                     (unsigned long)od_tp_polls, (unsigned long)od_tp_errs);\n"
+        "    }\n"
+        "    { static uint32_t od_last = 0; uint32_t od_now = lv_tick_get();\n"
+        "      if (od_now - od_last > 5000) { od_last = od_now;\n"
+        "          ESP_LOGI(TAG, \"TP RAW heartbeat: polls %lu presses %lu errs %lu\",\n"
+        "                   (unsigned long)od_tp_polls, (unsigned long)od_tp_presses, (unsigned long)od_tp_errs); } }\n")
+    t = t.replace(rb_anchor, (pdir / "gt911_rawcount.c.inc").read_text() + "\n" + rb_anchor, 1)
+    t = t.replace(body_anchor, body_new, 1)
+
     bsp.write_text(t)
-    print("  patched: GT911 self-test + recovery (exit_sleep replaced)")
+    print("  patched: GT911 self-test logging (exit_sleep kept)")
 else:
     # Unreachable: the file was just restored from git, so it cannot already carry the patch.
     sys.exit("REFUSING: m5stack_tab5.c still carries the GT911 patch after a git restore")
