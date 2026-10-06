@@ -1,0 +1,686 @@
+/* Show composer — the bones of a timeline editor. Vanilla JS, no build step, no CDN.
+ *
+ * PREVIEW ONLY. Nothing in this file can reach the robot: it talks to the composer server, which
+ * reads and writes show files and runs cue.py. The "preview" is the state readout drawn below.
+ *
+ * Data flow, deliberately one-way: the SHOW TEXT is the state. Every edit is sent to the server
+ * as an operation on that text (api/edit), which applies it surgically and re-runs the validator,
+ * and the editor redraws from the RESOLVED TIMELINE that comes back (cue.py export). The browser
+ * never re-implements the validator; where it resolves a time itself (dragging), it is only to
+ * draw, and the server's answer replaces it.
+ *
+ * Layout state (zoom, snap, mute) lives in localStorage and never in the show (standing rule 7).
+ */
+"use strict";
+
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT"];
+const LANES = ["CLIPS", ...SLOTS];
+const $ = (id) => document.getElementById(id);
+
+const S = {
+  info: null, path: null, text: "", savedText: "", data: null, undo: [],
+  selected: null,           // authored cue index
+  t: 0, pps: 60, snap: "beat", muted: new Set(),
+  playing: false, metro: false, taps: [], tapBpm: null,
+  audio: { ctx: null, buffer: null, peaks: null, src: null, gain: null, startedCtx: 0, startedT: 0,
+           nextClick: 0, file: null },
+};
+
+/* ---------- small helpers ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("composer." + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("composer." + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+};
+function toast(msg, ms = 3200) {
+  const el = $("toast"); el.textContent = msg; el.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => (el.hidden = true), ms);
+}
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw new Error(j.error || j.detail || `HTTP ${r.status}`);
+  return j;
+}
+const tl = () => S.data && S.data.timeline;
+const music = () => tl() && tl().music;
+const round = (x, n) => { const p = 10 ** n; return Math.round(x * p) / p; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- time: the grid ---------- */
+function beatOf(t) { const m = music(); return m ? (t - m.offset_s) / m.beat_s + 1 : null; }
+function barLabel(t) {
+  const m = music(); if (!m) return "";
+  const b = beatOf(t); if (b < 1) return "pre-roll";
+  const bi = Math.floor(b - 1 + 1e-9);
+  return `bar ${Math.floor(bi / m.beats_per_bar) + 1}.${(bi % m.beats_per_bar) + 1}`;
+}
+function snapT(t) {
+  const m = music();
+  if (S.snap === "off") return t;
+  if (!m) return Math.round(t * 4) / 4;            // no grid: quarter seconds
+  const d = { bar: m.beat_s * m.beats_per_bar, beat: m.beat_s, half: m.beat_s / 2, quarter: m.beat_s / 4 }[S.snap];
+  return Math.max(0, m.offset_s + Math.round((t - m.offset_s) / d) * d);
+}
+/* Resolve an authored time for DRAWING only (the server is authoritative). */
+function authoredT(c) {
+  const m = music();
+  if ("t" in c) return +c.t;
+  if (!m) return null;
+  if ("beat" in c) return m.offset_s + (c.beat - 1) * m.beat_s;
+  if ("bar" in c) {
+    const [b, bb] = String(c.bar).split(".").map(Number);
+    return m.offset_s + ((b - 1) * m.beats_per_bar + (bb || 1) - 1) * m.beat_s;
+  }
+  return null;
+}
+/* Write a new time back in the SAME form the author used (choreo-format-v1.md 3): a t cue stays
+ * a t cue even when snapped to a beat; a bar cue stays a bar cue while it lands on a whole beat. */
+function retimed(c, newT) {
+  const out = { ...c };
+  const m = music();
+  if ("t" in c || !m) { delete out.beat; delete out.bar; out.t = round(newT, 3); return out; }
+  const b = round(beatOf(newT), 4);
+  if ("bar" in c && Math.abs(b - Math.round(b)) < 1e-6 && b >= 1) {
+    const bi = Math.round(b) - 1;
+    out.bar = `${Math.floor(bi / m.beats_per_bar) + 1}.${(bi % m.beats_per_bar) + 1}`;
+    return out;
+  }
+  delete out.bar; out.beat = b; return out;
+}
+function newCueTime(t) {
+  const m = music();
+  if (m && S.snap !== "off") return { beat: round(beatOf(t), 4) };
+  return { t: round(t, 3) };
+}
+
+/* ---------- loading and editing ---------- */
+async function loadShow(path) {
+  if (S.text !== S.savedText && !confirm("Discard unsaved changes?")) { $("show").value = S.path; return; }
+  const d = await api("api/show?path=" + encodeURIComponent(path));
+  S.path = path; S.undo = []; S.selected = null; S.savedText = d.text;
+  S.muted = new Set(store.get("muted." + path, []));
+  stop(); S.t = 0;
+  setData(d);
+  store.set("lastShow", path);
+  await loadAudio();
+}
+function setData(d) {
+  S.data = d; S.text = d.text;
+  render();
+}
+async function edit(edits, label) {
+  try {
+    const d = await api("api/edit", { path: S.path, text: S.text, edits });
+    S.undo.push(S.text);
+    setData(d);
+    if (label) toast(label, 1600);
+  } catch (e) { toast(e.message, 5000); }
+}
+async function undo() {
+  if (!S.undo.length) return;
+  const text = S.undo.pop();
+  setData(await api("api/analyse", { path: S.path, text }));
+}
+async function save() {
+  try {
+    const d = await api("api/save", { path: S.path, text: S.text });
+    S.savedText = d.text; setData(d); toast("saved " + S.path, 1600);
+  } catch (e) { toast(e.message, 5000); }
+}
+
+/* ---------- audio: Web Audio, and the playhead is driven from its clock ---------- */
+function ctx() {
+  if (!S.audio.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    S.audio.ctx = new AC();
+    S.audio.gain = S.audio.ctx.createGain();
+    S.audio.gain.connect(S.audio.ctx.destination);
+  }
+  return S.audio.ctx;
+}
+async function loadAudio() {
+  const m = music();
+  S.audio.buffer = null; S.audio.peaks = null;
+  if (!m || !m.file) {
+    $("waveMsg").textContent = m ? "music: has no file — the grid still works" : "no music: block — times are in seconds (tap tempo adds one)";
+    drawWave(); return;
+  }
+  const dir = S.path.includes("/") ? S.path.slice(0, S.path.lastIndexOf("/") + 1) : "";
+  const rel = dir + m.file;
+  S.audio.file = rel;
+  $("waveMsg").textContent = "loading " + m.file + "…";
+  try {
+    const r = await fetch("audio/" + rel.split("/").map(encodeURIComponent).join("/"));
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "HTTP " + r.status);
+    const buf = await r.arrayBuffer();
+    S.audio.buffer = await new Promise((ok, no) => ctx().decodeAudioData(buf, ok, no));
+    S.audio.peaks = peaks(S.audio.buffer, 200);
+    $("waveMsg").textContent = "";
+  } catch (e) {
+    $("waveMsg").textContent = `no audio (${m.file}): ${e.message || e} — the grid still works`;
+  }
+  render();
+}
+function peaks(buffer, perSec) {
+  const ch = buffer.getChannelData(0), step = Math.max(1, Math.floor(buffer.sampleRate / perSec));
+  const n = Math.ceil(ch.length / step), out = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    let lo = 1, hi = -1;
+    for (let k = i * step, e = Math.min(ch.length, k + step); k < e; k++) { const v = ch[k]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    out[2 * i] = lo; out[2 * i + 1] = hi;
+  }
+  return { perSec, data: out };
+}
+/* What is HEARD now, not what was scheduled: subtract the output latency the browser reports.
+ * (The same correction the live sync design needs on the tablet — choreo-teach-and-sync.md.) */
+function audioNow() {
+  const a = S.audio, c = a.ctx;
+  const lat = (c.outputLatency || 0) + (c.baseLatency || 0);
+  return Math.max(a.startedT, a.startedT + (c.currentTime - a.startedCtx) - lat);
+}
+function play() {
+  const c = ctx();
+  c.resume();
+  const a = S.audio;
+  a.startedCtx = c.currentTime + 0.05; a.startedT = S.t;
+  a.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
+  if (a.buffer && S.t < a.buffer.duration) {
+    a.src = c.createBufferSource(); a.src.buffer = a.buffer; a.src.connect(a.gain);
+    a.src.start(a.startedCtx, S.t);
+  }
+  a.nextClick = Math.ceil(beatOf(S.t) || 0);
+  S.playing = true; $("play").textContent = "⏸";
+  requestAnimationFrame(frame);
+}
+function stop() {
+  const a = S.audio;
+  if (a.src) { try { a.src.stop(); } catch (e) { /* already stopped */ } a.src = null; }
+  S.playing = false; $("play").textContent = "▶";
+}
+function scheduleClicks() {
+  /* a lookahead scheduler: clicks are placed on the audio clock, so they cannot drift from it */
+  const m = music(), a = S.audio, c = a.ctx;
+  if (!S.metro || !m) return;
+  const horizon = c.currentTime + 0.2;
+  for (;;) {
+    const tBeat = m.offset_s + (a.nextClick - 1) * m.beat_s;
+    const when = a.startedCtx + (tBeat - a.startedT);
+    if (when > horizon) break;
+    if (when >= c.currentTime && a.nextClick >= 1) {
+      const o = c.createOscillator(), g = c.createGain();
+      const down = (a.nextClick - 1) % m.beats_per_bar === 0;
+      o.frequency.value = down ? 1760 : 1100;
+      g.gain.setValueAtTime(0.25, when); g.gain.exponentialRampToValueAtTime(0.001, when + 0.05);
+      o.connect(g); g.connect(c.destination); o.start(when); o.stop(when + 0.06);
+    }
+    a.nextClick++;
+  }
+}
+function frame() {
+  if (!S.playing) return;
+  S.t = audioNow();
+  scheduleClicks();
+  const end = Math.max(tl() ? tl().duration_s : 0, S.audio.buffer ? S.audio.buffer.duration : 0) + 1;
+  if (S.t > end) { stop(); }
+  drawPlayhead(true);
+  renderPreview();
+  requestAnimationFrame(frame);
+}
+function seek(t) {
+  const was = S.playing; stop();
+  S.t = Math.max(0, t); drawPlayhead(false); renderPreview();
+  if (was) play();
+}
+
+/* ---------- rendering ---------- */
+function width() {
+  const d = Math.max(tl() ? tl().duration_s : 0, S.audio.buffer ? S.audio.buffer.duration : 0, 20) + 4;
+  return Math.min(30000, Math.ceil(d * S.pps));
+}
+function render() {
+  const d = S.data;
+  $("save").classList.toggle("dirty", S.text !== S.savedText);
+  $("undo").disabled = !S.undo.length;
+  $("fixture").hidden = !(d && d.info && d.info.limits_are_test_fixture);
+  $("limitsName").textContent = d && d.info ? "· limits: " + d.info.limits : "";
+  const st = $("status");
+  if (!d) return;
+  if (d.parse_error) { st.className = "chip bad"; st.textContent = "does not parse"; }
+  else if (tl().valid) { st.className = "chip ok"; st.textContent = "valid"; }
+  else { st.className = "chip bad"; st.textContent = `${tl().problems.length} problem${tl().problems.length > 1 ? "s" : ""}`; }
+  renderHeads(); renderLanes(); drawRuler(); drawWave(); drawPlayhead(false);
+  renderProblems(); renderInspector(); renderPreview();
+  if (!$("yamlDrawer").hidden) $("yamlText").value = S.text;
+}
+function declared() { return new Set(tl() ? tl().slots : []); }
+function renderHeads() {
+  const h = $("heads"), dec = declared();
+  const muteBtn = (k) => `<button class="mute ${S.muted.has(k) ? "on" : ""}" data-mute="${k}" title="Mute in the preview (never saved to the show)">M</button>`;
+  let html = `<div class="head ruler"><span class="name dim">${music() ? `${music().bpm} BPM · ${music().beats_per_bar}/4` : "seconds"}</span></div>`;
+  html += `<div class="head music ${S.muted.has("MUSIC") ? "muted" : ""}"><span class="name">MUSIC</span>${muteBtn("MUSIC")}</div>`;
+  for (const lane of LANES) {
+    const und = lane !== "CLIPS" && !dec.has(lane);
+    const cls = ["head", und ? "undeclared" : "", S.muted.has(lane) ? "muted" : ""].join(" ");
+    let btns = "";
+    if (lane !== "CLIPS") btns += `<button data-add="${lane}" title="Add a ${lane} cue at the playhead">+</button>`;
+    if (lane === "ARM_L" || lane === "ARM_R") btns += `<button data-teach="${lane}" title="Capture this arm's measured pose as a keyframe at the playhead (FAKE source in this build)">⦿</button>`;
+    if (lane !== "CLIPS") btns += muteBtn(lane);
+    html += `<div class="${cls}" title="${und ? "not declared in slots: — a cue here will fail validation" : ""}"><span class="name">${lane}</span>${btns}</div>`;
+  }
+  h.innerHTML = html;
+}
+function gridStyle(el) {
+  const m = music(), pps = S.pps;
+  if (m) {
+    const beatW = m.beat_s * pps, barW = beatW * m.beats_per_bar, off = m.offset_s * pps;
+    el.style.backgroundSize = `${barW}px 100%, ${beatW}px 100%`;
+    el.style.backgroundPosition = `${off}px 0, ${off}px 0`;
+  } else {
+    el.style.backgroundSize = `${5 * pps}px 100%, ${pps}px 100%`;
+    el.style.backgroundPosition = "0 0, 0 0";
+  }
+}
+function problemsByCue() {
+  const m = new Map();
+  for (const p of (tl() ? tl().problems : [])) if (p.cue !== null && p.cue !== undefined) {
+    if (!m.has(p.cue)) m.set(p.cue, []); m.get(p.cue).push(p.msg);
+  }
+  return m;
+}
+function label(ev) {
+  const c = ev.cue;
+  switch (ev.slot) {
+    case "GRIP_L": case "GRIP_R": return c.do || `pos ${c.pos}`;
+    case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
+    case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
+    case "SOUND": return c.do === "beep" ? `beep ${c.hz}` : c.do;
+    case "FACE": return c.name || c.do;
+    case "LIGHT": return c.do === "color" ? "■" : c.do;
+    default: return "";
+  }
+}
+function renderLanes() {
+  const W = width(), pps = S.pps, lanes = $("lanes"), dec = declared(), bad = problemsByCue();
+  $("canvas").style.width = W + "px";
+  const parts = [];
+  for (const lane of LANES) {
+    const und = lane !== "CLIPS" && !dec.has(lane);
+    parts.push(`<div class="row lane grid ${und ? "undeclared" : ""} ${S.muted.has(lane) ? "muted" : ""}" data-lane="${lane}">`);
+    if (lane === "CLIPS") {
+      for (const p of placements()) {
+        const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : ""].join(" ");
+        parts.push(`<div class="${cls}" data-cue="${p.index}" style="left:${p.start * pps}px;width:${Math.max(20, (p.end - p.start) * pps)}px" title="${esc(p.title)}">${esc(p.text)}</div>`);
+      }
+    } else if (tl() && tl().tracks[lane]) {
+      for (const ev of tl().tracks[lane]) {
+        const i = ev.src.index, fc = ev.src.clip ? "fromClip" : "";
+        const sel = S.selected === i ? "sel" : "", b = bad.has(i) ? "bad" : "";
+        const tip = esc(JSON.stringify(ev.cue) + `  @ ${ev.t.toFixed(3)} s (${ev.src.time})` + (ev.src.clip ? `  clip ${ev.src.clip} #${ev.src.instance + 1}` : ""));
+        if (ev.kind === "keyframe") {
+          parts.push(`<div class="seg ${b}" style="left:${ev.start * pps}px;width:${Math.max(0, ev.t - ev.start) * pps}px"></div>`);
+          if (ev.end > ev.t) parts.push(`<div class="hold" style="left:${ev.t * pps}px;width:${(ev.end - ev.t) * pps}px"></div>`);
+          parts.push(`<div class="kf ${fc} ${sel} ${b}" data-cue="${i}" data-t="${ev.t}" style="left:${ev.t * pps}px" title="${tip}"></div>`);
+        } else {
+          const sw = ev.slot === "LIGHT" && ev.cue.rgb ? `color:rgb(${ev.cue.rgb.join(",")})` : "";
+          parts.push(`<div class="blk ${fc} ${sel} ${b}" data-cue="${i}" data-t="${ev.t}" style="left:${ev.start * pps}px;width:${Math.max(16, (ev.end - ev.start) * pps)}px;${sw}" title="${tip}">${esc(label(ev))}</div>`);
+        }
+      }
+    }
+    parts.push("</div>");
+  }
+  lanes.innerHTML = parts.join("");
+  for (const el of lanes.querySelectorAll(".lane")) gridStyle(el);
+}
+/* clip placements, drawn from the EXPANDED events that came back from the validator */
+function placements() {
+  const out = new Map(), a = (S.data && S.data.authored) || [];
+  if (!tl()) return [];
+  for (const evs of Object.values(tl().tracks)) for (const ev of evs) {
+    if (!ev.src.clip) continue;
+    const p = out.get(ev.src.index) || { index: ev.src.index, start: Infinity, end: -Infinity };
+    p.start = Math.min(p.start, ev.kind === "keyframe" ? ev.t : ev.start); p.end = Math.max(p.end, ev.end);
+    out.set(ev.src.index, p);
+  }
+  for (const p of out.values()) {
+    const c = a[p.index] || {};
+    const at = authoredT(c); if (at !== null) p.start = Math.min(p.start, at);
+    const dials = [c.repeat > 1 ? `×${c.repeat}` : "", c.strength !== undefined ? `str ${c.strength}` : "", c.time_scale !== undefined ? `ts ${c.time_scale}` : ""].filter(Boolean).join(" ");
+    p.text = `${c.clip} ${dials}`; p.title = JSON.stringify(c);
+  }
+  return [...out.values()];
+}
+function drawRuler() {
+  const r = $("ruler"), m = music(), pps = S.pps, W = width();
+  const parts = [];
+  if (m) {
+    const barS = m.beat_s * m.beats_per_bar;
+    const every = Math.max(1, Math.ceil(40 / (barS * pps)));
+    for (let b = 1; ; b++) {
+      const t = m.offset_s + (b - 1) * barS; if (t * pps > W) break;
+      if ((b - 1) % every === 0) parts.push(`<div class="rulerTick" style="left:${t * pps}px">${b}</div>`);
+    }
+  } else {
+    const every = Math.max(1, Math.ceil(50 / pps));
+    for (let s = 0; s * pps < W; s += every) parts.push(`<div class="rulerTick" style="left:${s * pps}px">${s}s</div>`);
+  }
+  for (const mk of (tl() ? tl().markers : [])) parts.push(`<div class="marker" style="left:${mk.t * pps}px">⚑ ${esc(mk.name)}</div>`);
+  r.innerHTML = parts.join("");
+}
+function drawWave() {
+  const cv = $("wave"), W = width(), H = 64, pk = S.audio.peaks;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.min(32767, Math.floor(W * dpr)); cv.height = H * dpr; cv.style.width = W + "px";
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  if (!pk) return;
+  g.fillStyle = S.muted.has("MUSIC") ? "#2a3644" : "#3d7fb8";
+  const n = pk.data.length / 2;
+  for (let x = 0; x < W; x++) {
+    const i0 = Math.floor((x / S.pps) * pk.perSec), i1 = Math.max(i0 + 1, Math.floor(((x + 1) / S.pps) * pk.perSec));
+    if (i0 >= n) break;
+    let lo = 1, hi = -1;
+    for (let i = i0; i < Math.min(n, i1); i++) { lo = Math.min(lo, pk.data[2 * i]); hi = Math.max(hi, pk.data[2 * i + 1]); }
+    g.fillRect(x, H / 2 - hi * (H / 2 - 2), 1, Math.max(1, (hi - lo) * (H / 2 - 2)));
+  }
+}
+function drawPlayhead(follow) {
+  const x = S.t * S.pps;
+  $("playhead").style.left = x + "px";
+  const sc = $("scroller");
+  if (follow && (x > sc.scrollLeft + sc.clientWidth * 0.85 || x < sc.scrollLeft)) sc.scrollLeft = x - sc.clientWidth * 0.2;
+  const b = barLabel(S.t);
+  $("clock").textContent = `${S.t.toFixed(3)} s${b ? " · " + b : ""}`;
+}
+
+/* ---------- preview: per-slot state at the playhead ---------- */
+function armAt(evs, t) {
+  let prev = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  for (const kf of evs) {
+    if (t < kf.start) return { pose: prev, state: "holding" };
+    if (t <= kf.t) {
+      const f = kf.t > kf.start ? (t - kf.start) / (kf.t - kf.start) : 1, pose = {};
+      for (let j = 1; j <= 7; j++) pose[j] = prev[j] + (kf.pose[j] - prev[j]) * f;
+      return { pose, state: "moving", to: kf };
+    }
+    prev = kf.pose;
+  }
+  return { pose: prev, state: "holding" };
+}
+function lastAt(evs, t) { let l = null; for (const e of evs) { if (e.t <= t + 1e-9) l = e; } return l; }
+function renderPreview() {
+  const T = tl(), t = S.t, out = [];
+  $("previewT").textContent = `${t.toFixed(2)} s`;
+  if (!T) { $("preview").innerHTML = ""; return; }
+  const row = (k, v) => out.push(`<span class="k">${k}</span><span>${v}</span>`);
+  const muted = (k) => S.muted.has(k) ? '<span class="dim">muted</span>' : null;
+  for (const slot of SLOTS) {
+    if (!T.tracks[slot]) continue;
+    const evs = T.tracks[slot];
+    if (muted(slot)) { row(slot, muted(slot)); continue; }
+    if (slot === "ARM_L" || slot === "ARM_R") {
+      const a = armAt(evs, t);
+      const bars = [1, 2, 3, 4, 5, 6, 7].map((j) => {
+        const v = a.pose[j], w = Math.min(50, Math.abs(v) / 180 * 50);
+        return `<div class="jb" title="J${j} (outward sense)"><i style="left:${v >= 0 ? 50 : 50 - w}%;width:${w}%"></i><span>${j}:${v.toFixed(0)}</span></div>`;
+      }).join("");
+      row(slot, `<span class="${a.state}">${a.state}${a.to ? ` → ${a.to.t.toFixed(2)} s` : ""}</span><div class="joints">${bars}</div>`);
+    } else if (slot === "HEAD") {
+      let pan = null, tilt = null;
+      for (const e of evs) if (e.t <= t + 1e-9) { if (e.cue.pan !== undefined) pan = e.cue.pan; if (e.cue.tilt !== undefined) tilt = e.cue.tilt; }
+      row(slot, `pan ${pan === null ? "—" : pan.toFixed(0)}° · tilt ${tilt === null ? "—" : tilt.toFixed(0)}° <span class="dim">(target; slew time unmeasured)</span>`);
+    } else if (slot === "LIFT") {
+      let net = 0, active = null;
+      for (const e of evs) {
+        if (e.start > t) break;
+        const run = Math.min(t, e.end) - e.start;
+        if (e.cue.do === "up") net += Math.max(0, Math.min(run, e.cue.secs));
+        if (e.cue.do === "down") net = Math.max(0, net - Math.max(0, Math.min(run, e.cue.secs)));
+        if (t >= e.start && t < e.start + (e.cue.secs || 0)) active = e;
+      }
+      row(slot, (active ? `<span class="moving">${active.cue.do.toUpperCase()} ${(t - active.start).toFixed(1)} of ${active.cue.secs} s</span>` : '<span class="holding">relays off</span>')
+        + ` <span class="dim">· net up-time ${net.toFixed(1)} s (height unmeasured; a down is stopped by the pinch guard)</span>`);
+    } else if (slot === "SOUND") {
+      const e = lastAt(evs, t);
+      const on = e && t < e.end;
+      row(slot, e ? `${on ? "♪ " : ""}${e.cue.do}${e.cue.hz ? " " + e.cue.hz + " Hz" : ""}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
+    } else if (slot === "LIGHT") {
+      const e = lastAt(evs, t);
+      row(slot, e && e.cue.do === "color" ? `<span class="swatch" style="background:rgb(${e.cue.rgb.join(",")});opacity:${(e.cue.br ?? 100) / 100}"></span> ${e.cue.rgb.join(", ")} @ ${e.cue.br ?? 100}%` : '<span class="dim">state colour (no show colour)</span>');
+    } else if (slot === "FACE") {
+      const e = lastAt(evs, t);
+      row(slot, e ? e.cue.name : '<span class="dim">face\'s own</span>');
+    } else {
+      const e = lastAt(evs, t);
+      row(slot, e ? (e.cue.do || `pos ${e.cue.pos}`) : '<span class="dim">—</span>');
+    }
+  }
+  $("preview").innerHTML = `<div class="pv">${out.join("")}</div>`;
+}
+
+/* ---------- validator output ---------- */
+function renderProblems() {
+  const d = S.data, el = $("problems");
+  if (d.parse_error) { el.innerHTML = `<p class="err">${esc(d.parse_error)}</p>`; return; }
+  const items = tl().problems.map((p) => `<li data-cue="${p.cue ?? ""}" class="err">${esc(p.msg)}${p.clip ? ` <span class="dim">(clip ${esc(p.clip)}${p.instance !== null ? " #" + (p.instance + 1) : ""})</span>` : ""}</li>`);
+  for (const n of tl().notices) items.push(`<li class="notice note">note: ${esc(n)}</li>`);
+  el.innerHTML = items.length ? `<ul>${items.join("")}</ul>` : '<p class="dim">No problems. Valid means <i>allowed</i>, not <i>safe</i> — and not yet executable: there is no runner.</p>';
+}
+function renderInspector() {
+  const el = $("inspector"), i = S.selected, a = (S.data && S.data.authored) || [];
+  if (i === null || !a[i]) { el.innerHTML = '<p class="dim">Tap a cue to inspect it. Tap an empty lane to move the playhead; <b>+</b> adds a cue there.</p>'; return; }
+  const c = a[i], form = "t" in c ? "t" : "beat" in c ? "beat" : "bar" in c ? "bar" : "t";
+  const rest = {}; for (const [k, v] of Object.entries(c)) if (!["t", "beat", "bar"].includes(k)) rest[k] = v;
+  const evs = []; for (const v of Object.values(tl().tracks)) for (const e of v) if (e.src.index === i) evs.push(e);
+  const line = S.data.cue_lines ? S.data.cue_lines[i] : null;
+  const probs = (problemsByCue().get(i) || []).map((m) => `<div class="err">${esc(m)}</div>`).join("");
+  let resolved = "";
+  if (evs.length === 1) {
+    const e = evs[0];
+    resolved = `t = ${e.t.toFixed(3)} s <span class="dim">(${esc(e.src.time)})</span> · span ${e.start.toFixed(3)}–${e.end.toFixed(3)} s`;
+    if (e.pose) resolved += `<div class="dim">resolved pose (outward): ${Object.values(e.pose).map((v) => v.toFixed(1)).join(", ")}</div>`;
+  } else if (evs.length) {
+    resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <span class="dim">(edit the clip's own cues in the YAML)</span>`;
+  }
+  el.innerHTML = `
+    <div class="meta">cue ${i}${line ? ` · line ${line}` : ""}${c.slot ? " · " + c.slot : ""}${c.clip ? " · clip placement" : ""}</div>
+    <div class="resolved">${resolved}</div>${probs}
+    <div class="row2">
+      <select id="iForm">${["t", "beat", "bar"].map((f) => `<option ${f === form ? "selected" : ""}>${f}</option>`).join("")}</select>
+      <input id="iTime" value="${esc(c[form] ?? "")}" inputmode="decimal">
+      <button id="iApply">apply</button>
+      <button id="iDelete" title="Delete this cue (Delete key)">delete</button>
+    </div>
+    <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
+    <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
+  $("iApply").onclick = () => {
+    let fields;
+    try { fields = JSON.parse($("iFields").value); } catch (e) { toast("fields are not valid JSON: " + e.message, 4000); return; }
+    const f = $("iForm").value, raw = $("iTime").value.trim();
+    const v = f === "bar" ? raw : Number(raw);
+    if (f !== "bar" && !Number.isFinite(v)) { toast(`${f} must be a number`); return; }
+    const cue = {}; cue[f] = v;
+    /* keep the author's key order: time first only if it was first before */
+    const ordered = {};
+    const keys = Object.keys(c);
+    for (const k of keys) { if (["t", "beat", "bar"].includes(k)) Object.assign(ordered, cue); else if (k in fields) ordered[k] = fields[k]; }
+    if (!Object.keys(ordered).some((k) => ["t", "beat", "bar"].includes(k))) Object.assign(ordered, cue);
+    for (const [k, val] of Object.entries(fields)) if (!(k in ordered)) ordered[k] = val;
+    edit([{ op: "set", index: i, cue: ordered }], "applied");
+  };
+  $("iDelete").onclick = () => deleteSelected();
+}
+function deleteSelected() {
+  if (S.selected === null) return;
+  const i = S.selected; S.selected = null;
+  edit([{ op: "delete", index: i }], `deleted cue ${i}`);
+}
+
+/* ---------- adding, teaching ---------- */
+const DEFAULTS = {
+  GRIP_L: { do: "open" }, GRIP_R: { do: "open" }, HEAD: { pan: 90, tilt: 90 },
+  LIFT: { do: "up", secs: 2 }, SOUND: { do: "beep", hz: 1000, ms: 120 },
+  FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
+};
+function addCue(slot) {
+  const t = snapT(S.t);
+  let body = DEFAULTS[slot];
+  if (slot === "ARM_L" || slot === "ARM_R") {
+    /* "hold the pose here": a keyframe equal to the interpolated pose — move it from there */
+    const p = armAt(tl().tracks[slot] || [], t).pose, joints = {};
+    for (let j = 1; j <= 7; j++) if (Math.abs(p[j]) > 0.05) joints[j] = round(p[j], 1);
+    body = { joints: Object.keys(joints).length ? joints : { 7: 0 } };
+  }
+  edit([{ op: "add", cue: { ...newCueTime(t), slot, ...body } }], `added ${slot} at ${t.toFixed(2)} s`);
+}
+/* A STAND-IN for /joint_states. On the robot the browser would subscribe to /joint_states through
+ * rosbridge (the transport notes/design/arm-telemetry-and-viz.md settles), read-only, and post ONE
+ * sample to api/capture. Here it fabricates a sample in the controller's own convention — the left
+ * arm's J1-J3 NEGATIVE — so the un-mirroring in cue.py is exercised end to end. */
+const FakeJointSource = {
+  name: "fake",
+  sample() {
+    const s = performance.now() / 1000, name = [], position = [];
+    const outward = { 1: 10 + 8 * Math.sin(s / 3), 2: 35 + 15 * Math.sin(s / 5), 3: 5 * Math.sin(s / 7),
+                      4: 70 + 20 * Math.sin(s / 4), 5: 0, 6: 10 * Math.sin(s / 6), 7: 25 * Math.sin(s / 2) };
+    for (const side of ["left", "right"]) for (let j = 1; j <= 7; j++) {
+      const signed = outward[j] * (side === "left" && j <= 3 ? -1 : 1);
+      name.push(`openarm_${side}_joint${j}`); position.push(signed * Math.PI / 180);
+    }
+    return { name, position, source: "fake" };
+  },
+};
+async function teach(slot) {
+  const side = slot === "ARM_L" ? "left" : "right";
+  try {
+    const cap = await api("api/capture", { side, joint_state: FakeJointSource.sample() });
+    const t = snapT(S.t);
+    await edit([{ op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
+    toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ") + " — the validator has re-checked its speed", 5000);
+  } catch (e) { toast(e.message, 5000); }
+}
+
+/* ---------- pointer interaction: tap selects, drag retimes, tap on empty seeks ---------- */
+function laneX(ev) { const r = $("canvas").getBoundingClientRect(); return ev.clientX - r.left; }
+let drag = null;
+function onDown(ev) {
+  const target = ev.target.closest("[data-cue]");
+  if (!target || !target.closest("#lanes")) {
+    if (ev.target.closest("#lanes") || ev.target.closest("#ruler") || ev.target.closest("#music")) {
+      drag = { seek: true, x0: ev.clientX, y0: ev.clientY, id: ev.pointerId };
+    }
+    return;
+  }
+  const i = +target.dataset.cue, c = S.data.authored[i];
+  drag = { i, el: target, x0: ev.clientX, moved: false, anchor: authoredT(c), left0: parseFloat(target.style.left), id: ev.pointerId };
+  target.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+}
+function onMove(ev) {
+  if (!drag || drag.seek || ev.pointerId !== drag.id) return;
+  const dx = ev.clientX - drag.x0;
+  if (!drag.moved && Math.abs(dx) < 6) return;
+  drag.moved = true;
+  const t = snapT(Math.max(0, drag.anchor + dx / S.pps));
+  drag.newT = t;
+  drag.el.classList.add("dragging");
+  drag.el.style.left = (drag.left0 + (t - drag.anchor) * S.pps) + "px";
+  $("clock").textContent = `→ ${t.toFixed(3)} s${barLabel(t) ? " · " + barLabel(t) : ""}`;
+}
+function onUp(ev) {
+  if (!drag || ev.pointerId !== drag.id) return;
+  const d = drag; drag = null;
+  if (d.seek) {
+    if (Math.abs(ev.clientX - d.x0) < 8 && Math.abs(ev.clientY - d.y0) < 8) seek(laneX(ev) / S.pps);
+    return;
+  }
+  if (!d.moved) { S.selected = d.i; renderLanes(); renderInspector(); return; }
+  S.selected = d.i;
+  const c = S.data.authored[d.i];
+  if (d.anchor === null || d.newT === undefined || Math.abs(d.newT - d.anchor) < 1e-6) { renderLanes(); return; }
+  edit([{ op: "set", index: d.i, cue: retimed(c, d.newT) }], `moved cue ${d.i} to ${d.newT.toFixed(3)} s`);
+}
+
+/* ---------- tap tempo ---------- */
+function tap(ev) {
+  const now = ev.timeStamp / 1000;
+  if (S.taps.length && now - S.taps[S.taps.length - 1] > 2.0) S.taps = [];
+  S.taps.push(now); if (S.taps.length > 16) S.taps.shift();
+  if (S.taps.length >= 4) {
+    const iv = S.taps.slice(1).map((x, k) => x - S.taps[k]).sort((a, b) => a - b);
+    S.tapBpm = round(60 / iv[Math.floor(iv.length / 2)], 1);       // median: one bad tap does not move it
+    $("tapBpm").textContent = `${S.tapBpm} BPM (${S.taps.length} taps)`; $("tapUse").disabled = false;
+  } else { $("tapBpm").textContent = `${S.taps.length}…`; }
+}
+
+/* ---------- wiring ---------- */
+function bind() {
+  $("show").onchange = (e) => loadShow(e.target.value);
+  $("play").onclick = () => (S.playing ? stop() : play());
+  $("zoomIn").onclick = () => zoom(1.5);
+  $("zoomOut").onclick = () => zoom(1 / 1.5);
+  $("snap").onchange = (e) => { S.snap = e.target.value; store.set("snap", S.snap); };
+  $("metro").onchange = (e) => { S.metro = e.target.checked; store.set("metro", S.metro); };
+  $("tap").onpointerdown = tap;
+  $("tapUse").onclick = () => S.tapBpm && edit([{ op: "music", key: "bpm", value: S.tapBpm }], `tempo set to ${S.tapBpm} BPM`).then(loadAudio);
+  $("beatOne").onclick = () => edit([{ op: "music", key: "offset_s", value: round(S.t, 3) }], `beat 1 is now at ${S.t.toFixed(3)} s`);
+  $("undo").onclick = undo;
+  $("save").onclick = save;
+  $("yamlBtn").onclick = () => { $("yamlText").value = S.text; $("yamlDrawer").hidden = false; };
+  $("yamlClose").onclick = () => ($("yamlDrawer").hidden = true);
+  $("yamlApply").onclick = async () => {
+    const d = await api("api/analyse", { path: S.path, text: $("yamlText").value });
+    S.undo.push(S.text); setData(d); toast(d.parse_error ? "applied, but it does not parse" : "applied", 1600);
+  };
+  $("heads").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.add) addCue(b.dataset.add);
+    if (b.dataset.teach) teach(b.dataset.teach);
+    if (b.dataset.mute) {
+      const k = b.dataset.mute; S.muted.has(k) ? S.muted.delete(k) : S.muted.add(k);
+      store.set("muted." + S.path, [...S.muted]);
+      if (k === "MUSIC" && S.audio.gain) S.audio.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
+      render();
+    }
+  });
+  $("problems").addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-cue]"); if (!li || li.dataset.cue === "") return;
+    S.selected = +li.dataset.cue; renderLanes(); renderInspector();
+    const el = document.querySelector(`#lanes [data-cue="${S.selected}"]`);
+    if (el) $("scroller").scrollLeft = parseFloat(el.style.left) - $("scroller").clientWidth * 0.3;
+  });
+  const sc = $("scroller");
+  sc.addEventListener("pointerdown", onDown);
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", () => { drag = null; renderLanes(); });
+  sc.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e); } }, { passive: false });
+  window.addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); return; }
+    if (typing) return;
+    if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }
+    else if ((e.key === "Delete" || e.key === "Backspace") && S.selected !== null) { e.preventDefault(); deleteSelected(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
+  });
+  window.addEventListener("beforeunload", (e) => { if (S.text !== S.savedText) { e.preventDefault(); e.returnValue = ""; } });
+}
+function zoom(f, ev) {
+  const sc = $("scroller"), anchorX = ev ? ev.clientX - sc.getBoundingClientRect().left : sc.clientWidth / 2;
+  const tAt = (sc.scrollLeft + anchorX) / S.pps;
+  S.pps = Math.max(8, Math.min(600, S.pps * f)); store.set("pps", S.pps);
+  render();
+  sc.scrollLeft = tAt * S.pps - anchorX;
+}
+
+async function main() {
+  S.pps = store.get("pps", 60); S.snap = store.get("snap", "beat"); S.metro = store.get("metro", false);
+  $("snap").value = S.snap; $("metro").checked = S.metro;
+  bind();
+  S.info = await api("api/info");
+  const shows = await api("api/shows");
+  $("show").innerHTML = shows.map((s) => `<option>${esc(s.path)}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("show") || store.get("lastShow", null);
+  const first = shows.find((s) => s.path === want) || shows[0];
+  if (first) { $("show").value = first.path; await loadShow(first.path); }
+}
+main().catch((e) => toast("composer failed to start: " + e.message, 10000));

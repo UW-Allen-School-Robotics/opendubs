@@ -29,4 +29,5 @@ jobs:
           python-version: "3.x"
       - run: pip install pyyaml
       - run: python3 software/choreo/tests/test_cue.py
+      - run: python3 software/choreo/tests/test_composer.py
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml
