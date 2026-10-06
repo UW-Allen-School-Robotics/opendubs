@@ -690,7 +690,7 @@ without a reflash. This closes **P3** in the polish backlog above.
 
 ## Second round of on-robot findings, 2026-10-06
 
-### F5 — Front ToF now has a driver · **PORTED, needs one physical check**
+### F5 — Front ToF now has a driver · **DONE, verified on the robot 2026-10-06**
 
 It was never "unwired" — the panel said so because no driver existed. Identified on the robot from
 its model ID: **VL53L0X** (0xEE at register 0xC0), not the VL53L1X. That distinction matters and is
@@ -705,17 +705,24 @@ and phase reference calibration, then continuous back-to-back ranging polled non
 (aperture type). Every sample comes back `raw=8190 rs=6` — the out-of-range sentinel with ST range
 status 6, SIGMA THRESHOLD CHECK failed, i.e. the sensor does not trust the return.
 
-**Two candidate causes, and one free test tells them apart.** Put a hand ~20 cm in front of the
-sensor:
-- a number appears → there was simply no target in range, and the driver is done;
-- still fails with a strong return → it is the **measurement timing budget**, which this port
-  deliberately omits. Pololu reads the budget, writes `SYSTEM_SEQUENCE_CONFIG = 0xE8`, then
-  re-applies it; omitting both was documented in `tof.cpp` as preserving the default, and sigma
-  failure is exactly what too-short an integration time produces. Fixing it means porting the
-  macro-period / timeout encoding math (~150 lines).
+**TESTED: a hand in front reads correctly.** So the `raw=8190 rs=6` stream was a real
+out-of-range — there was simply no target within the sensor's reach — and the driver is complete.
 
-Deliberately NOT guessed between the two: changing the budget and re-testing at the same time
-would make the result unattributable, which is the repo's own rule.
+**THE TIMING BUDGET DOES NOT NEED PORTING.** `tof.cpp` deliberately omits
+`setMeasurementTimingBudget()`, and sigma-threshold failure is exactly what too-short an
+integration time also produces, so that was the other candidate. It is now ruled out by
+measurement rather than by argument: a strong return at ~20 cm ranges fine on the default budget.
+**Do not write the ~150 lines of macro-period / timeout encoding math** — it would be effort spent
+to reproduce behaviour that already works. If long-range accuracy ever matters, that is when to
+revisit it, and `tof.cpp` says so at the omission.
+
+Deciding this by one physical test rather than by changing the budget and re-testing together is
+the repo's own rule — change one variable at a time — and it saved the whole port.
+
+**Open nit, not a defect:** Emma's note that "out of range is a misreport". The sensor genuinely is
+out of range when nothing is in front of it, but the phrase reads as a fault rather than as a
+normal condition. Wording only — something like "nothing in range" would carry the same fact
+without implying something is broken.
 
 HEIGHT still reads `---` and should: that sensor is on the StamPLC and arrives over UDP, which is
 not wired. It must not borrow the ToF's number — they measure different things.
