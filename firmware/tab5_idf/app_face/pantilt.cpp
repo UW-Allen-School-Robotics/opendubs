@@ -422,8 +422,13 @@ const char* pantiltI2cScan()
     return buf;
 }
 
+// Aiming by hand TAKES OVER, and KEEPS it until MODE hands it back. Without this the release fell
+// through to the tracking branch, whose target is kCentreDeg -- so the head crawled back to centre
+// the moment the lease lapsed, which is the "fighting me" the operator reported. The Arduino had no
+// such struggle because TrackingMode was a persistent mode rather than a lease.
 void pantiltTouchRate(float panDps, float tiltDps)
 {
+    if (panDps != 0.0f || tiltDps != 0.0f) g_tracking = false;
     g_tpPan  = panDps;
     g_tpTilt = tiltDps;
     // 0,0 on release clears ownership immediately rather than waiting out the lease.
