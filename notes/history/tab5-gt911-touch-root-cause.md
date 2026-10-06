@@ -91,3 +91,29 @@ touch for only one or two polls per press, so a fast tap may be missed. Touch fu
 quality, not a blocker. Candidates: the `0x814E` handshake, or the chip deasserting early. Also
 `0x8040` reads `0xff` after bring-up while coordinates flow — unclear whether the sequence should
 end by writing `0x00` to the command register.
+
+## Recommended next steps, not done
+
+Carried over from the analysis rather than acted on, because touch works and the sitting ended.
+
+1. **Settle the press-cadence anomaly from data already on disk.** The two serial lines both read
+   `TP RAW press #1`, and that cannot come from one monotonic counter: the condition is
+   `(od_tp_presses++ % 25) == 0` printing the post-increment value, so the next qualifying line
+   must read `#26`. A second `#1` means the counter was zero again — different boots, a reset, or
+   a mangled capture — so the `presses=2` figure is not yet trustworthy evidence of anything. The
+   heartbeat lines each carry the running total, so the series pins it down at no cost. If it
+   shows ~1 press-poll per hold, the chip is reporting one frame per touch rather than one per
+   refresh cycle (`refresh 05` implies ~10 ms) and that is a real question; if ~25 per hold, the
+   PONG was simply read mid-session and there is no anomaly.
+2. **Do NOT write `0x00` to `0x8040`.** The `0xff` read happens within 2 ms of the wake pulse while
+   the firmware is still starting, and M5GFX never writes that register at all except `0x05` to
+   *enter* sleep. A `0x00` write would be a new variable with no known-good precedent. Observe it
+   read-only instead — adding `0x8040` to the heartbeat is enough.
+3. **A determinism series, five boots, covering all three reset paths** that previously produced
+   dead boots: UDP `REBOOT`, a cold power pull, and an esptool flash reset. The register dump is a
+   sound *necessary-condition* proxy (`xmax=0` guarantees no coordinates), so four of the five
+   cost no human interaction; one press at the end closes the sufficiency gap. If any boot comes
+   up zero, the base rate is not 100% and a bounded retry of `od_gt911_m5gfx_bringup()` — up to
+   three attempts on a FAIL verdict, each logged — becomes required rather than insurance. Worth
+   doing before this ships either way, together with turning the dump into an explicit
+   `GT911 TOUCH PASS/FAIL` line keyed on `xmax && ymax && touches`.
