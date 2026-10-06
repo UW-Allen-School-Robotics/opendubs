@@ -264,6 +264,26 @@ constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
 uint32_t g_nextState = 0;
 
+// ---- the StamPLC link ------------------------------------------------------------------------
+// THE FACE MUST NOT CLAIM A STATE IT CANNOT CONFIRM.
+//
+// The Arduino firmware times out the link at 5 s and sets g_linkOnline=false -- and then face.cpp
+// never reads it. So the face keeps showing whatever it was last told, indefinitely. That is the
+// stale-display problem the dashboard note argues at length: a panel showing SAFE_IDLE because
+// that is what it heard four minutes ago is indistinguishable from one showing it because it is
+// true, and the second is what people will assume.
+//
+// So link loss is a VISIBLE CONDITION here, not a silent freeze. It deliberately is not an eighth
+// entry in kStates, because it is not a state of the robot -- it is the absence of information
+// about the robot, and giving it a row would let it be themed, emoted and cycled like a real one.
+//
+// It is also the NORMAL condition on a bench, which is the honest default: with no link the face
+// should say it has no link, not pretend to be idle.
+constexpr uint32_t kLinkStaleMs = 5000;   // matches the Arduino firmware
+bool     g_linkUp      = false;
+uint32_t g_nextLinkChk = 0;
+int      g_linkState   = -1;              // index into kStates, or -1 when unknown
+
 uint32_t g_nextSaccade = 0, g_nextEmote = 0, g_nextBlink = 0;
 bool g_blinking = false;
 uint32_t g_blinkEnd = 0;
@@ -902,6 +922,7 @@ void reticleColourFor(uint8_t kind)
 }
 
 void applyEmote(int idx);
+void applyNoLink();
 
 void applyState(int idx)
 {
@@ -910,6 +931,20 @@ void applyState(int idx)
     const uint32_t c = theme::stateColour(idx, base);
     g_colR = (float)((c >> 16) & 0xff);  g_colG = (float)((c >> 8) & 0xff);  g_colB = (float)(c & 0xff);
     if (s.locked >= 0) applyEmote(s.locked);
+}
+
+// NO LINK is deliberately NOT rendered as FAULT. FAULT flashes hard and is owned by DEGRADED and
+// E_STOP, so borrowing it would have the face announce a fault the robot has not reported -- the
+// same class of lie as showing a stale state, just louder. "I cannot see the robot" is not "the
+// robot is in trouble".
+//
+// Instead: a desaturated slate colour that matches no state in the table, on the IDLE breath. It
+// reads as alive but uncommitted, which is exactly the claim being made. The eyes keep running --
+// a dead face reads as a dead robot, a worse lie than admitting ignorance.
+void applyNoLink()
+{
+    g_colR = 96.0f; g_colG = 108.0f; g_colB = 124.0f;   // slate; no state uses it
+    band::g_activity = band::IDLE;
 }
 
 void applyEmote(int idx)
@@ -1078,6 +1113,40 @@ void AppFace::onRunning()
     cueTick(now);
 
     // Camera and perception bring-up, in non-blocking steps on this task. See cameraStep().
+    // THE STATE LINK. Checked at 4 Hz: a state change is a human-timescale event and there is no
+    // reason to spend a frame on it.
+    if (due(now, g_nextLinkChk)) {
+        g_nextLinkChk = now + 250;
+        const char* name = nullptr;
+        unsigned    age  = 0;
+        const bool  had  = linkState(&name, &age);
+        const bool  up   = had && age < kLinkStaleMs;
+
+        int idx = -1;
+        if (up) {
+            for (int i = 0; i < kNStates; ++i)
+                if (strcmp(kStates[i].name, name) == 0) { idx = i; break; }
+            // An unknown name is NOT silently ignored and NOT mapped to state 0: being told
+            // something we cannot interpret is closer to having no link than to being idle.
+            if (idx < 0) mclog::tagError("link", "unknown STATE '{}' -- treating as no link", name);
+        }
+
+        if (up != g_linkUp || idx != g_linkState) {
+            g_linkUp    = up;
+            g_linkState = idx;
+            GetHAL()->lvglLock();
+            if (idx >= 0) {
+                g_state = idx;
+                applyState(g_state);
+                band::g_activity = band::IDLE;
+            } else {
+                applyNoLink();
+            }
+            GetHAL()->lvglUnlock();
+            mclog::tagInfo("link", "{}", idx >= 0 ? kStates[idx].name : "NO LINK");
+        }
+    }
+
     cameraStep(now, now - g_openMs);
 
     // WALK-IN TEST MODE takes the rest of the frame. It must come AFTER cameraStep(), not before:

@@ -34,3 +34,16 @@ const char* netStatus();
 
 // True once we hold an IP. The OTA and UDP layers must not start before this.
 bool netReady();
+
+// ---- the StamPLC STATE link -----------------------------------------------------------------
+// "STATE <NAME>" arrives on UDP 4242, exactly as the Arduino firmware receives it, so whatever
+// sends it today keeps working.
+//
+// THE LINK IS REPORTED, NOT ASSUMED. net stores the NAME rather than an index: the state table
+// lives in app_face.cpp and should stay in one place, so resolving a name to a state is the
+// face's job and an unknown name is visible rather than silently mapped to zero.
+//
+// Returns false when no STATE has EVER arrived -- which is the normal condition on a bench, and
+// is different from "the link dropped". The caller gets ageMs so it can decide what stale means
+// rather than having that baked in here.
+bool linkState(const char** nameOut, unsigned* ageMsOut);

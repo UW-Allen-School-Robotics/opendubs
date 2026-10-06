@@ -20,6 +20,7 @@
 // The generated file lands in the EPHEMERAL build tree and is never written to this repo.
 #include "net_credentials.h"
 #include "rollback_test.h"
+#include "shared/clock.h"
 
 namespace {
 
@@ -191,6 +192,10 @@ void task(void*)
 // being TOLD to pull, and that is what we reproduce.
 // ------------------------------------------------------------------------------------------
 constexpr int kCmdPort = 4242;
+
+// The last STATE we were told, and when. Never parsed into an index here -- see net.h.
+char     g_stateName[24] = "";
+uint32_t g_stateStamp    = 0;   // 0 means "never heard from the robot at all"
 
 // THE STALL DEADLINE IS NOT OPTIONAL. The Arduino firmware carries a comment paid for in a
 // physical recovery: killing the serving side mid-download wedged the head on "OTA: writing",
@@ -367,6 +372,14 @@ void cmdTask(void*)
             sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
             vTaskDelay(pdMS_TO_TICKS(150));
             esp_restart();
+        } else if (strncmp(rx, "STATE ", 6) == 0) {
+            // Bounded explicitly: the packet is 256 bytes and this field is 24. Truncation is
+            // safe but the compiler is right to object -- a state name that long is malformed,
+            // and a truncated one will simply fail to match the table and read as no link.
+            snprintf(g_stateName, sizeof(g_stateName), "%.23s", rx + 6);
+            g_stateStamp = perceptNowMs();
+            const char* tx = "OK state";
+            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
         } else if (strncmp(rx, "OTA ", 4) == 0) {
             const char* tx = "OK ota";
             sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
@@ -381,6 +394,15 @@ void cmdTask(void*)
 }  // namespace
 
 const char* netStatus() { return g_status; }
+
+bool linkState(const char** nameOut, unsigned* ageMsOut)
+{
+    if (g_stateStamp == 0) return false;          // never heard from the robot
+    const uint32_t now = perceptNowMs();
+    if (nameOut)  *nameOut  = g_stateName;
+    if (ageMsOut) *ageMsOut = (unsigned)(now - g_stateStamp);
+    return true;
+}
 bool        netReady()  { return g_ready; }
 
 void netStart()
