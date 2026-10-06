@@ -50,6 +50,41 @@ constexpr const char* kTag = "net";
 // and is set up earlier in the file.
 constexpr int kCmdPort = 4242;
 
+// The StamPLC's own command port. We send it two things and nothing else: a Z-axis INTENT and an
+// e-stop request -- both as plain text, exactly as the dashboard does.
+//
+// NOT the Arduino's route. That one sent CAN_ID_LIFT_CMD (0x102) to the Thor on 5006 and relied on
+// the Thor to translate, so RAISE/LOWER silently did nothing whenever the dashboard was down. The
+// StamPLC parses no such frame; what it parses is `MAST CMD <-1..1>`, which feeds the SAME
+// setIntent() the sticks do, so the pinch guard, the limits and the belief correction all apply.
+// Its own comment calls that "deliberately the ONLY remote way to move the lift" and names the
+// head's buttons as an expected operator interface. So this is shorter AND safer.
+constexpr int      kPlcCmdPort  = 5005;
+constexpr uint32_t kLiftHoldMs  = 300;   // a request older than this is treated as released
+constexpr uint32_t kPubMs       = 50;    // 20 Hz, matching the StamPLC's 250 ms heartbeat window
+
+// The StamPLC's address is RESOLVED BY NAME, never configured -- `opendubs-stamplc.local`, which
+// the StamPLC already advertises (verified: 10.42.2.20 on the robot, 2026-10-06). No fixed IP, no
+// new setting, no change to the StamPLC.
+//
+// LEARNING IT FROM THE 0x107 RATE FRAME IS NOT ENOUGH, and that is worth stating because it was
+// the first design: the StamPLC sends that frame *only while someone is actively aiming the head*
+// -- silence is deliberately how it releases its claim. So an address learned that way does not
+// exist until an operator has moved the right stick, and a SOFT E-STOP THAT ONLY WORKS AFTER YOU
+// HAVE AIMED THE HEAD is not an e-stop. Name resolution has no such precondition. The frame is
+// still honoured when it arrives, because a packet in hand beats a cached lookup.
+volatile uint32_t g_plcIp     = 0;
+volatile uint32_t g_plcStamp  = 0;
+volatile float    g_liftReq   = 0.0f;    // -1 lower, +1 raise, 0 stop
+volatile uint32_t g_liftMs    = 0;
+volatile bool     g_estopReq  = false;
+volatile bool     g_plcByName = false;   // resolved rather than heard
+
+// OTA IN PROGRESS. The face quiesces while this is set -- see netOtaActive(). The OTA runs on this
+// task at priority 2 while the LVGL task runs at priority 4 and the face is already measured at
+// 107-112% of its frame budget, so without this the download competes with rendering and loses.
+volatile bool g_otaActive = false;
+
 // Deliberately NOT including <hal/hal.h> here, and this is not fussiness.
 //
 // `app/hal/hal.h` itself does `#include <lvgl.h>`. So a module that reaches for
@@ -75,7 +110,35 @@ void setStatus(const char* s)
     g_status[sizeof(g_status) - 1] = 0;
 }
 
+// Resolve the StamPLC by name, and keep doing so. Its own task because mdns_query_a() blocks for
+// up to its timeout, and the command socket's loop is also the 20 Hz lift publisher -- a two-second
+// stall there would be two seconds of a held RAISE button not being sent.
+void plcResolveTask(void*)
+{
+    for (;;) {
+        if (!g_ready) { vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
+        esp_ip4_addr_t a = {};
+        const esp_err_t e = mdns_query_a("opendubs-stamplc", 2000, &a);
+        if (e == ESP_OK && a.addr != 0) {
+            if (g_plcIp != a.addr || !g_plcByName)
+                mclog::tagInfo(kTag, "stamplc at " IPSTR " (by name)", IP2STR(&a));
+            // A frame in hand beats a lookup: do not overwrite an address we actually heard from
+            // unless it has gone quiet for a while.
+            const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            if (g_plcByName || g_plcIp == 0 || (now - g_plcStamp) > 30000) {
+                g_plcIp     = a.addr;
+                g_plcStamp  = now;
+                g_plcByName = true;
+            }
+            vTaskDelay(pdMS_TO_TICKS(30000));     // confirm occasionally; DHCP can move it
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(5000));      // not up yet, or not on this network
+        }
+    }
+}
+
 void cmdTask(void*);        // defined below; started once we hold an IP
+void plcResolveTask(void*);
 void markValidTask(void*);  // defined below; declares the image good once it has proven healthy
 
 void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
@@ -128,6 +191,7 @@ void onWifi(void*, esp_event_base_t base, int32_t id, void* data)
         if (!started) {
             started = true;
             xTaskCreatePinnedToCore(cmdTask, "netcmd", 6144, nullptr, 2, nullptr, 1);
+            xTaskCreatePinnedToCore(plcResolveTask, "plcres", 4096, nullptr, 1, nullptr, 1);
         }
         // {} NOT IPSTR. IPSTR is a printf format ("%d.%d.%d.%d") and mclog is fmt-style, so the
         // tokens printed literally and the address never appeared -- the one line someone needs in
@@ -307,7 +371,9 @@ void doOta(const char* url)
     cfg.http_config = &http;
 
     esp_https_ota_handle_t h = nullptr;
+    g_otaActive = true;
     if (esp_https_ota_begin(&cfg, &h) != ESP_OK || !h) {
+        g_otaActive = false;
         setStatus("OTA: begin failed");
         mclog::tagError(kTag, "esp_https_ota_begin failed");
         return;
@@ -329,6 +395,7 @@ void doOta(const char* url)
                 snprintf(b, sizeof(b), "OTA: failed (%s)", esp_err_to_name(r));
                 setStatus(b);
                 esp_https_ota_abort(h);
+                g_otaActive = false;
                 return;
             }
             break;
@@ -340,6 +407,7 @@ void doOta(const char* url)
             setStatus("OTA: stalled - aborted");
             mclog::tagError(kTag, "no progress for {} ms, aborting", (int)kStallMs);
             esp_https_ota_abort(h);
+            g_otaActive = false;
             return;
         }
 
@@ -353,10 +421,12 @@ void doOta(const char* url)
     if (!esp_https_ota_is_complete_data_received(h)) {
         setStatus("OTA: truncated - aborted");
         esp_https_ota_abort(h);
+        g_otaActive = false;
         return;
     }
     if (esp_https_ota_finish(h) != ESP_OK) {
         setStatus("OTA: finish failed");
+        g_otaActive = false;        // a failed OTA must not leave the face permanently frozen
         return;
     }
     setStatus("OTA: ok - rebooting");
@@ -418,6 +488,13 @@ void cmdTask(void*)
     }
     mclog::tagInfo(kTag, "command listener on udp/{}", kCmdPort);
 
+    // A receive timeout turns the blocking listener into a 20 Hz tick, which is what publishes the
+    // lift intent. One socket, one task: no second timer to keep in step with this one.
+    timeval rcvTo = {};
+    rcvTo.tv_usec = kPubMs * 1000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rcvTo, sizeof(rcvTo));
+    uint32_t lastPub = 0;
+
     char        rx[256];
     sockaddr_in from;
     socklen_t   fromLen;
@@ -425,6 +502,36 @@ void cmdTask(void*)
     for (;;) {
         fromLen = sizeof(from);
         int n = recvfrom(sock, rx, sizeof(rx) - 1, 0, (sockaddr*)&from, &fromLen);
+
+        // --- outbound, every kPubMs regardless of whether a packet arrived ---
+        const uint32_t nowMs = (uint32_t)(esp_timer_get_time() / 1000);
+        if (nowMs - lastPub >= kPubMs && g_plcIp != 0) {
+            lastPub = nowMs;
+            sockaddr_in plc = {};
+            plc.sin_family      = AF_INET;
+            plc.sin_addr.s_addr = g_plcIp;
+            plc.sin_port        = htons(kPlcCmdPort);
+
+            // The lift is HOLD-TO-MOVE and heartbeat-gated at the far end, so a dropped packet
+            // costs 50 ms of travel and a dead head stops the lift within 250 ms by construction.
+            // We keep asserting for kLiftHoldMs after release so the STOP is sent several times,
+            // then go quiet rather than hold the StamPLC's remote channel open forever.
+            const bool liftFresh = (g_liftMs != 0) && (nowMs - g_liftMs) < kLiftHoldMs;
+            if (liftFresh) {
+                char tx[32];
+                const int m = snprintf(tx, sizeof(tx), "MAST CMD %.2f\n", g_liftReq);
+                sendto(sock, tx, m, 0, (sockaddr*)&plc, sizeof(plc));
+            }
+
+            // STOPPING IS NEVER CONFIRMED and is resent until the robot reports E_STOP -- this is
+            // the one message where a lost packet matters.
+            if (g_estopReq) {
+                const char* tx = "ESTOP\n";
+                sendto(sock, tx, 6, 0, (sockaddr*)&plc, sizeof(plc));
+                if (g_stateStamp != 0 && strcmp(g_stateName, "E_STOP") == 0) g_estopReq = false;
+            }
+        }
+
         if (n <= 0) continue;
         rx[n] = 0;
         while (n > 0 && (rx[n - 1] == '\n' || rx[n - 1] == '\r')) rx[--n] = 0;
@@ -435,7 +542,24 @@ void cmdTask(void*)
         if (strcmp(rx, "PING") == 0) {
             const esp_app_desc_t* d = esp_app_get_description();
             const esp_partition_t* run = esp_ota_get_running_partition();
-            char tx[256];   // widened for the raw touch counters
+            char tx[320];   // widened for the raw touch counters, the sha and the PLC
+
+            // IDENTIFY THE IMAGE BY ITS ELF HASH, not by a build timestamp. esp_app_desc.c is not
+            // recompiled on every build, so its __DATE__/__TIME__ go stale and a flash that DID
+            // land looks like one that did not -- which cost a round of guessing today. The hash
+            // changes whenever the binary does.
+            char sha[17] = "?";
+            if (d) for (int i = 0; i < 8; ++i) snprintf(sha + i * 2, 3, "%02x", d->app_elf_sha256[i]);
+
+            // Where the lift and e-stop requests would go, and how we know it. "none" means those
+            // controls have nowhere to send to -- the one thing a PING should never leave implicit.
+            char plc[40];
+            const uint32_t pip = g_plcIp;
+            if (pip == 0) snprintf(plc, sizeof(plc), "none");
+            else snprintf(plc, sizeof(plc), "%u.%u.%u.%u/%s",
+                          (unsigned)(pip & 0xff), (unsigned)((pip >> 8) & 0xff),
+                          (unsigned)((pip >> 16) & 0xff), (unsigned)((pip >> 24) & 0xff),
+                          g_plcByName ? "name" : "heard");
             // Report the OTA STATE too. "which slot" was not enough to diagnose why a rollback
             // did not fire -- PENDING_VERIFY vs VALID is the whole question, and guessing at it
             // cost a test cycle.
@@ -452,9 +576,9 @@ void cmdTask(void*)
                 }
             }
             const int m = snprintf(tx, sizeof(tx),
-                                   "PONG slot=%s state=%s | %s | tp polls=%lu presses=%lu "
-                                   "errs=%lu last=%lu,%lu | %s",
-                                   run ? run->label : "?", sn, hmiDiag(),
+                                   "PONG slot=%s state=%s sha=%s | plc=%s | %s | tp polls=%lu "
+                                   "presses=%lu errs=%lu last=%lu,%lu | %s",
+                                   run ? run->label : "?", sn, sha, plc, hmiDiag(),
                                    (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
                                    (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
                                    (unsigned long)od_tp_lasty, pantiltStatus());
@@ -472,6 +596,10 @@ void cmdTask(void*)
             memcpy(&p, rx + 5, 2);
             memcpy(&q, rx + 7, 2);
             pantiltRcRate((float)p, (float)q);
+            // Learn where that came from -- this is the only inbound frame that tells us.
+            g_plcIp    = from.sin_addr.s_addr;
+            g_plcStamp = (uint32_t)(esp_timer_get_time() / 1000);
+            g_plcByName = false;
             // No reply: this arrives 20 times a second while someone is aiming.
         } else if (strcmp(rx, "I2CSCAN") == 0) {
             // On demand, not at boot: a scan probes 112 addresses on two buses and that is not
@@ -516,6 +644,27 @@ bool linkState(const char** nameOut, unsigned* ageMsOut)
     return true;
 }
 bool        netReady()  { return g_ready; }
+bool        netOtaActive() { return g_otaActive; }
+
+void netLiftRequest(float v)
+{
+    g_liftReq = v;
+    g_liftMs  = (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+void netEstopRequest()
+{
+    g_estopReq = true;
+    netLiftRequest(0.0f);     // whatever else happens, stop asking the lift to move
+}
+
+bool netCommandLink(unsigned* ageMsOut)
+{
+    if (g_plcIp == 0) return false;
+    if (ageMsOut) *ageMsOut = (unsigned)((uint32_t)(esp_timer_get_time() / 1000) - g_plcStamp);
+    return true;
+}
+bool netEstopPending() { return g_estopReq; }
 
 void netStart()
 {
@@ -536,6 +685,11 @@ void netStart()
 void netStart() {}
 const char* netStatus() { return "wifi: desktop build (no network)"; }
 bool netReady() { return false; }
+bool netOtaActive() { return false; }
+void netLiftRequest(float)        {}
+void netEstopRequest()            {}
+bool netCommandLink(unsigned*)    { return false; }
+bool netEstopPending()            { return false; }
 bool linkState(const char**, unsigned*) { return false; }
 
 #endif  // ESP_PLATFORM

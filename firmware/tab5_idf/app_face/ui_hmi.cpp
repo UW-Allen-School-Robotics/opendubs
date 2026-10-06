@@ -1,6 +1,8 @@
 #include "ui_hmi.h"
 #include "ui_settings.h"
 #include "touch_ui_config.h"
+#include "pantilt.h"
+#include "net.h"
 
 #include <lvgl.h>
 #include <mooncake_log.h>
@@ -15,11 +17,17 @@
 
 namespace {
 
+constexpr float kDpadDpsUi = 45.0f;   // the Arduino's kDpadDps
+
 constexpr const char* kTag = "hmi";
 
 // THE OUTBOUND LINK DOES NOT EXIST YET. See ui_hmi.h deviation 2. Flip this when a command
 // transport to the StamPLC lands, and the controls arm themselves.
-constexpr bool kCommandLink = false;
+// THE COMMAND LINK EXISTS NOW. RAISE/LOWER go out as `MAST CMD <v>` and the e-stop as `ESTOP`,
+// both to the StamPLC on udp/5005 -- see net.cpp. What is still runtime-conditional is whether we
+// have HEARD the StamPLC, since its address is learned rather than configured; netCommandLink()
+// answers that, and the banner below reports it honestly instead of claiming either way.
+constexpr bool kCommandLink = true;
 
 // Idle auto-revert. The Arduino HMI did this too (HmiCtx::revertSecs): a controller screen left
 // up on a robot's face is a face that has stopped being a face, and nobody remembers to close it.
@@ -127,6 +135,26 @@ lv_obj_t* panel(lv_obj_t* parent, const int r[4], const char* label)
 
 // A command control. DISABLED while kCommandLink is false -- greyed, and no handler attached, so
 // there is no path by which a press could be mistaken for a command. See ui_hmi.h deviation 2.
+// A control that is LIVE regardless of kCommandLink, because it needs no outbound transport.
+//
+// The pan/tilt d-pad and MODE act on servos and state THIS BOARD OWNS -- the Arduino's d-pad set
+// g_dpadPanDps/g_dpadTiltDps straight into its local integration. RAISE/LOWER and the soft e-stop
+// are different: they are REQUESTS to the StamPLC, so they stay inert until that path exists.
+lv_obj_t* liveBox(lv_obj_t* parent, const int r[4], const char* word, uint32_t accent, int radius)
+{
+    lv_obj_t* b = box(parent, r, 0x18202a, radius);
+    lv_obj_set_style_border_width(b, 2, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(accent), 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    if (word) {
+        lv_obj_t* l = text(parent, word, F_WORD, accent, 0, 0);
+        lv_obj_set_width(l, r[2]);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(l, r[0], r[1] + r[3] / 2 - 20);
+    }
+    return b;
+}
+
 lv_obj_t* commandBox(lv_obj_t* parent, const int r[4], const char* word, uint32_t accent,
                      int radius = 14)
 {
@@ -143,8 +171,36 @@ lv_obj_t* commandBox(lv_obj_t* parent, const int r[4], const char* word, uint32_
     return b;
 }
 
+lv_obj_t* g_banner = nullptr;
+lv_obj_t* g_bannerTx = nullptr;
+
 void onFacePress(lv_event_t*);
 void onVeilPress(lv_event_t*);
+
+// One handler per direction. user_data carries the rate pair so there is no switch to get wrong.
+struct DpadRate { float pan, tilt; };
+DpadRate g_dpadL{-kDpadDpsUi, 0}, g_dpadR{kDpadDpsUi, 0},
+         g_dpadU{0, kDpadDpsUi},  g_dpadD{0, -kDpadDpsUi};
+
+void onDpadHold(lv_event_t* e)
+{
+    auto* r = (DpadRate*)lv_event_get_user_data(e);
+    pantiltTouchRate(r->pan, r->tilt);
+}
+void onDpadRelease(lv_event_t*) { pantiltTouchRate(0.0f, 0.0f); }
+
+void onModeToggle(lv_event_t*) { pantiltSetTracking(!pantiltTracking()); }
+
+// RAISE / LOWER. HOLD-TO-MOVE, exactly as on the Arduino: PRESSING refreshes the request every
+// frame, so letting go stops the lift even if the RELEASED event is missed, and so does the head
+// dying -- the StamPLC's own 250 ms heartbeat window closes.
+void onLiftHold(lv_event_t* e)    { netLiftRequest(*(const float*)lv_event_get_user_data(e)); }
+void onLiftRelease(lv_event_t*)   { netLiftRequest(0.0f); }
+constexpr float kLiftUp = 1.0f, kLiftDown = -1.0f;   // the StamPLC's convention: positive is UP
+
+// STOPPING IS NEVER CONFIRMED. A stop control that asks "are you sure?" is not a stop control.
+// Clearing is NOT here: only the dashboard's guarded re-arm can un-stop the robot.
+void onEstopPress(lv_event_t*)    { netEstopRequest(); }
 void onClose(lv_event_t*);
 void onSettings(lv_event_t*);
 
@@ -295,11 +351,17 @@ void hmiBuild()
     }
 
     // ---- RAISE / readout / LOWER ----
-    commandBox(g_root, UPB, "RAISE", UPCOL);
+    lv_obj_t* upB = commandBox(g_root, UPB, "RAISE", UPCOL);
+    lv_obj_add_event_cb(upB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftUp);
+    lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
+    lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
     panel(g_root, RDO, "HEIGHT");
     g_height = text(g_root, "---", F_BIG, INKFT, RDO[0] + 24, RDO[1] + 56);
     text(g_root, "mm", F_DATA, INKFT, RDO[0] + 180, RDO[1] + 80);
-    commandBox(g_root, DNB, "LOWER", DNCOL);
+    lv_obj_t* dnB = commandBox(g_root, DNB, "LOWER", DNCOL);
+    lv_obj_add_event_cb(dnB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftDown);
+    lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
+    lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
 
     // ---- pan / tilt d-pad + mode ----
     const int panL[4]  = {DP_CX - DP_W - DP_G, DP_CY - DP_W / 2,     DP_W, DP_W};
@@ -307,11 +369,20 @@ void hmiBuild()
     const int tiltU[4] = {DP_CX - DP_W / 2,    DP_CY - DP_W - DP_G,  DP_W, DP_W};
     const int tiltD[4] = {DP_CX - DP_W / 2,    DP_CY + DP_G,         DP_W, DP_W};
     const int mode[4]  = {DP_CX - 75,          DP_CY + DP_W + DP_G + 20, 150, 44};
-    commandBox(g_root, tiltU, LV_SYMBOL_UP,    CYAN, 12);
-    commandBox(g_root, tiltD, LV_SYMBOL_DOWN,  CYAN, 12);
-    commandBox(g_root, panL,  LV_SYMBOL_LEFT,  CYAN, 12);
-    commandBox(g_root, panR,  LV_SYMBOL_RIGHT, CYAN, 12);
-    commandBox(g_root, mode,  nullptr, CYAN, 10);
+    // THE D-PAD AND MODE ARE LIVE. They drive servos and state this board owns, so they need no
+    // command link -- which is why they work now while RAISE/LOWER and the e-stop do not.
+    struct { const int* r; const char* sym; DpadRate* rate; } dp[] = {
+        {tiltU, LV_SYMBOL_UP,    &g_dpadU}, {tiltD, LV_SYMBOL_DOWN,  &g_dpadD},
+        {panL,  LV_SYMBOL_LEFT,  &g_dpadL}, {panR,  LV_SYMBOL_RIGHT, &g_dpadR},
+    };
+    for (auto& d : dp) {
+        lv_obj_t* b = liveBox(g_root, d.r, d.sym, CYAN, 12);
+        lv_obj_add_event_cb(b, onDpadHold,    LV_EVENT_PRESSING, d.rate);
+        lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_RELEASED, nullptr);
+        lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_PRESS_LOST, nullptr);
+    }
+    lv_obj_t* modeBtn = liveBox(g_root, mode, nullptr, CYAN, 10);
+    lv_obj_add_event_cb(modeBtn, onModeToggle, LV_EVENT_CLICKED, nullptr);
     text(g_root, "PAN / TILT", F_LABEL, INKFT, DP_CX - 54, DP_CY + DP_W + DP_G + 32);
 
     // ---- soft e-stop: concentric rings (see ui_hmi.h deviation 1) ----
@@ -320,7 +391,9 @@ void hmiBuild()
     const int o3[4] = {ES_CX - ES_R + 16, ES_CY - ES_R + 16, ES_R * 2 - 32, ES_R * 2 - 32};
     box(g_root, o1, kCommandLink ? REDDEEP : 0x241215, ES_R);
     box(g_root, o2, kCommandLink ? REDMID  : 0x3a1a1c, ES_R);
-    box(g_root, o3, kCommandLink ? 0x961616 : 0x472023, ES_R);
+    lv_obj_t* esBtn = box(g_root, o3, kCommandLink ? 0x961616 : 0x472023, ES_R);
+    lv_obj_add_flag(esBtn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(esBtn, onEstopPress, LV_EVENT_PRESSED, nullptr);
     lv_obj_t* esl = text(g_root, kCommandLink ? "E-STOP" : "E-STOP", F_ESTOP,
                          kCommandLink ? 0xffebeb : 0x8a6a6a, 0, 0);
     lv_obj_set_width(esl, ES_R * 2);
@@ -344,16 +417,16 @@ void hmiBuild()
     lv_obj_set_pos(cap, ES_CX - ES_R - 40, ES_CY + ES_R + 18);
 
     // ---- the no-command-link banner. Unmissable, because every control above is inert. ----
-    if (!kCommandLink) {
+    {
         const int b[4] = {348, 20, 600, 32};
-        lv_obj_t* bb = box(g_root, b, 0x2a1f0a, 8);
-        lv_obj_set_style_border_width(bb, 1, 0);
-        lv_obj_set_style_border_color(bb, lv_color_hex(AMBER), 0);
-        lv_obj_t* bl = text(g_root, "NO COMMAND LINK - controls are read-only", F_LABEL, AMBER,
-                            0, 0);
-        lv_obj_set_width(bl, b[2]);
-        lv_obj_set_style_text_align(bl, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(bl, b[0], b[1] + 7);
+        g_banner = box(g_root, b, 0x2a1f0a, 8);
+        lv_obj_set_style_border_width(g_banner, 1, 0);
+        lv_obj_set_style_border_color(g_banner, lv_color_hex(AMBER), 0);
+        g_bannerTx = text(g_root, "WAITING FOR THE STAMPLC - lift and stop have nowhere to go",
+                          F_LABEL, AMBER, 0, 0);
+        lv_obj_set_width(g_bannerTx, b[2]);
+        lv_obj_set_style_text_align(g_bannerTx, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(g_bannerTx, b[0], b[1] + 7);
     }
 
     // ---- close + settings, top right ----
@@ -402,6 +475,28 @@ void hmiTick(uint32_t nowMs, const HmiFeed& feed)
     if (g_lastTouch == 0) g_lastTouch = nowMs;
 
     static char buf[48];
+
+    // ---- the command-link banner, reported rather than assumed ----
+    // Three distinct things, and conflating them is how an operator ends up trusting a dead
+    // control: we have never heard the StamPLC; we have, and a stop is in flight; we have, and
+    // everything is normal (no banner at all).
+    if (g_banner && g_bannerTx) {
+        unsigned plcAge = 0;
+        const bool haveLink = netCommandLink(&plcAge);
+        const bool show     = !haveLink || netEstopPending();
+        if (show) {
+            lv_label_set_text(g_bannerTx,
+                              !haveLink ? "WAITING FOR THE STAMPLC - lift and stop have nowhere "
+                                          "to go"
+                                        : "STOP REQUESTED - resending until the robot confirms");
+            lv_obj_set_style_text_color(g_bannerTx, lv_color_hex(netEstopPending() ? REDMID : AMBER),
+                                        0);
+            lv_obj_set_style_border_color(g_banner,
+                                          lv_color_hex(netEstopPending() ? REDMID : AMBER), 0);
+        }
+        lv_obj_set_style_opa(g_banner,   show ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        lv_obj_set_style_opa(g_bannerTx, show ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    }
 
     // ---- state chip ----
     const uint32_t col = feed.stateLinked ? feed.stateColour : 0x60707e;

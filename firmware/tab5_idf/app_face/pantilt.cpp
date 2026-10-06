@@ -12,6 +12,8 @@
 #include <driver/i2c_master.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <nvs.h>
+#include <nvs_flash.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -51,6 +53,8 @@ constexpr float kDeadbandDeg    = 1.5f;   // servo jitter at rest is worse than 
 constexpr float kCentreDeg      = 90.0f;
 constexpr uint32_t kPeriodMs    = 20;     // 50 Hz, matching the Arduino control task
 constexpr uint32_t kRcHoldMs    = 600;    // RC's lease, matching the Arduino's kManualHoldMs
+constexpr uint32_t kTouchHoldMs = 600;    // the same lease for on-face touch
+constexpr float    kDpadDps     = 45.0f;  // the Arduino's on-screen d-pad slew, verbatim
 
 // RC GETS THE FULL TRAVEL; autonomous motion does not.
 //
@@ -59,8 +63,23 @@ constexpr uint32_t kRcHoldMs    = 600;    // RC's lease, matching the Arduino's 
 // authority boundary in head-ownership.md the head cannot realistically damage anything -- so
 // clamping a human to a third of the travel is paternalistic rather than careful. The Arduino
 // firmware gave the stick 0..180 and that is what it gets back.
-constexpr float kRcPanMin  = 0.0f,   kRcPanMax  = 180.0f;
-constexpr float kRcTiltMin = 0.0f,   kRcTiltMax = 180.0f;
+constexpr float kRcPanMin  = 0.0f, kRcPanMax = 180.0f;   // pan was never homed: full travel is fine
+
+// TILT IS MECHANICALLY LIMITED AND THE LIMITS ARE PER-ROBOT. Read from NVS at bring-up; see
+// loadTiltLimits(). These are the fallback used only when the robot has never been commissioned.
+//
+// NOT 0..180. The Arduino firmware clamps tilt to limits it DISCOVERED with a stall-current sweep
+// precisely because the axis has hard end-stops, and on this robot they are 25 and 107 -- an 82
+// degree range. Allowing 0..180 would drive 25 degrees below the lower stop and 73 above the
+// upper one, stalling the servo against the mechanism in both directions.
+//
+// So an uncommissioned robot gets a TIGHT band around centre rather than the full sweep: with the
+// mechanical range unknown, the extremes are exactly where not to go. It is logged loudly, because
+// a head that can only nod slightly should be explainable.
+constexpr float kTiltFallbackHalfBand = 10.0f;
+float g_tiltMin = kCentreDeg - kTiltFallbackHalfBand;
+float g_tiltMax = kCentreDeg + kTiltFallbackHalfBand;
+bool  g_tiltLimitsKnown = false;
 
 i2c_master_dev_handle_t g_dev = nullptr;
 bool     g_present  = false;
@@ -73,6 +92,43 @@ int      g_lastPanUs = -1, g_lastTiltUs = -1;
 char     g_status[64] = "pantilt: not started";
 float    g_rcPan = 0.0f, g_rcTilt = 0.0f;   // deg/s, as sent
 uint32_t g_rcMs  = 0;                        // when the last frame arrived
+float    g_tpPan = 0.0f, g_tpTilt = 0.0f;   // on-face touch d-pad, deg/s
+uint32_t g_tpMs  = 0;
+bool     g_tracking = true;                  // MODE button; autonomous tracking on by default
+
+// THE COMMISSIONED TILT LIMITS, read from where the Arduino firmware put them.
+//
+// Arduino `Preferences` IS ESP-IDF NVS: prefs.begin("opendubs") opens that namespace and
+// prefs.putInt("tiltMin", ...) is nvs_set_i32. The partition sits at 0x9000 and our flash never
+// writes it, so these values have survived every reflash -- they did not need re-deriving and they
+// must not be overwritten. This is exactly the class of per-robot value that stays on the robot.
+void loadTiltLimits()
+{
+    nvs_flash_init();                       // idempotent; settingsBuild() normally got here first
+    nvs_handle_t h;
+    if (nvs_open("opendubs", NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGW(kTag, "tilt limits: namespace 'opendubs' not found -- using the narrow fallback "
+                       "band %.0f..%.0f. Tilt range is UNKNOWN on this unit.", g_tiltMin, g_tiltMax);
+        return;
+    }
+    int32_t lo = -1, hi = -1;
+    const bool okLo = nvs_get_i32(h, "tiltMin", &lo) == ESP_OK;
+    const bool okHi = nvs_get_i32(h, "tiltMax", &hi) == ESP_OK;
+    nvs_close(h);
+
+    // -1 is the Arduino's own "not commissioned" sentinel, and a reversed or degenerate pair is
+    // not trustworthy either -- treat any of those as unknown rather than clamping to nonsense.
+    if (!okLo || !okHi || lo < 0 || hi < 0 || hi - lo < 10) {
+        ESP_LOGW(kTag, "tilt limits: not commissioned (min %ld max %ld) -- narrow fallback band "
+                       "%.0f..%.0f", (long)lo, (long)hi, g_tiltMin, g_tiltMax);
+        return;
+    }
+    g_tiltMin = (float)lo;
+    g_tiltMax = (float)hi;
+    g_tiltLimitsKnown = true;
+    ESP_LOGI(kTag, "tilt limits from NVS: %.0f..%.0f (%.0f deg of travel)",
+             g_tiltMin, g_tiltMax, g_tiltMax - g_tiltMin);
+}
 
 bool write2(uint8_t reg, uint8_t v)
 {
@@ -116,6 +172,8 @@ void pantiltBegin()
     // The Arduino firmware never needed this because the rail was already on; the IO expander
     // retains its state across a soft reset, which is also why an early probe at 0x25 answered and
     // made the port look powered when it was not.
+    loadTiltLimits();
+
     GetHAL()->setExt5vEnable(true);
 
     // The 8Servo has to boot after its rail comes up. The demo gates on a user pressing a button,
@@ -169,11 +227,16 @@ void pantiltBegin()
     // CENTRE AT BOOT, once, so the head's commanded position and its physical position agree before
     // anything slews. Without this the first motion is from wherever it was left, at an unknown
     // offset, which is the one case where a slew limit does not protect anyone.
-    g_pan = g_tilt = g_panTgt = g_tiltTgt = kCentreDeg;
+    // Centre, but inside the mechanical limits: on a unit whose range does not straddle 90 the
+    // "safe centre" is the midpoint of the travel, not the nominal one.
+    const float tiltCentre = clampf(kCentreDeg, g_tiltMin, g_tiltMax);
+    g_pan = g_panTgt = kCentreDeg;
+    g_tilt = g_tiltTgt = tiltCentre;
     writePulse(kChTilt, degToUs(g_tilt, kTiltReverse));
     writePulse(kChPan,  degToUs(g_pan,  kPanReverse));
     g_present = true;
-    snprintf(g_status, sizeof(g_status), "pantilt: centred, ready");
+    snprintf(g_status, sizeof(g_status), "pantilt: ready p%.0f t%.0f tilt[%.0f..%.0f]%s",
+             g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : " FALLBACK");
     ESP_LOGI(kTag, "8Servo at 0x25, tilt=ch%u pan=ch%u, centred", kChTilt, kChPan);
 }
 
@@ -191,11 +254,31 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // autonomous motion, and the state in which we are told not to move is exactly the state in
     // which we should not decide to move somewhere nicer.
     if (!motionAllowed) {
-        snprintf(g_status, sizeof(g_status), "pantilt: held (p%.0f t%.0f)", g_pan, g_tilt);
+        snprintf(g_status, sizeof(g_status), "pantilt: held p%.0f t%.0f tilt[%.0f..%.0f]%s",
+                 g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : "FB");
         return;
     }
 
-    // ---- ARBITRATION. RC first: a human on a stick outranks the tracker. ----
+    // ---- ARBITRATION, highest first: on-face touch, then RC, then the local tracker. ----
+    //
+    // Touch above RC because the person at the glass is aiming the screen at themselves. Both are
+    // LEASES: ownership expires after the hold window, so letting go hands the head back. Latches
+    // are specified in head-ownership.md and are not built yet.
+    const bool touchOwns = (g_tpMs != 0 && (nowMs - g_tpMs) < kTouchHoldMs);
+    if (touchOwns) {
+        g_pan  = clampf(g_pan  + g_tpPan  * dt, kRcPanMin, kRcPanMax);
+        g_tilt = clampf(g_tilt + g_tpTilt * dt, g_tiltMin, g_tiltMax);
+        g_panTgt = g_pan; g_tiltTgt = g_tilt;
+        writePulse(kChTilt, degToUs(g_tilt, kTiltReverse));
+        writePulse(kChPan,  degToUs(g_pan,  kPanReverse));
+        g_lastTiltUs = degToUs(g_tilt, kTiltReverse);
+        g_lastPanUs  = degToUs(g_pan,  kPanReverse);
+        snprintf(g_status, sizeof(g_status), "pantilt: TOUCH p%.0f t%.0f tilt[%.0f..%.0f]",
+                 g_pan, g_tilt, g_tiltMin, g_tiltMax);
+        return;
+    }
+
+    // ---- RC next: a human on a stick outranks the tracker. ----
     //
     // A LEASE, not a latch -- ownership expires kRcHoldMs after the last frame, so letting go of
     // the stick hands the head back to tracking. head-ownership.md specifies latches (and puts
@@ -203,25 +286,43 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // operator back what the Arduino firmware had.
     if (g_rcMs != 0 && (nowMs - g_rcMs) < kRcHoldMs) {
         g_pan  = clampf(g_pan  + g_rcPan  * dt, kRcPanMin,  kRcPanMax);
-        g_tilt = clampf(g_tilt + g_rcTilt * dt, kRcTiltMin, kRcTiltMax);
+        g_tilt = clampf(g_tilt + g_rcTilt * dt, g_tiltMin, g_tiltMax);
         g_panTgt  = g_pan;          // no slew on top of a rate the operator is already shaping
         g_tiltTgt = g_tilt;
         writePulse(kChTilt, degToUs(g_tilt, kTiltReverse));
         writePulse(kChPan,  degToUs(g_pan,  kPanReverse));
         g_lastTiltUs = degToUs(g_tilt, kTiltReverse);
         g_lastPanUs  = degToUs(g_pan,  kPanReverse);
-        snprintf(g_status, sizeof(g_status), "pantilt: RC p%.0f t%.0f", g_pan, g_tilt);
+        snprintf(g_status, sizeof(g_status), "pantilt: RC p%.0f t%.0f tilt[%.0f..%.0f]%s",
+                 g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : "FB");
         return;
     }
 
     // THE EYE-ONLY BAND AND THE CONFIDENCE GATE. Inside either, the head has no target of its own
     // and returns to centre -- slowly, under the same slew limit as everything else.
     const float mag = sqrtf(nx * nx + ny * ny);
-    if (haveTarget && confidence >= kHeadConfidence && mag > kEyeOnly) {
-        g_panTgt  = clampf(kCentreDeg - nx * kPanRangeDeg,  kCentreDeg - kPanRangeDeg,
+    if (g_tracking && haveTarget && confidence >= kHeadConfidence && mag > kEyeOnly) {
+        // NO NEGATION HERE. The mechanism's reversal is applied ONCE, at the write, by
+        // kPanReverse/kTiltReverse -- which is where the Arduino firmware puts it and why: "Servo
+        // direction is a property of the MECHANISM ... so it is corrected once here, at the write,
+        // rather than in each input. Otherwise the RC stick, the D-pad and AI tracking each need
+        // their own sign and they will not agree for long."
+        //
+        // I negated nx here as well, which stacked a second inversion on top of that one and
+        // mirrored the head: a target to the left turned it right. The RC path never had the bug
+        // because it integrates its rate positively and lets the write-time reversal do the work.
+        g_panTgt  = clampf(kCentreDeg + nx * kPanRangeDeg,  kCentreDeg - kPanRangeDeg,
                            kCentreDeg + kPanRangeDeg);
-        g_tiltTgt = clampf(kCentreDeg - ny * kTiltRangeDeg, kCentreDeg - kTiltRangeDeg,
-                           kCentreDeg + kTiltRangeDeg);
+        // The conservative autonomous envelope, INTERSECTED with the hard mechanical limits --
+        // whichever is tighter wins, so a narrow mechanism is never driven to a wide envelope.
+        const float aLo = fmaxf(kCentreDeg - kTiltRangeDeg, g_tiltMin);
+        const float aHi = fminf(kCentreDeg + kTiltRangeDeg, g_tiltMax);
+        // TILT KEEPS ITS NEGATION; PAN DOES NOT. Determined by eye on the robot, in two passes:
+        // flipping both axes together fixed left/right and broke up/down. So the two axes do NOT
+        // share a sign, and treating them as symmetric was the mistake -- image y grows DOWNWARD
+        // while x grows right, and the two servos are mounted differently, so each axis's mapping
+        // is its own empirical fact. Do not "tidy" these into one rule.
+        g_tiltTgt = clampf(kCentreDeg - ny * kTiltRangeDeg, aLo, aHi);
     } else {
         g_panTgt = g_tiltTgt = kCentreDeg;
     }
@@ -249,8 +350,9 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
         if (writePulse(kChPan, panUs)) g_lastPanUs = panUs;
     }
 
-    snprintf(g_status, sizeof(g_status), "pantilt: p%.0f t%.0f%s", g_pan, g_tilt,
-             (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? " (centring)" : " (tracking)");
+    snprintf(g_status, sizeof(g_status), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s%s",
+             g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : "FB",
+             (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? " centring" : " tracking");
 }
 
 // The VOR term: the fraction of the available range the head has taken on. The eyes subtract this
@@ -259,11 +361,16 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
 float pantiltHeadOffsetX()
 {
     if (!g_present) return 0.0f;
-    return -(g_pan - kCentreDeg) / kPanRangeDeg;
+    // Sign follows the target mapping above. With panTgt = centre + nx*range, the offset the
+    // head has covered IS (pan - centre)/range in the same nx units -- so the eyes subtract the
+    // right amount. When this was negated and the target was too, the two cancelled and the error
+    // only showed up as a mirrored head.
+    return (g_pan - kCentreDeg) / kPanRangeDeg;
 }
 float pantiltHeadOffsetY()
 {
     if (!g_present) return 0.0f;
+    // Negated, matching tilt's target mapping above -- not pan's. The two axes differ.
     return -(g_tilt - kCentreDeg) / kTiltRangeDeg;
 }
 
@@ -288,6 +395,17 @@ const char* pantiltI2cScan()
     return buf;
 }
 
+void pantiltTouchRate(float panDps, float tiltDps)
+{
+    g_tpPan  = panDps;
+    g_tpTilt = tiltDps;
+    // 0,0 on release clears ownership immediately rather than waiting out the lease.
+    g_tpMs   = (panDps == 0.0f && tiltDps == 0.0f) ? 0 : (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+void pantiltSetTracking(bool on) { g_tracking = on; }
+bool pantiltTracking()           { return g_tracking; }
+
 const char* pantiltStatus() { return g_status; }
 
 #else   // pan/tilt disabled by flag, or the desktop SDL build: no I2C, no head
@@ -296,6 +414,9 @@ void pantiltBegin() {}
 bool pantiltPresent() { return false; }
 void pantiltTick(uint32_t, bool, bool, float, float, float) {}
 void pantiltRcRate(float, float) {}
+void pantiltTouchRate(float, float) {}
+void pantiltSetTracking(bool) {}
+bool pantiltTracking() { return false; }
 float pantiltHeadOffsetX() { return 0.0f; }
 float pantiltHeadOffsetY() { return 0.0f; }
 const char* pantiltStatus() { return "pantilt: off"; }

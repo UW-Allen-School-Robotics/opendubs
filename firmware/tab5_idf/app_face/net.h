@@ -35,6 +35,26 @@ const char* netStatus();
 // True once we hold an IP. The OTA and UDP layers must not start before this.
 bool netReady();
 
+// True while an OTA is downloading. THE FACE MUST QUIESCE WHILE THIS IS SET.
+//
+// The OTA runs on the network task at priority 2; the LVGL task is priority 4 and the face is
+// measured at 107-112% of its frame budget, so rendering preempts the download. Add 50 Hz of
+// servo I2C on top and the OTA is competing for CPU it cannot win -- its own 10 s stall deadline
+// would eventually abort it. An OTA lasts 15-40 s and the face has nothing to say during it.
+bool netOtaActive();
+
+// --- the command link to the StamPLC -------------------------------------------------------
+// Ask the lift to move: -1 lower, +1 raise, 0 stop. HOLD-TO-MOVE -- call it repeatedly while the
+// button is held, because the request expires and the far end is heartbeat-gated.
+void netLiftRequest(float v);
+// Ask the robot to stop. Never confirmed, resent until the robot reports E_STOP. The head can
+// always stop the robot; only the dashboard can un-stop it.
+void netEstopRequest();
+// Have we heard the StamPLC? Its address is learned from the pan/tilt rate frame, so until the
+// sticks have spoken once there is nowhere to send a lift or e-stop request.
+bool netCommandLink(unsigned* ageMsOut);
+bool netEstopPending();
+
 // ---- the StamPLC STATE link -----------------------------------------------------------------
 // "STATE <NAME>" arrives on UDP 4242, exactly as the Arduino firmware receives it, so whatever
 // sends it today keeps working.

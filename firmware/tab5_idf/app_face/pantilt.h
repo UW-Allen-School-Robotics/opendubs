@@ -63,6 +63,24 @@ float pantiltHeadOffsetY();
 // designed in head-ownership.md and are NOT built yet.
 void pantiltRcRate(float panDps, float tiltDps);
 
+// ON-FACE TOUCH OWNS THE HEAD ABOVE EVERYTHING -- the top of the precedence in
+// head-ownership.md. The reason it outranks the stick: the person touching the glass is standing
+// at the robot aiming the SCREEN at themselves, while the stick operator may be across the bay.
+//
+// Needs no outbound transport, which is why it can exist now and RAISE/LOWER cannot: the Arduino's
+// d-pad set g_dpadPanDps/g_dpadTiltDps into the same LOCAL integration the RC rate feeds, at
+// kDpadDps = 45 deg/s. The head owns these servos outright.
+//
+// Call it repeatedly while a button is held (LV_EVENT_PRESSING) and once with 0,0 on release. The
+// lease is what makes a MISSED release safe: ownership expires kTouchHoldMs after the last call,
+// so a head cannot be left driving by a press event that never got its matching release.
+void pantiltTouchRate(float panDps, float tiltDps);
+
+// Local autonomous tracking enable, toggled by the HMI's MODE button. The Arduino's equivalent was
+// g_trackingMode (MANUAL/AI).
+void pantiltSetTracking(bool on);
+bool pantiltTracking();
+
 // AN I2C SCAN OF BOTH BUSES, RETURNED AS TEXT FOR THE UDP REPLY.
 //
 // Over UDP rather than serial on purpose. The serial path has produced several false readings

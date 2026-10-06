@@ -1373,6 +1373,21 @@ void AppFace::onRunning()
         }
     }
 
+    // QUIESCE WHILE AN OTA IS DOWNLOADING.
+    //
+    // The OTA runs on the network task at priority 2. The LVGL task is priority 4 and this face is
+    // measured at 107-112% of its frame budget, so rendering preempts the download -- and
+    // pantiltTick adds 50 Hz of servo I2C on top. The OTA then competes for CPU it cannot win, and
+    // its own 10 s stall deadline is what would eventually abort it. An OTA lasts 15-40 s and the
+    // face has nothing to say during one; the panel shows the percentage, which is more use than
+    // moving eyes. Audio still ticks, because a fault announcement must not be silenced by a
+    // firmware update.
+    if (netOtaActive()) {
+        cueFaultActive(g_state == 4 || g_state == 5);
+        cueTick(now);
+        return;
+    }
+
     if (settingsOwnsPanel() || hmiOwnsPanel()) {
         cueFaultActive(g_state == 4 || g_state == 5);   // DEGRADED, E_STOP
         cueTick(now);
