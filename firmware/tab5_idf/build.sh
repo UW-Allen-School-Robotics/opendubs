@@ -147,9 +147,10 @@ PATCH
         [ "$DBG_PERCEPT" = "1" ] && echo "#define OPENDUBS_DBG_PERCEPT 1"
         [ "$DBG_SERIAL" = "1" ]  && echo "#define OPENDUBS_DBG_PERCEPT_SERIAL 1"
         [ "${OPENDUBS_WALKIN:-0}" = "1" ] && echo "#define OPENDUBS_WALKIN 1"
+        [ "$DBG_UI" = "1" ]      && echo "#define OPENDUBS_DBG_UI 1"
         true
     } > "$DEMO/app/apps/app_face/percept/percept_config.h"
-    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0}"
+    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0} dbg_ui=$DBG_UI"
 
     # Generate the probe's reference image from the committed .jpg EVERY build. Generated, never
     # committed: a checked-in generated file is the thing that drifts (today's lesson, three times).
@@ -224,6 +225,7 @@ EMBED
 FACEDET="${OPENDUBS_FACEDET:-${OPENDUBS_PROBE_FACEDET:-0}}"
 DBG_PERCEPT="${OPENDUBS_DBG_PERCEPT:-0}"
 DBG_SERIAL="${OPENDUBS_DBG_SERIAL:-0}"
+DBG_UI="${OPENDUBS_DBG_UI:-0}"
 
 idf_build() {
     # sdkconfig IS TRACKED BY THE VENDOR -- see build_device() below for why this is regenerated
@@ -326,5 +328,24 @@ case "$MODE" in
            pkill -f app_desktop_build 2>/dev/null || true ;;
   both)    build_device; build_desktop
            echo "both built; run the desktop with: (cd $DEMO && ./build/desktop/app_desktop_build)" ;;
-  *)       echo "usage: $0 {both|device|image|desktop|asan|cost|percept}"; exit 2 ;;
+  # RELEASE: every instrument OFF, and PROVE it rather than trust it. "Absent, not quiet" only
+  # stays true if something checks -- an instrument merely disabled at runtime still costs flash
+  # and can still be switched on by mistake.
+  release) export OPENDUBS_DBG_UI=0 OPENDUBS_DBG_PERCEPT=0 OPENDUBS_DBG_SERIAL=0 \
+                  OPENDUBS_WALKIN=0 OPENDUBS_NO_MARK_VALID=0
+           build_device
+           BIN="$DEMO/platforms/tab5/build/m5stack_tab5.bin"
+           echo "== release check: diagnostic markers that must NOT be in the image =="
+           bad=0
+           for marker in "ROLLBACK TEST" "selftest" "walkin" "gate:noimu"; do
+               if strings "$BIN" 2>/dev/null | grep -qF "$marker"; then
+                   echo "  PRESENT: '$marker'"; bad=1
+               fi
+           done
+           if [ "$bad" = "1" ]; then
+               echo "RELEASE CHECK FAILED -- an instrument survived into the image."; exit 1
+           fi
+           echo "  clean: no diagnostic markers in the image"
+           ;;
+  *)       echo "usage: $0 {both|device|image|desktop|asan|cost|percept|release}"; exit 2 ;;
 esac

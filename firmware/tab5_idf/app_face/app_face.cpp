@@ -5,6 +5,13 @@
 #include "walkin.h"
 #include "percept/percept.h"
 #include "percept/percept_config.h"
+
+// Bench scaffolding: the HUD line, the status label, and the automatic state/emote cycling.
+// Must come AFTER percept_config.h, which is where build.sh defines the flag -- putting the
+// default first would shadow it and silently force every build to the bench behaviour.
+#ifndef OPENDUBS_DBG_UI
+#define OPENDUBS_DBG_UI 0
+#endif
 #include "shared/due.h"
 #include <cstring>
 #include <hal/hal.h>
@@ -1200,8 +1207,12 @@ void AppFace::onRunning()
         GetHAL()->lvglUnlock();
     }
 
-    // No StamPLC link on the bench, so walk the states to see every colour. Phase 2 wires the
-    // existing "STATE <NAME>" command to this.
+    // BENCH ONLY. With no StamPLC link the bench walks the states so every colour can be seen --
+    // but on a robot this is a face cycling through DEGRADED and E-STOP on a six-second timer,
+    // announcing authority changes that did not happen. It is the single most dangerous piece of
+    // scaffolding in this file and it must never ship. Phase 2 replaces it with the existing
+    // "STATE <NAME>" command; until then it is behind the bench flag and absent from a release.
+#if OPENDUBS_DBG_UI
     if (due(now, g_nextState)) {
         g_nextState = now + 6000;
         g_state = (g_state + 1) % kNStates;
@@ -1214,8 +1225,10 @@ void AppFace::onRunning()
         GetHAL()->lvglUnlock();
         g_nextEmote = now + 2400;
     }
+#endif
     // Emotes cycle only where the face is free. In a reporting state the pinned emote stands,
     // while saccades and blinks carry on as normal.
+#if OPENDUBS_DBG_UI
     if (kStates[g_state].locked < 0 && due(now, g_nextEmote)) {
         g_emote = (g_emote + 1) % kNEmotes;
         // LOCK HELD. applyEmote() calls lv_label_set_text(), and this was the ONE call site that
@@ -1228,6 +1241,7 @@ void AppFace::onRunning()
         GetHAL()->lvglUnlock();
         g_nextEmote = now + 3200;
     }
+#endif
     if (!g_blinking && due(now, g_nextBlink)) {
         g_blinking = true;
         g_lidDrop.easingOptions().duration = 0.07f;
