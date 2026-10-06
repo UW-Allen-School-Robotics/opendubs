@@ -24,23 +24,32 @@ per-robot values live. Do **not** run `esptool erase_flash`: that would destroy 
 
 ---
 
-## 1. Build the image, with the robot's Wi-Fi credentials
+## 1. Build the image — WITHOUT touching Wi-Fi credentials
 
-Set the credentials in your own shell so they never land in a file, a log or a transcript. They are
-written into a generated header in the ephemeral build tree and are never written to this repo.
+**Pass no credentials.** The robot's head already has the robot's network (`opendubs`) stored in
+NVS, the flash does not write NVS, and with no build-time credentials the firmware uses what is
+stored. That is the safe path and it needs no secret.
+
+**Why this matters, and it is not hypothetical.** Build-time credentials do not fall back to NVS —
+they **override** it. `net.cpp` logs exactly that: `provisioning '<ssid>' from build-time
+credentials -- overriding the stored network`. So a stale `OPENDUBS_WIFI_SSID` left in a shell from
+bench work would write a HOME network onto the robot, where it is meaningless, and the head would
+sit retrying a network that is not present. Unset them deliberately:
 
 ```sh
 cd firmware/tab5_idf
 export OPENDUBS_DEMO=/path/to/M5Tab5-UserDemo        # see README.md
-read -r  OPENDUBS_WIFI_SSID                          # type the ROBOT's SSID
-read -rs OPENDUBS_WIFI_PASS                          # typed silently
-export OPENDUBS_WIFI_SSID OPENDUBS_WIFI_PASS
+unset OPENDUBS_WIFI_SSID OPENDUBS_WIFI_PASS          # NOT optional -- see above
 OPENDUBS_FACEDET=1 ./build.sh image
 ```
 
 `OPENDUBS_FACEDET=1` is required — face detection is wanted on the robot and is NOT on by default.
 
 Expect `flags: facedet=1` and an image of roughly 3.6 MB against a 5 MB slot.
+
+**Confirm on the panel after flashing** that the status line reads `wifi: seeking 'opendubs'` (or
+shows an `opendubs` IP), **not** `wifi: provisioning ...`. "provisioning" means build-time
+credentials were compiled in and the stored network was overwritten.
 
 ## 2. Flash it
 
