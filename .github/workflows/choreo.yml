@@ -1,0 +1,32 @@
+name: choreo
+
+# The choreography validator is a safety gate (notes/workplan-choreography.md, standing rule 4),
+# and its README has long said it runs in CI. It did not: docs.yml runs the BOM check and mkdocs
+# only. This job runs the validator's own tests, the composer's, and validates every show in the
+# repo against the test limits fixture. Pure Python + PyYAML; no robot, no ROS.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/choreo/**"
+      - ".github/workflows/choreo.yml"
+  pull_request:
+    paths:
+      - "software/choreo/**"
+      - ".github/workflows/choreo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install pyyaml
+      - run: python3 software/choreo/tests/test_cue.py
+      - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml

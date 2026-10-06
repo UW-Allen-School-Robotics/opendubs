@@ -7,11 +7,15 @@ Each case asserts that a specific BAD show is caught, because a validator that o
 "ok" is worse than none — it buys confidence it has not earned. The limits fixture is the arm
 software's own joint_limits.yaml, copied for testing only; the robot reads the real one.
 """
+import json
+import math
 import os
 import sys
 
+import yaml
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from cue import Show, load_limits, load_show  # noqa: E402
+from cue import Show, joint_state_to_outward, load_limits, load_show  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIMITS = load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
@@ -109,14 +113,221 @@ check("... and the speed check still uses real elapsed time when it does",
 check("using an undeclared slot is caught",
       [{"t": 1.0, "slot": "SOUND", "do": "chime"}], "did not declare", slots=["HEAD"])
 
-print("\nthe real show")
-show = load_show(os.path.join(HERE, "..", "shows", "hello.yaml"))
-problems = show.validate(LIMITS)
-print(f"  {'ok  ' if not problems else 'FAIL'}  shows/hello.yaml validates")
-for p in problems:
-    print("        ", p)
-if problems:
-    fails.append("shows/hello.yaml does not validate")
+# ---- format v1 (notes/design/choreo-format-v1.md) -------------------------------------------
+# Every case below is new in v1. The v0 cases above are unchanged and must keep passing.
+
+MUSIC = {"bpm": 120, "offset_s": 0.5, "beats_per_bar": 4}      # a beat is 0.5 s, beat 1 at 0.5
+
+
+def doc_show(cues, slots=None, **top):
+    d = {"id": "t", "slots": slots if slots is not None else
+         sorted({c["slot"] for c in cues if "slot" in c}
+                | {c["slot"] for cl in (top.get("clips") or {}).values()
+                   for c in cl.get("cues", []) if "slot" in c}), "cues": cues}
+    d.update(top)
+    return Show(d, "test")
+
+
+def check_doc(name, show, expect):
+    problems = show.validate(LIMITS)
+    if expect is None:
+        ok, detail = not problems, "; ".join(problems)
+    else:
+        ok = any(expect in p for p in problems)
+        detail = "; ".join(problems) or "(no problems reported)"
+    print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+    if not ok:
+        fails.append(f"{name}: expected {expect!r}, got: {detail}")
+
+
+def check_true(name, cond, detail=""):
+    print(f"  {'ok  ' if cond else 'FAIL'}  {name}")
+    if not cond:
+        fails.append(f"{name}: {detail}")
+
+
+def times(show, slot=None):
+    return [round(c["t"], 6) for c in show.by_time() if slot is None or c["slot"] == slot]
+
+
+print("\nformat v1: the musical grid")
+
+s = doc_show([{"beat": 13, "slot": "HEAD", "pan": 60}], music=MUSIC)
+check_true("beat 13 at 120 BPM, beat 1 at 0.5 s, resolves to 6.5 s", times(s) == [6.5], times(s))
+s = doc_show([{"bar": "4.1", "slot": "HEAD", "pan": 60},
+              {"bar": "4.3", "slot": "HEAD", "pan": 70}], music=MUSIC)
+check_true("bar \"4.1\" is beat 13, and \"4.3\" two beats later", times(s) == [6.5, 7.5], times(s))
+s = doc_show([{"beat": 13.5, "slot": "HEAD", "pan": 60}], music=MUSIC)
+check_true("a fractional beat is the off-beat", times(s) == [6.75], times(s))
+check_doc("beat without a music block is caught",
+          doc_show([{"beat": 3, "slot": "HEAD", "pan": 60}]), "needs a music")
+check_doc("two time forms on one cue is caught",
+          doc_show([{"t": 1.0, "beat": 3, "slot": "HEAD", "pan": 60}], music=MUSIC), "exactly one")
+check_doc("a bar past the bar's length is caught",
+          doc_show([{"bar": "4.5", "slot": "HEAD", "pan": 60}], music=MUSIC), "out of range")
+check_doc("sub-beats in bar notation are refused (write beat:)",
+          doc_show([{"bar": "4.2.5", "slot": "HEAD", "pan": 60}], music=MUSIC), "write beat:")
+check_doc("an absurd tempo is caught as a typo",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60}],
+                   music={"bpm": 1200, "beats_per_bar": 4}), "sanity bound")
+fast = dict(MUSIC, bpm=60)
+a = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "chime"}],
+             music=MUSIC)
+b = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "chime"}],
+             music=fast)
+check_true("changing bpm moves a beat cue and leaves a t cue alone",
+           times(a, "HEAD") == [2.5] and times(b, "HEAD") == [4.5]
+           and times(a, "SOUND") == times(b, "SOUND") == [5.0],
+           f"{times(a)} vs {times(b)}")
+check_doc("a cue before the show starts is caught",
+          doc_show([{"beat": -3, "slot": "HEAD", "pan": 60}], music=MUSIC), "before the show")
+# v0 SILENTLY DROPPED a cue whose t was missing or not a number: by_time() filtered it out before
+# the check that would have reported it could run. v1 reports it.
+check_doc("a non-numeric t is reported, not silently dropped",
+          doc_show([{"t": "3", "slot": "HEAD", "pan": 60}]), "non-numeric t")
+check_doc("a future format version is refused, not misread",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60}], format=2), "reads format 1")
+
+print("\nformat v1: clips")
+
+WAVE = {"length_beats": 4, "cues": [
+    {"beat": 1, "slot": "ARM_R", "joints": {7: 15}},
+    {"beat": 2, "slot": "ARM_R", "joints": {7: -15}},
+    {"beat": 3, "slot": "ARM_R", "joints": {7: 15}},
+    {"beat": 4, "slot": "ARM_R", "joints": {7: 0}}]}
+s = doc_show([{"bar": "3.1", "clip": "wave", "repeat": 2}], music=MUSIC, clips={"wave": WAVE})
+check_true("a repeated clip expands in clip-local time, one length apart",
+           times(s) == [4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0], times(s))
+check_doc("... and the expanded show validates", s, None)
+check_doc("a clip that is legal once is caught when time_scale makes it too fast",
+          doc_show([{"bar": "3.1", "clip": "wave", "time_scale": 0.25}], music=MUSIC,
+                   clips={"wave": WAVE}), "deg/s")
+check_doc("repeating a clip with no declared length is caught",
+          doc_show([{"t": 2.0, "clip": "w", "repeat": 2}],
+                   clips={"w": {"cues": [{"t": 0, "slot": "HEAD", "pan": 60}]}}),
+          "declares no length")
+s = doc_show([{"bar": "3.1", "clip": "wave", "strength": 0.5}], music=MUSIC, clips={"wave": WAVE})
+j7 = [c["joints"][7] for c in s.by_time()]
+check_true("strength scales arm joints toward zero", j7 == [7.5, -7.5, 7.5, 0.0], j7)
+check_doc("strength above 1 is refused — the dial only turns down",
+          doc_show([{"bar": "3.1", "clip": "wave", "strength": 1.5}], music=MUSIC,
+                   clips={"wave": WAVE}), "only turns")
+check_doc("placing an unknown clip is caught",
+          doc_show([{"t": 1.0, "clip": "nope"}, {"t": 1.0, "slot": "HEAD", "pan": 60}]),
+          "no such clip")
+check_doc("a clip may not place a clip",
+          doc_show([{"t": 1.0, "clip": "outer"}],
+                   clips={"outer": {"cues": [{"t": 0, "clip": "inner"}]},
+                          "inner": {"cues": [{"t": 0, "slot": "HEAD", "pan": 60}]}},
+                   slots=["HEAD"]), "no nesting")
+check_doc("a clip's slots must be declared like any other",
+          doc_show([{"bar": "3.1", "clip": "wave"}], music=MUSIC, clips={"wave": WAVE},
+                   slots=["HEAD"]), "did not declare")
+s = doc_show([{"t": 0.5, "slot": "HEAD", "pan": 60},
+              {"bar": "3.1", "clip": "wave", "time_scale": 0.25}], music=MUSIC,
+             clips={"wave": WAVE})
+probs = [p for p in s.check(LIMITS) if "deg/s" in p.msg]
+check_true("a problem inside a clip points at the PLACEMENT cue and names the clip",
+           bool(probs) and probs[0].cue == 1 and probs[0].clip == "wave"
+           and probs[0].instance == 0, probs)
+
+print("\nformat v1: durations and spans")
+
+check_doc("hold_s on an arm keyframe delays the next move, so the speed check sees less time",
+          doc_show([{"t": 2.0, "slot": "ARM_R", "joints": {4: 30}, "hold_s": 2.0},
+                    {"t": 5.0, "slot": "ARM_R", "joints": {4: 90}}]), "deg/s")
+check_doc("... the same two keyframes without the hold pass",
+          doc_show([{"t": 2.0, "slot": "ARM_R", "joints": {4: 30}},
+                    {"t": 5.0, "slot": "ARM_R", "joints": {4: 90}}]), None)
+check_doc("a lift owns its slot for its secs (v0 let a second command overlap it)",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 6},
+                    {"t": 3.0, "slot": "LIFT", "do": "down", "secs": 2}]), "still busy")
+check_doc("a stop inside a lift's travel is refused — shorten secs instead",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 6},
+                    {"t": 3.0, "slot": "LIFT", "do": "stop"}]), "still busy")
+check_doc("two sounds overlapping are caught (the player refuses while busy)",
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 1000, "ms": 500},
+                    {"t": 1.2, "slot": "SOUND", "do": "beep", "hz": 1500}]), "still busy")
+check_doc("... and back to back is fine",
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 1000, "ms": 500},
+                    {"t": 1.5, "slot": "SOUND", "do": "beep", "hz": 1500}]), None)
+# The only firmware implementing BEEP clamps to 8000 Hz: 9 kHz would validate and play at 8.
+check_doc("a beep the receiver would silently clamp is caught",
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 9000}]), "sanity bound")
+check_doc("an unknown key on a cue is caught, not ignored",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60, "hold": 3}]), "unknown key 'hold'")
+check_doc("interp is reserved, and says why",
+          doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 30}, "interp": "ease"}]),
+          "linearly only")
+
+print("\nformat v1: FACE, LIGHT, markers")
+
+check_doc("an emote the face has passes",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SLEEPY"}]), None)
+check_doc("an emote the face does not have is caught (HAPPY is documented, not implemented)",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "HAPPY"}]),
+          "not one the face has")
+check_doc("FACE has one verb",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "HALLOWEEN"}]),
+          "must be emote")
+check_doc("a light colour in range passes",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "color", "rgb": [10, 20, 30], "br": 50},
+                    {"t": 2.0, "slot": "LIGHT", "do": "release"}]), None)
+check_doc("a light value the firmware would clamp is caught",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "color", "rgb": [300, 0, 0]}]),
+          "outside 0..255")
+y = yaml.safe_load("cues: [{ t: 1.0, slot: LIGHT, do: off }]")
+check_doc("YAML's off-means-false trap is named, not reported as a bad verb",
+          doc_show(y["cues"]), "boolean")
+check_doc("a named marker passes",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60}],
+                   markers=[{"t": 2.0, "name": "disco_ball_on"}]), None)
+check_doc("a marker that names wiring is refused",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60}],
+                   markers=[{"t": 2.0, "name": "relay3_on"}]), "device address")
+
+print("\nformat v1: the resolved timeline")
+
+hello = load_show(os.path.join(HERE, "..", "shows", "hello.yaml"))
+e1 = json.dumps(hello.export(LIMITS), sort_keys=True)
+e2 = json.dumps(load_show(os.path.join(HERE, "..", "shows", "hello.yaml")).export(LIMITS),
+                sort_keys=True)
+check_true("two exports of the same show are byte-identical", e1 == e2)
+tl = json.loads(e1)
+arm_l = tl["tracks"]["ARM_L"]
+check_true("arm keyframes carry the full pose, outward and controller-signed",
+           arm_l[0]["pose"]["2"] == 20 and arm_l[0]["pose_signed"]["2"] == -20
+           and arm_l[0]["pose"]["7"] == 0, arm_l[0])
+check_true("an arm keyframe's span starts where the previous one ended",
+           arm_l[1]["start"] == arm_l[0]["end"] and arm_l[0]["start"] == 0.0,
+           [(k["start"], k["end"]) for k in arm_l[:2]])
+check_true("every track is sorted by start",
+           all([e["start"] for e in v] == sorted(e["start"] for e in v)
+               for v in tl["tracks"].values()))
+check_true("the lift's span is its travel", tl["tracks"]["LIFT"][0]["end"] == 12.0,
+           tl["tracks"]["LIFT"][0])
+bad = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 120}}]).export(LIMITS)
+check_true("an invalid show exports valid: false, with located problems",
+           bad["valid"] is False and bad["problems"][0]["cue"] == 0, bad["problems"])
+
+print("\nformat v1: capture (teaching by hand)")
+
+out = joint_state_to_outward(["openarm_left_joint2", "openarm_left_joint4", "openarm_right_joint2"],
+                             [math.radians(-20), math.radians(55), math.radians(20)], "left")
+check_true("a measured LEFT pose is un-mirrored into the outward sense",
+           out == {2: 20.0, 4: 55.0}, out)
+out = joint_state_to_outward(["openarm_right_joint2"], [math.radians(20)], "right")
+check_true("... and a right pose is left alone", out == {2: 20.0}, out)
+
+print("\nthe real shows")
+for name in ("hello.yaml", "beat-demo.yaml"):
+    show = load_show(os.path.join(HERE, "..", "shows", name))
+    problems = show.validate(LIMITS)
+    print(f"  {'ok  ' if not problems else 'FAIL'}  shows/{name} validates")
+    for p in problems:
+        print("        ", p)
+    if problems:
+        fails.append(f"shows/{name} does not validate")
 
 print()
 if fails:

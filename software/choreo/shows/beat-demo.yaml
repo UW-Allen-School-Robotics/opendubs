@@ -1,0 +1,121 @@
+format: 1
+id: beat-demo
+name: Beat demo
+# The second show (workplan 6.1): written against a generated click track to exercise the musical
+# grid, clips, spans, and the new FACE / LIGHT / marker vocabulary. Every primitive it wanted and
+# could not have is listed at the bottom — those are the findings, and they are the point.
+#
+# Generate the audio first:  python3 shows/audio/make_test_audio.py
+#
+# Times are written the way the author MEANT them: on the grid (bar / beat) where the move is
+# about the music, in seconds (t) where it is about the machine ("the lift travels for 4 s").
+slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+music:
+  file: audio/beat-demo-120.wav
+  bpm: 120
+  offset_s: 0.5
+  beats_per_bar: 4
+notes: >
+  At 120 BPM a beat is 0.5 s. The wrist (J7, cap 70 deg/s) can travel at most 35 deg in a beat,
+  so the waves here swing +-15; the shoulder (J1, cap 25 deg/s) could manage 12.5 deg a beat,
+  which is why nothing below the elbow moves on the beat.
+
+clips:
+  # A head nod, two beats long: down on the beat, up on the off-beat.
+  nod:
+    length_beats: 2
+    cues:
+      - { beat: 1, slot: HEAD, tilt: 80 }
+      - { beat: 2, slot: HEAD, tilt: 100 }
+
+  # A wrist wave on the right arm, one bar long, in clip-local beats.
+  wave_r:
+    length_beats: 4
+    cues:
+      - { beat: 1, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 2, slot: ARM_R, joints: { 7: -15 } }
+      - { beat: 3, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 4, slot: ARM_R, joints: { 7: 0 } }
+
+  # The same wave for the left arm. It has to be written twice: the format has no way to say
+  # "this clip, on the other arm" (finding 2).
+  wave_l:
+    length_beats: 4
+    cues:
+      - { beat: 1, slot: ARM_L, joints: { 7: 15 } }
+      - { beat: 2, slot: ARM_L, joints: { 7: -15 } }
+      - { beat: 3, slot: ARM_L, joints: { 7: 15 } }
+      - { beat: 4, slot: ARM_L, joints: { 7: 0 } }
+
+markers:
+  - { bar: "9.1", name: chorus }
+  - { bar: "15.1", name: outro }
+
+cues:
+  # before the music: in seconds, because it is not about the music
+  - { t: 0.0, slot: SOUND, do: chime }
+  - { t: 0.0, slot: LIGHT, do: color, rgb: [40, 90, 255], br: 60 }
+  - { bar: "1.1", slot: HEAD, pan: 90, tilt: 90 }
+  - { bar: "1.1", slot: FACE, do: emote, name: SOFT }
+
+  # bar 2: open up, arriving ON the downbeat (a keyframe's time is when the arm gets there)
+  - { bar: "2.1", slot: ARM_L, joints: { 2: 20, 4: 55 } }
+  - { bar: "2.1", slot: ARM_R, joints: { 2: 20, 4: 55 } }
+  - { bar: "2.1", slot: GRIP_L, do: open }
+  - { bar: "2.1", slot: GRIP_R, do: open }
+
+  # bars 3-4: the head nods on every beat
+  - { bar: "3.1", clip: nod, repeat: 4 }
+
+  # bars 5-6: the right wrist waves twice; bars 7-8 the left answers, half as big
+  - { bar: "5.1", clip: wave_r, repeat: 2 }
+  - { bar: "7.1", clip: wave_l, repeat: 2, strength: 0.5 }
+
+  # bar 9, the chorus: the lift rises FOR 4 SECONDS starting on the downbeat — a grid start with a
+  # clock duration, which is the case the two time forms exist for
+  - { bar: "9.1", slot: LIFT, do: up, secs: 4 }
+  - { beat: 33, slot: SOUND, do: beep, hz: 1200, ms: 150 }
+  - { bar: "9.1", slot: FACE, do: emote, name: ALERT }
+  - { bar: "9.1", slot: LIGHT, do: color, rgb: [255, 0, 200], br: 100 }
+
+  # fold the elbows BEFORE the shoulders go up: an extended arm is refused past ~135 deg
+  - { bar: "11.1", slot: ARM_L, joints: { 4: 100 } }
+  - { bar: "11.1", slot: ARM_R, joints: { 4: 100 } }
+  - { bar: "13.3", slot: ARM_L, joints: { 2: 140 } }
+  - { bar: "13.3", slot: ARM_R, joints: { 2: 140 } }
+  - { bar: "13.3", slot: GRIP_L, do: close }
+  - { bar: "13.3", slot: GRIP_R, do: close }
+  - { bar: "13.1", slot: FACE, do: emote, name: NEUTRAL }
+
+  # down again
+  - { bar: "14.1", slot: LIFT, do: down, secs: 4 }
+  - { bar: "15.1", clip: nod, repeat: 4, strength: 0.5 }
+  - { bar: "16.1", slot: ARM_L, joints: { 2: 20 } }
+  - { bar: "16.1", slot: ARM_R, joints: { 2: 20 } }
+
+  # after the music: seconds again, sized by the speed caps rather than the bar
+  - { t: 35.0, slot: ARM_L, joints: { 4: 10, 2: 5 } }
+  - { t: 35.0, slot: ARM_R, joints: { 4: 10, 2: 5 } }
+  - { t: 35.0, slot: HEAD, pan: 90, tilt: 90 }
+  - { t: 35.5, slot: LIGHT, do: release }
+  - { t: 35.5, slot: SOUND, do: chime }
+
+# What this show wanted and the format could not give it (workplan 6.1 — each is a Phase 1 item):
+#  1. RELATIVE clips. `strength` scales toward 0 deg, so a wave is only a wave from the zero pose;
+#     "wave around wherever the arm is" cannot be said.
+#  2. MIRRORING a clip onto the other arm (wave_l duplicates wave_r).
+#  3. HEAD TIMING. The head has no speed cap and no known slew time, so nothing can say whether
+#     the nod actually reaches 80 deg before it is told 100.
+#  4. EASING. Linear interpolation arrives at constant speed; an accent wants to decelerate into
+#     the beat. Blocked on knowing the controller's real profile (choreo-format-v1.md 5).
+#  5. PER-SLOT LATENCY. The arm arrives at its keyframe time, but the lift relay, the head and the
+#     face each have a different and unmeasured command-to-motion latency; "on the beat" needs a
+#     per-robot lead time per slot, which must not live in the show.
+#  6. The speed caps, not the tempo, bound what can move on the beat (see notes above).
+#  7. EARCONS. The ESP-IDF face has six named earcons and no verb to trigger them; SOUND can only
+#     say beep/chime, which that face does not implement.
+#  8. VARIATION. Played three times, this is byte-identical three times (workplan 1.8).
