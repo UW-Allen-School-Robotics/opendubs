@@ -32,6 +32,7 @@
 #include "rollback_test.h"
 #include "shared/clock.h"
 #include "ui_hmi.h"
+#include "pantilt.h"
 
 // Patched into the vendor BSP's lvgl_read_cb by build.sh (patches/gt911_rawcount.c.inc). These
 // count what the GT911 DRIVER delivers, before hit-testing -- the layer between the chip and the
@@ -383,11 +384,11 @@ void cmdTask(void*)
             }
             const int m = snprintf(tx, sizeof(tx),
                                    "PONG slot=%s state=%s | %s | tp polls=%lu presses=%lu "
-                                   "errs=%lu last=%lu,%lu",
+                                   "errs=%lu last=%lu,%lu | %s",
                                    run ? run->label : "?", sn, hmiDiag(),
                                    (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
                                    (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
-                                   (unsigned long)od_tp_lasty);
+                                   (unsigned long)od_tp_lasty, pantiltStatus());
             sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
         } else if (strcmp(rx, "REBOOT") == 0) {
             const char* tx = "OK reboot";

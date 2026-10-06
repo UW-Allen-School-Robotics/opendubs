@@ -5,6 +5,7 @@
 #include "walkin.h"
 #include "ui_settings.h"
 #include "ui_hmi.h"
+#include "pantilt.h"
 #include "percept/percept.h"
 #include "percept/percept_config.h"
 
@@ -1241,6 +1242,7 @@ void AppFace::onOpen()
     netStart();               // Wi-Fi station + UDP command port + OTA. Independent of perception.
     settingsBuild();          // audio + telemetry, persisted in NVS
     hmiBuild();               // the lift-controller HMI + touch-anywhere reveal
+    pantiltBegin();           // 8Servo head. Self-disables when absent (bench).
     walkinBuild();            // no-op unless OPENDUBS_WALKIN=1
     // THE LOCK IS NOT RELEASED HERE, and that single fact is the fix. LVGL cannot render while
     // this mutex is held, so holding it from buildScene() all the way through the first geometry
@@ -1499,7 +1501,8 @@ void AppFace::onRunning()
     // onRunning acquires it in short bursts per block -- and the result was four unlocked LVGL
     // calls, which froze the face.
     GazeIntent gi = {};
-    if (perceptGaze(&gi)) {
+    const bool haveGaze = perceptGaze(&gi);
+    if (haveGaze) {
         if (gi.seq != g_lastGazeSeq) {
             g_lastGazeSeq = gi.seq;
 
@@ -1507,8 +1510,20 @@ void AppFace::onRunning()
             // gets a glance in its direction. The target's own expiry handles the other half --
             // how long the eyes stay there -- so one graded number produces both behaviours.
             const float amp = kGazeAmpFloor + (1.0f - kGazeAmpFloor) * gi.confidence;
-            const float tx = gi.nx * amp;
-            const float ty = gi.ny * amp * kGazeVerticalScale;
+
+            // THE EYES GIVE BACK WHAT THE HEAD HAS COVERED -- the VOR term from
+            // head-turn-gaze.md. Once the head turns, the target is no longer where it was
+            // relative to the face, so aiming the eyes at the raw offset would have both aim at it
+            // and overshoot together. The residual is the same number used twice, which is why
+            // this is not a separate feature.
+            //
+            // AND IT DEGRADES BY CONSTRUCTION: with no 8Servo the head offsets are exactly 0, so
+            // these two lines reduce to what they were before and the face is eyes-only with no
+            // branch to get wrong.
+            const float residX = gi.nx - pantiltHeadOffsetX();
+            const float residY = gi.ny - pantiltHeadOffsetY();
+            const float tx = residX * amp;
+            const float ty = residY * amp * kGazeVerticalScale;
 
             // Same main-sequence timing as a spontaneous saccade, so an attentive glance does not
             // move in a visibly different way from a natural one.
@@ -1550,6 +1565,20 @@ void AppFace::onRunning()
         // DEGRADES INTO THE AUTONOMOUS SACCADE. Not a fallback: this is the resting behaviour, and
         // a face whose eyes stop moving when nothing is detected reads as broken, not as calm.
         if (due(now, g_nextSaccade)) newSaccade(now);
+    }
+
+    // HEAD MOTION. Ticked every frame rather than only on a new gaze sample, because the slew and
+    // the return to centre are continuous and must keep running when perception goes quiet.
+    //
+    // MOTION IS ALLOWED ONLY WHEN WE KNOW THE ROBOT IS NOT STOPPED. Autonomous head motion while
+    // the base is e-stopped is the wrong behaviour, and with NO LINK we do not know the state -- so
+    // "unknown" reads as "do not move" rather than "assume idle". That is deliberately the
+    // conservative direction: head motion is physical motion near people and it is the first
+    // autonomous motion this robot will make.
+    {
+        const bool known   = g_linkUp && g_linkState >= 0;
+        const bool stopped = (g_state == 4 || g_state == 5);        // DEGRADED, E_STOP
+        pantiltTick(now, known && !stopped, haveGaze, gi.nx, gi.ny, gi.confidence);
     }
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
