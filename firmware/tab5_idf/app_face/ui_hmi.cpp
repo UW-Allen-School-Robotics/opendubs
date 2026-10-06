@@ -207,6 +207,12 @@ void onSettings(lv_event_t*);
 void setOpen(bool open)
 {
     g_open = open;
+    // OPENING IS ACTIVITY. hmiTick() early-returns while the panel is closed, so g_lastTouch keeps
+    // the timestamp from the previous session -- and `nowMs - g_lastTouch` is then already past
+    // kRevertMs, which closed the panel on its very first tick. The first open after a boot worked
+    // (g_lastTouch == 0 seeds it) and every one after that flashed open and shut, which is exactly
+    // what it looked like from the front: controls covered by the face before they could be hit.
+    if (open) g_lastTouch = 0;
     if (!g_root) return;
     if (open) {
         lv_obj_remove_flag(g_root, LV_OBJ_FLAG_HIDDEN);
@@ -268,6 +274,16 @@ void onSettings(lv_event_t*)
 
 // Any press inside the HMI is activity: it defers the auto-revert.
 void onAnyHmiPress(lv_event_t*) { g_lastTouch = 0; }   // 0 = "reset on next tick"
+
+// Make a control's press count as activity. Needed per-object: LVGL 9 delivers PRESSED to exactly
+// ONE object and it does not bubble without LV_OBJ_FLAG_EVENT_BUBBLE, so the handler on g_root saw
+// presses on bare background and nothing else -- working a button for 30 s reverted under the
+// operator's finger.
+void deferRevert(lv_obj_t* o)
+{
+    lv_obj_add_event_cb(o, onAnyHmiPress, LV_EVENT_PRESSED,  nullptr);
+    lv_obj_add_event_cb(o, onAnyHmiPress, LV_EVENT_PRESSING, nullptr);
+}
 
 }  // namespace
 
@@ -355,6 +371,7 @@ void hmiBuild()
     lv_obj_add_event_cb(upB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftUp);
     lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
     lv_obj_add_event_cb(upB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
+    deferRevert(upB);
     panel(g_root, RDO, "HEIGHT");
     g_height = text(g_root, "---", F_BIG, INKFT, RDO[0] + 24, RDO[1] + 56);
     text(g_root, "mm", F_DATA, INKFT, RDO[0] + 180, RDO[1] + 80);
@@ -362,6 +379,7 @@ void hmiBuild()
     lv_obj_add_event_cb(dnB, onLiftHold,    LV_EVENT_PRESSING,   (void*)&kLiftDown);
     lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_RELEASED,   nullptr);
     lv_obj_add_event_cb(dnB, onLiftRelease, LV_EVENT_PRESS_LOST, nullptr);
+    deferRevert(dnB);
 
     // ---- pan / tilt d-pad + mode ----
     const int panL[4]  = {DP_CX - DP_W - DP_G, DP_CY - DP_W / 2,     DP_W, DP_W};
@@ -380,9 +398,11 @@ void hmiBuild()
         lv_obj_add_event_cb(b, onDpadHold,    LV_EVENT_PRESSING, d.rate);
         lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_RELEASED, nullptr);
         lv_obj_add_event_cb(b, onDpadRelease, LV_EVENT_PRESS_LOST, nullptr);
+        deferRevert(b);
     }
     lv_obj_t* modeBtn = liveBox(g_root, mode, nullptr, CYAN, 10);
     lv_obj_add_event_cb(modeBtn, onModeToggle, LV_EVENT_CLICKED, nullptr);
+    deferRevert(modeBtn);
     text(g_root, "PAN / TILT", F_LABEL, INKFT, DP_CX - 54, DP_CY + DP_W + DP_G + 32);
 
     // ---- soft e-stop: concentric rings (see ui_hmi.h deviation 1) ----
@@ -394,6 +414,7 @@ void hmiBuild()
     lv_obj_t* esBtn = box(g_root, o3, kCommandLink ? 0x961616 : 0x472023, ES_R);
     lv_obj_add_flag(esBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(esBtn, onEstopPress, LV_EVENT_PRESSED, nullptr);
+    deferRevert(esBtn);
     lv_obj_t* esl = text(g_root, kCommandLink ? "E-STOP" : "E-STOP", F_ESTOP,
                          kCommandLink ? 0xffebeb : 0x8a6a6a, 0, 0);
     lv_obj_set_width(esl, ES_R * 2);
@@ -443,6 +464,7 @@ void hmiBuild()
     lv_obj_t* setBtn = box(g_root, sb, PANEL, 10);
     lv_obj_add_flag(setBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(setBtn, onSettings, LV_EVENT_CLICKED, nullptr);
+    deferRevert(setBtn);
     lv_obj_t* sbl = text(g_root, "SETTINGS", F_LABEL, CYAN, 0, 0);
     lv_obj_set_width(sbl, sb[2]);
     lv_obj_set_style_text_align(sbl, LV_TEXT_ALIGN_CENTER, 0);
