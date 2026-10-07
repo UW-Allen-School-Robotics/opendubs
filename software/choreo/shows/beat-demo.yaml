@@ -9,7 +9,7 @@ name: Beat demo
 #
 # Times are written the way the author MEANT them: on the grid (bar / beat) where the move is
 # about the music, in seconds (t) where it is about the machine ("the lift travels for 4 s").
-slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT]
+slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT, DANCE]
 requires:
   arms: active
   tab5: true
@@ -51,6 +51,11 @@ clips:
       - { beat: 3, slot: ARM_L, joints: { 7: 15 } }
       - { beat: 4, slot: ARM_L, joints: { 7: 0 } }
 
+# The base dances in bars 5-8: named moves from the library, each returning to where it started.
+# The floor radius is a DECLARATION a human confirms before the base moves; the robot cannot check it.
+dance:
+  floor_radius_m: 1.5
+
 markers:
   - { bar: "9.1", name: chorus }
   - { bar: "15.1", name: outro }
@@ -61,6 +66,12 @@ cues:
   - { t: 0.0, slot: LIGHT, do: color, rgb: [40, 90, 255], br: 60 }
   - { bar: "1.1", slot: HEAD, pan: 90, tilt: 90 }
   - { bar: "1.1", slot: FACE, do: emote, name: SOFT }
+
+  # bars 5-8: the base dances, one bar per move (runs in the twin only, for now)
+  - { bar: "5.1", slot: DANCE, move: sway, secs: 2 }
+  - { bar: "6.1", slot: DANCE, move: sway, secs: 2 }
+  - { bar: "7.1", slot: DANCE, move: twist, secs: 2, amp: 0.6 }
+  - { bar: "8.1", slot: DANCE, move: rock, secs: 2 }
 
   # bar 2: open up, arriving ON the downbeat (a keyframe's time is when the arm gets there)
   - { bar: "2.1", slot: ARM_L, joints: { 2: 20, 4: 55 } }

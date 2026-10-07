@@ -180,6 +180,14 @@ check("the lift has risen for its 6 s by t=12 (placeholder speed, clamped to the
       abs(s["lift_mm"] - min(275.1, 6 * sim_preview.LIFT_MM_PER_S)) < 1e-6, s["lift_mm"])
 check("joints are handed to sim/scene.py in each arm's own sense",
       "left:2=20.0" in sim_preview.joints_arg(sim_preview.sample(tl, 3.0)))
+_ev = [{"t": 1.0, "start": 1.0, "end": 3.0, "cue": {"move": "sway", "secs": 2}}]
+_mid = sim_preview.base_pose(_ev, 1.5)
+check("a dance move displaces the base while it runs", abs(_mid[1]) > 0.05, _mid)
+check("... and the base is back where it started when the move ends",
+      all(abs(v) < 1e-9 for v in sim_preview.base_pose(_ev, 2.999999)) or
+      max(abs(v) for v in sim_preview.base_pose(_ev, 2.999999)) < 1e-4, sim_preview.base_pose(_ev, 2.999999))
+check("before and after a move the base is at the origin",
+      sim_preview.base_pose(_ev, 0.5) == (0.0, 0.0, 0.0) and sim_preview.base_pose(_ev, 3.5) == (0.0, 0.0, 0.0))
 n = sum(1 for _ in sim_preview.frames(tl, 10))
 check("frames cover the whole show at the requested rate", n == int(tl["duration_s"] * 10) + 1, n)
 

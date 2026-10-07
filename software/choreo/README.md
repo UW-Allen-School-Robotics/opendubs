@@ -19,7 +19,7 @@ Write a show from that page; this README is the summary.
 
 ## Slots
 
-`ARM_L`, `ARM_R`, `GRIP_L`, `GRIP_R`, `HEAD`, `LIFT`, `SOUND`, `FACE`, `LIGHT`.
+`ARM_L`, `ARM_R`, `GRIP_L`, `GRIP_R`, `HEAD`, `LIFT`, `SOUND`, `FACE`, `LIGHT`, `DANCE`.
 
 One slot per independently commandable thing, one owner at a time. Two cues driving the same
 slot is a collision, not a blend — that is the bug class that made the lift relays chatter when
@@ -28,7 +28,9 @@ an idle head and a script both spoke to the Z-axis.
 **`DRIVE` is deliberately absent.** The base does not move under a show until odometry can say
 where the robot is: opendubs2 currently reports `y_mm` as NaN with a climbing failure count, so
 "keep X and Y clear" is advice the robot cannot honour. Adding the slot is easy; earning it is
-the work.
+the work. **`DANCE` is the bounded alternative**: named moves from a fixed library, each returning
+the base to where it started, a declared floor radius, capped speed and time — and, for now, run
+only in the twin (format spec §12).
 
 ## Time
 

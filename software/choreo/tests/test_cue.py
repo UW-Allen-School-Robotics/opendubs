@@ -188,6 +188,36 @@ _placed = doc_show([{"t": 2.0, "slot": "ARM_R", "joints": {4: 30}},
 check_true("a pose placed where the helper says passes the validator", not _placed.validate(LIMITS),
            _placed.validate(LIMITS))
 
+# DANCE (DEC-2, item 1.4): named moves only, declared floor space, back where it started.
+import cue as _cue  # noqa: E402
+check_true("every library move returns the base to where it started",
+           all(all(abs(n) < 1e-12 for n in _cue.dance_net(m)) for m in _cue.DANCE_MOVES))
+check_doc("a dance with no declared floor space is refused",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway"}]), "declares no floor space")
+check_doc("a declared dance passes",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway"}], dance={"floor_radius_m": 1.5}), None)
+check_doc("a move outside the library is refused — a dance names a move, never a velocity",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "zoom", "fwd": 1}], dance={"floor_radius_m": 1.5}),
+          "not in the library")
+check_doc("a free-form velocity on a dance cue is refused",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "fwd": 1}], dance={"floor_radius_m": 1.5}),
+          "unknown key 'fwd'")
+check_doc("a move longer than a gesture is refused",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "secs": 9}], dance={"floor_radius_m": 1.5}),
+          "secs")
+check_doc("amp above the autonomy ceiling is refused",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "amp": 1.5}], dance={"floor_radius_m": 1.5}),
+          "amp")
+check_doc("too much total open-loop base time is refused",
+          doc_show([{"t": float(i * 4), "slot": "DANCE", "move": "rock", "secs": 4} for i in range(9)],
+                   dance={"floor_radius_m": 1.5}), "cap on open-loop base motion")
+check_doc("DRIVE is still not a slot",
+          doc_show([{"t": 1.0, "slot": "DRIVE", "fwd": 1}], slots=["DRIVE"]), "DRIVE is not available")
+_d = doc_show([{"t": 1.0, "slot": "DANCE", "move": "box", "secs": 4}], dance={"floor_radius_m": 0.5}).analyse(LIMITS)
+check_true("a move that may stray past the declared radius warns (an estimate), and stays valid",
+           not _d["problems"] and any("floor radius" in w.msg for w in _d["warnings"]),
+           [w.msg for w in _d["warnings"]] + [q.msg for q in _d["problems"]])
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

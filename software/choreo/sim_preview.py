@@ -100,6 +100,56 @@ def head(events: list, t: float) -> tuple:
     return _slew(pan, tgt_pan, t - last), _slew(tilt, tgt_tilt, t - last)
 
 
+def base_pose(events: list, t: float) -> tuple:
+    """(x m, y m, yaw deg) of the base at t, from DANCE moves, in the robot's starting frame.
+
+    Every library move returns the base to where it started, so only the move in progress
+    displaces it. Open loop and at the PLACEHOLDER speeds in cue.py (+x forward, +y to the robot's
+    left, assumed); this is how a dance reads, not where the real robot would end up."""
+    import math
+    for e in events:
+        c = e["cue"]
+        if c.get("move") not in cue.DANCE_MOVES:
+            continue
+        secs = float(c.get("secs", cue.DANCE_DEFAULT_SECS))
+        if not e["start"] <= t < e["start"] + secs:
+            continue
+        amp = float(c.get("amp", 1.0))
+        v = cue.AUTO_MAX_UNIT * amp * cue.BASE_M_PER_S_FULL
+        w = cue.AUTO_MAX_UNIT * amp * cue.BASE_RAD_PER_S_FULL
+        x = y = yaw = 0.0
+        left = t - e["start"]
+        for frac, fwd, strafe, rot in cue.DANCE_MOVES[c["move"]]:
+            dt = min(frac * secs, left)
+            if dt <= 0:
+                break
+            x += (fwd * math.cos(yaw) - strafe * math.sin(yaw)) * v * dt
+            y += (fwd * math.sin(yaw) + strafe * math.cos(yaw)) * v * dt
+            yaw += rot * w * dt
+            left -= dt
+        return x, y, math.degrees(yaw)
+    return 0.0, 0.0, 0.0
+
+
+def apply_base(model, data, base: tuple) -> None:
+    """Place the chassis freejoint at a base pose (after clearance.set_pose, before mj_forward)."""
+    import math
+    import mujoco
+    j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "base")
+    if j < 0:
+        return
+    a = model.jnt_qposadr[j]
+    x, y, yaw = base
+    # A mecanum base turns about the centre of its wheels; the chassis body's origin is at its rear
+    # edge, so rotate about the wheel centroid (wheel centres x 0.12 and 0.528 m, opendubs.xml).
+    cx, th = (0.12 + 0.528) / 2.0, math.radians(yaw)
+    data.qpos[a] += x + cx - cx * math.cos(th)
+    data.qpos[a + 1] += y - cx * math.sin(th)
+    h = th / 2.0
+    data.qpos[a + 3:a + 7] = [math.cos(h), 0.0, 0.0, math.sin(h)]
+    mujoco.mj_forward(model, data)
+
+
 def sample(tl: dict, t: float) -> dict:
     tr = tl["tracks"]
     pan, tilt = head(tr.get("HEAD", []), t)
@@ -109,6 +159,7 @@ def sample(tl: dict, t: float) -> dict:
         "right": {j: round(v, 2) for j, v in arm_pose(tr.get("ARM_R", []), t).items()},
         "lift_mm": round(lift_mm(tr.get("LIFT", []), t), 1),
         "head_pan": pan, "head_tilt": tilt,
+        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t)),
     }
 
 
@@ -166,6 +217,7 @@ def main():
     for i, s in enumerate(frames(tl, a.fps)):
         clearance.set_pose(model, data, joints_arg(s), s["lift_mm"],
                            s["head_pan"] - HEAD_CENTRE_DEG, s["head_tilt"] - HEAD_CENTRE_DEG)
+        apply_base(model, data, s["base"])
         if a.clearance:
             c = clearance.min_clearance(model, data)
             if c < worst[0]:

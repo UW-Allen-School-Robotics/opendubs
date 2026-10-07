@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT"];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE"];
 const LANES = ["CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
@@ -349,6 +349,7 @@ function label(ev) {
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
     case "SOUND": return c.sound || c.do;
     case "FACE": return c.name || c.do;
+    case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     default: return "";
   }
@@ -502,6 +503,10 @@ function renderPreview() {
     } else if (slot === "FACE") {
       const e = lastAt(evs, t);
       row(slot, e ? e.cue.name : '<span class="dim">face\'s own</span>');
+    } else if (slot === "DANCE") {
+      const e = evs.find((x) => x.start <= t && t < x.end);
+      row(slot, e ? `<span class="moving" title="Open loop, at placeholder base speeds; runs only in the twin until the robot floor test">${esc(e.cue.move)} ${(t - e.start).toFixed(1)} of ${(e.end - e.start).toFixed(1)} s</span>`
+                  : '<span class="dim">still</span>');
     } else {
       const e = lastAt(evs, t);
       row(slot, e ? (e.cue.do || `${Math.round(e.cue.open * 100)}% open`) : '<span class="dim">—</span>');
@@ -599,6 +604,7 @@ const DEFAULTS = {
   GRIP_L: { do: "open" }, GRIP_R: { do: "open" }, HEAD: { pan: 90, tilt: 90 },
   LIFT: { do: "up", secs: 2 }, SOUND: { do: "play", sound: "attend" },
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
+  DANCE: { move: "sway", secs: 2 },
 };
 function addCue(slot) {
   const t = snapT(S.t);

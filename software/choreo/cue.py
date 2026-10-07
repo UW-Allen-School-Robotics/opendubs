@@ -53,13 +53,61 @@ FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
-SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT")
+SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE")
 # DRIVE is deliberately absent. The base does not move until odometry can say where it is:
 # opendubs2 currently reports y_mm as NaN with a climbing failure count, so "keep X and Y clear"
 # would be advice the robot itself cannot honour. Adding the slot is not the hard part; earning
 # it is. (A bounded open-loop alternative is written up, not built: choreo-format-v1.md 12.)
 
 ARM_SLOTS = ("ARM_L", "ARM_R")
+
+# ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
+# Not DRIVE. A DANCE cue names a move from this library and nothing else: no free-form velocity is
+# expressible. Each move is a fixed open-loop profile — segments of (fraction of the move's
+# duration, forward, strafe, rotate), each axis in "dance units" where 1.0 is the base's AUTONOMY
+# CEILING (kAutoMaxUnit = 0.35 of full command, firmware/rc_serial_probe main.cpp), which CH8
+# scales further in a human's hand. Every move returns the base to where it started BY
+# CONSTRUCTION (every axis integrates to zero; the validator re-checks it), so only open-loop
+# drift can accumulate. Validated now; executes ONLY in the twin until the robot test (plan 6.6).
+DANCE_MOVES = {
+    "sway":    [(0.25, 0, +1, 0), (0.5, 0, -1, 0), (0.25, 0, +1, 0)],            # side to side
+    "rock":    [(0.25, +1, 0, 0), (0.5, -1, 0, 0), (0.25, +1, 0, 0)],            # forward and back
+    "twist":   [(0.25, 0, 0, +1), (0.5, 0, 0, -1), (0.25, 0, 0, +1)],            # turn and return
+    "shuffle": [(0.125, 0, +1, 0), (0.25, 0, -1, 0), (0.25, 0, +1, 0), (0.25, 0, -1, 0),
+                (0.125, 0, +1, 0)],                                               # two quick sways
+    "box":     [(0.25, +1, 0, 0), (0.25, 0, +1, 0), (0.25, -1, 0, 0), (0.25, 0, -1, 0)],
+}
+DANCE_SECS = (0.5, 4.0)          # SANITY: one move is a gesture, not a journey
+DANCE_DEFAULT_SECS = 2.0
+DANCE_TOTAL_MAX_S = 30.0         # SANITY: the whole show's open-loop base time
+FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
+# PLACEHOLDERS, from the simulator, NOT measured on the robot: base speed at full command
+# (WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py) and the matching
+# mecanum turn rate. Used only to ESTIMATE how far a move strays, for a warning against the
+# declared floor radius. The firmware's kAutoMaxUnit is real; these speeds are not.
+BASE_M_PER_S_FULL = 0.70
+BASE_RAD_PER_S_FULL = 1.40
+AUTO_MAX_UNIT = 0.35
+# APPROXIMATE: the chassis box's half-diagonal (description/opendubs/dimensions.yaml: x -32..612 mm,
+# y +-324.5 mm -> 0.457 m). The arms are NOT counted. The floor radius is clear space around the
+# robot, so a move needs footprint + how far it strays.
+ROBOT_FOOTPRINT_RADIUS_M = 0.46
+
+
+def dance_net(move: str) -> tuple:
+    """(forward, strafe, rotate) a move integrates to, in dance-unit fractions — zero by design."""
+    segs = DANCE_MOVES[move]
+    return tuple(sum(f * v[i] for f, *v in segs) for i in range(3))
+
+
+def dance_excursion_m(move: str, secs: float, amp: float = 1.0) -> float:
+    """Farthest the base strays from where the move started, at the PLACEHOLDER speeds."""
+    v = AUTO_MAX_UNIT * amp * BASE_M_PER_S_FULL
+    x = y = far = 0.0
+    for frac, fwd, strafe, _rot in DANCE_MOVES[move]:
+        x, y = x + fwd * v * frac * secs, y + strafe * v * frac * secs
+        far = max(far, math.hypot(x, y))
+    return far
 
 MARGIN_DEG = 5.0
 # UNSOURCED. These came over from showcase_demo.py with the rest of the checks and carry no note
@@ -142,11 +190,12 @@ SLOT_KEYS = {
     "SOUND": {"do", "sound", "secs"},
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
+    "DANCE": {"move", "secs", "amp"},
 }
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues"}
+            "cues", "dance"}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -155,6 +204,8 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 # What a show may use that NOTHING ON THE ROBOT EXECUTES YET. Valid is not executable; these are
 # reported as notices on every validation so nobody mistakes the one for the other.
 NOT_EXECUTABLE = {
+    "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
+             "6.6): open loop, and the distances shown use placeholder base speeds",
     "FACE": "FACE emote is valid but no firmware implements it yet: neither face takes an emote "
             "verb over the network (workplan 3.3)",
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
@@ -498,6 +549,17 @@ class Show:
         arm_state: dict[str, dict[int, float]] = {}
         arm_free_at: dict[str, float] = {}
         owner_until: dict[str, float] = {}
+        # DANCE: the floor space a show declares, and its total open-loop base time
+        dance_doc = self.doc.get("dance")
+        floor_r = None
+        if dance_doc is not None:
+            r = dance_doc.get("floor_radius_m") if isinstance(dance_doc, dict) else None
+            if not (_num(r) and FLOOR_RADIUS_SANITY_M[0] <= float(r) <= FLOOR_RADIUS_SANITY_M[1]):
+                P(Problem(f"dance: floor_radius_m must be a number of metres within "
+                          f"{FLOOR_RADIUS_SANITY_M} — the clear radius a human confirms before it runs"))
+            else:
+                floor_r = float(r)
+        dance_total = 0.0
         # where the head is and where it is going, as the firmware would slew it from centre
         head_pos = {"pan": 90.0, "tilt": 90.0}
         head_tgt = dict(head_pos)
@@ -584,6 +646,19 @@ class Show:
             elif slot == "SOUND":
                 msgs = self._check_sound(where, c)
                 intrinsic = self._sound_length(c)
+            elif slot == "DANCE":
+                msgs = self._check_dance(where, c)
+                if not msgs:
+                    secs = float(c.get("secs", DANCE_DEFAULT_SECS))
+                    intrinsic = secs
+                    dance_total += secs
+                    far = dance_excursion_m(c["move"], secs, float(c.get("amp", 1.0)))
+                    if floor_r is not None and far + ROBOT_FOOTPRINT_RADIUS_M > floor_r:
+                        warnings.append(Problem(
+                            f"{where}: {c['move']} may stray ~{far:.2f} m; with the base's own "
+                            f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor "
+                            f"radius {floor_r:g} m (placeholder speeds, arms not counted — an estimate)",
+                            *ref))
             elif slot == "FACE":
                 msgs = self._check_face(where, c)
             else:
@@ -594,6 +669,12 @@ class Show:
             e["start"], e["end"] = t, t + max(intrinsic, hold)
             owner_until[slot] = e["end"]
 
+        if "DANCE" in used and floor_r is None and dance_doc is None:
+            P(Problem("the show dances but declares no floor space — add dance: { floor_radius_m: "
+                      "<metres> }; the runner asks a human to confirm it before the base moves"))
+        if dance_total > DANCE_TOTAL_MAX_S + 1e-9:
+            P(Problem(f"the show dances for {dance_total:.1f}s in total, over the "
+                      f"{DANCE_TOTAL_MAX_S:g}s cap on open-loop base motion"))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -833,6 +914,23 @@ class Show:
             p.append(f"{where}: sound secs {secs} outside {SOUND_SECS_SANITY}")
         return p
 
+    def _check_dance(self, where, c):
+        move = c.get("move")
+        if move not in DANCE_MOVES:
+            return [f"{where}: dance move {move!r} is not in the library "
+                    f"({', '.join(DANCE_MOVES)}) — a dance names a move, never a velocity"]
+        p = []
+        if any(abs(n) > 1e-9 for n in dance_net(move)):
+            p.append(f"{where}: dance move {move!r} does not return to where it started "
+                     f"(net {dance_net(move)}) — a library error, refused")
+        secs = c.get("secs", DANCE_DEFAULT_SECS)
+        if not (_num(secs) and DANCE_SECS[0] <= float(secs) <= DANCE_SECS[1]):
+            p.append(f"{where}: dance secs {secs!r} outside {DANCE_SECS}")
+        amp = c.get("amp", 1.0)
+        if not (_num(amp) and 0.0 < float(amp) <= 1.0):
+            p.append(f"{where}: dance amp {amp!r} must be within (0, 1] — 1 is the autonomy ceiling")
+        return p
+
     def _check_face(self, where, c):
         if c.get("do") != "emote":
             return [f"{where}: face do must be emote (the only FACE verb in format v1)"]
@@ -913,6 +1011,8 @@ class Show:
             "markers": [{"t": _r(m["t"]), "name": m["name"], "src": m["src"]}
                         for m in a["markers"]],
             "tracks": tracks,
+            "dance": ({"floor_radius_m": self.doc["dance"].get("floor_radius_m")}
+                      if isinstance(self.doc.get("dance"), dict) else None),
         }
 
 

@@ -68,12 +68,12 @@ browser's local storage. A show diff is always a diff of *what the robot does*.
 
 ## 2. Slots
 
-`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT` — unchanged. One slot per independently
+`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT DANCE`. One slot per independently
 commandable thing, one owner at a time.
 
 **`DRIVE` is not a slot and v1 does not add it.** The reason is in `software/choreo/README.md` and
-is unchanged: the robot cannot yet say where it is. §12 records the bounded open-loop proposal as
-a design, not as format.
+is unchanged: the robot cannot yet say where it is. **`DANCE` is the bounded alternative** (§12):
+it names moves from a fixed library and can express no free-form velocity.
 
 ---
 
@@ -465,7 +465,33 @@ remain valid in every version.
 | Face configuration as show data | Phase 4; blocked on firmware prerequisites (0.2 is done on the IDF branch, not merged; 4.1–4.5 open) | — |
 | Session / cue-stack scheduling (5.5) | timeline first; the same clips will serve both | a second scheduler over `clips:` |
 
-### Bounded open-loop dance move — a design, and an open decision (workplan proposal 3)
+### Bounded open-loop dance — adopted 2026-10-07 (workplan DEC-2, item 1.4)
+
+**As built.** A restricted `DANCE` slot rather than a separate block: what had to be ruled out was
+free-form velocity, and a slot whose only key is a library move rules it out while keeping the time
+base, clips, one-owner rule and composer lane. The show declares `dance: { floor_radius_m: … }`.
+
+```yaml
+dance:
+  floor_radius_m: 1.5                     # clear radius; a human confirms it before the base moves
+cues:
+  - { bar: "5.1", slot: DANCE, move: sway, secs: 2 }
+  - { bar: "7.1", slot: DANCE, move: twist, secs: 2, amp: 0.6 }
+```
+
+| rule | value | kind |
+|---|---|---|
+| moves | `sway rock twist shuffle box`, each a fixed profile that integrates to zero on every axis (re-checked) | library (`cue.py` `DANCE_MOVES`) |
+| speed | `amp` in (0, 1]; 1 = the autonomy ceiling `kAutoMaxUnit` 0.35, then CH8 in a human's hand | firmware constant |
+| one move | 0.5–4 s, default 2 s | sanity |
+| whole show | ≤ 30 s of base motion | sanity |
+| floor | `floor_radius_m` required, 0.5–10 m; warns if a move may stray past it (with the base's ~0.46 m footprint, arms not counted) | declaration + estimate |
+| robot | valid, but runs **only in the twin** until the floor test (plan 6.6); a notice says so every time | — |
+
+How far a move strays and how the twin draws it use **placeholder speeds** (0.70 m/s and 1.40 rad/s
+at full command, from the simulator), not measurements.
+
+The original proposal follows.
 
 The base is wanted ("dancing") and refused today for a stated reason. If it is to be allowed
 before odometry is earned, the only defensible shape is **bounded by something other than
@@ -483,5 +509,5 @@ position**:
 - **Net displacement ≈ 0 by construction** — moves come in cancelling pairs, so open-loop drift is
   the only thing that accumulates.
 
-This changes `SLOTS`, the authority model's treatment of the base, and the runner; it is the maintainers'
-call and is in the report's decision list. Nothing in v1 implements it.
+It changes `SLOTS` and, when it runs on the robot, the authority model's treatment of the base and
+the runner — both still ahead (plan 5 and 6.6).
