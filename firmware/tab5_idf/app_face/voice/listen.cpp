@@ -141,14 +141,29 @@ VoiceEvent listenBlock(uint32_t nowMs, const int16_t* samples, int frames)
 
     const VoiceLevel v = voiceLevel(samples, frames);
 
-    if (g.st == ListenState::Idle) {
-        // The ONLY place the floor is learned: not in a press, and not during playback. See level.h
-        // -- a floor that updates during speech chases the speech.
-        if (due(nowMs, g.quietFloorFrom)) voiceFloorUpdate(&g.floor, v);
-        return listenTick(nowMs);
-    }
-
     const bool above = v.mean() >= voiceFloorThreshold(g.floor);
+
+    // ---- WHERE THE FLOOR IS LEARNED, in one place -------------------------------------------
+    //
+    // Every block that is BELOW the current threshold and is not part of an utterance in progress.
+    // That is: idle (a deliberate measurement pass), the quiet head of a press before the first
+    // syllable, and the quiet tail after it. Never during Speech -- a floor that updates during
+    // speech chases the speech and mutes the rest of the sentence -- and never during playback or
+    // its reverberant tail, or the robot learns its own voice as the room.
+    //
+    // THIS HAS TO COVER THE PRESS, not just Idle, and that is the part thinking about the device
+    // revealed. Push-to-talk means NOTHING IS CAPTURED WHILE IDLE -- the privacy guarantee, not an
+    // oversight -- so on a real robot no idle block ever arrives, and a floor learned only in Idle
+    // would never be learned at all. The threshold would stay at its fails-closed 4000 forever and
+    // the robot would hear nobody but a shouter.
+    //
+    // Covering the TAIL as well as the head is what saves the person who presses and starts
+    // talking at once: their speech beats the fails-closed threshold on its own, so they are heard
+    // immediately, and the floor is then measured from the silence after they stop.
+    const bool quiet = !above && g.st != ListenState::Speech;
+    if (quiet && due(nowMs, g.quietFloorFrom)) voiceFloorUpdate(&g.floor, v);
+
+    if (g.st == ListenState::Idle) return listenTick(nowMs);
 
     if (above && (!g.havePeak || v.mean() > g.peak.mean())) {
         g.peak = v;

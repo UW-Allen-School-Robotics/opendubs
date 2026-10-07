@@ -377,6 +377,64 @@ bool caseHalfDuplex()
     return true;
 }
 
+bool caseColdBootPress()
+{
+    // THE CASE THAT CAUGHT A REAL BUG, and it is here because the host test did not model the
+    // device faithfully enough to find it on its own: every other case calls warmFloor(), which
+    // feeds idle blocks. A REAL ROBOT NEVER DOES THAT. Push-to-talk means nothing is captured
+    // while idle -- that is the privacy guarantee -- so no idle block ever arrives, and a floor
+    // learned only in Idle is never learned at all.
+    //
+    // Both cases below therefore use NO idle capture anywhere, which is what the robot does.
+
+    // (a) THE DELIBERATE SPEAKER: presses, gathers themselves, then talks. The pause is the
+    //     calibration, and it costs nobody any privacy because the button is already held.
+    listenBegin();
+    uint32_t now = 1000;
+    if (listenFloor().valid) return fail("a fresh floor claims to be valid");
+    const uint32_t pressedAt = now;
+    listenPress(now);
+
+    // Room noise must NOT read as speech while the floor is un-measured: the threshold fails
+    // closed at 4000 precisely so that it cannot.
+    int blocks = 0;
+    while (!listenFloor().valid && blocks < 60) {
+        if (listenBlock(now, block(70.0f, 70.0f), kFrames) != VoiceEvent::None)
+            return fail("room noise during cold-boot calibration produced an event");
+        now += 32;
+        ++blocks;
+    }
+    if (!listenFloor().valid)
+        return fail("the floor never became valid during a press -- it is never learned at all");
+
+    const VoiceEvent e = feed(&now, 9000.0f, 9000.0f, 3);
+    if (e != VoiceEvent::Heard)
+        return fail("speech after cold-boot calibration produced %s", voiceEventName(e));
+    const uint32_t elapsed = now - pressedAt;
+    if (elapsed > 1000)
+        return fail("cold-boot press took %u ms to say Heard -- the promise is inside a second",
+                    (unsigned)elapsed);
+
+    // (b) THE IMPATIENT SPEAKER: presses and talks at once, so there is no quiet head to
+    //     calibrate from. Real speech still beats the fails-closed threshold, so they are heard
+    //     immediately -- and the floor is then measured from the silence AFTER they stop, which
+    //     is why the tail counts as quiet too.
+    listenBegin();
+    now = 1000;
+    listenPress(now);
+    if (feed(&now, 9000.0f, 9000.0f, 3) != VoiceEvent::Heard)
+        return fail("an immediate speaker was not heard on a cold floor");
+    if (listenFloor().valid) return fail("the floor cannot be valid yet -- nothing quiet was fed");
+    if (feed(&now, 70.0f, 70.0f, 40) != VoiceEvent::UtteranceEnd)
+        return fail("the immediate speaker's utterance did not end");
+    if (!listenFloor().valid)
+        return fail("the floor was not learned from the tail after an immediate speaker");
+
+    say("  ok   cold boot: a press self-calibrates with NO idle capture (Heard at %u ms); "
+        "an immediate speaker is heard anyway and calibrates from the tail", (unsigned)elapsed);
+    return true;
+}
+
 bool caseWrap()
 {
     // WRAP SAFETY. AUDIT.md invariant 5, and cues.cpp shipped this bug twice. Start the hangover
@@ -416,6 +474,7 @@ bool voiceSelfTest(VoiceSelfTestSink sink)
         {casePeakDirection,    "glance direction"},
         {caseRelease,          "release paths"},
         {caseHalfDuplex,       "half-duplex"},
+        {caseColdBootPress,    "cold boot press"},
         {caseWrap,             "wrap safety"},
     };
 
