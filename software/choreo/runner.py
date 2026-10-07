@@ -374,8 +374,8 @@ def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, po
                 return self._json(feed.timeline())
             if self.path == "/api/sim":
                 return self._json(robot.read())
-            if palette and self.path == "/api/routines":
-                return self._json(palette.routines())
+            if palette and self.path == "/api/routines":     # without server paths: the page needs none
+                return self._json([{k: v for k, v in r.items() if k != "path"} for r in palette.routines()])
             if palette and self.path == "/api/palette":
                 return self._json(palette.status())
             self._json({"error": "not found"}, 404)
@@ -397,7 +397,7 @@ def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, po
                 except RuntimeError as e:
                     return self._json({"error": str(e)}, 409)
                 except KeyError as e:
-                    return self._json({"error": str(e)}, 404)
+                    return self._json({"error": e.args[0] if e.args else "not found"}, 404)
                 except ValueError as e:
                     return self._json({"error": str(e)}, 422)
             if p == "/api/stop" and palette:

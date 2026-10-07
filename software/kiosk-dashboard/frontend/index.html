@@ -323,6 +323,17 @@
       </section>
     </main>
 
+    <!-- SHOWS view — the routine palette (choreography plan 4.4). Pick one, it runs, pick the next. -->
+    <main id="view-shows" class="view showsview">
+      <section class="card shows-card">
+        <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="The show runner drives only the twins (MuJoCo, the face twin) until live output is built — choreography plan 5.6">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
+        <div id="showsStatus" class="shows-status">—</div>
+        <div id="showsList" class="shows-list"></div>
+        <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
+        <div class="sub">Each routine ends with the arms at rest and the head centred, so any can follow any. A routine that does not validate cannot be started.</div>
+      </section>
+    </main>
+
     <!-- ARMS view (placeholder) -->
     <main id="view-arms" class="view placeholder">
       <div class="ph"><h1>ARMS</h1><p>Dual OpenArm 7-DOF</p><p class="dim">telemetry pending — layout to be designed</p></div>
@@ -527,10 +538,12 @@
     <div class="ditem" data-view="lidar">Lidar — front / rear scan<span class="ch">›</span></div>
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
+    <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
   <script src="app.js?v=0a1c032a"></script>
   <script src="operate.js?v=7ef5cdb2"></script>
   <script type="module" src="teleop.js?v=62f2695f"></script>
+  <script src="choreo.js?v=1"></script>
 </body>
 </html>

@@ -476,4 +476,9 @@ class NoCacheStaticFiles(StaticFiles):
         return resp
 
 
+# The Shows page's routines, forwarded to the show runner (choreo_proxy.py). Included before the
+# static mount so /api/choreo/* is not shadowed by it.
+from choreo_proxy import router as _choreo_router  # noqa: E402
+app.include_router(_choreo_router)
+
 app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
