@@ -146,6 +146,8 @@ below. Dates are when the decision was made.
 | DEC-19 | **`feat/openarm-integration` is salvaged and closed, together with its author.** It predates the October hardening, so merging it would revert `main` (teleop unit, patches, ~346 lines of `openarm-up`, ~250 of the setup doc). Kept: the submodule pinning (repointed at the fork), `openarm_bringup.sh` (its `bake-image.sh` / `bake_image.sh` call fixed, and any step `openarm-up` lacks folded in), and the `ws_state` exclude in `deploy-all.sh`. The sibling checkout `opendubs-openarm` is retired afterwards. | Q5 | 6.3 |
 | DEC-20 | **Ask the upstream author whether the private copy may go public** (as a fork, enabling upstream PRs). Until they answer, it stays private and nothing of theirs is published. | 2026-10-07 | 0.5 |
 | DEC-21 | **CH5 gates every arm motion.** OFF: hold and status only — de-energize only from stow; **nothing that moves an arm** (activate drives to zero, so it counts). MANUAL: activate, park, teleop engage, freedrive, bench tests. AUTO: activate, park, shows and planners — not teleop engage. **A missing or stale `[AUTH]` is OFF.** Enforced where it cannot be bypassed: the Thor's view of CH5 (0.8), `openarm-up` (0.9) and the teleop bridge (1.9). Raised 2026-10-07 when a bench test was about to activate the arms with CH5 off and nothing would have stopped it. | 2026-10-07 | 0.8, 0.9, 1.9, rule 10 |
+| DEC-22 | **Target design: the Quest headset mounted on the robot, the operator unhooded.** The headset only tracks the controllers and gives the operator nothing back, so it rides on the robot's upper back facing rearward, rigid with the arm bases; the operator stands **behind the robot facing the way it faces**, within its view. Controller poses are taken **relative to the headset** and mapped through one fixed mount calibration, so the session's starting orientation stops mattering. **Pending M1** — if a stationary headset cannot track the controllers steadily at operator distance, this is dropped. A worn headset returns only if telepresence (camera video to the operator) is wanted. | 2026-10-07 | Phase M |
+| DEC-23 | **Q6 decided: release and dropout stop the arm where it is** (measured joints). **Q7 deferred** — the corrected session felt right. **Home is hold-to-run on X (left) / A (right)**, one straight line in joint space to the robot's stow pose at 15 deg/s, CH5 MANUAL only. | 2026-10-07 | 4.3 |
 
 ---
 
@@ -160,8 +162,8 @@ Raised by this consolidation and **all decided by the project team on 2026-10-07
 | Q3 | ~~How is the head kept out of reach during teleop?~~ | **DECIDED, 2026-10-07: a J2 cap now, plus a hand check for other ways in; the head joins the collision model in Phase 5.** Recorded as DEC-17. |
 | Q4 | ~~Carry patches, or fork upstream under the org?~~ | **DECIDED, 2026-10-07: copy into the org now, privately (see DEC-18, DEC-20)**, before the Phase 1 changes, so they land as reviewable commits. Counting showed close-out alone brings ~7 upstream changes, past any sensible patch-script threshold. Recorded as DEC-18. |
 | Q5 | ~~`feat/openarm-integration`~~ | **DECIDED, 2026-10-07: salvage, then close — with the branch's author.** Recorded as DEC-19. |
-| Q6 | **Release and dropout hold the LAST TARGET, not the arm's current pose** (F3). Upstream's `TeleopController` keeps the last target "between drags", so after a release the arm keeps travelling to where it was told to go — further the more it lags. | Hold where the arm **is**: on disengage, set the target to the measured pose (what `openarm-up hold` does). Release becomes a stop at any latency. |
-| Q7 | **Wrist rotation is applied in world axes** (F5), so a tip-down on a forward-pointing controller tilts a down-hanging gripper backward — correct, and it reads as mirrored. | Apply rotation in the hand's own frame (the tool-frame clutch). Decide whether it waits for Phase 5 or comes into close-out. |
+| Q6 | ~~Release holds the last target~~ | **DECIDED (DEC-23): stop where it is**, built in `4530665`/`5ffb96a`, robot retest pending. |
+| Q7 | ~~World-frame wrist rotation~~ | **DEFERRED (DEC-23)** — after the fixes the wrist felt right; revisit only if it recurs. |
 
 ---
 
@@ -265,6 +267,18 @@ headset connected.*
 | 5.4 | **Force-triggered compliance** (threads F), after 5.2. | Argued from the ~1–2° steady-state error the impedance controller already shows. |
 | 5.5 | **The head in the collision model** (DEC-17). Upstream's collision shadow has no head, lift or chassis, and its teleop `safety_mode` is `allow`. Give it the head from `sim/` and turn checking on, alongside 5.2. | A teleop target that would put any link into the head is held, in any pose — and the J2 cap can then be relaxed or kept as a backstop, by decision. |
 
+## Phase M — the headset on the robot (DEC-22)
+
+*Experiments first; nothing is mounted until M1 passes.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| M1 | **Can a stationary headset track the controllers?** Headset on a tripod or the robot's back, rear-facing, kept awake (developer-mode proximity override), session started remotely. Operator behind it at 0.5 / 1 / 1.5 / 2 m. Log dropouts per minute and pose noise with head-relative poses (the page sends the head pose since `5ffb96a`). | Write the acceptable dropout rate and noise **before** the run. If no distance meets them, DEC-22 is dropped. |
+| M2 | **Head-relative mapping in the bridge**: controller pose in the headset's frame × a fixed mount calibration → the arms' world frame, ignoring the session origin. One-time calibration procedure. | The same hand motion produces the same arm motion across sessions started with the headset rotated differently on the bench. |
+| M3 | **Unattended start.** WebXR needs a user gesture to enter a session: try an adb-driven tap (Wi-Fi or USB). If that is not reliable across reboots and OS updates, a native app (launched by adb at boot) replaces the page — the parked Unity work (P1) becomes relevant. | Robot power-on to tracking-ready with no hands on the headset, ten times in a row. |
+| M4 | **USB tether to the Thor** instead of Wi-Fi (`adb reverse` for 8444/8766). | Dropouts (F10) and latency compared against Wi-Fi with the same bench script. |
+| M5 | **The mount**: rigid with the arm bases, out of the arms' sweep, USB-C power, heat over an hour. | Calibration from M2 holds after an hour of driving; headset temperature logged. |
+
 ## Phase 6 — documentation and reproducibility (R1, R2)
 
 | # | Item | Done when |
@@ -292,6 +306,8 @@ Raised at the robot, with the project team present. Each points at the item that
 | F9 | **`systemctl stop opendubs-teleop` returns before the bridge has exited** — the unit wraps `docker exec`, so the process inside lives on through its cleanup, unlogged. A park started ~2 s later may have overlapped it. `openarm-up park` must refuse while a bridge runs, and the unit's stop must wait for the process to be gone. | open | 0.2, 0.9 |
 | F10 | **The Quest's stream drops out for > 0.5 s, repeatedly**, in the first session (left side ~8 times in 26 s, unused). Latency felt much better after the headset restart; "some lagging movement" remains. INFO logs are hidden, so re-arm events cannot be seen in the journal. | open | Phase 2, 1.7 |
 | F11 | **The robot's `openarm-up` predates the gripper-controller fix** — they were loaded by hand today. Default park is 4 s, too fast for large sweeps (122° of elbow); 10 s was used. | open | 0.1 |
+| F12 | **The arm's model was never synced to the real arm.** On hardware the arm object reads a MuJoCo shadow that only commands move, starting at zero on every bridge start — measured 35.2 deg (right J4) off at startup. Teleop took the grip-time pose, IK seed and speed clamps from it, so the first grip after a restart drove the real arm toward the model, and the IK solved from a straight hanging arm: **the likely real cause of "resisting forward"**, and of A reporting "at stow" with the arm raised. Fixed in `aa79db1` (sync at start, at grip, at homing, after stops, 10 Hz idle); verified 35.2 → 0.0 deg at startup with no arm motion. Hands-on retest pending. | fixed, retest pending | 1.1, 4.3 |
+| F13 | **The homing first built moved each joint independently** (bent path, confusing next to `openarm-up park`); now one straight joint-space line, all joints arriving together (`5ffb96a`). | fixed, retest pending | DEC-23 |
 
 ## Stub register
 
