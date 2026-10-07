@@ -1,6 +1,6 @@
 # The tablet as a robot device
 
-**Status: proposed, for the project team to decide** (choreography plan item 4.1, team request
+**Status: decided by the project team, 2026-10-07** (choreography plan item 4.1, team request
 E9). The tablet is a **Samsung Galaxy Tab A11**. Nothing here has been tried on it yet; claims about
 Android and browsers are sourced below, and everything that only the tablet can answer is listed
 as an experiment.
@@ -13,14 +13,14 @@ the tablet itself is parked as P1.
 
 ---
 
-## Decisions for the team
+## Decisions — 2026-10-07
 
-| # | Decision | Recommendation |
+| # | Question | Decision |
 |---|---|---|
-| TD-1 | **How the dashboard becomes a "secure context".** The microphone (`getUserMedia`) and Screen Wake Lock only work on a secure origin, and `http://10.42.2.10:8080` is not one — only HTTPS and `localhost` are ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts)). This blocks the mic in every option below, Fully Kiosk included. | **Serve the dashboard over HTTPS from the Thor**, with a certificate from a local CA (e.g. `mkcert`) installed on the tablet as a user CA. Chrome on Android trusts user-added CAs ([its network config](https://chromium.googlesource.com/chromium/src/+/main/chrome/android/java/res_base/xml/network_security_config.xml)). **Stopgap** until then: Chrome's "Insecure origins treated as secure" flag for the dashboard's address, which Chromium documents for testing. Works offline; no internet needed. |
-| TD-2 | **What the tablet runs.** | **Fully Kiosk Browser, PLUS licence** (one-time, about €9 / US$11 per tablet). It keeps the screen on, runs as a locked kiosk, autoplays audio, grants the mic, and has a JavaScript interface so the dashboard can follow robot state (wake the screen, bring itself to the front). The free tier lacks kiosk mode, the JS interface and the mic. **Not recommended:** a custom APK — the same result for far more code to maintain — and plain Chrome, which the operator can leave and which cannot stop update prompts. |
-| TD-3 | **Make Fully the tablet's "device owner".** Android's strongest kiosk features — **lock task mode** (no status bar, no notifications, no Home button) and the **system update policy** (postpone 30 days, or a nightly window) — need a device-owner app. Without it Fully itself warns that reliable kiosk protection is impossible on Android 12+. | **Yes, on a dedicated robot tablet.** The cost: a **factory reset**, and **no Google account** on the tablet (an `adb` requirement), so Fully is installed from its own APK and updated by hand. Set up once with `adb shell dpm set-device-owner …` — free, no MDM server. |
-| TD-4 | **Is the tablet in the BOM?** Already open on the punch list: nothing in `parts.csv` says what to buy. | **Yes** — a Galaxy Tab A11 line, plus Fully Kiosk PLUS, and this note linked as the setup guide. A replicator should not have to rediscover any of it. (A `parts.csv` change, done separately.) |
+| TD-1 | **How the dashboard becomes a "secure context".** The microphone (`getUserMedia`) and Screen Wake Lock only work on a secure origin, and `http://10.42.2.10:8080` is not one — only HTTPS and `localhost` are ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts)). | **HTTPS from the Thor, with a local CA** (e.g. `mkcert`) installed once on the tablet. Works offline. Laptops that browse the dashboard need the CA too, or accept a warning. |
+| TD-2 | **What the tablet runs.** | **Our own minimal, open-source kiosk app** — after a short check for an existing maintained open-source kiosk browser that already does the job, which would be used instead. A paid kiosk app (Fully Kiosk PLUS) was rejected as at odds with an open-source project. Scope is deliberately small: one screen holding a WebView of the dashboard, a device-owner receiver, and a JavaScript bridge (wake the screen, come to the front, report screen state). It never grows its own UI. See *The kiosk app* below. |
+| TD-3 | **Device owner.** Lock task mode (no status bar, no notifications, no Home) and the system update policy (postpone 30 days, or a nightly window) need a device-owner app. | **Yes — a dedicated robot tablet.** Factory reset, **no Google account**, our app provisioned as device owner with `adb shell dpm set-device-owner`. Apps are installed from APKs and updated by hand. |
+| TD-4 | **Is the tablet in the BOM?** | **Yes.** A Galaxy Tab A11 line in `parts.csv`, with this note as the setup guide. The app is built from this repository, so there is no licence to buy. (A `parts.csv` change, made separately with a buy link.) |
 
 ---
 
@@ -44,29 +44,49 @@ the free Knox licence is activated through an MDM console.
 
 ---
 
-## Setup, if TD-1 to TD-3 are accepted
+## The kiosk app
+
+**Why our own, and what it costs.** It is free, open source and versioned with the dashboard it
+wraps, and it settles the biggest unknown below (TB-1): an app can declare in its own network
+security config that it trusts the robot's local CA, where a third-party WebView's trust is
+uncertain. Against that, the team takes on:
+
+- **an Android toolchain** (SDK, Gradle, Kotlin — command-line tools are enough), kept building as
+  people come and go;
+- **the kiosk mechanics as our code** — device-owner receiver, lock task, update policy,
+  `FLAG_KEEP_SCREEN_ON`, the microphone permission, audio autoplay, a `mediaPlayback` foreground
+  service if music must survive the screen going off — tested on one tablet rather than many;
+- **a signing key.** Every update must be signed with the same key; lose it and the app must be
+  removed, which for a device owner means a factory reset. The key lives in the team's password
+  manager from day one, never in the repository;
+- **One UI updates that may break it.**
+
+**The scope rule.** A shell around the dashboard: no screens, settings or logic of its own beyond
+what Android requires. Anything a user sees is the dashboard's.
+
+## Setup
 
 **Once, at the bench:**
 
 1. Factory-reset the tablet; skip adding a Google account.
-2. Install Fully Kiosk from its APK; buy and apply the PLUS licence.
-3. `adb shell dpm set-device-owner` → Fully. Turn on lock task mode, status bar off, and a system
-   update policy (postpone, or a window outside show hours).
-4. Install the robot's local CA as a user certificate; point Fully at `https://<thor>:8080`.
-5. Fully settings: Keep Screen On, autoplay audio, microphone allowed, JavaScript interface on.
+2. Install the kiosk app from its APK.
+3. `adb shell dpm set-device-owner <app>/<receiver>`. The app turns on lock task mode and sets a
+   system update policy (postpone, or a window outside show hours).
+4. Install the robot's local CA on the tablet; the app trusts it for the dashboard's address.
+5. The app opens `https://<thor>:8080` full screen and keeps the screen on.
 
 **The Samsung settings that interrupt kiosk use**, each turned off, as a second layer:
 
-- Battery: add Fully to **Never sleeping apps**; turn off **Put unused apps to sleep**.
+- Battery: add the kiosk app to **Never sleeping apps**; turn off **Put unused apps to sleep**.
 - Software update › **Auto download over Wi-Fi** off.
 - Device care › Auto restart: **Restart when needed** and **Restart on schedule** off.
 - Display › **Edge panels** off.
 - Developer options › **Stay awake** while charging on.
 - Do Not Disturb set to **Alarms only** — not *Total silence*, which would mute the music.
 
-**In the dashboard (code, after TD-1):** use Fully's JavaScript interface when it is present —
-wake the screen and come to the front when a show is armed or the robot faults — and fall back to
-the Screen Wake Lock API in a plain browser.
+**In the dashboard (code, after TD-1):** use the app's JavaScript bridge when it is present — wake
+the screen and come to the front when a show is armed or the robot faults — and fall back to the
+Screen Wake Lock API in a plain browser.
 
 ---
 
@@ -76,7 +96,7 @@ Each with its question and kill criterion, for the hardware session.
 
 | # | Question | Done when / kill criterion |
 |---|---|---|
-| TB-1 | Does the tablet's installed CA make the dashboard a secure context in **Chrome and in Fully**? | `window.isSecureContext === true` and `navigator.mediaDevices` exists in both. If Fully's WebView will not trust the user CA, fall back to Chrome + flag and record why. |
+| TB-1 | Does the dashboard load as a secure context **in the kiosk app**, with the robot's CA trusted by the app's own network security config? | `window.isSecureContext === true` and `navigator.mediaDevices` exists. Chrome with the CA installed is the fallback to compare against. |
 | TB-2 | Does music play for **10 minutes** without a break — screen on, then screen off, then with the app briefly in the background? | No dropout in a 10-minute track. If screen-off stops it, the setting is "screen always on" during shows, not a code fix. |
 | TB-3 | Does the websocket stay connected through screen-off and Samsung's battery management? | No reconnect in 10 minutes. |
 | TB-4 | Does One UI honour the device owner's update policy, or still prompt? | No update prompt over a week of normal use. |
