@@ -49,7 +49,7 @@ check("playing sends each earcon as it is crossed, once", out == ["CUE heard"], 
 check("a LIGHT cue is not sent, and the console is told why",
       any("LIGHT" in m and "StamPLC" in m for m in f.log), f.log)
 check("a sound FILE is not sent to the face, and the console is told why",
-      any("my_song_hit" in m and "file" in m for m in f.log), f.log)
+      any("my_song_hit" in m and "plays on the tablet" in m for m in f.log), f.log)
 out = f.update(1, TL, 4.0, True)
 check("a FACE cue is sent as it is crossed", out == ["EMOTE ALERT"], out)
 
@@ -75,6 +75,15 @@ check("following a runner, an aborted show hands the face back its own behaviour
       out == ["EMOTE AUTO"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
 check("... and a lost lease does the same",
       fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO"])
+
+routed = {"tracks": {"SOUND": [{"t": 1.0, "cue": {"do": "play", "sound": "attend"}, "output": "tablet"},
+                               {"t": 2.0, "cue": {"do": "play", "sound": "heard"}, "output": "tab5"}]}}
+k = fb.Follower()
+k.update(1, routed, 0.0, False)
+k.update(1, routed, 0.02, True)
+out = k.update(1, routed, 0.5, True) + k.update(1, routed, 1.0, True) + k.update(1, routed, 1.5, True) + k.update(1, routed, 2.0, True)
+check("only sounds routed to the Tab5 reach the face; the rest are logged with where they play",
+      out == ["CUE heard"] and any("plays on the tablet" in m for m in k.log), (out, k.log))
 
 print("\nface bridge: local only")
 for host in ("127.0.0.1", "localhost", "::1"):

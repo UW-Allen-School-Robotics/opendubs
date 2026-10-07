@@ -160,6 +160,15 @@ SOUND_DIR = "sounds"
 # Only sizes the slot's span when neither `secs` nor a readable WAV header gives a length.
 SOUND_DEFAULT_S = 0.5
 SOUND_SECS_SANITY = (0.05, 600.0)
+
+# Where sound plays (workplan DEC-5 / DEC-11, item 1.5). A show may say, for its music and for each
+# sound; the operator may override at run time (Show.audio_override), and the show is re-checked
+# against the override — a sound an output cannot play is an ERROR, never silence.
+AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
+# What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
+# the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
+CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
@@ -197,7 +206,7 @@ SLOT_KEYS = {
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
-    "SOUND": {"do", "sound", "secs"},
+    "SOUND": {"do", "sound", "secs", "output"},
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
@@ -266,6 +275,7 @@ class Show:
         self.requires = doc.get("requires") or {}
         self.cues = doc.get("cues") or []
         self.doc = doc
+        self.audio_override = None      # the operator's run-time output choice; None = as written
 
     # ---- time ------------------------------------------------------------------------------
     def _music(self, P):
@@ -279,8 +289,17 @@ class Show:
         out = {"file": m.get("file"), "bpm": m.get("bpm"), "offset_s": m.get("offset_s", 0.0),
                "beats_per_bar": m.get("beats_per_bar", 4)}
         for k in m:
-            if k not in out:
-                P(Problem(f"music: unknown key {k!r} (known: file, bpm, offset_s, beats_per_bar)"))
+            if k not in out and k != "output":
+                P(Problem(f"music: unknown key {k!r} (known: file, bpm, offset_s, beats_per_bar, output)"))
+        written = m.get("output", DEFAULT_AUDIO_OUTPUT)
+        if written not in AUDIO_OUTPUTS:
+            P(Problem(f"music: output {written!r} is not one of {', '.join(AUDIO_OUTPUTS)}"))
+        else:
+            route = self.audio_override or written
+            out["output"] = route
+            if "file" not in CAN_PLAY[route]:
+                P(Problem(f"music: the {route} cannot play a music file "
+                          f"(it plays: {', '.join(CAN_PLAY[route])}) — choose tablet or thor"))
         ok = True
         bpm = out["bpm"]
         if not _num(bpm):
@@ -553,6 +572,11 @@ class Show:
             if not os.path.isfile(audio):
                 notices.append(f"music file {music['file']!r} not found next to the show — motion "
                                "still validates; generate or fetch the audio to hear it")
+
+        if (music or {}).get("output") == "thor" or self.audio_override == "thor" or any(
+                isinstance(c, dict) and c.get("output") == "thor" for c in (self.cues or [])
+                if isinstance(self.cues, list)):
+            notices.append("audio routed to the thor: no Thor speaker is fitted yet (DEC-5)")
 
         used = set()
         # per-slot arm state, so speed is measured between what actually happens
@@ -911,6 +935,19 @@ class Show:
                 pass
         return SOUND_DEFAULT_S
 
+    def sound_route(self, c) -> str:
+        """Where a SOUND cue plays: the operator's override, else the cue's own `output`, else the
+        tablet (DEC-5) — except a Tab5 earcon with no file of the same name, which only the Tab5
+        has, and so defaults there."""
+        if self.audio_override:
+            return self.audio_override
+        if c.get("output"):
+            return c["output"]
+        name = c.get("sound")
+        if name in TAB5_EARCONS and not self._sound_file(name):
+            return "tab5"
+        return DEFAULT_AUDIO_OUTPUT
+
     def _check_sound(self, where, c):
         if c.get("do") != "play":
             return [f"{where}: sound do must be play (SOUND plays a named sound effect)"]
@@ -921,6 +958,17 @@ class Show:
         elif name not in TAB5_EARCONS and not self._sound_file(name):
             p.append(f"{where}: unknown sound {name!r} — not a Tab5 earcon "
                      f"({', '.join(TAB5_EARCONS)}) and no file {SOUND_DIR}/{name}.* beside the show")
+        else:
+            route = self.sound_route(c)
+            if route not in AUDIO_OUTPUTS:
+                p.append(f"{where}: sound output {route!r} is not one of {', '.join(AUDIO_OUTPUTS)}")
+            else:
+                has = (("earcon",) if name in TAB5_EARCONS else ()) + (("file",) if self._sound_file(name) else ())
+                if not set(has) & set(CAN_PLAY[route]):
+                    what = "a Tab5 earcon" if name in TAB5_EARCONS else "a sound file"
+                    p.append(f"{where}: the {route} cannot play {name!r} — it is {what}, and the "
+                             f"{route} plays {', '.join(CAN_PLAY[route])}s"
+                             + (f"; add {SOUND_DIR}/{name}.wav for the {route}" if "file" in CAN_PLAY[route] else ""))
         secs = c.get("secs")
         if secs is not None and not (_num(secs) and SOUND_SECS_SANITY[0] <= float(secs) <= SOUND_SECS_SANITY[1]):
             p.append(f"{where}: sound secs {secs} outside {SOUND_SECS_SANITY}")
@@ -1021,6 +1069,8 @@ class Show:
             ev = {"t": _r(e["t"]), "start": _r(e["start"]), "end": _r(e["end"]),
                   "slot": e["slot"], "kind": e["kind"], "cue": _jsonable(e["fields"]),
                   "src": e["src"]}
+            if e["slot"] == "SOUND":
+                ev["output"] = self.sound_route(e["fields"])     # resolved, so players need not guess
             if e["slot"] in ARM_SLOTS:
                 sign = -1 if e["slot"] == "ARM_L" else 1
                 ev["pose_signed"] = {str(j): _r(v, 4) for j, v in e["pose"].items()}
@@ -1032,6 +1082,7 @@ class Show:
         music = None
         if a["music"]:
             music = {k: a["music"][k] for k in ("file", "bpm", "offset_s", "beats_per_bar")}
+            music["output"] = a["music"].get("output", DEFAULT_AUDIO_OUTPUT)
             music["beat_s"] = _r(a["music"]["beat_s"])
         ends = [e["end"] for e in a["events"] if "end" in e] + [m["t"] for m in a["markers"]]
         va = None

@@ -144,6 +144,29 @@ prevents it.
 
 ---
 
+## 3a. Audio routing — where sound plays (workplan DEC-5, DEC-11, item 1.5)
+
+Music and each `SOUND` cue may name an `output`: `tablet`, `tab5` or `thor`.
+
+```yaml
+music: { file: audio/song.mp3, bpm: 120, output: tablet }       # output defaults to tablet
+cues:
+  - { t: 0.0, slot: SOUND, do: play, sound: attend }            # a Tab5 earcon -> the Tab5
+  - { t: 4.0, slot: SOUND, do: play, sound: whoosh, output: tablet }   # sounds/whoosh.* -> the tablet
+```
+
+| output | plays today |
+|---|---|
+| `tablet` (the default) | files: music, and `sounds/<name>.*` |
+| `tab5` | its six built-in earcons only — no path for files yet |
+| `thor` | files — but no Thor speaker is fitted yet, and a notice says so |
+
+With no `output`, a sound goes to the tablet — except a Tab5 earcon with no file of the same name,
+which only the Tab5 has. **The operator may route all of a show's audio elsewhere at run time**
+(`runner.py --audio-output`, later the player); the show is re-checked against that choice, and a
+sound the chosen output cannot play is a **validation error, never silence**. The export records
+each sound's resolved `output`, and the music's.
+
 ## 4. Durations: every cue occupies a span (0.4, 1.5)
 
 QLC+'s rule — "only Chasers can be assigned to a Cue List … the Chaser is the only function with
@@ -298,7 +321,7 @@ Unchanged from v0 unless marked **new**.
 | `GRIP_L`/`GRIP_R` | `do: open\|close` or `open: 0..1` (0 closed, 1 open — the same on both sides), `effort` | `open` within 0..1, effort ≤ 5; the old `pos: m` is refused by name | each robot's per-side mapping lives on the robot (`grippers.py`, workplan DEC-4); none of it is in the repo |
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |
-| `SOUND` | `do: play`, `sound: <name>`, optional `secs` | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |
+| `SOUND` | `do: play`, `sound: <name>`, optional `secs`, optional `output: tablet\|tab5\|thor` (see *Audio routing*) | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |
 | `FACE` **new** | `do: emote`, `name: NEUTRAL\|ALERT\|SQUINT\|SOFT\|SLEEPY` | closed vocabulary | `kEmotes[]` in `firmware/tab5_idf/app_face/app_face.cpp`, branch `feat/tab5-idf-subtractive` at `0e47085` |
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
 

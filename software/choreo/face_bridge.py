@@ -88,11 +88,13 @@ class Follower:
                 self.sent["emote"] = line
                 out.append(line)
             elif slot == "SOUND" and c.get("do") == "play":
-                if c.get("sound") in EARCONS:
+                # Routed by the validator (cue.py sound_route): only the Tab5's sounds go to the face.
+                route = e.get("output") or ("tab5" if c.get("sound") in EARCONS else "tablet")
+                if route == "tab5" and c.get("sound") in EARCONS:
                     out.append(f"CUE {c['sound']}")
                 else:
-                    self.log.append(f"t={t:.2f} SOUND {c.get('sound')!r} is a file: not sent "
-                                    "(it plays on the tablet or Thor; that audio path is not built)")
+                    self.log.append(f"t={t:.2f} SOUND {c.get('sound')!r} plays on the {route}: not "
+                                    "sent to the face (the tablet and Thor audio paths are not built)")
             elif slot == "LIGHT":
                 self.log.append(f"t={t:.2f} LIGHT {c.get('do')} {c.get('rgb', '')}: not sent "
                                 "(the PRISM strip is driven by the StamPLC, never by a bridge)")

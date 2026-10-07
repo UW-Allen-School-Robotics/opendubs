@@ -347,7 +347,7 @@ function label(ev) {
     case "GRIP_L": case "GRIP_R": return c.do || `open ${c.open}`;
     case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
-    case "SOUND": return c.sound || c.do;
+    case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
     case "FACE": return c.name || c.do;
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
     case "LIGHT": return c.do === "color" ? "■" : c.do;
@@ -496,7 +496,7 @@ function renderPreview() {
     } else if (slot === "SOUND") {
       const e = lastAt(evs, t);
       const on = e && t < e.end;
-      row(slot, e ? `${on ? "♪ " : ""}${e.cue.sound || e.cue.do}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
+      row(slot, e ? `${on ? "♪ " : ""}${e.cue.sound || e.cue.do}${e.output ? ` <span class="dim">on the ${e.output}</span>` : ""}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
     } else if (slot === "LIGHT") {
       const e = lastAt(evs, t);
       row(slot, e && e.cue.do === "color" ? `<span class="swatch" style="background:rgb(${e.cue.rgb.join(",")});opacity:${(e.cue.br ?? 100) / 100}"></span> ${e.cue.rgb.join(", ")} @ ${e.cue.br ?? 100}%` : '<span class="dim">state colour (no show colour)</span>');

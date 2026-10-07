@@ -62,7 +62,8 @@ caught when repeated too fast.
   the elbow folded, and *nothing in the arm controller stops it* — its only Cartesian guard is a
   1.2 m box that pose satisfies. A show must leave 25°, and may not raise an extended arm past
   ~135° (measured: 140 accepted, 146 refused on the box).
-- `SOUND` names a known sound: one of the Tab5's earcons, or a file in `sounds/` beside the show.
+- `SOUND` names a known sound: one of the Tab5's earcons, or a file in `sounds/` beside the show —
+  and the output it is routed to (tablet, Tab5 or Thor; format spec §3a) must be able to play it.
 - `FACE` and `LIGHT` against closed vocabularies taken from the firmware that would receive them.
 - Markers that name signals (`disco_ball_on`), never wiring (`relay3_on`).
 - No unknown keys: a typo is an error, not a silently ignored field.

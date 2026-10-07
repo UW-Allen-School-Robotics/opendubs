@@ -174,8 +174,9 @@ class TwinFeed:
 # ---- the runner -------------------------------------------------------------------------------
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
-                 sleep=time.sleep, start_lead=START_LEAD_S):
+                 sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
+        self.audio_output = audio_output          # the operator's override (DEC-5), re-validated
         self.feed = feed or TwinFeed()
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
@@ -211,6 +212,7 @@ class Runner:
         self._set(VALIDATING, show=self.path)
         try:
             show = cue.load_show(self.path)
+            show.audio_override = self.audio_output
             tl = show.export(cue.load_limits(self.limits_path), self.limits_path)
         except Exception as e:  # noqa: BLE001
             return self._end(REFUSED, "PARSING_FAILURE", f"{type(e).__name__}: {e}")
@@ -327,6 +329,8 @@ def main() -> int:
     r.add_argument("--port", type=int, default=8092)
     r.add_argument("--log", help="append the JSON-lines log here (default: stdout)")
     r.add_argument("--hold", type=float, default=0.0, help="seconds to keep serving after it ends")
+    r.add_argument("--audio-output", choices=cue.AUDIO_OUTPUTS,
+                   help="play all of the show's audio here (the show is re-checked against it)")
     a = ap.parse_args()
 
     robot, feed, ref = FakeRobotState(), TwinFeed(), {}
@@ -334,7 +338,7 @@ def main() -> int:
     log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
     print(f"runner: twin feed on http://127.0.0.1:{a.port} — the FAKE robot state is in charge; "
           "nothing here can command the robot", file=sys.stderr, flush=True)
-    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log)
+    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log, audio_output=a.audio_output)
     status, code, cause, _ = runner.run()
     print(f"runner: {status} ({code}): {cause}", file=sys.stderr, flush=True)
     time.sleep(a.hold)

@@ -246,6 +246,33 @@ check_doc("a face-and-sound show needs no rc_authority",
                     {"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
                    requires={"tab5": True}), None)
 
+# Audio routing (DEC-5 / DEC-11, item 1.5): where each sound plays, and whether it can.
+_m = {"file": "x.wav", "bpm": 120}
+check_doc("music defaults to the tablet, which can play it",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], music=_m), None)
+check_doc("music routed to the Tab5 is an error, not silence (it has no path for files yet)",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
+                   music={**_m, "output": "tab5"}), "cannot play a music file")
+check_doc("an unknown output is caught",
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend", "output": "speaker"}]),
+          "not one of")
+check_doc("a Tab5 earcon sent to the tablet, with no file for it, is an error",
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend", "output": "tablet"}]),
+          "cannot play 'attend'")
+_r = doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}]).export(LIMITS, None)
+check_true("an earcon with no output given defaults to the Tab5, the only device that has it",
+           _r["tracks"]["SOUND"][0]["output"] == "tab5", _r["tracks"]["SOUND"])
+_o = doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}], music=_m)
+_o.audio_override = "tab5"
+check_true("an operator override is re-checked: all audio on the Tab5 refuses a show with music",
+           any("cannot play a music file" in q.msg for q in _o.analyse(LIMITS)["problems"]))
+_o = doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}])
+_o.audio_override = "thor"
+_oa = _o.analyse(LIMITS)
+check_true("... and routing an earcon to a Thor speaker is refused, saying how to fix it",
+           any("cannot play 'attend'" in q.msg and "sounds/attend.wav" in q.msg for q in _oa["problems"]),
+           [q.msg for q in _oa["problems"]])
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
