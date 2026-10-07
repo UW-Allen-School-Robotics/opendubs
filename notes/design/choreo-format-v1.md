@@ -73,9 +73,11 @@ The runner's preflight is built from it, and anything unknown at run time refuse
 
 **Defaults worth knowing.** A `HEAD` cue that sets only `pan` (or `tilt`) leaves the other axis on its
 current target. `DANCE` `secs` defaults to 2 and `amp` to 1. A show's length is the latest end of any
-cue's span (a sound without `secs` counts its file's length, or 0.5 s). The arms' rest pose (all
-zero) may sit on a joint limit — the elbow (J4) does — so a show cannot write "back to rest"
-exactly; write J4 at its usable minimum (`describe`) or above.
+cue's span (a sound without `secs` counts its file's length, or 0.5 s). **`pose: rest`** sends an arm back to
+where it hangs: every joint 0, clamped into that robot's own joint limits with no extra margin
+(the elbow's hanging value sits a few degrees below the arm software's lower limit for J4). It is
+resolved from each robot's limits file, so no robot's numbers are in a show, and the move there is
+speed-checked like any other.
 
 There is **no layout data in a show** — no lane heights, colours, zoom, scroll position, mute
 state or x/y coordinates (standing rule 7). Those belong to the editor and live in the
@@ -336,7 +338,7 @@ Unchanged from v0 unless marked **new**.
 
 | slot | fields | checks | sourced from |
 |---|---|---|---|
-| `ARM_L`/`ARM_R` | `joints: {1..7: deg}` | limits (arm software's `joint_limits.yaml`, 5° margin), per-joint average speed cap, shoulder/head clearance | measured on opendubs2; see `cue.py` comments |
+| `ARM_L`/`ARM_R` | `joints: {1..7: deg}`, or `pose: rest` | limits (arm software's `joint_limits.yaml`, 5° margin), per-joint average speed cap, shoulder/head clearance | measured on opendubs2; see `cue.py` comments |
 | `GRIP_L`/`GRIP_R` | `do: open\|close` or `open: 0..1` (0 closed, 1 open — the same on both sides), `effort` | `open` within 0..1, effort ≤ 5 (the gripper controller's own units — unsourced); the old `pos: m` is refused by name | each robot's per-side mapping lives on the robot (`grippers.py`, workplan DEC-4); none of it is in the repo |
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |

@@ -49,10 +49,8 @@ cues:
   # and back to rest, sleepy, lights released to the robot's own colour
   - { t: 15.0, slot: GRIP_L, do: close }
   - { t: 15.0, slot: GRIP_R, do: close }
-  # J4 back to 10, not 0: the arms' rest pose sits ON the elbow's lower limit, inside the
-  # validator's margin, so "back to rest" is not expressible (finding R1)
-  - { t: 20.0, slot: ARM_L, joints: { 1: 0, 2: 0, 4: 10 } }
-  - { t: 20.0, slot: ARM_R, joints: { 1: 0, 2: 0, 4: 10 } }
+  - { t: 20.0, slot: ARM_L, pose: rest }
+  - { t: 20.0, slot: ARM_R, pose: rest }
   - { t: 20.0, slot: HEAD, pan: 90, tilt: 90 }
   - { t: 20.5, slot: FACE, do: emote, name: SLEEPY }
   - { t: 21.0, slot: SOUND, do: play, sound: mode }
@@ -63,6 +61,5 @@ cues:
 #  - the perimeter band's motion: no cue drives it (and it is suppressed on the face)
 #  - a spooky sound of its own: a sound file must exist in sounds/ to validate, and a seasonal one
 #    would not be committed
-#  - "back to rest": the arms' rest pose (J4 = 0) is on the elbow's lower limit, inside the margin
 #  - nothing stopped it from choosing an orange or a red LIGHT, which on the robot's state light
 #    reads as DEGRADED or E-STOP — it avoided them by hand

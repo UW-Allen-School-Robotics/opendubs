@@ -288,6 +288,21 @@ check_doc("purple passes", _L([120, 0, 200]), None)
 check_doc("a warm white is too pale to read as amber, and passes", _L([255, 236, 190]), None)
 check_doc("green is not reserved on the light (decided 2026-10-07)", _L([30, 210, 70]), None)
 
+# pose: rest (plan 1.9) — the hanging pose, clamped into the robot's own limits, no extra margin.
+check_doc("an arm can go back to rest",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "joints": {2: 20, 4: 60}},
+                    {"t": 10.0, "slot": "ARM_R", "pose": "rest"}]), None)
+_rest = _cue2.rest_pose(LIMITS, "left")
+check_true("rest is resolved from the robot's own limits: J4 sits at its lower limit, the rest at 0",
+           abs(_rest[4] - 3.438) < 1e-3 and all(_rest[j] == 0.0 for j in (1, 2, 3, 5, 6, 7)), _rest)
+check_doc("going to rest is still speed-checked",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "joints": {2: 20, 4: 60}},
+                    {"t": 5.0, "slot": "ARM_R", "pose": "rest"}]), "deg/s")
+check_doc("pose and joints together are refused",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "pose": "rest", "joints": {4: 20}}]), "both pose and joints")
+check_doc("an unknown named pose is refused",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "pose": "salute"}]), "only named pose is rest")
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

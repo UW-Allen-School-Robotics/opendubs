@@ -224,7 +224,7 @@ REPEAT_MAX = 64
 TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
-    "ARM_L": {"joints"}, "ARM_R": {"joints"},
+    "ARM_L": {"joints", "pose"}, "ARM_R": {"joints", "pose"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
@@ -818,8 +818,15 @@ class Show:
         side = "left" if slot == "ARM_L" else "right"
         m = -1 if side == "left" else 1
         joints = c.get("joints")
+        at_rest = False
+        if "pose" in c:
+            if "joints" in c:
+                return [f"{where}: {slot} has both pose and joints — say one"]
+            if c["pose"] != "rest":
+                return [f"{where}: {slot} pose {c['pose']!r} is not known — the only named pose is rest"]
+            joints, at_rest = rest_pose(limits, side), True
         if not isinstance(joints, dict) or not joints:
-            return [f"{where}: {slot} cue needs joints: {{n: deg, ...}}"]
+            return [f"{where}: {slot} cue needs joints: {{n: deg, ...}}, or pose: rest"]
 
         state = arm_state.setdefault(slot, {})
         # The move ARRIVES at t. It starts when this arm's previous keyframe ended: that
@@ -849,6 +856,8 @@ class Show:
             lo, hi = limits.get(name, (None, None))
             if lo is None:
                 p.append(f"{where}: no limits known for {name}")
+            elif at_rest:
+                pass        # rest is built inside this robot's own limits (rest_pose); no margin applies
             else:
                 lo_d, hi_d = math.degrees(lo) + MARGIN_DEG, math.degrees(hi) - MARGIN_DEG
                 if not (lo_d <= signed <= hi_d):
@@ -1161,6 +1170,24 @@ def _jsonable(x):
     return x
 
 
+def rest_pose(limits: dict, side: str) -> dict:
+    """`pose: rest` — where the arm hangs (every joint 0), CLAMPED into this robot's own joint
+    limits, in the show's outward sense (workplan 1.9).
+
+    The hanging pose is not quite legal: the elbow's rest value (0) sits a few degrees below the arm
+    software's own lower limit for J4. So rest means the nearest pose to hanging that the arm
+    software allows, with NO extra margin — the validator accepts exactly these values because they
+    are the documented rest, and resolves them from each robot's limits file, so no robot's numbers
+    are committed."""
+    out = {}
+    for j in range(1, 8):
+        lo, hi = limits.get(f"openarm_{side}_joint{j}", (None, None))
+        signed = 0.0 if lo is None else min(max(0.0, math.degrees(lo)), math.degrees(hi))
+        m = -1 if (side == "left" and j in MIRRORED_JOINTS) else 1
+        out[j] = round(signed * m, 3) + 0.0       # outward sense; + 0.0 turns -0.0 into 0.0
+    return out
+
+
 def joint_state_to_outward(names, positions_rad, side: str, nd: int = 1) -> dict:
     """A measured sensor_msgs/JointState -> a keyframe's joints, in the arm's OWN outward sense.
 
@@ -1225,8 +1252,10 @@ def describe(limits: dict) -> str:
                 lo_d, hi_d = -hi_d, -lo_d
             w(f"  {side:5s} J{j}: usable {lo_d:+7.1f} .. {hi_d:+7.1f} deg (as written in a show)   "
               f"cap {SPEED_CAP_DEG_S[j]} deg/s average (unsourced); warns above it x {PEAK_FACTOR}")
-    w(f"  margin {MARGIN_DEG:g} deg inside each limit. The rest pose (all zero) can sit on a limit:"
-      " write J4 >= the usable minimum above.")
+    w(f"  margin {MARGIN_DEG:g} deg inside each limit. pose: rest = every joint 0, clamped into the"
+      " limits with no margin:")
+    for side in ("left", "right"):
+        w(f"    {side:5s} rest: " + ", ".join(f"J{j} {v:g}" for j, v in rest_pose(limits, side).items()))
     w(f"  shoulder/head: J2 must stay {SHOULDER_MARGIN_DEG:g} deg below {SHOULDER_HEAD_CONTACT_DEG:g}"
       f" (contact, measured); with J4 < {ELBOW_FOLD_MIN_DEG:g} (extended) J2 <= {SHOULDER_EXTENDED_MAX_DEG:g}")
     w(f"GRIP: do open|close, or open: 0..1 (0 closed, 1 open, both sides); effort (0, {GRIP_EFFORT_MAX:g}] "
