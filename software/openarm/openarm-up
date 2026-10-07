@@ -3,7 +3,8 @@
 #
 #   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
 #   openarm-up activate ARM     power one arm and start its controllers: left | right | both
-#                               (the arm then moves itself to its zero pose over ~2 s)
+#                               (the arm then moves itself to its zero pose over ~2 s).
+#                               Starts the stack first if it is not running.
 #                               Starts the arm's GRIPPER controller too — teleop needs it.
 #   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
 #   openarm-up hold ARM         stop where it is: drives the arm to its CURRENT pose, which
@@ -235,7 +236,13 @@ activate_one() {
 cmd_activate() {
   local which=$1 arms
   case "$which" in left|right) arms=$which ;; both) arms="left right" ;; *) die "usage: openarm-up activate left|right|both" ;; esac
-  running || die "stack is not running — run openarm-up first"
+  # From the tablet there is no "start the stack" step: DE-ENERGIZE runs `down`, which stops the
+  # whole stack, and ACTIVATE is the next button anyone presses. So bring the stack up first when it
+  # is not running -- exactly `openarm-up`, arms INACTIVE, with all its checks -- then activate.
+  if ! running; then
+    echo "== stack not running — starting it first"
+    cmd_start
+  fi
   for a in $arms; do activate_one "$a"; done
   echo "== motors: $($MOTORS summary)"
 }
