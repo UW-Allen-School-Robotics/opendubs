@@ -60,6 +60,10 @@ opens capture and cancels playback, and the two gates never contend.
 | Audio enable + volume are resident on the Tab5 and persisted in NVS, reachable from SETTINGS | `app_face/ui_settings.cpp` |
 | `Heard` and `Attend` earcons exist. **`Attend` now fires when a person is SEEN**; `Heard` is still unwired and is this plan's | `app_face/cues.cpp` |
 
+| **The IDF capture buffer is FOUR channels at 48 kHz** — `[MIC-L, AEC, MIC-R, MIC-HP]`, mics at stride-4 offsets **0 and 2**. NOT the Arduino bench's 16 kHz stereo at stride 2 | vendor `hal.h` + `hal_audio.cpp`, 2026-10-07 |
+| **`audioRecord()` BLOCKS for `durationMs` and resizes its vector.** So it needs a task of its own — not `cmdTask`, which is the 20 Hz lift publisher — and the vector must be reused, not resized per block (a 32 ms block is 12 kB, and under `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384` that lands in INTERNAL DRAM) | `hal_audio.cpp`, 2026-10-07 |
+| **Adding a FreeRTOS task is NOT free on this image** — a TCB must sit in internal DRAM and one more has already asserted in `xPortCheckValidTCBMem` with esp-dl linked. `percept` works around it with `xTaskCreatePinnedToCoreWithCaps` and a PSRAM stack | `app_face/percept/percept.h`, `idf_component.yml` |
+
 **`bench_mic/` is in the Arduino tree (`firmware/tab5_face/`), not the IDF one.** Nothing in
 `app_face` touches the mic. So the direction work is a PORT, not a wire-up.
 
@@ -75,17 +79,39 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
 
 ## Phase A — the Tab5 end
 
+**Status 2026-10-07.** The pure-compute half of steps 1, 2 and 4 is built and host-verified in
+`firmware/tab5_idf/app_face/voice/` — `./build.sh voice`, twelve cases, synthetic stimulus and its
+own verdict. It is HAL-free by construction, exactly like `percept/`, which is what let it be
+written and tested with no demo tree on the machine at all.
+
+**What remains for every one of these is the same single piece: the device shim that owns
+`audioRecord()`.** It is deliberately not written yet, because it cannot be compiled here (no
+`OPENDUBS_DEMO`, no IDF) and because it must create a FreeRTOS task on an image where task creation
+has already asserted for want of internal DRAM — see the settled table. Writing unbuildable
+firmware against that constraint is how this project has lost sessions before.
+
+
 1. **Port the mic.** `audioRecord` into the IDF app, with the SETTINGS gain/enable already there.
    Self-triggering, printing its own RMS verdict — no human at the bench.
+   *The level arithmetic is done and tested (`voice/level.cpp`), in the real 4-channel 48 kHz
+   layout. Outstanding: the task that calls `audioRecord` and feeds it.*
 2. **Voice activity detection.** Energy-plus-threshold first, measured against the robot's own noise
    floor: the drive motors, the lift and the ESCs are all a metre away. **Measure the noise floor
    with the robot RUNNING before choosing a VAD, or the threshold is fiction.**
    Scope settled above: VAD runs **only inside a held press** (push-to-talk) and **never during
    playback** (half-duplex), so it answers one question — has this utterance ended — and not
    "is someone talking to the robot".
-3. **Wire `Heard`.** The earcon exists; VAD is its trigger. "I noticed you, inside a second, whether
+3. **Wire `Heard`.** *The trigger is built and tested — `VoiceEvent::Heard`, fired once per
+   utterance, 864 ms on a cold-boot press and ~96 ms thereafter. Outstanding: the one line that
+   turns it into `cuePlay(Cue::Heard)`, which needs the shim above and nothing else.*
+   The earcon exists; VAD is its trigger. "I noticed you, inside a second, whether
    or not I can act" — the cheapest honest thing the robot can do and it needs no transport at all.
-4. **Glance toward a voice.** Port the direction bench, then feed it in as an **EVENT, not an owner.**
+4. **Glance toward a voice.** *Direction is ported and tested, taken from the clip's LOUDEST
+   block rather than its last — the tail of a sentence is its quietest part and its channel ratio
+   the least trustworthy thing in the clip. Outstanding: the time-boxed glance entry point on
+   `pantilt`, which today exposes only the per-frame `pantiltTick(... haveTarget, nx, ny, conf)`
+   state and so has no way to accept a one-shot event.*
+   Port the direction bench, then feed it in as an **EVENT, not an owner.**
    This is load-bearing: `pantilt.cpp` arbitrates touch > RC > tracker, and a continuous voice
    tracker would be a fourth lease-holder in a hierarchy whose ownership fight cost a whole session
    to fix. A glance is one time-boxed move that claims nothing. Left/right/centre is exactly enough.
@@ -112,13 +138,55 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
 
 ## Phase C — the interface to understanding, NOT the understanding
 
-Define only the contract: what A+B hand the Thor (format, rate, framing, who decides an utterance
-has ended) and what comes back (text? audio? both? a behaviour request?). **Then stop.** ASR/LLM/TTS
-selection and hosting is its own plan.
+**Defined 2026-10-07, and then stopped.** What follows is the contract and nothing else: no ASR,
+no model, no TTS, no hosting. Those are a separate plan, and absorbing them here is the specific
+way this one becomes unbounded.
 
-One thing to settle early because it constrains A: **who decides an utterance has ended** — the
-Tab5 on VAD, or the Thor on semantics. That choice sets whether the Tab5 streams continuously or
-sends bounded clips, and it is cheap to decide now and expensive to change later.
+The contract is small because the decisions made it small. Push-to-talk means the Thor is never
+asked "is someone talking"; Tab5-side VAD means it is never asked "has this ended". It is asked one
+question, about one complete clip, and it answers.
+
+### What A+B hand the Thor
+
+One message per utterance, because the utterance is bounded before it leaves the head.
+
+| Field | Value | Why it is here |
+|---|---|---|
+| `audio` | 16-bit PCM mono, **16 kHz**, downsampled on the head from the 48 kHz capture | 16 kHz is what ASR wants and is a third of the bytes. The head already has to touch every sample to compute RMS, so the decimation is close to free |
+| `dir` | `left` \| `right` \| `centre` | Three values, from the clip's loudest block. For a GLANCE, never for tracking |
+| `began`, `ended` | head milliseconds | So the Thor can tell a 400 ms clip from a 6 s one without decoding, and so a late reply can be dropped rather than answered |
+| `seq` | monotonic per boot | Makes a reply matchable to its clip and a duplicate droppable |
+| `floor`, `peak` | the measured noise floor and the clip's peak, both RMS | **The head's own confidence, handed over rather than hidden.** A clip that barely cleared a loud floor is a different thing from a clear one, and the Thor should be allowed to decline it rather than hallucinate words out of ESC noise |
+
+`NO_SPEECH` is its own message, carrying `floor` and no audio. **A failure to HEAR must not reach
+the Thor looking like a failure to UNDERSTAND** — it is the difference between "say that again" and
+"I don't know", and the face owes the person the right one.
+
+### What comes back
+
+| Field | Value |
+|---|---|
+| `seq` | the clip being answered |
+| `say` | audio to play, streamed — see Phase B. Empty means answer without speaking |
+| `face` | an optional emote/state request, taking the existing `EMOTE`/`STATE` vocabulary rather than inventing one |
+| `status` | `ok` \| `unintelligible` \| `declined` \| `busy` |
+
+`status` is separate from an empty `say` on purpose. "I heard you and have nothing to say" and "I
+could not make that out" are different to a person and must be different on the face.
+
+### The thing this contract is really protecting
+
+Open question 4, and it is a design requirement rather than an error path: **the face must not
+invite speech it cannot route.** With push-to-talk that is tractable, because the invitation is a
+visible control — so the control is disabled, visibly, whenever the Thor is unreachable, and the
+robot never takes an utterance it has nowhere to send. `Heard` is the one thing that still works
+with no transport at all, which is what makes Phase A step 3 worth doing before any of this.
+
+### Deliberately NOT specified here
+
+The transport encoding (Phase B: raw versus Opus), the carrier and port, and every word of
+ASR/LLM/TTS selection and hosting. The contract above is stable under all of those choices, which
+is the test of whether it was drawn in the right place.
 
 ## Open questions
 
