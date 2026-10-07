@@ -9,6 +9,8 @@
 #   ./build.sh device          idf.py build and flash
 #   ./build.sh image           idf.py build ONLY -- no board needed; prints the image size
 #   ./build.sh desktop         SDL build and run
+#   ./build.sh desktop-build   build the twin only, do NOT run it -- for SSH, CI, and for asking
+#                              the question "does it still compile" without opening a window
 #   ./build.sh asan            desktop with AddressSanitizer + UndefinedBehaviorSanitizer
 #   ./build.sh cost            desktop for ~95 s, then print the dirty-area verdict
 #   ./build.sh percept         compile and run the perception self-test ON THE HOST -- no IDF,
@@ -450,6 +452,10 @@ case "$MODE" in
   device)  build_device ;;
   image)   build_image ;;
   desktop) build_desktop; ( cd "$DEMO" && ./build/desktop/app_desktop_build ) ;;
+  # BUILD THE TWIN WITHOUT RUNNING IT. `desktop` opens an SDL window, which is useless over SSH,
+  # useless in CI and useless when the question is only "does it still compile". That question
+  # comes up constantly and there was no way to ask it.
+  desktop-build) build_desktop ;;
   # The sanitizers are the diagnostic the simulator is uniquely good for: a native binary gets
   # AddressSanitizer and UndefinedBehaviorSanitizer, which catch the classes that are invisible on
   # the device -- array overruns (the cobweb point pools), use-after-free, and the integer and
@@ -483,5 +489,5 @@ case "$MODE" in
            fi
            echo "  clean: no diagnostic markers in the image"
            ;;
-  *)       echo "usage: $0 {both|device|image|desktop|asan|cost|percept|release}"; exit 2 ;;
+  *)       echo "usage: $0 {both|device|image|desktop|desktop-build|asan|cost|percept|voice|release}"; exit 2 ;;
 esac
