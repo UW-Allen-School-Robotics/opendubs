@@ -21,12 +21,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIMITS = load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
 
 fails = []
+# What a show that moves everything must declare; the test helpers default to it.
+REQUIRES_ALL = {"arms": "active", "tab5": True, "rc_authority": "AUTO"}
 
 
 def check(name, cues, expect, slots=None):
     """expect: a substring of the problem we require, or None meaning "must pass"."""
     show = Show({"id": "t", "slots": slots if slots is not None else
-                 sorted({c["slot"] for c in cues}), "cues": cues}, "test")
+                 sorted({c["slot"] for c in cues}), "cues": cues, "requires": REQUIRES_ALL}, "test")
     problems = show.validate(LIMITS)
     if expect is None:
         ok = not problems
@@ -126,6 +128,7 @@ def doc_show(cues, slots=None, **top):
          sorted({c["slot"] for c in cues if "slot" in c}
                 | {c["slot"] for cl in (top.get("clips") or {}).values()
                    for c in cl.get("cues", []) if "slot" in c}), "cues": cues}
+    d.setdefault("requires", REQUIRES_ALL)
     d.update(top)
     return Show(d, "test")
 
@@ -217,6 +220,31 @@ _d = doc_show([{"t": 1.0, "slot": "DANCE", "move": "box", "secs": 4}], dance={"f
 check_true("a move that may stray past the declared radius warns (an estimate), and stays valid",
            not _d["problems"] and any("floor radius" in w.msg for w in _d["warnings"]),
            [w.msg for w in _d["warnings"]] + [q.msg for q in _d["problems"]])
+
+# requires: (workplan 0.7) — the preflight is built from it, so it is validated.
+check_doc("a typo in rc_authority is caught",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 2}],
+                   requires={"rc_authority": "AUOT"}), "is not a CH5 mode")
+check_doc("an old CH5 name is caught, saying what it is called now",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 2}],
+                   requires={"rc_authority": "RC"}), "called MANUAL now")
+check_doc("a show that moves must run in AUTO",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 2}],
+                   requires={"rc_authority": "MANUAL"}), "runs in AUTO")
+check_doc("a show that moves with no requires at all is caught",
+          doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 2}], requires={}), "runs in AUTO")
+check_doc("a show using the arms must declare arms: active",
+          doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 20}}],
+                   requires={"rc_authority": "AUTO"}), "arms: active")
+check_doc("a show using the face must declare tab5: true",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], requires={}), "tab5: true")
+check_doc("an unknown requires key is caught",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
+                   requires={"tab5": True, "lidar": "on"}), "unknown key 'lidar'")
+check_doc("a face-and-sound show needs no rc_authority",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"},
+                    {"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
+                   requires={"tab5": True}), None)
 
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.

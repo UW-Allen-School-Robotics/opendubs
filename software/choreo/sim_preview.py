@@ -26,9 +26,12 @@ THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fac
   * FACT, not assumption: the head turns toward each target at 25 deg/s per axis, the Tab5
     firmware's own slew limit (HEAD_SLEW_DPS), so the preview shows where it IS, not its target.
 
-`--dry-run` and `--clearance`'s sampling need only PyYAML. Rendering and clearance need mujoco and
-the OpenArm assets, exactly as sim/scene.py does; this script has NOT been run against them in the
-environment it was written in, so treat the render path as untested.
+`--dry-run` needs only PyYAML. Rendering and clearance need mujoco; the robot model, arms included,
+is in description/ (sim/scene.py loads it). Both paths were first run on 2026-10-07 (workplan 2.3).
+
+`--clearance` reports the closest approach the SHOW CREATES — pairs it brings closer than they are
+at rest, named — plus any contact at all, and the rest-pose floor separately: at rest the hands
+hang ~39 mm from the arm frame, which would otherwise be every show's "closest approach".
 """
 from __future__ import annotations
 
@@ -208,27 +211,46 @@ def main():
     if a.frames:
         os.makedirs(a.frames, exist_ok=True)
         from PIL import Image
+        model.vis.headlight.ambient[:] = [0.55] * 3     # the same lighting as sim/scene.py --render
+        model.vis.headlight.diffuse[:] = [0.8] * 3
         renderer = mujoco.Renderer(model, 760, 900)
         cam = mujoco.MjvCamera()
         mujoco.mjv_defaultCamera(cam)
         cam.azimuth, cam.elevation, cam.distance = 128.0, -10.0, 3.0
         cam.lookat[:] = [0.35, 0.0, 0.85]
-    worst = (float("inf"), None)
+    # A pair whose distance the show never changes is structure, not choreography: at rest the hands
+    # hang ~39 mm from the arm frame, and that floor would otherwise be "the closest approach" of
+    # every show and hide the number an author wants. So: the closest pair the show brings CLOSER
+    # than it is at rest, named; and any contact at all, whatever caused it.
+    base = {}
+    if a.clearance:
+        bd = mujoco.MjData(model)
+        clearance.set_pose(model, bd)
+        base = {(g1, g2): c for c, g1, g2 in clearance.clearances(model, bd)}
+    worst = (float("inf"), None, None)
     for i, s in enumerate(frames(tl, a.fps)):
         clearance.set_pose(model, data, joints_arg(s), s["lift_mm"],
                            s["head_pan"] - HEAD_CENTRE_DEG, s["head_tilt"] - HEAD_CENTRE_DEG)
         apply_base(model, data, s["base"])
         if a.clearance:
-            c = clearance.min_clearance(model, data)
+            rows = clearance.clearances(model, data)
+            moving = [(c, g1, g2) for c, g1, g2 in rows if c < base.get((g1, g2), c) - 0.05]
+            touching = [(c, g1, g2) for c, g1, g2 in rows if c <= 0.0]
+            c, g1, g2 = (moving or [(float("inf"), "-", "-")])[0]
             if c < worst[0]:
-                worst = (c, s["t"])
-            print(f"t={s['t']:7.2f}  closest {c:7.1f} mm")
+                worst = (c, s["t"], f"{g1} <-> {g2}")
+            print(f"t={s['t']:7.2f}  closest approach {c:7.1f} mm  {g1} <-> {g2}"
+                  + (f"   *** CONTACT: {touching[0][1]} <-> {touching[0][2]} ***" if touching else ""))
         if renderer is not None:
             renderer.update_scene(data, camera=cam)
             Image.fromarray(renderer.render()).save(os.path.join(a.frames, f"f{i:05d}.png"))
     if a.clearance:
-        print(f"closest approach {worst[0]:.1f} mm at t={worst[1]} s "
+        floor = min(base.items(), key=lambda kv: kv[1]) if base else None
+        print(f"closest approach the show creates: {worst[0]:.1f} mm at t={worst[1]} s, {worst[2]} "
               "(the sim is ~6 deg optimistic near the head; the validator's constant governs)")
+        if floor:
+            print(f"rest-pose floor, unchanged by any show: {floor[1]:.1f} mm, "
+                  f"{floor[0][0]} <-> {floor[0][1]}")
     if a.frames:
         print(f"wrote frames to {a.frames}; e.g. ffmpeg -r {a.fps:g} -i {a.frames}/f%05d.png out.mp4")
 

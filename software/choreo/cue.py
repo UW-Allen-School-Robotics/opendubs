@@ -61,6 +61,16 @@ SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", 
 
 ARM_SLOTS = ("ARM_L", "ARM_R")
 
+# ---- requires: what the runner's preflight checks before anything moves (workplan 0.7) ---------
+# CH5's three positions, named per workplan DEC-9: STANDBY (powered, nothing commanded), MANUAL
+# (a human commands live), AUTO (software commands; shows run here — standing rule 1).
+CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
+CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
+                 "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
+REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
+MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE")
+TAB5_SLOTS = ("HEAD", "FACE")          # the pan/tilt head and the face are driven by the Tab5
+
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
 # Not DRIVE. A DANCE cue names a move from this library and nothing else: no free-form velocity is
 # expressible. Each move is a fixed open-loop profile — segments of (fraction of the move's
@@ -675,6 +685,8 @@ class Show:
         if dance_total > DANCE_TOTAL_MAX_S + 1e-9:
             P(Problem(f"the show dances for {dance_total:.1f}s in total, over the "
                       f"{DANCE_TOTAL_MAX_S:g}s cap on open-loop base motion"))
+        for msg in self._check_requires(used):
+            P(Problem(msg))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -912,6 +924,38 @@ class Show:
         secs = c.get("secs")
         if secs is not None and not (_num(secs) and SOUND_SECS_SANITY[0] <= float(secs) <= SOUND_SECS_SANITY[1]):
             p.append(f"{where}: sound secs {secs} outside {SOUND_SECS_SANITY}")
+        return p
+
+    def _check_requires(self, used: set) -> list:
+        """`requires:` is what the runner's preflight is built from, so a typo in it is not
+        cosmetic: `rc_authority: AUOT` would otherwise pass here and refuse (or worse) later."""
+        req = self.requires
+        if not isinstance(req, dict):
+            return ["requires: must be a mapping of arms / tab5 / rc_authority"]
+        p = [f"requires: unknown key {k!r} (known: {', '.join(REQUIRES_KEYS)})"
+             for k in req if k not in REQUIRES_KEYS]
+        auth = req.get("rc_authority")
+        if auth is not None and auth not in CH5_MODES:
+            hint = (f" — it is called {CH5_OLD_NAMES[auth]} now (workplan DEC-9)"
+                    if isinstance(auth, str) and auth.upper() in CH5_OLD_NAMES else "")
+            p.append(f"requires: rc_authority {auth!r} is not a CH5 mode "
+                     f"({', '.join(CH5_MODES)}){hint}")
+        moving = sorted(used & set(MOTION_SLOTS))
+        if moving and auth != "AUTO":
+            p.append(f"requires: this show moves {', '.join(moving)}, so it runs in AUTO — "
+                     "add rc_authority: AUTO (shows that move run in AUTO; teaching happens in MANUAL)")
+        arms = req.get("arms")
+        if arms is not None and arms != "active":
+            p.append(f"requires: arms {arms!r} — the only requirement is active")
+        if used & {"ARM_L", "ARM_R", "GRIP_L", "GRIP_R"} and arms != "active":
+            p.append("requires: this show uses the arms — add arms: active, so the preflight checks "
+                     "they are powered and their controllers running")
+        tab5 = req.get("tab5")
+        if tab5 is not None and not isinstance(tab5, bool):
+            p.append(f"requires: tab5 {tab5!r} must be true or false")
+        if used & set(TAB5_SLOTS) and tab5 is not True:
+            p.append(f"requires: this show uses {', '.join(sorted(used & set(TAB5_SLOTS)))}, which "
+                     "the Tab5 drives — add tab5: true")
         return p
 
     def _check_dance(self, where, c):

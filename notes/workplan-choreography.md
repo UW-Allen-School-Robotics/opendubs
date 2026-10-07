@@ -111,7 +111,7 @@ place; each points at the item that delivers it.
 | 0.4 | ~~`hold_s` undocumented~~ **DONE, 2026-10-06** — defined in format §4. | — |
 | 0.5 | **`kPrismServoPin = 0` declared and unused** in `rc_serial_probe` — 8Servo pin 0 is now a drive ESC. | Constant removed, or commented with what it would do if used. Firmware: flash per `CLAUDE.md`. |
 | 0.6 | **CH5 vocabulary (DEC-9).** Five vocabularies exist today: `[AUTH]` `off/manual/auto`, the StamPLC mode string `OFF/MANUAL/AUTO`, the dashboard's `OFF/RC_MANUAL/AUTONOMOUS`, robot states `SAFE_IDLE/MANUAL_CONTROL/AUTONOMOUS_CONTROL`, and `docs/control-authority.md`'s `OFF/RC/AUTO`. **And a real conflict:** `robot_state.py`'s `ENABLE` matrix forbids both arms in the middle position, which contradicts DEC-9 and the freedrive design. | One vocabulary — `STANDBY / MANUAL / AUTO` — in firmware telemetry, dashboard, face/PRISM state names, docs and `cue.py`; arms permitted in `MANUAL`. Sequenced as its own PR because it touches the StamPLC, the dashboard, the face and the public docs. |
-| 0.7 | **`requires:` is not validated** — `rc_authority: AUOT` passes. | Closed vocabulary from 0.6; unknown keys and values refused. |
+| 0.7 | ~~`requires:` is not validated~~ **DONE, 2026-10-07.** Known keys only; `rc_authority` must be `STANDBY`/`MANUAL`/`AUTO` (old names refused with the new one named); a show that moves must require `AUTO`; arm and gripper cues need `arms: active`; head and face cues need `tab5: true`. | — |
 | 0.8 | **Notes that disagree with the code** (found by the cloud run): the emote count (five in `kEmotes[]`, six or seven in the notes); `arm-manual-control.md`'s "freedrive may already exist" (not in the dashboard). | Each note says what the code does, or is marked as describing the Arduino image. |
 | 0.9 | ~~`sim/view.sh` says `mjpython` crashes on this Mac~~ **DONE, 2026-10-07.** The claim was false. MuJoCo 3.15.0's passive viewer runs under `mjpython`, and drove the full robot model from a script (lift and right arm animated) at ~40 fps. The comments in `view.sh` and `scene.py` now say so. | — |
 
@@ -135,7 +135,7 @@ place; each points at the item that delivers it.
 |---|---|---|
 | 2.1 | **Consolidate the robot description (E5).** Today: base, wheels, lift, head and D415 meshes plus `opendubs.xml` are in `sim/`; the OpenArm URDF and its 10 collision meshes are vendored in `software/kiosk-dashboard/frontend/assets/arm/`; the MuJoCo arm model is loaded at run time from an external `openarm_assets` checkout (the arm stack's own repo), outside this one; the 143 MB visual meshes are deliberately absent. **One description folder**, consumed by the sim, the dashboard arm view and `clearance.py`, with upstream licences and commits recorded. Decide collision-only vs a decimated visual set, and whether large meshes need Git LFS. | `sim/scene.py` runs from a fresh clone with no external checkout, and the dashboard and the sim read the same files. |
 | 2.2 | **Native MuJoCo window driven by the composer (E1, DEC-14).** The composer is the clock and publishes only *time and play state* over localhost; the viewer evaluates the exported timeline at that time itself, so scrubbing and seeking are free and latency cannot accumulate. | Scrub, play and pause in the composer move the window in step; a 3-minute show stays in sync by eye. |
-| 2.3 | **Run `sim_preview.py`'s render and clearance paths** — written, never executed. | Frames and per-frame clearance produced for `hello` and `beat-demo`. |
+| 2.3 | ~~Run `sim_preview.py`'s render and clearance paths~~ **DONE, 2026-10-07.** Both ran first time. Clearance needed a fix: it reported the rest-pose floor (hands ~39 mm from the arm frame) as every show's closest approach; it now reports the closest approach the show *creates* — `hello` 63.1 mm, `beat-demo` 66.7 mm, both left arm base ↔ head as the head turns — plus any contact and the floor separately. | — |
 | 2.4 | **BUILT, 2026-10-07.** The twin moves the base through DANCE moves (open loop, placeholder speeds, turning about the wheel centroid) and draws the declared floor radius as a disc. Verified by its log: `beat-demo`'s sways ±6 cm, twist ±5°, rock ±7 cm, back at the origin after. | **Open:** judged by eye; the disc itself is unverified by anyone. |
 | 2.5 | **The face on the twin's head.** Render the face twin's frames onto the Tab5 panel of the body model, so one window shows the whole robot. | Stretch goal; depends on 3.2. |
 
@@ -207,7 +207,7 @@ Everything that pretends, so nothing is forgotten at robot time.
 | Stub | Where | Replaced by |
 |---|---|---|
 | Fake joint source for teach | `composer/static/composer.js` `FakeJointSource` | 6.3 |
-| MuJoCo render and clearance paths, never run | `software/choreo/sim_preview.py` | 2.3 |
+| ~~MuJoCo render and clearance paths, never run~~ — run 2026-10-07 | `software/choreo/sim_preview.py` | 2.3 |
 | `FACE` / `LIGHT` / `SOUND` have no robot receiver | `cue.py` notices | 3.3, 1.5, the head's network verbs |
 | Live output — designed, not built | teach-and-sync §5 | 5.6 |
 | The runner | prototype `~/opendubs-demo/showcase_demo.py`, outside the repo | C5 |
