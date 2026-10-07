@@ -4,6 +4,7 @@
 #include "pantilt.h"
 #include "shared/clock.h"
 #include "sim_inputs.h"
+#include "cfg.h"
 
 #include <cstdio>
 #include <cstring>
@@ -101,8 +102,13 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
     // CFG is specified but BLOCKED: it needs the theme file format (choreography 3.4a) and the
     // storage decision (3.4b). It answers honestly rather than accepting a URL it cannot honour --
     // a config command that silently does nothing is indistinguishable from a broken one.
-    if (strncmp(rx, "CFG ", 4) == 0)
-        return snprintf(tx, cap, "ERR not implemented -- awaiting the theme file format");
+    // CFG is no longer blocked: the format was already specified in face-config-data-model.md,
+    // and this pass installs the part of it that needs no asset cost bounds -- themes as palettes.
+    if (strncmp(rx, "CFG ", 4) == 0) {
+        char verdict[256];
+        cfgFetch(rx + 4, verdict, sizeof(verdict));
+        return snprintf(tx, cap, "%s", verdict);
+    }
 
     // The twin's stand-ins. On the head this REFUSES rather than no-ops: a head that quietly
     // accepted a simulated state would be lying about where its state came from.

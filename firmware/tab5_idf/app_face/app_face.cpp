@@ -4,6 +4,7 @@
 #include "net.h"
 #include "net_cmd.h"
 #include "sim_inputs.h"
+#include "cfg.h"
 #include "walkin.h"
 #include "ui_settings.h"
 #include "ui_hmi.h"
@@ -450,8 +451,18 @@ uint32_t stateColour(int state, uint32_t base)
     if (g_active == NONE || reserved(state)) return base;
     if (state < 0 || state >= kNStates) return base;
 
+    const char* n = kStates[state].name;
+
+    // An authored palette answers by name, exactly as a compiled one does. Note what is NOT here:
+    // no check for reserved states, because reserved() above already returned `base` for them and
+    // cfg.cpp never reads their keys in the first place.
+    if ((int)g_active >= (int)COUNT) {
+        uint32_t rgb = 0;
+        if (cfgThemeColour((int)g_active - (int)COUNT, n, &rgb)) return rgb;
+        return base;
+    }
+
     const Palette p = paletteFor(g_active);
-    const char*   n = kStates[state].name;
     for (int i = 0; i < p.n; ++i)
         if (strcmp(p.sw[i].state, n) == 0) return p.sw[i].rgb;
 
@@ -573,7 +584,13 @@ void apply(lv_obj_t*, Id id)
         for (int i = 0; i < g_nAcc; ++i) lv_obj_clear_flag(g_acc[i], LV_OBJ_FLAG_HIDDEN);
 }
 
-const char* name(Id id) { return id == HALLOWEEN ? "halloween" : "plain"; }
+// AUTHORED THEMES OCCUPY THE IDS ABOVE COUNT. The compiled ones keep their ordinals, so nothing
+// that already works moves, and an authored set adds names rather than replacing a table.
+const char* name(Id id)
+{
+    if ((int)id >= (int)COUNT) return cfgThemeName((int)id - (int)COUNT);
+    return id == HALLOWEEN ? "halloween" : "plain";
+}
 
 } // namespace theme
 
@@ -599,6 +616,9 @@ int faceThemeByName(const char* n)
 {
     for (int i = 0; i < theme::COUNT; ++i)
         if (strcasecmp(theme::name((theme::Id)i), n) == 0) return i;
+    // Then the authored sets, so `THEME <authored name>` works the moment CFG installs one.
+    for (int k = 0; k < cfgThemeCount(); ++k)
+        if (strcasecmp(cfgThemeName(k), n) == 0) return (int)theme::COUNT + k;
     // `NONE` is the enum's name for what theme::name() calls "plain"; accept both so the command
     // matches the code as well as the panel.
     if (strcasecmp(n, "NONE") == 0) return theme::NONE;
@@ -610,6 +630,13 @@ int faceStateCount() { return kNStates; }
 const char* faceStateName(int idx)
 {
     return (idx >= 0 && idx < kNStates) ? kStates[idx].name : "?";
+}
+
+// TRUE OUT OF RANGE, deliberately. An unknown state must not be colourable by a file -- the safe
+// direction for "I do not recognise this" is to treat it as reserved.
+bool faceStateReserved(int idx)
+{
+    return (idx >= 0 && idx < kNStates) ? kStates[idx].reserved : true;
 }
 
 int faceCueByName(const char* n)
@@ -1330,6 +1357,13 @@ AppFace::AppFace() { setAppInfo().name = "AppFace"; }
 
 void AppFace::onCreate()
 {
+    // KICKED HERE, NOT PERFORMED HERE. Mounting inline on the boot path cost three flashes: the
+    // vendor's bsp_spiffs_mount() aborts the device on a mount failure (its error macro is
+    // ESP_ERROR_CHECK), so the image rebooted, aborted, and was rolled back before anything could
+    // say why. cfgStart() only spawns a task -- the mount, and the first-use format of a 5.5 MB
+    // partition, happen off this path where they can take as long as they need.
+    cfgStart();
+
     mclog::tagInfo(getAppInfo().name, "on create");
     open();
 }

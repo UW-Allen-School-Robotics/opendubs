@@ -827,3 +827,47 @@ code on this robot, **by design and acceptably so** -- an e-stop is a safety act
 the face participates in. There is no decision pending, no bench test wanted, and nothing to
 re-open. The twin simulates the sequence because a twin should behave like the head, and that is the
 whole of its significance.
+
+---
+
+## CFG is unblocked and shipped — 2026-10-07
+
+**It was never blocked on the format.** I had recorded `CFG` as waiting on "the theme file format
+(3.4a) and the storage choice (3.4b)", taking those labels from a handover note. Choreography's
+plan has no 3.4a/3.4b -- 3.4 is one row, "Theme and asset intake" -- and the format was already
+specified in [`design/face-config-data-model.md`](design/face-config-data-model.md), on this branch,
+in 414 lines: JSON keyed by name, two slots with a generation counter, per-field then per-table
+fallback, selection by name, and "authored data is pulled, not pushed". The prerequisite that note
+calls blocking (`theme::stateColour()` keyed by name) was already done.
+
+**What shipped:** `CFG <url>` fetches `manifest.json` and the `themes/*.json` it lists, validates,
+installs into the inactive slot, and flips the active pointer as its last write. Authored themes
+appear as theme ids above `theme::COUNT`, so `THEME <name>` selects them and nothing compiled moved.
+Verified on the robot: install, select, reboot, select again.
+
+**Scoped to config, not assets.** A theme that is only colours needs none of 3.4's size and cost
+bounds. Background images and the rest wait for that work, and a manifest entry outside `themes/`
+is counted as skipped and named rather than silently ignored.
+
+Validation behaves as the data model specifies, confirmed with a deliberately hostile file:
+`OK cfg slot b gen 1, 1 theme(s), 0 skipped [E_STOP is reserved, not read] [ignored key NOT_A_STATE]`
+-- a reserved state is never looked for, an unknown name is a warning that names the key, and a bad
+colour costs that one field rather than the file.
+
+### The cost, recorded because it is reusable
+
+**`bsp_spiffs_mount()` aborts the device on a mount failure.** The vendor defines
+`BSP_ERROR_CHECK_RETURN_ERR` as `ESP_ERROR_CHECK`, which calls `abort()`, and the `storage`
+partition had never been formatted. On the boot path that meant: image downloads, boots, aborts,
+fails to stay healthy for twelve seconds, and the bootloader rolls it back -- **so nothing could
+report why.** Three flashes to find, and the only reason it was findable was bisecting the mount off
+the boot path.
+
+Two lessons worth keeping:
+
+- **A vendor convenience wrapper can turn a recoverable error into a reboot.** Check the error macro
+  before using a `bsp_*` helper on a path that must not die. We now call `esp_vfs_spiffs_register`
+  directly, with our own base path `/cfg`, and handle the failure.
+- **The first mount FORMATS 5.5 MB and that takes tens of seconds.** It runs on its own task, not on
+  `cmdTask` -- which is also the 20 Hz lift publisher. A command socket that goes quiet is an
+  annoyance; a lift heartbeat that stops mid-press is not.

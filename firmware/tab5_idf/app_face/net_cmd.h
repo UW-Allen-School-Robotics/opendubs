@@ -59,5 +59,6 @@ bool netTakeUiReq(NetUiReq* out);   // true if anything was pending; clears what
 int faceEmoteByName(const char* n);   // -1 unknown
 int faceStateCount();
 const char* faceStateName(int idx);   // "?" out of range
+bool faceStateReserved(int idx);      // true out of range: unknown must not be themable
 int faceThemeByName(const char* n);   // -1 unknown
 int faceCueByName(const char* n);     // -1 unknown
