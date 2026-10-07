@@ -303,6 +303,30 @@ check_doc("pose and joints together are refused",
 check_doc("an unknown named pose is refused",
           doc_show([{"t": 4.0, "slot": "ARM_R", "pose": "salute"}]), "only named pose is rest")
 
+# sounds: (plan 1.11) — sound files kept locally like music: listed, so a typo is still an error.
+import tempfile as _tf  # noqa: E402
+_dir = _tf.mkdtemp()
+_showp = os.path.join(_dir, "s.yaml")
+with open(_showp, "w") as _fh:
+    _fh.write("id: s\nslots: [SOUND]\nrequires: {}\nsounds: [sleigh_bells]\n"
+              "cues:\n  - { t: 1.0, slot: SOUND, do: play, sound: sleigh_bells }\n")
+_a = load_show(_showp).analyse(LIMITS)
+check_true("a listed sound file that is not here validates, with a notice saying so",
+           not _a["problems"] and any("sleigh_bells" in n for n in _a["notices"]),
+           [q.msg for q in _a["problems"]] + _a["notices"])
+with open(_showp, "w") as _fh:
+    _fh.write("id: s\nslots: [SOUND]\nrequires: {}\nsounds: [sleigh_bells]\n"
+              "cues:\n  - { t: 1.0, slot: SOUND, do: play, sound: sleigh_belz }\n")
+check_true("a misspelled sound is still an error",
+           any("unknown sound 'sleigh_belz'" in q.msg for q in load_show(_showp).analyse(LIMITS)["problems"]))
+with open(_showp, "w") as _fh:
+    _fh.write("id: s\nslots: [SOUND]\nrequires: {}\nsounds: [sleigh_bells]\n"
+              "cues:\n  - { t: 1.0, slot: SOUND, do: play, sound: sleigh_bells, output: tab5 }\n")
+check_true("a listed sound file sent to the Tab5 is refused — it plays earcons only",
+           any("cannot play 'sleigh_bells'" in q.msg for q in load_show(_showp).analyse(LIMITS)["problems"]))
+check_doc("sounds: must be a list of names", doc_show([{"t": 1.0, "slot": "SOUND", "do": "play",
+          "sound": "attend"}], sounds="thunder"), "must be a list")
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

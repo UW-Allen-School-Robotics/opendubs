@@ -12,6 +12,8 @@ requires:
   rc_authority: AUTO
 notes: >
   No music: a seasonal track would be copyrighted, and none is committed. Seconds throughout.
+# Sounds this show expects in shows/sounds/, supplied locally and never committed (format §3a).
+sounds: [creak]
 
 clips:
   # A light flicker: four quick changes between two Halloween colours.
@@ -40,6 +42,7 @@ cues:
 
   # rise up — and the eyes go wide
   - { t: 8.0, slot: LIFT, do: up, secs: 4 }
+  - { t: 8.0, slot: SOUND, do: play, sound: creak, secs: 3 }
   - { t: 9.0, slot: FACE, do: emote, name: ALERT }
   - { t: 9.0, slot: LIGHT, do: color, rgb: [120, 0, 200], br: 100 }
   - { t: 10.0, slot: HEAD, pan: 120, tilt: 90 }
@@ -59,7 +62,5 @@ cues:
 # WHAT THIS SHOW WANTED AND COULD NOT SAY (notes/design/choreo-example-shows.md):
 #  - the Halloween THEME and its cobweb accessories: no cue selects a face theme
 #  - the perimeter band's motion: no cue drives it (and it is suppressed on the face)
-#  - a spooky sound of its own: a sound file must exist in sounds/ to validate, and a seasonal one
-#    would not be committed
 #  - nothing stopped it from choosing an orange or a red LIGHT, which on the robot's state light
 #    reads as DEGRADED or E-STOP — it avoided them by hand

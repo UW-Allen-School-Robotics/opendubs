@@ -1,0 +1,4 @@
+# Sound effects stay local, like the music in ../audio: seasonal and borrowed sounds are usually
+# copyrighted. A show lists the ones it expects under `sounds:`; supply the files here to hear them.
+*
+!.gitignore

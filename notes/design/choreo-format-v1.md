@@ -55,6 +55,7 @@ slots: [ARM_L, ARM_R, HEAD, LIFT, SOUND, FACE, LIGHT]   # the preflight declarat
 requires: { arms: active, tab5: true, rc_authority: AUTO }
 music: { ... }            # optional, §3 (and §3a for its output)
 dance: { floor_radius_m: 1.5 }   # required if any cue is DANCE, §12
+sounds: [sleigh_bells]    # optional: sound files expected in sounds/, kept locally, §3a
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
 markers: [ ... ]          # optional, §8
@@ -179,6 +180,11 @@ cues:
 | `tablet` (the default) | files: music, and `sounds/<name>.*` |
 | `tab5` | its six built-in earcons only — no path for files yet |
 | `thor` | files — but no Thor speaker is fitted yet, and a notice says so |
+
+**Sound files are kept locally, like music.** A show lists the files it expects in
+`sounds: [name, …]`; a listed file that is not present is a notice, not an error, because seasonal
+and borrowed sounds are not committed (`shows/sounds/` ignores everything). A name that is neither an
+earcon, a file present, nor listed is still an error, so a typo is caught.
 
 With no `output`, a sound goes to the tablet — except a Tab5 earcon with no file of the same name,
 which only the Tab5 has. **The operator may route all of a show's audio elsewhere at run time**

@@ -237,7 +237,7 @@ SLOT_KEYS = {
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance"}
+            "cues", "dance", "sounds"}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -590,6 +590,16 @@ class Show:
 
         events, music, markers = self._resolve(P)
 
+        sounds = self.doc.get("sounds")
+        if sounds is not None:
+            if not isinstance(sounds, list) or not all(isinstance(x, str) and x for x in sounds):
+                P(Problem(f"sounds: must be a list of sound names (files in {SOUND_DIR}/, no extension)"))
+            elif self.path and os.path.isfile(self.path):
+                missing = sorted(x for x in sounds if not self._sound_file(x))
+                if missing:
+                    notices.append(f"sound files not found in {SOUND_DIR}/ beside the show: "
+                                   f"{', '.join(missing)} — the show still validates; supply them "
+                                   "locally to hear them (they are not committed)")
         if music and music.get("file") and self.path and os.path.isfile(self.path):
             audio = os.path.join(os.path.dirname(os.path.abspath(self.path)), music["file"])
             if not os.path.isfile(audio):
@@ -945,6 +955,15 @@ class Show:
             return os.path.join(os.path.dirname(os.path.abspath(self.path)), SOUND_DIR)
         return None
 
+    def _declared_sounds(self) -> set:
+        """Sound files the show says it expects in sounds/ — kept locally like its music, because a
+        seasonal sound would not be committed any more than a seasonal song (workplan 1.11)."""
+        d = self.doc.get("sounds")
+        return {x for x in d if isinstance(x, str)} if isinstance(d, list) else set()
+
+    def _is_file_sound(self, name) -> bool:
+        return bool(self._sound_file(name)) or name in self._declared_sounds()
+
     def _sound_file(self, name):
         d = self._sounds_dir()
         if not d or not isinstance(name, str):
@@ -976,7 +995,7 @@ class Show:
         if c.get("output"):
             return c["output"]
         name = c.get("sound")
-        if name in TAB5_EARCONS and not self._sound_file(name):
+        if name in TAB5_EARCONS and not self._is_file_sound(name):
             return "tab5"
         return DEFAULT_AUDIO_OUTPUT
 
@@ -987,15 +1006,16 @@ class Show:
         name = c.get("sound")
         if not isinstance(name, str) or not name:
             p.append(f"{where}: play needs a sound name")
-        elif name not in TAB5_EARCONS and not self._sound_file(name):
+        elif name not in TAB5_EARCONS and not self._is_file_sound(name):
             p.append(f"{where}: unknown sound {name!r} — not a Tab5 earcon "
-                     f"({', '.join(TAB5_EARCONS)}) and no file {SOUND_DIR}/{name}.* beside the show")
+                     f"({', '.join(TAB5_EARCONS)}), no file {SOUND_DIR}/{name}.* beside the show, "
+                     "and not listed in the show's sounds:")
         else:
             route = self.sound_route(c)
             if route not in AUDIO_OUTPUTS:
                 p.append(f"{where}: sound output {route!r} is not one of {', '.join(AUDIO_OUTPUTS)}")
             else:
-                has = (("earcon",) if name in TAB5_EARCONS else ()) + (("file",) if self._sound_file(name) else ())
+                has = (("earcon",) if name in TAB5_EARCONS else ()) + (("file",) if self._is_file_sound(name) else ())
                 if not set(has) & set(CAN_PLAY[route]):
                     what = "a Tab5 earcon" if name in TAB5_EARCONS else "a sound file"
                     p.append(f"{where}: the {route} cannot play {name!r} — it is {what}, and the "
@@ -1263,7 +1283,8 @@ def describe(limits: dict) -> str:
     w(f"HEAD: pan, tilt in {HEAD_RANGE_DEG} deg (90 = centre); an axis left out keeps its target; "
       f"turns at {HEAD_SLEW_DPS:g} deg/s per axis (warns if a move cannot finish)")
     w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; never ack_pinch")
-    w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS} or {SOUND_DIR}/<name>.* beside the show; "
+    w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
+      "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
     w(f"FACE: do emote, name {FACE_EMOTES}")
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
