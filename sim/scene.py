@@ -235,8 +235,8 @@ def main():
           f"shoulders {(z + 0.094 + 0.698) * 1000:7.1f} mm")
     if a.view:
         import mujoco.viewer
-        # The BLOCKING viewer, which takes over this thread. Deliberately not mjpython — see
-        # view.sh for why. launch_passive would need it, and would not work here.
+        # The BLOCKING viewer, which takes over this thread. A script-driven view uses
+        # launch_passive under mjpython instead -- see view.sh.
         mujoco.viewer.launch(model, data)
         return
     if a.check or not a.render:
