@@ -64,6 +64,31 @@ uncertain. Against that, the team takes on:
 **The scope rule.** A shell around the dashboard: no screens, settings or logic of its own beyond
 what Android requires. Anything a user sees is the dashboard's.
 
+## The search for an existing app (plan 4.1a), 2026-10-07
+
+TD-2 said: check for a maintained open-source kiosk browser before writing one. Six were examined
+from their source; none was run on the tablet.
+
+| | licence | maintained | device owner + lock task | update policy | trusts our local CA | mic in the page | page ↔ tablet control |
+|---|---|---|---|---|---|---|---|
+| **[FreeKiosk](https://github.com/RushB-fr/freekiosk)** | MIT | yes — pushed 2026-10-07, 658★, 19 contributors | yes | postpone, and suspends Samsung's own update apps | **yes** (`network_security_config.xml` trusts user CAs — checked) | yes, granted to any origin | REST API on the tablet (`/api/screen/on`, `/api/wake`, `/api/screen`, `/api/url`, `/api/reload`), MQTT; the page-side bridge lacks wake/front |
+| [Webview Kiosk](https://github.com/nktnet1/webview-kiosk) | AGPL-3.0 | yes, mostly one maintainer | yes | none | **no** (system CAs only) | yes (a setting) | MQTT commands |
+| KioskZen | GPL-3.0 | small, single developer | yes | none | no | yes | none |
+| WallPanel | Apache-2.0 | **archived**; needs Firebase/Google Play | no | — | — | — | — |
+| kiFOSSk | MIT | new (2026-07) | no | — | — | no | — |
+| Headwind MDM | Apache-2.0 (launcher) | yes | via its MDM server | — | — | — | needs a server: too heavy |
+
+**FreeKiosk meets nearly every requirement.** Its gaps: the dashboard page cannot itself wake the
+screen or come to the front (the tablet's REST API can, so the robot's backend could call it); the
+update policy is postpone-only, with no nightly window; the microphone is granted to any page; and
+it is large — React Native plus Kotlin, an accessibility service, overlays, MQTT, an opt-in cloud
+service in its 2.0 betas — and changes quickly.
+
+**Decided, 2026-10-07: write our own anyway.** A small native app the team fully understands, over
+adopting a large, fast-moving one. Webview Kiosk is the clearest code to learn from, but it is
+AGPL: **read it, do not copy it**, or our app becomes AGPL. FreeKiosk is MIT, so its update-policy
+code (postpone, and suspending Samsung's update apps) may be reused with its copyright notice kept.
+
 ## Setup
 
 **Once, at the bench:**
