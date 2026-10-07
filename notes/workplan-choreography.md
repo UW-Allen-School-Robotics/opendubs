@@ -84,7 +84,7 @@ place; each points at the item that delivers it.
 | E2 | **Face simulator as a digital twin** — as faithful to the head as feasible | open | 3.1 |
 | E3 | Face simulator as a **choreography player** | open | 3.3 |
 | E4 | Face simulator as the **customisation / theme tool**, including intake of background images, themes and accessories | open | 3.4 |
-| E5 | **Consolidate the robot models into this repo** — base, lift, head and arms | open | 2.1 |
+| E5 | **Consolidate the robot models into this repo** — base, lift, head and arms | done 2026-10-07 (robot redeploy pending) | 2.1 | ~~Consolidate the robot description (E5)~~ **DONE, 2026-10-07.** One folder, [`description/`](../description/README.md): `opendubs/` (base, lift, head, `dimensions.yaml`, moved from `sim/`) and `openarm/` (arm MJCF and collision meshes vendored unchanged from `openarm_assets`; visual meshes decimated by `tools/vendor_openarm.py` from 41 MB to 6 MB, ~1.6 MB in git; the dashboard's URDF and `chain.json`). The dashboard's own mesh copy was byte-identical and is gone: `frontend/assets/arm` is a symlink, and `deploy.sh` copies the files to the robot. Verified: the scene loads from a fresh path, renders match upstream (0.5 % of pixels differ), clearance is identical, and the arm view passes its FK checks. **Not yet verified on the robot:** a dashboard redeploy. | A redeploy shows the arm view on the tablet. |
 | E6 | **Audio output selectable** (tablet / Tab5 / Thor), tablet default; at composition or run time | open | 1.5, 4.2 |
 | E7 | **How does the Thor pipe audio out of the tablet?** | open question | 4.2 |
 | E8 | **Tablet audio in and out** as a workstream | open | 4.2, 4.3 |

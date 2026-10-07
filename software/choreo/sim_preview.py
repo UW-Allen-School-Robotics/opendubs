@@ -20,7 +20,7 @@ THREE ASSUMPTIONS, stated because the timeline does not settle them:
   * arms interpolate LINEARLY between keyframes (the format's definition; the real controller's
     profile is unverified — choreo-format-v1.md 5);
   * the lift's height is net up-time x LIFT_MM_PER_S, a PLACEHOLDER copied from the sim's own
-    damping (sim/opendubs.xml), not a measurement of the real lift;
+    damping (description/opendubs/opendubs.xml), not a measurement of the real lift;
   * head degrees map as 90 = the sim's zero for both axes, and the SIGN of tilt is unverified —
     the show's 10..170 convention and the sim's asymmetric tilt range have never been reconciled.
 

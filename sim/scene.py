@@ -6,24 +6,29 @@
     python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
     python3 scene.py --check                      # load, report, and exit
 
-The two halves stay in their own files. `opendubs.xml` is ours; the arms come from
-openarm_assets exactly as that project publishes them, and are attached at runtime with
-MuJoCo's MjSpec rather than by copying or editing anything. When they update their model we
-get the update for free.
+The two halves stay in their own files, both under description/ at the repo root:
+`description/opendubs/opendubs.xml` is ours; the arms are `description/openarm/`, vendored from
+openarm_assets by tools/vendor_openarm.py (unchanged MJCF and collision meshes, decimated visual
+meshes, provenance recorded). They are attached at runtime with MuJoCo's MjSpec rather than by
+editing either file.
 
-WHERE THE ASSETS COME FROM, in order: --assets, $OPENDUBS_OPENARM_ASSETS, then the places the
-arm software's own setup.sh puts them. They are not vendored into this repo: they are ~50 MB,
-they belong to another project, and a stale copy of someone else's robot is a trap.
+WHERE THE ARMS COME FROM, in order: --assets, $OPENDUBS_OPENARM_ASSETS, then the vendored copy in
+this repo. Pass an openarm_assets checkout to try a newer upstream model before re-vendoring it.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import os
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+OURS = os.path.join(REPO, "description", "opendubs")
+VENDORED_ARMS = os.path.join(REPO, "description", "openarm")
+ARM_XML = "openarm_bimanual_decorated.xml"
 ARM_MOUNT_XYZ = (0.423, 0.0, 0.3575)   # openarm_body_link0's origin, in CAD coordinates
 ARM_PREFIX = "oa_"
 
@@ -33,33 +38,35 @@ ARM_PREFIX = "oa_"
 # conservative there until we supply our own frame collision mesh.
 CHEST_COVER_GEOM = "openarm_body_link0_visual_5"
 
-ASSET_CANDIDATES = (
-    "~/openarm/openarm_robot-code/openarm_assets/src/openarm_assets/models/openarm",
-    "/openarm_ws/src/openarm_assets/src/openarm_assets/models/openarm",
-    "/tmp/oa_assets/src/openarm_assets/models/openarm",
-)
+def _arm_xml(root: str) -> str | None:
+    """The bimanual MJCF inside a vendored copy (mjcf/) or an openarm_assets checkout."""
+    for sub in ("mjcf", "generated", os.path.join("src", "openarm_assets", "models", "openarm", "generated")):
+        p = os.path.join(root, sub, ARM_XML)
+        if os.path.isfile(p):
+            return p
+    return None
 
 
 def find_assets(explicit: str | None) -> str:
-    for c in ([explicit] if explicit else []) + [os.environ.get("OPENDUBS_OPENARM_ASSETS")] + list(ASSET_CANDIDATES):
+    """The directory holding the arm MJCF's folder and its meshes/ (the model root)."""
+    for c in ([explicit] if explicit else []) + [os.environ.get("OPENDUBS_OPENARM_ASSETS"), VENDORED_ARMS]:
         if not c:
             continue
-        p = os.path.expanduser(c)
-        if os.path.isfile(os.path.join(p, "generated", "openarm_bimanual_decorated.xml")):
-            return p
-    sys.exit(
-        "cannot find the OpenArm assets. Pass --assets <.../models/openarm>, set\n"
-        "OPENDUBS_OPENARM_ASSETS, or clone them:\n"
-        "  git clone --depth 1 https://github.com/ericjgoossen/openarm_assets /tmp/oa_assets"
-    )
+        xml = _arm_xml(os.path.expanduser(c))
+        if xml:
+            return os.path.dirname(os.path.dirname(xml))
+    sys.exit("cannot find the OpenArm model: description/openarm/ is missing, and no --assets or "
+             "$OPENDUBS_OPENARM_ASSETS was given")
 
 
 def _mesh_dir(assets: str) -> str:
     """One directory holding both mesh sets, by symlink — MuJoCo resolves meshes against a
-    single meshdir, and copying 50 MB to render a picture would be silly."""
-    d = os.path.join(tempfile.gettempdir(), "opendubs_sim_meshes")
+    single meshdir, and copying meshes to render a picture would be silly. Keyed by the arm source,
+    so pointing --assets at a different checkout never picks up links left by another one."""
+    key = hashlib.sha1(os.path.realpath(assets).encode()).hexdigest()[:10]
+    d = os.path.join(tempfile.gettempdir(), "opendubs_sim_meshes_" + key)
     os.makedirs(d, exist_ok=True)
-    for src_dir in (os.path.join(assets, "meshes"), os.path.join(HERE, "meshes")):
+    for src_dir in (os.path.join(assets, "meshes"), os.path.join(OURS, "meshes")):
         for root, _, files in os.walk(src_dir):
             for f in files:
                 if not f.lower().endswith((".stl", ".obj")):
@@ -90,8 +97,8 @@ def build(assets: str | None = None, chest_cover: bool = False):
     a = find_assets(assets)
     meshes = _mesh_dir(a)
 
-    ours = mujoco.MjSpec.from_file(os.path.join(HERE, "opendubs.xml"))
-    arms = mujoco.MjSpec.from_file(os.path.join(a, "generated", "openarm_bimanual_decorated.xml"))
+    ours = mujoco.MjSpec.from_file(os.path.join(OURS, "opendubs.xml"))
+    arms = mujoco.MjSpec.from_file(_arm_xml(a))
     ours.meshdir = meshes
     arms.meshdir = meshes
 

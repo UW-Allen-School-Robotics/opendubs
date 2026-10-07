@@ -161,15 +161,17 @@ Nothing here answers "will the gripper hold this object". Say so out loud when s
 ## Building the whole robot
 
 ```bash
-git clone --depth 1 https://github.com/ericjgoossen/openarm_assets /tmp/oa_assets   # once
 python3 scene.py --check
 python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
 ```
 
 `scene.py` attaches the bimanual arm model to the lift platform with MuJoCo's `MjSpec`, so
-neither file is edited or copied — when openarm_assets updates, we get the update. The assets
-are found via `--assets`, `$OPENDUBS_OPENARM_ASSETS`, or the paths the arm software's own
-`setup.sh` uses; they are deliberately **not** vendored here.
+neither model file is edited. Both live in [`../description/`](../description/README.md): ours
+in `description/opendubs/`, the arms vendored from `openarm_assets` in `description/openarm/` —
+its MJCF and collision meshes unchanged, its visual meshes decimated, its source commit in
+`PROVENANCE.json`. To try a newer upstream arm model before re-vendoring it, pass an
+`openarm_assets` checkout with `--assets` or `$OPENDUBS_OPENARM_ASSETS`; to adopt it, run
+`tools/vendor_openarm.py`.
 
 **The chest cover is suppressed**, because it is removed on our robot and the face mounts at the
 top of the extrusion it used to cover (`--chest-cover` draws it again for comparison).

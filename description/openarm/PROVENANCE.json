@@ -1,0 +1,17 @@
+{
+  "source": "https://github.com/ericjgoossen/openarm_assets",
+  "source_commit": "71d81a8447ffe7930aa8b91a209b6e53fd15c6f0",
+  "upstream": "https://github.com/enactic/openarm_mujoco",
+  "upstream_commit": "5c6e1b4c71cbe27c6a4b58c7f198f080449e1b9c",
+  "vendored": "2026-10-07",
+  "visual_keep_fraction": 0.1,
+  "visual_triangles_before": 1058750,
+  "visual_triangles_after": 225797,
+  "unchanged": [
+    "mjcf/openarm_bimanual_decorated.xml",
+    "meshes/collision/**"
+  ],
+  "modified": [
+    "meshes/visual/** \u2014 decimated by tools/vendor_openarm.py"
+  ]
+}

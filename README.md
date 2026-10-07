@@ -48,7 +48,7 @@ disagree with each other without any of them owning it. Every length, axis and p
 CAD or to a measurement; **masses, stiffnesses and speeds are placeholders**, so it answers
 questions about clearance and reach and not about force, torque or timing.
 [`sim/README.md`](sim/README.md) says which is which, and
-[`sim/dimensions.yaml`](sim/dimensions.yaml) carries the provenance of every number.
+[`description/opendubs/dimensions.yaml`](description/opendubs/dimensions.yaml) carries the provenance of every number.
 
 ## Repository layout
 
