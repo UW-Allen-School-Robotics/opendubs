@@ -78,18 +78,14 @@ check("two cues owning one slot at once is caught",
       [{"t": 1.0, "slot": "HEAD", "pan": 60, "hold_s": 4.0},
        {"t": 2.0, "slot": "HEAD", "pan": 120}], "still busy")
 
-# 700 Hz USED TO BE REJECTED here, which enshrined a withdrawn by-ear measurement as a physical
-# fact and made the test suite enforce it. It is a legitimate choice and now passes.
-check("a low but legitimate beep passes",
-      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 700}], None)
+check("a Tab5 earcon is a known sound",
+      [{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}], None)
 
-# What the bound is actually for: catching a typo or a unit mix-up, not adjudicating what the
-# speaker reproduces well.
-check("an absurd beep frequency is caught as a typo",
-      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 40000}], "sanity bound")
+check("an unknown sound name is caught",
+      [{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "atend"}], "unknown sound")
 
-check("a beep in the audible band passes",
-      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 3000}], None)
+check("SOUND plays named sounds only",
+      [{"t": 1.0, "slot": "SOUND", "do": "beep"}], "sound do must be play")
 
 check("a show may not acknowledge the pinch guard",
       [{"t": 1.0, "slot": "LIFT", "do": "down", "secs": 4, "ack_pinch": True}],
@@ -111,7 +107,7 @@ check("... and the speed check still uses real elapsed time when it does",
        {"t": 1.0, "slot": "ARM_R", "joints": {4: 10}}], None)
 
 check("using an undeclared slot is caught",
-      [{"t": 1.0, "slot": "SOUND", "do": "chime"}], "did not declare", slots=["HEAD"])
+      [{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}], "did not declare", slots=["HEAD"])
 
 # ---- format v1 (notes/design/choreo-format-v1.md) -------------------------------------------
 # Every case below is new in v1. The v0 cases above are unchanged and must keep passing.
@@ -171,9 +167,9 @@ check_doc("an absurd tempo is caught as a typo",
           doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60}],
                    music={"bpm": 1200, "beats_per_bar": 4}), "sanity bound")
 fast = dict(MUSIC, bpm=60)
-a = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "chime"}],
+a = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
              music=MUSIC)
-b = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "chime"}],
+b = doc_show([{"beat": 5, "slot": "HEAD", "pan": 60}, {"t": 5.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
              music=fast)
 check_true("changing bpm moves a beat cue and leaves a t cue alone",
            times(a, "HEAD") == [2.5] and times(b, "HEAD") == [4.5]
@@ -246,14 +242,11 @@ check_doc("a stop inside a lift's travel is refused — shorten secs instead",
           doc_show([{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 6},
                     {"t": 3.0, "slot": "LIFT", "do": "stop"}]), "still busy")
 check_doc("two sounds overlapping are caught (the player refuses while busy)",
-          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 1000, "ms": 500},
-                    {"t": 1.2, "slot": "SOUND", "do": "beep", "hz": 1500}]), "still busy")
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "mode", "secs": 0.5},
+                    {"t": 1.2, "slot": "SOUND", "do": "play", "sound": "heard"}]), "still busy")
 check_doc("... and back to back is fine",
-          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 1000, "ms": 500},
-                    {"t": 1.5, "slot": "SOUND", "do": "beep", "hz": 1500}]), None)
-# The only firmware implementing BEEP clamps to 8000 Hz: 9 kHz would validate and play at 8.
-check_doc("a beep the receiver would silently clamp is caught",
-          doc_show([{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 9000}]), "sanity bound")
+          doc_show([{"t": 1.0, "slot": "SOUND", "do": "play", "sound": "mode", "secs": 0.5},
+                    {"t": 1.5, "slot": "SOUND", "do": "play", "sound": "heard"}]), None)
 check_doc("an unknown key on a cue is caught, not ignored",
           doc_show([{"t": 1.0, "slot": "HEAD", "pan": 60, "hold": 3}]), "unknown key 'hold'")
 check_doc("interp is reserved, and says why",

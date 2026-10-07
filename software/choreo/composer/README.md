@@ -30,7 +30,7 @@ no internet.
 |---|---|
 | **One lane per slot**, plus a clips lane, a music lane and a ruler | tracks are scopes, not free lanes (workplan 5.2); undeclared slots are shown hatched |
 | **Keyframes as diamonds** on the arm lanes, with the move into each drawn as a bar | the span the validator checked the speed over |
-| **Cues as blocks with duration** | a lift block is as long as its `secs`, a beep as long as its `ms` |
+| **Cues as blocks with duration** | a lift block is as long as its `secs`, a sound as long as its `secs` or its file |
 | **Clips** drawn as their placement plus their expanded cues (purple) | dragging any part of a clip moves the placement |
 | **Waveform**, beat/bar grid from `bpm` / `offset_s`, markers on the ruler | |
 | **Play/pause through Web Audio** | the playhead is `AudioContext.currentTime` minus the reported output latency, i.e. what is *heard*, read every animation frame — not a timer |

@@ -42,6 +42,7 @@ import math
 import os
 import re
 import sys
+import wave
 
 try:
     import yaml
@@ -81,27 +82,16 @@ SHOULDER_MARGIN_DEG = 25.0     # what a show must leave
 ELBOW_FOLD_MIN_DEG = 60.0      # below this the arm is "extended" and the 1.2 m box bites first
 SHOULDER_EXTENDED_MAX_DEG = 135.0   # measured: 140 passed, 146 was rejected on the box
 
-# A SANITY BOUND, NOT A MEASURED RESPONSE -- and the name says so, because the previous one did
-# not. This was `SOUND_BAND_HZ = (1800, 4500)`, commented "what the head's speaker actually
-# carries, judged on the robot". That was a by-ear impression of M5.Speaker.tone() in a noisy
-# room, it was later withdrawn (notes/design/tab5-platform.md 3), and in the meantime it sat here
-# rejecting legitimate shows as physically impossible.
-#
-# The hardware argues the other way: an ES8388 codec and an NS4150B amp into 1 W 8 ohm, documented
-# by M5 for "Hi-Fi recording/playback", plus a 3.5 mm jack. The real response is still UNMEASURED
-# -- the sweep harness written for it was removed unused -- so this bound only catches values that
-# are obviously wrong (a typo, a unit mix-up) and makes no claim about what the speaker reproduces
-# well. Narrow it again only with a measurement attached.
-#
-# The UPPER edge is 8000, not the 12000 it was: the only firmware that implements BEEP
-# (firmware/tab5_face/src/main.cpp) clamps hz to 50..8000, so a 10 kHz beep would validate and
-# then play at 8 kHz. That is the RECEIVER'S CODE, not a speaker measurement -- a validator must
-# not pass what the receiver silently changes.
-SOUND_SANITY_HZ = (150, 8000)
-BEEP_DEFAULT_MS = 120          # the firmware's default when BEEP is sent without a duration
-# Three tones of 110 + 110 + 170 ms in the Arduino face's CHIME handler -- IF M5.Speaker.tone()
-# plays them one after another. Not verified; it only sizes the slot's span.
-CHIME_S = 0.39
+# SOUND plays a NAMED sound effect on the show's chosen output device (format v1, DEC-11 in
+# notes/workplan-choreography.md). A name is either one of the Tab5's built-in earcons -- the
+# `Cue` enum in firmware/tab5_idf/app_face/cues.h -- or a sound file in the `sounds/` directory
+# beside the show, named without its extension. Music is not a SOUND cue; it is the `music:` track.
+TAB5_EARCONS = ("heard", "attend", "refuse", "fault", "mode", "boot")
+SOUND_FILE_EXTS = (".wav", ".mp3", ".ogg", ".flac")
+SOUND_DIR = "sounds"
+# Only sizes the slot's span when neither `secs` nor a readable WAV header gives a length.
+SOUND_DEFAULT_S = 0.5
+SOUND_SECS_SANITY = (0.05, 600.0)
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
 # FACE: the emote vocabulary as it exists in firmware, and nothing else. Sourced from kEmotes[]
@@ -132,7 +122,7 @@ SLOT_KEYS = {
     "GRIP_L": {"do", "pos", "effort"}, "GRIP_R": {"do", "pos", "effort"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
-    "SOUND": {"do", "hz", "ms"},
+    "SOUND": {"do", "sound", "secs"},
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
 }
@@ -153,8 +143,8 @@ NOT_EXECUTABLE = {
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
              "every state change, so the runner must LAYER it before a show may (two writers "
              "on one register otherwise)",
-    "SOUND": "SOUND beep/chime are implemented by the Arduino face only; the ESP-IDF face that "
-             "replaces it has neither verb (it has six earcons and no network trigger)",
+    "SOUND": "SOUND is valid but not executable yet: no output device takes a play-sound "
+             "command over the network (workplan 1.5, 4.2)",
 }
 
 
@@ -549,11 +539,7 @@ class Show:
                     intrinsic = float(c["secs"])
             elif slot == "SOUND":
                 msgs = self._check_sound(where, c)
-                if c.get("do") == "beep":
-                    ms = c.get("ms", BEEP_DEFAULT_MS)
-                    intrinsic = float(ms) / 1000.0 if _num(ms) else 0.0
-                elif c.get("do") == "chime":
-                    intrinsic = CHIME_S
+                intrinsic = self._sound_length(c)
             elif slot == "FACE":
                 msgs = self._check_face(where, c)
             else:
@@ -690,23 +676,46 @@ class Show:
                      "consent through the zone is a human's decision, every time")
         return p
 
+    def _sounds_dir(self):
+        if self.path and os.path.isfile(self.path):
+            return os.path.join(os.path.dirname(os.path.abspath(self.path)), SOUND_DIR)
+        return None
+
+    def _sound_file(self, name):
+        d = self._sounds_dir()
+        if not d or not isinstance(name, str):
+            return None
+        for ext in SOUND_FILE_EXTS:
+            f = os.path.join(d, name + ext)
+            if os.path.isfile(f):
+                return f
+        return None
+
+    def _sound_length(self, c):
+        if _num(c.get("secs")):
+            return float(c["secs"])
+        f = self._sound_file(c.get("sound"))
+        if f and f.endswith(".wav"):
+            try:
+                with wave.open(f) as w:
+                    return w.getnframes() / float(w.getframerate())
+            except (wave.Error, OSError, ZeroDivisionError):
+                pass
+        return SOUND_DEFAULT_S
+
     def _check_sound(self, where, c):
+        if c.get("do") != "play":
+            return [f"{where}: sound do must be play (SOUND plays a named sound effect)"]
         p = []
-        do = c.get("do")
-        if do == "chime":
-            return p
-        if do != "beep":
-            return [f"{where}: sound do must be chime|beep"]
-        hz = c.get("hz")
-        if hz is None:
-            p.append(f"{where}: beep needs hz")
-        elif not _num(hz) or not (SOUND_SANITY_HZ[0] <= float(hz) <= SOUND_SANITY_HZ[1]):
-            p.append(f"{where}: beep {hz} Hz outside the sanity bound "
-                     f"{SOUND_SANITY_HZ} — looks like a typo or a unit mix-up. This is NOT a "
-                     "measured speaker response; see notes/design/tab5-platform.md")
-        ms = c.get("ms")
-        if ms is not None and not (_num(ms) and 10 <= float(ms) <= 3000):
-            p.append(f"{where}: beep ms {ms} outside 10..3000")
+        name = c.get("sound")
+        if not isinstance(name, str) or not name:
+            p.append(f"{where}: play needs a sound name")
+        elif name not in TAB5_EARCONS and not self._sound_file(name):
+            p.append(f"{where}: unknown sound {name!r} — not a Tab5 earcon "
+                     f"({', '.join(TAB5_EARCONS)}) and no file {SOUND_DIR}/{name}.* beside the show")
+        secs = c.get("secs")
+        if secs is not None and not (_num(secs) and SOUND_SECS_SANITY[0] <= float(secs) <= SOUND_SECS_SANITY[1]):
+            p.append(f"{where}: sound secs {secs} outside {SOUND_SECS_SANITY}")
         return p
 
     def _check_face(self, where, c):

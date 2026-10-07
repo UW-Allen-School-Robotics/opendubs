@@ -294,7 +294,7 @@ function label(ev) {
     case "GRIP_L": case "GRIP_R": return c.do || `pos ${c.pos}`;
     case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
-    case "SOUND": return c.do === "beep" ? `beep ${c.hz}` : c.do;
+    case "SOUND": return c.sound || c.do;
     case "FACE": return c.name || c.do;
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     default: return "";
@@ -442,7 +442,7 @@ function renderPreview() {
     } else if (slot === "SOUND") {
       const e = lastAt(evs, t);
       const on = e && t < e.end;
-      row(slot, e ? `${on ? "♪ " : ""}${e.cue.do}${e.cue.hz ? " " + e.cue.hz + " Hz" : ""}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
+      row(slot, e ? `${on ? "♪ " : ""}${e.cue.sound || e.cue.do}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
     } else if (slot === "LIGHT") {
       const e = lastAt(evs, t);
       row(slot, e && e.cue.do === "color" ? `<span class="swatch" style="background:rgb(${e.cue.rgb.join(",")});opacity:${(e.cue.br ?? 100) / 100}"></span> ${e.cue.rgb.join(", ")} @ ${e.cue.br ?? 100}%` : '<span class="dim">state colour (no show colour)</span>');
@@ -518,7 +518,7 @@ function deleteSelected() {
 /* ---------- adding, teaching ---------- */
 const DEFAULTS = {
   GRIP_L: { do: "open" }, GRIP_R: { do: "open" }, HEAD: { pan: 90, tilt: 90 },
-  LIFT: { do: "up", secs: 2 }, SOUND: { do: "beep", hz: 1000, ms: 120 },
+  LIFT: { do: "up", secs: 2 }, SOUND: { do: "play", sound: "attend" },
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
 };
 function addCue(slot) {

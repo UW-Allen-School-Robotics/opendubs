@@ -76,7 +76,7 @@ check("changing the time form (t -> beat) is a key change and parses back",
 new = yamledit.apply(HELLO, [{"op": "delete", "index": 0}])
 d, n = diff_lines(HELLO, new)
 check("deleting a cue removes exactly its line", n == 1 and len(yaml.safe_load(new)["cues"]) ==
-      len(doc["cues"]) - 1 and "do: chime" not in new.splitlines()[19], n)
+      len(doc["cues"]) - 1 and "sound: attend" not in new.splitlines()[19], n)
 
 new = yamledit.apply(HELLO, [{"op": "add", "cue": {"bar": "4.1", "slot": "HEAD", "pan": 70}}])
 check("adding a cue appends one line at the end of cues:, with the list's indentation",

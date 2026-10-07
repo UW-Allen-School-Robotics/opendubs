@@ -57,7 +57,7 @@ markers:
 
 cues:
   # before the music: in seconds, because it is not about the music
-  - { t: 0.0, slot: SOUND, do: chime }
+  - { t: 0.0, slot: SOUND, do: play, sound: attend }
   - { t: 0.0, slot: LIGHT, do: color, rgb: [40, 90, 255], br: 60 }
   - { bar: "1.1", slot: HEAD, pan: 90, tilt: 90 }
   - { bar: "1.1", slot: FACE, do: emote, name: SOFT }
@@ -78,7 +78,7 @@ cues:
   # bar 9, the chorus: the lift rises FOR 4 SECONDS starting on the downbeat — a grid start with a
   # clock duration, which is the case the two time forms exist for
   - { bar: "9.1", slot: LIFT, do: up, secs: 4 }
-  - { beat: 33, slot: SOUND, do: beep, hz: 1200, ms: 150 }
+  - { beat: 33, slot: SOUND, do: play, sound: heard }
   - { bar: "9.1", slot: FACE, do: emote, name: ALERT }
   - { bar: "9.1", slot: LIGHT, do: color, rgb: [255, 0, 200], br: 100 }
 
@@ -102,7 +102,7 @@ cues:
   - { t: 35.0, slot: ARM_R, joints: { 4: 10, 2: 5 } }
   - { t: 35.0, slot: HEAD, pan: 90, tilt: 90 }
   - { t: 35.5, slot: LIGHT, do: release }
-  - { t: 35.5, slot: SOUND, do: chime }
+  - { t: 35.5, slot: SOUND, do: play, sound: attend }
 
 # What this show wanted and the format could not give it (workplan 6.1 — each is a Phase 1 item):
 #  1. RELATIVE clips. `strength` scales toward 0 deg, so a wave is only a wave from the zero pose;
@@ -116,6 +116,7 @@ cues:
 #     face each have a different and unmeasured command-to-motion latency; "on the beat" needs a
 #     per-robot lead time per slot, which must not live in the show.
 #  6. The speed caps, not the tempo, bound what can move on the beat (see notes above).
-#  7. EARCONS. The ESP-IDF face has six named earcons and no verb to trigger them; SOUND can only
-#     say beep/chime, which that face does not implement.
+#  7. SOUND OUTPUT. SOUND names an effect (here the Tab5's earcons), but no output device yet takes
+#     a play-sound command over the network, and the show cannot yet say which output plays it
+#     (workplan 1.5).
 #  8. VARIATION. Played three times, this is byte-identical three times (workplan 1.8).
