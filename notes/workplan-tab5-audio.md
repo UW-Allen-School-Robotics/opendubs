@@ -30,6 +30,10 @@ re-derived: [`design/hri-interaction-design.md`](design/hri-interaction-design.m
 | **Listening while speaking WORKS** — speaker and mic hold I2S together. So the robot can be interrupted; barge-in is viable | bench, 2026-10-04 |
 | **Do not build a head that continuously tracks a voice. Build one that GLANCES toward it** | `design/hri-interaction-design.md` |
 | Hardware: ES8388 codec, **ES7210 AEC front-end**, dual mics, 1 W 8 Ohm amp, 3.5 mm jack escape hatch | `design/tab5-platform.md` |
+| **HARDWARE AEC IS NOT AVAILABLE AS CONFIGURED.** The ES7210 has two of four channels enabled (`MIC12_PDN=0x00`, `MIC34_PDN=0xFF`); **channels 3/4 are the AEC reference inputs and are OFF**, so the robot cannot cancel its own output in hardware | `design/tab5-platform.md`, 2026-10-07 |
+| **The Tab5 plays sound files natively** — the vendor stack plays PCM and sound files out of the box. Use the vendor HAL and its example code; **do not probe the speaker** | `design/tab5-platform.md` |
+| **One player, and it refuses while busy** — `audioPlay(pcm, async)` neither queues nor mixes, so a second sound is DROPPED. `cues.cpp` enforces priority in software for that reason. The Arduino image's eight virtual channels are not the IDF face | `design/tab5-platform.md`, workplan-tab5-idf 1.3 |
+| **3.5 MB of SPIFFS is partitioned and unused** (`default_16MB.csv`) — room for sound assets without touching the partition table | `design/tab5-platform.md` |
 | The HAL already has `audioRecord(data, durationMs, gain)`, `audioPlay(pcm, async)`, `startDualMicRecordTest()`, `setSpeakerVolume()` — **do not hand-roll these or poke ES7210 gain registers**, which an earlier session did before finding them | `design/tab5-platform.md` |
 | Audio enable + volume are resident on the Tab5 and persisted in NVS, reachable from SETTINGS | `app_face/ui_settings.cpp` |
 | `Heard` and `Attend` earcons exist. **`Attend` now fires when a person is SEEN**; `Heard` is still unwired and is this plan's | `app_face/cues.cpp` |
@@ -70,8 +74,15 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
   encode it. Decide: raw for simplicity, or compressed for headroom shared with video.
 - **Audio down:** TTS back to the speaker, **streamed, not file-at-a-time**, or the robot pauses
   mid-sentence.
-- **Echo:** the ES7210 AEC front-end is on this board for a reason, and "listening while speaking
-  works" means the hard case is reachable rather than already solved.
+- **Echo — and this is the one to get right early.** "Listening while speaking works" means the mic
+  and speaker can run together; it does NOT mean the robot can hear past itself. The ES7210's AEC
+  reference channels (3/4) are **disabled in the current configuration**, so there is no hardware
+  cancellation to lean on. Three routes, and they are not equivalent in cost: enable the reference
+  channels and route a real reference signal; do AEC in software on the P4; or **sidestep it** with
+  half-duplex — stop listening while speaking. Half-duplex is much cheaper and costs exactly one
+  thing: barge-in. Since "the robot can be interrupted" is a stated want, that trade is a decision,
+  not a detail. **Settle it before Phase A step 2**, because it determines whether VAD has to run
+  while the speaker is active.
 - **Carrier:** the existing StamPLC protocol is line-based UDP and was never built to carry a
   payload. Audio and video want their own path. The head already runs an HTTP-pull OTA and mDNS, so
   there is precedent for a second port rather than overloading udp/4242.
