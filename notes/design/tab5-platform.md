@@ -95,18 +95,16 @@ monitoring, the **3.5 mm jack**, the removable battery, and the C6's **Thread/Zi
 
 ## 3. Audio — what is settled
 
-Measured on the bench and in the code, not assumed:
-
-- **The speaker is not the limitation.** A claim that it "carries only 2–4 kHz" was a by-ear
-  judgement of `M5.Speaker.tone()` in a noisy room, and is withdrawn. ES8388 + NS4150B into 1 W
-  8 Ω, documented by M5 for *"Hi-Fi recording/playback and accurate voice recognition"*, plus a
-  3.5 mm jack if an external speaker is ever wanted.
-- **The ES7210 IS configured on this board.** `_microphone_enabled_cb_tab5()` in `M5Unified.inl`
-  is a complete ESP32-P4-guarded init at I²C 0x40. Do not conclude otherwise from the S3-only
-  `es7210_write_reg` helper — the P4 path writes the same chip through `In_I2C` directly.
-- **Two of four mic channels are enabled** (`MIC12_PDN=0x00`, `MIC34_PDN=0xFF`). Channels 3/4 are
-  the **AEC reference** inputs and are off, which is why the robot cannot cancel its own output in
-  hardware.
+- **The Tab5 plays sound files natively.** It has a real audio path — an ES8388 codec and an
+  NS4150B amplifier into a 1 W speaker, plus a 3.5 mm jack — and the vendor stack plays PCM and
+  sound files out of the box. **Use the vendor HAL and its example code; do not probe the speaker.**
+- **Under the ESP-IDF HAL there is one player, and it refuses while busy** — `audioPlay(pcm, async)`
+  neither queues nor mixes, so a second sound is dropped. `app_face/cues.cpp` enforces priority in
+  software for that reason (`workplan-tab5-idf.md` 1.3). The Arduino image's `M5.Speaker` had eight
+  virtual channels; that is not the IDF face.
+- **The ES7210 microphone is configured.** Two of four channels are enabled (`MIC12_PDN=0x00`,
+  `MIC34_PDN=0xFF`); channels 3/4 are the AEC reference inputs and are off, which is why the robot
+  cannot cancel its own output in hardware.
 - **Direction works at the default gain.** Left/right/centre from the inter-channel level ratio,
   confirmed interactively. **Gain is a dead end** — stepping `0x43`/`0x44` across `0x05`–`0x1E`
   changed little. **Writing `0x00` there silences the microphone**; it is the bottom of the range,
@@ -114,19 +112,13 @@ Measured on the bench and in the code, not assumed:
 - **Speaker and microphone hold I²S simultaneously**, so the robot can listen while it speaks.
 - **Levels are small**: a quiet room reads ~15–20 RMS against speech peaks of a few hundred. A
   quiet room reading low is *not* evidence of a broken microphone — that mistake has been made.
-- **Speaker bring-up is nested inside the Wi-Fi-up branch of `commsTask`**, alongside
-  `ArduinoOTA.begin()`. On a bench Tab5 with no network, `M5.Speaker.begin()` is **never called**
-  and no sound is possible. On the robot there is a link, so this is a bench-only symptom —
-  deliberately left alone rather than refactored.
-- **Bring-up is fiddly and already solved**: full ES8388 reset, `begin()`, then **manually
-  re-enable the amplifier** (PI4IO1 `0x43`, reg `0x05`, bit 1), because M5Unified's enable callback
-  does not run in the state a warm boot leaves things in — a codec reporting ready into a disabled
-  amp. Do not rewrite this sequence.
-- **`M5.Speaker` has 8 virtual channels** with independent volume, `isPlaying(ch)` and `stop(ch)`;
-  `tone()` accepts **your own wavetable**; `playRaw()` takes PCM; `playWav()` reads a flash array.
-  A cue system is channel assignment, not a synth.
-- **3.5 MB SPIFFS is already partitioned and unused** (`default_16MB.csv`) — roughly 3 minutes of
-  16-bit 11 kHz mono, available for audio assets without touching the partition table.
+- **Arduino image only — amplifier bring-up.** After a warm boot, M5Unified's enable callback does
+  not re-enable the amplifier, so the firmware does it by hand (PI4IO1 `0x43`, reg `0x05`, bit 1)
+  after a full ES8388 reset. A codec reporting ready into a disabled amp is silent. Do not rewrite
+  this sequence. Speaker bring-up there is also nested inside the Wi-Fi-up branch of `commsTask`,
+  so a bench Tab5 with no network makes no sound.
+- **3.5 MB of SPIFFS is partitioned and unused** (`default_16MB.csv`) — room for sound assets
+  without touching the partition table.
 
 ---
 
