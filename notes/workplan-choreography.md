@@ -23,18 +23,31 @@ background reading**.
 The brief for this plan assumed a composer had to be designed from scratch. It does not. A
 substantial part of it is built, merged to `main`, and tested.
 
+*Status updated 2026-10-06 by the `feat/choreo-composer` run (draft PR; hand-off in
+[`choreo-cloud-run-report.md`](choreo-cloud-run-report.md)). Rows marked **†** exist on that
+branch and are not on `main` until it merges.*
+
 | Thing | State | Where |
 |---|---|---|
-| Show-as-data, YAML, absolute `t` timeline | **built** | `software/choreo/shows/hello.yaml` |
-| Validator: limits, speed caps, per-side grippers, shoulder/head clearance, one-owner-per-slot | **built, 19 tests** | `software/choreo/cue.py`, `tests/test_cue.py` |
-| `requires:` preflight declaration (`arms`, `tab5`, `rc_authority`) | **built** | `hello.yaml` |
-| Slot vocabulary | **built**: `ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT` | `cue.py` |
+| Show-as-data, YAML | **built** | `software/choreo/shows/hello.yaml`, `beat-demo.yaml` † |
+| **Format specification v1** (proposal 11): `t` / `beat` / `bar` time, one-tempo `music:` block, every cue a span, `hold_s` defined, clips with `repeat` / `time_scale` / `strength`, markers as named signals, resolved-timeline schema | **specified and implemented †** | `design/choreo-format-v1.md`, `cue.py` |
+| Validator: limits, speed caps, per-side grippers, shoulder/head clearance, one-owner-per-slot on spans, unknown keys refused | **built, 69 checks †** (was 19), and **run in CI** † (`.github/workflows/choreo.yml` — the README claimed CI before it existed) | `software/choreo/cue.py`, `tests/test_cue.py` |
+| `requires:` preflight declaration (`arms`, `tab5`, `rc_authority`) | **declared, not validated** — `cue.py` stores it and checks nothing; CH5 names disagree across notes (`MANUAL` vs `RC`) | `hello.yaml` |
+| Slot vocabulary | **built**: `ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT`. `DRIVE` still deliberately absent | `cue.py` |
+| `FACE` and `LIGHT` validators (0.3) | **built †** — closed vocabularies sourced from firmware; **valid but not executable** (no emote verb; `LIGHT` needs layering against `state_out.py`), and the validator says so as a notice | `cue.py` |
+| `hold_s` (0.4) | **defined †** in the spec | `design/choreo-format-v1.md` §4 |
+| Resolved timeline export — the one artifact the composer, sim and runner consume | **built †** | `cue.py export`, schema `opendubs.choreo.timeline/1` |
+| **The composer** — lanes per slot, waveform + beat grid + snap + tap tempo, Web Audio playhead, validator in the loop, minimal-diff saves | **built, preview only †** — no robot-facing path, test-enforced | `software/choreo/composer/` |
+| Simulator preview from the exported timeline | **built †**; sampling tested, MuJoCo render/clearance paths **not run** | `software/choreo/sim_preview.py` |
 | Kinematic simulator that answers "does this pose collide / does the sequence read" | **built** | `sim/scene.py`, `sim/clearance.py`, `sim/view.sh` |
+| Teach-by-capture | **interface stubbed †** with a fake joint source; freedrive itself **does not exist** in the dashboard | `composer/api.py` `capture`, `design/choreo-teach-and-sync.md` † |
+| Music sync, clocks, audio roles (Tab5 / tablet / Thor) | **designed as experiments †**, none run | `design/choreo-teach-and-sync.md` |
 | The authorable/reserved boundary for face configuration | **designed** | `design/face-config.md` |
 | Slot merge policies and priority tiers | **proposed** | `design/behavior-api-scope.md` |
 | **The runner** | **does not exist** | prototype is `~/opendubs-demo/showcase_demo.py`, outside the repo |
-| `FACE` and `LIGHT` validators | **missing** — the slots exist and are unchecked | `cue.py` has no `_check_face`/`_check_light` |
-| Music, accessories, themes, emotes, band motion, earcons as show data | **do not exist** | — |
+| Phase 0 | 0.1 **done †** (sanity bound, Emma's commit on this branch; upper edge since lowered to the receiver's 8000 Hz clamp), 0.3 and 0.4 **done †**; **0.2 and 0.5 are firmware and outstanding** | — |
+| Music as show data | **built †** — one tempo, offline grid, generated click track (no copyrighted audio) | `music:` block |
+| Accessories, themes, band motion, earcons, variation as show data | **do not exist** | — |
 
 So the work is: **fix what is wrong, add the runner, add the missing channels, and only then build an
 editor.** Not "design a composer".
