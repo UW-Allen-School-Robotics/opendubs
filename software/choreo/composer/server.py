@@ -85,6 +85,10 @@ def make_handler(comp: Composer):
                     return self._json(comp.info())
                 if u.path == "/api/shows":
                     return self._json(comp.list_shows())
+                if u.path == "/api/twin":
+                    return self._json(comp.twin())
+                if u.path == "/api/twin/timeline":
+                    return self._json(comp.twin_timeline())
                 if u.path == "/api/show":
                     return self._json(comp.load((q.get("path") or [""])[0]))
                 if u.path.startswith("/audio/"):
@@ -104,6 +108,8 @@ def make_handler(comp: Composer):
                     return self._json(comp.edit(b.get("path"), b.get("text") or "", b.get("edits")))
                 if u.path == "/api/save":
                     return self._json(comp.save(b.get("path"), b.get("text") or ""))
+                if u.path == "/api/playhead":
+                    return self._json(comp.playhead(b.get("t"), b.get("playing")))
                 if u.path == "/api/capture":
                     return self._json(comp.capture(b.get("side"), b.get("joint_state")))
                 raise ApiError("not found", 404)

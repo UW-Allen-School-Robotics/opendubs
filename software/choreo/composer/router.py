@@ -60,6 +60,18 @@ def make_router(comp: "Composer"):
     def save(b: dict = Body(...)):
         return _wrap(comp.save, b.get("path"), b.get("text") or "")
 
+    @r.post("/api/playhead")
+    def playhead(b: dict = Body(...)):
+        return _wrap(comp.playhead, b.get("t"), b.get("playing"))
+
+    @r.get("/api/twin")
+    def twin():
+        return comp.twin()
+
+    @r.get("/api/twin/timeline")
+    def twin_timeline():
+        return comp.twin_timeline()
+
     @r.post("/api/capture")
     def capture(b: dict = Body(...)):
         return _wrap(comp.capture, b.get("side"), b.get("joint_state"))

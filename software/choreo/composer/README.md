@@ -47,6 +47,20 @@ no internet.
 | **Teach (⦿) on the arm lanes** | captures a pose into a keyframe at the playhead — from a **FAKE** joint source in this build; see below |
 | **Simulator preview** — `../sim_preview.py` | steps `sim/` through the exported timeline: sampled poses (`--dry-run`), closest approach per frame (`--clearance`), PNG frames (`--frames`) |
 
+### The MuJoCo twin follows the playhead
+
+```bash
+python3 server.py            # the composer, as above; open a show
+../twin.sh                   # a native MuJoCo window of the whole robot, in step with the editor
+```
+
+Play, pause, scrub or edit (saved or not) and the window follows. The composer publishes only
+the playhead's time and play state (`/api/playhead` in, `/api/twin` out) and the resolved
+timeline when the show changes (`/api/twin/timeline`); the viewer (`../twin_view.py`) evaluates
+the timeline itself with the same sampling as `sim_preview.py`, so the window and an offline
+preview cannot disagree. It shows geometry, not timing — see `sim_preview.py` for the three
+assumptions. `--log` prints the followed state once a second.
+
 ### Saving is a minimal diff
 
 The editor edits the show's **text**, not a re-dump of it (`yamledit.py`): a retimed cue changes

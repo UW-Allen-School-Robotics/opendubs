@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 
 import yaml
 
@@ -46,6 +48,12 @@ class Composer:
         self.limits_path = limits_path
         self.limits = cue.load_limits(limits_path)
         self.fixture = os.path.realpath(limits_path) == os.path.realpath(FIXTURE_LIMITS)
+        # The twin feed (workplan 2.2): the latest resolved timeline and the editor's playhead,
+        # for local viewers that follow the editor. It carries TIME AND PLAY STATE ONLY; each
+        # viewer evaluates the timeline itself, so seeking is free and latency cannot pile up.
+        self._twin_lock = threading.Lock()
+        self._twin = {"rev": 0, "path": None, "timeline": None,
+                      "t": 0.0, "playing": False, "at": time.time()}
 
     # ---- paths: everything stays inside the shows directory ---------------------------------
     def _path(self, rel: str, exts=(".yaml", ".yml")) -> str:
@@ -92,12 +100,37 @@ class Composer:
             return out
         tl["show"]["source"] = rel
         out["timeline"] = tl
+        with self._twin_lock:
+            self._twin.update(rev=self._twin["rev"] + 1, path=rel, timeline=tl)
         out["authored"] = cue._jsonable(show.cues if isinstance(show.cues, list) else [])
         try:
             out["cue_lines"] = yamledit.cue_lines(text)
         except yamledit.EditError:
             out["cue_lines"] = None
         return out
+
+    # ---- the twin feed --------------------------------------------------------------------
+    def playhead(self, t, playing) -> dict:
+        try:
+            t = max(0.0, float(t))
+        except (TypeError, ValueError) as e:
+            raise ApiError("playhead t must be a number") from e
+        with self._twin_lock:
+            self._twin.update(t=t, playing=bool(playing), at=time.time())
+        return {"ok": True}
+
+    def twin(self) -> dict:
+        """Where the playhead is. `t` was true at server time `at`; while playing, a viewer
+        adds (now - at) and keeps extrapolating on its own clock until the next update."""
+        with self._twin_lock:
+            s = {k: v for k, v in self._twin.items() if k != "timeline"}
+        s["now"] = time.time()
+        return s
+
+    def twin_timeline(self) -> dict:
+        with self._twin_lock:
+            return {"rev": self._twin["rev"], "path": self._twin["path"],
+                    "timeline": self._twin["timeline"]}
 
     def load(self, rel: str) -> dict:
         p = self._path(rel)

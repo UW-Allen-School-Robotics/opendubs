@@ -114,7 +114,7 @@ async function loadShow(path) {
   const d = await api("api/show?path=" + encodeURIComponent(path));
   S.path = path; S.undo = []; S.selected = null; S.savedText = d.text;
   S.muted = new Set(store.get("muted." + path, []));
-  stop(); S.t = 0;
+  stop(); S.t = 0; postPlayhead(true);
   setData(d);
   store.set("lastShow", path);
   await loadAudio();
@@ -193,6 +193,16 @@ function audioNow() {
   const lat = (c.outputLatency || 0) + (c.baseLatency || 0);
   return Math.max(a.startedT, a.startedT + (c.currentTime - a.startedCtx) - lat);
 }
+/* The twin feed (workplan 2.2): tell the server where the playhead is, so a MuJoCo or face twin
+ * can follow. Time and play state only, fire-and-forget; a twin that is not running costs a
+ * local POST every few hundred ms and nothing else. */
+function postPlayhead(force) {
+  const now = performance.now();
+  if (!force && now - (postPlayhead._at || 0) < 250) return;
+  postPlayhead._at = now;
+  fetch("api/playhead", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ t: S.t, playing: S.playing }) }).catch(() => {});
+}
 function play() {
   const c = ctx();
   c.resume();
@@ -205,12 +215,14 @@ function play() {
   }
   a.nextClick = Math.ceil(beatOf(S.t) || 0);
   S.playing = true; $("play").textContent = "⏸";
+  postPlayhead(true);
   requestAnimationFrame(frame);
 }
 function stop() {
   const a = S.audio;
   if (a.src) { try { a.src.stop(); } catch (e) { /* already stopped */ } a.src = null; }
   S.playing = false; $("play").textContent = "▶";
+  postPlayhead(true);
 }
 function scheduleClicks() {
   /* a lookahead scheduler: clicks are placed on the audio clock, so they cannot drift from it */
@@ -239,12 +251,13 @@ function frame() {
   if (S.t > end) { stop(); }
   drawPlayhead(true);
   renderPreview();
+  postPlayhead(false);
   requestAnimationFrame(frame);
 }
 function seek(t) {
   const was = S.playing; stop();
   S.t = Math.max(0, t); drawPlayhead(false); renderPreview();
-  if (was) play();
+  if (was) play(); else postPlayhead(true);
 }
 
 /* ---------- rendering ---------- */

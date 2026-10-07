@@ -68,7 +68,7 @@ through by the team. Each now drives an item below.
 | DEC-11 | **`SOUND` is split from music.** Music is the show's `music:` track, routed to the chosen output. `SOUND` becomes named sound effects played on the chosen output — the Tab5's six earcons are one source, tablet clips another. | 1.5 |
 | DEC-12 | **The composer is not mounted on the robot dashboard.** The tablet gets a *player* surface instead. | 4.4 |
 | DEC-13 | **Capture-a-performance is in the plan, after single-pose teaching works.** | 7.2 |
-| DEC-14 | **The robot body twin starts with a native MuJoCo window**, driven by the composer's playhead. | 2.2 |
+| DEC-14 | **The robot body twin starts with a native MuJoCo window**, driven by the composer's playhead. | 2.2 | ~~Native MuJoCo window driven by the composer (E1, DEC-14)~~ **BUILT, 2026-10-07** — `software/choreo/twin.sh`. The composer publishes time and play state (`/api/twin`) and the resolved timeline (`/api/twin/timeline`); the viewer samples it with `sim_preview.py`'s code and extrapolates on its own clock. Verified by its log: play from 0, pause (held at 18.12 s), seek (30 s), and an unsaved edit (head pan at 12 s, 60°→30°) all followed. | **Open:** a 3-minute show judged in step by eye. |
 | DEC-15 | **The face simulator becomes a full digital twin**, a choreography player, and the customisation/theme tool. Its intent is written before it is built. | Phase 3 |
 
 ---
@@ -80,7 +80,7 @@ place; each points at the item that delivers it.
 
 | # | Request | Status | Item |
 |---|---|---|---|
-| E1 | Visualise robot movements in a **native MuJoCo window** while composing | open | 2.2 |
+| E1 | Visualise robot movements in a **native MuJoCo window** while composing | built 2026-10-07; judge by eye | 2.2 |
 | E2 | **Face simulator as a digital twin** — as faithful to the head as feasible | open | 3.1 |
 | E3 | Face simulator as a **choreography player** | open | 3.3 |
 | E4 | Face simulator as the **customisation / theme tool**, including intake of background images, themes and accessories | open | 3.4 |

@@ -176,6 +176,7 @@ for root, _, files in os.walk(os.path.join(HERE, "..", "composer")):
     for f in files:
         if f.endswith((".py", ".js", ".html")):
             src += open(os.path.join(root, f), encoding="utf-8").read()
+src += open(os.path.join(HERE, "..", "twin_view.py"), encoding="utf-8").read()
 # A tripwire, not a proof: the words that every robot-facing path in this repo uses.
 for needle in ("socket.socket", "SOCK_DGRAM", "4242", "5005", "MAST CMD", "LED_COLOR ",
                "rclpy", "create_publisher", "/api/relay", "/api/mast", "/api/arms", "sendto("):
