@@ -142,6 +142,20 @@ def check_true(name, cond, detail=""):
         fails.append(f"{name}: {detail}")
 
 
+# Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
+# warns until the controller's real profile is measured.
+_a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
+check_true("a move under the cap on average but not at its eased peak warns, and stays valid",
+           not _a["problems"] and len(_a["warnings"]) == 1 and "may peak" in _a["warnings"][0].msg
+           and "unsourced" in _a["warnings"][0].msg,
+           [w.msg for w in _a["warnings"]] + [q.msg for q in _a["problems"]])
+_a = doc_show([{"t": 8.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
+check_true("a move slow enough even at its eased peak does not warn", not _a["warnings"],
+           [w.msg for w in _a["warnings"]])
+_a = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 120}}]).analyse(LIMITS)
+check_true("a move over the cap on average is still a problem, not just a warning",
+           any("cap 30, unsourced" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
+
 # The head turns at the firmware's 25 deg/s; a cue that arrives before the last move can finish is
 # a WARNING (the show is still valid), not a problem.
 _h = doc_show([{"t": 0.0, "slot": "HEAD", "pan": 90}, {"t": 1.0, "slot": "HEAD", "pan": 150},

@@ -55,7 +55,7 @@ through by the team. Each now drives an item below.
 
 | # | Decision | Drives |
 |---|---|---|
-| DEC-1 | **Speed caps: measure, then decide.** Until measured, the validator checks **1.875 × average** segment speed (the worst case if the controller eases), and the caps are labelled *unsourced*. | 1.1, 6.1 |
+| DEC-1 | **Speed caps: measure, then decide.** Until measured, the **average** segment speed is the hard gate and **1.875 × average** (the worst case if the controller eases) is a **warning**; the caps are labelled *unsourced*. *Amended 2026-10-07: first agreed as a hard check, changed to a warning once it was seen to fail both demo shows, including moves already run on the robot.* | 1.1, 6.1 |
 | DEC-2 | **Dancing is accepted, simulator first.** The bounded open-loop `dance:` design (format §12) is adopted; moves are authored and previewed in MuJoCo now; robot execution waits for the runner and a floor-space test. `DRIVE` still does not enter `SLOTS` as free motion. | 1.4, 2.4, 6.6 |
 | DEC-3 | **Teaching is decoupled from freedrive, with automatic timing.** Capture reads measured joints however the arm got there — teleop today. An *earliest legal time* helper places a taught pose at the soonest time the arm can reach it. | 1.3, 6.3, 7.1 |
 | DEC-4 | **Grippers are normalised 0–1** (0 closed, 1 open, both sides), with each robot's per-side calibration kept **on the robot**, not in the repo. | 1.2, 6.2 |
@@ -117,7 +117,7 @@ place; each points at the item that delivers it.
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 1.1 | **Interim speed check (DEC-1):** check 1.875 × average segment speed; label every cap *unsourced* until 6.1 replaces it. | `hello.yaml`'s fate is reported, not hidden: if it fails the stricter check, that is a finding about the show. |
+| 1.1 | ~~Interim speed check (DEC-1)~~ **DONE, 2026-10-07.** The eased peak (`PEAK_FACTOR` = 1.875 × average) is checked as a warning; the average stays the gate; every cap message says *unsourced*. As a hard gate it failed `hello.yaml` (14) and `beat-demo` (12) — reported, then downgraded by decision. Both shows are valid with those 26 warnings, which name the time each move would need. | — |
 | 1.2 | **Normalised grippers (DEC-4):** `GRIP_*` takes 0–1 (plus `open`/`close` as 1/0); the per-side mapping to controller units lives in a per-robot file on the robot, read at run time. | The same show means the same grip on both sides, and no calibration value is committed. |
 | 1.3 | **Earliest-legal-time helper (DEC-3):** given a pose and the previous keyframe, the soonest time it can be reached under the caps; used by teach and offered by the editor. | A pose taught at the playhead that cannot be reached is moved to a reachable time with the reason shown, never silently. |
 | 1.4 | **`dance:` moves (DEC-2):** named, time-limited, speed-capped, declared floor space, net displacement ≈ 0, as specified in format §12. Validated; executable only in the twin until 6.6. | A dance with a non-zero net displacement or undeclared floor space is refused. |

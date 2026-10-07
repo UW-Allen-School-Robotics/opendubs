@@ -62,11 +62,18 @@ SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", 
 ARM_SLOTS = ("ARM_L", "ARM_R")
 
 MARGIN_DEG = 5.0
-# PROVENANCE NOT RECORDED. These came over from showcase_demo.py with the rest of the checks and
-# carry no note of how they were chosen. They are checked against the AVERAGE speed over a
-# segment; see choreo-format-v1.md 5 for why that matters if the controller does not interpolate
-# linearly.
+# UNSOURCED. These came over from showcase_demo.py with the rest of the checks and carry no note
+# of how they were chosen; measuring or sourcing them is workplan item 6.1. Every message that
+# cites one says "unsourced" until then.
 SPEED_CAP_DEG_S = {1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70}
+# INTERIM, agreed 2026-10-07 (workplan DEC-1, item 1.1). The AVERAGE speed over a segment is the
+# hard gate. Its average times this factor — the peak of a minimum-jerk (quintic) move, the worst
+# profile the arm controller plausibly uses — is checked as a WARNING: the real profile is
+# unmeasured (experiment T4, workplan 6.1), and failing shows that have run on the robot on an
+# unmeasured factor would be the validator claiming more than it knows. When the profile is
+# measured, this becomes its peak-to-average ratio (1.0 for constant speed, 1.5 for a cubic) and
+# the peak becomes the gate.
+PEAK_FACTOR = 1.875
 
 # Measured on opendubs2, per side. Both open on a POSITIVE command, but their zeros sit at
 # opposite physical ends, so one range cannot serve both.
@@ -529,8 +536,11 @@ class Show:
 
             if slot in ARM_SLOTS:
                 start = arm_free_at.get(slot, 0.0)
-                for q in self._check_arm(where, c, slot, limits, arm_state, start, t):
+                arm_warn: list[str] = []
+                for q in self._check_arm(where, c, slot, limits, arm_state, start, t, arm_warn):
                     p(q)
+                for q in arm_warn:
+                    warnings.append(Problem(q, *ref))
                 e["kind"] = "keyframe"
                 e["start"], e["end"] = min(start, t), t + hold
                 st = arm_state.get(slot, {})
@@ -595,7 +605,7 @@ class Show:
         """Every problem found, as human sentences. Empty list means the show may run."""
         return [q.msg for q in self.check(limits)]
 
-    def _check_arm(self, where, c, slot, limits, arm_state, seg_start, t):
+    def _check_arm(self, where, c, slot, limits, arm_state, seg_start, t, warn=None):
         p = []
         side = "left" if slot == "ARM_L" else "right"
         m = -1 if side == "left" else 1
@@ -637,11 +647,17 @@ class Show:
                     p.append(f"{where}: {slot} J{j} {signed:+.1f} deg outside usable "
                              f"[{lo_d:+.1f}, {hi_d:+.1f}]")
             prev = state.get(j, 0.0)
-            speed = abs(signed - prev) / dt
+            avg = abs(signed - prev) / dt
+            peak = avg * PEAK_FACTOR
             cap = SPEED_CAP_DEG_S[j]
-            if speed > cap + 1e-9:
-                p.append(f"{where}: {slot} J{j} moves {speed:.0f} deg/s over {dt:.1f}s "
-                         f"(cap {cap})")
+            if avg > cap + 1e-9:
+                p.append(f"{where}: {slot} J{j} moves {avg:.0f} deg/s over {dt:.1f}s "
+                         f"(cap {cap}, unsourced)")
+            elif peak > cap + 1e-9 and warn is not None:
+                need = abs(signed - prev) * PEAK_FACTOR / cap
+                warn.append(f"{where}: {slot} J{j} may peak at {peak:.0f} deg/s if the arm eases "
+                            f"(average {avg:.0f} x {PEAK_FACTOR}; cap {cap}, unsourced) — "
+                            f"{need:.1f}s would be safe either way")
             state[j] = signed
 
         # clearance: the shoulder is only allowed near the head with the elbow folded, and

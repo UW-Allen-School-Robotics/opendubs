@@ -48,8 +48,10 @@ caught when repeated too fast.
 
 - Every waypoint inside the arm's **own** limits (read from the arm software's
   `joint_limits.yaml`, never copied into this repo) with a 5° margin.
-- A per-joint speed cap — "over three seconds" hides a 45°/s elbow. Checked as the **average**
-  over each segment; see the spec, §5, for why that matters.
+- A per-joint speed cap — "over three seconds" hides a 45°/s elbow. The **average** over each
+  segment must be under the cap; the **eased peak** (average × 1.875) over the cap is a
+  **warning** until the arm controller's real speed profile is measured. The caps themselves are
+  unsourced, and every message says so. See the spec, §5.
 - Gripper travel **per side**: the two were zeroed in opposite physical states, so one range
   cannot serve both.
 - **Shoulder/head clearance**, measured on the robot: the arm reaches the head at J2 182° with

@@ -223,10 +223,11 @@ Leaving velocities empty is what asks `joint_trajectory_controller`'s spline int
 honours that convention is **not known**. If it interpolates with zero end-velocities (a cubic),
 the peak joint speed in each segment is **1.5×** the average the validator checked; a minimum-jerk
 quintic peaks at **1.875×**. The speed caps would then be exceeded mid-segment by up to that
-factor while every check passes. Two answers are possible and the choice is the maintainers' (report,
-decision list): measure the controller's actual profile on the robot, or have the validator check
-`1.875 × average` against the cap until it is measured. v1 ships checking the average, unchanged,
-so `hello.yaml` keeps passing.
+factor while every check passes. **Decided 2026-10-07 (workplan DEC-1, item 1.1):** the average is
+the hard gate, and `1.875 × average` (`PEAK_FACTOR`) is checked as a **warning** until the
+controller's real profile is measured (item 6.1) — at which point the measured peak becomes the
+gate. Failing shows that have run on the robot on an unmeasured factor would claim more than the
+validator knows; ignoring the factor would claim less. `hello.yaml` passes with 14 such warnings.
 
 ### Interpolation modes: one, deliberately
 
