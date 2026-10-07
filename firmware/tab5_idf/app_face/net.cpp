@@ -33,6 +33,7 @@
 #include <mdns.h>
 #include "shared/clock.h"
 #include "ui_hmi.h"
+#include "net_cmd.h"
 #include "pantilt.h"
 #include "tof.h"
 
@@ -84,10 +85,9 @@ volatile uint32_t g_plcTelem  = 0;       // JSON telemetry lines accepted
 const char*       g_liftWhy    = nullptr; // why the lift would refuse; nullptr == it would not
 uint32_t          g_liftGateStamp = 0;
 
-// The robot state the face displays. Written by the `STATE <NAME>` command AND by the
-// StamPLC telemetry listener below -- same destination, so the display path is unchanged.
-char     g_stateName[24] = "";
-uint32_t g_stateStamp    = 0;   // 0 means "never heard from the robot at all"
+// The robot state now lives in net_cmd.cpp, shared with the twin, and is written through
+// netSetState(). The telemetry listener below is one of its two writers; `STATE <NAME>` is the
+// other, and both targets parse that line with the same code.
 
 // OTA IN PROGRESS. The face quiesces while this is set -- see netOtaActive(). The OTA runs on this
 // task at priority 2 while the LVGL task runs at priority 4 and the face is already measured at
@@ -211,10 +211,10 @@ void plcTelemetryTask(void*)
         g_liftGateStamp = perceptNowMs();
         const char* st = plcStateFromJson(rx);
         if (!st) continue;
-        if (strcmp(g_stateName, st) != 0)
+        const char* cur = nullptr;
+        if (!linkState(&cur, nullptr) || strcmp(cur, st) != 0)
             mclog::tagInfo(kTag, "state <- {} (stamplc telemetry)", st);
-        snprintf(g_stateName, sizeof(g_stateName), "%.23s", st);
-        g_stateStamp = perceptNowMs();
+        netSetState(st);
     }
 }
 
@@ -576,6 +576,123 @@ void markValidTask(void*)
     vTaskDelete(nullptr);
 }
 
+// ---- the platform half of the shared parser (net_cmd.h) ----
+//
+// OTA AND REBOOT ARE DEFERRED, and that is a fix rather than a consequence of the refactor. The old
+// code sent "OK ota" and then called doOta() on this same task, which blocks for the whole ~60 s
+// transfer -- so the command socket stopped answering mid-update, and "has it finished?" became
+// unanswerable at exactly the moment someone wants to know. It cost a round of false diagnosis
+// yesterday. Running the transfer on its own task keeps PING alive throughout. REBOOT had a
+// smaller version of the same bug: esp_restart() ran so soon after sendto() that the ack could be
+// dropped on the way out.
+char     g_otaUrl[256] = "";
+uint32_t g_rebootAt    = 0;
+
+void otaTask(void*)
+{
+    doOta(g_otaUrl);
+    vTaskDelete(nullptr);
+}
+
+void rebootTask(void*)
+{
+    vTaskDelay(pdMS_TO_TICKS(250));     // long enough for the ack to leave
+    esp_restart();
+}
+
+}  // namespace
+
+int netPlatPing(char* out, size_t cap)
+{
+    const esp_app_desc_t*  d   = esp_app_get_description();
+    const esp_partition_t* run = esp_ota_get_running_partition();
+
+    // IDENTIFY THE IMAGE BY ITS ELF HASH, not by a build timestamp: esp_app_desc.c is not
+    // recompiled on every build, so its __DATE__/__TIME__ go stale and a flash that DID land looks
+    // like one that did not.
+    char sha[17] = "?";
+    if (d) for (int i = 0; i < 8; ++i) snprintf(sha + i * 2, 3, "%02x", d->app_elf_sha256[i]);
+
+    // PENDING_VERIFY vs VALID is the whole question when a rollback does not fire; "which slot" was
+    // not enough and guessing at it cost a test cycle.
+    esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+    const char* sn = "?";
+    if (run && esp_ota_get_state_partition(run, &st) == ESP_OK) {
+        switch (st) {
+            case ESP_OTA_IMG_NEW:            sn = "NEW";            break;
+            case ESP_OTA_IMG_PENDING_VERIFY: sn = "PENDING_VERIFY"; break;
+            case ESP_OTA_IMG_VALID:          sn = "VALID";          break;
+            case ESP_OTA_IMG_INVALID:        sn = "INVALID";        break;
+            case ESP_OTA_IMG_ABORTED:        sn = "ABORTED";        break;
+            default:                         sn = "UNDEFINED";      break;
+        }
+    }
+
+    // Where a lift or e-stop request would go, and how we know it. "none" means those controls have
+    // nowhere to send to -- the one thing a PING should never leave implicit.
+    char plc[40];
+    const uint32_t pip = g_plcIp;
+    if (pip == 0) snprintf(plc, sizeof(plc), "none");
+    else snprintf(plc, sizeof(plc), "%u.%u.%u.%u/%s",
+                  (unsigned)(pip & 0xff), (unsigned)((pip >> 8) & 0xff),
+                  (unsigned)((pip >> 16) & 0xff), (unsigned)((pip >> 24) & 0xff),
+                  g_plcByName ? "name" : "heard");
+
+    return snprintf(out, cap, "slot=%s state=%s sha=%s | plc=%s | tp polls=%lu presses=%lu "
+                              "errs=%lu last=%lu,%lu",
+                    run ? run->label : "?", sn, sha, plc,
+                    (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
+                    (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
+                    (unsigned long)od_tp_lasty);
+}
+
+bool netPlatOta(const char* url)
+{
+    if (g_otaActive) return false;          // one at a time; the reply says so honestly
+    snprintf(g_otaUrl, sizeof(g_otaUrl), "%.255s", url);
+    return xTaskCreatePinnedToCore(otaTask, "ota", 8192, nullptr, 2, nullptr, 1) == pdPASS;
+}
+
+bool netPlatReboot()
+{
+    if (g_rebootAt != 0) return true;       // already scheduled
+    g_rebootAt = 1;
+    return xTaskCreatePinnedToCore(rebootTask, "reboot", 3072, nullptr, 2, nullptr, 1) == pdPASS;
+}
+
+const char* netPlatI2cScan() { return pantiltI2cScan(); }
+
+const char* netPlatTof()
+{
+    static char tb[256];
+    float mm = 0.0f;
+    const bool got = tofReadMm(&mm);
+    snprintf(tb, sizeof(tb), "%s | sample=%s%.0f | %s",
+             tofStatus(), got ? "" : "none ", got ? mm : 0.0f, tofRegs());
+    return tb;
+}
+
+bool netPlatRcFrame(const char* rx, int n)
+{
+    // CAN_ID_PAN_TILT_RATE from the StamPLC, which addresses the head DIRECTLY rather than via the
+    // Thor -- so the sticks keep aiming the head even if the dashboard stops. Layout is
+    // rc_serial_probe/src/main.cpp verbatim: packed { u32 id; u8 dlc; u8 d[8] }, int16 LE pan deg/s
+    // at d[0], tilt at d[2], full stick = 60 deg/s, sent at 20 Hz.
+    //
+    // A RATE, NOT AN ANGLE, and that is load-bearing: the stick is spring-centred and the HEAD owns
+    // the position, so two devices can never integrate separately and diverge.
+    if (n != 13) return false;
+    const uint32_t id = (uint32_t)(rx[0] | (rx[1] << 8) | (rx[2] << 16) | ((uint32_t)rx[3] << 24));
+    if (id != 0x107u || (uint8_t)rx[4] != 4) return false;
+    int16_t pan = 0, tilt = 0;
+    memcpy(&pan,  rx + 5, 2);
+    memcpy(&tilt, rx + 7, 2);
+    pantiltRcRate((float)pan, (float)tilt);
+    return true;
+}
+
+namespace {
+
 void cmdTask(void*)
 {
     const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -633,7 +750,8 @@ void cmdTask(void*)
             if (g_estopReq) {
                 const char* tx = "ESTOP\n";
                 sendto(sock, tx, 6, 0, (sockaddr*)&plc, sizeof(plc));
-                if (g_stateStamp != 0 && strcmp(g_stateName, "E_STOP") == 0) g_estopReq = false;
+                const char* sn = nullptr;
+                if (linkState(&sn, nullptr) && strcmp(sn, "E_STOP") == 0) g_estopReq = false;
             }
         }
 
@@ -641,111 +759,12 @@ void cmdTask(void*)
         rx[n] = 0;
         while (n > 0 && (rx[n - 1] == '\n' || rx[n - 1] == '\r')) rx[--n] = 0;
 
-        // PING is the self-test: it proves association, bind and round trip in one packet, from a
-        // laptop, with nobody watching the panel. Reply with what identifies this image, so a
-        // successful OTA is confirmable by the version changing rather than by someone's memory.
-        if (strcmp(rx, "PING") == 0) {
-            const esp_app_desc_t* d = esp_app_get_description();
-            const esp_partition_t* run = esp_ota_get_running_partition();
-            char tx[320];   // widened for the raw touch counters, the sha and the PLC
-
-            // IDENTIFY THE IMAGE BY ITS ELF HASH, not by a build timestamp. esp_app_desc.c is not
-            // recompiled on every build, so its __DATE__/__TIME__ go stale and a flash that DID
-            // land looks like one that did not -- which cost a round of guessing today. The hash
-            // changes whenever the binary does.
-            char sha[17] = "?";
-            if (d) for (int i = 0; i < 8; ++i) snprintf(sha + i * 2, 3, "%02x", d->app_elf_sha256[i]);
-
-            // Where the lift and e-stop requests would go, and how we know it. "none" means those
-            // controls have nowhere to send to -- the one thing a PING should never leave implicit.
-            char plc[40];
-            const uint32_t pip = g_plcIp;
-            if (pip == 0) snprintf(plc, sizeof(plc), "none");
-            else snprintf(plc, sizeof(plc), "%u.%u.%u.%u/%s",
-                          (unsigned)(pip & 0xff), (unsigned)((pip >> 8) & 0xff),
-                          (unsigned)((pip >> 16) & 0xff), (unsigned)((pip >> 24) & 0xff),
-                          g_plcByName ? "name" : "heard");
-            // Report the OTA STATE too. "which slot" was not enough to diagnose why a rollback
-            // did not fire -- PENDING_VERIFY vs VALID is the whole question, and guessing at it
-            // cost a test cycle.
-            esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
-            const char* sn = "?";
-            if (run && esp_ota_get_state_partition(run, &st) == ESP_OK) {
-                switch (st) {
-                    case ESP_OTA_IMG_NEW:            sn = "NEW";            break;
-                    case ESP_OTA_IMG_PENDING_VERIFY: sn = "PENDING_VERIFY"; break;
-                    case ESP_OTA_IMG_VALID:          sn = "VALID";          break;
-                    case ESP_OTA_IMG_INVALID:        sn = "INVALID";        break;
-                    case ESP_OTA_IMG_ABORTED:        sn = "ABORTED";        break;
-                    default:                         sn = "UNDEFINED";      break;
-                }
-            }
-            const int m = snprintf(tx, sizeof(tx),
-                                   "PONG slot=%s state=%s sha=%s | plc=%s st=%s/%lu | %s | tp polls=%lu "
-                                   "presses=%lu errs=%lu last=%lu,%lu | %s",
-                                   run ? run->label : "?", sn, sha, plc,
-                                   g_stateName[0] ? g_stateName : "-",
-                                   (unsigned long)g_plcTelem, hmiDiag(),
-                                   (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
-                                   (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
-                                   (unsigned long)od_tp_lasty, pantiltStatus());
-            sendto(sock, tx, m, 0, (sockaddr*)&from, fromLen);
-        } else if (n == 13 && (uint32_t)(rx[0] | (rx[1] << 8) | (rx[2] << 16) | ((uint32_t)rx[3] << 24)) == 0x107u
-                   && (uint8_t)rx[4] == 4) {
-            // CAN_ID_PAN_TILT_RATE from the StamPLC, which addresses the head DIRECTLY rather than
-            // via the Thor -- so the sticks keep aiming the head even if the dashboard stops.
-            // Layout is rc_serial_probe/src/main.cpp verbatim: packed { u32 id; u8 dlc; u8 d[8] },
-            // int16 LE pan deg/s at d[0], tilt at d[2], full stick = 60 deg/s, sent at 20 Hz.
-            //
-            // A RATE, NOT AN ANGLE, and that is load-bearing: the stick is spring-centred and the
-            // HEAD owns the position, so two devices can never integrate separately and diverge.
-            int16_t p = 0, q = 0;
-            memcpy(&p, rx + 5, 2);
-            memcpy(&q, rx + 7, 2);
-            pantiltRcRate((float)p, (float)q);
-            // Learn where that came from -- this is the only inbound frame that tells us.
-            g_plcIp    = from.sin_addr.s_addr;
-            g_plcStamp = (uint32_t)(esp_timer_get_time() / 1000);
-            g_plcByName = false;
-            // No reply: this arrives 20 times a second while someone is aiming.
-        } else if (strcmp(rx, "TOF") == 0) {
-            // The driver's own verdict plus a live sample. pantiltTofId() did the identification
-            // that told us which part to write a driver for; now that one exists and HOLDS the
-            // device handle, a second add_device for 0x29 would just fail -- so report the driver.
-            char tb[128];
-            float mm = 0.0f;
-            const bool got = tofReadMm(&mm);
-            char tb2[320];
-            const int m = snprintf(tb2, sizeof(tb2), "%s | sample=%s%.0f | %s",
-                                   tofStatus(), got ? "" : "none ", got ? mm : 0.0f, tofRegs());
-            (void)tb;
-            sendto(sock, tb2, m, 0, (sockaddr*)&from, fromLen);
-        } else if (strcmp(rx, "I2CSCAN") == 0) {
-            // On demand, not at boot: a scan probes 112 addresses on two buses and that is not
-            // something to do on every start.
-            const char* s = pantiltI2cScan();
-            sendto(sock, s, strlen(s), 0, (sockaddr*)&from, fromLen);
-        } else if (strcmp(rx, "REBOOT") == 0) {
-            const char* tx = "OK reboot";
-            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
-            vTaskDelay(pdMS_TO_TICKS(150));
-            esp_restart();
-        } else if (strncmp(rx, "STATE ", 6) == 0) {
-            // Bounded explicitly: the packet is 256 bytes and this field is 24. Truncation is
-            // safe but the compiler is right to object -- a state name that long is malformed,
-            // and a truncated one will simply fail to match the table and read as no link.
-            snprintf(g_stateName, sizeof(g_stateName), "%.23s", rx + 6);
-            g_stateStamp = perceptNowMs();
-            const char* tx = "OK state";
-            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
-        } else if (strncmp(rx, "OTA ", 4) == 0) {
-            const char* tx = "OK ota";
-            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
-            doOta(rx + 4);
-        } else {
-            const char* tx = "ERR unknown";
-            sendto(sock, tx, strlen(tx), 0, (sockaddr*)&from, fromLen);
-        }
+        // ONE PARSER, SHARED WITH THE TWIN. See net_cmd.cpp: a second copy would diverge, and a
+        // twin that answers slightly differently from the head is worse than no twin. This task now
+        // owns only the TRANSPORT -- receive, hand the line over, send whatever comes back.
+        char txb[384];
+        const int m = netHandleLine(rx, n, txb, sizeof(txb));
+        if (m > 0) sendto(sock, txb, m, 0, (sockaddr*)&from, fromLen);
     }
 }
 
@@ -754,14 +773,6 @@ void cmdTask(void*)
 const char* netStatus() { return g_status; }
 
 
-bool linkState(const char** nameOut, unsigned* ageMsOut)
-{
-    if (g_stateStamp == 0) return false;          // never heard from the robot
-    const uint32_t now = perceptNowMs();
-    if (nameOut)  *nameOut  = g_stateName;
-    if (ageMsOut) *ageMsOut = (unsigned)(now - g_stateStamp);
-    return true;
-}
 bool        netReady()  { return g_ready; }
 bool        netOtaActive() { return g_otaActive; }
 
@@ -810,18 +821,93 @@ void netStart()
 
 #else   // !ESP_PLATFORM -- desktop SDL build
 
-// NO NETWORK ON THE DESKTOP. netStatus() reports what is true rather than something plausible,
-// and linkState() returns false, which is the same "no StamPLC has ever spoken to us" condition
-// the face already handles on a bench Tab5 -- so the desktop shows the real no-link face.
-void netStart() {}
-const char* netStatus() { return "wifi: desktop build (no network)"; }
-bool netReady() { return false; }
+// THE TWIN LISTENS. Wi-Fi, OTA, mDNS and the StamPLC link stay stubbed -- the only thing the
+// desktop build grows here is a COMMAND TRANSPORT, so the same lines that drive the head drive the
+// twin, through the same parser (net_cmd.cpp).
+//
+// BOUND TO LOOPBACK ONLY, and that is not a default to be relaxed casually: this listener accepts
+// unauthenticated commands that move a face, select a theme and play sounds, and the head's own
+// protection today is that you must be on the robot's network to reach it. A twin on a laptop has
+// no such boundary, so it refuses to have one opened for it. 127.0.0.1 is the whole access control.
+#include <atomic>
+#include <cstring>
+#include <thread>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "net_cmd.h"
+
+namespace {
+std::atomic<bool> g_twinUp{false};
+char g_twinStatus[64] = "twin: command listener not started";
+
+void twinCmdThread()
+{
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) { snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: socket() failed"); return; }
+
+    sockaddr_in me{};
+    me.sin_family      = AF_INET;
+    me.sin_addr.s_addr = htonl(INADDR_LOOPBACK);     // NOT INADDR_ANY -- see above
+    me.sin_port        = htons(4242);
+    if (bind(sock, (sockaddr*)&me, sizeof(me)) < 0) {
+        // Most likely another twin already has it. Say so instead of dying silently, because a
+        // twin that is not listening looks exactly like a bridge that is not sending.
+        snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: bind 127.0.0.1:4242 failed (in use?)");
+        close(sock);
+        return;
+    }
+    g_twinUp = true;
+    snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: listening on 127.0.0.1:4242");
+
+    char rx[512], tx[384];
+    for (;;) {
+        sockaddr_in from{};
+        socklen_t   fl = sizeof(from);
+        const int   n  = (int)recvfrom(sock, rx, sizeof(rx) - 1, 0, (sockaddr*)&from, &fl);
+        if (n <= 0) continue;
+        int len = n;
+        rx[len] = 0;
+        while (len > 0 && (rx[len - 1] == '\n' || rx[len - 1] == '\r')) rx[--len] = 0;
+        const int m = netHandleLine(rx, len, tx, sizeof(tx));
+        if (m > 0) sendto(sock, tx, m, 0, (sockaddr*)&from, fl);
+    }
+}
+}  // namespace
+
+void netStart()
+{
+    // Detached: the twin has no orderly shutdown and the process exit takes it with it.
+    std::thread(twinCmdThread).detach();
+}
+
+const char* netStatus() { return g_twinStatus; }
+bool netReady() { return g_twinUp; }
 bool netOtaActive() { return false; }
 void netLiftRequest(float)        {}
 void netEstopRequest()            {}
 bool netCommandLink(unsigned*)    { return false; }
 bool netEstopPending()            { return false; }
 bool netLiftAllowed(const char** w) { if (w) *w = "no robot on the desktop build"; return false; }
-bool linkState(const char**, unsigned*) { return false; }
+
+// linkState() is NOT stubbed any more -- it lives in net_cmd.cpp and reads the state that
+// `STATE <NAME>` writes. That is what makes the twin's face follow a state line exactly as the
+// head's does, which is the entire point of having a twin. Until a STATE arrives it still reports
+// false, so the twin starts on the real no-link face.
+
+// ---- platform hooks: what a twin cannot honestly answer ----
+int netPlatPing(char* out, size_t cap)
+{
+    return snprintf(out, cap, "slot=twin state=n/a sha=desktop | plc=none");
+}
+// NEVER a silent success. A twin that accepted OTA or REBOOT and did nothing would be the worst
+// possible answer, because the caller would believe the head had taken it.
+bool        netPlatOta(const char*)        { return false; }
+bool        netPlatReboot()                { return false; }
+const char* netPlatI2cScan()               { return "i2c scan: no bus on the twin"; }
+const char* netPlatTof()                   { return "tof: no sensor on the twin"; }
+bool        netPlatRcFrame(const char*, int) { return false; }
 
 #endif  // ESP_PLATFORM

@@ -2,6 +2,7 @@
 #include "cost_gate.h"
 #include "cues.h"
 #include "net.h"
+#include "net_cmd.h"
 #include "walkin.h"
 #include "ui_settings.h"
 #include "ui_hmi.h"
@@ -575,6 +576,48 @@ const char* name(Id id) { return id == HALLOWEEN ? "halloween" : "plain"; }
 
 } // namespace theme
 
+}  // namespace -- the lookups below must have EXTERNAL linkage
+
+// ---- name lookups for the shared command parser (net_cmd.h) ----
+// The anonymous namespace is closed around these deliberately: everything else in this file is
+// internal, and leaving them inside it made them invisible to net_cmd.cpp at link time. They can
+// still see kEmotes and theme::name, which are anonymous-namespace members of this same
+// translation unit.
+// Here rather than in the parser because the TABLES are here. A second copy of these names in
+// net_cmd.cpp would be one more thing to keep in step, and the twin exists to be in step.
+// Case-insensitive, so `EMOTE alert` and `EMOTE ALERT` both work -- an operator typing a line by
+// hand should not have to guess.
+int faceEmoteByName(const char* n)
+{
+    for (int i = 0; i < kNEmotes; ++i)
+        if (strcasecmp(kEmotes[i].name, n) == 0) return i;
+    return -1;
+}
+
+int faceThemeByName(const char* n)
+{
+    for (int i = 0; i < theme::COUNT; ++i)
+        if (strcasecmp(theme::name((theme::Id)i), n) == 0) return i;
+    // `NONE` is the enum's name for what theme::name() calls "plain"; accept both so the command
+    // matches the code as well as the panel.
+    if (strcasecmp(n, "NONE") == 0) return theme::NONE;
+    return -1;
+}
+
+int faceCueByName(const char* n)
+{
+    // Ordered exactly as `enum class Cue` in cues.h. Kept as a table rather than a chain of ifs so
+    // adding a cue there and forgetting here is a compile-time length mismatch, not silence.
+    static const char* kNames[(int)Cue::Count] = {
+        "heard", "attend", "refuse", "fault", "mode", "boot",
+    };
+    for (int i = 0; i < (int)Cue::Count; ++i)
+        if (strcasecmp(kNames[i], n) == 0) return i;
+    return -1;
+}
+
+namespace {   // reopened; the rest of this file is internal again
+
 namespace band {
 
 // FOUR STRIPS, NOT FORTY-EIGHT SEGMENTS.
@@ -1007,6 +1050,15 @@ void reticleColourFor(uint8_t kind)
 
 void applyEmote(int idx);
 void applyNoLink();
+
+// EMOTE <name> pins an expression. -1 is AUTO: perception reactions and the random cycler resume.
+//
+// PRECEDENCE, agreed with Emma 2026-10-07: a state's `locked` emote > an EMOTE pin > the perception
+// reaction > the random cycler. The reasoning for putting the pin above perception is that a pin is
+// a SHOW CUE, and a show whose expression changes because someone walked past the robot is not a
+// show. The cost is that a pinned face stops reacting to people until EMOTE AUTO, which is a real
+// behaviour change and was accepted deliberately rather than fallen into.
+int g_emotePin = -1;
 
 void applyState(int idx)
 {
@@ -1457,6 +1509,46 @@ void AppFace::onRunning()
         pantiltTick(now, known && !stopped, false, 0.0f, 0.0f, 0.0f);
     }
 
+    // ---- apply whatever the command parser recorded ----
+    // BEFORE the early returns below, so EMOTE/THEME/CUE take effect even while a panel owns the
+    // screen. The parser only ever records an intent (net_cmd.h): the network task must not call
+    // LVGL, which is AUDIT invariant 1 and the class of bug that froze this face before.
+    {
+        NetUiReq req;
+        if (netTakeUiReq(&req)) {
+            if (req.emote != -2 || req.theme >= 0) {
+                GetHAL()->lvglLock();
+                if (req.emote != -2) {
+                    g_emotePin = req.emote;                   // -1 == AUTO
+                    if (g_emotePin >= 0) {
+                        // A locked state outranks a pin, so do not fight it -- the pin is still
+                        // recorded and asserts itself once the state frees the face again.
+                        if (kStates[g_state].locked < 0) applyEmote(g_emotePin);
+                    } else {
+                        g_nextEmote = now;                    // AUTO: cycle again at once
+                    }
+                }
+                if (req.theme >= 0) {
+                    theme::apply(lv_screen_active(), (theme::Id)req.theme);
+                    applyState(g_state);
+                }
+                GetHAL()->lvglUnlock();
+            }
+            // Audio, not LVGL -- deliberately outside the lock.
+            if (req.cue >= 0) cuePlay((Cue)req.cue);
+        }
+    }
+
+    // KEEP A PIN ASSERTED. Re-applied only when what is shown differs from what is pinned, never
+    // every frame: applyEmote() retargets the springs, so calling it repeatedly would stop them
+    // ever settling. This is what restores the pin after a locked state (DEGRADED, E_STOP) has had
+    // its turn and the robot recovers.
+    if (g_emotePin >= 0 && kStates[g_state].locked < 0 && g_shownEmote != g_emotePin) {
+        GetHAL()->lvglLock();
+        applyEmote(g_emotePin);
+        GetHAL()->lvglUnlock();
+    }
+
     // QUIESCE WHILE AN OTA IS DOWNLOADING.
     //
     // The OTA runs on the network task at priority 2. The LVGL task is priority 4 and this face is
@@ -1697,7 +1789,9 @@ void AppFace::onRunning()
             //
             // Only where the face is free. DEGRADED and E_STOP pin an emote because they are
             // communicating something, and noticing a person must not talk over that.
-            if (kStates[g_state].locked < 0) {
+            // A PIN OUTRANKS THIS. An EMOTE pin is a show cue and must not be stomped by someone
+            // walking past; see g_emotePin for the full precedence and what it costs.
+            if (g_emotePin < 0 && kStates[g_state].locked < 0) {
                 GetHAL()->lvglLock();
                 applyEmote(EM_SOFT);
                 GetHAL()->lvglUnlock();
@@ -1729,7 +1823,7 @@ void AppFace::onRunning()
             // They left. Return to the idle behaviour rather than holding the reaction -- and do
             // NOT play a cue for it: a sound on every departure would make the robot chatter at an
             // empty room, which is the failure the band already demonstrated.
-            if (kStates[g_state].locked < 0) g_nextEmote = now;
+            if (g_emotePin < 0 && kStates[g_state].locked < 0) g_nextEmote = now;
             GetHAL()->lvglLock();
             lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
             GetHAL()->lvglUnlock();
@@ -1799,7 +1893,7 @@ void AppFace::onRunning()
     //
     // Only where the face is free: a reporting state's pinned emote still stands, because
     // DEGRADED and E_STOP are communicating something and must not drift off it.
-    if (kStates[g_state].locked < 0 && due(now, g_nextEmote)) {
+    if (g_emotePin < 0 && kStates[g_state].locked < 0 && due(now, g_nextEmote)) {
         // Never repeat the current one -- a "change" that changes nothing looks like a freeze.
         int pick = g_emote;
         if (kNEmotes > 1) {
