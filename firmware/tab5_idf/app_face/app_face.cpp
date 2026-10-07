@@ -3,6 +3,7 @@
 #include "cues.h"
 #include "net.h"
 #include "net_cmd.h"
+#include "sim_inputs.h"
 #include "walkin.h"
 #include "ui_settings.h"
 #include "ui_hmi.h"
@@ -602,6 +603,13 @@ int faceThemeByName(const char* n)
     // matches the code as well as the panel.
     if (strcasecmp(n, "NONE") == 0) return theme::NONE;
     return -1;
+}
+
+int faceStateCount() { return kNStates; }
+
+const char* faceStateName(int idx)
+{
+    return (idx >= 0 && idx < kNStates) ? kStates[idx].name : "?";
 }
 
 int faceCueByName(const char* n)
@@ -1407,6 +1415,10 @@ void AppFace::onOpen()
     applyNoLink();
     applyEmote(0);
 
+    // The twin's simulated inputs and its SIMULATED badge. Inside the lock that onOpen already
+    // holds, because this creates LVGL objects. A no-op on the device.
+    simBegin(lv_screen_active());
+
     // THE EYES START SHUT, and the boot reads as the robot waking up instead of a face appearing.
     // teleport() rather than assignment: this must be instant, not animated, because it has to be
     // true before the single geometry pass below. onRunning opens them once, on its first frame.
@@ -1508,6 +1520,8 @@ void AppFace::onRunning()
         const bool stopped = stateFault(g_state);
         pantiltTick(now, known && !stopped, false, 0.0f, 0.0f, 0.0f);
     }
+
+    simTick(now);
 
     // ---- apply whatever the command parser recorded ----
     // BEFORE the early returns below, so EMOTE/THEME/CUE take effect even while a panel owns the
@@ -1732,7 +1746,9 @@ void AppFace::onRunning()
     // onRunning acquires it in short bursts per block -- and the result was four unlocked LVGL
     // calls, which froze the face.
     GazeIntent gi = {};
-    const bool haveGaze = perceptGaze(&gi);
+    // The twin's fake person first, then real perception. simGaze() is an inline `return false` on
+    // the device, so this reads as one path and compiles as one.
+    const bool haveGaze = simGaze(&gi) || perceptGaze(&gi);
     if (haveGaze) {
         if (gi.seq != g_lastGazeSeq) {
             g_lastGazeSeq = gi.seq;

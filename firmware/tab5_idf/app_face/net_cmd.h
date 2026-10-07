@@ -38,6 +38,9 @@ bool        netPlatRcFrame(const char* rx, int n);
 // linkState() reads it, so the twin's face follows a STATE line exactly as the head's does -- which
 // is what makes the twin worth having and is why this is shared rather than stubbed.
 void netSetState(const char* name);
+// Forget the robot's state, so linkState() reports no link again. The twin's `SIM LINK DOWN` uses
+// it to get the real no-link face back without restarting.
+void netClearState();
 
 // ---- requests the parser RECORDS and the UI loop APPLIES ----
 //
@@ -54,5 +57,7 @@ bool netTakeUiReq(NetUiReq* out);   // true if anything was pending; clears what
 // ---- name lookups, owned by the face because the tables are ----
 // Implemented in app_face.cpp. The parser must not carry a second copy of these names.
 int faceEmoteByName(const char* n);   // -1 unknown
+int faceStateCount();
+const char* faceStateName(int idx);   // "?" out of range
 int faceThemeByName(const char* n);   // -1 unknown
 int faceCueByName(const char* n);     // -1 unknown

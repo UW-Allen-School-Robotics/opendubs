@@ -3,6 +3,7 @@
 #include "ui_hmi.h"
 #include "pantilt.h"
 #include "shared/clock.h"
+#include "sim_inputs.h"
 
 #include <cstdio>
 #include <cstring>
@@ -34,6 +35,12 @@ bool linkState(const char** nameOut, unsigned* ageMsOut)
     if (nameOut)  *nameOut  = g_stateName;
     if (ageMsOut) *ageMsOut = (unsigned)(perceptNowMs() - g_stateStamp);
     return true;
+}
+
+void netClearState()
+{
+    g_stateName[0] = 0;
+    g_stateStamp   = 0;
 }
 
 bool netTakeUiReq(NetUiReq* out)
@@ -96,6 +103,10 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
     // a config command that silently does nothing is indistinguishable from a broken one.
     if (strncmp(rx, "CFG ", 4) == 0)
         return snprintf(tx, cap, "ERR not implemented -- awaiting the theme file format");
+
+    // The twin's stand-ins. On the head this REFUSES rather than no-ops: a head that quietly
+    // accepted a simulated state would be lying about where its state came from.
+    if (strncmp(rx, "SIM ", 4) == 0) return simCommand(rx + 4, tx, cap);
 
     if (strcmp(rx, "TOF") == 0)     return snprintf(tx, cap, "%s", netPlatTof());
     if (strcmp(rx, "I2CSCAN") == 0) return snprintf(tx, cap, "%s", netPlatI2cScan());

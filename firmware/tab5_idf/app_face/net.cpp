@@ -838,6 +838,7 @@ void netStart()
 #include <unistd.h>
 
 #include "net_cmd.h"
+#include "sim_inputs.h"
 
 namespace {
 std::atomic<bool> g_twinUp{false};
@@ -889,7 +890,8 @@ bool netOtaActive() { return false; }
 void netLiftRequest(float)        {}
 void netEstopRequest()            {}
 bool netCommandLink(unsigned*)    { return false; }
-bool netEstopPending()            { return false; }
+// The twin's simulated e-stop, so the HMI's STOP REQUESTED banner can actually be seen on a laptop.
+bool netEstopPending()            { return simEstop(); }
 bool netLiftAllowed(const char** w) { if (w) *w = "no robot on the desktop build"; return false; }
 
 // linkState() is NOT stubbed any more -- it lives in net_cmd.cpp and reads the state that

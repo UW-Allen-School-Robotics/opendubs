@@ -294,9 +294,13 @@ const char* tofRegs()
 
 #else   // desktop
 
+// The twin has no sensor, so it reports the SIMULATED distance when one is set and nothing when it
+// is not -- the same two outcomes the head has, so the HMI readout is exercised either way.
+#include "sim_inputs.h"
+
 void tofBegin() {}
-bool tofReadMm(float*) { return false; }
-const char* tofStatus() { return "tof: no sensor on the desktop build"; }
+bool tofReadMm(float* mm) { return simTofMm(mm); }
+const char* tofStatus() { return "tof: simulated on the twin"; }
 const char* tofRegs()   { return "tof: no sensor on the desktop build"; }
 const char* tofReason() { return "no sensor"; }
 
