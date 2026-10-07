@@ -63,6 +63,18 @@ the timeline itself with the same sampling as `sim_preview.py`, so the window an
 preview cannot disagree. It shows geometry, not timing — see `sim_preview.py` for the three
 assumptions. `--log` prints the followed state once a second.
 
+### The face follows too, through the bridge
+
+```bash
+python3 ../face_stub.py      # a stand-in face that prints what it is told (until the twin listens)
+python3 ../face_bridge.py    # follows the playhead; sends FACE as EMOTE and earcon SOUNDs as CUE
+```
+
+`face_bridge.py` reads the same feed as the MuJoCo twin and speaks the head's own command protocol
+(`notes/design/face-twin.md`), to this machine only — it refuses any other address. Crossing a cue
+while playing sends it; a seek, pause or edit sends the state in force instead, with no sounds.
+LIGHT cues and sound files are deliberately not sent, and the console says why.
+
 ### Saving is a minimal diff
 
 The editor edits the show's **text**, not a re-dump of it (`yamledit.py`): a retimed cue changes
