@@ -45,6 +45,11 @@ artifact connects them all: `cue.py export`, the resolved timeline.
 11. **Security is LAN-first and not a blocker.** The robot's LAN and Wi-Fi are the first line of
     defence, Thor login the second. Robot security is one parked item (P1), not a caveat on every
     feature.
+12. **The dashboard stays usable from any browser on the LAN.** Tablet features — the kiosk app's
+    `window.OpenDubsKiosk` bridge, the microphone, wake lock, anything needing HTTPS — are optional
+    and detected, never required: in a plain browser on plain HTTP the page still works and the
+    feature switches itself off. HTTP on 8080 stays. **Show audio goes to one designated client**,
+    never to every open dashboard. Checked 2026-10-07 from a laptop browser against opendubs2.
 
 ---
 
@@ -162,8 +167,8 @@ host. It has no network input today, by design.*
 | # | Item | Kill criterion / done when |
 |---|---|---|
 | 4.1 | **DRAFTED, 2026-10-07 — [`design/tablet-device.md`](design/tablet-device.md), decisions TD-1–TD-4 awaiting the team; experiments TB-1–TB-6 for the hardware session.** **The tablet as a managed robot device (E9, DEC-8).** Compare a custom APK, a kiosk-style browser and dashboard-only changes against: never sleeping or nagging during a run, no system updates or notifications interrupting, behaviour that follows robot state, mic and wake lock (which need a secure context — HTTPS), and audio that keeps playing with the screen off. | A choice with its reasons, and a tablet that runs a 10-minute show without a single interruption. |
-| 4.2 | **Audio out through the tablet (E6–E8).** The open question: how does the Thor make the tablet play — pre-load the file and schedule a start at a Thor timestamp, or stream? Plus the clock-offset handshake over the dashboard websocket, output latency and drift (experiments S1–S3). | Music starts within a stated tolerance of the show clock and stays within it for 3 minutes. |
-| 4.3 | **Audio in from the tablet (E8):** mic uses — clap or cue to start, live beat, voice. | Each use is an experiment with a kill criterion before it is built (experiments C1–C5 in the teach-and-sync note). |
+| 4.2 | **Audio out through the tablet (E6–E8).** Show audio is addressed to ONE designated client, never broadcast to every open dashboard (standing rule 12). The open question: how does the Thor make the tablet play — pre-load the file and schedule a start at a Thor timestamp, or stream? Plus the clock-offset handshake over the dashboard websocket, output latency and drift (experiments S1–S3). | Music starts within a stated tolerance of the show clock and stays within it for 3 minutes. |
+| 4.3 | **Audio in from the tablet (E8):** mic uses — clap or cue to start, live beat, voice. Optional and detected: on plain HTTP, or in a browser without the mic, the dashboard works without it (standing rule 12). | Each use is an experiment with a kill criterion before it is built (experiments C1–C5 in the teach-and-sync note). |
 | 4.4 | **The player surface (E10, DEC-12):** in the dashboard — pick a show, see its validation and `requires:` preflight, choose the audio output, play and stop. No editing. | An operator can run a show from the tablet without a laptop. |
 | 4.5 | **Disconnect behaviour (DEC-7):** the tablet dropping stops the music and nothing else. | Tested by killing the tablet's connection mid-show. |
 
