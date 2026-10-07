@@ -92,6 +92,12 @@ SOUND_DIR = "sounds"
 # Only sizes the slot's span when neither `secs` nor a readable WAV header gives a length.
 SOUND_DEFAULT_S = 0.5
 SOUND_SECS_SANITY = (0.05, 600.0)
+# The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
+# slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
+# Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
+# uses the same constant to show where the head actually is.
+HEAD_SLEW_DPS = 25.0
+HEAD_REACH_TOL_DEG = 1.5       # the firmware's deadband (kDeadbandDeg): closer than this is "there"
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
 # FACE: the emote vocabulary as it exists in firmware, and nothing else. Sourced from kEmotes[]
@@ -444,6 +450,7 @@ class Show:
         """Resolve, check and span the whole show. Returns {problems, notices, events, music,
         markers}. Events carry start/end and, for arms, the full resolved pose."""
         problems: list[Problem] = []
+        warnings: list[Problem] = []   # pointed at a cue like a problem, but never invalidating
         notices: list[str] = []
         P = problems.append
 
@@ -480,6 +487,10 @@ class Show:
         arm_state: dict[str, dict[int, float]] = {}
         arm_free_at: dict[str, float] = {}
         owner_until: dict[str, float] = {}
+        # where the head is and where it is going, as the firmware would slew it from centre
+        head_pos = {"pan": 90.0, "tilt": 90.0}
+        head_tgt = dict(head_pos)
+        head_at = 0.0
 
         # Sorted by time, not required to be WRITTEN that way: a show reads better grouped by
         # limb ("here is what the right arm does"), and the runner works from the timeline
@@ -533,6 +544,25 @@ class Show:
                 msgs = self._check_grip(where, c, slot)
             elif slot == "HEAD":
                 msgs = self._check_head(where, c)
+                if not msgs:
+                    dt = max(0.0, t - head_at)
+                    short = []
+                    for ax in ("pan", "tilt"):
+                        d = head_tgt[ax] - head_pos[ax]
+                        step = HEAD_SLEW_DPS * dt
+                        head_pos[ax] = head_tgt[ax] if abs(d) <= step else head_pos[ax] + math.copysign(step, d)
+                        left = abs(head_tgt[ax] - head_pos[ax])
+                        if left > HEAD_REACH_TOL_DEG and c.get(ax) is not None:
+                            short.append(f"{ax} is still {left:.0f}° short of {head_tgt[ax]:.0f}°")
+                    if short:
+                        warnings.append(Problem(
+                            f"{where}: the head has not finished its last move — "
+                            + " and ".join(short) + f" (it turns at {HEAD_SLEW_DPS:.0f}°/s), "
+                            "so it will turn toward this target from where it is", *ref))
+                    head_at = t
+                    for ax in ("pan", "tilt"):
+                        if c.get(ax) is not None:
+                            head_tgt[ax] = float(c[ax])
             elif slot == "LIFT":
                 msgs = self._check_lift(where, c)
                 if c.get("do") in ("up", "down") and _num(c.get("secs")):
@@ -554,7 +584,7 @@ class Show:
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
                       + " — the runner's preflight is built from the declaration"))
-        return {"problems": problems, "notices": notices, "events": events, "music": music,
+        return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
                 "markers": markers, "declared": declared, "used": used}
 
     def check(self, limits: dict) -> list[Problem]:
@@ -789,6 +819,7 @@ class Show:
             "validated_against": va,
             "valid": not a["problems"],
             "problems": [q.as_dict() for q in a["problems"]],
+            "warnings": [q.as_dict() for q in a["warnings"]],
             "notices": a["notices"],
             "requires": _jsonable(self.requires),
             "slots": declared,
@@ -921,6 +952,8 @@ def main():
                          if e["src"]["clip"] else ""))
         for n in a_["notices"]:
             print("   note:", n)
+        for w in a_["warnings"]:
+            print("   warn:", w.msg)
         if problems:
             bad += 1
             for q in problems:

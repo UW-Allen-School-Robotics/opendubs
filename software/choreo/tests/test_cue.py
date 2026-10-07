@@ -142,6 +142,19 @@ def check_true(name, cond, detail=""):
         fails.append(f"{name}: {detail}")
 
 
+# The head turns at the firmware's 25 deg/s; a cue that arrives before the last move can finish is
+# a WARNING (the show is still valid), not a problem.
+_h = doc_show([{"t": 0.0, "slot": "HEAD", "pan": 90}, {"t": 1.0, "slot": "HEAD", "pan": 150},
+               {"t": 1.5, "slot": "HEAD", "pan": 90}]).analyse(LIMITS)
+check_true("a head move that cannot finish warns, and the show stays valid",
+           not _h["problems"] and len(_h["warnings"]) == 1 and "short of 150" in _h["warnings"][0].msg,
+           [w.msg for w in _h["warnings"]] + [q.msg for q in _h["problems"]])
+_h = doc_show([{"t": 0.0, "slot": "HEAD", "pan": 90}, {"t": 1.0, "slot": "HEAD", "pan": 120},
+               {"t": 3.0, "slot": "HEAD", "pan": 90}]).analyse(LIMITS)
+check_true("a head move with time to finish does not warn", not _h["warnings"],
+           [w.msg for w in _h["warnings"]])
+
+
 def times(show, slot=None):
     return [round(c["t"], 6) for c in show.by_time() if slot is None or c["slot"] == slot]
 

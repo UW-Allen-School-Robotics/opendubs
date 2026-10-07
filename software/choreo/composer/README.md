@@ -40,6 +40,8 @@ no internet.
 | **Drag to retime, tap to select, tap empty lane to seek, `+` to add** | pointer events; works with touch |
 | **Inspector** | the cue as authored, its resolved time and span (Polaris: show inferred values resolved), its problems, editable time form/value and fields |
 | **Violations on the offending cue**, in red, and a clickable problem list | the validator's own sentences, located by cue index |
+| **Warnings** in amber, on the cue and in the list | the show stays valid — e.g. a head move that cannot finish at the firmware's 25 °/s before the next head cue |
+| **Back to start** (⏮, or Home) | beside play |
 | **Notices** | folded to a one-line count under the problems; each note is one headline line, full text on hover |
 | **Hover text** | on every non-obvious control and readout; on a touch screen, a long press shows it |
 | **Per-lane mute** | preview only; stored in the browser, never in the show |

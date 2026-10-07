@@ -49,7 +49,7 @@ HEAD_CENTRE_DEG = 90.0    # ASSUMED: the show's 90 is the sim's 0
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's
 # own slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can
 # override. The servos themselves are faster, so the firmware is what governs.
-HEAD_SLEW_DPS = 25.0
+HEAD_SLEW_DPS = cue.HEAD_SLEW_DPS
 
 
 def arm_pose(keyframes: list, t: float) -> dict:

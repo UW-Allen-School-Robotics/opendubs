@@ -274,7 +274,11 @@ function render() {
   const st = $("status");
   if (!d) return;
   if (d.parse_error) { st.className = "chip bad"; st.textContent = "does not parse"; }
-  else if (tl().valid) { st.className = "chip ok"; st.textContent = "valid"; }
+  else if (tl().valid) {
+    const nw = (tl().warnings || []).length;
+    st.className = nw ? "chip warn" : "chip ok";
+    st.textContent = nw ? `valid · ${nw} warning${nw > 1 ? "s" : ""}` : "valid";
+  }
   else { st.className = "chip bad"; st.textContent = `${tl().problems.length} problem${tl().problems.length > 1 ? "s" : ""}`; }
   renderHeads(); renderLanes(); drawRuler(); drawWave(); drawPlayhead(false);
   renderProblems(); renderInspector(); renderPreview();
@@ -308,13 +312,17 @@ function gridStyle(el) {
     el.style.backgroundPosition = "0 0, 0 0";
   }
 }
-function problemsByCue() {
+function byCue(list) {
   const m = new Map();
-  for (const p of (tl() ? tl().problems : [])) if (p.cue !== null && p.cue !== undefined) {
+  for (const p of (list || [])) if (p.cue !== null && p.cue !== undefined) {
     if (!m.has(p.cue)) m.set(p.cue, []); m.get(p.cue).push(p.msg);
   }
   return m;
 }
+function problemsByCue() { return byCue(tl() ? tl().problems : []); }
+// Warnings point at a cue like a problem but never make the show invalid (e.g. a head move that
+// cannot finish before the next one).
+function warningsByCue() { return byCue(tl() ? tl().warnings : []); }
 function label(ev) {
   const c = ev.cue;
   switch (ev.slot) {
@@ -328,7 +336,7 @@ function label(ev) {
   }
 }
 function renderLanes() {
-  const W = width(), pps = S.pps, lanes = $("lanes"), dec = declared(), bad = problemsByCue();
+  const W = width(), pps = S.pps, lanes = $("lanes"), dec = declared(), bad = problemsByCue(), warn = warningsByCue();
   $("canvas").style.width = W + "px";
   const parts = [];
   for (const lane of LANES) {
@@ -336,13 +344,13 @@ function renderLanes() {
     parts.push(`<div class="row lane grid ${und ? "undeclared" : ""} ${S.muted.has(lane) ? "muted" : ""}" data-lane="${lane}">`);
     if (lane === "CLIPS") {
       for (const p of placements()) {
-        const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : ""].join(" ");
+        const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
         parts.push(`<div class="${cls}" data-cue="${p.index}" style="left:${p.start * pps}px;width:${Math.max(20, (p.end - p.start) * pps)}px" title="${esc(p.title)}">${esc(p.text)}</div>`);
       }
     } else if (tl() && tl().tracks[lane]) {
       for (const ev of tl().tracks[lane]) {
         const i = ev.src.index, fc = ev.src.clip ? "fromClip" : "";
-        const sel = S.selected === i ? "sel" : "", b = bad.has(i) ? "bad" : "";
+        const sel = S.selected === i ? "sel" : "", b = bad.has(i) ? "bad" : warn.has(i) ? "warn" : "";
         const tip = esc(JSON.stringify(ev.cue) + `  @ ${ev.t.toFixed(3)} s (${ev.src.time})` + (ev.src.clip ? `  clip ${ev.src.clip} #${ev.src.instance + 1}` : ""));
         if (ev.kind === "keyframe") {
           parts.push(`<div class="seg ${b}" style="left:${ev.start * pps}px;width:${Math.max(0, ev.t - ev.start) * pps}px"></div>`);
@@ -494,8 +502,10 @@ function renderProblems() {
   const d = S.data, el = $("problems");
   if (d.parse_error) { el.innerHTML = `<p class="err">${esc(d.parse_error)}</p>`; return; }
   const items = tl().problems.map((p) => `<li data-cue="${p.cue ?? ""}" class="err">${esc(p.msg)}${p.clip ? ` <span class="dim">(clip ${esc(p.clip)}${p.instance !== null ? " #" + (p.instance + 1) : ""})</span>` : ""}</li>`);
-  const probs = items.length ? `<ul>${items.join("")}</ul>`
-    : '<p class="ok" title="Valid means allowed, not safe — and nothing is executable yet: there is no runner">✓ no problems</p>';
+  const warns = (tl().warnings || []).map((w) => `<li data-cue="${w.cue ?? ""}" class="wrn" title="A warning: worth knowing, but the show is still valid">${esc(w.msg)}</li>`);
+  const probs = (items.length ? `<ul>${items.join("")}</ul>`
+    : '<p class="ok" title="Valid means allowed, not safe — and nothing is executable yet: there is no runner">✓ no problems</p>')
+    + (warns.length ? `<ul class="warnings">${warns.join("")}</ul>` : "");
   // Notices are context, not errors: one line each (the full text on hover), folded by default.
   const notes = tl().notices;
   const open = store.get("notesOpen", false) ? " open" : "";
@@ -512,7 +522,8 @@ function renderInspector() {
   const rest = {}; for (const [k, v] of Object.entries(c)) if (!["t", "beat", "bar"].includes(k)) rest[k] = v;
   const evs = []; for (const v of Object.values(tl().tracks)) for (const e of v) if (e.src.index === i) evs.push(e);
   const line = S.data.cue_lines ? S.data.cue_lines[i] : null;
-  const probs = (problemsByCue().get(i) || []).map((m) => `<div class="err">${esc(m)}</div>`).join("");
+  const probs = (problemsByCue().get(i) || []).map((m) => `<div class="err">${esc(m)}</div>`).join("")
+    + (warningsByCue().get(i) || []).map((m) => `<div class="wrn">${esc(m)}</div>`).join("");
   let resolved = "";
   if (evs.length === 1) {
     const e = evs[0];
@@ -656,6 +667,7 @@ function tap(ev) {
 function bind() {
   $("show").onchange = (e) => loadShow(e.target.value);
   $("play").onclick = () => (S.playing ? stop() : play());
+  $("rewind").onclick = () => { seek(0); $("scroller").scrollLeft = 0; };
   $("zoomIn").onclick = () => zoom(1.5);
   $("zoomOut").onclick = () => zoom(1 / 1.5);
   $("snap").onchange = (e) => { S.snap = e.target.value; store.set("snap", S.snap); };
@@ -699,6 +711,7 @@ function bind() {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); return; }
     if (typing) return;
     if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }
+    if (e.key === "Home") { e.preventDefault(); seek(0); $("scroller").scrollLeft = 0; }
     else if ((e.key === "Delete" || e.key === "Backspace") && S.selected !== null) { e.preventDefault(); deleteSelected(); }
     else if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
   });
