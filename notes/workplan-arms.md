@@ -41,7 +41,8 @@ The bar for Phases 0–2 and 6.1. Each clause is checked on the robot, with a he
    SSH.
 3. **Losing the headset stops the arm.** Stale pose data never drives motion, and re-engaging needs
    a fresh grip.
-3a. **The arm answers to CH5.** A session engages only in `MANUAL`; leaving `MANUAL` holds the arm.
+3a. **The arm answers to CH5** (DEC-21). Nothing moves an arm with CH5 OFF; a session engages only
+   in `MANUAL`; leaving `MANUAL` holds the arm.
    With the tablet START and the grip clutch, this is the defence in depth of DEC-15 — all three
    layers exist, or teleop is not closed out.
 4. **Teleop cannot put the arm into the head**, and cannot command a Cartesian speed nobody chose.
@@ -109,7 +110,11 @@ the arms and has not run on the robot.
    dropout, slow clients and stale data can be produced by a scripted WebSocket client. Only
    physical events — an e-stop, a person in a headset judging latency — need a person, and then
    **confirm they are there first**.
-10. **Security is LAN-first and not a blocker** (P7).
+10. **No arm motion unless CH5 permits it, verified — not assumed** (DEC-21). Until 0.8–0.9 and
+    1.9 enforce it, the procedure is: read `[AUTH]` off the wire (below), and do not activate, park,
+    engage or run a motion test unless it shows the mode DEC-21 requires. Re-check immediately before
+    each motion step. A person saying the switch is set is not the check; the line is.
+11. **Security is LAN-first and not a blocker** (P7).
 
 ---
 
@@ -134,12 +139,13 @@ below. Dates are when the decision was made.
 | DEC-12 | **The measured J2 182° head contact outranks the simulator**, which is 6° optimistic. | `cue.py`, `sim/clearance.py` | 1.3 |
 | DEC-13 | **TELEOP page:** landscape, controls on top, visual rather than text, separate activate and de-energize controls, real v1 geometry. | sessions | built |
 | DEC-14 | **The IK solver is swappable at the adapter boundary** — streaming for teleop, trajectory for planned motion, a safe stop, and the modes it honours. | `arm-authority.md` | 5.3 |
-| DEC-15 | **Teleop is low-friction, with three layers of defence: an affirmative START on the tablet, the CH5 mode on the RC, and the grip clutch as the deadman** (DEC-4 stands; CH6 is not required). The unit keeps its `[Install]` section and is installed but not enabled (Q1, 2026-10-07). | Q1 | 0.2, 1.8, 1.9 |
+| DEC-15 | **Teleop is low-friction, with three layers of defence: an affirmative START on the tablet, the CH5 mode on the RC, and the grip clutch as the deadman** (DEC-4 stands; CH6 is not required). The unit keeps its `[Install]` section and is installed but not enabled (Q1, 2026-10-07). | Q1 | 0.2, 0.8, 1.9 |
 | DEC-16 | **Teleop's Cartesian speed limit stays at 1.0 m/s, verified and named, with a lower demo setting for events.** Interim: **revisit once teleop is working better** (after Phase 2's latency and rate work) — not a forever setting. | Q2 | 1.2, 2.6 |
 | DEC-17 | **The head guard is a J2 cap at 157° now**, checked by hand for other ways in; **the head goes into the collision model with the native IK** rather than a bridge keep-out zone, unless the hand check finds a way in. | Q3 | 1.3, 5.5 |
 | DEC-18 | **The upstream teleop stack is copied into the org as a PRIVATE repo**, not a public GitHub fork, because its first commit publishes the upstream author's unreleased drift (2026-10-07). `UW-Allen-School-Robotics/openarm`: `main` mirrors upstream; **`opendubs`** (default) is what the robots run, starting from the as-found commit `1f0f8f1`. Our changes are ordinary commits on `opendubs`; the image build pins it; `software/openarm/patches/` is retired. Generic fixes go upstream as PRs once DEC-20 is answered. **`openarm_impedance_control` is not copied yet**: the container's checkout is clean at upstream HEAD, and the inactive-start setting was upstreamed (`b517999`); it is copied only if 1.3's J2 cap lands in it. `mj_manipulator`, `mj_manipulator_ros`, `openarm_robot-code` and `ssik` are copied when their phase needs them (3, 4.1, 6.3, 5.1). | Q4 | 0.5, 6.3, rule 5 |
 | DEC-19 | **`feat/openarm-integration` is salvaged and closed, together with its author.** It predates the October hardening, so merging it would revert `main` (teleop unit, patches, ~346 lines of `openarm-up`, ~250 of the setup doc). Kept: the submodule pinning (repointed at the fork), `openarm_bringup.sh` (its `bake-image.sh` / `bake_image.sh` call fixed, and any step `openarm-up` lacks folded in), and the `ws_state` exclude in `deploy-all.sh`. The sibling checkout `opendubs-openarm` is retired afterwards. | Q5 | 6.3 |
 | DEC-20 | **Ask the upstream author whether the private copy may go public** (as a fork, enabling upstream PRs). Until they answer, it stays private and nothing of theirs is published. | 2026-10-07 | 0.5 |
+| DEC-21 | **CH5 gates every arm motion.** OFF: hold and status only — de-energize only from stow; **nothing that moves an arm** (activate drives to zero, so it counts). MANUAL: activate, park, teleop engage, freedrive, bench tests. AUTO: activate, park, shows and planners — not teleop engage. **A missing or stale `[AUTH]` is OFF.** Enforced where it cannot be bypassed: the Thor's view of CH5 (0.8), `openarm-up` (0.9) and the teleop bridge (1.9). Raised 2026-10-07 when a bench test was about to activate the arms with CH5 off and nothing would have stopped it. | 2026-10-07 | 0.8, 0.9, 1.9, rule 10 |
 
 ---
 
@@ -191,6 +197,8 @@ Asks made across the sessions, tracked so none is lost. Status is updated in pla
 | 0.5 | **The org copy, and the drift captured** (DEC-18). ~~Snapshot the container's tree~~ **DONE, 2026-10-07:** the container's checkout *does* have a `.git` now (the patches README says it does not — stale), sitting at upstream `85b46ce` with 8 uncommitted files, +574/−111. That diff is `1f0f8f1` on `opendubs` in the private org repo. It contains the headless viewer, the 8766/8444 ports and `target_hz` 150 — and **TCP_NODELAY survived**. ~~Repoint the container's checkout~~ **DONE, 2026-10-07:** moved to `opendubs` by refs only (fetched from a git bundle, `symbolic-ref` + `reset`; no file written), `git status` clean; remote `origin` is now the org repo and `upstream` the original. The container holds no GitHub credentials, so updates arrive the same way — a bundle, or a fetch on the Thor host — until 6.3 builds the image from the repo. `/openarm_ws/src` is a **host mount** of the Thor's `openarm/openarm_robot-code` workspace directory (verified with `docker inspect`), so the checkout survives recreating the container. **Remaining:** record each port's reason (8766 presumably avoids Foxglove's 8765 — confirm); retire `software/openarm/patches/`, pointing its README at the org repo. | The container's `git status` is clean on `opendubs`, and liveness (rule 5) is unchanged. **Prerequisite of every Phase 1 change to upstream code.** |
 | 0.6 | **Notes that disagree with the code.** Punch-list goals 5 and 7 say unbuilt; `arm-telemetry-and-viz.md` lists the RMW issue as open (fixed in `openarm-up`); `capability-backlog.md` #7, `software/teleop/README.md` and `state-machine-review.md` describe Unity-only teleop and a `TELEOP_CONTROL` state that contradicts DEC-2/DEC-4; `arm-authority.md` says the deadman is already implemented (see 1.1); `docs/openarm-setup.md` never says v1; `docs/hardware-bom.md` lists the arms as planned; `cue.py`'s gripper range disagrees with punch-list 0e; `assets/arm/README.md` gives two mesh sizes. | Each says what the code does. Public docs follow the replicator voice. |
 | 0.7 | **Land the threads note's teleop content.** `notes/threads-2026-10.md` exists only on `notes/threads-and-ssik`. Fold threads D (ssik) and F (compliance) into Phase 5 here; route the rest to its own home. | Nothing this plan depends on lives only on an unmerged branch. |
+| 0.8 | **CH5 visible on the Thor** (DEC-21; was 1.8). The StamPLC broadcasts `[AUTH] ch5=… deadman=… estop_sw=… estop_btn=… contactor=… rc_live=… rc_ok=…` about every 110 ms over UDP 5005, but **nothing on the Thor keeps it**: the dashboard parses the drive state and drops `[AUTH]`, and the StamPLC ROS bridge publishes e-stop, motion-enabled and power but not the mode. Parse it into the dashboard's `/api/stamplc` and publish it from the bridge. *Interim, verified 2026-10-07:* a raw-socket read of UDP 5005 on the Thor (`AF_PACKET`, stdlib only, no listener on the dashboard's port) shows the line; that read is rule 10's check until this lands. | `/api/stamplc` and a ROS topic carry `ch5` with its age; stale beyond ~0.5 s reads OFF. |
+| 0.9 | **`openarm-up` refuses motion CH5 does not permit** (DEC-21): `activate` and `park` need MANUAL or AUTO. Every arm path — the TELEOP page included — goes through `openarm-up`, so one gate covers them. `down` from stow, `hold` and `status` are always allowed. | With CH5 OFF, `openarm-up activate right` refuses and says why, from the shell and from the tablet. |
 
 ## Phase 1 — a session is safe to hand to someone
 
@@ -204,7 +212,7 @@ Asks made across the sessions, tracked so none is lost. Status is updated in pla
 | 1.4 | **One slow client cannot wedge the session.** A non-draining second client filled its socket to 64 KB on 2026-09-24. Bounded send queue with drop-oldest, and a stated policy for a second client (refuse, or observe-only). | The scripted client connects as a second, non-reading client for 60 s: the first client's loop health and latency are unchanged. |
 | 1.5 | **The software abort is not an e-stop.** It logs "E-Stop activated". | Renamed; nothing in the stack calls a software stop an e-stop. |
 | 1.6 | **What happens across a real e-stop**, observed rather than inferred. Contactor opens mid-session: the arms fall limp; what does the bridge do, and what happens on contactor restore — does a stale target or the activate-to-zero sweep fire? Never observed. | A recorded observation, with a person present (rule 9), and a written recovery procedure. If restore can move an arm unasked, that is a Phase 1 bug. |
-| 1.8 | **A Thor-side consumer for `[AUTH]`** (moved from Phase 3, DEC-15). The StamPLC broadcasts the CH5 mode; nothing on the Thor parses it. | Mode changes on CH5 appear on the Thor within one telemetry period, and a missing or stale `[AUTH]` reads as *not* `MANUAL`. |
+| 1.8 | ~~Thor-side `[AUTH]` consumer~~ **moved to 0.8** (DEC-21 — needed before routine arm work, not after close-out). | — |
 | 1.9 | **Teleop answers to CH5** (moved from Phase 3; DEC-2, DEC-3, DEC-15). Outside `MANUAL` a session cannot engage; CH5 leaving `MANUAL` ⇒ HOLD. Does **not** need the lease node (3.2) — a gate in the bridge, as a commit on the fork (DEC-18), is enough for close-out. | Flipping CH5 mid-grip holds the arm, every time, from the RC alone; re-engaging needs `MANUAL` and a fresh grip. |
 | 1.7 | **Loop health cannot say "good" when it does not know.** No warning currently reads as 0 % over budget, a multi-line warning would not match, and the 60-line window can show an old one. | No data reads as *no data*; a stale reading carries its age. |
 
@@ -228,8 +236,8 @@ headset connected.*
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 3.1 | ~~Thor-side `[AUTH]` consumer~~ **moved to 1.8** (DEC-15). | — |
-| 3.2 | **The arm-authority node** (DEC-6): lease expiry, the `[AUTH]` precondition, release on abort. Absorbs 1.9's bridge gate. | A lease holder that dies loses the lease within its expiry; nothing needs upstream recovery. |
+| 3.1 | ~~Thor-side `[AUTH]` consumer~~ **moved to 0.8** (DEC-15, DEC-21). | — |
+| 3.2 | **The arm-authority node** (DEC-6): lease expiry, the `[AUTH]` precondition, release on abort. Absorbs 1.9's bridge gate and 0.9's `openarm-up` gate. | A lease holder that dies loses the lease within its expiry; nothing needs upstream recovery. |
 | 3.3 | ~~Teleop answers to CH5~~ **moved to 1.9** (DEC-15); 3.2 later replaces the gate with the lease. | — |
 | 3.4 | **One CH5 vocabulary**, owned by the choreography plan's 0.6 (`STANDBY / MANUAL / AUTO`). Note the conflict it records: `robot_state.py`'s `ENABLE` matrix forbids the arms in the middle position. | Closed there; this plan consumes it. |
 | 3.5 | **The tablet says who has each arm**: mode, lease holder, source. | Readable at arm's length on the 10″ tablet. |
