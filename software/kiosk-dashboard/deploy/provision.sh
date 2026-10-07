@@ -79,4 +79,9 @@ sleep 3
 
 echo
 echo "== done. backend: $(systemctl is-active opendubs-dash) on :8080 =="
+if [ -f /etc/opendubs/tls/dashboard.crt ]; then
+  echo "   and HTTPS on :8443 for the tablet"
+else
+  echo "   no HTTPS yet: run deploy/make-robot-ca.sh on the robot to give the tablet :8443"
+fi
 echo "Open it from the tablet; there is no local display to launch."

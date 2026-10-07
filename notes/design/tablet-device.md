@@ -97,8 +97,12 @@ code (postpone, and suspending Samsung's update apps) may be reused with its cop
 2. Install the kiosk app from its APK.
 3. `adb shell dpm set-device-owner <app>/<receiver>`. The app turns on lock task mode and sets a
    system update policy (postpone, or a window outside show hours).
-4. Install the robot's local CA on the tablet; the app trusts it for the dashboard's address.
-5. The app opens `https://<thor>:8080` full screen and keeps the screen on.
+4. On the robot, `deploy/make-robot-ca.sh` makes its CA and the dashboard certificate; the
+   dashboard then serves HTTPS on **8443** beside the unchanged HTTP on 8080 (one process, because
+   it owns the serial port). The app installs the CA itself as device owner — by hand, Android
+   requires a lock-screen PIN. Over HTTPS the page reaches rosbridge through the dashboard
+   (`/rosbridge`), since an HTTPS page may not open `ws://`.
+5. The app opens `https://<thor>.local:8443/` full screen and keeps the screen on.
 
 **The Samsung settings that interrupt kiosk use**, each turned off, as a second layer:
 

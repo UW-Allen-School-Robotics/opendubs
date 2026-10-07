@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
 
 /**
@@ -56,5 +57,28 @@ object DeviceOwner {
         dpm.addPersistentPreferredActivity(admin, home,
             ComponentName(activity, KioskActivity::class.java))
         Log.i(TAG, "device owner policies applied")
+    }
+
+    /**
+     * Trust this robot's local CA (TD-1). As device owner the app installs it itself — installing a
+     * CA by hand needs a lock-screen PIN, which a kiosk tablet does not want. `b64` is the CA
+     * certificate (PEM or DER), base64-encoded, from deploy/make-robot-ca.sh. Returns whether it
+     * is now installed.
+     */
+    fun installCa(ctx: Context, b64: String): Boolean {
+        val dpm = ctx.getSystemService(DevicePolicyManager::class.java)
+        if (!dpm.isDeviceOwnerApp(ctx.packageName)) {
+            Log.w(TAG, "CA not installed: only the device owner can install one")
+            return false
+        }
+        val admin = ComponentName(ctx, KioskAdminReceiver::class.java)
+        val cert = runCatching { Base64.decode(b64.trim(), Base64.DEFAULT) }.getOrNull()
+        if (cert == null || cert.isEmpty()) {
+            Log.w(TAG, "CA not installed: ca_b64 is not base64")
+            return false
+        }
+        val ok = runCatching { dpm.installCaCert(admin, cert) }.getOrDefault(false)
+        Log.i(TAG, if (ok) "robot CA installed" else "robot CA install FAILED")
+        return ok
     }
 }

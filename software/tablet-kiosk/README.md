@@ -18,7 +18,7 @@ device-owner receiver, and a five-method JavaScript bridge. Anything a user sees
 | comes back after a reboot | it is the launcher (HOME), set as device owner |
 | microphone for the dashboard | granted as device owner; the page gets audio capture **only** for the dashboard's own origin |
 | music starts on cue | autoplay allowed (`mediaPlaybackRequiresUserGesture = false`) |
-| HTTPS on an offline LAN | trusts user-installed CAs, so the robot's local CA works (`res/xml/network_security_config.xml`); cleartext stays allowed until the dashboard moves to HTTPS |
+| HTTPS on an offline LAN | installs the robot's own CA itself (`ca_b64`, device owner) and trusts it (`res/xml/network_security_config.xml`); cleartext stays allowed so `http://…:8080` still works |
 
 Every device-owner step is a no-op when the app is not device owner, so it also runs as an ordinary
 app on any tablet for development.
@@ -63,14 +63,19 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
    adb shell dpm set-device-owner org.opendubs.kiosk/.KioskAdminReceiver
    ```
 
-3. Point it at this robot's dashboard (remembered across restarts):
+3. On the robot, once: `sudo software/kiosk-dashboard/deploy/make-robot-ca.sh`, then
+   `sudo systemctl restart opendubs-dash`. That makes this robot's own CA and the dashboard's
+   certificate, and brings HTTPS up on **8443** beside the unchanged HTTP on 8080.
+4. Install the robot's CA and point the app at the HTTPS dashboard (both remembered). The app, as
+   device owner, installs the CA itself — by hand Android would demand a lock-screen PIN:
 
    ```bash
-   adb shell am start -n org.opendubs.kiosk/.KioskActivity --es url http://10.42.2.10:8080/
+   adb shell am start -n org.opendubs.kiosk/.KioskActivity \
+       --es ca_b64 "$(ssh <robot> base64 -w0 /etc/opendubs/tls/ca.crt)" \
+       --es url https://<robot>.local:8443/
    ```
 
-4. Install the robot's local CA as a user certificate (once the dashboard serves HTTPS — plan
-   4.1c), then point it at the `https://` address.
+   Without HTTPS it also runs against `http://<robot>:8080/`, minus the microphone and wake lock.
 5. Turn off the Samsung settings listed in `tablet-device.md` (app sleeping, auto restart, edge
    panels, auto-download of updates; Do Not Disturb on *Alarms only*).
 

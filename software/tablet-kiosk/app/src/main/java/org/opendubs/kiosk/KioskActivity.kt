@@ -21,8 +21,8 @@ import android.webkit.WebViewClient
  * its own (tablet-device.md, "The scope rule").
  *
  * The dashboard address is res/values/strings.xml `default_url`, overridden per tablet by starting
- * this activity with a string extra `url` (remembered). An extra `unlock=true` leaves lock task, for
- * maintenance over adb.
+ * this activity with a string extra `url` (remembered). An extra `ca_b64` installs this robot's
+ * local CA (device owner only). An extra `unlock=true` leaves lock task, for maintenance over adb.
  */
 class KioskActivity : Activity() {
     private lateinit var web: WebView
@@ -71,6 +71,7 @@ class KioskActivity : Activity() {
     private fun handle(intent: Intent?) {
         val newUrl = intent?.getStringExtra("url")
         newUrl?.let { getPreferences(MODE_PRIVATE).edit().putString("url", it).apply() }
+        intent?.getStringExtra("ca_b64")?.let { DeviceOwner.installCa(this, it) }
         if (intent?.getBooleanExtra("unlock", false) == true) {
             maintenance = true
             runCatching { stopLockTask() }
