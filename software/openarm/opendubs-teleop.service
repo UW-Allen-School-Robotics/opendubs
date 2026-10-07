@@ -22,8 +22,12 @@ Environment=OPENARM_TELEOP_VIEWER=0
 Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+# The robot's stow pose (LEFT_STOW / RIGHT_STOW, degrees) -- the same per-robot file `openarm-up park`
+# reads. The bridge's hold-to-run home buttons (X left, A right) drive to it; with the file absent
+# ("-" makes it optional) they refuse rather than guess a pose.
+EnvironmentFile=-/etc/opendubs/openarm-stow.conf
 ExecStart=/usr/bin/docker exec \
-  -e OPENARM_TELEOP_VIEWER \
+  -e OPENARM_TELEOP_VIEWER -e LEFT_STOW -e RIGHT_STOW \
   -e RMW_IMPLEMENTATION -e FASTDDS_DEFAULT_PROFILES_FILE -e FASTRTPS_DEFAULT_PROFILES_FILE \
   openarm bash -lc 'source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash && \
   cd /openarm_ws/src/openarm && exec /openarm_ws/src/.venv/bin/python -u -m openarm.demos.real_teleop_demo'
