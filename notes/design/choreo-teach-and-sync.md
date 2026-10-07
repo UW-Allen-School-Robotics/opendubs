@@ -1,5 +1,7 @@
 # Teaching, music sync, and who plays what — experiments for the first hardware session
 
+> **Numbering.** Item numbers such as (1.5) or (5.4), and "workplan proposal n", cite the plan as it stood when this was written, now kept as [`choreo-prior-art.md`](choreo-prior-art.md). The current plan of record is [`../workplan-choreography.md`](../workplan-choreography.md).
+
 **Status:** design, 2026-10-06. Nothing here is built except the **capture stub** in the
 composer (`software/choreo/composer/`, fake joint source) and the composer's latency-corrected
 playhead. **Nothing here commands the robot**, and nothing in this note may be implemented as a
@@ -399,7 +401,7 @@ rhythm actuator, and the vocabulary should say so rather than let authors put it
 ### On abort, and on e-stop — what happens to the music
 
 Standing rule 2: preemption aborts, never pauses. The robot must then **look and sound stopped**
-(the workplan's disco-ball argument, 3.5). Proposed default, and a decision for Emma:
+(the workplan's disco-ball argument, 3.5). Proposed default, and a decision for the maintainers:
 
 - **Abort** (deadman release, stick deflection, monitor trip, fault, watcher loss): the runner
   tells the tablet `music: stop`; the tablet **fades out over ~250 ms** (a hard cut clicks). No
@@ -408,7 +410,7 @@ Standing rule 2: preemption aborts, never pauses. The robot must then **look and
   stop instantly. **The tablet does not**, and nothing stops its music unless told to. The runner
   aborts on the contactor state in `[AUTH]` and sends `music: stop` as above. Optionally the
   tablet then plays a distinct "stopped" sound, because after an e-stop **the tablet is the only
-  device in the system that can still make a sound** — Emma's call (1.3b) that earcons are not
+  device in the system that can still make a sound** — the decision (1.3b) that earcons are not
   safety communication still stands; this would be a legibility choice, not a safety one.
 - **Music is a held intent, like everything else on this robot.** The tablet keeps playing only
   while it receives the runner's show heartbeat over the websocket; if the heartbeat is absent for
@@ -416,7 +418,7 @@ Standing rule 2: preemption aborts, never pauses. The robot must then **look and
   the music, with no message needed.
 - **Does the tablet disconnecting abort the show?** It is the operator's UI, but the live stop is
   the deadman on the RC (control-authority: "releasing aborts the routine"). Default proposed:
-  **no** — tablet loss stops the music, not the robot; the deadman is the watcher. Emma's call.
+  **no** — tablet loss stops the music, not the robot; the deadman is the watcher. A maintainers' decision.
 
 ### Experiments — synchronisation
 
@@ -485,7 +487,7 @@ robot, played by the Thor:
 | **show music** | no — dies with e-stop, one blocking player, 3.5 MB | **v1: yes** — works today in the composer, Spot's precedent | **target, if S1–S3 disappoint** — removes the clock problem | **tablet now; decide the Thor after S1–S3** |
 | **earcons** | **yes** — they are the face's voice, and dying with the e-stop is acceptable (1.3b: not safety) | — | — | Tab5; needs a network verb (firmware, out of scope here) |
 | **speech / TTS** | **yes** — co-located with the face and the band's "speaking" pulse; generated on the Thor and streamed (1B) | fallback | possible | Tab5. **Conflict:** one non-mixing player means speech and an earcon cannot overlap; mix on the Thor into one stream, or arbitrate (`SOUND` is queue-with-preemption, `behavior-api-scope.md`) |
-| **"show stopped" after e-stop** | **cannot** — it is off | **yes**, the only device left that can | yes | tablet (or Thor), if Emma wants it at all |
+| **"show stopped" after e-stop** | **cannot** — it is off | **yes**, the only device left that can | yes | tablet (or Thor), if wanted at all |
 | **clap-to-start** | **yes** — on the robot, mic works | no mic without HTTPS | — | Tab5 → event to the Thor. **A clap may only be the GO of a show already armed by a human** with preflight passed and deadman held; never a lease claim. Speech or sound as a control source passes the same failsafe-gated contract as any source (`punch-list.md`). |
 | **direction of voice → aim the head** | **yes** — L/R level ratio already works | — | — | Tab5, as an `EXPRESSION`-tier `HEAD` source; during a show the show owns `HEAD` (`TASK`) and voice-aim yields |
 | **live beat tracking** | hears itself and the motors | needs HTTPS; far from the robot | possible with a USB mic | **none in v1** (see (b)); research only |

@@ -1,14 +1,14 @@
 # Brief — the bones of the choreography composer (unattended cloud run)
 
 **Audience:** an AI agent running unattended in a cloud sandbox, with no robot, no hardware, no
-SSH, and no human to ask. Emma (the maintainer) is offline and will review the result as a draft PR.
+SSH, and no human to ask. The maintainer is offline and will review the result as a draft PR.
 
 **Branch:** `feat/choreo-composer` (cut from `main`). Work here. Open a **draft** PR against `main`
 when done. **Never push to `main`, never merge, never enable auto-merge.**
 
 ---
 
-## 1. What Emma asked for, in her words
+## 1. What was asked for, in the requester's words
 
 > "build the bones of a composer — likely with a timeline view — while also thinking about how to
 > utilize the resources onboard to enable the composition. Things I want to explore include using
@@ -120,7 +120,7 @@ from the workplan's benchmarks, at minimum:
 
 Implement the spec's validator side: beat/bar → seconds resolution, `music:` block validation,
 clip expansion (validate the *expanded* show), duration semantics. Add `FACE`/`LIGHT` validators
-or remove them from `SLOTS` (0.3) — Emma's call is open, so prefer a **minimal** validator that
+or remove them from `SLOTS` (0.3) — the maintainers' call is open, so prefer a **minimal** validator that
 accepts only a closed vocabulary (e.g. `FACE: {do: emote, name: <known set>}`) and say what the
 vocabulary is sourced from. Add `cue.py export` → a **resolved JSON timeline** (absolute seconds,
 clips expanded, per-slot sorted, stable order) — this is the one artifact the composer, the sim and
@@ -151,7 +151,7 @@ no-build-step style, **with every asset vendored or inline** (no CDN). Shape:
 
 ### D4 — Design note: `notes/design/choreo-teach-and-sync.md`
 
-The three explorations Emma named, each as **experiments with a stated question and kill criterion
+The three explorations the maintainers named, each as **experiments with a stated question and kill criterion
 before it starts** (standing rule 5), sequenced for the first hardware session. Ground each in the
 workplan's prior art and the facts in §3. Include, at minimum:
 
@@ -184,7 +184,7 @@ a split and the experiments that would falsify it.
 
 ### D5 — Hand-off: `notes/choreo-cloud-run-report.md` + draft PR
 
-**Lead with the decisions Emma must make**, numbered, one or two sentences each. Then what was
+**Lead with the decisions the maintainers must make**, numbered, one or two sentences each. Then what was
 built, what is stubbed, what was deliberately not done and why, and anything in the existing notes
 you found to be **wrong against the code** (the workplan warns notes drift — check). Keep it short;
 detail lives in D1/D4. Update the status table at the top of `notes/workplan-choreography.md` to
@@ -207,7 +207,7 @@ reflect what now exists. The PR body summarises the report and ends with the att
   ends with the `Co-Authored-By` line the harness gives you.
 - Run `python3 software/choreo/tests/test_cue.py`, `python3 tools/bom.py --check` and
   `mkdocs build --strict` before every push.
-- When a choice is genuinely Emma's, make the reversible default, record it in the report's
+- When a choice is genuinely the maintainers', make the reversible default, record it in the report's
   decision list, and keep going. Do not stop to ask; nobody is there.
 - Do not invent robot measurements. Where a number is needed and unknown, name the experiment that
   would produce it.

@@ -4,7 +4,7 @@ Branch `feat/choreo-composer`, draft PR against `main`. Brief: `notes/choreo-com
 All five deliverables are done. Nothing in this branch can command the robot, nothing under
 `firmware/` changed, `DRIVE` is not in `SLOTS`, and `shows/hello.yaml` validates unchanged.
 
-## Decisions for Emma
+## Decisions for the maintainers
 
 Each has a reversible default already in place. The default is what the branch does today.
 

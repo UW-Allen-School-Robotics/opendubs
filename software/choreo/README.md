@@ -1,5 +1,7 @@
 # Choreography
 
+> **Numbering.** Item numbers such as (1.5) or (5.4), and "workplan proposal n", cite the plan as it stood when this was written, now kept as [`../../notes/design/choreo-prior-art.md`](../../notes/design/choreo-prior-art.md). The current plan of record is [`../../notes/workplan-choreography.md`](../../notes/workplan-choreography.md).
+
 A show is **data**, not code: a cue sheet listing what happens to which part of the robot, at
 what time. It is validated before anything moves, and the same validation runs here, in CI
 (`.github/workflows/choreo.yml`), and — once the runner exists — on the robot immediately before
@@ -54,9 +56,7 @@ caught when repeated too fast.
   the elbow folded, and *nothing in the arm controller stops it* — its only Cartesian guard is a
   1.2 m box that pose satisfies. A show must leave 25°, and may not raise an extended arm past
   ~135° (measured: 140 accepted, 146 refused on the box).
-- Beep frequency inside a **sanity bound** (150–8000 Hz) that catches typos and unit mix-ups. It
-  is not a measured speaker response — the earlier "what the speaker carries" band was a by-ear
-  judgement and was withdrawn. The upper edge is where the firmware clamps.
+- `SOUND` names a known sound: one of the Tab5's earcons, or a file in `sounds/` beside the show.
 - `FACE` and `LIGHT` against closed vocabularies taken from the firmware that would receive them.
 - Markers that name signals (`disco_ball_on`), never wiring (`relay3_on`).
 - No unknown keys: a typo is an error, not a silently ignored field.
@@ -66,8 +66,8 @@ caught when repeated too fast.
 Angles for the shoulder joints are written in each arm's **own outward sense**, so a show reads
 the same for both sides; the mirror is applied once, in the validator.
 
-**Valid is not executable.** `FACE emote` and `LIGHT` have no receiver yet, and `SOUND`'s
-`beep`/`chime` exist only on the Arduino face the ESP-IDF port is replacing. The validator prints
+**Valid is not executable.** `FACE emote`, `LIGHT` and `SOUND` have no receiver yet —
+no output device takes their commands over the network. The validator prints
 a `note:` for each every time; see the spec, §7.
 
 ## The composer

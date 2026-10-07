@@ -1,5 +1,7 @@
 # Show format v1 — the specification
 
+> **Numbering.** Item numbers such as (1.5) or (5.4), and "workplan proposal n", cite the plan as it stood when this was written, now kept as [`choreo-prior-art.md`](choreo-prior-art.md). The current plan of record is [`../workplan-choreography.md`](../workplan-choreography.md).
+
 **Status:** proposed, 2026-10-06. Implemented by `software/choreo/cue.py` (validator and exporter)
 on the `feat/choreo-composer` branch. This is workplan proposal 11: the format written down as a
 document, so that an agent can write a valid show from this page alone (workplan 6.4) without
@@ -34,9 +36,9 @@ Rules that are **new in v1** and could in principle refuse an old show (none of 
 |---|---|
 | unknown keys on a cue are refused | a typo such as `hold: 3` used to be ignored silently; a field only the author thinks matters is the mirror image of 0.4's "field only the validator knows about" |
 | a `LIFT` cue owns its slot for its full `secs`, not just an instant | an `up` for 6 s followed by a `down` 2 s later used to pass, which is two commands on one pair of relays |
-| `SOUND` cues own their slot for their audible length | the Tab5's player under ESP-IDF **refuses while busy** (`app_face/cues.h`), so an overlapping second sound is dropped, not mixed |
+| `SOUND` cues own their slot for their length | one sound effect at a time per show; the Tab5's player also refuses while busy (`app_face/cues.h`) |
 | `FACE` and `LIGHT` cues are validated against a closed vocabulary | 0.3: a slot either has a validator or is not in `SLOTS` |
-| the `SOUND` sanity bound's upper edge is 8000 Hz, was 12000 | the only receiver that implements `BEEP` (`firmware/tab5_face/src/main.cpp`) clamps to 8000 Hz; a validator must not pass what the receiver silently changes. This is the receiver's code, not a speaker measurement, and the comment says so |
+| `SOUND` plays named sound effects | DEC-11: a sound is a named effect on the show's output device, not a synthesized tone |
 
 ---
 
@@ -167,8 +169,7 @@ else touches this slot for a while". It extends the span; it never shortens it.
 | `HEAD` | command | `t` | `t + hold_s` | **unmeasured** — servo slew rate is not known |
 | `LIFT` `up`/`down` | command | `t` | `t + max(secs, hold_s)` | `secs` |
 | `LIFT` `stop` | command | `t` | `t + hold_s` | 0 |
-| `SOUND` `beep` | command | `t` | `t + max(ms/1000, hold_s)` | `ms`, default 120 (the firmware's default) |
-| `SOUND` `chime` | command | `t` | `t + max(0.39, hold_s)` | 0.39 s = the three tones in `tab5_face/src/main.cpp`, **if** `M5.Speaker.tone` plays them sequentially — not verified |
+| `SOUND` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the WAV file's length, else 0.5 s (span sizing only) |
 | `FACE`, `LIGHT` | command | `t` | `t + hold_s` | 0 — a state change, not a motion |
 
 A cue whose `start` falls before the previous cue on the same slot has ended is refused: "two
@@ -222,7 +223,7 @@ Leaving velocities empty is what asks `joint_trajectory_controller`'s spline int
 honours that convention is **not known**. If it interpolates with zero end-velocities (a cubic),
 the peak joint speed in each segment is **1.5×** the average the validator checked; a minimum-jerk
 quintic peaks at **1.875×**. The speed caps would then be exceeded mid-segment by up to that
-factor while every check passes. Two answers are possible and the choice is Emma's (report,
+factor while every check passes. Two answers are possible and the choice is the maintainers' (report,
 decision list): measure the controller's actual profile on the robot, or have the validator check
 `1.875 × average` against the cap until it is measured. v1 ships checking the average, unchanged,
 so `hello.yaml` keeps passing.
@@ -296,7 +297,7 @@ Unchanged from v0 unless marked **new**.
 | `GRIP_L`/`GRIP_R` | `do: open\|close` or `pos: m`, `effort` | per-side range, effort ≤ 5 | measured per side |
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |
-| `SOUND` | `do: beep` + `hz`, `ms`; or `do: chime` | 150–8000 Hz **sanity bound**, 10–3000 ms | `BEEP`/`CHIME` handler in `firmware/tab5_face/src/main.cpp` |
+| `SOUND` | `do: play`, `sound: <name>`, optional `secs` | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |
 | `FACE` **new** | `do: emote`, `name: NEUTRAL\|ALERT\|SQUINT\|SOFT\|SLEEPY` | closed vocabulary | `kEmotes[]` in `firmware/tab5_idf/app_face/app_face.cpp`, branch `feat/tab5-idf-subtractive` at `0e47085` |
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
 
@@ -320,9 +321,8 @@ failure) every time a show uses them:
   the runner must layer it (`behavior-api-scope.md`: `LIGHT` is *layered*) before it may run.
   The PRISM's firmware overlays (`NOT_READY` and friends) outrank the base layer, so a show
   cannot paint over them.
-- `SOUND beep`/`chime` — implemented by the Arduino face only. **The ESP-IDF face, which is
-  replacing it, implements neither**; it has six earcons (`Heard Attend Refuse Fault Mode Boot`)
-  and no network verb to trigger them. When the port lands, `SOUND` loses its receiver.
+- `SOUND play` — no output device takes a play-sound command over the network yet. Which device
+  plays it (tablet by default, Tab5, or Thor) is workplan item 1.5.
 
 Recording these as notices rather than refusing them keeps the vocabulary designable ahead of the
 firmware, while making it impossible to mistake "the validator accepted it" for "the robot will
@@ -482,5 +482,5 @@ position**:
 - **Net displacement ≈ 0 by construction** — moves come in cancelling pairs, so open-loop drift is
   the only thing that accumulates.
 
-This changes `SLOTS`, the authority model's treatment of the base, and the runner; it is Emma's
+This changes `SLOTS`, the authority model's treatment of the base, and the runner; it is the maintainers'
 call and is in the report's decision list. Nothing in v1 implements it.
