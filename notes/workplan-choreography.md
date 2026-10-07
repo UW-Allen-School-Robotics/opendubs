@@ -92,7 +92,7 @@ place; each points at the item that delivers it.
 | E10 | **The tablet plays shows; laptops compose them** | adopted | 4.4 |
 | E11 | **CH5 names fixed everywhere**, and the middle position meaning "a human commands" for arms too | open | 0.6 |
 | E12 | **Shows can use real songs** — MP3 and other common formats, loaded locally | in scope; works today | 1.6 |
-| E13 | **A leaner composer screen** — hover text on the less obvious controls, and the long validator notes minimised | open | 1.7 |
+| E13 | **A leaner composer screen** — hover text on the less obvious controls, and the long validator notes minimised | done 2026-10-07 | 1.7 |
 
 ---
 
@@ -123,7 +123,7 @@ place; each points at the item that delivers it.
 | 1.4 | **`dance:` moves (DEC-2):** named, time-limited, speed-capped, declared floor space, net displacement ≈ 0, as specified in format §12. Validated; executable only in the twin until 6.6. | A dance with a non-zero net displacement or undeclared floor space is refused. |
 | 1.5 | **Audio routing (DEC-5, DEC-11):** `music:` gains an `output:` (tablet / tab5 / thor, default tablet); `SOUND` becomes named effects with an output; the run-time override is the player's (4.4). | A show plays on any output without being edited, and an effect a given output cannot play is a validation error, not silence. |
 | 1.6 | **Song files (E12).** `music: file:` takes any format the playing device decodes — MP3, M4A/AAC, OGG, FLAC or WAV. Song files live beside the show and are **never committed** (the audio folder's `.gitignore` excludes them), because songs are usually copyrighted; the generated click track is the only committed demo. *Verified 2026-10-07: an M4A loads and decodes through the composer; the browser reports MP3, OGG and FLAC as playable. No MP3 was decoded, for want of an encoder on the test machine.* | An MP3 plays in the composer and on the tablet, in step with the grid. |
-| 1.7 | **Composer legibility (E13).** Hover text (and a long-press equivalent for touch) on every non-obvious control — snap, tap tempo, beat 1, click, mute, teach, the time-form fields. Validator notices collapse to a one-line count per kind, expandable; problems stay visible, on the offending cue. | The timeline gets the screen; a first-time user can learn every control by hovering. |
+| 1.7 | ~~Composer legibility (E13)~~ **DONE, 2026-10-07.** Hover text (and a long-press equivalent for touch) on every non-obvious control — snap, tap tempo, beat 1, click, mute, teach, the time-form fields. Validator notices collapse to a one-line count per kind, expandable; problems stay visible, on the offending cue. | The timeline gets the screen; a first-time user can learn every control by hovering. |
 
 ## Phase 2 — the body twin (MuJoCo)
 

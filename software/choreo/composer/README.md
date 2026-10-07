@@ -40,7 +40,8 @@ no internet.
 | **Drag to retime, tap to select, tap empty lane to seek, `+` to add** | pointer events; works with touch |
 | **Inspector** | the cue as authored, its resolved time and span (Polaris: show inferred values resolved), its problems, editable time form/value and fields |
 | **Violations on the offending cue**, in red, and a clickable problem list | the validator's own sentences, located by cue index |
-| **Notices** | "valid but not executable" verbs, a missing audio file |
+| **Notices** | folded to a one-line count under the problems; each note is one headline line, full text on hover |
+| **Hover text** | on every non-obvious control and readout; on a touch screen, a long press shows it |
 | **Per-lane mute** | preview only; stored in the browser, never in the show |
 | **Undo**, **save**, **YAML view** | the YAML view is exactly the text that will be saved |
 | **Teach (⦿) on the arm lanes** | captures a pose into a keyframe at the playhead — from a **FAKE** joint source in this build; see below |

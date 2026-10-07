@@ -35,6 +35,20 @@ function toast(msg, ms = 3200) {
   const el = $("toast"); el.textContent = msg; el.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => (el.hidden = true), ms);
 }
+/* Touch has no hover: a long press on anything with hover text shows that text as a toast. */
+(function longPressHelp() {
+  let timer = null, x = 0, y = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  document.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    const el = e.target.closest("[title]"); if (!el || !el.title) return;
+    x = e.clientX; y = e.clientY;
+    timer = setTimeout(() => toast(el.title, 4500), 550);
+  });
+  document.addEventListener("pointermove", (e) => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); });
+  document.addEventListener("pointerup", cancel);
+  document.addEventListener("pointercancel", cancel);
+})();
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -427,7 +441,7 @@ function renderPreview() {
     } else if (slot === "HEAD") {
       let pan = null, tilt = null;
       for (const e of evs) if (e.t <= t + 1e-9) { if (e.cue.pan !== undefined) pan = e.cue.pan; if (e.cue.tilt !== undefined) tilt = e.cue.tilt; }
-      row(slot, `pan ${pan === null ? "—" : pan.toFixed(0)}° · tilt ${tilt === null ? "—" : tilt.toFixed(0)}° <span class="dim">(target; slew time unmeasured)</span>`);
+      row(slot, `<span title="Commanded target. The head's slew time is unmeasured, so it may still be travelling">pan ${pan === null ? "—" : pan.toFixed(0)}° · tilt ${tilt === null ? "—" : tilt.toFixed(0)}°</span>`);
     } else if (slot === "LIFT") {
       let net = 0, active = null;
       for (const e of evs) {
@@ -438,7 +452,7 @@ function renderPreview() {
         if (t >= e.start && t < e.start + (e.cue.secs || 0)) active = e;
       }
       row(slot, (active ? `<span class="moving">${active.cue.do.toUpperCase()} ${(t - active.start).toFixed(1)} of ${active.cue.secs} s</span>` : '<span class="holding">relays off</span>')
-        + ` <span class="dim">· net up-time ${net.toFixed(1)} s (height unmeasured; a down is stopped by the pinch guard)</span>`);
+        + ` <span class="dim" title="Net time the lift has been driven up. Height per second is unmeasured, and a descent is stopped by the pinch guard near the bottom">· up ${net.toFixed(1)} s</span>`);
     } else if (slot === "SOUND") {
       const e = lastAt(evs, t);
       const on = e && t < e.end;
@@ -458,16 +472,29 @@ function renderPreview() {
 }
 
 /* ---------- validator output ---------- */
+// The first clause of a notice — up to a colon or dash — is its headline; the rest is on hover.
+function shortNote(n) {
+  const m = n.match(/^(.{12,90}?)(?::| — | - )/);
+  return m ? m[1] : (n.length > 90 ? n.slice(0, 88) + "…" : n);
+}
 function renderProblems() {
   const d = S.data, el = $("problems");
   if (d.parse_error) { el.innerHTML = `<p class="err">${esc(d.parse_error)}</p>`; return; }
   const items = tl().problems.map((p) => `<li data-cue="${p.cue ?? ""}" class="err">${esc(p.msg)}${p.clip ? ` <span class="dim">(clip ${esc(p.clip)}${p.instance !== null ? " #" + (p.instance + 1) : ""})</span>` : ""}</li>`);
-  for (const n of tl().notices) items.push(`<li class="notice note">note: ${esc(n)}</li>`);
-  el.innerHTML = items.length ? `<ul>${items.join("")}</ul>` : '<p class="dim">No problems. Valid means <i>allowed</i>, not <i>safe</i> — and not yet executable: there is no runner.</p>';
+  const probs = items.length ? `<ul>${items.join("")}</ul>`
+    : '<p class="ok" title="Valid means allowed, not safe — and nothing is executable yet: there is no runner">✓ no problems</p>';
+  // Notices are context, not errors: one line each (the full text on hover), folded by default.
+  const notes = tl().notices;
+  const open = store.get("notesOpen", false) ? " open" : "";
+  const notesHtml = notes.length ? `<details class="notices"${open}><summary>${notes.length} note${notes.length > 1 ? "s" : ""}</summary><ul>${
+    notes.map((n) => `<li class="notice note" title="${esc(n)}">${esc(shortNote(n))}</li>`).join("")}</ul></details>` : "";
+  el.innerHTML = probs + notesHtml;
+  const det = el.querySelector("details.notices");
+  if (det) det.addEventListener("toggle", () => store.set("notesOpen", det.open));
 }
 function renderInspector() {
   const el = $("inspector"), i = S.selected, a = (S.data && S.data.authored) || [];
-  if (i === null || !a[i]) { el.innerHTML = '<p class="dim">Tap a cue to inspect it. Tap an empty lane to move the playhead; <b>+</b> adds a cue there.</p>'; return; }
+  if (i === null || !a[i]) { el.innerHTML = '<p class="dim" title="Tap an empty lane to move the playhead; + on a lane adds a cue there; drag a cue to retime it">Tap a cue to inspect it.</p>'; return; }
   const c = a[i], form = "t" in c ? "t" : "beat" in c ? "beat" : "bar" in c ? "bar" : "t";
   const rest = {}; for (const [k, v] of Object.entries(c)) if (!["t", "beat", "bar"].includes(k)) rest[k] = v;
   const evs = []; for (const v of Object.values(tl().tracks)) for (const e of v) if (e.src.index === i) evs.push(e);
