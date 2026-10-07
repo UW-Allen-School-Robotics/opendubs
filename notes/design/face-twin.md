@@ -26,7 +26,7 @@ existing desktop SDL build (`firmware/tab5_idf/build.sh desktop`) — grown into
 | FT-5 | **Where themes are authored.** | **Text files first,** previewed live in the twin. A theme is a folder under **`firmware/tab5_idf/themes/`**: a JSON file in the schema `face-config-data-model.md` specifies (keyed by state name; reserved states absent) plus its image assets. A validator checks it in CI the way `cue.py` checks a show; the twin reloads on save. An editing UI may come later and writes the same files. |
 | FT-6 | **Background images.** | **Pre-rendered offline** to the panel's native format, so the head decodes nothing (its PNG/JPEG decoders are off, and the device build reads Kconfig, not `lv_conf.h` — `tab5-platform.md` §6a0). **Storage is open between two places:** the unused 5.5 MB `storage` partition, and **the Tab5's SD card**, which is not implemented yet but would hold far more and could be swapped. Cost is measured comparatively on the twin before full-screen backgrounds are allowed (see §3). |
 | FT-7 | **Simulated inputs.** | **Keyboard first,** in the twin window, with the same inputs settable by command so the bridge or a script can drive them. Each is labelled as simulated on screen. A panel may come later. |
-| FT-8 | **Three Tab5 issues found while writing this.** | **Handed to the Tab5 work plan**, which owns them: an ungated 18-second theme toggle that ships to the robot (`app_face.cpp:1705-1715`); state numbers 4/5/6 still hard-coded in five places (`:1434, 1448, 1454, 1701, 1793-1796`); and a possibly wrong no-link display on the desktop build (`:1509`, unverified). The twin's development should not rely on (a) or (c) until that plan resolves them. |
+| FT-8 | **Three Tab5 issues found while writing this.** | **Resolved in the Tab5 work plan** (branch `feat/tab5-idf-subtractive` at `0b04dfe`): the theme toggle was **already gated** (`afd3153`) — this note read a stale copy; state checks now test **named properties** (`stateFault()`, `stateCharging()`) instead of numbers, with `fault` kept deliberately separate from `reserved` (one is behaviour, the other styling); and the no-link face was **wrong on the head too**, not only on the desktop — boot now shows NO LINK until the robot is heard from. **For the twin work:** every `kStates` row now needs `fault` and `charging` fields, and the no-link fix lives in shared code, so the twin must not re-fix it. |
 
 ---
 
@@ -155,7 +155,7 @@ Each step states its question and kill criterion, mapped onto the plan's 3.2–3
 
 | step | question | done when / kill criterion |
 |---|---|---|
-| **0** | FT-8's three issues, resolved (or declined) **in the Tab5 work plan** | the twin work does not depend on the bench theme toggle or the no-link display until they are |
+| ~~**0**~~ | ~~FT-8's three issues~~ **DONE in the Tab5 work plan, `0b04dfe`** | — |
 | **3.2a** | Can the desktop build listen on localhost and obey the head's existing verbs? | `STATE` and `PING` work on the twin, unchanged |
 | **3.2b** | Twin input panel (FT-7) | every input in §1's table can be simulated, and is labelled as such |
 | **3.2c** | New verbs `EMOTE`, `THEME`, `CUE` on head and twin together (FT-4) | the same line changes both, verified on the twin, then on the head |
