@@ -275,6 +275,13 @@ struct St {
     uint8_t r, g, b;
     int  locked;      // < 0 = the face may emote freely in this state
     bool reserved;    // colour is never themed, and the firmware enforces it
+    // `fault` is deliberately NOT `reserved`, even though the same two states carry both today --
+    // that coincidence is precisely the trap. `reserved` is a RENDERING rule: no theme may recolour
+    // this. `fault` is a BEHAVIOURAL one: something is wrong, so the head must not move on its own
+    // and the fault cue latches. Reusing one for the other couples a safety decision to a styling
+    // decision, and the first state that needs one without the other would silently get both.
+    bool fault;       // something is wrong: motion inhibited, fault cue latched, band flashes
+    bool charging;    // the band shows pack SOC as a gauge
 };
 // Ported from firmware/tab5_face/src/hmi.cpp. The chip shows the state's NAME large and this
 // underneath it: an operator who does not know the vocabulary still learns what the robot is
@@ -291,20 +298,30 @@ const char* stateDesc(const char* n)
 }
 
 const St kStates[] = {
-    //  name         label        r    g    b   locked emote  reserved
-    {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL, false},
-    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, -1,         false},
-    {"MANUAL",     "MANUAL",     242, 246, 251, -1,         false},
-    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1,         false},
-    {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT,  true },
-    {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT,   true },
+    //  name         label        r    g    b   locked emote  resvd  fault  charging
+    {"INIT",       "INIT",       223, 231, 240, EM_NEUTRAL, false, false, false},
+    {"SAFE_IDLE",  "SAFE IDLE",   46, 204,  88, -1,         false, false, false},
+    {"MANUAL",     "MANUAL",     242, 246, 251, -1,         false, false, false},
+    {"AUTONOMOUS", "AUTONOMOUS",   0, 176, 235, -1,         false, false, false},
+    {"DEGRADED",   "DEGRADED",   243, 182,  74, EM_SQUINT,  true, true,  false},
+    {"E_STOP",     "E-STOP",     255,  77,  77, EM_ALERT,   true, true,  false},
     // CHARGING no longer pins an emote. Charging is a CONDITION TO DISPLAY, not a mood to adopt:
     // the level goes on the band and the eyes stay free to be attending or idle as the situation
     // warrants -- which also settles the "charging is not necessarily idle" objection without
     // having to decide it, because the face no longer has to claim either.
-    {"CHARGING",   "CHARGING",     0, 196, 168, -1,         false},
+    {"CHARGING",   "CHARGING",     0, 196, 168, -1,         false, false, true },
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
+
+// ASK THE STATE WHAT IT IS, never where it sits. Five checks compared g_state against 4, 5 and 6
+// directly -- two of them deciding whether the head may move, two latching the fault cue -- so
+// inserting or reordering a state silently retargeted the safety behaviour. The struct comment
+// above already made this argument for `reserved`; these are the rest of that job.
+//
+// Both tolerate an out-of-range index, because g_linkState is -1 whenever the robot's state is
+// unknown and "unknown" must not read as "faulted" or as "charging".
+bool stateFault(int idx)    { return idx >= 0 && idx < kNStates && kStates[idx].fault; }
+bool stateCharging(int idx) { return idx >= 0 && idx < kNStates && kStates[idx].charging; }
 int g_state = 1;                       // SAFE_IDLE, as ui_shared.cpp defaults
 uint32_t g_nextState = 0;
 
@@ -1330,7 +1347,12 @@ void AppFace::onOpen()
     // calls lv_label_set_text(), so when the lock was released earlier this was an
     // unsynchronised LVGL write during startup -- AUDIT.md invariant 1, the class of bug that
     // froze this face before.
-    applyState(g_state);
+    // NO LINK, NOT SAFE_IDLE. g_state initialises to 1 (SAFE_IDLE) as a seed value, so calling
+    // applyState() here painted the eyes GREEN -- the face asserting "motion disabled, all well"
+    // before it had heard a single word from the robot. applyNoLink()'s own comment calls that out
+    // as the lie it exists to prevent. Not a desktop-only problem, which is how it was first
+    // reported: on the robot the same green frame covers Wi-Fi association and the first telemetry.
+    applyNoLink();
     applyEmote(0);
 
     // THE EYES START SHUT, and the boot reads as the robot waking up instead of a face appearing.
@@ -1431,7 +1453,7 @@ void AppFace::onRunning()
     // so the head is ticked exactly once per frame either way.
     if ((settingsOwnsPanel() || hmiOwnsPanel()) && !netOtaActive()) {
         const bool known   = g_linkUp && g_linkState >= 0;
-        const bool stopped = (g_state == 4 || g_state == 5);        // DEGRADED, E_STOP
+        const bool stopped = stateFault(g_state);
         pantiltTick(now, known && !stopped, false, 0.0f, 0.0f, 0.0f);
     }
 
@@ -1445,13 +1467,13 @@ void AppFace::onRunning()
     // moving eyes. Audio still ticks, because a fault announcement must not be silenced by a
     // firmware update.
     if (netOtaActive()) {
-        cueFaultActive(g_state == 4 || g_state == 5);
+        cueFaultActive(stateFault(g_state));
         cueTick(now);
         return;
     }
 
     if (settingsOwnsPanel() || hmiOwnsPanel()) {
-        cueFaultActive(g_state == 4 || g_state == 5);   // DEGRADED, E_STOP
+        cueFaultActive(stateFault(g_state));
         cueTick(now);
         return;
     }
@@ -1506,7 +1528,13 @@ void AppFace::onRunning()
             if (idx < 0) mclog::tagError("link", "unknown STATE '{}' -- treating as no link", name);
         }
 
-        if (up != g_linkUp || idx != g_linkState) {
+        // THE FIRST OBSERVATION ALWAYS APPLIES. This was change-detection against the initial
+        // values -- and the first poll's answer when nothing has been heard (up=false, idx=-1) is
+        // EXACTLY those values, so the no-link presentation was never applied at all. A state is
+        // only "unchanged" once something has actually been observed.
+        static bool applied = false;
+        if (!applied || up != g_linkUp || idx != g_linkState) {
+            applied     = true;
             g_linkUp    = up;
             g_linkState = idx;
             GetHAL()->lvglLock();
@@ -1718,7 +1746,7 @@ void AppFace::onRunning()
     // -- so "unknown" reads as "do not move" rather than "assume idle".
     {
         const bool known   = g_linkUp && g_linkState >= 0;
-        const bool stopped = (g_state == 4 || g_state == 5);        // DEGRADED, E_STOP
+        const bool stopped = stateFault(g_state);
         pantiltTick(now, known && !stopped, haveGaze, gi.nx, gi.ny, gi.confidence);
     }
 
@@ -1817,10 +1845,10 @@ void AppFace::onRunning()
 
     // FAULT is not a choice: the two reporting states that mean something is wrong own it, and a
     // theme can never recolour or re-time it into ambiguity.
-    if (g_state == 4 || g_state == 5) {                    // DEGRADED, E_STOP
+    if (stateFault(g_state)) {
         band::g_activity = band::FAULT;
         cueFaultActive(true);
-    } else if (g_state == 6) {                             // CHARGING
+    } else if (stateCharging(g_state)) {
         cueFaultActive(false);
         band::g_activity = band::GAUGE;
         // Bench stand-in: walk the level so it is visibly a gauge. On the robot this is the
