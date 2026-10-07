@@ -1662,6 +1662,22 @@ void AppFace::onRunning()
         }
         if (!g_tracking) {
             g_tracking = true;
+            // A PERSON ARRIVED. React once, then let the idle behaviour resume -- an emote is a
+            // momentary reaction to an event, NOT a mood that persists. That boundary is what keeps
+            // this from turning into an emotional model, and it is the same shape as the earcons:
+            // `Attend` has existed unwired since 1.3 waiting for exactly this trigger.
+            //
+            // Only where the face is free. DEGRADED and E_STOP pin an emote because they are
+            // communicating something, and noticing a person must not talk over that.
+            if (kStates[g_state].locked < 0) {
+                GetHAL()->lvglLock();
+                applyEmote(EM_SOFT);
+                GetHAL()->lvglUnlock();
+                // Hold the reaction briefly against the random cycler, which would otherwise
+                // overwrite it within a second or two and make the response look like noise.
+                g_nextEmote = now + 6000;
+            }
+            cuePlay(Cue::Attend);
             // ONLY IF ASKED FOR. The reticle was created hidden and then unhidden by this line
             // whenever perception tracked, with nothing gating it -- so on a robot it was a box
             // chasing people across the face. Now behind SETTINGS -> Tracking reticle, off by
@@ -1682,6 +1698,10 @@ void AppFace::onRunning()
     } else {
         if (g_tracking) {
             g_tracking = false;
+            // They left. Return to the idle behaviour rather than holding the reaction -- and do
+            // NOT play a cue for it: a sound on every departure would make the robot chatter at an
+            // empty room, which is the failure the band already demonstrated.
+            if (kStates[g_state].locked < 0) g_nextEmote = now;
             GetHAL()->lvglLock();
             lv_obj_add_flag(g_reticle, LV_OBJ_FLAG_HIDDEN);
             GetHAL()->lvglUnlock();
@@ -1704,6 +1724,12 @@ void AppFace::onRunning()
 
     // Bench only: alternate plain and themed so the difference is visible and the reserved
     // fault colours can be seen passing through untouched.
+    //
+    // NOW GATED. This was the last instrument still shipping: a release build changed the face's
+    // decorative theme every 18 seconds on a robot in a room, which is the one parked item that was
+    // active misbehaviour rather than a missing nicety. A theme is a deliberate choice, not
+    // something the face should cycle through on its own.
+#if OPENDUBS_DBG_UI
     static uint32_t nextTheme = 18000;
     if (due(now, nextTheme)) {
         nextTheme = now + 18000;
@@ -1713,6 +1739,7 @@ void AppFace::onRunning()
         applyState(g_state);
         GetHAL()->lvglUnlock();
     }
+#endif
 
     // BENCH ONLY. With no StamPLC link the bench walks the states so every colour can be seen --
     // but on a robot this is a face cycling through DEGRADED and E-STOP on a six-second timer,

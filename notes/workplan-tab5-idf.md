@@ -44,7 +44,7 @@ getting the function and the aesthetics right. Trying things is the point; untra
 | 1.3b | ~~Beep enable and volume~~ **MOSTLY DONE, 2026-10-05.** Audio enable, volume and on-screen telemetry are resident on the Tab5 in `app_face/ui_settings.cpp`, reachable from the HMI's SETTINGS button, and persisted in NVS. **THE RESERVATION QUESTION IS CLOSED, and the answer is that there is nothing to reserve:** Emma's call, 2026-10-05 — "we work in an academic lab and there's not much that this robot can legitimately know and communicate is wrong - I see beeps as part of demos and 'fun' uses of the robot - not routine." So a global mute MAY silence `Fault` as well; no exemption, no volume floor, no visibly-muted annunciation. The `face-config.md` reservation rule still stands for things that *are* safety communication — it simply does not apply to the earcons. **The interesting direction is voice, not beeps** (1.5), which is not implemented. Remaining: the dashboard as the editor rather than the owner. | Routine cues can be turned down to nothing; the fault cue is explicitly not special. |
 | 1.4 | ~~Face detection — the **flash cost** half~~ **MEASURED, 2026-10-05, see below.** `esp-dl` resolves, compiles and links; the cost is **+0.75 MB of app image and a 187 KB model partition**, leaving ~30% free in the 5 MB OTA slot. Detections/second and quality still need the camera and a face. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
 | **1.6** | **Turning to look — head motion as the gaze output.** See [`design/head-turn-gaze.md`](design/head-turn-gaze.md). Face tracking currently terminates at the EYES: the attention target moves the pupils and the chain ends. The robot has a pan/tilt head and **nothing closes the loop from "I see a person" to "turn toward them"** — in the Arduino firmware `TURN L/R` comes from outside and `PANTILT` is an operator D-pad mode, so the head has never moved because the robot noticed someone. At room distance an eye shifting a few dozen pixels is nearly invisible; **a head that turns is the signal.** Eyes lead and the head follows, the re-centring IS the vestibulo-ocular reflex, and the existing confidence grading decides commitment: **a glance never moves the head.** Also reframes the detector's 1.1 m limit — range and legibility are separate problems and we had been treating only one. | **Only verifiable on the robot** (the bench Tab5 has no pan/tilt). The control law, slew limiting, bounds and the eyes-only fallback are host-testable; the *feel* is not. Every threshold ships as a named placeholder until someone watches it turn. |
-| 1.5 | **Voice, as a probe.** Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
+| 1.5 | ~~**Voice, as a probe.**~~ **MOVED to [`workplan-tab5-audio.md`](workplan-tab5-audio.md), 2026-10-07** — it is that plan's first measurement rather than a loose end of this one. Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
 
 #### 1.4 measured, 2026-10-05 — flash cost only
 
@@ -264,6 +264,11 @@ graphics question on a computer-vision result.
 
 ### 1.3a — The choreography creator, as the home for configuration  ·  **data model DONE, see [`design/face-config.md`](design/face-config.md)**
 
+**OWNED ELSEWHERE, 2026-10-07: 1.3a has its own branch and its own workplan and is being worked
+in a separate session. Do not plan, edit or implement it from here** -- treat this section as
+background only. Flagged because two sessions editing one workplan file is how merge conflicts
+and duplicated decisions happen.
+
 **Taken up immediately after the simulator work, and deliberately so**: the face now has several
 things that are *configuration* rather than code — themes, the emote vocabulary, the state→colour
 table, the band's motion vocabulary, the earcon set — and they are currently all compiled-in C
@@ -302,7 +307,16 @@ them was just designed and the shape of the data is fresh.
 **Not** to be built in this step: the editor UI, or the transport. The deliverable is the data model
 and the boundary of what may be authored.
 
-### 1A — The Tab5 as a dashboard
+### 1A — The Tab5 as a dashboard · **RETIRED, 2026-10-07**
+
+
+**Retired at Emma's direction, 2026-10-07: dashboard features get added SELECTIVELY, when something
+actually needs them, rather than porting a working HTML dashboard onto the panel wholesale.** The
+operator's tablet already serves that audience well. Nothing here is lost -- the panel is still a
+1280x720 touchscreen and the HMI already carries the controls that belong in front of the robot --
+but "put the dashboard on the face" is no longer a goal, so it stops being an open item. The
+JPEG-streaming route in [`design/tab5-platform.md`](design/tab5-platform.md) remains the cheap way
+in IF a specific page is ever wanted.
 
 Not to be lost: the Tab5 is a 1280×720 touchscreen on the front of the robot, and the dashboard
 already exists as HTML on the Thor.
@@ -341,7 +355,10 @@ already exists as HTML on the Thor.
   screen is the genuinely novel thing the panel can do, because the person who needs it is the one
   who walked over.
 
-### 1B — Communication architecture, Tab5 ↔ Thor
+### 1B — Communication architecture, Tab5 <-> Thor · **MOVED to [`workplan-tab5-audio.md`](workplan-tab5-audio.md), 2026-10-07**
+
+*Kept here for context only. It is the transport layer of the audio pipeline, so it is owned
+by that plan now and must not be tracked in two places.*
 
 This is about *how* and about efficiency, and it is the piece most likely to be underestimated.
 
@@ -564,9 +581,22 @@ In order, and not before Phase 4 is done:
 
 Filled in during Phase 2. Every entry needs an owner question for Phase 5.
 
-| Stubbed | Why | Phase 5 check |
+Filled 2026-10-07, at the close of the port. Everything that was nerfed is now resolved, so this
+is a record of what was stubbed and how it ended rather than a list of outstanding work.
+
+| Stubbed | Why | Outcome |
 |---|---|---|
-| *(to be filled)* | | |
+| **Touch (GT911)** | The IDF bring-up left the controller ACKing I2C with its scan engine never started | **FIXED** — M5GFX INT-pin sequence. Root cause and the five things it was NOT: [`history/tab5-gt911-touch-root-cause.md`](history/tab5-gt911-touch-root-cause.md) |
+| **Pan/tilt (8Servo 0x25)** | No I2C driver in the IDF port | **DONE** — `app_face/pantilt.cpp`, per-axis sign, tilt limits read from on-robot NVS, driven by gaze, RC and the d-pad |
+| **Front ToF (0x29)** | No driver; which part was fitted was unknown | **DONE** — identified as a VL53L0X on the robot, `app_face/tof.cpp`, verified by hand. See F5 |
+| **Lift pages** | Drawn but inert; `commandBox()` never set `LV_OBJ_FLAG_CLICKABLE` | **DONE** — `MAST CMD` to the StamPLC, hold-to-move, gate annunciated when the robot will refuse |
+| **The StamPLC UDP link** | One direction only, and the state chip had no source at all | **DONE** — `ESTOP`/`MAST CMD` out, state derived from the StamPLC's own telemetry broadcast, address resolved by mDNS |
+| **OTA** | USB-only | **DONE** — `OTA <url>` over UDP, dual-slot with rollback, and rollback has fired for real |
+| **Emote channel** | Shapes ported; nothing selected them outside a bench cycler | **DONE (interim)** — random on unpinned states + a perception reaction. What an emote should MEAN is F1, still open |
+| **Perimeter band** | Driven by a bench cycler, not by anything real | **SUPPRESSED** behind `OPENDUBS_FACE_BAND` — Emma's call. F2 holds the question of whether motion can earn its place |
+| **Audio cues `Heard` / `Attend`** | Written, nothing triggered them | **`Attend` now fires on a person arriving.** `Heard` still awaits the mic — it belongs to [`workplan-tab5-audio.md`](workplan-tab5-audio.md) |
+| **Voice (1.5), Tab5<->Thor comms (1B)** | Never started | **MOVED** to [`workplan-tab5-audio.md`](workplan-tab5-audio.md) |
+| **Tab5 as a dashboard (1A)** | Never started | **RETIRED** — features get added selectively, not ported wholesale |
 
 ---
 
@@ -758,3 +788,28 @@ for whether motion can earn its place.
 **SETTINGS -> Tracking reticle**, default OFF, persisted in NVS. It was created hidden and then
 unhidden whenever perception tracked, with nothing gating it — a box chasing people across the
 face. Closes **P2** in the polish backlog.
+
+---
+
+## What closes this plan — 2026-10-07
+
+The port is done. After retiring 1A and moving 1.5/1B to
+[`workplan-tab5-audio.md`](workplan-tab5-audio.md), these are the only items left, and none is
+large:
+
+| # | item | state |
+|---|---|---|
+| 1 | **The 18 s theme toggle** — a release build changed decorative theme every 18 s | **DONE 2026-10-07**, now behind `OPENDUBS_DBG_UI`. This was the last instrument still shipping |
+| 2 | **Stub register** | **DONE 2026-10-07** — filled above |
+| 3 | **F1 — perception-driven emote** | **DONE 2026-10-07 (the easy win)**: a person arriving fires `EM_SOFT` + the `Attend` cue, held 6 s against the random cycler; departure returns to idle with no cue. The DECISION — what an emote should mean in general — stays open and is deliberately not being answered by this increment |
+| 4 | **F2 — the band** | **DECIDED**: stays suppressed. Revisit only with a real motion source, which the audio plan may supply |
+| 5 | **Scripted OTA-rollback test** | **OPEN** — Phase 5 item 3. Rollback has fired twice by accident; a deliberate, repeatable version is still worth having |
+| 6 | **1.3b — the dashboard as the settings editor rather than the owner** | **OPEN**, one line, and arguably belongs with 1.3a's configuration work |
+
+So: **one real open item (5) and one that may move (6).** Everything else is closed, decided, moved
+or retired.
+
+### Deliberately NOT in this plan any more
+
+1A (retired), 1.5 and 1B (audio plan), 1.3a (its own branch and session — do not plan it from here),
+HEIGHT over UDP (the StamPLC owns that sensor; the panel must not borrow the ToF's number).
