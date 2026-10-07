@@ -33,4 +33,4 @@ rsync -az --delete "$ARM/meshes/collision" "$HOST:$DEST/frontend/assets/arm/mesh
 echo "== running provisioning on $HOST =="
 ssh "$HOST" "sudo bash $DEST/deploy/provision.sh"
 
-echo "== deployed. Restart the kiosk with:  ssh $HOST sudo systemctl restart gdm =="
+echo "== deployed. Reload the dashboard on the tablet to pick up frontend changes. =="
