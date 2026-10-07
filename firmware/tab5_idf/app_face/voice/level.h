@@ -20,17 +20,52 @@
 #pragma once
 #include <stdint.h>
 
-// Per-channel level of one block of INTERLEAVED STEREO samples, as RMS on the int16 full scale
-// (0 .. 32768). The HAL records stereo; the two channels are the two microphones and their
-// DIFFERENCE is the entire direction signal, so they are never mixed down before this point.
+// ---- THE CAPTURE BUFFER LAYOUT, which is NOT what the Arduino bench recorded ----------------
+//
+// This is the single most important difference between bench_mic and the IDF app, it is invisible
+// if assumed, and getting it wrong yields plausible-looking garbage rather than an error. Read from
+// the vendor's own source, not guessed:
+//
+//   * `hal.h` declares `audioRecord(std::vector<int16_t>&, uint16_t durationMs, float gain)` and
+//     documents the buffer as `[MIC-L, AEC, MIC-R, MIC-HP]` -- FOUR interleaved channels.
+//   * `hal_audio.cpp` sizes it `48000 * 4 * durationMs / 1000`, so the rate is 48 kHz and the
+//     channel count is 4.
+//   * the vendor's own dual-mic test confirms the offsets by using them:
+//         out[i*2 + 0] = in[i*4 + 0];   // MIC-L
+//         out[i*2 + 1] = in[i*4 + 2];   // MIC-R
+//
+// bench_mic/main.cpp, by contrast, called `M5.Mic.record(rec, n, 16000, true)` -- the Arduino
+// M5Unified path, 16 kHz and two channels at stride 2. So the two microphones are at stride 4
+// offsets 0 and 2 here, NOT at offsets 0 and 1, and a block is three times as many samples per
+// millisecond as the bench's. The workplan called this a port rather than a wire-up; this is what
+// it meant.
+//
+// The AEC slot at offset 1 is in the stream LAYOUT, which is not the same as it carrying a usable
+// reference: `design/tab5-platform.md` records that the ES7210 has MIC34_PDN=0xFF, so the AEC
+// reference inputs are powered down. Settled, and not re-derived here -- it is why the echo
+// decision is half-duplex. The slot is named below only so nobody mistakes it for a microphone.
+constexpr int kVoiceRate   = 48000;   // hal_audio.cpp, i2s_reconfig_clk_fn(48000, 16, ...)
+constexpr int kVoiceChans  = 4;       // [MIC-L, AEC, MIC-R, MIC-HP]
+constexpr int kVoiceMicL   = 0;
+constexpr int kVoiceAecRef = 1;       // powered down on this board. Not a microphone
+constexpr int kVoiceMicR   = 2;
+constexpr int kVoiceMicHp  = 3;       // the 3.5 mm headset mic, not the on-board pair
+
+// Level of the two ON-BOARD microphones for one block, as RMS on the int16 full scale
+// (0 .. 32768). Their DIFFERENCE is the entire direction signal, so they are never mixed down
+// before this point.
 struct VoiceLevel {
     float l;
     float r;
     float mean() const { return (l + r) * 0.5f; }
 };
 
-// `frames` is sample PAIRS, not array elements: `samples` holds frames*2 int16s.
+// `frames` is sample FRAMES, not array elements: `samples` holds frames * kVoiceChans int16s, and
+// this reads only offsets kVoiceMicL and kVoiceMicR out of each frame.
 VoiceLevel voiceLevel(const int16_t* samples, int frames);
+
+// Frames in a block of `ms` at the capture rate. 32 ms is 1536 frames -- 6144 int16s, 12 kB.
+constexpr int voiceFramesForMs(int ms) { return kVoiceRate * ms / 1000; }
 
 // ---- the noise floor -------------------------------------------------------------------------
 //

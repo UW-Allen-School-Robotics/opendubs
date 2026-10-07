@@ -39,13 +39,17 @@ VoiceLevel voiceLevel(const int16_t* samples, int frames)
     VoiceLevel out{0.0f, 0.0f};
     if (!samples || frames <= 0) return out;
 
-    // Accumulate in double. At 16 kHz a one-second block is 16000 squares of up to 2^30, which
+    // Accumulate in double. At 48 kHz a one-second block is 48000 squares of up to 2^30, which
     // overflows a 32-bit int and loses the top bits of a float32 mantissa long before that. The
     // bench used double here for the same reason.
     double a = 0.0, b = 0.0;
     for (int i = 0; i < frames; ++i) {
-        const double x = samples[2 * i];
-        const double y = samples[2 * i + 1];
+        // STRIDE 4, OFFSETS 0 AND 2. See level.h: the HAL hands back
+        // [MIC-L, AEC, MIC-R, MIC-HP] and the AEC and headset slots are skipped. Reading this as
+        // stride-2 stereo -- which is what the Arduino bench recorded -- would silently mix the
+        // dead AEC slot into the right channel and bias every direction verdict leftward.
+        const double x = samples[kVoiceChans * i + kVoiceMicL];
+        const double y = samples[kVoiceChans * i + kVoiceMicR];
         a += x * x;
         b += y * y;
     }

@@ -47,22 +47,37 @@ bool fail(const char* fmt, ...)
 }
 
 // ---- synthetic stimulus ----------------------------------------------------------------------
-// A 32 ms block at 16 kHz, matching what bench_mic actually recorded (512 frames). Deterministic:
-// a sine at a fixed phase, so the same input every run means a failure is a regression and not a
-// dice roll.
-constexpr int kRate   = 16000;
-constexpr int kFrames = 512;
+// A 32 ms block in THE DEVICE'S REAL CAPTURE FORMAT: 48 kHz, four interleaved channels,
+// [MIC-L, AEC, MIC-R, MIC-HP]. Not the Arduino bench's 16 kHz stereo -- see level.h. The test
+// builds what audioRecord() actually hands back, because a test that feeds a format the device
+// never produces proves nothing about the device.
+//
+// Deterministic: a sine at a fixed phase, so the same input every run means a failure is a
+// regression and not a dice roll.
+constexpr int kFrames = voiceFramesForMs(32);   // 1536 at 48 kHz
 
-int16_t g_blk[kFrames * 2];
+int16_t g_blk[kFrames * kVoiceChans];
+
+// THE DECOY, and it is the point of filling these slots at all. The AEC and headset slots are
+// loaded with a loud, OPPOSITELY-leaning signal that no microphone produced. If voiceLevel() ever
+// reverts to reading the buffer as stride-2 stereo -- the single most plausible regression in this
+// file, because it is what the bench did and what every reader will assume -- it picks up this
+// decoy instead of MIC-R and the direction cases fail loudly. A zero-filled slot would have let
+// that bug pass.
+constexpr float kDecoyAmp = 14000.0f;
 
 // `ampL`/`ampR` are int16 peak amplitudes, so the RMS of each channel is amp/sqrt(2).
 const int16_t* block(float ampL, float ampR)
 {
     for (int i = 0; i < kFrames; ++i) {
-        const float ph = 6.2831853f * 440.0f * (float)i / (float)kRate;
+        const float ph = 6.2831853f * 440.0f * (float)i / (float)kVoiceRate;
         const float s  = sinf(ph);
-        g_blk[2 * i]     = (int16_t)(s * ampL);
-        g_blk[2 * i + 1] = (int16_t)(s * ampR);
+        int16_t* f = &g_blk[kVoiceChans * i];
+        f[kVoiceMicL]   = (int16_t)(s * ampL);
+        f[kVoiceMicR]   = (int16_t)(s * ampR);
+        // Powered down on the real board; here, deliberately wrong. See kDecoyAmp.
+        f[kVoiceAecRef] = (int16_t)(s * kDecoyAmp);
+        f[kVoiceMicHp]  = (int16_t)(-s * kDecoyAmp);
     }
     return g_blk;
 }
@@ -385,7 +400,9 @@ bool caseWrap()
 bool voiceSelfTest(VoiceSelfTestSink sink)
 {
     g_sink = sink;
-    say("voice self-test: %d-frame blocks at %d Hz (%d ms)", kFrames, kRate, kFrames * 1000 / kRate);
+    say("voice self-test: %d-frame blocks at %d Hz, %d ch [L,AEC,R,HP] (%d ms, %d kB)",
+        kFrames, kVoiceRate, kVoiceChans, kFrames * 1000 / kVoiceRate,
+        (int)sizeof(g_blk) / 1024);
 
     struct Case { bool (*fn)(); const char* name; };
     const Case cases[] = {
