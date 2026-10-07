@@ -803,8 +803,8 @@ large:
 | 2 | **Stub register** | **DONE 2026-10-07** — filled above |
 | 3 | **F1 — perception-driven emote** | **DONE 2026-10-07 (the easy win)**: a person arriving fires `EM_SOFT` + the `Attend` cue, held 6 s against the random cycler; departure returns to idle with no cue. The DECISION — what an emote should mean in general — stays open and is deliberately not being answered by this increment |
 | 4 | **F2 — the band** | **DECIDED**: stays suppressed. Revisit only with a real motion source, which the audio plan may supply |
-| 5 | **Scripted OTA-rollback test** | **OPEN** — Phase 5 item 3. Rollback has fired twice by accident; a deliberate, repeatable version is still worth having |
-| 6 | **1.3b — the dashboard as the settings editor rather than the owner** | **OPEN**, one line, and arguably belongs with 1.3a's configuration work |
+| 5 | **Scripted OTA-rollback test** | **DONE 2026-10-07** — [`firmware/tab5_idf/test-rollback.sh`](../firmware/tab5_idf/test-rollback.sh). PASS on the robot: baseline app1/3fd5867a, unmarked image booted PENDING_VERIFY and stayed there past the healthy window, reboot reverted to app1/3fd5867a |
+| 6 | **1.3b — the dashboard as the settings editor rather than the owner** | **CLOSED 2026-10-07 — the mechanism is CFG.** Authored data is pulled by the head, which validates it and owns the result; the Thor is the editor and never the owner. That was the whole of the ask. Building a particular editor UI is choreography 3.4's customisation-tool work, not this plan's |
 
 So: **one real open item (5) and one that may move (6).** Everything else is closed, decided, moved
 or retired.
@@ -871,3 +871,31 @@ Two lessons worth keeping:
 - **The first mount FORMATS 5.5 MB and that takes tens of seconds.** It runs on its own task, not on
   `cmdTask` -- which is also the 20 Hz lift publisher. A command socket that goes quiet is an
   annoyance; a lift heartbeat that stops mid-press is not.
+
+---
+
+# CLOSED — 2026-10-07
+
+**The Tab5 ESP-IDF port is done.** Every item in this plan is complete, decided, moved or retired,
+and the last open one — the scripted rollback test — passed on the robot today.
+
+What the head does now, all verified on the robot rather than at a bench: the face with seven
+states, emotes and themes; touch, root-caused and fixed; the HMI with every control live; pan/tilt
+driven by gaze, RC and hand, with manual aiming that holds; the lift and soft e-stop to the StamPLC
+with their gate annunciated; robot state derived from the StamPLC's own telemetry; a VL53L0X front
+ToF; OTA with rollback, now tested deliberately; authored configuration pulled, validated and
+persisted; and a desktop twin driven by the same command parser, with simulated inputs.
+
+**Where the remaining work lives, so nothing is lost by closing this:**
+
+| | |
+|---|---|
+| Two-way voice, the mic, transport to the Thor | [`workplan-tab5-audio.md`](workplan-tab5-audio.md) — absorbed 1.5 and 1B |
+| Choreography, the composer, theme and asset intake, the face twin's bridge | the choreography plan, its own branch and session |
+| **F1 — what an emote should MEAN** | **open decision.** Random cycling plus a perception reaction is an interim answer, not a design |
+| **F2 — whether band motion can earn its place** | **open decision.** Suppressed behind `OPENDUBS_FACE_BAND` meanwhile |
+| Background images and other assets for CFG | choreography 3.4 — they need its size and cost bounds |
+| The Tab5 as a dashboard | retired; features get added selectively if something needs them |
+
+F1 and F2 are the only two things this plan ends without answering, and both are product judgements
+rather than engineering gaps — which is the right shape for a port to finish in.
