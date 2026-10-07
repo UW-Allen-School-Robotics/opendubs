@@ -108,8 +108,9 @@ cues:
 #  1. RELATIVE clips. `strength` scales toward 0 deg, so a wave is only a wave from the zero pose;
 #     "wave around wherever the arm is" cannot be said.
 #  2. MIRRORING a clip onto the other arm (wave_l duplicates wave_r).
-#  3. HEAD TIMING. The head has no speed cap and no known slew time, so nothing can say whether
-#     the nod actually reaches 80 deg before it is told 100.
+#  3. HEAD TIMING. The head turns at 25 deg/s (the Tab5 firmware's slew limit), so the nod's
+#     20 deg swing needs 0.8 s and a beat here is 0.5 s: starting from 90 the head reaches 80 but
+#     never 100, swaying between 80 and 92.5. The twin shows this; the validator does not check it.
 #  4. EASING. Linear interpolation arrives at constant speed; an accent wants to decelerate into
 #     the beat. Blocked on knowing the controller's real profile (choreo-format-v1.md 5).
 #  5. PER-SLOT LATENCY. The arm arrives at its keyframe time, but the lift relay, the head and the

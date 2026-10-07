@@ -16,13 +16,15 @@ does not use them at all: every frame is placed kinematically (mj_forward), from
 The clearance it reports is the sim's, which is SIX DEGREES OPTIMISTIC near the head (sim/README);
 the validator's measured constant stays in charge.
 
-THREE ASSUMPTIONS, stated because the timeline does not settle them:
+THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fact:
   * arms interpolate LINEARLY between keyframes (the format's definition; the real controller's
     profile is unverified — choreo-format-v1.md 5);
   * the lift's height is net up-time x LIFT_MM_PER_S, a PLACEHOLDER copied from the sim's own
     damping (description/opendubs/opendubs.xml), not a measurement of the real lift;
   * head degrees map as 90 = the sim's zero for both axes, and the SIGN of tilt is unverified —
-    the show's 10..170 convention and the sim's asymmetric tilt range have never been reconciled.
+    the show's 10..170 convention and the sim's asymmetric tilt range have never been reconciled;
+  * FACT, not assumption: the head turns toward each target at 25 deg/s per axis, the Tab5
+    firmware's own slew limit (HEAD_SLEW_DPS), so the preview shows where it IS, not its target.
 
 `--dry-run` and `--clearance`'s sampling need only PyYAML. Rendering and clearance need mujoco and
 the OpenArm assets, exactly as sim/scene.py does; this script has NOT been run against them in the
@@ -44,6 +46,10 @@ import cue  # noqa: E402
 LIFT_MM_PER_S = 56.0      # PLACEHOLDER: the sim's damping-limited speed, not the robot's
 LIFT_MAX_MM = 275.1       # measured stroke (sim/README)
 HEAD_CENTRE_DEG = 90.0    # ASSUMED: the show's 90 is the sim's 0
+# The head turns toward each target at this rate, each axis independently: the Tab5 firmware's
+# own slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can
+# override. The servos themselves are faster, so the firmware is what governs.
+HEAD_SLEW_DPS = 25.0
 
 
 def arm_pose(keyframes: list, t: float) -> dict:
@@ -74,14 +80,24 @@ def lift_mm(events: list, t: float) -> float:
     return h
 
 
+def _slew(cur: float, tgt: float, dt: float) -> float:
+    step = HEAD_SLEW_DPS * max(0.0, dt)
+    return tgt if abs(tgt - cur) <= step else cur + (step if tgt > cur else -step)
+
+
 def head(events: list, t: float) -> tuple:
-    pan = tilt = HEAD_CENTRE_DEG
+    """Where the head IS at t, not where it was told to go: from centre, each axis moves toward
+    its latest target at HEAD_SLEW_DPS, exactly as the firmware's slew limit does."""
+    pan = tilt = tgt_pan = tgt_tilt = HEAD_CENTRE_DEG
+    last = 0.0
     for e in events:
         if e["t"] > t + 1e-9:
             break
-        pan = e["cue"].get("pan", pan)
-        tilt = e["cue"].get("tilt", tilt)
-    return pan, tilt
+        pan, tilt = _slew(pan, tgt_pan, e["t"] - last), _slew(tilt, tgt_tilt, e["t"] - last)
+        last = e["t"]
+        tgt_pan = e["cue"].get("pan", tgt_pan)
+        tgt_tilt = e["cue"].get("tilt", tgt_tilt)
+    return _slew(pan, tgt_pan, t - last), _slew(tilt, tgt_tilt, t - last)
 
 
 def sample(tl: dict, t: float) -> dict:

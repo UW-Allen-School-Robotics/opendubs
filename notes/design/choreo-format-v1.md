@@ -166,7 +166,7 @@ else touches this slot for a while". It extends the span; it never shortens it.
 |---|---|---|---|---|
 | `ARM_L`, `ARM_R` | **keyframe** | end of this arm's previous keyframe (0 for the first) | `t + hold_s` | the gap to the previous keyframe — the move *arrives* at `t` (§5) |
 | `GRIP_L`, `GRIP_R` | command | `t` | `t + hold_s` | **unmeasured** — gripper travel time is not known; 0 is assumed and the gap is named in the report |
-| `HEAD` | command | `t` | `t + hold_s` | **unmeasured** — servo slew rate is not known |
+| `HEAD` | command | `t` | `t + hold_s` | the head turns at **25 °/s per axis**, the Tab5 firmware's slew limit (`pantilt.cpp` `kSlewDps`); a move's travel time is not yet part of its span |
 | `LIFT` `up`/`down` | command | `t` | `t + max(secs, hold_s)` | `secs` |
 | `LIFT` `stop` | command | `t` | `t + hold_s` | 0 |
 | `SOUND` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the WAV file's length, else 0.5 s (span sizing only) |
