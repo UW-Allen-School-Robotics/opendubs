@@ -1,11 +1,11 @@
 id: christmas
-name: Christmas — a wave in gold and white
+name: Christmas — a wave in warm white and blue
 # A seasonal show, written as a test of the format (workplan 7.3). Its findings are in
 # notes/design/choreo-example-shows.md and at the end of this file.
 #
 # Christmas wants red and green. On this robot red is E-STOP and green is SAFE IDLE, on the face
-# and on the state light, so the show uses gold, white and a cold blue instead — by hand, because
-# nothing in the format would have stopped it (finding L1).
+# and on the state light, so the show uses warm white, white and a cold blue. It first used a gold,
+# which the validator now refuses as reading too much like DEGRADED amber (plan 1.8).
 slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, SOUND, FACE, LIGHT, DANCE]
 requires:
   arms: active
@@ -30,7 +30,7 @@ clips:
       - { beat: 7, slot: ARM_R, joints: { 7: -15 } }
 
 cues:
-  - { t: 0.0, slot: LIGHT, do: color, rgb: [255, 200, 90], br: 70 }     # gold
+  - { t: 0.0, slot: LIGHT, do: color, rgb: [255, 236, 190], br: 70 }    # warm white — a saturated gold reads as DEGRADED amber
   - { t: 0.0, slot: FACE, do: emote, name: SOFT }
   - { bar: "1.1", slot: SOUND, do: play, sound: attend }
   - { bar: "1.1", slot: HEAD, pan: 90, tilt: 95 }
@@ -44,7 +44,7 @@ cues:
   # the wave, twice, with the light alternating gold and white
   - { bar: "4.1", clip: wave_both }
   - { bar: "4.1", slot: LIGHT, do: color, rgb: [255, 255, 255], br: 60 }
-  - { bar: "5.1", slot: LIGHT, do: color, rgb: [255, 200, 90], br: 70 }
+  - { bar: "5.1", slot: LIGHT, do: color, rgb: [255, 236, 190], br: 70 }
   - { bar: "6.1", clip: wave_both }
   - { bar: "6.1", slot: LIGHT, do: color, rgb: [140, 190, 255], br: 70 }  # cold blue
 
@@ -63,8 +63,8 @@ cues:
   - { bar: "13.1", slot: LIGHT, do: release }
 
 # WHAT THIS SHOW WANTED AND COULD NOT SAY (notes/design/choreo-example-shows.md):
-#  - red and green: they ARE the robot's E-STOP and SAFE IDLE colours, and nothing in the format
-#    keeps a show off them (L1) — it avoided them by hand
+#  - red and green: red is the state light's E-STOP colour, now refused (plan 1.8); green is
+#    SAFE IDLE's, still allowed but avoided here
 #  - a Christmas face theme: no cue selects a theme
 #  - "wave the right arm the way the left one did": a clip cannot be mirrored onto the other arm,
 #    so wave_both spells out each arm

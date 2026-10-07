@@ -1,7 +1,7 @@
 # Written by an AI agent from notes/design/choreo-format-v1.md ALONE — no other show, no validator
-# source — as the test of whether the spec is sufficient (workplan 7.3, PA-6.4). Unedited apart from
-# this header. Its report is in notes/design/choreo-example-shows.md; note the orange LIGHT at the
-# chorus, which reads as DEGRADED on the robot's state light (finding L1).
+# source — as the test of whether the spec is sufficient (workplan 7.3, PA-6.4). ONE EDIT besides this
+# header: its chorus LIGHT was orange [255, 140, 0], which reads as DEGRADED amber on the robot's state
+# light (finding L1) and is now refused (plan 1.8), so it is purple. Report: choreo-example-shows.md.
 format: 1
 id: agent-greeting
 name: Agent-written greeting
@@ -50,7 +50,7 @@ cues:
   - { bar: "6.1", slot: LIFT, do: up, secs: 3 }
   - { bar: "8.1", slot: LIFT, do: down, secs: 3 }
   # chorus: light change, second wave, left arm joins
-  - { bar: "9.1", slot: LIGHT, do: color, rgb: [255, 140, 0] }
+  - { bar: "9.1", slot: LIGHT, do: color, rgb: [180, 0, 255] }
   - { bar: "9.1", clip: wave_r, strength: 0.8 }
   - { bar: "9.1", slot: ARM_L, joints: { 2: 25, 4: 50 } }
   - { bar: "10.1", slot: GRIP_R, do: close }

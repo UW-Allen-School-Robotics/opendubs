@@ -187,6 +187,29 @@ FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 # out-of-range value is a visible mistake rather than a quietly different colour.
 LIGHT_RGB_MAX = 255
 LIGHT_BR_MAX = 100
+# The state light's reserved colours (workplan 1.8, decided 2026-10-07): a show may not paint the
+# PRISM anything that reads as E-STOP red or DEGRADED amber — the light is how a bystander tells
+# whether the robot is safe, and the face's themes are barred the same way (face-config.md,
+# Reserved). Hues are the PRISM's own, from software/kiosk-dashboard/backend/state_out.py _MAP:
+# E_STOP (255, 35, 35) -> 0 deg, DEGRADED (240, 150, 40) -> 33 deg.
+LIGHT_RESERVED_HUES = {"E-STOP red": 0.0, "DEGRADED amber": 33.0}
+# SANITY, not measured on the light: within this many degrees of hue, and at least this saturated,
+# a colour reads as the reserved one. Whites, greys and pastels are not saturated enough to.
+LIGHT_RESERVED_BAND_DEG = 20.0
+LIGHT_RESERVED_MIN_SAT = 0.35
+
+
+def light_reserved_clash(rgb) -> str | None:
+    """The reserved state colour an RGB reads as, or None."""
+    import colorsys
+    h, s, _v = colorsys.rgb_to_hsv(*(max(0, min(255, c)) / 255.0 for c in rgb))
+    if s < LIGHT_RESERVED_MIN_SAT:
+        return None
+    hue = h * 360.0
+    for name, ref in LIGHT_RESERVED_HUES.items():
+        if abs((hue - ref + 180.0) % 360.0 - 180.0) <= LIGHT_RESERVED_BAND_DEG:
+            return name
+    return None
 
 MIRRORED_JOINTS = (1, 2, 3)    # left travels negative where right travels positive
 
@@ -1051,6 +1074,10 @@ class Show:
         elif not all(0 <= v <= LIGHT_RGB_MAX for v in rgb):
             p.append(f"{where}: light rgb {rgb} outside 0..{LIGHT_RGB_MAX} — the firmware would "
                      "clamp it to a colour nobody wrote")
+        elif (clash := light_reserved_clash(rgb)):
+            p.append(f"{where}: light rgb {rgb} reads as {clash} — the state light's reserved "
+                     "colour, which tells a bystander whether the robot is safe; choose another hue "
+                     "or a paler colour")
         br = c.get("br")
         if br is not None and not (_num(br) and 0 <= br <= LIGHT_BR_MAX):
             p.append(f"{where}: light br {br} outside 0..{LIGHT_BR_MAX}")
@@ -1210,7 +1237,9 @@ def describe(limits: dict) -> str:
     w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS} or {SOUND_DIR}/<name>.* beside the show; "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
     w(f"FACE: do emote, name {FACE_EMOTES}")
-    w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release")
+    w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
+      f"anything within {LIGHT_RESERVED_BAND_DEG:g} deg of hue of {dict(LIGHT_RESERVED_HUES)} and at least "
+      f"{LIGHT_RESERVED_MIN_SAT:g} saturated (reads as a reserved state colour)")
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, 1] "
       f"(default 1 = the autonomy ceiling); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")

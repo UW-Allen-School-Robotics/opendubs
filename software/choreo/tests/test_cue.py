@@ -279,6 +279,15 @@ check_true("describe prints the numbers a spec reader needs: joint ranges as wri
            "left  J4: usable" in _d and "cap 70 deg/s" in _d and "SLEEPY" in _d and "attend" in _d
            and "sway" in _d and "STANDBY" in _d, _d[:200])
 
+# The state light's reserved colours (plan 1.8): nothing that reads as E-STOP red or DEGRADED amber.
+_L = lambda rgb: doc_show([{"t": 1.0, "slot": "LIGHT", "do": "color", "rgb": rgb, "br": 80}])
+check_doc("E-STOP red on the state light is refused", _L([255, 35, 35]), "reads as E-STOP red")
+check_doc("a dim red is still red", _L([80, 10, 10]), "reads as E-STOP red")
+check_doc("orange reads as DEGRADED amber and is refused", _L([255, 140, 0]), "reads as DEGRADED amber")
+check_doc("purple passes", _L([120, 0, 200]), None)
+check_doc("a warm white is too pale to read as amber, and passes", _L([255, 236, 190]), None)
+check_doc("green is not reserved on the light (decided 2026-10-07)", _L([30, 210, 70]), None)
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
