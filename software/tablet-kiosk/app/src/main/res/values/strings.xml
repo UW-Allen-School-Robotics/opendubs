@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenDubs</string>
+    <!-- Default dashboard address. Override per tablet by starting the activity with a string
+         extra named "url" over adb; see README.md. -->
+    <string name="default_url">http://10.42.2.10:8080/</string>
+</resources>

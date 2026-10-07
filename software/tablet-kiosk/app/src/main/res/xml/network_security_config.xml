@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trust the robot's own local CA (installed on the tablet as a user certificate) as well as the
+     system's, so the dashboard can be served over HTTPS on an offline LAN (tablet-device.md TD-1).
+     Cleartext stays allowed until the dashboard moves to HTTPS (plan 4.1c); remove it then. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
