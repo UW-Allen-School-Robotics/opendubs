@@ -42,6 +42,8 @@ no internet.
 | **Violations on the offending cue**, in red, and a clickable problem list | the validator's own sentences, located by cue index |
 | **Warnings** in amber, on the cue and in the list | the show stays valid — e.g. a head move that cannot finish at the firmware's 25 °/s before the next head cue |
 | **Back to start** (⏮, or Home) | beside play |
+| **Teach places the pose where the arm can reach it** | at the playhead if it can get there in time; otherwise at the soonest legal time after the keyframe it follows, with the binding joint and the reason shown, and a warning if it makes the next keyframe too fast |
+| **⇤ soonest** in the inspector (arm keyframes) | re-times the keyframe to the soonest legal time after the one before it — earlier or later than now — with the reason |
 | **Notices** | folded to a one-line count under the problems; each note is one headline line, full text on hover |
 | **Hover text** | on every non-obvious control and readout; on a touch screen, a long press shows it |
 | **Per-lane mute** | preview only; stored in the browser, never in the show |

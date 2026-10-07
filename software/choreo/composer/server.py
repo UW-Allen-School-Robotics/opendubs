@@ -110,6 +110,9 @@ def make_handler(comp: Composer):
                     return self._json(comp.save(b.get("path"), b.get("text") or ""))
                 if u.path == "/api/playhead":
                     return self._json(comp.playhead(b.get("t"), b.get("playing")))
+                if u.path == "/api/earliest":
+                    return self._json(comp.earliest(b.get("path"), b.get("text") or "", b.get("slot"),
+                                                    b.get("joints"), b.get("t"), b.get("index")))
                 if u.path == "/api/capture":
                     return self._json(comp.capture(b.get("side"), b.get("joint_state")))
                 raise ApiError("not found", 404)

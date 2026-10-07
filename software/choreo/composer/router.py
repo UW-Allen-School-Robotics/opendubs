@@ -60,6 +60,11 @@ def make_router(comp: "Composer"):
     def save(b: dict = Body(...)):
         return _wrap(comp.save, b.get("path"), b.get("text") or "")
 
+    @r.post("/api/earliest")
+    def earliest(b: dict = Body(...)):
+        return _wrap(comp.earliest, b.get("path"), b.get("text") or "", b.get("slot"),
+                     b.get("joints"), b.get("t"), b.get("index"))
+
     @r.post("/api/playhead")
     def playhead(b: dict = Body(...)):
         return _wrap(comp.playhead, b.get("t"), b.get("playing"))

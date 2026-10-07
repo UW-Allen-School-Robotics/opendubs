@@ -76,6 +76,24 @@ function snapT(t) {
   const d = { bar: m.beat_s * m.beats_per_bar, beat: m.beat_s, half: m.beat_s / 2, quarter: m.beat_s / 4 }[S.snap];
   return Math.max(0, m.offset_s + Math.round((t - m.offset_s) / d) * d);
 }
+/* The first grid point at or after t: a time the validator moved later must never snap back. */
+function snapUp(t) {
+  const m = music();
+  if (S.snap === "off") return t;
+  if (!m) return Math.ceil(t * 4 - 1e-6) / 4;
+  const d = { bar: m.beat_s * m.beats_per_bar, beat: m.beat_s, half: m.beat_s / 2, quarter: m.beat_s / 4 }[S.snap];
+  return Math.max(0, m.offset_s + Math.ceil((t - m.offset_s) / d - 1e-6) * d);
+}
+/* A cue with its time replaced, keeping the author's key order. */
+function withTime(c, t) {
+  const tm = newCueTime(t), out = {};
+  let placed = false;
+  for (const [k, v] of Object.entries(c)) {
+    if (["t", "beat", "bar"].includes(k)) { if (!placed) { Object.assign(out, tm); placed = true; } }
+    else out[k] = v;
+  }
+  return placed ? out : { ...tm, ...out };
+}
 /* Resolve an authored time for DRAWING only (the server is authoritative). */
 function authoredT(c) {
   const m = music();
@@ -540,6 +558,7 @@ function renderInspector() {
       <input id="iTime" value="${esc(c[form] ?? "")}" inputmode="decimal">
       <button id="iApply">apply</button>
       <button id="iDelete" title="Delete this cue (Delete key)">delete</button>
+      ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
     </div>
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
@@ -559,6 +578,15 @@ function renderInspector() {
     edit([{ op: "set", index: i, cue: ordered }], "applied");
   };
   $("iDelete").onclick = () => deleteSelected();
+  if ($("iSoonest")) $("iSoonest").onclick = async () => {
+    try {
+      const r = await api("api/earliest", { path: S.path, text: S.text, slot: c.slot, joints: c.joints, index: i });
+      const t = snapUp(r.t), was = evs.length ? evs[0].t : null;
+      await edit([{ op: "set", index: i, cue: withTime(c, t) }]);
+      toast(`moved to ${t.toFixed(2)} s${was !== null ? ` (was ${was.toFixed(2)} s)` : ""}: ${r.reason}`
+        + (r.next_problem ? ` · ${r.next_problem}` : ""), 8000);
+    } catch (e) { toast(e.message, 5000); }
+  };
 }
 function deleteSelected() {
   if (S.selected === null) return;
@@ -604,9 +632,15 @@ async function teach(slot) {
   const side = slot === "ARM_L" ? "left" : "right";
   try {
     const cap = await api("api/capture", { side, joint_state: FakeJointSource.sample() });
-    const t = snapT(S.t);
+    /* A taught pose has no timing of its own: place it at the soonest time the arm can reach it
+       (workplan 1.3), and say so when that is not where the playhead was. Never silently. */
+    const asked = snapT(S.t);
+    const r = await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
+    const t = r.moved ? snapUp(r.t) : asked;
     await edit([{ op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
-    toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ") + " — the validator has re-checked its speed", 5000);
+    toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ")
+      + (r.moved ? ` — placed at ${t.toFixed(2)} s, not ${asked.toFixed(2)} s: ${r.reason}` : "")
+      + (r.next_problem ? ` · ${r.next_problem}` : ""), r.moved || r.next_problem ? 9000 : 5000);
   } catch (e) { toast(e.message, 5000); }
 }
 

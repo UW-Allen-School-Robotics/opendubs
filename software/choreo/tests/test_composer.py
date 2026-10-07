@@ -147,6 +147,19 @@ try:
     cap = comp.capture("left", js)
     check("capture un-mirrors a measured left pose into keyframe joints",
           cap["joints"] == {"1": 10.0, "2": 35.0, "4": 80.0} and cap["slot"] == "ARM_L", cap)
+    # earliest legal time (workplan 1.3)
+    r = comp.earliest("hello.yaml", HELLO, "ARM_R", {"4": 100}, 0.0)
+    check("a taught pose is placed after the keyframe it actually follows, with the reason",
+          r["moved"] and r["t"] == 4.5 and r["free_at"] == 3.0 and "J4" in r["reason"], r)
+    r = comp.earliest("hello.yaml", HELLO, "ARM_R", {"4": 55}, 30.0)
+    check("a pose reachable at the playhead stays at the playhead", not r["moved"] and r["t"] == 30.0, r)
+    r = comp.earliest("hello.yaml", HELLO, "ARM_L", {"2": 60}, 12.0)
+    check("inserting a pose warns when it makes the NEXT keyframe too fast",
+          r["next_problem"] and "too fast" in r["next_problem"], r)
+    idx = next(i for i, c in enumerate(doc["cues"]) if c.get("slot") == "ARM_R" and c.get("t") == 7.0)
+    r = comp.earliest("hello.yaml", HELLO, "ARM_R", doc["cues"][idx]["joints"], index=idx)
+    check("re-timing a keyframe leaves it out and answers from the keyframe before it",
+          r["free_at"] == 3.0 and abs(r["t"] - 3.8) < 1e-6, r)
     tl = comp.load("beat-demo.yaml")["timeline"]
     check("beat-demo loads valid, with its clips expanded and markers resolved",
           tl["valid"] and len(tl["tracks"]["HEAD"]) == 18 and tl["markers"][0]["t"] == 16.5)

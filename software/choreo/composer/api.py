@@ -172,6 +172,36 @@ class Composer:
         return p, AUDIO_EXT[os.path.splitext(p)[1].lower()]
 
     # ---- teaching: measured joints in, outward-sense keyframe out ---------------------------
+    def earliest(self, rel: str, text: str, slot: str, joints: dict, t=None, index=None) -> dict:
+        """When can this arm pose legally arrive? (workplan 1.3)
+
+        Teaching: `t` is the playhead; the answer is the soonest legal time at or after it.
+        Re-timing an existing keyframe: `index` is its authored cue, which is left out, and the
+        answer is the soonest legal time after the keyframe before it — earlier or later than
+        where it sits now."""
+        self._path(rel)
+        if slot not in cue.ARM_SLOTS:
+            raise ApiError("earliest is for ARM_L / ARM_R")
+        if not isinstance(joints, dict) or not joints:
+            raise ApiError("joints must be {joint: degrees}")
+        try:
+            show = cue.show_from_text(text, self._path(rel))
+        except (yaml.YAMLError, cue.ShowError) as e:
+            raise ApiError(f"the show does not parse: {e}") from e
+        if index is not None:
+            a = show.analyse(self.limits)
+            mine = [e for e in a["events"] if e["src"]["index"] == index and e.get("slot") == slot]
+            if not mine:
+                raise ApiError("that cue is not an arm keyframe on this slot")
+            t_now = mine[0]["t"]
+            others = [e for e in a["events"] if e.get("slot") == slot and e.get("kind") == "keyframe"
+                      and e["src"]["index"] != index and e["t"] < t_now - 1e-9]
+            t = max((e["end"] for e in others), default=0.0)
+        try:
+            return show.earliest_time(self.limits, slot, joints, float(t or 0.0), index)
+        except (ValueError, KeyError) as e:
+            raise ApiError(str(e)) from e
+
     def capture(self, side: str, joint_state: dict) -> dict:
         """Convert ONE measured sensor_msgs/JointState (as JSON: {name: [...], position: [...]}
         in radians, controller-signed) into keyframe joints in the arm's outward sense.

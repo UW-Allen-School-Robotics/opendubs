@@ -601,6 +601,70 @@ class Show:
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
                 "markers": markers, "declared": declared, "used": used}
 
+    def earliest_time(self, limits: dict, slot: str, joints: dict, t_want: float,
+                      exclude_index: int | None = None) -> dict:
+        """The soonest an arm can arrive at `joints` (outward sense) at or after `t_want`.
+
+        Workplan DEC-3 / item 1.3: a taught pose has no timing of its own, so this places it. The
+        arm is free once its last keyframe at or before `t_want` ends (its t plus hold_s); from
+        there each joint needs |change| / cap seconds on AVERAGE (the hard gate) and PEAK_FACTOR
+        times that to avoid the eased-peak warning. `exclude_index` leaves one authored cue out —
+        the one being re-timed. Nothing is changed; this only answers."""
+        if slot not in ARM_SLOTS:
+            raise ValueError(f"earliest_time is for arm slots, not {slot!r}")
+        doc = dict(self.doc)
+        cues = list(self.cues if isinstance(self.cues, list) else [])
+        if exclude_index is not None and 0 <= exclude_index < len(cues):
+            cues.pop(exclude_index)
+        doc["cues"] = cues
+        a = Show(doc, self.path).analyse(limits)
+        kfs = sorted((e for e in a["events"] if e.get("slot") == slot and e.get("kind") == "keyframe"),
+                     key=lambda e: e["t"])
+        m = -1 if slot == "ARM_L" else 1
+
+        def solve(at):
+            """Predecessor = the last keyframe at or before `at`; returns its index and the timing."""
+            idx = max((i for i, e in enumerate(kfs) if e["t"] <= at + 1e-9), default=None)
+            prev = kfs[idx] if idx is not None else None
+            free_at = prev["end"] if prev else 0.0
+            before = dict(prev["pose"]) if prev else {j: 0.0 for j in range(1, 8)}
+            target = dict(before)
+            for jn, v in joints.items():
+                j = int(jn)
+                target[j] = _deg(v) * (m if j in MIRRORED_JOINTS else 1)
+            need = {j: abs(target[j] - before[j]) / SPEED_CAP_DEG_S[j] for j in range(1, 8)}
+            return idx, free_at, before, target, need
+
+        # Moving later can pass another keyframe, which then becomes the real predecessor: repeat
+        # until the predecessor stops changing (at most once per keyframe).
+        at = t_want
+        for _ in range(len(kfs) + 1):
+            idx, free_at, before, target, need_avg = solve(at)
+            bind = max(need_avg, key=need_avg.get)
+            legal = free_at + need_avg[bind]
+            t = max(t_want, legal)
+            if solve(t)[0] == idx:
+                break
+            at = t
+        quiet = free_at + need_avg[bind] * PEAK_FACTOR
+        if t > t_want + 1e-9:
+            reason = (f"J{bind} changes {abs(target[bind] - before[bind]):.0f} deg and may average at "
+                      f"most {SPEED_CAP_DEG_S[bind]} deg/s (unsourced cap), so it needs "
+                      f"{need_avg[bind]:.1f}s from t={free_at:.2f}s")
+        else:
+            reason = "reachable at the time asked for"
+        nxt = next((e for e in kfs if e["t"] > t + 1e-9), None)
+        next_problem = None
+        if nxt is not None:
+            dt = nxt["t"] - t
+            need_next = max(abs(nxt["pose"][j] - target[j]) / SPEED_CAP_DEG_S[j] for j in range(1, 8))
+            if need_next > dt + 1e-9:
+                next_problem = (f"the next {slot} keyframe at t={nxt['t']:.2f}s would then be too fast: "
+                                f"it needs {need_next:.1f}s from here and would get {dt:.1f}s")
+        return {"t": round(t, 3), "moved": t > t_want + 1e-9, "asked": round(t_want, 3),
+                "legal_t": round(legal, 3), "quiet_t": round(quiet, 3), "free_at": round(free_at, 3),
+                "binding_joint": bind, "reason": reason, "next_problem": next_problem}
+
     def check(self, limits: dict) -> list[Problem]:
         """Every problem, with where it came from."""
         return self.analyse(limits)["problems"]

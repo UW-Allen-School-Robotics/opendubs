@@ -173,6 +173,21 @@ try:
 except grippers.CalibrationError as _e:
     check_true("a missing calibration says how to make one", "measure it on the robot" in str(_e), str(_e))
 
+# Earliest legal time (workplan 1.3): placing a taught pose.
+_s = doc_show([{"t": 2.0, "slot": "ARM_R", "joints": {4: 30}}])
+_r = _s.earliest_time(LIMITS, "ARM_R", {4: 90}, 2.0)
+check_true("a pose needing more time than the playhead allows is moved later, by the binding joint",
+           _r["moved"] and abs(_r["t"] - 4.0) < 1e-6 and _r["binding_joint"] == 4, _r)
+check_true("... and the time that avoids the eased-peak warning is reported too",
+           abs(_r["quiet_t"] - (2.0 + 2.0 * 1.875)) < 1e-3, _r)
+_r = _s.earliest_time(LIMITS, "ARM_R", {4: 90}, 1.0)
+check_true("a placement that passes another keyframe is re-solved from that keyframe",
+           _r["free_at"] == 2.0 and abs(_r["t"] - 4.0) < 1e-6, _r)
+_placed = doc_show([{"t": 2.0, "slot": "ARM_R", "joints": {4: 30}},
+                    {"t": _r["t"], "slot": "ARM_R", "joints": {4: 90}}])
+check_true("a pose placed where the helper says passes the validator", not _placed.validate(LIMITS),
+           _placed.validate(LIMITS))
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
