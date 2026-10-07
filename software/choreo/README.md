@@ -76,6 +76,18 @@ the same for both sides; the mirror is applied once, in the validator.
 no output device takes their commands over the network. The validator prints
 a `note:` for each every time; see the spec, §7.
 
+## The runner (core)
+
+`runner.py run shows/hello.yaml` plays a show as the robot will — VALIDATING, PREFLIGHT (from
+`requires:`, refusing anything unknown), PREPPING (a move to the start pose, timed by distance),
+WAITING_FOR_START, RUNNING, then COMPLETED, ABORTED, ESTOPPED or REFUSED — but drives **only the
+twins**: it serves the same feed as the composer on :8092 (`./twin.sh --composer
+http://127.0.0.1:8092`, `face_bridge.py --composer …`). An e-stop ends a show at once; a released
+deadman, CH5 leaving the required mode, a fault, an unknown state or an operator stop aborts it,
+leaving each slot in the state `ABORT_STATE` argues for; it never pauses. The robot's state is a
+fake you can flip (`curl -X POST localhost:8092/api/sim/deadman/release`, `…/estop`, `…/ch5/manual`).
+Every status change and abort cause is a JSON line (`--log`). Live output is not built (plan 5.6).
+
 ## The composer
 
 [`composer/`](composer/README.md) — a timeline editor in the browser, **preview only**: it edits

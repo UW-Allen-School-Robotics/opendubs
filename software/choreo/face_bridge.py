@@ -99,8 +99,16 @@ class Follower:
         return out
 
     # -- the one entry point ---------------------------------------------------------------
-    def update(self, rev, timeline, t, playing) -> list[str]:
+    def update(self, rev, timeline, t, playing, status=None) -> list[str]:
         out = []
+        # Following a runner: when its show ends — aborted, e-stopped, finished, or its lease lost —
+        # the face is handed back its own behaviour (runner.ABORT_STATE["FACE"]), once.
+        if status in ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST"):
+            if self.sent.get("emote") != "EMOTE AUTO":
+                self.sent["emote"] = "EMOTE AUTO"
+                out.append("EMOTE AUTO")
+            self.playing, self.t = False, float(t)
+            return out
         if rev != self.rev:
             self.rev, self.tl = rev, timeline
             self.t = None                       # an edit: resynchronise, never replay
@@ -162,7 +170,10 @@ def main() -> int:
                 d = get(a.composer, "/api/twin/timeline")
                 rev, tl = d["rev"], d["timeline"]
             t = s["t"] + ((s["now"] - s["at"]) if s["playing"] else 0.0)
-            lines = f.update(rev, tl, t, s["playing"])
+            status = s.get("status")
+            if status == "RUNNING" and s.get("lease_until") and s["now"] > s["lease_until"]:
+                status = "LEASE_LOST"      # the runner stopped renewing: treat the show as over
+            lines = f.update(rev, tl, t, s["playing"] and status != "LEASE_LOST", status)
             if online is not True:
                 print("face bridge: composer reachable", flush=True)
             online = True

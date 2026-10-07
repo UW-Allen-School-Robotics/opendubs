@@ -67,6 +67,15 @@ g = fb.Follower()
 check("a show with no FACE cue hands the face back its own cycling",
       g.update(1, empty, 0.0, False) == ["EMOTE AUTO"])
 
+h = fb.Follower()
+h.update(1, TL, 0.0, False)
+h.update(1, TL, 0.02, True)
+out = h.update(1, TL, 4.5, False, "ABORTED")
+check("following a runner, an aborted show hands the face back its own behaviour, once",
+      out == ["EMOTE AUTO"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
+check("... and a lost lease does the same",
+      fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO"])
+
 print("\nface bridge: local only")
 for host in ("127.0.0.1", "localhost", "::1"):
     try:

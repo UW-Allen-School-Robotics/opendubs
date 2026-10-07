@@ -61,7 +61,7 @@ def main() -> int:
 
     rev, tl, path = -1, None, None
     t_base, playing, clock_base = 0.0, False, time.monotonic()
-    online, last_poll, last_log = False, 0.0, 0.0
+    online, last_poll, last_log, run_status = False, 0.0, 0.0, None
 
     with mujoco.viewer.launch_passive(model, data) as v:
         v.cam.azimuth, v.cam.elevation, v.cam.distance = 128.0, -10.0, 3.0
@@ -75,7 +75,10 @@ def main() -> int:
                     if s["rev"] != rev:
                         d = get(a.composer, "/api/twin/timeline")
                         rev, tl, path = d["rev"], d["timeline"], d["path"]
-                    playing = bool(s["playing"])
+                    run_status = s.get("status")       # set when following the runner
+                    if run_status == "RUNNING" and s.get("lease_until") and s["now"] > s["lease_until"]:
+                        run_status = "LEASE LOST"      # the runner stopped renewing: hold, and say so
+                    playing = bool(s["playing"]) and run_status != "LEASE LOST"
                     t_base = s["t"] + ((s["now"] - s["at"]) if playing else 0.0)
                     clock_base, online = now, True
                 except (urllib.error.URLError, OSError, ValueError, KeyError):
@@ -109,7 +112,7 @@ def main() -> int:
             except (AttributeError, TypeError, IndexError):
                 pass                                  # an older viewer: no floor drawn
             if hasattr(v, "set_texts"):
-                state = ("PLAYING" if playing else "paused") if online else "composer not reachable"
+                state = (run_status or ("PLAYING" if playing else "paused")) if online else "feed not reachable"
                 left = f"{path or 'no show'}   {t:7.2f} s   {state}"
                 right = "PREVIEW ONLY — geometry, not timing"
                 v.set_texts((mujoco.mjtFontScale.mjFONTSCALE_150, mujoco.mjtGridPos.mjGRID_TOPLEFT,

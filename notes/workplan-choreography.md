@@ -167,11 +167,11 @@ host. It has no network input today, by design.*
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 5.1 | **The show clock lives on the Thor** (it survives the e-stop that takes the Tab5 down). | — |
-| 5.2 | **Preflight from `requires:`**, refusing on `unknown` (0.7). | "Unknown" refuses; it never defaults. |
-| 5.3 | **One lease, with a heartbeat**; expiry releases. | A killed runner stops the robot — tested by killing the process. |
-| 5.4 | **Stop semantics (DEC-6):** e-stop instant, abort per-slot with audio fade; normalise to the start pose first, timed by the distance covered (PA-2.5). | Every slot's abort state is argued, not assumed. |
-| 5.5 | **Logging and status:** Spot's status taxonomy and BML's typed warnings (PA proposal 8). | An abort's cause can be reconstructed from the log. |
+| 5.1 | **BUILT (core), 2026-10-07** — `software/choreo/runner.py` keeps the show clock (monotonic, its own process); on the Thor in production. | — |
+| 5.2 | **BUILT** — preflight from `requires:` plus e-stop clear, deadman held, no fault; any UNKNOWN field refuses with code `UNKNOWN_STATE`. Tested against a fake robot state. | "Unknown" refuses; it never defaults. |
+| 5.3 | **PARTLY BUILT** — the runner renews a 250 ms lease every tick and publishes it; the twins treat an expired lease as the show over. The robot-side expiry belongs to the arbiter and the firmware, with live output (5.6). | A killed runner stops the robot — tested by killing the process. |
+| 5.4 | **BUILT** — e-stop ends at once (audio cut); a released deadman, CH5 leaving the required mode, a fault, an unknown state or an operator stop ABORTS, with each slot's state argued in `ABORT_STATE` (arms and grippers hold, head stops, lift relays off, dance zero velocity, face handed back, light released, music faded 250 ms); arms travel to the start pose first, timed by distance at the warning-free speed. Verified live against the twins: a deadman release at 12 s aborted, held the twin, sent no further cue. | Every slot's abort state is argued, not assumed. |
+| 5.5 | **BUILT** — Spot's status taxonomy plus typed codes (`INVALID_SHOW`, `PARSING_FAILURE`, `UNKNOWN_STATE`, `PRECONDITION_FAILED`, `ESTOP`, `DEADMAN`, `AUTHORITY`, `FAULT`, `OPERATOR_STOP`), one JSON line per status change and per cue. | An abort's cause can be reconstructed from the log — tested. |
 | 5.6 | **Live output as an armed binding** from the composer and the player. | Default stays the twin. |
 
 ## Phase 6 — on the robot
