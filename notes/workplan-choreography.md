@@ -118,7 +118,7 @@ place; each points at the item that delivers it.
 | # | Item | Kill criterion / done when |
 |---|---|---|
 | 1.1 | ~~Interim speed check (DEC-1)~~ **DONE, 2026-10-07.** The eased peak (`PEAK_FACTOR` = 1.875 × average) is checked as a warning; the average stays the gate; every cap message says *unsourced*. As a hard gate it failed `hello.yaml` (14) and `beat-demo` (12) — reported, then downgraded by decision. Both shows are valid with those 26 warnings, which name the time each move would need. | — |
-| 1.2 | **Normalised grippers (DEC-4):** `GRIP_*` takes 0–1 (plus `open`/`close` as 1/0); the per-side mapping to controller units lives in a per-robot file on the robot, read at run time. | The same show means the same grip on both sides, and no calibration value is committed. |
+| 1.2 | ~~Normalised grippers (DEC-4)~~ **DONE in the repo, 2026-10-07.** `GRIP_*` takes `open: 0..1` or `do: open\|close`; the old `pos: m` is refused by name. `software/choreo/grippers.py` loads and checks a robot's calibration (`/etc/opendubs/grippers.yaml`, or `$OPENDUBS_GRIPPER_CAL`) and converts both ways; the repo holds only a template and a made-up test fixture. The committed per-side metre ranges are gone from `cue.py`. **On the robot:** the file itself is item 6.2. | — |
 | 1.3 | **Earliest-legal-time helper (DEC-3):** given a pose and the previous keyframe, the soonest time it can be reached under the caps; used by teach and offered by the editor. | A pose taught at the playhead that cannot be reached is moved to a reachable time with the reason shown, never silently. |
 | 1.4 | **`dance:` moves (DEC-2):** named, time-limited, speed-capped, declared floor space, net displacement ≈ 0, as specified in format §12. Validated; executable only in the twin until 6.6. | A dance with a non-zero net displacement or undeclared floor space is refused. |
 | 1.5 | **Audio routing (DEC-5, DEC-11):** `music:` gains an `output:` (tablet / tab5 / thor, default tablet); `SOUND` becomes named effects with an output; the run-time override is the player's (4.4). | A show plays on any output without being edited, and an effect a given output cannot play is a validation error, not silence. |
@@ -179,7 +179,7 @@ robot before any of them; flashing is per `CLAUDE.md`, never re-derived.*
 | # | Item | Kill criterion / done when |
 |---|---|---|
 | 6.1 | **Measure the controller's velocity profile (T4) and source the speed caps (DEC-1).** | 1.1's interim factor replaced by a measured one; every cap has a source. |
-| 6.2 | **Gripper calibration per side (DEC-4)**, stored on the robot. | 0 and 1 mean closed and open on both sides. |
+| 6.2 | **Gripper calibration per side (DEC-4)**, stored on the robot: `grippers.py template` → measure each side fully open and fully closed from `/joint_states` → `/etc/opendubs/grippers.yaml` → `grippers.py check`. | `open: 0.5` looks half open on both sides; `check` passes on the robot. |
 | 6.3 | **Teach by capture from teleop (DEC-3)** — the real joint source replaces the fake one. | A taught pose replays where it was taught, within the controller's settling error. |
 | 6.4 | **Music sync S1–S3** on the robot's own network (the bench is not a latency test). | 4.2's tolerance met on the robot. |
 | 6.5 | **Audio-role experiments C1–C5** (teach-and-sync note). | Each answered against its kill criterion. |

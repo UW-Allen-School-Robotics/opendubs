@@ -75,3 +75,13 @@ sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh
 Then **verify by driving** rather than trusting this file: forward, rotate, and strafe in *both*
 directions, wheels clear of the floor. A sign error that happens to look right one way is the one
 that bites later.
+
+---
+
+## Grippers — on the robot only, by design
+
+The two OpenArm grippers were zeroed in different physical states, so the controller position for
+"open" and "closed" differs per side and per robot. Shows say `open: 0..1`; the mapping lives in
+**`/etc/opendubs/grippers.yaml` on the Thor** (or `$OPENDUBS_GRIPPER_CAL`), measured there, and is
+deliberately **not** recorded in this file or anywhere in the repository. Measure and check it with
+`software/choreo/grippers.py` (`template`, then `check`) — choreography plan item 6.2.

@@ -52,8 +52,10 @@ caught when repeated too fast.
   segment must be under the cap; the **eased peak** (average × 1.875) over the cap is a
   **warning** until the arm controller's real speed profile is measured. The caps themselves are
   unsourced, and every message says so. See the spec, §5.
-- Gripper travel **per side**: the two were zeroed in opposite physical states, so one range
-  cannot serve both.
+- Grippers as **`open: 0..1`** (0 closed, 1 open), the same on both sides. The two were zeroed in
+  opposite physical states, so each robot's mapping to its controller is measured on that robot and
+  kept there (`grippers.py`; `grippers.py template` prints the file to fill in). None of it is in
+  this repository.
 - **Shoulder/head clearance**, measured on the robot: the arm reaches the head at J2 182° with
   the elbow folded, and *nothing in the arm controller stops it* — its only Cartesian guard is a
   1.2 m box that pose satisfies. A show must leave 25°, and may not raise an extended arm past

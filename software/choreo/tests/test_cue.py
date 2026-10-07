@@ -68,11 +68,17 @@ check("the mirror is applied: the same show is legal for the left arm",
       [{"t": 4.0, "slot": "ARM_L", "joints": {4: 100}},
        {"t": 10.0, "slot": "ARM_L", "joints": {2: 150}}], None)
 
-check("gripper beyond its side's range is caught",
-      [{"t": 1.0, "slot": "GRIP_R", "pos": -0.030}], "outside")
+check("a gripper half open is legal on either side — the same number means the same grip",
+      [{"t": 1.0, "slot": "GRIP_L", "open": 0.5}, {"t": 1.0, "slot": "GRIP_R", "open": 0.5}], None)
 
-check("the OTHER side's range is genuinely different",
-      [{"t": 1.0, "slot": "GRIP_L", "pos": -0.030}], None)
+check("a gripper open beyond 1 is caught",
+      [{"t": 1.0, "slot": "GRIP_R", "open": 1.4}], "within 0..1")
+
+check("the old metres form is refused by name, saying what replaced it",
+      [{"t": 1.0, "slot": "GRIP_L", "pos": -0.030}], "open: 0..1")
+
+check("do and open together are ambiguous",
+      [{"t": 1.0, "slot": "GRIP_L", "do": "open", "open": 0.5}], "both do and open")
 
 check("two cues owning one slot at once is caught",
       [{"t": 1.0, "slot": "HEAD", "pan": 60, "hold_s": 4.0},
@@ -141,6 +147,31 @@ def check_true(name, cond, detail=""):
     if not cond:
         fails.append(f"{name}: {detail}")
 
+
+# Gripper calibration (DEC-4): the robot's file maps 0..1 to each side's controller units.
+import grippers  # noqa: E402
+_cal = grippers.load(os.path.join(HERE, "gripper_calibration_fixture.yaml"))
+check_true("open 0 and 1 map to each side's measured closed and open, whichever way it runs",
+           grippers.to_controller(_cal, "left", 0.0) == -0.040 and grippers.to_controller(_cal, "left", 1.0) == 0.0
+           and grippers.to_controller(_cal, "right", 0.0) == 0.0 and grippers.to_controller(_cal, "right", 1.0) == 0.040)
+check_true("a captured controller position reads back as the same fraction",
+           abs(grippers.from_controller(_cal, "left", grippers.to_controller(_cal, "left", 0.3)) - 0.3) < 1e-9
+           and abs(grippers.from_controller(_cal, "right", grippers.to_controller(_cal, "right", 0.3)) - 0.3) < 1e-9)
+import tempfile  # noqa: E402
+with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as _fh:
+    _fh.write("left: {closed: 0.010, open: 0.012}\nright: {closed: 0, open: 40}\n")
+try:
+    grippers.load(_fh.name)
+    check_true("a calibration with no real travel, or wrong units, is refused", False, "loaded")
+except grippers.CalibrationError as _e:
+    check_true("a calibration with no real travel, or wrong units, is refused",
+               "too close" in str(_e) and "wrong units" in str(_e), str(_e))
+os.unlink(_fh.name)
+try:
+    grippers.load("/nonexistent/grippers.yaml")
+    check_true("a missing calibration says how to make one", False, "loaded")
+except grippers.CalibrationError as _e:
+    check_true("a missing calibration says how to make one", "measure it on the robot" in str(_e), str(_e))
 
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.

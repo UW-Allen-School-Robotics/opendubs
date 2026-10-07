@@ -295,7 +295,7 @@ Unchanged from v0 unless marked **new**.
 | slot | fields | checks | sourced from |
 |---|---|---|---|
 | `ARM_L`/`ARM_R` | `joints: {1..7: deg}` | limits (arm software's `joint_limits.yaml`, 5° margin), per-joint average speed cap, shoulder/head clearance | measured on opendubs2; see `cue.py` comments |
-| `GRIP_L`/`GRIP_R` | `do: open\|close` or `pos: m`, `effort` | per-side range, effort ≤ 5 | measured per side |
+| `GRIP_L`/`GRIP_R` | `do: open\|close` or `open: 0..1` (0 closed, 1 open — the same on both sides), `effort` | `open` within 0..1, effort ≤ 5; the old `pos: m` is refused by name | each robot's per-side mapping lives on the robot (`grippers.py`, workplan DEC-4); none of it is in the repo |
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |
 | `SOUND` | `do: play`, `sound: <name>`, optional `secs` | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |

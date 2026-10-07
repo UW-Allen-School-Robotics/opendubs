@@ -326,7 +326,7 @@ function warningsByCue() { return byCue(tl() ? tl().warnings : []); }
 function label(ev) {
   const c = ev.cue;
   switch (ev.slot) {
-    case "GRIP_L": case "GRIP_R": return c.do || `pos ${c.pos}`;
+    case "GRIP_L": case "GRIP_R": return c.do || `open ${c.open}`;
     case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
     case "SOUND": return c.sound || c.do;
@@ -486,7 +486,7 @@ function renderPreview() {
       row(slot, e ? e.cue.name : '<span class="dim">face\'s own</span>');
     } else {
       const e = lastAt(evs, t);
-      row(slot, e ? (e.cue.do || `pos ${e.cue.pos}`) : '<span class="dim">—</span>');
+      row(slot, e ? (e.cue.do || `${Math.round(e.cue.open * 100)}% open`) : '<span class="dim">—</span>');
     }
   }
   $("preview").innerHTML = `<div class="pv">${out.join("")}</div>`;

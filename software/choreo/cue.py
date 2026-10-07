@@ -77,7 +77,10 @@ PEAK_FACTOR = 1.875
 
 # Measured on opendubs2, per side. Both open on a POSITIVE command, but their zeros sit at
 # opposite physical ends, so one range cannot serve both.
-GRIP_RANGE_M = {"GRIP_L": (-0.050, 0.002), "GRIP_R": (0.000, 0.040)}
+# Grippers are written as `open: 0..1` (0 closed, 1 open), the same on both sides (workplan DEC-4).
+# The per-side mapping to controller units is measured on each robot and lives ON THE ROBOT
+# (grippers.py); none of it is in this repository.
+GRIP_SLOTS = ("GRIP_L", "GRIP_R")
 GRIP_EFFORT_MAX = 5.0          # the controller's own max_effort; we stay at or under it
 
 HEAD_RANGE_DEG = (10, 170)     # pan and tilt, clamped well inside the servos' 0..180
@@ -132,7 +135,8 @@ TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
     "ARM_L": {"joints"}, "ARM_R": {"joints"},
-    "GRIP_L": {"do", "pos", "effort"}, "GRIP_R": {"do", "pos", "effort"},
+    # pos is KNOWN so that the old metres form is refused by name, with what replaced it
+    "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
     "SOUND": {"do", "sound", "secs"},
@@ -550,7 +554,7 @@ class Show:
                 continue
 
             intrinsic = 0.0
-            if slot in GRIP_RANGE_M:
+            if slot in GRIP_SLOTS:
                 msgs = self._check_grip(where, c, slot)
             elif slot == "HEAD":
                 msgs = self._check_head(where, c)
@@ -677,18 +681,19 @@ class Show:
 
     def _check_grip(self, where, c, slot):
         p = []
-        do = c.get("do")
-        pos = c.get("pos")
-        if do in ("open", "close") and pos is None:
-            return p                      # named ends are resolved per side by the runner
-        if pos is None:
-            return [f"{where}: {slot} needs do: open|close, or pos: <metres>"]
-        if not _num(pos):
-            return [f"{where}: {slot} pos must be a number of metres"]
-        lo, hi = GRIP_RANGE_M[slot]
-        if not (lo <= float(pos) <= hi):
-            p.append(f"{where}: {slot} pos {float(pos):+.3f} outside [{lo:+.3f}, {hi:+.3f}] "
-                     "— the two sides were zeroed in different physical states")
+        do, frac = c.get("do"), c.get("open")
+        if "pos" in c:
+            return [f"{where}: {slot} pos (metres) is gone — write open: 0..1 (0 closed, 1 open, "
+                    "the same on both sides); each robot's mapping to its controller lives on "
+                    "the robot"]
+        if do is not None and frac is not None:
+            return [f"{where}: {slot} has both do and open — say one"]
+        if do is None and frac is None:
+            return [f"{where}: {slot} needs do: open|close, or open: 0..1"]
+        if do is not None and do not in ("open", "close"):
+            return [f"{where}: {slot} do must be open|close"]
+        if frac is not None and not (_num(frac) and 0.0 <= float(frac) <= 1.0):
+            p.append(f"{where}: {slot} open {frac!r} must be within 0..1 (0 closed, 1 open)")
         eff = c.get("effort")
         if eff is not None and not (_num(eff) and 0 < float(eff) <= GRIP_EFFORT_MAX):
             p.append(f"{where}: {slot} effort {eff} outside (0, {GRIP_EFFORT_MAX}]")
