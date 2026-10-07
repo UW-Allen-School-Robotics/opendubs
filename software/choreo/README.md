@@ -92,8 +92,15 @@ Every status change and abort cause is a JSON line (`--log`). Live output is not
 **The routine palette** — `runner.py palette` lists the shows marked `palette:` (each ending at
 rest, so any can follow any) and runs the one the operator picks: `GET /api/routines`,
 `POST /api/run/<id>` (refused while another runs), `POST /api/stop`, `GET /api/palette`. Same twin
-feed, so the twins follow whichever routine is playing. The tablet's player (plan 4.4) will put
-these buttons on screen.
+feed, so the twins follow whichever routine is playing. The dashboard's **Shows** page (plan 4.4)
+puts these buttons on the tablet.
+
+**On the robot** (plan 4.4c) it runs as the `opendubs-runner` service — `palette --robot dashboard`
+on 127.0.0.1:8092, installed by the dashboard's `deploy.sh` and `deploy/provision-runner.sh`. Its
+preflight and aborts answer to the real robot, read-only, through the dashboard's
+`GET /api/choreo/robot`; it has no `/api/sim/*` switches; and it reads the arms' joint limits in
+place from the arm stack (no file, no routines — each is listed as refused, saying why). It still
+drives only the twins.
 
 ## The composer
 

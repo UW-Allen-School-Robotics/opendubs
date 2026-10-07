@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenDubs show runner — the routine palette behind the Shows page (drives only the twins)
+After=network-online.target opendubs-dash.service
+Wants=opendubs-dash.service
+
+[Service]
+Type=simple
+User=kiosk
+WorkingDirectory=/opt/opendubs/choreo
+# The arms' joint limits are the arm stack's own file, read in place (choreography plan 4.4c). It
+# lives in a checkout this account cannot otherwise reach, so provision-runner.sh adds a robot-local
+# drop-in that binds just that one directory here, read-only, for this service alone. Without it the
+# file is absent and the runner refuses every routine, saying why.
+Environment=OPENDUBS_ARM_LIMITS=/etc/opendubs/arm-limits/joint_limits.yaml
+# Localhost only (the runner binds 127.0.0.1); the dashboard forwards the Shows page's calls. Robot
+# state is the dashboard's read-only view of it; nothing here commands the robot.
+ExecStart=/opt/opendubs/venv/bin/python runner.py palette --robot dashboard --port 8092 --log /var/log/opendubs-runner/runner.jsonl
+LogsDirectory=opendubs-runner
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

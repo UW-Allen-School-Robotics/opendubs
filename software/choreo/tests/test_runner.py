@@ -168,6 +168,62 @@ try:
 except KeyError:
     check("a show that is not on the palette cannot be run from it", True)
 
+print("\nrunner: on the robot (4.4c)")
+missing = R.Palette(SHOWS, "/nonexistent/joint_limits.yaml", R.FakeRobotState(), R.TwinFeed(), io.StringIO())
+rs = missing.routines()
+check("with no limits file every routine is still listed, refused, and says why",
+      rs and all(not x["valid"] and "joint limits cannot be read" in x["problems"][0] for x in rs), rs[:1])
+try:
+    missing.run(rs[0]["id"])
+    check("... and none can be run", False, "accepted")
+except ValueError as e:
+    check("... and none can be run", "joint limits" in str(e), str(e))
+
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+import time  # noqa: E402
+asked = []
+answer = {"ch5": "AUTO", "deadman": True, "estop": False, "fault": None, "arms": "active",
+          "tab5": True, "arm_pose": {"ARM_L": {}, "ARM_R": {}}}
+
+
+class Dash(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        asked.append(self.path)
+        b = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+
+dash = ThreadingHTTPServer(("127.0.0.1", 0), Dash)
+threading.Thread(target=dash.serve_forever, daemon=True).start()
+real = R.DashboardRobotState(f"http://127.0.0.1:{dash.server_address[1]}/api/choreo/robot")
+time.sleep(0.4)
+check("the dashboard reader reports what the dashboard says", real.read()["ch5"] == "AUTO", real.read())
+real.refresh()
+check("... and asks the arms and head afresh only when told to (preflight)",
+      "/api/choreo/robot?probe=1" in asked and asked.count("/api/choreo/robot?probe=1") == 1, asked[-3:])
+dash.shutdown()
+time.sleep(0.7)
+check("a dashboard that stops answering makes everything UNKNOWN within half a second",
+      all(real.read()[k] is None for k in ("ch5", "deadman", "estop")), real.read())
+check("... so a show would end, not carry on", R.monitor({}, real.read())[0] == R.ESTOPPED)
+
+srv = R.serve(R.TwinFeed(), real, {}, "127.0.0.1", 0)
+port = srv.server_address[1]
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+try:
+    urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/sim/estop", data=b"", method="POST"))
+    check("the real robot's state has no switches: /api/sim/* is not served", False, "served")
+except urllib.error.HTTPError as e:
+    check("the real robot's state has no switches: /api/sim/* is not served", e.code == 404, e.code)
+srv.shutdown()
+
 print()
 if fails:
     for f in fails:

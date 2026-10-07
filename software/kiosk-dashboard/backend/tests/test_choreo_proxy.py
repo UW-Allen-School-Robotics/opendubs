@@ -65,4 +65,51 @@ def test_a_missing_runner_is_a_503_that_says_so():
 def test_the_fake_robot_switches_are_not_forwarded():
     paths = {r.path for r in choreo_proxy.router.routes}
     assert not any("sim" in p for p in paths)
-    assert paths == {"/api/choreo/routines", "/api/choreo/palette", "/api/choreo/run/{rid}", "/api/choreo/stop"}
+    # /api/choreo/robot is the dashboard's own read-only answer, not a forward to the runner
+    assert paths == {"/api/choreo/routines", "/api/choreo/palette", "/api/choreo/run/{rid}", "/api/choreo/stop",
+                     "/api/choreo/robot"}
+
+
+# ---- /api/choreo/robot: the runner's view of the robot (plan 4.4c) -----------------------------
+def _rs(**inputs):
+    base = {"authority": "AUTONOMOUS", "deadman": True, "estopped": False, "faults": [], "charging": False}
+    return {"state": "AUTONOMOUS_CONTROL", "inputs": {**base, **inputs}}
+
+
+FRESH = {"fresh": True, "motion_enabled": True}
+
+
+def test_a_healthy_robot_reads_as_the_runner_names_it():
+    v = choreo_proxy.robot_view(_rs(), FRESH, {"fresh": True}, "active", True)
+    assert (v["estop"], v["ch5"], v["deadman"], v["fault"], v["arms"], v["tab5"]) == \
+        (False, "AUTO", True, None, "active", True)
+
+
+def test_ch5_uses_the_formats_names():
+    for auth, name in (("OFF", "STANDBY"), ("RC_MANUAL", "MANUAL"), ("AUTONOMOUS", "AUTO"), (None, None)):
+        assert choreo_proxy.robot_view(_rs(authority=auth), FRESH, {"fresh": True})["ch5"] == name
+
+
+def test_a_lost_rc_link_makes_ch5_and_the_deadman_unknown_not_false():
+    v = choreo_proxy.robot_view(_rs(), FRESH, {"fresh": False})
+    assert v["ch5"] is None and v["deadman"] is None
+
+
+def test_a_stale_stamplc_makes_the_estop_unknown():
+    v = choreo_proxy.robot_view(_rs(estopped=True), {"fresh": False}, {"fresh": True})
+    assert v["estop"] is None and v["motion_power"] is None
+
+
+def test_faults_starting_up_and_charging_all_refuse():
+    assert "WELDED" in choreo_proxy.robot_view(_rs(faults=["CONTACTOR WELDED"]), FRESH, {"fresh": True})["fault"]
+    assert "starting up" in choreo_proxy.robot_view({**_rs(), "state": "INIT"}, FRESH, {"fresh": True})["fault"]
+    assert "charging" in choreo_proxy.robot_view(_rs(charging=True), FRESH, {"fresh": True})["fault"]
+
+
+def test_arms_are_active_only_when_every_motor_is_enabled_and_clean():
+    f = choreo_proxy.arms_from_summary
+    assert f("enabled=16 disabled=0 faults=0 missing=0", None) == "active"
+    assert f("enabled=8 disabled=8 faults=0 missing=0", None) == "inactive"
+    assert f("enabled=16 disabled=0 faults=1 missing=0", None) == "inactive"
+    assert f("enabled=0 disabled=0 faults=0 missing=16", None) == "inactive"
+    assert f("", "failed") is None and f("garbage", None) is None

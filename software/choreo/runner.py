@@ -14,8 +14,10 @@ true — or stops being KNOWN — the show ends. Preemption aborts; it never pau
 WHAT THIS CAN COMMAND: nothing on the robot. Its outputs are sinks; the only one built is the twin
 feed (the same /api/twin the composer serves), so the MuJoCo and face twins play exactly what the
 runner decides. Live output is a separately armed binding (workplan 5.6), not built. The robot's
-state comes from a provider; the only one built is a fake, settable over HTTP, so every abort path
-can be exercised with no robot.
+state comes from a provider: a fake, settable over HTTP, so every abort path can be exercised with
+no robot (--robot fake, the default); or, on the robot, the dashboard's own read-only view of it
+(--robot dashboard, plan 4.4c), so preflight and aborts answer to the real e-stop, CH5 and deadman
+while the output is still only the twins.
 
 Every status change and every abort cause is logged as one JSON line (--log), so an abort can be
 reconstructed afterwards (5.5).
@@ -28,6 +30,7 @@ import os
 import sys
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,6 +84,48 @@ class FakeRobotState:
     def set(self, **kw):
         with self.lock:
             self.s.update(kw)
+
+
+class DashboardRobotState:
+    """The robot's state as the dashboard reports it (GET /api/choreo/robot) — READ-ONLY: nothing
+    here writes to the robot. Polled at 10 Hz; a reading older than STALE_S is no reading, so every
+    field goes UNKNOWN and a running show ends (unknown never defaults, 5.2)."""
+
+    POLL_S, STALE_S = 0.1, 0.5
+    UNKNOWN = {"ch5": None, "deadman": None, "estop": None, "arms": None, "tab5": None,
+               "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}}}
+
+    def __init__(self, url="http://127.0.0.1:8080/api/choreo/robot"):
+        self.url, self.lock = url, threading.Lock()
+        self.last, self.at = None, 0.0
+        threading.Thread(target=self._poll, daemon=True).start()
+
+    def _get(self, probe=False, timeout=1.0):
+        with urllib.request.urlopen(self.url + ("?probe=1" if probe else ""), timeout=timeout) as r:
+            d = json.loads(r.read())
+        with self.lock:
+            self.last, self.at = d, time.monotonic()
+
+    def _poll(self):
+        while True:
+            try:
+                self._get()
+            except Exception:  # noqa: BLE001  a missed poll is what STALE_S is for
+                pass
+            time.sleep(self.POLL_S)
+
+    def refresh(self):
+        """Before preflight: have the dashboard ask the arms and the head now (it does so only on
+        demand, because the arm read uses the arms' CAN bus). A failure leaves them unknown."""
+        try:
+            self._get(probe=True, timeout=25.0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def read(self) -> dict:
+        with self.lock:
+            fresh = self.last is not None and time.monotonic() - self.at < self.STALE_S
+            return json.loads(json.dumps(self.last if fresh else self.UNKNOWN))
 
 
 def preflight(requires: dict, st: dict) -> list:
@@ -225,6 +270,8 @@ class Runner:
 
         # PREFLIGHT: requires vs the robot as it is now
         self._set(PREFLIGHT)
+        if hasattr(self.robot, "refresh"):
+            self.robot.refresh()
         st = self.robot.read()
         refusals = preflight(show.requires or {}, st)
         if refusals:
@@ -290,7 +337,11 @@ class Palette:
         self.last = None              # {"id", "status", "code", "cause"}
 
     def routines(self) -> list:
-        limits = cue.load_limits(self.limits_path)
+        # No limits, no routines: every one is listed, refused, and says why (decided in 4.4c).
+        try:
+            limits, why = cue.load_limits(self.limits_path), None
+        except Exception as e:  # noqa: BLE001
+            limits, why = None, f"the arms' joint limits cannot be read ({self.limits_path}): {e}"
         out = []
         for name in sorted(os.listdir(self.shows_dir)):
             if not name.endswith((".yaml", ".yml")):
@@ -303,7 +354,8 @@ class Palette:
             pal = show.doc.get("palette")
             if not isinstance(pal, dict):
                 continue
-            tl = show.export(limits, self.limits_path)
+            tl = (show.export(limits, self.limits_path) if limits is not None else
+                  {"valid": False, "duration_s": None, "problems": [{"msg": why}], "warnings": []})
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
@@ -354,7 +406,9 @@ class Palette:
 
 
 # ---- the feed server, and the fake robot's switches ---------------------------------------------
-def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, port: int, palette=None):
+def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette=None):
+    fake = isinstance(robot, FakeRobotState)      # only the fake has switches; the real one is read-only
+
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -385,10 +439,10 @@ def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, po
             sw = {"/api/sim/estop": {"estop": True}, "/api/sim/estop/clear": {"estop": False},
                   "/api/sim/deadman/release": {"deadman": False},
                   "/api/sim/deadman/hold": {"deadman": True}}
-            if p in sw:
+            if fake and p in sw:
                 robot.set(**sw[p])
                 return self._json(robot.read())
-            if p.startswith("/api/sim/ch5/"):
+            if fake and p.startswith("/api/sim/ch5/"):
                 robot.set(ch5=p.rsplit("/", 1)[1].upper())
                 return self._json(robot.read())
             if palette and p.startswith("/api/run/"):
@@ -417,8 +471,11 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run a show against the twins")
     r.add_argument("show")
-    r.add_argument("--limits", default=cue.DEFAULT_LIMITS if os.path.isfile(cue.DEFAULT_LIMITS)
-                   else os.path.join(HERE, "tests", "joint_limits_fixture.yaml"))
+    # On the robot the service sets OPENDUBS_ARM_LIMITS, and a missing file there refuses every
+    # show; the test fixture is the fallback only where neither is set (a laptop).
+    r.add_argument("--limits", default=os.environ.get("OPENDUBS_ARM_LIMITS") or (
+        cue.DEFAULT_LIMITS if os.path.isfile(cue.DEFAULT_LIMITS)
+        else os.path.join(HERE, "tests", "joint_limits_fixture.yaml")))
     r.add_argument("--port", type=int, default=8092)
     r.add_argument("--log", help="append the JSON-lines log here (default: stdout)")
     r.add_argument("--hold", type=float, default=0.0, help="seconds to keep serving after it ends")
@@ -429,16 +486,22 @@ def main() -> int:
     pp.add_argument("--limits", default=r.get_default("limits"))
     pp.add_argument("--port", type=int, default=8092)
     pp.add_argument("--log", help="append the JSON-lines log here (default: stdout)")
+    pp.add_argument("--robot", choices=("fake", "dashboard"), default="fake",
+                    help="whose state preflight and aborts answer to (dashboard: read-only, on the robot)")
+    pp.add_argument("--dashboard", default="http://127.0.0.1:8080/api/choreo/robot")
     a = ap.parse_args()
 
     if a.cmd == "palette":
-        robot, feed = FakeRobotState(), TwinFeed()
+        robot = DashboardRobotState(a.dashboard) if a.robot == "dashboard" else FakeRobotState()
+        feed = TwinFeed()
         log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
         pal = Palette(a.shows, a.limits, robot, feed, log)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
-              "POST /api/run/<id>, POST /api/stop. FAKE robot state; nothing commands the robot.",
+              f"POST /api/run/<id>, POST /api/stop. Robot state: "
+              f"{'the dashboard, read-only' if a.robot == 'dashboard' else 'FAKE'}; "
+              "nothing commands the robot.",
               file=sys.stderr, flush=True)
         while True:
             time.sleep(3600)

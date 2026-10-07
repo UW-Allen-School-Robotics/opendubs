@@ -70,6 +70,14 @@ systemctl enable opendubs-yolo-tracker.service
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
 
+# --- 3b) The show runner (the Shows page's routines) --------------------------
+# Its own service, localhost only; deploy.sh copies software/choreo alongside this app.
+if [ -x "$ROOT/choreo/deploy/provision-runner.sh" ]; then
+  "$ROOT/choreo/deploy/provision-runner.sh"
+else
+  echo "-- show runner not deployed (no $ROOT/choreo) — the Shows page will say so"
+fi
+
 # --- 4) Name the StamPLC ----------------------------------------------------
 # Best-effort: it reads the address from the dashboard, so it only works once the backend is up
 # and hearing the board. Re-runnable at any time.
