@@ -22,6 +22,28 @@ re-derived: [`design/hri-interaction-design.md`](design/hri-interaction-design.m
   own verdict. (CLAUDE.md, and it has been earned twice.)
 - **Change one variable at a time.** The ToF closeout is the recent example of what that buys.
 
+## Decided 2026-10-07
+
+Three choices the plan flagged as "settle early". All three are now settled, and each one makes
+Phase A **cheaper**, so they are recorded here rather than left in a commit message.
+
+| Decision | Choice | What it costs, and what it buys |
+|---|---|---|
+| **Echo** | **Half-duplex.** Capture is muted while the speaker is active | Costs **barge-in**: you cannot interrupt the robot mid-sentence. Buys the whole AEC problem going away — no codec registers written, no software canceller on the P4. **VAD therefore never runs during playback**, which is what Phase A step 2 was waiting on. Built as ONE explicit gate so a canceller can replace it later without touching a caller |
+| **Utterance end** | **The Tab5 decides, on VAD. Bounded clips, not a continuous stream** | Costs a hard cutoff that semantics cannot revise, so a thoughtful mid-sentence pause can truncate — tunable via the hangover, not fixable. Buys much less bandwidth on a link already carrying video, no continuous carrier to design in Phase B, and a head that stays useful with the Thor down |
+| **Listening policy** | **Push-to-talk.** Capture only while a press is held | Costs the hands-free feel. Buys the privacy question answered by construction: in a shared university building nobody can be recorded without a visible, deliberate act, and there is no wake-word model to fit |
+
+**Push-to-talk reshapes Phase A, and in our favour.** VAD stops being the gate for *whether to
+listen* — the button is — and becomes only the thing that finds the **end** of an utterance inside a
+held press. That is a far smaller claim on a much smaller threshold problem: a false positive is no
+longer "the robot started listening to the room", it is "the clip ended early".
+
+It does **not** excuse skipping the noise-floor measurement. The end-of-speech threshold is still
+measured against the drive motors, the lift and the ESCs a metre away, or it is fiction.
+
+Push-to-talk and half-duplex compose: a press means **stop talking and listen**, so the press both
+opens capture and cancels playback, and the two gates never contend.
+
 ## Already settled — do not re-investigate
 
 | Fact | Where |
@@ -58,6 +80,9 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
 2. **Voice activity detection.** Energy-plus-threshold first, measured against the robot's own noise
    floor: the drive motors, the lift and the ESCs are all a metre away. **Measure the noise floor
    with the robot RUNNING before choosing a VAD, or the threshold is fiction.**
+   Scope settled above: VAD runs **only inside a held press** (push-to-talk) and **never during
+   playback** (half-duplex), so it answers one question — has this utterance ended — and not
+   "is someone talking to the robot".
 3. **Wire `Heard`.** The earcon exists; VAD is its trigger. "I noticed you, inside a second, whether
    or not I can act" — the cheapest honest thing the robot can do and it needs no transport at all.
 4. **Glance toward a voice.** Port the direction bench, then feed it in as an **EVENT, not an owner.**
@@ -74,15 +99,13 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
   encode it. Decide: raw for simplicity, or compressed for headroom shared with video.
 - **Audio down:** TTS back to the speaker, **streamed, not file-at-a-time**, or the robot pauses
   mid-sentence.
-- **Echo — and this is the one to get right early.** "Listening while speaking works" means the mic
-  and speaker can run together; it does NOT mean the robot can hear past itself. The ES7210's AEC
-  reference channels (3/4) are **disabled in the current configuration**, so there is no hardware
-  cancellation to lean on. Three routes, and they are not equivalent in cost: enable the reference
-  channels and route a real reference signal; do AEC in software on the P4; or **sidestep it** with
-  half-duplex — stop listening while speaking. Half-duplex is much cheaper and costs exactly one
-  thing: barge-in. Since "the robot can be interrupted" is a stated want, that trade is a decision,
-  not a detail. **Settle it before Phase A step 2**, because it determines whether VAD has to run
-  while the speaker is active.
+- **Echo — SETTLED 2026-10-07: half-duplex.** "Listening while speaking works" means the mic and
+  speaker can run together; it never meant the robot could hear past itself, and with the ES7210's
+  AEC reference channels (3/4) disabled there is no hardware cancellation to lean on. Of the three
+  routes — enable the reference channels, cancel in software on the P4, or sidestep it — we sidestep
+  it: **capture is muted while the speaker is active.** The price is barge-in, paid knowingly.
+  Implemented as a single explicit gate, so swapping in a canceller later changes that gate and
+  nothing else.
 - **Carrier:** the existing StamPLC protocol is line-based UDP and was never built to carry a
   payload. Audio and video want their own path. The head already runs an HTTP-pull OTA and mDNS, so
   there is precedent for a second port rather than overloading udp/4242.
@@ -99,9 +122,10 @@ sends bounded clips, and it is cheap to decide now and expensive to change later
 
 ## Open questions
 
-1. **Wake word, or push-to-talk, or always-listening?** Bears on privacy in a shared lab as much as
-   on CPU. A robot that always listens in a university building is a conversation to have with
-   people, not only a design choice.
+1. ~~**Wake word, or push-to-talk, or always-listening?**~~ **ANSWERED 2026-10-07: push-to-talk.**
+   See the decisions table. The privacy question is answered by construction rather than by policy —
+   capture requires a visible, deliberate press — which is the version of this that does not need
+   re-litigating every time someone new walks into the bay.
 2. **Whose voice is the robot's** — the Tab5's 1 W speaker, or the tablet's? `notes/punch-list.md`
    already flags the overlap and it is still undecided.
 3. **Does the mic become a perception source for the FACE as well as the head?** Emma, 2026-10-07:

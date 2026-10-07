@@ -14,9 +14,11 @@
 #   ./build.sh percept         compile and run the perception self-test ON THE HOST -- no IDF,
 #                              no demo tree, no board. Seconds, and it is the only verification
 #                              available to someone who does not have the hardware.
+#   ./build.sh voice           the same for the voice layer (capture levels, the noise floor,
+#                              direction, push-to-talk, the hangover, the half-duplex mute).
 #
 # Point OPENDUBS_DEMO at the M5Tab5-UserDemo clone (see README.md for how to construct it).
-# `percept` needs neither OPENDUBS_DEMO nor an IDF install.
+# `percept` and `voice` need neither OPENDUBS_DEMO nor an IDF install.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -48,8 +50,28 @@ build_percept() {
     return $rc
 }
 
+# Same deal for the voice layer, and for the same reason one step stronger: when this was written
+# the demo tree was not on the development machine at all, so this was the ONLY build that ran.
+build_voice() {
+    local out
+    out="$(mktemp -d)/voice_host_test"
+    # -Wall -Wextra -Werror on purpose, as with percept: this layer is pure compute with no
+    # platform excuses, and a warning here is the cheapest bug report available.
+    c++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$HERE/app_face" -o "$out" \
+        "$HERE/tools/voice_host_test.cpp" \
+        "$HERE/app_face/voice/level.cpp" \
+        "$HERE/app_face/voice/listen.cpp" \
+        "$HERE/app_face/voice/selftest.cpp"
+    "$out"
+}
+
 if [ "$MODE" = "percept" ]; then
     build_percept
+    exit $?
+fi
+
+if [ "$MODE" = "voice" ]; then
+    build_voice
     exit $?
 fi
 
