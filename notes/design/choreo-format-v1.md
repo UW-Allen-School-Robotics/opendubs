@@ -315,6 +315,7 @@ cues:
   | dial | range | effect |
   |---|---|---|
   | `repeat` | integer ≥ 1 | instances at `start + k · length · time_scale`; a clip's length is required only when `repeat` > 1 — two separate placements need none |
+  | `mirror` | `true` / `false` (default false) | plays the clip on the other side: `ARM_L`↔`ARM_R`, `GRIP_L`↔`GRIP_R`, and the head's pan reflected about 90°. Arm joints are already in each arm's outward sense, so the same numbers make the mirror-image gesture. Sound, face, light, lift and dance are unchanged |
   | `time_scale` | > 0 | multiplies clip-local **times** and `hold_s` (Furhat's `duration`) |
   | `strength` | (0, 1] | scales **amplitude**: arm joint values toward 0°, head pan/tilt toward 90° (Furhat's `strength`) |
 

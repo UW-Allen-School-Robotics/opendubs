@@ -101,7 +101,7 @@ place; each points at the item that delivers it.
 | 1.9 | ~~"Back to rest" is not expressible (R1)~~ **DONE, 2026-10-07.** `pose: rest`: every joint 0, clamped into that robot's own joint limits with no extra margin — the elbow's hanging value is a few degrees below the arm software's J4 lower limit, so rest is the nearest pose to hanging it allows. Resolved per robot from its limits file; speed-checked; `describe` prints it. | — |
 | 1.10 | **A cue that selects a face theme (T1).** After the head gains `THEME` (Tab5 plan TW2). | `FACE: { do: theme, name }` validated against the head's themes. |
 | 1.11 | ~~Sound files treated like music (S1)~~ **DONE, 2026-10-07.** A top-level `sounds: [name, …]` lists the files a show expects in `shows/sounds/` (git-ignored). A listed file that is absent is a notice; a name that is neither an earcon, present nor listed is an error, so typos are caught. Routing still applies (a file cannot go to the Tab5). | — |
-| 1.12 | **Mirrored clip placements (M1)** — `mirror: true` swaps the arm and gripper slots. | A wave written once plays on either arm. |
+| 1.12 | ~~Mirrored clip placements (M1)~~ **DONE, 2026-10-07.** `mirror: true` on a placement swaps `ARM_L`↔`ARM_R` and `GRIP_L`↔`GRIP_R` and reflects the head's pan about centre; the outward-sense convention means the joints need no change. Proven on `beat-demo`: replacing its hand-written `wave_l` with a mirrored `wave_r` gives an identical resolved timeline. | — |
 | 1.13 | **A run-time choice point (C1)** — a placement with alternatives the runner resolves from an event, e.g. the grip's result. Design first: it meets the runner, the GO scheduler (PA-5.5) and the parked trigger graph (P2). | `reaction.yaml` can react to failure as well as success. |
 
 ---

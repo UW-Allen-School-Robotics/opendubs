@@ -327,6 +327,23 @@ check_true("a listed sound file sent to the Tab5 is refused — it plays earcons
 check_doc("sounds: must be a list of names", doc_show([{"t": 1.0, "slot": "SOUND", "do": "play",
           "sound": "attend"}], sounds="thunder"), "must be a list")
 
+# mirror (plan 1.12): a placement plays a clip on the other side.
+_mc = {"g": {"length_s": 2.0, "cues": [{"t": 0.0, "slot": "ARM_L", "joints": {7: 15}},
+                                          {"t": 0.5, "slot": "GRIP_L", "do": "open"},
+                                          {"t": 0.5, "slot": "HEAD", "pan": 120}]}}
+_ms = doc_show([{"t": 2.0, "clip": "g", "mirror": True}], clips=_mc,
+               slots=["ARM_R", "GRIP_R", "HEAD"])
+_mt = _ms.export(LIMITS, None)
+check_true("a mirrored placement plays on the other arm and gripper, and reflects the head's pan",
+           _mt["valid"] and [e["t"] for e in _mt["tracks"]["ARM_R"]] == [2.0]
+           and _mt["tracks"]["GRIP_R"] and _mt["tracks"]["HEAD"][0]["cue"]["pan"] == 60,
+           _mt["problems"])
+check_doc("a mirrored placement's slots must be declared like any other",
+          doc_show([{"t": 2.0, "clip": "g", "mirror": True}], clips=_mc, slots=["ARM_L", "GRIP_L", "HEAD"]),
+          "did not declare")
+check_doc("mirror must be true or false",
+          doc_show([{"t": 2.0, "clip": "g", "mirror": "yes"}], clips=_mc), "mirror must be true or false")
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

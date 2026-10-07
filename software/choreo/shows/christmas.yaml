@@ -21,14 +21,12 @@ dance:
 sounds: [sleigh_bells]                # supplied locally in shows/sounds/, never committed
 
 clips:
-  # a two-bar wave, left then right, slow enough not to warn
-  wave_both:
-    length_beats: 8
+  # a one-bar wave on the left arm, slow enough not to warn; mirrored for the right
+  wave:
+    length_beats: 4
     cues:
       - { beat: 1, slot: ARM_L, joints: { 7: 15 } }
       - { beat: 3, slot: ARM_L, joints: { 7: -15 } }
-      - { beat: 5, slot: ARM_R, joints: { 7: 15 } }
-      - { beat: 7, slot: ARM_R, joints: { 7: -15 } }
 
 cues:
   - { t: 0.0, slot: LIGHT, do: color, rgb: [255, 236, 190], br: 70 }    # warm white — a saturated gold reads as DEGRADED amber
@@ -43,10 +41,12 @@ cues:
   - { bar: "3.1", slot: GRIP_R, do: open }
 
   # the wave, twice, with the light alternating gold and white
-  - { bar: "4.1", clip: wave_both }
+  - { bar: "4.1", clip: wave }
+  - { bar: "5.1", clip: wave, mirror: true }
   - { bar: "4.1", slot: LIGHT, do: color, rgb: [255, 255, 255], br: 60 }
   - { bar: "5.1", slot: LIGHT, do: color, rgb: [255, 236, 190], br: 70 }
-  - { bar: "6.1", clip: wave_both }
+  - { bar: "6.1", clip: wave }
+  - { bar: "7.1", clip: wave, mirror: true }
   - { bar: "6.1", slot: LIGHT, do: color, rgb: [140, 190, 255], br: 70 }  # cold blue
 
   # a little sway on the downbeats
@@ -68,5 +68,3 @@ cues:
 #  - red and green: red is the state light's E-STOP colour, now refused (plan 1.8); green is
 #    SAFE IDLE's, still allowed but avoided here
 #  - a Christmas face theme: no cue selects a theme
-#  - "wave the right arm the way the left one did": a clip cannot be mirrored onto the other arm,
-#    so wave_both spells out each arm

@@ -41,16 +41,6 @@ clips:
       - { beat: 3, slot: ARM_R, joints: { 7: 15 } }
       - { beat: 4, slot: ARM_R, joints: { 7: 0 } }
 
-  # The same wave for the left arm. It has to be written twice: the format has no way to say
-  # "this clip, on the other arm" (finding 2).
-  wave_l:
-    length_beats: 4
-    cues:
-      - { beat: 1, slot: ARM_L, joints: { 7: 15 } }
-      - { beat: 2, slot: ARM_L, joints: { 7: -15 } }
-      - { beat: 3, slot: ARM_L, joints: { 7: 15 } }
-      - { beat: 4, slot: ARM_L, joints: { 7: 0 } }
-
 # The base dances in bars 5-8: named moves from the library, each returning to where it started.
 # The floor radius is a DECLARATION a human confirms before the base moves; the robot cannot check it.
 dance:
@@ -84,7 +74,7 @@ cues:
 
   # bars 5-6: the right wrist waves twice; bars 7-8 the left answers, half as big
   - { bar: "5.1", clip: wave_r, repeat: 2 }
-  - { bar: "7.1", clip: wave_l, repeat: 2, strength: 0.5 }
+  - { bar: "7.1", clip: wave_r, repeat: 2, strength: 0.5, mirror: true }   # the same wave, left arm
 
   # bar 9, the chorus: the lift rises FOR 4 SECONDS starting on the downbeat — a grid start with a
   # clock duration, which is the case the two time forms exist for
@@ -118,7 +108,7 @@ cues:
 # What this show wanted and the format could not give it (workplan 6.1 — each is a Phase 1 item):
 #  1. RELATIVE clips. `strength` scales toward 0 deg, so a wave is only a wave from the zero pose;
 #     "wave around wherever the arm is" cannot be said.
-#  2. MIRRORING a clip onto the other arm (wave_l duplicates wave_r).
+#  2. ~~MIRRORING a clip onto the other arm~~ — now `mirror: true` on a placement (plan 1.12).
 #  3. HEAD TIMING. The head turns at 25 deg/s (the Tab5 firmware's slew limit), so the nod's
 #     20 deg swing needs 0.8 s and a beat here is 0.5 s: starting from 90 the head reaches 80 but
 #     never 100, swaying between 80 and 92.5. The twin shows this, and the validator warns on it.

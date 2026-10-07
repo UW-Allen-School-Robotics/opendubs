@@ -234,7 +234,11 @@ SLOT_KEYS = {
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
 }
-PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale"}
+PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
+# A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
+# and the head's pan reflects about centre. Arm joints are written in each arm's OWN outward sense,
+# so the same numbers already mean the mirror-image gesture on the other arm.
+MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds"}
@@ -485,6 +489,10 @@ class Show:
                     P(Problem(f"{what}: strength must be in (0, 1] — the dial only turns "
                               "amplitude down", *ref))
                     continue
+                mirror = c.get("mirror", False)
+                if not isinstance(mirror, bool):
+                    P(Problem(f"{what}: mirror must be true or false", *ref))
+                    continue
                 if rep > 1 and cl["length"] is None:
                     P(Problem(f"{what}: clip is repeated but declares no length_s/length_beats",
                               *ref))
@@ -497,12 +505,17 @@ class Show:
                             f["hold_s"] = float(f["hold_s"]) * ts
                         if st != 1.0:
                             f = _apply_strength(lc.get("slot"), f, float(st))
+                        slot = lc.get("slot")
+                        if mirror:
+                            slot = MIRROR_SLOT.get(slot, slot)
+                            if slot == "HEAD" and _num(f.get("pan")):
+                                f["pan"] = 2 * HEAD_NEUTRAL_DEG - f["pan"]
                         t = base + lt * ts
                         events.append({
-                            "t": t, "slot": lc.get("slot"), "fields": f, "seq": seq,
+                            "t": t, "slot": slot, "fields": f, "seq": seq,
                             "src": {"index": i, "time": label, "clip": c["clip"], "instance": k,
                                     "local_index": j},
-                            "where": f"cue at t={t:.2f}s (clip {c['clip']} #{k + 1}, "
+                            "where": f"cue at t={t:.2f}s (clip {c['clip']} #{k + 1}{', mirrored' if mirror else ''}, "
                                      f"its cue {j})",
                             "keys": set(lc)})
                         seq += 1
