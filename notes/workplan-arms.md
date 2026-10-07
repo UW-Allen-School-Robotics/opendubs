@@ -1,7 +1,7 @@
 # Work plan — the arms: WebXR teleop, bring-up and authority
 
-**DRAFT, 2026-10-07 — not yet agreed by the project team.** When it is, this becomes the plan of
-record in the manner of [`workplan-tab5-idf.md`](workplan-tab5-idf.md) and
+The plan of record, **agreed by the project team on 2026-10-07**, in the manner of
+[`workplan-tab5-idf.md`](workplan-tab5-idf.md) and
 [`workplan-choreography.md`](workplan-choreography.md): work proceeds through these phases, anything
 not in a phase, the team requests or the stub register is not being worked on, and finished items
 are struck through with a date.
