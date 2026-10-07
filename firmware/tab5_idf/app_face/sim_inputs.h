@@ -31,6 +31,9 @@ bool simGaze(GazeIntent* out);        // the fake person, if one is switched on
 bool simTofMm(float* mm);             // the simulated front distance, if one is set
 bool simEstop();                      // drives netEstopPending() on the twin
 int  simCommand(const char* arg, char* tx, size_t cap);   // a `SIM ...` line
+// For PING. A keyboard press is otherwise unobservable from outside the process, and "the label
+// looks right" is a report about a label rather than a check of the state behind it.
+int  simReport(char* out, size_t cap);
 
 #else   // the head
 

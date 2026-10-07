@@ -813,3 +813,17 @@ or retired.
 
 1A (retired), 1.5 and 1B (audio plan), 1.3a (its own branch and session — do not plan it from here),
 HEIGHT over UDP (the StamPLC owns that sensor; the panel must not borrow the ToF's number).
+
+---
+
+## The e-stop and the face — SETTLED, NOT A FINDING
+
+Recorded here only so it stops being rediscovered. **This is the design and it is intentional:** an
+e-stop opens the contactor, the Tab5 is powered from that branch, so the head loses power. No
+battery is planned. `CLAUDE.md` states it.
+
+Therefore `kStates`' `E_STOP` entry, its fault cue and the HMI's pending banner are effectively dead
+code on this robot, **by design and acceptably so** -- an e-stop is a safety action, not something
+the face participates in. There is no decision pending, no bench test wanted, and nothing to
+re-open. The twin simulates the sequence because a twin should behave like the head, and that is the
+whole of its significance.

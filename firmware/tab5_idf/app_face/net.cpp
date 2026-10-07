@@ -902,7 +902,9 @@ bool netLiftAllowed(const char** w) { if (w) *w = "no robot on the desktop build
 // ---- platform hooks: what a twin cannot honestly answer ----
 int netPlatPing(char* out, size_t cap)
 {
-    return snprintf(out, cap, "slot=twin state=n/a sha=desktop | plc=none");
+    char sim[96];
+    simReport(sim, sizeof(sim));
+    return snprintf(out, cap, "slot=twin state=n/a sha=desktop | plc=none | %s", sim);
 }
 // NEVER a silent success. A twin that accepted OTA or REBOOT and did nothing would be the worst
 // possible answer, because the caller would believe the head had taken it.

@@ -20,6 +20,8 @@ float g_tofMm   = -1.0f;
 bool  g_person  = false;
 bool  g_estop   = false;
 int   g_stateIx = -1;          // index into the face's state table; -1 = link down
+uint32_t g_keyCount = 0;       // every handled key, so a press is visible even if it toggles back
+uint32_t g_estopAt  = 0;       // when the simulated robot confirms the stop; 0 = nothing pending
 
 lv_obj_t* g_badge  = nullptr;  // the word SIMULATED
 lv_obj_t* g_status = nullptr;  // what is currently simulated
@@ -31,6 +33,40 @@ char      g_lastStatus[160] = "";
 // the behaviour the easing/spring split exists to avoid.
 float    g_gx = 0.0f, g_gy = 0.0f;
 uint32_t g_gseq = 0;
+
+int stateIxByName(const char* n)
+{
+    for (int i = 0; i < faceStateCount(); ++i)
+        if (strcmp(faceStateName(i), n) == 0) return i;
+    return -1;
+}
+
+// AN E-STOP IS TWO EVENTS, NOT ONE, and the twin was only simulating the first.
+//
+// On the head: the button sets a PENDING request that is resent every 50 ms, the robot eventually
+// reports E_STOP, and that confirmation is what clears the pending flag. So there are two distinct
+// things to see -- "STOP REQUESTED, resending" and "the robot is stopped" -- and the twin could
+// only ever show the first. Emma caught this: pressing `e` moved the banner and left the face on
+// whatever state it already had.
+//
+// On the robot the head loses power on an e-stop -- the contactor feeds it -- so this sequence is
+// only ever visible here. That is intentional design, not a gap: see CLAUDE.md.
+void estopRequest()
+{
+    g_estop   = true;                       // the pending banner
+    g_estopAt = perceptNowMs() + 1200;      // the robot takes a moment to confirm
+}
+
+void estopRearm()
+{
+    // Only the dashboard's guarded re-arm can do this for real -- the head can always stop the
+    // robot and never un-stop it. The twin offers it because a twin you cannot reset is a twin you
+    // restart, and that is a worse tool.
+    g_estop   = false;
+    g_estopAt = 0;
+    const int ix = stateIxByName("SAFE_IDLE");
+    if (ix >= 0) { g_stateIx = ix; netSetState("SAFE_IDLE"); }
+}
 
 lv_indev_t* pointerIndev()
 {
@@ -62,11 +98,15 @@ void cycleTof()
 
 void onKey(lv_event_t* e)
 {
+    ++g_keyCount;
     switch (lv_event_get_key(e)) {
         case 's': case 'S': cycleState();                                   break;
         case 'l': case 'L': if (g_stateIx < 0) { g_stateIx = 0; netSetState(faceStateName(0)); }
                             else               { g_stateIx = -1; netClearState(); }   break;
-        case 'e': case 'E': g_estop  = !g_estop;                            break;
+        // Toggles between asking and re-arming, so one key walks the whole sequence.
+        case 'e': case 'E': if (g_estop || stateIxByName("E_STOP") == g_stateIx) estopRearm();
+                            else                                                 estopRequest();
+                            break;
         case 'p': case 'P': g_person = !g_person;                           break;
         case 't': case 'T': cycleTof();                                     break;
         default: break;
@@ -126,6 +166,15 @@ void simTick(uint32_t nowMs)
     (void)nowMs;
     if (!g_status) return;
 
+    // The simulated robot confirms the stop, which is also what clears the pending banner -- the
+    // same ordering the head relies on (net.cpp clears g_estopReq when the state reads E_STOP).
+    if (g_estopAt != 0 && perceptNowMs() >= g_estopAt) {
+        g_estopAt = 0;
+        g_estop   = false;
+        const int ix = stateIxByName("E_STOP");
+        if (ix >= 0) { g_stateIx = ix; netSetState("E_STOP"); }
+    }
+
     // Follow the mouse while a person is switched on. Mapped to -1..1 in the same frame the camera
     // would have used, so the face cannot tell a simulated person from a real one -- which is the
     // whole point, and why the badge above is not optional.
@@ -148,10 +197,10 @@ void simTick(uint32_t nowMs)
     const char* sname = (g_stateIx < 0) ? "NO LINK" : faceStateName(g_stateIx);
     if (g_tofMm < 0.0f)
         snprintf(buf, sizeof(buf), "state %s   e-stop %s   person %s   ToF --",
-                 sname, g_estop ? "ON" : "off", g_person ? "ON (mouse)" : "off");
+                 sname, g_estop ? "REQUESTED" : "off", g_person ? "ON (mouse)" : "off");
     else
         snprintf(buf, sizeof(buf), "state %s   e-stop %s   person %s   ToF %d mm",
-                 sname, g_estop ? "ON" : "off", g_person ? "ON (mouse)" : "off", (int)g_tofMm);
+                 sname, g_estop ? "REQUESTED" : "off", g_person ? "ON (mouse)" : "off", (int)g_tofMm);
 
     // Only on change: the labels sit on the same screen as the face, and rewriting plus re-raising
     // them every frame would invalidate that area 30 times a second for nothing.
@@ -189,6 +238,14 @@ bool simTofMm(float* mm)
 
 bool simEstop() { return g_estop; }
 
+int simReport(char* out, size_t cap)
+{
+    return snprintf(out, cap, "sim[state=%s estop=%s person=%d tof=%d keys=%u]",
+                    (g_stateIx < 0) ? "nolink" : faceStateName(g_stateIx),
+                    g_estop ? "PENDING" : "off",
+                    g_person ? 1 : 0, (int)g_tofMm, (unsigned)g_keyCount);
+}
+
 int simCommand(const char* arg, char* tx, size_t cap)
 {
     float mm = 0.0f;
@@ -199,8 +256,8 @@ int simCommand(const char* arg, char* tx, size_t cap)
         return snprintf(tx, cap, "OK sim link %s", arg + 5);
     }
     if (strncmp(arg, "ESTOP ", 6) == 0) {
-        if (strcmp(arg + 6, "ON") == 0)       g_estop = true;
-        else if (strcmp(arg + 6, "OFF") == 0) g_estop = false;
+        if (strcmp(arg + 6, "ON") == 0)       estopRequest();
+        else if (strcmp(arg + 6, "OFF") == 0) estopRearm();
         else return snprintf(tx, cap, "ERR SIM ESTOP ON|OFF");
         return snprintf(tx, cap, "OK sim estop %s", arg + 6);
     }
