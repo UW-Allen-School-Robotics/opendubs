@@ -273,6 +273,12 @@ check_true("... and routing an earcon to a Thor speaker is refused, saying how t
            any("cannot play 'attend'" in q.msg and "sounds/attend.wav" in q.msg for q in _oa["problems"]),
            [q.msg for q in _oa["problems"]])
 
+import cue as _cue2  # noqa: E402
+_d = _cue2.describe(LIMITS)
+check_true("describe prints the numbers a spec reader needs: joint ranges as written, caps, vocabularies",
+           "left  J4: usable" in _d and "cap 70 deg/s" in _d and "SLEEPY" in _d and "attend" in _d
+           and "sway" in _d and "STANDBY" in _d, _d[:200])
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

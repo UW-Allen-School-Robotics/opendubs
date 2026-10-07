@@ -1181,10 +1181,49 @@ def show_from_text(text: str, path: str = "") -> Show:
 DEFAULT_LIMITS = "/openarm_ws/src/openarm/hw_validation/joint_limits.yaml"
 
 
+def describe(limits: dict) -> str:
+    """Every number and vocabulary the validator holds a show to — so an author (or an agent)
+    reading the format spec can find them without reading this file or tripping an error."""
+    L = []
+    w = L.append
+    w("ARM joints (each arm's own limits, minus a margin; speed checked per segment):")
+    for side, m in (("left", -1), ("right", 1)):
+        for j in range(1, 8):
+            lo, hi = limits.get(f"openarm_{side}_joint{j}", (None, None))
+            if lo is None:
+                continue
+            lo_d, hi_d = math.degrees(lo) + MARGIN_DEG, math.degrees(hi) - MARGIN_DEG
+            # shows write J1-J3 in each arm's OWN outward sense: show the usable range that way
+            if j in MIRRORED_JOINTS and m < 0:
+                lo_d, hi_d = -hi_d, -lo_d
+            w(f"  {side:5s} J{j}: usable {lo_d:+7.1f} .. {hi_d:+7.1f} deg (as written in a show)   "
+              f"cap {SPEED_CAP_DEG_S[j]} deg/s average (unsourced); warns above it x {PEAK_FACTOR}")
+    w(f"  margin {MARGIN_DEG:g} deg inside each limit. The rest pose (all zero) can sit on a limit:"
+      " write J4 >= the usable minimum above.")
+    w(f"  shoulder/head: J2 must stay {SHOULDER_MARGIN_DEG:g} deg below {SHOULDER_HEAD_CONTACT_DEG:g}"
+      f" (contact, measured); with J4 < {ELBOW_FOLD_MIN_DEG:g} (extended) J2 <= {SHOULDER_EXTENDED_MAX_DEG:g}")
+    w(f"GRIP: do open|close, or open: 0..1 (0 closed, 1 open, both sides); effort (0, {GRIP_EFFORT_MAX:g}] "
+      "in the gripper controller's own units")
+    w(f"HEAD: pan, tilt in {HEAD_RANGE_DEG} deg (90 = centre); an axis left out keeps its target; "
+      f"turns at {HEAD_SLEW_DPS:g} deg/s per axis (warns if a move cannot finish)")
+    w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; never ack_pinch")
+    w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS} or {SOUND_DIR}/<name>.* beside the show; "
+      f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
+    w(f"FACE: do emote, name {FACE_EMOTES}")
+    w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release")
+    w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, 1] "
+      f"(default 1 = the autonomy ceiling); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
+      f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
+    w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
+      f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
+    w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
+    return "\n".join(L)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["validate", "export"])
-    ap.add_argument("paths", nargs="+")
+    ap.add_argument("cmd", choices=["validate", "export", "describe"])
+    ap.add_argument("paths", nargs="*")
     ap.add_argument("--limits", default=DEFAULT_LIMITS,
                     help="the arm software's joint_limits.yaml (default: the path in the container)")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -1194,6 +1233,11 @@ def main():
     a = ap.parse_args()
 
     limits = load_limits(a.limits)
+    if a.cmd == "describe":
+        print(describe(limits))
+        sys.exit(0)
+    if not a.paths:
+        sys.exit(f"{a.cmd} needs at least one show")
     paths = [q for p in a.paths for q in sorted(glob.glob(p))] or a.paths
 
     if a.cmd == "export":

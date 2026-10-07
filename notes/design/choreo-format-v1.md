@@ -53,12 +53,29 @@ id: beat-demo             # required, stable identifier
 name: Beat demo           # human title
 slots: [ARM_L, ARM_R, HEAD, LIFT, SOUND, FACE, LIGHT]   # the preflight declaration
 requires: { arms: active, tab5: true, rc_authority: AUTO }
-music: { ... }            # optional, §3
+music: { ... }            # optional, §3 (and §3a for its output)
+dance: { floor_radius_m: 1.5 }   # required if any cue is DANCE, §12
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
 markers: [ ... ]          # optional, §8
 cues: [ ... ]             # required
 ```
+
+**Every number and vocabulary the validator checks is printed by `python3 cue.py describe`**
+(joint ranges as written in a show, speed caps, clearance rule, head range and slew, emotes,
+earcons, outputs, dance moves, `requires:` values). This spec gives the rules; that command gives
+the values, from the validator's own constants, so the two cannot drift.
+
+**`requires:`** — `arms: active`, `tab5: true|false`, `rc_authority: STANDBY|MANUAL|AUTO`, and no
+other keys. A show that moves anything (arms, grippers, head, lift, dance) must say
+`rc_authority: AUTO`; arm or gripper cues need `arms: active`; head or face cues need `tab5: true`.
+The runner's preflight is built from it, and anything unknown at run time refuses.
+
+**Defaults worth knowing.** A `HEAD` cue that sets only `pan` (or `tilt`) leaves the other axis on its
+current target. `DANCE` `secs` defaults to 2 and `amp` to 1. A show's length is the latest end of any
+cue's span (a sound without `secs` counts its file's length, or 0.5 s). The arms' rest pose (all
+zero) may sit on a joint limit — the elbow (J4) does — so a show cannot write "back to rest"
+exactly; write J4 at its usable minimum (`describe`) or above.
 
 There is **no layout data in a show** — no lane heights, colours, zoom, scroll position, mute
 state or x/y coordinates (standing rule 7). Those belong to the editor and live in the
@@ -289,11 +306,11 @@ cues:
 
   | dial | range | effect |
   |---|---|---|
-  | `repeat` | integer ≥ 1 | instances at `start + k · length · time_scale` |
+  | `repeat` | integer ≥ 1 | instances at `start + k · length · time_scale`; a clip's length is required only when `repeat` > 1 — two separate placements need none |
   | `time_scale` | > 0 | multiplies clip-local **times** and `hold_s` (Furhat's `duration`) |
   | `strength` | (0, 1] | scales **amplitude**: arm joint values toward 0°, head pan/tilt toward 90° (Furhat's `strength`) |
 
-- **What the dials do not touch.** `time_scale` does **not** scale `LIFT secs` or `SOUND ms`:
+- **What the dials do not touch.** `time_scale` does **not** scale `LIFT secs` or `SOUND secs`:
   for a bang-bang lift, `secs` is distance wearing a time unit, and scaling it would change how
   far the lift travels. `strength` does not touch grippers, the lift, sound, face or light.
 - **`strength` only turns down.** Values above 1 are refused. A dial that can only shrink an
@@ -302,6 +319,8 @@ cues:
 - **The expanded show is what is validated.** A clip that is legal once can be illegal when
   repeated back-to-back, or when `time_scale: 0.5` doubles every speed. Expansion happens before
   any check, so both are caught, and every problem names the clip and the instance it came from.
+  **`instance` counts repeats within one placement** (`#1`, `#2` … of a `repeat:`); two separate
+  placements are each instance `#1` — the placement's own cue index tells them apart.
 - **No nesting in v1.** A clip may not place a clip. Cheap to add; deferred until a show needs it.
 - **Slots used inside a clip must be declared** in the show's `slots:`, as for any cue.
 
@@ -318,7 +337,7 @@ Unchanged from v0 unless marked **new**.
 | slot | fields | checks | sourced from |
 |---|---|---|---|
 | `ARM_L`/`ARM_R` | `joints: {1..7: deg}` | limits (arm software's `joint_limits.yaml`, 5° margin), per-joint average speed cap, shoulder/head clearance | measured on opendubs2; see `cue.py` comments |
-| `GRIP_L`/`GRIP_R` | `do: open\|close` or `open: 0..1` (0 closed, 1 open — the same on both sides), `effort` | `open` within 0..1, effort ≤ 5; the old `pos: m` is refused by name | each robot's per-side mapping lives on the robot (`grippers.py`, workplan DEC-4); none of it is in the repo |
+| `GRIP_L`/`GRIP_R` | `do: open\|close` or `open: 0..1` (0 closed, 1 open — the same on both sides), `effort` | `open` within 0..1, effort ≤ 5 (the gripper controller's own units — unsourced); the old `pos: m` is refused by name | each robot's per-side mapping lives on the robot (`grippers.py`, workplan DEC-4); none of it is in the repo |
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |
 | `SOUND` | `do: play`, `sound: <name>`, optional `secs`, optional `output: tablet\|tab5\|thor` (see *Audio routing*) | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |

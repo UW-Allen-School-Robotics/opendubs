@@ -97,6 +97,12 @@ place; each points at the item that delivers it.
 | E11 | **CH5 names fixed everywhere**, and the middle position meaning "a human commands" for arms too | open | 0.6 |
 | E12 | **Shows can use real songs** — MP3 and other common formats, loaded locally | in scope; works today | 1.6 |
 | E13 | **A leaner composer screen** — hover text on the less obvious controls, and the long validator notes minimised | done 2026-10-07 | 1.7 |
+| 1.8 | **Reserved colours on the state light (L1, [`design/choreo-example-shows.md`](design/choreo-example-shows.md)).** A show can set `LIGHT` to E-STOP red, DEGRADED amber or SAFE IDLE green; both seasonal shows avoided them by hand and the spec-only agent chose orange. | `LIGHT` near a reserved state colour is refused, by the face's rule. |
+| 1.9 | **"Back to rest" is not expressible (R1).** J4's rest value is its raw lower limit, inside the margin. | A named `rest` pose, or a margin exemption for the documented rest values; a show can end at rest. |
+| 1.10 | **A cue that selects a face theme (T1).** After the head gains `THEME` (Tab5 plan TW2). | `FACE: { do: theme, name }` validated against the head's themes. |
+| 1.11 | **Sound files treated like music (S1)** — a notice when absent locally, a typo still an error. | A seasonal show can name its own sounds without committing them. |
+| 1.12 | **Mirrored clip placements (M1)** — `mirror: true` swaps the arm and gripper slots. | A wave written once plays on either arm. |
+| 1.13 | **A run-time choice point (C1)** — a placement with alternatives the runner resolves from an event, e.g. the grip's result. Design first: it meets the runner, the GO scheduler (PA-5.5) and the parked trigger graph (P2). | `reaction.yaml` can react to failure as well as success. |
 
 ---
 
@@ -195,7 +201,7 @@ robot before any of them; flashing is per `CLAUDE.md`, never re-derived.*
 |---|---|---|
 | 7.1 | **Freedrive** as its own feature (`arm-manual-control.md` §1) — per arm, `MANUAL` only, latched, auto-exit, holds where it is. Then a capture source like any other. | Settled semantics met; the operator's hands are stated as the safety system. |
 | 7.2 | **Capture-a-performance (DEC-13)**, after 6.3: record a live RC/teleop/cue session, reduce it, validate it, edit it as a timeline. | A recorded performance becomes a valid show with one edit pass. |
-| 7.3 | **Example shows as schema tests** (PA-6): Halloween, Christmas, a show written entirely by an agent from the spec, a show that reacts to a failure. | Every primitive a show cannot express is a C1 item. |
+| 7.3 | ~~Example shows as schema tests~~ **DONE, 2026-10-07 — [`design/choreo-example-shows.md`](design/choreo-example-shows.md).** Halloween, Christmas, a reaction show, and a show written by an agent from the spec alone (valid and warning-free in two rounds). Six findings became 1.8–1.13; the spec gaps the agent hit are fixed, and `cue.py describe` prints every number and vocabulary. | — |
 | 7.4 | **Format growth** deferred by the spec: variation and animation groups, the capability layer (shows name capabilities, not joint indices), a tempo map, an idle/breathing layer. | Each argued from a show that needs it. |
 
 ---
