@@ -89,6 +89,12 @@ leaving each slot in the state `ABORT_STATE` argues for; it never pauses. The ro
 fake you can flip (`curl -X POST localhost:8092/api/sim/deadman/release`, `…/estop`, `…/ch5/manual`).
 Every status change and abort cause is a JSON line (`--log`). Live output is not built (plan 5.6).
 
+**The routine palette** — `runner.py palette` lists the shows marked `palette:` (each ending at
+rest, so any can follow any) and runs the one the operator picks: `GET /api/routines`,
+`POST /api/run/<id>` (refused while another runs), `POST /api/stop`, `GET /api/palette`. Same twin
+feed, so the twins follow whichever routine is playing. The tablet's player (plan 4.4) will put
+these buttons on screen.
+
 ## The composer
 
 [`composer/`](composer/README.md) — a timeline editor in the browser, **preview only**: it edits

@@ -344,6 +344,20 @@ check_doc("a mirrored placement's slots must be declared like any other",
 check_doc("mirror must be true or false",
           doc_show([{"t": 2.0, "clip": "g", "mirror": "yes"}], clips=_mc), "mirror must be true or false")
 
+# palette routines end in the rejoin state (1.13 / 4.4b), so any can follow any.
+_pal = {"label": "Wave"}
+check_doc("a palette routine that ends with an arm off rest is refused",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "joints": {2: 20, 4: 60}}], palette=_pal), "at rest")
+check_doc("a palette routine that ends at rest passes",
+          doc_show([{"t": 4.0, "slot": "ARM_R", "joints": {2: 20, 4: 60}},
+                    {"t": 9.0, "slot": "ARM_R", "pose": "rest"}], palette=_pal), None)
+check_doc("a palette routine must end with the head centred",
+          doc_show([{"t": 1.0, "slot": "HEAD", "pan": 120}], palette=_pal), "head centred")
+check_doc("a palette routine must end with the state light released",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "color", "rgb": [120, 0, 200]}], palette=_pal), "released")
+check_doc("a palette routine needs a label for its button",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], palette={}), "needs a label")
+
 # Arm speed (DEC-1): the AVERAGE over a segment is the gate; the eased peak (x PEAK_FACTOR) only
 # warns until the controller's real profile is measured.
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)

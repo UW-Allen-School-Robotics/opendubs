@@ -241,7 +241,7 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds"}
+            "cues", "dance", "sounds", "palette"}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -757,6 +757,8 @@ class Show:
                       f"{DANCE_TOTAL_MAX_S:g}s cap on open-loop base motion"))
         for msg in self._check_requires(used):
             P(Problem(msg))
+        for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
+            P(Problem(msg))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -1039,6 +1041,39 @@ class Show:
             p.append(f"{where}: sound secs {secs} outside {SOUND_SECS_SANITY}")
         return p
 
+    def _check_palette(self, used, arm_state, head_tgt, events, limits) -> list:
+        """A palette routine (workplan 1.13 / 4.4b) is picked by the operator in any order after any
+        other, so it must END in the agreed rejoin state: every arm it moved at rest, the head
+        centred, the state light released. (The lift has no measured height to rejoin to; not
+        checked — recorded as open.)"""
+        pal = self.doc.get("palette")
+        if pal is None:
+            return []
+        if not isinstance(pal, dict) or not isinstance(pal.get("label"), str) or not pal["label"]:
+            return ["palette: needs a label — the text on the operator's button"]
+        p = [f"palette: unknown key {k!r} (known: label, order)" for k in pal if k not in ("label", "order")]
+        if "order" in pal and not (isinstance(pal["order"], int) and not isinstance(pal["order"], bool)):
+            p.append("palette: order must be an integer")
+        for slot in ARM_SLOTS:
+            if slot not in used:
+                continue
+            side = "left" if slot == "ARM_L" else "right"
+            m = -1 if side == "left" else 1
+            rest = {j: v * (m if j in MIRRORED_JOINTS else 1) for j, v in rest_pose(limits, side).items()}
+            end = arm_state.get(slot, {})
+            off = [j for j in range(1, 8) if abs(end.get(j, 0.0) - rest[j]) > 0.5]
+            if off:
+                p.append(f"palette: a routine must end with {slot} at rest (add a pose: rest keyframe) "
+                         f"— it ends off rest on J{', J'.join(map(str, off))}")
+        if "HEAD" in used and (abs(head_tgt["pan"] - HEAD_NEUTRAL_DEG) > 1.0
+                               or abs(head_tgt["tilt"] - HEAD_NEUTRAL_DEG) > 1.0):
+            p.append(f"palette: a routine must end with the head centred (pan 90, tilt 90) — it ends at "
+                     f"pan {head_tgt['pan']:g}, tilt {head_tgt['tilt']:g}")
+        lights = sorted((e for e in events if e.get("slot") == "LIGHT"), key=lambda e: e["t"])
+        if lights and lights[-1]["fields"].get("do") != "release":
+            p.append("palette: a routine must end with the state light released (do: release)")
+        return p
+
     def _check_requires(self, used: set) -> list:
         """`requires:` is what the runner's preflight is built from, so a typo in it is not
         cosmetic: `rc_authority: AUOT` would otherwise pass here and refuse (or worse) later."""
@@ -1309,6 +1344,8 @@ def describe(limits: dict) -> str:
     w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
       f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
     w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
+    w("palette: { label, order } — a routine must end with its arms at pose: rest, the head at "
+      "90/90 and the light released, so any routine can follow any other")
     return "\n".join(L)
 
 

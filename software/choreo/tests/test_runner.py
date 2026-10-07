@@ -117,6 +117,57 @@ last = [x for x in lines if x["kind"] == "status"][-1]
 check("an abort's cause can be reconstructed from the log alone (5.5)",
       last["status"] == "ABORTED" and last["code"] == "DEADMAN" and last["show_t"] is not None, last)
 
+print("\nrunner: the routine palette (1.13 / 4.4b)")
+import threading  # noqa: E402
+gate = threading.Event()
+sc = SimClock()
+held = {"on": False}
+
+
+def gated_sleep(dt):
+    if held["on"]:
+        gate.wait(5)
+    sc.sleep(dt)
+
+
+robot = R.FakeRobotState()
+pal = R.Palette(SHOWS, LIMITS, robot, R.TwinFeed(), io.StringIO(), start_lead=0.5,
+                clock=sc.clock, sleep=gated_sleep)
+ids = [x["id"] for x in pal.routines()]
+check("the palette lists the shows marked palette:, in their order", ids[:3] == ["reach", "celebrate", "shrug"], ids)
+check("... and only those", "hello" not in ids and "beat-demo" not in ids, ids)
+held["on"] = True
+pal.run("reach")
+try:
+    pal.run("celebrate")
+    check("a second routine is refused while one runs", False, "accepted")
+except RuntimeError as e:
+    check("a second routine is refused while one runs", "still running" in str(e), str(e))
+held["on"] = False
+gate.set()
+pal.current[2].join(5)
+check("the routine ran to completion", pal.status()["last"]["status"] == "COMPLETED", pal.status())
+check("the fake robot's arms are left at rest, so the next routine starts from there",
+      robot.read()["arm_pose"]["ARM_R"].get("4") is not None, robot.read()["arm_pose"])
+for nxt in ("shrug", "celebrate"):
+    pal.run(nxt)
+    pal.current[2].join(5)
+    check(f"then {nxt} runs after it, in any order", pal.status()["last"] == {**pal.status()["last"], "id": nxt, "status": "COMPLETED"},
+          pal.status()["last"])
+gate.clear()
+held["on"] = True
+pal.run("reach")
+check("stop aborts the running routine", pal.stop())
+held["on"] = False
+gate.set()
+pal.current[2].join(5)
+check("... and it ends ABORTED, by the operator", pal.status()["last"]["code"] == "OPERATOR_STOP", pal.status()["last"])
+try:
+    pal.run("hello")
+    check("a show that is not on the palette cannot be run from it", False)
+except KeyError:
+    check("a show that is not on the palette cannot be run from it", True)
+
 print()
 if fails:
     for f in fails:

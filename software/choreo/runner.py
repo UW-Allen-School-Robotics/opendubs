@@ -275,8 +275,86 @@ class Runner:
         return None
 
 
+# ---- the routine palette (workplan 1.13 / 4.4b) ----------------------------------------------------
+class Palette:
+    """The operator's routines: shows marked `palette:`, each validated, run one at a time on the
+    operator's pick. Every palette routine ends in the rejoin state (the validator insists), so they
+    can run in any order; the runner's start-pose move covers the gap."""
+
+    def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
+                 clock=time.monotonic, sleep=time.sleep):
+        self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
+        self.log, self.start_lead, self.clock, self.sleep = log, start_lead, clock, sleep
+        self.lock = threading.Lock()
+        self.current = None           # (routine id, Runner, thread)
+        self.last = None              # {"id", "status", "code", "cause"}
+
+    def routines(self) -> list:
+        limits = cue.load_limits(self.limits_path)
+        out = []
+        for name in sorted(os.listdir(self.shows_dir)):
+            if not name.endswith((".yaml", ".yml")):
+                continue
+            path = os.path.join(self.shows_dir, name)
+            try:
+                show = cue.load_show(path)
+            except Exception:  # noqa: BLE001  a broken file is not a routine
+                continue
+            pal = show.doc.get("palette")
+            if not isinstance(pal, dict):
+                continue
+            tl = show.export(limits, self.limits_path)
+            out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
+                        "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
+                        "problems": [q["msg"] for q in tl["problems"][:3]],
+                        "warnings": len(tl.get("warnings", []))})
+        return sorted(out, key=lambda r: (r["order"], r["label"]))
+
+    def status(self) -> dict:
+        with self.lock:
+            cur = self.current
+            running = bool(cur and cur[2].is_alive())
+            return {"running": cur[0] if running else None,
+                    "status": cur[1].status if cur else None, "last": self.last}
+
+    def run(self, rid: str) -> dict:
+        with self.lock:
+            if self.current and self.current[2].is_alive():
+                raise RuntimeError(f"{self.current[0]!r} is still running — stop it or let it finish")
+            r = next((x for x in self.routines() if x["id"] == rid), None)
+            if r is None:
+                raise KeyError(f"no palette routine {rid!r}")
+            if not r["valid"]:
+                raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
+            runner = Runner(r["path"], self.limits_path, self.robot, self.feed, self.log,
+                            clock=self.clock, sleep=self.sleep, start_lead=self.start_lead)
+            t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
+            self.current = (rid, runner, t)
+            t.start()
+            return {"started": rid}
+
+    def _play(self, rid, runner):
+        status, code, cause, _ = runner.run()
+        with self.lock:
+            self.last = {"id": rid, "status": status, "code": code, "cause": cause}
+        # FAKE robot only: a completed routine left the arms at rest, so the next one's start-pose
+        # move begins from there. The real provider MEASURES this instead.
+        if status == COMPLETED and isinstance(self.robot, FakeRobotState):
+            tl = self.feed.timeline()["timeline"] or {}
+            poses = {s: (tl["tracks"][s][-1]["pose"] if tl.get("tracks", {}).get(s) else {})
+                     for s in cue.ARM_SLOTS}
+            self.robot.set(arm_pose=poses)
+
+    def stop(self):
+        with self.lock:
+            if self.current and self.current[2].is_alive():
+                self.current[1].request_stop()
+                return True
+        return False
+
+
 # ---- the feed server, and the fake robot's switches ---------------------------------------------
-def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, port: int):
+def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, port: int, palette=None):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -296,6 +374,10 @@ def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, po
                 return self._json(feed.timeline())
             if self.path == "/api/sim":
                 return self._json(robot.read())
+            if palette and self.path == "/api/routines":
+                return self._json(palette.routines())
+            if palette and self.path == "/api/palette":
+                return self._json(palette.status())
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
@@ -309,6 +391,17 @@ def serve(feed: TwinFeed, robot: FakeRobotState, runner_ref: dict, host: str, po
             if p.startswith("/api/sim/ch5/"):
                 robot.set(ch5=p.rsplit("/", 1)[1].upper())
                 return self._json(robot.read())
+            if palette and p.startswith("/api/run/"):
+                try:
+                    return self._json(palette.run(p.rsplit("/", 1)[1]))
+                except RuntimeError as e:
+                    return self._json({"error": str(e)}, 409)
+                except KeyError as e:
+                    return self._json({"error": str(e)}, 404)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 422)
+            if p == "/api/stop" and palette:
+                return self._json({"stopped": palette.stop()})
             if p == "/api/stop" and runner_ref.get("r"):
                 runner_ref["r"].request_stop()
                 return self._json({"ok": True})
@@ -331,7 +424,24 @@ def main() -> int:
     r.add_argument("--hold", type=float, default=0.0, help="seconds to keep serving after it ends")
     r.add_argument("--audio-output", choices=cue.AUDIO_OUTPUTS,
                    help="play all of the show's audio here (the show is re-checked against it)")
+    pp = sub.add_parser("palette", help="serve the routine palette; the operator picks, it runs")
+    pp.add_argument("shows", nargs="?", default=os.path.join(HERE, "shows"))
+    pp.add_argument("--limits", default=r.get_default("limits"))
+    pp.add_argument("--port", type=int, default=8092)
+    pp.add_argument("--log", help="append the JSON-lines log here (default: stdout)")
     a = ap.parse_args()
+
+    if a.cmd == "palette":
+        robot, feed = FakeRobotState(), TwinFeed()
+        log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
+        pal = Palette(a.shows, a.limits, robot, feed, log)
+        serve(feed, robot, {}, "127.0.0.1", a.port, pal)
+        names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
+        print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
+              "POST /api/run/<id>, POST /api/stop. FAKE robot state; nothing commands the robot.",
+              file=sys.stderr, flush=True)
+        while True:
+            time.sleep(3600)
 
     robot, feed, ref = FakeRobotState(), TwinFeed(), {}
     serve(feed, robot, ref, "127.0.0.1", a.port)

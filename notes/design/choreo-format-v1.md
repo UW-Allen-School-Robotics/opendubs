@@ -56,6 +56,7 @@ requires: { arms: active, tab5: true, rc_authority: AUTO }
 music: { ... }            # optional, §3 (and §3a for its output)
 dance: { floor_radius_m: 1.5 }   # required if any cue is DANCE, §12
 sounds: [sleigh_bells]    # optional: sound files expected in sounds/, kept locally, §3a
+palette: { label: Wave, order: 1 }   # optional: a routine the operator can pick (below)
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
 markers: [ ... ]          # optional, §8
@@ -66,6 +67,12 @@ cues: [ ... ]             # required
 (joint ranges as written in a show, speed caps, clearance rule, head range and slew, emotes,
 earcons, outputs, dance moves, `requires:` values). This spec gives the rules; that command gives
 the values, from the validator's own constants, so the two cannot drift.
+
+**`palette:`** — marks a show as a routine on the operator's palette: `label` (the button text,
+required) and `order`. The operator picks one, it runs to its end, then the next is picked, in any
+order (workplan 1.13). So a palette routine must **end in the rejoin state**: every arm it moves at
+`pose: rest`, the head centred (pan 90, tilt 90), the state light released. The lift is not checked
+(there is no measured height to rejoin to).
 
 **`requires:`** — `arms: active`, `tab5: true|false`, `rc_authority: STANDBY|MANUAL|AUTO`, and no
 other keys. A show that moves anything (arms, grippers, head, lift, dance) must say
