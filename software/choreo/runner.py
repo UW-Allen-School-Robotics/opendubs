@@ -259,13 +259,13 @@ USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRI
              ("LIFT", "lift"), ("DANCE", "base"))
 
 
-def routine_uses(show, tl, arms_live: bool, face_live: bool = False) -> list:
+def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
     twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
-    tablet (4.2), and the face and the head's earcons (when the runner has the face); grippers wait
-    for calibration (6.2), the head's pan/tilt for a GAZE command in its firmware, and the light,
-    lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
+    tablet (4.2), the face and the head's earcons (when the runner has the face), and the head's
+    pan/tilt (when the runner has the gaze AND the head answers GAZE); grippers wait for calibration
+    (6.2), and the light, lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
     out, seen = [], set()
@@ -284,6 +284,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False) -> list:
                        for e in tracks.get("SOUND", []))
         elif part == "face":
             live = face_live
+        elif part == "head":
+            live = gaze_live
         else:
             live = False
         out.append({"part": part, "live": live})
@@ -321,24 +323,6 @@ class TwinFeed:
     def timeline(self):
         with self.lock:
             return {"rev": self.d["rev"], "path": self.d["path"], "timeline": self.d["timeline"]}
-
-
-class FaceTee:
-    """The twin feed, also played to the real head's face (face_bridge.LiveFace) — for a live run."""
-
-    def __init__(self, feed, face):
-        self.feed, self.face = feed, face
-
-    def show(self, path, tl):
-        self.feed.show(path, tl)
-        self.face.show(tl)
-
-    def playhead(self, t, playing, status):
-        self.feed.playhead(t, playing, status)
-        self.face.playhead(t, playing, status)
-
-    def __getattr__(self, name):                 # heartbeat, twin, timeline: the twin feed's own
-        return getattr(self.feed, name)
 
 
 # ---- the runner -------------------------------------------------------------------------------
@@ -543,11 +527,12 @@ class Palette:
     can run in any order; the runner's start-pose move covers the gap."""
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
-                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None):
+                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
         self.audio = audio or NullAudio()
         self.arms = arms                     # None: live output is not available on this runner
         self.face = face                     # face_bridge.LiveFace: live runs drive the real face
+        self.gaze = gaze                     # face_bridge.LiveGaze: ... and the head's pan/tilt
         self.log, self.start_lead, self.clock, self.sleep = log, start_lead, clock, sleep
         self.lock = threading.Lock()
         self.current = None           # (routine id, Runner, thread)
@@ -578,7 +563,9 @@ class Palette:
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
-                                             face_live=self.face is not None and self.arms is not None)})
+                                             face_live=self.face is not None and self.arms is not None,
+                                             gaze_live=(self.gaze is not None and self.arms is not None
+                                                        and self.gaze.supported is True))})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -603,13 +590,14 @@ class Palette:
             if not r["valid"]:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
             live = self.arms is not None
-            # The face follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
-            feed = FaceTee(self.feed, self.face) if live and self.face is not None else self.feed
+            # The head follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
+            sinks = [x for x in (self.face, self.gaze) if x is not None] if live else []
+            feed = face_bridge.HeadTee(self.feed, *sinks) if sinks else self.feed
             runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
                             audio=self.audio, arms=self.arms, live=live)
-            if feed is not self.feed:
-                self.face.note = lambda kind, **kw: runner._log(kind, **kw)
+            for x in sinks:
+                x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
             self.current = (rid, runner, t)
             t.start()
@@ -721,6 +709,9 @@ def main() -> int:
     pp.add_argument("--dashboard", default="http://127.0.0.1:8080/api/choreo/robot")
     pp.add_argument("--arms", choices=("none", "ros"), default="none",
                     help="ros: the real arms can follow a run marked LIVE (plan 5.6); needs ROS sourced")
+    pp.add_argument("--gaze", default="none",
+                    help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local) or a "
+                         "host: live runs turn the real head (its GAZE command, Tab5 PR #56)")
     pp.add_argument("--face", default="none",
                     help="auto (the head's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
                          "opendubs-tab5.local) or a host: live runs drive the real face and earcons")
@@ -745,14 +736,19 @@ def main() -> int:
         if a.face != "none":
             face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face)
             face.release()                   # a run that crashed may have left the face pinned
-        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face)
+        gaze = None
+        if a.gaze != "none":
+            gaze = face_bridge.LiveGaze(face_bridge.head_neck_host() if a.gaze == "auto" else a.gaze)
+            gaze.probe()                     # release a crashed run's lease; learn whether GAZE exists
+        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
               f"POST /api/run/<id>, POST /api/stop. Robot state: "
               f"{'the dashboard, read-only' if a.robot == 'dashboard' else 'FAKE'}; "
               f"{'every run drives the real arms' if arms else 'nothing commands the robot'}"
-              f"{f' and the face at {face.host}' if face and arms else ''}.",
+              f"{f' and the face at {face.host}' if face and arms else ''}"
+              f"{'' if not (gaze and arms) else f'; the head turns ({gaze.host})' if gaze.supported else f'; the head at {gaze.host} has no GAZE yet: pan/tilt in the twin'}.",
               file=sys.stderr, flush=True)
         while True:
             time.sleep(3600)
