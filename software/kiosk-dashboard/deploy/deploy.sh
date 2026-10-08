@@ -32,10 +32,12 @@ rsync -az "$ARM/chain.json" "$HOST:$DEST/frontend/assets/arm/"
 rsync -az --delete "$ARM/meshes/collision" "$HOST:$DEST/frontend/assets/arm/meshes/"
 
 # The show runner behind the Shows page (software/choreo, plan 4.4c): its own service, provisioned
-# below by provision.sh. Laptop-only leftovers are not copied.
+# below by provision.sh. Laptop-only leftovers are not copied. Show music is never committed
+# (shows/audio/.gitignore), so a song copied to the robot exists only there: protected from --delete,
+# while one in this checkout is still copied over.
 CHOREO="$SRC../choreo/"
 ssh "$HOST" "mkdir -p $DEST_ROOT/choreo"
-rsync -az --delete \
+rsync -az --delete --filter 'P shows/audio/*' \
   --exclude '__pycache__' --exclude '*.pyc' --exclude 'MUJOCO_LOG.TXT' \
   "$CHOREO" "$HOST:$DEST_ROOT/choreo/"
 

@@ -316,6 +316,39 @@ check("each routine says what it will do: Wave and nod plays music and moves the
       "the head and face in the twin only",
       uses.get("wave-and-nod") == {"music": True, "arms": True, "head": False, "face": False}, uses.get("wave-and-nod"))
 check("... grippers stay twin-only until calibrated (6.2)", uses["reach"].get("grippers") is False, uses["reach"])
+print("\nrunner: the real face (5.6, face half)")
+import face_bridge as FB  # noqa: E402
+
+
+class FakeSock:
+    def __init__(self):
+        self.lines = []
+
+    def sendto(self, data, addr):
+        self.lines.append(data.decode().strip())
+
+
+def run_face(show, flip_after=None, change=None):
+    robot, sock = R.FakeRobotState(), FakeSock()
+    face = FB.LiveFace("127.0.0.1", sock=sock)
+    sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
+    r = R.Runner(os.path.join(SHOWS, show), LIMITS, robot, R.FaceTee(R.TwinFeed(), face), io.StringIO(),
+                 clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True)
+    return r.run(), sock.lines
+
+
+end, lines = run_face("celebrate.yaml")
+check("a live run sends the face its cues and the head its earcons, then hands the face back",
+      end[0] == "COMPLETED" and lines[:2] == ["EMOTE SOFT", "CUE attend"] and lines[-1] == "EMOTE AUTO", lines)
+end, lines = run_face("celebrate.yaml", flip_after=2.0, change={"deadman": False})
+check("... an aborted run hands the face back too", end[0] == "ABORTED" and lines[-1] == "EMOTE AUTO", lines)
+end, lines = run_face("celebrate.yaml", flip_after=0.0, change={"deadman": False})
+check("... and a run that never starts leaves the face alone", end[0] in ("REFUSED", "ABORTED") and lines == [], (end, lines))
+pal4 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(),
+                 face=FB.LiveFace("127.0.0.1", sock=FakeSock()))
+uses4 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal4.routines()}
+check("with the face, its icons and the head's earcons are real; pan/tilt stays twin-only",
+      uses4["celebrate"] == {"arms": True, "head": False, "face": True, "sound": True}, uses4["celebrate"])
 uses2 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal2.routines()}
 check("... and with no arms on this runner, the arms are twin-only too", uses2["celebrate"]["arms"] is False, uses2["celebrate"])
 
