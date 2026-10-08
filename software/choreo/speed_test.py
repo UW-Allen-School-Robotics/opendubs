@@ -14,9 +14,14 @@ speed between the ends — the way a show moves — and logs what the joint real
   * overshoot past the ends
   * peak effort as a share of the joint's torque trip, and the goal's own outcome (a trip aborts it)
 
-A joint's ramp STOPS at the first of: the goal aborted (a controller trip), effort over 70% of its
-trip, tracking error over 5 deg. Its suggested cap is 75% of the speed that failed (or "at least"
-75% of the highest that passed). No speed is ever commanded at or above 80% of a velocity trip.
+Reviewed by the arms plan (2026-10-08) before its first run. A swing is CANCELLED MID-SWING, before a
+trip, at effort over 70% of the joint's limit (its torque trip or its motor rating, whichever is
+lower), a measured speed over 80% of its trip, or the arm off the path by more than 5 deg plus the
+lag budget. After a swing, the STEADY middle of each leg decides: error over 5 deg, effort over 70%,
+or lag over 100 ms fails the speed and ends that joint's ramp. The reversals are reported apart — if
+they fail first, that argues for blending the runner's corners rather than a lower cap. No goal
+outcome is INCONCLUSIVE, never a pass. The suggested cap is 75% of the speed that failed (or "at
+least" 75% of the highest that passed). No speed is ever commanded at or above 80% of a trip.
 
 It runs only while the robot allows a show: CH5 in AUTO, the deadman held, no e-stop, the arms
 active, and no show running. Any of those lost mid-swing cancels the goal at once — the arm holds
@@ -50,15 +55,26 @@ AMPLITUDE_DEG = 20.0
 SPEEDS = (30, 60, 120, 180, 240)
 JOINT_ORDER = (7, 6, 5, 4, 3, 2, 1)          # the light wrist first, the weight-bearing shoulder last
 TORQUE_TRIP_NM = {1: 45, 2: 45, 3: 25, 4: 20, 5: 15, 6: 15, 7: 15}   # the arm controller's config
+TORQUE_RATED_NM = {1: 40, 2: 40, 3: 27, 4: 27, 5: 7, 6: 7, 7: 7}       # URDF effort ratings
+# The effort yardstick: whichever comes first, the trip or what the motor can give. A wrist motor
+# saturates at 7 N·m long before its 15 N·m trip (arms plan review, 2026-10-08), so 70% of the trip
+# alone could never fire there. (The trip itself compares a MODEL-based torque estimate; effort here
+# is the hardware's own report — related, not identical.)
+EFFORT_LIMIT_NM = {j: min(TORQUE_TRIP_NM[j], TORQUE_RATED_NM[j]) for j in range(1, 8)}
 TRIP_SHARE_MAX = 0.80                        # never command at or above this share of a velocity trip
 STOP_EFFORT = 0.70                           # stop a joint's ramp: effort over this share of its trip
-STOP_ERROR_DEG = 5.0                         # ... or tracking error over this
+STOP_ERROR_DEG = 5.0                         # ... or tracking error over this (after the lag)
+STOP_LAG_S = 0.100                           # ... or lag over this: a fifth of a beat at 123 BPM
+STOP_VEL_SHARE = 0.80                        # ... or a MEASURED speed over this share of the trip
+REVERSAL_WINDOW_S = 0.100                    # either side of a reversal: reported apart from the steady legs
 CAP_SHARE = 0.75                             # the suggested cap: this share of the speed that failed
 CYCLES = 2                                   # out-and-back swings per speed
 POINT_S = 0.02                               # trajectory point spacing (finer than a show's 0.1)
 HOLD_S = 0.4                                 # at the base pose before and after each swing
 APPROACH_DPS = 20.0                          # moving to and from the base pose: slow
-LAG_SEARCH_S = (0.0, 0.25, 0.005)
+LAG_STEP_S = 0.005
+LAG_SEARCH_MAX_S = 0.080                     # well under half a leg at the top speed, so the search
+                                             # cannot line up with the reversed swing and hide an error
 
 
 def signed(arm: str, outward: dict) -> list:
@@ -132,46 +148,83 @@ def plan(arm: str, joints, speeds, limits: dict) -> tuple:
 
 
 def analyse(samples, knots, joint: int) -> dict:
-    """samples: [(t from goal start, pos[7], vel[7]|None, eff[7]|None)]. Tracking error after the
-    best-fitting lag (the controller starts a little after the goal is sent); overshoot past the
-    swing's ends; peak effort as a share of the torque trip."""
+    """samples: [(t from goal start, pos[7], vel[7]|None, eff[7]|None)].
+
+    Tracking error after the best-fitting lag (the controller starts a little after the goal is
+    sent), searched only up to LAG_SEARCH_MAX_S. The STEADY middle of each leg and a window of
+    REVERSAL_WINDOW_S either side of each reversal are reported apart: caps come from the steady
+    part, and a reversal that fails first is a finding of its own (an argument for blending the
+    runner's corners, not for a lower cap). Plus overshoot past the swing's ends, peak effort
+    against the joint's effort limit, and the measured peak speed against its trip."""
     j = joint - 1
     if len(samples) < 5:
         return {"error": "too few joint samples"}
-    lo_lag, hi_lag, step = LAG_SEARCH_S
-    best = None
-    lag = lo_lag
-    while lag <= hi_lag + 1e-9:
-        err = max(abs(p[j] - ref_at(knots, t - lag)) for t, p, _, _ in samples
-                  if knots[1][0] <= t - lag <= knots[-2][0])
-        if best is None or err < best[1]:
-            best = (lag, err)
-        lag += step
+    span = (knots[1][0], knots[-2][0])                         # the swing, without the holds
+    turns = [k[0] for k in knots[2:-2]]                        # the reversals (and the last leg's start)
+    legs = [b[0] - a[0] for a, b in zip(knots[1:-1], knots[2:-1]) if b[0] > a[0]]
+    lag_max = min(LAG_SEARCH_MAX_S, 0.4 * min(legs)) if legs else LAG_SEARCH_MAX_S
+
+    def err_at(lag, sel=None):
+        es = [abs(p[j] - ref_at(knots, t - lag)) for t, p, _, _ in samples
+              if span[0] <= t - lag <= span[1] and (sel is None or sel(t - lag))]
+        return max(es) if es else 0.0
+
+    best, lag = None, 0.0
+    while lag <= lag_max + 1e-9:
+        e = err_at(lag)
+        if best is None or e < best[1]:
+            best = (lag, e)
+        lag += LAG_STEP_S
+    lag = best[0]
+    near = lambda t: any(abs(t - tt) <= REVERSAL_WINDOW_S for tt in turns)
     ends = [k[1] for k in knots]
     lo, hi = min(ends), max(ends)
     over = max(max(p[j] - hi, lo - p[j], 0.0) for _, p, _, _ in samples)
-    effs = [abs(e[j]) for _, _, _, e in samples if e is not None]
+
+    def peak_eff(sel):
+        es = [abs(e[j]) for t, _, _, e in samples if e is not None and sel(t - lag)]
+        return round(max(es) / EFFORT_LIMIT_NM[joint], 3) if es else None
+
     vels = [abs(v[j]) for _, _, v, _ in samples if v is not None]
-    return {"lag_ms": round(best[0] * 1000), "max_error_deg": round(best[1], 2),
+    return {"lag_ms": round(lag * 1000), "lag_searched_ms": round(lag_max * 1000),
+            "steady_error_deg": round(err_at(lag, lambda t: not near(t)), 2),
+            "reversal_error_deg": round(err_at(lag, near), 2),
+            "steady_effort_share": peak_eff(lambda t: span[0] <= t <= span[1] and not near(t)),
+            "reversal_effort_share": peak_eff(near),
             "overshoot_deg": round(over, 2),
-            "peak_effort_nm": round(max(effs), 2) if effs else None,
-            "effort_share": round(max(effs) / TORQUE_TRIP_NM[joint], 3) if effs else None,
-            "peak_velocity_dps": round(max(vels)) if vels else None}
+            "peak_velocity_dps": round(max(vels)) if vels else None,
+            "velocity_share_of_trip": round(max(vels) / cue.TRIP_DEG_S[joint], 3) if vels else None}
 
 
-def verdict(res: dict, status) -> str | None:
-    """Why this speed FAILED, or None if it passed."""
+def verdict(res: dict, status) -> tuple:
+    """(why this speed FAILED or None, a REVERSAL finding or None). Caps come from the steady legs;
+    a reversal that fails is reported, not used to set the cap. No goal outcome is INCONCLUSIVE,
+    never a pass."""
+    if res.get("stopped_live"):
+        return f"stopped mid-swing: {res['stopped_live']}", None
     if status == 6:
-        return "the controller aborted the goal (a trip)"
-    if status not in (4, None):
-        return f"the goal ended with status {status}"
+        return "the controller aborted the goal (a trip)", None
+    if status is None:
+        return "INCONCLUSIVE: no goal outcome arrived", None
+    if status != 4:
+        return f"the goal ended with status {status}", None
     if res.get("error"):
-        return res["error"]
-    if res["effort_share"] is not None and res["effort_share"] > STOP_EFFORT:
-        return f"effort {res['effort_share']:.0%} of the torque trip"
-    if res["max_error_deg"] > STOP_ERROR_DEG:
-        return f"tracking error {res['max_error_deg']:.1f} deg"
-    return None
+        return res["error"], None
+    fail = None
+    if res["steady_effort_share"] is not None and res["steady_effort_share"] > STOP_EFFORT:
+        fail = f"steady effort {res['steady_effort_share']:.0%} of the joint's limit"
+    elif res["steady_error_deg"] > STOP_ERROR_DEG:
+        fail = f"steady tracking error {res['steady_error_deg']:.1f} deg"
+    elif res["lag_ms"] > STOP_LAG_S * 1000:
+        fail = f"lag {res['lag_ms']} ms"
+    elif res["velocity_share_of_trip"] is not None and res["velocity_share_of_trip"] > STOP_VEL_SHARE:
+        fail = f"measured speed {res['peak_velocity_dps']} deg/s, over {STOP_VEL_SHARE:.0%} of the trip"
+    rev = None
+    if res["reversal_effort_share"] is not None and res["reversal_effort_share"] > STOP_EFFORT:
+        rev = f"at the reversals: effort {res['reversal_effort_share']:.0%} of the limit"
+    elif res["reversal_error_deg"] > STOP_ERROR_DEG:
+        rev = f"at the reversals: tracking error {res['reversal_error_deg']:.1f} deg"
+    return fail, rev
 
 
 # ---- on the robot -------------------------------------------------------------------------------
@@ -223,12 +276,30 @@ def run_one(arms, gate, side, slot, r, log):
     arms.send(slot, r["points"])
     t0 = time.monotonic()
     samples, last_stamp, next_gate = [], None, 0.0
+    j, v = r["joint"] - 1, r["speed"]
+    # Live, so a swing heading for a trip is cancelled BEFORE it (review, 2026-10-08). The error here
+    # is raw — no lag fitted yet — so it is allowed the lag budget on top: v x STOP_LAG_S.
+    raw_allow = STOP_ERROR_DEG + v * STOP_LAG_S
     while True:
         now = time.monotonic() - t0
         s = arms.sample(side)
         if s and s[0] != last_stamp:
             last_stamp = s[0]
-            samples.append((s[0] - t0, s[1], s[2], s[3]))
+            ts = s[0] - t0
+            samples.append((ts, s[1], s[2], s[3]))
+            live = None
+            if s[3] is not None and abs(s[3][j]) > STOP_EFFORT * EFFORT_LIMIT_NM[r["joint"]]:
+                live = f"effort {abs(s[3][j]):.1f} N·m, over {STOP_EFFORT:.0%} of {EFFORT_LIMIT_NM[r['joint']]}"
+            elif s[2] is not None and abs(s[2][j]) > STOP_VEL_SHARE * cue.TRIP_DEG_S[r["joint"]]:
+                live = f"speed {abs(s[2][j]):.0f} deg/s, over {STOP_VEL_SHARE:.0%} of the trip"
+            elif r["knots"][1][0] <= ts <= r["knots"][-2][0] + STOP_LAG_S and \
+                    abs(s[1][j] - ref_at(r["knots"], ts)) > raw_allow:
+                live = f"off the path by {abs(s[1][j] - ref_at(r['knots'], ts)):.1f} deg"
+            if live:
+                arms.cancel_all()
+                res = analyse(samples, r["knots"], r["joint"])
+                res.update(stopped_live=live, status=arms.results.get(slot), at_s=round(ts, 3))
+                return res, samples
         if now >= next_gate:
             why = gate.why_not()
             if why:
@@ -307,13 +378,20 @@ def main() -> int:
             if res.get("stopped"):
                 stopped = res["stopped"]
                 break
-            fail = verdict(res, res.get("status"))
-            print(f"  J{j} {r['speed']:5.0f} deg/s: lag {res.get('lag_ms')} ms, error {res.get('max_error_deg')} deg, "
-                  f"overshoot {res.get('overshoot_deg')} deg, effort {res.get('effort_share')}"
-                  + (f"  -> FAIL: {fail}" if fail else "  -> ok"))
-            s = summary.setdefault(j, {"passed": None, "failed": None, "why": None})
+            fail, rev = verdict(res, res.get("status"))
+            print(f"  J{j} {r['speed']:5.0f} deg/s: lag {res.get('lag_ms')} ms, steady error "
+                  f"{res.get('steady_error_deg')} deg / effort {res.get('steady_effort_share')}, reversals "
+                  f"{res.get('reversal_error_deg')} deg / {res.get('reversal_effort_share')}, overshoot "
+                  f"{res.get('overshoot_deg')} deg, peak {res.get('peak_velocity_dps')} deg/s"
+                  + (f"  -> FAIL: {fail}" if fail else "  -> ok") + (f"  [{rev}]" if rev else ""))
+            s = summary.setdefault(j, {"passed": None, "failed": None, "why": None, "reversals": None})
+            if rev and not s["reversals"]:
+                s["reversals"] = f"{r['speed']:g} deg/s: {rev}"
             if fail:
-                s["failed"], s["why"] = r["speed"], fail
+                s["why"] = fail
+                if not fail.startswith("INCONCLUSIVE"):
+                    s["failed"] = r["speed"]
+                # A live stop or a failure leaves the arm part-way: back to the base pose, slowly.
                 time.sleep(move_slowly(arms, a.arm, slot, signed(a.arm, BASE)) + 0.3)
                 break
             s["passed"] = r["speed"]
@@ -335,6 +413,9 @@ def main() -> int:
                else f">= {CAP_SHARE * s['passed']:.0f}" if s["passed"] else "—")
         print(f"  J{j}   {s['passed'] or '—':>6}  {s['failed'] or '—':>6}  {cap:>13}   ({cue.SPEED_CAP_DEG_S[j]})"
               + (f"   {s['why']}" if s["why"] else ""))
+        if s["reversals"]:
+            print(f"         reversals limit it first — {s['reversals']}: an argument for blending the "
+                  "runner's corners, not for a lower cap")
     rec(kind="summary", summary=summary, stopped=stopped)
     return 0
 
