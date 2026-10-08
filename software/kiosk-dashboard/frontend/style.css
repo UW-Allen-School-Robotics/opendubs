@@ -281,7 +281,12 @@ body {
 #view-mast .big { font-size: 72px; margin: 8px 0; }
 
 /* ---------- LIDAR view: front half-disc | robot/controls | rear half-disc ---------- */
-#view-lidar.lidarview.active { display: grid; grid-template-columns: 1fr 240px 1fr; gap: 8px; padding: var(--gap); }
+#view-lidar.lidarview.active { display: grid; grid-template-columns: minmax(0, 1fr) 240px minmax(0, 1fr); gap: 8px; padding: var(--gap); }
+/* A phone is too narrow for three columns: stack them, each disc a fixed height. */
+@media (max-width: 760px) {
+  #view-lidar.lidarview.active { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+  .lidar-canvas { height: 40dvh; }
+}
 .lidar-panel { min-height: 0; min-width: 0; display: flex; background: #080b11;
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .lidar-canvas { width: 100%; height: 100%; min-height: 0; display: block; }
@@ -479,12 +484,12 @@ body {
 
   /* Every active view: cards flow into as many columns as fit (1 in portrait,
      2-3 in landscape); the page scrolls. min(600px,100%) avoids overflow on phones. */
-  .view.active:not(#view-operate):not(#view-teleop) { display: grid !important;
+  .view.active:not(#view-operate):not(#view-teleop):not(#view-lidar) { display: grid !important;
                  grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr)) !important;
                  grid-template-rows: none !important; grid-template-areas: none !important;
                  gap: var(--gap); align-content: start; align-items: start;
                  height: auto; padding: var(--gap); overflow: visible; }
-  .view.active:not(#view-operate):not(#view-teleop) > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
+  .view.active:not(#view-operate):not(#view-teleop):not(#view-lidar) > * { grid-area: auto !important; width: auto !important; min-width: 0 !important;
                      max-width: none !important; height: auto !important; min-height: 0 !important; }
   .card { height: auto; }
 
@@ -496,7 +501,9 @@ body {
 
   /* Placeholders + LIDAR canvases need explicit height once un-stretched */
   .view.placeholder { min-height: 60dvh; }
-  .lidar-canvas { width: 100%; height: 40dvh; }
+  /* LIDAR keeps its own three columns — front disc | controls | rear disc — filling the screen
+     below the top bar. It is left out of the card flow above, which stacked it into two columns. */
+  #view-lidar.lidarview.active { grid-template-rows: minmax(0, 1fr); height: calc(100dvh - 57px); }
 
   /* Touch-sized controls */
   .sysbtn, .iobtn, .vncbtn, .mode-opt, .estopbtn, .rearmbtn { min-height: 44px; }
@@ -512,6 +519,7 @@ body {
   background:rgba(46,194,126,.10); color:var(--good); border:1px solid rgba(46,194,126,.30); }
 .op-state.warn{ background:rgba(242,184,75,.10); color:var(--warn); border-color:rgba(242,184,75,.35); }
 .op-state.bad{ background:rgba(239,90,90,.14); color:var(--bad); border-color:rgba(239,90,90,.5); }
+.op-state.dim{ background:none; color:var(--dim); border-color:var(--line); }
 .op-meta{ font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; }
 .op-batt{ display:inline-flex; align-items:center; gap:6px; color:var(--dim); font-weight:700; font-size:14px; }
 .op-ai{ border:1px solid rgba(25,209,196,.5); background:rgba(25,209,196,.15); color:var(--accent); font-weight:700; letter-spacing:.05em; font-size:12px; cursor:pointer; padding:0 12px; border-radius:6px; min-height:36px; transition:0.2s; }
@@ -652,6 +660,7 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .shows-btn.invalid { border-style: dashed; }
 .shows-ctl { display: flex; flex-wrap: wrap; gap: 12px; }
 .shows-stop { margin-top: 14px; min-width: 160px; }
+.shows-req { margin: 0 0 12px; font-size: 16px; font-weight: 700; color: var(--txt); }
 
 .shows-audio { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
 .shows-audio .sysbtn { flex: none; width: auto; min-height: 0; padding: 6px 12px; font-size: 13px; }

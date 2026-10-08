@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=f35fc600" />
+  <link rel="stylesheet" href="style.css?v=a4536bff" />
 </head>
 <body>
   <div id="app">
@@ -25,6 +25,7 @@
         <span id="conn" class="conn down" title="link">●</span>
       </div>
       <span id="opState" class="op-state">—</span>
+      <span id="opDead" class="op-state dim" title="The RC deadman. Shows and driving need it held.">DEADMAN —</span>
       <span class="spacer"></span>
       <button id="btnAiToggle" class="op-ai off">AI TRACKING: OFF</button>
       <span id="host" class="op-meta">—</span>
@@ -303,6 +304,7 @@
     <main id="view-shows" class="view showsview">
       <section class="card shows-card">
         <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held; grippers, head and lift stay twin-only. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
+        <div class="shows-req">Shows need the mode in AUTO and the deadman held. Letting go of the deadman stops the show, and the arms hold where they are.</div>
         <div id="showsStatus" class="shows-status">—</div>
         <div class="shows-audio">
           <span id="showsAudio" class="dim" title="Show music and sound files play on ONE device. The Thor tells it when to start; it matches its clock to the Thor's to start on time.">Show audio: —</span>
@@ -525,7 +527,7 @@
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
   <script src="app.js?v=2dd16ff8"></script>
-  <script src="operate.js?v=7ef5cdb2"></script>
+  <script src="operate.js?v=1c63abb5"></script>
   <script type="module" src="teleop.js?v=62f2695f"></script>
   <script src="show_audio.js?v=2"></script>
   <script src="choreo.js?v=6"></script>
