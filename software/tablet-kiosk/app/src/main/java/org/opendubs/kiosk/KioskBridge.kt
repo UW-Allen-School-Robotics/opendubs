@@ -2,6 +2,7 @@ package org.opendubs.kiosk
 
 import android.app.Activity
 import android.content.Intent
+import android.os.BatteryManager
 import android.os.PowerManager
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
@@ -40,4 +41,13 @@ class KioskBridge(private val activity: Activity) {
 
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
+
+    /** The tablet's own battery, as JSON `{"level": 0..100, "charging": bool}` — shown beside the
+     *  robot's pack in the dashboard's top bar, each with its own icon so they are not confused. */
+    @JavascriptInterface
+    fun battery(): String {
+        val bm = activity.getSystemService(BatteryManager::class.java)
+        val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return """{"level": $level, "charging": ${bm.isCharging}}"""
+    }
 }

@@ -33,7 +33,7 @@ VNC_DISABLED_FLAG = status_mod.VNC_DISABLED_FLAG
 app = FastAPI(title="OpenDubs Kiosk Dashboard")
 
 # Server-side state for non-safety soft controls.
-STATE = {"acknowledged_at": None, "last_action": None, "ai_tracking": False}
+STATE = {"last_action": None, "ai_tracking": False}
 
 TRACKER_UNIT = "opendubs-yolo-tracker"
 
@@ -356,12 +356,6 @@ def vnc_control(action: str) -> JSONResponse:
     else:
         return JSONResponse({"ok": False, "error": "unknown action"}, status_code=400)
     return JSONResponse({"ok": True, "action": action})
-
-
-@app.post("/api/ack")
-def acknowledge() -> dict:
-    STATE["acknowledged_at"] = time.time()
-    return {"ok": True, "acknowledged_at": STATE["acknowledged_at"]}
 
 
 @app.post("/api/action/{name}")

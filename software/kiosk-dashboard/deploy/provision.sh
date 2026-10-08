@@ -92,4 +92,11 @@ if [ -f /etc/opendubs/tls/dashboard.crt ]; then
 else
   echo "   no HTTPS yet: run deploy/make-robot-ca.sh on the robot to give the tablet :8443"
 fi
+# Which robot this is, on every screen that controls it. Per-robot, so it lives on the robot.
+if grep -qs '^OPENDUBS_ROBOT_NAME=' /etc/opendubs/robot.env; then
+  echo "   robot name: $(sed -n 's/^OPENDUBS_ROBOT_NAME=//p' /etc/opendubs/robot.env | tr -d '"')"
+else
+  echo "   robot name: $(hostname -s) (the hostname). To name it, e.g.:"
+  echo "       echo 'OPENDUBS_ROBOT_NAME=\"OpenDubs 2\"' | sudo tee /etc/opendubs/robot.env && sudo systemctl restart opendubs-dash"
+fi
 echo "Open it from the tablet; there is no local display to launch."

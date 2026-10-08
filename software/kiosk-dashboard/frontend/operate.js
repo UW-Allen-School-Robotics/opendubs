@@ -7,7 +7,13 @@
 "use strict";
 (function () {
   const $ = (id) => document.getElementById(id);
-  const BATT = '<svg width="24" height="13" viewBox="0 0 24 13"><rect x="1" y="1" width="19" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="21" y="4" width="2.4" height="5" rx="1" fill="currentColor"/><rect x="3" y="3" width="13.5" height="7" rx="1.2" fill="currentColor"/></svg>';
+  // A battery whose fill shows the level, so the two at the top read at a glance.
+  const BATT = (pct) => '<svg width="24" height="13" viewBox="0 0 24 13"><rect x="1" y="1" width="19" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="21" y="4" width="2.4" height="5" rx="1" fill="currentColor"/>' +
+    (pct == null ? "" : `<rect x="3" y="3" width="${(15 * Math.max(0, Math.min(100, pct)) / 100).toFixed(1)}" height="7" rx="1.2" fill="currentColor"/>`) + '</svg>';
+  // WHOSE battery: the robot's pack, or this device's. Easy to confuse, so each carries an icon.
+  const ROBOT = '<svg class="who" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="8" width="14" height="10" rx="2"/><path d="M12 8V4"/><circle cx="12" cy="3.3" r="1.1" fill="currentColor"/><circle cx="9.5" cy="13" r="1.2" fill="currentColor"/><circle cx="14.5" cy="13" r="1.2" fill="currentColor"/><path d="M8 18v2.5M16 18v2.5"/></svg>';
+  const TABLET = '<svg class="who" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="18.6" cy="12" r=".9" fill="currentColor"/></svg>';
+  const KIOSK = window.OpenDubsKiosk;       // the tablet's kiosk app, when the page runs inside it
   const WARN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 17H2z"/><path d="M12 10v4"/><circle cx="12" cy="17.3" r=".5" fill="currentColor"/></svg>';
   const BAD  = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 8l8 8"/></svg>';
 
@@ -120,9 +126,14 @@
     if (!document.fullscreenElement) { (el.requestFullscreen ? el.requestFullscreen() : Promise.reject())
       .then(() => { try { screen.orientation.lock("landscape"); } catch (e) {} }).catch(() => {}); }
     else if (document.exitFullscreen) document.exitFullscreen(); }
-  $("opFs") && $("opFs").addEventListener("click", (e) => { e.stopPropagation(); goFS(); });
-  if (window.matchMedia && matchMedia("(pointer:coarse)").matches)
-    document.addEventListener("pointerdown", () => goFS(), { once: true });
+  // Inside the kiosk app the page is already full screen, so the control means nothing there. In any
+  // other browser it still does something (standing rule 12).
+  if (KIOSK) { if ($("opFs")) $("opFs").hidden = true; }
+  else {
+    $("opFs") && $("opFs").addEventListener("click", (e) => { e.stopPropagation(); goFS(); });
+    if (window.matchMedia && matchMedia("(pointer:coarse)").matches)
+      document.addEventListener("pointerdown", () => goFS(), { once: true });
+  }
 
   /* ---------- notifications (dark & quiet: empty unless out of nominal) ---------- */
   function setNotifs(list) {
@@ -141,9 +152,24 @@
   let lastSoc = null;
   setInterval(() => { const t = ($("stBatt") && $("stBatt").textContent) || ""; const m = t.match(/(\d+)\s*%/);
     lastSoc = m ? +m[1] : null; const b = $("opBatt");
-    if (b) { b.innerHTML = BATT + " " + (lastSoc != null ? lastSoc + "%" : "—");
+    if (b) { b.innerHTML = ROBOT + BATT(lastSoc) + " " + (lastSoc != null ? lastSoc + "%" : "—");
       b.style.color = lastSoc == null ? "var(--dim)" : lastSoc < 15 ? "var(--bad)" : lastSoc < 25 ? "var(--warn)" : "var(--dim)"; }
   }, 1000);
+
+  /* this device's battery: the kiosk app's, or the browser's own where it reports one; else hidden */
+  let devBatt = null;                                   // {level 0..100, charging}
+  if (!KIOSK && navigator.getBattery) navigator.getBattery().then((bm) => {
+    const f = () => { devBatt = { level: Math.round(bm.level * 100), charging: bm.charging }; };
+    f(); bm.addEventListener("levelchange", f); bm.addEventListener("chargingchange", f);
+  }).catch(() => {});
+  setInterval(() => {
+    if (KIOSK && KIOSK.battery) { try { devBatt = JSON.parse(KIOSK.battery()); } catch (e) { devBatt = null; } }
+    const d = $("devBatt"); if (!d) return;
+    if (!devBatt || devBatt.level == null || devBatt.level < 0) { d.hidden = true; return; }
+    d.hidden = false;
+    d.innerHTML = TABLET + BATT(devBatt.level) + " " + devBatt.level + "%" + (devBatt.charging ? " ⚡" : "");
+    d.style.color = devBatt.charging ? "var(--dim)" : devBatt.level < 15 ? "var(--bad)" : devBatt.level < 25 ? "var(--warn)" : "var(--dim)";
+  }, 5000);
 
   /* derive Operate state + notifications from the same rs app.js renders */
   function opFromRS(rs) {
