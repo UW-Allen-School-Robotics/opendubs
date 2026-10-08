@@ -8,7 +8,9 @@ Type=simple
 User=kiosk
 SupplementaryGroups=dialout
 WorkingDirectory=/opt/opendubs/kiosk-dashboard/backend
-ExecStart=/opt/opendubs/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080
+# HTTP on 8080 (unchanged: on-robot tools call it) and, once deploy/make-robot-ca.sh has made this
+# robot's certificate, HTTPS on 8443 for the tablet — one process, because it owns the serial port.
+ExecStart=/opt/opendubs/venv/bin/python serve.py
 Restart=always
 RestartSec=2
 # tegrastats/nvpmodel read from /sys. MAVLink now comes from MAVROS (which owns

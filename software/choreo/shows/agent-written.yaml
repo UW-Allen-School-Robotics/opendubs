@@ -1,0 +1,67 @@
+# Written by an AI agent from notes/design/choreo-format-v1.md ALONE — no other show, no validator
+# source — as the test of whether the spec is sufficient (workplan 7.3, PA-6.4). ONE EDIT besides this
+# header: its chorus LIGHT was orange [255, 140, 0], which reads as DEGRADED amber on the robot's state
+# light (finding L1) and is now refused (plan 1.8), so it is purple. Report: choreo-example-shows.md.
+format: 1
+id: agent-greeting
+name: Agent-written greeting
+slots: [ARM_L, ARM_R, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT, DANCE]
+requires: { arms: active, tab5: true, rc_authority: AUTO }
+music:
+  file: audio/beat-demo-120.wav
+  bpm: 120
+  offset_s: 0.5
+  beats_per_bar: 4
+notes: >
+  A ~30 s greeting written from notes/design/choreo-format-v1.md alone.
+  120 bpm, offset 0.5 s: bar n starts at 0.5 + 2(n-1) s. Arm moves are kept
+  small and slow (all segments well under 25 deg/s average).
+dance:
+  floor_radius_m: 1.5
+clips:
+  wave_r:
+    length_beats: 8
+    cues:
+      - { beat: 1, slot: ARM_R, joints: { 7: 10 } }
+      - { beat: 3, slot: ARM_R, joints: { 7: -10 } }
+      - { beat: 5, slot: ARM_R, joints: { 7: 10 } }
+      - { beat: 7, slot: ARM_R, joints: { 7: 0 } }
+      - { beat: 1, slot: HEAD, pan: 80, tilt: 95 }
+      - { beat: 5, slot: HEAD, pan: 100, tilt: 95 }
+markers:
+  - { bar: "9.1", name: chorus }
+  - { bar: "11.1", name: dance_start }
+cues:
+  # wake up
+  - { t: 0.0, slot: LIGHT, do: color, rgb: [0, 80, 255], br: 60 }
+  - { t: 0.0, slot: FACE, do: emote, name: SLEEPY }
+  - { bar: "1.1", slot: SOUND, do: play, sound: attend, output: tab5 }
+  - { bar: "1.1", slot: HEAD, pan: 90, tilt: 100 }
+  - { bar: "2.1", slot: FACE, do: emote, name: ALERT }
+  - { bar: "2.3", slot: HEAD, pan: 90, tilt: 90 }
+  # arms come up to a greeting pose
+  - { bar: "3.1", slot: ARM_R, joints: { 2: 20, 4: 40 } }
+  - { bar: "3.1", slot: ARM_L, joints: { 2: 15, 4: 30 } }
+  - { bar: "3.1", slot: FACE, do: emote, name: SOFT }
+  # first wave
+  - { bar: "4.1", clip: wave_r }
+  - { bar: "4.1", slot: GRIP_R, do: open }
+  # lift rises and returns
+  - { bar: "6.1", slot: LIFT, do: up, secs: 3 }
+  - { bar: "8.1", slot: LIFT, do: down, secs: 3 }
+  # chorus: light change, second wave, left arm joins
+  - { bar: "9.1", slot: LIGHT, do: color, rgb: [180, 0, 255] }
+  - { bar: "9.1", clip: wave_r, strength: 0.8 }
+  - { bar: "9.1", slot: ARM_L, joints: { 2: 25, 4: 50 } }
+  - { bar: "10.1", slot: GRIP_R, do: close }
+  # short dance
+  - { bar: "11.1", slot: DANCE, move: sway, secs: 2 }
+  - { bar: "12.1", slot: DANCE, move: twist, secs: 2, amp: 0.6 }
+  - { bar: "11.1", slot: FACE, do: emote, name: SQUINT }
+  # settle
+  - { bar: "14.1", slot: ARM_R, joints: { 2: 0, 4: 10, 7: 0 } }
+  - { bar: "14.1", slot: ARM_L, joints: { 2: 0, 4: 10 } }
+  - { bar: "14.1", slot: HEAD, pan: 90, tilt: 90 }
+  - { bar: "15.1", slot: FACE, do: emote, name: NEUTRAL }
+  - { bar: "15.1", slot: SOUND, do: play, sound: heard, output: tab5 }
+  - { bar: "15.1", slot: LIGHT, do: release }

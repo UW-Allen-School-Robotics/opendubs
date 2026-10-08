@@ -832,7 +832,10 @@ function renderMast(st) {
 
 /* ---------- LIDAR (rosbridge :9090 — live /scan front + /scan_rear rear) ---------- */
 (function lidarModule() {
-  const ROS_URL = `ws://${location.hostname || "localhost"}:9090`;
+  // Over HTTPS (the tablet) rosbridge is reached through the dashboard's own origin — an HTTPS page
+  // may not open ws:// — and over plain HTTP directly on :9090 as before.
+  const ROS_URL = location.protocol === "https:" ? `wss://${location.host}/rosbridge`
+                                                 : `ws://${location.hostname || "localhost"}:9090`;
   let ws = null, wsReady = false;
   let frontScan = null, frontStamp = 0, frontRate = 0, lastMsgT = 0;
   let rearScan = null, rearStamp = 0, rearRate = 0, lastRearT = 0;

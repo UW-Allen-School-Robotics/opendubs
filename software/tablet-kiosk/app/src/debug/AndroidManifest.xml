@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds are testOnly: a device owner provisioned from one can be removed with
+     `adb shell dpm remove-active-admin org.opendubs.kiosk/.KioskAdminReceiver` (no factory reset). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:testOnly="true" />
+</manifest>

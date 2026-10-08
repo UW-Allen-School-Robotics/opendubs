@@ -1,0 +1,242 @@
+# Work plan — choreography: composer, player and digital twin
+
+The plan of record, **agreed by the project team on 2026-10-07**. Work proceeds through these phases; anything
+not in a phase, in the team requests, or in the stub register is not being worked on. Finished items
+are struck through with a date, as in [`workplan-tab5-idf.md`](workplan-tab5-idf.md).
+
+Background, benchmarks and citations (Spot Choreographer, QLC+, Choregraphe, Cozmo, Furhat, BML,
+Ableton) live in [`design/choreo-prior-art.md`](design/choreo-prior-art.md), which is the plan this
+replaced. *PA-n.n* below cites an item there. The format is specified in
+[`design/choreo-format-v1.md`](design/choreo-format-v1.md); the hardware experiments are in
+[`design/choreo-teach-and-sync.md`](design/choreo-teach-and-sync.md).
+
+**The shape of the system.** Shows are authored in the **composer** on a laptop, previewed on the
+**digital twins** (MuJoCo for the body, the Tab5 desktop build for the face), and played on the
+robot from the **tablet**, with the **runner** on the Thor holding the clock and the lease. One
+artifact connects them all: `cue.py export`, the resolved timeline.
+
+---
+
+## Standing rules
+
+1. **The authority model is not negotiable and the composer is not special.** A show is a
+   lease-holding motion source through the same arbiter and monitors as a stick or a planner.
+   [`docs/control-authority.md`](../docs/control-authority.md) is the specification. **Shows run in
+   `AUTO`; teaching happens in `MANUAL`.**
+2. **E-stop and abort are different things.** An **e-stop** stops the show **instantly** — all
+   motion and all audio, whatever device it plays on. An **abort** (deadman release, stick
+   deflection, monitor trip, fault, operator stop) leaves every slot in a state defined *per slot*
+   and **fades audio over ~250 ms**. Preemption aborts; it never pauses (PA-2.4).
+3. **Validation is a gate, not hygiene.** The whole show is validated before any of it is sent.
+   **Every bound in `cue.py` is traceable to a measurement or labelled a sanity check** — a
+   validator turns guesses into constraints on other people's work.
+4. **Anything safety-bearing is not authorable**, and the receiver *rejects* rather than
+   discourages ([`design/face-config.md`](design/face-config.md)).
+5. **Every experiment states its question and its kill criterion before it starts.**
+6. **Shows are text, in the repo, diffable, with no layout data.** An editor save is a minimal diff.
+7. **No new control path.** The runner emits commands the robot already accepts.
+8. **Preview before robot.** The composer's default output is the digital twin; live output is a
+   separately armed binding.
+9. **No robot conclusions from the twin.** Its geometry is real; its dynamics, timing and lift speed
+   are not, and it is 6° optimistic on shoulder/head clearance. The face twin cannot reproduce the
+   device's threading or frame budget.
+10. **The composer is a laptop tool; the tablet is the player.** Nobody is expected to compose on a
+    10″ screen.
+11. **Security is LAN-first and not a blocker.** The robot's LAN and Wi-Fi are the first line of
+    defence, Thor login the second. Robot security is one parked item (P1), not a caveat on every
+    feature.
+12. **The dashboard stays usable from any browser on the LAN.** Tablet features — the kiosk app's
+    `window.OpenDubsKiosk` bridge, the microphone, wake lock, anything needing HTTPS — are optional
+    and detected, never required: in a plain browser on plain HTTP the page still works and the
+    feature switches itself off. HTTP on 8080 stays. **Show audio goes to one designated client**,
+    never to every open dashboard. Checked 2026-10-07 from a laptop browser against opendubs2.
+
+---
+
+## Decisions of record — 2026-10-07
+
+From the hand-off report ([`choreo-cloud-run-report.md`](choreo-cloud-run-report.md)), walked
+through by the team. Each now drives an item below.
+
+| # | Decision | Drives | Status | Done when |
+|---|---|---|---|---|
+| DEC-1 | **Speed caps: measure, then decide.** Until measured, the **average** segment speed is the hard gate and **1.875 × average** (the worst case if the controller eases) is a **warning**; the caps are labelled *unsourced*. *Amended 2026-10-07: first agreed as a hard check, changed to a warning once it was seen to fail both demo shows, including moves already run on the robot.* | 1.1, 6.1 |  |  |
+| DEC-2 | **Dancing is accepted, simulator first.** The bounded open-loop `dance:` design (format §12) is adopted; moves are authored and previewed in MuJoCo now; robot execution waits for the runner and a floor-space test. `DRIVE` still does not enter `SLOTS` as free motion. | 1.4, 2.4, 6.6 |  |  |
+| DEC-3 | **Teaching is decoupled from freedrive, with automatic timing.** Capture reads measured joints however the arm got there — teleop today. An *earliest legal time* helper places a taught pose at the soonest time the arm can reach it. | 1.3, 6.3, 7.1 |  |  |
+| DEC-4 | **Grippers are normalised 0–1** (0 closed, 1 open, both sides), with each robot's per-side calibration kept **on the robot**, not in the repo. | 1.2, 6.2 |  |  |
+| DEC-5 | **Audio output is selectable** among three devices — tablet, Tab5, Thor (with a speaker). A show may declare its output at composition time and the operator may override at run time. **Default: the tablet** (no Thor speaker exists; Tab5 audio load is a concern). | 1.5, 4.2 |  |  |
+| DEC-6 | **E-stop = instant stop of the show; abort = fade (~250 ms) and stop.** | Rule 2, 5.4 |  |  |
+| DEC-7 | **A tablet disconnect stops the music only**; the show continues under the RC deadman. | 4.5 |  |  |
+| DEC-8 | **HTTPS is folded into the tablet-as-managed-device workstream**, needed because the mic and wake lock require a secure context — not as authentication. | 4.1 | ~~The tablet as a managed robot device (E9, DEC-8)~~ **DECIDED, 2026-10-07 — [`design/tablet-device.md`](design/tablet-device.md)**: HTTPS from the Thor with a local CA (TD-1); our own minimal open-source kiosk app (TD-2); the app as device owner on a dedicated, account-free tablet (TD-3); the Galaxy Tab A11 in the BOM (TD-4). | A tablet that runs a 10-minute show without a single interruption (TB-6). |
+| DEC-9 | **CH5 positions are `STANDBY / MANUAL / AUTO`.** Low: powered and reporting, nothing commanded. Middle: a human commands live — RC for base, lift and head; teleop or hands for the arms. High: software commands; shows run here. The robot state `SAFE_IDLE` becomes `STANDBY`. | 0.6 |  |  |
+| DEC-10 | **`FACE` and `LIGHT` are kept**; the face twin is their first receiver. Vocabulary follows the Tab5 emote decision (Tab5 plan F1). | 3.3 | **BUILT, 2026-10-07, against the real face twin** — `software/choreo/face.sh` starts the head's own face code built for the desktop (it shares the head's command parser) plus `face_bridge.py`, which sends `EMOTE`, `THEME` and `CUE` (FT-3) as the playhead crosses them and the state in force on a seek. Local only by construction (non-loopback targets refused). Verified with the runner, the body twin and the face twin together (3.3). LIGHT and sound files deliberately not sent. | `FACE` and earcon `SOUND` play on the face twin in step with the body twin; a seek leaves the face correct. |
+| DEC-11 | **`SOUND` is split from music.** Music is the show's `music:` track, routed to the chosen output. `SOUND` becomes named sound effects played on the chosen output — the Tab5's six earcons are one source, tablet clips another. | 1.5 | ~~Audio routing (DEC-5, DEC-11)~~ **DONE, 2026-10-07.** `music: output:` and a `SOUND` cue's `output:` (tablet, tab5, thor; default tablet, except an earcon with no file, which only the Tab5 has). What each output can play is checked: the Tab5 plays earcons only, the tablet and Thor play files. An operator override (`runner.py --audio-output`) is re-validated — a sound the chosen output cannot play is an error, never silence. The export carries each resolved output; the face bridge sends only Tab5 sounds; the composer shows where each plays. | — |
+| DEC-12 | **The composer is not mounted on the robot dashboard.** The tablet gets a *player* surface instead. | 4.4 | **BUILT, 2026-10-07; not deployed.** The dashboard's **Shows** page (menu → Shows — routines): one button per palette routine, the running/last status, STOP, and a **TWIN ONLY · THE ROBOT DOES NOT MOVE** badge until 5.6. The page talks only to the dashboard (`/api/choreo/*`, `backend/choreo_proxy.py`), which forwards four calls to the runner — never its fake-robot switches — so it works on HTTP and HTTPS in any browser (rule 12). Verified in an isolated harness (the proxy and the static page only): list, tap to run, all buttons disabled while running, STOP → aborted by the operator, and "the show runner is not running" when it is not. A tap lost to the 1 s refresh was found and fixed. The runner as a service on the Thor, with real preflight, is 4.4c. | An operator can run a show from the tablet without a laptop. |
+| DEC-13 | **Capture-a-performance is in the plan, after single-pose teaching works.** | 7.2 |  |  |
+| DEC-14 | **The robot body twin starts with a native MuJoCo window**, driven by the composer's playhead. | 2.2 | ~~Native MuJoCo window driven by the composer (E1, DEC-14)~~ **BUILT, 2026-10-07** — `software/choreo/twin.sh`. The composer publishes time and play state (`/api/twin`) and the resolved timeline (`/api/twin/timeline`); the viewer samples it with `sim_preview.py`'s code and extrapolates on its own clock. Verified by its log: play from 0, pause (held at 18.12 s), seek (30 s), and an unsaved edit (head pan at 12 s, 60°→30°) all followed. | **Open:** a 3-minute show judged in step by eye. |
+| DEC-15 | **The face simulator becomes a full digital twin**, a choreography player, and the customisation/theme tool. Its intent is written before it is built. | Phase 3 |  |  |
+
+---
+
+## Team requests
+
+Feature and function asks, tracked here so none is lost in a phase table. Status is updated in
+place; each points at the item that delivers it.
+
+| # | Request | Status | Item |
+|---|---|---|---|
+| E1 | Visualise robot movements in a **native MuJoCo window** while composing | built 2026-10-07; judge by eye | 2.2 |
+| E2 | **Face simulator as a digital twin** — as faithful to the head as feasible | intent agreed (3.1, FT-1–FT-8); the face twin answers the head's own protocol (3.2) and plays shows (3.3) | 3.1–3.3 |
+| E3 | Face simulator as a **choreography player** | done 2026-10-07 — the real face twin plays shows, in step with the body twin | 3.3 |
+| E4 | Face simulator as the **customisation / theme tool**, including intake of background images, themes and accessories | the head installs authored themes (`CFG`, Tab5 branch `004f91f`) and a cue selects them (1.10); authoring on the twin, images and accessories open | 3.4 |
+| E5 | **Consolidate the robot models into this repo** — base, lift, head and arms | done 2026-10-07, redeployed; the arm view on the tablet is the operator's to confirm | 2.1 |
+| E6 | **Audio output selectable** (tablet / Tab5 / Thor), tablet default; at composition or run time | tablet path built 2026-10-07 (4.2); Tab5 earcons play on the head; no Thor speaker | 1.5, 4.2 |
+| E7 | **How does the Thor pipe audio out of the tablet?** | answered 2026-10-07: the tablet downloads the files and starts them at a Thor time it has matched its clock to; built, timing to be measured on the robot | 4.2 |
+| E8 | **Tablet audio in and out** as a workstream | out built 2026-10-07 (4.2); in open | 4.2, 4.3 |
+| E9 | **The tablet behaves as a robot device**: no sleeping, no update nags or interruptions during a run, interactive and available according to robot state; APK vs browser app vs dashboard changes | decided 2026-10-07: own kiosk app | 4.1–4.1d |
+| E10 | **The tablet plays shows; laptops compose them** | Shows page and the runner service built 2026-10-07, with real preflight and show audio; deploy pending | 4.4, 4.4c |
+| E11 | **CH5 names fixed everywhere**, and the middle position meaning "a human commands" for arms too | open | 0.6 |
+| E12 | **Shows can use real songs** — MP3 and other common formats, loaded locally | in scope; works today | 1.6 |
+| E13 | **A leaner composer screen** — hover text on the less obvious controls, and the long validator notes minimised | done 2026-10-07 | 1.7 |
+
+---
+
+## Phase 0 — corrections to what exists
+
+*Cheap, bounded, and every later phase builds on them.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 0.2 | ~~`theme::reserved()` as magic numbers~~ **DONE on `feat/tab5-idf-subtractive`** — `reserved` is now a field of each state in `app_face.cpp`. Lands on `main` when that branch merges. | — |
+| 0.3 | ~~`FACE`/`LIGHT` unvalidated~~ **DONE, 2026-10-06** — closed vocabularies, "valid but not executable" notice. | — |
+| 0.4 | ~~`hold_s` undocumented~~ **DONE, 2026-10-06** — defined in format §4. | — |
+| 0.5 | **`kPrismServoPin = 0` declared and unused** in `rc_serial_probe` — 8Servo pin 0 is now a drive ESC. | Constant removed, or commented with what it would do if used. Firmware: flash per `CLAUDE.md`. |
+| 0.6 | **CH5 vocabulary (DEC-9).** Five vocabularies exist today: `[AUTH]` `off/manual/auto`, the StamPLC mode string `OFF/MANUAL/AUTO`, the dashboard's `OFF/RC_MANUAL/AUTONOMOUS`, robot states `SAFE_IDLE/MANUAL_CONTROL/AUTONOMOUS_CONTROL`, and `docs/control-authority.md`'s `OFF/RC/AUTO`. **And a real conflict:** `robot_state.py`'s `ENABLE` matrix forbids both arms in the middle position, which contradicts DEC-9 and the freedrive design. | One vocabulary — `STANDBY / MANUAL / AUTO` — in firmware telemetry, dashboard, face/PRISM state names, docs and `cue.py`; arms permitted in `MANUAL`. Sequenced as its own PR because it touches the StamPLC, the dashboard, the face and the public docs. |
+| 0.7 | ~~`requires:` is not validated~~ **DONE, 2026-10-07.** Known keys only; `rc_authority` must be `STANDBY`/`MANUAL`/`AUTO` (old names refused with the new one named); a show that moves must require `AUTO`; arm and gripper cues need `arms: active`; head and face cues need `tab5: true`. | — |
+| 0.8 | ~~Notes that disagree with the code~~ **DONE, 2026-10-07.** Emote count: `face-design.md` already names the five that exist and marks `HAPPY` as designed, not built. Two leftovers — `face-config.md` "six emotes" (five) and `face-design.md`'s "seven-parameter" emote (six numbers in `struct Emote`) — are in notes the Tab5 branch carries an identical copy of, so the fix was handed to that branch rather than made here (a one-sided edit becomes a merge conflict). Freedrive: `arm-manual-control.md` says it *may* exist and to check first; the arms plan now makes that check its first question (`workplan-arms.md` 4.2) — consistent, no edit. | — |
+| 0.9 | ~~`sim/view.sh` says `mjpython` crashes on this Mac~~ **DONE, 2026-10-07.** The claim was false. MuJoCo 3.15.0's passive viewer runs under `mjpython`, and drove the full robot model from a script (lift and right arm animated) at ~40 fps. The comments in `view.sh` and `scene.py` now say so. | — |
+
+## Phase 1 — format, validator and composer
+
+*The format spec v1, `cue.py` v1 and the composer are built, with tests in CI. These are the agreed changes.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 1.1 | ~~Interim speed check (DEC-1)~~ **DONE, 2026-10-07.** The eased peak (`PEAK_FACTOR` = 1.875 × average) is checked as a warning; the average stays the gate; every cap message says *unsourced*. As a hard gate it failed `hello.yaml` (14) and `beat-demo` (12) — reported, then downgraded by decision. Both shows are valid with those 26 warnings, which name the time each move would need. | — |
+| 1.2 | ~~Normalised grippers (DEC-4)~~ **DONE in the repo, 2026-10-07.** `GRIP_*` takes `open: 0..1` or `do: open\|close`; the old `pos: m` is refused by name. `software/choreo/grippers.py` loads and checks a robot's calibration (`/etc/opendubs/grippers.yaml`, or `$OPENDUBS_GRIPPER_CAL`) and converts both ways; the repo holds only a template and a made-up test fixture. The committed per-side metre ranges are gone from `cue.py`. **On the robot:** the file itself is item 6.2. | — |
+| 1.3 | ~~Earliest-legal-time helper (DEC-3)~~ **DONE, 2026-10-07.** `Show.earliest_time()` in `cue.py` (one copy of the speed rule): the soonest a pose can arrive after the keyframe it actually follows — re-solved if moving later passes another keyframe — plus the time that also avoids the eased-peak warning, the binding joint, and whether the NEXT keyframe becomes too fast. Teach places captured poses with it and says why when it moves one; the inspector's **⇤ soonest** re-times an arm keyframe. `/api/earliest`. | — |
+| 1.4 | ~~`dance:` moves (DEC-2)~~ **DONE, 2026-10-07.** A restricted `DANCE` slot (library moves only — `sway rock twist shuffle box` — never a velocity), `dance: { floor_radius_m }` required, `amp` ≤ the autonomy ceiling, 0.5–4 s per move and 30 s per show, every move re-checked to return to its start. A dance with no declared floor is refused; a move that may stray past it warns. Valid but twin-only until 6.6. `beat-demo` dances in bars 5–8. | — |
+| 1.5 | ~~Audio routing (DEC-5, DEC-11)~~ **DONE, 2026-10-07** — see DEC-11. | — |
+| 1.6 | **Song files (E12).** `music: file:` takes any format the playing device decodes — MP3, M4A/AAC, OGG, FLAC or WAV. Song files live beside the show and are **never committed** (the audio folder's `.gitignore` excludes them), because songs are usually copyrighted; the generated click track is the only committed demo. *Verified 2026-10-07: an M4A loads and decodes through the composer; the browser reports MP3, OGG and FLAC as playable. No MP3 was decoded, for want of an encoder on the test machine.* | An MP3 plays in the composer and on the tablet, in step with the grid. |
+| 1.7 | ~~Composer legibility (E13)~~ **DONE, 2026-10-07.** Hover text (and a long-press equivalent for touch) on every non-obvious control — snap, tap tempo, beat 1, click, mute, teach, the time-form fields. Validator notices collapse to a one-line count per kind, expandable; problems stay visible, on the offending cue. | The timeline gets the screen; a first-time user can learn every control by hovering. |
+| 1.8 | ~~Reserved colours on the state light (L1)~~ **DONE, 2026-10-07.** A `LIGHT` colour within ±20° of hue of the PRISM's E-STOP red (0°) or DEGRADED amber (33°), and at least 0.35 saturated, is refused — whites, greys and pastels pass. Decided: red and amber only; green stays available. Catches the face's and the light's reds and ambers, orange, a dim red, and the Christmas gold (now warm white); the agent's orange is now purple, its one edit. | — |
+| 1.9 | ~~"Back to rest" is not expressible (R1)~~ **DONE, 2026-10-07.** `pose: rest`: every joint 0, clamped into that robot's own joint limits with no extra margin — the elbow's hanging value is a few degrees below the arm software's J4 lower limit, so rest is the nearest pose to hanging it allows. Resolved per robot from its limits file; speed-checked; `describe` prints it. | — |
+| 1.10 | ~~A cue that selects a face theme (T1)~~ **BUILT, 2026-10-07.** `FACE: { do: theme, name }` — `plain` (or `none`) and `halloween` are built into the face; an **authored** theme (installed on a head by its `CFG` verb) must be listed under the show's `themes:`, so a typo is still an error and a listed one is a notice that it must be installed first. A theme **stays** after the show; an emote is handed back. The bridge sends `THEME`, and on a seek the theme in force. Halloween now dresses itself; Christmas asks for an authored `christmas` theme. Verified on the face twin: `THEME halloween` accepted; `THEME christmas` answered `ERR unknown theme`, as the notice warns. A test checks the validator's emote, earcon and theme names against the face's own source once both branches are merged (passes against `12f5845` today). | — |
+| 1.11 | ~~Sound files treated like music (S1)~~ **DONE, 2026-10-07.** A top-level `sounds: [name, …]` lists the files a show expects in `shows/sounds/` (git-ignored). A listed file that is absent is a notice; a name that is neither an earcon, present nor listed is an error, so typos are caught. Routing still applies (a file cannot go to the Tab5). | — |
+| 1.12 | ~~Mirrored clip placements (M1)~~ **DONE, 2026-10-07.** `mirror: true` on a placement swaps `ARM_L`↔`ARM_R` and `GRIP_L`↔`GRIP_R` and reflects the head's pan about centre; the outward-sense convention means the joints need no change. Proven on `beat-demo`: replacing its hand-written `wave_l` with a mirrored `wave_r` gives an identical resolved timeline. | — |
+| 1.13 | ~~A run-time choice point (C1)~~ **DECIDED, 2026-10-07: no choices inside a show, for now.** The operator picks routines from a **palette** on the tablet; one runs to its end, then the next is picked. A reaction is the next pick (`reach`, then `celebrate` or `shrug`). Rules that make any order safe: **every palette routine ends in a declared rejoin state** (arms at `pose: rest`, head centred), so any routine can follow any other; the runner's start-pose move covers the rest. Recorded for when in-show choices or chaining come: alternatives share one span and end at a rejoin pose; first events `operator_go` and `person_present`; every choice names an `else` branch and a deadline, so a show never stalls. Built as 4.4b. | The reaction show splits into routines that can follow each other in any order. |
+
+## Phase 2 — the body twin (MuJoCo)
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 2.1 | ~~Consolidate the robot description (E5)~~ **DONE, 2026-10-07.** One folder, [`description/`](../description/README.md): `opendubs/` (base, lift, head, `dimensions.yaml`, moved from `sim/`) and `openarm/` (arm MJCF and collision meshes vendored unchanged from `openarm_assets`; visual meshes decimated by `tools/vendor_openarm.py` from 41 MB to 6 MB, ~1.6 MB in git; the dashboard's URDF and `chain.json`). The dashboard's own mesh copy was byte-identical and is gone: `frontend/assets/arm` is a symlink, and `deploy.sh` copies the files to the robot. Verified: the scene loads from a fresh path, renders match upstream (0.5 % of pixels differ), clearance is identical, and the arm view passes its FK checks. **Redeployed 2026-10-07:** the robot serves `chain.json` and the collision meshes from the description (deploy copy). | A redeploy shows the arm view on the tablet — server side verified; the tablet view is the operator's to confirm. |
+| 2.2 | ~~Native MuJoCo window driven by the composer (E1, DEC-14)~~ **BUILT, 2026-10-07** — see DEC-14; it follows the show runner too (`--composer http://127.0.0.1:8092`). | A 3-minute show judged in step by eye. |
+| 2.3 | ~~Run `sim_preview.py`'s render and clearance paths~~ **DONE, 2026-10-07.** Both ran first time. Clearance needed a fix: it reported the rest-pose floor (hands ~39 mm from the arm frame) as every show's closest approach; it now reports the closest approach the show *creates* — `hello` 63.1 mm, `beat-demo` 66.7 mm, both left arm base ↔ head as the head turns — plus any contact and the floor separately. | — |
+| 2.4 | **BUILT, 2026-10-07.** The twin moves the base through DANCE moves (open loop, placeholder speeds, turning about the wheel centroid) and draws the declared floor radius as a disc. Verified by its log: `beat-demo`'s sways ±6 cm, twist ±5°, rock ±7 cm, back at the origin after. | **Open:** judged by eye; the disc itself is unverified by anyone. |
+| 2.5 | ~~The face on the twin's head~~ **BUILT, 2026-10-07.** Decided: the face twin shares its own frames rather than anything drawing the face a second time. The desktop face twin, with `OPENDUBS_FACE_FRAMES` set (`face.sh` sets it), writes each finished frame — 320x180, ~15 fps, only when one changed — into a memory-mapped file behind a sequence number that is odd mid-write, so a torn frame is never shown (`frame_tap.h`, desktop only, on branch `feat/tab5-twin-frames` from the Tab5 tip). The body twin adds a 16:9 screen to the head (`scene.build(face_screen=True)`: the 5" panel's active area centred on the cover, which is modelled solid; visual only, never in clearance) and streams the frames onto it (`face_frames.py`). Verified: a test pattern lands the right way up; the live face twin's Halloween/SQUINT frame rendered on the robot's head; the MuJoCo window followed the face as its emote and theme changed. | Shown by eye in one window with a show playing. |
+
+## Phase 3 — the face twin (Tab5 desktop build)
+
+*The desktop SDL build (`firmware/tab5_idf/build.sh desktop`) is the real face app compiled for the
+host. It has no network input today, by design.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 3.1 | ~~Write the intent (E2–E4, DEC-15)~~ **DONE, 2026-10-07 — agreed: [`design/face-twin.md`](design/face-twin.md)** (decisions FT-1–FT-8). **Write the intent (E2–E4, DEC-15)** as `notes/design/face-twin.md`, before building. Its three roles: **digital twin** (the same app code, the same state machine, emotes, band, themes, settings; and a declared list of what cannot be twinned — the LVGL lock and threading, the frame budget, panel colour, camera, mic, ToF, pan/tilt hardware); **choreography player** (receives `FACE` / `LIGHT` / `SOUND` from the composer, in step); **customisation tool** (author and preview themes, background images, accessories, and export them as configuration the head loads). Must reconcile with the Reserved / Bounded / Free tiers in `face-config.md` and the cost hierarchy in `tab5-platform.md` §6b. | The team agrees the intent. Nothing in 3.2–3.4 starts before. |
+| 3.2 | ~~Desktop command input~~ **DONE on the Tab5 branch (TW1, `9433c57`); confirmed from here 2026-10-07.** The face twin shares the head's command parser and listens on 127.0.0.1:4242 only; `PING`, `EMOTE`, `THEME` and `CUE` answered exactly as the head answers. | — |
+| 3.3 | ~~Composer → face twin (E3, DEC-10)~~ **DONE, 2026-10-07, against the real face twin.** `face.sh` starts the desktop face (or the printing stand-in where it is not built) and the bridge; `--composer http://127.0.0.1:8092` follows the runner. Halloween played through the runner with the body twin and the face twin together: the face turned ALERT at t=9.03 s while the body twin's clock read 9.04 s, and both stopped at 22.01 s. | — |
+| 3.4 | **Theme and asset intake (E4).** Scope set by 3.1: formats, size and cost bounds, how a theme reaches the head (fetch-once at startup, per PA-4.5). | A theme authored on the twin loads on the head and looks the same; one that would exceed the cost bounds is refused, not shipped. |
+
+## Phase 4 — the tablet as player and audio device
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 4.1 | **DECIDED, 2026-10-07 — [`design/tablet-device.md`](design/tablet-device.md): TD-1–TD-4 decided (HTTPS from a per-robot CA, our own kiosk app, device owner on a dedicated tablet, the tablet in the BOM); 4.1a–c built; experiments TB-1–TB-6 wait for the tablet.** **The tablet as a managed robot device (E9, DEC-8).** Compare a custom APK, a kiosk-style browser and dashboard-only changes against: never sleeping or nagging during a run, no system updates or notifications interrupting, behaviour that follows robot state, mic and wake lock (which need a secure context — HTTPS), and audio that keeps playing with the screen off. | A choice with its reasons, and a tablet that runs a 10-minute show without a single interruption. |
+| 4.1a | ~~Check for an existing open-source kiosk browser~~ **DONE, 2026-10-07.** Six examined (`tablet-device.md`). FreeKiosk (MIT) met nearly everything; **the team chose to write its own anyway** — small and fully understood. Learn from Webview Kiosk (AGPL: read, don't copy); FreeKiosk's MIT update-policy code may be reused with its notice. | — |
+| 4.1b | **BUILT, 2026-10-07 — [`software/tablet-kiosk/`](../software/tablet-kiosk/README.md).** One WebView screen, device-owner receiver, lock task, postpone-update policy, launcher role, mic granted only to the dashboard's origin, autoplay, user-CA trust, and a five-method `window.OpenDubsKiosk` bridge (`keepAwake`, `wake`, `screenState`, `isDeviceOwner`, `version`). Debug APK builds (AGP 9.4.1, Gradle 9.8.1, SDK 36); debug builds are testOnly so a device owner can be removed without a reset. **Open:** run on the tablet (TB-1–TB-6); a release signing key in the team's password manager. | Installs as device owner over adb, opens the dashboard locked and awake, and passes TB-1. |
+| 4.1c | ~~Dashboard over HTTPS with a local CA (TD-1)~~ **DONE and DEPLOYED to opendubs2, 2026-10-07.** One process (`serve.py`) serves HTTP on 8080, unchanged for the on-robot tools, and HTTPS on 8443 with the robot's own CA made on the Thor (`make-robot-ca.sh`; fingerprint `E9:60:8F:8F…`). Verified from a LAN client holding only the public CA: HTTPS by IP and by `opendubs2.local`, refused without the CA, the `wss` dashboard feed, and `/scan` arriving through the `wss` `/rosbridge` proxy. Before deploying: every file on the robot matched a committed version, and no branch had newer dashboard work. | `isSecureContext` true on the tablet; the mic and wake lock available — with the kiosk app (TB-1). |
+| 4.1d | **Galaxy Tab A11 in `parts.csv`** (TD-4), with a buy link and this note as the setup guide. | `bom.py --check` passes with the line in place. |
+| 4.2 | **Audio out through the tablet (E6–E8) — BUILT in software, 2026-10-07; timing unmeasured on the robot.** Decided: **(1)** the device downloads the whole song and sound files when a routine is picked and starts them at a Thor time — never streamed; **(2)** ONE device holds the role: the last to press *Play show audio here* on the Shows page, and the kiosk tablet claims it on start-up when nobody holds it (any browser can; standing rule 12); **(3)** with no device ready, the routine **runs silently, with a warning** on the Shows page and in the log. How it works: the dashboard's `show_audio.py` (a light websocket, `/ws/show-audio`, separate from the telemetry one) answers NTP-style clock pings, tracks the holder, relays the runner's `load` / `start` / `stop` (fade) / `cut` to it alone and serves the show's files; the runner loads during PREPPING, waits for *ready* (placeholder 15 s, then silent), and names show time 0 as a Thor monotonic time; the page turns that into audio-hardware time through `getOutputTimestamp()`. An abort fades (250 ms), an e-stop cuts (DEC-6), and a page that loses the connection stops its own audio (DEC-7). A device that starts late joins in step rather than from the top. Verified in an isolated harness (fake robot, laptop browser as the device): clock ±1 ms on localhost, start scheduled 2 s ahead and corrected for the reported 29 ms output latency, STOP → ABORTED and silent. **Open:** S1–S3 on the robot's network and the tablet's real output latency (6.4), and whether the tablet keeps playing with its screen off (TB-5). | Music starts within a stated tolerance of the show clock and stays within it for 3 minutes. |
+| 4.3 | **Audio in from the tablet (E8):** mic uses — clap or cue to start, live beat, voice. Optional and detected: on plain HTTP, or in a browser without the mic, the dashboard works without it (standing rule 12). | Each use is an experiment with a kill criterion before it is built (experiments C1–C5 in the teach-and-sync note). |
+| 4.4 | ~~The player surface (E10, DEC-12)~~ **BUILT, 2026-10-07** — see DEC-12 and 4.4b/4.4c: the dashboard's Shows page picks a routine, shows the run and its refusal reasons, holds STOP, and shows which device plays the show audio (4.2). **Open:** choosing the audio output per run from the page (the override exists in the runner, `--audio-output`, not yet on the page); deploy. | An operator can run a show from the tablet without a laptop. |
+| 4.4b | ~~The routine palette (1.13)~~ **BUILT in the twin, 2026-10-07.** `palette: { label, order }` marks a routine; the validator insists it ends with its arms at `pose: rest`, the head centred and the light released. `runner.py palette` lists them and runs the one picked over HTTP, refusing a second while one runs; `reach`, `celebrate` and `shrug` (from `reaction.yaml`) are the first three. Verified: tests on a simulated clock, and live — `reach` then `shrug` picked over HTTP, each to COMPLETED. **Open:** the buttons on the tablet (4.4). | — |
+| 4.4c | **The runner on the Thor, its preflight answering to the real robot — BUILT, 2026-10-07; not deployed.** Decided: **(1)** the arms' joint limits are the arm stack's own file, **read in place, never copied**; it sits in a checkout the service account cannot otherwise reach, so `provision-runner.sh` finds it from the arm container's own mount and adds a robot-local drop-in that binds just that directory, read-only, for the runner's service alone — no permission changes, and no path in the repo. No limits file: every routine is listed as refused, saying why. **(2)** robot state is the dashboard's **read-only** view (`GET /api/choreo/robot`, from the same rollup the status page shows): e-stop, CH5, deadman and faults polled at 10 Hz, stale after 0.5 s (unknown → the show ends); the arms (motor state, over their CAN bus) and the head (`PING`) are asked **only at preflight**. **(3)** its own service, `opendubs-runner` on 127.0.0.1:8092, deployed by the dashboard's `deploy.sh`. Output is still only the twins. | Picking a routine on the tablet with CH5 not in AUTO is refused with that reason; in AUTO with the deadman held it runs in the twin; releasing the deadman aborts it. |
+| 4.5 | **Disconnect behaviour (DEC-7):** the tablet dropping stops the music and nothing else. **BUILT, 2026-10-07:** a page that loses `/ws/show-audio` stops its own audio, and the dashboard releases its role; the runner treats audio trouble as a logged event, never a reason to end a show (tested). | Tested by killing the tablet's connection mid-show — on the robot. |
+
+## Phase 5 — the runner (on the Thor)
+
+*From PA-2. The piece that moves the robot; nothing here starts before C1 and 2.2 exist.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 5.1 | **BUILT (core), 2026-10-07** — `software/choreo/runner.py` keeps the show clock (monotonic, its own process); on the Thor in production. | — |
+| 5.2 | **BUILT** — preflight from `requires:` plus e-stop clear, deadman held, no fault; any UNKNOWN field refuses with code `UNKNOWN_STATE`. Tested against a fake robot state. | "Unknown" refuses; it never defaults. |
+| 5.3 | **PARTLY BUILT** — the runner renews a 250 ms lease every tick and publishes it; the twins treat an expired lease as the show over. The robot-side expiry belongs to the arbiter and the firmware, with live output (5.6). | A killed runner stops the robot — tested by killing the process. |
+| 5.4 | **BUILT** — e-stop ends at once (audio cut); a released deadman, CH5 leaving the required mode, a fault, an unknown state or an operator stop ABORTS, with each slot's state argued in `ABORT_STATE` (arms and grippers hold, head stops, lift relays off, dance zero velocity, face handed back, light released, music faded 250 ms); arms travel to the start pose first, timed by distance at the warning-free speed. Verified live against the twins: a deadman release at 12 s aborted, held the twin, sent no further cue. | Every slot's abort state is argued, not assumed. |
+| 5.5 | **BUILT** — Spot's status taxonomy plus typed codes (`INVALID_SHOW`, `PARSING_FAILURE`, `UNKNOWN_STATE`, `PRECONDITION_FAILED`, `ESTOP`, `DEADMAN`, `AUTHORITY`, `FAULT`, `OPERATOR_STOP`), one JSON line per status change and per cue. | An abort's cause can be reconstructed from the log — tested. |
+| 5.6 | **Live output as an armed binding** from the composer and the player. | Default stays the twin. |
+
+## Phase 6 — on the robot
+
+*The hardware session. Experiments as specified in
+[`design/choreo-teach-and-sync.md`](design/choreo-teach-and-sync.md). Confirm a person is at the
+robot before any of them; flashing is per `CLAUDE.md`, never re-derived.*
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 6.1 | **Measure the controller's velocity profile (T4) and source the speed caps (DEC-1).** | 1.1's interim factor replaced by a measured one; every cap has a source. |
+| 6.2 | **Gripper calibration per side (DEC-4)**, stored on the robot: `grippers.py template` → measure each side fully open and fully closed from `/joint_states` → `/etc/opendubs/grippers.yaml` → `grippers.py check`. | `open: 0.5` looks half open on both sides; `check` passes on the robot. |
+| 6.3 | **Teach by capture from teleop (DEC-3)** — the real joint source replaces the fake one. | A taught pose replays where it was taught, within the controller's settling error. |
+| 6.4 | **Music sync S1–S3** on the robot's own network (the bench is not a latency test). | 4.2's tolerance met on the robot. |
+| 6.5 | **Audio-role experiments C1–C5** (teach-and-sync note). | Each answered against its kill criterion. |
+| 6.6 | **Dance floor test (DEC-2):** first open-loop dance on the robot, floor space marked, CH8 in a human hand. | Net displacement and time limits hold. |
+
+## Phase 7 — capture and growth
+
+| # | Item | Kill criterion / done when |
+|---|---|---|
+| 7.1 | **Freedrive** as its own feature (`arm-manual-control.md` §1) — per arm, `MANUAL` only, latched, auto-exit, holds where it is. Then a capture source like any other. | Settled semantics met; the operator's hands are stated as the safety system. |
+| 7.2 | **Capture-a-performance (DEC-13)**, after 6.3: record a live RC/teleop/cue session, reduce it, validate it, edit it as a timeline. | A recorded performance becomes a valid show with one edit pass. |
+| 7.3 | ~~Example shows as schema tests~~ **DONE, 2026-10-07 — [`design/choreo-example-shows.md`](design/choreo-example-shows.md).** Halloween, Christmas, a reaction show, and a show written by an agent from the spec alone (valid and warning-free in two rounds). Six findings became 1.8–1.13; the spec gaps the agent hit are fixed, and `cue.py describe` prints every number and vocabulary. | — |
+| 7.4 | **Format growth** deferred by the spec: variation and animation groups, the capability layer (shows name capabilities, not joint indices), a tempo map, an idle/breathing layer. | Each argued from a show that needs it. |
+
+---
+
+## Stub register
+
+Everything that pretends, so nothing is forgotten at robot time.
+
+| Stub | Where | Replaced by |
+|---|---|---|
+| Fake joint source for teach | `composer/static/composer.js` `FakeJointSource` | 6.3 |
+| ~~MuJoCo render and clearance paths, never run~~ — run 2026-10-07 | `software/choreo/sim_preview.py` | 2.3 |
+| `LIGHT` and sound **files** have no robot receiver (`FACE` and earcons do: the head's `EMOTE`, `THEME`, `CUE`) | `cue.py` notices | 1.5 / 4.2, the runner's LIGHT layering |
+| Live output — designed, not built | teach-and-sync §5 | 5.6 |
+| ~~The runner~~ — `software/choreo/runner.py`, 2026-10-07 | — | 5.1 |
+| `arms: active` approximated as "every arm motor enabled, none faulted or missing"; whether a controller is commanding them is not read | `backend/choreo_proxy.py` `arms_from_summary` | 5.6 |
+| The arms' current pose is not measured on the robot: the start-pose move is timed from zero | `choreo_proxy.robot_view` `arm_pose` | 5.6 / 6.3 |
+| Speed caps, unsourced | `cue.py` `SPEED_CAP_DEG_S` | 6.1 |
+
+## Parked
+
+Recorded so they stop recurring as surprises, and not being worked on.
+
+- **P1 — Robot security**, as a larger discussion: LAN and Wi-Fi first, Thor login second, StamPLC
+  and Tab5 hardening about where they accept code "at some point", and a lock on the tablet. Not a
+  blocker for anything above.
+- **P2 — A node graph** for trigger wiring (PA-5.7). Timeline first; a graph only as a view over the
+  same text.
+- **P3 — Resume-from-middle as recovery.** Never; as an *authoring* start marker in the twin, maybe.
+- **P4 — Accessories on the 8Servo bus or the one spare relay** (PA-3.4, 3.5) — the hardware is the
+  constraint, not the format.

@@ -1,0 +1,126 @@
+"""Show audio (choreography plan 4.2): the hub that passes the runner's commands to the ONE device
+holding the role. No robot, no network beyond the in-process test client."""
+import os
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+import show_audio
+
+
+def _client():
+    show_audio.hub = show_audio.Hub()
+    app = FastAPI()
+    app.include_router(show_audio.router)
+    return TestClient(app)
+
+
+def test_the_clock_ping_is_answered_with_thor_monotonic_times():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as ws:
+        ws.receive_json()                                  # the hello
+        ws.send_json({"ping": 123.5})
+        m = ws.receive_json()
+        assert m["pong"] == 123.5 and m["t1"] <= m["t2"]
+        assert abs(m["t2"] - show_audio.thor_ms()) < 1000
+
+
+def test_commands_go_to_the_one_holder_and_no_one_else():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as a, c.websocket_connect("/ws/show-audio") as b:
+        a.receive_json(), b.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        assert a.receive_json() == {"holder": "tablet", "you_hold": True}
+        assert b.receive_json() == {"holder": "tablet", "you_hold": False}
+        r = c.post("/api/choreo/audio", json={"op": "start", "id": "x", "t0_mono": 5.0}).json()
+        assert r["delivered"] and r["holder"] == "tablet"
+        assert a.receive_json() == {"op": "start", "id": "x", "t0_mono": 5.0}
+        b.send_json({"ping": 1})                           # b got nothing but its own pong
+        assert "pong" in b.receive_json()
+
+
+def test_the_tablet_auto_claim_never_takes_it_from_a_holder():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as a, c.websocket_connect("/ws/show-audio") as b:
+        a.receive_json(), b.receive_json()
+        a.send_json({"claim": True, "label": "laptop"})
+        a.receive_json(), b.receive_json()
+        b.send_json({"claim": True, "label": "tablet", "only_if_free": True})
+        b.send_json({"ping": 1})
+        assert "pong" in b.receive_json()
+        assert c.get("/api/choreo/audio").json()["holder"] == "laptop"
+
+
+def test_a_new_claim_cuts_the_old_holder_and_hands_over_the_loaded_show():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as a, c.websocket_connect("/ws/show-audio") as b:
+        a.receive_json(), b.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json(), b.receive_json()
+        c.post("/api/choreo/audio", json={"op": "load", "id": "L1", "items": []})
+        assert a.receive_json()["op"] == "load"
+        b.send_json({"claim": True, "label": "laptop"})
+        assert a.receive_json() == {"op": "cut"}
+        assert b.receive_json() == {"holder": "laptop", "you_hold": True}
+        assert b.receive_json()["id"] == "L1"
+
+
+def test_ready_counts_only_for_the_current_load_from_the_holder():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        c.post("/api/choreo/audio", json={"op": "load", "id": "L2", "items": []})
+        a.receive_json()
+        assert c.get("/api/choreo/audio").json()["ready"] is False
+        a.send_json({"ready": "L2"})
+        a.send_json({"ping": 1})
+        a.receive_json()
+        assert c.get("/api/choreo/audio").json()["ready"] is True
+
+
+def test_a_holder_that_disconnects_releases_the_role():
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+    v = c.get("/api/choreo/audio").json()
+    assert v["holder"] is None and v["connected"] == 0
+    assert c.post("/api/choreo/audio", json={"op": "cut"}).json()["delivered"] is False
+
+
+def test_only_known_ops_are_accepted():
+    c = _client()
+    assert c.post("/api/choreo/audio", json={"op": "volume"}).status_code == 400
+
+
+def test_media_serves_only_audio_and_sounds_under_the_shows_directory():
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "audio"))
+    open(os.path.join(d, "audio", "song.wav"), "wb").write(b"RIFF")
+    open(os.path.join(d, "secret.yaml"), "w").write("x")
+    show_audio.SHOWS_DIR = d
+    c = _client()
+    assert c.get("/api/choreo/media/audio/song.wav").status_code == 200
+    assert c.get("/api/choreo/media/secret.yaml").status_code == 404
+    assert show_audio.media_path("audio/../secret.yaml") is None
+    assert show_audio.media_path("../../etc/passwd") is None
+
+
+def test_the_dashboard_serves_these_routes_through_the_choreo_router():
+    import choreo_proxy
+    show_audio.hub = show_audio.Hub()
+    app = FastAPI()
+    app.include_router(choreo_proxy.router)               # exactly as app.py includes it
+    c = TestClient(app)
+    assert c.get("/api/choreo/audio").json()["holder"] is None
+    with c.websocket_connect("/ws/show-audio") as ws:
+        ws.receive_json()
+        ws.send_json({"ping": 1})
+        assert "pong" in ws.receive_json()

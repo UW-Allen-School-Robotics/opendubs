@@ -183,7 +183,7 @@ Scale matters beyond odometry: `drive_bridge.py`'s `max_linear_mps` is an unmeas
 and a wrong figure makes any planner's velocity model wrong.
 
 **Optional, if there is time:** measure the two RPLIDARs' and the ToF's positions in CAD
-coordinates. They are in neither `sim/dimensions.yaml` nor `sim/opendubs.xml`, and they are what
+coordinates. They are in neither `description/opendubs/dimensions.yaml` nor `description/opendubs/opendubs.xml`, and they are what
 stands between the model and a TF tree (§0d).
 
 ## 0a. DEPLOYMENT DRIFT — run this before trusting the robot to match the repo
@@ -350,7 +350,7 @@ most are not documentation.
 
 - **[TODO] TF tree.** Three frames — `laser`, `laser_rear`, `tof_front_link` — are published with
   no transform to `base_link`, so nothing can be fused. The geometry is **not** the hard part:
-  `sim/dimensions.yaml` is the datum source and `sim/opendubs.xml` already places the D415 in CAD
+  `description/opendubs/dimensions.yaml` is the datum source and `description/opendubs/opendubs.xml` already places the D415 in CAD
   coordinates with a `d415_face` site. What is missing is (a) the two RPLIDARs and the ToF, which
   are in neither file and need CAD positions, and (b) a format — the model is **MuJoCo MJCF**, and
   `robot_state_publisher` wants URDF. Generating both from `dimensions.yaml` keeps one source of
