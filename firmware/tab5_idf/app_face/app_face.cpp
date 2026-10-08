@@ -4,6 +4,7 @@
 #include "net.h"
 #include "net_cmd.h"
 #include "sim_inputs.h"
+#include "frame_tap.h"
 #include "cfg.h"
 #include "walkin.h"
 #include "ui_settings.h"
@@ -1452,6 +1453,9 @@ void AppFace::onOpen()
     // The twin's simulated inputs and its SIMULATED badge. Inside the lock that onOpen already
     // holds, because this creates LVGL objects. A no-op on the device.
     simBegin(lv_screen_active());
+    // The twin's finished frames, shared with the MuJoCo body twin (choreography 2.5). Off unless
+    // OPENDUBS_FACE_FRAMES is set; a no-op on the device.
+    frameTapBegin();
 
     // THE EYES START SHUT, and the boot reads as the robot waking up instead of a face appearing.
     // teleport() rather than assignment: this must be instant, not animated, because it has to be
