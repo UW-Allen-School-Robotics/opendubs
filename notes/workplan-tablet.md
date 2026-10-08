@@ -34,8 +34,10 @@ someone's hands.
 ## Standing rules
 
 1. **A held tablet is never the robot.** Everything the tablet contributes carries its mount state.
-   **Unknown counts as held.** Nothing derived from a held tablet is published as the robot's pose,
-   motion, position or surroundings.
+   **For data, unknown counts as held:** nothing derived from a held or uncertain tablet is
+   published as the robot's pose, motion, position or surroundings. **For the screen, unclear
+   evidence changes nothing:** the mode (DT-11) changes only on positive evidence of a lift-off or a
+   re-mount, so an e-stop cutting the mount's power never hides the face.
 2. **The Tab5 is not retired until a replacement fully works** — every item of the retirement
    checklist (7.4) passed on the robot. Until then the system works with **either** head fitted,
    and nothing above the head interface — the dashboard, the show runner, the face bridge, the YOLO
@@ -72,8 +74,8 @@ Walked through by the team one at a time. Each drives an item below.
 
 | # | Decision | Drives |
 |---|---|---|
-| DT-1 | **The mount signal is mount power, with grip and motion as vetoes.** In the mount = power from the mount present **and** the SX9325 grip sensor not reporting a hand **and** no lift-off motion; anything missing or contradictory = held. The mount must supply power — a USB-C lead from the robot if the cradle does not already — and **from a rail that survives an e-stop**, or every e-stop would read as a lift-off. Whether the grip sensor can veto without mistaking a touch on the screen for a hand is an experiment first (TS-2); if it cannot, power and motion decide alone. | 0.3, 1.1, TS-2–TS-4 |
-| DT-2 | **Tablet data reaches the Thor through the dashboard backend**, as one `tablet` message on the dashboard websocket, accepted only from the designated kiosk device (as show audio designates one device), and published as `/tablet/*` ROS topics with `frame_id: tablet` — **never** `/imu`, never a robot frame, never into TF as part of the robot. *Reconciled with DT-6 and DT-11 in the same discussion:* the mount rule itself runs **on the tablet, in the app**, because the face/controller switch must work with the Thor down; the backend keeps the gate — tablet data only from the designated device, and a missing or stale mount report is treated as held. | 1.2 |
+| DT-1 | **The mount signal is a magnet in the mount, confirmed by power and watched by motion.** *Amended 2026-10-08, in review: first agreed as "mount power with grip and motion as vetoes"; changed because the mount's power comes from the e-stop-switched rail, which is off whenever the contactor is open — an e-stop, or CH5 not in OFF at power-on — so power alone cannot say where the tablet is.* **Magnet:** a small magnet in the mount gives the tablet's magnetometer a large, unmistakable field, with the rail on or off and no wiring. **Power:** counts only while the StamPLC's broadcast says the rail should be live; with the contactor open, losing power is not evidence of anything. **Motion** (and grip, if TS-2 shows it readable without mistaking a touch on the screen for a hand) catches a lift-off as it happens. The magnet costs the compass while mounted, which rule 7 already gives up. | 0.3, 1.1, TS-2–TS-4, TS-7 |
+| DT-2 | **Tablet data reaches the Thor through the dashboard backend**, as one `tablet` message on the dashboard websocket, accepted only from the designated kiosk device (as show audio designates one device), and published as `/tablet/*` ROS topics with `frame_id: tablet` — **never** `/imu`, never a robot frame, never into TF as part of the robot. **Who decides, confirmed 2026-10-08 in review:** deciding "in the mount or in hand" runs **on the tablet, in the app**, because the face/controller switch must work with the Thor off (DT-6, DT-11). The Thor checks rather than decides: it accepts tablet data only from the designated device, and treats a missing or stale report as held. | 1.2 |
 | DT-3 | **Uses in the plan:** the held/docked dashboard switch; a tilt and impact log while docked; ambient light; GNSS (outdoors; indoors it will be absent); the screen-side camera. The rest is parked with its reason. | 1.3–1.7 |
 | DT-4 | **Web APIs first, kiosk-bridge methods for the gaps.** DeviceMotion/DeviceOrientation in the page; new bridge methods only for what the WebView does not expose — the grip sensor and ambient light — and the app's permission plumbing for location and camera. In a plain browser the page loses those and keeps working (standing rule 4). | 1.1–1.7 |
 | DT-5 | **Cameras are named screen-side and back-side**, never front/rear, which are robot directions. The *use* is named separately: in the rear cradle the screen-side camera faces out of the robot's back (a **robot rear view**) and the back-side camera faces into the cradle; in the face mount the screen-side camera faces forward. | 1.7, Parked |
@@ -135,7 +137,7 @@ Read from the tablet over `adb` (`dumpsys sensorservice`, `pm list features`, `d
 | sensor | part | reach from the page | good for | the catch |
 |---|---|---|---|---|
 | accelerometer | Bosch BMA5xy | DeviceMotion events (`accelerationIncludingGravity`) | tilt and impacts while docked; lift-off detection | no gyroscope: `rotationRate` expected null (TS-1) |
-| magnetometer | MEMSIC MMC5617 | DeviceOrientation (fused) | — | a heading near the drive motors is not trustworthy (rule 7); parked |
+| magnetometer | MEMSIC MMC5617 | bridge (raw field, for the mount magnet); DeviceOrientation (fused) | the mount signal: the mount's magnet (DT-1) | a heading near the drive motors is not trustworthy (rule 7); parked |
 | fused "orientation", gravity, linear acceleration, rotation vector | accelerometer + magnetometer only | DeviceOrientation | tilt when still | noisy, magnetically disturbed; not an IMU |
 | ambient light | Sensortek STK3x1x | not exposed by the WebView → bridge | dashboard and face brightness | — |
 | grip | Semtech SX9325 capacitive ("grip sensor for wifi", for antenna power control) | not exposed → bridge, **if an app can read it** (TS-2) | the mount signal's veto | may read a touch on the screen as a hand |
@@ -188,14 +190,15 @@ with a Tab5 fitted.*
 |---|---|---|
 | TS-1 | **What does the kiosk WebView actually expose?** DeviceMotion and DeviceOrientation (rates, which fields are null without a gyroscope), the Generic Sensor classes, `AmbientLightSensor`, Geolocation with the prompt handled. On the tablet, in the app. | A table: each API present or absent, its rate and fields. |
 | TS-2 | **Can an app read the SX9325, and what does it say?** Listed as "grip sensor for wifi"; whether a third-party (device-owner) app may register for it is unknown. Readings: in the mount untouched; in the mount with a finger on the screen (a touched face); held in one hand, in two; lying on a table. | **Kill:** an app cannot read it, or a touch on a mounted screen reads as a hand → grip is not used; power and motion decide alone (DT-1). |
-| TS-3 | **Mount power.** Does the rear cradle supply power today? If not, a USB-C lead from a rail that survives an e-stop. | Plugged in the mount; unplugged within a debounce of lift-off; **unchanged through an e-stop**. |
+| TS-3 | **Mount power, and whether the tablet can tell the rail should be live.** Does the rear cradle supply power today (if not, a USB-C lead from the e-stop-switched rail)? The StamPLC's broadcast carries the e-stop state; does it carry the contactor relay itself, which also stays open when CH5 is not in OFF at power-on? | The tablet knows, from the StamPLC alone, when its mount power should be present; plugged in the mount while it should be. |
 | TS-4 | **Lift-off versus the robot moving.** The accelerometer and power-loss signature of a lift-off, against the robot driving over a bump, turning and running the lift. | No robot motion reads as a lift-off; every lift-off is caught within the debounce. |
 | TS-5 | **GNSS, honestly.** Fix or not in the lab; time to first fix and accuracy outdoors. | Recorded either way; indoors the outcome may be "never". |
 | TS-6 | **Sensors with the screen off or the page hidden.** | Known whether docked telemetry stops; if it does, the docked log runs only while the screen is on, and says so. |
+| TS-7 | **The mount magnet.** The field at the magnetometer with a small magnet in a printed mount, against the field near the drive motors and the lift, rail on and off. **And:** does a magnet set off Samsung's cover detection and turn the screen off? (No cover sensor appears in the sensor list, but that is not proof.) | A threshold with a wide gap between "in the mount" and anything the robot itself produces. **Kill:** the screen turns off, or no magnet placement clears the motors' field → power and motion decide alone, and a re-mount during an e-stop waits for the rail. |
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 1.1 | **The mount state (DT-1, DT-13).** Computed once, in the app, from plugged, grip (if TS-2 passes) and motion; offered to the page as a bridge method and an event; values `in_mount`, `held`, `unknown` and which mount. Debounce and thresholds are named placeholders until TS-3/TS-4 measure them. In a plain browser: `unknown`. | Lifting off reads `held` within the debounce; re-mounting reads `in_mount`; an e-stop, a drive and a bump change nothing; a touch on the screen changes nothing. |
+| 1.1 | **The mount state (DT-1, DT-13).** Computed once, in the app, from the magnet, power (only while the StamPLC says the rail should be live), motion and grip (if TS-2 passes); offered to the page as a bridge method and an event; values `in_mount`, `held`, `unknown` and which mount. **Data** treats `unknown` as held; the **screen mode** holds its last state until positive evidence (rule 1). Thresholds and debounce are named placeholders until TS-3, TS-4 and TS-7 measure them. In a plain browser: `unknown`. | Lifting off reads `held` within the debounce; re-mounting reads `in_mount`, with the rail on or off; an e-stop, CH5 left out of OFF at power-on, a drive and a bump change nothing; a touch on the screen changes nothing. |
 | 1.2 | **The tablet relay (DT-2).** The page sends one `tablet` message on the dashboard websocket; the backend accepts it only from the designated device, and publishes **raw** `/tablet/imu` (`sensor_msgs/Imu`, angular velocity marked absent by its own convention — element 0 of the covariance set to −1), `/tablet/illuminance`, `/tablet/fix` and `/tablet/mount`, all `frame_id: tablet`. **Robot-facing derived outputs** (1.4) are published only while `in_mount`. A missing or stale report is `held`. | A held tablet produces no derived output; a second browser cannot publish; nothing appears on `/imu` or in the robot's TF tree. |
 | 1.3 | **Held/docked dashboard switch** (Tab5-head configuration, tablet in the rear cradle). Lifting off turns the dashboard into a handheld-controller layout; re-docking returns it. Layout agreed with the team when built. | The switch follows 1.1; in a plain browser the dashboard is unchanged. |
 | 1.4 | **Tilt and impact log while docked.** Tilt from gravity only while the acceleration magnitude is near 1 g; impacts as peaks above a named threshold; logged against the robot's own clock. No heading. | A ramp and a deliberate bump appear in the log with robot time; a held tablet logs nothing. |
@@ -223,7 +226,7 @@ exists.*
 |---|---|---|
 | 3.1 | **Will an A11 face fit and move?** Weigh it; print a mock face mount; measure the pan/tilt servo torque margin at the worst-case tilt, the centre of gravity with the lift raised, and arm clearance. The MuJoCo twin may screen clearance geometry first — its geometry is real, its dynamics are not (choreography rule 9). | **Kill:** the servos lack margin, or the arms clear the larger head by less than they clear the Tab5 today → stop; bigger servos or a smaller tablet are argued then. |
 | 3.2 | **Heat.** The A11 in the mock enclosed head, on mount power, the face at full brightness, for a long run. | **Kill:** a thermal warning, throttling or a battery temperature warning. |
-| 3.3 | **Face-mount power** from a rail that survives an e-stop (TS-3's answer, applied to the face mount). | The tablet stays powered and `in_mount` through an e-stop. |
+| 3.3 | **The face mount carries the mount magnet and power** (TS-3, TS-7 applied to the face mount). Power from the e-stop-switched rail is fine: the tablet runs on its own battery while the rail is off. | Through an e-stop the tablet stays `in_mount`, the face up and showing E_STOP (DT-8). |
 
 ## Phase 4 — the face engine, on a laptop (DT-9, DT-10, DT-14)
 
@@ -285,7 +288,7 @@ Everything that pretends, or names a device where it means a role, so nothing is
 | Show requirements and audio output name the Tab5 | `software/choreo/cue.py` `REQUIRES_KEYS`, `AUDIO_OUTPUTS` | 0.2 (choreography plan) |
 | "Charging" stands in for "on mount power" | kiosk bridge `battery()` | 0.3 |
 | The head reports no owner outward | Tab5 firmware (`head-ownership.md` §4) | 2.1, 6.1 |
-| Debounce and thresholds for the mount state | 1.1 | TS-3, TS-4 |
+| Debounce and thresholds for the mount state | 1.1 | TS-3, TS-4, TS-7 |
 
 ## Parked
 
