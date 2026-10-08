@@ -44,6 +44,26 @@ measured against the drive motors, the lift and the ESCs a metre away, or it is 
 Push-to-talk and half-duplex compose: a press means **stop talking and listen**, so the press both
 opens capture and cancels playback, and the two gates never contend.
 
+## Playing a sound used to starve perception — fixed 2026-10-08
+
+**The vendor creates its playback task at priority 5, UNPINNED, on the first earcon, and never
+deletes it.** `percept` runs at priority 2 pinned to CPU1. So one cue permanently gave the head an
+unpinned priority-5 task waking every 10 ms that outranked face detection on *either* core.
+
+Observed on the robot: detection-driven head turning went "damped — it takes a fair amount of
+insistent movement", and **a restart restored it with the same image and audio still enabled**,
+which is the signature of something acquired at runtime rather than built in. It was first blamed
+on that afternoon's flash; the flash was innocent, and what had actually changed was that audio had
+just been switched on, so a cue could sound for the first time.
+
+Patched in `build.sh` alongside the canon aliasing: pinned to CPU1, priority 2. The stack stays
+internal on purpose — the mechanism is scheduling, not memory, and `i2s_write` on an external stack
+would be a new risk for no gain. Audio does not suffer: `i2s_write` blocks on DMA with
+`portMAX_DELAY`, so the task only tops the buffer up and has tens of milliseconds of slack.
+
+**The lesson is the one CLAUDE.md already states: change one variable at a time.** An image and a
+setting changed in the same afternoon, and the wrong one got the blame for an hour.
+
 ## The first thing to check when the robot is silent
 
 **Audio is OFF by default and it is a per-robot NVS setting, not a property of the image.**
