@@ -79,8 +79,8 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
 
 ## Phase A — the Tab5 end
 
-**Status 2026-10-07.** Steps 1, 2 and 3 are **built and compiling for the device**; step 4 has its
-arithmetic but not its entry point. `./build.sh voice` is thirteen cases with synthetic stimulus and
+**Status 2026-10-07. PHASE A IS CODE-COMPLETE — and not one line of it has met a microphone.**
+All four steps build for the device and for the twin. `./build.sh voice` is thirteen cases with synthetic stimulus and
 its own verdict.
 
 - `app_face/voice/` — HAL-free pure compute, like `percept/`: levels, the noise floor, direction,
@@ -93,9 +93,15 @@ its own verdict.
   person running the motors is standing. A touch control is the honest long-term trigger and is not
   built.
 
-**Nothing here has met a microphone.** It compiles, it is tested against synthetic stimulus, and the
-next step is a bench pass: flash with `OPENDUBS_VOICE=1`, `VOICE STATUS` to read the floor with the
-drive motors running, and `VOICE PRESS` to hear whether `Heard` lands inside a second.
+**Nothing here has met a microphone.** Seventeen host cases against synthetic stimulus and an image
+that links — no sample off a real ES7210, no head that has turned. **The bench pass is now the
+critical path, and three unknowns need it:**
+
+1. **The noise floor with the drive motors, the lift and the ESCs running.** `VOICE STATUS` reports
+   it. Until then every threshold here is arithmetic, not a measurement.
+2. **Does the head glance the RIGHT WAY.** One constant, `kRightIsPositive`.
+3. **Does `Heard` land inside a second**, and does the ~90 ms of self-deafening from the blip
+   itself bite in practice.
 
 **Two bugs that making it compile found**, both now tested:
 - **A dead microphone read as continuous speech.** Zero samples → floor 0 → threshold 0 → every
@@ -122,12 +128,19 @@ drive motors running, and `VOICE PRESS` to hear whether `Heard` lands inside a s
    after onset, which is the least bad place, but it is real and it is the price of answering with a
    sound while having no AEC. "I noticed you, inside a second, whether
    or not I can act" — the cheapest honest thing the robot can do and it needs no transport at all.
-4. **Glance toward a voice.** *Direction is ported and tested, taken from the clip's LOUDEST
-   block rather than its last — the tail of a sentence is its quietest part and its channel ratio
-   the least trustworthy thing in the clip. Outstanding: the time-boxed glance entry point on
-   `pantilt`, which today exposes only the per-frame `pantiltTick(... haveTarget, nx, ny, conf)`
-   state and so has no way to accept a one-shot event.*
-   Port the direction bench, then feed it in as an **EVENT, not an owner.**
+4. **Glance toward a voice.** **DONE in code, unproven on hardware.** `voice/glance.cpp`, and it
+   takes **no lease**: it enters through the same per-frame `pantiltTick(... haveTarget, nx, ny,
+   conf)` door vision uses, so touch and RC outrank it automatically and **pantilt.cpp is
+   unchanged**. It steers only when **vision has nothing** — if the robot can see you it is already
+   looking at you, and a glance earns its keep when the speaker is outside the camera's view.
+   - Bearing is the **onset** one, not the peak: the acknowledgement must land inside a second,
+     and the design note licenses it — "a glance is allowed to be approximate and then end".
+   - **CENTRE moves nothing**; the earcon is the whole acknowledgement.
+   - A re-glance needs **new information**: same bearing settles 2.5 s, a changed bearing reacts in
+     600 ms. The first cut had one 600 ms gap and the duty-cycle test measured the head steering
+     **60%** of the time at a static speaker — a tic, and a tracker by accident. Now 27%.
+   - The **sign convention is unverified**: one named constant, `kRightIsPositive`. If the head
+     glances the wrong way on the robot, flip that and do not chase the arithmetic.
    This is load-bearing: `pantilt.cpp` arbitrates touch > RC > tracker, and a continuous voice
    tracker would be a fourth lease-holder in a hierarchy whose ownership fight cost a whole session
    to fix. A glance is one time-boxed move that claims nothing. Left/right/centre is exactly enough.
