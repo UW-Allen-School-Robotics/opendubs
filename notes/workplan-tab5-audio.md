@@ -29,7 +29,7 @@ Phase A **cheaper**, so they are recorded here rather than left in a commit mess
 
 | Decision | Choice | What it costs, and what it buys |
 |---|---|---|
-| **Echo** | **Half-duplex.** Capture is muted while the speaker is active | Costs **barge-in**: you cannot interrupt the robot mid-sentence. Buys the whole AEC problem going away — no codec registers written, no software canceller on the P4. **VAD therefore never runs during playback**, which is what Phase A step 2 was waiting on. Built as ONE explicit gate so a canceller can replace it later without touching a caller |
+| **Echo** | **Half-duplex.** Capture is muted while the speaker is active | Costs **voice** barge-in: the head is deaf while speaking, so it cannot hear you talk over it. **Button barge-in was recovered** by streaming audio down in chunks — a press cuts a reply off within ~100 ms (see Phase B). Buys the whole AEC problem going away — no codec registers written, no software canceller on the P4. **VAD therefore never runs during playback**, which is what Phase A step 2 was waiting on. Built as ONE explicit gate so a canceller can replace it later without touching a caller |
 | **Utterance end** | **The Tab5 decides, on VAD. Bounded clips, not a continuous stream** | Costs a hard cutoff that semantics cannot revise, so a thoughtful mid-sentence pause can truncate — tunable via the hangover, not fixable. Buys much less bandwidth on a link already carrying video, no continuous carrier to design in Phase B, and a head that stays useful with the Thor down |
 | **Listening policy** | **Push-to-talk.** Capture only while a press is held | Costs the hands-free feel. Buys the privacy question answered by construction: in a shared university building nobody can be recorded without a visible, deliberate act, and there is no wake-word model to fit |
 
@@ -150,7 +150,7 @@ critical path, and three unknowns need it:**
 
 ## Phase B — transport (the old 1B)
 
-**Status 2026-10-07. Clip-up is built and tested against a fake Thor; audio-down is NOT built.**
+**Status 2026-10-07. Clip-up AND audio-down are built, both tested against a fake Thor.**
 `./build.sh loopback` runs the head's real framing against `tools/fake_thor.py` over a real
 socket — no board, no robot.
 
@@ -183,18 +183,42 @@ whine lands at 4 kHz, on top of the vowels. The audio sounds fine and transcribe
 the worst failure available because nothing about it looks broken. The FIR's stopband is *measured*
 by the test at the frequencies that fold into speech: **36 dB down at 12 kHz**.
 
-### STILL TO BUILD — audio down
+### Audio down — BUILT, streamed
 
-The plan wants TTS **streamed, not file-at-a-time**, and the current request/response carrier would
-deliver it file-at-a-time: the robot standing silent through a whole sentence of synthesis and then
-speaking. `sayBytes` is parsed, skipped and logged as unbuilt. It needs two things this does not
-have:
+`voice/upsample.cpp` + `voice/stream.cpp` + the playback loop in `voice_net.cpp`. The reply's body
+is a sequence of length-prefixed chunks terminated by a zero length, so the Thor can start speaking
+before it has finished synthesising — which is the whole point.
 
-1. **Chunked streaming** on the reply side.
-2. **A way to stop the speaker.** `hal.h` has `audioPlay()` and no counterpart — no stop, no abort,
-   no is-it-playing. Tolerable for a ≤500 ms cue; a robot that cannot be interrupted until it
-   finishes a sentence is a different and much worse thing than one that cannot be interrupted
-   mid-word. It will have to come from the codec layer.
+**The blocker recorded here earlier was not real.** This plan said `hal.h` has `audioPlay()` and no
+stop, so a reply could not be cut short. True of the header — but `hal_audio.cpp` shows `audioPlay`
+has *two* paths, and only the **async** one copies into a task and refuses while busy. The
+**synchronous** path is a bare blocking `i2s_write` with no mutex and no busy check. So a reply can
+be fed chunk by chunk, and **stopping is simply not feeding the next chunk.**
+
+So the ceiling moved from "cannot be interrupted until it finishes a sentence" to **interrupted
+within one chunk, ~100 ms**. Be precise about what that recovers: half-duplex still means the head
+is deaf while speaking and **cannot hear someone talk over it**. What is back is *button* barge-in —
+a press cuts the answer off — which with push-to-talk is the natural gesture anyway.
+
+**Two hazards in that same source, neither visible from the header:**
+
+1. **The speaker sink is hardwired to 48 kHz stereo** — every path calls
+   `i2s_reconfig_clk_fn(48000, 16, I2S_SLOT_MODE_STEREO)` first. 16 kHz mono handed over does not
+   fail, it *plays*: three times too slowly, an octave and a half too low. `wireReplyFormatOk()`
+   refuses a non-contract reply rather than playing it wrong.
+2. **The sync path takes no mutex**, and earcons use the async path. Two writers into one I2S
+   device produce garbage. Hence `cuesSuspend()` for the length of a spoken reply.
+
+Interpolation reuses `resample.cpp`'s taps as a **polyphase** filter — for interpolation by 3 the
+anti-imaging filter *is* the anti-alias filter — so each output costs 5 MACs, not 15.
+
+### Still open on audio down
+
+- **A fixed-length (`bytes=N`) reply body is parsed but not spoken.** Deliberate: a Thor that knows
+  the total length up front has finished synthesising before saying anything, which is what
+  streaming exists to avoid. Logged rather than silently dropped.
+- **Chunk size is 100 ms, which is both the playback and the interruption granularity.** Shorter
+  interrupts faster and risks the speaker running dry between chunks. Only the bench can judge it.
 
 ### `tools/fake_thor.py` is the Thor-side specification
 
