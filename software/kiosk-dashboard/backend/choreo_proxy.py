@@ -5,8 +5,9 @@ port. The dashboard forwards a small, fixed set of its calls under /api/choreo/ 
 ONE origin — which is what lets the same page work over plain HTTP and over HTTPS (standing rule
 12) with no cross-origin rules.
 
-Read-only except "run a routine" and "stop". What a routine may do is the runner's business, and
-until live output exists (plan 5.6) the runner drives only the twins: the page says so.
+Read-only except "run a routine" and "stop". What a routine may do is the runner's business: on the
+robot it drives the real arms (plan 5.6); without arm output it drives only the twins, and the page
+says which.
 
 The other direction is /api/choreo/robot: the robot's state as the runner's preflight and abort
 checks need it (plan 4.4c), from this dashboard's own rollup, so the runner and the status page
@@ -72,6 +73,8 @@ async def palette():
 
 @router.post("/api/choreo/run/{rid}")
 async def run(rid: str):
+    """On a robot whose runner has the arms, the real arms follow every run (plan 5.6); the runner's
+    preflight gates it on CH5 AUTO, the held deadman and the arms being active."""
     if not rid.replace("-", "").replace("_", "").isalnum():
         return JSONResponse({"error": "not a routine id"}, status_code=400)
     return await _forward("POST", f"run/{rid}")

@@ -79,7 +79,12 @@ def start_op(name, arm="both"):
                 _op["rc"] = r.returncode
                 _op["out"] = ((r.stdout or "") + (r.stderr or ""))[-4000:]
                 if r.returncode != 0:
-                    _op["error"] = (r.stderr.strip().splitlines() or ["failed"])[-1]
+                    # The whole `openarm-up: ...` message, not its last line: the diagnosis comes
+                    # first and the fix last, and the last line alone read as a fragment.
+                    lines = r.stderr.strip().splitlines()
+                    start = max((i for i, l in enumerate(lines) if l.startswith("openarm-up:")),
+                                default=max(len(lines) - 1, 0))
+                    _op["error"] = "\n".join(lines[start:]).removeprefix("openarm-up: ") or "failed"
         except subprocess.TimeoutExpired:
             with _lock:
                 _op["error"] = f"{name} timed out after {timeout}s"

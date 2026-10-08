@@ -17,6 +17,9 @@ RestartSec=2
 # the Pixhawk serial) over a local UDP forward — NOT the raw /dev/ttyACM* port.
 # (dialout kept as a harmless fallback in case of reverting to direct serial.)
 Environment=OPENDUBS_MAVLINK_DEV=udpin:127.0.0.1:14550
+# Per-robot settings, kept on the robot and never in the repo — OPENDUBS_ROBOT_NAME="OpenDubs 2" is the
+# name every dashboard shows. Optional ("-"): without it the name is the Thor's hostname.
+EnvironmentFile=-/etc/opendubs/robot.env
 
 [Install]
 WantedBy=multi-user.target

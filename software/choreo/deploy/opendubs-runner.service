@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenDubs show runner — the routine palette behind the Shows page (drives only the twins)
+Description=OpenDubs show runner — the routine palette behind the Shows page (drives the arms and the twins)
 After=network-online.target opendubs-dash.service
 Wants=opendubs-dash.service
 
@@ -15,7 +15,14 @@ Environment=OPENDUBS_ARM_LIMITS=/etc/opendubs/arm-limits/joint_limits.yaml
 # Localhost only (the runner binds 127.0.0.1); the dashboard forwards the Shows page's calls. Robot
 # state is the dashboard's read-only view of it; nothing here commands the robot.
 # Show audio (plan 4.2) plays on the dashboard's show-audio device — the tablet by default.
-ExecStart=/opt/opendubs/venv/bin/python runner.py palette --robot dashboard --audio dashboard --port 8092 --log /var/log/opendubs-runner/runner.jsonl
+# LIVE arm output (plan 5.6): `--arms ros` lets a run the operator marks LIVE on the Shows page move
+# the real arms, through the arm controllers' FollowJointTrajectory actions. So the runner runs under
+# ROS (the system Python, ROS sourced) with the same DDS settings as the teleop service, which talk to
+# the `openarm` container. Without ROS it still serves, twin-only, and says so.
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
 LogsDirectory=opendubs-runner
 Restart=always
 RestartSec=2

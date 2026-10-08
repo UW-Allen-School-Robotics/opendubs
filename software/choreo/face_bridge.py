@@ -26,15 +26,16 @@ Not sent, and said so on the console: LIGHT cues (the PRISM strip is not the fac
 drives it through the StamPLC, which a bridge must never touch) and SOUND cues naming a sound
 FILE (they play on the tablet or the Thor, whose audio path does not exist yet).
 
-THIS IS THE RUNNER'S FIRST DRAFT, AND IT IS LOCAL ONLY. It refuses any target that is not this
-machine: sending a show to the real head is live output, which the plan arms separately (5.6).
-It never sends motion, and its only inputs are the composer's feed on localhost.
+This command-line bridge is LOCAL ONLY: it refuses any target that is not this machine. The real
+head is driven by the show runner itself, through LiveFace below, on live runs (5.6). Neither ever
+sends motion.
 """
 from __future__ import annotations
 
 import argparse
 import ipaddress
 import json
+import os
 import socket
 import sys
 import time
@@ -146,6 +147,71 @@ class Follower:
                 # play pressed: sounds from where it was paused (inclusive) up to now are due
                 out += [ln for ln in self._crossed(prev - 1e-6, self.t) if ln.startswith("CUE")]
         return out
+
+
+class LiveFace:
+    """The REAL head's face, for the show runner's live runs (workplan 5.6, the face half; decided
+    2026-10-08: face and earcons first, pan/tilt after the head firmware has a GAZE command).
+
+    The runner tees its twin feed into this: `show(tl)` when a run is validated, `playhead(...)` on
+    every tick. The Follower above turns that into the head's own lines, sent over UDP to the head.
+    Only a run that reaches RUNNING touches the face — a refused run changes nothing — and when it
+    ends, however it ends, the face is handed back its own behaviour (EMOTE AUTO). A theme the show
+    set stays (dressing, not state). Sending never raises: the face is never a reason to stop a show."""
+
+    def __init__(self, host: str, port: int = 4242, sock=None, note=None):
+        self.host, self.port = host, port
+        self.sock = sock
+        self.note = note or (lambda **kw: None)     # the runner's log: note(kind=..., line=...)
+        self.f, self.rev, self.tl, self.started = Follower(), 0, None, False
+        self._addr = None
+
+    def _send(self, line: str):
+        try:
+            if self.sock is None:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            if self._addr is None:
+                self._addr = (socket.gethostbyname(self.host), self.port)
+            self.sock.sendto((line + "\n").encode(), self._addr)
+            self.note(kind="face", line=line)
+        except OSError as e:
+            self._addr = None                        # look the head up again next time
+            self.note(kind="face_error", line=line, error=f"{type(e).__name__}: {e}")
+
+    def release(self):
+        """Hand the face back its own behaviour — also sent at runner start, in case a run that
+        crashed left it pinned (an EMOTE pin has no lease on the head)."""
+        self.f.sent["emote"] = "EMOTE AUTO"
+        self._send("EMOTE AUTO")
+
+    def show(self, tl):
+        self.rev, self.tl, self.started = self.rev + 1, tl, False
+        self.f = Follower()
+
+    def playhead(self, t, playing, status):
+        if status == "RUNNING":
+            if not self.started:
+                # A live run plays from show time 0, it is never sought: start the follower playing
+                # from just before 0, so cues AT 0 — an opening earcon included — are crossed and
+                # sent, not treated as a jump (which, by design, never plays sounds).
+                self.f.rev, self.f.tl, self.f.t, self.f.playing = self.rev, self.tl, -1e-6, True
+            self.started = True
+        elif not (self.started and status in ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST")):
+            return
+        for line in self.f.update(self.rev, self.tl, t, playing, status):
+            self._send(line)
+        for msg in self.f.log:
+            self.note(kind="face_skipped", line=msg)
+        self.f.log.clear()
+        if status != "RUNNING":
+            self.started = False
+
+
+def head_face_host() -> str:
+    """Where the face is: OPENDUBS_HEAD_FACE_HOST (the tablet plan's name, once the head splits into
+    a face and a neck), else the dashboard's OPENDUBS_TAB5_HOST, else the head's mDNS name."""
+    return (os.environ.get("OPENDUBS_HEAD_FACE_HOST") or os.environ.get("OPENDUBS_TAB5_HOST")
+            or "opendubs-tab5.local")
 
 
 def loopback_only(host: str) -> str:

@@ -65,6 +65,24 @@ object DeviceOwner {
      * certificate (PEM or DER), base64-encoded, from deploy/make-robot-ca.sh. Returns whether it
      * is now installed.
      */
+    /**
+     * Remove every CA this device owner installed — a bench CA before the tablet goes to a robot, or
+     * a robot's old CA before its new one. Returns how many were installed before.
+     */
+    fun clearCas(ctx: Context): Int {
+        val dpm = ctx.getSystemService(DevicePolicyManager::class.java)
+        if (!dpm.isDeviceOwnerApp(ctx.packageName)) {
+            Log.w(TAG, "CAs not cleared: only the device owner can remove them")
+            return 0
+        }
+        val admin = ComponentName(ctx, KioskAdminReceiver::class.java)
+        val n = runCatching { dpm.getInstalledCaCerts(admin).size }.getOrDefault(-1)
+        runCatching { dpm.uninstallAllUserCaCerts(admin) }
+            .onFailure { Log.w(TAG, "CA clear FAILED: $it") }
+        Log.i(TAG, "cleared installed CAs (there were $n)")
+        return n
+    }
+
     fun installCa(ctx: Context, b64: String): Boolean {
         val dpm = ctx.getSystemService(DevicePolicyManager::class.java)
         if (!dpm.isDeviceOwnerApp(ctx.packageName)) {

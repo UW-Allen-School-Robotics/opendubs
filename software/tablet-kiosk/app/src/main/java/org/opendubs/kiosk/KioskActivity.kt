@@ -22,7 +22,10 @@ import android.webkit.WebViewClient
  *
  * The dashboard address is res/values/strings.xml `default_url`, overridden per tablet by starting
  * this activity with a string extra `url` (remembered). An extra `ca_b64` installs this robot's
- * local CA (device owner only). An extra `unlock=true` leaves lock task, for maintenance over adb.
+ * local CA and `ca_clear=true` first removes every CA installed before (device owner only; send both
+ * to replace one). `unlock=true` leaves lock task, for maintenance over adb, and `lock=true` ends
+ * that maintenance — a device-owner app cannot be force-stopped, so "until the app restarts" alone
+ * would never come.
  */
 class KioskActivity : Activity() {
     private lateinit var web: WebView
@@ -71,11 +74,18 @@ class KioskActivity : Activity() {
     private fun handle(intent: Intent?) {
         val newUrl = intent?.getStringExtra("url")
         newUrl?.let { getPreferences(MODE_PRIVATE).edit().putString("url", it).apply() }
+        // Clear before install, so `ca_clear` + `ca_b64` in one start replaces the CA.
+        if (intent?.getBooleanExtra("ca_clear", false) == true) DeviceOwner.clearCas(this)
         intent?.getStringExtra("ca_b64")?.let { DeviceOwner.installCa(this, it) }
         if (intent?.getBooleanExtra("unlock", false) == true) {
             maintenance = true
             runCatching { stopLockTask() }
-            Log.i("OpenDubsKiosk", "left lock task for maintenance, until the app restarts")
+            Log.i("OpenDubsKiosk", "left lock task for maintenance, until lock=true or a restart")
+        }
+        if (intent?.getBooleanExtra("lock", false) == true) {
+            maintenance = false
+            enterLockTaskIfAllowed()
+            Log.i("OpenDubsKiosk", "maintenance over: back in lock task")
         }
         if (web.url == null || newUrl != null) web.loadUrl(dashboardUrl())
     }

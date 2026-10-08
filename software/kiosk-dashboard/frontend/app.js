@@ -17,12 +17,39 @@ function setView(name) {
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === "view-" + name)
   );
+  try { sessionStorage.setItem("opendubs-view", name); } catch (e) {}
 }
-$("ackBtn").addEventListener("click", () => {
-  fetch("/api/ack", { method: "POST" }).catch(() => {});
-  $("ackBtn").textContent = "ACK ✓";
-  setTimeout(() => ($("ackBtn").textContent = "ACK"), 1500);
-});
+
+/* ---------- Picking up a redeploy by itself ----------
+   The kiosk tablet has no reload control, so the page asks the dashboard every 15 s which version
+   of the page files it serves, and reloads when that changes. It waits while a show runs (a reload
+   would cut the show's audio) and while someone is touching the screen; the view survives it. */
+(function followDeploys() {
+  let seen = null, touched = 0;
+  document.addEventListener("pointerdown", () => { touched = Date.now(); }, true);
+  async function busy() {
+    if (Date.now() - touched < 20000) return true;
+    try {
+      const p = await (await fetch("/api/choreo/palette", { cache: "no-store" })).json();
+      return !!p.running;
+    } catch (e) { return false; }   // no runner: no show can be running
+  }
+  async function check() {
+    try {
+      const v = (await (await fetch("/api/frontend-version", { cache: "no-store" })).json()).version;
+      if (seen === null) seen = v;
+      else if (v !== seen && !(await busy())) { location.reload(); return; }
+    } catch (e) { /* dashboard restarting during the deploy: try again next round */ }
+    setTimeout(check, 15000);
+  }
+  check();
+})();
+(function restoreView() {
+  // Read now, applied once every script has run: operate.js opens on Operate when it loads.
+  let v = null;
+  try { v = sessionStorage.getItem("opendubs-view"); } catch (e) {}
+  window.addEventListener("load", () => { if (v && document.getElementById("view-" + v)) setView(v); });
+})();
 
 if ($("btnAiToggle")) {
   $("btnAiToggle").addEventListener("click", () => {
@@ -1251,7 +1278,7 @@ function connect() {
   const safe = (fn, arg) => { try { fn(arg); } catch (e) {} };
   sock.onmessage = (ev) => {
     let d; try { d = JSON.parse(ev.data); } catch (e) { return; }
-    if (d.system) safe(renderSystem, d.system);
+    if (d.system) { safe(renderRobotName, d.system.host); safe(renderSystem, d.system); }
     if (d.status) {
       const s = d.status;
       safe(renderRobotState, s.robot_state); safe(renderStatus, s); safe(renderStamPLC, s);
@@ -1260,6 +1287,15 @@ function connect() {
     if (d.telemetry) { safe(renderRC, d.telemetry); safe(renderNav, d.telemetry); }
     if (d.state) safe(renderServerState, d.state);
   };
+}
+
+// Which robot this is — with several robots and tablets, every screen must say which one it drives.
+// Its own handler, so the name never waits on the rest of the system metrics rendering cleanly.
+function renderRobotName(host) {
+  const n = host && host.name;
+  if (!n || $("robotName").textContent === n.toUpperCase()) return;
+  $("robotName").textContent = n.toUpperCase();
+  document.title = `${n} · OpenDubs dashboard`;
 }
 
 function renderServerState(st) {

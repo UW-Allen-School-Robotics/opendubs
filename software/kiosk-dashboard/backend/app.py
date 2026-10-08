@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import time
@@ -33,7 +34,7 @@ VNC_DISABLED_FLAG = status_mod.VNC_DISABLED_FLAG
 app = FastAPI(title="OpenDubs Kiosk Dashboard")
 
 # Server-side state for non-safety soft controls.
-STATE = {"acknowledged_at": None, "last_action": None, "ai_tracking": False}
+STATE = {"last_action": None, "ai_tracking": False}
 
 TRACKER_UNIT = "opendubs-yolo-tracker"
 
@@ -68,6 +69,19 @@ def _start_state_out() -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "ts": time.time()}
+
+
+@app.get("/api/frontend-version")
+def frontend_version() -> dict:
+    """Changes whenever a deploy changes any page file. The kiosk tablet has no reload control, so
+    the page polls this and reloads itself (app.js followDeploys). Names, sizes and mtimes: the
+    frontend is a handful of files, so this is cheap enough to compute on every call."""
+    h = hashlib.sha1()
+    for p in sorted(FRONTEND_DIR.rglob("*")):
+        if p.is_file():
+            st = p.stat()
+            h.update(f"{p.relative_to(FRONTEND_DIR)}:{st.st_size}:{st.st_mtime_ns}\n".encode())
+    return {"version": h.hexdigest()[:12]}
 
 
 @app.get("/api/snapshot")
@@ -356,12 +370,6 @@ def vnc_control(action: str) -> JSONResponse:
     else:
         return JSONResponse({"ok": False, "error": "unknown action"}, status_code=400)
     return JSONResponse({"ok": True, "action": action})
-
-
-@app.post("/api/ack")
-def acknowledge() -> dict:
-    STATE["acknowledged_at"] = time.time()
-    return {"ok": True, "acknowledged_at": STATE["acknowledged_at"]}
 
 
 @app.post("/api/action/{name}")
