@@ -375,7 +375,7 @@ calm states the face should be free to be *emotive*, not locked to a posture.
 | | carries | when it changes |
 |---|---|---|
 | **State** | colour (and later the band), plus whether emotes are free | the robot's mode changes |
-| **Emote** | the seven-parameter expression, plus a point in valence/arousal | what the robot notices or is doing |
+| **Emote** | the six-parameter expression (`struct Emote`), plus a point in valence/arousal | what the robot notices or is doing |
 
 **The test is whether the robot is ATTENDING TO THE WORLD or REPORTING A CONDITION.** Attending
 states — `SAFE_IDLE`, `MANUAL`, `AUTONOMOUS` — are free to be emotive. Reporting states — `INIT`,
