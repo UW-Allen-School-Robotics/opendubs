@@ -1,0 +1,105 @@
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_CACHE_L2_CACHE_256KB=y
+CONFIG_CACHE_L2_CACHE_LINE_128B=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_ESP_BROOKESIA_MEMORY_USE_CUSTOM=y
+CONFIG_LV_COLOR_SCREEN_TRANSP=y
+CONFIG_LV_MEM_CUSTOM=y
+CONFIG_LV_MEMCPY_MEMSET_STD=y
+CONFIG_LV_DISP_DEF_REFR_PERIOD=25
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_PRINTF=y
+# CONFIG_LV_USE_PERF_MONITOR is not set   # LVGL's own FPS/CPU overlay: a dev tool, not ship surface
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
+CONFIG_LV_FONT_MONTSERRAT_8=y
+CONFIG_LV_FONT_MONTSERRAT_10=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_22=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_26=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_30=y
+CONFIG_LV_FONT_MONTSERRAT_32=y
+CONFIG_LV_FONT_MONTSERRAT_34=y
+CONFIG_LV_FONT_MONTSERRAT_36=y
+CONFIG_LV_FONT_MONTSERRAT_38=y
+CONFIG_LV_FONT_MONTSERRAT_40=y
+CONFIG_LV_FONT_MONTSERRAT_42=y
+CONFIG_LV_FONT_MONTSERRAT_44=y
+CONFIG_LV_FONT_FMT_TXT_LARGE=y
+CONFIG_LV_USE_FONT_COMPRESSED=y
+CONFIG_LV_USE_DEMO_BENCHMARK=y
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+
+# LVGL's own FPS/CPU report on the panel. Here rather than in lv_conf.h because the device build
+# sets CONFIG_LV_CONF_SKIP=y, so LVGL is configured by Kconfig and lv_conf.h is ignored entirely --
+# which is why edits to that file had no effect on the device.
+CONFIG_LV_USE_SYSMON=y
+# CONFIG_LV_USE_PERF_MONITOR is not set   # LVGL's own FPS/CPU overlay: a dev tool, not ship surface
+
+# IDF 5.5's bootloader grew past the space before the partition table: 0x6120 bytes against a
+# 0x6000 ceiling (0x2000 -> PARTITION_TABLE_OFFSET 0x8000). On 5.4.2 it was 0x5a60 -- already 94%
+# full, so 5.5 simply tipped it over.
+#
+# The obvious fix -- move PARTITION_TABLE_OFFSET to 0xA000 -- is the WRONG one: nvs sits at 0x9000
+# specifically to match the Arduino default_16MB.csv layout so per-robot tilt limits and IMU
+# offsets survive the switch, and shifting the table shifts nvs out from under them.
+#
+# So shrink the bootloader instead. It is already compiled for size; the remaining slack is its log
+# strings, and INFO (3) -> WARN (2) buys far more than the ~288 bytes needed. The cost is real but
+# small: we lose the bootloader's own chatter, including the partition-table dump that confirmed
+# this layout. Raise it back to 3 temporarily if that dump is ever needed again -- an app panic
+# still prints either way, so crash-loop detection is unaffected.
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL=2
+
+# IDF 5.5 changed the P4 minimum-revision DEFAULT to v3.01, and the Tab5's P4 is revision v1.0 --
+# so a default 5.5 build produces a bootloader esptool refuses to flash:
+#   "bootloader.bin requires chip revision in range [v3.1 - v3.99] (this chip is revision v1.0)"
+# Support is not dropped; REV_MIN_0/1/100/300/301 all still exist. Pin it to match the hardware we
+# actually have, as the vendor's 5.4.2 config did.
+# The pre-v3 revisions are GATED: REV_MIN_0/1/100 all "depend on ESP32P4_SELECTS_REV_LESS_V3",
+# which defaults to n, so setting a revision alone silently does nothing (the choice stayed at
+# 301). IDF states the two families are mutually exclusive -- "revisions >=3.0 and <3.0 have huge
+# hardware difference" -- so this build supports 0.x/1.x silicon and NOT >=3.x. That is a real
+# constraint to know if a later Tab5 ships a v3 chip: it would need its own build.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_1=y
+
+# Permit OTA over plain HTTP. IDF labels this "ONLY FOR TESTING PURPOSE" and that warning is
+# fair, so the reasoning is written down rather than assumed:
+#
+#   PARITY, NOT A NEW EXPOSURE. The Arduino firmware shipping on the robot today already pulls
+#   its firmware over plain HTTP from the Thor (firmware/tab5_face/ota-from-thor.sh serves the
+#   .bin from a throwaway HTTP server). Requiring TLS here would not secure the robot; it would
+#   just mean the IDF build cannot be updated the way the robot is updated now.
+#
+#   WHAT IT ACTUALLY COSTS: anyone who can reach the head on the network can tell it to pull
+#   firmware from any URL. On a robot that will be around students, with a dashboard API that
+#   has no authentication either (docs/network-architecture.md), that is a real exposure and it
+#   should not be left standing.
+#
+#   THE RIGHT FIX IS NOT TLS, IT IS SIGNING. CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT makes the
+#   bootloader verify a signature on the image itself, which defends against a hostile image
+#   regardless of how it arrived -- including over a TLS connection to a compromised server. That
+#   is the item to do before student exposure; transport encryption alone would not have helped.
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+
+# OTA ROLLBACK. Paired deliberately with esp_ota_mark_app_valid_cancel_rollback() in net.cpp --
+# these two MUST land together. The flag alone makes every freshly-OTA'd image boot in
+# PENDING_VERIFY and revert on the next reboot, which is a self-inflicted unflashable head; the
+# call alone does nothing. Together they mean an image that boots broken reverts to the slot that
+# worked, instead of needing someone to close the contactor and reach into the head with a cable.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

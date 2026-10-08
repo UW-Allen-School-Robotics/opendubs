@@ -15,7 +15,7 @@ morph rather than a cut.
 **Life between states.** Blink on a timer with a real blink phase, a breathing oscillation, gaze
 drift with random targets, a radar sweep, turn-signal response, and a pun ticker.
 
-**The renderer is fast and was hard-won.** The eye sprite lives in internal SRAM (448 px tall)
+**The renderer is fast and was hard-won.** The eye sprite is *meant* to live in internal SRAM (448 px tall)
 with the glow rasterised straight into it each frame; an earlier version kept a glow template in
 PSRAM and blitted per frame, and that traffic is what held it to ~15 fps. Dirty-rect repaints:
 a state change remakes the glow and label without a `fillScreen`, so it never flashes.
@@ -65,17 +65,121 @@ on the screen. Sounds must sit in 2–4 kHz to be heard, which constrains the pa
 
 ### 4. Listening (larger, and the biggest step)
 
-The ES7210 gives two channels. That is not Sprout's four-mic array with source localisation, but
+The ES7210 gives two channels, and **M5Unified does configure it on this board** —
+`_microphone_enabled_cb_tab5` in `M5Unified.inl` is a complete ESP32-P4-guarded init at I2C 0x40.
+(Do not conclude otherwise from the S3-only `es7210_write_reg` helper: the P4 path writes the same
+chip through `In_I2C.writeRegister8`/`in_i2c_bulk_write` instead, and reasoning from that one
+helper's `#if` guard produced a confidently wrong "the mic is never configured" claim on
+2026-10-04.) **Spatial separation works at the default gain**, confirmed interactively on 2026-10-04 with the
+operator-paced harness in `firmware/tab5_face/bench_mic/`: a left/right/centre voice test reads the
+intended direction from the inter-channel level ratio reasonably reliably. So the input side of
+"turn toward a voice" is not the hard part, and no driver work is needed to get there.
+
+**What is actually unresolved** is quality, not capability:
+
+- **Robustness in a crowd.** Every reading so far is a quiet room with one deliberate speaker. A
+  demo is the opposite, and the failure that matters is a head that twitches at the loudest
+  bystander rather than the person addressing it.
+- **Angular resolution.** The ratio is a crude level difference, which supports about three
+  answers — left, right, centre. Real bearing needs the inter-channel *time* delay, i.e.
+  cross-correlating the two channels at sample level. That is a meaningful step up in work and
+  should only be taken if three answers prove insufficient, which for a head that turns toward a
+  speaker they may well not be.
+
+Two details of that init matter for the behaviours below:
+
+- `MIC12_PDN=0x00`, `MIC34_PDN=0xFF` — **two of the four channels are enabled**, which is the
+  left/right pair these behaviours need.
+- **No gain register is written**, where the sibling `_microphone_enabled_cb_corep4x` path writes
+  `0x44`/`0x45`/`0x46 = 0x1B`. That looked like the obvious knob. **Tried interactively on
+  2026-10-04 and it is not one** — stepping `0x43`/`0x44` across `0x05`–`0x1E` made little
+  difference to the levels, and the chip default is fine. Do not spend time here again.
+
+    Two explanations fit that result and this bench did not separate them: the PGA genuinely is
+    not the limiting factor, or a gain write does not take effect without re-enabling the channel.
+    `dumpRegs()` in the mic harness prints the registers back during a scripted pass, which is
+    where to settle it *if* a reason ever appears to care. None does today.
+
+    One thing that is settled: **writing `0x00` there silences the microphone.** It is the bottom
+    of the range, not a default, and an earlier version of the harness wrote it at startup
+    believing otherwise — which silently killed a working mic and cost a round of testing.
+
+**Testing this needs a stimulus the firmware itself produces.** A mic test whose stimulus is
+"someone makes a noise" measures the room's noise floor whenever nobody is at the bench, and a
+quiet room reads as low, correlated levels on both channels — indistinguishable from a dead chip.
+Any mic bench here must drive the device's own speaker and report level-during-tone against
+level-during-silence, and must report *inconclusive* when no stimulus is detected rather than
+blaming the microphone. Usefully, the speaker and mic **can hold the I2S port at the same time**
+(measured), so a self-stimulating test is possible — and so is listening while speaking. That is not Sprout's four-mic array with source localisation, but
 left/right energy difference is enough for "turn toward the voice", which is the behaviour people
 actually notice. A wake word ("hey robot", as they use) is a separate, bigger piece of work and
 probably belongs on the Thor, not the P4 — the head has the mic, the Thor has the compute.
 
-### 5. Render headroom (unknown, needs measuring)
+### 5. Render headroom — MEASURED 2026-10-04
 
-The panel is 720×1280 and the eye sprite is 448 px in internal SRAM. Unknown: what frame rate a
-*two*-eye layout costs, whether a second sprite fits in internal SRAM, and whether PSRAM can be
-used for anything off the hot path. Before designing richer faces, measure — the previous PSRAM
-lesson cost a 5× frame rate.
+On a bench Tab5 with `firmware/tab5_face/bench/`, at the face's own 324×448 geometry:
+
+Measured at both widths in both memories, because narrowing changes two things at once — fewer
+pixels *and* internal SRAM instead of PSRAM — and only a matrix attributes the gain:
+
+| eye | memory | needs | 1 push | 2 pushes |
+|---|---|---|---|---|
+| **324×448** (what ships) | internal | 283 K | **would not allocate** | — |
+| **324×448** (what ships) | PSRAM | 283 K | 55.1 | **27.6** |
+| **276×448** | internal | 241 K | **82.4** | **39.5** |
+| 276×448 | PSRAM | 241 K | 66.7 | 33.4 |
+
+Largest contiguous internal block at start: **247 KB**.
+
+**Narrowing the eye to 276 takes the two-eye frame from 27.6 to 33.4 fps, +21%** — and only
++21%, not the +43% the table above suggests, because **the internal-SRAM half of that win is not
+available on this hardware.**
+
+### The eye must stay in PSRAM. The radio needs internal SRAM.
+
+276×448 *does* fit a contiguous internal block (241 KB needed, ~247 KB free), and putting it there
+measures 39.5 fps. Flashed to the real face firmware, it reboot-loops the board:
+
+```
+[FACE] up eyePsram=0 freeInt=134KB
+assert failed: sdio_mempool_create sdio_drv.c:255 (buf_mp_g)
+rst:0xc (SW_CPU_RESET)
+```
+
+**The ESP32-P4 has no radio.** Wi-Fi is a separate ESP32-C6 reached over SDIO, and `esp_hosted`'s
+`sdio_mempool_create()` needs a DMA-capable pool out of *internal* memory. Hand the eye 241 KB of
+internal SRAM and 134 KB is left, the pool allocation asserts, and the board resets in a loop —
+costing OTA and payload comms, i.e. everything, to buy 6 fps.
+
+So the pixel reduction is free and worth taking; the memory move is not available and should not be
+chased. `face.cpp` now calls `setPsram(true)` **deliberately**, with the internal path as the
+fallback rather than the preference, and its warning watches for the SDIO assert.
+
+**The methodological lesson is the one to keep.** A bench that measures a sprite in isolation
+cannot see this, because there is no radio in it to starve — it will keep reporting that internal
+SRAM is 18% faster, and it is right, and it is useless. Only the real firmware, with every other
+consumer of internal memory present, can price a change to internal memory. Measure the component
+to find the candidate; measure the system before believing it.
+
+**Three of this note's own claims were wrong, and the first matters most.**
+
+**The eye does NOT live in internal SRAM.** `face.cpp` says "sized to fit INTERNAL SRAM (~290KB)",
+but it needs 283 KB *contiguous* and the largest block is 247 KB, so `createSprite` fails and the
+code silently takes its own PSRAM fallback. `g_eyePsram` records this — to **serial only**, which
+on the robot nobody reads. The shipping face is almost certainly running from PSRAM in the field
+and has been all along.
+
+**The two-eye question was already answered by the shipping firmware.** `face.cpp` allocates *one*
+sprite and pushes it twice at `slots[2]`, mirrored by `i == 0 ? -1 : +1`. There is no second
+sprite and never was.
+
+**PSRAM is not the disaster recorded here.** 55 fps for a single push, not 1.3. The old 15 fps
+figure was a specific access pattern — blitting a glow *template* out of PSRAM every frame — not
+PSRAM sprites as such. Worth not repeating as a general rule.
+
+**The actionable number is 276×448**: 15% narrower and the eye fits internal SRAM. And since one
+push to two is 55.1 → 27.6 fps, almost exactly half, this is draw-bound rather than
+overhead-bound — so a faster sprite should translate nearly 1:1.
 
 ## Constraints to design within
 
@@ -84,6 +188,17 @@ lesson cost a 5× frame rate.
   e-stop, tracking toggle. Expression cannot own the screen unconditionally.
 - **The head can be held in reset by a cable** — fixed in #28, worth remembering.
 - **Audio only carries 2–4 kHz** on this speaker, measured by ear on the robot.
+- **`Serial.setTxTimeoutMs(0)` makes writes silently lossy.** It is mandatory (without it the
+  first print blocks forever and the firmware hangs in `setup()`), but non-blocking means a bulk
+  `Serial.write()` emits only what fits the ~256-byte CDC FIFO and **discards the rest with no
+  error**. That truncated the bench report mid-word and looked exactly like a failed measurement.
+  Emit line by line with a few ms between lines.
+- **Serial on this board is the USB-serial-JTAG.** Touching DTR/RTS drops it into ROM download
+  mode, so a reader must attach without handshaking — `cat /dev/cu.*` works, pyserial's defaults do
+  not. And `Serial.setTxTimeoutMs(0)` is mandatory: without it the first print blocks forever when
+  no host is draining the port, and the firmware hangs in `setup()`. Anything worth reading should
+  be **re-emitted on a timer**, because attaching resets the chip and so destroys the boot output
+  you attached to read.
 - **AI tracking mode is a physical tap.** Any behaviour that aims the head remotely depends on a
   mode nobody can set over the network. That should change.
 

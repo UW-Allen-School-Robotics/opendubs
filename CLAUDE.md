@@ -37,10 +37,92 @@ recipe that matches your task.
 |---|---|---|
 | **StamPLC** (ESP32-S3) | `sudo firmware/rc_serial_probe/ota-from-thor.sh` — on the Thor, **no IP** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. **Do not go hunting for the board's address** — the script finds it (argument → `$OPENDUBS_STAMP_IP` → the dashboard's learned peer → `opendubs-stamplc.local`) and refuses one belonging to the Thor itself. `sudo` because PlatformIO must write `.pio/` under `/opt/opendubs`, which the deploying user owns. |
 | StamPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
-| **Tab5 face** (ESP32-P4) | `firmware/tab5_face/ota-from-thor.sh [host]` — run **on the Thor** | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). |
+| **Tab5 face** (ESP32-P4, ESP-IDF) | Build the shipping image where ESP-IDF and the demo tree are: `OPENDUBS_DEMO=<demo tree> firmware/tab5_idf/ota-from-thor.sh --build`; copy the printed `.bin` to the Thor; then **on the Thor** `firmware/tab5_idf/ota-from-thor.sh <image.bin> [host]` | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). The script passes only when the head's `PING` reports the new image's hash running and VALID; a failed health check rolls back by itself. The Arduino firmware's `firmware/tab5_face/ota-from-thor.sh` is **retired** and refuses to run: it would install the Arduino image over the ESP-IDF head. |
+| Tab5, first flash or recovery | USB from a Mac: `firmware/tab5_idf/FLASHING-THE-ROBOT.md` | Only for a head that will not take an OTA. Writes four regions and never `nvs`, where the per-robot values live. |
 
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.
+
+## Config that changes runtime behaviour goes in the repo
+
+If a file can change how the firmware behaves, it is tracked here — even when it belongs to an
+external tree we only clone. For the Tab5 ESP-IDF work that means `firmware/tab5_idf/lv_conf.h`
+and the modification list in `firmware/tab5_idf/README.md`. An untracked flag cannot appear in the
+answer to "what did we change?": `LV_USE_DRAW_SW_COMPLEX_GRADIENTS` lived only in a cloned tree,
+`git log -S` found nothing, and a freeze took several rounds to trace because of it.
+
+Two debugging rules from the same incident. **Run-then-freeze means accumulation** — a cache, a
+leak, fragmentation — where an over-budget frame fails immediately; they are different searches.
+And **change one variable at a time**, or a failure cannot be attributed to either.
+
+## The Tab5 head: ESP-IDF and LVGL — read its notes first
+
+The head runs `firmware/tab5_idf` — ESP-IDF 5.5.5 with LVGL, built on M5Stack's own factory
+firmware (`firmware/tab5_idf/README.md`). Before changing how it draws, read
+`notes/design/tab5-platform.md` (the SoC's Pixel Processing Accelerator, 2D-DMA, JPEG codec and DSI
+framebuffer, and what the audio subsystem can really do) and `notes/design/tab5-face-architecture.md`.
+`firmware/tab5_idf/AUDIT.md` holds the invariants a change must keep (no LVGL call off the render
+task, every per-frame write change-guarded). Design iteration belongs in the desktop build
+(`build.sh desktop`), which is also the face twin the choreography tools drive.
+
+## Bench work on an M5Stack board over USB — the rote procedure
+
+**This is settled. Do not investigate it, do not experiment, do not "verify" it. Follow it.**
+It applies to every M5Stack board on a desk — Tab5, StamPLC, M5Dial — and only the port name and
+the `-e` env differ. Re-deriving any of this has cost multiple sessions; everything below is the
+answer, not a starting point.
+
+### Flash
+
+```sh
+uv run --python 3.12 --with platformio --with intelhex pio run -e <env> -t upload --upload-port <port>
+```
+
+Ports: Tab5 `/dev/cu.usbmodem2101`. Always `/dev/cu.*`, never `/dev/tty.*`. No stub flags, no
+`esptool` invocations, no bootloader button dance — **except M5Dial, which needs
+`esptool --no-stub`** and whose crash-loop escape is holding G0 at power-on.
+
+### Read telemetry
+
+```sh
+cat /dev/cu.usbmodem2101          # in a BACKGROUND task, or redirected to a file
+```
+
+- **Wait for USB to re-enumerate after any flash or reset before opening the port.** Opening it in
+  the same breath as the reset yields a live file handle onto a dead endpoint: it reads **zero
+  bytes forever** and looks exactly like crashed firmware. Put the read in a *separate* tool call.
+- **`timeout` DOES NOT EXIST on this Mac** — neither `timeout` nor `gtimeout`. Any read written as
+  `timeout N cat …` or `timeout N head -c …` fails instantly with *command not found*, produces
+  **zero bytes, and looks exactly like dead firmware.** This wasted a sitting on 2026-10-04 and
+  sent two investigations after imaginary faults. **Use a bare, self-terminating
+  `head -c <bytes> /dev/cu.usbmodem2101`** — it blocks until that many bytes arrive and then exits
+  on its own, which is why every read that ever worked here was written that way.
+- Never use pyserial defaults, `screen`, or anything that asserts DTR/RTS: that resets an ESP32,
+  and on a robot it has reset the safety controller.
+
+### Getting data OFF a board — the rules that make it work first time
+
+1. **`Serial.setTxTimeoutMs(0)` is mandatory** in `setup()`. Without it the first print blocks
+   forever when no host is draining the port and the firmware hangs before doing anything.
+2. **It also makes writes non-blocking, therefore lossy.** A bulk `Serial.write()` of more than
+   roughly the 256-byte CDC FIFO silently discards the remainder. **Print line by line with a few
+   ms between lines** — never one big block.
+3. **Repeat every report on a timer** (5–20 s). Attaching resets nothing, but you will always miss
+   boot-time output, and a result printed once is a result you cannot read.
+4. **Do not design around host→device serial commands.** Whether writes to `/dev/cu.*` reach the
+   device is *unverified* — DTR gating is a plausible reason and nothing here has established it.
+   What is certain is that a feature triggered by a serial write cannot be distinguished from a
+   broken feature when nothing happens. Anything you need to trigger must be **self-triggering in
+   firmware**, on a timer, under a build flag, and must print its own verdict.
+5. **A test that needs a human at the bench is not a test.** Nobody is usually there, and "no
+   stimulus" reads identically to "broken hardware". Make the firmware produce its own stimulus and
+   its own verdict, and have it say *inconclusive* rather than blame the hardware.
+
+### Do not do these
+
+Do not go looking for a board's IP. Do not add stub/no-stub flags to a working flash. Do not open a
+serial port to "check" whether flashing worked. Do not re-measure a documented feature. Do not
+write a bench that only reports on the panel.
 
 **Build environment**, which has cost a session more than once:
 

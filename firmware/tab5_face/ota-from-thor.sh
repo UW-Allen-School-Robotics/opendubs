@@ -16,6 +16,17 @@
 # hours. If it is broken, FIX IT — do not go back to improvising.
 set -u
 
+# RETIRED. The robot's head runs the ESP-IDF firmware now, and that firmware also takes `OTA <url>`
+# on this port -- so this script would happily install the ARDUINO image over it. The procedure is
+# firmware/tab5_idf/ota-from-thor.sh (CLAUDE.md's flash table). Deliberately going back to the
+# Arduino firmware is the only reason to override this.
+if [ "${OPENDUBS_FLASH_ARDUINO_HEAD:-0}" != "1" ]; then
+  echo "RETIRED: the head runs the ESP-IDF firmware. Use firmware/tab5_idf/ota-from-thor.sh"
+  echo "         (see CLAUDE.md). To deliberately put the Arduino firmware back on the head:"
+  echo "             OPENDUBS_FLASH_ARDUINO_HEAD=1 $0 $*"
+  exit 1
+fi
+
 HEAD="${1:-opendubs-tab5.local}"
 CMD_PORT=4242                       # firmware UDP command port — see UDP_PORT in src/main.cpp
 HTTP_PORT="${OTA_PORT:-8000}"
