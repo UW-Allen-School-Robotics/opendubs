@@ -120,10 +120,13 @@ def dance_excursion_m(move: str, secs: float, amp: float = 1.0) -> float:
     return far
 
 MARGIN_DEG = 5.0
-# UNSOURCED. These came over from showcase_demo.py with the rest of the checks and carry no note
-# of how they were chosen; measuring or sourcing them is workplan item 6.1. Every message that
-# cites one says "unsourced" until then.
-SPEED_CAP_DEG_S = {1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70}
+# MEASURED, 2026-10-08 (workplan 6.1; speed_test.py on opendubs2's right arm, the left a mirror of
+# it): 75% of the speed at which a joint first fell more than 5 deg behind its path in steady motion,
+# or was stopped near its trip. J1/J2 failed at 120 (the shoulder fell 17 deg behind), J3 at 240
+# (it overran to 252, near its 312 trip), J4-J7 at 180. Effort stayed under 60% of every limit: the
+# limit is how closely the joints follow, not torque. Were 25/30/35/30/35/60/70, unsourced.
+# Adopted for both arms by the user, 2026-10-08.
+SPEED_CAP_DEG_S = {1: 90, 2: 90, 3: 180, 4: 135, 5: 135, 6: 135, 7: 135}
 # INTERIM, agreed 2026-10-07 (workplan DEC-1, item 1.1). The AVERAGE speed over a segment is the
 # hard gate. Its average times this factor — the peak of a minimum-jerk (quintic) move, the worst
 # profile the arm controller plausibly uses — is checked as a WARNING: the real profile is
@@ -839,7 +842,7 @@ class Show:
         quiet = free_at + need_avg[bind] * PEAK_FACTOR
         if t > t_want + 1e-9:
             reason = (f"J{bind} changes {abs(target[bind] - before[bind]):.0f} deg and may average at "
-                      f"most {SPEED_CAP_DEG_S[bind]} deg/s (unsourced cap), so it needs "
+                      f"most {SPEED_CAP_DEG_S[bind]} deg/s (measured cap), so it needs "
                       f"{need_avg[bind]:.1f}s from t={free_at:.2f}s")
         else:
             reason = "reachable at the time asked for"
@@ -923,11 +926,11 @@ class Show:
                          f"the show; give it at least {abs(signed - prev) * PEAK_FACTOR / TRIP_DEG_S[j]:.2f}s")
             elif avg > cap + 1e-9:
                 p.append(f"{where}: {slot} J{j} moves {avg:.0f} deg/s over {dt:.1f}s "
-                         f"(cap {cap}, unsourced)")
+                         f"(cap {cap}, measured)")
             elif peak > cap + 1e-9 and warn is not None:
                 need = abs(signed - prev) * PEAK_FACTOR / cap
                 warn.append(f"{where}: {slot} J{j} may peak at {peak:.0f} deg/s if the arm eases "
-                            f"(average {avg:.0f} x {PEAK_FACTOR}; cap {cap}, unsourced) — "
+                            f"(average {avg:.0f} x {PEAK_FACTOR}; cap {cap}, measured) — "
                             f"{need:.1f}s would be safe either way")
             state[j] = signed
 
@@ -1357,7 +1360,7 @@ def describe(limits: dict) -> str:
             if j in MIRRORED_JOINTS and m < 0:
                 lo_d, hi_d = -hi_d, -lo_d
             w(f"  {side:5s} J{j}: usable {lo_d:+7.1f} .. {hi_d:+7.1f} deg (as written in a show)   "
-              f"cap {SPEED_CAP_DEG_S[j]} deg/s average (unsourced); warns above it x {PEAK_FACTOR}")
+              f"cap {SPEED_CAP_DEG_S[j]} deg/s average (measured); warns above it x {PEAK_FACTOR}")
     w(f"  margin {MARGIN_DEG:g} deg inside each limit. pose: rest = every joint 0, clamped into the"
       " limits with no margin:")
     for side in ("left", "right"):

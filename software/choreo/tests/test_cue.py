@@ -17,6 +17,11 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from cue import Show, joint_state_to_outward, load_limits, load_show  # noqa: E402
 
+# The timing checks below are written against these caps, not the robot's measured ones (cue.py):
+# they test the arithmetic, so the numbers stay fixed whatever the robot's caps become.
+import cue as _pin_caps  # noqa: E402
+_pin_caps.SPEED_CAP_DEG_S.update({1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70})
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIMITS = load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
 
@@ -363,14 +368,14 @@ check_doc("a palette routine needs a label for its button",
 _a = doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
 check_true("a move under the cap on average but not at its eased peak warns, and stays valid",
            not _a["problems"] and len(_a["warnings"]) == 1 and "may peak" in _a["warnings"][0].msg
-           and "unsourced" in _a["warnings"][0].msg,
+           and "measured" in _a["warnings"][0].msg,
            [w.msg for w in _a["warnings"]] + [q.msg for q in _a["problems"]])
 _a = doc_show([{"t": 8.0, "slot": "ARM_R", "joints": {4: 55}}]).analyse(LIMITS)
 check_true("a move slow enough even at its eased peak does not warn", not _a["warnings"],
            [w.msg for w in _a["warnings"]])
 _a = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 120}}]).analyse(LIMITS)
 check_true("a move over the cap on average is still a problem, not just a warning",
-           any("cap 30, unsourced" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
+           any("cap 30, measured" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
 
 # The controller's velocity trips: with the caps raised (as the speed test may), a move whose peak
 # reaches a trip is refused — it would freeze the arm and stop the show.
