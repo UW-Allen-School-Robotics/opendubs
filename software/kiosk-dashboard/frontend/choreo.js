@@ -46,6 +46,7 @@
       badge.classList.toggle("livebadge", armsFollow);
     }
     el("showsStop").disabled = !running;
+    el("showsPark").disabled = !!running;   // the runner owns the arms while a routine runs
     const last = status && status.last;
     el("showsStatus").innerHTML = running
       ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${status.live ? ' <b class="bad">LIVE</b>' : ""} <span class="dim">${esc(status.status || "")}</span>`
@@ -88,6 +89,12 @@
     if (window.OpenDubsShowAudio) window.OpenDubsShowAudio.claim();
     setTimeout(renderAudio, 300);
   });
+  // Park: the arms page's PARK BOTH, here too, so a stopped run can be tidied up from this page.
+  if (typeof window.confirmButton === "function") {
+    const park = el("showsPark");
+    window.confirmButton(park, { url: () => "/api/arms/park?arm=both", confirm: "CONFIRM PARK",
+                                 pending: "PARKING…", label: () => { park.textContent = "PARK BOTH ARMS"; } });
+  }
   el("showsStop").addEventListener("click", async () => {
     await getJSON("/api/choreo/stop", { method: "POST" }).catch(() => {});
     refresh(false);

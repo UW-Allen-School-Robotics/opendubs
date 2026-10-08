@@ -238,14 +238,14 @@ def signed_pose(p) -> list:
 
 
 def prep_moves(tl: dict, measured: dict) -> tuple:
-    """Moves that bring each arm the show uses to where the show STARTS it — zero, the pose the
-    validator's speed check and the twin both start from (cue.py, sim_preview.arm_pose) — timed by the
+    """Moves that bring EVERY arm to where the show starts it — zero, the pose the validator's speed
+    check and the twin both start every arm from (cue.py, sim_preview.arm_pose) — timed by the
     distance at the speed caps (x PEAK_FACTOR, the warning-free time), so the move needs no warning.
-    `measured` is {slot: pose} in signed degrees. Returns (seconds, {slot: [7 signed degrees]})."""
+    Every arm, not only the ones the show moves: an arm left out stays wherever an aborted run left
+    it, outside what was validated (found on the robot 2026-10-08, a one-arm run after a two-arm
+    abort). `measured` is {slot: pose} in signed degrees. Returns (seconds, {slot: [7 signed deg]})."""
     secs, targets = 0.0, {}
     for slot in cue.ARM_SLOTS:
-        if not (tl.get("tracks", {}).get(slot) or []):
-            continue
         now = signed_pose(measured.get(slot))
         need = max(abs(now[j - 1]) / cue.SPEED_CAP_DEG_S[j] * cue.PEAK_FACTOR for j in range(1, 8))
         secs, targets[slot] = max(secs, need), [0.0] * 7

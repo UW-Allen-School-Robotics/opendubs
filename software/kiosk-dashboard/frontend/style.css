@@ -650,6 +650,7 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .shows-btn:disabled { opacity: 0.45; cursor: default; }
 .shows-btn.active { border-color: var(--accent); opacity: 1; box-shadow: 0 0 0 2px var(--accent) inset; }
 .shows-btn.invalid { border-style: dashed; }
+.shows-ctl { display: flex; flex-wrap: wrap; gap: 12px; }
 .shows-stop { margin-top: 14px; min-width: 160px; }
 
 .shows-audio { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
