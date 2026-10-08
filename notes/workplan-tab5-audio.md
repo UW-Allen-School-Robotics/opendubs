@@ -150,20 +150,59 @@ critical path, and three unknowns need it:**
 
 ## Phase B — transport (the old 1B)
 
-- **Audio up:** 16 kHz mono PCM is 256 kbit/s raw; Opus at 24 kbit/s is ~10x better and the P4 can
-  encode it. Decide: raw for simplicity, or compressed for headroom shared with video.
-- **Audio down:** TTS back to the speaker, **streamed, not file-at-a-time**, or the robot pauses
-  mid-sentence.
-- **Echo — SETTLED 2026-10-07: half-duplex.** "Listening while speaking works" means the mic and
-  speaker can run together; it never meant the robot could hear past itself, and with the ES7210's
-  AEC reference channels (3/4) disabled there is no hardware cancellation to lean on. Of the three
-  routes — enable the reference channels, cancel in software on the P4, or sidestep it — we sidestep
-  it: **capture is muted while the speaker is active.** The price is barge-in, paid knowingly.
-  Implemented as a single explicit gate, so swapping in a canceller later changes that gate and
-  nothing else.
-- **Carrier:** the existing StamPLC protocol is line-based UDP and was never built to carry a
-  payload. Audio and video want their own path. The head already runs an HTTP-pull OTA and mDNS, so
-  there is precedent for a second port rather than overloading udp/4242.
+**Status 2026-10-07. Clip-up is built and tested against a fake Thor; audio-down is NOT built.**
+`./build.sh loopback` runs the head's real framing against `tools/fake_thor.py` over a real
+socket — no board, no robot.
+
+- `voice/resample.cpp` — 48 kHz 4-channel → **16 kHz mono**, streaming, with an anti-alias FIR.
+- `voice/clip.cpp` — the utterance buffer. **Covers the whole press**, not from the onset: starting
+  at `Heard` loses ~96 ms to the onset debounce, and that is the leading plosive that tells "pack"
+  from "back". 12 s cap, 384 kB from `bigAlloc()` in **PSRAM** — a `std::vector` would have tried
+  internal DRAM and failed.
+- `voice/wire.cpp` — the framing. Text header line, binary payload, carrier-agnostic.
+- `voice_net.cpp` — the carrier. Blocks, so it runs on the capture task only.
+- `VOICE THOR <host> <port>` sets the address at runtime; **not persisted** (per-robot values do
+  not belong in this repo).
+
+### Decided
+
+- **Audio up: RAW PCM, not Opus.** The plan's "256 kbit/s vs 24 kbit/s" is a *rate* comparison and
+  we have no stream. Bounded clips mean a 3 s utterance is ~96 kB sent once when someone stops
+  speaking — nothing on this LAN, and a burst between silences rather than a competitor to video.
+  Opus would cost a P4 dependency, flash, and encode latency inside step A5's ~150 ms budget.
+- **Carrier: TCP, one connection per utterance.** `udp/4242` was ruled out, and UDP would also mean
+  fragmenting 96 kB, numbering chunks and inventing retransmission — a dropped chunk does not
+  degrade an utterance, it *corrupts* it. Bounded clips make the exchange request/response.
+- **Echo: half-duplex** (see the decisions table).
+
+### The anti-alias filter is the part that fails invisibly
+
+48 kHz → 16 kHz is exactly 3:1, so the decimation is trivial — which is the trap. Dropping two of
+every three samples with no low-pass **folds everything above 8 kHz into the band**: a 12 kHz ESC
+whine lands at 4 kHz, on top of the vowels. The audio sounds fine and transcribes badly, which is
+the worst failure available because nothing about it looks broken. The FIR's stopband is *measured*
+by the test at the frequencies that fold into speech: **36 dB down at 12 kHz**.
+
+### STILL TO BUILD — audio down
+
+The plan wants TTS **streamed, not file-at-a-time**, and the current request/response carrier would
+deliver it file-at-a-time: the robot standing silent through a whole sentence of synthesis and then
+speaking. `sayBytes` is parsed, skipped and logged as unbuilt. It needs two things this does not
+have:
+
+1. **Chunked streaming** on the reply side.
+2. **A way to stop the speaker.** `hal.h` has `audioPlay()` and no counterpart — no stop, no abort,
+   no is-it-playing. Tolerable for a ≤500 ms cue; a robot that cannot be interrupted until it
+   finishes a sentence is a different and much worse thing than one that cannot be interrupted
+   mid-word. It will have to come from the codec layer.
+
+### `tools/fake_thor.py` is the Thor-side specification
+
+Written to the contract rather than to the head's code, and strict on purpose — a mock written
+alongside its client agrees with it by construction and proves nothing. Verified to reject: a
+48 kHz payload, a 4-channel payload, `bytes != samples*2`, a short read, base64'd audio, an
+all-silent payload, a missing key, and a `NOSPEECH` carrying audio. When the real Thor-side work
+starts, this is what it has to satisfy.
 
 ## Phase C — the interface to understanding, NOT the understanding
 
