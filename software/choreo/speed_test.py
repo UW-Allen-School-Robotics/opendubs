@@ -439,7 +439,14 @@ def main() -> int:
         print(f"not starting: {why}")
         return 1
     arms = arm_output.RosArms(node_name="opendubs_speed_test")
-    time.sleep(1.0)
+    # ROS discovery takes a few seconds: wait for the arm's first reading rather than a fixed pause
+    # (the first robot run refused at 1 s, before anything moved).
+    end = time.monotonic() + 8.0
+    while arms.sample(a.arm) is None and time.monotonic() < end:
+        time.sleep(0.1)
+    if arms.sample(a.arm) is None:
+        print("not starting: no /joint_states for the arm within 8 s")
+        return 1
     slot = "ARM_R" if a.arm == "right" else "ARM_L"
     log = open(a.log, "a", encoding="utf-8")
 
