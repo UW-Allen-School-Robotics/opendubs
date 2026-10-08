@@ -198,9 +198,12 @@ class LiveFace(_HeadLink):
     set stays (dressing, not state). The head's answers are read: a refusal is logged, and so is
     an earcon the head accepted with its audio switched off (a per-robot setting, off by default)."""
 
-    def __init__(self, host: str, port: int = 4242, sock=None, note=None):
+    def __init__(self, host: str, port: int = 4242, sock=None, note=None, earcons: bool = True):
         super().__init__(host, port, sock, note, "face")
         self.f, self.rev, self.tl, self.started = Follower(), 0, None, False
+        # Earcons can be held back: the head's first earcon starts its audio task, which damps face
+        # tracking until the head restarts (found on opendubs2, 2026-10-08; the fix is the Tab5's).
+        self.earcons = earcons
 
     def release(self):
         """Hand the face back its own behaviour — also sent at runner start, in case a run that
@@ -223,6 +226,11 @@ class LiveFace(_HeadLink):
         elif not (self.started and status in ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST")):
             return
         for line in self.f.update(self.rev, self.tl, t, playing, status):
+            if line.startswith("CUE ") and not self.earcons:
+                self._once("earcons", kind="face_skipped",
+                           line="earcons held back on this runner (--earcons off): the head's audio "
+                                "task damps its face tracking until the head restarts")
+                continue
             self._send(line)
         for msg in self.f.log:
             self.note(kind="face_skipped", line=msg)

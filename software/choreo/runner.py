@@ -259,7 +259,8 @@ USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRI
              ("LIFT", "lift"), ("DANCE", "base"))
 
 
-def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False) -> list:
+def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
+                 earcons: bool = True) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
     twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
@@ -280,7 +281,7 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
         if part == "arms":
             live = arms_live
         elif part == "sound":
-            live = any(e.get("output") == "tablet" or (face_live and e.get("output") == "tab5")
+            live = any(e.get("output") == "tablet" or (face_live and earcons and e.get("output") == "tab5")
                        for e in tracks.get("SOUND", []))
         elif part == "face":
             live = face_live
@@ -565,7 +566,8 @@ class Palette:
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
                                              face_live=self.face is not None and self.arms is not None,
                                              gaze_live=(self.gaze is not None and self.arms is not None
-                                                        and self.gaze.supported is True))})
+                                                        and self.gaze.supported is True),
+                                             earcons=self.face is None or self.face.earcons)})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -712,6 +714,9 @@ def main() -> int:
     pp.add_argument("--gaze", default="none",
                     help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local) or a "
                          "host: live runs turn the real head (its GAZE command, Tab5 PR #56)")
+    pp.add_argument("--earcons", choices=("on", "off"), default="on",
+                    help="off: live runs do not send the head its earcons (CUE) — held back while the "
+                         "head's audio task damps its face tracking (2026-10-08)")
     pp.add_argument("--face", default="none",
                     help="auto (the head's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
                          "opendubs-tab5.local) or a host: live runs drive the real face and earcons")
@@ -734,7 +739,8 @@ def main() -> int:
                 print(f"runner: live arm output NOT available ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
         face = None
         if a.face != "none":
-            face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face)
+            face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face,
+                                        earcons=a.earcons == "on")
             face.release()                   # a run that crashed may have left the face pinned
         gaze = None
         if a.gaze != "none":

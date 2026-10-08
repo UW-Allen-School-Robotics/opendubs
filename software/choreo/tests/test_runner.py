@@ -408,6 +408,20 @@ palo = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(),
 head_live = lambda p: {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in p.routines()}["reach"]["head"]
 check("... and the head's icon is real only when it has", head_live(palg) is True and head_live(palo) is False)
 
+sock, notes = FakeSock(), []
+face = FB.LiveFace("127.0.0.1", sock=sock, note=lambda **kw: notes.append(kw), earcons=False)
+robot = R.FakeRobotState()
+sc = SimClock(robot)
+end = R.Runner(os.path.join(SHOWS, "celebrate.yaml"), LIMITS, robot, FB.HeadTee(R.TwinFeed(), face), io.StringIO(),
+               clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True).run()
+check("with earcons held back the face still plays but no CUE reaches the head, and the log says so once",
+      end[0] == "COMPLETED" and "EMOTE SOFT" in sock.lines and not [ln for ln in sock.lines if ln.startswith("CUE")]
+      and len([n for n in notes if "held back" in n.get("line", "")]) == 1, (sock.lines, notes))
+pale = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(),
+                 face=FB.LiveFace("127.0.0.1", sock=FakeSock(), earcons=False))
+usese = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pale.routines()}
+check("... and the routine's SOUND icon is faded", usese["celebrate"]["sound"] is False and usese["celebrate"]["face"] is True,
+      usese["celebrate"])
 pal4 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(),
                  face=FB.LiveFace("127.0.0.1", sock=FakeSock()))
 uses4 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal4.routines()}
