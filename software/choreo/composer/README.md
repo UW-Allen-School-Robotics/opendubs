@@ -77,6 +77,10 @@ The face twin is the head's own face code built for the desktop, sharing the hea
 `./build.sh desktop`); point `OPENDUBS_DEMO` at that build's demo tree. Without it, `face.sh` starts
 `face_stub.py`, which prints what the face would be told instead of drawing it.
 
+With `../twin.sh` running too, the robot's head in the MuJoCo window shows the face twin's own
+picture: `face.sh` has the face twin share its frames (desktop builds that include the Tab5 tree's
+`frame_tap`), and the body twin streams them onto the head's screen. Without them the screen is dark.
+
 `face_bridge.py` reads the same feed as the MuJoCo twin and speaks the head's own command protocol
 (`notes/design/face-twin.md`), to this machine only — it refuses any other address. Crossing a cue
 while playing sends it; a seek, pause or edit sends the state in force instead, with no sounds.

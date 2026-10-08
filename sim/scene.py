@@ -91,7 +91,40 @@ DRIVE_ACTUATORS = ("drive_fwd", "drive_rot", "drive_strafe")
 WHEEL_MAX_RADS = 10.0          # 0.70 m/s at the measured 70 mm radius
 
 
-def build(assets: str | None = None, chest_cover: bool = False):
+# THE FACE ON THE HEAD (choreography plan 2.5). A flat 16:9 surface on the Tab5's screen cover that
+# shows the face twin's own frames. The cover is modelled as a solid plate with no display window, so
+# the surface is the 5" 16:9 panel's ACTIVE AREA (110.7 x 62.3 mm), centred on the cover's front face
+# (measured in head_tilt's frame: front at x = 59.8 mm, centre y -1.85, z -2.9 mm) and 0.5 mm proud
+# of it. Where the display really sits inside the bezel is not modelled — an approximation for a
+# preview, never used for clearance (visual group, no contacts, no mass).
+FACE_TEXTURE = "face_screen"
+FACE_TEX_W, FACE_TEX_H = 320, 180                 # the face twin's shared frame (frame_tap.h)
+FACE_W, FACE_H = 0.1107, 0.0623
+FACE_X, FACE_YC, FACE_ZC = 0.0603, -0.00185, -0.0029
+
+
+def _add_face_screen(spec):
+    import mujoco
+    spec.add_texture(name=FACE_TEXTURE, type=mujoco.mjtTexture.mjTEXTURE_2D,
+                     builtin=mujoco.mjtBuiltin.mjBUILTIN_FLAT, width=FACE_TEX_W, height=FACE_TEX_H,
+                     rgb1=[0.03, 0.03, 0.04], rgb2=[0.03, 0.03, 0.04], nchannel=3)
+    mat = spec.add_material(name=FACE_TEXTURE, emission=1.0, specular=0.0, shininess=0.0,
+                            rgba=[1, 1, 1, 1])
+    mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = FACE_TEXTURE
+    w, h = FACE_W / 2, FACE_H / 2
+    # Facing +x, the way the head looks. Seen from in front, +y is to the viewer's right and +z up,
+    # so the corners run bottom-left, bottom-right, top-right, top-left (counter-clockwise).
+    verts = [FACE_X, FACE_YC - w, FACE_ZC - h,  FACE_X, FACE_YC + w, FACE_ZC - h,
+             FACE_X, FACE_YC + w, FACE_ZC + h,  FACE_X, FACE_YC - w, FACE_ZC + h]
+    spec.add_mesh(name=FACE_TEXTURE, uservert=verts, userface=[0, 1, 2, 0, 2, 3],
+                  usertexcoord=[0, 1, 1, 1, 1, 0, 0, 0],
+                  inertia=mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL)
+    spec.body("head_tilt").add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=FACE_TEXTURE,
+                                    material=FACE_TEXTURE, contype=0, conaffinity=0, group=2,
+                                    density=0)
+
+
+def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False):
     import mujoco
 
     a = find_assets(assets)
@@ -101,6 +134,8 @@ def build(assets: str | None = None, chest_cover: bool = False):
     arms = mujoco.MjSpec.from_file(_arm_xml(a))
     ours.meshdir = meshes
     arms.meshdir = meshes
+    if face_screen:
+        _add_face_screen(ours)
 
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
     frame.attach_body(arms.body("openarm_body_link0"), ARM_PREFIX, "")

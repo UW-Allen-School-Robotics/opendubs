@@ -11,6 +11,8 @@
 # face would be told and draws nothing. If something already listens on 4242 it is used as it is.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# The face twin shares its frames here, and the body twin (twin.sh) shows them on the robot's head.
+export OPENDUBS_FACE_FRAMES="${OPENDUBS_FACE_FRAMES:-${TMPDIR:-/tmp}/opendubs-face-frames.bin}"
 FACE="${OPENDUBS_DEMO:+$OPENDUBS_DEMO/build/desktop/app_desktop_build}"
 child=""
 

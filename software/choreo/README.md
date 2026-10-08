@@ -118,7 +118,8 @@ grid. It cannot command the robot.
 ## The twins
 
 `./twin.sh` is the body (MuJoCo) and `./face.sh` the face — the head's own face code built for the
-desktop, driven by `face_bridge.py`. Both follow the composer by default, or the runner with
+desktop, driven by `face_bridge.py`. With both running, the body twin's head shows the face twin's
+own picture (`face_frames.py`), so one window shows the whole robot. Both follow the composer by default, or the runner with
 `--composer http://127.0.0.1:8092`. Details in [`composer/README.md`](composer/README.md).
 
 ## Not here yet

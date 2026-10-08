@@ -13,6 +13,10 @@ This viewer evaluates that timeline at the playhead itself — with the same sam
 `sim_preview.py`, so the window and an offline preview cannot disagree — and extrapolates on its
 own clock between updates. Seeking is free and network delay cannot accumulate.
 
+THE FACE ON THE HEAD (plan 2.5). The head's screen shows the face twin's own frames, read from the
+file the face twin shares them through (`face_frames.py`; `./face.sh` turns that on). Without a face
+twin running, the screen stays dark. It is the real face code's picture, never a second drawing.
+
 WHAT IT CAN CLAIM. Exactly what `sim_preview.py` can: geometry. Arms interpolate linearly between
 keyframes; the lift's speed is a placeholder; head tilt's sign is unverified. See that file's
 docstring. It never talks to the robot: its only connection is to the composer, on localhost.
@@ -48,6 +52,8 @@ def main() -> int:
     ap.add_argument("--composer", default="http://127.0.0.1:8091")
     ap.add_argument("--assets", help="an openarm_assets checkout instead of description/openarm")
     ap.add_argument("--log", action="store_true", help="print the followed state once a second")
+    ap.add_argument("--face-frames", default=None,
+                    help="the face twin's shared frame file (default: $OPENDUBS_FACE_FRAMES, as face.sh sets it)")
     a = ap.parse_args()
 
     import clearance
@@ -55,8 +61,14 @@ def main() -> int:
     import mujoco.viewer
     import scene
 
-    model = scene.build(a.assets)
+    import face_frames
+    model = scene.build(a.assets, face_screen=True)
     data = mujoco.MjData(model)
+    face_tex = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TEXTURE, scene.FACE_TEXTURE)
+    face_adr, face_n = model.tex_adr[face_tex], scene.FACE_TEX_W * scene.FACE_TEX_H * 3
+    face = face_frames.FaceFrames(a.face_frames or face_frames.default_path(),
+                                  scene.FACE_TEX_W, scene.FACE_TEX_H)
+    face_seen = False
     clearance.set_pose(model, data)
 
     rev, tl, path = -1, None, None
@@ -83,6 +95,14 @@ def main() -> int:
                     clock_base, online = now, True
                 except (urllib.error.URLError, OSError, ValueError, KeyError):
                     online, playing = False, False      # hold the last pose; say so
+
+            px = face.poll()
+            if px is not None:
+                model.tex_data[face_adr:face_adr + face_n] = memoryview(px)
+                v.update_texture(face_tex)
+                if not face_seen and a.log:
+                    print(f"face: showing the face twin's frames from {face.path}", flush=True)
+                face_seen = True
 
             t = t_base + ((time.monotonic() - clock_base) if playing else 0.0)
             if tl and tl.get("tracks") is not None:
