@@ -138,7 +138,11 @@ function confirmButton(btn, opts) {
     } else {
       clearTimeout(timer); armed = false; btn.classList.remove("armed");
       btn.textContent = opts.pending || "…";
-      fetch(opts.url(), { method: "POST" }).catch(() => {});
+      // opts.onResponse (optional) sees the server's answer -- a 409 "busy" refusal looked
+      // exactly like success while the reply was discarded. null if the request itself failed.
+      const sent = fetch(opts.url(), { method: "POST" });
+      if (opts.onResponse) sent.then(opts.onResponse, () => opts.onResponse(null));
+      else sent.catch(() => {});
       setTimeout(() => opts.label(), 1200);
     }
   });
