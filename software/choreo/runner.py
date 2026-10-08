@@ -531,9 +531,10 @@ class Palette:
                     "audio_note": cur[1].audio_note if cur else None,
                     "live": bool(running and cur[1].live), "live_available": self.arms is not None}
 
-    def run(self, rid: str, live: bool = False) -> dict:
-        if live and self.arms is None:
-            raise ValueError("live output is not available on this runner (started without --arms ros)")
+    def run(self, rid: str) -> dict:
+        # A runner with arms always drives them. On the robot, CH5 AUTO and the held deadman are the
+        # operator's go; a separate "live" switch only let a run skip the arms unnoticed (decided
+        # 2026-10-08). A runner without arms (a laptop, with the composer) drives the twins only.
         with self.lock:
             if self.current and self.current[2].is_alive():
                 raise RuntimeError(f"{self.current[0]!r} is still running — stop it or let it finish")
@@ -544,7 +545,7 @@ class Palette:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
             runner = Runner(r["path"], self.limits_path, self.robot, self.feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=live)
+                            audio=self.audio, arms=self.arms, live=self.arms is not None)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
             self.current = (rid, runner, t)
             t.start()
@@ -611,10 +612,8 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                 robot.set(ch5=p.rsplit("/", 1)[1].upper())
                 return self._json(robot.read())
             if palette and p.startswith("/api/run/"):
-                path, _, query = p.partition("?")
-                live = "live=1" in query.split("&")
                 try:
-                    return self._json(palette.run(path.rsplit("/", 1)[1], live=live))
+                    return self._json(palette.run(p.partition("?")[0].rsplit("/", 1)[1]))
                 except RuntimeError as e:
                     return self._json({"error": str(e)}, 409)
                 except KeyError as e:
@@ -681,7 +680,7 @@ def main() -> int:
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
               f"POST /api/run/<id>, POST /api/stop. Robot state: "
               f"{'the dashboard, read-only' if a.robot == 'dashboard' else 'FAKE'}; "
-              f"{'LIVE arm output available for runs marked live' if arms else 'nothing commands the robot'}.",
+              f"{'every run drives the real arms' if arms else 'nothing commands the robot'}.",
               file=sys.stderr, flush=True)
         while True:
             time.sleep(3600)

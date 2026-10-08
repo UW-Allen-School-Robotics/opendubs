@@ -302,12 +302,11 @@ check("without the LIVE mark, a runner that has arms sends them nothing", end[0]
 r, end, _ = run_live(None, live=True)
 check("LIVE asked of a runner with no arm output runs twin-only", end[0] == "COMPLETED" and r.live is False)
 pal2 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO())
-try:
-    pal2.run("reach", live=True)
-    check("the palette refuses a LIVE run when live output is not available", False, "accepted")
-except ValueError as e:
-    check("the palette refuses a LIVE run when live output is not available", "not available" in str(e), str(e))
-check("... and says whether it is available", pal2.status()["live_available"] is False)
+check("a palette with no arms runs twin-only, and says live output is not available",
+      pal2.run("reach")["live"] is False and pal2.status()["live_available"] is False)
+pal3 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms())
+check("a palette WITH arms makes every run live: CH5 AUTO and the deadman are the go, no second switch",
+      pal3.run("reach")["live"] is True and pal3.status()["live_available"] is True)
 
 print("\nrunner: on the robot (4.4c)")
 missing = R.Palette(SHOWS, "/nonexistent/joint_limits.yaml", R.FakeRobotState(), R.TwinFeed(), io.StringIO())

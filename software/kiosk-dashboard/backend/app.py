@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import time
@@ -68,6 +69,19 @@ def _start_state_out() -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "ts": time.time()}
+
+
+@app.get("/api/frontend-version")
+def frontend_version() -> dict:
+    """Changes whenever a deploy changes any page file. The kiosk tablet has no reload control, so
+    the page polls this and reloads itself (app.js followDeploys). Names, sizes and mtimes: the
+    frontend is a handful of files, so this is cheap enough to compute on every call."""
+    h = hashlib.sha1()
+    for p in sorted(FRONTEND_DIR.rglob("*")):
+        if p.is_file():
+            st = p.stat()
+            h.update(f"{p.relative_to(FRONTEND_DIR)}:{st.st_size}:{st.st_mtime_ns}\n".encode())
+    return {"version": h.hexdigest()[:12]}
 
 
 @app.get("/api/snapshot")
