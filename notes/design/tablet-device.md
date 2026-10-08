@@ -148,6 +148,7 @@ audio and power state over `adb` every two seconds, and a timer inside the page.
 | TB-1 | **Pass.** In the app: `isSecureContext` true; `getUserMedia({audio})` returned a live track with **no prompt**; a screen wake lock was granted. A plain HTTPS page without the CA is refused (`net_error -202`). |
 | TB-2 | **Pass, on battery.** A ten-minute track played straight through, four minutes of it with the screen off (Android "Dozing"): the audio player stayed *started*, the page never paused for more than three seconds, and nobody listening heard a gap. Not tested: "the app briefly in the background" — in lock task it cannot be, by design. So **no foreground service is needed**. |
 | TB-3 | **Pass.** The show-audio websocket stayed up for the whole run, through the screen-off, on battery; the tablet kept the show-audio role; its clock stayed matched to the laptop's within ±6 ms (home Wi-Fi — not the robot's network, so not S1). |
+| TB-1 on the robot | **Pass, 2026-10-08, on opendubs2.** The robot's own CA (fingerprint `E9:60:8F:8F…`) installed by the app with `ca_clear` + `ca_b64`; the dashboard over `https://10.42.2.10:8443/` as a secure context; the mic live with no prompt; a wake lock granted. The tablet is on the robot's Wi-Fi only — every other network forgotten, so it cannot wander off mid-show. |
 | TB-4 | **Begun 2026-10-08.** A week of normal use; nothing to report yet. |
 | TB-5 | **Pass.** Do Not Disturb on *Alarms only* for the whole of TB-2; the music played. |
 | TB-6 | **Needs the robot.** |
