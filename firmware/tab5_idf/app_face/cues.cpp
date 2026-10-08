@@ -65,6 +65,9 @@ uint8_t  g_busyPrio  = 0;
 // due() is now shared/due.h -- the copy that used to live here said "if a third copy ever appears,
 // promote it to a header", a third had appeared in face_probe.cpp, and a fourth was about to.
 bool     g_faultOn   = false;
+// See cuesSuspend() in cues.h: the speaker is handed to streamed TTS, which uses the HAL's
+// UNGUARDED synchronous audioPlay path.
+bool     g_suspended = false;
 uint32_t g_nextFault = 0;
 
 // Attack and decay in milliseconds. Short attack so the onset is crisp, longer decay so it does
@@ -162,6 +165,9 @@ void cuesBegin()
 void cuePlay(Cue c)
 {
     if (!kCuesEnabled || !settingsAudioEnabled()) return;
+    // The speaker belongs to a streamed reply right now. SUPPRESS, do not queue -- the same choice
+    // the busy gate below makes, for the same reason.
+    if (g_suspended) return;
     const uint32_t now = GetHAL()->millis();
     const uint8_t prio = kPrio[(int)c];
 
@@ -176,6 +182,16 @@ void cuePlay(Cue c)
     GetHAL()->audioPlay(v, true);
     g_busyUntil = now + durationMs(c) + 20;   // a little slack for the task to pick it up
     g_busyPrio  = prio;
+}
+
+void cuesSuspend(bool on)
+{
+    g_suspended = on;
+}
+
+bool cuesSuspended()
+{
+    return g_suspended;
 }
 
 bool cuesSpeaking(uint32_t nowMs)

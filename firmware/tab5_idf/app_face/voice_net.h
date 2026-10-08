@@ -14,11 +14,14 @@
 // reconnect state machine. The head already does an HTTP pull for OTA, so a second port is
 // precedented rather than novel.
 //
-// THE REPLY'S AUDIO IS NOT IMPLEMENTED, and that is a stated gap rather than an oversight. The
-// plan wants TTS "streamed, not file-at-a-time", and this request/response carrier would deliver
-// it file-at-a-time -- the robot would stand silent through a whole sentence of synthesis and then
-// speak. `sayBytes` is parsed and skipped, and audio-down wants chunked streaming plus a way to
-// STOP the speaker, which hal.h does not have (see mic.cpp). Both are Phase B's remaining half.
+// AUDIO DOWN IS STREAMED, chunk by chunk, straight to the speaker as it arrives -- which is what
+// the plan asks for ("streamed, not file-at-a-time, or the robot pauses mid-sentence") and also
+// what makes the reply INTERRUPTIBLE at all. hal.h has audioPlay() and no stop; with one long
+// playback call a reply could not be cut short. Each chunk being its own call means stopping is
+// simply not feeding the next one. See voice/stream.h.
+//
+// It uses the HAL's SYNCHRONOUS audioPlay path, which is the only one that can be fed chunk by
+// chunk -- and which has no mutex, so cues are suspended for the duration. See cuesSuspend().
 //
 // IT BLOCKS, and is therefore called only from the capture task -- which is idle between presses
 // and whose whole job is already to block on audioRecord(). Never from cmdTask, which is the 20 Hz
@@ -44,5 +47,14 @@ bool voiceNetSendClip(const ClipMeta& m, const int16_t* pcm, Reply* out);
 // arrive looking like a failure to UNDERSTAND.
 bool voiceNetSendNoSpeech(uint32_t seq, uint32_t beganMs, uint32_t endedMs, float floor,
                           Reply* out);
+
+// CUT THE CURRENT REPLY SHORT. Called from another task (the `VOICE PRESS` verb arrives on
+// cmdTask while the reply is being spoken on the capture task), so it is just a flag the playback
+// loop checks between chunks -- interruption lands within one chunk, ~100 ms.
+//
+// This is the barge-in we gave up when we chose half-duplex, returned in a different form: the head
+// still cannot HEAR someone talk over it, but a press cuts the answer off. With push-to-talk that
+// is the natural gesture anyway.
+void voiceNetInterrupt();
 
 const char* voiceNetStatus();

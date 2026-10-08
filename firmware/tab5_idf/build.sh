@@ -67,6 +67,7 @@ build_voice() {
         "$HERE/app_face/voice/listen.cpp" \
         "$HERE/app_face/voice/glance.cpp" \
         "$HERE/app_face/voice/resample.cpp" \
+        "$HERE/app_face/voice/upsample.cpp" \
         "$HERE/app_face/voice/selftest.cpp"
     "$out"
 }
@@ -93,6 +94,8 @@ build_loopback() {
         "$HERE/app_face/voice/level.cpp" \
         "$HERE/app_face/voice/resample.cpp" \
         "$HERE/app_face/voice/clip.cpp" \
+        "$HERE/app_face/voice/upsample.cpp" \
+        "$HERE/app_face/voice/stream.cpp" \
         "$HERE/app_face/voice/wire.cpp"
 
     # A port per run, so a stale server from an interrupted run cannot make this pass or fail
@@ -102,7 +105,8 @@ build_loopback() {
     echo "phase B loopback on 127.0.0.1:$port"
 
     # mode | extra fake-thor flags
-    for spec in "clip|" "nospeech|" "truncate|" "badreply|--garbage"; do
+    for spec in "clip|" "nospeech|" "truncate|" "badreply|--garbage" \
+                "say|--say-ms 2000" "saystop|--say-ms 2000" "sayshort|--say-ms 400 --no-terminator"; do
         local mode flags log
         mode="${spec%%|*}"
         flags="${spec#*|}"

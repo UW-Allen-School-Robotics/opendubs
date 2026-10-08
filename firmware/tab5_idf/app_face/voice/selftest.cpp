@@ -15,6 +15,7 @@ bool voiceSelfTest(VoiceSelfTestSink)
 #include "listen.h"
 #include "glance.h"
 #include "resample.h"
+#include "upsample.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -734,6 +735,91 @@ bool caseResampleAntiAlias()
     return true;
 }
 
+bool caseUpsample()
+{
+    // 16 kHz MONO -> 48 kHz STEREO, which is the only thing the speaker accepts. The failure this
+    // guards is not a crash: hand 16 kHz PCM to a 48 kHz sink and it PLAYS, three times too slowly
+    // and an octave and a half too low. "The TTS voice sounds wrong" is the whole symptom.
+    //
+    // So the assertions are pitch, amplitude and length -- and pitch is the one that catches a
+    // botched polyphase table, which is not hypothetical: writing these taps out by eye got three
+    // of fifteen wrong on the first attempt.
+    constexpr int kIn = 1600;                 // 100 ms at 16 kHz
+    constexpr float kHz = 1000.0f;
+    constexpr float kAmp = 9000.0f;
+    static int16_t in[kIn];
+    static int16_t out[upsampleOutFor(kIn)];
+
+    for (int i = 0; i < kIn; ++i)
+        in[i] = (int16_t)(sinf(6.2831853f * kHz * (float)i / (float)kClipRate) * kAmp);
+
+    Upsampler u;
+    upsampleReset(&u);
+    const int w = upsampleBlock(&u, in, kIn, out, (int)(sizeof(out) / sizeof(out[0])));
+
+    // LENGTH: 3 for the rate, 2 for the channels.
+    if (w != upsampleOutFor(kIn))
+        return fail("wrote %d int16s, expected %d (rate x3, stereo x2)", w, upsampleOutFor(kIn));
+
+    // STEREO: both ears identical. A TTS voice is mono and inventing a stage would be a lie.
+    for (int i = 0; i < w; i += 2)
+        if (out[i] != out[i + 1]) return fail("channels differ at %d", i);
+
+    // AMPLITUDE: zero-stuffing loses two thirds of the energy, so a missing gain term shows up
+    // here as output at a third of the level rather than as anything obviously broken.
+    double acc = 0.0;
+    int n = 0;
+    for (int i = w / 4; i < w; i += 2) { acc += (double)out[i] * out[i]; ++n; }
+    const float rms  = (float)sqrt(acc / n);
+    const float want = kAmp / 1.41421356f;
+    if (rms < want * 0.85f || rms > want * 1.15f)
+        return fail("output rms %.0f, expected ~%.0f (lost the interpolation gain?)",
+                    (double)rms, (double)want);
+
+    // PITCH: count zero crossings in the left channel over a known span. A 1 kHz tone at 48 kHz
+    // crosses zero 2000 times a second; if the rate conversion were wrong the tone would come out
+    // at 333 Hz and this is what notices.
+    int crossings = 0;
+    for (int i = w / 4 + 2; i < w; i += 2)
+        if ((out[i - 2] < 0) != (out[i] < 0)) ++crossings;
+    const float secs = (float)((w - w / 4) / 2) / 48000.0f;
+    const float hz   = (float)crossings / (2.0f * secs);
+    if (hz < kHz * 0.9f || hz > kHz * 1.1f)
+        return fail("output tone is %.0f Hz, expected %.0f -- the rate conversion is wrong",
+                    (double)hz, (double)kHz);
+
+    // IMAGE REJECTION, which is the only thing that distinguishes a real interpolator from a
+    // zero-order hold -- and a mutation test proved that necessary: replacing the whole polyphase
+    // filter with "repeat each sample three times" passed pitch, amplitude AND length, because ZOH
+    // gets all three right. It is wrong only in the images it leaves behind, which come out as a
+    // metallic shimmer on top of the speech.
+    //
+    // Interpolating by 3 puts images at 16 kHz +/- the signal, so a 1 kHz tone images at 15 and
+    // 17 kHz. Measured by direct correlation rather than an FFT: two bins is cheaper to compute
+    // than to explain.
+    auto bin = [&](float f) {
+        double re = 0.0, im = 0.0;
+        const int from = w / 4;
+        for (int i = from; i < w; i += 2) {
+            const double a = 6.2831853 * f * (double)((i - from) / 2) / 48000.0;
+            re += out[i] * cos(a);
+            im += out[i] * sin(a);
+        }
+        return sqrt(re * re + im * im);
+    };
+    const double fund = bin(kHz);
+    if (fund <= 0.0) return fail("no fundamental in the output");
+    const double worst = (bin(15000.0f) > bin(17000.0f)) ? bin(15000.0f) : bin(17000.0f);
+    const float  imgDb = (float)(20.0 * log10((worst + 1e-9) / fund));
+    if (-imgDb < 30.0f)
+        return fail("image at 15/17 kHz is only %.1f dB down -- that is a zero-order hold, not an "
+                    "interpolation filter", (double)-imgDb);
+
+    say("  ok   upsample: %d -> %d int16s 48 kHz stereo, %.0f Hz held, rms %.0f, images %.0f dB down",
+        kIn, w, (double)hz, (double)rms, (double)-imgDb);
+    return true;
+}
+
 bool caseWrap()
 {
     // WRAP SAFETY. AUDIT.md invariant 5, and cues.cpp shipped this bug twice. Start the hangover
@@ -782,6 +868,7 @@ bool voiceSelfTest(VoiceSelfTestSink sink)
         {caseResampleRate,     "resample rate"},
         {caseResampleOnset,    "resample onset"},
         {caseResampleAntiAlias,"anti-alias"},
+        {caseUpsample,         "upsample"},
         {caseWrap,             "wrap safety"},
     };
 

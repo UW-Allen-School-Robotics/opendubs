@@ -16,13 +16,24 @@ bool        voiceNetSendNoSpeech(uint32_t, uint32_t, uint32_t, float, Reply* o)
     if (o) { *o = Reply{}; o->status = ReplyStatus::Malformed; }
     return false;
 }
+void        voiceNetInterrupt()  {}
 const char* voiceNetStatus()     { return "voice-net: compiled out"; }
 
 #else
 
+#include "cues.h"
+#include "voice/stream.h"
+#include "voice/resample.h"   // kClipRate: the contract rate the reply must be in
+#include "shared/alloc.h"
+#include <atomic>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
+
+#ifdef ESP_PLATFORM
+#include <hal/hal.h>
+#endif
 
 #ifdef ESP_PLATFORM
 #include <lwip/netdb.h>
@@ -46,6 +57,41 @@ uint16_t g_port     = 0;
 uint32_t g_sent     = 0;
 uint32_t g_failed   = 0;
 char     g_last[80] = "never sent";
+uint32_t g_spokenMs = 0;
+
+// ---- the speaker side ------------------------------------------------------------------------
+//
+// THREE BUFFERS, ALLOCATED ONCE, and the sizes are the reason they are not std::vectors by
+// default: 9600 int16s is 19.2 kB, which is over
+// CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384 and therefore lands in PSRAM -- but only because it is
+// over. Being explicit beats depending on a threshold nobody wrote down (shared/alloc.h).
+//
+// `g_play` IS the stream's output buffer, not a copy of it: audioPlay() takes a vector, so the
+// stream writes straight into the vector's storage and the sink plays it in place.
+std::vector<int16_t> g_play;        // 48 kHz stereo, handed to audioPlay
+int16_t* g_stage = nullptr;         // 16 kHz mono staging
+std::atomic<bool> g_interrupt{false};
+
+void playSink(const int16_t* stereo48k, int count, void*)
+{
+#ifdef ESP_PLATFORM
+    (void)stereo48k;   // it IS g_play.data(); see g_play above
+    if (count <= 0 || g_play.empty()) return;
+    // SHRINK FOR A PARTIAL BLOCK, then restore. audioPlay writes the whole vector, so the tail of
+    // a reply would otherwise play kSpeakOutInt16s worth -- the last partial chunk followed by
+    // whatever the previous chunk left in the buffer, i.e. a stutter on the final word.
+    const size_t full = g_play.size();
+    if ((size_t)count < full) g_play.resize((size_t)count);
+    // THE SYNCHRONOUS PATH, deliberately: it is a bare blocking i2s_write, so it returns when the
+    // driver has taken the audio and the next chunk can follow seamlessly. The async path copies
+    // into a task and REFUSES while that task is busy, which cannot stream.
+    GetHAL()->audioPlay(g_play, false);
+    if (g_play.size() != full) g_play.resize(full);
+#else
+    (void)stereo48k;
+    (void)count;
+#endif
+}
 
 void note(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void note(const char* fmt, ...)
@@ -101,6 +147,41 @@ bool sendAll(int fd, const void* p, size_t n)
     return true;
 }
 
+// Read the streamed body and speak it as it arrives. `pre`/`preLen` is the part of the body that
+// already came in with the header.
+//
+// THE SPEAKER IS CLAIMED FOR THE WHOLE REPLY, because the synchronous audioPlay path has no mutex
+// and an earcon on the async path would interleave into the same I2S device. See cuesSuspend().
+void speakStream(int fd, const char* pre, int preLen)
+{
+    if (g_play.empty() || !g_stage) { note("no speak buffers"); return; }
+
+    g_interrupt.store(false);
+    cuesSuspend(true);
+
+    Stream st;
+    streamBegin(&st, playSink, nullptr, g_stage, g_play.data());
+
+    bool framing = true;
+    if (preLen > 0) framing = streamFeed(&st, (const uint8_t*)pre, preLen);
+
+    char buf[1024];
+    while (framing && !streamComplete(st)) {
+        if (g_interrupt.load()) { streamStop(&st); break; }
+        const int r = (int)recv(fd, buf, sizeof(buf), 0);
+        if (r <= 0) break;
+        framing = streamFeed(&st, (const uint8_t*)buf, r);
+    }
+
+    cuesSuspend(false);
+    g_spokenMs = st.samples * 1000u / (uint32_t)kClipRate;
+
+    if (!framing)                 note("streamed body framing error");
+    else if (g_interrupt.load())  note("reply cut short at %lums", (unsigned long)g_spokenMs);
+    else if (!streamComplete(st)) note("stream ended with no terminator at %lums",
+                                       (unsigned long)g_spokenMs);
+}
+
 // One exchange. `hdr` is the framed header line; `pcm`/`bytes` the payload, which may be empty.
 bool exchange(const char* hdr, int hlen, const void* pcm, size_t bytes, Reply* out)
 {
@@ -123,19 +204,44 @@ bool exchange(const char* hdr, int hlen, const void* pcm, size_t bytes, Reply* o
     // trust the byte count twice.
     shutdown(fd, SHUT_WR);
 
-    char rx[512];
-    const int n = (int)recv(fd, rx, sizeof(rx) - 1, 0);
-    close(fd);
-    if (n <= 0) { ++g_failed; note("no reply within %ds", kTimeoutSec); return false; }
-    rx[n] = '\0';
+    // Read until the header's newline, keeping whatever body bytes came with it.
+    char rx[1024];
+    int  have = 0;
+    int  nl   = -1;
+    while (have < (int)sizeof(rx) - 1) {
+        const int r = (int)recv(fd, rx + have, sizeof(rx) - 1 - (size_t)have, 0);
+        if (r <= 0) break;
+        have += r;
+        for (int i = 0; i < have; ++i) if (rx[i] == '\n') { nl = i; break; }
+        if (nl >= 0) break;
+    }
+    if (nl < 0) { close(fd); ++g_failed; note("no reply within %ds", kTimeoutSec); return false; }
 
-    if (!out || !wireParseReply(rx, n, out)) {
+    if (!out || !wireParseReply(rx, nl + 1, out)) {
+        close(fd);
         ++g_failed;
         note("unparseable reply");
         return false;
     }
+
+    if (out->stream) {
+        if (!wireReplyFormatOk(*out)) {
+            // REFUSED, NOT PLAYED. 16 kHz mono is the contract; anything else handed to the
+            // 48 kHz stereo sink would play at the wrong speed and pitch, which sounds like a
+            // broken voice rather than like a protocol error.
+            close(fd);
+            ++g_failed;
+            note("reply format %luHz/%uch refused", (unsigned long)out->rate,
+                 (unsigned)out->channels);
+            out->status = ReplyStatus::Malformed;
+            return false;
+        }
+        speakStream(fd, rx + nl + 1, have - (nl + 1));
+    }
+    close(fd);
     ++g_sent;
-    note("seq=%lu %s", (unsigned long)out->seq, replyStatusName(out->status));
+    note("seq=%lu %s%s", (unsigned long)out->seq, replyStatusName(out->status),
+         out->stream ? " spoken" : "");
     return true;
 }
 
@@ -145,6 +251,16 @@ bool voiceNetBegin()
 {
     g_sent = g_failed = 0;
     snprintf(g_last, sizeof(g_last), "never sent");
+
+    // Allocated once, never freed -- the same no-steady-state-allocation rule percept/ follows.
+    g_play.assign(kSpeakOutInt16s, 0);
+    g_stage = (int16_t*)bigAlloc((size_t)kSpeakStageSamples * sizeof(int16_t));
+    if (!g_stage) {
+        // Degrade: clips still go UP, the head simply cannot speak the answer. Better than
+        // refusing to start, and micStatus()/voiceNetStatus() say so.
+        note("speak staging buffer failed -- replies cannot be spoken");
+        return false;
+    }
     return true;
 }
 
@@ -185,6 +301,11 @@ bool voiceNetSendNoSpeech(uint32_t seq, uint32_t beganMs, uint32_t endedMs, floa
     return exchange(hdr, hl, nullptr, 0, out);
 }
 
+void voiceNetInterrupt()
+{
+    g_interrupt.store(true);
+}
+
 const char* voiceNetStatus()
 {
     // 256, sized from the parts rather than guessed: g_host is 64, g_last is 80, and the fixed
@@ -192,9 +313,10 @@ const char* voiceNetStatus()
     // rejected 160 outright -- a warning the host build does not turn on, so this was caught only
     // by compiling for the P4.
     static char buf[256];
-    snprintf(buf, sizeof(buf), "thor=%s:%u sent=%lu failed=%lu last=\"%s\"",
+    snprintf(buf, sizeof(buf), "thor=%s:%u sent=%lu failed=%lu spoke=%lums%s last=\"%s\"",
              g_host[0] ? g_host : "(unset)", (unsigned)g_port,
-             (unsigned long)g_sent, (unsigned long)g_failed, g_last);
+             (unsigned long)g_sent, (unsigned long)g_failed, (unsigned long)g_spokenMs,
+             g_stage ? "" : " NO-SPEAK-BUF", g_last);
     return buf;
 }
 

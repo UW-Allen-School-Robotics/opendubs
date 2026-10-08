@@ -64,6 +64,13 @@ int wireNoSpeech(char* out, size_t cap, uint32_t seq, uint32_t beganMs, uint32_t
     return n;
 }
 
+bool wireReplyFormatOk(const Reply& r)
+{
+    // The head upsamples 16 kHz mono to the speaker's 48 kHz stereo (voice/upsample.h). Anything
+    // else is refused rather than played at the wrong speed.
+    return r.rate == (uint32_t)kClipRate && r.channels == 1 && r.bits == 16;
+}
+
 const char* replyStatusName(ReplyStatus s)
 {
     switch (s) {
@@ -109,6 +116,19 @@ bool wireParseReply(const char* in, int n, Reply* out)
     // Optional. A missing `bytes` means no audio, which is a legitimate "answer without speaking".
     v = value(line, "bytes");
     out->sayBytes = v ? (uint32_t)strtoul(v, nullptr, 10) : 0;
+
+    v = value(line, "stream");
+    out->stream = (v && *v == '1');
+    if (out->stream) out->sayBytes = 0;    // a streamed body has no up-front length, by definition
+
+    // Default to the contract rather than to zero, so a Thor that omits them is taken at the
+    // contract's word instead of failing the format check for being terse.
+    v = value(line, "rate");
+    out->rate = v ? (uint32_t)strtoul(v, nullptr, 10) : (uint32_t)kClipRate;
+    v = value(line, "ch");
+    out->channels = v ? (uint8_t)strtoul(v, nullptr, 10) : 1;
+    v = value(line, "bits");
+    out->bits = v ? (uint8_t)strtoul(v, nullptr, 10) : 16;
 
     // Optional, and "-" means none -- the existing EMOTE/STATE vocabulary, not a new one.
     v = value(line, "face");

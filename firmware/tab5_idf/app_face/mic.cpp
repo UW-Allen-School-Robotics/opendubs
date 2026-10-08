@@ -116,8 +116,8 @@ void applyReply(const Reply& r)
 {
     switch (r.status) {
         case ReplyStatus::Ok:
-            // Nothing to announce by itself: the answer IS the announcement, and it arrives as
-            // audio once audio-down exists. Until then, silence is the honest placeholder.
+            // Nothing to announce: the answer IS the announcement, and for a streamed reply it has
+            // already been spoken. An earcon on top would be the robot beeping at its own voice.
             break;
         case ReplyStatus::Unintelligible:
             // "Say that again" -- distinct from a refusal, which is what Refuse is for.
@@ -134,11 +134,12 @@ void applyReply(const Reply& r)
             cuePlay(Cue::Fault);
             break;
     }
-    if (r.sayBytes) {
-        // Parsed and SKIPPED. Audio-down is Phase B's remaining half and needs chunked streaming
-        // plus a way to stop the speaker, which hal.h does not have. Logged rather than silently
-        // discarded so this does not look implemented when it is not.
-        mclog::tagWarn("mic", "reply offered {} bytes of audio; audio-down is not built",
+    // A STREAMED reply has already been spoken by the time this runs -- voice_net plays it as it
+    // arrives, which is the point. Only the fixed-length form is still unhandled, and it is left
+    // that way deliberately: a Thor that knows the whole length up front has finished synthesising
+    // before saying anything, which is the behaviour streaming exists to avoid.
+    if (!r.stream && r.sayBytes) {
+        mclog::tagWarn("mic", "reply sent {} bytes as a fixed-length body; only stream=1 is spoken",
                        (unsigned)r.sayBytes);
     }
 }
@@ -326,23 +327,22 @@ bool micPresent()
 void micPress()
 {
     if (!g_present.load() || !settingsAudioEnabled()) return;
-    // "A PRESS MEANS STOP TALKING AND LISTEN" -- EXCEPT THAT NOTHING CAN STOP THE SPEAKER.
+    // A PRESS MEANS STOP TALKING AND LISTEN, and for a streamed reply it now genuinely does.
     //
-    // The vendor HAL has audioPlay() and no counterpart: there is no stop, no abort and no way to
-    // ask whether it is still going (hal.h, checked rather than assumed). So a press cannot cut a
-    // sound short. It waits the sound out: the half-duplex gate stays shut until the cue's own
-    // deadline passes, and the head is deaf for the remainder.
+    // hal.h still has no stop -- audioPlay() has no counterpart, no abort, no is-it-playing -- but
+    // a streamed reply is a sequence of short playback calls, so cutting it off is just declining
+    // to feed the next chunk. Interruption lands within one chunk, ~100 ms. That is the barge-in we
+    // gave up with half-duplex, back in a different form: the head still cannot HEAR someone talk
+    // over it, but a press stops the answer.
+    voiceNetInterrupt();
+
+    // A CUE still cannot be cut short, because a cue is one async audioPlay. The press waits it
+    // out, and the longest cue is the Fault triple at ~500 ms.
     //
-    // Tolerable TODAY because every sound this build plays is a cue, and the longest is the Fault
-    // triple at about 500 ms. It is NOT tolerable for streamed TTS in Phase B -- a robot that
-    // cannot be interrupted until it finishes a sentence is a different and much worse thing than
-    // one that cannot be interrupted mid-word. Phase B therefore needs a real stop, and it will
-    // have to come from the codec layer rather than from here.
-    //
-    // There is a smaller version of the same wrinkle that cannot be designed away: `Heard` is
-    // itself a cue, so acknowledging someone deafens the robot for the ~90 ms the blip lasts. That
-    // hole sits immediately after onset, in the gap between syllables, which is the least bad place
-    // for it -- but it is real, and it is the price of answering with a sound while having no AEC.
+    // And one wrinkle that cannot be designed away: `Heard` is itself a cue, so acknowledging
+    // someone deafens the head for the ~90 ms the blip lasts. That hole sits immediately after
+    // onset, in the gap between syllables, which is the least bad place for it -- but it is real,
+    // and it is the price of answering with a sound while having no AEC.
     listenPress(nowMs());
     g_pressed.store(true);
 }

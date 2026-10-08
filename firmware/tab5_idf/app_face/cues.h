@@ -43,3 +43,17 @@ void cueFaultActive(bool on);     // latch the fault condition on or off
 // Consequence worth knowing: it covers CUES, which is all this build plays. When streamed TTS
 // arrives (Phase B) it must feed the same gate, or the robot will hear its own voice.
 bool cuesSpeaking(uint32_t nowMs);
+
+// HAND THE SPEAKER OVER, because two writers into one I2S device produce garbage.
+//
+// This is a real hazard and not a precaution. The vendor HAL's audioPlay() has two paths: async
+// copies into a task and guards itself with a mutex, while the SYNCHRONOUS path is a bare
+// i2s_write with no mutex and no busy check at all. Earcons use the async path; streamed TTS must
+// use the sync one (it is the only path that can be fed chunk by chunk). Nothing in the HAL stops
+// those two interleaving.
+//
+// So while a reply is being spoken, cues are SUPPRESSED rather than queued -- the same choice
+// cuePlay() already makes under contention. A Fault suppressed here re-announces 3.2 s later on
+// its own, which is why dropping it for the length of one reply is acceptable.
+void cuesSuspend(bool on);
+bool cuesSuspended();

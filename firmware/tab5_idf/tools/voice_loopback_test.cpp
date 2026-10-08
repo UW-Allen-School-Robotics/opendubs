@@ -13,6 +13,8 @@
 #include "voice/clip.h"
 #include "voice/level.h"
 #include "voice/resample.h"
+#include "voice/stream.h"
+#include "voice/upsample.h"
 #include "voice/wire.h"
 
 #include <arpa/inet.h>
@@ -53,6 +55,34 @@ void speechBlock(int16_t* buf, int startFrame, float hz)
         f[kVoiceMicR]   = (int16_t)(v / 3);          // leaning left, so dir should read L
         f[kVoiceAecRef] = 14000;                     // decoys: must never reach the payload
         f[kVoiceMicHp]  = -14000;
+    }
+}
+
+// ---- a fake speaker --------------------------------------------------------------------------
+// Stands in for audioPlay(): counts what reached it and measures the tone, so the test can assert
+// that audio actually arrived at the right rate and pitch rather than that no error occurred.
+struct Speaker {
+    long  int16s = 0;
+    long  frames = 0;         // stereo frames, i.e. 48 kHz sample instants
+    int   calls  = 0;
+    bool  monoPaired = true;  // both ears identical, as a mono TTS voice must be
+    long  crossings = 0;
+    int16_t prev = 0;
+    bool  havePrev = false;
+};
+
+void speakerSink(const int16_t* stereo48k, int count, void* user)
+{
+    Speaker* sp = (Speaker*)user;
+    ++sp->calls;
+    sp->int16s += count;
+    for (int i = 0; i + 1 < count; i += 2) {
+        if (stereo48k[i] != stereo48k[i + 1]) sp->monoPaired = false;
+        ++sp->frames;
+        const int16_t v = stereo48k[i];
+        if (sp->havePrev && ((sp->prev < 0) != (v < 0))) ++sp->crossings;
+        sp->prev = v;
+        sp->havePrev = true;
     }
 }
 
@@ -204,8 +234,108 @@ int main(int argc, char** argv)
             { bad("badreply", std::string("status=") + replyStatusName(reply.status)); return 1; }
         ok("an unparseable reply reads as MALFORMED, never as ok");
 
+    } else if (strcmp(mode, "say") == 0 || strcmp(mode, "saystop") == 0 ||
+               strcmp(mode, "sayshort") == 0) {
+        // AUDIO DOWN. The fake Thor streams length-prefixed chunks; the head parses them, upsamples
+        // 16 kHz mono to the speaker's 48 kHz stereo, and feeds a fake speaker that measures what
+        // it got. `saystop` interrupts partway, which is the thing chunked playback exists for.
+        const bool interrupt = (strcmp(mode, "saystop") == 0);
+        const bool expectIncomplete = (strcmp(mode, "sayshort") == 0);
+
+        buildClip(&c, &store, 320, 10u * kClipRate);
+        const ClipMeta m{1, c.beganMs, c.endedMs, VoiceDir::Centre, 120.0f, (float)c.peak,
+                         c.len, false};
+        const int hl = wireClipHeader(hdr, sizeof(hdr), m);
+
+        const int fd = dial(port);
+        if (fd < 0) { bad(mode, "could not connect"); return 1; }
+        if (!sendAll(fd, hdr, (size_t)hl) || !sendAll(fd, c.buf, (size_t)c.len * 2)) {
+            ::close(fd); bad(mode, "send failed"); return 1;
+        }
+        ::shutdown(fd, SHUT_WR);
+
+        // Read the header line, then hand the remainder to the stream parser.
+        std::string acc;
+        char rx[4096];
+        ssize_t got;
+        size_t nl = std::string::npos;
+        while ((got = ::recv(fd, rx, sizeof(rx), 0)) > 0) {
+            acc.append(rx, (size_t)got);
+            nl = acc.find('\n');
+            if (nl != std::string::npos) break;
+        }
+        if (nl == std::string::npos) { ::close(fd); bad(mode, "no reply header"); return 1; }
+        if (!wireParseReply(acc.data(), (int)nl + 1, &reply)) {
+            ::close(fd); bad(mode, "unparseable reply header"); return 1;
+        }
+        if (!reply.stream) { ::close(fd); bad(mode, "reply was not marked stream=1"); return 1; }
+        if (!wireReplyFormatOk(reply)) {
+            ::close(fd);
+            bad(mode, "reply format rejected: rate=" + std::to_string(reply.rate) +
+                      " ch=" + std::to_string(reply.channels));
+            return 1;
+        }
+
+        Speaker sp;
+        std::vector<int16_t> stage(kSpeakStageSamples), outBuf(kSpeakOutInt16s);
+        Stream st;
+        streamBegin(&st, speakerSink, &sp, stage.data(), outBuf.data());
+
+        bool framing = true;
+        {
+            const std::string tail = acc.substr(nl + 1);
+            if (!tail.empty())
+                framing = streamFeed(&st, (const uint8_t*)tail.data(), (int)tail.size());
+        }
+        // 1023 BYTES, AN ODD NUMBER, ON PURPOSE. 1024 would split chunks only on even offsets, so
+        // samples would never straddle a read and the carry-a-byte path in stream.cpp would go
+        // completely unexercised -- which is what the first version of this test did. An odd read
+        // guarantees int16s and the 4-byte length prefixes both split across feeds, which is what
+        // a socket really does.
+        while (framing && !streamComplete(st) && (got = ::recv(fd, rx, 1023, 0)) > 0) {
+            framing = streamFeed(&st, (const uint8_t*)rx, (int)got);
+            if (interrupt && sp.frames > 48000 / 4) streamStop(&st);   // ~250 ms in
+        }
+        ::close(fd);
+        if (!framing) { bad(mode, "framing error in the streamed body"); return 1; }
+
+        if (expectIncomplete) {
+            // A CONNECTION THAT JUST ENDED IS NOT A FINISHED REPLY. Treating it as one would have
+            // the robot stop mid-sentence and look like it had finished speaking.
+            if (streamComplete(st))
+                { bad(mode, "a stream with no terminator was reported COMPLETE"); return 1; }
+            ok("a truncated stream reads as INCOMPLETE, not as a finished reply");
+            return g_fails ? 1 : 0;
+        }
+        if (!streamComplete(st)) { bad(mode, "stream never reached its terminator"); return 1; }
+        if (!sp.monoPaired)      { bad(mode, "channels differ: not a mono voice"); return 1; }
+        if (sp.calls < 2)        { bad(mode, "only " + std::to_string(sp.calls) +
+                                            " sink call(s): that is file-at-a-time, not streaming");
+                                   return 1; }
+
+        const double secs = (double)sp.frames / 48000.0;
+        const double hz   = (double)sp.crossings / (2.0 * secs);
+        if (hz < 400.0 || hz > 480.0)
+            { bad(mode, "spoken tone measured " + std::to_string((int)hz) + " Hz, expected 440"); return 1; }
+
+        if (interrupt) {
+            // Interrupted at ~250 ms of a 2 s reply. The assertion is that it stopped EARLY --
+            // chunk granularity, not sentence granularity.
+            if (secs > 0.8)
+                { bad(mode, "interrupted reply still played " + std::to_string(secs) + " s"); return 1; }
+            ok(("interrupted: the reply stopped after " + std::to_string((int)(secs * 1000)) +
+                " ms of a 2000 ms answer, at chunk granularity").c_str());
+        } else {
+            if (secs < 1.8 || secs > 2.2)
+                { bad(mode, "played " + std::to_string(secs) + " s of a 2 s reply"); return 1; }
+            ok(("streamed: " + std::to_string(sp.calls) + " playback calls, " +
+                std::to_string((int)(secs * 1000)) + " ms at 48 kHz stereo, tone " +
+                std::to_string((int)hz) + " Hz").c_str());
+        }
+
     } else {
-        std::printf("usage: %s <port> {clip|nospeech|truncate|badreply}\n", argv[0]);
+        std::printf("usage: %s <port> {clip|nospeech|truncate|badreply|say|saystop|sayshort}\n",
+                    argv[0]);
         return 2;
     }
     return g_fails ? 1 : 0;

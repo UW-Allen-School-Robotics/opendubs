@@ -71,8 +71,29 @@ struct Reply {
     uint32_t    seq;
     ReplyStatus status;
     char        face[24];   // an EMOTE/STATE name, or empty. The existing vocabulary, not a new one
-    uint32_t    sayBytes;   // how much audio follows the header, 0 for "answer without speaking"
+    uint32_t    sayBytes;   // a FIXED-LENGTH body: that many bytes follow. 0 for "no audio"
+
+    // STREAMED BODY, which is what the plan actually asks for: "TTS back to the speaker, streamed,
+    // not file-at-a-time, or the robot pauses mid-sentence."
+    //
+    // `stream=1` means the length is NOT known up front -- which is the entire point, since a TTS
+    // engine starts emitting before it has finished synthesising. The body is then a sequence of
+    // length-prefixed chunks, terminated by a zero length (see voice/stream.h). `sayBytes` is
+    // meaningless when this is set.
+    bool        stream;
+
+    // The format of the body, so a mismatch is CAUGHT rather than played. This matters more than
+    // it looks: the speaker sink is hardwired to 48 kHz stereo, so 16 kHz mono handed over
+    // unconverted does not fail -- it plays three times too slowly and an octave and a half too
+    // low. Defaults to the contract (16000/1/16) when the Thor does not say.
+    uint32_t    rate;
+    uint8_t     channels;
+    uint8_t     bits;
 };
+
+// Does the reply's declared format match what the head can play? Checked explicitly rather than
+// assumed, because the failure is audible-but-not-obvious rather than loud.
+bool wireReplyFormatOk(const Reply& r);
 
 // Parse a reply header. `n` is the bytes available; returns false on anything it does not
 // understand, with status Malformed -- a reply we cannot read must never be mistaken for success.

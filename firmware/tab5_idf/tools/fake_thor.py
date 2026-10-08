@@ -137,6 +137,31 @@ def serve(args):
                 pass                                  # answer nothing: exercise the head's timeout
             elif args.garbage:
                 conn.sendall(b"I am not a protocol\n")
+            elif args.say_ms:
+                # STREAMED REPLY: length-prefixed chunks, terminated by a zero length. A real TTS
+                # engine emits before it has finished synthesising, which is why there is no total
+                # length in the header -- and why sending one would defeat the point.
+                face = args.face or "-"
+                conn.sendall(("%s REPLY seq=%d status=%s face=%s stream=1 rate=16000 ch=1 bits=16\n"
+                              % (BANNER, seq, args.status, face)).encode())
+                chunk_ms = args.chunk_ms
+                sent_ms = 0
+                while sent_ms < args.say_ms:
+                    ms = min(chunk_ms, args.say_ms - sent_ms)
+                    n = 16000 * ms // 1000
+                    # A 440 Hz tone: something the head can measure rather than a hiss. Phase is
+                    # continuous across chunks so a seam shows up as a discontinuity.
+                    pcm = struct.pack("<%dh" % n, *[
+                        int(8000 * __import__("math").sin(2 * 3.141592653589793 * 440 *
+                                                          (sent_ms * 16 + k) / 16000.0))
+                        for k in range(n)])
+                    conn.sendall(struct.pack("<I", len(pcm)) + pcm)
+                    sent_ms += ms
+                    if args.say_delay:
+                        time.sleep(args.say_delay)
+                if not args.no_terminator:
+                    conn.sendall(struct.pack("<I", 0))
+                rec["said_ms"] = sent_ms
             else:
                 face = args.face or "-"
                 conn.sendall(("%s REPLY seq=%d status=%s face=%s bytes=0\n"
@@ -181,6 +206,15 @@ def main():
     ap.add_argument("--face", default="", help="a face name to request in the reply")
     ap.add_argument("--garbage", action="store_true", help="reply with something unparseable")
     ap.add_argument("--silent", action="store_true", help="never reply, to test the head's timeout")
+    ap.add_argument("--say-ms", type=int, default=0, dest="say_ms",
+                    help="stream this many ms of 16 kHz mono TTS back in the reply")
+    ap.add_argument("--chunk-ms", type=int, default=100, dest="chunk_ms",
+                    help="ms of audio per streamed chunk")
+    ap.add_argument("--say-delay", type=float, default=0.0, dest="say_delay",
+                    help="seconds to pause between chunks, to imitate synthesis latency")
+    ap.add_argument("--no-terminator", action="store_true", dest="no_terminator",
+                    help="end the stream by closing, with no zero-length chunk: the head must "
+                         "report that as INCOMPLETE and not as a finished reply")
     args = ap.parse_args()
     try:
         return serve(args)
