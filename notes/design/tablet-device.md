@@ -151,7 +151,7 @@ audio and power state over `adb` every two seconds, and a timer inside the page.
 | TB-1 on the robot | **Pass, 2026-10-08, on opendubs2.** The robot's own CA (fingerprint `E9:60:8F:8F…`) installed by the app with `ca_clear` + `ca_b64`; the dashboard over `https://10.42.2.10:8443/` as a secure context; the mic live with no prompt; a wake lock granted. The tablet is on the robot's Wi-Fi only — every other network forgotten, so it cannot wander off mid-show. |
 | TB-4 | **Begun 2026-10-08.** A week of normal use; nothing to report yet. |
 | TB-5 | **Pass.** Do Not Disturb on *Alarms only* for the whole of TB-2; the music played. |
-| TB-6 | **Needs the robot.** |
+| TB-6 | **Marked off, 2026-10-08 (team call).** Covered by what already ran: TB-2's ten minutes of music, and nineteen minutes of the click track docked in the cradle on the robot, on its own Wi-Fi, with no interruption and no gap heard. |
 
 Also measured, for the music-sync work (4.2/6.4): the WebView reports **37 ms** of output latency
 through `getOutputTimestamp()`. Whether that is true is S2's question.
