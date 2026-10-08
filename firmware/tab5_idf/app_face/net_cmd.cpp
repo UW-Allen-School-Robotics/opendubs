@@ -6,6 +6,7 @@
 #include "sim_inputs.h"
 #include "cfg.h"
 #include "mic.h"
+#include "voice_net.h"
 
 #include <cstdio>
 #include <cstring>
@@ -131,8 +132,19 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
         while (*a == ' ') ++a;
         if (strcmp(a, "PRESS") == 0)   { micPress();   return snprintf(tx, cap, "OK press | %s", micStatus()); }
         if (strcmp(a, "RELEASE") == 0) { micRelease(); return snprintf(tx, cap, "OK release | %s", micStatus()); }
-        if (*a == '\0' || strcmp(a, "STATUS") == 0)   return snprintf(tx, cap, "%s", micStatus());
-        return snprintf(tx, cap, "ERR VOICE {PRESS|RELEASE|STATUS}");
+        // Where the Thor is. Runtime, not compiled in: the address is per-deployment and
+        // per-robot values do not belong in this repo. Not persisted -- set it after boot.
+        if (strncmp(a, "THOR ", 5) == 0) {
+            char host[64] = "";
+            unsigned port = 0;
+            if (sscanf(a + 5, "%63s %u", host, &port) != 2 || port == 0 || port > 65535)
+                return snprintf(tx, cap, "ERR VOICE THOR <host> <port>");
+            voiceNetSetThor(host, (uint16_t)port);
+            return snprintf(tx, cap, "OK thor | %s", voiceNetStatus());
+        }
+        if (*a == '\0' || strcmp(a, "STATUS") == 0)
+            return snprintf(tx, cap, "%s | %s", micStatus(), voiceNetStatus());
+        return snprintf(tx, cap, "ERR VOICE {PRESS|RELEASE|STATUS|THOR <host> <port>}");
     }
 
     if (strcmp(rx, "TOF") == 0)     return snprintf(tx, cap, "%s", netPlatTof());

@@ -18,6 +18,8 @@
 #                              available to someone who does not have the hardware.
 #   ./build.sh voice           the same for the voice layer (capture levels, the noise floor,
 #                              direction, push-to-talk, the hangover, the half-duplex mute).
+#   ./build.sh loopback        Phase B end to end on the host: the head's real framing against
+#                              tools/fake_thor.py over a real socket. No board, no IDF.
 #
 # Point OPENDUBS_DEMO at the M5Tab5-UserDemo clone (see README.md for how to construct it).
 # `percept` and `voice` need neither OPENDUBS_DEMO nor an IDF install.
@@ -64,6 +66,7 @@ build_voice() {
         "$HERE/app_face/voice/level.cpp" \
         "$HERE/app_face/voice/listen.cpp" \
         "$HERE/app_face/voice/glance.cpp" \
+        "$HERE/app_face/voice/resample.cpp" \
         "$HERE/app_face/voice/selftest.cpp"
     "$out"
 }
@@ -75,6 +78,58 @@ fi
 
 if [ "$MODE" = "voice" ]; then
     build_voice
+    exit $?
+fi
+
+# PHASE B END TO END, against a DIFFERENT PROGRAM. The self-test proves the arithmetic in-process
+# and cannot catch a framing mistake, because a bug and its mirror image in the same file agree
+# with each other. tools/fake_thor.py is written to the contract in notes/workplan-tab5-audio.md
+# rather than to this code, and rejects anything that does not meet it.
+build_loopback() {
+    local out port rc
+    out="$(mktemp -d)/voice_loopback_test"
+    c++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$HERE/app_face" -o "$out" \
+        "$HERE/tools/voice_loopback_test.cpp" \
+        "$HERE/app_face/voice/level.cpp" \
+        "$HERE/app_face/voice/resample.cpp" \
+        "$HERE/app_face/voice/clip.cpp" \
+        "$HERE/app_face/voice/wire.cpp"
+
+    # A port per run, so a stale server from an interrupted run cannot make this pass or fail
+    # for the wrong reason.
+    port=$(( 9400 + (RANDOM % 400) ))
+    rc=0
+    echo "phase B loopback on 127.0.0.1:$port"
+
+    # mode | extra fake-thor flags
+    for spec in "clip|" "nospeech|" "truncate|" "badreply|--garbage"; do
+        local mode flags log
+        mode="${spec%%|*}"
+        flags="${spec#*|}"
+        log="$(mktemp)"
+        # shellcheck disable=SC2086
+        python3 "$HERE/tools/fake_thor.py" --port "$port" --once --json $flags > "$log" 2>&1 &
+        local srv=$!
+        # NO READINESS PROBE HERE. The obvious one -- connect to see if the port is up -- consumes
+        # the connection a --once server exists to accept, which made every case fail. The client
+        # retries its connect instead.
+        if "$out" "$port" "$mode"; then :; else rc=1; fi
+        wait "$srv" 2>/dev/null || true
+        # The server's own verdict matters as much as the client's: it is the side that rejects a
+        # contract violation, and a client that "passed" while the server rejected the message is
+        # the exact failure this harness exists to surface.
+        if [ "$mode" != "badreply" ] && grep -q '"ok": false' "$log"; then
+            echo "  FAIL: the fake Thor REJECTED the $mode message:"
+            sed -n 's/.*"reject": "\([^"]*\)".*/        \1/p' "$log"
+            rc=1
+        fi
+        rm -f "$log"
+    done
+    return $rc
+}
+
+if [ "$MODE" = "loopback" ]; then
+    build_loopback
     exit $?
 fi
 
@@ -495,5 +550,5 @@ case "$MODE" in
            fi
            echo "  clean: no diagnostic markers in the image"
            ;;
-  *)       echo "usage: $0 {both|device|image|desktop|desktop-build|asan|cost|percept|voice|release}"; exit 2 ;;
+  *)       echo "usage: $0 {both|device|image|desktop|desktop-build|asan|cost|percept|voice|loopback|release}"; exit 2 ;;
 esac

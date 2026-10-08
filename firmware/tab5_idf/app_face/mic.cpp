@@ -18,6 +18,10 @@ bool        micHeard(MicHeard*) { return false; }
 #include "ui_settings.h"
 #include "voice/level.h"
 #include "voice/listen.h"
+#include "voice/clip.h"
+#include "voice/resample.h"
+#include "voice_net.h"
+#include "shared/alloc.h"
 #include "shared/pub.h"
 #include <hal/hal.h>
 #include <mooncake_log.h>
@@ -57,6 +61,31 @@ constexpr uint16_t kBlockMs = 32;
 // exists to forbid.
 std::vector<int16_t> g_buf;
 
+// ---- the clip, and why it starts at the PRESS rather than at the onset ----------------------
+//
+// THE CLIP COVERS THE WHOLE PRESS. The tempting thing is to start accumulating when `Heard` fires,
+// and it loses the beginning of the first word: the onset debounce needs kOnsetBlocks of speech
+// before it will declare anything, so by the time `Heard` exists ~96 ms of audio has already gone
+// past -- and that 96 ms is the leading plosive, which is exactly what an ASR needs to tell "pack"
+// from "back".
+//
+// Accumulating from the press costs the quiet head of the press, which an ASR does not mind at
+// all, and push-to-talk bounds the whole thing anyway. So: no pre-roll ring buffer, no reasoning
+// about how much to keep -- just record the press.
+//
+// 12 SECONDS, IN PSRAM. 12 s of 16 kHz mono int16 is 384 kB against ~250-310 kB of internal DRAM
+// in TOTAL, so this must come from bigAlloc() and could not be a std::vector: the default
+// allocator plus CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL would have tried internal and failed, which
+// is the shape of the bug that panicked this board once already (cues.cpp).
+constexpr uint32_t kMaxClipMs = 12000;
+constexpr uint32_t kClipCap   = kMaxClipMs * (uint32_t)kClipRate / 1000u;
+
+int16_t*  g_clipBuf = nullptr;
+Clip      g_clip;
+Resampler g_rs;
+uint32_t  g_clipSeq = 0;
+bool      g_clipOpen = false;
+
 // One writer (the capture task), many readers (the render loop). See mic.h.
 Published<MicHeard> g_heard;
 uint32_t            g_heardSeq = 0;
@@ -75,6 +104,45 @@ uint32_t nowMs()
 }
 
 #ifdef ESP_PLATFORM
+// WHAT THE THOR'S ANSWER DOES TO THE FACE.
+//
+// `status` is separate from an empty reply on purpose (Phase C): "I heard you and have nothing to
+// say" and "I could not make that out" are different to a person and must be different on the
+// face. MALFORMED -- which includes the Thor being unreachable -- is treated as a FAULT and not as
+// silence, because a robot that takes an utterance and then says nothing at all reads as broken,
+// and open question 4 says the face must degrade honestly rather than invite speech it cannot
+// route.
+void applyReply(const Reply& r)
+{
+    switch (r.status) {
+        case ReplyStatus::Ok:
+            // Nothing to announce by itself: the answer IS the announcement, and it arrives as
+            // audio once audio-down exists. Until then, silence is the honest placeholder.
+            break;
+        case ReplyStatus::Unintelligible:
+            // "Say that again" -- distinct from a refusal, which is what Refuse is for.
+            cuePlay(Cue::Heard);
+            break;
+        case ReplyStatus::Declined:
+            cuePlay(Cue::Refuse);
+            break;
+        case ReplyStatus::Busy:
+            cuePlay(Cue::Refuse);
+            break;
+        case ReplyStatus::Malformed:
+        default:
+            cuePlay(Cue::Fault);
+            break;
+    }
+    if (r.sayBytes) {
+        // Parsed and SKIPPED. Audio-down is Phase B's remaining half and needs chunked streaming
+        // plus a way to stop the speaker, which hal.h does not have. Logged rather than silently
+        // discarded so this does not look implemented when it is not.
+        mclog::tagWarn("mic", "reply offered {} bytes of audio; audio-down is not built",
+                       (unsigned)r.sayBytes);
+    }
+}
+
 void handle(VoiceEvent e)
 {
     switch (e) {
@@ -93,20 +161,46 @@ void handle(VoiceEvent e)
             break;
         }
 
-        case VoiceEvent::UtteranceEnd:
-            // Phase B hands this to the Thor. Until then it is logged, because a bounded clip with
-            // a direction is exactly the thing whose timing and plausibility wants watching on a
-            // real robot before any transport is built on top of it.
-            mclog::tagInfo("mic", "utterance ended, from the {}", voiceDirName(listenDir()));
+        case VoiceEvent::UtteranceEnd: {
+            clipEnd(&g_clip, nowMs());
+            g_clipOpen = false;
+            mclog::tagInfo("mic", "utterance: {} ms from the {}{}",
+                           (unsigned)clipDurationMs(g_clip), voiceDirName(listenDir()),
+                           g_clip.truncated ? " TRUNCATED" : "");
+            // PHASE B. The clip goes up and the reply comes back on THIS task, which is allowed to
+            // block: it is idle between presses and already blocks on audioRecord(). Never on
+            // cmdTask, which is the 20 Hz lift publisher.
+            if (voiceNetHaveThor()) {
+                const ClipMeta m{++g_clipSeq, g_clip.beganMs, g_clip.endedMs, listenDir(),
+                                 voiceFloorThreshold(listenFloor()), (float)g_clip.peak,
+                                 g_clip.len, g_clip.truncated};
+                Reply r{};
+                // One call either way: voiceNetSendClip fails CLOSED, so an unreachable Thor
+                // leaves Malformed in `r` and applyReply treats that as a fault rather than as
+                // silence. Branching here would only duplicate that.
+                voiceNetSendClip(m, g_clip.buf, &r);
+                applyReply(r);
+            }
             break;
+        }
 
-        case VoiceEvent::NoSpeech:
+        case VoiceEvent::NoSpeech: {
+            clipEnd(&g_clip, nowMs());
+            g_clipOpen = false;
             // NOT an error, and it must stay distinguishable from a clip: a failure to HEAR is not
             // a failure to UNDERSTAND. No earcon -- the robot should not chirp at someone who held
             // the button and said nothing.
             mclog::tagInfo("mic", "press ended with no speech (floor {:.0f})",
                            (double)voiceFloorThreshold(listenFloor()));
+            if (voiceNetHaveThor()) {
+                Reply r{};
+                voiceNetSendNoSpeech(++g_clipSeq, g_clip.beganMs, g_clip.endedMs,
+                                     voiceFloorThreshold(listenFloor()), &r);
+                // Deliberately NOT applied: the Thor's answer to "I heard nothing" is not something
+                // to announce. Sent so the far side can keep a session coherent, and then dropped.
+            }
             break;
+        }
 
         default:
             break;
@@ -128,12 +222,30 @@ void step()
         return;
     }
 
+    // OPEN THE CLIP ON THE FIRST BLOCK OF A PRESS, not on the onset. See kMaxClipMs above.
+    if (!g_clipOpen) {
+        clipBegin(&g_clip, g_clipBuf, g_clipBuf ? kClipCap : 0, t);
+        resampleReset(&g_rs);
+        g_clipOpen = true;
+    }
+
     GetHAL()->audioRecord(g_buf, kBlockMs, kGain);
     const int frames = (int)(g_buf.size() / kVoiceChans);
     if (frames <= 0) {
         handle(listenTick(t));
         return;
     }
+
+    // 48 kHz four-channel -> 16 kHz mono, streaming, with the filter history carried across
+    // blocks. Done BEFORE listenBlock so that an event handler firing on this block already has
+    // the audio that caused it.
+    {
+        static int16_t out[resampleMaxOut(kVoiceRate * 64 / 1000)];   // room for a 64 ms block
+        const int got = resampleBlock(&g_rs, g_buf.data(), frames, out,
+                                      (int)(sizeof(out) / sizeof(out[0])));
+        clipAppend(&g_clip, out, (uint32_t)got);
+    }
+
     handle(listenBlock(nowMs(), g_buf.data(), frames));
 }
 
@@ -173,6 +285,17 @@ bool micBegin()
     // 48000 * 4ch * ms / 1000, read from hal_audio.cpp rather than assumed.
     g_buf.assign((size_t)kVoiceRate * kVoiceChans * kBlockMs / 1000, 0);
     listenBegin();
+    voiceNetBegin();
+
+    // PSRAM, EXPLICITLY. 384 kB cannot come from internal DRAM on this chip -- see kMaxClipMs.
+    // A failure here is survivable: clipBegin() treats a null buffer as an immediate truncation,
+    // so the head still hears and still glances, and only the clip's audio is lost. That is a far
+    // better degradation than refusing to start.
+    g_clipBuf = (int16_t*)bigAlloc((size_t)kClipCap * sizeof(int16_t));
+    if (!g_clipBuf) {
+        mclog::tagError("mic", "clip buffer ({} kB PSRAM) failed -- listening without recording",
+                        (unsigned)(kClipCap * sizeof(int16_t) / 1024));
+    }
 
     // PSRAM STACK, pinned to CPU1, priority 2 -- percept/percept.cpp's pattern and its reasoning
     // applies unchanged: the animation owns CPU0 and nothing of ours runs there, and an external

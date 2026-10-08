@@ -14,6 +14,7 @@ bool voiceSelfTest(VoiceSelfTestSink)
 #include "level.h"
 #include "listen.h"
 #include "glance.h"
+#include "resample.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -608,6 +609,131 @@ bool caseGlanceFromListen()
     return true;
 }
 
+// A tone at `hz` into the device's real 4-channel 48 kHz layout, same amplitude both mics.
+void toneBlock(int16_t* buf, int frames, float hz, float amp, int startFrame)
+{
+    for (int i = 0; i < frames; ++i) {
+        const float ph = 6.2831853f * hz * (float)(startFrame + i) / (float)kVoiceRate;
+        const int16_t v = (int16_t)(sinf(ph) * amp);
+        int16_t* f = &buf[kVoiceChans * i];
+        f[kVoiceMicL]   = v;
+        f[kVoiceMicR]   = v;
+        f[kVoiceAecRef] = (int16_t)(sinf(ph) * kDecoyAmp);
+        f[kVoiceMicHp]  = (int16_t)(-sinf(ph) * kDecoyAmp);
+    }
+}
+
+// RMS of the resampler's output for a sustained tone, in STREAMING blocks, so the block-boundary
+// handling is exercised rather than bypassed.
+float resampleToneRms(float hz)
+{
+    static int16_t in[kFrames * kVoiceChans];
+    static int16_t out[resampleMaxOut(kFrames)];
+    Resampler r;
+    resampleReset(&r);
+    double acc = 0.0;
+    long   n = 0;
+    const int blocks = 20;
+    for (int b = 0; b < blocks; ++b) {
+        toneBlock(in, kFrames, hz, 12000.0f, b * kFrames);
+        const int got = resampleBlock(&r, in, kFrames, out, (int)(sizeof(out) / sizeof(out[0])));
+        // Skip the first block: the filter is still filling and its gain is not yet steady.
+        if (b == 0) continue;
+        for (int i = 0; i < got; ++i) { acc += (double)out[i] * out[i]; ++n; }
+    }
+    return n ? (float)sqrt(acc / (double)n) : 0.0f;
+}
+
+bool caseResampleRate()
+{
+    // 3:1, streaming, with the phase carried across blocks. A block of 1536 frames at 48 kHz must
+    // give exactly 512 samples at 16 kHz, EVERY block -- if the phase resets per block the counts
+    // stay right while the samples drift, so the count is necessary but not sufficient and the
+    // aliasing case below is what really pins it.
+    static int16_t in[kFrames * kVoiceChans];
+    static int16_t out[resampleMaxOut(kFrames)];
+    Resampler r;
+    resampleReset(&r);
+    for (int b = 0; b < 5; ++b) {
+        toneBlock(in, kFrames, 1000.0f, 8000.0f, b * kFrames);
+        const int got = resampleBlock(&r, in, kFrames, out, (int)(sizeof(out) / sizeof(out[0])));
+        if (got != kFrames / kDecimate)
+            return fail("block %d produced %d samples, expected %d", b, got, kFrames / kDecimate);
+    }
+    // And the mono mix must ignore the AEC/headset decoys, exactly as voiceLevel() must.
+    const float pass = resampleToneRms(1000.0f);
+    const float want = 12000.0f / 1.41421356f;
+    if (pass < want * 0.9f || pass > want * 1.1f)
+        return fail("a 1 kHz tone came through at %.0f rms, expected ~%.0f (decoy leakage?)",
+                    (double)pass, (double)want);
+    say("  ok   resample: %d frames -> %d samples per block, 1 kHz passes at unity",
+        kFrames, kFrames / kDecimate);
+    return true;
+}
+
+bool caseResampleOnset()
+{
+    // THE FIRST SAMPLE OF A CLIP MUST ALREADY BE RIGHT.
+    //
+    // This case exists because a mutation test caught the suite not having it: zero-priming the
+    // filter history passed every other case, because the RMS helper skips the first block to let
+    // the gain settle. But a clip STARTS at the onset of speech, so a filter ramping up from
+    // silence over 14 samples puts a click exactly where the first phoneme is -- the one place it
+    // cannot be tolerated.
+    //
+    // A constant input makes the difference stark: primed from the first sample, output[0] is that
+    // value immediately; primed from zeros it is value*kFir[last]/sum, which is about 1/1000th.
+    static int16_t in[kFrames * kVoiceChans];
+    static int16_t out[resampleMaxOut(kFrames)];
+    constexpr int16_t kDc = 8000;
+
+    for (int i = 0; i < kFrames; ++i) {
+        int16_t* f = &in[kVoiceChans * i];
+        f[kVoiceMicL]   = kDc;
+        f[kVoiceMicR]   = kDc;
+        f[kVoiceAecRef] = (int16_t)-kDecoyAmp;    // decoys again: the mix must ignore them
+        f[kVoiceMicHp]  = (int16_t)kDecoyAmp;
+    }
+    Resampler r;
+    resampleReset(&r);
+    const int got = resampleBlock(&r, in, kFrames, out, (int)(sizeof(out) / sizeof(out[0])));
+    if (got <= 0) return fail("no output at all");
+    if (out[0] < kDc * 9 / 10)
+        return fail("the first sample of a clip is %d, expected ~%d -- the filter ramps up from "
+                    "silence, which is a click on the first phoneme", out[0], (int)kDc);
+    say("  ok   onset: the first sample of a clip is already %d (no ramp-up click)", out[0]);
+    return true;
+}
+
+bool caseResampleAntiAlias()
+{
+    // THE CASE WITH TEETH, because the bug it guards is invisible by inspection: decimating 3:1
+    // with no low-pass FOLDS everything above 8 kHz into the band. A 12 kHz ESC whine would land
+    // at 4 kHz, on top of the vowels, and the audio would SOUND fine while transcribing badly.
+    //
+    // So: measure the stopband rather than trust the comment. 12 kHz folds to 4 kHz and 16 kHz
+    // folds to DC; both must come out far below a passband tone of the same amplitude.
+    const float ref = resampleToneRms(1000.0f);
+    if (ref <= 1.0f) return fail("the reference tone did not survive at all (%.1f)", (double)ref);
+
+    struct Case { float hz; float minAttenDb; const char* folds; };
+    const Case cs[] = {
+        {12000.0f, 24.0f, "4 kHz, mid-vowel"},
+        {16000.0f, 30.0f, "DC"},
+        {20000.0f, 24.0f, "4 kHz"},
+    };
+    for (const auto& c : cs) {
+        const float got = resampleToneRms(c.hz);
+        const float db  = 20.0f * log10f((got + 1e-6f) / ref);
+        if (-db < c.minAttenDb)
+            return fail("%.0f kHz attenuated only %.1f dB (needs %.0f) -- it folds to %s",
+                        (double)(c.hz / 1000.0f), (double)-db, (double)c.minAttenDb, c.folds);
+    }
+    const float a12 = 20.0f * log10f((resampleToneRms(12000.0f) + 1e-6f) / ref);
+    say("  ok   anti-alias: 12 kHz down %.0f dB before it can fold to 4 kHz", (double)-a12);
+    return true;
+}
+
 bool caseWrap()
 {
     // WRAP SAFETY. AUDIT.md invariant 5, and cues.cpp shipped this bug twice. Start the hangover
@@ -653,6 +779,9 @@ bool voiceSelfTest(VoiceSelfTestSink sink)
         {caseGlanceEndsItself, "glance ends itself"},
         {caseGlanceIsNotATracker, "glance is not a tracker"},
         {caseGlanceFromListen, "glance from listen"},
+        {caseResampleRate,     "resample rate"},
+        {caseResampleOnset,    "resample onset"},
+        {caseResampleAntiAlias,"anti-alias"},
         {caseWrap,             "wrap safety"},
     };
 
