@@ -153,6 +153,7 @@ function paintStatus(s) {
     } else if (s.op && s.op.error) {
       const d = document.createElement("div");
       d.className = "badx";
+      d.style.whiteSpace = "pre-line";  // the error names the fix on its own line
       d.textContent = `${s.op.name}: ${s.op.error}`;
       r.append(d);
     }
