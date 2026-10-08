@@ -44,6 +44,24 @@ measured against the drive motors, the lift and the ESCs a metre away, or it is 
 Push-to-talk and half-duplex compose: a press means **stop talking and listen**, so the press both
 opens capture and cancels playback, and the two gates never contend.
 
+## The first thing to check when the robot is silent
+
+**Audio is OFF by default and it is a per-robot NVS setting, not a property of the image.**
+`ui_settings.cpp` has `g_audio = false` — deliberate, because the Mode tone was rejected as too
+loud and shipping it on would re-make that call for the operator — and `cuePlay()`'s *first*
+statement is `if (!kCuesEnabled || !settingsAudioEnabled()) return;`.
+
+So a head that has never had Audio switched on in SETTINGS accepts every `CUE` and plays nothing.
+This cost the choreography session an investigation on 2026-10-08: earcons sent from the Thor were
+acked, nothing was heard, and the suspicion fell on the shipping image. `CUE` now answers
+`OK cue <name> (AUDIO OFF -- enable it in SETTINGS)` so the next person is told rather than left to
+infer it.
+
+Enabling it needs no reflash: the toggle calls `cuesBegin()`, which is where the earcon PCM is
+rendered — skipped while audio is off because it costs ~306 kB of internal DRAM.
+
+**A show that is silent on one robot can be loud on the next.** Same image, different NVS.
+
 ## Already settled — do not re-investigate
 
 | Fact | Where |

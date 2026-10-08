@@ -7,6 +7,7 @@
 #include "cfg.h"
 #include "mic.h"
 #include "voice_net.h"
+#include "ui_settings.h"
 
 #include <cstdio>
 #include <cstring>
@@ -98,6 +99,17 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
         const int idx = faceCueByName(rx + 4);
         if (idx < 0) return snprintf(tx, cap, "ERR unknown cue");
         g_reqCue = idx;
+        // SAY WHEN NOTHING WILL BE HEARD. The cue is still recorded and still queued -- audio can
+        // be switched on mid-run and the next one sounds -- but a bare "OK" here was actively
+        // misleading: cuePlay()'s first statement is `if (!settingsAudioEnabled()) return`, audio
+        // defaults OFF by design (the Mode tone was rejected as too loud, so it is opt-in), and a
+        // sender saw a confident OK while the robot stood silent.
+        //
+        // That cost the choreography session an investigation on 2026-10-08: earcons sent from the
+        // Thor were acked and nothing was heard, and the suspicion fell on the shipping image
+        // rather than on a setting. One word in the reply would have answered it, so here it is.
+        if (!settingsAudioEnabled())
+            return snprintf(tx, cap, "OK cue %s (AUDIO OFF -- enable it in SETTINGS)", rx + 4);
         return snprintf(tx, cap, "OK cue %s", rx + 4);
     }
 
@@ -145,6 +157,38 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
         if (*a == '\0' || strcmp(a, "STATUS") == 0)
             return snprintf(tx, cap, "%s | %s", micStatus(), voiceNetStatus());
         return snprintf(tx, cap, "ERR VOICE {PRESS|RELEASE|STATUS|THOR <host> <port>}");
+    }
+
+    // GAZE -- a show aims the head. notes/workplan-choreography.md 5.6b.
+    //
+    // In the SHARED parser, so the face twin takes the same line the robot does and a show can be
+    // rehearsed without a robot. ABSOLUTE degrees, 90 centred, because that is the cue format's
+    // convention and a show knows where it wants to look -- unlike the RC stick, which sends a rate
+    // and lets the head own the position.
+    //
+    // NOT the 0x104 absolute CAN frame, deliberately: the dashboard's YOLO tracker and the ROS head
+    // bridge both already send 0x104 and are ignored today, so reviving it would silently hand the
+    // head to YOLO instead of to a show.
+    if (strncmp(rx, "GAZE", 4) == 0 && (rx[4] == '\0' || rx[4] == ' ')) {
+        const char* a = rx + 4;
+        while (*a == ' ') ++a;
+
+        if (strcmp(a, "OFF") == 0) {
+            pantiltGazeOff();
+            return snprintf(tx, cap, "OK gaze off");
+        }
+
+        float pan = 0.0f, tilt = 0.0f;
+        unsigned lease = 0;
+        const int got = sscanf(a, "%f %f %u", &pan, &tilt, &lease);
+        if (got < 2) return snprintf(tx, cap, "ERR gaze <pan_deg> <tilt_deg> [lease_ms] | OFF");
+
+        float panOut = pan, tiltOut = tilt;
+        if (!pantiltGaze(pan, tilt, lease, &panOut, &tiltOut))
+            return snprintf(tx, cap, "ERR gaze no pan/tilt fitted");
+        // THE CLAMPED ANGLES, not the requested ones -- a sender has no other way to see that a
+        // limit bit. See pantiltGaze().
+        return snprintf(tx, cap, "OK gaze %.0f %.0f", (double)panOut, (double)tiltOut);
     }
 
     if (strcmp(rx, "TOF") == 0)     return snprintf(tx, cap, "%s", netPlatTof());
