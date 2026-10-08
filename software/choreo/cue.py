@@ -132,6 +132,12 @@ SPEED_CAP_DEG_S = {1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70}
 # measured, this becomes its peak-to-average ratio (1.0 for constant speed, 1.5 for a cubic) and
 # the peak becomes the gate.
 PEAK_FACTOR = 1.875
+# The arm controller's own velocity TRIPS — the URDF joint limits, read from the arm stack by the
+# arms plan on 2026-10-08. Past one the controller freezes the arm and aborts the whole goal, so a
+# show stops mid-routine. Nothing below the trajectory clamps speed; these are trips, not limits.
+# A move whose PEAK (average x PEAK_FACTOR) reaches one is refused outright — not caution: that move
+# would stop the show every time. Matters once the speed caps rise (workplan 6.1).
+TRIP_DEG_S = {1: 960, 2: 960, 3: 312, 4: 312, 5: 1200, 6: 1200, 7: 1200}
 
 # Measured on opendubs2, per side. Both open on a POSITIVE command, but their zeros sit at
 # opposite physical ends, so one range cannot serve both.
@@ -911,7 +917,11 @@ class Show:
             avg = abs(signed - prev) / dt
             peak = avg * PEAK_FACTOR
             cap = SPEED_CAP_DEG_S[j]
-            if avg > cap + 1e-9:
+            if peak >= TRIP_DEG_S[j]:
+                p.append(f"{where}: {slot} J{j} may peak at {peak:.0f} deg/s, at or over the arm "
+                         f"controller's {TRIP_DEG_S[j]} deg/s trip — it would freeze the arm and stop "
+                         f"the show; give it at least {abs(signed - prev) * PEAK_FACTOR / TRIP_DEG_S[j]:.2f}s")
+            elif avg > cap + 1e-9:
                 p.append(f"{where}: {slot} J{j} moves {avg:.0f} deg/s over {dt:.1f}s "
                          f"(cap {cap}, unsourced)")
             elif peak > cap + 1e-9 and warn is not None:
