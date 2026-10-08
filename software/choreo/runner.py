@@ -252,6 +252,39 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
     return round(secs, 2), targets
 
 
+# What each slot is, on the Shows page's routine buttons (an icon each), in this order.
+USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
+             ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
+             ("LIFT", "lift"), ("DANCE", "base"))
+
+
+def routine_uses(show, tl, arms_live: bool) -> list:
+    """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
+    it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
+    twin only. Today that is the arms (plan 5.6, when the runner has them) and audio routed to the
+    tablet (4.2); grippers wait for calibration (6.2), and the head, face, light, lift and base have
+    no robot output yet. Read from the export when the show validates, else from its `slots:`."""
+    tracks = tl.get("tracks") or {}
+    used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
+    out, seen = [], set()
+    m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
+    if m and m.get("file"):
+        out.append({"part": "music", "live": (m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"})
+        seen.add("music")
+    for slot, part in USE_PARTS:
+        if slot not in used or part in seen:
+            continue
+        seen.add(part)
+        if part == "arms":
+            live = arms_live
+        elif part == "sound":
+            live = any(e.get("output") == "tablet" for e in tracks.get("SOUND", []))
+        else:
+            live = False
+        out.append({"part": part, "live": live})
+    return out
+
+
 # ---- sinks ------------------------------------------------------------------------------------
 class TwinFeed:
     """The runner's output as the twins read it: the same /api/twin shape the composer serves,
@@ -519,7 +552,8 @@ class Palette:
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
-                        "warnings": len(tl.get("warnings", []))})
+                        "warnings": len(tl.get("warnings", [])),
+                        "uses": routine_uses(show, tl, arms_live=self.arms is not None)})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:

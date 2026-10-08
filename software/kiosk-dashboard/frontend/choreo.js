@@ -16,6 +16,27 @@
   }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+  /* What a routine will do, as icons on its button (from the runner's `uses`). A faded icon plays in
+     the twin only: the robot has no output for that part yet. */
+  const PART = {
+    music:    ["MUSIC", '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'],
+    arms:     ["ARMS", '<path d="M3 21h9M7.5 21v-3.5"/><circle cx="7.5" cy="15.5" r="2"/><path d="M9 14l5-6.5"/><circle cx="15" cy="6.5" r="1.6"/><path d="M16.5 7.5l3.5 2.5M20 10l1.5-2M20 10l1.5 2"/>'],
+    grippers: ["GRIP", '<path d="M8 3v6l-3 4v8M16 3v6l3 4v8M8 9h8"/>'],
+    head:     ["HEAD", '<rect x="7" y="6" width="10" height="9" rx="2"/><path d="M12 15v4M9 19h6M2.5 10.5l2-2v4zM21.5 10.5l-2-2v4z"/>'],
+    face:     ["FACE", '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01" stroke-width="2.6"/>'],
+    sound:    ["SOUND", '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>'],
+    light:    ["LIGHT", '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z"/>'],
+    lift:     ["LIFT", '<path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/>'],
+    base:     ["BASE", '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.2"/><path d="M12 3v6.8M12 14.2V21M3 12h6.8M14.2 12H21"/>'],
+  };
+  function usesHTML(uses) {
+    return (uses || []).map((u) => {
+      const p = PART[u.part]; if (!p) return "";
+      const why = u.live ? `${p[0].toLowerCase()}: on the robot` : `${p[0].toLowerCase()}: in the twin only, not on the robot yet`;
+      return `<span class="use ${u.live ? "" : "twin"}" title="${esc(why)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p[1]}</svg>${p[0]}</span>`;
+    }).join("");
+  }
+
   function renderAudio() {
     const A = window.OpenDubsShowAudio, a = A ? A.status() : null;
     let html;
@@ -54,7 +75,7 @@
       : "Pick a routine.";
     /* Rebuild the buttons only when something about them changed: rebuilding every poll would
        replace a button under a finger mid-tap, and the tap would be lost. */
-    const key = JSON.stringify([routines.map((r) => [r.id, r.valid, r.duration_s, r.warnings]), running]);
+    const key = JSON.stringify([routines.map((r) => [r.id, r.valid, r.duration_s, r.warnings, r.uses]), running]);
     if (key === listKey) return;
     listKey = key;
     el("showsList").innerHTML = routines.map((r) => `
@@ -62,6 +83,7 @@
         ${!r.valid || running ? "disabled" : ""}
         title="${esc(r.valid ? `${r.duration_s} s${r.warnings ? ` · ${r.warnings} warning(s)` : ""}` : `Does not validate: ${(r.problems || []).join("; ")}`)}">
         <span class="lbl">${esc(r.label)}</span><span class="dur">${r.valid ? `${Math.round(r.duration_s)} s` : "invalid"}</span>
+        <span class="uses">${usesHTML(r.uses)}</span>
       </button>`).join("") || '<div class="dim">No routines.</div>';
   }
   const labelOf = (id) => (routines.find((r) => r.id === id) || {}).label || id;

@@ -23,6 +23,9 @@ if [ -d /opt/ros/jazzy ] && ! dpkg -s ros-jazzy-control-msgs >/dev/null 2>&1; th
   apt-get install -y -qq ros-jazzy-control-msgs || echo "   WARNING: control_msgs not installed — live arm output will be unavailable"
 fi
 install -m 0644 "$APP/deploy/$UNIT" "/etc/systemd/system/$UNIT"
+# The demo shows' music is generated, never committed (shows/audio/.gitignore), so a deploy may not
+# carry it: make it here. Deterministic, standard library only, a few seconds.
+python3 "$APP/shows/audio/make_test_audio.py" >/dev/null && echo "   demo show music: generated"
 install -d -m 0755 "$MOUNT_POINT"
 
 src=""

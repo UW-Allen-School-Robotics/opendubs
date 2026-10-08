@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=a4536bff" />
+  <link rel="stylesheet" href="style.css?v=a9e80ddc" />
 </head>
 <body>
   <div id="app">
@@ -311,6 +311,7 @@
           <button id="showsAudioClaim" class="sysbtn" title="Play show music and sounds on this device instead (any browser can; the kiosk tablet takes it by default)">Play show audio here</button>
         </div>
         <div id="showsList" class="shows-list"></div>
+        <div class="shows-legend">Icons show what each routine does. Bright: on the robot. Faded: in the twin only, not on the robot yet.</div>
         <div class="shows-ctl">
           <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
           <button id="showsPark" class="sysbtn shows-stop" title="Moves both arms to their stow pose, e.g. after a stopped run left them part-way. Confirm-on-tap; not while a routine runs.">PARK BOTH ARMS</button>
@@ -530,6 +531,6 @@
   <script src="operate.js?v=1c63abb5"></script>
   <script type="module" src="teleop.js?v=62f2695f"></script>
   <script src="show_audio.js?v=2"></script>
-  <script src="choreo.js?v=6"></script>
+  <script src="choreo.js?v=7"></script>
 </body>
 </html>
