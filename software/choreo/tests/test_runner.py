@@ -114,6 +114,10 @@ check("... timed by distance at the caps, slowly enough not to warn",
       secs >= max(40 / R.cue.SPEED_CAP_DEG_S[4], 15 / R.cue.SPEED_CAP_DEG_S[2]) * R.cue.PEAK_FACTOR - 0.01, secs)
 secs0, _ = R.prep_moves(tl, {"ARM_L": [0.0] * 7, "ARM_R": {}})
 check("... and is instant when the arms are already there", secs0 == 0.0, secs0)
+one = dict(tl, tracks={k: v for k, v in tl["tracks"].items() if k != "ARM_L"})
+secs1, targets1 = R.prep_moves(one, {"ARM_L": [0, -10, 0, 20, 0, 0, 0], "ARM_R": [0.0] * 7})
+check("... and homes EVERY arm, even one the show does not move: a one-arm run after a two-arm abort",
+      set(targets1) == {"ARM_L", "ARM_R"} and secs1 > 0, (secs1, targets1))
 r, end, lines = run("hello.yaml", flip_after=10.0, change={"deadman": False})
 last = [x for x in lines if x["kind"] == "status"][-1]
 check("an abort's cause can be reconstructed from the log alone (5.5)",
