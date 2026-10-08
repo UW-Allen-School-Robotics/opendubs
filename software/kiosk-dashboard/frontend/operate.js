@@ -73,53 +73,45 @@
      camera -- which is what made the right stick appear to light up the rear feed. */
   $("opPip") && $("opPip").addEventListener("click", (e) => {
     if (!e.target.closest || !e.target.closest("#opPip")) return;
-    if (e.target.closest("#opCtl, #opArmOverlay, .op-stick")) return;
     $("opPip").classList.toggle("big");
   });
 
-  /* ---------- on-screen joysticks (visual; drive not actuated yet) ---------- */
-  function stick(el, horizOnly) {
-    if (!el) return; const nub = el.querySelector(".nub");
-    const set = (x, y) => { const b = el.getBoundingClientRect(); const R = Math.min(b.width, b.height) / 2 - 14;
-      let dx = x - (b.left + b.width / 2), dy = y - (b.top + b.height / 2); if (horizOnly) dy = 0;
-      const m = Math.hypot(dx, dy); if (m > R) { dx *= R / m; dy *= R / m; }
-      nub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; el.classList.add("armed"); };
-    const end = () => { nub.style.transform = "translate(-50%,-50%)"; el.classList.remove("armed"); };
-    el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); set(e.clientX, e.clientY); });
-    el.addEventListener("pointermove", (e) => { if (e.buttons) set(e.clientX, e.clientY); });
-    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  /* ---------- drive status (read-only): what the robot reports, and why it will not move ---------- */
+  // CH5 in the names the team uses (DEC-9), from the authority the robot-state rollup reports.
+  const AUTH = { OFF: "STANDBY", RC_MANUAL: "MANUAL", AUTONOMOUS: "AUTO" };
+  let lastRS = null, lastDrive = null;
+  function whyNot(inp, d) {
+    // In the order the StamPLC's own gate checks them; the first one is what to fix.
+    if (inp.estopped || (inp.estop_sources && inp.estop_sources.length)) return "e-stop";
+    if (inp.contactor === false) return "contactor open — no drive power";
+    if (inp.link === false) return "no RC link";
+    if (inp.authority === "OFF") return "CH5 in STANDBY";
+    if (d.drive_safe === false) return "robot settling";
+    if (!inp.deadman) return "deadman released";
+    if (!d.armed) return "arming — sticks neutral for 2 s";
+    if (inp.authority === "AUTONOMOUS") return "moves only on the Thor's drive commands";
+    return "";
   }
-  stick($("opStTrans"), false); stick($("opStRot"), true);
-
-  /* ---------- two-thumb ARM → sticks live; touch-is-deadman; auto-disarm on idle ---------- */
-  let padL = false, padR = false, armTimer = null, idleTimer = null; const ARM_MS = 1200, IDLE_MS = 8000;
-  const armed = () => document.body.classList.contains("op-armed");
-  function checkArm() {
-    const both = padL && padR, prog = $("opArmProg");
-    if (both && !armTimer && !armed()) { const t0 = performance.now();
-      armTimer = setInterval(() => { const p = Math.min(1, (performance.now() - t0) / ARM_MS); if (prog) prog.style.width = (p * 100) + "%";
-        if (p >= 1) { clearInterval(armTimer); armTimer = null; doArm(); } }, 40);
-    } else if (!both && armTimer) { clearInterval(armTimer); armTimer = null; if (prog) prog.style.width = "0"; }
+  function renderOpStatus() {
+    const inp = (lastRS && lastRS.inputs) || {}, d = lastDrive || {};
+    const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; e.className = cls || ""; } };
+    const auth = AUTH[inp.authority];
+    set("osAuth", auth || "—", auth === "STANDBY" ? "dim" : auth ? "ok" : "dim");
+    set("osDead", inp.deadman == null ? "—" : inp.deadman ? "HELD" : "RELEASED", inp.deadman ? "ok" : "warn");
+    const why = lastRS ? whyNot(inp, d) : "";
+    set("osDrive", d.armed == null ? "—" : d.armed ? "ARMED" : "DISARMED", d.armed ? "ok" : "warn");
+    set("osWhy", why ? "· " + why : "", "op-why");
+    const ml = typeof DRIVE_MODE_LABEL !== "undefined" ? DRIVE_MODE_LABEL : {};
+    set("osWheels", d.mode ? (ml[d.mode] || d.mode) : "—", d.mode ? "" : "dim");
+    set("osSpeed", d.spd == null ? "—" : Math.round(d.spd * 100) + "%", d.spd === 0 ? "bad" : d.spd == null ? "dim" : "");
   }
-  function doArm() { document.body.classList.add("op-armed"); const s = $("opArmStatus"); if (s) s.textContent = "● ARMED · tap to disarm"; resetIdle(); }
-  function disarm() { document.body.classList.remove("op-armed"); const s = $("opArmStatus"); if (s) s.textContent = "DRIVE DISARMED";
-    const p = $("opArmProg"); if (p) p.style.width = "0"; padL = padR = false;
-    $("opArmL") && $("opArmL").classList.remove("on"); $("opArmR") && $("opArmR").classList.remove("on"); clearTimeout(idleTimer); }
-  function resetIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(disarm, IDLE_MS); }
-  function padBind(el, set) { if (!el) return;
-    el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); set(true); el.classList.add("on"); checkArm(); });
-    const up = () => { set(false); el.classList.remove("on"); checkArm(); };
-    el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); }
-  padBind($("opArmL"), (v) => padL = v); padBind($("opArmR"), (v) => padR = v);
-  $("opArmStatus") && $("opArmStatus").addEventListener("click", () => { if (armed()) disarm(); });
-  [$("opStTrans"), $("opStRot")].forEach((s) => s && s.addEventListener("pointerdown", () => { if (armed()) resetIdle(); }));
-
-  /* ---------- gamepad auto-fallback: touch sticks hide when a joystick is present ---------- */
-  function updateGamepad() { let real = false; try { real = [...navigator.getGamepads()].some(Boolean); } catch (e) {}
-    document.body.classList.toggle("op-gamepad", real); if (real) disarm(); }
-  window.addEventListener("gamepadconnected", updateGamepad);
-  window.addEventListener("gamepaddisconnected", updateGamepad);
-  setInterval(updateGamepad, 1500); updateGamepad();
+  if (typeof window.renderDrive === "function") {
+    const _rd = window.renderDrive;
+    // try/finally: the strip must not depend on the rest of the drive page drawing cleanly.
+    window.renderDrive = function (st) {
+      try { _rd(st); } finally { lastDrive = (st && st.drive) || null; try { renderOpStatus(); } catch (e) {} }
+    };
+  }
 
   /* ---------- fullscreen + landscape lock ---------- */
   function goFS() { const el = document.documentElement;
@@ -173,7 +165,7 @@
 
   /* derive Operate state + notifications from the same rs app.js renders */
   function opFromRS(rs) {
-    if (!rs) return; setOpState(rs.label, rs.color);
+    if (!rs) return; setOpState(rs.label, rs.color); lastRS = rs; renderOpStatus();
     const n = [], inp = rs.inputs || {};
     const latched = !!(inp.estopped || (inp.estop_sources && inp.estop_sources.length));
     document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
@@ -187,7 +179,7 @@
   // wrap the global renderRobotState so the Operate screen updates on every telemetry frame
   if (typeof window.renderRobotState === "function") {
     const _rrs = window.renderRobotState;
-    window.renderRobotState = function (rs) { _rrs(rs); try { opFromRS(rs); } catch (e) {} };
+    window.renderRobotState = function (rs) { try { _rrs(rs); } finally { try { opFromRS(rs); } catch (e) {} } };
   }
 
   // start on the Operate front door

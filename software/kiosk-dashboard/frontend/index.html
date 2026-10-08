@@ -49,38 +49,14 @@
         </div>
         <div id="opNotif"></div>
       </div>
-      <div class="op-ctl" id="opCtl">
-        <div class="op-zone op-drive"><span class="op-zlbl">TRANSLATE</span>
-          <div class="op-stick" id="opStTrans"><div class="nub"></div></div>
-          <span class="op-axhint">▲▼ fwd · ◀▶ strafe</span>
-        </div>
-        <div class="op-zone" style="justify-content:space-between; gap:12px">
-          <div id="opArmStatus" class="op-armstatus">DRIVE DISARMED</div>
-          <div style="width:100%"><div class="op-cap" style="margin-bottom:5px">SPEED</div>
-            <input class="op-slider" type="range" min="0" max="100" value="35"></div>
-          <div class="op-seg"><button class="on">MECANUM</button><button>4WD</button></div>
-        </div>
-        <div class="op-zone op-drive"><span class="op-zlbl">ROTATE</span>
-          <div class="op-stick rot" id="opStRot"><div class="nub"></div></div>
-          <span class="op-axhint">◀▶ yaw</span>
-        </div>
-        <div id="opArmOverlay">
-          <div class="op-armpad" id="opArmL"><span>HOLD</span></div>
-          <div class="op-armmsg">
-            <div class="op-armt">DRIVE DISARMED</div>
-            <div class="op-arms">hold <b>both</b> pads together to enable the on-screen sticks</div>
-            <div class="op-armp"><i id="opArmProg"></i></div>
-          </div>
-          <div class="op-armpad" id="opArmR"><span>HOLD</span></div>
-        </div>
-      </div>
-      <div id="opCtlPad">
-        <span class="op-gpdot"></span><span class="op-gptxt">GAMEPAD CONNECTED</span>
-        <span style="color:var(--dim)">— driving via joystick · on-screen sticks hidden</span>
-        <span class="spacer"></span>
-        <span class="op-cap" style="align-self:center">SPEED</span>
-        <input class="op-slider" style="max-width:150px" type="range" min="0" max="100" value="35">
-        <div class="op-seg" style="max-width:170px"><button class="on">MECANUM</button><button>4WD</button></div>
+      <!-- What the robot itself reports about driving. READ-ONLY: nothing on this screen commands
+           motion — the RC transmitter drives in MANUAL, the Thor in AUTO (CH5). -->
+      <div class="op-status" id="opStatus">
+        <div class="op-tile"><span class="op-cap">AUTHORITY · CH5</span><b id="osAuth">—</b></div>
+        <div class="op-tile"><span class="op-cap">DEADMAN · CH6</span><b id="osDead">—</b></div>
+        <div class="op-tile wide"><span class="op-cap">DRIVE</span><b id="osDrive">—</b><span class="op-why" id="osWhy"></span></div>
+        <div class="op-tile" title="Set on the robot, not here: it follows the wheels fitted"><span class="op-cap">WHEELS</span><b id="osWheels">—</b></div>
+        <div class="op-tile"><span class="op-cap">SPEED · CH8</span><b id="osSpeed">—</b></div>
       </div>
     </main>
 
