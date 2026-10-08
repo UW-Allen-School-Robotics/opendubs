@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenDubs show runner — the routine palette behind the Shows page (drives only the twins)
+Description=OpenDubs show runner — the routine palette behind the Shows page (drives the arms and the twins)
 After=network-online.target opendubs-dash.service
 Wants=opendubs-dash.service
 
