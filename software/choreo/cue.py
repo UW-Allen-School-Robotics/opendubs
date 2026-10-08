@@ -172,8 +172,9 @@ CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
-# uses the same constant to show where the head actually is.
-HEAD_SLEW_DPS = 25.0
+# uses the same constant to show where the head actually is. 70 since Tab5 PR #81 (2026-10-08, the
+# user's call: a nod must land on a beat; was 25), measured on opendubs2 at 74 deg/s effective.
+HEAD_SLEW_DPS = 70.0
 HEAD_REACH_TOL_DEG = 1.5       # the firmware's deadband (kDeadbandDeg): closer than this is "there"
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
@@ -260,8 +261,9 @@ NOT_EXECUTABLE = {
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
              "every state change, so the runner must LAYER it before a show may (two writers "
              "on one register otherwise)",
-    "SOUND": "SOUND files are valid but play nowhere yet: the tablet and Thor audio paths are not "
-             "built (workplan 4.2); Tab5 earcons play on the head (CUE)",
+    "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
+             "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
+             "(2026-10-08) and the robot's runner holds earcons back",
 }
 
 

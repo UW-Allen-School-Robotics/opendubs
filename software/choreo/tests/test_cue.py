@@ -372,7 +372,7 @@ _a = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 120}}]).analyse(LIMITS)
 check_true("a move over the cap on average is still a problem, not just a warning",
            any("cap 30, unsourced" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
 
-# The head turns at the firmware's 25 deg/s; a cue that arrives before the last move can finish is
+# The head turns at the firmware's slew limit (cue.HEAD_SLEW_DPS); a cue that arrives before the last move can finish is
 # a WARNING (the show is still valid), not a problem.
 _h = doc_show([{"t": 0.0, "slot": "HEAD", "pan": 90}, {"t": 1.0, "slot": "HEAD", "pan": 150},
                {"t": 1.5, "slot": "HEAD", "pan": 90}]).analyse(LIMITS)
