@@ -2,6 +2,7 @@ package org.opendubs.kiosk
 
 import android.app.Activity
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.PowerManager
 import android.view.WindowManager
@@ -42,12 +43,23 @@ class KioskBridge(private val activity: Activity) {
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
 
-    /** The tablet's own battery, as JSON `{"level": 0..100, "charging": bool}` — shown beside the
-     *  robot's pack in the dashboard's top bar, each with its own icon so they are not confused. */
+    /** The tablet's own battery, as JSON `{"level": 0..100, "charging": bool, "plugged": source}` —
+     *  shown beside the robot's pack in the dashboard's top bar, each with its own icon so they are
+     *  not confused. `plugged` is `"ac"`, `"usb"`, `"wireless"`, `"dock"` or `null`: whether power
+     *  is CONNECTED, which is not the same as charging — with a charge limit set, a tablet on the
+     *  mount's power stops charging and is still plugged (workplan-tablet.md 0.3). */
     @JavascriptInterface
     fun battery(): String {
         val bm = activity.getSystemService(BatteryManager::class.java)
         val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        return """{"level": $level, "charging": ${bm.isCharging}}"""
+        val sticky = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val plugged = when (sticky?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) {
+            BatteryManager.BATTERY_PLUGGED_AC -> "\"ac\""
+            BatteryManager.BATTERY_PLUGGED_USB -> "\"usb\""
+            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "\"wireless\""
+            8 -> "\"dock\""                         // BATTERY_PLUGGED_DOCK, API 33; min SDK is 28
+            else -> "null"
+        }
+        return """{"level": $level, "charging": ${bm.isCharging}, "plugged": $plugged}"""
     }
 }

@@ -52,54 +52,77 @@ _TAB5_GLOB = os.environ.get(
 )
 _REFRESH_S = 3.0   # re-push at least this often (Tab5 link timeout is 5 s)
 
-# Tab5 over the network. Resolved once per push attempt so a DHCP change or a reboot is
-# picked up without restarting the dashboard.
-_TAB5_HOST = os.environ.get("OPENDUBS_TAB5_HOST", "opendubs-tab5.local")
+# The head over the network, by role (head.py): the FACE takes the indicator lines, the NECK takes
+# motion. Resolved once per push attempt so a DHCP change or a reboot is picked up without
+# restarting the dashboard.
 _TAB5_UDP_PORT = int(os.environ.get("OPENDUBS_TAB5_UDP_PORT", "4242"))
 _TAB5_RX_PORT = int(os.environ.get("OPENDUBS_TAB5_RX_PORT", "5006"))
 _CAN_ID_LIFT_CMD = 0x102
 _tab5_sock = None
 _PEER_REINTRO_S = 20.0        # re-assert the pairing this often; both ends hold it in RAM
 _peers_last_intro = 0.0
-_tab5_addr = None
-_tab5_addr_ts = 0.0
 # A failed lookup of an absent head takes 5 s. Remember the failure rather than paying it
 # on every write, which is what turned the state loop from 0.3 s into 10-15 s.
 _TAB5_RESOLVE_RETRY_S = 30.0
-_tab5_resolve_fail_ts = -_TAB5_RESOLVE_RETRY_S
 # The head's own packets to _TAB5_RX_PORT say where it is, more reliably than mDNS.
 _TAB5_LEARNED_TTL_S = 10.0
-_tab5_learned = None           # (ip, monotonic time) — written by the rx thread
 _tab5_q: "queue.Queue[str]" = queue.Queue(maxsize=64)
 
 
-def _tab5_resolve():
-    """Where the head is right now, or None. In order of trust: the address its own packets
-    came from (fresh within _TAB5_LEARNED_TTL_S), a cached mDNS answer (30 s), then a new
-    lookup — but never more than once per _TAB5_RESOLVE_RETRY_S after a failure. Called only
-    from the Tab5 thread, because a lookup can still block for 5 s."""
-    global _tab5_addr, _tab5_addr_ts, _tab5_resolve_fail_ts
-    import socket
-    now = time.monotonic()
-    learned = _tab5_learned
-    if learned is not None and now - learned[1] < _TAB5_LEARNED_TTL_S:
-        return learned[0]
-    if _tab5_addr is not None and now - _tab5_addr_ts < 30:
-        return _tab5_addr
-    if now - _tab5_resolve_fail_ts < _TAB5_RESOLVE_RETRY_S:
-        return None
-    try:
-        _tab5_addr = socket.gethostbyname(_TAB5_HOST)
-        _tab5_addr_ts = time.monotonic()
-        return _tab5_addr
-    except Exception:
-        _tab5_addr = None
-        _tab5_resolve_fail_ts = time.monotonic()
-        return None
+class _Peer:
+    """One half of the head, found by name. `learned` is (ip, monotonic time), written by the rx
+    thread when the device's own packets arrive."""
+
+    def __init__(self, host: str):
+        self.host = host
+        self.addr = None
+        self.addr_ts = 0.0
+        self.fail_ts = -_TAB5_RESOLVE_RETRY_S
+        self.learned = None
+
+    def resolve(self):
+        """Where it is right now, or None. In order of trust: the address its own packets came
+        from (fresh within _TAB5_LEARNED_TTL_S), a cached mDNS answer (30 s), then a new lookup —
+        but never more than once per _TAB5_RESOLVE_RETRY_S after a failure. Called only from the
+        head's own thread (and the on-demand PING probe), because a lookup can block for 5 s."""
+        import socket
+        now = time.monotonic()
+        learned = self.learned
+        if learned is not None and now - learned[1] < _TAB5_LEARNED_TTL_S:
+            return learned[0]
+        if self.addr is not None and now - self.addr_ts < 30:
+            return self.addr
+        if now - self.fail_ts < _TAB5_RESOLVE_RETRY_S:
+            return None
+        try:
+            self.addr = socket.gethostbyname(self.host)
+            self.addr_ts = time.monotonic()
+            return self.addr
+        except Exception:
+            self.addr = None
+            self.fail_ts = time.monotonic()
+            return None
 
 
-def tab5_set_tracking(ai: bool) -> bool:
-    """Ask the head to enter AI or MANUAL tracking (CAN_ID_TRACK_MODE, 0x108).
+def _make_peers(face_host: str, neck_host: str):
+    """With the Tab5 fitted both halves are one box, so they share ONE peer — the same lookups,
+    the same learned address, exactly the behaviour from before the split."""
+    face = _Peer(face_host)
+    return face, (face if neck_host == face_host else _Peer(neck_host))
+
+
+import head as _head
+_face, _neck = _make_peers(_head.face_host(), _head.neck_host())
+
+
+def face_addr():
+    """The face's address now, or None — for whoever must ask it something (PING)."""
+    return _face.resolve()
+
+
+def head_set_tracking(ai: bool) -> bool:
+    """Ask the head to enter AI or MANUAL tracking (CAN_ID_TRACK_MODE, 0x108). Goes to the NECK:
+    it is the authority over head motion (head-ownership.md).
 
     Tracking mode was writable only by the Tab5's own touchscreen, so the dashboard's AI
     TRACKING button could start the tracker process but never grant it the head — pressing it
@@ -110,7 +133,7 @@ def tab5_set_tracking(ai: bool) -> bool:
     """
     global _tab5_sock
     import socket, struct
-    addr = _tab5_resolve()
+    addr = _neck.resolve()
     if addr is None:
         return False
     # can_frame_udp is {uint32 can_id; uint8 can_dlc; uint8 data[8]}, packed little-endian.
@@ -124,12 +147,13 @@ def tab5_set_tracking(ai: bool) -> bool:
         return False
 
 
-def _tab5_udp(line: str) -> None:
-    """Best-effort state push to the Tab5 over UDP. Silent on failure: the face is an
-    indicator, not a control path, and a missing head must not disturb the dashboard."""
+def _tab5_udp(line: str, peer=None) -> None:
+    """Best-effort line to the head over UDP — the face unless told otherwise. Silent on failure:
+    the face is an indicator, not a control path, and a missing head must not disturb the
+    dashboard."""
     global _tab5_sock
     import socket
-    addr = _tab5_resolve()
+    addr = (peer or _face).resolve()
     if addr is None:
         return
     try:
@@ -257,7 +281,6 @@ def _tab5_listen() -> None:
     and already owns the StamPLC link. The ROS bridge can do the same job, but it is
     optional, and the head's buttons should not depend on ROS being up.
     """
-    global _tab5_learned
     import socket
     import struct
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -277,7 +300,9 @@ def _tab5_listen() -> None:
             data, addr = sock.recvfrom(64)
             if len(data) < 13:
                 continue
-            _tab5_learned = (addr[0], time.monotonic())   # the head is here, right now
+            # The face is here, right now: its lift buttons send from it. (With the Tab5 the neck is
+            # the same peer. A separate neck is found by name until it reports outward, plan 2.1.)
+            _face.learned = (addr[0], time.monotonic())
             can_id, dlc, payload = struct.unpack("<IB8s", data[:13])
             if can_id != _CAN_ID_LIFT_CMD or dlc < 1:
                 continue
@@ -314,22 +339,29 @@ def _introduce_peers() -> None:
     one-shot handshake left it with nowhere to send and no way to say so: the sticks simply
     did nothing, with every other indicator healthy. Cheap to repeat, and it means the
     pairing heals itself instead of needing someone to remember.
+
+    The pairing is between the StamPLC and the NECK, the half that moves. With the Tab5 fitted
+    that is the Tab5 itself, as before. (`TAB5IP` is the StamPLC's own word for "where RC
+    pan/tilt goes"; it is kept as is so the firmware needs no change.)
     """
     global _peers_last_intro
     now = time.monotonic()
     if now - _peers_last_intro < _PEER_REINTRO_S:
         return
     _peers_last_intro = now
-    tab5 = _tab5_resolve()
-    if tab5 is None:
+    neck = _neck.resolve()
+    if neck is None:
         # Retry in ~5 s rather than on every pass: each attempt used to cost a 5 s lookup.
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
         return
     try:
         import stamplc
         plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
-        _tab5_write(f"PLCIP {plc}")            # head <- "the StamPLC may command you"
-        stamplc.reader.send(f"TAB5IP {tab5}")  # PLC  <- "the head lives here"
+        if _neck is _face:
+            _tab5_write(f"PLCIP {plc}")        # head <- "the StamPLC may command you"
+        else:
+            _tab5_udp(f"PLCIP {plc}", _neck)   # already on the head's own thread
+        stamplc.reader.send(f"TAB5IP {neck}")  # PLC  <- "the neck lives here"
     except Exception:
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
 

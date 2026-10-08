@@ -33,7 +33,7 @@ app on any tablet for development.
 | `screenState()` | `"on"` or `"off"` |
 | `isDeviceOwner()` | whether lock task and the update policy are in force |
 | `version()` | the app's version |
-| `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool}` — the dashboard shows it beside the robot's |
+| `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool, "plugged": "ac"\|"usb"\|"wireless"\|"dock"\|null}` — the dashboard shows it beside the robot's. `plugged` is whether power is connected, which a charge limit makes different from charging |
 
 ## Build
 

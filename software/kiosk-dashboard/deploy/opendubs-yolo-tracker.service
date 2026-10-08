@@ -14,7 +14,9 @@ User=kiosk
 SupplementaryGroups=video render
 WorkingDirectory=/opt/opendubs/kiosk-dashboard/backend
 # No --show: the robot has no display. The GUI preview is opt-in and for a laptop.
-ExecStart=/opt/opendubs/venv/bin/python yolo_tracker.py --ip opendubs-tab5.local
+# Where the head's neck is comes from the robot's own settings (head.py), not from this file.
+ExecStart=/opt/opendubs/venv/bin/python yolo_tracker.py
+EnvironmentFile=-/etc/opendubs/robot.env
 # Persistent model cache — otherwise it re-downloads face_yolov8n.pt from Hugging Face on
 # every boot and cannot start without internet.
 Environment=OPENDUBS_MODEL_DIR=/opt/opendubs/models
