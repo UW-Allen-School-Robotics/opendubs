@@ -200,9 +200,36 @@ arm_motor_counts() {
     END { printf "%d %d %d %d%s\n", en, dis, nr, flt, desc }'
 }
 
+# What to press on the tablet to reset one arm by hand -- named exactly, because "DE-ENERGIZE, then
+# ACTIVATE" left an operator asking de-energize WHAT, and DE-ENERGIZE needs a second, confirming tap.
+tablet_reset() {
+  local s=L; [ "$1" = right ] && s=R
+  echo "on the TELEOP page press DE-ENERGIZE, tap it again to confirm, then press ACTIVATE $s"
+}
+
 activate_one() {
   local arm=$1
   local st; st=$(hw_state "$arm")
+  # Power came back after an e-stop or a contactor drop: the motors restart DISABLED, but the arm
+  # stack still has the arm active, so the transition below would be skipped and the enable wait
+  # would fail -- which is what an operator met after every e-stop. Take THIS arm through inactive
+  # first, with the same steps `down` uses for it, so one press of ACTIVATE recovers it. Only when
+  # every motor answers and none is enabled or faulted: anything else is not a clean power return.
+  if [ "$st" = active ]; then
+    local r_en r_dis r_nr r_flt r_desc c
+    read -r r_en r_dis r_nr r_flt r_desc <<<"$(arm_motor_counts "$arm")"
+    if [ "${r_en:-0}" -eq 0 ] && [ "${r_dis:-0}" -eq 8 ] && [ "${r_nr:-0}" -eq 0 ] && [ "${r_flt:-0}" -eq 0 ]; then
+      echo "== $arm: power was lost and restored (motors disabled under an active arm) -- resetting this arm"
+      for c in "${arm}_gripper_controller" "${arm}_controller"; do
+        [ "$(controller_state "$c")" = active ] || continue
+        ros "timeout 30 ros2 control switch_controllers --deactivate $c 2>&1" | tail -1 | sed "s/^/  $c: /"
+      done
+      ros "timeout 30 ros2 control set_hardware_component_state openarm_${arm}_hardware_interface inactive 2>&1" | tail -1 | sed 's/^/  /'
+      st=$(hw_state "$arm")
+      [ "$st" = inactive ] || die "$arm: could not reset the arm after a power loss (hardware is '$st', not inactive).
+  To fix: $(tablet_reset "$arm")   (shell: openarm-up down, then openarm-up activate $arm)."
+    fi
+  fi
   local was=$st
   if [ "$st" != active ]; then
     echo "== $arm: hardware $st -> active"
@@ -228,23 +255,23 @@ activate_one() {
     if [ "${c_flt:-0}" -gt 0 ]; then
       die "$arm: motor fault —$c_desc. Not starting its controller.
   A motor fault latches until the motor loses power.
-  To fix: press and release the e-stop to power-cycle the arms, then DE-ENERGIZE and ACTIVATE
-  (shell: openarm-up down, then openarm-up activate $arm)."
+  To fix: press and release the e-stop to power-cycle the arms, then press ACTIVATE again
+  (shell: openarm-up activate $arm)."
     elif [ "${c_nr:-0}" -gt 0 ]; then
       die "$arm: $c_nr of 8 motors do not answer on CAN. Not starting its controller.
   They are unpowered, or the CAN wiring is broken at or before the first silent one (the gripper is
   last in the chain).
-  To fix: check the e-stop is released and the contactor closed, then ACTIVATE again. If they still
-  do not answer, openarm-motors status shows which ids are silent."
+  To fix: check the e-stop is released and the contactor closed, then press ACTIVATE again. If they
+  still do not answer, openarm-motors status shows which ids are silent."
     elif [ "$was" = active ]; then
       die "$arm: the motors answer but are DISABLED, while the arm stack still has this arm active.
   The arms lost power and got it back -- an e-stop, or the contactor dropping. The motors restart
   disabled, and the arm stack does not notice.
-  To fix: DE-ENERGIZE, then ACTIVATE   (shell: openarm-up down, then openarm-up activate $arm)."
+  To fix: $(tablet_reset "$arm")   (shell: openarm-up down, then openarm-up activate $arm)."
     else
       die "$arm: the hardware went active but only $c_en/8 motors enabled ($c_dis stayed DISABLED).
-  To fix: DE-ENERGIZE, then ACTIVATE. If it happens again, power-cycle the arms with the e-stop
-  first (press and release), then DE-ENERGIZE and ACTIVATE."
+  To fix: $(tablet_reset "$arm"). If it happens again, press and release the e-stop
+  first to power-cycle the arms, then press ACTIVATE again."
     fi
   fi
   echo "  $arm: 8/8 motors ENABLED"

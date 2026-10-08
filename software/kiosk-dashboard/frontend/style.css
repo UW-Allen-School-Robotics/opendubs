@@ -77,6 +77,10 @@ body {
 .sysbtn:active { background: var(--accent-2); color: #04223f; }
 .sysbtn.danger { border-color: var(--bad); color: var(--bad); }
 .sysbtn.armed { background: var(--warn); color: #2a2000; border-color: var(--warn); }
+/* An arm action in progress on THIS button, and the others waiting for it. */
+.sysbtn.busy { border-color: var(--warn); color: var(--warn); }
+.sysbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.sysbtn.busy:disabled { opacity: 1; }
 .sysbtn.danger.armed { background: var(--bad); color: #2a0000; border-color: var(--bad); }
 #pwrList { columns: 2; }   /* Jetson rails now live on the THOR page (6th card) */
 #view-thor { grid-template-columns: 0.8fr 1.3fr 1.05fr 1.05fr 1.1fr 1.05fr; }
