@@ -9,14 +9,20 @@
 #   ./build.sh device          idf.py build and flash
 #   ./build.sh image           idf.py build ONLY -- no board needed; prints the image size
 #   ./build.sh desktop         SDL build and run
+#   ./build.sh desktop-build   build the twin only, do NOT run it -- for SSH, CI, and for asking
+#                              the question "does it still compile" without opening a window
 #   ./build.sh asan            desktop with AddressSanitizer + UndefinedBehaviorSanitizer
 #   ./build.sh cost            desktop for ~95 s, then print the dirty-area verdict
 #   ./build.sh percept         compile and run the perception self-test ON THE HOST -- no IDF,
 #                              no demo tree, no board. Seconds, and it is the only verification
 #                              available to someone who does not have the hardware.
+#   ./build.sh voice           the same for the voice layer (capture levels, the noise floor,
+#                              direction, push-to-talk, the hangover, the half-duplex mute).
+#   ./build.sh loopback        Phase B end to end on the host: the head's real framing against
+#                              tools/fake_thor.py over a real socket. No board, no IDF.
 #
 # Point OPENDUBS_DEMO at the M5Tab5-UserDemo clone (see README.md for how to construct it).
-# `percept` needs neither OPENDUBS_DEMO nor an IDF install.
+# `percept` and `voice` need neither OPENDUBS_DEMO nor an IDF install.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -48,8 +54,86 @@ build_percept() {
     return $rc
 }
 
+# Same deal for the voice layer, and for the same reason one step stronger: when this was written
+# the demo tree was not on the development machine at all, so this was the ONLY build that ran.
+build_voice() {
+    local out
+    out="$(mktemp -d)/voice_host_test"
+    # -Wall -Wextra -Werror on purpose, as with percept: this layer is pure compute with no
+    # platform excuses, and a warning here is the cheapest bug report available.
+    c++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$HERE/app_face" -o "$out" \
+        "$HERE/tools/voice_host_test.cpp" \
+        "$HERE/app_face/voice/level.cpp" \
+        "$HERE/app_face/voice/listen.cpp" \
+        "$HERE/app_face/voice/glance.cpp" \
+        "$HERE/app_face/voice/resample.cpp" \
+        "$HERE/app_face/voice/upsample.cpp" \
+        "$HERE/app_face/voice/selftest.cpp"
+    "$out"
+}
+
 if [ "$MODE" = "percept" ]; then
     build_percept
+    exit $?
+fi
+
+if [ "$MODE" = "voice" ]; then
+    build_voice
+    exit $?
+fi
+
+# PHASE B END TO END, against a DIFFERENT PROGRAM. The self-test proves the arithmetic in-process
+# and cannot catch a framing mistake, because a bug and its mirror image in the same file agree
+# with each other. tools/fake_thor.py is written to the contract in notes/workplan-tab5-audio.md
+# rather than to this code, and rejects anything that does not meet it.
+build_loopback() {
+    local out port rc
+    out="$(mktemp -d)/voice_loopback_test"
+    c++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$HERE/app_face" -o "$out" \
+        "$HERE/tools/voice_loopback_test.cpp" \
+        "$HERE/app_face/voice/level.cpp" \
+        "$HERE/app_face/voice/resample.cpp" \
+        "$HERE/app_face/voice/clip.cpp" \
+        "$HERE/app_face/voice/upsample.cpp" \
+        "$HERE/app_face/voice/stream.cpp" \
+        "$HERE/app_face/voice/wire.cpp"
+
+    # A port per run, so a stale server from an interrupted run cannot make this pass or fail
+    # for the wrong reason.
+    port=$(( 9400 + (RANDOM % 400) ))
+    rc=0
+    echo "phase B loopback on 127.0.0.1:$port"
+
+    # mode | extra fake-thor flags
+    for spec in "clip|" "nospeech|" "truncate|" "badreply|--garbage" \
+                "say|--say-ms 2000" "saystop|--say-ms 2000" "sayshort|--say-ms 400 --no-terminator"; do
+        local mode flags log
+        mode="${spec%%|*}"
+        flags="${spec#*|}"
+        log="$(mktemp)"
+        # shellcheck disable=SC2086
+        python3 "$HERE/tools/fake_thor.py" --port "$port" --once --json $flags > "$log" 2>&1 &
+        local srv=$!
+        # NO READINESS PROBE HERE. The obvious one -- connect to see if the port is up -- consumes
+        # the connection a --once server exists to accept, which made every case fail. The client
+        # retries its connect instead.
+        if "$out" "$port" "$mode"; then :; else rc=1; fi
+        wait "$srv" 2>/dev/null || true
+        # The server's own verdict matters as much as the client's: it is the side that rejects a
+        # contract violation, and a client that "passed" while the server rejected the message is
+        # the exact failure this harness exists to surface.
+        if [ "$mode" != "badreply" ] && grep -q '"ok": false' "$log"; then
+            echo "  FAIL: the fake Thor REJECTED the $mode message:"
+            sed -n 's/.*"reject": "\([^"]*\)".*/        \1/p' "$log"
+            rc=1
+        fi
+        rm -f "$log"
+    done
+    return $rc
+}
+
+if [ "$MODE" = "loopback" ]; then
+    build_loopback
     exit $?
 fi
 
@@ -231,10 +315,15 @@ PATCH
         [ "$DBG_SERIAL" = "1" ]  && echo "#define OPENDUBS_DBG_PERCEPT_SERIAL 1"
         [ "${OPENDUBS_WALKIN:-0}" = "1" ] && echo "#define OPENDUBS_WALKIN 1"
         [ "$DBG_UI" = "1" ]      && echo "#define OPENDUBS_DBG_UI 1"
+        # VOICE: the microphone capture task. DEFAULT OFF, and not because the code is doubtful --
+        # it adds a FreeRTOS task, and a TCB must live in internal DRAM where one more has already
+        # asserted in xPortCheckValidTCBMem with esp-dl linked. Off means nobody else's build
+        # changes; flip it with OPENDUBS_VOICE=1 when the robot is in front of you.
+        [ "${OPENDUBS_VOICE:-0}" = "1" ] && echo "#define OPENDUBS_VOICE 1"
         [ "${OPENDUBS_NO_SCENE:-0}" = "1" ] && echo "#define OPENDUBS_NO_SCENE 1"
         true
     } > "$DEMO/app/apps/app_face/percept/percept_config.h"
-    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0} dbg_ui=$DBG_UI"
+    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0} dbg_ui=$DBG_UI voice=${OPENDUBS_VOICE:-0}"
 
     # Generate the probe's reference image from the committed .jpg EVERY build. Generated, never
     # committed: a checked-in generated file is the thing that drifts (today's lesson, three times).
@@ -428,6 +517,10 @@ case "$MODE" in
   device)  build_device ;;
   image)   build_image ;;
   desktop) build_desktop; ( cd "$DEMO" && ./build/desktop/app_desktop_build ) ;;
+  # BUILD THE TWIN WITHOUT RUNNING IT. `desktop` opens an SDL window, which is useless over SSH,
+  # useless in CI and useless when the question is only "does it still compile". That question
+  # comes up constantly and there was no way to ask it.
+  desktop-build) build_desktop ;;
   # The sanitizers are the diagnostic the simulator is uniquely good for: a native binary gets
   # AddressSanitizer and UndefinedBehaviorSanitizer, which catch the classes that are invisible on
   # the device -- array overruns (the cobweb point pools), use-after-free, and the integer and
@@ -461,5 +554,5 @@ case "$MODE" in
            fi
            echo "  clean: no diagnostic markers in the image"
            ;;
-  *)       echo "usage: $0 {both|device|image|desktop|asan|cost|percept|release}"; exit 2 ;;
+  *)       echo "usage: $0 {both|device|image|desktop|desktop-build|asan|cost|percept|voice|loopback|release}"; exit 2 ;;
 esac

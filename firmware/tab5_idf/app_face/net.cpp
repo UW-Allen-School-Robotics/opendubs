@@ -6,6 +6,9 @@
 // rate with a mouse, with no flashing and nobody standing at the bench. A network stack is not
 // part of that, and "no link" is a state the face already renders honestly, so stubbing this out
 // costs the desktop build nothing it needs.
+// Both targets report the head's audio state in PONG, so this sits ABOVE the platform split.
+#include "ui_settings.h"
+
 #ifdef ESP_PLATFORM
 
 #include "net.h"
@@ -638,9 +641,17 @@ int netPlatPing(char* out, size_t cap)
                   (unsigned)((pip >> 16) & 0xff), (unsigned)((pip >> 24) & 0xff),
                   g_plcByName ? "name" : "heard");
 
-    return snprintf(out, cap, "slot=%s state=%s sha=%s | plc=%s | tp polls=%lu presses=%lu "
-                              "errs=%lu last=%lu,%lu",
+    // AUDIO STATE, because a silent robot is otherwise unexplainable from outside.
+    //
+    // Audio defaults OFF and is a PER-ROBOT NVS value, not a property of the image -- so the same
+    // show is silent on one head and loud on the next, and every `CUE` is acked either way. The
+    // choreography session lost an investigation to exactly that on 2026-10-08 and asked for this:
+    // its runner reads it at preflight and logs "earcons will be silent" rather than refusing,
+    // since a missing chirp is not worth stopping a show for.
+    return snprintf(out, cap, "slot=%s state=%s sha=%s | plc=%s | audio=%s | tp polls=%lu "
+                              "presses=%lu errs=%lu last=%lu,%lu",
                     run ? run->label : "?", sn, sha, plc,
+                    settingsAudioEnabled() ? "on" : "OFF",
                     (unsigned long)od_tp_polls, (unsigned long)od_tp_presses,
                     (unsigned long)od_tp_errs, (unsigned long)od_tp_lastx,
                     (unsigned long)od_tp_lasty);
@@ -849,19 +860,31 @@ void twinCmdThread()
     const int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) { snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: socket() failed"); return; }
 
+    // OPENDUBS_TWIN_PORT, so TWO TWINS CAN RUN AT ONCE. The port was hardcoded, and on 2026-10-08
+    // that cost real time: two sessions were working on the head in parallel, one had a twin up
+    // from a twins run, and the other could not test a new command verb at all without killing
+    // somebody else's process. The default is unchanged, so every existing caller and script is
+    // unaffected.
+    int port = 4242;
+    if (const char* e = getenv("OPENDUBS_TWIN_PORT")) {
+        const int v = atoi(e);
+        if (v > 0 && v < 65536) port = v;
+    }
+
     sockaddr_in me{};
     me.sin_family      = AF_INET;
     me.sin_addr.s_addr = htonl(INADDR_LOOPBACK);     // NOT INADDR_ANY -- see above
-    me.sin_port        = htons(4242);
+    me.sin_port        = htons((uint16_t)port);
     if (bind(sock, (sockaddr*)&me, sizeof(me)) < 0) {
         // Most likely another twin already has it. Say so instead of dying silently, because a
         // twin that is not listening looks exactly like a bridge that is not sending.
-        snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: bind 127.0.0.1:4242 failed (in use?)");
+        snprintf(g_twinStatus, sizeof(g_twinStatus),
+                 "twin: bind 127.0.0.1:%d failed (in use? OPENDUBS_TWIN_PORT)", port);
         close(sock);
         return;
     }
     g_twinUp = true;
-    snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: listening on 127.0.0.1:4242");
+    snprintf(g_twinStatus, sizeof(g_twinStatus), "twin: listening on 127.0.0.1:%d", port);
 
     char rx[512], tx[384];
     for (;;) {
@@ -904,7 +927,8 @@ int netPlatPing(char* out, size_t cap)
 {
     char sim[96];
     simReport(sim, sizeof(sim));
-    return snprintf(out, cap, "slot=twin state=n/a sha=desktop | plc=none | %s", sim);
+    return snprintf(out, cap, "slot=twin state=n/a sha=desktop | plc=none | audio=%s | %s",
+                    settingsAudioEnabled() ? "on" : "OFF", sim);
 }
 // NEVER a silent success. A twin that accepted OTA or REBOOT and did nothing would be the worst
 // possible answer, because the caller would believe the head had taken it.

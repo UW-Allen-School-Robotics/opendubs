@@ -10,8 +10,24 @@ Plan of record: [`../../notes/workplan-tab5-idf.md`](../../notes/workplan-tab5-i
 
 ## Reconstructing the build
 
+**Use the script.** It does everything below, it is idempotent, and every check in it is there
+because the thing it checks for actually happened on a clean run:
+
 ```sh
 brew install cmake ninja sdl2            # IDF needs cmake+ninja; sdl2 is for the desktop build
+tools/setup-demo-tree.sh                 # clones the demo at a PIN, fetches deps, applies our deltas
+export OPENDUBS_DEMO=../../../M5Tab5-UserDemo   # whatever path the script printed
+./build.sh desktop-build                 # builds the twin -- no board and no IDF needed
+```
+
+The script does **not** use `fetch_repos.py`, because that silently skips repos (below) — it
+fetches each dependency at its pin and then **counts the files**, since "the directory exists" is
+not the same as "the clone worked". It does not download the IDF either; it tells you how, because
+that is 2 GB plus another ~2 GB of toolchain and should be a deliberate act.
+
+The manual recipe, for reference, and what the script automates:
+
+```sh
 git clone -b v5.5.5 --depth 1 --recursive --shallow-submodules \
     https://github.com/espressif/esp-idf.git && (cd esp-idf && ./install.sh esp32p4)
 git clone --depth 1 https://github.com/m5stack/M5Tab5-UserDemo.git demo
@@ -32,8 +48,14 @@ and it bites exactly when internal DRAM is tight, which is where this firmware l
   index-pack output`) and leave an unusable tree. The published full-source archive
   (`esp-idf-v5.5.5.zip` from the release assets, submodules included) is one resumable download and
   is the more reliable path on a flaky connection.
-- **`fetch_repos.py` can skip a repo and still print nothing.** `dependencies/lvgl` was simply
-  absent after a clean run. The *device* build does not notice, because that uses the LVGL managed
+- **`fetch_repos.py` can skip a repo and still print nothing.** Seen again on 2026-10-07, worse
+  than "absent": `dependencies/lvgl` held a **bare `.git` and no checkout** — 19 files where there
+  should be ~2980 — and `smooth_ui_toolkit` was missing entirely, with not one line of output about
+  either. `tools/setup-demo-tree.sh` exists because of this and checks file COUNTS, not existence.
+  Cloning lvgl by hand then failed with `fatal: fetch-pack: invalid index-pack output` — the same
+  busy-connection failure this file documents for esp-idf — so the script takes lvgl from a release
+  tarball, which has no pack negotiation to fail. `dependencies/lvgl` was simply
+  absent after an earlier clean run. The *device* build does not notice, because that uses the LVGL managed
   component from the registry — but the desktop build will not even configure
   (`add_subdirectory given source "dependencies/lvgl" which is not an existing directory`). Check
   the directory, do not trust the script.

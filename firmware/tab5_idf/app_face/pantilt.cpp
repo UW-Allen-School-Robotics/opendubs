@@ -56,6 +56,10 @@ constexpr uint32_t kPeriodMs    = 20;     // 50 Hz, matching the Arduino control
 constexpr uint32_t kRcHoldMs    = 600;    // RC's lease, matching the Arduino's kManualHoldMs
 constexpr uint32_t kTouchHoldMs = 600;    // the same lease for on-face touch
 constexpr float    kDpadDps     = 45.0f;  // the Arduino's on-screen d-pad slew, verbatim
+// A show's lease. Capped so a sender that dies cannot leave the head committed: the runner renews
+// every 200 ms, so anything beyond a second is a stuck sender rather than a slow one.
+constexpr uint32_t kGazeHoldMs    = 600;    // default, the same as RC's
+constexpr uint32_t kGazeMaxLeaseMs = 1000;
 
 // RC GETS THE FULL TRAVEL; autonomous motion does not.
 //
@@ -84,6 +88,13 @@ bool  g_tiltLimitsKnown = false;
 
 i2c_master_dev_handle_t g_dev = nullptr;
 bool     g_present  = false;
+// A show's absolute aim, already clamped when it was accepted. g_gazeMs == 0 means never set.
+float    g_gazePan  = kCentreDeg;
+float    g_gazeTilt = kCentreDeg;
+uint32_t g_gazeMs   = 0;
+uint32_t g_gazeLease = kGazeHoldMs;
+bool     g_gazeHadIt = false;             // owned the head on the PREVIOUS tick; see the expiry
+
 float    g_pan      = kCentreDeg;         // current commanded angle, degrees
 float    g_tilt     = kCentreDeg;
 float    g_panTgt   = kCentreDeg;
@@ -304,10 +315,31 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
         return;
     }
 
+    // ---- A SHOW next: it outranks the trackers, and a person outranks it. ----
+    //
+    // Unlike touch and RC this does NOT integrate a rate and does NOT return early: it only sets
+    // the target and falls through to the shared slew, the envelope clamp and the write below. A
+    // show says where to look; the slew limit decides how fast the head may get there, and that
+    // stays the firmware's decision rather than a caller's.
+    const bool gazeOwns = (g_gazeMs != 0 && (nowMs - g_gazeMs) < g_gazeLease);
+    if (!gazeOwns && g_gazeHadIt) {
+        // THE EXPIRY FRAME: STOP WHERE YOU ARE. Without this the head keeps slewing to the last
+        // commanded angle after the show has stopped talking to it -- a sender that died mid-move
+        // would have the head finish the move anyway, which is the opposite of releasing.
+        g_panTgt  = g_pan;
+        g_tiltTgt = g_tilt;
+        g_gazeMs  = 0;
+    }
+    g_gazeHadIt = gazeOwns;
+
     // THE EYE-ONLY BAND AND THE CONFIDENCE GATE. Inside either, the head has no target of its own
     // and returns to centre -- slowly, under the same slew limit as everything else.
     const float mag = sqrtf(nx * nx + ny * ny);
-    if (g_tracking && haveTarget && confidence >= kHeadConfidence && mag > kEyeOnly) {
+    if (gazeOwns) {
+        // Already clamped when accepted, so the echo the sender got is what actually runs.
+        g_panTgt  = g_gazePan;
+        g_tiltTgt = g_gazeTilt;
+    } else if (g_tracking && haveTarget && confidence >= kHeadConfidence && mag > kEyeOnly) {
         // NO NEGATION HERE. The mechanism's reversal is applied ONCE, at the write, by
         // kPanReverse/kTiltReverse -- which is where the Arduino firmware puts it and why: "Servo
         // direction is a property of the MECHANISM ... so it is corrected once here, at the write,
@@ -358,7 +390,17 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // conservative AUTONOMOUS envelope; a human aiming the head by hand gets the mechanism's real
     // limits, which is what the touch and RC branches above already clamp to. Applying the narrow
     // envelope here as well silently undid them.
-    if (g_tracking) {
+    // AND "WHO IS DRIVING" NOW HAS TO MEAN IT. This read g_tracking, which was an accurate proxy
+    // while the only two cases were "the tracker" and "a human has taken it" -- touch clears
+    // tracking, so !g_tracking meant a human. GAZE breaks that proxy: a show must NOT clear
+    // tracking (see pantilt.h), so with g_tracking still true a show's aim was being squeezed back
+    // into the narrow autonomous envelope -- pan clamped to 60..120 with nothing to say so. An
+    // authored move beyond 30 degrees from centre would simply have come out smaller.
+    //
+    // So the envelope keys off the OWNER. Only the local tracker gets the conservative band; a
+    // human and a show both get the mechanism's real limits.
+    const bool autonomous = g_tracking && !gazeOwns;
+    if (autonomous) {
         g_pan  = clampf(g_pan,  kCentreDeg - kPanRangeDeg,  kCentreDeg + kPanRangeDeg);
         g_tilt = clampf(g_tilt, kCentreDeg - kTiltRangeDeg, kCentreDeg + kTiltRangeDeg);
     } else {
@@ -383,9 +425,10 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // one thing worth knowing, who is driving, was exactly what it could not distinguish.
     snprintf(g_status, sizeof(g_status), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s %s",
              g_pan, g_tilt, g_tiltMin, g_tiltMax, g_tiltLimitsKnown ? "" : "FB",
-             !g_tracking ? "HOLD(manual)"
-                         : (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? "centring"
-                                                                               : "tracking");
+             gazeOwns      ? "GAZE(show)"
+             : !g_tracking ? "HOLD(manual)"
+                           : (g_panTgt == kCentreDeg && g_tiltTgt == kCentreDeg) ? "centring"
+                                                                                 : "tracking");
 }
 
 // The VOR term: the fraction of the available range the head has taken on. The eyes subtract this
@@ -483,6 +526,40 @@ void pantiltTouchRate(float panDps, float tiltDps)
     g_tpMs   = (panDps == 0.0f && tiltDps == 0.0f) ? 0 : (uint32_t)(esp_timer_get_time() / 1000);
 }
 
+bool pantiltGaze(float panDeg, float tiltDeg, uint32_t leaseMs, float* panOut, float* tiltOut)
+{
+    if (!g_present) return false;
+
+    // THE MECHANISM'S REAL LIMITS, as a human aiming gets -- not the conservative autonomous
+    // envelope. Decided by the maintainers: a show is validated before it runs and the cue format
+    // treats pan as 0..180 with 90 centred, so a silent squeeze to 60..120 would flatten an
+    // authored move with no error anywhere. The head cannot damage anything inside these bounds,
+    // which is the same reasoning the RC branch already carries.
+    g_gazePan  = clampf(panDeg,  kRcPanMin, kRcPanMax);
+    g_gazeTilt = clampf(tiltDeg, g_tiltMin, g_tiltMax);
+
+    if (leaseMs == 0) leaseMs = kGazeHoldMs;
+    if (leaseMs > kGazeMaxLeaseMs) leaseMs = kGazeMaxLeaseMs;
+    g_gazeLease = leaseMs;
+    g_gazeMs    = (uint32_t)(esp_timer_get_time() / 1000);
+
+    // ECHO WHAT WILL ACTUALLY RUN, not what was asked. On an uncommissioned robot g_tiltMin/Max is
+    // a +/-10 degree fallback band, so a show's tilt is nearly flattened -- and a sender that only
+    // ever sees its own numbers reflected back has no way to notice.
+    if (panOut)  *panOut  = g_gazePan;
+    if (tiltOut) *tiltOut = g_gazeTilt;
+    return true;
+}
+
+void pantiltGazeOff()
+{
+    // Expire it rather than clearing it here: the tick owns "stop where you are", so releasing
+    // through the same path means there is one place that decides what release means.
+    if (g_gazeMs == 0) return;
+    g_gazeMs    = 1;          // non-zero but ancient: the lease test fails on the next tick
+    g_gazeLease = 0;
+}
+
 void pantiltSetTracking(bool on) { g_tracking = on; }
 bool pantiltTracking()           { return g_tracking; }
 
@@ -495,6 +572,18 @@ bool pantiltPresent() { return false; }
 void pantiltTick(uint32_t, bool, bool, float, float, float) {}
 void pantiltRcRate(float, float) {}
 void pantiltTouchRate(float, float) {}
+// THE TWIN ACCEPTS GAZE AND ECHOES WHAT IT WAS ASKED, because it has no servos and no NVS and so
+// cannot know this robot's limits -- the tilt band in particular is per-unit. So a show plays in
+// the twin at the angles it was authored at, and the clamp is only ever visible on the real head.
+// A runner comparing the echo to its request will therefore never see a difference here; that
+// check is meaningful against the robot, not against the twin.
+bool pantiltGaze(float panDeg, float tiltDeg, uint32_t, float* panOut, float* tiltOut)
+{
+    if (panOut)  *panOut  = panDeg;
+    if (tiltOut) *tiltOut = tiltDeg;
+    return true;
+}
+void pantiltGazeOff() {}
 void pantiltSetTracking(bool) {}
 bool pantiltTracking() { return false; }
 float pantiltHeadOffsetX() { return 0.0f; }
