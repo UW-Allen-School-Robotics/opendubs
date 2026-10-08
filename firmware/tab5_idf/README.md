@@ -109,7 +109,7 @@ Listed so none of it can be invisible again. If you change another, add it here.
 | `app/assets/assets.h` | drop three removed image declarations | documented above |
 | `app/apps/app_face/` | our app, subdirectories included | yes, this directory |
 | `platforms/tab5/main/CMakeLists.txt` | `canon_in_d.mp3` un-embedded (−934 KB) | patched by `build.sh`, which fails loudly if the anchor moves |
-| `platforms/tab5/main/hal/components/hal_audio.cpp` | the canon symbols aliased to the startup sfx so the vendor's music test still links | same |
+| `platforms/tab5/main/hal/components/hal_audio.cpp` | the canon symbols aliased to the startup sfx so the vendor's music test still links; **the playback task pinned to CPU1 at priority 2** — the vendor creates it at priority 5 UNPINNED on the first earcon and it then starves perception for the rest of the boot | same |
 
 `app/apps/app_face/` now has subdirectories: `percept/` is the perception layer and `shared/` holds
 the cross-task primitives. **Nothing under either may include `<lvgl.h>` or `hal/hal.h`** — the
