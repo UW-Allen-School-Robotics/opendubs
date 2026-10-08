@@ -49,7 +49,31 @@ constexpr float kEyeOnly        = 0.25f;  // offset below which the head never m
 constexpr float kHeadConfidence = 0.60f;  // below this a detection costs eyes only, never a turn
 constexpr float kPanRangeDeg    = 30.0f;  // hard bound, degrees either side of centre
 constexpr float kTiltRangeDeg   = 18.0f;  // smaller: the head has less room vertically
-constexpr float kSlewDps        = 25.0f;  // SLOW on purpose. "Err slow; this is a robot near people."
+// HOW FAST THE HEAD MAY TURN, and this number is a trade that was made deliberately.
+//
+// 70 deg/s, raised from 25 on 2026-10-08 at the maintainers' decision, so that a show's nod can
+// land on a beat. The measurement that set it: a 16 degree nod DOWN AND BACK is 32 degrees of
+// travel, and at 123 BPM a beat is 488 ms. 25 deg/s needs 1.28 s -- the nod read as a sway rather
+// than as rhythm. 70 deg/s needs 457 ms and fits, with 31 ms of slack.
+//
+// 60 was proposed and is NOT enough: that figure comes from treating a nod as a one-way 16 degree
+// move (267 ms), and the return leg puts it at 533 ms, 46 ms past the beat. Recorded because the
+// mistake is easy to repeat.
+//
+// WHAT IT COSTS, because it is a real cost and not a free win. This used to read "SLOW on purpose.
+// Err slow; this is a robot near people", and the safety note at the top of pantilt.h still says a
+// target jump must not become a fast head movement near someone standing within reach. That
+// property is weaker at 70 than it was at 25 -- the limit still exists, and the head still cannot
+// lunge, but it now turns about three times faster toward a person it has just detected. The
+// maintainers chose that knowingly, for every owner rather than for shows alone.
+//
+// IT DOES NOT AFFECT TOUCH OR RC. Those integrate their own rates (kDpadDps, and the stick's) and
+// never pass through this limit, so "everywhere" in practice means GAZE and autonomous tracking.
+//
+// The deadband below is not a brake on this: at 25 deg/s a 20 ms tick moved 5.6 us, under the
+// 16.7 us deadband, so writes only landed every third tick; at 70 a tick moves 15.6 us and a write
+// lands almost every tick. Faster is smoother here, not coarser.
+constexpr float kSlewDps        = 70.0f;
 constexpr float kDeadbandDeg    = 1.5f;   // servo jitter at rest is worse than no motion
 constexpr float kCentreDeg      = 90.0f;
 constexpr uint32_t kPeriodMs    = 20;     // 50 Hz, matching the Arduino control task
