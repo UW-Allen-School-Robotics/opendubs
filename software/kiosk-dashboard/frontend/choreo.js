@@ -23,7 +23,10 @@
     else if (!a.holder) html = '<span class="bad">Show audio: no device — routines run silently</span>';
     else if (a.youHold) {
       const clk = a.clock ? ` · clock ±${Math.max(1, Math.round(a.clock.error_ms))} ms` : " · matching clocks…";
-      const what = { loading: "loading…", ready: "ready", playing: "playing", error: `error: ${a.error}` }[a.state] || "standing by";
+      const sy = a.sync || {};
+      const playingTxt = sy.err_ms == null ? "playing"
+        : `playing · ${Math.abs(sy.err_ms) <= 5 ? "in step" : (sy.err_ms > 0 ? "catching up " : "easing back ") + Math.abs(sy.err_ms) + " ms"}`;
+      const what = { loading: "loading…", ready: "ready", playing: playingTxt, error: `error: ${a.error}` }[a.state] || "standing by";
       html = `Show audio: <b>this device</b> — ${esc(what)}<span class="dim">${clk}</span>`;
     } else html = `Show audio: <b>${esc(a.holder)}</b>`;
     if (status && status.audio_note && status.running) html += ` <span class="bad">· ${esc(status.audio_note)}</span>`;
