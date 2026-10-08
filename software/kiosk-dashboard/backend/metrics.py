@@ -11,8 +11,10 @@ rather than raising, so the dashboard still renders.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -176,6 +178,15 @@ def _net_rates() -> dict:
     return rate
 
 
+def robot_name() -> str:
+    """Which robot this is, for every screen that controls it — with two or more robots and their
+    tablets, a dashboard must say which one it is driving. A PER-ROBOT setting, kept on the robot and
+    never in the repo: OPENDUBS_ROBOT_NAME in /etc/opendubs/robot.env (opendubs-dash.service reads it),
+    e.g. "OpenDubs 2". Without it, the Thor's hostname."""
+    return (os.environ.get("OPENDUBS_ROBOT_NAME", "").strip()
+            or socket.gethostname().split(".")[0] or "robot")
+
+
 def _primary_ip() -> str | None:
     try:
         for name, addrs in psutil.net_if_addrs().items():
@@ -218,6 +229,7 @@ def collect() -> dict:
     return {
         "ts": time.time(),
         "host": {
+            "name": robot_name(),
             "ip": _primary_ip(),
             "uptime_s": int(time.time() - psutil.boot_time()),
             "power_mode": _nvpmodel_cached(),

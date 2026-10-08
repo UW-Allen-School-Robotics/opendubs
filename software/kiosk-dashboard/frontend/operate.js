@@ -7,7 +7,13 @@
 "use strict";
 (function () {
   const $ = (id) => document.getElementById(id);
-  const BATT = '<svg width="24" height="13" viewBox="0 0 24 13"><rect x="1" y="1" width="19" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="21" y="4" width="2.4" height="5" rx="1" fill="currentColor"/><rect x="3" y="3" width="13.5" height="7" rx="1.2" fill="currentColor"/></svg>';
+  // A battery whose fill shows the level, so the two at the top read at a glance.
+  const BATT = (pct) => '<svg width="24" height="13" viewBox="0 0 24 13"><rect x="1" y="1" width="19" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="21" y="4" width="2.4" height="5" rx="1" fill="currentColor"/>' +
+    (pct == null ? "" : `<rect x="3" y="3" width="${(15 * Math.max(0, Math.min(100, pct)) / 100).toFixed(1)}" height="7" rx="1.2" fill="currentColor"/>`) + '</svg>';
+  // WHOSE battery: the robot's pack, or this device's. Easy to confuse, so each carries an icon.
+  const ROBOT = '<svg class="who" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="8" width="14" height="10" rx="2"/><path d="M12 8V4"/><circle cx="12" cy="3.3" r="1.1" fill="currentColor"/><circle cx="9.5" cy="13" r="1.2" fill="currentColor"/><circle cx="14.5" cy="13" r="1.2" fill="currentColor"/><path d="M8 18v2.5M16 18v2.5"/></svg>';
+  const TABLET = '<svg class="who" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="18.6" cy="12" r=".9" fill="currentColor"/></svg>';
+  const KIOSK = window.OpenDubsKiosk;       // the tablet's kiosk app, when the page runs inside it
   const WARN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 17H2z"/><path d="M12 10v4"/><circle cx="12" cy="17.3" r=".5" fill="currentColor"/></svg>';
   const BAD  = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 8l8 8"/></svg>';
 
@@ -67,62 +73,74 @@
      camera -- which is what made the right stick appear to light up the rear feed. */
   $("opPip") && $("opPip").addEventListener("click", (e) => {
     if (!e.target.closest || !e.target.closest("#opPip")) return;
-    if (e.target.closest("#opCtl, #opArmOverlay, .op-stick")) return;
     $("opPip").classList.toggle("big");
   });
 
-  /* ---------- on-screen joysticks (visual; drive not actuated yet) ---------- */
-  function stick(el, horizOnly) {
-    if (!el) return; const nub = el.querySelector(".nub");
-    const set = (x, y) => { const b = el.getBoundingClientRect(); const R = Math.min(b.width, b.height) / 2 - 14;
-      let dx = x - (b.left + b.width / 2), dy = y - (b.top + b.height / 2); if (horizOnly) dy = 0;
-      const m = Math.hypot(dx, dy); if (m > R) { dx *= R / m; dy *= R / m; }
-      nub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; el.classList.add("armed"); };
-    const end = () => { nub.style.transform = "translate(-50%,-50%)"; el.classList.remove("armed"); };
-    el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); set(e.clientX, e.clientY); });
-    el.addEventListener("pointermove", (e) => { if (e.buttons) set(e.clientX, e.clientY); });
-    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  /* ---------- drive status (read-only): what the robot reports, and why it will not move ---------- */
+  // CH5 in the names the team uses (DEC-9), from the authority the robot-state rollup reports.
+  const AUTH = { OFF: "STANDBY", RC_MANUAL: "MANUAL", AUTONOMOUS: "AUTO" };
+  let lastRS = null, lastDrive = null, lastArms = null;
+  function whyNot(inp, d) {
+    // In the order the StamPLC's own gate checks them; the first one is what to fix.
+    if (inp.estopped || (inp.estop_sources && inp.estop_sources.length)) return "e-stop";
+    if (inp.contactor === false) return "contactor open — no drive power";
+    if (inp.link === false) return "no RC link";
+    if (inp.authority === "OFF") return "CH5 in STANDBY";
+    if (d.drive_safe === false) return "robot settling";
+    if (!inp.deadman) return "deadman released";
+    if (!d.armed) return "arming — sticks neutral for 2 s";
+    if (inp.authority === "AUTONOMOUS") return "moves only on the Thor's drive commands";
+    return "";
   }
-  stick($("opStTrans"), false); stick($("opStRot"), true);
-
-  /* ---------- two-thumb ARM → sticks live; touch-is-deadman; auto-disarm on idle ---------- */
-  let padL = false, padR = false, armTimer = null, idleTimer = null; const ARM_MS = 1200, IDLE_MS = 8000;
-  const armed = () => document.body.classList.contains("op-armed");
-  function checkArm() {
-    const both = padL && padR, prog = $("opArmProg");
-    if (both && !armTimer && !armed()) { const t0 = performance.now();
-      armTimer = setInterval(() => { const p = Math.min(1, (performance.now() - t0) / ARM_MS); if (prog) prog.style.width = (p * 100) + "%";
-        if (p >= 1) { clearInterval(armTimer); armTimer = null; doArm(); } }, 40);
-    } else if (!both && armTimer) { clearInterval(armTimer); armTimer = null; if (prog) prog.style.width = "0"; }
+  // The arms, from /api/arms/status (energized = motors powered and holding; arms plan DEC-24).
+  function armsState(a, inp) {
+    if (!a) return ["—", "dim", ""];
+    if (a.op && a.op.running) return ["BUSY", "warn", `${a.op.name} (${a.op.elapsed ?? 0} s)`];
+    const m = a.motors;
+    if (!m) return ["—", "dim", a.motors_error ? "status unavailable" : ""];
+    if (m.faults) return ["FAULT", "bad", `${m.faults} motor${m.faults > 1 ? "s" : ""} in fault`];
+    if (!a.energized) return ["OFF", "dim", "not energized"];
+    if (m.missing || m.disabled) return ["PARTIAL", "warn", `${m.enabled} enabled, ${(m.missing || 0) + (m.disabled || 0)} not`];
+    if (a.teleop && a.teleop.running) return ["ENERGIZED", "ok", "teleop running"];
+    if (inp.authority === "OFF") return ["ENERGIZED", "ok", "holding — move only in MANUAL"];
+    return ["ENERGIZED", "ok", "holding"];
   }
-  function doArm() { document.body.classList.add("op-armed"); const s = $("opArmStatus"); if (s) s.textContent = "● ARMED · tap to disarm"; resetIdle(); }
-  function disarm() { document.body.classList.remove("op-armed"); const s = $("opArmStatus"); if (s) s.textContent = "DRIVE DISARMED";
-    const p = $("opArmProg"); if (p) p.style.width = "0"; padL = padR = false;
-    $("opArmL") && $("opArmL").classList.remove("on"); $("opArmR") && $("opArmR").classList.remove("on"); clearTimeout(idleTimer); }
-  function resetIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(disarm, IDLE_MS); }
-  function padBind(el, set) { if (!el) return;
-    el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); set(true); el.classList.add("on"); checkArm(); });
-    const up = () => { set(false); el.classList.remove("on"); checkArm(); };
-    el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); }
-  padBind($("opArmL"), (v) => padL = v); padBind($("opArmR"), (v) => padR = v);
-  $("opArmStatus") && $("opArmStatus").addEventListener("click", () => { if (armed()) disarm(); });
-  [$("opStTrans"), $("opStRot")].forEach((s) => s && s.addEventListener("pointerdown", () => { if (armed()) resetIdle(); }));
+  window.addEventListener("opendubs-arms", (e) => { lastArms = e.detail; try { renderOpStatus(); } catch (err) {} });
 
-  /* ---------- gamepad auto-fallback: touch sticks hide when a joystick is present ---------- */
-  function updateGamepad() { let real = false; try { real = [...navigator.getGamepads()].some(Boolean); } catch (e) {}
-    document.body.classList.toggle("op-gamepad", real); if (real) disarm(); }
-  window.addEventListener("gamepadconnected", updateGamepad);
-  window.addEventListener("gamepaddisconnected", updateGamepad);
-  setInterval(updateGamepad, 1500); updateGamepad();
+  function renderOpStatus() {
+    const inp = (lastRS && lastRS.inputs) || {}, d = lastDrive || {};
+    const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; e.className = cls || ""; } };
+    const auth = AUTH[inp.authority];
+    set("osAuth", auth || "—", auth === "STANDBY" ? "dim" : auth ? "ok" : "dim");
+    set("osDead", inp.deadman == null ? "—" : inp.deadman ? "HELD" : "RELEASED", inp.deadman ? "ok" : "warn");
+    const why = lastRS ? whyNot(inp, d) : "";
+    set("osDrive", d.armed == null ? "—" : d.armed ? "ARMED" : "DISARMED", d.armed ? "ok" : "warn");
+    set("osWhy", why ? "· " + why : "", "op-why");
+    const [at, ac, aw] = armsState(lastArms, inp);
+    set("osArms", at, ac); set("osArmsWhy", aw ? "· " + aw : "", "op-why");
+    set("osSpeed", d.spd == null ? "—" : Math.round(d.spd * 100) + "%", d.spd === 0 ? "bad" : d.spd == null ? "dim" : "");
+  }
+  if (typeof window.renderDrive === "function") {
+    const _rd = window.renderDrive;
+    // try/finally: the strip must not depend on the rest of the drive page drawing cleanly.
+    window.renderDrive = function (st) {
+      try { _rd(st); } finally { lastDrive = (st && st.drive) || null; try { renderOpStatus(); } catch (e) {} }
+    };
+  }
 
   /* ---------- fullscreen + landscape lock ---------- */
   function goFS() { const el = document.documentElement;
     if (!document.fullscreenElement) { (el.requestFullscreen ? el.requestFullscreen() : Promise.reject())
       .then(() => { try { screen.orientation.lock("landscape"); } catch (e) {} }).catch(() => {}); }
     else if (document.exitFullscreen) document.exitFullscreen(); }
-  $("opFs") && $("opFs").addEventListener("click", (e) => { e.stopPropagation(); goFS(); });
-  if (window.matchMedia && matchMedia("(pointer:coarse)").matches)
-    document.addEventListener("pointerdown", () => goFS(), { once: true });
+  // Inside the kiosk app the page is already full screen, so the control means nothing there. In any
+  // other browser it still does something (standing rule 12).
+  if (KIOSK) { if ($("opFs")) $("opFs").hidden = true; }
+  else {
+    $("opFs") && $("opFs").addEventListener("click", (e) => { e.stopPropagation(); goFS(); });
+    if (window.matchMedia && matchMedia("(pointer:coarse)").matches)
+      document.addEventListener("pointerdown", () => goFS(), { once: true });
+  }
 
   /* ---------- notifications (dark & quiet: empty unless out of nominal) ---------- */
   function setNotifs(list) {
@@ -141,13 +159,28 @@
   let lastSoc = null;
   setInterval(() => { const t = ($("stBatt") && $("stBatt").textContent) || ""; const m = t.match(/(\d+)\s*%/);
     lastSoc = m ? +m[1] : null; const b = $("opBatt");
-    if (b) { b.innerHTML = BATT + " " + (lastSoc != null ? lastSoc + "%" : "—");
+    if (b) { b.innerHTML = ROBOT + BATT(lastSoc) + " " + (lastSoc != null ? lastSoc + "%" : "—");
       b.style.color = lastSoc == null ? "var(--dim)" : lastSoc < 15 ? "var(--bad)" : lastSoc < 25 ? "var(--warn)" : "var(--dim)"; }
   }, 1000);
 
+  /* this device's battery: the kiosk app's, or the browser's own where it reports one; else hidden */
+  let devBatt = null;                                   // {level 0..100, charging}
+  if (!KIOSK && navigator.getBattery) navigator.getBattery().then((bm) => {
+    const f = () => { devBatt = { level: Math.round(bm.level * 100), charging: bm.charging }; };
+    f(); bm.addEventListener("levelchange", f); bm.addEventListener("chargingchange", f);
+  }).catch(() => {});
+  setInterval(() => {
+    if (KIOSK && KIOSK.battery) { try { devBatt = JSON.parse(KIOSK.battery()); } catch (e) { devBatt = null; } }
+    const d = $("devBatt"); if (!d) return;
+    if (!devBatt || devBatt.level == null || devBatt.level < 0) { d.hidden = true; return; }
+    d.hidden = false;
+    d.innerHTML = TABLET + BATT(devBatt.level) + " " + devBatt.level + "%" + (devBatt.charging ? " ⚡" : "");
+    d.style.color = devBatt.charging ? "var(--dim)" : devBatt.level < 15 ? "var(--bad)" : devBatt.level < 25 ? "var(--warn)" : "var(--dim)";
+  }, 5000);
+
   /* derive Operate state + notifications from the same rs app.js renders */
   function opFromRS(rs) {
-    if (!rs) return; setOpState(rs.label, rs.color);
+    if (!rs) return; setOpState(rs.label, rs.color); lastRS = rs; renderOpStatus();
     const n = [], inp = rs.inputs || {};
     const latched = !!(inp.estopped || (inp.estop_sources && inp.estop_sources.length));
     document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
@@ -161,7 +194,7 @@
   // wrap the global renderRobotState so the Operate screen updates on every telemetry frame
   if (typeof window.renderRobotState === "function") {
     const _rrs = window.renderRobotState;
-    window.renderRobotState = function (rs) { _rrs(rs); try { opFromRS(rs); } catch (e) {} };
+    window.renderRobotState = function (rs) { try { _rrs(rs); } finally { try { opFromRS(rs); } catch (e) {} } };
   }
 
   // start on the Operate front door

@@ -132,6 +132,40 @@ Each with its question and kill criterion, for the hardware session.
 | TB-5 | Does Do Not Disturb (Alarms only) leave media audible on this model? | The show's music is audible with DND on. |
 | TB-6 | **The plan's kill criterion:** a 10-minute show, start to finish. | Not one interruption: no sleep, no prompt, no notification, no audio gap. |
 
-**What this tablet runs today is unknown.** It shipped with One UI 7 / Android 15 and One UI 8 /
-Android 16 began rolling out in November 2025 (secondary sources). Check Settings › About tablet ›
-Software information before TB-1, and record it here.
+**The team's tablet runs Android 15 / One UI 7** (SM-X133, build AP3A.240905.015.A2, WebView/Chrome
+131), checked 2026-10-08.
+
+### Results — 2026-10-08, at the bench
+
+Run against a **bench dashboard on a laptop** on the same Wi-Fi, not the robot: the dashboard's own
+pages and Shows/show-audio routes, the show runner with a fake robot, and a test CA made by the
+robot's own `make-robot-ca.sh` (its rehearsal mode) and installed by the app exactly as the robot's
+would be. Measured from three sides at once: the laptop's show-audio hub every second, Android's own
+audio and power state over `adb` every two seconds, and a timer inside the page.
+
+| # | Result |
+|---|---|
+| TB-1 | **Pass.** In the app: `isSecureContext` true; `getUserMedia({audio})` returned a live track with **no prompt**; a screen wake lock was granted. A plain HTTPS page without the CA is refused (`net_error -202`). |
+| TB-2 | **Pass, on battery.** A ten-minute track played straight through, four minutes of it with the screen off (Android "Dozing"): the audio player stayed *started*, the page never paused for more than three seconds, and nobody listening heard a gap. Not tested: "the app briefly in the background" — in lock task it cannot be, by design. So **no foreground service is needed**. |
+| TB-3 | **Pass.** The show-audio websocket stayed up for the whole run, through the screen-off, on battery; the tablet kept the show-audio role; its clock stayed matched to the laptop's within ±6 ms (home Wi-Fi — not the robot's network, so not S1). |
+| TB-4 | **Begun 2026-10-08.** A week of normal use; nothing to report yet. |
+| TB-5 | **Pass.** Do Not Disturb on *Alarms only* for the whole of TB-2; the music played. |
+| TB-6 | **Needs the robot.** |
+
+Also measured, for the music-sync work (4.2/6.4): the WebView reports **37 ms** of output latency
+through `getOutputTimestamp()`. Whether that is true is S2's question.
+
+**Found in setup, and fixed in the app:**
+
+- Debug builds need `adb install -t` (they are `testOnly`); the README said `adb install`.
+- **A device-owner app cannot be force-stopped**, so "maintenance until the app restarts" never
+  ended. New: `lock=true` ends maintenance.
+- The app could install a CA but never remove one, and a bench CA must not follow the tablet to a
+  robot. New: `ca_clear=true`, alone or with `ca_b64` to replace.
+- An update stops the app and nothing restarted it. New: it brings itself back, locked, after an
+  update — provided no other screen was left open behind it (maintenance now closes Settings).
+- Plugging in USB while **unlocked** raised Samsung's "allow access to tablet data?" prompt over the
+  dashboard. **Locked, it does not appear** — lock task already suppresses it; nothing to add.
+- The app is named **OpenDubs** on the tablet, and is absent from Samsung's *Never sleeping apps*
+  list because it is already exempt (device owner, plus `dumpsys deviceidle whitelist`, now a setup
+  step).

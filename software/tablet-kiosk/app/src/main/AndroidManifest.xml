@@ -31,6 +31,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Back to the dashboard after an update (the update stops the app). -->
+        <receiver android:name=".UpdateReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Device owner: `adb shell dpm set-device-owner org.opendubs.kiosk/.KioskAdminReceiver` -->
         <receiver
             android:name=".KioskAdminReceiver"

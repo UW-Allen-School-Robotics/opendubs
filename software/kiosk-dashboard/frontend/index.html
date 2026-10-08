@@ -21,7 +21,7 @@
         <header id="topbar" class="opbar">
       <button class="op-ham" id="opHam" aria-label="menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <div class="brand">
-        <span class="logo">◧ OPENDUBS</span>
+        <span class="logo" title="The robot this dashboard controls">◧ <span id="robotName">OPENDUBS</span></span>
         <span id="conn" class="conn down" title="link">●</span>
       </div>
       <span id="opState" class="op-state">—</span>
@@ -29,9 +29,9 @@
       <button id="btnAiToggle" class="op-ai off">AI TRACKING: OFF</button>
       <span id="host" class="op-meta">—</span>
       <span id="clock" class="op-meta">--:--:--</span>
-      <span id="opBatt" class="op-batt">—</span>
+      <span id="opBatt" class="op-batt" title="The robot's battery (its 52 V pack)">—</span>
+      <span id="devBatt" class="op-batt" title="This device's battery" hidden></span>
       <button class="op-ham" id="opFs" title="fullscreen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-      <button id="ackBtn" class="ack">ACK</button>
       <button class="op-estop" id="opEstop"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/></svg> E-STOP</button>
       <button class="op-rearm" id="opRearm" title="Hold to re-arm"><span class="op-rearmfill"></span><span class="op-rearmtxt">HOLD TO RE-ARM</span></button>
     </header>
@@ -49,38 +49,14 @@
         </div>
         <div id="opNotif"></div>
       </div>
-      <div class="op-ctl" id="opCtl">
-        <div class="op-zone op-drive"><span class="op-zlbl">TRANSLATE</span>
-          <div class="op-stick" id="opStTrans"><div class="nub"></div></div>
-          <span class="op-axhint">▲▼ fwd · ◀▶ strafe</span>
-        </div>
-        <div class="op-zone" style="justify-content:space-between; gap:12px">
-          <div id="opArmStatus" class="op-armstatus">DRIVE DISARMED</div>
-          <div style="width:100%"><div class="op-cap" style="margin-bottom:5px">SPEED</div>
-            <input class="op-slider" type="range" min="0" max="100" value="35"></div>
-          <div class="op-seg"><button class="on">MECANUM</button><button>4WD</button></div>
-        </div>
-        <div class="op-zone op-drive"><span class="op-zlbl">ROTATE</span>
-          <div class="op-stick rot" id="opStRot"><div class="nub"></div></div>
-          <span class="op-axhint">◀▶ yaw</span>
-        </div>
-        <div id="opArmOverlay">
-          <div class="op-armpad" id="opArmL"><span>HOLD</span></div>
-          <div class="op-armmsg">
-            <div class="op-armt">DRIVE DISARMED</div>
-            <div class="op-arms">hold <b>both</b> pads together to enable the on-screen sticks</div>
-            <div class="op-armp"><i id="opArmProg"></i></div>
-          </div>
-          <div class="op-armpad" id="opArmR"><span>HOLD</span></div>
-        </div>
-      </div>
-      <div id="opCtlPad">
-        <span class="op-gpdot"></span><span class="op-gptxt">GAMEPAD CONNECTED</span>
-        <span style="color:var(--dim)">— driving via joystick · on-screen sticks hidden</span>
-        <span class="spacer"></span>
-        <span class="op-cap" style="align-self:center">SPEED</span>
-        <input class="op-slider" style="max-width:150px" type="range" min="0" max="100" value="35">
-        <div class="op-seg" style="max-width:170px"><button class="on">MECANUM</button><button>4WD</button></div>
+      <!-- What the robot itself reports about driving. READ-ONLY: nothing on this screen commands
+           motion — the RC transmitter drives in MANUAL, the Thor in AUTO (CH5). -->
+      <div class="op-status" id="opStatus">
+        <div class="op-tile"><span class="op-cap">AUTHORITY · CH5</span><b id="osAuth">—</b></div>
+        <div class="op-tile"><span class="op-cap">DEADMAN · CH6</span><b id="osDead">—</b></div>
+        <div class="op-tile wide"><span class="op-cap">DRIVE</span><b id="osDrive">—</b><span class="op-why" id="osWhy"></span></div>
+        <div class="op-tile wide" title="Energized: the arm motors are powered and holding. Whether they may MOVE follows CH5 (arms plan DEC-21/24)."><span class="op-cap">ARMS</span><b id="osArms">—</b><span class="op-why" id="osArmsWhy"></span></div>
+        <div class="op-tile"><span class="op-cap">SPEED · CH8</span><b id="osSpeed">—</b></div>
       </div>
     </main>
 
