@@ -332,7 +332,7 @@ def run_face(show, flip_after=None, change=None):
     robot, sock = R.FakeRobotState(), FakeSock()
     face = FB.LiveFace("127.0.0.1", sock=sock)
     sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
-    r = R.Runner(os.path.join(SHOWS, show), LIMITS, robot, R.FaceTee(R.TwinFeed(), face), io.StringIO(),
+    r = R.Runner(os.path.join(SHOWS, show), LIMITS, robot, FB.HeadTee(R.TwinFeed(), face), io.StringIO(),
                  clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True)
     return r.run(), sock.lines
 
@@ -344,6 +344,70 @@ end, lines = run_face("celebrate.yaml", flip_after=2.0, change={"deadman": False
 check("... an aborted run hands the face back too", end[0] == "ABORTED" and lines[-1] == "EMOTE AUTO", lines)
 end, lines = run_face("celebrate.yaml", flip_after=0.0, change={"deadman": False})
 check("... and a run that never starts leaves the face alone", end[0] in ("REFUSED", "ABORTED") and lines == [], (end, lines))
+
+
+class FakeHead(FakeSock):
+    """Answers like the head: GAZE echoes the CLAMPED angles; an old head knows no GAZE."""
+
+    def __init__(self, tilt_band=(0, 180), knows_gaze=True):
+        super().__init__()
+        self.band, self.knows, self.out = tilt_band, knows_gaze, []
+
+    def sendto(self, data, addr):
+        line = data.decode().strip()
+        self.lines.append(line)
+        if not line.startswith("GAZE"):
+            return
+        if not self.knows:
+            self.out.append("ERR unknown")
+        elif line == "GAZE OFF":
+            self.out.append("OK gaze off")
+        else:
+            p, t = (float(x) for x in line.split()[1:3])
+            self.out.append(f"OK gaze {p:.0f} {min(max(t, self.band[0]), self.band[1]):.0f}")
+
+    def recv(self, n):
+        if not self.out:
+            raise BlockingIOError
+        return self.out.pop(0).encode()
+
+
+def run_gaze(show, head, flip_after=None, change=None):
+    robot, notes = R.FakeRobotState(), []
+    sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
+    gaze = FB.LiveGaze("127.0.0.1", sock=head, clock=sc.clock, note=lambda **kw: notes.append(kw))
+    r = R.Runner(os.path.join(SHOWS, show), LIMITS, robot, FB.HeadTee(R.TwinFeed(), gaze), io.StringIO(),
+                 clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True)
+    return r.run(), head.lines, notes
+
+
+end, lines, notes = run_gaze("reach.yaml", FakeHead())
+gz = [ln for ln in lines if ln.startswith("GAZE")]
+check("a live run turns the real head: the HEAD track's target, as GAZE with a lease, renewed while it runs",
+      end[0] == "COMPLETED" and gz[0] == "GAZE 110 80 600" and "GAZE 90 90 600" in gz
+      and len(gz) >= 12 / FB.LiveGaze.RENEW_S - 5, (len(gz), gz[:3]))
+check("... and every ending releases it: the head stops where it is and goes back to its own behaviour",
+      gz[-1] == "GAZE OFF" and not [n for n in notes if "warning" in n.get("kind", "")], (gz[-2:], notes))
+end, lines, notes = run_gaze("reach.yaml", FakeHead(), flip_after=3.0, change={"deadman": False})
+check("... an aborted run releases it too", end[0] == "ABORTED" and lines[-1] == "GAZE OFF", lines[-2:])
+end, lines, notes = run_gaze("robotic-smile.yaml", FakeHead(tilt_band=(85, 95)))
+warn = [n for n in notes if n.get("kind") == "gaze_warning"]
+check("a move the head limits to its own range is logged ONCE, with what was asked and what it took",
+      len(warn) == 1 and warn[0]["asked"][1] != warn[0]["got"][1], warn)
+end, lines, notes = run_gaze("reach.yaml", FakeHead(knows_gaze=False))
+gz = [ln for ln in lines if ln.startswith("GAZE")]
+check("a head without GAZE (older firmware) is asked once, logged once, and the show plays on",
+      end[0] == "COMPLETED" and len(gz) <= 2 and "GAZE OFF" not in gz
+      and len([n for n in notes if n.get("kind") == "gaze_warning"]) == 1, (gz, notes))
+old = FB.LiveGaze("127.0.0.1", sock=FakeHead(knows_gaze=False))
+new = FB.LiveGaze("127.0.0.1", sock=FakeHead())
+check("at runner start a probe learns whether the head has GAZE (it releases any stale lease on the way)",
+      old.probe(0.2) is False and new.probe(0.2) is True and new.sock.lines == ["GAZE OFF"])
+palg = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(), gaze=new)
+palo = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(), gaze=old)
+head_live = lambda p: {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in p.routines()}["reach"]["head"]
+check("... and the head's icon is real only when it has", head_live(palg) is True and head_live(palo) is False)
+
 pal4 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms(),
                  face=FB.LiveFace("127.0.0.1", sock=FakeSock()))
 uses4 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal4.routines()}
