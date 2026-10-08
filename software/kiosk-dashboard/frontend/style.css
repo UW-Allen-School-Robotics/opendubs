@@ -656,7 +656,4 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .shows-audio .sysbtn { flex: none; width: auto; min-height: 0; padding: 6px 12px; font-size: 13px; }
 .shows-audio .dim { color: var(--dim); }
 .op-batt svg.who { opacity: .85; }
-.shows-live { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 14px; color: var(--dim); }
-.shows-live b { color: var(--bad); letter-spacing: .08em; }
-.shows-live input { width: 20px; height: 20px; accent-color: var(--bad); }
 .twinbadge.livebadge { background: rgba(255, 92, 92, 0.15); color: var(--bad); border-color: var(--bad); }

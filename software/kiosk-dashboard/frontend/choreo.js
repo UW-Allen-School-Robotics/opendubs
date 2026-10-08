@@ -37,14 +37,13 @@
   function render() {
     renderAudio();
     const running = status && status.running;
-    // LIVE: offered only when this robot's runner can move the arms; the badge says which it is.
-    const live = el("showsLive"), box = el("showsLiveBox"), badge = el("showsTwin");
-    if (live) live.hidden = !(status && status.live_available);
-    const armed = !!(box && box.checked && status && status.live_available);
-    const liveRun = !!(status && status.live);
+    // A runner with the arms drives them on every run (CH5 AUTO + the deadman are the go); one
+    // without them drives only the twins. The badge says which this robot is.
+    const badge = el("showsTwin");
+    const armsFollow = !!(status && status.live_available), liveRun = !!(status && status.live);
     if (badge) {
-      badge.textContent = liveRun ? "LIVE · THE ARMS ARE MOVING" : armed ? "LIVE · THE ARMS WILL MOVE" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
-      badge.classList.toggle("livebadge", liveRun || armed);
+      badge.textContent = liveRun ? "LIVE · THE ARMS ARE MOVING" : armsFollow ? "LIVE · THE ARMS FOLLOW EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
+      badge.classList.toggle("livebadge", armsFollow);
     }
     el("showsStop").disabled = !running;
     const last = status && status.last;
@@ -81,10 +80,7 @@
 
   el("showsList").addEventListener("click", async (e) => {
     const b = e.target.closest(".shows-btn"); if (!b || b.disabled) return;
-    const box = el("showsLiveBox"), live = !!(box && box.checked);
-    // The LIVE mark is for ONE run: cleared as the run is asked for, whatever happens next.
-    if (box) box.checked = false;
-    try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}${live ? "?live=1" : ""}`, { method: "POST" }); }
+    try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, { method: "POST" }); }
     catch (err) { el("showsStatus").innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
     refresh(false);
   });
