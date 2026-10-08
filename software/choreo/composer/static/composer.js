@@ -481,7 +481,7 @@ function renderPreview() {
     } else if (slot === "HEAD") {
       let pan = null, tilt = null;
       for (const e of evs) if (e.t <= t + 1e-9) { if (e.cue.pan !== undefined) pan = e.cue.pan; if (e.cue.tilt !== undefined) tilt = e.cue.tilt; }
-      row(slot, `<span title="Commanded target. The head turns toward it at 25 °/s per axis (the Tab5 firmware's slew limit), so it may still be travelling">pan ${pan === null ? "—" : pan.toFixed(0)}° · tilt ${tilt === null ? "—" : tilt.toFixed(0)}°</span>`);
+      row(slot, `<span title="Commanded target. The head turns toward it at 70 °/s per axis (the Tab5 firmware's slew limit), so it may still be travelling">pan ${pan === null ? "—" : pan.toFixed(0)}° · tilt ${tilt === null ? "—" : tilt.toFixed(0)}°</span>`);
     } else if (slot === "LIFT") {
       let net = 0, active = null;
       for (const e of evs) {
