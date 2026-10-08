@@ -71,10 +71,12 @@ async def palette():
 
 
 @router.post("/api/choreo/run/{rid}")
-async def run(rid: str):
+async def run(rid: str, live: int = 0):
+    """`?live=1`: the operator marked this run LIVE — the real arms follow it (plan 5.6). The runner
+    decides whether it can; its preflight still gates it on CH5 AUTO, the deadman and the arms."""
     if not rid.replace("-", "").replace("_", "").isalnum():
         return JSONResponse({"error": "not a routine id"}, status_code=400)
-    return await _forward("POST", f"run/{rid}")
+    return await _forward("POST", f"run/{rid}" + ("?live=1" if live else ""))
 
 
 @router.post("/api/choreo/stop")

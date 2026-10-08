@@ -114,3 +114,34 @@ def test_arms_are_active_only_when_every_motor_is_enabled_and_clean():
     assert f("enabled=16 disabled=0 faults=1 missing=0", None) == "inactive"
     assert f("enabled=0 disabled=0 faults=0 missing=16", None) == "inactive"
     assert f("", "failed") is None and f("garbage", None) is None
+
+
+def test_a_live_run_is_forwarded_with_its_mark_and_only_then():
+    seen = []
+
+    class Rec(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(self.path)
+            b = b'{"started": "reach"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+    srv = HTTPServer(("127.0.0.1", 0), Rec)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    choreo_proxy.RUNNER_URL = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        app = FastAPI()
+        app.include_router(choreo_proxy.router)
+        c = TestClient(app)
+        c.post("/api/choreo/run/reach")
+        c.post("/api/choreo/run/reach?live=1")
+        assert seen == ["/api/run/reach", "/api/run/reach?live=1"]
+    finally:
+        srv.shutdown()

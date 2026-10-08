@@ -37,10 +37,19 @@
   function render() {
     renderAudio();
     const running = status && status.running;
+    // LIVE: offered only when this robot's runner can move the arms; the badge says which it is.
+    const live = el("showsLive"), box = el("showsLiveBox"), badge = el("showsTwin");
+    if (live) live.hidden = !(status && status.live_available);
+    const armed = !!(box && box.checked && status && status.live_available);
+    const liveRun = !!(status && status.live);
+    if (badge) {
+      badge.textContent = liveRun ? "LIVE · THE ARMS ARE MOVING" : armed ? "LIVE · THE ARMS WILL MOVE" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
+      badge.classList.toggle("livebadge", liveRun || armed);
+    }
     el("showsStop").disabled = !running;
     const last = status && status.last;
     el("showsStatus").innerHTML = running
-      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b> <span class="dim">${esc(status.status || "")}</span>`
+      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${status.live ? ' <b class="bad">LIVE</b>' : ""} <span class="dim">${esc(status.status || "")}</span>`
       : last ? `Last: <b>${esc(labelOf(last.id))}</b> — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc(last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>`
       : "Pick a routine.";
     /* Rebuild the buttons only when something about them changed: rebuilding every poll would
@@ -72,7 +81,10 @@
 
   el("showsList").addEventListener("click", async (e) => {
     const b = e.target.closest(".shows-btn"); if (!b || b.disabled) return;
-    try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, { method: "POST" }); }
+    const box = el("showsLiveBox"), live = !!(box && box.checked);
+    // The LIVE mark is for ONE run: cleared as the run is asked for, whatever happens next.
+    if (box) box.checked = false;
+    try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}${live ? "?live=1" : ""}`, { method: "POST" }); }
     catch (err) { el("showsStatus").innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
     refresh(false);
   });

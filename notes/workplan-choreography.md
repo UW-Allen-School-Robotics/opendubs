@@ -189,7 +189,7 @@ host. It has no network input today, by design.*
 | 5.3 | **PARTLY BUILT** — the runner renews a 250 ms lease every tick and publishes it; the twins treat an expired lease as the show over. The robot-side expiry belongs to the arbiter and the firmware, with live output (5.6). | A killed runner stops the robot — tested by killing the process. |
 | 5.4 | **BUILT** — e-stop ends at once (audio cut); a released deadman, CH5 leaving the required mode, a fault, an unknown state or an operator stop ABORTS, with each slot's state argued in `ABORT_STATE` (arms and grippers hold, head stops, lift relays off, dance zero velocity, face handed back, light released, music faded 250 ms); arms travel to the start pose first, timed by distance at the warning-free speed. Verified live against the twins: a deadman release at 12 s aborted, held the twin, sent no further cue. | Every slot's abort state is argued, not assumed. |
 | 5.5 | **BUILT** — Spot's status taxonomy plus typed codes (`INVALID_SHOW`, `PARSING_FAILURE`, `UNKNOWN_STATE`, `PRECONDITION_FAILED`, `ESTOP`, `DEADMAN`, `AUTHORITY`, `FAULT`, `OPERATOR_STOP`), one JSON line per status change and per cue. | An abort's cause can be reconstructed from the log — tested. |
-| 5.6 | **Live output as an armed binding** from the composer and the player. | Default stays the twin. |
+| 5.6 | **Live output as an armed binding** — **ARMS BUILT 2026-10-08** (`software/choreo/arm_output.py`). Decided: the runner sends each arm's routine as ONE `FollowJointTrajectory` goal (the action `openarm-up park` uses), only while its own checks hold (CH5 AUTO, deadman held, arms active — DEC-21 permits shows in AUTO); a **LIVE switch** on the Shows page arms ONE run and clears itself; arms only, grippers logged until calibrated (6.2). The arm first moves, from where it is MEASURED (`/joint_states`; unknown refuses), to zero — the pose the validator and the twin start every arm from — slowly enough to need no warning; then follows the keyframes in straight lines, sent as points every 0.1 s. Ending early cancels the goals and the arms hold (ABORT_STATE); an e-stop has already cut their power. Found and fixed on the way: the start-pose move used to target the first keyframe, not the validated start. Tested against a stand-in for the arms; **not yet run on the robot**. | Default stays the twin. |
 
 ## Phase 6 — on the robot
 
@@ -226,7 +226,8 @@ Everything that pretends, so nothing is forgotten at robot time.
 | Fake joint source for teach | `composer/static/composer.js` `FakeJointSource` | 6.3 |
 | ~~MuJoCo render and clearance paths, never run~~ — run 2026-10-07 | `software/choreo/sim_preview.py` | 2.3 |
 | `LIGHT` and sound **files** have no robot receiver (`FACE` and earcons do: the head's `EMOTE`, `THEME`, `CUE`) | `cue.py` notices | 1.5 / 4.2, the runner's LIGHT layering |
-| Live output — designed, not built | teach-and-sync §5 | 5.6 |
+| ~~Live output — designed, not built~~ — arms built 2026-10-08 (5.6); grippers not driven until calibrated (6.2) | `arm_output.py` | 6.2 |
+| No robot-side expiry for live arm goals: if the runner process dies mid-routine, the controller finishes the goal it has (the rest of that routine, ending at rest). The e-stop is the backstop. | `arm_output.py` | 5.3 |
 | ~~The runner~~ — `software/choreo/runner.py`, 2026-10-07 | — | 5.1 |
 | `arms: active` approximated as "every arm motor enabled, none faulted or missing"; whether a controller is commanding them is not read | `backend/choreo_proxy.py` `arms_from_summary` | 5.6 |
 | The arms' current pose is not measured on the robot: the start-pose move is timed from zero | `choreo_proxy.robot_view` `arm_pose` | 5.6 / 6.3 |
