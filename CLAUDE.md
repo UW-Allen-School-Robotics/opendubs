@@ -37,7 +37,8 @@ recipe that matches your task.
 |---|---|---|
 | **StamPLC** (ESP32-S3) | `sudo firmware/rc_serial_probe/ota-from-thor.sh` — on the Thor, **no IP** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. **Do not go hunting for the board's address** — the script finds it (argument → `$OPENDUBS_STAMP_IP` → the dashboard's learned peer → `opendubs-stamplc.local`) and refuses one belonging to the Thor itself. `sudo` because PlatformIO must write `.pio/` under `/opt/opendubs`, which the deploying user owns. |
 | StamPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
-| **Tab5 face** (ESP32-P4) | `firmware/tab5_face/ota-from-thor.sh [host]` — run **on the Thor** | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). |
+| **Tab5 face** (ESP32-P4, ESP-IDF) | Build the shipping image where ESP-IDF and the demo tree are: `OPENDUBS_DEMO=<demo tree> firmware/tab5_idf/ota-from-thor.sh --build`; copy the printed `.bin` to the Thor; then **on the Thor** `firmware/tab5_idf/ota-from-thor.sh <image.bin> [host]` | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). The script passes only when the head's `PING` reports the new image's hash running and VALID; a failed health check rolls back by itself. The Arduino firmware's `firmware/tab5_face/ota-from-thor.sh` is **retired** and refuses to run: it would install the Arduino image over the ESP-IDF head. |
+| Tab5, first flash or recovery | USB from a Mac: `firmware/tab5_idf/FLASHING-THE-ROBOT.md` | Only for a head that will not take an OTA. Writes four regions and never `nvs`, where the per-robot values live. |
 
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
 each firmware's own `README.md`.
@@ -54,15 +55,15 @@ Two debugging rules from the same incident. **Run-then-freeze means accumulation
 leak, fragmentation — where an over-budget frame fails immediately; they are different searches.
 And **change one variable at a time**, or a failure cannot be attributed to either.
 
-## Tab5 rendering: read `notes/design/tab5-platform.md` first
+## The Tab5 head: ESP-IDF and LVGL — read its notes first
 
-**Do not optimise the Tab5 face renderer.** It draws through M5GFX's CPU rasteriser on a SoC that
-has a Pixel Processing Accelerator, 2D-DMA, a hardware JPEG codec and a DSI framebuffer, none of
-which are in use — so every apparent limit (eye size, gaze travel, the cost of a second eye) is an
-artefact of that, not of the hardware. **LVGL is not a dead end; it is the stack M5Stack's own
-factory firmware uses**, and that firmware plays live 1280x720 camera video. The note covers the
-full hardware inventory, what the audio subsystem can really do, what an LVGL port would cost, and
-how to put the existing HTML dashboard on the panel instead of drawing it.
+The head runs `firmware/tab5_idf` — ESP-IDF 5.5.5 with LVGL, built on M5Stack's own factory
+firmware (`firmware/tab5_idf/README.md`). Before changing how it draws, read
+`notes/design/tab5-platform.md` (the SoC's Pixel Processing Accelerator, 2D-DMA, JPEG codec and DSI
+framebuffer, and what the audio subsystem can really do) and `notes/design/tab5-face-architecture.md`.
+`firmware/tab5_idf/AUDIT.md` holds the invariants a change must keep (no LVGL call off the render
+task, every per-frame write change-guarded). Design iteration belongs in the desktop build
+(`build.sh desktop`), which is also the face twin the choreography tools drive.
 
 ## Bench work on an M5Stack board over USB — the rote procedure
 

@@ -212,7 +212,7 @@ is the test of whether it was drawn in the right place.
    re-litigating every time someone new walks into the bay.
 2. **Whose voice is the robot's** — the Tab5's 1 W speaker, or the tablet's? `notes/punch-list.md`
    already flags the overlap and it is still undecided.
-3. **Does the mic become a perception source for the FACE as well as the head?** Emma, 2026-10-07:
+3. **Does the mic become a perception source for the FACE as well as the head?** Answered 2026-10-07:
    worth looking at. It would also give F1 in the Tab5 plan a second real event to react to.
 4. **What happens when understanding is unavailable** — the Thor down, the network gone. The face
    must not invite speech it cannot route. Degrading honestly is a design requirement, not an error

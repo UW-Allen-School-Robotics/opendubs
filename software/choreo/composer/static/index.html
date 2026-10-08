@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Show Composer</title>
+  <!-- Everything is local: no CDN, no fonts, no build step. The robot's LAN may have no internet. -->
+  <link rel="stylesheet" href="static/composer.css">
+</head>
+<body>
+  <header id="bar">
+    <span class="brand">COMPOSER</span>
+    <span class="badge preview" title="This editor has no path to the robot. It reads and writes show files; the preview is drawn here.">PREVIEW ONLY</span>
+    <span class="badge fixture" id="fixture" hidden title="Joint limits are the repo's test fixture, not the robot's own joint_limits.yaml">TEST LIMITS</span>
+    <select id="show" aria-label="Show" title="The show file being edited (from the shows folder)"></select>
+    <button id="rewind" class="big" aria-label="Back to the start (Home)" title="Back to the start (Home)">⏮</button>
+    <button id="play" class="big" aria-label="Play or pause (space)" title="Play or pause the music and the preview (space)">▶</button>
+    <span id="clock" class="clock" title="Playhead time — what is heard, corrected for audio output latency">0.000 s</span>
+    <span class="group">
+      <button id="zoomOut" aria-label="Zoom out" title="Zoom out (Ctrl/Cmd + scroll)">−</button>
+      <button id="zoomIn" aria-label="Zoom in" title="Zoom in (Ctrl/Cmd + scroll)">+</button>
+    </span>
+    <label class="group" title="Dragged cues snap to this grid. A cue written in seconds stays in seconds; snapping only changes its value">snap
+      <select id="snap">
+        <option value="off">off</option>
+        <option value="bar">bar</option>
+        <option value="beat" selected>beat</option>
+        <option value="half">½ beat</option>
+        <option value="quarter">¼ beat</option>
+      </select>
+    </label>
+    <label class="group" title="Metronome: a click on every beat, scheduled on the audio clock"><input type="checkbox" id="metro"> click</label>
+    <span class="group">
+      <button id="tap" title="Tap along with the music; four or more taps estimate the tempo">tap</button>
+      <span id="tapBpm" class="dim" title="Tempo estimated from your taps">—</span>
+      <button id="tapUse" disabled title="Write the tapped tempo into the show's music block">use</button>
+      <button id="beatOne" title="Set music.offset_s: beat 1 falls at the playhead">beat 1 ⇤</button>
+    </span>
+    <span class="spacer"></span>
+    <button id="undo" disabled title="Undo (Ctrl/Cmd-Z)">undo</button>
+    <button id="yamlBtn" title="Show the show's text — exactly what will be saved">YAML</button>
+    <button id="save" title="Save (Ctrl/Cmd-S)">save</button>
+    <span id="status" class="chip" title="The validator's verdict on the whole show. Valid means allowed, not safe">…</span>
+  </header>
+
+  <main id="tl">
+    <div id="heads"></div>
+    <div id="scroller">
+      <div id="canvas">
+        <div id="ruler" class="row ruler"></div>
+        <div id="music" class="row music"><canvas id="wave"></canvas><span id="waveMsg" class="dim"></span></div>
+        <div id="lanes"></div>
+        <div id="playhead"></div>
+      </div>
+    </div>
+  </main>
+
+  <section id="bottom">
+    <div class="pane" id="previewPane">
+      <h2>At the playhead <span class="dim" id="previewT"></span></h2>
+      <div id="preview"></div>
+    </div>
+    <div class="pane" id="inspectorPane">
+      <h2>Cue</h2>
+      <div id="inspector"><p class="dim">Tap a cue to inspect it.</p></div>
+    </div>
+    <div class="pane" id="problemsPane">
+      <h2>Validator <span class="dim" id="limitsName"></span></h2>
+      <div id="problems"></div>
+    </div>
+  </section>
+
+  <div id="yamlDrawer" hidden>
+    <div class="drawerHead">
+      <b>Show text</b>
+      <span class="dim">— what will be saved: no layout, no zoom, no colours</span>
+      <span class="spacer"></span>
+      <button id="yamlApply">apply text</button>
+      <button id="yamlClose">close</button>
+    </div>
+    <textarea id="yamlText" spellcheck="false"></textarea>
+  </div>
+  <div id="toast" hidden></div>
+
+  <script src="static/composer.js"></script>
+</body>
+</html>

@@ -535,7 +535,7 @@
  ],
  "links": {
   "openarm_body_link0": {
-   "mesh": "meshes/body_link0_symp.stl",
+   "mesh": "meshes/collision/body/body_link0.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -554,7 +554,7 @@
   },
   "openarm_left_hand_tcp": {},
   "openarm_left_left_finger": {
-   "mesh": "meshes/finger.stl",
+   "mesh": "meshes/collision/gripper/finger.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -572,7 +572,7 @@
    ]
   },
   "openarm_left_link0": {
-   "mesh": "meshes/link0_symp.stl",
+   "mesh": "meshes/collision/arm/link0.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -590,7 +590,7 @@
    ]
   },
   "openarm_left_link1": {
-   "mesh": "meshes/link1_symp.stl",
+   "mesh": "meshes/collision/arm/link1.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -608,7 +608,7 @@
    ]
   },
   "openarm_left_link2": {
-   "mesh": "meshes/link2_symp.stl",
+   "mesh": "meshes/collision/arm/link2.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -626,7 +626,7 @@
    ]
   },
   "openarm_left_link3": {
-   "mesh": "meshes/link3_symp.stl",
+   "mesh": "meshes/collision/arm/link3.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -644,7 +644,7 @@
    ]
   },
   "openarm_left_link4": {
-   "mesh": "meshes/link4_symp.stl",
+   "mesh": "meshes/collision/arm/link4.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -662,7 +662,7 @@
    ]
   },
   "openarm_left_link5": {
-   "mesh": "meshes/link5_symp.stl",
+   "mesh": "meshes/collision/arm/link5.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -680,7 +680,7 @@
    ]
   },
   "openarm_left_link6": {
-   "mesh": "meshes/link6_symp.stl",
+   "mesh": "meshes/collision/arm/link6.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -698,7 +698,7 @@
    ]
   },
   "openarm_left_link7": {
-   "mesh": "meshes/link7_symp.stl",
+   "mesh": "meshes/collision/arm/link7.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -716,7 +716,7 @@
    ]
   },
   "openarm_left_right_finger": {
-   "mesh": "meshes/finger.stl",
+   "mesh": "meshes/collision/gripper/finger.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -735,7 +735,7 @@
   },
   "openarm_right_hand_tcp": {},
   "openarm_right_left_finger": {
-   "mesh": "meshes/finger.stl",
+   "mesh": "meshes/collision/gripper/finger.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -753,7 +753,7 @@
    ]
   },
   "openarm_right_link0": {
-   "mesh": "meshes/link0_symp.stl",
+   "mesh": "meshes/collision/arm/link0.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -771,7 +771,7 @@
    ]
   },
   "openarm_right_link1": {
-   "mesh": "meshes/link1_symp.stl",
+   "mesh": "meshes/collision/arm/link1.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -789,7 +789,7 @@
    ]
   },
   "openarm_right_link2": {
-   "mesh": "meshes/link2_symp.stl",
+   "mesh": "meshes/collision/arm/link2.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -807,7 +807,7 @@
    ]
   },
   "openarm_right_link3": {
-   "mesh": "meshes/link3_symp.stl",
+   "mesh": "meshes/collision/arm/link3.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -825,7 +825,7 @@
    ]
   },
   "openarm_right_link4": {
-   "mesh": "meshes/link4_symp.stl",
+   "mesh": "meshes/collision/arm/link4.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -843,7 +843,7 @@
    ]
   },
   "openarm_right_link5": {
-   "mesh": "meshes/link5_symp.stl",
+   "mesh": "meshes/collision/arm/link5.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -861,7 +861,7 @@
    ]
   },
   "openarm_right_link6": {
-   "mesh": "meshes/link6_symp.stl",
+   "mesh": "meshes/collision/arm/link6.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -879,7 +879,7 @@
    ]
   },
   "openarm_right_link7": {
-   "mesh": "meshes/link7_symp.stl",
+   "mesh": "meshes/collision/arm/link7.stl",
    "mesh_rpy": [
     0.0,
     0.0,
@@ -897,7 +897,7 @@
    ]
   },
   "openarm_right_right_finger": {
-   "mesh": "meshes/finger.stl",
+   "mesh": "meshes/collision/gripper/finger.stl",
    "mesh_rpy": [
     0.0,
     0.0,

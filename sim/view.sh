@@ -5,15 +5,11 @@
 # ctrl+drag a selected body to push it, space to pause. The left panel has joint sliders --
 # zaxis, head_pan, head_tilt and all 18 arm joints.
 #
-# NOT mjpython, despite what MuJoCo's own docs say for macOS. mjpython is broken on this
-# machine: mujoco.viewer._MJPYTHON is set, so the trampoline works, but constructing the
-# viewer then dies with "RuntimeError: Caught an unknown exception!" -- on 3.14.0 and on
-# 3.3.5, for any model including a single sphere, from a sandboxed shell, the app's terminal
-# and Terminal.app alike. Under plain python the same construction succeeds.
-#
-# It works because this is the BLOCKING viewer, which wants the main thread and, run this way,
-# has it. mjpython exists for launch_passive, where your script keeps running alongside the
-# viewer -- so if we ever want a script to drive the viewer live, that problem comes back.
+# This is the BLOCKING viewer (sliders, orbit, push), which owns the main thread and so runs under
+# plain python. A script that drives the viewer live -- the composer's playhead, for one -- needs
+# mujoco.viewer.launch_passive, and on macOS that must run under `mjpython` instead of `python`.
+# Both work on the development Macs: verified 2026-10-07 with MuJoCo 3.15.0, the passive viewer
+# driving the full robot model (lift and an arm animated from a script) at ~40 fps.
 #
 # glfw is explicit: MuJoCo's simulate dlopens it at runtime and fails with "cannot obtain a
 # shared object handle" if the package is absent.

@@ -6,6 +6,7 @@
 #include "net.h"
 #include "net_cmd.h"
 #include "sim_inputs.h"
+#include "frame_tap.h"
 #include "cfg.h"
 #include "walkin.h"
 #include "ui_settings.h"
@@ -659,7 +660,7 @@ namespace band {
 
 // FOUR STRIPS, NOT FORTY-EIGHT SEGMENTS.
 //
-// The segment version froze, and Emma's observation located it precisely: it went on
+// The segment version froze, and an observation at the robot located it precisely: it went on
 // MANUAL / ALERT / idle, which is the peak-cost frame. ALERT is the largest body (1.06 x 1.08,
 // so the biggest dirty area on every resize) and IDLE is the band's worst case, because breathing
 // is UNIFORM -- all 48 segments change opacity every frame, where a sweep only touches the few the
@@ -915,7 +916,7 @@ void buildScene()
         lv_obj_set_style_line_rounded(g_eye[i].brow, true, LV_PART_MAIN);
     }
 
-    // THE BAND IS SUPPRESSED. Emma, 2026-10-06: it spun continuously and meant nothing, so it
+    // THE BAND IS SUPPRESSED. Decided 2026-10-06: it spun continuously and meant nothing, so it
     // carried no information and trained people to ignore the one channel that should carry
     // urgency. Not deleted -- F2 in the workplan still holds that motion could earn its place once
     // there is a real source for it (mic gate, inference running, audio playing). Until then it is
@@ -1090,7 +1091,7 @@ void applyNoLink();
 
 // EMOTE <name> pins an expression. -1 is AUTO: perception reactions and the random cycler resume.
 //
-// PRECEDENCE, agreed with Emma 2026-10-07: a state's `locked` emote > an EMOTE pin > the perception
+// PRECEDENCE, agreed 2026-10-07: a state's `locked` emote > an EMOTE pin > the perception
 // reaction > the random cycler. The reasoning for putting the pin above perception is that a pin is
 // a SHOW CUE, and a show whose expression changes because someone walked past the robot is not a
 // show. The cost is that a pinned face stops reacting to people until EMOTE AUTO, which is a real
@@ -1459,6 +1460,9 @@ void AppFace::onOpen()
     // The twin's simulated inputs and its SIMULATED badge. Inside the lock that onOpen already
     // holds, because this creates LVGL objects. A no-op on the device.
     simBegin(lv_screen_active());
+    // The twin's finished frames, shared with the MuJoCo body twin (choreography 2.5). Off unless
+    // OPENDUBS_FACE_FRAMES is set; a no-op on the device.
+    frameTapBegin();
 
     // THE EYES START SHUT, and the boot reads as the robot waking up instead of a face appearing.
     // teleport() rather than assignment: this must be instant, not animated, because it has to be
@@ -1975,7 +1979,7 @@ void AppFace::onRunning()
 #endif
     // Emotes cycle only where the face is free. In a reporting state the pinned emote stands,
     // while saccades and blinks carry on as normal.
-    // NOT behind OPENDUBS_DBG_UI any more, and random rather than sequential. Emma, 2026-10-06:
+    // NOT behind OPENDUBS_DBG_UI any more, and random rather than sequential. Decided 2026-10-06:
     // the robot only ever showed the big neutral eyes because the only thing driving the emote
     // channel was a bench cycler compiled out of the robot build -- so every other emote was dead
     // code. Random cycling is an INTERIM answer, not the design: F1 in the workplan still asks

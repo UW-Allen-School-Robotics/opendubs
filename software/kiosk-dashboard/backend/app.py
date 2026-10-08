@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import subprocess
 import sys
@@ -422,6 +423,49 @@ async def ws(socket: WebSocket) -> None:
         return
 
 
+ROSBRIDGE_URL = os.environ.get("OPENDUBS_ROSBRIDGE_URL", "ws://127.0.0.1:9090")
+
+
+@app.websocket("/rosbridge")
+async def rosbridge_proxy(socket: WebSocket) -> None:
+    """rosbridge through the dashboard's own origin. A page served over HTTPS (the tablet, :8443)
+    may not open ws://…:9090 — mixed content — so it connects here as wss://…/rosbridge and every
+    message is relayed unchanged to the local rosbridge. Over plain HTTP the page still talks to
+    :9090 directly. Nothing here interprets ROS traffic."""
+    import websockets
+    await socket.accept()
+    try:
+        async with websockets.connect(ROSBRIDGE_URL, max_size=None, open_timeout=3) as up:
+            async def to_page():
+                async for msg in up:
+                    if isinstance(msg, bytes):
+                        await socket.send_bytes(msg)
+                    else:
+                        await socket.send_text(msg)
+
+            async def to_ros():
+                while True:
+                    m = await socket.receive()
+                    if m["type"] == "websocket.disconnect":
+                        return
+                    if m.get("text") is not None:
+                        await up.send(m["text"])
+                    elif m.get("bytes") is not None:
+                        await up.send(m["bytes"])
+
+            tasks = {asyncio.create_task(to_page()), asyncio.create_task(to_ros())}
+            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for t in pending:
+                t.cancel()
+    except Exception:
+        pass                      # rosbridge down: the page shows ROS DOWN and retries
+    finally:
+        try:
+            await socket.close()
+        except Exception:
+            pass
+
+
 # Static frontend mounted last so /api and /ws take precedence. Serve with no-cache so a
 # long-running kiosk browser always revalidates and picks up a redeploy on reload — the
 # frontend is small and same-LAN, so skipping the cache costs nothing and avoids stale UIs.
@@ -431,5 +475,10 @@ class NoCacheStaticFiles(StaticFiles):
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
 
+
+# The Shows page's routines, forwarded to the show runner (choreo_proxy.py). Included before the
+# static mount so /api/choreo/* is not shadowed by it.
+from choreo_proxy import router as _choreo_router  # noqa: E402
+app.include_router(_choreo_router)
 
 app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")

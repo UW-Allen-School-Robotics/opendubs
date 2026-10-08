@@ -1,7 +1,8 @@
 /* Arm pose view — real OpenArm geometry, driven by /joint_states.
  *
  * Renders the vendored COLLISION meshes (assets/arm/, 0.75 MB) through the kinematic tree in
- * assets/arm/chain.json, which tools/arm_chain.py generates from the vendored URDF. Forward
+ * assets/arm/chain.json, which tools/arm_chain.py generates from the vendored URDF in
+ * description/openarm/ (assets/arm is a symlink to it in a checkout; deploy.sh copies the files). Forward
  * kinematics is done here rather than read from TF, so the view needs no robot_state_publisher,
  * no TF and no xacro at runtime — only joint angles.
  *

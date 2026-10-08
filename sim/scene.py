@@ -6,24 +6,29 @@
     python3 scene.py --render /tmp/up.png --lift 275 --joints "right:2=150,right:4=100"
     python3 scene.py --check                      # load, report, and exit
 
-The two halves stay in their own files. `opendubs.xml` is ours; the arms come from
-openarm_assets exactly as that project publishes them, and are attached at runtime with
-MuJoCo's MjSpec rather than by copying or editing anything. When they update their model we
-get the update for free.
+The two halves stay in their own files, both under description/ at the repo root:
+`description/opendubs/opendubs.xml` is ours; the arms are `description/openarm/`, vendored from
+openarm_assets by tools/vendor_openarm.py (unchanged MJCF and collision meshes, decimated visual
+meshes, provenance recorded). They are attached at runtime with MuJoCo's MjSpec rather than by
+editing either file.
 
-WHERE THE ASSETS COME FROM, in order: --assets, $OPENDUBS_OPENARM_ASSETS, then the places the
-arm software's own setup.sh puts them. They are not vendored into this repo: they are ~50 MB,
-they belong to another project, and a stale copy of someone else's robot is a trap.
+WHERE THE ARMS COME FROM, in order: --assets, $OPENDUBS_OPENARM_ASSETS, then the vendored copy in
+this repo. Pass an openarm_assets checkout to try a newer upstream model before re-vendoring it.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import os
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+OURS = os.path.join(REPO, "description", "opendubs")
+VENDORED_ARMS = os.path.join(REPO, "description", "openarm")
+ARM_XML = "openarm_bimanual_decorated.xml"
 ARM_MOUNT_XYZ = (0.423, 0.0, 0.3575)   # openarm_body_link0's origin, in CAD coordinates
 ARM_PREFIX = "oa_"
 
@@ -33,33 +38,35 @@ ARM_PREFIX = "oa_"
 # conservative there until we supply our own frame collision mesh.
 CHEST_COVER_GEOM = "openarm_body_link0_visual_5"
 
-ASSET_CANDIDATES = (
-    "~/openarm/openarm_robot-code/openarm_assets/src/openarm_assets/models/openarm",
-    "/openarm_ws/src/openarm_assets/src/openarm_assets/models/openarm",
-    "/tmp/oa_assets/src/openarm_assets/models/openarm",
-)
+def _arm_xml(root: str) -> str | None:
+    """The bimanual MJCF inside a vendored copy (mjcf/) or an openarm_assets checkout."""
+    for sub in ("mjcf", "generated", os.path.join("src", "openarm_assets", "models", "openarm", "generated")):
+        p = os.path.join(root, sub, ARM_XML)
+        if os.path.isfile(p):
+            return p
+    return None
 
 
 def find_assets(explicit: str | None) -> str:
-    for c in ([explicit] if explicit else []) + [os.environ.get("OPENDUBS_OPENARM_ASSETS")] + list(ASSET_CANDIDATES):
+    """The directory holding the arm MJCF's folder and its meshes/ (the model root)."""
+    for c in ([explicit] if explicit else []) + [os.environ.get("OPENDUBS_OPENARM_ASSETS"), VENDORED_ARMS]:
         if not c:
             continue
-        p = os.path.expanduser(c)
-        if os.path.isfile(os.path.join(p, "generated", "openarm_bimanual_decorated.xml")):
-            return p
-    sys.exit(
-        "cannot find the OpenArm assets. Pass --assets <.../models/openarm>, set\n"
-        "OPENDUBS_OPENARM_ASSETS, or clone them:\n"
-        "  git clone --depth 1 https://github.com/ericjgoossen/openarm_assets /tmp/oa_assets"
-    )
+        xml = _arm_xml(os.path.expanduser(c))
+        if xml:
+            return os.path.dirname(os.path.dirname(xml))
+    sys.exit("cannot find the OpenArm model: description/openarm/ is missing, and no --assets or "
+             "$OPENDUBS_OPENARM_ASSETS was given")
 
 
 def _mesh_dir(assets: str) -> str:
     """One directory holding both mesh sets, by symlink — MuJoCo resolves meshes against a
-    single meshdir, and copying 50 MB to render a picture would be silly."""
-    d = os.path.join(tempfile.gettempdir(), "opendubs_sim_meshes")
+    single meshdir, and copying meshes to render a picture would be silly. Keyed by the arm source,
+    so pointing --assets at a different checkout never picks up links left by another one."""
+    key = hashlib.sha1(os.path.realpath(assets).encode()).hexdigest()[:10]
+    d = os.path.join(tempfile.gettempdir(), "opendubs_sim_meshes_" + key)
     os.makedirs(d, exist_ok=True)
-    for src_dir in (os.path.join(assets, "meshes"), os.path.join(HERE, "meshes")):
+    for src_dir in (os.path.join(assets, "meshes"), os.path.join(OURS, "meshes")):
         for root, _, files in os.walk(src_dir):
             for f in files:
                 if not f.lower().endswith((".stl", ".obj")):
@@ -84,16 +91,51 @@ DRIVE_ACTUATORS = ("drive_fwd", "drive_rot", "drive_strafe")
 WHEEL_MAX_RADS = 10.0          # 0.70 m/s at the measured 70 mm radius
 
 
-def build(assets: str | None = None, chest_cover: bool = False):
+# THE FACE ON THE HEAD (choreography plan 2.5). A flat 16:9 surface on the Tab5's screen cover that
+# shows the face twin's own frames. The cover is modelled as a solid plate with no display window, so
+# the surface is the 5" 16:9 panel's ACTIVE AREA (110.7 x 62.3 mm), centred on the cover's front face
+# (measured in head_tilt's frame: front at x = 59.8 mm, centre y -1.85, z -2.9 mm) and 0.5 mm proud
+# of it. Where the display really sits inside the bezel is not modelled — an approximation for a
+# preview, never used for clearance (visual group, no contacts, no mass).
+FACE_TEXTURE = "face_screen"
+FACE_TEX_W, FACE_TEX_H = 320, 180                 # the face twin's shared frame (frame_tap.h)
+FACE_W, FACE_H = 0.1107, 0.0623
+FACE_X, FACE_YC, FACE_ZC = 0.0603, -0.00185, -0.0029
+
+
+def _add_face_screen(spec):
+    import mujoco
+    spec.add_texture(name=FACE_TEXTURE, type=mujoco.mjtTexture.mjTEXTURE_2D,
+                     builtin=mujoco.mjtBuiltin.mjBUILTIN_FLAT, width=FACE_TEX_W, height=FACE_TEX_H,
+                     rgb1=[0.03, 0.03, 0.04], rgb2=[0.03, 0.03, 0.04], nchannel=3)
+    mat = spec.add_material(name=FACE_TEXTURE, emission=1.0, specular=0.0, shininess=0.0,
+                            rgba=[1, 1, 1, 1])
+    mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = FACE_TEXTURE
+    w, h = FACE_W / 2, FACE_H / 2
+    # Facing +x, the way the head looks. Seen from in front, +y is to the viewer's right and +z up,
+    # so the corners run bottom-left, bottom-right, top-right, top-left (counter-clockwise).
+    verts = [FACE_X, FACE_YC - w, FACE_ZC - h,  FACE_X, FACE_YC + w, FACE_ZC - h,
+             FACE_X, FACE_YC + w, FACE_ZC + h,  FACE_X, FACE_YC - w, FACE_ZC + h]
+    spec.add_mesh(name=FACE_TEXTURE, uservert=verts, userface=[0, 1, 2, 0, 2, 3],
+                  usertexcoord=[0, 1, 1, 1, 1, 0, 0, 0],
+                  inertia=mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL)
+    spec.body("head_tilt").add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=FACE_TEXTURE,
+                                    material=FACE_TEXTURE, contype=0, conaffinity=0, group=2,
+                                    density=0)
+
+
+def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False):
     import mujoco
 
     a = find_assets(assets)
     meshes = _mesh_dir(a)
 
-    ours = mujoco.MjSpec.from_file(os.path.join(HERE, "opendubs.xml"))
-    arms = mujoco.MjSpec.from_file(os.path.join(a, "generated", "openarm_bimanual_decorated.xml"))
+    ours = mujoco.MjSpec.from_file(os.path.join(OURS, "opendubs.xml"))
+    arms = mujoco.MjSpec.from_file(_arm_xml(a))
     ours.meshdir = meshes
     arms.meshdir = meshes
+    if face_screen:
+        _add_face_screen(ours)
 
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
     frame.attach_body(arms.body("openarm_body_link0"), ARM_PREFIX, "")
@@ -235,8 +277,8 @@ def main():
           f"shoulders {(z + 0.094 + 0.698) * 1000:7.1f} mm")
     if a.view:
         import mujoco.viewer
-        # The BLOCKING viewer, which takes over this thread. Deliberately not mjpython — see
-        # view.sh for why. launch_passive would need it, and would not work here.
+        # The BLOCKING viewer, which takes over this thread. A script-driven view uses
+        # launch_passive under mjpython instead -- see view.sh.
         mujoco.viewer.launch(model, data)
         return
     if a.check or not a.render:

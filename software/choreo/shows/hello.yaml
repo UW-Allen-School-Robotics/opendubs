@@ -17,7 +17,7 @@ notes: >
   no cue may acknowledge it.
 
 cues:
-  - { t:  0.0, slot: SOUND,  do: chime }
+  - { t:  0.0, slot: SOUND,  do: play, sound: attend }
   - { t:  0.0, slot: HEAD,   pan: 90,  tilt: 90 }
 
   # open up: elbows out, shoulders outward
@@ -40,7 +40,7 @@ cues:
 
   # the lift goes up WHILE the arms are still working
   - { t:  6.0, slot: LIFT,   do: up, secs: 6 }
-  - { t:  6.0, slot: SOUND,  do: beep, hz: 3200, ms: 200 }
+  - { t:  6.0, slot: SOUND,  do: play, sound: heard }
 
   # then the left arm waves
   - { t: 12.0, slot: HEAD,   pan: 60,  tilt: 78 }
@@ -70,7 +70,7 @@ cues:
   - { t: 28.0, slot: ARM_L,  joints: { 2: 150, 1: 10 } }
   - { t: 28.0, slot: ARM_R,  joints: { 2: 150, 1: 10 } }
   - { t: 21.0, slot: LIFT,   do: down, secs: 6 }
-  - { t: 21.0, slot: SOUND,  do: beep, hz: 2200, ms: 200 }
+  - { t: 21.0, slot: SOUND,  do: play, sound: heard }
   - { t: 31.0, slot: ARM_L,  joints: { 7: 25 } }
   - { t: 31.0, slot: ARM_R,  joints: { 7: 25 } }
   - { t: 29.0, slot: GRIP_L, do: close }
@@ -86,4 +86,4 @@ cues:
   - { t: 43.0, slot: ARM_L,  joints: { 4: 10, 1: 0, 2: 5, 3: 0, 7: 0 } }
   - { t: 43.0, slot: ARM_R,  joints: { 4: 10, 1: 0, 2: 5, 3: 0, 7: 0 } }
   - { t: 43.0, slot: HEAD,   pan: 90, tilt: 90 }
-  - { t: 44.0, slot: SOUND,  do: chime }
+  - { t: 44.0, slot: SOUND,  do: play, sound: attend }

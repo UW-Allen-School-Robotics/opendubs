@@ -664,3 +664,22 @@ body.op-estopped .op-rearm{ display:inline-flex; }
   }
   .tp-canvas { min-height: 44dvh; }
 }
+
+/* ---------- SHOWS view: the routine palette (choreography plan 4.4) ---------- */
+.showsview .shows-card { max-width: 900px; }
+.twinbadge { background: rgba(242, 184, 75, 0.15); color: var(--warn); border: 1px solid var(--warn); }
+.shows-status { margin: 6px 0 12px; font-size: 15px; min-height: 22px; }
+.shows-status .ok { color: var(--good); } .shows-status .bad, .shows-card .bad { color: var(--bad); }
+.shows-running { color: var(--accent); }
+.shows-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.shows-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 18px 16px; min-height: 76px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--txt); font-size: 17px; font-weight: 700; cursor: pointer; }
+.shows-btn .dur { font-size: 12px; font-weight: 400; color: var(--dim); }
+.shows-btn:disabled { opacity: 0.45; cursor: default; }
+.shows-btn.active { border-color: var(--accent); opacity: 1; box-shadow: 0 0 0 2px var(--accent) inset; }
+.shows-btn.invalid { border-style: dashed; }
+.shows-stop { margin-top: 14px; min-width: 160px; }
+
+.shows-audio { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
+.shows-audio .sysbtn { flex: none; width: auto; min-height: 0; padding: 6px 12px; font-size: 13px; }
+.shows-audio .dim { color: var(--dim); }

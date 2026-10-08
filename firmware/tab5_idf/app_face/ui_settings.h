@@ -2,7 +2,7 @@
 //
 // HARVESTED, NOT WRITTEN. An earlier version of this hand-rolled LVGL input handling, a custom
 // hold gesture and a widget layer -- 1,363 lines reinventing what the Tab5 demo already ships and
-// what is already a dependency of this build. Emma caught it: "why are we reinventing touch? This
+// what is already a dependency of this build. A review caught it: "why are we reinventing touch? This
 // HAD to be fully built out in the demo firmware."
 //
 // It was. `smooth_ui_toolkit`'s lvgl_cpp gives Button, Switch, Slider, Label and Container with

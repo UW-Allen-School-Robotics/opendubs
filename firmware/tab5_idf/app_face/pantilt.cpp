@@ -339,7 +339,7 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
         // well. The Arduino had no such fight because TrackingMode was a PERSISTENT mode, not a
         // lease: AI tracked, MANUAL did not, and MANUAL held its position indefinitely.
         //
-        // That persistence is the point of the control. Emma: the utility of the on-face steering
+        // That persistence is the point of the control. From the robot: the utility of the on-face steering
         // "is mostly to move it to make whatever text is on the screen readable" -- a heading that
         // expires after half a second cannot do that job.
         g_panTgt  = g_pan;

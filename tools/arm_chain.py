@@ -27,8 +27,10 @@ import sys
 import xml.etree.ElementTree as ET
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-ASSETS = REPO / "software/kiosk-dashboard/frontend/assets/arm"
-URDF = ASSETS / "v1.urdf"
+# The single robot description (description/README.md). The dashboard serves this folder as
+# assets/arm/ -- a symlink in the repo, copied by deploy.sh on the robot.
+ASSETS = REPO / "description/openarm"
+URDF = ASSETS / "urdf/v1.urdf"
 OUT = ASSETS / "chain.json"
 
 

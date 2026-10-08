@@ -18,10 +18,10 @@ can't do X" that followed.
 4. **Confirm presence before any check that needs a human.** Do not engineer around the human;
    ask whether they are there.
 5. **Flashing and serial telemetry are rote** — `CLAUDE.md`. Not subjects for investigation.
-6. **The Arduino firmware stays the shipping image** until Phase 5 signs off. It is not deleted,
-   and the robot is not cut over mid-season. **This is unchanged by 1.1 passing**: the IDF route is
-   now the target, but "target" and "shipping" are different things, and the robot is wanted
-   working.
+6. ~~**The Arduino firmware stays the shipping image** until Phase 5 signs off.~~ **Signed off
+   2026-10-07: the ESP-IDF firmware is the shipping image** and the flash-path gate below is passed.
+   The Arduino firmware is kept, not deleted, for reference and a deliberate rollback; its OTA
+   script refuses to run without an explicit override.
 
 ---
 
@@ -33,7 +33,7 @@ getting the function and the aesthetics right. Trying things is the point; untra
 | # | Question | Kill criterion |
 |---|---|---|
 | **1.1** | ~~Does LVGL + PPA give better eye animation than we could hand-build?~~ | **PASSED, 2026-10-05 — "a clear unequivocal go for abandoning the bespoke approach".** Judged materially better on the desktop build, then built at 2.76 MB and **animating on the Tab5**. `smooth_ui_toolkit` is a motion.dev-style system — springs, easings, sequences, delay/repeat, completion callbacks — against one exponential lerp. **The IDF route is the target architecture; the bespoke M5GFX face is superseded.** |
-| 1.2 | **Eyes and emotes.** Core geometry and rendering settled in 1.2a; remaining sub-items below: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by Emma. Nothing else can judge it. |
+| 1.2 | **Eyes and emotes.** Core geometry and rendering settled in 1.2a; remaining sub-items below: layered, PPA-blitted, shape-based gaze, saccadic motion already specified. | Judged by eye, by the team. Nothing else can judge it. |
 | 1.2b | ~~OpenDubs splash~~ **DONE, 2026-10-05** (commit 7732192).** Replace the M5Stack splash.** The boot currently shows the Tab5 vendor splash. `app_startup_anim` is the demo's own startup animation app and is the natural place; the robot should not boot into someone else's branding. | Looks like our robot, not a dev board. |
 | 1.2a | ~~Eye geometry~~ | **DONE, 2026-10-05** — "generally this is much better". 480×480 (41.5 mm) at a 0.34 eye-width gap, radial body shading, soft radial catchlight **inside the pupil**, `lv_line` eyebrows with sprung raise and angle. Human-scale IPD was tried and **rejected**: it read human but less friendly, so gap-as-a-fraction-of-eye-width is the dial and 0.34 is the value. Minor tweaks deferred. |
 | 1.2c | ~~State machine port~~ | **DONE, 2026-10-05.** All seven states ported verbatim from `ui_shared.cpp`, each of the seven `Expr` parameters on its own `AnimateValue`. `tilt` drives both the brow angle and the upper-corner cut, `bow` carves the lower lid, `squint` eats height and shifts the centre, `lookY` biases vertically, and state colour animates too. Cuts and bows are **hidden** when their parameter is ~0, so unused states cost nothing. State currently cycles on the bench; Phase 2 wires `STATE <NAME>` from the StamPLC. |
@@ -41,7 +41,7 @@ getting the function and the aesthetics right. Trying things is the point; untra
 | 1.2e | ~~Funny quotes~~ **DONE, 2026-10-05** (commit 7732192). **Funny quotes** preserved in their own bottom region; yield immediately to real state or a person. | Still funny, never in the way. |
 | 1.2f | ~~Themes~~ | **DONE, 2026-10-05.** Palette + static accessory layer over an unchanged state machine. **Accessories are static** — created once per theme, never animated, so they cost nothing per frame. `DEGRADED` and `E_STOP` colours pass through untouched. Halloween is the first theme; notably it had to **give up orange**, which sits too close to DEGRADED's amber, so it leans on purple and toxic green and lets the cobweb accessories carry the identity. |
 | 1.3 | ~~Audio cues~~ | **DONE, 2026-10-05.** Six cues in `app_face/cues.cpp`, rendered once to 48 kHz stereo PCM with an 8/55 ms envelope. **The channel model in the design was wrong** — this HAL has one player that *refuses* while busy, so a silently dropped cue was the real risk and software priority replaces channels. `Fault` repeats, `Mode` fires on every state change, the vendor startup sound is gone, and `Heard`/`Attend` await the mic. |
-| 1.3b | ~~Beep enable and volume~~ **MOSTLY DONE, 2026-10-05.** Audio enable, volume and on-screen telemetry are resident on the Tab5 in `app_face/ui_settings.cpp`, reachable from the HMI's SETTINGS button, and persisted in NVS. **THE RESERVATION QUESTION IS CLOSED, and the answer is that there is nothing to reserve:** Emma's call, 2026-10-05 — "we work in an academic lab and there's not much that this robot can legitimately know and communicate is wrong - I see beeps as part of demos and 'fun' uses of the robot - not routine." So a global mute MAY silence `Fault` as well; no exemption, no volume floor, no visibly-muted annunciation. The `face-config.md` reservation rule still stands for things that *are* safety communication — it simply does not apply to the earcons. **The interesting direction is voice, not beeps** (1.5), which is not implemented. Remaining: the dashboard as the editor rather than the owner. | Routine cues can be turned down to nothing; the fault cue is explicitly not special. |
+| 1.3b | ~~Beep enable and volume~~ **MOSTLY DONE, 2026-10-05.** Audio enable, volume and on-screen telemetry are resident on the Tab5 in `app_face/ui_settings.cpp`, reachable from the HMI's SETTINGS button, and persisted in NVS. **THE RESERVATION QUESTION IS CLOSED, and the answer is that there is nothing to reserve:** The team's call, 2026-10-05 — "we work in an academic lab and there's not much that this robot can legitimately know and communicate is wrong - I see beeps as part of demos and 'fun' uses of the robot - not routine." So a global mute MAY silence `Fault` as well; no exemption, no volume floor, no visibly-muted annunciation. The `face-config.md` reservation rule still stands for things that *are* safety communication — it simply does not apply to the earcons. **The interesting direction is voice, not beeps** (1.5), which is not implemented. Remaining: the dashboard as the editor rather than the owner. | Routine cues can be turned down to nothing; the fault cue is explicitly not special. |
 | 1.4 | ~~Face detection — the **flash cost** half~~ **MEASURED, 2026-10-05, see below.** `esp-dl` resolves, compiles and links; the cost is **+0.75 MB of app image and a 187 KB model partition**, leaving ~30% free in the 5 MB OTA slot. Detections/second and quality still need the camera and a face. | **Upside, not a gate.** It should work and we want it; if it runs at all we have dramatically exceeded the minimum, and if it does not the IDF switch still stands on 1.1. |
 | **1.6** | **Turning to look — head motion as the gaze output.** See [`design/head-turn-gaze.md`](design/head-turn-gaze.md). Face tracking currently terminates at the EYES: the attention target moves the pupils and the chain ends. The robot has a pan/tilt head and **nothing closes the loop from "I see a person" to "turn toward them"** — in the Arduino firmware `TURN L/R` comes from outside and `PANTILT` is an operator D-pad mode, so the head has never moved because the robot noticed someone. At room distance an eye shifting a few dozen pixels is nearly invisible; **a head that turns is the signal.** Eyes lead and the head follows, the re-centring IS the vestibulo-ocular reflex, and the existing confidence grading decides commitment: **a glance never moves the head.** Also reframes the detector's 1.1 m limit — range and legibility are separate problems and we had been treating only one. | **Only verifiable on the robot** (the bench Tab5 has no pan/tilt). The control law, slew limiting, bounds and the eyes-only fallback are host-testable; the *feel* is not. Every threshold ships as a named placeholder until someone watches it turn. |
 | 1.5 | ~~**Voice, as a probe.**~~ **MOVED to [`workplan-tab5-audio.md`](workplan-tab5-audio.md), 2026-10-07** — it is that plan's first measurement rather than a loose end of this one. Capture → encode → play locally, to find what the Tab5 end of a conversation costs in CPU. | A local round trip that cannot hold under ~150 ms means the architecture needs revisiting. |
@@ -101,7 +101,7 @@ Four experiments, one variable each. The first two killed my own explanations:
 
 ### RESOLVED, 2026-10-05 — IDF 5.5.5. Face detection WORKS, and the fix was the newer IDF
 
-Emma said "try a newer IDF version". That was right, and it was right for a reason I had to find in
+The suggestion was "try a newer IDF version". That was right, and it was right for a reason I had to find in
 the source rather than in the issue tracker.
 
 **Verified on device, read back off the chip rather than scraped from a build log:**
@@ -122,7 +122,7 @@ m5stack_tab5   Oct  5 2026 09:29:21   v5.5.5      <- app descriptor at 0x10000
 **CORRECTION, same day: I over-claimed this, and the over-claim caused a long bad detour.** What
 is proven below is that **the MODEL runs**. It exercises **no part of the camera** — the live path
 had not run once when I wrote "face detection WORKS". Live camera detection is **not working**; see
-`notes/design/tab5-face-tracking.md` §4. Emma's words for the error, which are the right ones: *a
+`notes/design/tab5-face-tracking.md` §4. The team's words for the error, which are the right ones: *a
 test without me in frame won't prove anything.*
 
 **~25 ms per inference, ~38 fps, score 0.835, and the identical bounding box on eight consecutive
@@ -310,7 +310,7 @@ and the boundary of what may be authored.
 ### 1A — The Tab5 as a dashboard · **RETIRED, 2026-10-07**
 
 
-**Retired at Emma's direction, 2026-10-07: dashboard features get added SELECTIVELY, when something
+**Retired at the team's direction, 2026-10-07: dashboard features get added SELECTIVELY, when something
 actually needs them, rather than porting a working HTML dashboard onto the panel wholesale.** The
 operator's tablet already serves that audience well. Nothing here is lost -- the panel is still a
 1280x720 touchscreen and the HMI already carries the controls that belong in front of the robot --
@@ -475,9 +475,23 @@ makes the bootloader verify the image itself, which defends against a hostile im
 arrived, including over TLS from a compromised server. That is a real item for before student
 exposure and is NOT done.
 
-### THE CANONICAL FLASH PATH DOES NOT CHANGE YET — GATED, 2026-10-05
+### THE CANONICAL FLASH PATH — GATE PASSED, 2026-10-07
 
-Emma's call, and it is the right one: *"we need to get the whole stack up and running and have a
+**Passed at the merge to `main`.** Against the four conditions below: **(1)** Phase 2 is complete
+(the stub register is all resolved); **(2)** rollback is paired and proven — `test-rollback.sh`
+passed on the robot, which is a stronger test than the bench one asked for; **(3)** the signing
+decision is made: **not now** — plain-HTTP OTA stays, under the project's stated security stance
+that the robot's own network is the first protection, with signing (`SECURE_SIGNED_APPS_NO_SECURE_BOOT`)
+recorded among the parked security work rather than dropped; **(4)** the team confirmed robot
+sessions on the ESP-IDF head without a USB recovery. So, as the gate said: the procedure is now
+`firmware/tab5_idf/ota-from-thor.sh` (it builds the shipping image, serves it, and passes only when
+the head's PING reports that image's hash running and VALID), `CLAUDE.md`'s flash table points at
+it, and `firmware/tab5_face/ota-from-thor.sh` is retired — it refuses to run, because the ESP-IDF
+head accepts the same `OTA` command and would install the Arduino image.
+
+*The original gate, kept for the record:*
+
+The team's call, and it is the right one: *"we need to get the whole stack up and running and have a
 viable ready-to-ship product before we change the canonical flash method."* A documented procedure's
 entire value is that every row is known to work; swapping one for a path whose firmware is still
 ~40% of a head controller would spend that credibility to buy nothing.
@@ -568,6 +582,8 @@ Tab5 is on USB and not associated with a network, which is the one thing that ca
 
 In order, and not before Phase 4 is done:
 
+*Done — see the stub register (all resolved), `test-rollback.sh` (item 3) and the audio plan (item 4).*
+
 1. Check out the current code and **verify all existing functionality on the existing firmware**
    first — a known-good baseline before anything new is flashed.
 2. Un-nerf and validate each item in the stub register: pan/tilt, front ToF (against a tape
@@ -593,7 +609,7 @@ is a record of what was stubbed and how it ended rather than a list of outstandi
 | **The StamPLC UDP link** | One direction only, and the state chip had no source at all | **DONE** — `ESTOP`/`MAST CMD` out, state derived from the StamPLC's own telemetry broadcast, address resolved by mDNS |
 | **OTA** | USB-only | **DONE** — `OTA <url>` over UDP, dual-slot with rollback, and rollback has fired for real |
 | **Emote channel** | Shapes ported; nothing selected them outside a bench cycler | **DONE (interim)** — random on unpinned states + a perception reaction. What an emote should MEAN is F1, still open |
-| **Perimeter band** | Driven by a bench cycler, not by anything real | **SUPPRESSED** behind `OPENDUBS_FACE_BAND` — Emma's call. F2 holds the question of whether motion can earn its place |
+| **Perimeter band** | Driven by a bench cycler, not by anything real | **SUPPRESSED** behind `OPENDUBS_FACE_BAND` — the team's call. F2 holds the question of whether motion can earn its place |
 | **Audio cues `Heard` / `Attend`** | Written, nothing triggered them | **`Attend` now fires on a person arriving.** `Heard` still awaits the mic — it belongs to [`workplan-tab5-audio.md`](workplan-tab5-audio.md) |
 | **Voice (1.5), Tab5<->Thor comms (1B)** | Never started | **MOVED** to [`workplan-tab5-audio.md`](workplan-tab5-audio.md) |
 | **Tab5 as a dashboard (1A)** | Never started | **RETIRED** — features get added selectively, not ported wholesale |
@@ -621,7 +637,7 @@ Offered for acceptance or rejection rather than assumed:
 5. **Run Phase 3 as filler.** It is read-only and independent, so it fits whenever something else is
    blocked rather than consuming a slot of its own.
 6. **Schedule the aesthetic reviews.** 1.2 and 1.3 can only be judged by a person looking at and
-   listening to the device. Those are the only steps that need Emma present, so they should be
+   listening to the device. Those are the only steps that need a person present, so they should be
    batched into deliberate review points instead of interrupting continuously — and everything else
    should be self-verifying.
 
@@ -629,7 +645,7 @@ Offered for acceptance or rejection rather than assumed:
 
 ## Polish backlog — deliberately NOT critical path
 
-Added 2026-10-06 at Emma's direction, after the startup-geometry fix. All four are cosmetic or
+Added 2026-10-06 at the team's direction, after the startup-geometry fix. All four are cosmetic or
 hygiene; none blocks a robot flash. Parked here so they are not mistaken for gaps.
 
 | # | item | note |
@@ -646,7 +662,7 @@ active misbehaviour on a robot rather than a missing nicety.
 
 ---
 
-## On-robot findings, 2026-10-06 — raised by Emma at the robot
+## On-robot findings, 2026-10-06 — raised at the robot
 
 Four items from the first real session in front of the panel. **1 and 2 are design questions and
 need a decision, not a patch.** 3 and 4 were one-liners and are already done.
@@ -749,7 +765,7 @@ revisit it, and `tof.cpp` says so at the omission.
 Deciding this by one physical test rather than by changing the budget and re-testing together is
 the repo's own rule — change one variable at a time — and it saved the whole port.
 
-**Open nit, not a defect:** Emma's note that "out of range is a misreport". The sensor genuinely is
+**Open nit, not a defect:** the team's note that "out of range is a misreport". The sensor genuinely is
 out of range when nothing is in front of it, but the phrase reads as a fault rather than as a
 normal condition. Wording only — something like "nothing in range" would carry the same fact
 without implying something is broken.
@@ -777,7 +793,7 @@ still open.
 
 ### F8 — The perimeter band is suppressed · **DONE**
 
-Not built and not updated, behind `OPENDUBS_FACE_BAND` (default 0). Emma: it spun continuously and
+Not built and not updated, behind `OPENDUBS_FACE_BAND` (default 0). Decided: it spun continuously and
 meant nothing, so it carried no information and trained people to ignore the one channel that
 should carry urgency. Also removes 48 animated segments from every frame. The one real loss is the
 hard FAULT flash on DEGRADED/E_STOP; state colour and the fault cue still carry that. F2 stays open
@@ -806,8 +822,8 @@ large:
 | 5 | **Scripted OTA-rollback test** | **DONE 2026-10-07** — [`firmware/tab5_idf/test-rollback.sh`](../firmware/tab5_idf/test-rollback.sh). PASS on the robot: baseline app1/3fd5867a, unmarked image booted PENDING_VERIFY and stayed there past the healthy window, reboot reverted to app1/3fd5867a |
 | 6 | **1.3b — the dashboard as the settings editor rather than the owner** | **CLOSED 2026-10-07 — the mechanism is CFG.** Authored data is pulled by the head, which validates it and owns the result; the Thor is the editor and never the owner. That was the whole of the ask. Building a particular editor UI is choreography 3.4's customisation-tool work, not this plan's |
 
-So: **one real open item (5) and one that may move (6).** Everything else is closed, decided, moved
-or retired.
+So: everything is closed, decided, moved or retired — item 5 passed on the robot and item 6 closed
+the same day.
 
 ### Deliberately NOT in this plan any more
 

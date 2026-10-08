@@ -172,6 +172,15 @@ variable, not a compile definition, and bridging it would mean editing the vendo
 Both `0` and `1` of `OPENDUBS_TOUCH_UI` are built and linked clean on the desktop target; the
 device target has not been built (no ESP-IDF on the machine that wrote this).
 
+### The twin shares its picture (desktop only)
+
+Set **`OPENDUBS_FACE_FRAMES=<file>`** when you RUN the desktop twin (a run-time switch, not a
+build flag) and it writes its finished frame into that file, scaled to 320x180, about 15 times a
+second. The choreography tools' MuJoCo body twin shows it on the robot's head, so one window shows
+the whole robot (`software/choreo/face.sh` sets it). Layout and the torn-frame rule:
+`app_face/frame_tap.h`. Nothing is redrawn for it — the SDL build's direct render mode already
+holds the whole frame — and none of it is in the device image.
+
 ## Measured
 
 On IDF 5.4.2, before `canon_in_d.mp3` was dropped:

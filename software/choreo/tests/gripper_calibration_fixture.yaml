@@ -1,0 +1,10 @@
+# TEST FIXTURE ONLY. Made-up numbers in the right shape — opposite senses on the two sides, as on
+# the real arms — and NOT any robot's calibration. A robot's file lives on that robot.
+robot: fixture
+measured: 2026-10-07
+left:
+  closed: -0.040
+  open:    0.000
+right:
+  closed:  0.000
+  open:    0.040

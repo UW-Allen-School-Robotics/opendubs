@@ -150,5 +150,5 @@ with evidence rather than a hope.
 - How validation failures are **surfaced**. The face can say "default configuration" on the panel,
   but the author needs to know *which* rule they broke, and that is the editor's job rather than the
   firmware's.
-- **What the curated set actually is.** The current six emotes and two themes are a starting point,
+- **What the curated set actually is.** The current five emotes and two themes are a starting point,
   not a considered vocabulary, and choosing the shipped set is design work in its own right.
