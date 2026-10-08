@@ -79,16 +79,30 @@ Only the first two are Tab5 work. Conflating them is how this becomes one unboun
 
 ## Phase A — the Tab5 end
 
-**Status 2026-10-07.** The pure-compute half of steps 1, 2 and 4 is built and host-verified in
-`firmware/tab5_idf/app_face/voice/` — `./build.sh voice`, twelve cases, synthetic stimulus and its
-own verdict. It is HAL-free by construction, exactly like `percept/`, which is what let it be
-written and tested with no demo tree on the machine at all.
+**Status 2026-10-07.** Steps 1, 2 and 3 are **built and compiling for the device**; step 4 has its
+arithmetic but not its entry point. `./build.sh voice` is thirteen cases with synthetic stimulus and
+its own verdict.
 
-**What remains for every one of these is the same single piece: the device shim that owns
-`audioRecord()`.** It is deliberately not written yet, because it cannot be compiled here (no
-`OPENDUBS_DEMO`, no IDF) and because it must create a FreeRTOS task on an image where task creation
-has already asserted for want of internal DRAM — see the settled table. Writing unbuildable
-firmware against that constraint is how this project has lost sessions before.
+- `app_face/voice/` — HAL-free pure compute, like `percept/`: levels, the noise floor, direction,
+  and the push-to-talk/VAD state machine. Host-tested.
+- `app_face/mic.cpp` — the shim that owns `audioRecord()`. Behind **`OPENDUBS_VOICE`, default OFF**,
+  because it adds a FreeRTOS task and a TCB must live in internal DRAM. Off costs 368 bytes, on
+  costs 4,096; 51% of the app partition is free either way.
+- **`Heard` is wired.** `VoiceEvent::Heard` → `cuePlay(Cue::Heard)`.
+- Trigger: **`VOICE PRESS|RELEASE|STATUS`** over UDP, so the floor can be measured from wherever the
+  person running the motors is standing. A touch control is the honest long-term trigger and is not
+  built.
+
+**Nothing here has met a microphone.** It compiles, it is tested against synthetic stimulus, and the
+next step is a bench pass: flash with `OPENDUBS_VOICE=1`, `VOICE STATUS` to read the floor with the
+drive motors running, and `VOICE PRESS` to hear whether `Heard` lands inside a second.
+
+**Two bugs that making it compile found**, both now tested:
+- **A dead microphone read as continuous speech.** Zero samples → floor 0 → threshold 0 → every
+  block above it. Fixed with an absolute floor under the floor (40 RMS).
+- **There is no way to stop the speaker.** `hal.h` has `audioPlay()` and no counterpart. A press
+  waits the sound out, which is fine for a ≤500 ms cue and **not** fine for streamed TTS —
+  Phase B needs a real stop from the codec layer.
 
 
 1. **Port the mic.** `audioRecord` into the IDF app, with the SETTINGS gain/enable already there.
@@ -101,10 +115,12 @@ firmware against that constraint is how this project has lost sessions before.
    Scope settled above: VAD runs **only inside a held press** (push-to-talk) and **never during
    playback** (half-duplex), so it answers one question — has this utterance ended — and not
    "is someone talking to the robot".
-3. **Wire `Heard`.** *The trigger is built and tested — `VoiceEvent::Heard`, fired once per
-   utterance, 864 ms on a cold-boot press and ~96 ms thereafter. Outstanding: the one line that
-   turns it into `cuePlay(Cue::Heard)`, which needs the shim above and nothing else.*
-   The earcon exists; VAD is its trigger. "I noticed you, inside a second, whether
+3. **Wire `Heard`.** **DONE in code, unproven on hardware.** `VoiceEvent::Heard` →
+   `cuePlay(Cue::Heard)`, fired once per utterance; 864 ms on a cold-boot press and ~96 ms
+   thereafter, measured in the host test. Note the wrinkle half-duplex forces: `Heard` is itself a
+   cue, so acknowledging someone deafens the robot for the ~90 ms the blip lasts. It sits in the gap
+   after onset, which is the least bad place, but it is real and it is the price of answering with a
+   sound while having no AEC. "I noticed you, inside a second, whether
    or not I can act" — the cheapest honest thing the robot can do and it needs no transport at all.
 4. **Glance toward a voice.** *Direction is ported and tested, taken from the clip's LOUDEST
    block rather than its last — the tail of a sentence is its quietest part and its channel ratio
