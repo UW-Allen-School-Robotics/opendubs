@@ -28,6 +28,7 @@ clips:
 cues:
   # lights down, eyes narrow, a falling two-note "refuse" as the hello
   - { t: 0.0, slot: LIGHT, do: color, rgb: [60, 255, 40], br: 40 }
+  - { t: 0.0, slot: FACE, do: theme, name: halloween }      # built into the face; stays after the show
   - { t: 0.0, slot: FACE, do: emote, name: SQUINT }
   - { t: 0.5, slot: SOUND, do: play, sound: refuse }
   - { t: 0.5, slot: HEAD, pan: 90, tilt: 72 }
@@ -60,7 +61,6 @@ cues:
   - { t: 22.0, slot: LIGHT, do: release }
 
 # WHAT THIS SHOW WANTED AND COULD NOT SAY (notes/design/choreo-example-shows.md):
-#  - the Halloween THEME and its cobweb accessories: no cue selects a face theme
 #  - the perimeter band's motion: no cue drives it (and it is suppressed on the face)
 #  - nothing stopped it from choosing an orange or a red LIGHT, which on the robot's state light
 #    reads as DEGRADED or E-STOP — it avoided them by hand

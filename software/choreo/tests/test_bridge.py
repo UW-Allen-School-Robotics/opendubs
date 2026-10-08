@@ -85,6 +85,24 @@ out = k.update(1, routed, 0.5, True) + k.update(1, routed, 1.0, True) + k.update
 check("only sounds routed to the Tab5 reach the face; the rest are logged with where they play",
       out == ["CUE heard"] and any("plays on the tablet" in m for m in k.log), (out, k.log))
 
+themed = {"tracks": {"FACE": [ev(0.0, do="theme", name="halloween"), ev(0.0, do="emote", name="SQUINT"),
+                              ev(5.0, do="theme", name="plain")]}}
+m = fb.Follower()
+out = m.update(1, themed, 0.0, False)
+check("loading a show sends the theme in force, then the emote", out == ["THEME halloween", "EMOTE SQUINT"], out)
+m.update(1, themed, 0.02, True)
+out = []
+for t in (1.0, 3.0, 5.0):
+    out += m.update(1, themed, t, True)
+check("a theme cue is sent as it is crossed", out == ["THEME plain"], out)
+out = m.update(1, themed, 2.0, False)
+check("seeking back restores the theme then in force", out == ["THEME halloween"], out)
+out = m.update(1, themed, 2.0, False, "ABORTED")
+check("an aborted show hands back the emote but leaves the theme (it is dressing, not a state)",
+      out == ["EMOTE AUTO"], out)
+check("a show with no theme cue never touches the face's theme",
+      not any(x.startswith("THEME") for x in fb.Follower().update(1, TL, 0.0, False)))
+
 print("\nface bridge: local only")
 for host in ("127.0.0.1", "localhost", "::1"):
     try:

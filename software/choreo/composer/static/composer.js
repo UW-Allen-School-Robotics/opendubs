@@ -348,7 +348,7 @@ function label(ev) {
     case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
-    case "FACE": return c.name || c.do;
+    case "FACE": return c.do === "theme" ? `theme ${c.name}` : (c.name || c.do);
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     default: return "";
@@ -501,8 +501,10 @@ function renderPreview() {
       const e = lastAt(evs, t);
       row(slot, e && e.cue.do === "color" ? `<span class="swatch" style="background:rgb(${e.cue.rgb.join(",")});opacity:${(e.cue.br ?? 100) / 100}"></span> ${e.cue.rgb.join(", ")} @ ${e.cue.br ?? 100}%` : '<span class="dim">state colour (no show colour)</span>');
     } else if (slot === "FACE") {
-      const e = lastAt(evs, t);
-      row(slot, e ? e.cue.name : '<span class="dim">face\'s own</span>');
+      const e = lastAt(evs.filter((x) => x.cue.do !== "theme"), t);
+      const th = lastAt(evs.filter((x) => x.cue.do === "theme"), t);
+      row(slot, (e ? e.cue.name : '<span class="dim">face\'s own</span>')
+        + (th ? ` <span class="dim" title="A theme stays after the show; an emote is handed back">· theme ${esc(th.cue.name)}</span>` : ""));
     } else if (slot === "DANCE") {
       const e = evs.find((x) => x.start <= t && t < x.end);
       row(slot, e ? `<span class="moving" title="Open loop, at placeholder base speeds; runs only in the twin until the robot floor test">${esc(e.cue.move)} ${(t - e.start).toFixed(1)} of ${(e.end - e.start).toFixed(1)} s</span>`

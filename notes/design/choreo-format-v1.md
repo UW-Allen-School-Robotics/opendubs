@@ -56,6 +56,7 @@ requires: { arms: active, tab5: true, rc_authority: AUTO }
 music: { ... }            # optional, §3 (and §3a for its output)
 dance: { floor_radius_m: 1.5 }   # required if any cue is DANCE, §12
 sounds: [sleigh_bells]    # optional: sound files expected in sounds/, kept locally, §3a
+themes: [christmas]       # optional: authored face themes the show selects, installed on the head (§7)
 palette: { label: Wave, order: 1 }   # optional: a routine the operator can pick (below)
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
@@ -357,7 +358,7 @@ Unchanged from v0 unless marked **new**.
 | `HEAD` | `pan`, `tilt` (deg) | 10–170 | clamp inside servo travel |
 | `LIFT` | `do: up\|down\|stop`, `secs` | 0.2–8 s; **no `ack_pinch`, ever** | — |
 | `SOUND` | `do: play`, `sound: <name>`, optional `secs`, optional `output: tablet\|tab5\|thor` (see *Audio routing*) | the name is a Tab5 earcon (`heard attend refuse fault mode boot`) or a file `sounds/<name>.*` beside the show | `Cue` enum in `firmware/tab5_idf/app_face/cues.h`; the show's `sounds/` directory |
-| `FACE` **new** | `do: emote`, `name: NEUTRAL\|ALERT\|SQUINT\|SOFT\|SLEEPY` | closed vocabulary | `kEmotes[]` in `firmware/tab5_idf/app_face/app_face.cpp`, branch `feat/tab5-idf-subtractive` at `0e47085` |
+| `FACE` **new** | `do: emote`, `name: NEUTRAL\|ALERT\|SQUINT\|SOFT\|SLEEPY`; or `do: theme`, `name: plain\|halloween` or an authored theme listed under `themes:` | closed vocabulary; an authored theme not listed is an error (a typo), a listed one is a notice (it must be installed on the head by its `CFG` verb first). A theme **stays** after the show; an emote is handed back to the face | `kEmotes[]` and `theme::name()` in `firmware/tab5_idf/app_face/app_face.cpp`, branch `feat/tab5-idf-subtractive` at `12f5845`; the head takes `EMOTE <name>` and `THEME <name>`, case-insensitively |
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped; **no colour that reads as the state light's E-STOP red or DEGRADED amber** — within ±20° of their hue and saturated enough to read as it (plan 1.8; `cue.py describe`) | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
 
 `LIGHT`'s second verb is `release`, not `off`, for two reasons. YAML 1.1 reads a bare `off` as
@@ -368,20 +369,18 @@ same as blacking the light out (workplan 2.4).
 
 ### Valid is not the same as executable
 
-Two verbs above **have no receiver today**, and the validator says so as a *notice* (not a
-failure) every time a show uses them:
+Some verbs above **have no receiver today**, and the validator says so as a *notice* (not a
+failure) every time a show uses them. (`FACE` has one: the ESP-IDF head takes `EMOTE` and `THEME`.
+A locked robot state — `INIT`, `DEGRADED`, `E_STOP` — still outranks an emote on the face, by
+design, so a `FACE` emote shows once that state has had its turn.)
 
-- `FACE emote` — neither face firmware has a network verb for an emote. The Arduino face takes
-  `STATE <name>`; the ESP-IDF face takes `STATE`, `PING`, `REBOOT`, `OTA` (`app_face/net.cpp`).
-  Workplan 3.3 owns the verb. Note also that the face pins an emote in `INIT`, `DEGRADED` and
-  `E_STOP`, so even once the verb exists a `FACE` cue in those states is ignored by design.
 - `LIGHT` — `LED_COLOR` exists, but `software/kiosk-dashboard/backend/state_out.py` already
   writes it on every robot-state change. A show writing it too is two writers on one register;
   the runner must layer it (`behavior-api-scope.md`: `LIGHT` is *layered*) before it may run.
   The PRISM's firmware overlays (`NOT_READY` and friends) outrank the base layer, so a show
   cannot paint over them.
-- `SOUND play` — no output device takes a play-sound command over the network yet. Which device
-  plays it (tablet by default, Tab5, or Thor) is workplan item 1.5.
+- `SOUND play` of a **file** — the tablet and Thor audio paths are not built (workplan 4.2). A Tab5
+  earcon does have a receiver: the head's `CUE <name>`.
 
 Recording these as notices rather than refusing them keeps the vocabulary designable ahead of the
 firmware, while making it impossible to mistake "the validator accepted it" for "the robot will
@@ -451,7 +450,7 @@ angles to 10⁻⁴ °. Two exports of the same show and limits are byte-identica
   "validated_against": { "limits": "joint_limits.yaml", "sha256": "…" },
   "valid": true,
   "problems": [ { "msg": "…", "cue": 12, "clip": null, "instance": null } ],
-  "notices":  [ "FACE emote: valid, but no firmware implements it yet (workplan 3.3)" ],
+  "notices":  [ "DANCE is valid but runs only in the twin until the robot floor test (workplan 6.6)…" ],
   "requires": { "arms": "active", "rc_authority": "AUTO", "tab5": true },
   "slots": ["ARM_L", "ARM_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT"],
   "music": { "file": "audio/beat-demo-120.wav", "bpm": 120, "offset_s": 0.5,

@@ -178,9 +178,14 @@ HEAD_REACH_TOL_DEG = 1.5       # the firmware's deadband (kDeadbandDeg): closer 
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
 # FACE: the emote vocabulary as it exists in firmware, and nothing else. Sourced from kEmotes[]
-# in firmware/tab5_idf/app_face/app_face.cpp on feat/tab5-idf-subtractive (0e47085). Five, not
-# the six or seven the notes describe. No firmware has a network verb for an emote yet.
+# in firmware/tab5_idf/app_face/app_face.cpp (feat/tab5-idf-subtractive, 12f5845). Five, not the
+# six or seven the notes describe. The head takes them as `EMOTE <name>`, case-insensitively.
 FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
+# Themes compiled into the face (theme::name() in the same file; "none" is the enum's own name for
+# "plain", and the head accepts both). Others are AUTHORED: installed on a head at run time by its
+# `CFG <url>` verb, so the validator cannot know them — a show lists the ones it uses under
+# `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
+FACE_THEMES = ("plain", "none", "halloween")
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it
 # (firmware/rc_serial_probe/src/main.cpp). The firmware CLAMPS; the validator REJECTS, so an
@@ -241,7 +246,7 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "palette"}
+            "cues", "dance", "sounds", "themes", "palette"}
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -252,13 +257,11 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 NOT_EXECUTABLE = {
     "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
              "6.6): open loop, and the distances shown use placeholder base speeds",
-    "FACE": "FACE emote is valid but no firmware implements it yet: neither face takes an emote "
-            "verb over the network (workplan 3.3)",
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
              "every state change, so the runner must LAYER it before a show may (two writers "
              "on one register otherwise)",
-    "SOUND": "SOUND is valid but not executable yet: no output device takes a play-sound "
-             "command over the network (workplan 1.5, 4.2)",
+    "SOUND": "SOUND files are valid but play nowhere yet: the tablet and Thor audio paths are not "
+             "built (workplan 4.2); Tab5 earcons play on the head (CUE)",
 }
 
 
@@ -613,6 +616,20 @@ class Show:
                     notices.append(f"sound files not found in {SOUND_DIR}/ beside the show: "
                                    f"{', '.join(missing)} — the show still validates; supply them "
                                    "locally to hear them (they are not committed)")
+        themes = self.doc.get("themes")
+        if themes is not None:
+            if not isinstance(themes, list) or not all(isinstance(x, str) and x for x in themes):
+                P(Problem("themes: must be a list of authored face theme names"))
+            else:
+                built_in = sorted(x for x in themes if x.lower() in FACE_THEMES)
+                if built_in:
+                    P(Problem(f"themes: {', '.join(built_in)} is built into the face — list only "
+                              "authored themes here"))
+                authored = sorted(x for x in themes if x.lower() not in FACE_THEMES)
+                if authored:
+                    notices.append(f"authored face theme(s) {', '.join(authored)}: install them on the "
+                                   "head (CFG) before the show, or THEME answers 'unknown theme' and the "
+                                   "face keeps the theme it has")
         if music and music.get("file") and self.path and os.path.isfile(self.path):
             audio = os.path.join(os.path.dirname(os.path.abspath(self.path)), music["file"])
             if not os.path.isfile(audio):
@@ -1124,9 +1141,18 @@ class Show:
         return p
 
     def _check_face(self, where, c):
-        if c.get("do") != "emote":
-            return [f"{where}: face do must be emote (the only FACE verb in format v1)"]
-        name = c.get("name")
+        do, name = c.get("do"), c.get("name")
+        if do == "theme":
+            declared = {x.lower() for x in (self.doc.get("themes") or []) if isinstance(x, str)}
+            if not isinstance(name, str) or not name:
+                return [f"{where}: face theme needs a name"]
+            if name.lower() not in FACE_THEMES and name.lower() not in declared:
+                return [f"{where}: face theme {name!r} is neither built into the face "
+                        f"({', '.join(FACE_THEMES)}) nor listed under the show's themes: "
+                        "(authored themes, installed on the head by CFG)"]
+            return []
+        if do != "emote":
+            return [f"{where}: face do must be emote|theme"]
         if name not in FACE_EMOTES:
             return [f"{where}: face emote {name!r} is not one the face has "
                     f"({', '.join(FACE_EMOTES)} — from kEmotes[] in the ESP-IDF face)"]
@@ -1334,7 +1360,8 @@ def describe(limits: dict) -> str:
     w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
-    w(f"FACE: do emote, name {FACE_EMOTES}")
+    w(f"FACE: do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
+      "under themes: (installed on the head by CFG). A theme stays after the show; an emote is handed back")
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
       f"anything within {LIGHT_RESERVED_BAND_DEG:g} deg of hue of {dict(LIGHT_RESERVED_HUES)} and at least "
       f"{LIGHT_RESERVED_MIN_SAT:g} saturated (reads as a reserved state colour)")

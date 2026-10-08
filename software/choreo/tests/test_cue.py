@@ -503,9 +503,23 @@ check_doc("an emote the face has passes",
 check_doc("an emote the face does not have is caught (HAPPY is documented, not implemented)",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "HAPPY"}]),
           "not one the face has")
-check_doc("FACE has one verb",
-          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "HALLOWEEN"}]),
-          "must be emote")
+check_doc("FACE has two verbs, emote and theme",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "blink"}]), "must be emote|theme")
+check_doc("a theme built into the face passes, in any case (the head ignores case)",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "HALLOWEEN"}]), None)
+check_doc("an authored theme the show does not list is caught — a typo is an error",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmass"}], themes=["christmas"]),
+          "neither built into the face")
+check_doc("an authored theme listed under themes: passes",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmas"}], themes=["christmas"]), None)
+check_doc("a built-in theme listed under themes: is refused, so the list means 'install these'",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "halloween"}], themes=["halloween"]),
+          "built into the face")
+_a = doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmas"}], themes=["christmas"]).analyse(LIMITS)
+check_true("... and an authored theme is a notice: it must be installed on the head first",
+           any("christmas" in n and "CFG" in n for n in _a["notices"]), _a["notices"])
+check_true("FACE is no longer reported as having no receiver (the head takes EMOTE and THEME)",
+           not any("no firmware implements" in n for n in _a["notices"]), _a["notices"])
 check_doc("a light colour in range passes",
           doc_show([{"t": 1.0, "slot": "LIGHT", "do": "color", "rgb": [10, 20, 30], "br": 50},
                     {"t": 2.0, "slot": "LIGHT", "do": "release"}]), None)
@@ -564,6 +578,22 @@ for name in ("hello.yaml", "beat-demo.yaml"):
         print("        ", p)
     if problems:
         fails.append(f"shows/{name} does not validate")
+
+print("\nthe face's own names (when its source is on this branch)")
+_face = os.path.join(HERE, "..", "..", "..", "firmware", "tab5_idf", "app_face", "app_face.cpp")
+if os.path.isfile(_face):
+    import re as _re  # noqa: E402
+    _src = open(_face).read()
+    _em = _re.search(r"const Emote kEmotes\[\] = \{(.*?)\n\};", _src, _re.S)
+    _names = _re.findall(r'\{"([A-Z]+)"', _em.group(1)) if _em else []
+    check_true("FACE_EMOTES is exactly the face's kEmotes[], in order", tuple(_names) == _cue.FACE_EMOTES, _names)
+    _cues = _re.search(r"kNames\[\(int\)Cue::Count\] = \{(.*?)\};", _src, _re.S)
+    _cn = _re.findall(r'"(\w+)"', _cues.group(1)) if _cues else []
+    check_true("TAB5_EARCONS is exactly the face's cue names, in order", tuple(_cn) == _cue.TAB5_EARCONS, _cn)
+    check_true("every built-in theme name is one the face knows",
+               all(f'"{t}"' in _src or t == "none" for t in _cue.FACE_THEMES), _cue.FACE_THEMES)
+else:
+    print("  skip  firmware/tab5_idf/app_face is not on this branch; this runs once both are merged")
 
 print()
 if fails:

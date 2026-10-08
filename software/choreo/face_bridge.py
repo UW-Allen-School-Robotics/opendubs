@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """The face bridge: follows the composer's playhead and sends the face its show cues (plan 3.3).
 
+    ./face.sh                                    # the face twin plus this bridge, in one command
     python3 face_bridge.py                       # composer on :8091, face twin on 127.0.0.1:4242
-    python3 face_stub.py                         # a stand-in face that prints what it receives
     python3 face_bridge.py --dry-run             # print the lines, send nothing
+
+The face twin is the head's own face code built for the desktop (the Tab5 tree's desktop build); it
+shares the head's command parser, so a line it accepts the head accepts. face_stub.py stands in where
+that build is not available.
 
 It reads the same feed as the MuJoCo body twin (`/api/twin`, `/api/twin/timeline`) and turns the
 show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT-2 to FT-4):
 
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
-    (no FACE cue yet at this time)         ->  EMOTE AUTO      (the face's own cycling)
+    (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
+    FACE  { do: theme, name: halloween }   ->  THEME halloween (it stays after the show)
     SOUND { do: play, sound: attend }      ->  CUE attend      (one of the Tab5's six earcons)
 
 While playing, each cue is sent as the playhead crosses it. On a seek, a pause, a backwards jump or
-an edit, the bridge instead sends the STATE AT THAT TIME — the emote in force — so jumping around a
-show leaves the face correct. Sounds are only ever sent while playing, never on a seek.
+an edit, the bridge instead sends the STATE AT THAT TIME — the emote and theme in force — so jumping
+around a show leaves the face correct. Before a show's first theme cue the face keeps whatever theme
+it had: a theme is dressing, not a state the show owns. Sounds are only ever sent while playing, never on a seek.
 
 Not sent, and said so on the console: LIGHT cues (the PRISM strip is not the face; the robot
 drives it through the StamPLC, which a bridge must never touch) and SOUND cues naming a sound
@@ -50,7 +56,7 @@ class Follower:
         self.tl = None
         self.t = None
         self.playing = False
-        self.sent = {}             # what the face was last told: {"emote": "EMOTE SOFT"}
+        self.sent = {}             # what the face was last told: {"emote": "EMOTE SOFT", "theme": …}
         self.log: list[str] = []
 
     # -- what is in force at a time --------------------------------------------------------
@@ -66,9 +72,22 @@ class Follower:
                 line = f"EMOTE {e['cue']['name']}"
         return line
 
+    def _theme_at(self, t):
+        line = None                # before any theme cue: leave the face's theme alone
+        for e in self._track("FACE"):
+            if e["t"] > t + 1e-9:
+                break
+            if e["cue"].get("do") == "theme" and e["cue"].get("name"):
+                line = f"THEME {e['cue']['name']}"
+        return line
+
     def _sync(self, t):
         """Lines that bring the face to the state in force at t, sending only what changed."""
         out = []
+        theme = self._theme_at(t)
+        if theme and self.sent.get("theme") != theme:
+            self.sent["theme"] = theme
+            out.append(theme)
         emote = self._emote_at(t)
         if self.sent.get("emote") != emote:
             self.sent["emote"] = emote
@@ -83,9 +102,9 @@ class Follower:
         out = []
         for t, slot, e in sorted(evs, key=lambda x: x[0]):
             c = e["cue"]
-            if slot == "FACE" and c.get("do") == "emote":
-                line = f"EMOTE {c['name']}"
-                self.sent["emote"] = line
+            if slot == "FACE" and c.get("do") in ("emote", "theme"):
+                line = f"{c['do'].upper()} {c['name']}"
+                self.sent[c["do"]] = line
                 out.append(line)
             elif slot == "SOUND" and c.get("do") == "play":
                 # Routed by the validator (cue.py sound_route): only the Tab5's sounds go to the face.

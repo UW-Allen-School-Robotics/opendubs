@@ -19,6 +19,7 @@ music:
 dance:
   floor_radius_m: 1.5
 sounds: [sleigh_bells]                # supplied locally in shows/sounds/, never committed
+themes: [christmas]                   # authored, installed on the head by CFG before the show
 
 clips:
   # a one-bar wave on the left arm, slow enough not to warn; mirrored for the right
@@ -30,6 +31,7 @@ clips:
 
 cues:
   - { t: 0.0, slot: LIGHT, do: color, rgb: [255, 236, 190], br: 70 }    # warm white — a saturated gold reads as DEGRADED amber
+  - { t: 0.0, slot: FACE, do: theme, name: christmas }
   - { t: 0.0, slot: FACE, do: emote, name: SOFT }
   - { bar: "1.1", slot: SOUND, do: play, sound: attend }
   - { bar: "1.1", slot: HEAD, pan: 90, tilt: 95 }
@@ -67,4 +69,3 @@ cues:
 # WHAT THIS SHOW WANTED AND COULD NOT SAY (notes/design/choreo-example-shows.md):
 #  - red and green: red is the state light's E-STOP colour, now refused (plan 1.8); green is
 #    SAFE IDLE's, still allowed but avoided here
-#  - a Christmas face theme: no cue selects a theme

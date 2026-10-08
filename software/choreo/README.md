@@ -108,9 +108,13 @@ drives only the twins.
 show files, shows the validator's verdict on the offending cue, and plays the music against the
 grid. It cannot command the robot.
 
+## The twins
+
+`./twin.sh` is the body (MuJoCo) and `./face.sh` the face — the head's own face code built for the
+desktop, driven by `face_bridge.py`. Both follow the composer by default, or the runner with
+`--composer http://127.0.0.1:8092`. Details in [`composer/README.md`](composer/README.md).
+
 ## Not here yet
 
-Execution. The runner — slot claims with heartbeat leases, preflight built from each show's
-`requires`, abort on e-stop, authority change, fault or watcher loss — lives on the Thor and is
-the next piece. Design: `notes/design/behavior-api-scope.md` and `notes/workplan-choreography.md`
-Phase 2. It will consume the JSON that `cue.py export` writes.
+Live output: nothing here commands the robot. The runner drives only the twins until the armed
+live binding is built (`notes/workplan-choreography.md`, 5.6).
