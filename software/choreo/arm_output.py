@@ -114,6 +114,8 @@ class RosArms:
                         for slot, side in ARM_SIDES.items()}
         self.lock = threading.Lock()
         self._js, self._js_at = {}, 0.0
+        self._jv, self._je = {}, {}          # velocity and effort, when the arm stack publishes them
+        self.results = {}                    # slot -> the last goal's final status (4 ok, 5 cancelled, 6 aborted)
         self._goals = []
         self._gen = 0                  # bumped by cancel_all: a goal from an older generation is stale
         self.node.create_subscription(JointState, "/joint_states", self._on_js, 10)
@@ -124,6 +126,20 @@ class RosArms:
     def _on_js(self, m):
         with self.lock:
             self._js, self._js_at = dict(zip(m.name, m.position)), time.monotonic()
+            self._jv = dict(zip(m.name, m.velocity)) if len(m.velocity) == len(m.name) else {}
+            self._je = dict(zip(m.name, m.effort)) if len(m.effort) == len(m.name) else {}
+
+    def sample(self, side):
+        """(monotonic time, [7 deg], [7 deg/s] or None, [7 N·m] or None) for one arm, or None if stale.
+        Controller sense (signed), the same sense `send` takes."""
+        names = joint_names(side)
+        with self.lock:
+            if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S or not all(n in self._js for n in names):
+                return None
+            pos = [math.degrees(self._js[n]) for n in names]
+            vel = [math.degrees(self._jv[n]) for n in names] if all(n in self._jv for n in names) else None
+            eff = [float(self._je[n]) for n in names] if all(n in self._je for n in names) else None
+            return self._js_at, pos, vel, eff
 
     def measured(self):
         """{"ARM_L": [7 signed degrees], "ARM_R": [...]} — or None if /joint_states is stale."""
@@ -154,20 +170,33 @@ class RosArms:
             goal.trajectory.points.append(pt)
         with self.lock:
             gen = self._gen
+        with self.lock:
+            self.results[slot] = None
         fut = client.send_goal_async(goal)
-        fut.add_done_callback(lambda f: self._accepted(f, gen))
+        fut.add_done_callback(lambda f: self._accepted(f, gen, slot))
 
-    def _accepted(self, fut, gen):
+    def _accepted(self, fut, gen, slot=None):
         h = fut.result()
         if h is None or not h.accepted:
+            with self.lock:
+                self.results[slot] = "REJECTED"
             return
         with self.lock:
             stale = gen != self._gen
             if not stale:
                 self._goals.append(h)
+        h.get_result_async().add_done_callback(lambda f: self._done(f, slot))
         if stale:
             # Stopped between sending and the controller accepting: cancel it the moment it lands.
             h.cancel_goal_async()
+
+    def _done(self, fut, slot):
+        try:
+            status = fut.result().status
+        except Exception:  # noqa: BLE001
+            status = "UNKNOWN"
+        with self.lock:
+            self.results[slot] = status
 
     def cancel_all(self):
         """Stop every arm where it is: the controller holds its current state."""

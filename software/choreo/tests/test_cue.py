@@ -372,6 +372,19 @@ _a = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 120}}]).analyse(LIMITS)
 check_true("a move over the cap on average is still a problem, not just a warning",
            any("cap 30, unsourced" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
 
+# The controller's velocity trips: with the caps raised (as the speed test may), a move whose peak
+# reaches a trip is refused — it would freeze the arm and stop the show.
+_saved_caps = dict(_cue.SPEED_CAP_DEG_S)
+_cue.SPEED_CAP_DEG_S.update({4: 400})
+_a = doc_show([{"t": 0.5, "slot": "ARM_R", "joints": {4: 90}}]).analyse(LIMITS)       # 180 avg, ~338 peak
+_b = doc_show([{"t": 1.0, "slot": "ARM_R", "joints": {4: 90}}]).analyse(LIMITS)       # 90 avg, ~169 peak
+_cue.SPEED_CAP_DEG_S.clear()
+_cue.SPEED_CAP_DEG_S.update(_saved_caps)
+check_true("a move whose peak reaches the arm controller's trip is refused, whatever the cap",
+           any("trip" in q.msg for q in _a["problems"]), [q.msg for q in _a["problems"]])
+check_true("... and one comfortably under it is not", not any("trip" in q.msg for q in _b["problems"]),
+           [q.msg for q in _b["problems"]])
+
 # The head turns at the firmware's slew limit (cue.HEAD_SLEW_DPS); a cue that arrives before the last move can finish is
 # a WARNING (the show is still valid), not a problem.
 _h = doc_show([{"t": 0.0, "slot": "HEAD", "pan": 90}, {"t": 1.0, "slot": "HEAD", "pan": 150},
