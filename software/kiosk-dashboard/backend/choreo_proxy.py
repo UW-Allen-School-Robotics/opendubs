@@ -34,6 +34,11 @@ TIMEOUT_S = 2.0
 # particular not its fake-robot switches (/api/sim/*), which exist for twin testing only.
 router = APIRouter()
 
+# Show audio (plan 4.2) lives in its own module; its routes ride on this router so app.py needs no
+# change to carry them.
+import show_audio  # noqa: E402
+router.routes.extend(show_audio.router.routes)
+
 
 def _call(method: str, path: str) -> tuple[int, object]:
     req = urllib.request.Request(f"{RUNNER_URL}/api/{path}", method=method,

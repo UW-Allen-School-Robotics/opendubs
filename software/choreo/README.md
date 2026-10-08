@@ -102,6 +102,13 @@ preflight and aborts answer to the real robot, read-only, through the dashboard'
 place from the arm stack (no file, no routines — each is listed as refused, saying why). It still
 drives only the twins.
 
+**Show audio** (plan 4.2) — with `--audio dashboard` the runner plays a show's music and tablet
+sound files on the dashboard's show-audio device (the tablet, or whichever browser pressed *Play show
+audio here*): it has the device download them while the arms travel to the start pose, then names
+show time 0 as a Thor time the device has matched its clock to. An abort fades, an e-stop cuts; no
+device ready means the routine runs silently, with a warning. Details in
+`software/kiosk-dashboard/backend/show_audio.py`.
+
 ## The composer
 
 [`composer/`](composer/README.md) — a timeline editor in the browser, **preview only**: it edits

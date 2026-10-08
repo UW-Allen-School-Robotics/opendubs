@@ -16,7 +16,23 @@
   }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+  function renderAudio() {
+    const A = window.OpenDubsShowAudio, a = A ? A.status() : null;
+    let html;
+    if (!a || !a.connected) html = '<span class="dim">Show audio: not connected</span>';
+    else if (!a.holder) html = '<span class="bad">Show audio: no device — routines run silently</span>';
+    else if (a.youHold) {
+      const clk = a.clock ? ` · clock ±${Math.max(1, Math.round(a.clock.error_ms))} ms` : " · matching clocks…";
+      const what = { loading: "loading…", ready: "ready", playing: "playing", error: `error: ${a.error}` }[a.state] || "standing by";
+      html = `Show audio: <b>this device</b> — ${esc(what)}<span class="dim">${clk}</span>`;
+    } else html = `Show audio: <b>${esc(a.holder)}</b>`;
+    if (status && status.audio_note && status.running) html += ` <span class="bad">· ${esc(status.audio_note)}</span>`;
+    el("showsAudio").innerHTML = html;
+    el("showsAudioClaim").style.display = a && a.connected && !a.youHold ? "" : "none";
+  }
+
   function render() {
+    renderAudio();
     const running = status && status.running;
     el("showsStop").disabled = !running;
     const last = status && status.last;
@@ -56,6 +72,10 @@
     try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, { method: "POST" }); }
     catch (err) { el("showsStatus").innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
     refresh(false);
+  });
+  el("showsAudioClaim").addEventListener("click", () => {
+    if (window.OpenDubsShowAudio) window.OpenDubsShowAudio.claim();
+    setTimeout(renderAudio, 300);
   });
   el("showsStop").addEventListener("click", async () => {
     await getJSON("/api/choreo/stop", { method: "POST" }).catch(() => {});

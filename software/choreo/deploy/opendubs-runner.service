@@ -14,7 +14,8 @@ WorkingDirectory=/opt/opendubs/choreo
 Environment=OPENDUBS_ARM_LIMITS=/etc/opendubs/arm-limits/joint_limits.yaml
 # Localhost only (the runner binds 127.0.0.1); the dashboard forwards the Shows page's calls. Robot
 # state is the dashboard's read-only view of it; nothing here commands the robot.
-ExecStart=/opt/opendubs/venv/bin/python runner.py palette --robot dashboard --port 8092 --log /var/log/opendubs-runner/runner.jsonl
+# Show audio (plan 4.2) plays on the dashboard's show-audio device — the tablet by default.
+ExecStart=/opt/opendubs/venv/bin/python runner.py palette --robot dashboard --audio dashboard --port 8092 --log /var/log/opendubs-runner/runner.jsonl
 LogsDirectory=opendubs-runner
 Restart=always
 RestartSec=2

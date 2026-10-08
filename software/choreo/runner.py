@@ -48,6 +48,7 @@ TICK_S = 0.02             # 50 Hz
 LEASE_S = 0.25            # like every remote command on this robot: no heartbeat for 250 ms, no lease
 START_LEAD_S = 2.0        # PLACEHOLDER: time for a start to reach the tablet and the arm goals to land
 AUDIO_FADE_S = 0.25       # DEC-6: an abort fades the music; an e-stop cuts it
+AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio device to finish loading
 
 # What every slot is left doing when a show ABORTS (DEC-6: argued per slot, not assumed "stop").
 # An e-stop needs none of this: the contactor has already cut motion power, and audio is cut too.
@@ -126,6 +127,64 @@ class DashboardRobotState:
         with self.lock:
             fresh = self.last is not None and time.monotonic() - self.at < self.STALE_S
             return json.loads(json.dumps(self.last if fresh else self.UNKNOWN))
+
+
+# ---- show audio (plan 4.2) -----------------------------------------------------------------------
+class NullAudio:
+    """No audio device: records what it was told, for tests and for a laptop with no dashboard."""
+
+    def __init__(self, holder=None, ready=True):
+        self.calls, self.holder, self.is_ready = [], holder, ready
+
+    def send(self, msg):
+        self.calls.append(msg)
+
+    def state(self):
+        return {"holder": self.holder, "ready": bool(self.holder) and self.is_ready}
+
+
+class DashboardAudio:
+    """The show-audio device, through the dashboard (POST/GET /api/choreo/audio). The dashboard
+    relays each command to the ONE device holding the role. Never blocks a show for long: a call that
+    fails is logged by the runner and the show goes on (DEC-7: audio trouble never stops motion)."""
+
+    def __init__(self, url="http://127.0.0.1:8080/api/choreo/audio"):
+        self.url = url
+
+    def send(self, msg):
+        req = urllib.request.Request(self.url, data=json.dumps(msg).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=0.5) as r:
+            return json.loads(r.read())
+
+    def state(self):
+        with urllib.request.urlopen(self.url, timeout=0.3) as r:
+            return json.loads(r.read())
+
+
+def audio_items(show, tl) -> tuple:
+    """What the show-audio device must play: (items, skipped). Each item is {url, at, kind}, `at`
+    in show seconds; show time 0 is audio position 0 (format §3). Only audio routed to the tablet
+    (DEC-5) — earcons go to the head, and nothing plays on the Thor yet. Paths are relative to the
+    shows directory, which the dashboard serves under /api/choreo/media/."""
+    base = os.path.dirname(os.path.abspath(show.path)) if show.path else ""
+    items, skipped = [], []
+    m = tl.get("music") or {}
+    if m.get("file") and (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet":
+        if base and os.path.isfile(os.path.join(base, m["file"])):
+            items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music"})
+        else:
+            skipped.append(f"music {m['file']} is not on this machine")
+    for e in tl.get("tracks", {}).get("SOUND", []):
+        if e.get("output") != "tablet":
+            continue
+        f = show._sound_file(e["cue"].get("sound"))
+        if f:
+            items.append({"url": "/api/choreo/media/" + os.path.relpath(f, base).replace(os.sep, "/"),
+                          "at": e["t"], "kind": "sound"})
+        else:
+            skipped.append(f"sound {e['cue'].get('sound')} is not on this machine")
+    return items, skipped
 
 
 def preflight(requires: dict, st: dict) -> list:
@@ -219,8 +278,11 @@ class TwinFeed:
 # ---- the runner -------------------------------------------------------------------------------
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
-                 sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None):
+                 sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
+        self.audio = audio or NullAudio()
+        self.audio_live = False                   # a load was sent and the device took it
+        self.audio_note = None                    # why the show is running silently, if it is
         self.audio_output = audio_output          # the operator's override (DEC-5), re-validated
         self.feed = feed or TwinFeed()
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
@@ -238,8 +300,26 @@ class Runner:
         self.status = status
         self._log("status", **kw)
 
+    def _audio(self, msg):
+        try:
+            self.audio.send(msg)
+            return True
+        except Exception as e:  # noqa: BLE001  audio trouble never stops a show (DEC-7)
+            self._log("audio_error", op=msg.get("op"), error=f"{type(e).__name__}: {e}")
+            return False
+
+    def _audio_silent(self, why):
+        self.audio_note = why
+        self.audio_live = False
+        self._log("audio_warning", note=why)
+
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
+        if self.audio_live:
+            # DEC-6: an e-stop cuts the music, everything else fades it — including a show that
+            # ends before its song does.
+            self._audio({"op": "cut"} if status == ESTOPPED else {"op": "stop", "fade_s": AUDIO_FADE_S})
+            self.audio_live = False
         self._set(status, code=code, cause=cause, show_t=t)
         if status == ABORTED:
             self._log("abort_state", slots=ABORT_STATE)
@@ -247,6 +327,13 @@ class Runner:
             self._log("estop", note="everything stopped at once; audio cut, not faded")
         self.feed.playhead(t or 0.0, False, status)
         return self.ended
+
+    def _audio_ready(self, load_id):
+        try:
+            st = self.audio.state()
+        except Exception:  # noqa: BLE001
+            return False
+        return bool(st.get("ready")) and st.get("load") in (None, load_id)
 
     def request_stop(self):
         """An operator stop (the player's STOP button): an abort, not a pause."""
@@ -277,18 +364,40 @@ class Runner:
         if refusals:
             return self._end(REFUSED, refusals[0][0], "; ".join(r[1] for r in refusals))
 
-        # PREPPING: travel to the start pose, slowly enough to need no warning
+        # PREPPING: travel to the start pose, slowly enough to need no warning — and, meanwhile,
+        # the show-audio device downloads the show's files (4.2: whole files, started on cue)
         secs, targets = prep_moves(tl, st.get("arm_pose") or {})
-        self._set(PREPPING, prep_s=secs, targets=targets)
-        t_end = self.clock() + secs
-        while self.clock() < t_end:
+        items, skipped = audio_items(show, tl)
+        load_id = f"{show.id}@{round(time.time(), 3)}"
+        for why in skipped:
+            self._log("audio_warning", note=why)
+        if items:
+            try:
+                holder = self.audio.state().get("holder")
+            except Exception:  # noqa: BLE001
+                holder = None
+            if not holder:
+                self._audio_silent("no device is playing show audio — running silently")
+            elif self._audio({"op": "load", "id": load_id, "items": items}):
+                self.audio_live = True
+        self._set(PREPPING, prep_s=secs, targets=targets, audio_items=len(items))
+        t_end, wait_until = self.clock() + secs, self.clock() + AUDIO_READY_WAIT_S
+        while self.clock() < t_end or (self.audio_live and not self._audio_ready(load_id)):
+            if self.audio_live and self.clock() >= max(t_end, wait_until):
+                self._audio({"op": "cut"})
+                self._audio_silent(f"the show-audio device was not ready in {AUDIO_READY_WAIT_S:g} s — "
+                                   "running silently")
+                break
             if (stop := self._tick_checks(show, None)):
                 return stop
-            self.sleep(TICK_S)
+            self.sleep(TICK_S if self.clock() < t_end else 0.1)
 
         # WAITING_FOR_START: a start in the future, so the music and the arms can begin together
         self._set(WAITING, lead_s=self.start_lead)
         t0 = self.clock() + self.start_lead
+        if self.audio_live:
+            # T0 on the Thor's monotonic clock; the device converts it to its own audio clock
+            self._audio({"op": "start", "id": load_id, "t0_mono": round(t0, 4)})
         while self.clock() < t0:
             if (stop := self._tick_checks(show, None)):
                 return stop
@@ -329,8 +438,9 @@ class Palette:
     can run in any order; the runner's start-pose move covers the gap."""
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, audio=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
+        self.audio = audio or NullAudio()
         self.log, self.start_lead, self.clock, self.sleep = log, start_lead, clock, sleep
         self.lock = threading.Lock()
         self.current = None           # (routine id, Runner, thread)
@@ -367,7 +477,8 @@ class Palette:
             cur = self.current
             running = bool(cur and cur[2].is_alive())
             return {"running": cur[0] if running else None,
-                    "status": cur[1].status if cur else None, "last": self.last}
+                    "status": cur[1].status if cur else None, "last": self.last,
+                    "audio_note": cur[1].audio_note if cur else None}
 
     def run(self, rid: str) -> dict:
         with self.lock:
@@ -379,7 +490,8 @@ class Palette:
             if not r["valid"]:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
             runner = Runner(r["path"], self.limits_path, self.robot, self.feed, self.log,
-                            clock=self.clock, sleep=self.sleep, start_lead=self.start_lead)
+                            clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
+                            audio=self.audio)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
             self.current = (rid, runner, t)
             t.start()
@@ -489,13 +601,18 @@ def main() -> int:
     pp.add_argument("--robot", choices=("fake", "dashboard"), default="fake",
                     help="whose state preflight and aborts answer to (dashboard: read-only, on the robot)")
     pp.add_argument("--dashboard", default="http://127.0.0.1:8080/api/choreo/robot")
+    for x in (r, pp):
+        x.add_argument("--audio", choices=("none", "dashboard"), default="none",
+                       help="play show audio on the dashboard's show-audio device (plan 4.2)")
+        x.add_argument("--audio-url", default="http://127.0.0.1:8080/api/choreo/audio")
     a = ap.parse_args()
+    audio = DashboardAudio(a.audio_url) if a.audio == "dashboard" else NullAudio()
 
     if a.cmd == "palette":
         robot = DashboardRobotState(a.dashboard) if a.robot == "dashboard" else FakeRobotState()
         feed = TwinFeed()
         log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
-        pal = Palette(a.shows, a.limits, robot, feed, log)
+        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
@@ -511,7 +628,7 @@ def main() -> int:
     log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
     print(f"runner: twin feed on http://127.0.0.1:{a.port} — the FAKE robot state is in charge; "
           "nothing here can command the robot", file=sys.stderr, flush=True)
-    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log, audio_output=a.audio_output)
+    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log, audio_output=a.audio_output, audio=audio)
     status, code, cause, _ = runner.run()
     print(f"runner: {status} ({code}): {cause}", file=sys.stderr, flush=True)
     time.sleep(a.hold)

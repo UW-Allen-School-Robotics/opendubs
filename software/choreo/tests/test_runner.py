@@ -168,6 +168,84 @@ try:
 except KeyError:
     check("a show that is not on the palette cannot be run from it", True)
 
+print("\nrunner: show audio (4.2)")
+import wave  # noqa: E402
+
+
+def _wav(path, secs=1.0):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(8000)
+        w.writeframes(b"\0\0" * int(8000 * secs))
+
+
+_ad = tempfile.mkdtemp()
+_wav(os.path.join(_ad, "audio", "song.wav"), 30)
+_wav(os.path.join(_ad, "sounds", "ding.wav"), 0.5)
+AUDIO_SHOW = os.path.join(_ad, "a.yaml")
+with open(AUDIO_SHOW, "w") as fh:
+    fh.write("id: a\nslots: [SOUND]\nrequires: {}\n"
+             "music: { file: audio/song.wav, bpm: 120, offset_s: 0.0, beats_per_bar: 4 }\n"
+             "cues:\n  - { t: 2.0, slot: SOUND, do: play, sound: ding }\n"
+             "  - { t: 3.0, slot: SOUND, do: play, sound: attend }\n"
+             "  - { t: 6.0, slot: SOUND, do: play, sound: heard }\n")
+
+
+def run_audio(audio, **kw):
+    robot = R.FakeRobotState()
+    sc = SimClock(robot, None if kw.get("flip_after") is None else 1000.0 + kw["flip_after"], kw.get("change"))
+    log = io.StringIO()
+    r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5, audio=audio)
+    end = r.run()
+    return r, end, [json.loads(x) for x in log.getvalue().splitlines()]
+
+
+au = R.NullAudio(holder="tablet")
+r, end, lines = run_audio(au)
+ops = [c["op"] for c in au.calls]
+check("with a device holding show audio: load, then start, then a fade when the show ends",
+      end[0] == "COMPLETED" and ops == ["load", "start", "stop"] and au.calls[-1]["fade_s"] == R.AUDIO_FADE_S, au.calls)
+items = au.calls[0]["items"]
+check("... the song plays from show time 0, and a tablet sound file at its cue time",
+      {(i["kind"], i["url"], i["at"]) for i in items} ==
+      {("music", "/api/choreo/media/audio/song.wav", 0.0), ("sound", "/api/choreo/media/sounds/ding.wav", 2.0)}, items)
+check("... earcons are not sent to it (they play on the head)", not any("attend" in i["url"] for i in items))
+check("... and the start names one future Thor time, the show's time 0",
+      au.calls[1]["t0_mono"] > 1000.0 and au.calls[1]["id"] == au.calls[0]["id"], au.calls[1])
+
+au = R.NullAudio(holder="tablet")
+r, end, _ = run_audio(au, flip_after=4.0, change={"deadman": False})
+check("an abort fades the music (DEC-6)", end[0] == "ABORTED" and au.calls[-1] == {"op": "stop", "fade_s": R.AUDIO_FADE_S},
+      au.calls[-1:])
+au = R.NullAudio(holder="tablet")
+r, end, _ = run_audio(au, flip_after=4.0, change={"estop": True})
+check("an e-stop cuts it (DEC-6)", end[0] == "ESTOPPED" and au.calls[-1] == {"op": "cut"}, au.calls[-1:])
+
+au = R.NullAudio(holder=None)
+r, end, lines = run_audio(au)
+check("with no device holding show audio the routine still runs — silently, with a warning (decided)",
+      end[0] == "COMPLETED" and not au.calls and "running silently" in (r.audio_note or "")
+      and any(x["kind"] == "audio_warning" for x in lines), (end, au.calls, r.audio_note))
+
+au = R.NullAudio(holder="tablet", ready=False)
+r, end, lines = run_audio(au)
+check("a device that never finishes loading is cut and the routine runs silently, after a bounded wait",
+      end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "cut"]
+      and "not ready" in (r.audio_note or ""), (au.calls, r.audio_note))
+
+
+class Broken:
+    def send(self, msg):
+        raise OSError("dashboard gone")
+
+    def state(self):
+        return {"holder": "tablet", "ready": True}
+
+
+r, end, lines = run_audio(Broken())
+check("audio trouble never stops a show: a failing device is logged, the show completes (DEC-7)",
+      end[0] == "COMPLETED" and any(x["kind"] == "audio_error" for x in lines), end)
+
 print("\nrunner: on the robot (4.4c)")
 missing = R.Palette(SHOWS, "/nonexistent/joint_limits.yaml", R.FakeRobotState(), R.TwinFeed(), io.StringIO())
 rs = missing.routines()
