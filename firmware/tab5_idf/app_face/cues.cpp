@@ -9,7 +9,7 @@
 namespace {
 
 // ============================================================================================
-// CUES ARE DISABLED. Emma asked for beeps off until she says otherwise: the Mode tone was still
+// CUES ARE DISABLED. The team asked for beeps off until further notice: the Mode tone was still
 // too loud AND TOO SHRILL for something that fires on every state change. Flip this one flag to
 // bring them back.
 //

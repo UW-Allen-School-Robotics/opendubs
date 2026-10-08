@@ -46,7 +46,7 @@ int stateIxByName(const char* n)
 // On the head: the button sets a PENDING request that is resent every 50 ms, the robot eventually
 // reports E_STOP, and that confirmation is what clears the pending flag. So there are two distinct
 // things to see -- "STOP REQUESTED, resending" and "the robot is stopped" -- and the twin could
-// only ever show the first. Emma caught this: pressing `e` moved the banner and left the face on
+// only ever show the first. Caught on the twin: pressing `e` moved the banner and left the face on
 // whatever state it already had.
 //
 // On the robot the head loses power on an e-stop -- the contactor feeds it -- so this sequence is

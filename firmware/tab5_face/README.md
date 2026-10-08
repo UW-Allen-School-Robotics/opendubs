@@ -1,4 +1,9 @@
-# Tab5 Face & Payload Controller
+# Tab5 Face & Payload Controller — RETIRED
+
+> **Retired.** The robot's head runs the ESP-IDF firmware in [`../tab5_idf`](../tab5_idf/README.md),
+> flashed with `firmware/tab5_idf/ota-from-thor.sh` (see `CLAUDE.md`). This Arduino firmware is kept
+> for reference and for a deliberate rollback; its `ota-from-thor.sh` refuses to run unless
+> `OPENDUBS_FLASH_ARDUINO_HEAD=1` is set, because the ESP-IDF head would accept and install it.
 
 The `tab5_face` firmware runs on the M5Stack Tab5 (ESP32-P4) and serves as the primary payload controller and dynamic UI for the OpenDubs robot.
 

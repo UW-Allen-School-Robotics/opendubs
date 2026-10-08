@@ -346,7 +346,7 @@ void hmiBuild()
 
     // TOUCH ANYWHERE REVEALS THE CONTROLLER -- the Arduino interaction model, and it is strictly
     // better than the corner target it replaces. That target was a 160x160 invisible rectangle:
-    // Emma could not see its affordance dots at all ("covered by the eye"), and an operator who
+    // an operator at the robot could not see its affordance dots at all ("covered by the eye"), and an operator who
     // does not already know a control is there cannot find it. A whole-screen reveal needs no
     // affordance, so there is nothing to hide behind the eye and nothing to discover.
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);

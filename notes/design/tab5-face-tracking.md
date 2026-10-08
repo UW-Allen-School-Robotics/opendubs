@@ -40,7 +40,7 @@ grep cannot tell a live field from a dead one.** Read the function.
 1. **Declared victory on the wrong evidence.** The built-in-image self-test passed at 0.835 and
    ~25 ms, and I reported "face detection WORKS". It proves the **model** runs. It exercises **no
    part of the camera**. The live path had never run once. This is the error that caused everything
-   after it, and Emma named it exactly: *a test without me in frame won't prove anything.*
+   after it, and the team named it exactly: *a test without me in frame won't prove anything.*
 2. **Ran 26 ms of inference while holding the LVGL lock.** This starved the render loop: the face
    animation froze while LVGL's own FPS overlay kept updating. That signature — *our* animation
    dead, *LVGL's* counter alive — means the render loop is being starved, not that LVGL has died.
