@@ -21,6 +21,12 @@ sys.path.insert(0, os.path.join(HERE, "..", "composer"))
 import yamledit  # noqa: E402
 from api import ApiError, Composer  # noqa: E402
 
+# The timing checks below are written against these caps, not the robot's measured ones (cue.py):
+# they test the arithmetic, so the numbers stay fixed whatever the robot's caps become.
+sys.path.insert(0, os.path.join(HERE, ".."))
+import cue as _pin_caps  # noqa: E402
+_pin_caps.SPEED_CAP_DEG_S.update({1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70})
+
 SHOWS = os.path.join(HERE, "..", "shows")
 FIXTURE = os.path.join(HERE, "joint_limits_fixture.yaml")
 HELLO = open(os.path.join(SHOWS, "hello.yaml"), encoding="utf-8").read()

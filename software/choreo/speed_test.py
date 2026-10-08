@@ -478,6 +478,7 @@ def main() -> int:
             s = summary.setdefault(j, {"passed": None, "failed": None, "why": None, "reversals": None})
             if rev and not s["reversals"]:
                 s["reversals"] = f"{r['speed']:g} deg/s: {rev}"
+                s["reversals_at"] = r["speed"]
             if fail:
                 s["why"] = fail
                 if not fail.startswith("INCONCLUSIVE"):
@@ -508,8 +509,9 @@ def main() -> int:
         print(f"  J{j}   {s['passed'] or '—':>6}  {s['failed'] or '—':>6}  {cap:>13}   ({cue.SPEED_CAP_DEG_S[j]})"
               + (f"   {s['why']}" if s["why"] else ""))
         if s["reversals"]:
-            print(f"         reversals limit it first — {s['reversals']}: an argument for blending the "
-                  "runner's corners, not for a lower cap")
+            first = s.get("reversals_at") is not None and (s["failed"] is None or s["reversals_at"] < s["failed"])
+            print(f"         {'reversals limit it first' if first else 'the reversals too'} — {s['reversals']}"
+                  + (": an argument for blending the runner's corners, not for a lower cap" if first else ""))
     rec(kind="summary", summary=summary, stopped=stopped)
     return 0
 
