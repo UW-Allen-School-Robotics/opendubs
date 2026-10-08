@@ -108,6 +108,26 @@ check("a swing heading for the limit is CANCELLED MID-SWING, before a trip, not 
       arms.cancelled == 1 and "effort" in res.get("stopped_live", "") and res["at_s"] < run["duration_s"], res)
 check("... and that fails the speed", "stopped mid-swing" in S.verdict(res, res.get("status"))[0])
 
+
+
+class ClosingGate:
+    """Open for 0.2 s, then the deadman is let go."""
+
+    def __init__(self):
+        import time
+        self.t0 = time.monotonic()
+
+    def why_not(self, probe=False):
+        import time
+        return "the deadman is not held" if time.monotonic() - self.t0 > 0.2 else None
+
+
+arms = LiveArms(run["knots"], 7)
+arms.t0 = 0.0
+why = S.watched_move(arms, ClosingGate(), "right", "ARM_R", S.signed("right", S.BASE))
+check("the slow moves are watched too: letting go of the deadman cancels one at once",
+      why == "the deadman is not held" and arms.cancelled == 1, (why, arms.cancelled))
+
 print()
 if FAILS:
     for f in FAILS:

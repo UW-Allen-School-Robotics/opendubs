@@ -227,6 +227,68 @@ def verdict(res: dict, status) -> tuple:
     return fail, rev
 
 
+# ---- in the twin -------------------------------------------------------------------------------
+def twin_timeline(arm: str, runs: list, gap_s: float = 1.0) -> tuple:
+    """The whole planned test as a timeline the MuJoCo twin plays (sim_preview.arm_pose): every
+    swing exactly as it would be sent, as if each speed passed, with the slow approach to the base
+    pose first and the return to rest last. Returns (timeline, [(start s, end s, label)])."""
+    m = -1 if arm == "left" else 1
+    out = lambda sig: {str(j): round(sig[j - 1] * (m if j in cue.MIRRORED_JOINTS else 1), 3)
+                       for j in range(1, 8)}
+    base = signed(arm, BASE)
+    kfs, marks, t = [], [], 0.0
+    approach = max(abs(v) for v in base) / APPROACH_DPS
+    kfs.append({"start": 0.0, "t": round(approach, 3), "pose": out(base)})
+    t = approach + gap_s
+    for r in runs:
+        j = r["joint"] - 1
+        start = t
+        prev = r["knots"][0][0]
+        for kt, q in r["knots"][1:]:
+            pose = list(base)
+            pose[j] = q
+            kfs.append({"start": round(t + prev, 4), "t": round(t + kt, 4), "pose": out(pose)})
+            prev = kt
+        t += r["knots"][-1][0]
+        marks.append((start, t, f"J{r['joint']} at {r['speed']:g} deg/s"))
+        t += gap_s
+    kfs.append({"start": round(t, 3), "t": round(t + approach, 3), "pose": out([0.0] * 7)})
+    marks.append((t, t + approach, "back to rest"))
+    t += approach + 0.5
+    slot = "ARM_R" if arm == "right" else "ARM_L"
+    return {"valid": True, "duration_s": round(t, 3), "tracks": {slot: kfs}}, marks
+
+
+def play_in_twin(arm: str, runs: list, port: int) -> int:
+    import runner
+    tl, marks = twin_timeline(arm, runs)
+    feed = runner.TwinFeed()
+    runner.serve(feed, runner.FakeRobotState(), {}, "127.0.0.1", port)
+    feed.show(f"speed test ({arm} arm) — twin only", tl)
+    print(f"twin feed on http://127.0.0.1:{port} — start the viewer with:\n"
+          f"    ./twin.sh --composer http://127.0.0.1:{port}\n"
+          f"plays {tl['duration_s'] / 60:.1f} min once the viewer is up; press Enter to start", flush=True)
+    try:
+        input()
+    except EOFError:
+        time.sleep(5.0)
+    t0, said = time.monotonic(), None
+    while True:
+        t = time.monotonic() - t0
+        feed.playhead(t, True, None)
+        now = next((lbl for a0, a1, lbl in marks if a0 <= t <= a1), None)
+        if now and now != said:
+            print(f"  {t:6.1f} s  {now}", flush=True)
+            said = now
+        if t >= tl["duration_s"]:
+            feed.playhead(tl["duration_s"], False, None)
+            print("done — the twin holds the last pose; Ctrl-C to quit", flush=True)
+            break
+        time.sleep(0.05)
+    while True:
+        time.sleep(3600)
+
+
 # ---- on the robot -------------------------------------------------------------------------------
 class Gate:
     """What a show needs, read from the dashboard (read-only) — the same as the runner's preflight."""
@@ -270,6 +332,24 @@ def move_slowly(arms, side, slot, target):
            for i in range(n)]
     arms.send(slot, pts)
     return secs
+
+
+def watched_move(arms, gate, side, slot, target, settle_s=0.3):
+    """A slow move, WATCHED like a swing (arms plan review E): the gate is checked before it is sent
+    and every 50 ms while it runs; losing the deadman, AUTO or the arms cancels it at once and the arm
+    holds where it is. Returns why it stopped, or None when it finished."""
+    why = gate.why_not()
+    if why:
+        return why
+    secs = move_slowly(arms, side, slot, target)
+    end = time.monotonic() + secs + settle_s
+    while time.monotonic() < end:
+        why = gate.why_not()
+        if why:
+            arms.cancel_all()
+            return why
+        time.sleep(0.05)
+    return None
 
 
 def run_one(arms, gate, side, slot, r, log):
@@ -322,6 +402,9 @@ def main() -> int:
     ap.add_argument("--speeds", default=",".join(map(str, SPEEDS)))
     ap.add_argument("--limits", default=os.environ.get("OPENDUBS_ARM_LIMITS", cue.DEFAULT_LIMITS))
     ap.add_argument("--dry-run", action="store_true", help="print the plan and check it; send nothing")
+    ap.add_argument("--twin", type=int, metavar="PORT",
+                    help="play the whole plan in the MuJoCo twin (serves a twin feed on this port); "
+                         "nothing is sent to the robot")
     ap.add_argument("--robot", default="http://127.0.0.1:8080/api/choreo/robot")
     ap.add_argument("--palette", default="http://127.0.0.1:8092/api/palette")
     ap.add_argument("--log", default=f"/var/log/opendubs-runner/speed-test-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
@@ -346,6 +429,8 @@ def main() -> int:
         return 2
     if a.dry_run:
         return 0
+    if a.twin:
+        return play_in_twin(a.arm, runs, a.twin)
 
     import arm_output
     gate = Gate(a.robot, a.palette)
@@ -364,9 +449,8 @@ def main() -> int:
 
     rec(kind="start", arm=a.arm, joints=joints, speeds=speeds, base=BASE, amplitude=AMPLITUDE_DEG)
     print(f"moving to the base pose (slowly)… log: {a.log}")
-    time.sleep(move_slowly(arms, a.arm, slot, signed(a.arm, BASE)) + 0.5)
-    summary, stopped = {}, None
-    for j in joints:
+    summary, stopped = {}, watched_move(arms, gate, a.arm, slot, signed(a.arm, BASE), 0.5)
+    for j in (joints if not stopped else []):
         for r in [x for x in runs if x["joint"] == j]:
             why = gate.why_not()
             if why:
@@ -392,7 +476,7 @@ def main() -> int:
                 if not fail.startswith("INCONCLUSIVE"):
                     s["failed"] = r["speed"]
                 # A live stop or a failure leaves the arm part-way: back to the base pose, slowly.
-                time.sleep(move_slowly(arms, a.arm, slot, signed(a.arm, BASE)) + 0.3)
+                stopped = watched_move(arms, gate, a.arm, slot, signed(a.arm, BASE))
                 break
             s["passed"] = r["speed"]
             time.sleep(0.5)
@@ -403,7 +487,10 @@ def main() -> int:
         rec(kind="stopped", why=stopped)
     else:
         print("returning to rest (slowly)…")
-        time.sleep(move_slowly(arms, a.arm, slot, [0.0] * 7) + 0.5)
+        stopped = watched_move(arms, gate, a.arm, slot, [0.0] * 7, 0.5)
+        if stopped:
+            print(f"STOPPED on the way to rest: {stopped} — the arm holds where it is.")
+            rec(kind="stopped", why=stopped)
     print("\njoint  passed  failed  suggested cap   (today's cap)")
     for j in joints:
         s = summary.get(j)
