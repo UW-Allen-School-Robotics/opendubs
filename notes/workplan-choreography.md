@@ -234,7 +234,8 @@ Everything that pretends, so nothing is forgotten at robot time.
 | ~~The arms' current pose is not measured on the robot~~ — the runner reads `/joint_states` itself (5.6, 2026-10-08); the dashboard's `arm_pose` is still empty and unused | `choreo_proxy.robot_view` `arm_pose` | 6.3 |
 | A controller that is inactive over enabled motors passes preflight; its trajectory goal is rejected and the run "completes" with that arm still (found deconflicting with the arms plan, 2026-10-08) | `runner.py` preflight, `arm_output.RosArms.send` | 5.6 |
 | A show's EMOTE pin has no lease on the head: a runner killed mid-run leaves the face pinned until the runner restarts (it releases at start-up) | `face_bridge.LiveFace` | 5.3 / the head firmware |
-| HEAD pan/tilt plays in the twin only until the head is flashed with GAZE (Tab5 PR #56); the runner side is built and waits for it | `face_bridge.LiveGaze` | 5.6b, the flash |
+| ~~HEAD pan/tilt plays in the twin only~~ — GAZE flashed and running on opendubs2, 2026-10-08 | `face_bridge.LiveGaze` | — |
+| **Earcons held back on the robot** (`--earcons off`): the head's first earcon starts its audio task, which damps face tracking until the head restarts (felt by the user after the first audible earcons, 2026-10-08; restarting the head restored it; the Tab5 work's diagnosis: a lazily created, unpinned priority-5 task outranking face detection). Shows still play their music on the tablet. | `deploy/opendubs-runner.service` | the Tab5 audio-task fix, then `--earcons on` |
 | Speed caps, unsourced | `cue.py` `SPEED_CAP_DEG_S` | 6.1 |
 
 ## Parked
