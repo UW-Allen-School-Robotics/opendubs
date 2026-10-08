@@ -99,9 +99,15 @@ class RosArms:
         from trajectory_msgs.msg import JointTrajectoryPoint
         from builtin_interfaces.msg import Duration
 
+        from rclpy.signals import SignalHandlerOptions
+
         self._FJT, self._Point, self._Duration = FollowJointTrajectory, JointTrajectoryPoint, Duration
         if not rclpy.ok():
-            rclpy.init()
+            # No ROS signal handlers: by default rclpy takes SIGTERM, shuts ROS down and leaves the
+            # process running, blind (no /joint_states, so every run is refused) until systemd
+            # SIGKILLs it 90 s later — found on the robot 2026-10-08, on a deploy's restart. Without
+            # them SIGTERM ends the process at once, as a service's stop should.
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         self.node = rclpy.create_node(node_name)
         self.clients = {slot: ActionClient(self.node, FollowJointTrajectory,
                                            f"/{side}_controller/follow_joint_trajectory")
