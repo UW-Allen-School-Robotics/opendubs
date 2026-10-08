@@ -309,6 +309,8 @@
           <button id="showsAudioClaim" class="sysbtn" title="Play show music and sounds on this device instead (any browser can; the kiosk tablet takes it by default)">Play show audio here</button>
         </div>
         <div id="showsList" class="shows-list"></div>
+        <label id="showsLive" class="shows-live" hidden title="Off: the routine plays in the twins only. On: the real ARMS follow it, for this one run, while CH5 is AUTO and the deadman is held. Grippers, head and lift stay twin-only.">
+          <input type="checkbox" id="showsLiveBox"> <b>LIVE</b> — the real arms move, for the next run only</label>
         <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
         <div class="sub">Each routine ends with the arms at rest and the head centred, so any can follow any. A routine that does not validate cannot be started.</div>
       </section>
@@ -525,6 +527,6 @@
   <script src="operate.js?v=7ef5cdb2"></script>
   <script type="module" src="teleop.js?v=62f2695f"></script>
   <script src="show_audio.js?v=2"></script>
-  <script src="choreo.js?v=3"></script>
+  <script src="choreo.js?v=4"></script>
 </body>
 </html>

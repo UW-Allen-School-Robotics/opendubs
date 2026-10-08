@@ -17,6 +17,11 @@ MOUNT_POINT=/etc/opendubs/arm-limits
 CONTAINER=openarm
 
 echo "-- installing the show runner ($UNIT)"
+# Live arm output (plan 5.6) sends FollowJointTrajectory goals from the host, which needs the action's
+# message package; the arm container has it, the host did not.
+if [ -d /opt/ros/jazzy ] && ! dpkg -s ros-jazzy-control-msgs >/dev/null 2>&1; then
+  apt-get install -y -qq ros-jazzy-control-msgs || echo "   WARNING: control_msgs not installed — live arm output will be unavailable"
+fi
 install -m 0644 "$APP/deploy/$UNIT" "/etc/systemd/system/$UNIT"
 install -d -m 0755 "$MOUNT_POINT"
 
