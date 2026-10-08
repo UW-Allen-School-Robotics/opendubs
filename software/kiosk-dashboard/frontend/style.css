@@ -536,7 +536,7 @@ body {
 .op-nt.warn{ border-left-color:var(--warn); color:#f6d79a; } .op-nt.warn svg{ color:var(--warn); }
 .op-nt.bad{ border-left-color:var(--bad); color:#f7b3b3; } .op-nt.bad svg{ color:var(--bad); }
 
-.op-status{ display:grid; grid-template-columns:1fr 1fr 2fr 1fr 1fr; gap:var(--gap); padding:0 var(--gap) var(--gap); }
+.op-status{ display:grid; grid-template-columns:1fr 1fr 2fr 2fr 1fr; gap:var(--gap); padding:0 var(--gap) var(--gap); }
 .op-tile{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; min-width:0; }
 .op-tile b{ font-size:18px; letter-spacing:.04em; color:var(--txt); }
 .op-tile b.ok{ color:var(--good); } .op-tile b.warn{ color:var(--warn); } .op-tile b.bad{ color:var(--bad); } .op-tile b.dim{ color:var(--dim); }

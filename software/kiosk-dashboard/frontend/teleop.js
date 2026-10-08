@@ -185,7 +185,13 @@ function paintStatus(s) {
 async function pollStatus() {
   try {
     const r = await fetch("/api/arms/status", { cache: "no-store" });
-    if (r.ok) paintStatus(await r.json());
+    if (r.ok) {
+      const s = await r.json();
+      paintStatus(s);
+      // Shared, so the Operate page's ARMS tile needs no second poller: every read of this endpoint
+      // also queries the motors over the arms' own CAN bus.
+      window.dispatchEvent(new CustomEvent("opendubs-arms", { detail: s }));
+    }
   } catch (e) { /* dashboard backend down; the rest of the page already says so */ }
 }
 

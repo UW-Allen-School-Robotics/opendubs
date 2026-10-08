@@ -79,7 +79,7 @@
   /* ---------- drive status (read-only): what the robot reports, and why it will not move ---------- */
   // CH5 in the names the team uses (DEC-9), from the authority the robot-state rollup reports.
   const AUTH = { OFF: "STANDBY", RC_MANUAL: "MANUAL", AUTONOMOUS: "AUTO" };
-  let lastRS = null, lastDrive = null;
+  let lastRS = null, lastDrive = null, lastArms = null;
   function whyNot(inp, d) {
     // In the order the StamPLC's own gate checks them; the first one is what to fix.
     if (inp.estopped || (inp.estop_sources && inp.estop_sources.length)) return "e-stop";
@@ -92,6 +92,21 @@
     if (inp.authority === "AUTONOMOUS") return "moves only on the Thor's drive commands";
     return "";
   }
+  // The arms, from /api/arms/status (energized = motors powered and holding; arms plan DEC-24).
+  function armsState(a, inp) {
+    if (!a) return ["—", "dim", ""];
+    if (a.op && a.op.running) return ["BUSY", "warn", `${a.op.name} (${a.op.elapsed ?? 0} s)`];
+    const m = a.motors;
+    if (!m) return ["—", "dim", a.motors_error ? "status unavailable" : ""];
+    if (m.faults) return ["FAULT", "bad", `${m.faults} motor${m.faults > 1 ? "s" : ""} in fault`];
+    if (!a.energized) return ["OFF", "dim", "not energized"];
+    if (m.missing || m.disabled) return ["PARTIAL", "warn", `${m.enabled} enabled, ${(m.missing || 0) + (m.disabled || 0)} not`];
+    if (a.teleop && a.teleop.running) return ["ENERGIZED", "ok", "teleop running"];
+    if (inp.authority === "OFF") return ["ENERGIZED", "ok", "holding — move only in MANUAL"];
+    return ["ENERGIZED", "ok", "holding"];
+  }
+  window.addEventListener("opendubs-arms", (e) => { lastArms = e.detail; try { renderOpStatus(); } catch (err) {} });
+
   function renderOpStatus() {
     const inp = (lastRS && lastRS.inputs) || {}, d = lastDrive || {};
     const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; e.className = cls || ""; } };
@@ -101,8 +116,8 @@
     const why = lastRS ? whyNot(inp, d) : "";
     set("osDrive", d.armed == null ? "—" : d.armed ? "ARMED" : "DISARMED", d.armed ? "ok" : "warn");
     set("osWhy", why ? "· " + why : "", "op-why");
-    const ml = typeof DRIVE_MODE_LABEL !== "undefined" ? DRIVE_MODE_LABEL : {};
-    set("osWheels", d.mode ? (ml[d.mode] || d.mode) : "—", d.mode ? "" : "dim");
+    const [at, ac, aw] = armsState(lastArms, inp);
+    set("osArms", at, ac); set("osArmsWhy", aw ? "· " + aw : "", "op-why");
     set("osSpeed", d.spd == null ? "—" : Math.round(d.spd * 100) + "%", d.spd === 0 ? "bad" : d.spd == null ? "dim" : "");
   }
   if (typeof window.renderDrive === "function") {
