@@ -29,6 +29,26 @@ bool micPresent();
 void micPress();
 void micRelease();
 
+// ---- the heard-a-voice event, published for the UI task ------------------------------------
+//
+// PUBLISHED, NOT CALLED ACROSS TASKS. The glance decision (voice/glance.h) is read every frame by
+// the render loop and would be written by the capture task, which is exactly the cross-task state
+// the architecture note says must go through a seqlock rather than a shared variable
+// (shared/pub.h, AUDIT.md). Rather than publish the glance's own state, the capture task publishes
+// the EVENT and the render loop owns the glance outright -- so glance.cpp has a single caller on a
+// single task and needs no synchronisation at all.
+//
+// `seq` is what makes it an event rather than a level: the reader keeps the last seq it acted on,
+// so one voice produces one glance however often the reader polls.
+struct MicHeard {
+    uint32_t seq;      // 0 = nothing ever heard
+    uint32_t atMs;     // head milliseconds, for staleness
+    uint8_t  dir;      // a VoiceDir. uint8_t so this stays trivially copyable for Published<T>
+};
+
+// Latest heard event. False when nothing has ever been heard.
+bool micHeard(MicHeard* out);
+
 // For the panel, and for the `VOICE` reply over UDP. Stable buffer, same convention as
 // pantiltStatus(). THE NUMBER THAT MATTERS HERE IS THE MEASURED NOISE FLOOR -- the workplan
 // requires it be read with the drive motors running before anyone trusts a threshold, and this is

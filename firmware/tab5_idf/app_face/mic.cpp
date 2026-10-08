@@ -10,6 +10,7 @@ bool        micPresent() { return false; }
 void        micPress()   {}
 void        micRelease() {}
 const char* micStatus()  { return "voice: compiled out"; }
+bool        micHeard(MicHeard*) { return false; }
 
 #else
 
@@ -17,6 +18,7 @@ const char* micStatus()  { return "voice: compiled out"; }
 #include "ui_settings.h"
 #include "voice/level.h"
 #include "voice/listen.h"
+#include "shared/pub.h"
 #include <hal/hal.h>
 #include <mooncake_log.h>
 #include <atomic>
@@ -55,6 +57,10 @@ constexpr uint16_t kBlockMs = 32;
 // exists to forbid.
 std::vector<int16_t> g_buf;
 
+// One writer (the capture task), many readers (the render loop). See mic.h.
+Published<MicHeard> g_heard;
+uint32_t            g_heardSeq = 0;
+
 std::atomic<bool> g_present{false};
 std::atomic<bool> g_pressed{false};
 
@@ -72,13 +78,20 @@ uint32_t nowMs()
 void handle(VoiceEvent e)
 {
     switch (e) {
-        case VoiceEvent::Heard:
+        case VoiceEvent::Heard: {
             // PHASE A STEP 3, and the cheapest honest thing the robot can do: "I noticed you",
             // inside a second, whether or not anything can be done about it. The earcon has existed
             // in cues.cpp since it was written with nothing to trigger it. This is the trigger.
             cuePlay(Cue::Heard);
-            mclog::tagInfo("mic", "heard");
+            // PHASE A STEP 4's trigger. Published rather than acted on: the render loop owns the
+            // glance, because the head target is read every frame on that task. The bearing is the
+            // ONSET one -- design/hri-interaction-design.md's build order wants the acknowledgement
+            // inside a second, which is before the peak bearing exists.
+            const MicHeard h{++g_heardSeq, nowMs(), (uint8_t)listenDirNow()};
+            g_heard.publish(h);
+            mclog::tagInfo("mic", "heard, from the {}", voiceDirName(listenDirNow()));
             break;
+        }
 
         case VoiceEvent::UtteranceEnd:
             // Phase B hands this to the Thor. Until then it is logged, because a bounded clip with
@@ -216,6 +229,12 @@ void micRelease()
     if (!g_present.load()) return;
     g_pressed.store(false);
     listenRelease(nowMs());
+}
+
+bool micHeard(MicHeard* out)
+{
+    if (!g_heard.read(out)) return false;
+    return out->seq != 0;
 }
 
 const char* micStatus()

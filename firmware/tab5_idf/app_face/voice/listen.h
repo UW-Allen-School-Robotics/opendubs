@@ -91,6 +91,20 @@ ListenState listenState();
 // because the tail of a sentence is its quietest part and its ratio is the least trustworthy.
 VoiceDir listenDir();
 
+// Where the CURRENT block's sound came from, for a glance that has to happen at ONSET rather than
+// at the end of the utterance.
+//
+// Why both this and listenDir(): design/hri-interaction-design.md's build order says "acknowledge
+// inside one second -- a glance plus one short blip", so the glance fires with `Heard`, when all
+// that exists is the onset block. listenDir()'s peak estimate is better but only known once the
+// utterance is over. The note licenses the trade outright -- "a glance is allowed to be approximate
+// and then end" -- and pairs it with "multiple short fixations beat one long stare", so an
+// approximate glance now and a corrected one later is the behaviour it actually asks for.
+//
+// Holds the last ABOVE-THRESHOLD block's direction, not the last block's: the quiet gaps inside a
+// sentence carry no bearing and would otherwise keep resetting this to None mid-utterance.
+VoiceDir listenDirNow();
+
 // Measured floor, for the status line and for the UDP reply. The workplan requires this be read
 // with the motors RUNNING before anyone trusts a threshold, so it has to be reportable.
 const VoiceFloor& listenFloor();

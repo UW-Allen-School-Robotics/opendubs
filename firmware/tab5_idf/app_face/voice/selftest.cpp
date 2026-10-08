@@ -13,6 +13,7 @@ bool voiceSelfTest(VoiceSelfTestSink)
 
 #include "level.h"
 #include "listen.h"
+#include "glance.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -467,6 +468,146 @@ bool caseDeadMic()
     return true;
 }
 
+bool caseGlanceRefusals()
+{
+    // THE REFUSALS ARE THE DESIGN, so they are asserted rather than commented.
+    glanceBegin();
+    uint32_t now = 1000;
+
+    if (glanceTrigger(now, VoiceDir::None))
+        return fail("glanced at a NONE bearing -- 'no stimulus' became a direction");
+    // A centre bearing must not move the head: the earcon is the whole acknowledgement, and
+    // turning toward something you already face reads as a twitch.
+    if (glanceTrigger(now, VoiceDir::Centre))
+        return fail("glanced at a CENTRE bearing -- the head should not move");
+    if (glanceActive(now))
+        return fail("a refused trigger left a glance active");
+
+    if (!glanceTrigger(now, VoiceDir::Left))
+        return fail("a LEFT bearing did not start a glance");
+    if (!glanceActive(now))
+        return fail("the glance is not active immediately after starting");
+    if (glanceNx() >= 0.0f)
+        return fail("a LEFT glance aims nx=%+.2f -- wrong side", (double)glanceNx());
+    if (glanceNy() != 0.0f)
+        return fail("a glance asked for tilt (%+.2f) from two side-by-side mics", (double)glanceNy());
+
+    glanceBegin();
+    if (!glanceTrigger(now, VoiceDir::Right) || glanceNx() <= 0.0f)
+        return fail("a RIGHT glance aims nx=%+.2f -- wrong side", (double)glanceNx());
+    say("  ok   glance refusals: NONE and CENTRE move nothing; left/right aim opposite, tilt is 0");
+    return true;
+}
+
+bool caseGlanceEndsItself()
+{
+    // A GLANCE ENDS BY ITSELF AND CANNOT BE HELD OPEN. That is the entire difference between a
+    // glance and a tracker, and it is what lets this take no lease: forgetting to release it is
+    // not a failure mode, because nothing can refresh the deadline.
+    glanceBegin();
+    uint32_t now = 1000;
+    if (!glanceTrigger(now, VoiceDir::Left)) return fail("no glance");
+
+    // Hammering the trigger must NOT extend it -- this is the accidental-tracker path.
+    // The cap is 3 s of re-triggering, comfortably past any hold worth calling a glance: a loop
+    // that stops before the hold would prove nothing, which it did on the first attempt here.
+    for (int i = 0; i < 150; ++i) {
+        glanceTrigger(now, VoiceDir::Left);
+        now += 20;
+        if (!glanceActive(now)) break;
+    }
+    if (glanceActive(now))
+        return fail("a glance survived %u ms of re-triggering -- it extends, so it is a tracker",
+                    (unsigned)(now - 1000));
+    const uint32_t held = now - 1000;
+    if (held > 1200)
+        return fail("the glance held %u ms -- that is a stare, not a glance", (unsigned)held);
+    say("  ok   glance ends itself: %u ms under continuous re-triggering, never extended",
+        (unsigned)held);
+    return true;
+}
+
+bool caseGlanceIsNotATracker()
+{
+    // THE ONE THAT MATTERS, and it already changed the implementation once.
+    //
+    // design/hri-interaction-design.md forbids continuous voice tracking and wants "multiple short
+    // fixations". Those pull in opposite directions, so this measures the DUTY CYCLE under a
+    // speaker who never stops -- and the first version of glance.cpp, with a single 600 ms gap,
+    // scored 60%: the head swinging over and back and over again to re-aim at the place it was
+    // already aiming. A tic, not a fixation. Hence the settle/change split.
+    //
+    // (a) A STATIC SPEAKER WHO NEVER STOPS: one glance, then stillness.
+    glanceBegin();
+    uint32_t now = 1000;
+    int steering = 0;
+    const int frames = 1500;            // 30 s at 20 ms
+    for (int i = 0; i < frames; ++i) {
+        glanceTrigger(now, VoiceDir::Left);
+        if (glanceActive(now)) ++steering;
+        now += 20;
+    }
+    const float duty = (float)steering / (float)frames;
+    if (duty > 0.35f)
+        return fail("a static non-stop voice steers the head %.0f%% of the time -- that is a tic",
+                    (double)(duty * 100.0f));
+    if (duty < 0.10f)
+        return fail("the head steered only %.0f%% of the time -- glances are suppressed entirely",
+                    (double)(duty * 100.0f));
+
+    // (b) A BEARING THAT CHANGES IS NEW INFORMATION, and must get a prompt glance -- otherwise
+    //     someone crossing the room, or a second person speaking, is ignored for 2.5 s.
+    glanceBegin();
+    now = 1000;
+    if (!glanceTrigger(now, VoiceDir::Left)) return fail("no first glance");
+    while (glanceActive(now)) now += 20;            // let it end on its own
+    const uint32_t endedAt = now;
+
+    // The same bearing is refused through the settle window...
+    if (glanceTrigger(now + 1000, VoiceDir::Left))
+        return fail("the SAME bearing re-glanced after 1 s -- the settle window is not holding");
+    // ...while the other side is taken promptly.
+    glanceBegin();
+    now = 1000;
+    if (!glanceTrigger(now, VoiceDir::Left)) return fail("no first glance");
+    while (glanceActive(now)) now += 20;
+    if (!glanceTrigger(now + 700, VoiceDir::Right))
+        return fail("a CHANGED bearing was refused 700 ms after the last glance");
+    if (glanceNx() <= 0.0f)
+        return fail("the re-glance did not aim at the new side (nx %+.2f)", (double)glanceNx());
+    (void)endedAt;
+    say("  ok   not a tracker: a static non-stop voice steers %.0f%% of the time; a CHANGED "
+        "bearing re-glances promptly", (double)(duty * 100.0f));
+    return true;
+}
+
+bool caseGlanceFromListen()
+{
+    // END TO END over the real state machine: a press, speech from the left, and the bearing that
+    // reaches the glance is the ONSET bearing -- because the design's build order says acknowledge
+    // inside one second, which is before the peak is known.
+    listenBegin();
+    glanceBegin();
+    uint32_t now = 1000;
+    warmFloor(&now);
+    listenPress(now);
+    if (feed(&now, 9000.0f, 2000.0f, 3) != VoiceEvent::Heard) return fail("no onset");
+    if (listenDirNow() != VoiceDir::Left)
+        return fail("the onset bearing is %s, expected LEFT", voiceDirName(listenDirNow()));
+    if (!glanceTrigger(now, listenDirNow()))
+        return fail("the onset bearing did not start a glance");
+    if (glanceNx() >= 0.0f) return fail("glanced to the wrong side at onset");
+
+    // A finished utterance must not aim the NEXT glance: a stale bearing pointing the head at
+    // where the last person stood is worse than not glancing at all.
+    if (feed(&now, 70.0f, 70.0f, 40) != VoiceEvent::UtteranceEnd)
+        return fail("the utterance did not end");
+    if (listenDirNow() != VoiceDir::None)
+        return fail("the live bearing survived the utterance as %s", voiceDirName(listenDirNow()));
+    say("  ok   end to end: onset bearing drives the glance, and it is cleared when the clip ends");
+    return true;
+}
+
 bool caseWrap()
 {
     // WRAP SAFETY. AUDIT.md invariant 5, and cues.cpp shipped this bug twice. Start the hangover
@@ -508,6 +649,10 @@ bool voiceSelfTest(VoiceSelfTestSink sink)
         {caseHalfDuplex,       "half-duplex"},
         {caseColdBootPress,    "cold boot press"},
         {caseDeadMic,          "dead mic"},
+        {caseGlanceRefusals,   "glance refusals"},
+        {caseGlanceEndsItself, "glance ends itself"},
+        {caseGlanceIsNotATracker, "glance is not a tracker"},
+        {caseGlanceFromListen, "glance from listen"},
         {caseWrap,             "wrap safety"},
     };
 

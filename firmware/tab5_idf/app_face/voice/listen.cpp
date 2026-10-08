@@ -49,6 +49,7 @@ struct State {
     VoiceLevel  peak;            // loudest block of the utterance in progress
     bool        havePeak;
     VoiceDir    lastDir;
+    VoiceDir    liveDir;         // the last above-threshold block's bearing, for an onset glance
 
     uint32_t    blocks;          // counters, for the status line
     uint32_t    utterances;
@@ -62,6 +63,7 @@ State g;
 VoiceEvent finish()
 {
     g.lastDir  = g.havePeak ? voiceDirection(g.peak, g.floor) : VoiceDir::None;
+    g.liveDir  = VoiceDir::None;   // a finished utterance must not aim the NEXT glance
     g.st       = ListenState::Idle;
     g.aboveRun = 0;
     g.havePeak = false;
@@ -86,6 +88,7 @@ void listenBegin()
     g = State{};
     g.st = ListenState::Idle;
     g.lastDir = VoiceDir::None;
+    g.liveDir = VoiceDir::None;
     voiceFloorReset(&g.floor);
 }
 
@@ -165,9 +168,12 @@ VoiceEvent listenBlock(uint32_t nowMs, const int16_t* samples, int frames)
 
     if (g.st == ListenState::Idle) return listenTick(nowMs);
 
-    if (above && (!g.havePeak || v.mean() > g.peak.mean())) {
-        g.peak = v;
-        g.havePeak = true;
+    if (above) {
+        g.liveDir = voiceDirection(v, g.floor);
+        if (!g.havePeak || v.mean() > g.peak.mean()) {
+            g.peak = v;
+            g.havePeak = true;
+        }
     }
 
     switch (g.st) {
@@ -222,6 +228,7 @@ VoiceEvent listenTick(uint32_t nowMs)
 }
 
 ListenState listenState()        { return g.st; }
+VoiceDir    listenDirNow()       { return g.liveDir; }
 VoiceDir    listenDir()          { return g.lastDir; }
 const VoiceFloor& listenFloor()  { return g.floor; }
 

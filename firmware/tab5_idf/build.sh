@@ -63,6 +63,7 @@ build_voice() {
         "$HERE/tools/voice_host_test.cpp" \
         "$HERE/app_face/voice/level.cpp" \
         "$HERE/app_face/voice/listen.cpp" \
+        "$HERE/app_face/voice/glance.cpp" \
         "$HERE/app_face/voice/selftest.cpp"
     "$out"
 }
