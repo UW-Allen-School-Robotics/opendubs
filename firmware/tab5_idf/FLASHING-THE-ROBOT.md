@@ -1,12 +1,10 @@
-# First USB flash of the robot's Tab5 — the exact procedure
+# First USB flash of the robot's Tab5, or recovery — the exact procedure
 
-The robot's head currently runs the **Arduino** firmware (`firmware/tab5_face`). This replaces it
-with the ESP-IDF build, **over USB from a Mac**, writing the partition table and the Wi-Fi
-credentials explicitly rather than depending on anything already on the board.
-
-**This does not change the canonical flash path.** `firmware/tab5_face/ota-from-thor.sh`, the Thor,
-the StamPLC and `CLAUDE.md`'s flash table are all untouched until the IDF image has been seen
-working on the robot. Nothing in this document runs on the Thor.
+**Everyday flashing is over the air: `firmware/tab5_idf/ota-from-thor.sh`** (`CLAUDE.md`'s flash
+table). This document is for the cases OTA cannot cover: a head that has never run the ESP-IDF
+firmware (a new Tab5, or one still on the retired Arduino firmware), or one whose image will not take
+an OTA. It flashes the ESP-IDF build **over USB from a Mac**, writing the partition table explicitly
+rather than depending on anything already on the board. Nothing in this document runs on the Thor.
 
 ---
 

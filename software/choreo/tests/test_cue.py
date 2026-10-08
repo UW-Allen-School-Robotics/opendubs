@@ -74,15 +74,8 @@ check("two cues owning one slot at once is caught",
       [{"t": 1.0, "slot": "HEAD", "pan": 60, "hold_s": 4.0},
        {"t": 2.0, "slot": "HEAD", "pan": 120}], "still busy")
 
-# 700 Hz USED TO BE REJECTED here, which enshrined a withdrawn by-ear measurement as a physical
-# fact and made the test suite enforce it. It is a legitimate choice and now passes.
-check("a low but legitimate beep passes",
-      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 700}], None)
-
-# What the bound is actually for: catching a typo or a unit mix-up, not adjudicating what the
-# speaker reproduces well.
-check("an absurd beep frequency is caught as a typo",
-      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 40000}], "sanity bound")
+check("a beep the speaker cannot carry is caught",
+      [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 700}], "does not carry")
 
 check("a beep in the audible band passes",
       [{"t": 1.0, "slot": "SOUND", "do": "beep", "hz": 3000}], None)

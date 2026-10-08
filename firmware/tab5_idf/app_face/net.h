@@ -1,5 +1,8 @@
 // Wi-Fi station bring-up. Stage 1 of the OTA chain (see notes/design/tab5-idf-ota.md).
 //
+// (Written before this firmware had OTA. It has it now: firmware/tab5_idf/ota-from-thor.sh is the
+// procedure, and the Arduino script named below is retired.)
+//
 // WHY THIS MATTERS MORE THAN IT LOOKS. The robot's head is flashed OVER THE AIR today, by
 // firmware/tab5_face/ota-from-thor.sh. The ESP-IDF rewrite can only be flashed over USB -- and the
 // Tab5 lives behind the robot's face on the e-stop-protected drive branch, so every USB flash

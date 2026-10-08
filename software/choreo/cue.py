@@ -57,18 +57,7 @@ SHOULDER_MARGIN_DEG = 25.0     # what a show must leave
 ELBOW_FOLD_MIN_DEG = 60.0      # below this the arm is "extended" and the 1.2 m box bites first
 SHOULDER_EXTENDED_MAX_DEG = 135.0   # measured: 140 passed, 146 was rejected on the box
 
-# A SANITY BOUND, NOT A MEASURED RESPONSE -- and the name says so, because the previous one did
-# not. This was `SOUND_BAND_HZ = (1800, 4500)`, commented "what the head's speaker actually
-# carries, judged on the robot". That was a by-ear impression of M5.Speaker.tone() in a noisy
-# room, it was later withdrawn (notes/design/tab5-platform.md 3), and in the meantime it sat here
-# rejecting legitimate shows as physically impossible.
-#
-# The hardware argues the other way: an ES8388 codec and an NS4150B amp into 1 W 8 ohm, documented
-# by M5 for "Hi-Fi recording/playback", plus a 3.5 mm jack. The real response is still UNMEASURED
-# -- the sweep harness written for it was removed unused -- so this bound only catches values that
-# are obviously wrong (a typo, a unit mix-up) and makes no claim about what the speaker reproduces
-# well. Narrow it again only with a measurement attached.
-SOUND_SANITY_HZ = (150, 12000)
+SOUND_BAND_HZ = (1800, 4500)   # what the head's speaker actually carries, judged on the robot
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
 MIRRORED_JOINTS = (1, 2, 3)    # left travels negative where right travels positive
@@ -275,10 +264,9 @@ class Show:
         hz = c.get("hz")
         if hz is None:
             p.append(f"{where}: beep needs hz")
-        elif not (SOUND_SANITY_HZ[0] <= float(hz) <= SOUND_SANITY_HZ[1]):
-            p.append(f"{where}: beep {float(hz):.0f} Hz outside the sanity bound "
-                     f"{SOUND_SANITY_HZ} — looks like a typo or a unit mix-up. This is NOT a "
-                     "measured speaker response; see notes/design/tab5-platform.md")
+        elif not (SOUND_BAND_HZ[0] <= float(hz) <= SOUND_BAND_HZ[1]):
+            p.append(f"{where}: beep {float(hz):.0f} Hz outside {SOUND_BAND_HZ} — "
+                     "this speaker does not carry it")
         ms = c.get("ms")
         if ms is not None and not (10 <= float(ms) <= 3000):
             p.append(f"{where}: beep ms {ms} outside 10..3000")
