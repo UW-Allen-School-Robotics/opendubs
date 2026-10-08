@@ -130,7 +130,7 @@ Each with its question and kill criterion, for the hardware session.
 | TB-3 | Does the websocket stay connected through screen-off and Samsung's battery management? | No reconnect in 10 minutes. |
 | TB-4 | Does One UI honour the device owner's update policy, or still prompt? | No update prompt over a week of normal use. |
 | TB-5 | Does Do Not Disturb (Alarms only) leave media audible on this model? | The show's music is audible with DND on. |
-| TB-6 | **The plan's kill criterion:** a 10-minute show, start to finish. | Not one interruption: no sleep, no prompt, no notification, no audio gap. |
+| TB-6 | **The plan's kill criterion:** a two-minute show, start to finish (DEC-16: tests sized to the use; TB-2 already covered ten minutes of music). | Not one interruption: no sleep, no prompt, no notification, no audio gap. |
 
 **The team's tablet runs Android 15 / One UI 7** (SM-X133, build AP3A.240905.015.A2, WebView/Chrome
 131), checked 2026-10-08.
