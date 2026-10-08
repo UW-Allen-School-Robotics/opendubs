@@ -311,6 +311,13 @@ check("a palette with no arms runs twin-only, and says live output is not availa
 pal3 = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms())
 check("a palette WITH arms makes every run live: CH5 AUTO and the deadman are the go, no second switch",
       pal3.run("reach")["live"] is True and pal3.status()["live_available"] is True)
+uses = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal3.routines()}
+check("each routine says what it will do: Wave and nod plays music and moves the arms for real, "
+      "the head and face in the twin only",
+      uses.get("wave-and-nod") == {"music": True, "arms": True, "head": False, "face": False}, uses.get("wave-and-nod"))
+check("... grippers stay twin-only until calibrated (6.2)", uses["reach"].get("grippers") is False, uses["reach"])
+uses2 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal2.routines()}
+check("... and with no arms on this runner, the arms are twin-only too", uses2["celebrate"]["arms"] is False, uses2["celebrate"])
 
 print("\nrunner: on the robot (4.4c)")
 missing = R.Palette(SHOWS, "/nonexistent/joint_limits.yaml", R.FakeRobotState(), R.TwinFeed(), io.StringIO())
