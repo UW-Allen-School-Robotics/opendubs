@@ -435,6 +435,38 @@ bool caseColdBootPress()
     return true;
 }
 
+bool caseDeadMic()
+{
+    // A DEAD MICROPHONE MUST READ AS SILENCE, NOT AS CONTINUOUS SPEECH.
+    //
+    // This case exists because the bug was real and the arithmetic made it inevitable: all-zero
+    // samples give a measured floor of 0, a threshold of 0, and `level >= 0` is true for every
+    // block -- so the robot would fire `Heard` on the first press and never end the utterance.
+    // Found by compiling the shim for the desktop twin, whose audioRecord() stub leaves the buffer
+    // zeroed, which is precisely what a failed i2s_read looks like on the device.
+    listenBegin();
+    uint32_t now = 1000;
+    listenPress(now);
+    for (int i = 0; i < 200; ++i) {
+        const VoiceEvent e = listenBlock(now, block(0.0f, 0.0f), kFrames);
+        if (e == VoiceEvent::Heard)
+            return fail("a DEAD MIC (all zeros) produced Heard at block %d", i);
+        if (e == VoiceEvent::UtteranceEnd)
+            return fail("a dead mic produced an utterance at block %d", i);
+        now += 32;
+    }
+    if (voiceFloorThreshold(listenFloor()) <= 0.0f)
+        return fail("the threshold collapsed to %.1f on a silent input",
+                    (double)voiceFloorThreshold(listenFloor()));
+
+    // And the floor must still be usable afterwards: real speech arriving later IS heard.
+    if (feed(&now, 9000.0f, 9000.0f, 3) != VoiceEvent::Heard)
+        return fail("speech after a silent stretch was not heard");
+    say("  ok   dead mic: all-zero capture reads as SILENCE (thr %.0f), and real speech still lands",
+        (double)voiceFloorThreshold(listenFloor()));
+    return true;
+}
+
 bool caseWrap()
 {
     // WRAP SAFETY. AUDIT.md invariant 5, and cues.cpp shipped this bug twice. Start the hangover
@@ -475,6 +507,7 @@ bool voiceSelfTest(VoiceSelfTestSink sink)
         {caseRelease,          "release paths"},
         {caseHalfDuplex,       "half-duplex"},
         {caseColdBootPress,    "cold boot press"},
+        {caseDeadMic,          "dead mic"},
         {caseWrap,             "wrap safety"},
     };
 

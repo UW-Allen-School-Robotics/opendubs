@@ -33,3 +33,13 @@ void cuesBegin();                 // render the PCM once; allocates, so call at 
 void cuePlay(Cue c);              // priority-aware; a lower cue is suppressed, not queued
 void cueTick(uint32_t nowMs);     // drives the Fault repeat
 void cueFaultActive(bool on);     // latch the fault condition on or off
+
+// IS THE SPEAKER ACTIVE RIGHT NOW. This is the half-duplex gate's input: with the ES7210's AEC
+// reference channels powered down the robot cannot hear past itself, so capture is muted while
+// anything is playing (voice/listen.h has the full reasoning).
+//
+// It reads the same deadline cuePlay() already maintains rather than asking the HAL, because the
+// HAL has no "is it playing" accessor and because this deadline is what cuePlay itself trusts.
+// Consequence worth knowing: it covers CUES, which is all this build plays. When streamed TTS
+// arrives (Phase B) it must feed the same gate, or the robot will hear its own voice.
+bool cuesSpeaking(uint32_t nowMs);

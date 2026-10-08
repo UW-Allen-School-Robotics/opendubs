@@ -1,6 +1,7 @@
 #include "app_face.h"
 #include "cost_gate.h"
 #include "cues.h"
+#include "mic.h"
 #include "net.h"
 #include "net_cmd.h"
 #include "sim_inputs.h"
@@ -1392,6 +1393,10 @@ void AppFace::onOpen()
     // reticle, and so that nothing re-orders the z-stack per frame.
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
+    // Safe unconditionally: a no-op when voice is compiled out, and it DEGRADES rather than
+    // aborting if the task cannot be created. It allocates its one 12.3 kB buffer here and does no
+    // filesystem work, so it cannot cost the image its twelve healthy seconds.
+    micBegin();
     // NOTHING THE FACE DRAWS MAY ABSORB INPUT.
     //
     // lv_obj_create() sets LV_OBJ_FLAG_CLICKABLE by default in LVGL 9. Clearing it inside

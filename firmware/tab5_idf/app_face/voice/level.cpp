@@ -18,6 +18,22 @@ constexpr float kFloorMargin = 1.6f;
 // boot, which is worse than a second of deafness.
 constexpr float kUnmeasuredThreshold = 4000.0f;
 
+// AN ABSOLUTE FLOOR UNDER THE FLOOR, and it is not a nicety.
+//
+// Without it a silent input is catastrophic rather than merely useless: all-zero samples give a
+// measured floor of 0, which gives a threshold of 0, and `level >= 0` is TRUE FOR EVERY BLOCK -- so
+// a DEAD MICROPHONE reads as continuous speech. The robot would announce `Heard` at the first press
+// and end an utterance never.
+//
+// Found by compiling the shim for the desktop twin, where the HAL's audioRecord() is an empty stub
+// that leaves the buffer zeroed -- which is exactly what a failed i2s_read looks like on the
+// device. A silent channel must read as SILENCE, which means the threshold can never be allowed to
+// collapse to zero.
+//
+// 40 RMS on the int16 full scale is about -58 dBFS: below any room this robot will ever stand in,
+// and far below speech, so it costs nothing in a real bay and turns a dead mic into silence.
+constexpr float kMinThreshold = 40.0f;
+
 // Blocks of quiet needed before the floor is worth believing. At the 32 ms block the bench used,
 // 24 blocks is about three quarters of a second.
 constexpr int kFloorWarmup = 24;
@@ -88,7 +104,9 @@ void voiceFloorUpdate(VoiceFloor* f, const VoiceLevel& v)
 float voiceFloorThreshold(const VoiceFloor& f)
 {
     if (!f.valid) return kUnmeasuredThreshold;
-    return (f.l + f.r) * 0.5f * kFloorMargin;
+    const float measured = (f.l + f.r) * 0.5f * kFloorMargin;
+    // Never below kMinThreshold: see its comment. A dead microphone must read as silence.
+    return measured > kMinThreshold ? measured : kMinThreshold;
 }
 
 const char* voiceDirName(VoiceDir d)

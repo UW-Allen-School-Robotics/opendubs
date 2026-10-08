@@ -178,6 +178,12 @@ void cuePlay(Cue c)
     g_busyPrio  = prio;
 }
 
+bool cuesSpeaking(uint32_t nowMs)
+{
+    // due() rather than `<`, for the same wrap reason as everything else here.
+    return !due(nowMs, g_busyUntil);
+}
+
 void cueFaultActive(bool on)
 {
     if (on == g_faultOn) return;

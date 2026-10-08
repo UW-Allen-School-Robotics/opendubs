@@ -255,10 +255,15 @@ PATCH
         [ "$DBG_SERIAL" = "1" ]  && echo "#define OPENDUBS_DBG_PERCEPT_SERIAL 1"
         [ "${OPENDUBS_WALKIN:-0}" = "1" ] && echo "#define OPENDUBS_WALKIN 1"
         [ "$DBG_UI" = "1" ]      && echo "#define OPENDUBS_DBG_UI 1"
+        # VOICE: the microphone capture task. DEFAULT OFF, and not because the code is doubtful --
+        # it adds a FreeRTOS task, and a TCB must live in internal DRAM where one more has already
+        # asserted in xPortCheckValidTCBMem with esp-dl linked. Off means nobody else's build
+        # changes; flip it with OPENDUBS_VOICE=1 when the robot is in front of you.
+        [ "${OPENDUBS_VOICE:-0}" = "1" ] && echo "#define OPENDUBS_VOICE 1"
         [ "${OPENDUBS_NO_SCENE:-0}" = "1" ] && echo "#define OPENDUBS_NO_SCENE 1"
         true
     } > "$DEMO/app/apps/app_face/percept/percept_config.h"
-    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0} dbg_ui=$DBG_UI"
+    echo "flags: facedet=$FACEDET dbg_percept=$DBG_PERCEPT dbg_serial=$DBG_SERIAL walkin=${OPENDUBS_WALKIN:-0} dbg_ui=$DBG_UI voice=${OPENDUBS_VOICE:-0}"
 
     # Generate the probe's reference image from the committed .jpg EVERY build. Generated, never
     # committed: a checked-in generated file is the thing that drifts (today's lesson, three times).

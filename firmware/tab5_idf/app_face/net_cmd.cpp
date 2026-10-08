@@ -5,6 +5,7 @@
 #include "shared/clock.h"
 #include "sim_inputs.h"
 #include "cfg.h"
+#include "mic.h"
 
 #include <cstdio>
 #include <cstring>
@@ -113,6 +114,26 @@ int netHandleLine(char* rx, int n, char* tx, size_t cap)
     // The twin's stand-ins. On the head this REFUSES rather than no-ops: a head that quietly
     // accepted a simulated state would be lying about where its state came from.
     if (strncmp(rx, "SIM ", 4) == 0) return simCommand(rx + 4, tx, cap);
+
+    // VOICE -- push-to-talk over the wire, and the noise-floor readout.
+    //
+    // A UDP verb rather than a button on the glass, for now, and deliberately: the workplan needs
+    // the noise floor measured WITH THE DRIVE MOTORS RUNNING, which means the measurement has to be
+    // triggerable from wherever the person running the motors is standing -- not from the one place
+    // where they would have to be leaning on the robot's face. It also lands on the twin for free,
+    // because this parser is shared, so `VOICE PRESS` exercises the whole state machine with no
+    // hardware at all.
+    //
+    // A touch control is still wanted and is the honest long-term trigger; it is UI work in files
+    // another session is editing, so it is not bundled in here.
+    if (strncmp(rx, "VOICE", 5) == 0) {
+        const char* a = rx + 5;
+        while (*a == ' ') ++a;
+        if (strcmp(a, "PRESS") == 0)   { micPress();   return snprintf(tx, cap, "OK press | %s", micStatus()); }
+        if (strcmp(a, "RELEASE") == 0) { micRelease(); return snprintf(tx, cap, "OK release | %s", micStatus()); }
+        if (*a == '\0' || strcmp(a, "STATUS") == 0)   return snprintf(tx, cap, "%s", micStatus());
+        return snprintf(tx, cap, "ERR VOICE {PRESS|RELEASE|STATUS}");
+    }
 
     if (strcmp(rx, "TOF") == 0)     return snprintf(tx, cap, "%s", netPlatTof());
     if (strcmp(rx, "I2CSCAN") == 0) return snprintf(tx, cap, "%s", netPlatI2cScan());
