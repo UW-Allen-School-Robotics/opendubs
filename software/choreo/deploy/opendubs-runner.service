@@ -22,7 +22,7 @@ Environment=OPENDUBS_ARM_LIMITS=/etc/opendubs/arm-limits/joint_limits.yaml
 Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
-ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
 LogsDirectory=opendubs-runner
 Restart=always
 RestartSec=2

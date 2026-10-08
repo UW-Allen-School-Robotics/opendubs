@@ -40,6 +40,7 @@ sys.path.insert(0, HERE)
 
 import arm_output  # noqa: E402
 import cue  # noqa: E402
+import face_bridge  # noqa: E402
 
 # ---- status, after Spot's ChoreographyStatus; codes after BML's typed warnings (PA proposal 8) --
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
@@ -258,12 +259,13 @@ USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRI
              ("LIFT", "lift"), ("DANCE", "base"))
 
 
-def routine_uses(show, tl, arms_live: bool) -> list:
+def routine_uses(show, tl, arms_live: bool, face_live: bool = False) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
-    twin only. Today that is the arms (plan 5.6, when the runner has them) and audio routed to the
-    tablet (4.2); grippers wait for calibration (6.2), and the head, face, light, lift and base have
-    no robot output yet. Read from the export when the show validates, else from its `slots:`."""
+    twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
+    tablet (4.2), and the face and the head's earcons (when the runner has the face); grippers wait
+    for calibration (6.2), the head's pan/tilt for a GAZE command in its firmware, and the light,
+    lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
     out, seen = [], set()
@@ -278,7 +280,10 @@ def routine_uses(show, tl, arms_live: bool) -> list:
         if part == "arms":
             live = arms_live
         elif part == "sound":
-            live = any(e.get("output") == "tablet" for e in tracks.get("SOUND", []))
+            live = any(e.get("output") == "tablet" or (face_live and e.get("output") == "tab5")
+                       for e in tracks.get("SOUND", []))
+        elif part == "face":
+            live = face_live
         else:
             live = False
         out.append({"part": part, "live": live})
@@ -316,6 +321,24 @@ class TwinFeed:
     def timeline(self):
         with self.lock:
             return {"rev": self.d["rev"], "path": self.d["path"], "timeline": self.d["timeline"]}
+
+
+class FaceTee:
+    """The twin feed, also played to the real head's face (face_bridge.LiveFace) — for a live run."""
+
+    def __init__(self, feed, face):
+        self.feed, self.face = feed, face
+
+    def show(self, path, tl):
+        self.feed.show(path, tl)
+        self.face.show(tl)
+
+    def playhead(self, t, playing, status):
+        self.feed.playhead(t, playing, status)
+        self.face.playhead(t, playing, status)
+
+    def __getattr__(self, name):                 # heartbeat, twin, timeline: the twin feed's own
+        return getattr(self.feed, name)
 
 
 # ---- the runner -------------------------------------------------------------------------------
@@ -520,10 +543,11 @@ class Palette:
     can run in any order; the runner's start-pose move covers the gap."""
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
-                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None):
+                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
         self.audio = audio or NullAudio()
         self.arms = arms                     # None: live output is not available on this runner
+        self.face = face                     # face_bridge.LiveFace: live runs drive the real face
         self.log, self.start_lead, self.clock, self.sleep = log, start_lead, clock, sleep
         self.lock = threading.Lock()
         self.current = None           # (routine id, Runner, thread)
@@ -553,7 +577,8 @@ class Palette:
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
-                        "uses": routine_uses(show, tl, arms_live=self.arms is not None)})
+                        "uses": routine_uses(show, tl, arms_live=self.arms is not None,
+                                             face_live=self.face is not None and self.arms is not None)})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -577,9 +602,14 @@ class Palette:
                 raise KeyError(f"no palette routine {rid!r}")
             if not r["valid"]:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
-            runner = Runner(r["path"], self.limits_path, self.robot, self.feed, self.log,
+            live = self.arms is not None
+            # The face follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
+            feed = FaceTee(self.feed, self.face) if live and self.face is not None else self.feed
+            runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=self.arms is not None)
+                            audio=self.audio, arms=self.arms, live=live)
+            if feed is not self.feed:
+                self.face.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
             self.current = (rid, runner, t)
             t.start()
@@ -691,6 +721,9 @@ def main() -> int:
     pp.add_argument("--dashboard", default="http://127.0.0.1:8080/api/choreo/robot")
     pp.add_argument("--arms", choices=("none", "ros"), default="none",
                     help="ros: the real arms can follow a run marked LIVE (plan 5.6); needs ROS sourced")
+    pp.add_argument("--face", default="none",
+                    help="auto (the head's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
+                         "opendubs-tab5.local) or a host: live runs drive the real face and earcons")
     for x in (r, pp):
         x.add_argument("--audio", choices=("none", "dashboard"), default="none",
                        help="play show audio on the dashboard's show-audio device (plan 4.2)")
@@ -708,13 +741,18 @@ def main() -> int:
                 arms = arm_output.RosArms()
             except Exception as e:  # noqa: BLE001  no ROS: the runner still serves, twin-only
                 print(f"runner: live arm output NOT available ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
-        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms)
+        face = None
+        if a.face != "none":
+            face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face)
+            face.release()                   # a run that crashed may have left the face pinned
+        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
               f"POST /api/run/<id>, POST /api/stop. Robot state: "
               f"{'the dashboard, read-only' if a.robot == 'dashboard' else 'FAKE'}; "
-              f"{'every run drives the real arms' if arms else 'nothing commands the robot'}.",
+              f"{'every run drives the real arms' if arms else 'nothing commands the robot'}"
+              f"{f' and the face at {face.host}' if face and arms else ''}.",
               file=sys.stderr, flush=True)
         while True:
             time.sleep(3600)
