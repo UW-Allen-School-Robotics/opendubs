@@ -184,6 +184,41 @@ sync_sources() {
     python3 - "$DEMO/platforms/tab5" "$HERE/patches" <<'PATCH'
 import pathlib, sys, subprocess
 root = pathlib.Path(sys.argv[1])
+demo = root.parent.parent
+
+# ============================================================================================
+# RESTORE EVERY VENDOR FILE WE PATCH, BEFORE PATCHING ANY OF THEM.
+#
+# These patches write the vendor tree IN PLACE, and the tree persists between builds. So without
+# this, a patch is only ever applied to a file that may already carry the previous build's version
+# of it -- which has two consequences, and the second one is worse:
+#
+#   1. EDITING A PATCH SILENTLY DOES NOTHING, because the anchor it looks for was already consumed.
+#   2. REMOVING A PATCH SILENTLY DOES NOTHING EITHER. Measured on 2026-10-08: reverting the audio
+#      task pin out of this file changed the build not at all, and produced an image byte-identical
+#      to the one that still contained it. The revert looked done and was not.
+#
+# Only m5stack_tab5.c was restored before, with a comment explaining exactly this hazard for the
+# GT911 patch -- the reasoning was right and the scope was too narrow. All three are restored now,
+# so a build is reproducible whatever state the tree was left in, and a patch deleted from this
+# script actually disappears from the image.
+# ============================================================================================
+VENDOR_PATCHED = [
+    "platforms/tab5/main/CMakeLists.txt",                        # canon_in_d un-embedded
+    "platforms/tab5/main/hal/components/hal_audio.cpp",          # canon symbols aliased
+    "platforms/tab5/components/m5stack_tab5/m5stack_tab5.c",     # GT911 bring-up + self-test
+]
+for rel in VENDOR_PATCHED:
+    r = subprocess.run(["git", "-C", str(demo), "checkout", "--", rel],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        # REFUSE rather than build. A tree we cannot restore is a tree whose contents we do not
+        # know, and the failure mode is a silently stale patch rather than a broken build.
+        sys.exit("REFUSING: could not restore %s from the demo tree's git (%s)\n"
+                 "          A stale patch would be applied silently. Check that $OPENDUBS_DEMO is\n"
+                 "          a clean git checkout, then build again."
+                 % (rel, r.stderr.strip()))
+print("  restored: %d vendor files to their upstream state before patching" % len(VENDOR_PATCHED))
 
 cm = root / "main/CMakeLists.txt"
 t = cm.read_text()
@@ -219,17 +254,9 @@ elif "canon_in_d_mp3_start[] asm" in t:
 # The C lives in firmware/tab5_idf/patches/*.c.inc, NOT in this heredoc: it has to be reviewable,
 # greppable and diffable like any other source we own.
 bsp = root / "components/m5stack_tab5/m5stack_tab5.c"
-# RESTORE THE VENDOR FILE FIRST, THEN ALWAYS RE-PATCH.  Without this the patch is idempotent
-# against a file that persists between builds, so EDITING THE .inc WOULD SILENTLY DO NOTHING --
-# and the next edit due here is flipping OD_GT911_WATCHDOG, which must actually take effect.
-# Only this one file is restored; the CMakeLists and hal_audio patches above stay applied.
-import subprocess
-r = subprocess.run(["git", "-C", str(root.parent.parent), "checkout", "--",
-                    "platforms/tab5/components/m5stack_tab5/m5stack_tab5.c"],
-                   capture_output=True, text=True)
-if r.returncode != 0:
-    sys.exit("REFUSING: could not restore m5stack_tab5.c from git (%s) -- a stale GT911 patch "
-             "would silently ignore edits to patches/*.c.inc" % r.stderr.strip())
+# This file is restored at the top of the script along with the other two, so the patch below
+# always runs against upstream and an edit to patches/*.c.inc always takes effect. The restore used
+# to live here and covered only this file; see VENDOR_PATCHED for why that was too narrow.
 
 t = bsp.read_text()
 if "od_gt911_selftest" not in t:
