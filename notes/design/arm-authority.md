@@ -457,8 +457,8 @@ through it: the teleop bridge, the show runner, `park`, homing and bench tools.
   for a mechanical fix, closing the contactor would stiffen the arm around the person's hand: in
   place with A1, but stiff. **The maintenance lock that would cover it is open (Q10).** Until then,
   three things cover it, and the rest is a risk the user accepts for now:
-  - **A deliberate DE-ENERGIZE is not a disruption.** The keeper leaves an arm the operator put in
-    `OFF` alone until ACTIVATE. So "de-energize, then work on the arm" stays limp through e-stops
+  - **A deliberate DE-ENERGIZE is not a disruption** (decided under DEC-28). The keeper leaves an
+    arm the operator put in `OFF` alone until ACTIVATE. So "de-energize, then work on the arm" stays limp through e-stops
     and power returns, short of a Thor reboot.
   - **Clearing the e-stop is the act that re-energizes the arms**, exactly as it re-arms the drive.
     The person clearing it decides that hands are clear. That's the base's rule, now stated for the
