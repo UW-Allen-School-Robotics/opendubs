@@ -7,8 +7,7 @@ not in a phase, the team requests or the stub register is not being worked on, a
 are struck through with a date.
 
 Written to consolidate what had been spread across a month of sessions, three design notes, an
-unmerged punch list and a branch-only threads note. **The near-term goal is to close out WebXR
-teleop**; authority, IK and manual control follow it.
+unmerged punch list and a branch-only threads note. **The near-term goal (2026-10-08): a stable, documented baseline that a student builds WebXR teleop on** (DEC-26). The project team's role on teleop becomes support: keep the arm interfaces under that work steady and documented, and fix what blocks it. Building out the remaining teleop items is the student's work; authority, IK and manual control follow.
 
 **The shape of the system.** Two OpenArm **v1** 7-DOF arms on a PEAK CAN-FD adapter, driven by
 the upstream ROS 2 impedance controllers inside the `openarm` container on the Thor. An operator in
@@ -150,6 +149,7 @@ below. Dates are when the decision was made.
 | DEC-23 | **Q6 decided: release and dropout stop the arm where it is** (measured joints). **Q7 deferred** — the corrected session felt right. **Home is hold-to-run on X (left) / A (right)**, one straight line in joint space to the robot's stow pose at 15 deg/s, CH5 MANUAL only. | 2026-10-07 | 4.3 |
 | DEC-24 | **The arms follow the base's model.** The base arms its ESCs at power-on with CH5 OFF and drives only in MANUAL with the deadman held. The arms do the same: **power-on → energized and holding; motion only in MANUAL, and for teleop only with the clutch held.** Bring-up leaves routine operation; PARK, HOLD and DE-ENERGIZE become maintenance actions. **Prerequisite: activation that does not move the arm** (Phase A) — today activation drives every joint to zero. Consistent with DEC-3 (OFF is HOLD). Once A1–A3 hold, the teleop bridge runs always, which **supersedes DEC-15's tablet START**. | 2026-10-07 | Phase A |
 | DEC-25 | **Dashboard arm actions must answer at once, or say what they are doing.** Measure where the time goes, stream progress to the page now, then replace per-step command-line calls with a long-running arm service. | 2026-10-07 | 0.10–0.12 |
+| DEC-26 | **Teleop is handed to a student to build; the project team supports it.** The deliverable from this plan is a stable, documented baseline: [`docs/teleop-setup.md`](../docs/teleop-setup.md) (setting up and operating teleop) and [`docs/arm-dashboard.md`](../docs/arm-dashboard.md) (every tablet arm button and message, each under its registry code). **The interfaces under the student's work stay steady** — `openarm-up`'s commands and messages, the two arm controllers' names, `/joint_states`, the bridge's ports (8444, 8766) and service, and the tablet's arm buttons; a change to any of them is announced and documented in the same PR. | 2026-10-08 | 6.1, 6.2 |
 
 ---
 
@@ -176,8 +176,8 @@ Asks made across the sessions, tracked so none is lost. Status is updated in pla
 
 | # | Request | Status | Item |
 |---|---|---|---|
-| R1 | **Teleop setup docs** | open | 6.1 |
-| R2 | **Day-to-day bring-up docs** | partial — `docs/openarm-setup.md` | 6.2 |
+| R1 | **Teleop setup docs** | **done, 2026-10-08** — `docs/teleop-setup.md` | 6.1 |
+| R2 | **Day-to-day bring-up docs** | **done for the tablet, 2026-10-08** — `docs/arm-dashboard.md`, with `docs/openarm-setup.md` for the shell | 6.2 |
 | R3 | **UI and mode selection for the arms**, including which teleop source they answer to | open | 3.3, 3.5 |
 | R4 | **Contracts and modularity, so the IK solver can be swapped** (e.g. for NVIDIA's stack) | designed | 5.3 |
 | R5 | **Arm visualisation on the tablet, with efficient telemetry** | built, unverified on robot | 0.4 |
@@ -211,6 +211,7 @@ Asks made across the sessions, tracked so none is lost. Status is updated in pla
 | 0.10 | **Measure the button-to-motion time** (DEC-25) of every dashboard arm action — activate, park, hold, de-energize — split by step. Every step of `openarm-up` today is a separate `ros2` command-line call through `docker exec`, each starting a Python process and rediscovering the ROS graph; activate makes about ten. | A table of where the seconds go, per action, before anything is changed. |
 | 0.11 | **Annunciate in-progress actions** (DEC-25, R13). **PARTLY DONE, 2026-10-08 (#84):** the arm buttons follow the backend's op — the pressed one reads "ACTIVATING… 12 s" until it ends, then DONE or FAILED; the others are disabled meanwhile with a line saying what is running; a refused press reads "BUSY — WAIT" with the reason; failures show the whole message. Verified against a mock arm API. **Remaining:** stream `openarm-up`'s step lines ("energizing… loading gripper…") as they happen. The backend collects `openarm-up`'s output only when it exits, so the page shows nothing until the end. Stream its progress lines to the page as they happen, with the step and elapsed time ("LEFT: energizing… loading gripper… 12 s"); a failure shows its reason on the button. | No arm action leaves the page silent for more than a second. |
 | 0.12 | **A long-running arm service** (DEC-25): one process on the robot that keeps its controller-manager and action clients open, so a step costs milliseconds, not seconds. The teleop bridge already holds those connections and is the natural host; `openarm-up` and the dashboard call it. | Activate and park start moving within ~1 s of the press, measured with 0.10's method. |
+| 0.13 | **The bridge's refusals reach the tablet.** Found writing the teleop docs: a refused grip (CH5 not MANUAL), a lost hand, a refused home and an unreachable target appear only in `journalctl -u opendubs-teleop` — a student gripping with CH5 OFF sees nothing happen and no reason. Surface the bridge's latest refusal per hand on the TELEOP page. | Every message under `docs/arm-dashboard.md` § Teleop messages is visible on the tablet within a second of it happening. |
 
 ## Phase 1 — a session is safe to hand to someone
 
@@ -304,8 +305,8 @@ headset connected.*
 
 | # | Item | Done when |
 |---|---|---|
-| 6.1 | **A public teleop page**: network, certificate (0.3), Quest Browser steps, control mapping (grip = clutch, trigger = gripper), what the tablet shows, troubleshooting (silent WSS refusal, stale arm view, loop health). | An outside replicator gets to a live session from it. |
-| 6.2 | **Finish the bring-up doc** — v1 stated, the daily sequence (up → activate → teleop → park → down), and the hazards of rule 6. | Matches the tablet's buttons one to one. |
+| 6.1 | ~~A public teleop page~~ **DONE, 2026-10-08** — `docs/teleop-setup.md` (DEC-26). **A public teleop page**: network, certificate (0.3), Quest Browser steps, control mapping (grip = clutch, trigger = gripper), what the tablet shows, troubleshooting (silent WSS refusal, stale arm view, loop health). | An outside replicator gets to a live session from it. |
+| 6.2 | ~~Finish the bring-up doc~~ **DONE for the tablet, 2026-10-08** — `docs/arm-dashboard.md`: every button, the daily sequences, and every message under a stable name (registry codes such as `ARM_OP_RUNNING`, `ARM_POWER_RESTORED`, `ARM_TELEOP_GRIP_REFUSED_MODE`, anchored as the code lower-cased) for the troubleshooting registry, whose `docs/reference/registry/arms.yaml` this lane owns. **Finish the bring-up doc** — v1 stated, the daily sequence (up → activate → teleop → park → down), and the hazards of rule 6. | Matches the tablet's buttons one to one. |
 | 6.3 | **A reproducible container image**: the org fork pinned (DEC-18), the other upstream clones pinned, gripper-controller config included. Salvage `feat/openarm-integration` with its author (DEC-19), close it, retire the sibling checkout. | A second robot builds the image from the repo; no unmerged branch carries arm work `main` lacks. |
 
 ---

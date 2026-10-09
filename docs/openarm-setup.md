@@ -216,6 +216,10 @@ is the first thing to try if the arms behave differently.
 
 ## Running teleop from the dashboard
 
+Setting up and operating a teleop session — the headset, certificates, controls and what working
+looks like — is on [WebXR teleop](teleop-setup.md). Every tablet arm button and message is on
+[Arm controls on the tablet](arm-dashboard.md). This section covers how the bridge is run.
+
 The WebXR bridge runs as **`opendubs-teleop.service`**, and the dashboard's TELEOP page starts and
 stops it. A unit rather than something the dashboard spawns directly, because the face tracker was
 spawned directly once and it went badly: a second copy fought the service, failures were silent,
