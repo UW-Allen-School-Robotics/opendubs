@@ -4,6 +4,7 @@
     ./face.sh                                    # the face twin plus this bridge, in one command
     python3 face_bridge.py                       # composer on :8091, face twin on 127.0.0.1:4242
     python3 face_bridge.py --dry-run             # print the lines, send nothing
+    python3 face_bridge.py --face 127.0.0.1:4244 --neck 127.0.0.1:4245   # the web face twin and its neck
 
 The face twin is the head's own face code built for the desktop (the Tab5 tree's desktop build); it
 shares the head's command parser, so a line it accepts the head accepts. face_stub.py stands in where
@@ -409,6 +410,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--composer", default="http://127.0.0.1:8091")
     ap.add_argument("--face", default="127.0.0.1:4242", help="the face twin, host:port (local only)")
+    ap.add_argument("--neck", default=None,
+                    help="a twin's NECK, host:port (local only) — e.g. the web face's door on 127.0.0.1:4245: "
+                         "the HEAD track goes to it as GAZE, so the twin shows the head turning")
     ap.add_argument("--dry-run", action="store_true", help="print the lines; send nothing")
     a = ap.parse_args()
 
@@ -421,7 +425,12 @@ def main() -> int:
     print(f"face bridge: following {a.composer} -> "
           f"{'(dry run)' if a.dry_run else f'{addr[0]}:{addr[1]}'}", flush=True)
 
-    f, rev, tl, online = Follower(), None, None, None
+    neck = None
+    if a.neck and not a.dry_run:
+        nh, _, np_ = a.neck.rpartition(":")
+        neck = LiveGaze(loopback_only(nh or "127.0.0.1"), int(np_))
+        print(f"face bridge: the HEAD track -> the neck twin at {neck.host}:{neck.port}", flush=True)
+    f, rev, tl, online, neck_rev = Follower(), None, None, None, None
     while True:
         try:
             s = get(a.composer, "/api/twin")
@@ -433,6 +442,14 @@ def main() -> int:
             if status == "RUNNING" and s.get("lease_until") and s["now"] > s["lease_until"]:
                 status = "LEASE_LOST"      # the runner stopped renewing: treat the show as over
             lines = f.update(rev, tl, t, s["playing"] and status != "LEASE_LOST", status)
+            if neck is not None:
+                if rev != neck_rev and tl:
+                    neck.show(tl)
+                    neck_rev = rev
+                # A twin's neck: hold the target in force even while paused or scrubbing, so the twin
+                # shows where the head would be at the playhead (the robot's runner sends GAZE only
+                # while a live run is RUNNING).
+                neck.playhead(t, True, "RUNNING")
             if online is not True:
                 print("face bridge: composer reachable", flush=True)
             online = True
