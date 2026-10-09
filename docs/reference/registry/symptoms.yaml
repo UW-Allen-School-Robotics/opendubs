@@ -1,0 +1,51 @@
+# The symptom groups the troubleshooting page is organised by, in page order.
+# Owned by the Docs and BOM lane. An entry joins a group by naming its id in `symptom:`;
+# a group with no entries yet is not published.
+#
+#   id:     lower-case-with-hyphens; also the section's anchor on the page
+#   title:  what the operator sees, in their words
+#   intro:  optional; one short paragraph
+
+symptoms:
+  - id: wont-start
+    title: The robot won't power up, or the dashboard won't load
+
+  - id: wont-drive
+    title: The robot won't drive
+    intro: >
+      The drive is gated by several conditions at once, and the controller re-checks every one of
+      them continuously. The dashboard names the condition that is stopping it; find that one
+      below, or work down the list.
+
+  - id: rearm-refused
+    title: Re-arm is refused
+    intro: >
+      Re-arming closes the drive contactor, so the dashboard guards it and lists every reason it
+      refused. Clear each one, then re-arm again.
+
+  - id: head-dark
+    title: The head is dark or offline
+    intro: >
+      The head is the robot's face and front control panel. Check the contactor before anything
+      else: an open contactor turns the head off, and that looks exactly like a network fault.
+
+  - id: lift-wont-move
+    title: The lift won't move
+    intro: >
+      The lift answers to the same safety gate as the drive, plus its own pinch guard near the
+      bottom of its travel.
+
+  - id: arms-wont-activate
+    title: The arms won't activate
+
+  - id: arms-wont-park
+    title: An arm won't park, hold or power down
+
+  - id: teleop-wont-move
+    title: Teleop doesn't move the arm
+
+  - id: show-wont-start
+    title: A show won't start, or stops
+
+  - id: power-warning
+    title: A power or temperature warning
