@@ -158,43 +158,38 @@ needs a shim for MediaPipe's loader (`track_worker.js`).
 |---|---|---|
 | `SKIN <name>` | `OK skin <name>` / `ERR unknown skin` | `eyes` is built in; any other name is a library skin. Persists after a show, like a theme. Tablet face only: the Tab5 answers `ERR unknown`. A reserved state overrides it (above). |
 
-### Show media — proposed to the Choreography lane, which owns the channel and the show format
+### Show media and the library — canonical in [`choreo-screen-track.md`](choreo-screen-track.md)
 
-The face is the show-media client on the tablet: the device holding the show-audio role plays the media
-too. On the channel, beside today's `load` / `start` / `stop` / `cut`:
+**Agreed with the Choreography lane, 2026-10-08, and proposed for the team's approval in PR #111.**
+That note is the canonical version of the channel (roles `audio` and `screen`; `claim`, `load`,
+`ready`, `start`, `stop`, `cut`), the `screen` shot list (`{at, until, layer, clip, from, loop}` in
+show seconds, scheduled up front from `start`, never sent live), the show format's `SCREEN` slot and
+`FACE: do: skin`, the not-ready rule, and the library index. What it records from this side: the face
+page claims **both** roles while the tablet is the face (one clock for picture and sound; in controller
+mode the dashboard claims `audio`); `SKIN` is head protocol v2; clips are silent; the panel is
+1340 × 800; the tablet syncs the library by hash (tablet plan 5.3).
 
-- `load` also lists media assets by library id, which the device fetches and **preloads** (first frame
-  decoded, paused) before reporting ready;
-- `layer {name, at}` — cut to `face`, `media` or `overlay` at a Thor time;
-- `play {id, at, from}` / `stop {id, at}` — a clip starts at a Thor time, from an offset;
-- abort and e-stop as for audio: an abort fades back to the face, an e-stop cuts to it at once.
+**The face engine's own rules, as the screen client:**
 
-**Sync:** a clip is started early by its measured start latency and then held to the show clock using
-`requestVideoFrameCallback`'s media time — nudged, not jumped. A cut lands on the first frame displayed at
-or after its time. Both are measurable on the bench with the same harness.
-
-In the show format, a `SCREEN` slot for cuts and clips, and `SKIN` as a face cue — the format is the
-Choreography lane's to decide.
-
-### The library
-
-Skins, clips, overlays, themes and sound files are **library assets on the robot**, never committed:
-
-- **On the Thor**, in a per-robot library directory, with an **index** listing each asset: `id`,
-  `kind` (`skin`, `media`, `overlay`, `theme`, `sound`), `format` (`riv`, `lottie`, `sprites`, `mp4`, …),
-  `sha256`, size, **source and licence** (required — third-party clips name where they came from and on
-  what terms), and for a skin the contract inputs it uses.
-- **Referenced by id** everywhere — `SKIN <id>`, a show's media cues, a theme.
-- **Versioned by content hash.** The tablet syncs what changed by hash (tablet plan 5.3) and keeps the
-  last good set when the Thor is down. A show's export records the hash of each asset it was validated
-  against, so an asset changed after validation is reported at preflight rather than played unnoticed.
-- **The repo holds only the engine, the two generic skins and the index schema.**
+- **A reserved state cuts to the face by itself.** If the robot goes `DEGRADED` or `E_STOP` while a
+  media shot is showing, the engine drops the media layer at once, without waiting for the runner's
+  `cut`: it hears the robot's state directly. The system layer is always on top.
+- **Rolling preload.** `ready` means every file for the show is on the device and the first shots are
+  decoded and paused; later shots are preloaded on a window ahead of the playhead, because Android has a
+  limited number of hardware decoders. The decoder limit on the MT6789 and a cut's real latency are
+  measured on the bench before this is built.
+- **Cuts land on a frame.** A cut takes effect on the first frame displayed at or after its time — within
+  one 11 ms frame at 90 Hz; a clip is started early by its measured start latency and held to the show
+  clock with `requestVideoFrameCallback`'s media time.
+- **A multi-file asset's hash** (a skin is a folder) is the sha256 of its sorted
+  `relative/path<TAB>sha256` lines — proposed to the Choreography lane.
 
 ## E. Coordination
 
-The Choreography lane owns the show format, the composer, the runner and the show-audio channel; this
-lane owns the head protocol and the face engine. Asked of them: the show-media extension above, a
-`SCREEN` slot, and `SKIN` as a face cue.
+The Choreography lane owns the show format, the composer, the runner, the show-audio channel and the
+library index; this lane owns the head protocol and the face engine. Agreed in
+[`choreo-screen-track.md`](choreo-screen-track.md) (PR #111). Suggested to them: the composer's preview
+embeds this face engine, fed the same shot list, so preview and robot run the same code.
 
 ## Next
 
@@ -202,4 +197,5 @@ lane owns the head protocol and the face engine. Asked of them: the show-media e
 2. **Re-run `bench.py` on the robot tablet's own build** (WebView 131).
 3. **The kiosk app grants the camera** to the face (plan 1.7).
 4. **A thermal run**: face, video and tracking together for a long session (plan 3.2).
-5. **Agree `SKIN`** as head protocol version 2, and the show-media extension with the Choreography lane.
+5. **`SKIN` into the head protocol** as version 2, and the face page as the screen client (build step 4
+   of `choreo-screen-track.md`), once the team approves #111.
