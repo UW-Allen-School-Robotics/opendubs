@@ -139,8 +139,13 @@ if os.path.isfile(os.path.join(hp, "head_protocol.py")):
         check("cue.CODE_SKINS is the head protocol's CODE_SKINS",
               set(head_protocol.CODE_SKINS) == set(cue.CODE_SKINS), head_protocol.CODE_SKINS)
 if os.path.isfile(idx_js):
-    m = re.search(r"CODE_SKINS\s*=\s*[\[{(]([^\]})]*)", open(idx_js, encoding="utf-8").read())
-    names = tuple(re.findall(r"['\"]([\w-]+)['\"]", m.group(1))) if m else ()
+    # `export const CODE_SKINS = { default: eyes, ring };` — an object whose KEYS are the skin names
+    # (`ring` is shorthand for `ring: ring`); quoted names in a list are read too.
+    m = re.search(r"CODE_SKINS\s*=\s*([\[{(])([^\]})]*)", open(idx_js, encoding="utf-8").read())
+    if m and m.group(1) == "{":
+        names = tuple(part.split(":")[0].strip().strip("'\"") for part in m.group(2).split(",") if part.strip())
+    else:
+        names = tuple(re.findall(r"['\"]([\w-]+)['\"]", m.group(2))) if m else ()
     check("cue.CODE_SKINS is face-web's CODE_SKINS", set(names) == set(cue.CODE_SKINS), names)
 else:
     print("  skip  face-web's engine/skins/index.js (CODE_SKINS) is not in this tree yet; cue.CODE_SKINS =",
