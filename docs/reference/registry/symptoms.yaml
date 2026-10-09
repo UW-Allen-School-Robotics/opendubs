@@ -38,6 +38,9 @@ symptoms:
   - id: arms-wont-activate
     title: The arms won't activate
 
+  - id: arms-wont-park
+    title: An arm won't park, hold or power down
+
   - id: teleop-wont-move
     title: Teleop doesn't move the arm
 
