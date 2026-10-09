@@ -39,9 +39,11 @@ if [ ! -f /etc/apt/sources.list.d/ros2.list ]; then
   apt-get update -qq
 fi
 
-# --- packages (idempotent — apt no-ops if already current) ------------------
+# --- packages (idempotent: installs only what is missing) --------------------
 echo "-- installing ROS packages"
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
+# --no-upgrade: install what is missing, never move what is already there. A deploy is not the
+# place to upgrade ROS packages by side effect (2026-10-09 it moved foxglove-bridge 3.5 -> 3.6).
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-ros-base" \
   "ros-${ROS_DISTRO}-rplidar-ros" \
   "ros-${ROS_DISTRO}-rosbridge-suite" \
