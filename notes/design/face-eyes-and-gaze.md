@@ -80,7 +80,16 @@ about two-thirds uncorrected, in the direction the note warned about.
 
 That is not a criticism of the choice — the baby-schema argument in the same note explicitly
 licenses eyes larger than human — but **large eyes and human spacing are independent dials, and only
-one of them was turned.** It belongs in the same side-by-side as the lid work, because it is the
+one of them was turned.**
+
+> **AND THE TWO ARGUMENTS PULL THE SAME DIAL OPPOSITE WAYS**, which
+> [`face-decision-register.md`](face-decision-register.md) surfaced from a comment in
+> `app_face.cpp:65`: *"infants have larger eyes AND proportionally less gap between them, so
+> 'bigger and closer together' is a single coherent move toward the baby schema rather than two
+> opposing ones."* So baby schema wants the gap **smaller** in eye-widths while the human-proportion
+> measurement wants it **larger**. There is no reading of the evidence that settles it, because the
+> two bodies of evidence genuinely disagree about this face. **The maintainers decide it by looking**
+> — `&ipd=729&eye=347` against the shipping 643/480, which is decision 2 above. It belongs in the same side-by-side as the lid work, because it is the
 cheapest change with the largest measured effect and it is a one-line edit.
 
 ---
@@ -160,6 +169,15 @@ continuous jitter — fractions of a degree, a few per second — is cheap and i
 between "alive" and "paused".
 
 ### 5. Smooth pursuit, instead of a chain of saccades.
+
+> **OPEN, pending a look — this contradicts `face-design.md` and neither side is settled.**
+> That note's "what NOT to build" says **"No continuous smooth tracking. It reads as a stare and it
+> exposes sensor jitter that discrete glances conceal."** This item was written without noticing
+> it. The maintainers will judge it by eye in `?eyes=full`. One reading is that the two are not
+> opposed — that rule is about *holding* a person, which §8's aversion timer separately handles,
+> while this changes *how* an already-followed target is tracked rather than for how long — but
+> that is a reading, not a ruling, and it favours the side I argued for. Whichever loses gets
+> corrected in both notes.
 
 `tick()` re-aims whenever the target has moved more than 0.04, so following a walking person is a
 *stutter of saccades*. Real tracking is smooth pursuit with occasional catch-up saccades. This also
