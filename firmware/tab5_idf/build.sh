@@ -208,44 +208,6 @@ if old in t:
 elif "canon_in_d_mp3_start[] asm" in t:
     sys.exit("REFUSING: hal_audio.cpp declares the canon symbols in an unrecognised form")
 
-# ---- the vendor's audio task starves perception ---------------------------------------------
-# THE PLAYBACK TASK IS CREATED AT PRIORITY 5, UNPINNED, and it is never deleted:
-#
-#     xTaskCreate(_audio_play_task, "audio", 4096, nullptr, 5, nullptr);
-#
-# It is created LAZILY, the first time anything calls audioPlay() with async=true -- which is the
-# first earcon the robot ever plays -- and then loops `vTaskDelay(10 ms)` for the rest of the boot
-# even when nothing is playing. percept, by contrast, runs at priority 2 PINNED TO CPU1 with its
-# stack in PSRAM, precisely so that it cannot preempt the animation on CPU0.
-#
-# So the moment one cue sounds, the head permanently acquires an unpinned priority-5 task waking
-# 100 times a second that outranks face detection on EITHER core. Observed on the robot on
-# 2026-10-08: detection-driven head turning became "damped -- it takes a fair amount of insistent
-# movement", and A RESTART RESTORED IT with the same image and audio still enabled, which is the
-# signature of something acquired at runtime rather than built in.
-#
-# The fix is priority and affinity, not memory: pinned to CPU1 so it can never touch the animation's
-# core, and dropped to percept's own priority 2. The stack stays INTERNAL deliberately -- moving it
-# to PSRAM would mean i2s_write running on an external stack for no benefit, since the mechanism
-# here is scheduling.
-#
-# Audio quality is not the trade it looks like: i2s_write blocks on DMA with portMAX_DELAY, so the
-# buffer drains at its own rate and this task only has to top it up, with tens of milliseconds of
-# slack. The other two xTaskCreate calls in this file ("rec" and "music") are left alone: they are
-# only ever started by the vendor's own test screens, which the face never opens.
-old = 'xTaskCreate(_audio_play_task, "audio", 4096, nullptr, 5, nullptr);'
-new = ('xTaskCreatePinnedToCore(_audio_play_task, "audio", 4096, nullptr, 2, nullptr, 1);'
-       '  // opendubs: prio 5->2, pinned to CPU1 -- see build.sh')
-if old in t:
-    t = t.replace(old, new)
-    ha.write_text(t)
-    print("  patched: hal_audio.cpp playback task pinned to CPU1 at priority 2")
-elif new in t:
-    print("  ok:      hal_audio.cpp playback task already pinned")
-else:
-    sys.exit("REFUSING: hal_audio.cpp's audio task is not created in a form this patch recognises "
-             "-- the vendor file moved. Re-check its xTaskCreate before building.")
-
 # ---- GT911 self-test + recovery -------------------------------------------------------------
 # Touch dies intermittently on this board: the GT911 keeps ACKing I2C while its firmware stops
 # reporting, so LVGL sees RELEASED forever and the display is unaffected. Four candidates were
