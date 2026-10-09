@@ -161,13 +161,22 @@ why mounting is kicked off the boot path, the PSRAM/internal budget for the Ardu
 
 ---
 
-## What the maintainers need to decide
+## How the three were decided — 2026-10-09
 
-Only the three in §1, and none needs answering today:
+All raised above are now answered, except one that is deliberately left open:
 
-1. **Pupils** — withdraw "no pupils" from `face-design.md`, or remove the pupil? The reason it
-   failed here was a renderer limitation that no longer exists.
-2. **The fixed highlight** — amend the note to record that the travelling highlight was chosen on
-   2026-10-09 after looking at both?
-3. **Smooth pursuit** — does "no continuous smooth tracking" forbid what the prototype does, or
-   only forbid holding a person indefinitely, which the aversion timer already handles?
+1. **Pupils — KEPT, and the rule is amended.** `face-design.md`'s "no pupils" is struck through
+   with the override and its two reasons, and **the Cozmo evidence is kept** rather than deleted:
+   it is still a fair warning that a pupil pushes the face toward the human end, which is a thing
+   to watch while tuning rather than a rule that was wrong.
+2. **The travelling highlight — CONFIRMED.** Recorded in `face-design.md` as an override of "one
+   highlight, fixed", with the reason and the three-way record, beside the struck-through
+   anchoring proposal in `face-eyes-and-gaze.md`.
+3. **Smooth pursuit — STILL OPEN, to be judged by eye** in `?eyes=full`. Both notes now carry a
+   cross-reference saying so, so neither can be read as settled. Whichever loses gets corrected in
+   both.
+
+And a fourth, from §2, which turns out to be the same question as the prototype's geometry
+comparison: **the spacing tension is decided by looking.** Baby schema wants the gap *smaller* in
+eye-widths; the human-proportion measurement wants it *larger*; the two bodies of evidence
+genuinely disagree about this face, so no amount of reading settles it.
