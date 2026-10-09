@@ -70,7 +70,7 @@ Check in this order:
 
 `CONTACTOR_OPEN` · Warning · seen on the dashboard, the head, the status lights
 
-The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
+The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, whose CAN links drop out and need restarting once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
 
 **What to do**
 
@@ -346,20 +346,21 @@ StamPLC relays 1 and 2 drive the lift's two legs, up and down. Switching them di
 Check in this order:
 
 1. [ACTIVATE recovered the arm after a power loss](#arm-power-restored)
-2. [Another arm action is running](#arm-op-running)
-3. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
-4. [The arms' CAN links are not ready](#arm-can-not-ready)
-5. [The arm stack did not start](#arm-stack-start-failed)
-6. [Some arm motors do not answer](#arm-motors-silent)
-7. [An arm motor reports a fault](#arm-motor-fault)
-8. [The arm's motors answer but are disabled](#arm-motors-disabled)
-9. [The arm could not be reset after a power loss](#arm-reset-failed)
-10. [Only some of an arm's motors enabled](#arm-partial-enable)
-11. [An arm's controller would not start](#arm-controller-inactive)
-12. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
-13. [The arm stack is dead](#arm-stack-dead)
-14. [An arm came up active by itself](#arm-came-up-active)
-15. [An arm action timed out](#arm-op-timeout)
+2. [The drive contactor is open](#contactor-open)
+3. [Another arm action is running](#arm-op-running)
+4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
+5. [The arms' CAN links are not ready](#arm-can-not-ready)
+6. [The arm stack did not start](#arm-stack-start-failed)
+7. [Some arm motors do not answer](#arm-motors-silent)
+8. [An arm motor reports a fault](#arm-motor-fault)
+9. [The arm's motors answer but are disabled](#arm-motors-disabled)
+10. [The arm could not be reset after a power loss](#arm-reset-failed)
+11. [Only some of an arm's motors enabled](#arm-partial-enable)
+12. [An arm's controller would not start](#arm-controller-inactive)
+13. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
+14. [The arm stack is dead](#arm-stack-dead)
+15. [An arm came up active by itself](#arm-came-up-active)
+16. [An arm action timed out](#arm-op-timeout)
 
 ### ACTIVATE recovered the arm after a power loss {#arm-power-restored}
 
