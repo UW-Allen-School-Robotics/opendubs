@@ -1,6 +1,6 @@
 # Troubleshooting reference and glossary — design
 
-_Docs and BOM lane. Design only, 2026-10-08; nothing built. Requested by the orchestrator, from an
+_Docs and BOM lane. Designed 2026-10-08; approved the same day. Requested by the orchestrator, from an
 idea of the user's: an error/troubleshooting reference plus a glossary, with the dashboard linking
 straight to the relevant entry._
 
@@ -220,18 +220,16 @@ requires a flag day — an endpoint with no `code` simply shows no "?".
 - **`choreo.js` drops the runner's `code`.** Choreography lane; it is also the first "?" to wire.
 - **`app.py:168` picks a status code by substring match.** Goes away with `refuse()`.
 
-## Decisions for the user
+## Decisions — ruled 2026-10-08
 
-1. **Serve the docs from the Thor** (35 MB per deploy target, built on the dev machine) — yes/no.
-   Without it, "?" can only open GitHub Pages, which needs internet and navigates away from the
-   dashboard.
-2. **If the docs build fails during a deploy:** warn and deploy the dashboard anyway (recommended —
-   a docs problem must never hold back a safety fix), or fail the deploy.
-3. **The head entries are written for "the head", not the Tab5,** given the head may become a
-   tablet. Confirm, or defer `head.yaml` until that is settled.
-4. **Public.** The page is published on the public site with the rest of `docs/`. Entries are
-   written for any replicator — no addresses, hostnames or sudoers detail. Confirm the
-   troubleshooting page belongs on the public site rather than robot-only.
+1. **Serve the docs from the Thor: yes.** Built on the dev machine at deploy time, copied to
+   `frontend/docs/`.
+2. **A failed docs build warns and the deploy continues.** A docs problem never holds back a
+   dashboard fix.
+3. **Head entries are written for the head by its role,** not for the Tab5, since the head's
+   hardware may change.
+4. **The page is public,** with the rest of `docs/`. Per-robot specifics — addresses, hostnames,
+   calibration values — stay out of the entries.
 
 ## Later
 
