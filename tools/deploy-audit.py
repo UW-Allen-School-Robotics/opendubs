@@ -41,8 +41,6 @@ MAP = [
     ("firmware/rc_serial_probe/src",            "/opt/opendubs/rc_serial_probe/src",            SYNC),
     ("firmware/rc_serial_probe/src/main.cpp",   "/opt/opendubs/rc_serial_probe/src/main.cpp",   PER_ROBOT),
     ("firmware/rc_serial_probe/platformio.ini", "/opt/opendubs/rc_serial_probe/platformio.ini", PER_ROBOT),
-    ("firmware/tab5_face/src",                  "/opt/opendubs/tab5_face/src",                  SYNC),
-    ("firmware/tab5_face/platformio.ini",       "/opt/opendubs/tab5_face/platformio.ini",       SYNC),
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
