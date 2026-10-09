@@ -13,9 +13,24 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
 }
 
+import { drawShape } from "./eyes_shape.js";
+
 export const name = "eyes";
 
+// PROTOTYPE SWITCH, and it is a query parameter rather than a skin name on purpose.
+//
+// ?eyes=shape and ?eyes=full select the lid-shape prototype (notes/design/face-eyes-and-gaze.md).
+// They are NOT entries in CODE_SKINS, because that list is checked against the Tablet lane's
+// head_protocol.py by software/head-protocol/tests -- so adding prototype names there would either
+// break their test or make me edit their file. A variant of the default skin is also the honest
+// description: it is the same eye with expression moved into the lids, not a different skin.
+const PROTO = (() => {
+  try { return new URLSearchParams(location.search).get("eyes") || ""; } catch { return ""; }
+})();
+export const shapeMode = PROTO === "shape" || PROTO === "full";
+
 export function draw(ctx, e) {
+  if (shapeMode) return drawShape(ctx, e);
   const { cx, cy, w, h } = e;
   const x = cx - w / 2, y = cy - h / 2;
 

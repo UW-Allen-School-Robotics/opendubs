@@ -23,6 +23,32 @@ export const EMOTES = {
   SLEEPY:  [0.99, 0.40, 0.733, 0.35, -0.60, +2.0],
 };
 
+// PROTOTYPE, additive: the same emote names expressed through LID SHAPE instead of by scaling the
+// eye. notes/design/face-eyes-and-gaze.md. Read only by the ?eyes= prototype; EMOTES above is
+// untouched, so the baseline stays exactly as it ships.
+//
+//   lu  upper lid, 0 open .. 1 shut
+//   ll  LOWER lid, 0 .. 1 -- the channel the old vocabulary does not have at all
+//   lc  lid curve, -1 (middle lifts: wide, alert) .. +1 (middle droops: tired)
+//   pu  pupil, as a fraction of eye width (0.34 is today's constant)
+//   wm/hm  scale, KEPT ONLY where a size change is the meaning
+//
+// PLEASED is new. The five shipping emotes have no pleased expression: SOFT is the nearest and
+// does it with a 12% lid and a brow tilt. A lower-lid raise is what a smile in the eyes actually
+// is, so it is included here to show the channel doing something the old one cannot.
+//
+// THESE NUMBERS ARE FIRST GUESSES AND ARE MEANT TO BE TUNED BY LOOKING. PLEASED started at
+// ll: 0.40 and read as a hard squint rather than a smile, so it came down to 0.26 -- which is the
+// whole reason this is a prototype in the twin rather than a table in a document.
+export const SHAPES = {
+  NEUTRAL: { lu: 0.00, ll: 0.00, lc:  0.0, pu: 0.34, wm: 1.00, hm: 1.00 },
+  ALERT:   { lu: 0.00, ll: 0.00, lc: -0.5, pu: 0.40, wm: 1.00, hm: 1.00 },
+  SQUINT:  { lu: 0.30, ll: 0.26, lc: +0.3, pu: 0.30, wm: 1.02, hm: 0.80 },
+  SOFT:    { lu: 0.10, ll: 0.22, lc: -0.2, pu: 0.37, wm: 1.00, hm: 1.00 },
+  SLEEPY:  { lu: 0.52, ll: 0.06, lc: +0.8, pu: 0.30, wm: 1.00, hm: 1.00 },
+  PLEASED: { lu: 0.12, ll: 0.26, lc: -0.1, pu: 0.38, wm: 1.00, hm: 1.00 },
+};
+
 export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 
 // Built-in themes: per-state colours for the states a theme may touch. Reserved states are absent

@@ -3,11 +3,34 @@
 // saccades and looks where it is told in the same way.
 
 import { Spring, Ease } from "./anim.js";
-import { STATES, EMOTES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
+import { STATES, EMOTES, SHAPES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
 
 export const DESIGN_W = 1280, DESIGN_H = 720;        // the Tab5's panel, the geometry's frame
-const BODY = 480, GAP_FRAC = 0.34;
-const IPD = BODY * (1 + GAP_FRAC);
+
+// ---- PROTOTYPE PARAMETERS (notes/design/face-eyes-and-gaze.md) -------------------------------
+// ?eyes=shape  expression through lid shape instead of scale
+// ?eyes=full   the above, plus microsaccades, smooth pursuit and a mutual-gaze aversion timer
+// ?eye=<px>    eye width            (ships: 480)
+// ?ipd=<px>    interpupillary dist. (ships: 643 = 480 x 1.34)
+//
+// Read here, at module load, because SLOT is a module constant other files import. Guarded so the
+// engine still imports under node, where the door's tests run it with no `location`.
+const Q = (() => {
+  try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(""); }
+})();
+const num = (k, dflt) => { const v = parseFloat(Q.get(k)); return Number.isFinite(v) && v > 0 ? v : dflt; };
+
+export const PROTO = Q.get("eyes") || "";            // "", "shape" or "full"
+
+// ?emote=<NAME> pins one expression, which the side-by-side NEEDS: without it each page auto-cycles
+// to a different random emote every few seconds and the two windows are never showing the same
+// thing, so nothing can be compared. Prototype wiring, and the same name the protocol uses.
+const PIN = (Q.get("emote") || "").toUpperCase();
+const SHAPE_MODE = PROTO === "shape" || PROTO === "full";
+const FULL_MODE  = PROTO === "full";
+
+const BODY = num("eye", 480), GAP_FRAC = 0.34;
+const IPD = num("ipd", BODY * (1 + GAP_FRAC));
 export const SLOT = [DESIGN_W / 2 - IPD / 2, DESIGN_W / 2 + IPD / 2];
 export const EYE_Y = DESIGN_H / 2;
 const LINK_STALE_MS = 5000;
@@ -29,12 +52,18 @@ export class Face {
     this.browRaise = new Spring(0); this.browAngle = new Spring(0);
     this.asym = new Spring(0);
     this.gazeX = new Ease(0); this.gazeY = new Ease(0);
+    // The additive channels. Defaults reproduce today exactly: no lower lid, no curve, the pupil
+    // at the 0.34 that was a constant in eyes.js.
+    this.lidLower = new Spring(0); this.lidCurve = new Spring(0); this.pupil = new Spring(0.34);
+    this.microX = 0; this.microY = 0; this.nextMicro = 0;
+    this.avertUntil = 0; this.nextAvert = 0;
     this.col = rgb(NO_LINK_COLOUR).map((v) => new Ease(v, 0.45));
     this.blinking = false; this.blinkEnd = 0;
     this.nextBlink = 0; this.nextSaccade = 0; this.nextEmote = 0;
     this.quote = -1; this.nextQuote = 0;
     this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at}
     this.woke = false;
+    if (PIN) this.pin = PIN;    // see ?emote= above
   }
 
   // ---- inputs: what the head protocol's face messages do ------------------------------------
@@ -80,12 +109,20 @@ export class Face {
     rgb(colour).forEach((v, k) => { if (this.col[k].target !== v) this.col[k].set(v, 0.45); });
   }
   applyEmote(name) {
-    const [wm, hm, rf, lid, br, ba] = EMOTES[name];
+    const base = EMOTES[name];
+    const shape = SHAPE_MODE ? SHAPES[name] : null;
+    // PLEASED exists only in SHAPES, so the baseline table may not have this name at all.
+    if (!base && !shape) return;
+    const [wm, hm, rf, lid, br, ba] = base ?? EMOTES.NEUTRAL;
     this.emote = name;
-    const w = BODY * wm, h = BODY * hm;
+
+    // In prototype mode the SIZE comes from SHAPES, which keeps it at 1.0 for everything except
+    // where a size change is the meaning -- so the eye stops changing shape to show a feeling.
+    const w = BODY * (shape ? shape.wm : wm), h = BODY * (shape ? shape.hm : hm);
     this.bodyW.set(w); this.bodyH.set(h); this.radius.set(Math.min(w, h) * rf);
-    if (!this.blinking) this.lid.set(lid);
+    if (!this.blinking) this.lid.set(shape ? shape.lu : lid);
     this.browRaise.set(br); this.browAngle.set(ba);
+    if (shape) { this.lidLower.set(shape.ll); this.lidCurve.set(shape.lc); this.pupil.set(shape.pu); }
   }
 
   saccade(now) {
@@ -124,16 +161,68 @@ export class Face {
     if (t && now - t.at < 700) {
       const amp = GAZE_AMP_FLOOR + (1 - GAZE_AMP_FLOOR) * Math.max(0, Math.min(1, t.conf));
       const tx = Math.max(-1, Math.min(1, t.x)) * amp, ty = Math.max(-1, Math.min(1, t.y)) * amp * GAZE_V;
-      if (Math.hypot(tx - this.gazeX.target, ty - this.gazeY.target) > 0.04) this.aim(tx, ty);
-      this.nextSaccade = now + 600;
-    } else if (now >= this.nextSaccade) this.saccade(now);
+
+      if (!FULL_MODE) {
+        if (Math.hypot(tx - this.gazeX.target, ty - this.gazeY.target) > 0.04) this.aim(tx, ty);
+        this.nextSaccade = now + 600;
+      } else {
+        // ---- MUTUAL-GAZE AVERSION (decision 3) ------------------------------------------------
+        // hri-interaction-design.md: "multiple short fixations beat one long stare", and the
+        // pattern it records is attract -> eye contact -> avert -> shift. Today's engine does the
+        // first two and NEVER averts: `nextSaccade = now + 600` is rewritten on every frame a
+        // confident target is present, so the robot holds a person's gaze for as long as they
+        // stand there. That is the one failure a person actually notices.
+        if (!this.nextAvert) this.nextAvert = now + 2600 + rnd(1600);
+        if (now >= this.avertUntil && now >= this.nextAvert) {
+          // Look away, briefly, and somewhere plausible rather than randomly: down and to one
+          // side is what people do, and it reads as thought rather than distraction.
+          const side = Math.random() < 0.5 ? -1 : 1;
+          this.aim(tx + side * (0.28 + rnd(18) / 100), ty + 0.16 + rnd(12) / 100);
+          this.avertUntil = now + 500 + rnd(700);
+          this.nextAvert = this.avertUntil + 2200 + rnd(2600);
+        }
+
+        if (now >= this.avertUntil) {
+          // ---- SMOOTH PURSUIT, with a catch-up saccade ---------------------------------------
+          // Today a moving person produces a CHAIN OF SACCADES, because any movement over 0.04
+          // re-aims. Eyes pursue a moving target smoothly and only saccade when they fall behind.
+          const ex = tx - this.gazeX.value, ey = ty - this.gazeY.value;
+          const err = Math.hypot(ex, ey);
+          if (err > 0.22) {
+            this.aim(tx, ty);                       // too far behind: catch up with a saccade
+          } else if (err > 0.002) {
+            const vmax = 0.9;                       // gaze units per second (~27 deg/s)
+            const step = Math.min(err, vmax * dt);
+            this.gazeX.snap(this.gazeX.value + (ex / err) * step);
+            this.gazeY.snap(this.gazeY.value + (ey / err) * step);
+            this.asym.set(-this.gazeX.value * 0.13);
+          }
+        }
+        this.nextSaccade = now + 600;
+      }
+    } else if (now >= this.nextSaccade) {
+      this.saccade(now);
+      this.nextAvert = 0;                           // nobody to avert from
+    }
+
+    // ---- MICROSACCADES ----------------------------------------------------------------------
+    // Between saccades today's gaze is perfectly still, which is the frozen quality most robot
+    // eyes have. A fraction of a degree of jitter, a few times a second, is most of the difference
+    // between alive and paused. Applied in eyes() rather than to the target, so it cannot
+    // accumulate or fight the pursuit integrator above.
+    if (FULL_MODE && now >= this.nextMicro) {
+      this.microX = (Math.random() - 0.5) * 0.016;   // ~0.25 deg at 30 deg full deflection
+      this.microY = (Math.random() - 0.5) * 0.010;
+      this.nextMicro = now + 90 + rnd(220);
+    }
 
     // Emote: pinned by the state, or by a show, or cycling every 4-9 s, never repeating.
     const locked = this.lockedEmote();
     if (locked) { if (this.emote !== locked) this.applyEmote(locked); }
     else if (this.pin) { if (this.emote !== this.pin) this.applyEmote(this.pin); }
     else if (this.free() && now >= this.nextEmote) {
-      const names = Object.keys(EMOTES).filter((n) => n !== this.emote);
+      const table = SHAPE_MODE ? SHAPES : EMOTES;        // SHAPES adds PLEASED
+      const names = Object.keys(table).filter((n) => n !== this.emote);
       this.applyEmote(names[rnd(names.length)]);
       this.nextEmote = now + 4000 + rnd(5000);
     }
@@ -143,7 +232,8 @@ export class Face {
     else if (now >= this.nextQuote || this.quote < 0) { this.quote = (this.quote + 1) % QUOTES.length; this.nextQuote = now + 9000; }
 
     for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.browRaise, this.browAngle,
-                     this.asym, this.gazeX, this.gazeY, ...this.col]) v.step(dt);
+                     this.asym, this.gazeX, this.gazeY, this.lidLower, this.lidCurve, this.pupil,
+                     ...this.col]) v.step(dt);
   }
 
   // What a skin draws, per eye.
@@ -158,7 +248,13 @@ export class Face {
       h: this.bodyH.value, radius: this.radius.value,
       lid: Math.max(0, Math.min(1, this.lid.value)),
       browRaise: this.browRaise.value, browAngle: this.browAngle.value,
-      gazeX: this.gazeX.value, gazeY: this.gazeY.value,
+      gazeX: this.gazeX.value + this.microX, gazeY: this.gazeY.value + this.microY,
+      // ADDITIVE, all optional. A skin written before these existed ignores them, and these
+      // defaults are what eyes.js already draws -- so asset.js and ring.js need no change.
+      lidUpper: Math.max(0, Math.min(1, this.lid.value)),
+      lidLower: Math.max(0, Math.min(1, this.lidLower.value)),
+      lidCurve: Math.max(-1, Math.min(1, this.lidCurve.value)),
+      pupil: this.pupil.value,
       colour, dim, rgb: c,
     }));
   }
