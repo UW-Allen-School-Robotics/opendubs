@@ -1,0 +1,31 @@
+name: dashboard
+
+# The kiosk dashboard's backend tests (software/kiosk-dashboard/backend/tests). Nothing ran them
+# before: a choreography change (PR #71) left test_choreo_proxy.py failing on main unnoticed until
+# another lane hit it by hand (fixed in PR #103). No robot, no network: the tests stub the StamPLC,
+# the runner and the head.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/kiosk-dashboard/backend/**"
+      - ".github/workflows/dashboard.yml"
+  pull_request:
+    paths:
+      - "software/kiosk-dashboard/backend/**"
+      - ".github/workflows/dashboard.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"     # the Thor's
+      - run: pip install pytest fastapi httpx pyserial psutil pyyaml uvicorn
+      - run: python3 -m pytest -q software/kiosk-dashboard/backend/tests

@@ -33,4 +33,6 @@ jobs:
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_face_frames.py
+      - run: python3 software/choreo/tests/test_motion.py
+      - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml
