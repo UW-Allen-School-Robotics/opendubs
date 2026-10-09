@@ -10,7 +10,7 @@ test fixtures with made-up entries.
 
     python3 library.py check                      # the index is well-formed and every hash matches
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
-        [--type image|video] [--param key=value ...] [--inputs lookX,lookY,lid] \\
+        [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
         [--duration S] [--width W --height H --fps F]
 
 `add` COPIES the item into the library (songs/, clips/, skins/) and appends its entry, refusing one
@@ -30,18 +30,29 @@ import sys
 DEFAULT_ROOT = "/var/lib/opendubs/library"
 INDEX = "index.yaml"
 KINDS = ("song", "clip", "skin")                 # later: overlay, theme, sound
-# Library skins (tablet lane, 2026-10-08): `image` and `video` now, `svg` and `riv` later, each with a
-# `params` block whose fields the tablet lane fixes once those types are built and measured. Skins the
-# engine draws in CODE (`default`, `ring`: cue.CODE_SKINS) are never in the index, and no library
-# item may take one of their names.
+# Library skins (the tablet lane's fields, built and measured in its #115; notes/design/face-engine.md,
+# "Skin types"): `image` and `video` now, `svg` and `riv` later. One file each (a folder for svg/riv
+# later, hashed by the folder rule). A video skin must be WebM — VP9 carries the alpha channel that
+# MP4/H.264 cannot — and should be square, 400-512 px. Skins the engine draws in CODE (`default`,
+# `ring`: cue.CODE_SKINS) are never in the index, and no library item may take one of their names.
 SKIN_TYPES = ("image", "video")
 CODE_SKIN_NAMES = ("default", "ring")
+# A skin's `params`, all optional; any other key is a problem — a typo would otherwise do nothing.
+SKIN_PARAMS = {
+    "size": "fraction of the 480 px eye (default 0.8)",
+    "spin_dps": "spin, deg/s (default 0)",
+    "follow_look": "the skin follows where the eyes look (default true)",
+    "look": "how far it follows (default 0.3)",
+    "blink": "squash | none (default squash)",
+    "mirror": "the right eye mirrors the left (default false)",
+}
+VIDEO_SKIN_SIZE_PX = (400, 512)
 SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # face-engine.md §A
 FACE_PANEL = (1340, 800)                         # the tablet's 8.7-inch panel
 KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins"}
 REQUIRED = {"id", "kind", "file", "sha256", "source", "licence"}
 REQUIRED_BY_KIND = {"song": {"duration_s"}, "clip": {"duration_s", "width", "height", "fps"},
-                    "skin": {"type"}}
+                    "skin": {"type", "width", "height"}}
 
 
 def root() -> str:
@@ -92,14 +103,40 @@ def entry_problems(e: dict) -> list:
     if str(e.get("id", "")).lower() in CODE_SKIN_NAMES:
         p.append(f"{e['id']!r}: that name belongs to a skin the face draws in code — choose another")
     if kind == "skin":
-        if e.get("params") is not None and not isinstance(e.get("params"), dict):
+        params = e.get("params")
+        if params is not None and not isinstance(params, dict):
             p.append(f"{e['id']!r}: params must be a mapping")
+        elif params:
+            bad = sorted(k for k in params if k not in SKIN_PARAMS)
+            if bad:
+                p.append(f"{e['id']!r}: unknown params {', '.join(bad)} (known: {', '.join(SKIN_PARAMS)})")
+            if "blink" in params and params["blink"] not in ("squash", "none"):
+                p.append(f"{e['id']!r}: blink must be squash or none")
         if e.get("type") not in SKIN_TYPES:
             p.append(f"{e['id']!r}: skin type {e.get('type')!r} is not one of {', '.join(SKIN_TYPES)}")
+        elif e["type"] == "video":
+            missing_v = sorted({"fps", "duration_s"} - set(k for k, v in e.items() if v not in (None, "")))
+            if missing_v:
+                p.append(f"{e['id']!r}: a video skin needs {', '.join(missing_v)}")
+            if not str(e.get("file", "")).lower().endswith(".webm"):
+                p.append(f"{e['id']!r}: a video skin must be WebM (VP9 with alpha) — MP4/H.264 cannot carry "
+                         "the transparency a skin needs")
         bad = [x for x in (e.get("inputs") or []) if x not in SKIN_INPUTS]
         if bad:
             p.append(f"{e['id']!r}: unknown face inputs {', '.join(bad)} (face-engine.md §A: {', '.join(SKIN_INPUTS)})")
     return p
+
+
+def entry_warnings(e: dict) -> list:
+    """What is legal but probably not meant."""
+    w = []
+    if e.get("kind") == "clip" and (e.get("width"), e.get("height")) != FACE_PANEL:
+        w.append(f"{e['id']!r}: {e.get('width')}x{e.get('height')} is not the face panel's {FACE_PANEL[0]}x{FACE_PANEL[1]}")
+    if e.get("kind") == "skin" and e.get("type") == "video":
+        lo, hi = VIDEO_SKIN_SIZE_PX
+        if e.get("width") != e.get("height") or not (lo <= (e.get("width") or 0) <= hi):
+            w.append(f"{e['id']!r}: a video skin should be square, {lo}-{hi} px (it is {e.get('width')}x{e.get('height')})")
+    return w
 
 
 def check(lib_root: str | None = None) -> list:
@@ -205,8 +242,8 @@ def main() -> int:
         print(f"refused: {err}")
         return 1
     print(f"added {e['id']} ({e['kind']}) to {root()}: {e['file']}")
-    if e["kind"] == "clip" and (e.get("width"), e.get("height")) != FACE_PANEL:
-        print(f"  note: {e['width']}x{e['height']} is not the face panel's {FACE_PANEL[0]}x{FACE_PANEL[1]}")
+    for w in entry_warnings(e):
+        print("  note:", w)
     return 0
 
 
