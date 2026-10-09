@@ -35,4 +35,6 @@ here" so you can see where the part you're about to install belongs.
 12. **[Battery Install](battery-install.md)** — the LiFePO₄ pack *(the heaviest single part — see safety)*.
 13. **[Base Frame Final Assembly + Wiring](base-frame-final.md)** — tie the buses together and verify.
 
-*Then:* **[Upper Frame Assembly →](upper-frame.md)**
+*Then:* **[Upper Frame Assembly →](upper-frame.md)** — in development: its pages are outlined,
+not yet complete, and the same holds for the payload modules (the scissor lift and the pan/tilt
+head).

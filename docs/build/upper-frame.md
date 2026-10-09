@@ -7,10 +7,9 @@
 | **You'll do** | Build the upper frame, add controls (StamPLC + touchscreen), clad it, then mate it to the lower frame and close up the covers |
 | **Prerequisites** | [Base Frame Final Assembly + Wiring](base-frame-final.md) (lower frame complete) |
 
-!!! note "Stub — the next major phase after the lower frame"
-    Once the [lower frame](base-frame-final.md) (steps 1–13) is complete, the build moves to the
-    **upper frame sub-assembly**. This page will be broken into its own numbered steps as it's
-    written.
+!!! warning "In development"
+    The upper frame is the build's next phase, and its pages are still being written: the six steps
+    below are outlined, not yet documented. The complete build today is the [lower frame](lower-frame.md), steps 1–13.
 
 ## The upper-frame phase, in order
 

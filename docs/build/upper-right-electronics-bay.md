@@ -1,5 +1,9 @@
 # Right Upper Electronics Bay
 
+!!! warning "In development"
+    Part of the [upper frame](upper-frame.md), which is still being documented: the mounting and
+    wiring are written, the step photos and printed-part files are not. The complete build today is the [lower frame](lower-frame.md), steps 1–13.
+
 !!! info "At a glance"
     | | |
     |---|---|
