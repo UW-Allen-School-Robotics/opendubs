@@ -60,6 +60,11 @@ those sessions don't collide in git and so each area's expertise stays in one pl
    a bench tablet over `adb`, a serial port. If one is already running, do not reuse it or send it
    anything. Start your own on a free port, or ask the session that started it. Tools that start
    such a process should refuse a busy port and name its owner, not silently attach.
+7. **Don't block on interactive question forms** (e.g. `AskUserQuestion`) unless the user explicitly
+   asks for one: a form halts the session and stalls everything waiting on it. Send a decision to
+   the orchestrator as a short question with your recommended answer, carry on with whatever does
+   not depend on it, or end the turn with the question in plain text. Something that needs the
+   user's own word, or a hardware step that needs someone present, is asked in plain text.
 
 | Lane | Owns | Workplan |
 |---|---|---|
@@ -68,7 +73,7 @@ those sessions don't collide in git and so each area's expertise stays in one pl
 | **Face & HRI** (and the Tab5 firmware) | How the face looks and behaves on any head: the eyes, gaze behaviour, expressions, skins and the edge ring, in `software/face-web/engine/face.js`, `engine/anim.js`, `engine/vocab.js`, `engine/skins/`; `notes/design/face-*.md` (except `face-engine.md`), `notes/design/hri-interaction-design.md`; `firmware/tab5_*/`, `notes/design/tab5-*.md` | `notes/workplan-tab5-audio.md` (paused; `workplan-tab5-idf.md` is closed) |
 | **Tablet and head interface** | `software/tablet-kiosk/`; `software/face-web/` except the files Face & HRI owns (the page, the protocol door, camera tracking, the tests, `.github/workflows/face-web.yml`), `notes/design/face-engine.md`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
 | **Thor stack and localization** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; the robot description and TF tree (sensor frames, LIDAR extrinsics), the odometry and IMU pipeline into `/odom`, and the NVIDIA / Isaac ROS stack; `docs/thor-setup.md`, `docs/portability-audit.md`, `docs/localization-fusion.md`, `docs/naming-frames.md`, `notes/design/lidar-frames-and-fusion.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
-| **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`, `.github/workflows/faults.yml`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
+| **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`, `.github/workflows/faults.yml`; the root `README.md`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
 | **Hygiene** (audits the whole repo) | the root `.gitignore`; `LICENSE-*`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`; `tools/hygiene/`, `.github/workflows/hygiene.yml`; `notes/hygiene-findings.md` | `notes/hygiene-findings.md` |
 | **Hat PCB** (parked) | `hardware/hat/` | — |
 
