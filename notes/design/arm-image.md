@@ -70,6 +70,15 @@ fast loop and makes it explicit.
 
 ## Not done here
 
+- **DEC-27's manifest** (design: `arm-sources.md`). `repos.lock` gets the upstream URLs: the lab's
+  and enactic's repositories at releases, the author's own three, and the org `openarm`. The
+  student forks of the lab's libraries go. `setup.sh`'s clone-at-tips goes too.
+- **SSIK installed non-editable, from its `v8.1.0` tag**, not as `ssik` beside the workspace. That
+  layout is installed editable through the workspace root's `path` source. SSIK publishes no Linux
+  aarch64 wheel. A non-editable build from the tag compiles its native backend (0.08 ms per solve,
+  measured on the development Mac). Editable or from the sdist, it runs pure Python (3.1 ms). The
+  teleop solves IK on every engaged control step, at 6.7 ms per tick.
+
 - **The pins themselves.** `repos.lock` ships with the repositories named and the commits blank;
   `capture-pins.sh` fills them from a robot, and the build refuses until it has.
 - **A build on the non-robot Thor.** Desk work only until that machine is reachable; never on
