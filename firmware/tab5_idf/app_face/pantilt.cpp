@@ -305,6 +305,12 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // Touch above RC because the person at the glass is aiming the screen at themselves. Both are
     // LEASES: ownership expires after the hold window, so letting go hands the head back. Latches
     // are specified in head-ownership.md and are not built yet.
+    // NOTE, and deliberately NOT changed here: the touch and RC leases below use the same unsigned
+    // form that was wrong for GAZE -- `(nowMs - g_tpMs) < kTouchHoldMs`. They tolerate it where
+    // GAZE could not, for two reasons: they integrate a RATE per tick, so losing one frame's
+    // ownership costs a fraction of a degree rather than a destination, and neither zeroes its
+    // timestamp on expiry, so a stray frame cannot destroy the lease. Worth fixing the same way,
+    // but the RC path is the everyday operator path and it is not being touched in a hotfix.
     const bool touchOwns = (g_tpMs != 0 && (nowMs - g_tpMs) < kTouchHoldMs);
     if (touchOwns) {
         g_pan  = clampf(g_pan  + g_tpPan  * dt, kRcPanMin, kRcPanMax);
@@ -345,7 +351,27 @@ void pantiltTick(uint32_t nowMs, bool motionAllowed, bool haveTarget, float nx, 
     // the target and falls through to the shared slew, the envelope clamp and the write below. A
     // show says where to look; the slew limit decides how fast the head may get there, and that
     // stays the firmware's decision rather than a caller's.
-    const bool gazeOwns = (g_gazeMs != 0 && (nowMs - g_gazeMs) < g_gazeLease);
+    // SIGNED AGE, NOT UNSIGNED. This read `(nowMs - g_gazeMs) < g_gazeLease` and that was broken
+    // on the robot in a way no twin could show.
+    //
+    // `nowMs` is captured ONCE at the top of the render frame (app_face.cpp). A GAZE arriving on
+    // cmdTask midway through that frame therefore stamps g_gazeMs with a LATER time than the frame
+    // it is about to be judged against -- so `nowMs - g_gazeMs` is a small NEGATIVE number, which
+    // as unsigned is about 4.29 billion, which is not < the lease. The freshest possible command
+    // read as the most expired one.
+    //
+    // And the expiry branch below then set g_gazeMs = 0, so a single unlucky frame did not merely
+    // skip a tick -- it DESTROYED THE LEASE. Measured on the head: the owner flapped between
+    // GAZE(show) and centring within 100 ms of a 1000 ms lease, pan alternated between aiming at
+    // 150 and re-centring and so never left 90, and a 60 degree move that should take 0.86 s
+    // crawled 6 degrees in 2.2 s.
+    //
+    // The signed difference is the same trick shared/due.h exists for, and AUDIT.md invariant 5 is
+    // about exactly this class of mistake. A negative age means the command is NEWER than this
+    // frame's timestamp, which is the strongest possible evidence that the lease is live -- so it
+    // must compare as owned, and with a signed age it does.
+    const int32_t gazeAge = (int32_t)(nowMs - g_gazeMs);
+    const bool gazeOwns = (g_gazeMs != 0 && gazeAge < (int32_t)g_gazeLease);
     if (!gazeOwns && g_gazeHadIt) {
         // THE EXPIRY FRAME: STOP WHERE YOU ARE. Without this the head keeps slewing to the last
         // commanded angle after the show has stopped talking to it -- a sender that died mid-move
