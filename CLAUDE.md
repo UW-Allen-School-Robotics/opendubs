@@ -21,6 +21,12 @@ recipe that matches your task.
   `remote: Bypassed rule violations for refs/heads/main`. The guard does not stop you; it only
   records that you ignored it. So branch **before the first commit**, not after. Let CI run on the
   PR, and do not merge or enable auto-merge unless asked.
+- **Downloads never land in the working tree.** Anything fetched, pulled off a device or produced
+  as a by-product (packages, firmware images, photos, logs, recordings) goes in a scratch directory
+  outside the repo. Stage by path (`git add <files>`), never `git add -A` or `git add .`, and read
+  `git status` before every commit. A 268 MB vendor app package pulled off a tablet was swept into
+  a commit this way and stopped only by GitHub's file-size limit; a smaller file would have been
+  published.
 - **Never re-derive how to talk to the hardware.** Before writing a single command that flashes,
   resets, or reconfigures a board, read the table below and use the script. This rule exists
   because it has been broken repeatedly, at real cost: sessions have rebuilt the StamPLC and
