@@ -5,16 +5,26 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Html
 import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * The whole app: the robot's dashboard, full screen, awake, locked in front. A shell, never a UI of
@@ -31,6 +41,16 @@ class KioskActivity : Activity() {
     private lateinit var web: WebView
     private var maintenance = false     // after `unlock=true`: stay out of lock task until restart
 
+    // WAITING FOR THE ROBOT. The tablet often starts before the Thor (both come up at RUN, and the
+    // Thor is slower), and a WebView that cannot reach its page shows "Webpage not available" and
+    // never tries again — so the dashboard stayed dead until someone restarted the app. Now a failed
+    // load shows a waiting page and retries, backing off from 2 s to 10 s, until the dashboard loads.
+    private val retry = Handler(Looper.getMainLooper())
+    private var retryDelayMs = RETRY_FIRST_MS
+    private var failingSince: Long = 0
+    private var loadFailed = false
+    private val retryLoad = Runnable { loadFailed = false; web.loadUrl(dashboardUrl()) }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +61,28 @@ class KioskActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false      // show music starts on cue
-            webViewClient = WebViewClient()                        // stay inside the app
+            webViewClient = object : WebViewClient() {             // stay inside the app
+                override fun onReceivedError(v: WebView, req: WebResourceRequest, err: WebResourceError) {
+                    if (req.isForMainFrame) waitAndRetry(err.description?.toString() ?: "unreachable")
+                }
+                override fun onReceivedHttpError(v: WebView, req: WebResourceRequest, res: WebResourceResponse) {
+                    if (req.isForMainFrame && res.statusCode >= 500) waitAndRetry("HTTP ${res.statusCode}")
+                }
+                // An untrusted certificate is not "still starting": say what is wrong, and try less often.
+                override fun onReceivedSslError(v: WebView, h: SslErrorHandler, e: SslError) {
+                    h.cancel()
+                    waitAndRetry("the robot's certificate is not trusted — install its CA (README, step 4)",
+                                 RETRY_SLOW_MS)
+                }
+                override fun onPageFinished(v: WebView, url: String) {
+                    if (!loadFailed && sameOrigin(Uri.parse(url), dashboardUrl())) {
+                        retry.removeCallbacks(retryLoad)
+                        retryDelayMs = RETRY_FIRST_MS
+                        failingSince = 0
+                        v.clearHistory()                           // Back never returns to the waiting page
+                    }
+                }
+            }
             webChromeClient = object : WebChromeClient() {
                 // The microphone, and only the microphone, and only for the dashboard's own origin.
                 override fun onPermissionRequest(request: PermissionRequest) {
@@ -90,6 +131,25 @@ class KioskActivity : Activity() {
         if (web.url == null || newUrl != null) web.loadUrl(dashboardUrl())
     }
 
+    /** Show what is happening, then try the dashboard again. Called on every failed attempt. */
+    private fun waitAndRetry(why: String, delayMs: Long = retryDelayMs) {
+        loadFailed = true
+        if (failingSince == 0L) failingSince = System.currentTimeMillis()
+        val url = Html.escapeHtml(dashboardUrl())
+        val since = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(failingSince))
+        web.loadDataWithBaseURL(null, """<!doctype html><meta name=viewport content="width=device-width">
+            <body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+                         background:#000;color:#9aa;font:22px system-ui,sans-serif;text-align:center">
+            <div><div style="font-size:30px;color:#ccd">Waiting for the robot's computer…</div>
+            <p>The dashboard at <b>$url</b> is not answering yet (since $since).<br>
+               If RUN was just switched on, the robot's computer may still be starting.</p>
+            <p style="color:#677">${Html.escapeHtml(why)} — trying again in ${delayMs / 1000} s</p></div>""",
+            "text/html", "utf-8", null)
+        retry.removeCallbacks(retryLoad)
+        retry.postDelayed(retryLoad, delayMs)
+        retryDelayMs = (retryDelayMs * 2).coerceAtMost(RETRY_MAX_MS)
+    }
+
     private fun dashboardUrl(): String =
         getPreferences(MODE_PRIVATE).getString("url", null) ?: getString(R.string.default_url)
 
@@ -114,6 +174,12 @@ class KioskActivity : Activity() {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         }
+    }
+
+    companion object {
+        const val RETRY_FIRST_MS = 2_000L
+        const val RETRY_MAX_MS = 10_000L
+        const val RETRY_SLOW_MS = 30_000L
     }
 
     @Deprecated("Back would leave the dashboard; in a kiosk it goes back in the page instead.")

@@ -19,6 +19,7 @@ device-owner receiver, and a six-method JavaScript bridge. Anything a user sees 
 | comes back after an update | an update stops the app; it brings itself back to the front, locked (`UpdateReceiver`) |
 | microphone for the dashboard | granted as device owner; the page gets audio capture **only** for the dashboard's own origin |
 | music starts on cue | autoplay allowed (`mediaPlaybackRequiresUserGesture = false`) |
+| waits for the robot | if the dashboard does not answer (the tablet often starts before the Thor), a waiting page says so and retries — 2 s, backing off to 10 s; 30 s if the robot's certificate is not trusted — then loads the dashboard by itself |
 | HTTPS on an offline LAN | installs the robot's own CA itself (`ca_b64`, device owner) and trusts it (`res/xml/network_security_config.xml`); cleartext stays allowed so `http://…:8080` still works |
 
 Every device-owner step is a no-op when the app is not device owner, so it also runs as an ordinary
