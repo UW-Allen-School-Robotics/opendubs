@@ -106,8 +106,17 @@ A curved upper lid plus a lower lid gives, with no change to eye size:
 | surprise | high, round aperture | lowered | eye scaled up — **genuinely right here** |
 
 The "pleased" row is the one that proves the point. A smile in the eyes is a **lower-lid raise**;
-it is not a smaller eye. The current vocabulary cannot express it at all, which is why `HAPPY`
-currently has to be a squashed eye.
+it is not a smaller eye.
+
+**The shipping vocabulary has no pleased expression at all.** The five emotes are `NEUTRAL`,
+`ALERT`, `SQUINT`, `SOFT` and `SLEEPY`. `SOFT` is the nearest and reaches for it with a 12% lid and
+a -7 degree brow tilt, because a lower lid is not available to it. That is the gap this channel
+fills, and it is why the prototype adds a `PLEASED` - to show the channel doing something the
+existing one cannot.
+
+*(An earlier draft of this note said `HAPPY` "has to be a squashed eye". There is no `HAPPY` emote;
+the squashed eyes are `SQUINT` at 0.56 height and `SLEEPY` at 0.40. The corrected claim is the
+stronger one.)*
 
 **Why this was not done on the Tab5:** `tab5-face-expressiveness.md` measured the two-eye frame at
 **27.6 fps**, with the eye forced into PSRAM because the radio needs the internal SRAM, and the
