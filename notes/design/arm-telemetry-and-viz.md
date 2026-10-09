@@ -10,7 +10,7 @@ The obvious move is to reuse what exists. `mj_viser` is a **browser-based** 3D v
 out of the ownership registry. A tablet is a browser. It looks like a free win.
 
 **It is not, and the reason disqualifies it for operator use.** Viser renders the MuJoCo *shadow*
-model, and `eric-openarm/hw_validation/common/hardware_sync.py` states plainly what the shadow
+model, and the upstream teleop's `hw_validation/common/hardware_sync.py` states plainly what the shadow
 holds:
 
 > the shadow MuJoCo model that planning reads and writes is never otherwise synced from the real
@@ -96,7 +96,7 @@ Three things worth carrying forward:
   did not fit. Worth re-testing 250 now the viewer is gone.
 
 The change lives in `software/openarm/patches/` (default unchanged; `OPENARM_TELEOP_VIEWER=0`),
-because the container's copy of Eric's repo has drifted from his published one and has no `.git`.
+because the container's copy of the upstream teleop has drifted from the published one and has no `.git`.
 
 ## Open
 

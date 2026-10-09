@@ -152,8 +152,8 @@ The seam is `[AUTH]`. Neither defers to the other wholesale.
 
 ### What the registry already is
 
-`mj_manipulator/ownership.py` — **Sidd's code** (`SPDX … Copyright (c) 2025 Siddhartha
-Srinivasa`), reached through Eric's fork. Thread-safe, with four test files:
+`mj_manipulator/ownership.py` — **the upstream manipulation library's code**, reached through the
+upstream teleop's fork. Thread-safe, with four test files:
 
 | | |
 |---|---|
@@ -177,7 +177,7 @@ of teleop, not a competing authority.
 
 **Expiry.** [Control authority](../../docs/control-authority.md) states it as part of the
 primitive: *"Every lease expires. Expiry belongs to the primitive so that no future source can
-forget it."* The registry has none — confirmed in Eric's fork **and upstream**. A teleop process
+forget it."* The registry has none — confirmed in the teleop's fork **and upstream**. A teleop process
 that dies holding an arm holds it forever. Every other lease on this robot is fail-safe-by-omission
 (the RC failsafe, `kRosCmdTimeoutMs`, the 250 ms `MAST CMD` heartbeat, `[AUTH]`), so this is the
 one place our model is strictly better, and it is not optional.
@@ -200,7 +200,7 @@ So after a global abort the arm is still owned, and re-engaging the same teleop 
 the sim-reset context — *"teleop ownership persists after deactivation and `_arm_preempted()` blocks
 subsequent …"* — so the mechanism is known, just not wired to the abort path.
 
-Present upstream too, so it is not a fork artifact. Checked at Eric's `de0ae13` and upstream's
+Present upstream too, so it is not a fork artifact. Checked at the fork's `de0ae13` and upstream's
 `ab2d408`; the fork is **ahead of** upstream's default branch, not behind.
 
 ### Where the additions live
@@ -212,7 +212,7 @@ and swappable — the same boundary goal 4 needs — and the safety-critical add
 control and can test without arms attached. If upstream gains expiry later, ours drops out.
 
 The abort-recovery gap is worth reporting upstream rather than patching around, since the fix there
-is a one-line change of `abort_all()` to `force_release_all()` in a path Sidd owns.
+is a one-line change of `abort_all()` to `force_release_all()` in a path the upstream library's maintainers own.
 
 ## The bring-down — done, and the durability question answered
 
@@ -312,7 +312,7 @@ Three `openarm-up` defects fell out of running this on hardware, all fixed:
 - **Report the abort-recovery gap upstream.** The mechanism and the evidence are in *A verified gap
   in abort recovery* above. `request_abort()` → `abort_all()` retains ownership, so re-engaging the
   same teleop afterwards cannot `acquire` (not `IDLE`) and cannot `preempt` (equal priority raises).
-  The fix is in a path Sidd owns — `abort_all()` → `force_release_all()` in `robot.py` — so it wants
-  reporting to `personalrobotics/mj_manipulator` rather than patching in a fork. Verified at Eric's
+  The fix is in a path the upstream library's maintainers own — `abort_all()` → `force_release_all()` in `robot.py` — so it wants
+  reporting to `personalrobotics/mj_manipulator` rather than patching in a fork. Verified at the fork's
   `de0ae13` and upstream's `ab2d408`. **Our wrapper must not depend on recovery working until this
   is resolved**: it should release leases itself on abort rather than trusting the registry to.

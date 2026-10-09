@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make the MuJoCo/viser viewer optional in Eric's WebXR teleop.
+"""Make the MuJoCo/viser viewer optional in the upstream WebXR teleop.
 
 Profiled on opendubs2 2026-10-02: viser appeared in 67% of MainThread samples while the
 teleop loop missed ~23% of its 150 Hz deadlines. The cost is NOT viewer.sync() (already
