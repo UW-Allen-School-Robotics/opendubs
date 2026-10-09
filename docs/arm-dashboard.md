@@ -202,10 +202,9 @@ motors. Usually this follows an e-stop: the arms are powered from the drive bus,
 contactor, so while it is open the links go to error or bus-off, and they do not recover by
 themselves.
 
-**Do:** after an e-stop, power first: re-arm (CH5 to `OFF`, hold **RE-ARM**) and confirm the
-contactor is closed (see [The drive contactor is open](reference/troubleshooting.md#contactor-open)).
-Then restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then
-**ACTIVATE**. Restarting the links before power is back puts them straight back in bus-off.
+**Do:** after an e-stop, power first: once the contactor is closed again (see
+[The drive contactor is open](reference/troubleshooting.md#contactor-open)), restart both links,
+`sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then **ACTIVATE**. Restarting the links before power is back puts them straight back in bus-off.
 Otherwise, see [OpenArm setup § Troubleshooting](openarm-setup.md#troubleshooting): is the adapter
 plugged in, is its driver installed, is each link `ERROR-ACTIVE`.
 
