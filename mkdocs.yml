@@ -109,6 +109,8 @@ nav:
       - Deployment & portability: portability-audit.md
       - Network architecture: network-architecture.md
       - OpenArm setup: openarm-setup.md
+      - WebXR teleop: teleop-setup.md
+      - Arm controls on the tablet: arm-dashboard.md
   - Hardware:
       - Bill of materials: hardware-bom.md
   - Reference:
