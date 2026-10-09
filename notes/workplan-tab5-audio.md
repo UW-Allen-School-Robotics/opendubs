@@ -2,12 +2,13 @@
 
 > ## PAUSED — 2026-10-08
 >
-> **The robot is moving to the Galaxy tablet as its face, and the tablet's microphone is already
-> live.** So this pipeline may never ship, and Phase A and any new voice features stop here. The
-> head gets maintenance only.
+> **The Galaxy tablet is being EVALUATED as the robot's face, and the tablet's microphone is
+> already live.** So this pipeline may never ship, and it is paused **for the duration of that
+> evaluation**: Phase A and any new voice features stop here, and the head gets maintenance only.
 >
-> **Not cancelled.** If the tablet does not work out we may come back to this, which is why nothing
-> below has been deleted and why the state is written down properly.
+> **Not cancelled, and not decided.** The tablet has not replaced anything yet. If it is not
+> adopted we may come back to this, which is why nothing below has been deleted and why the state
+> is written down properly.
 >
 > ### Where it actually stood
 >
