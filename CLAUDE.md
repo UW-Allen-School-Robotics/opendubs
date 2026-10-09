@@ -69,6 +69,7 @@ those sessions don't collide in git and so each area's expertise stays in one pl
 | **Tablet and head interface** | `software/tablet-kiosk/`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
 | **Thor stack and localization** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; the robot description and TF tree (sensor frames, LIDAR extrinsics), the odometry and IMU pipeline into `/odom`, and the NVIDIA / Isaac ROS stack; `docs/thor-setup.md`, `docs/portability-audit.md`, `docs/localization-fusion.md`, `docs/naming-frames.md`, `notes/design/lidar-frames-and-fusion.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
 | **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`, `.github/workflows/faults.yml`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
+| **Hygiene** (audits the whole repo) | the root `.gitignore`; `LICENSE-*`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`; `tools/hygiene/`, `.github/workflows/hygiene.yml`; `notes/hygiene-findings.md` | `notes/hygiene-findings.md` |
 | **Hat PCB** (parked) | `hardware/hat/` | — |
 
 **The head's protocol** (the messages the Thor and the dashboard send the head) is owned by the
@@ -78,6 +79,12 @@ Tablet lane before either side ships it.
 **Shared paths:** dashboard `frontend/app.js`, `frontend/index.html`, `frontend/style.css`,
 `backend/app.py`, `software/kiosk-dashboard/deploy/`, `.github/workflows/dashboard.yml`;
 `notes/punch-list.md`; this file outside this section. A lane adding a page to `docs/` may add its `nav:` entry to `mkdocs.yml`.
+
+**The Hygiene lane reads everything and edits only its own paths.** It checks for secrets, personal
+names, data that doesn't belong, files that should be ignored, licence and attribution problems,
+security issues and code quality. A finding in another lane's path goes to that lane through the
+orchestrator, with a suggested fix; the owner decides and fixes it. Rewriting git history to remove
+something already committed is always the maintainers' decision, case by case.
 
 **CI:** a lane that needs its own check adds its own path-filtered workflow file under
 `.github/workflows/` and owns it. It never edits another lane's workflow.
