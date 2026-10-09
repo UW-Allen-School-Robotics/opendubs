@@ -50,7 +50,7 @@ mostly off-the-shelf parts.
 
 ## Firmware, software, hardware
 
-- **Firmware** — `firmware/rc_serial_probe/` (StamPLC) and `firmware/tab5_face/` (Tab5). Flashing:
+- **Firmware** — `firmware/rc_serial_probe/` (StamPLC) and `firmware/tab5_idf/` (the Tab5 head). Flashing:
   [Flash a StamPLC](flashing-stamplc.md); transport design: [StamPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
 - **Software** — `software/kiosk-dashboard/` (dashboard), `software/ros/` (ROS 2 bringup),
   `software/teleop/`. Bring-up: [Thor setup](thor-setup.md), [Deployment & portability](portability-audit.md).
