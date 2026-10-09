@@ -1,11 +1,11 @@
 # Documentation review — tracked checklist
 
-Triage of `docs-review-notes.md` (Emma's Apple Note, captured 2026-09-12). That file is the
+Triage of `docs-review-notes.md` (a maintainer's review notes, captured 2026-09-12). That file is the
 raw source and stays unedited; this one is the working state.
 
 Buckets:
 - **A** — text/structure fixes. No robot, no open decisions. Safe to do.
-- **B** — blocked on a decision. Do not touch the docs until Emma rules.
+- **B** — blocked on a decision. Do not touch the docs until the maintainers rule.
 - **C** — needs a measurement, a part number, or a photo.
 - **D** — platform projects, not doc edits.
 
@@ -83,7 +83,7 @@ Status: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped
   leads routed with slack and the left-side pair run across and zip-tied. The connector spec and
   length are still C1.
 
-### Raised while doing A — needs Emma
+### Raised while doing A — needs the maintainers
 
 - [ ] A28  **Start Here refocus.** The note says it should get the reader started on ordering
       components, physical build, and bench-setup of the controllers. I only capitalised it
