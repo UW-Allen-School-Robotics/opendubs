@@ -314,12 +314,13 @@ deserves a comparison. It is not a canonical setup for this robot.
 
 ## Open facts
 
-- **Personal-account URLs in `repos.lock`.** Under B, three repositories are still consumed from
-  the author's own account: `openarm_impedance_control`, `openarm_assets` and `rosbag_recorder`.
-  `openarm`'s `main` also tracks that account. So the manifest will carry those URLs. They are
-  addresses, not attributions. If the project team prefers no personal account in committed files,
-  those three are the only candidates for an org copy, which is a fork in name only, since nothing
-  of ours is on them.
+- **Personal-account URLs in `repos.lock` — decided 2026-10-09: accepted.** Under B, three
+  repositories are consumed from the author's own GitHub account: `openarm_impedance_control`,
+  `openarm_assets` and `rosbag_recorder`. `openarm`'s `main` also tracks that account, so the
+  manifest carries those URLs. The repository's no-personal-names rule was considered and
+  **waived for repository URLs**: a URL is an address, not an attribution, and an org copy of
+  three repositories we do not change would be a fork in name only. The rule still holds for
+  prose, commit messages and PRs.
 
 - The commits of every repository except `openarm` on opendubs2, and whether any has uncommitted
   changes. `capture-pins.sh` refuses a dirty one, which is the point.
