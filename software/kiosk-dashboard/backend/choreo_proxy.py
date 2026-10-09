@@ -140,7 +140,7 @@ def _probe_now():
     m = openarm._motor_summary()
     arms = arms_from_summary(m.get("text") or "", m.get("error"))
     tab5 = False
-    addr = state_out.face_addr()          # PING is the face's to answer
+    addr = state_out._tab5_resolve()
     if addr:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(0.5)

@@ -120,6 +120,11 @@ def face_addr():
     return _face.resolve()
 
 
+# The old name, kept because backend/choreo_proxy.py (the Choreography lane's) still calls it for
+# its PING. It always meant "where to PING", which is the face.
+_tab5_resolve = face_addr
+
+
 def head_set_tracking(ai: bool) -> bool:
     """Ask the head to enter AI or MANUAL tracking (CAN_ID_TRACK_MODE, 0x108). Goes to the NECK:
     it is the authority over head motion (head-ownership.md).
