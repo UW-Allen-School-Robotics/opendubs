@@ -70,7 +70,7 @@ Check in this order:
 
 `CONTACTOR_OPEN` · Warning · seen on the dashboard, the head, the status lights
 
-The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, whose CAN links drop out and need restarting once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
+The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, which can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
 
 **What to do**
 

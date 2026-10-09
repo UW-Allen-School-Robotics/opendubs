@@ -39,7 +39,7 @@ motor count and faults, and the last arm action's message.
 |---|---|
 | Power up and teleoperate | CH5 to MANUAL → **ACTIVATE L** → **ACTIVATE R** → **START** → put on the headset |
 | Put the arms away | release both grips → **STOP** → **PARK BOTH** → **DE-ENERGIZE** |
-| After an e-stop | release the e-stop and re-arm → CH5 to MANUAL → **ACTIVATE L** → **ACTIVATE R** — nothing else is needed |
+| After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **ACTIVATE L** → **ACTIVATE R**. If ACTIVATE reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **ACTIVATE** again. |
 
 ## Arm action messages
 
@@ -198,9 +198,9 @@ last command until something disables them.
 **Shown as:** *CAN links not ready — nothing launched*.
 
 **Means:** the arms' two CAN interfaces are missing or down, so the arm stack cannot reach the
-motors. Usually this follows an e-stop: the arms are powered from the drive bus, behind the
-contactor, so while it is open the links go to error or bus-off, and they do not recover by
-themselves.
+motors. A link can be left in bus-off after an e-stop (the arms are powered from the drive bus,
+behind the contactor) or by a loose CAN connector, and a link in bus-off does not recover by
+itself.
 
 **Do:** after an e-stop, power first: once the contactor is closed again (see
 [The drive contactor is open](reference/troubleshooting.md#contactor-open)), restart both links,
