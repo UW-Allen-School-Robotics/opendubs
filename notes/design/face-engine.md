@@ -25,7 +25,7 @@ are relied on.
 | layer | drawn by | why |
 |---|---|---|
 | **the face** — the default eyes, and procedural or sprite skins | **Canvas2D** | measured at the panel's full resolution: 90 fps, 0.3–1.2 ms of drawing per frame — more than 90% of the frame budget left. No dependency. |
-| **authored skins** (eyes the team draws) | **Rive** (`@rive-app/canvas-lite`, or `webgl2` if a skin needs feathering) | built for exactly this: a character that takes live inputs (look, blink, emotion) through a state machine and data binding, authored in a real tool. **Not yet measured on the tablet** — the gate is the first real `.riv` (below). |
+| **authored skins** (eyes the team draws) | **open — the team is choosing the tool.** Candidates: **Rive** (`@rive-app/canvas-lite`, or `webgl2` if a skin needs feathering), or a **rigged SVG** — drawn in any vector tool, with named layers the engine moves | Rive takes live inputs (look, blink, emotion) through its own state machine; a rigged SVG takes them through the engine moving its named layers, drawn by the same Canvas2D path as the eyes. Either feeds the one skin contract. **Neither measured on the tablet yet** — the gate is the first real skin (below). |
 | **overlays and one-shot animations** | **Lottie** (`lottie-web` light canvas, or dotLottie on WebGL2) | the After Effects route; plays and scrubs, takes no live inputs, which is fine for overlays. Second priority. |
 | **media** (video clips, full screen) | **`<video>`**, composited by the browser | hardware decode, drawn by the compositor as a texture — never copied into a canvas. Measured below. |
 | **the system strip** (critical telemetry, E_STOP) | DOM, on top | never authorable (choreography standing rule 4). |
@@ -64,7 +64,13 @@ the panel's size; it cost nothing here either way.
 
 ## The art tool
 
-**Recommended: the Rive editor for skins**, because a skin must still blink, emote and look where it is
+**Open, 2026-10-08: the team is deciding whether a special tool is needed at all.** Two candidates,
+both feeding the same skin contract below, so the engine is not tied to either:
+
+- **A rigged SVG**: draw in any vector tool (Inkscape, Illustrator, Figma, Affinity) and name the
+  layers — `pupil`, `lid`, `brow`, … — which the engine moves, scales and recolours from the contract's
+  inputs. No new tool to learn, and the file is plain text.
+- **Rive**, recommended first in this note's draft: because a skin must still blink, emote and look where it is
 told, and Rive is the one tool whose output *takes inputs at run time*. The team draws eyes in it and
 exposes a small set of inputs (the *skin contract*, below). Its output is one `.riv` file per skin.
 
