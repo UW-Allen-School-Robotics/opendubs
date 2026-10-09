@@ -1,0 +1,10 @@
+# Findings gitleaks may skip, one fingerprint per line (commit:file:rule:line).
+#
+# An entry here means the finding is ALREADY RECORDED in notes/hygiene-findings.md and the
+# maintainers decided not to rewrite history for it. It never means the secret is safe: a leaked
+# credential is rotated whatever happens to history. Cite the register's finding ID on the line
+# above each entry.
+
+# S1 — robot Wi-Fi PSK in the retired Arduino head, added 2026-09-03. Literal removed from the tree
+# by PR #126; no history rewrite (decision 3, 2026-10-09); rotation is tracked in the register.
+4d642821971bb4538bee3cdb82245ced0218113a:firmware/tab5_face/src/main.cpp:wifi-begin-literal:49

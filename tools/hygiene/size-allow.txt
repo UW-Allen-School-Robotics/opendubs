@@ -1,0 +1,4 @@
+# Files allowed over the hygiene size limit (tools/hygiene/check_files.py), one glob per line.
+# Every entry says why on the same line. Prefer shrinking a file to listing it here.
+
+hardware/hat/*.kicad_pcb    # KiCad board source: text, diff-able, and the design itself (~3 MiB)
