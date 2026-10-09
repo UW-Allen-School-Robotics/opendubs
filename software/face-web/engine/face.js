@@ -68,6 +68,7 @@ export class Face {
   linked(now) { return this.state >= 0 && now - this.stateAt < LINK_STALE_MS; }
   lockedEmote() { return this.state >= 0 ? STATES[this.state][3] : null; }
   free() { return this.state >= 0 && !STATES[this.state][3]; }
+  reserved() { return this.state >= 0 && STATES[this.state][4]; }
 
   stateColour() {
     if (this.state < 0) return NO_LINK_COLOUR;

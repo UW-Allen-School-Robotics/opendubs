@@ -59,7 +59,10 @@ function frame(now) {
   // A twin with a neck: show the head's turn as a shift of the whole face (simulated, and labelled).
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   ctx.setTransform(s, 0, 0, s, (W - DESIGN_W * s) / 2 - turn * s, (H - DESIGN_H * s) / 2);
-  for (const e of face.eyes()) skin.draw(ctx, e, now / 1000);
+  // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
+  // every robot and every show, so it is drawn by the default eyes in the state's own colour.
+  const drawn = face.reserved() ? eyes : skin;
+  for (const e of face.eyes()) drawn.draw(ctx, e, now / 1000);
   const text = face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
