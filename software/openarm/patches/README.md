@@ -6,7 +6,7 @@ lose them, the same way the Astra driver's Jazzy ports are carried in `ros/astra
 
 ## Why these are scripts, not `.patch` files
 
-**The copy in the container has drifted from Eric's published repo**, so a positional patch would
+**The copy in the container has drifted from the upstream author's published repo**, so a positional patch would
 apply to neither reliably. Measured 2026-10-02 against `EricJGoossen/openarm` HEAD:
 
 | | GitHub HEAD | the container |
@@ -56,5 +56,5 @@ process is still alive and that 8444/8766 are listening a good 20 s after launch
 
 ## Upstreaming
 
-Worth offering to Eric, but it must be rebased onto his HEAD — the drift above means these anchors
-may not exist in his current tree.
+Worth offering upstream, but it must be rebased onto the upstream HEAD — the drift above means these
+anchors may not exist in the current upstream tree.
