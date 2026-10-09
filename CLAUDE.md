@@ -49,6 +49,11 @@ those sessions don't collide in git and so each area's expertise stays in one pl
    path, and rebase on `main` before merging.
 5. **The robot runs what is on `main`.** Anything flashed or deployed from an unmerged branch is
    reported to the orchestrator and merged or reverted the same day.
+6. **Never drive a local process or device another session started.** Sessions share one machine,
+   so the collision is not only in git: a dev server or twin on a local port, a USB device such as
+   a bench tablet over `adb`, a serial port. If one is already running, do not reuse it or send it
+   anything. Start your own on a free port, or ask the session that started it. Tools that start
+   such a process should refuse a busy port and name its owner, not silently attach.
 
 | Lane | Owns | Workplan |
 |---|---|---|
