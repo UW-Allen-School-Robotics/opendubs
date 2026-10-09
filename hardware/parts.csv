@@ -53,7 +53,7 @@ ebay-wire-cutter,"Wire cutter",tool,Bay-specific tools,,electronics-bay,1,recomm
 ebay-wire-stripper,"Wire stripper",tool,Bay-specific tools,,electronics-bay,1,recommended,https://a.co/d/05DNUngu,"Or similar"
 ebay-heat-gun,"Heat gun",tool,Bay-specific tools,,electronics-bay,1,recommended,https://a.co/d/00PNwYUp,"For heat-shrink; or similar"
 ebay-heatshrink,"Heat-shrink assortment / labels",consumable,Wiring,,electronics-bay,1,recommended,https://a.co/d/04p7f5Vs,"Heat-shrink tube assortment or heat-shrink labels"
-pbay-pdh,"REV Power Distribution Hub (PDH)",component,Distribution — choose one,REV-11-1850,power-bay,1,,https://www.revrobotics.com/rev-11-1850/,"NOT for new builds — designed for the 12 V FRC ecosystem and this drive bus is 24 V. Fitted on this robot because it was bought before the bus voltage settled; its CAN telemetry is not enabled. CHOOSE the fuse block instead."
+pbay-pdh,"REV Power Distribution Hub (PDH)",component,Distribution — choose one,REV-11-1850,power-bay,1,not for new builds,https://www.revrobotics.com/rev-11-1850/,"NOT for new builds — designed for the 12 V FRC ecosystem and this drive bus is 24 V. Fitted on this robot because it was bought before the bus voltage settled; its CAN telemetry is not enabled. CHOOSE the fuse block instead."
 pbay-fuseblock,"Fuse block (blade fuses)",component,Distribution — choose one,,power-bay,1,,https://www.amazon.com/dp/B0FLJV9BDD,"RECOMMENDED for the 24 V drive bus. Simple, cheap, correctly rated. CHOOSE this OR the REV PDH."
 pbay-dcdc,"24 V 60 A DC/DC converter",component,Power input,,power-bay,1,,,"Mounted OUTSIDE the bay, feeds in; the bay/bus sits behind the e-stop contactor"
 pbay-printed,"3D-printed mounting parts",printed,Mounting,,power-bay,2,,,"Mount EITHER the REV PDH or the fuse block; STLs in hardware/ TBD"
@@ -76,3 +76,16 @@ mpm-xt30,"XT30 connector pair (PRISM branch)",consumable,Lighting branch,,mini-p
 thor-dualblock,"goBILDA 1205-series dual block mount (2-pack)",component,Mounting,,thor-install,1,,https://www.servocity.com/1205-series-dual-block-mount-1-5-2-pack/,"The 2-pack gives the two dual blocks that clamp the Thor cradle to the rail."
 thor-m4-55,"M4 x 55 mm socket-head screws",fastener,Mounting,,thor-install,2,,https://www.amazon.com/gp/product/B0DFYK39N6,"Run up through the dual blocks into the printed Thor cradle; confirm exact qty."
 thor-cradle,"Thor cradle (3D-printed)",printed,Mounting,,thor-install,1,,,"Holds the Thor to the frame; STL in hardware/ TBD."
+sys-thor,NVIDIA Jetson AGX Thor Developer Kit,component,Compute,,system,1,,https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/,"The main computer: runs the dashboard, the ROS software and the arms."
+sys-tablet,Android tablet (operator interface),component,Operator interface,,system,1,,,The robot has no screen of its own; the dashboard runs full-screen on a tablet.
+sys-battery,ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery,component,Power,,system,1,,https://www.ecoworthy.com/,"2.56 kWh, 16 cells in series. Its BMS reports charge and voltage to the StamPLC over RS-485. The heaviest single part."
+sys-charger,48 V LiFePO4 battery charger,component,Power,,system,1,,https://a.co/d/0aP9q4YX,Set it to 48 V; 8 A is the recommended current.
+sys-contactor,"GIGAVAC GX11 contactor, 24 V coil",component,Power,GX11CAB,system,1,,https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors,"The e-stop contactor: sealed, normally open, with an auxiliary contact the StamPLC reads to detect a weld."
+sys-rc,RadioLink T8S transmitter + R8EF receiver,component,Control,,system,1,,https://a.co/d/0cFzagC4,Manual control; the receiver talks SBUS to the StamPLC.
+sys-tab5,M5Stack Tab5 (ESP32-P4),component,Head,,system,1,,https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4,"The head: the face, front control panel and voice."
+sys-lift,Scissor lift with its own up/down controller,component,Z-axis,,system,1,,,The StamPLC presses the controller's up and down buttons through two relays.
+sys-lift-tof,M5Stack ToF4M unit (VL53L1X),component,Z-axis,,system,1,,https://docs.m5stack.com/en/unit/Unit-ToF4M,Measures the lift's height for the pinch guard.
+sys-openarm,OpenArm 7-DOF arm,component,Arms,,system,2,,https://github.com/enactic/openarm,Left and right. Each arm has its own CAN-FD bus.
+sys-pcan,PEAK PCAN-USB Pro FD,component,Arms,,system,1,,https://www.peak-system.com/PCAN-USB-Pro-FD.366.0.html,"Two CAN-FD channels, one per arm."
+sys-router,MikroTik hAP ac3 router,component,Network,,system,1,,https://mikrotik.com/product/hap_ac3,"The robot's own network: the computer, the StamPLC, the head and the tablet."
+sys-camera,RealSense D415 depth camera,component,Sensing,,system,1,,https://www.realsenseai.com/products/stereo-depth-camera-d415/,Depth camera; the face tracker uses it.

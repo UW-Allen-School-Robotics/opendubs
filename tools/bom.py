@@ -8,8 +8,12 @@ aligned by construction. Doc tables are generated into the pages between markers
     ...generated table...
     <!-- /BOM-AUTO:<key> -->
 
-Keys: build:<module> | purchase:structure | purchase:fasteners | purchase:tools |
-      purchase:consumables
+Keys: build:<module> | purchase:components | purchase:structure | purchase:fasteners |
+      purchase:tools | purchase:consumables
+
+`module` is a build page id, `shared` (tools and hardware used everywhere), or `system` (a part
+with no build page of its own, such as the computer or the arms). purchase:components lists every
+component, system parts first, with the same part bought for two modules counted once.
 
 Usage:
   tools/bom.py                     validate, then print Purchase BOM + module list
@@ -27,6 +31,9 @@ CSV_PATH = os.path.join(ROOT, "hardware", "parts.csv")
 DOCS_DIR = os.path.join(ROOT, "docs")
 VALID_TYPES = {"structure", "component", "fastener", "tool", "consumable", "printed", "fabricated"}
 DISCRETE = {"structure", "component", "printed", "fabricated"}  # counted parts → qty must be an integer
+# A part a build page documents because a robot has it fitted, but which a new build should not
+# buy: shown on its build page, left off the shopping list.
+NOT_FOR_NEW_BUILDS = "not for new builds"
 MARKER = re.compile(
     r"<!-- BOM-AUTO:(?P<key>[\w:.\-]+) -->(?P<body>.*?)<!-- /BOM-AUTO:(?P=key) -->",
     re.DOTALL,
@@ -89,6 +96,46 @@ def _structure_purchase(rows):
     return "\n".join(out)
 
 
+def _page_title(module):
+    """The build page's title without its step number ("4 · Electronics Bay" -> "Electronics Bay")."""
+    path = os.path.join(DOCS_DIR, "build", f"{module}.md")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("# "):
+                    return re.sub(r"^\d+\s*·\s*", "", line[2:].strip())
+    except OSError:
+        pass
+    return None
+
+
+def _component_purchase(rows):
+    """Every component across the build, one line per distinct part (name + SKU + source), quantities
+    summed over the modules that use it. `system` parts come first, in CSV order."""
+    agg = OrderedDict()
+    ordered = ([r for r in rows if r["module"] == "system"]
+               + [r for r in rows if r["module"] != "system"])
+    for r in ordered:
+        if r["type"] != "component" or r["need"] == NOT_FOR_NEW_BUILDS:
+            continue
+        a = agg.setdefault((r["name"], r["sku"], r["source"]),
+                           {"r": r, "qty": 0, "modules": []})
+        a["qty"] += _int(r["qty"]) or 0
+        if r["module"] not in a["modules"]:
+            a["modules"].append(r["module"])
+    out = ["| Part | SKU | Qty | Used in | Notes |", "|---|---|---:|---|---|"]
+    for a in agg.values():
+        r = a["r"]
+        name = f"[{r['name']}]({r['source']})" if r["source"].startswith("http") else r["name"]
+        sku = f"`{r['sku']}`" if r["sku"] else "—"
+        used = []
+        for m in a["modules"]:
+            t = _page_title(m) if m not in ("system", "shared") else None
+            used.append(f"[{t}](build/{m}.md)" if t else "—")
+        out.append(f"| {name} | {sku} | {a['qty']} | {', '.join(used)} | {r['notes']} |")
+    return "\n".join(out)
+
+
 def _type_table(rows, typ, module=None):
     items = [r for r in rows if r["type"] == typ and (module is None or r["module"] == module)]
     out = ["| Item | Need | Qty | Source | Notes |", "|---|---|---|---|---|"]
@@ -128,6 +175,8 @@ def render_dispatch(key, rows):
         return _build_tables(rows, key.split(":", 1)[1])
     if key == "purchase:structure":
         return _structure_purchase(rows)
+    if key == "purchase:components":
+        return _component_purchase(rows)
     if key.startswith("purchase:"):        # every module — the complete shopping list
         return _type_table(rows, _key_type(key))
     if key.startswith("shared:"):          # only module=shared — the base kit used everywhere
