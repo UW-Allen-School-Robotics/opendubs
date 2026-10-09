@@ -1,0 +1,29 @@
+name: ros
+
+# Tests for the Thor's ROS nodes that run without ROS: the StamPLC peer guard drive_bridge.py
+# uses before it parses [ODO] or sends DRIVE. Path-filtered to software/ros/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/ros/**"
+      - ".github/workflows/ros.yml"
+  pull_request:
+    paths:
+      - "software/ros/**"
+      - ".github/workflows/ros.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: python3 software/ros/tests/test_plc_peer.py
+      - run: python3 -m py_compile software/ros/*.py

@@ -47,6 +47,11 @@ such as reading the published extrinsics, are handed to the dashboard's lane rat
 
 - **T-1:** JetPack 7.2 with Isaac ROS 4.6 on Jazzy is the common base for Thor and Orin.
   5.0/Lyrical is a later, deliberate milestone.
+- **T-1, wording (2026-10-09):** "Isaac ROS 4.6 is the common base" means the **platform** base,
+  not that every image builds FROM it. GPU modules build on our Isaac ROS base
+  (`ISAAC_ROS_BASE_IMAGE`). CPU-only modules build on the pinned plain ROS image
+  (`ROS_BASE_IMAGE`, `ros:jazzy-ros-base` by digest) and run unchanged on 7.1, 7.2 and Orin. The
+  `openarm` image is the first of these (arms PR #107).
 - **T-2:** option (b). Every ROS node runs in a container; the dashboard stays on the host for now.
   Migrate one unit at a time (3.3).
 
@@ -187,7 +192,7 @@ recreates them.
 |---|---|---|
 | 4.1 | Define a **stack module** as: an image, or a host package; its topic, service and action contract; its launch arguments; its device needs. Same discipline as the hardware interfaces in `design-philosophy.md` | A one-page spec in `docs/interfaces/` |
 | 4.2 | Write the arm adapter contract from `arm-authority.md` as a module spec, so SSIK and cuMotion are interchangeable at `FollowJointTrajectory` and the streaming path is named | Accepted by the arms plan (goal 4) |
-| 4.3 | Bring the `openarm` image (arms plan 6.3) onto the Phase 1–3 pattern: manifest pin, image-key build, shared DDS profile | The arms plan marks 6.3 done |
+| 4.3 | Bring the `openarm` image (arms plan 6.3) onto the Phase 1–3 pattern: the manifest pin (`ROS_BASE_IMAGE`, plain buildx; no Isaac base or image keys, per the T-1 wording) and the shared DDS profile | The arms plan marks 6.3 done |
 
 ## Phase L — localization: frames, odometry, IMU (runs alongside Phases 1–3)
 

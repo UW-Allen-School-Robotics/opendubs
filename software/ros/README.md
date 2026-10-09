@@ -102,6 +102,26 @@ Interim bridge — the long-term clean path is **micro-ROS on the ESP32-S3** (se
 Verify: `ros2 topic echo /diagnostics --once` · `ros2 service call
 /robot/i2c_scan std_srvs/srv/Trigger`.
 
+## Drive bridge (/cmd_vel → DRIVE, [ODO] → /odom)
+
+`drive_bridge.py` (`opendubs-drive-bridge.service`) speaks the StamPLC's UDP 5005 directly. It
+sends motion commands, so it is strict about **who the StamPLC is** (`plc_peer.py`, tests in
+`tests/`):
+
+- never one of the Thor's own addresses, and only from packets that look like telemetry (a
+  `[TAG]` line). These are the same two checks the dashboard makes;
+- a change of peer is logged (`StamPLC peer MOVED to …`), not silent;
+- optionally **pinned per robot**, after which nothing else is accepted:
+
+```sh
+sudo mkdir -p /etc/systemd/system/opendubs-drive-bridge.service.d
+printf '[Service]\nEnvironment="OPENDUBS_STAMP_IP=<the StamPLC address>"\n' |
+  sudo tee /etc/systemd/system/opendubs-drive-bridge.service.d/stamp-ip.conf
+sudo systemctl daemon-reload && sudo systemctl restart opendubs-drive-bridge
+```
+
+The pin is per-robot identity: it lives in the drop-in on the robot, never in the repo.
+
 ## /scan watchdog
 
 The A1 can hit a serial `RESULT_OPERATION_TIMEOUT` (USB glitch / unplug) and get
