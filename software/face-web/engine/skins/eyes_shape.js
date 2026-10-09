@@ -14,10 +14,9 @@
 //     no lower lid at all, so "pleased" can only be expressed by squashing the whole eye. A smile
 //     in the eyes is a LOWER-LID RAISE; that is the one thing the old vocabulary cannot say.
 //
-//  2. THE CATCHLIGHT IS ANCHORED TO THE EYE, NOT THE PUPIL. eyes.js draws it at
-//     (px - pw/6, py - pw/6), so it rides the pupil and reads as a decal painted on the iris. A
-//     reflection stays where the light is while the pupil slides underneath it. Two lines, and the
-//     strongest "this is a wet sphere" cue available.
+//  2. (WITHDRAWN) The catchlight was anchored to the eye instead of riding the pupil. The
+//     maintainers looked at it and said it reads as wrong, and the shipping head had already
+//     decided the opposite; it now rides the pupil exactly as eyes.js does. See the call site.
 //
 //  3. THE PUPIL CAN CHANGE SIZE. PUPIL_FRAC is a constant in eyes.js.
 
@@ -83,25 +82,29 @@ export function drawShape(ctx, e) {
   ctx.fillStyle = "#04201e";
   ctx.beginPath(); ctx.arc(px, py, pw / 2, 0, Math.PI * 2); ctx.fill();
 
-  // THE CATCHLIGHT, FIXED TO THE EYE. Its position is a property of where the light is, not of
-  // where the pupil happens to be, so it does not move when the gaze does. Upper-left, which is
-  // where a face lit from above and in front has its highlight.
+  // THE CATCHLIGHT RIDES THE PUPIL, as the shipping head does and as the maintainers chose on
+  // looking at this prototype. I had anchored it to the eye; that is reverted.
   //
-  // IT NEEDS A RIM, AND THAT IS A FINDING FROM LOOKING, NOT A FLOURISH. The body's gradient is
-  // BRIGHTEST AT THE TOP, so a white highlight placed where a highlight physically belongs lands
-  // on the lightest part of the eye and nearly vanishes -- measured at INIT, whose colour is
-  // 0xdfe7f0: the highlight read 250,251,252 against a 223,231,240 surround. The old highlight
-  // only read well because it rode the dark PUPIL, which is exactly the behaviour being removed.
+  // THE RECORD WAS GENUINELY SPLIT, which is why this is spelled out rather than just changed:
   //
-  // So the highlight is drawn pure white over a soft dark rim, which is what a specular reflection
-  // on a wet surface actually looks like and makes it legible on any state colour. If the eye's
-  // gradient is ever reversed (dark at top), the rim can go.
-  const hl = Math.max(3, w * 0.055);
-  const hx = cx - w * 0.17, hy = cy - h * 0.19;
-  ctx.fillStyle = "rgba(0,0,0,0.22)";
-  ctx.beginPath(); ctx.arc(hx, hy, hl * 1.45, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(hx, hy, hl, 0, Math.PI * 2); ctx.fill();
+  //   app_face.cpp:893, the SHIPPING head -- "CHILD OF THE PUPIL. A catchlight is a corneal
+  //   reflection sitting over the iris and pupil, not a spot floating on the sclera", and
+  //   parenting it there means it travels with the pupil and can never escape the eye.
+  //
+  //   face.cpp:215, the RETIRED Arduino head -- "ONE highlight, and it stays put ... a highlight
+  //   that chases the gaze is the wrong primitive for this kind of eye at all."
+  //
+  // The shipping one governs, and the maintainers' eye agrees with it. My argument for anchoring
+  // was that a corneal reflection stays fixed while the pupil moves under it, which is true of a
+  // real eye -- it is the basis of pupil/corneal-reflection eye tracking -- but THIS eye has no
+  // cornea and no sclera. It is a flat slab with a dark disc on it, and on that primitive the
+  // reflection has nothing to be fixed relative to, which is what "the wrong primitive" meant.
+  //
+  // The dark rim I added is gone with it: it existed only because an anchored highlight sat on the
+  // brightest part of the gradient. On the pupil it reads without help.
+  const hlr = Math.max(2, pw / 6);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.beginPath(); ctx.arc(px - pw / 6, py - pw / 6, hlr, 0, Math.PI * 2); ctx.fill();
 
   // The lids, over everything inside the body.
   ctx.fillStyle = "#000";
