@@ -152,8 +152,10 @@ can hold it for systemd's 90 s (Thor stack lane; **to be measured** on the spare
 
 The shutdown **refuses rather than drop the arms**, and the refusal says how to reach a clean state. But a
 refusal does not stop someone cutting RUN, which drops unparked arms (they are on the drive bus; RUN off
-opens the contactor). **For the team to decide:** a separate, separately confirmed path, *shut down anyway
-— the arms will drop*, so that a person who must cut power does it knowingly rather than by switch.
+opens the contactor). **Decided 2026-10-09: a second path, *shut down anyway — the arms will drop*,**
+offered **only** when parking fails or is refused: an explicit warning (*the arms will fall; clear the area
+around them*), then its **own** hold-to-confirm, separate from the first. It runs Phase B with `down
+--drop`, and is logged with the refusal that led to it (`SHUTDOWN_ARMS_WILL_DROP`).
 
 **The lift does not move by itself during a shutdown.** `docs/operating.md` says to lower it or leave it
 at a height from which it cannot fall; moving it is a person's decision (and needs `MANUAL`). The
@@ -177,6 +179,7 @@ code wraps them:
 | — the arm stack is dead | `ARM_STACK_DEAD` (arms registry) |
 | — the arm command was refused by sudo | `ARM_SUDO_DENIED` (arms registry) |
 | no link to the StamPLC (the contactor and battery cannot be read) | `LINK_STAMPLC_LOST` (exists) |
+| *not a refusal* — the operator chose *shut down anyway*, and the arms were dropped | `SHUTDOWN_ARMS_WILL_DROP` (logged, and shown on the warning) |
 
 New `SHUTDOWN_*` codes to be agreed with the Docs lane, which owns the registry
 (`docs/reference/registry/power.yaml`).
@@ -186,10 +189,9 @@ New `SHUTDOWN_*` codes to be agreed with the Docs lane, which owns the registry
 From the snapshot, with the steps quoted from the docs, so the tablet needs no network:
 
 - **SOC and voltage, and whether it was charging.**
-- **Charge or not:** below a threshold, *charge before the next use*. **The docs give no threshold yet** —
-  a decision for the team, recorded in `docs/operating.md` *Charging* by the Docs lane, never invented
-  here. Proposed for discussion: below 40 %, *charge*; going unused for more than a week, store at the
-  level the battery's maker recommends, with BATTERY off.
+- **Charge or not: no recommendation yet.** The screen shows the pack's charge level and voltage only.
+  The threshold comes from the pack's datasheet (the team is checking it), is recorded in
+  `docs/operating.md` *Charging* by the Docs lane, and only then does the screen advise.
 - **How:** `docs/operating.md` *Charging*, carried in the tablet app at build time: **BATTERY on**
   (never charge with BATTERY off and RUN on); charger at **48 V**, **8 A**; plug into the charge port;
   unplug before driving.
@@ -262,8 +264,11 @@ halt is best seen by the StamPLC (rail current, or heartbeat plus margin); **ref
 lock**; Docker's storage is the part most hurt by a hard cut (on opendubs2 the arm image is the only copy
 until the arms lane's #107 lands); no extra `sync` — `poweroff` does it.
 
+**Decided 2026-10-09 (the team):** *shut down anyway* — yes, behind a second confirm (above); no charge
+recommendation until the datasheet threshold is recorded; the tablet's power-off to be probed much harder
+before *sleep* is accepted as the answer (§7).
+
 **Still open:**
-- **The team:** the tier timings (after PW-1); the battery threshold; sleep (recommended) or power off
-  after a shutdown; and whether to offer *shut down anyway — the arms will drop*.
+- **The team:** the tier timings (after PW-1).
 - **The orchestrator:** the StamPLC change for SAFE TO SWITCH OFF — that board has no lane.
 - **Thor stack:** PW-7's numbers.
