@@ -116,7 +116,9 @@ def test_arms_are_active_only_when_every_motor_is_enabled_and_clean():
     assert f("", "failed") is None and f("garbage", None) is None
 
 
-def test_a_live_run_is_forwarded_with_its_mark_and_only_then():
+def test_a_run_is_forwarded_without_a_live_mark():
+    # Since 2026-10-08 (PR #71) the runner decides LIVE itself: a runner with the arms drives them on
+    # every run. The dashboard forwards a run as is, and a stale ?live=1 from an old page is dropped.
     seen = []
 
     class Rec(BaseHTTPRequestHandler):
@@ -142,6 +144,6 @@ def test_a_live_run_is_forwarded_with_its_mark_and_only_then():
         c = TestClient(app)
         c.post("/api/choreo/run/reach")
         c.post("/api/choreo/run/reach?live=1")
-        assert seen == ["/api/run/reach", "/api/run/reach?live=1"]
+        assert seen == ["/api/run/reach", "/api/run/reach"]
     finally:
         srv.shutdown()
