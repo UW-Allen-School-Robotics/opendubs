@@ -29,6 +29,48 @@ recipe that matches your task.
   controller twice by opening a serial port that was never the right channel. If a procedure
   seems to be missing, say so and ask; do not experiment on the robot.
 
+## Lanes — who owns what when several sessions run at once
+
+Several long-running agent sessions work on this repo in parallel, one per area (a **lane**),
+plus one **orchestrator** session that tracks them and owns this section. The lanes exist so
+those sessions don't collide in git and so each area's expertise stays in one place.
+
+1. **Work in your own worktree, never in the main checkout.** The main checkout stays on `main`
+   and is shared: a `git switch` there changes the files under every session using it, and an
+   uncommitted file there belongs to whichever branch happens to be checked out. Create a
+   worktree before the first edit (`git worktree add .claude/worktrees/<name> -b <branch>
+   origin/main`, or your agent's own worktree command) and remove it once its PR merges.
+2. **Edit only the paths your lane owns.** Reading anything is fine. To change a path another
+   lane owns, send that lane the change and the reason, and let it make the edit. If no owner is
+   listed, ask the orchestrator.
+3. **A lane's workplan is written only by that lane.** A finding for another lane's plan goes to
+   that lane as a message, not as a commit to its plan.
+4. **Shared paths take small, scoped edits from any lane.** Say in the PR that it touches a shared
+   path, and rebase on `main` before merging.
+5. **The robot runs what is on `main`.** Anything flashed or deployed from an unmerged branch is
+   reported to the orchestrator and merged or reverted the same day.
+
+| Lane | Owns | Workplan |
+|---|---|---|
+| **Arms** | `software/openarm/`, `software/teleop/`; dashboard `frontend/teleop.js`, `frontend/armview.js`, `backend/openarm.py`; `notes/design/arm-*.md`, `notes/design/pinch-guard-consent.md`; `docs/openarm-setup.md` | `notes/workplan-arms.md` |
+| **Choreography** | `software/choreo/`; dashboard `frontend/choreo.js`, `frontend/show_audio.js`, `backend/choreo_proxy.py`, `backend/show_audio.py`; `notes/design/choreo-*.md` | `notes/workplan-choreography.md` |
+| **Tab5 head** (firmware and voice) | `firmware/tab5_*/`; `notes/design/tab5-*.md`, `notes/design/face-*.md`, `notes/design/hri-interaction-design.md` | `notes/workplan-tab5-audio.md` (`workplan-tab5-idf.md` is closed) |
+| **Tablet and head interface** | `software/tablet-kiosk/`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md` | `notes/workplan-tablet.md` |
+| **Thor stack** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; `docs/thor-setup.md`, `docs/portability-audit.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
+| **Hat PCB** (parked) | `hardware/hat/` | — |
+
+**The head's protocol** (the messages the Thor and the dashboard send the head) is owned by the
+Tablet lane. The Tab5 head lane implements it in firmware. A new head message is agreed with the
+Tablet lane before either side ships it.
+
+**Shared paths:** dashboard `frontend/app.js`, `frontend/index.html`, `frontend/style.css`,
+`backend/app.py`, `software/kiosk-dashboard/deploy/`; `notes/punch-list.md`; `mkdocs.yml`; this
+file outside this section.
+
+**No lane yet; ask the orchestrator first:** `firmware/rc_serial_probe/` (the StamPLC, which is
+the robot's safety controller), `docs/build/`, `hardware/parts.csv`, `tools/bom.py`, and the rest
+of `docs/`.
+
 ## Hardware: how to flash each board
 
 **Read this before touching a board. Do not improvise.**
