@@ -24,6 +24,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from refusals import refuse
+
 import metrics
 import status as status_mod
 import telemetry
@@ -216,8 +218,7 @@ def mast_control(cmd: str) -> JSONResponse:
     if v is None:
         return JSONResponse({"ok": False, "error": "use up|down|stop"}, status_code=400)
     if not stamplc.reader.send(f"MAST CMD {v:.2f}"):
-        return JSONResponse({"ok": False, "error": "no link to the StamPLC — command not sent"},
-                            status_code=503)
+        return refuse("LINK_STAMPLC_LOST", "no link to the StamPLC — command not sent", 503)
     return JSONResponse({"ok": True, "mast": cmd.lower(), "v": v})
 
 
@@ -237,15 +238,13 @@ def relay_control(ch: str, state: str) -> JSONResponse:
     except ValueError:
         return JSONResponse({"ok": False, "error": "bad channel"}, status_code=400)
     if c in (1, 2):
-        return JSONResponse({"ok": False,
-                             "error": "relays 1 and 2 are the lift legs — use /api/mast/{up|down|stop} "
-                                      "so the pinch guard applies"}, status_code=409)
+        return refuse("LIFT_RELAY_RESERVED", "relays 1 and 2 are the lift legs — use "
+                      "/api/mast/{up|down|stop} so the pinch guard applies", 409)
     if c != 3:
         return JSONResponse({"ok": False, "error": "only relay 3 is free"}, status_code=400)
     on = state.lower() in ("1", "on", "true")
     if not stamplc.reader.send(f"RELAY {c} {1 if on else 0}"):
-        return JSONResponse({"ok": False, "error": "no link to the StamPLC — command not sent"},
-                            status_code=503)
+        return refuse("LINK_STAMPLC_LOST", "no link to the StamPLC — command not sent", 503)
     return JSONResponse({"ok": True, "relay": c, "state": on})
 
 
@@ -271,7 +270,11 @@ def estop_clear() -> JSONResponse:
     isn't OFF. Only on a clean guard does it clear the latch + re-energize relay 0."""
     result = status_mod.try_estop_clear()
     if not result["ok"]:
-        return JSONResponse({"ok": False, "estop": True, "blockers": result["blockers"]},
+        # The first blocker's code leads; every code is in `codes`, beside its sentence in
+        # `blockers`. The codes are named where they are raised (supervisor.py, status.py).
+        return JSONResponse({"ok": False, "estop": True, "code": result["codes"][0],
+                             "error": "re-arm refused: " + " · ".join(result["blockers"]),
+                             "blockers": result["blockers"], "codes": result["codes"]},
                             status_code=409)
     return JSONResponse({"ok": True, "estop": False})
 
@@ -488,5 +491,13 @@ class NoCacheStaticFiles(StaticFiles):
 # static mount so /api/choreo/* is not shadowed by it.
 from choreo_proxy import router as _choreo_router  # noqa: E402
 app.include_router(_choreo_router)
+
+# This repository's docs, built on the dev machine at deploy time (deploy.sh), so the "?" beside a
+# refusal opens its troubleshooting entry with no internet and at the deployed version. Kept out of
+# frontend/ so that 35 MB of pages neither feeds /api/frontend-version nor reloads the tablet on
+# every deploy. Mounted only if present: a dashboard run without them falls back to the public site.
+DOCS_DIR = FRONTEND_DIR.parent / "docs-site"
+if DOCS_DIR.is_dir():
+    app.mount("/docs", NoCacheStaticFiles(directory=str(DOCS_DIR), html=True), name="docs")
 
 app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")

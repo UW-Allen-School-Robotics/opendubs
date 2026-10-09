@@ -23,9 +23,11 @@ Usage:
 
 Needs PyYAML, which arrives with MkDocs. Anywhere else, `uv run tools/faults.py` installs it.
 
-A code is "used" when the source names it in one of three forms the scan can see:
+A code is "used" when the source names it where the scan can see it:
   refuse("CODE", ...)       the dashboard backend's refusal helper
-  helpLink("CODE")          the dashboard frontend's "?" link
+  helpLink("CODE"), setHelp(el, "CODE"), openHelp("CODE")
+                            the dashboard frontend's "?" — any quoted code on the call's line,
+                            so `setHelp(el, bad ? "CODE" : null)` counts
   @fault CODE               an annotation, for any language (shell, C++, a comment)
 """
 import argparse, os, re, sys
@@ -49,9 +51,9 @@ SCAN_EXTS = {".py", ".js", ".sh", ".cpp", ".c", ".h", ".hpp", ".kt", ""}
 
 MARKER = re.compile(
     r"(<!-- FAULTS-AUTO:(?P<key>[a-z-]+) -->\n)(?P<body>.*?)(<!-- /FAULTS-AUTO:(?P=key) -->)", re.S)
-USE = re.compile(r"""\brefuse\(\s*["']([A-Z][A-Z0-9_]*)["']"""
-                 r"""|\bhelpLink\(\s*["']([A-Z][A-Z0-9_]*)["']"""
-                 r"""|@fault\s+([A-Z][A-Z0-9_]*)""")
+CALL = re.compile(r"\b(?:refuse|helpLink|setHelp|openHelp)\(")
+QUOTED = re.compile(r"""["']([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)["']""")
+ANNOTATION = re.compile(r"@fault\s+([A-Z][A-Z0-9_]*)")
 
 PREFIXES = ("ESTOP", "CONTACTOR", "RC", "DRIVE", "LINK", "POWER", "LIFT", "HEAD", "ARM", "SHOW")
 CODE_RE = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
@@ -311,8 +313,10 @@ def scan_sources():
                 except (OSError, UnicodeDecodeError):
                     continue
                 for n, line in enumerate(lines, 1):
-                    for m in USE.finditer(line):
-                        code = next(g for g in m.groups() if g)
+                    codes = ANNOTATION.findall(line)
+                    if CALL.search(line):
+                        codes += [c for c in QUOTED.findall(line) if c.split("_")[0] in PREFIXES]
+                    for code in codes:
                         used.setdefault(code, []).append(f"{os.path.relpath(path, ROOT)}:{n}")
     return used
 

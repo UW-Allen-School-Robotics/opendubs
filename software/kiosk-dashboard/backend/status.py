@@ -415,11 +415,13 @@ def try_estop_clear() -> dict:
         button_pressed=bool(saf["estop_button"]), stale=saf["stale"],
         welded=saf["welded"], authority=authority)
     if not ok:
-        return {"ok": False, "blockers": blockers}
+        # `blockers` stays a list of sentences (the tablet reads it); `codes` runs beside it.
+        return {"ok": False, "blockers": [t for _, t in blockers], "codes": [c for c, _ in blockers]}
     # Deliver FIRST, and only clear the latch if the board can actually be reached. Clearing
     # our own flag while `RELAY 0 1` goes nowhere reports a closed contactor that is still open.
     if not stamplc.reader.send("RELAY 0 1"):
-        return {"ok": False, "blockers": ["no link to the StamPLC — command not sent"]}
+        return {"ok": False, "blockers": ["no link to the StamPLC — command not sent"],
+                "codes": ["LINK_STAMPLC_LOST"]}                                   # @fault LINK_STAMPLC_LOST
     set_software_estop(False)
     supervisor.clear_estop()
     return {"ok": True}

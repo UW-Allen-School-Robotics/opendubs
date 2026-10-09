@@ -677,3 +677,24 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .shows-audio .dim { color: var(--dim); }
 .op-batt svg.who { opacity: .85; }
 .twinbadge.livebadge { background: rgba(255, 92, 92, 0.15); color: var(--bad); border-color: var(--bad); }
+
+/* "?" beside a refusal or fault, and the troubleshooting sheet it opens (app.js openHelp).
+   The sheet starts below the top bar, so the top bar's E-STOP is never covered. */
+.help-q { display: inline-flex; align-items: center; justify-content: center; margin-left: 8px;
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--accent-2);
+  background: transparent; color: var(--accent-2); font: 800 15px/1 inherit; cursor: pointer;
+  vertical-align: middle; flex: none; }
+.help-q:active { background: var(--accent-2); color: var(--bg); }
+.help-q[hidden] { display: none; }
+.help-why { margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
+  color: var(--bad); font-weight: 700; }
+#helpSheet { position: fixed; right: 0; bottom: 0; width: min(560px, 94vw); z-index: 30;
+  display: none; flex-direction: column; background: var(--panel-2);
+  border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(0,0,0,.45); }
+#helpSheet.open { display: flex; }
+#helpSheet .help-bar { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+#helpSheet .help-code { font: 700 14px/1 ui-monospace, monospace; color: var(--dim); }
+#helpSheet .help-close { min-height: 40px; padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--txt); font-weight: 800; }
+#helpSheet iframe { flex: 1; width: 100%; border: 0; background: #fff; }
