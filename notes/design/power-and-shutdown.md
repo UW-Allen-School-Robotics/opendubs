@@ -218,7 +218,7 @@ it would let anyone power the face off mid-show; leaving lock task only for this
 |---|---|---|---|
 | 1 | **CH5 to OFF**, **BATTERY on**, **RUN on** | a person | `docs/operating.md`, *Powering on* |
 | 2 | **The Thor boots** | itself — **unverified**; the Thor stack lane is measuring it on the spare Thor | if it does **not** boot on power, power-on means pressing the Thor's own button inside the bay — a usability problem this procedure must then state |
-| 3 | **The tablet comes up**: if it slept, the mount's power wakes it; if it was powered off, a person presses the side key | itself / a person | whether a powered-off tablet boots on charger power or only shows the charging animation is checked on the bench (PW-5) |
+| 3 | **The tablet comes up**: if it slept, the mount's power wakes it; if it was powered off, a person **holds the side key** | itself / a person | **verified on the bench: a powered-off tablet does not boot on charger power** (PW-5) |
 | 4 | **The kiosk app waits for the Thor, and says so** — *Waiting for the robot's computer…*, retrying, then the dashboard | the app — **new** | today it shows "Webpage not available" for good: a page bundled in the app that retries, and (with the door) shows the StamPLC heard before the Thor |
 | 5 | **The arms stay inactive** until someone activates them | as today | arms start inactive (`openarm-up`) |
 | 6 | **Clear the e-stop latch** if the shutdown's software e-stop (B6) left one | a person, at the dashboard | depends on the StamPLC's behaviour at power-on — `docs/operating.md` notes a contactor auto-arm behaviour not yet in the repo |
@@ -232,8 +232,8 @@ it would let anyone power the face off mid-show; leaving lock task only for this
 | PW-1 | **What does each tier draw?** Tablet current (Android's battery service reports `current_avg`) in tiers 0–3, camera on and off, on battery. | A table per tier; the tier timings chosen from it; overnight standby drain known. |
 | PW-2 | **Does motion detection notice a person approaching** at a few frames a second, without the model? | It wakes for a person walking up, not for the robot's own idle motion. |
 | PW-3 | **Does a screen-off tablet still hear its door and websocket**, and wake promptly on a robot event? | A STATE change wakes the screen within a second, after 30 min screen-off. |
-| PW-4 | **Which chord opens the power menu** with the app out of lock task? | One documented, tried action powers it off. |
-| PW-5 | **A powered-off tablet on charger power**: does it boot, or show the charging animation? | Known; step 3 of power-on says which. |
+| PW-4 | ~~Which action opens the power menu?~~ **Answered 2026-10-09 (§7):** a long press, once `power_button_long_press` is `1` (setup, over adb); the kiosk must allow the power menu in lock task. | — |
+| PW-5 | ~~A powered-off tablet on charger power~~ **Answered 2026-10-09:** it shows the charging screen and goes dark — **it does not boot**; a person holds the side key. | — |
 | PW-6 | **The shutdown on the robot**, end to end, with a person at the robot. | Arms parked and limp, contactor open, Thor halted, battery advice shown, RUN off confirmed. |
 | PW-7 | **The Thor's halt time and power-on behaviour** (Thor stack lane): auto-boot on power; after `poweroff` with RUN on; seconds from `poweroff` to halted. | Numbers for the countdown and for power-on step 2. |
 
@@ -272,3 +272,59 @@ before *sleep* is accepted as the answer (§7).
 - **The team:** the tier timings (after PW-1).
 - **The orchestrator:** the StamPLC change for SAFE TO SWITCH OFF — that board has no lane.
 - **Thor stack:** PW-7's numbers.
+
+---
+
+## 7. Powering the tablet off — probed on the bench SM-X133, 2026-10-09
+
+The team asked for a harder look before accepting "sleep only". Four routes, tried or read:
+
+| route | what was found | verdict |
+|---|---|---|
+| **(a) The Thor powers it off over adb** | `adb shell svc power shutdown` ("runtime shutdown and power off") **powered the bench tablet off** from a USB host, off adb in under 8 s. A delayed command left on the tablet (`nohup sh -c 'sleep N; …' &`) **ran on time with the host's adb gone** — so the Thor can schedule the power-off and then halt. A device owner **can keep USB debugging on**: `ADB_ENABLED` and `ADB_WIFI_ENABLED` are in AOSP's `setGlobalSetting` allowlist. `adb_enabled` survived a power cycle. | **works — recommended**, for *storage* (below) |
+| **(b) Samsung Knox SDK** | `SystemManager.powerOff()` exists (Knox API 20), and `setForceAutoStartUpState(ON)` would even boot the tablet on charger power — but both need a **KPE Premium** key: free, yet since 2025 issued only to approved enterprise customers through the Knox Partner Program, and activated **online** against Samsung's licence server. Tab A11 support likely (an Enterprise Edition of its LTE sibling exists), not confirmed. | **possible later**, if the team applies for a key; not a path today |
+| **(c) An accessibility service** | Samsung's power menu, once open, has stable, language-independent controls (`com.android.systemui:id/sec_global_actions_icon`, "Power off,"), so a service *could* press it — but it needs the power menu reachable in lock task, the service enabled at setup (not settable by a device owner), and two presses through Samsung UI that One UI updates can move. Not tried end to end. | **too fragile** — not recommended |
+| **(d) Manual, made workable** | With AOSP's `power_button_long_press` = `1`, a long press opens Samsung's **power-off menu** (Power off, Restart) — confirmed on the bench (it is `103`, the assistant, by default; Samsung's own `function_key_config_longpress_type` did not change it). A device owner **cannot** set it (not in the allowlist), so it is **one setup step over adb**. The kiosk must also allow the power menu in lock task (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`). | **works — the fallback**, and the operator's way at any time |
+
+**Also measured: a switched-off tablet does not boot on charger power.** With USB still connected it
+showed Samsung's charging screen briefly, then went dark; a person had to hold the side key. So a powered
+**off** tablet costs a button press at the next power-on — unless Knox's auto-start is ever licensed.
+
+### Recommendation
+
+- **Daily use — the tablet sleeps** (screen off, app alive): it **wakes by itself** when RUN brings the
+  mount's power back. Nothing to press.
+- **Storage — the shutdown screen offers *Power the tablet off too*:** the Thor, during safe-shutdown,
+  leaves `sleep 120; svc power shutdown` on the tablet (after the RUN-off countdown and the battery advice
+  have been shown), then halts. One tap, nothing to hold; at the next power-on a person presses the side
+  key.
+- **The manual way always works** (d), for an operator, or if the Thor is already down.
+
+**What route (a) needs:**
+
+- **A USB data link from the Thor to the tablet's mount** — today's cradle is not known to be one (TS-3).
+  The same cable could also power the mount from the **logic bus**, so the mount's power would drop at
+  RUN off rather than at an e-stop — which the mount signal wants anyway (DT-1).
+- **`adb` on the Thor** and the Thor's adb key **authorised once** on the tablet (one tap, *always allow*).
+- **The device owner keeps `ADB_ENABLED` on**; wireless debugging stays **off**.
+- **Exposure, stated rather than blocked on:** adb is full control of the tablet. Over USB only, the one
+  host that has it is the Thor — and whoever controls the Thor controls the robot already. Consistent with
+  the LAN-first stance; it widens nothing on the network.
+
+### Operator instructions — powering the tablet off by hand (route d)
+
+1. **Hold the side key** until the power menu appears (about 1 s).
+2. Tap **Power off**, then **Power off** again to confirm.
+3. To turn it on: **hold the side key** until the Samsung logo shows.
+
+Setup, once per tablet (added to the kiosk README when built):
+`adb shell settings put global power_button_long_press 1`.
+
+### When sleeping is fine, and when to power off
+
+Sleep is fine **overnight and over a weekend** if the standby drain is as low as Android's screen-off
+behaviour suggests — but **that is not measured yet**: the bench tablet was on USB throughout, which
+charges it. **PW-1 measures it** (an hour unplugged, screen off, the app running, Android's charge counter
+before and after), and the guidance becomes a number: *sleep if the robot will be used again within N
+days; otherwise power off.* Until then: **power the tablet off if the robot will sit unused for more than
+a few days.**
