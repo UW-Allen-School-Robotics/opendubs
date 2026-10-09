@@ -8,6 +8,11 @@
 //   look         how far, as a fraction of its size                                (default 0.3)
 //   blink        "squash" — a blink, and an emote's lid, squash it vertically; or "none"
 //   mirror       the right eye is the left mirrored, and spins the other way        (default false)
+//   counter      occasionally break a together-spin into opposite directions        (default off)
+//                { every_s: [8, 20], hold_s: [2, 4], ease_s: 0.9 } -- a counter-spin starts at a
+//                random interval in every_s, lasts a random time in hold_s, and the reversal is
+//                EASED over ease_s: the right eye decelerates through zero and spins back up the
+//                other way, never snapping. Composes with `mirror`, which flips the base direction.
 //
 // It takes the same per-eye inputs as every skin (face-engine.md, the skin contract), so a show's
 // EMOTE, a blink and a tracked person read on it with no change anywhere else.
@@ -15,7 +20,52 @@
 const NEUTRAL = 480;
 
 export function makeAssetSkin(entry, baseUrl, onError) {
-  const p = { size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false, ...(entry.params || {}) };
+  const p = { size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
+              counter: null, ...(entry.params || {}) };
+
+  // ---- the counter-spin's state -------------------------------------------------------------
+  //
+  // WHY AN ACCUMULATED ANGLE, AND ONLY WHEN `counter` IS SET. The spin below is `rate * t`: an
+  // angle computed from absolute time, which is exact and drift-free but can only express a
+  // CONSTANT rate. Flipping its sign would teleport the object to a mirrored orientation, which is
+  // the snap this feature exists to avoid. A rate that changes has to be integrated instead.
+  //
+  // So the integrator is used only when a counter-spin is configured. Without it the original
+  // expression runs untouched, so every existing library entry is bit-for-bit what it was and
+  // cannot pick up accumulation drift over a long run.
+  const cfg = p.counter && {
+    every: p.counter.every_s || [8, 20],
+    hold: p.counter.hold_s || [2, 4],
+    ease: p.counter.ease_s ?? 0.9,
+  };
+  const pick = ([lo, hi]) => lo + Math.random() * Math.max(0, hi - lo);
+  // One schedule for BOTH eyes: they must break apart together, or it reads as two objects rather
+  // than one face. Hence per-skin state, advanced once a frame, not per-eye state advanced twice.
+  const spinState = { t: null, angL: 0, angR: 0, cf: 1, cfTarget: 1, nextAt: null, untilAt: 0 };
+
+  // Advance the shared schedule. Called once per frame, from whichever eye is drawn first.
+  function stepSpin(t) {
+    if (spinState.t === null) { spinState.t = t; spinState.nextAt = t + pick(cfg.every); return; }
+    const dt = Math.max(0, Math.min(0.1, t - spinState.t));      // a tab that was hidden can hand
+    spinState.t = t;                                             // back a huge dt; clamp it
+    if (t >= spinState.nextAt && spinState.cfTarget === 1) {
+      spinState.cfTarget = -1;
+      spinState.untilAt = t + pick(cfg.hold);
+    } else if (spinState.cfTarget === -1 && t >= spinState.untilAt) {
+      spinState.cfTarget = 1;
+      spinState.nextAt = t + pick(cfg.every);
+    }
+    // EASE THROUGH ZERO at a bounded rate: the full swing is 2 units (+1 to -1), so covering it in
+    // ease_s seconds is 2/ease_s per second. The object therefore slows, stops and spins back up,
+    // which is the whole point -- a linear ramp through zero looks like a real reversal, while a
+    // step looks like a dropped frame.
+    const rate = 2 / Math.max(0.05, cfg.ease);
+    const d = spinState.cfTarget - spinState.cf;
+    spinState.cf += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
+    const w = (p.spin_dps * Math.PI / 180) * dt;
+    spinState.angL += w;
+    spinState.angR += w * spinState.cf;
+  }
   const url = new URL(entry.file, baseUrl).href;
   let source, ready = false, failed = null;
 
@@ -48,7 +98,13 @@ export function makeAssetSkin(entry, baseUrl, onError) {
       const dy = p.follow_look ? e.gazeY * s * p.look : 0;
       const right = e.side === "right";
       const flip = p.mirror && right ? -1 : 1;
-      const spin = (p.spin_dps * Math.PI / 180) * t * (p.mirror && right ? -1 : 1);
+      let spin;
+      if (!cfg) {
+        spin = (p.spin_dps * Math.PI / 180) * t * (p.mirror && right ? -1 : 1);
+      } else {
+        if (t !== spinState.t) stepSpin(t);                      // first eye of this frame
+        spin = (right ? spinState.angR : spinState.angL) * (p.mirror && right ? -1 : 1);
+      }
       ctx.save();
       ctx.translate(e.cx + dx, e.cy + dy);
       ctx.scale(flip, sq);
