@@ -19,7 +19,7 @@ part used in two places is listed once, with the quantities added.
 | Part | SKU | Qty | Used in | Notes |
 |---|---|---:|---|---|
 | [NVIDIA Jetson AGX Thor Developer Kit](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/) | — | 1 | — | The main computer: runs the dashboard, the ROS software and the arms. |
-| Android tablet (operator interface) | — | 1 | — | The robot has no screen of its own; the dashboard runs full-screen on a tablet. |
+| [Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface)](https://www.samsung.com/latin_en/tablets/galaxy-tab-a/galaxy-tab-a11-gray-64gb-sm-x133nzaagto/) | `SM-X133` | 1 | — | The robot has no screen of its own: the dashboard runs full-screen on this tablet, locked in the project's kiosk app (software/tablet-kiosk). The kiosk app's setup guide is written for this model. |
 | [ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery](https://www.ecoworthy.com/) | — | 1 | — | 2.56 kWh, 16 cells in series. Its BMS reports charge and voltage to the StamPLC over RS-485. The heaviest single part. |
 | [48 V LiFePO4 battery charger](https://a.co/d/0aP9q4YX) | — | 1 | — | Set it to 48 V; 8 A is the recommended current. |
 | [GIGAVAC GX11 contactor, 24 V coil](https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors) | `GX11CAB` | 1 | — | The e-stop contactor: sealed, normally open, with an auxiliary contact the StamPLC reads to detect a weld. |
