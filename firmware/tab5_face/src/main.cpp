@@ -313,7 +313,53 @@ static void commsTask(void *) {
   hosted_ok = hostedInitWiFi();
 #endif
 
-  WiFi.begin("Opendubs2", "mush-cleaner-platoon");
+  // CREDENTIALS ARE NOT IN THIS FILE. They were, as two string literals, from 4d64282
+
+  // until 2026-10-09 -- the robot network's SSID and its pre-shared key, committed to a
+
+  // repository with write access for the whole team.
+
+  //
+
+  // This now follows the pattern the IDF head already uses (app_face/net.cpp): credentials
+
+  // are COMPILED IN only when deliberately supplied for a provisioning build, and are
+
+  // otherwise taken from what the radio already has in NVS. Pass them through the
+
+  // environment at provisioning time, e.g.
+
+  //
+
+  //     PLATFORMIO_BUILD_FLAGS='-DOPENDUBS_WIFI_SSID=\"...\" -DOPENDUBS_WIFI_PASS=\"...\"'
+
+  //
+
+  // and never from a file in this repo. A provisioning BINARY also contains the key, so
+
+  // delete it after use.
+
+  //
+
+  // NOTE, and it is the part that actually matters: removing the literal here does NOT
+
+  // remove it from history. It is recoverable from every commit since 4d64282, so the
+
+  // real remediation is rotating the key on the router.
+
+  #if defined(OPENDUBS_WIFI_SSID) && defined(OPENDUBS_WIFI_PASS)
+
+  WiFi.begin(OPENDUBS_WIFI_SSID, OPENDUBS_WIFI_PASS);
+
+  #else
+
+  // No argument: reconnect with whatever a previous provisioning left in NVS. This keeps
+
+  // the retired tree usable as the rollback image FLASHING-THE-ROBOT.md still cites.
+
+  WiFi.begin();
+
+  #endif
   bool ota_setup = false;
   bool udp_setup = false;
 
