@@ -54,11 +54,18 @@ entries:
     seen_on: [dashboard]
     means: >
       The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and
-      starts nothing.
+      starts nothing. The commonest cause is an e-stop: the arms are powered from the drive bus,
+      behind the contactor, so while it is open the links lose their motors and go to error or
+      bus-off, and a bus-off link does not recover by itself.
     do:
-      - Check that the CAN adapter is plugged in and its driver is installed.
+      - >
+        After an e-stop, power first: re-arm (CH5 to `OFF`, hold **RE-ARM** on the dashboard) and
+        confirm the contactor is closed. Then restart both links,
+        `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then activate.
+        Restarting the links before power is back puts them straight back in bus-off.
+      - Otherwise, check that the CAN adapter is plugged in and its driver is installed.
       - Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
-    see: [arm-dashboard.md#arm-can-not-ready, openarm-setup.md#troubleshooting]
+    see: [arm-dashboard.md#arm-can-not-ready, reference/troubleshooting.md#contactor-open, openarm-setup.md#troubleshooting]
 
   - code: ARM_STACK_START_FAILED
     title: The arm stack did not start
