@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Forces UDPv4 and disables the built-in shared-memory transport. The container's /dev/shm is
+     not the host's, so SHM locators advertised here are unusable from outside the container.
+     Baked into the openarm image at /etc/opendubs-fastdds-udp-only.xml; the same profile openarm-up
+     writes into a hand-built container. Replaced by the robot-wide DDS profile when the Thor stack
+     plan's item 3.2 lands. -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_only_participant" is_default_profile="true">
+      <rtps>
+        <userTransports><transport_id>udp_only</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>
