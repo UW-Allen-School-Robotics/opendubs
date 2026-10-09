@@ -144,13 +144,47 @@ check_links() {
   return $ok
 }
 
+# A link left in BUS-OFF or ERROR-PASSIVE does not recover by itself: openarm-can@.service sets no
+# restart-ms. Seen 2026-10-09, after an e-stop and with loose CAN connectors on that arm: the e-stop
+# had cleared, the contactor was closed, and ACTIVATE failed with "CAN links not ready" until someone
+# ran `systemctl restart openarm-can@arm_left` from a shell. Restarting a link moves nothing, so
+# ACTIVATE does it itself (arms plan A7). Once per link per call: a link that will not come back has
+# no power behind it (e-stop, contactor) or a loose connector, and saying so is the fix. A MISSING
+# interface is a driver or adapter problem, not this; check_links reports it.
+link_state() {  # link_state IFACE -> ERROR-ACTIVE | BUS-OFF | ERROR-PASSIVE | ... | "" if missing
+  ip -details link show "$1" 2>/dev/null | grep -oE "state (ERROR-[A-Z]+|BUS-OFF|STOPPED)" | head -1 | sed 's/^state //'
+}
+
+heal_links() {
+  local i d
+  for i in arm_left arm_right; do
+    d=$(ip -details link show "$i" 2>/dev/null) || continue
+    if grep -q "<.*UP.*>" <<<"$d" && [ "$(link_state "$i")" = ERROR-ACTIVE ]; then continue; fi
+    echo "  $i: $(link_state "$i") -- restarting the link (motion-free)"
+    sudo systemctl restart "openarm-can@$i" || { echo "  $i: the restart failed"; continue; }
+    for _ in 1 2 3 4 5 6; do
+      [ "$(link_state "$i")" = ERROR-ACTIVE ] && break
+      sleep 0.5
+    done
+  done
+}
+
 ensure_container() {
   local s; s=$(sudo docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null) || die "no '$CONTAINER' container"
   if [ "$s" != running ]; then echo "  starting container"; sudo docker start "$CONTAINER" >/dev/null || die "container would not start"; fi
 }
 
 cmd_start() {
-  echo "== CAN links"; check_links || die "CAN links not ready — nothing launched"
+  echo "== CAN links"
+  if ! check_links; then
+    heal_links
+    # @fault ARM_CAN_NOT_READY
+    check_links || die "CAN links not ready — nothing launched.
+  A link would not come back after a restart: it has no power behind it, or its CAN connection is
+  loose.
+  To fix: check the e-stop is released and the contactor closed, and that the arm's CAN connectors
+  are seated, then press ACTIVATE again."
+  fi
   echo "== container"; ensure_container; echo "  $CONTAINER running"
   # `running` tests for the LAUNCH process, which outlives a SIGKILLed ros2_control_node — so a
   # half-dead stack looks "already running" while nothing answers, and activate then fails with
@@ -309,6 +343,10 @@ cmd_activate() {
   if ! running; then
     echo "== stack not running — starting it first"
     cmd_start
+  else
+    # The stack is up, but a link under it may have gone to bus-off since -- an e-stop with the
+    # stack running. Restart such a link before activating; it moves nothing.
+    check_links >/dev/null || { echo "== CAN links"; heal_links; check_links || true; }
   fi
   for a in $arms; do activate_one "$a"; done
   echo "== motors: $($MOTORS summary)"
