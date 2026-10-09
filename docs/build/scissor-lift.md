@@ -1,10 +1,9 @@
 # Scissor Lift Module
 
-!!! warning "Stub — this module is being built now"
-    The wiring and firmware are in progress. Structure, interfaces and the
-    bring-up procedure are written down; step photos, the CAD link, and the
-    parts list are still to come. Nothing here has been verified on a
-    finished robot yet.
+!!! warning "In development"
+    The structure, interfaces, safety behaviour and bring-up procedure are written down; the
+    assembly steps, photos, CAD link and parts list are not yet. Treat it as a description of the
+    design rather than a build guide. The complete build today is the [lower frame](lower-frame.md), steps 1–13.
 
 !!! info "At a glance"
     | | |

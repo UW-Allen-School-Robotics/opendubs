@@ -93,11 +93,11 @@ nav:
       - 11 · OTOS Module: build/otos.md
       - 12 · Battery Install: build/battery-install.md
       - 13 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
-      - Upper Frame Assembly:
+      - Upper Frame Assembly (in development):
           - build/upper-frame.md
           - Right Upper Electronics Bay: build/upper-right-electronics-bay.md
       - Pinpoint Odometry: build/pinpoint.md
-      - Payload Modules:
+      - Payload Modules (in development):
           - Scissor Lift Module: build/scissor-lift.md
           - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
       - Lidar (Front & Rear): build/lidar.md
