@@ -103,7 +103,7 @@ FACE_W, FACE_H = 0.1107, 0.0623
 FACE_X, FACE_YC, FACE_ZC = 0.0603, -0.00185, -0.0029
 
 
-def _add_face_screen(spec):
+def _add_face_screen(spec, w_m=FACE_W, h_m=FACE_H, x=FACE_X, yc=FACE_YC, zc=FACE_ZC):
     import mujoco
     spec.add_texture(name=FACE_TEXTURE, type=mujoco.mjtTexture.mjTEXTURE_2D,
                      builtin=mujoco.mjtBuiltin.mjBUILTIN_FLAT, width=FACE_TEX_W, height=FACE_TEX_H,
@@ -111,11 +111,11 @@ def _add_face_screen(spec):
     mat = spec.add_material(name=FACE_TEXTURE, emission=1.0, specular=0.0, shininess=0.0,
                             rgba=[1, 1, 1, 1])
     mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = FACE_TEXTURE
-    w, h = FACE_W / 2, FACE_H / 2
+    w, h = w_m / 2, h_m / 2
     # Facing +x, the way the head looks. Seen from in front, +y is to the viewer's right and +z up,
     # so the corners run bottom-left, bottom-right, top-right, top-left (counter-clockwise).
-    verts = [FACE_X, FACE_YC - w, FACE_ZC - h,  FACE_X, FACE_YC + w, FACE_ZC - h,
-             FACE_X, FACE_YC + w, FACE_ZC + h,  FACE_X, FACE_YC - w, FACE_ZC + h]
+    verts = [x, yc - w, zc - h,  x, yc + w, zc - h,
+             x, yc + w, zc + h,  x, yc - w, zc + h]
     spec.add_mesh(name=FACE_TEXTURE, uservert=verts, userface=[0, 1, 2, 0, 2, 3],
                   usertexcoord=[0, 1, 1, 1, 1, 0, 0, 0],
                   inertia=mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL)
@@ -124,7 +124,55 @@ def _add_face_screen(spec):
                                     density=0)
 
 
-def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False):
+# ---- the fitted head ------------------------------------------------------------------------
+# The head is a swappable sub-assembly, chosen by ONE setting in the robot description (the Thor
+# lane's): head_assembly.fitted in description/opendubs/dimensions.yaml. The body twin follows it,
+# so it is never a second model to keep in step.
+TAB5_HEAD, TABLET_HEAD = "tab5_pantilt", "galaxy_tablet"
+# PLACEHOLDER tablet geometry, until there is CAD (the description's galaxy_tablet block has none
+# yet): a Galaxy Tab A11 8.7-inch (SM-X133), its body 211.0 x 124.7 x 8.0 mm and its 1340x800
+# panel's active area 189.8 x 113.3 mm (8.7-inch diagonal). ASSUMED mount: on the same pan/tilt,
+# landscape, centred where the Tab5's panel is and standing just proud of its cover. Whether the
+# tablet keeps the pan/tilt, and where the D415 goes, are open (dimensions.yaml); the D415 and the
+# Tab5 panel are left off rather than drawn where they may not be.
+TABLET_BODY_MM = (8.0, 211.0, 124.7)       # depth (x), width (y), height (z)
+TABLET_PANEL_MM = (189.8, 113.3)
+
+
+def fitted_head() -> str:
+    """head_assembly.fitted from the robot description; the Tab5 head when it cannot be read."""
+    try:
+        import yaml
+        with open(os.path.join(OURS, "dimensions.yaml"), encoding="utf-8") as fh:
+            return (yaml.safe_load(fh).get("head_assembly") or {}).get("fitted") or TAB5_HEAD
+    except Exception:  # noqa: BLE001
+        return TAB5_HEAD
+
+
+def _fit_tablet(spec):
+    """Swap the Tab5's panel and camera for the PLACEHOLDER tablet, and grow the head's collision
+    box to enclose it — so the arms' clearance checks see the head that is fitted."""
+    import mujoco
+    for g in [g for g in spec.geoms if g.parent.name == "head_tilt" and g.meshname in ("pt_screen", "d415")]:
+        spec.delete(g)
+    d, w, h = (v / 1000.0 for v in TABLET_BODY_MM)
+    front = FACE_X + 0.002                        # the tablet's glass, just proud of the Tab5 cover
+    cx = front - d / 2
+    spec.body("head_tilt").add_geom(name="tablet_placeholder", type=mujoco.mjtGeom.mjGEOM_BOX,
+                                    size=[d / 2, w / 2, h / 2], pos=[cx, FACE_YC, FACE_ZC],
+                                    rgba=[0.08, 0.08, 0.09, 1.0], contype=0, conaffinity=0, group=2,
+                                    density=0)
+    col = next(g for g in spec.geoms if g.name == "head_collision")
+    lo = [min(col.pos[i] - col.size[i], (cx, FACE_YC, FACE_ZC)[i] - (d / 2, w / 2, h / 2)[i]) for i in range(3)]
+    hi = [max(col.pos[i] + col.size[i], (cx, FACE_YC, FACE_ZC)[i] + (d / 2, w / 2, h / 2)[i]) for i in range(3)]
+    col.pos = [(a + b) / 2 for a, b in zip(lo, hi)]
+    col.size = [(b - a) / 2 for a, b in zip(lo, hi)]
+    return front
+
+
+def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
+          head: str | None = None):
+    """`head`: tab5_pantilt or galaxy_tablet; default, the robot description's fitted head."""
     import mujoco
 
     a = find_assets(assets)
@@ -134,7 +182,13 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
     arms = mujoco.MjSpec.from_file(_arm_xml(a))
     ours.meshdir = meshes
     arms.meshdir = meshes
-    if face_screen:
+    head = head or fitted_head()
+    if head == TABLET_HEAD:
+        front = _fit_tablet(ours)
+        if face_screen:
+            pw, ph = (v / 1000.0 for v in TABLET_PANEL_MM)
+            _add_face_screen(ours, pw, ph, front + 0.0005, FACE_YC, FACE_ZC)
+    elif face_screen:
         _add_face_screen(ours)
 
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
@@ -158,8 +212,11 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
 HEAD_MAX_REACH_MM = 200.0     # nothing on the head is further than this from the tilt axis
 
 
-def check_invariants(model) -> list[str]:
-    """Return a list of failures; empty means the geometry is placed as the robot is built."""
+def check_invariants(model, head: str | None = None) -> list[str]:
+    """Return a list of failures; empty means the geometry is placed as the robot is built. With the
+    tablet fitted the Tab5's panel and camera checks do not apply — its placeholder has no CAD."""
+    if (head or fitted_head()) == TABLET_HEAD:
+        return []
     import mujoco
     import numpy as np
 
@@ -230,6 +287,8 @@ def main():
     ap.add_argument("--assets")
     ap.add_argument("--render", metavar="PNG")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--head", choices=(TAB5_HEAD, TABLET_HEAD), default=None,
+                    help="which head (default: the robot description's head_assembly.fitted)")
     ap.add_argument("--view", action="store_true",
                     help="open the interactive viewer (see view.sh)")
     ap.add_argument("--lift", type=float, default=0.0, help="Z-axis height in mm (0..275.1)")
@@ -246,7 +305,7 @@ def main():
 
     import mujoco
 
-    model = build(a.assets, a.chest_cover)
+    model = build(a.assets, a.chest_cover, head=a.head)
     data = mujoco.MjData(model)
     # NOT qpos[0] any more: the chassis freejoint owns the first seven coordinates.
     zaxis = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "zaxis")
@@ -266,11 +325,13 @@ def main():
         mujoco.mj_step(model, data)
 
     print(f"{model.nbody} bodies, {model.njnt} joints, {model.ngeom} geoms")
-    problems = check_invariants(model)
+    problems = check_invariants(model, a.head)
     for msg in problems:
         print(f"FAIL: {msg}", file=sys.stderr)
     if not problems:
-        print("invariants ok — face forward, camera on top, head on its axis, shoulders at height")
+        print("invariants ok — " + ("the TABLET PLACEHOLDER is fitted (no CAD; the Tab5 head checks do not apply)"
+                                    if (a.head or fitted_head()) == TABLET_HEAD else
+                                    "face forward, camera on top, head on its axis, shoulders at height"))
     site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "arm_frame_mount")
     z = data.site_xpos[site][2]
     print(f"lift {a.lift:6.1f} mm -> arm frame base {(z + 0.094) * 1000:7.1f} mm above the floor, "
