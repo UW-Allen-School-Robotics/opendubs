@@ -8,8 +8,8 @@ Written 2026-10-09 as a proposal; **design of record since 2026-10-09** — opti
 1. **Canonical setup: B — upstream-first with a manifest, forking only the `openarm` teleop
    package** (DEC-27). DEC-18 narrows to that one repository; Q9 (mirror ~15 repositories) is
    retired.
-2. **The SSIK desk test** (below) is approved: build the V1 solvers with SSIK 8.1.0 and compare
-   them with the student fork's. Desk only.
+2. **The SSIK desk test** was approved and **is done**: SSIK 8.1.0 solves V1 completely and about
+   100× faster than the fork (below).
 3. **The teleop's author is asked** for licence files (`openarm`, `openarm_impedance_control`),
    consent to send their library changes upstream as credited PRs, and DEC-20's public-fork
    question. **No upstream PR to the lab or enactic is opened until they consent.**
@@ -92,7 +92,7 @@ repository and leaves its URL and commit blank, so it pins nothing yet.
 | `pycbirrt`, `tsr` | personalrobotics, renamed **sscbirrt**, **sstsr** (on PyPI, 3.4.0 / 3.4.1) | unrecorded | clone, uv | MIT / BSD-2 | none |
 | `openarm_assets` | `EricJGoossen/openarm_assets`, original; vendors enactic/openarm_mujoco `v1/` at `5c6e1b4` | unrecorded | clone, uv | MIT (vendored part Apache-2.0) | none |
 | **`openarm`** (teleop bridge, arm factory, V1 IK artifacts) | `EricJGoossen/openarm`, original → **our private copy** | `7fcd3f9` (`0c21ead` merged, deploy pending) | org copy, fetched into the host-mounted checkout by bundle | MIT declared in `pyproject.toml`, **no licence file** | see the next table |
-| `ssik` | `EricJGoossen/ssik`, fork of personalrobotics/ssik: **+1 / −170** (a v3-era base; upstream is **8.1.0 on PyPI**) | unrecorded; a stale branch here pinned upstream `d153492`, *without* the student's fix | path dependency `../ssik`, editable | BSD-3-Clause | the student's fix (a perturbation for OpenArm's degenerate geometry) is not upstream in any form — **yes, after the desk test** |
+| `ssik` | `EricJGoossen/ssik`, fork of personalrobotics/ssik: **+1 / −170** (a v3-era base; upstream is **8.1.0 on PyPI**) | unrecorded; a stale branch here pinned upstream `d153492`, *without* the student's fix | path dependency `../ssik`, editable | BSD-3-Clause | the student's fix (a perturbation for a degenerate geometry) patches a solver the teleop never calls — **not needed**; the desk test shows 8.1.0 solves V1 completely |
 | `mujoco_menagerie` | google-deepmind | unrecorded | clone | per model | none |
 | `software/openarm/patches/` | this repo | — | was `docker cp` + script | this repo's | **superseded**: its one patch (the headless viewer) is in the org copy's `1f0f8f1` |
 
@@ -132,13 +132,62 @@ The intended shape:
 3. Commit the modules along with the command and version that made them.
 4. Send the degenerate-geometry fix upstream if 8.x still needs it.
 
-**The desk test (decision 4):**
-1. Build both V1 modules with SSIK 8.1.0.
-2. Sweep reachable poses against the current modules.
-3. Compare solution counts and FK residuals.
+### The desk test — done, 2026-10-09: SSIK 8.1.0 replaces the fork
 
-If 8.1.0 matches or beats the student's fork, the fork goes. If it loses poses, the fix is the
-first PR to the lab.
+**Method:**
+- **Inputs:** the V1 URDF in `openarm_assets` (`example/v1.urdf` at `71d81a8`), base
+  `openarm_<side>_link0`, end effector `openarm_<side>_hand_tcp`, the frames the teleop's
+  solvers use.
+- **Sampling:** 1000 random configurations per arm inside the URDF's joint limits, seed 0.
+- **Check:** each pose is solved, and every returned solution goes back through **pinocchio's**
+  forward kinematics, independent of SSIK.
+- **Recovered** means some solution lands within 10 µm and 0.1 mrad of the target.
+- Run on the development Mac, single thread.
+
+| | Solver module | SSIK at runtime | Recovered (left / right) | In joint limits | Median solve |
+|---|---|---|---|---|---|
+| A | built by **8.1.0** (`ssik build`) | **8.1.0** (PyPI) | **1000 / 1000** | 1000 / 1000 | **0.08 ms** |
+| B | the student's, committed in `openarm` | 8.1.0 | 1000 / 1000 | 1000 / 1000 | 2.95 ms |
+| C | the student's | the student's fork (`3.1.1.dev5+g176bb35`) | 1000 / 1000 | 1000 / 1000 | 8.1 ms |
+| D (control) | the student's, **other side's** solver | the fork | 0 / 0 | — | 8.0 ms |
+
+What it shows:
+1. **8.1.0 solves V1 completely.** SSIK's own post-build check agreed: 100/100 poses, worst FK
+   error 8×10⁻¹⁵. All three setups return the same mean number of solutions (4.88 left, 4.86
+   right), so they find the same solution set. The control (D) recovers nothing, so the test does
+   tell the arms apart.
+2. **The fork's fix is not needed by anything the teleop runs.** It patches the Raghavan–Roth
+   solver. Both the student's solvers and 8.1.0's select `seven_r.srs` (OpenArm V1's shoulder
+   axes and wrist axes each meet at a point, SSIK's build log says), which never calls it. The
+   student's earlier 10/50 and 5/50 figures (in `scripts/verify_ik_artifact.py`) were not
+   reproduced here; they presumably came from a build that did not select `seven_r.srs`. So the fix
+   is not a PR the teleop depends on; offer it to the lab only if the student wants to.
+3. **Speed matters here.** The teleop's arm controller calls `ik.solve` on **every control step
+   while a grip is engaged** (`mj_manipulator` `TeleopController._step_pose`). The loop runs at
+   150 Hz, a 6.7 ms budget per tick. The fork's 8.1 ms median exceeds that on this machine, and
+   8.1.0 uses about 1% of it. **Not yet measured on the Thor.** It is a plausible contributor to
+   the lag felt while gripping. Verify by reading the loop-health readout while engaged, before
+   and after.
+4. **A solver module is tied to the SSIK version that built it.** The modules import SSIK
+   internals (`ssik._kinbody`, `ssik.solvers.seven_r…`). The student's ran on 8.1.0 here, but
+   that is luck, not a contract. So the solver modules are regenerated whenever `ssik` is bumped,
+   from the pinned URDF, by one recorded command:
+   `ssik build v1.urdf --base openarm_<side>_link0 --ee openarm_<side>_hand_tcp` (with
+   `ssik[urdf]==8.1.0`).
+5. **The provenance hashes cross:** 8.1.0's left chain hash equals the student's right solver's,
+   and vice versa. Both sets' home poses match the URDF on the correct side, and the control shows
+   each solver fits only its own arm. So this is a difference in how the two versions hash, not
+   swapped solvers. Noted, not chased.
+
+**What this means for DEC-27:**
+- Pin `ssik[urdf]==8.1.0`.
+- Regenerate both modules in the org `openarm` with the command above, against the same URDF.
+- Drop the fork and its `../ssik` path dependency.
+- Nothing about SSIK needs an upstream PR.
+
+The swap is a change to the teleop package, and a robot-visible one (faster IK). So it goes as a
+PR on the org `openarm` once DEC-27's work starts, and is checked on the robot like any other
+change.
 
 ## The options
 
@@ -179,8 +228,8 @@ in the org.
    `mj_manipulator_ros`, `ssik`, `sstsr` and `sscbirrt` from personalrobotics at releases (PyPI
    where it exists).
    - The student's generic changes go to the lab as PRs, credited to the author and ideally
-     submitted by them: ArmGroup, the hardware context, the environment fix, and the SSIK fix if
-     the desk test still needs it.
+     submitted by them: ArmGroup, the hardware context, and the environment fix. The SSIK fix is not
+     needed (the desk test).
    - Until they merge, each is a `.patch` in the manifest's overlay, against the pinned upstream
      commit. These are a handful of small, stable changes, unlike the teleop.
 2. **enactic at releases.** A1 is a PR to `openarm_ros2`, carried as one patch until it merges.
@@ -256,12 +305,12 @@ deserves a comparison. It is not a canonical setup for this robot.
   tips were, with nothing pinned.
 
 **What B needs first,** in order, all at the desk except the read-only capture:
-1. The author's licence and consent (decision 2).
-2. The SSIK desk test (decision 4).
+1. The author's licence and consent.
+2. ~~The SSIK desk test~~ — done: 8.1.0 replaces the fork.
 3. `capture-pins.sh` on opendubs2, read-only, at the next robot session, to learn what actually
    runs.
 4. One PR to the lab with ArmGroup, since the bridge cannot use upstream `mj_manipulator` without
-   it.
+   it — after the author consents.
 
 ## Open facts
 
@@ -275,6 +324,5 @@ deserves a comparison. It is not a canonical setup for this robot.
 - The commits of every repository except `openarm` on opendubs2, and whether any has uncommitted
   changes. `capture-pins.sh` refuses a dirty one, which is the point.
 - Which SSIK the robot mounts: the student's fork with the fix, or `d153492` without it.
-- Whether SSIK 8.1.0 solves V1 at least as well as the fork (the desk test).
 - Whether the lab and enactic will take the PRs. Both are active (pushed this week), and SSIK has a
   `CONTRIBUTING.md`.
