@@ -29,8 +29,9 @@ Each output is held under MAXKB (default 300, per docs/assets/build/README.md) b
 stepping quality down from QUALITY until it fits. Set MAXKB=0 to disable and encode
 at QUALITY flat.
 
-Re-encoding drops most camera metadata, including GPS. Photos shot in a lab still
-carry EXIF in the ORIGINALS on Drive — this only scrubs the copies in the repo.
+The output carries no camera metadata: Pillow writes no EXIF unless asked, so the GPS
+position a phone records is dropped, and the rotation flag is applied to the pixels first.
+The originals on Drive still carry theirs — this only scrubs the copies in the repo.
 """
 
 import io

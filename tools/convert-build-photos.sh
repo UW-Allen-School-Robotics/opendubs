@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Convert + resize the DESIGNATED build photos into a module's web-ready assets
-# folder. Uses macOS `sips` (built in — no install). ONLY files listed in the
+# folder. Uses macOS `sips`, then `exiftool` to strip the camera metadata — a phone photo
+# carries the GPS position it was taken at, and these are published. ONLY files listed in the
 # manifest are processed — that manifest is how you designate which of the many
 # shots on Drive actually make the guide, and what each becomes.
 #
@@ -29,7 +30,10 @@ if [[ $# -ne 3 ]]; then
 fi
 staging="$1"; manifest="$2"; out="$3"
 
-command -v sips >/dev/null || { echo "sips not found (macOS only). Use ImageMagick otherwise." >&2; exit 1; }
+command -v sips >/dev/null || { echo "sips not found (macOS only). Use tools/convert_build_photos.py otherwise." >&2; exit 1; }
+# Required, not optional: sips keeps the source's EXIF, GPS position included.
+command -v exiftool >/dev/null || { echo "exiftool not found (brew install exiftool) — it strips the GPS" \
+  "and camera metadata sips keeps. Or use tools/convert_build_photos.py, which writes none." >&2; exit 1; }
 [[ -d "$staging" ]] || { echo "staging dir not found: $staging" >&2; exit 1; }
 [[ -f "$manifest" ]] || { echo "manifest not found: $manifest" >&2; exit 1; }
 mkdir -p "$out"
@@ -40,10 +44,12 @@ while read -r src dst _rest; do
   in="$staging/$src"
   if [[ ! -f "$in" ]]; then echo "  MISSING  $src" >&2; miss=$((miss+1)); continue; fi
   sips -s format jpeg -Z "$MAXPX" "$in" --out "$out/$dst" >/dev/null
+  # Drop every tag except the two the browser needs to show the photo as shot: the colour profile,
+  # and Orientation (sips does not rotate the pixels, so stripping it would show some sideways).
+  exiftool -q -all= -tagsfromfile @ -ICC_Profile -Orientation -overwrite_original "$out/$dst" 2>/dev/null
   echo "  ok       $src  ->  $dst"
   n=$((n+1))
 done < "$manifest"
 
-echo "converted $n file(s) into $out${miss:+  ($miss missing)}"
-echo "note: sips re-encodes and drops most camera metadata; if you need a hard EXIF/GPS"
-echo "      scrub, run: exiftool -all= \"$out\"/*.jpg   (if exiftool is installed)"
+missing=""; [[ $miss -gt 0 ]] && missing="  ($miss missing)"
+echo "converted $n file(s) into $out, camera metadata and GPS stripped$missing"

@@ -6,7 +6,12 @@ step photos — the raw shoot stays on the team Drive; only chosen shots get com
 
 ## Prep
 - **Convert HEIC → JPG/WebP** (phone photos are HEIC; browsers don't render them).
-- **Resize** to ~1600 px on the long edge, aim **< 300 KB**; strip EXIF.
+- **Resize** to ~1600 px on the long edge, aim **< 300 KB**.
+- **Strip the metadata.** A phone photo records where it was taken, and these are published.
+  Both converters do it: `tools/convert_build_photos.py` (any platform) writes none, and
+  `tools/convert-build-photos.sh` (macOS) requires `exiftool` and runs it. Check before
+  committing: `exiftool -if '$GPSLatitude' -p '$FileName' docs/assets/build/<module>` must print
+  nothing.
 - Run `tools/convert-build-photos.sh <staging-dir> docs/assets/build/<module>/photos.manifest docs/assets/build/<module>`.
 
 ## Naming
