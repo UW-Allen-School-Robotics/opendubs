@@ -1,0 +1,29 @@
+# Every source repository the openarm image is built from, at the exact commit it is built at.
+# Written by capture-pins.sh on a robot whose arm stack is known good; build.sh refuses while any
+# URL or commit below is blank. Layout matches upstream's setup.sh: siblings live inside the
+# top-level checkout, ssik beside it.
+#
+# kind:  top  the top-level workspace checkout (becomes /openarm_ws/src)
+#        uv   a Python workspace member (marked COLCON_IGNORE)
+#        ros  a colcon package
+#        asset a model or data repository (marked COLCON_IGNORE)
+#        ssik the IK library, mounted beside the workspace (/openarm_ws/ssik)
+#
+# name                     kind   url                                                         commit
+openarm_robot-code         top
+asset_manager              uv
+mj_environment             uv
+mj_manipulator             uv
+mj_viser                   uv
+prl_assets                 uv
+pycbirrt                   uv
+tsr                        uv
+openarm_assets             uv
+openarm                    uv
+mj_manipulator_ros         ros
+openarm_impedance_control  ros
+rosbag_recorder            ros
+openarm_ros2               ros
+openarm_description        ros
+mujoco_menagerie           asset
+ssik                       ssik
