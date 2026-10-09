@@ -21,8 +21,24 @@ ssh "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST_RO
 # and the files the arm view needs are copied as real files just below.
 rsync -az --delete \
   --exclude '__pycache__' --exclude '*.pyc' --exclude '.venv' \
-  --exclude 'frontend/assets/arm' \
+  --exclude 'frontend/assets/arm' --exclude 'docs-site' \
   "$SRC" "$HOST:$DEST/"
+
+# The docs, served by the dashboard at /docs/ so the "?" beside a refusal opens its troubleshooting
+# entry with no internet, at the version being deployed. Built here so the robot never needs MkDocs.
+# A failed build warns and the deploy carries on: the docs must never hold back a dashboard fix.
+REPO="$SRC../.."
+if command -v mkdocs >/dev/null 2>&1; then
+  DOCS_TMP="$(mktemp -d)"
+  if (cd "$REPO" && mkdocs build -q -d "$DOCS_TMP/site"); then
+    rsync -az --delete "$DOCS_TMP/site/" "$HOST:$DEST/docs-site/"
+  else
+    echo "!! docs build failed — deploying without updating the robot's /docs/" >&2
+  fi
+  rm -rf "$DOCS_TMP"
+else
+  echo "!! mkdocs not installed (pip install mkdocs-material) — deploying without updating the robot's /docs/" >&2
+fi
 
 # The arm view's model: chain.json plus the collision meshes it references, from the single robot
 # description (description/openarm). Visual meshes and the MJCF are not needed on the robot.

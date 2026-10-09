@@ -158,7 +158,8 @@ satisfy, but there is something worse: following a docs link unloads the dashboa
 the show audio, a teleop session, the microphone grant — and the only way back is the Back gesture
 (`onBackPressed` → `goBack()`), on a tablet with its system bars hidden.
 
-So `helpLink(code)` (one helper in `app.js`, shared) renders a small "?" that opens a **side sheet
+So `helpLink(code)` (one helper in `app.js`, shared; `setHelp(el, code)` keeps one beside an
+element that updates every frame) renders a small "?" that opens a **side sheet
 with a same-origin iframe** of `/docs/reference/troubleshooting/#<code>`, and a Close button. The
 dashboard never navigates. Two hard rules for the sheet:
 
@@ -170,11 +171,11 @@ iframe of GitHub Pages would need the internet and is outside the page's origin.
 
 ### 6. Docs served from the Thor
 
-`deploy.sh` already runs on the dev machine and `rsync`s the frontend. It gains one step:
-`mkdocs build -d <tmp>` there, then `rsync` the result to `frontend/docs/` on the Thor — with a
-protect filter, as `shows/audio` already has, so the frontend's `--delete` does not remove it. The
-existing static mount (`app.py:492`, `html=True`) then serves `/docs/` with **no backend change**,
-on both 8080 and 8443.
+`deploy.sh` already runs on the dev machine and `rsync`s the dashboard. It gains one step:
+`mkdocs build -d <tmp>` there, then `rsync` the result to `kiosk-dashboard/docs-site/` on the Thor,
+excluded from the main sync's `--delete`. `app.py` mounts it at `/docs` when the directory exists,
+on both 8080 and 8443. It is deliberately **not** under `frontend/`: `/api/frontend-version` hashes
+every file there, so 35 MB of pages would slow it and reload the tablet on every deploy.
 
 What that buys: links work with no internet; the docs match the deployed code exactly, because they
 were built from the same checkout; and they are on the dashboard's own origin, which the kiosk

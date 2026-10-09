@@ -63,16 +63,18 @@ class Supervisor:
     def estop_rearm_guard(self, *, button_pressed, stale, welded, authority):
         """Guard for software e-stop re-arm (review R4/§5.4). SOFTWARE is being
         cleared by the action itself, so it is NOT a blocker; the *physical* and
-        verification conditions are. Returns (ok, [blocker strings])."""
+        verification conditions are. Returns (ok, [(code, sentence)]); each code names its
+        entry in the troubleshooting registry (docs/reference/registry/)."""
         blockers = []
         if button_pressed:
-            blockers.append("E-STOP BUTTON still pressed")
+            blockers.append(("ESTOP_BUTTON", "E-STOP BUTTON still pressed"))      # @fault ESTOP_BUTTON
         if stale:
-            blockers.append("STALE TELEMETRY (safety state unknown)")
+            blockers.append(("LINK_STAMPLC_LOST",                                 # @fault LINK_STAMPLC_LOST
+                             "STALE TELEMETRY (safety state unknown)"))
         if welded:
-            blockers.append("CONTACTOR WELDED")
+            blockers.append(("CONTACTOR_WELDED", "CONTACTOR WELDED"))             # @fault CONTACTOR_WELDED
         if authority not in (None, "OFF"):
-            blockers.append("CH5 not OFF")
+            blockers.append(("ESTOP_REARM_CH5", "CH5 not OFF"))                   # @fault ESTOP_REARM_CH5
         return (not blockers), blockers
 
     # ---- event log --------------------------------------------------------

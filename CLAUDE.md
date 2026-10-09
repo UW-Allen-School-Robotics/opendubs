@@ -202,8 +202,9 @@ The troubleshooting page and the glossary (`docs/reference/`) are generated from
 usage are at the top of `tools/faults.py`.
 1. Add the entry to **your lane's** registry file: a stable `code` (an `ARM_`, `SHOW_`, `HEAD_`…
    prefix), a `symptom` from `symptoms.yaml`, what it `means`, and what to `do`.
-2. Name the code where the operator meets it: `refuse("CODE", …)` in the dashboard backend,
-   `helpLink("CODE")` in the frontend, or an `@fault CODE` comment anywhere else.
+2. Name the code where the operator meets it: `refuse("CODE", …)` in the dashboard backend
+   (`backend/refusals.py`), `helpLink("CODE")` or `setHelp(el, "CODE")` in the frontend
+   (`app.js`), or an `@fault CODE` comment anywhere else.
 3. `uv run tools/faults.py --inject`, then `--check` → must print `OK`. CI fails on a code the
    source uses that the registry lacks.
 

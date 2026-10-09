@@ -148,6 +148,77 @@ function confirmButton(btn, opts) {
   });
 }
 
+/* ---------- "?" — the troubleshooting entry for a refusal or a fault ----------
+   helpLink("CODE") makes a "?" that opens that code's entry in the troubleshooting docs
+   (docs/reference/registry/). It opens in a side sheet, never by navigating: the kiosk app
+   opens every link in place of the dashboard, which would drop the websocket, a show's audio
+   and a teleop session. The sheet sits below the top bar, so E-STOP stays in reach.
+   The docs come from the robot (/docs/, deployed with the dashboard) so they work with no
+   internet and match the deployed code; a dashboard run without them falls back to the
+   public site. `tools/faults.py --check` fails CI if a code named here is not registered. */
+const HELP_PUBLIC = "https://uw-allen-school-robotics.github.io/opendubs/";
+let helpBase = null;                       // resolved on first use: "/docs/" or HELP_PUBLIC
+async function resolveHelpBase() {
+  if (helpBase) return helpBase;
+  try {
+    const r = await fetch("/docs/reference/troubleshooting/", { method: "HEAD" });
+    helpBase = r.ok ? "/docs/" : HELP_PUBLIC;
+  } catch (e) { helpBase = HELP_PUBLIC; }
+  return helpBase;
+}
+const helpAnchor = (code) => code.toLowerCase().replace(/_/g, "-");
+
+function helpLink(code) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "help-q"; b.textContent = "?";
+  b.dataset.code = code; b.title = "What this means";
+  return b;
+}
+// Keep a "?" beside `el` showing `code`, or hide it when code is null. Safe to call every frame.
+function setHelp(el, code) {
+  if (!el) return;
+  let q = el.nextElementSibling;
+  if (!(q && q.classList.contains("help-q"))) {
+    if (!code) return;
+    q = helpLink(code); el.after(q);
+  }
+  if (code) { q.dataset.code = code; q.hidden = false; } else q.hidden = true;
+}
+
+async function openHelp(code) {
+  let sheet = $("helpSheet");
+  if (!sheet) {
+    sheet = document.createElement("aside");
+    sheet.id = "helpSheet"; sheet.setAttribute("aria-label", "Troubleshooting");
+    sheet.innerHTML = '<div class="help-bar"><span class="help-code"></span>'
+      + '<button type="button" class="help-close">CLOSE</button></div><iframe title="Troubleshooting"></iframe>';
+    sheet.querySelector(".help-close").addEventListener("click", () => sheet.classList.remove("open"));
+    document.body.appendChild(sheet);
+  }
+  const bar = $("topbar");
+  sheet.style.top = (bar ? Math.max(0, bar.getBoundingClientRect().bottom) : 0) + "px";
+  sheet.querySelector(".help-code").textContent = code;
+  sheet.querySelector("iframe").src =
+    (await resolveHelpBase()) + "reference/troubleshooting/#" + helpAnchor(code);
+  sheet.classList.add("open");
+}
+document.addEventListener("click", (ev) => {
+  const q = ev.target.closest && ev.target.closest(".help-q");
+  if (q) { ev.preventDefault(); ev.stopPropagation(); openHelp(q.dataset.code); }
+});
+Object.assign(window, { helpLink, setHelp, openHelp });
+
+// The e-stop sources the backend reports (status.py), by their troubleshooting codes.
+const ESTOP_SOURCE_CODE = {
+  "SOFTWARE": "ESTOP_SOFTWARE",            // @fault ESTOP_SOFTWARE
+  "BUTTON": "ESTOP_BUTTON",                // @fault ESTOP_BUTTON
+  "STALE TELEMETRY": "LINK_STAMPLC_LOST",  // @fault LINK_STAMPLC_LOST
+};
+const estopCode = (source) => {
+  const first = (source || "").split(" + ")[0];
+  return ESTOP_SOURCE_CODE[first] || null;
+};
+
 /* ---------- E-STOP / re-arm (STAMPLC + safety) ---------- */
 // E-STOP is the safe direction → single tap fires immediately (no arming delay).
 const estopBtn = $("btnEstop");
@@ -163,6 +234,25 @@ confirmButton($("btnEstopClear"), {
   url: () => "/api/estop/clear",
   confirm: "CONFIRM RE-ARM", pending: "RE-ARMING…",
   label: () => { $("btnEstopClear").textContent = "RE-ARM"; },
+  // A refused re-arm lists why, each reason with its "?". Cleared by the next accepted one.
+  onResponse: async (r) => {
+    const btn = $("btnEstopClear");
+    let why = $("rearmWhy");
+    if (!why && btn) { why = document.createElement("div"); why.id = "rearmWhy"; why.className = "help-why"; btn.after(why); }
+    if (!why) return;
+    why.replaceChildren();
+    if (!r || r.ok) return;
+    let j = {};
+    try { j = await r.json(); } catch (e) {}
+    const lines = j.blockers || [j.error || `refused (HTTP ${r.status})`];
+    lines.forEach((txt, i) => {
+      const row = document.createElement("div");
+      row.textContent = "RE-ARM REFUSED · " + txt;
+      why.appendChild(row);
+      const code = (j.codes || [])[i];
+      if (code) row.appendChild(helpLink(code));
+    });
+  },
 });
 
 /* ---------- I²C full bus scan (on-demand — STAMPLC page) ---------- */
@@ -453,12 +543,17 @@ function renderRobotState(rs) {
   const inp = rs.inputs || {};
   setChip("inAuth", inp.authority || "—",
     inp.authority === "AUTONOMOUS" ? "cyan" : inp.authority === "RC_MANUAL" ? "ok" : "dim");
+  setHelp($("inAuth"), inp.authority === "OFF" ? "RC_AUTHORITY_OFF" : null);
   setChip("inDead", inp.deadman == null ? "—" : inp.deadman ? "ARMED" : "OFF", inp.deadman ? "ok" : "bad");
+  setHelp($("inDead"), inp.deadman === false ? "DRIVE_DEADMAN" : null);
   const src = (inp.estop_sources && inp.estop_sources.length) ? inp.estop_sources.join(" + ") : null;
   setChip("inSafe", src ? src : "clear", src ? "bad" : "ok");
+  setHelp($("inSafe"), estopCode(src));
   setChip("inLink", inp.link ? "OK" : "NO LINK", inp.link ? "ok" : "bad");
+  setHelp($("inLink"), inp.link === false ? "RC_NO_LINK" : null);
   setChip("inContactor", inp.contactor == null ? "—" : inp.contactor ? "ENERGIZED" : "OPEN",
     inp.contactor ? "ok" : "dim");
+  setHelp($("inContactor"), inp.contactor === false ? "CONTACTOR_OPEN" : null);
   setChip("inMotion", inp.motion_enabled == null ? "—" : inp.motion_enabled ? "ENABLED" : "INHIBITED",
     inp.motion_enabled ? "ok" : "bad");
   setChip("inCharger", inp.charging == null ? "—" : inp.charging ? "CHARGING" : "none",
@@ -643,6 +738,7 @@ function renderStatus(st) {
     else { cls = "warn"; txt = "DISARMED"; }
     banner.className = "safety-banner " + cls;
     sbState.textContent = txt;
+    setHelp(sbState, sf.fresh && sf.estopped ? estopCode(sf.source) : null);
     $("sbContactor").textContent = sf.contactor == null ? "—" : sf.contactor ? "energized" : "open";
     $("sbBtn").textContent = sf.estop_button == null ? "—" : sf.estop_button ? "PRESSED" : "clear";
     $("sbSw").textContent = sf.software_estop == null ? "—" : sf.software_estop ? "LATCHED" : "clear";
@@ -732,6 +828,7 @@ function renderStamPLC(st) {
     else if (sf.estopped) { ss.textContent = "E-STOPPED · " + (sf.source || "?"); ss.className = "badge bad"; }
     else if (sf.motion_enabled) { ss.textContent = "MOTION ENABLED"; ss.className = "badge good"; }
     else { ss.textContent = "DISARMED"; ss.className = "badge warn"; }
+    setHelp(ss, io.fresh && sf.estopped ? estopCode(sf.source) : null);
   }
   const yn = (v) => v == null ? "—" : v ? "yes" : "no";
   if ($("safContactor")) $("safContactor").textContent = sf.contactor == null ? "—" : sf.contactor ? "energized" : "open";
@@ -776,7 +873,11 @@ function renderStamPLC(st) {
     const d0 = st.drive || {};
     const waiting = d0.drive_safe === false;
     nr.hidden = !waiting;
-    nr.textContent = waiting ? "ROBOT NOT READY — settling, motion is disabled" : "";
+    // Text in its own span, so the "?" beside it survives the update.
+    let t = nr.querySelector(".nr-txt");
+    if (!t) { nr.textContent = ""; t = document.createElement("span"); t.className = "nr-txt"; nr.appendChild(t); }
+    t.textContent = waiting ? "ROBOT NOT READY — settling, motion is disabled" : "";
+    setHelp(t, waiting ? "DRIVE_NOT_READY" : null);
   }
 
   // Z-axis readout: measured height and the pinch guard's state. "no sensor" is shown
