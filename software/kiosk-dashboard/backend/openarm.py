@@ -14,6 +14,9 @@ each other is a collision, not a queue.
 """
 from __future__ import annotations
 
+import json
+import os
+import socket
 import subprocess
 import threading
 import time
@@ -28,7 +31,14 @@ TELEOP_MATCH = "openarm.demos"
 # would put avoidable traffic on a control bus, so it is cached.
 _MOTOR_TTL = 4.0
 
+# The teleop bridge's per-hand status (its status.py): one JSON datagram to this port on localhost
+# every 0.25 s, and at once when a hand's condition changes. Older than _TELEOP_STALE_S is "the
+# bridge is not reporting", not "nothing is wrong".
+TELEOP_STATUS_PORT = int(os.environ.get("OPENDUBS_TELEOP_STATUS_PORT", "5011"))
+_TELEOP_STALE_S = 1.5
+
 _lock = threading.Lock()
+_teleop_rx = {"started": False, "at": 0.0, "data": None, "error": None}
 _op = {"running": False, "name": None, "started": 0.0, "rc": None, "out": "", "error": None}
 _motors = {"at": 0.0, "text": "", "error": None}
 
@@ -159,6 +169,53 @@ def _teleop_running():
         return None                                  # unknown, not "no"
 
 
+def _teleop_listen():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", TELEOP_STATUS_PORT))
+    except OSError as e:
+        with _lock:
+            _teleop_rx["error"] = f"cannot listen on 127.0.0.1:{TELEOP_STATUS_PORT}: {e}"
+        return
+    while True:
+        try:
+            data = json.loads(s.recv(65535))
+        except (OSError, ValueError):
+            continue                                 # a bad datagram is skipped, not fatal
+        with _lock:
+            _teleop_rx.update({"at": time.time(), "data": data})
+
+
+def teleop_status():
+    """The bridge's latest per-hand report, or why there is none. Cheap: no CAN, no shell."""
+    with _lock:
+        if not _teleop_rx["started"]:
+            _teleop_rx["started"] = True
+            threading.Thread(target=_teleop_listen, name="teleop-status", daemon=True).start()
+        rx = dict(_teleop_rx)
+    if rx["error"]:
+        return {"available": False, "reason": rx["error"]}
+    age = time.time() - rx["at"]
+    if rx["data"] is None or age > _TELEOP_STALE_S:
+        return {"available": False, "reason": "the bridge is not reporting"}
+    return dict(rx["data"], available=True, age_s=round(age, 2))
+
+
+_GRIPPER_TIMEOUT = "Timed out waiting for"
+
+
+def _last_exit(lines):
+    """Why the last bridge run ended, when it is one the operator can fix. The one known case is
+    upstream's gripper action-server timeout, which happens before the bridge can report."""
+    for line in reversed(lines or []):
+        if _GRIPPER_TIMEOUT in line and "gripper" in line:
+            return {"code": "ARM_TELEOP_GRIPPER_TIMEOUT",    # @fault ARM_TELEOP_GRIPPER_TIMEOUT
+                    "text": line.strip()[-160:]}
+        if line.startswith("Started "):              # systemd's line: the last run began here
+            break
+    return None
+
+
 def _port_open(port):
     import socket
     s = socket.socket()
@@ -174,23 +231,29 @@ _LOOP_RE = __import__("re").compile(
     r"worst overrun \+(?P<worst>[\d.]+)ms")
 
 
-def _loop_health():
+def _journal_tail():
+    """The bridge's last 60 journal lines, or None when the journal cannot be read."""
+    try:
+        r = _run(["journalctl", "-u", TELEOP_UNIT, "-n", "60", "--no-pager", "-o", "cat"], 8)
+    except Exception:                                # noqa: BLE001
+        return None
+    # A failure usually means the dashboard user is not in `systemd-journal`. Not fatal, and not
+    # worth a sudo rule for a read.
+    return r.stdout.splitlines() if r.returncode == 0 else None
+
+
+def _loop_health(lines):
     """The teleop loop's own overrun warning, pulled out of the journal.
 
     This number was buried in a container log needing `docker exec` to read, and it is the
     difference between "teleop feels vague" and "the loop is missing 23% of its deadlines". It
     belongs on the screen. Absent is normal and GOOD: the loop only warns when it is late.
     """
-    try:
-        r = _run(["journalctl", "-u", TELEOP_UNIT, "-n", "60", "--no-pager", "-o", "cat"], 8)
-    except Exception:                                # noqa: BLE001
-        return None
-    if r.returncode != 0:
-        # Usually means the dashboard user is not in `systemd-journal`. Not fatal, and not worth
-        # a sudo rule for a read -- say nothing rather than claim the loop is healthy.
+    if lines is None:
+        # Say nothing rather than claim the loop is healthy.
         return {"available": False, "reason": "journal not readable"}
     last = None
-    for line in r.stdout.splitlines():
+    for line in lines:
         m = _LOOP_RE.search(line)
         if m:
             last = m
@@ -210,6 +273,7 @@ def snapshot():
         if v.isdigit():
             counts[k] = int(v)
     teleop = _teleop_running()
+    journal = _journal_tail()
     return {
         "op": op_status(),
         "motors": counts or None,
@@ -217,10 +281,12 @@ def snapshot():
         # Energized is the honest word: it says the motors are live, which is what matters before
         # anyone puts a hand near the arm. It does NOT mean a controller is commanding them.
         "energized": (counts.get("enabled", 0) > 0) if counts else None,
-        "loop": _loop_health(),
+        "loop": _loop_health(journal),
         "teleop": {
             "running": teleop,
             "page": _port_open(8444),      # HTTPS page the Quest loads
             "poses": _port_open(8766),     # WSS pose channel
+            # Only when stopped: a running bridge reports for itself (teleop_status).
+            "last_exit": None if teleop else _last_exit(journal),
         },
     }

@@ -173,6 +173,14 @@ def arms_op(op: str, arm: str = "both") -> JSONResponse:
     return JSONResponse({"ok": True, "started": detail, "poll": "/api/arms/status"})
 
 
+@app.get("/api/arms/teleop")
+def arms_teleop() -> JSONResponse:
+    """The teleop bridge's per-hand state -- why a grip, a home or a target is being refused.
+    Cheap (no CAN, no shell), so the TELEOP page polls it fast while the bridge runs."""
+    import openarm
+    return JSONResponse(openarm.teleop_status())
+
+
 @app.post("/api/teleop/{verb}")
 def teleop_control(verb: str) -> JSONResponse:
     """Start or stop the WebXR teleop bridge via its systemd unit.

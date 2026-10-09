@@ -3,7 +3,7 @@
  * A module because armview.js is one; app.js stays a classic script, so the two meet through a
  * couple of globals (window.onJointStates in, window.confirmButton out) rather than a rewrite.
  */
-import { ArmView } from "./armview.js?v=005dc331";
+import { ArmView } from "./armview.js?v=39c54689";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("armCanvas");
@@ -246,6 +246,8 @@ function paintStatus(s) {
 
   badge($("tpSessionState"), up ? (lastJointMs ? "ARMS LIVE" : "NO JOINT DATA") : "NOT RUNNING",
         up && lastJointMs ? "good" : "dimbadge");
+  teleopUp = up;
+  lastExit = t.last_exit || null;
 }
 
 async function pollStatus() {
@@ -275,9 +277,100 @@ async function pollStatus() {
   } catch (e) { /* dashboard backend down; the rest of the page already says so */ }
 }
 
+/* ---- the bridge's own per-hand report: what is holding each hand back -------------------------
+ * A grip refused because CH5 is not MANUAL, a hand whose pose stopped arriving, a refused home and
+ * an unreachable target were only in the bridge's journal, so a grip that "did nothing" gave no
+ * reason. The bridge now reports each hand's current condition with its troubleshooting code; this
+ * shows it, fast, from an endpoint that costs no CAN traffic. */
+// The codes the bridge sends (its status.py), and the two this page adds:
+// @fault ARM_TELEOP_TRACKING_LOST @fault ARM_TELEOP_GRIP_REFUSED_MODE @fault ARM_TELEOP_STOPPED_MODE
+// @fault ARM_TELEOP_HOME_REFUSED @fault ARM_TELEOP_UNREACHABLE
+// @fault ARM_TELEOP_CERT_NOT_ACCEPTED @fault ARM_TELEOP_GRIPPER_TIMEOUT
+let teleopUp = false;          // from the status poll
+let lastExit = null;           // why the last bridge run ended, when stopped and known
+let notesKey = "";
+
+const SIDE_LABEL = { left: "L", right: "R" };
+
+function paintHands(h) {
+  const live = h && h.available;
+  for (const side of ["left", "right"]) {
+    const tile = $(side === "left" ? "tpHandL" : "tpHandR");
+    if (!tile) continue;
+    const s = live ? h.hands[side] : null;
+    tile.classList.toggle("tracked", !!(s && s.tracked));
+    tile.classList.toggle("engaged", !!(s && s.engaged));
+    tile.classList.toggle("held", !!(s && s.notice && s.notice.code));
+    tile.querySelector(".dot").textContent = s && s.tracked ? "●" : "○";
+    tile.querySelector(".sub").textContent = `${SIDE_LABEL[side]} hand` + (
+      !s ? "" : s.engaged ? " — GRIPPING" : s.homing ? " — HOMING" : s.tracked ? " — ready" : " — no data");
+  }
+
+  // [text, cls, code] rows; rebuilt only when they change, so a "?" stays tappable.
+  const rows = [];
+  const MODE_CODES = ["ARM_TELEOP_GRIP_REFUSED_MODE", "ARM_TELEOP_STOPPED_MODE"];
+  if (live) {
+    const handSaysMode = ["left", "right"].some((k) => MODE_CODES.includes(h.hands[k]?.notice?.code));
+    if (h.mode !== "manual" && !handSaysMode) {
+      rows.push([`CH5 is ${String(h.mode).toUpperCase()} — the arms follow only in MANUAL`,
+                 "warnx", "ARM_TELEOP_GRIP_REFUSED_MODE"]);
+    }
+    for (const side of ["left", "right"]) {
+      const s = h.hands[side];
+      if (!s) continue;
+      if (s.notice) {
+        // No code is "no pose data yet": the page is not open, or its certificate was never accepted.
+        rows.push([`${SIDE_LABEL[side]}: ${s.notice.text}`, s.notice.code ? "badx" : "warnx",
+                   s.notice.code || "ARM_TELEOP_CERT_NOT_ACCEPTED", s.notice.detail]);
+      } else if (s.last) {
+        rows.push([`${SIDE_LABEL[side]}: cleared ${Math.round(s.last.cleared_s)} s ago — ${s.last.text}`,
+                   "sub", s.last.code]);
+      }
+    }
+  } else if (teleopUp) {
+    rows.push([(h && h.reason) || "the bridge is not reporting", "sub", null]);
+  } else if (lastExit) {
+    rows.push([`last run ended: ${lastExit.text}`, "badx", lastExit.code]);
+  }
+
+  const key = JSON.stringify(rows);
+  if (key === notesKey) return;
+  notesKey = key;
+  const box = $("tpNotices");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const [text, cls, code, detail] of rows) {
+    const d = document.createElement("div");
+    const t = document.createElement("span");
+    d.className = cls;
+    t.textContent = text.replace(/ -- /g, " — ");
+    d.append(t);
+    box.append(d);
+    if (code) setHelp(t, code);
+    if (detail) {                // a tablet has no hover, so the diagnosis is a line, not a tooltip
+      const x = document.createElement("div");
+      x.className = "sub tp-detail";
+      x.textContent = detail;
+      box.append(x);
+    }
+  }
+}
+
+async function pollHands() {
+  try {
+    const r = await fetch("/api/arms/teleop", { cache: "no-store" });
+    paintHands(r.ok ? await r.json() : null);
+  } catch (e) { paintHands(null); }
+}
+
 boot();
 wire();
 // Every second while an arm action runs, so its elapsed time moves; every two otherwise.
 (function loop() {
   pollStatus().finally(() => setTimeout(loop, lastOp && lastOp.running ? 1000 : 2000));
+})();
+// The hands' report: well inside a second while the bridge runs, so a refused grip is on screen
+// by the time the operator looks up.
+(function handLoop() {
+  pollHands().finally(() => setTimeout(handLoop, teleopUp ? 400 : 2000));
 })();
