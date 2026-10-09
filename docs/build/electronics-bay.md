@@ -119,7 +119,7 @@ The bay's bus + wiring layout — pan/zoom the live board:
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [goBILDA PRISM light controller](https://www.gobilda.com/) | — | 1 | In the bay; fed by the REV Mini Power Module; goBILDA I2C |
+| [goBILDA PRISM light controller](https://www.gobilda.com/prism-rgb-led-driver-6-30v-input-i2c-pwm-control/) | — | 1 | In the bay; fed by the REV Mini Power Module; goBILDA I2C |
 
 **Mounting**
 

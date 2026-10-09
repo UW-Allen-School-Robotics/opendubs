@@ -92,8 +92,8 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [U-channel, 25-hole, 624 mm](https://www.servocity.com) | `1120-0025-0624` | 2 | Frame long side rails |
-| [U-channel, 17-hole, 432 mm](https://www.servocity.com) | `1120-0017-0432` | 3 | Cross rails (three lower-rail assemblies) |
+| [U-channel, 25-hole, 624 mm](https://www.gobilda.com/1120-series-u-channel-25-hole-624mm-length/) | `1120-0025-0624` | 2 | Frame long side rails |
+| [U-channel, 17-hole, 432 mm](https://www.gobilda.com/1120-series-u-channel-17-hole-432mm-length/) | `1120-0017-0432` | 3 | Cross rails (three lower-rail assemblies) |
 | [Quad block mount](https://www.servocity.com/1201-series-quad-block-pattern-mount-43-2/) | `1201-0043-0002` | 10 | 6 for lower rails + 4 for drive assemblies |
 | [1118 Series Open goRAIL, 192 mm](https://www.servocity.com/1118-series-open-gorail-192mm-length/) | `1118-0024-0192` | 4 | 192 mm open goRAIL (T-slot extrusion); 4 per frame |
 
@@ -101,14 +101,14 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [Hub shaft](https://www.servocity.com) | `2110-0608-0002` | 4 | 1 per drive assembly |
-| [Bearing, 6 mm ID](https://www.servocity.com) | `1611-0514-0006` | 4 | 1 per drive assembly |
-| [Bearing, 8 mm](https://www.servocity.com) | `1611-0514-0008` | 4 | 1 per drive assembly |
-| [Miter gear, 8 mm REX](https://www.servocity.com) | `2320-4008-0024` | 8 | 2 per drive assembly; orientation sets wheel direction |
-| [Spacer, 9 mm](https://www.servocity.com) | `1522-0010-0090` | 4 | 1 per drive assembly |
-| [Shim, 6 mm ID](https://www.servocity.com) | `2807-0609-0250` | 4 | 1 per drive assembly |
-| [Shim, 8 mm ID](https://www.servocity.com) | `2807-0811-0500` | 4 | 1 per drive assembly |
-| [Washer, 4 mm](https://www.servocity.com) | `2801-0004-0008` | 4 | 1 per drive assembly |
+| [Hub shaft](https://www.gobilda.com/shouldered-8mm-rex-hub-shaft-20mm-hub-offset/) | `2110-0608-0002` | 4 | 1 per drive assembly |
+| [Bearing, 6 mm ID](https://www.gobilda.com/1611-series-flanged-ball-bearing-6mm-id-x-14mm-od-5mm-thickness-2-pack/) | `1611-0514-0006` | 4 | 1 per drive assembly |
+| [Bearing, 8 mm](https://www.gobilda.com/1611-series-flanged-ball-bearing-8mm-id-x-14mm-od-5mm-thickness-2-pack/) | `1611-0514-0008` | 4 | 1 per drive assembly |
+| [Miter gear, 8 mm REX](https://www.gobilda.com/clamping-steel-miter-gear-8mm-rex-bore-24-tooth-mod-1/) | `2320-4008-0024` | 8 | 2 per drive assembly; orientation sets wheel direction |
+| [Spacer, 9 mm](https://www.gobilda.com/1522-series-8mm-id-spacer-10mm-od-9mm-length-4-pack/) | `1522-0010-0090` | 4 | 1 per drive assembly |
+| [Shim, 6 mm ID](https://www.gobilda.com/2807-series-stainless-steel-shim-6mm-id-x-9mm-od-0-25mm-thickness-12-pack/) | `2807-0609-0250` | 4 | 1 per drive assembly |
+| [Shim, 8 mm ID](https://www.gobilda.com/2807-series-stainless-steel-shim-8mm-id-x-11mm-od-0-50mm-thickness-12-pack/) | `2807-0811-0500` | 4 | 1 per drive assembly |
+| [Washer, 4 mm](https://www.gobilda.com/2801-series-zinc-plated-steel-washer-4mm-id-x-8mm-od/) | `2801-0004-0008` | 4 | 1 per drive assembly |
 
 **Drive motors**
 
@@ -120,8 +120,8 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [Mecanum wheel, LEFT slant](https://www.servocity.com) | `3606-0000-0140` | 2 | Handed; do NOT install until late in the build |
-| [Mecanum wheel, RIGHT slant](https://www.servocity.com) | `3606-0100-0140` | 2 | Handed; do NOT install until late in the build |
+| [Mecanum wheel, LEFT slant](https://www.gobilda.com/140mm-mecanum-wheel-set-70a-durometer-bearing-supported-rollers/) | `3213-3606-0003` | 2 | Handed; do NOT install until late in the build |
+| [Mecanum wheel, RIGHT slant](https://www.gobilda.com/140mm-mecanum-wheel-set-70a-durometer-bearing-supported-rollers/) | `3213-3606-0003` | 2 | Handed; do NOT install until late in the build |
 <!-- /BOM-AUTO:build:base-frame -->
 
 Structural screws are bought in bulk, not itemized here — each drive assembly uses
