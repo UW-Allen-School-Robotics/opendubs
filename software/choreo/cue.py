@@ -49,6 +49,9 @@ try:
 except ImportError:
     sys.exit("needs pyyaml: pip install pyyaml")
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import library  # noqa: E402  the show library's index (plan 4.6), beside this file
+
 FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
@@ -196,6 +199,13 @@ FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 # `CFG <url>` verb, so the validator cannot know them — a show lists the ones it uses under
 # `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
 FACE_THEMES = ("plain", "none", "halloween")
+# Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). The skins the face draws in CODE — one name
+# each; `default` is the standard eyes and an ordinary SKIN argument. The single source is CODE_SKINS
+# in software/face-web/engine/skins/index.js (the tablet lane); a test keeps this in step. Any other
+# skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
+# answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
+# reserved robot state (DEGRADED, E_STOP) always shows `default`.
+CODE_SKINS = ("default", "ring")
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it
 # (firmware/rc_serial_probe/src/main.cpp). The firmware CLAMPS; the validator REJECTS, so an
@@ -594,6 +604,7 @@ class Show:
         warnings: list[Problem] = []   # pointed at a cue like a problem, but never invalidating
         notices: list[str] = []
         P = problems.append
+        self._unchecked_skins, self._skin_assets, self._lib = set(), {}, False
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:
@@ -791,8 +802,21 @@ class Show:
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
                       + " — the runner's preflight is built from the declaration"))
+        if self._unchecked_skins:
+            notices.append(f"no show library at {library.root()}: skin(s) "
+                           f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
+                           "checks them against its library before every run")
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
-                "markers": markers, "declared": declared, "used": used}
+                "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets)}
+
+    def _library(self):
+        """The show library's index on this machine (library.py), read once per analysis."""
+        if self._lib is False:
+            try:
+                self._lib = library.load_index()
+            except Exception:  # noqa: BLE001  an unreadable index is no index
+                self._lib = None
+        return self._lib
 
     def earliest_time(self, limits: dict, slot: str, joints: dict, t_want: float,
                       exclude_index: int | None = None) -> dict:
@@ -1157,6 +1181,21 @@ class Show:
 
     def _check_face(self, where, c):
         do, name = c.get("do"), c.get("name")
+        if do == "skin":
+            if not isinstance(name, str) or not name:
+                return [f"{where}: face skin needs a name (`default` for the standard eyes)"]
+            if name in CODE_SKINS:
+                return []
+            idx = self._library()
+            if idx is None:
+                self._unchecked_skins.add(name)       # no library here: a notice, not a problem
+                return []
+            e = idx.get(name)
+            if e is None or e.get("kind") != "skin":
+                return [f"{where}: face skin {name!r} is neither drawn by the face "
+                        f"({', '.join(CODE_SKINS)}) nor a skin in the library at {library.root()}"]
+            self._skin_assets[name] = e.get("sha256")
+            return []
         if do == "theme":
             declared = {x.lower() for x in (self.doc.get("themes") or []) if isinstance(x, str)}
             if not isinstance(name, str) or not name:
@@ -1167,7 +1206,7 @@ class Show:
                         "(authored themes, installed on the head by CFG)"]
             return []
         if do != "emote":
-            return [f"{where}: face do must be emote|theme"]
+            return [f"{where}: face do must be emote|theme|skin"]
         if name not in FACE_EMOTES:
             return [f"{where}: face emote {name!r} is not one the face has "
                     f"({', '.join(FACE_EMOTES)} — from kEmotes[] in the ESP-IDF face)"]
@@ -1247,6 +1286,9 @@ class Show:
             "requires": _jsonable(self.requires),
             "slots": declared,
             "music": music,
+            # the content hash of every library asset the show was validated against (plan 4.6), so a
+            # run can tell when one has changed since
+            "assets": a.get("assets", {}),
             "duration_s": _r(max(ends, default=0.0)),
             "markers": [{"t": _r(m["t"]), "name": m["name"], "src": m["src"]}
                         for m in a["markers"]],
@@ -1375,7 +1417,7 @@ def describe(limits: dict) -> str:
     w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
-    w(f"FACE: do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
+    w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
       "under themes: (installed on the head by CFG). A theme stays after the show; an emote is handed back")
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
       f"anything within {LIGHT_RESERVED_BAND_DEG:g} deg of hue of {dict(LIGHT_RESERVED_HUES)} and at least "
