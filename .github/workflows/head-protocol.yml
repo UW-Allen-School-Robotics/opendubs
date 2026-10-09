@@ -1,0 +1,35 @@
+name: head-protocol
+
+# The head protocol (notes/design/head-protocol.md) is agreed between the Tablet and head interface
+# lane and the Tab5 head lane. This job runs the conformance suite against the reference head, and
+# checks the document's message list and vocabulary against the Tab5's own parser — so a message
+# added to the firmware but not to the spec (or the other way round) fails here, on the PR that
+# makes the change. Pure Python, standard library only; no robot, no head.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/head-protocol/**"
+      - "firmware/tab5_idf/app_face/net_cmd.cpp"
+      - "firmware/tab5_idf/app_face/app_face.cpp"
+      - ".github/workflows/head-protocol.yml"
+  pull_request:
+    paths:
+      - "software/head-protocol/**"
+      - "firmware/tab5_idf/app_face/net_cmd.cpp"
+      - "firmware/tab5_idf/app_face/app_face.cpp"
+      - ".github/workflows/head-protocol.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: python3 software/head-protocol/tests/test_head_protocol.py
