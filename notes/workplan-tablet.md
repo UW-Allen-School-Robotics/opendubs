@@ -167,6 +167,136 @@ screen on, and a face is always lit; whether that is enough is TS-6.
 | T9 | **The Tab5's touch functions become dashboard pages**, placed logically | planned | 5.6 |
 | T10 | **A library of emotes, themes and more on the tablet**, chosen situationally | decided (DT-9) | 4.4, 5.3 |
 | T11 | **Lifted off and used as a controller, the face is suppressed**; a clear way to latch and unlatch that | decided (DT-11) | 5.4 |
+| T12 | **What it takes to put every function of the Tab5 head on the tablet**, which tracker steers it, which messages carry over, and the order of the enabling steps — the team is strongly considering the tablet as the face | answered 2026-10-08 as a desk study; the order is **proposed**, not agreed | *Part 2 inventory* |
+
+---
+
+## Part 2 inventory — what the Tab5 head does today, and what the tablet needs (2026-10-08)
+
+Asked for because the team is now strongly considering the tablet as the face, which raises the
+priority of Part 2. A desk study: read from the head firmware on `main` at `91e8160`
+(`firmware/tab5_idf/app_face/`) and from what the Thor and the dashboard send it. **The shipping
+image** (`ota-from-thor.sh`, `SHIP_FLAGS`) builds with **pan/tilt on, on-device face detection on,
+voice off**. Nothing below has been tried on the tablet.
+
+### Every function, and how the tablet head would do it
+
+| Tab5 function today | how it works on the Tab5 | on the tablet head | what is missing |
+|---|---|---|---|
+| **The face**: seven states and their colours, five emotes plus `AUTO`, the perimeter band, eyes and blinks, quotes, NO LINK, boot splash | LVGL on the P4 (`app_face.cpp`) | the web face engine, shipped inside the app (DT-9) | the whole engine (Phase 4); the shared vocabulary written down (4.1, DT-14) |
+| **`STATE`** | from the dashboard, and from the StamPLC's own telemetry broadcast on 5005 (`net.cpp`), which is the authority for e-stop and mode | the same two sources: the dashboard's websocket, and the door hearing the 5005 broadcast with the Thor down | the door (5.2) |
+| **`EMOTE`, `THEME`, `CUE`** (live shows, `face_bridge.LiveFace`) | the shared parser `net_cmd.cpp` | the same messages, answered by the face's own code through the door (DT-6, DT-10) | the door and the engine |
+| **`CFG <url>`**: install an authored theme | fetches JSON, writes two slots atomically to SPIFFS, refuses any colour for DEGRADED/E_STOP (`cfg.cpp`) | library sync from the Thor into app storage (DT-9); `CFG` kept as "fetch this now" | the library format and sync (4.4, 5.3) |
+| **Earcons** (six, synthesised; audio **off** by default, a setting) | `cues.cpp`, the HAL's single player | WebAudio in the face; Android mixes, so a cue never blocks music | the six cues as library items |
+| **`GAZE <pan> <tilt> <lease>`** (shows) | built on `main`: absolute degrees, lease, below touch and RC, above the trackers (`pantilt.cpp`) | **unchanged, answered by the neck controller** (DT-7); the runner already sends it to the neck's address (`face_bridge.LiveGaze`) | the neck controller (Phase 6) |
+| **RC head aiming** (`0x107` rate frame from the StamPLC) | `netPlatRcFrame`, owner RC | unchanged, to the neck; the dashboard tells the StamPLC the neck's address (`TAB5IP`, 0.1) | the neck controller |
+| **Pan/tilt servo loop**: 8Servo on Port A, per-unit axis reversal, slew 70 °/s, bounds, boot centring, owner arbitration touch > RC > GAZE > local tracker | `pantilt.cpp`, on the head | ported to the neck controller | Phase 6; the per-unit reversal is a per-robot value |
+| **Person tracking, on the head**: camera → motion saliency (15 Hz) + esp-dl face detection (gated) → attention → the eyes and, as the lowest owner, the head | `percept/*`, all on the P4 | the **screen-side camera** read by the face page, a face detector in the page (a WebAssembly model bundled in the app, so it runs without the Thor), the result sent to the neck as a **local-tracker** target | a tracker message (see *Tracking*); the neck reporting its angles; self-motion handling |
+| **Self-motion gating**: the Tab5's BMI270 gyroscope stops the head's own turning reading as a person moving | `percept/selfmotion.cpp` | **the tablet has no gyroscope.** The neck knows its own motion exactly: it reports it, and the tracker ignores frames taken while it moves | the neck's outbound report |
+| **Touch panel (HMI)**: lift up/down (`MAST CMD` straight to the StamPLC on 5005, gated to MANUAL with the reason shown), soft e-stop (`ESTOP`), pan/tilt D-pad (touch owner), tracking AI/MANUAL, the state chip, link, IP and ToF readouts, "waiting for the StamPLC" | `ui_hmi.cpp`, `net.cpp` | dashboard pages through the Thor's `/api/mast` and `/api/estop` (5.6); the Thor-down panel through the door (5.7); D-pad and touch-hold as a **touch** request to the neck (5.5) | 5.5–5.7; a touch-owner message to the neck |
+| **Settings**: audio on/off and volume, telemetry, the tracking reticle, kept in NVS | `ui_settings.cpp` | a dashboard settings page; values kept in the app | 5.6 |
+| **Front ToF** (VL53L0X/L1X, Port A) | shown on the HMI and answered by `TOF`; **drives no behaviour today** | on the neck controller; `TOF` unchanged | Phase 6; DT-12's "person within reach" would be its first use |
+| **Lift height readout** | **not wired** — the panel shows `---` | the dashboard already has the StamPLC's height | nothing new |
+| **`OTA <url>`, rollback** | the head pulls an image; a failed health check rolls back (`net.cpp`) | the **engine** updates with the app; the **library** by sync. A device-owner app can install an update of itself without a prompt, so a remote "update the app" is possible; there is no automatic rollback | a decision: adb only, or a remote app update |
+| **`REBOOT`** | `esp_restart` | a device-owner app can reboot the tablet | the door |
+| **`PING`** | reports image hash, slot, StamPLC link, state | reports app and engine version, mount, mode (DT-10) | the door |
+| **`TOF`, `I2CSCAN`** | Port A bus | the neck controller | Phase 6 |
+| **`VOICE`** push-to-talk to the Thor | compiled **out** of the shipping image; the voice plan's Phase A (`workplan-tab5-audio.md`) | the tablet's mic is already live (TB-1), with Android's echo cancellation, noise suppression, speech recognition and TTS | a decision for the team: whether Tab5 voice work continues if the tablet becomes the head |
+| **On e-stop** | goes dark with the drive branch, by design | stays lit, shows E_STOP; the neck is unpowered (DT-8) | the engine |
+| **`SIM`** | the twin's simulated inputs | the web face twin (4.3) | — |
+
+### Tracking — which tracker steers the head, and how
+
+**Today, the Thor's tracker steers nothing.** The YOLO tracker (`yolo_tracker.py`, the D415 on the
+head) and `ros/tab5_bridge_node.py` send the `0x104` absolute pan/tilt frame, which the ESP-IDF
+head ignores (`net_cmd.cpp:169` says so and declines to revive it), as it ignores the `0x108`
+tracking-mode request. The only tracker that turns the head is the Tab5's own.
+
+**With the tablet as the head**, two trackers can steer it, both through the neck controller, in
+the precedence already decided (`head-ownership.md`, and `GAZE`'s spec): touch > RC > `GAZE`
+(show) > **Thor tracker** > **local tracker**.
+
+- **The local tracker moves from the Tab5 to the tablet.** The face page reads the screen-side
+  camera, finds the face, and sends the neck a target. It needs no Thor, so it is the boot owner
+  and the fallback, as the Tab5's is today.
+- **The Thor tracker comes back to life** by sending the same tracker message instead of `0x104`.
+  That change helps **today's Tab5 head** too, so it is worth doing first.
+
+**What has to be decided, and it is item 2.1's to decide:**
+
+1. **One tracker message** that carries its source, so the neck can rank it. For example `GAZE`
+   with a source (`GAZE <pan> <tilt> <lease> thor|local`), or a separate `TRACK`. Absolute
+   degrees with a lease, like `GAZE`; never the raw `0x104` frame.
+2. **The neck reports outward**: its current angles, whether it is moving, and who owns it
+   (`head-ownership.md` §4 and §7, never built). A tracker on a camera that moves with the head
+   needs the head's angle to turn an image offset into an absolute target, and needs "moving" to
+   ignore its own motion, which on the Tab5 the gyroscope did.
+3. **A touch request** from the face to the neck (touch-hold and the D-pad), because touch and
+   servos are no longer on one board.
+4. **A park request** for when the face is absent (DT-11's CONTROLLER mode).
+
+### The head protocol — what carries over unchanged
+
+| message | half | on the tablet head |
+|---|---|---|
+| `PING`, `STATE`, `EMOTE`, `THEME`, `CUE` | face | **unchanged** — choreography's faces and earcons do not care which head is fitted |
+| `CFG <url>` | face | unchanged verb; the tablet treats it as "fetch this library item now" |
+| `GAZE <pan> <tilt> <lease>` / `GAZE OFF` | neck | **unchanged** — choreography's gaze does not care |
+| `0x107` RC rate frame | neck | unchanged |
+| `TOF`, `I2CSCAN` | neck | unchanged |
+| `REBOOT`, `OTA <url>` | device | same verbs; what `OTA` installs differs per head, and each head's own script drives it |
+| `VOICE …` | face | Tab5-specific today; the tablet would answer it or the voice path changes, as decided above |
+| `SIM …` | twins | twins only |
+| `0x104`, `0x108`, `TURN`, `LIFT`, `PMODE`, `PLCIP` | — | **dead on the ESP-IDF head; retired** (or replaced by the new messages above), not carried over |
+| **new:** tracker target with its source; neck status out; touch request; park | neck | to be specified in 2.1 and agreed with the Tab5 head lane before either side ships them |
+
+**For the runner and the dashboard**, the only rule is the address: face messages to
+`OPENDUBS_HEAD_FACE_HOST`, neck messages to `OPENDUBS_HEAD_NECK_HOST`. `backend/head.py` and the
+runner's `face_bridge` both do this. *One mismatch to fix in the Choreography lane:*
+`face_bridge.head_neck_host()` falls back from the neck setting straight to `OPENDUBS_TAB5_HOST`,
+skipping `OPENDUBS_HEAD_FACE_HOST`, where `head.py` falls back neck → face → the old name. The two
+should agree.
+
+### Inputs the head's CAD needs
+
+The head's geometry changes with the tablet, so these are the facts the new design must hold, and
+each wants checking against the tablet in hand:
+
+- the A11's outline, mass and centre of mass (Phase 3 weighs it);
+- where the **screen-side camera** sits on the bezel, unobstructed and facing forward;
+- the **USB-C port**, reachable for the mount's power lead, and the **mount magnet's** place near
+  the magnetometer (TS-7 finds where it reads best);
+- room in the head for the **neck controller, the 8Servo and the front ToF**, with the ToF's field
+  of view clear;
+- the **D415** (the Thor tracker's camera) if it stays on the head;
+- lifting the tablet out by hand, without tools, and without catching the arms (DT-11).
+
+### Proposed order for the enabling steps — **PROPOSED, for the team to agree; amends DT-18**
+
+DT-18 put the Part 1 sensors first. With the tablet head now the priority:
+
+1. **2.1 and 2.2 — the head protocol, now central.** Include the four new messages above, and
+   agree them with the Tab5 head lane. Everything else builds against it.
+2. **In parallel, three tracks that need nothing from each other:**
+   - **the mechanical gate and the CAD** (Phase 3), with the inputs above;
+   - **the neck controller on the bench** (6.1, 6.2): the pan/tilt port, the protocol's neck
+     half, and its flash path in `CLAUDE.md`;
+   - **the face engine and its twin on a laptop** (Phase 4).
+3. **The Thor tracker re-routed** to the new tracker message. It also revives tracking on the
+   Tab5 head today, once the Tab5 lane implements the message.
+4. **The door, the modes and the mount signal** (5.1–5.4, with 1.1 and TS-2, TS-3, TS-4, TS-7
+   pulled forward from Part 1, because the modes depend on them).
+5. **The local tracker on the tablet**: a new item — the screen-side camera, a bundled face
+   detector, the neck's angles, and frames ignored while the neck moves.
+6. **The Tab5's touch functions as dashboard pages, and the Thor-down panel** (5.5–5.7).
+7. **On the robot** (Phase 7): the retirement checklist (7.4).
+
+The rest of Part 1 — the tilt and impact log, ambient light, GNSS, the robot rear view — moves
+after these.
+
+**Decisions this raises for the team:** the order above; the tracker message's form; whether the
+Tab5 voice work continues while the tablet head is likely; whether the D415 stays on the head; and
+whether the tablet app gets a remote update path (`OTA` for the app) or stays adb-only.
 
 ---
 
@@ -177,10 +307,10 @@ with a Tab5 fitted.*
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 0.1 | **Address the head by role, not by device.** Today: `state_out.py` reads `OPENDUBS_TAB5_HOST` (default `opendubs-tab5.local`); `yolo_tracker.py` **hard-codes** `UDP_IP = "opendubs-tab5.local"`, bypassing that setting; the StamPLC learns where to send RC pan/tilt from a `TAB5IP` command. A head has two halves — **face** and **neck** — which are the same box when the Tab5 is fitted. | Face and neck addresses come from `/etc/opendubs/robot.env` (both the Tab5 by default; old names accepted with a notice); `yolo_tracker.py` reads the setting; on opendubs2 the head still answers `PING` and RC still aims it. |
-| 0.2 | **Show requirements name the role.** `cue.py` has `requires: tab5` and an audio output `tab5`. Proposed: `requires: head: face` (and the fitted head's capabilities, from `PING`); `tab5` refused with the new name given, as 0.7 did for CH5 names. **Owned by the choreography plan** — handed over as a request, not edited from here. | The validator and the runner's preflight ask for a face, not a Tab5; a show needing a face is refused while the tablet head is in CONTROLLER. |
-| 0.3 | **The bridge reports *plugged*, not only *charging*.** `battery()` returns `charging`; with a charge limit (0.4) a tablet on mount power is plugged but not charging, so `charging` would read as "lifted off". | `battery()` (or a new method) reports the power source; the dashboard's tablet battery icon unchanged. |
-| 0.4 | **Battery protection for continuous mount power.** If One UI offers a charge limit on this model, set it in the setup steps. | In the kiosk README's setup; checked on the tablet with `dumpsys battery`. |
+| 0.1 | **BUILT, 2026-10-08; not yet deployed.** `backend/head.py` gives the face and neck hosts (`OPENDUBS_HEAD_FACE_HOST`, `OPENDUBS_HEAD_NECK_HOST`; the old `OPENDUBS_TAB5_HOST` still works, with a notice). In `state_out.py` each half is a peer — **one shared peer when the hosts match**, so a Tab5 robot does exactly what it did — with `STATE`/`TURN`/`LIFT`/`PMODE` and `PING` to the face, and the tracking request, `PLCIP` and the StamPLC's `TAB5IP` to the neck (the StamPLC firmware is unchanged: `TAB5IP` stays its word for "where RC pan/tilt goes"). The YOLO tracker defaults to the neck and its service reads `robot.env` instead of naming the Tab5. *Found after: the tracking request, `PLCIP` and the tracker's `0x104` frames are ignored by the ESP-IDF head (2.1), so their routing matters only once the protocol re-specifies them.* Verified: 50 backend tests (9 new) and a loopback run with face and neck apart, each message arriving at its half. **Open:** the done-when on opendubs2. *As found:* **Address the head by role, not by device.** Today: `state_out.py` reads `OPENDUBS_TAB5_HOST` (default `opendubs-tab5.local`); `yolo_tracker.py` **hard-codes** `UDP_IP = "opendubs-tab5.local"`, bypassing that setting; the StamPLC learns where to send RC pan/tilt from a `TAB5IP` command. A head has two halves — **face** and **neck** — which are the same box when the Tab5 is fitted. | Face and neck addresses come from `/etc/opendubs/robot.env` (both the Tab5 by default; old names accepted with a notice); `yolo_tracker.py` reads the setting; on opendubs2 the head still answers `PING` and RC still aims it. |
+| 0.2 | **HANDED OVER, 2026-10-08** — sent to the Choreography lane as a request, for its own plan (`workplan-choreography.md` is that lane's to edit). **Show requirements name the role.** `cue.py` has `requires: tab5` and an audio output `tab5`. Proposed: `requires: head: face` (and the fitted head's capabilities, from `PING`); `tab5` refused with the new name given, as 0.7 did for CH5 names. **Owned by the choreography plan** — handed over as a request, not edited from here. | The validator and the runner's preflight ask for a face, not a Tab5; a show needing a face is refused while the tablet head is in CONTROLLER. |
+| 0.3 | ~~The bridge reports *plugged*~~ **DONE, 2026-10-08, on the tablet.** `battery()` adds `"plugged": "ac"\|"usb"\|"wireless"\|"dock"\|null`; `charging` unchanged. Installed with `adb install -r -t` (still device owner, back in front and locked) and read from inside the page: on USB `plugged: "usb"`, `charging: true`; with Android's test override `dumpsys battery unplug`, `plugged: null`; **two seconds after power returned, `plugged: "usb"` but `charging: false`** — Android reports charging late, so `plugged` is the faster mount input as well as the right one. *As planned:* **The bridge reports *plugged*, not only *charging*.** `battery()` returns `charging`; with a charge limit (0.4) a tablet on mount power is plugged but not charging, so `charging` would read as "lifted off". | `battery()` (or a new method) reports the power source; the dashboard's tablet battery icon unchanged. |
+| 0.4 | **CHECKED, 2026-10-08: offered, and off.** One UI 7 on the SM-X133 has battery protection (`settings get global protect_battery` → `0`; `battery_protection_threshold` → `80`). In the setup steps; turned on by hand, at the tablet. **Battery protection for continuous mount power.** If One UI offers a charge limit on this model, set it in the setup steps. | In the kiosk README's setup; checked on the tablet with `dumpsys battery`. |
 
 ## Phase 1 — the tablet as a sensor (Part 1)
 
@@ -213,7 +343,7 @@ exists.*
 
 | # | Item | Kill criterion / done when |
 |---|---|---|
-| 2.1 | **Write the head protocol** as `notes/design/head-protocol.md`: every message the head accepts today (`PING`, `STATE`, `EMOTE`, `THEME`, `CUE`, `CFG`, `SIM`, `TOF`, `I2CSCAN`, `REBOOT`, `OTA`, and the pan/tilt rate frame — `firmware/tab5_idf/app_face/net_cmd.cpp`), its replies, the ports, which half owns it (face, neck, device), what `PING` reports for each head kind, and the head's **outbound** report of who owns it (`head-ownership.md` §4 — not built). | The team agrees it, and the Tab5 matches it as read from its source. |
+| 2.1 | **Inputs gathered 2026-10-08, from the firmware and the choreography work:** **(a)** the ESP-IDF head has one parser (`net_cmd.cpp`, shared with the twin) and handles **one** binary frame, `0x107` (the StamPLC's RC rate). So `0x104` (pan/tilt, still sent by `yolo_tracker.py` and `ros/tab5_bridge_node.py`), `0x108` (tracking mode, sent by `state_out.py`) and the dashboard's `TURN`, `LIFT`, `PMODE` and `PLCIP` lines are **Arduino-era and ignored** by the shipping head (`ERR unknown`). It sends nothing to UDP 5006 — its lift and e-stop go to the StamPLC as `MAST CMD` / `ESTOP` on 5005 — so the dashboard and tracker both binding 5006 matters only for the retired Arduino head. **(b)** The show runner sends `EMOTE`, `THEME` and `CUE` to the real face on live runs (`face_bridge.LiveFace`, PR #77), addressed `OPENDUBS_HEAD_FACE_HOST` → `OPENDUBS_TAB5_HOST` → `opendubs-tab5.local` — the same order as `head.py`. **(c)** A new neck message, approved and handed to the Tab5 firmware work: `GAZE <pan> <tilt> <lease_ms>` (absolute degrees, 90 = centred, renewed every 200 ms, `GAZE OFF`, stop where it is on expiry), with precedence touch > RC > GAZE > Thor tracker > local tracker — specified in the choreography plan, row 5.6b (branch `feat/live-face-output`). The doc includes it, and says which dead messages are retired rather than revived. **Write the head protocol** as `notes/design/head-protocol.md`: every message the head accepts today (`PING`, `STATE`, `EMOTE`, `THEME`, `CUE`, `CFG`, `SIM`, `TOF`, `I2CSCAN`, `REBOOT`, `OTA` in `firmware/tab5_idf/app_face/net_cmd.cpp`; **also** `TURN`, `LIFT`, `PMODE` and `PLCIP`, which the dashboard sends (`state_out.py`), the pan/tilt frame `0x104` and tracking-mode frame `0x108`), what it sends (the lift request `0x102` and status `0x106`, both to UDP 5006), its replies, the ports, which half owns it (face, neck, device), what `PING` reports for each head kind, and the head's **outbound** report of who owns it (`head-ownership.md` §4 — not built). | The team agrees it, and the Tab5 matches it as read from its source. |
 | 2.2 | **A conformance suite**: send each message, check the reply. Runs against the face twin in CI, and on demand against a real head — **read-only messages only on a robot** (never `REBOOT` or `OTA`). | Passes against the face twin and against opendubs2's Tab5. |
 | 2.3 | **Every sender names the half it talks to.** The dashboard (`STATE`), the face bridge and runner (face messages), the YOLO tracker (neck), the StamPLC's RC (neck), the OTA scripts (device). | A table in 2.1, and each sender reads its address per 0.1. |
 | 2.4 | **Tablet-only messages** (DT-16): marked as such in 2.1; the Tab5 refuses them with `ERR unknown`; the runner checks a show against the fitted head's capabilities. | A show using a tablet-only message is refused, with the reason, when the Tab5 is fitted. |
@@ -288,6 +418,7 @@ Everything that pretends, or names a device where it means a role, so nothing is
 | Show requirements and audio output name the Tab5 | `software/choreo/cue.py` `REQUIRES_KEYS`, `AUDIO_OUTPUTS` | 0.2 (choreography plan) |
 | "Charging" stands in for "on mount power" | kiosk bridge `battery()` | 0.3 |
 | The head reports no owner outward | Tab5 firmware (`head-ownership.md` §4) | 2.1, 6.1 |
+| Messages sent to the head that the ESP-IDF head ignores — `0x104`, `0x108`, `TURN`, `LIFT`, `PMODE`, `PLCIP`. 0.1 routes them by role, but today they reach nothing | `yolo_tracker.py`, `ros/tab5_bridge_node.py`, `state_out.py` | 2.1 (retire or re-specify, e.g. as `GAZE`) |
 | Debounce and thresholds for the mount state | 1.1 | TS-3, TS-4, TS-7 |
 
 ## Parked

@@ -22,8 +22,11 @@ import pyrealsense2 as rs
 import csv
 import os
 
-# Configuration
-UDP_IP = "opendubs-tab5.local"
+# Configuration. Pan/tilt goes to the head's NECK, the half that moves (head.py): the Tab5 when it
+# is fitted, a separate neck controller with the tablet as the face. Per robot, in
+# /etc/opendubs/robot.env — never a fixed name here.
+import head
+UDP_IP = head.neck_host()
 UDP_PORT = 4242
 
 # Data log path — written to /tmp so it survives across tracker restarts within a session
@@ -247,7 +250,8 @@ class Tab5Controller:
 def main():
     parser = argparse.ArgumentParser(description="THOR YOLO Face Tracker (Intel RealSense)")
     parser.add_argument("--show", action="store_true", help="Show GUI window")
-    parser.add_argument("--ip", type=str, default=UDP_IP, help="Tab5 IP Address")
+    parser.add_argument("--ip", type=str, default=UDP_IP,
+                        help="the head's neck (default: OPENDUBS_HEAD_NECK_HOST, see head.py)")
     parser.add_argument("--pan-min", type=int, default=0, help="Minimum pan angle limit")
     parser.add_argument("--pan-max", type=int, default=180, help="Maximum pan angle limit")
     parser.add_argument("--tilt-min", type=int, default=0, help="Minimum tilt angle limit")

@@ -33,7 +33,7 @@ app on any tablet for development.
 | `screenState()` | `"on"` or `"off"` |
 | `isDeviceOwner()` | whether lock task and the update policy are in force |
 | `version()` | the app's version |
-| `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool}` — the dashboard shows it beside the robot's |
+| `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool, "plugged": "ac"\|"usb"\|"wireless"\|"dock"\|null}` — the dashboard shows it beside the robot's. `plugged` is whether power is connected, which a charge limit makes different from charging |
 
 ## Build
 
@@ -86,7 +86,10 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
    installing the new one. On its own, `ca_clear` removes them all.
 5. Do Not Disturb on *Alarms only*: `adb shell cmd notification set_dnd alarms`. Then the Samsung
    settings in `tablet-device.md` by hand (step into Settings with the maintenance commands below):
-   *Put unused apps to sleep* off, auto-download of updates off, auto restart off, Edge panels off.
+   *Put unused apps to sleep* off, auto-download of updates off, auto restart off, Edge panels off,
+   and **Battery › Battery protection** on (it stops charging at 80%; a tablet that lives on the
+   mount's power is otherwise held at 100%). Check it with `adb shell settings get global
+   protect_battery` — `0` means off.
    The app is called **OpenDubs** on the tablet. It does not appear in Samsung's *Never sleeping
    apps* list: it is already exempt (device owner, and step 2's battery-optimisation exemption).
 6. **Name the robot** the tablet belongs to — on the robot, `OPENDUBS_ROBOT_NAME` in

@@ -97,6 +97,10 @@ if grep -qs '^OPENDUBS_ROBOT_NAME=' /etc/opendubs/robot.env; then
   echo "   robot name: $(sed -n 's/^OPENDUBS_ROBOT_NAME=//p' /etc/opendubs/robot.env | tr -d '"')"
 else
   echo "   robot name: $(hostname -s) (the hostname). To name it, e.g.:"
-  echo "       echo 'OPENDUBS_ROBOT_NAME=\"OpenDubs 2\"' | sudo tee /etc/opendubs/robot.env && sudo systemctl restart opendubs-dash"
+  echo "       echo 'OPENDUBS_ROBOT_NAME=\"OpenDubs 2\"' | sudo tee -a /etc/opendubs/robot.env && sudo systemctl restart opendubs-dash"
 fi
+# Where the head is, by role (backend/head.py). Unset = the Tab5 at opendubs-tab5.local, both halves.
+face=$(sed -n 's/^OPENDUBS_HEAD_FACE_HOST=//p' /etc/opendubs/robot.env 2>/dev/null | tr -d '"')
+neck=$(sed -n 's/^OPENDUBS_HEAD_NECK_HOST=//p' /etc/opendubs/robot.env 2>/dev/null | tr -d '"')
+echo "   head: face ${face:-opendubs-tab5.local (default)}, neck ${neck:-same as the face}"
 echo "Open it from the tablet; there is no local display to launch."

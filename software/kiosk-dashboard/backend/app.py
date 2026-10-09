@@ -129,7 +129,7 @@ def tracker_control(state: str) -> JSONResponse:
     # it, and that was settable only from the Tab5's own screen. Ask for the matching mode so one
     # button does one thing.
     import state_out
-    mode_sent = state_out.tab5_set_tracking(target == "on")
+    mode_sent = state_out.head_set_tracking(target == "on")
 
     STATE["ai_tracking"] = _tracker_active()
     return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"],
