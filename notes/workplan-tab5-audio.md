@@ -44,25 +44,42 @@ measured against the drive motors, the lift and the ESCs a metre away, or it is 
 Push-to-talk and half-duplex compose: a press means **stop talking and listen**, so the press both
 opens capture and cancels playback, and the two gates never contend.
 
-## Playing a sound used to starve perception — fixed 2026-10-08
+## The vendor's audio task, and a fix that did NOT work
 
-**The vendor creates its playback task at priority 5, UNPINNED, on the first earcon, and never
-deletes it.** `percept` runs at priority 2 pinned to CPU1. So one cue permanently gave the head an
-unpinned priority-5 task waking every 10 ms that outranked face detection on *either* core.
+**The finding is real and worth keeping; the fix was a guess and is reverted.**
 
-Observed on the robot: detection-driven head turning went "damped — it takes a fair amount of
-insistent movement", and **a restart restored it with the same image and audio still enabled**,
-which is the signature of something acquired at runtime rather than built in. It was first blamed
-on that afternoon's flash; the flash was innocent, and what had actually changed was that audio had
-just been switched on, so a cue could sound for the first time.
+The vendor creates its playback task at **priority 5, UNPINNED**, the first time anything plays a
+sound, and never deletes it:
 
-Patched in `build.sh` alongside the canon aliasing: pinned to CPU1, priority 2. The stack stays
-internal on purpose — the mechanism is scheduling, not memory, and `i2s_write` on an external stack
-would be a new risk for no gain. Audio does not suffer: `i2s_write` blocks on DMA with
-`portMAX_DELAY`, so the task only tops the buffer up and has tens of milliseconds of slack.
+```c
+xTaskCreate(_audio_play_task, "audio", 4096, nullptr, 5, nullptr);
+```
 
-**The lesson is the one CLAUDE.md already states: change one variable at a time.** An image and a
-setting changed in the same afternoon, and the wrong one got the blame for an hour.
+It then loops `vTaskDelay(10 ms)` for the rest of the boot even when idle. `percept` runs at
+priority 2 **pinned to CPU1** with its stack in PSRAM, specifically so it cannot preempt the
+animation. So one earcon permanently gives the head an unpinned priority-5 task waking 100 times a
+second that outranks face detection on either core.
+
+**Observed 2026-10-08:** detection-driven head turning became "damped — it takes a fair amount of
+insistent movement", and **a restart restored it** with the same image and audio still enabled,
+which is the signature of something acquired at runtime.
+
+**What was tried and FAILED:** pinning that task to CPU1 at priority 2 (PR #83). The damping came
+back. Reverted, because a speculative vendor patch is worse than none.
+
+Two things to carry forward rather than rediscover:
+
+- **Pinning it to CPU1 may have been exactly wrong.** `percept` is on CPU1. At priority 5
+  *unpinned* the task could at least land on CPU0, which has slack; pinning it put the contention
+  onto the one core percept needs. If this is attacked again, the shapes worth trying are **ending
+  the task when idle** or **pinning it to CPU0**.
+- **The cause is still not proven.** Audio was switched OFF on the robot instead, which removes the
+  mechanism entirely — `cuePlay()` returns on its first line, `audioPlay()` is never called, and
+  the task is never created. That is pragmatic and leaves a real loose end: **if tracking is still
+  poor with audio off and no cue played since boot, audio was never the cause.**
+
+**A lesson, already in CLAUDE.md and broken anyway:** an image and a setting changed in the same
+afternoon, so the flash took the blame for an hour. Change one variable at a time.
 
 ## The first thing to check when the robot is silent
 
