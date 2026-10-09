@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 1
+VERSION = 2                 # v2 adds SKIN (tablet face only)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -16,6 +16,9 @@ STATES = ("INIT", "SAFE_IDLE", "MANUAL", "AUTONOMOUS", "DEGRADED", "E_STOP", "CH
 EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
+# Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
+# other name is a library skin's id. `default` is the standard eyes.
+CODE_SKINS = ("default", "ring")
 OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "none")
 TRACK_SOURCES = ("thor", "local")
 
@@ -42,6 +45,7 @@ MESSAGES = {
     "THEME":   (FACE, "shipping"),
     "CUE":     (FACE, "shipping"),
     "CFG":     (FACE, "shipping"),
+    "SKIN":    (FACE, "agreed"),        # v2, tablet face only
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -61,7 +65,7 @@ NOT_YET_SHIPPING = ("new", "agreed")    # a head that should answer these but sa
 KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
-    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "REBOOT", "OTA"},
+    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -113,5 +117,7 @@ REPLY = {
     "park_ok":   re.compile(r"^OK park$"),
     "park_off":  re.compile(r"^OK park off$"),
     "park_err":  re.compile(r"^ERR park "),
+    "skin_ok":   re.compile(r"^OK skin \S+$"),
+    "skin_unknown": re.compile(r"^ERR unknown skin \S+ \(showing default\)$"),
     "unknown":   re.compile(r"^ERR unknown$"),
 }

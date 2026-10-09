@@ -1,6 +1,6 @@
 # The head protocol
 
-**Status: version 1, DRAFT, 2026-10-08.** Tablet plan items 2.1 and 2.2
+**Status: version 2, 2026-10-08** — version 1 agreed with the Tab5 head lane; version 2 adds `SKIN` (tablet face only), agreed with the Choreography lane. Tablet plan items 2.1 and 2.2
 ([`workplan-tablet.md`](../workplan-tablet.md)). The messages marked **shipping** are what the
 ESP-IDF Tab5 head answers today, read from its source on `main` (`d6d2e4c`). The four marked
 **new** — `TRACK`, `NECK`, `TOUCH`, `PARK` — and `kind=` in `PING` were **agreed with the Tab5 head
@@ -64,6 +64,7 @@ sender resolves the two in this order** (`software/kiosk-dashboard/backend/head.
 | `THEME <name>` | `OK theme <name>` / `ERR unknown theme` | shipping | Built in: `plain` (alias `NONE`) and `halloween`; plus any authored theme installed by `CFG`. No theme can recolour `DEGRADED` or `E_STOP`. |
 | `CUE <earcon>` | `OK cue <earcon>`, or `OK cue <earcon> (AUDIO OFF -- …)` / `ERR unknown cue` | shipping | `heard`, `attend`, `refuse`, `fault`, `mode`, `boot`. Audio is a per-robot setting that defaults **off**. The reply says so, because an acked cue that nobody hears is otherwise unexplainable. |
 | `CFG <url>` | `OK …` / `ERR …` (a verdict) | shipping | Fetch an authored configuration (today: themes as palettes, per `face-config-data-model.md`). On the tablet head, "fetch this library item now". |
+| `SKIN <name>` | `OK skin <name>` / `ERR unknown skin <name> (showing default)` / `ERR skin <name>: <why> (showing default)` | **version 2, agreed** (with the Choreography lane, 2026-10-08), tablet face only | Which skin draws the eyes: a code skin — `default` (the standard eyes, an ordinary argument) or `ring` — or a library skin's id. Persistent, like `THEME`. **Never a blank face:** an unknown name, or a library skin whose file will not load, shows `default` and says so; `PING` then reports `skin=default skin_error=…`. A reserved state draws `default` whatever is set. A library skin may not use a code skin's name. The Tab5 answers `ERR unknown`. |
 | `VOICE PRESS` / `RELEASE` / `STATUS` / `THOR <host> <port>` | `OK …` / a status line / `ERR VOICE {…}` | Tab5 only | Push-to-talk. Compiled into the twin, **out of the shipping image**, and **paused** (decided 2026-10-08). A tablet head answers `ERR unknown` until a voice decision says otherwise. |
 | `SIM LINK\|ESTOP\|PERSON\|TOF …` | `OK sim …` / `ERR SIM …` | twins only | Simulated inputs for the face twin. A real head refuses them rather than pretending. |
 
@@ -148,7 +149,7 @@ reached. A reply without `kind=` is today's Tab5.
 | `kind=` | fields it adds |
 |---|---|
 | `tab5` | both halves in one; the fields above |
-| `tablet-face` | `app=<version> engine=<version> library=<hash> mount=<in_mount\|held\|unknown> mode=<face\|engaged\|controller> st=<STATE> audio=<on\|OFF>` |
+| `tablet-face` | `app=<version> engine=<version> library=<hash> mount=<in_mount\|held\|unknown> mode=<face\|engaged\|controller> st=<STATE> audio=<on\|OFF> skin=<shown>` and, if what was asked is not what shows, `skin_error=<why>` |
 | `neck` | `fw=<sha> state=<VALID\|…> plc=<ip>/<how>\|none owner=<o> pan=<deg> tilt=<deg>` |
 
 ## 7. What a head sends and hears besides replies

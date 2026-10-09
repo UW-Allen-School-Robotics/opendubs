@@ -166,6 +166,12 @@ class Run:
         for c in hp.CUES:
             pat = re.compile(rf"^OK cue {c}( \(AUDIO OFF.*\))?$")
             self.expect(F, f"CUE {c}", f"CUE {c}", "CUE", lambda r, p=pat: bool(p.match(r)))
+        # SKIN (v2): a code skin, `default` to return, and an unknown name falls back to the default
+        # eyes and says so. Active, because it changes what the face shows.
+        self.expect(F, "SKIN ring", "SKIN ring", "SKIN", lambda r: r == "OK skin ring")
+        self.expect(F, "SKIN <unknown name>", "SKIN no_such_skin", "SKIN",
+                    lambda r: r == "ERR unknown skin no_such_skin (showing default)")
+        self.expect(F, "SKIN default", "SKIN default", "SKIN", lambda r: r == "OK skin default")
         back = getattr(self, "state_found", None)
         if back in hp.STATES:
             self.ask(F, f"STATE {back}")

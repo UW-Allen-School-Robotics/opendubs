@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "The face engine is plain ES modules for the browser; this lets Node run them headless in tests."
+}

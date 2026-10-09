@@ -1,27 +1,33 @@
 // The face page: the face model, a skin, the layers, the door, and — for measuring — a frame-time
 // readout. Query parameters (all optional):
 //   door=ws://127.0.0.1:8766   the door's websocket (door_dev.py on a laptop; the app on the tablet)
-//   skin=eyes|ring             which skin draws the eyes
+//   skin=<name>                which skin: a code skin (default, ring) or a library skin's id
+//   library=<url>              the library folder (default ../library/, made by make_test_library.py)
 //   track=1                    look at a person through the camera (track.js)
 //   hud=1                      frame-time readout
 //   video=<url>                a media layer, for measuring video decode beside the face ('v' cuts)
 //   audio=1                    earcons audible
 //   state=SAFE_IDLE            start in a state (a twin with no door otherwise shows NO LINK)
-// Keys (twin conveniences, never a robot path): 1-7 state, e emote, a auto, s skin, t theme, v cut.
+//   bg=%23334455               a background colour instead of black — a test that a skin's
+//                              transparency is real (on black, a missing alpha plane is invisible)
+// Keys (twin conveniences, never a robot path): 1-7 state, e emote, a auto, s next skin, t theme, v cut.
 
 import { Face, DESIGN_W, DESIGN_H } from "./face.js";
 import { STATES, EMOTES } from "./vocab.js";
 import { handle, Earcons } from "./protocol.js";
-import * as eyes from "./skins/eyes.js";
-import * as ring from "./skins/ring.js";
+import { Skins, CODE_SKINS } from "./skins/index.js";
 
-const SKINS = { eyes, ring };
 const q = new URLSearchParams(location.search);
 const face = new Face();
 const audio = new Earcons(q.get("audio") === "1");
-let skin = SKINS[q.get("skin")] || eyes;
+const skins = new Skins();
+window.faceSkins = skins;                          // read by a harness through devtools
+skins.loadLibrary(new URL(q.get("library") || "../library/", import.meta.url)).then(() => {
+  if (q.get("skin")) skins.select(q.get("skin"));
+});
 let neck = null;                                   // {pan, tilt, owner} from a door, if it has a neck
 
+const BG = q.get("bg") || "#000";
 const canvas = document.getElementById("face");
 const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
 function fit() {
@@ -54,15 +60,18 @@ function frame(now) {
   const t0 = performance.now();
   const W = canvas.width, H = canvas.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
   // A twin with a neck: show the head's turn as a shift of the whole face (simulated, and labelled).
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   ctx.setTransform(s, 0, 0, s, (W - DESIGN_W * s) / 2 - turn * s, (H - DESIGN_H * s) / 2);
   // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
   // every robot and every show, so it is drawn by the default eyes in the state's own colour.
-  const drawn = face.reserved() ? eyes : skin;
-  for (const e of face.eyes()) drawn.draw(ctx, e, now / 1000);
+  const drawn = face.reserved() ? CODE_SKINS.default : skins.current;
+  for (const e of face.eyes()) {
+    // An asset skin still loading (or failed) draws nothing: the default eyes stand in. Never blank.
+    if (drawn.draw(ctx, e, now / 1000) === false) CODE_SKINS.default.draw(ctx, e, now / 1000);
+  }
   const text = face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
@@ -76,7 +85,8 @@ function frame(now) {
                       showing: video.style.visibility === "visible" };
     }
     hud.textContent = `${stats.fps.toFixed(0)} fps  frame p50 ${stats.p50.toFixed(1)} p95 ${stats.p95.toFixed(1)} ms` +
-      `  draw p95 ${stats.drawP95.toFixed(2)} ms  ${canvas.width}x${canvas.height}  skin ${skin.name}` +
+      `  draw p95 ${stats.drawP95.toFixed(2)} ms  ${canvas.width}x${canvas.height}  skin ${skins.shownName()}` +
+      (skins.error ? ` (${skins.error})` : "") +
       `  ${face.stateName()} ${face.emote}${face.pin ? " (pinned)" : ""}  theme ${face.theme}` +
       (neck ? `  neck ${neck.pan.toFixed(0)}/${neck.tilt.toFixed(0)} ${neck.owner} (simulated)` : "") +
       (stats.track ? `  track ${stats.track}` : "") +
@@ -93,7 +103,7 @@ function connect() {
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.neck) neck = msg.neck;
-    if (msg.line !== undefined) ws.send(JSON.stringify({ id: msg.id, reply: handle(face, audio, msg.line, performance.now()) }));
+    if (msg.line !== undefined) ws.send(JSON.stringify({ id: msg.id, reply: handle(face, audio, msg.line, performance.now(), skins) }));
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }
@@ -107,7 +117,7 @@ addEventListener("keydown", (k) => {
   if (k.key >= "1" && k.key <= "7") face.setState(STATES[+k.key - 1][0], now);
   else if (k.key === "e") face.setEmote(names[ei++ % names.length], now);
   else if (k.key === "a") face.setEmote("AUTO", now);
-  else if (k.key === "s") skin = Object.values(SKINS)[++si % 2];
+  else if (k.key === "s") { const n = skins.names(); skins.select(n[(n.indexOf(skins.chosen) + 1) % n.length]); }
   else if (k.key === "t") face.setTheme(face.theme === "plain" ? "halloween" : "plain");
   else if (k.key === "v") cut(video.style.visibility === "visible" ? "face" : "media");
 });

@@ -102,7 +102,7 @@ class FakeHead:
         assert kind in ("tab5", "legacy-tab5", "tablet-face", "neck")
         self.kind, self.audio = kind, audio
         self.clock = clock or (lambda: time.monotonic() * 1000.0)
-        self.state, self.emote, self.theme = "", "AUTO", "plain"
+        self.state, self.emote, self.theme, self.skin = "", "AUTO", "plain", "default"
         self.neck = Neck()
         if kind in ("tab5", "legacy-tab5"):
             self.rest_at_centre()
@@ -184,6 +184,15 @@ class FakeHead:
 
     def do_cfg(self, a, _):
         return "ERR cfg: the reference head installs nothing"
+
+    def do_skin(self, a, _):
+        if not a:
+            return "ERR skin <name> | default"
+        if a in hp.CODE_SKINS:
+            self.skin = a
+            return f"OK skin {a}"
+        self.skin = "default"                    # unknown: the default eyes, and say so
+        return f"ERR unknown skin {a} (showing default)"
 
     def do_voice(self, a, _):
         return "voice: off (reference head)"
