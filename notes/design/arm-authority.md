@@ -307,9 +307,9 @@ Three `openarm-up` defects fell out of running this on hardware, all fixed:
   a `SIGKILL`ed control node, so `start` refused as "already running" while `activate` failed with
   `rcl node's context is invalid`. That state is now named, with the fix (`down` first).
 
-## Amendment, 2026-10-09 — PROPOSED: self-healing arms, motion gated like the base, leases
+## Amendment, 2026-10-09 — ADOPTED: self-healing arms, motion gated like the base, leases
 
-**Status: a proposal for the user to approve. Nothing on the robot changes until they do.** It
+**Status: ADOPTED 2026-10-09 (arms plan DEC-28)** — the model, self-healing after an e-stop with no second human act, and the tablet ownership controls. **The maintenance lock is open (Q10)**, not rejected; see *Residual risks*. Phase 1 (A1 + A7) is under way; nothing reaches the robot without its own check. It
 carries out DEC-24 ("the arms follow the base's model"), which was decided but never built. The
 user's brief: the arms keep ending up in unready states or with disputed control, because
 *activation* has become the safety layer. Mode (MANUAL or AUTO) and the deadman or clutch should be
@@ -339,7 +339,7 @@ a gate, because it no longer moves anything.
 | `HOLD` | yes, at the measured pose | nobody | recovery; every lease expiry, release or revocation; CH5 changing | a source acquires a lease |
 | `LEASED` (`TELEOP` / `AUTO` / `MANUAL-TOOL`) | yes | the lease holder | an acquire that CH5 permits | expiry, release, revocation or CH5: always to `HOLD` |
 | `FAULT` | no, or holding | nobody | a latched motor fault, a missing motor, recovery failing N times | one named action, then `RECOVERING` |
-| `OFF` (maintenance) | no, limp | nobody | an explicit DE-ENERGIZE, or the maintenance lock | releasing the lock: `RECOVERING` |
+| `OFF` (maintenance) | no, limp | nobody | an explicit DE-ENERGIZE (or the maintenance lock, if Q10 adopts it) | ACTIVATE (or releasing the lock): `RECOVERING` |
 
 `FAULT` is the only state that needs a person, and it names the action. Today's free-floating
 stuck states — "stack active over disabled motors", "links not ready", "already running" — all
@@ -455,8 +455,19 @@ through it: the teleop bridge, the show runner, `park`, homing and bench tools.
   and an arm that resists a hand.
 - **Self-healing while someone has their hands in the arm** is the new hazard. After an e-stop
   for a mechanical fix, closing the contactor would stiffen the arm around the person's hand: in
-  place with A1, but stiff. Hence the **maintenance lock** on the tablet: arms stay `OFF` until it's
-  released, and it survives power cycles.
+  place with A1, but stiff. **The maintenance lock that would cover it is open (Q10).** Until then,
+  three things cover it, and the rest is a risk the user accepts for now:
+  - **A deliberate DE-ENERGIZE is not a disruption.** The keeper leaves an arm the operator put in
+    `OFF` alone until ACTIVATE. So "de-energize, then work on the arm" stays limp through e-stops
+    and power returns, short of a Thor reboot.
+  - **Clearing the e-stop is the act that re-energizes the arms**, exactly as it re-arms the drive.
+    The person clearing it decides that hands are clear. That's the base's rule, now stated for the
+    arms too.
+  - **With A1, healing never moves a joint.** The arm stiffens where it is, so the hazard is being
+    held, not being struck.
+
+  It isn't a blocker for phase 1, which adds no self-healing. Decide Q10 before phase 2's robot
+  check.
 - **A1 failing silently** (a stale position at activation) would be a jump. Hence the
   read-compare-ramp, and A1's 0.5° done-when.
 - **The keeper is new code with authority over power state.** It may only ever do motion-free
@@ -468,7 +479,7 @@ through it: the teleop bridge, the show runner, `park`, homing and bench tools.
 | Phase | What | Gives | Roughly |
 |---|---|---|---|
 | **1 — ship first** | **A1** (activation holds the measured pose); **`openarm-up activate` restarts a bus-off link** before starting | most of the reliability: today's stuck states 3 and 5, and recovery without motion | 2–3 days at the desk, then one robot session (A1's done-when, with a person) |
-| 2 | **The keeper** (A2, A3, 0.12): automatic recovery to `HOLD` after power return, bus-off or a crash; bring-up at boot; `FAULT` naming its action; the maintenance lock; activation leaves DEC-21's list | stuck states 1, 2, 4, 6, 7, 11, 12, 13. No bring-up buttons in normal use (A6) | 1 week, plus 2 robot sessions (e-stop/restore ×10, boot ×10) |
+| 2 | **The keeper** (A2, A3, 0.12): automatic recovery to `HOLD` after power return, bus-off or a crash; bring-up at boot; `FAULT` naming its action; the maintenance lock only if Q10 adopts it; activation leaves DEC-21's list | stuck states 1, 2, 4, 6, 7, 11, 12, 13. No bring-up buttons in normal use (A6) | 1 week, plus 2 robot sessions (e-stop/restore ×10, boot ×10) |
 | 3 | **Leases**: the wrapper with expiry and the `[AUTH]` precondition; bridge, runner, `park` and homing through it; tablet RELEASE / TAKE OVER; the motion-sampled lease check | stuck states 8 and 10: disputed control | 1 week, plus a robot session |
 | 4 | **The bridge always runs** (A4) | stuck state 9 | small, after phase 2 |
 
