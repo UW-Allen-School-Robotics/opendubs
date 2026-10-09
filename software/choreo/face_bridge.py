@@ -15,6 +15,7 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
     (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
     FACE  { do: theme, name: halloween }   ->  THEME halloween (it stays after the show)
+    FACE  { do: skin, name: ring }         ->  SKIN ring       (head protocol v2; it stays, like a theme)
     SOUND { do: play, sound: attend }      ->  CUE attend      (one of the Tab5's six earcons)
 
 While playing, each cue is sent as the playhead crosses it. On a seek, a pause, a backwards jump or
@@ -82,6 +83,15 @@ class Follower:
                 line = f"THEME {e['cue']['name']}"
         return line
 
+    def _skin_at(self, t):
+        line = None                # before any skin cue: leave the face's skin alone
+        for e in self._track("FACE"):
+            if e["t"] > t + 1e-9:
+                break
+            if e["cue"].get("do") == "skin" and e["cue"].get("name"):
+                line = f"SKIN {e['cue']['name']}"
+        return line
+
     def _sync(self, t):
         """Lines that bring the face to the state in force at t, sending only what changed."""
         out = []
@@ -89,6 +99,10 @@ class Follower:
         if theme and self.sent.get("theme") != theme:
             self.sent["theme"] = theme
             out.append(theme)
+        skin = self._skin_at(t)
+        if skin and self.sent.get("skin") != skin:
+            self.sent["skin"] = skin
+            out.append(skin)
         emote = self._emote_at(t)
         if self.sent.get("emote") != emote:
             self.sent["emote"] = emote
@@ -103,7 +117,7 @@ class Follower:
         out = []
         for t, slot, e in sorted(evs, key=lambda x: x[0]):
             c = e["cue"]
-            if slot == "FACE" and c.get("do") in ("emote", "theme"):
+            if slot == "FACE" and c.get("do") in ("emote", "theme", "skin"):
                 line = f"{c['do'].upper()} {c['name']}"
                 self.sent[c["do"]] = line
                 out.append(line)
