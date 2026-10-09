@@ -261,15 +261,21 @@ partly completed.
 
 ## Teleop messages
 
-The bridge reports these in its log, `journalctl -u opendubs-teleop` on the Thor. **They are not yet
-shown on the tablet**, so when a grip appears to do nothing, this is where to look.
+These appear on the TELEOP page's **SESSION** panel, within a second of happening. Each hand has a
+tile: a filled dot while its pose data is arriving, **GRIPPING** while its grip drives the arm,
+**HOMING** while X or A returns it to stow, and a red border while something is holding it back.
+Under the tiles is what that is, with a **?** that opens its entry here. A message clears by itself
+when its cause does; the last one stays, grey, for 15 s, so a half-second dropout can still be read
+after it has passed.
+
+The same messages are in the bridge's log, `journalctl -u opendubs-teleop` on the Thor.
 
 ### Teleop exits about 30 s after START {#arm-teleop-gripper-timeout}
 
 **Code:** `ARM_TELEOP_GRIPPER_TIMEOUT`
 
-**Shown as:** the SERVER badge drops back to STOPPED; the log ends with *Timed out waiting for left
-gripper action server*.
+**Shown as:** the SERVER badge drops back to STOPPED, and SESSION reads *last run ended: … Timed out
+waiting for left gripper action server*.
 
 **Means:** an arm's gripper controller is not running. The bridge needs both.
 
@@ -279,7 +285,8 @@ gripper action server*.
 
 **Code:** `ARM_TELEOP_GRIP_REFUSED_MODE`
 
-**Shown as:** *RIGHT: grip refused -- CH5 is OFF, teleop needs MANUAL*.
+**Shown as:** *R: grip refused — CH5 is OFF, teleop needs MANUAL*, for as long as CH5 stays out of
+MANUAL. With no grip squeezed, the panel reads *CH5 is OFF — the arms follow only in MANUAL*.
 
 **Do:** set CH5 to MANUAL (the middle position), release the grip, and squeeze it again.
 
@@ -287,7 +294,7 @@ gripper action server*.
 
 **Code:** `ARM_TELEOP_STOPPED_MODE`
 
-**Shown as:** *RIGHT: CH5 is OFF -- disengaged, stopped where it is; re-grip in MANUAL*.
+**Shown as:** *R: CH5 is OFF — stopped where it is; set MANUAL, release and re-grip*.
 
 **Do:** set CH5 back to MANUAL, release the grip, and squeeze again.
 
@@ -295,8 +302,8 @@ gripper action server*.
 
 **Code:** `ARM_TELEOP_TRACKING_LOST`
 
-**Shown as:** *RIGHT: tracking lost (no pose data for > 0.50s)*, and if that hand was gripping,
-*disengaged on tracking loss -- stopped where it is*.
+**Shown as:** *R: tracking lost (no pose data for > 0.50s) — stopped where it is*, and that hand's
+tile loses its filled dot.
 
 **Means:** the headset stopped sending that hand's pose for over half a second — the controller
 left the headset's view, the headset's menu opened, or the network dropped. The arm stopped where
@@ -309,8 +316,9 @@ with the controller in plain view point at the network.
 
 **Code:** `ARM_TELEOP_HOME_REFUSED`
 
-**Shown as:** *RIGHT: A held but homing refused -- …*, where the reason is one of: CH5 is not
-MANUAL; no stow pose for this arm; the grip clutch is engaged; no joint data for this arm.
+**Shown as:** *R: A held but homing refused — …* (X for the left arm), while the button is held. The
+reason is one of: CH5 is not MANUAL; no stow pose for this arm; the grip clutch is engaged; no joint
+data for this arm.
 
 **Do:** fix the stated reason — for the grip, release it first, then hold A or X.
 
@@ -318,8 +326,9 @@ MANUAL; no stow pose for this arm; the grip clutch is engaged; no joint data for
 
 **Code:** `ARM_TELEOP_UNREACHABLE`
 
-**Shown as:** the arm stops while the hand keeps moving; the log reads *RIGHT UNREACHABLE: target …
-| near limits: … | ignoring limits: … | same position, hand tilted 30 deg: …*.
+**Shown as:** the arm stops while the hand keeps moving, and SESSION reads *R: target out of reach —
+the arm holds; move the hand back*, with the diagnosis on a smaller line beneath: *RIGHT
+UNREACHABLE: target … | near limits: … | ignoring limits: … | same position, hand tilted 30 deg: …*.
 
 **Means:** the inverse kinematics found no joint configuration for where the hand is asking the arm
 to be, so the arm holds. The line says why: a joint at its limit, a target out of reach, or one
@@ -332,8 +341,9 @@ starting, restart the immersive session while facing the robot's forward.
 
 **Code:** `ARM_TELEOP_CERT_NOT_ACCEPTED`
 
-**Shown as:** the teleop page is open in the Quest Browser, but no pose data reaches the robot (no
-*first pose data received* in the log).
+**Shown as:** the teleop page is open in the Quest Browser, but SESSION reads *no pose data yet — is
+the teleop page open on the headset?* for both hands (and the log has no *first pose data
+received*).
 
 **Means:** the headset has not accepted the certificate on the pose channel's port, which fails
 silently.

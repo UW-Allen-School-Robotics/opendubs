@@ -629,6 +629,12 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .tp-hand .dot { font-size: 20px; color: var(--dim); line-height: 1.1; }
 .tp-hand.tracked { border-color: var(--good); }
 .tp-hand.tracked .dot { color: var(--good); }
+.tp-hand.engaged { border-width: 3px; padding: 4px 0; }
+.tp-hand.held { border-color: var(--bad); }
+.tp-notices { margin-top: 6px; font-size: 14px; line-height: 1.35; }
+.tp-notices > div { display: flex; align-items: center; margin: 3px 0; }
+.tp-notices .badx { color: var(--bad); } .tp-notices .warnx { color: var(--warn); }
+.tp-notices .tp-detail { font-size: 12px; margin: -2px 0 4px; word-break: break-word; }
 .tp-loop { display: flex; gap: 14px; align-items: baseline; margin: 4px 0 2px; }
 .tp-loop > div > span:first-child { font-size: 19px; font-weight: 700; color: var(--txt); }
 .tp-loop .bad { color: var(--bad); } .tp-loop .good { color: var(--good); }

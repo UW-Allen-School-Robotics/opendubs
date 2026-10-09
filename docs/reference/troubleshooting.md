@@ -638,7 +638,7 @@ An arm's gripper controller is not running, and the teleop bridge needs both. It
 
 ### The teleop page loads but nothing reaches the robot {#arm-teleop-cert-not-accepted}
 
-`ARM_TELEOP_CERT_NOT_ACCEPTED` · Fault · seen on the logs
+`ARM_TELEOP_CERT_NOT_ACCEPTED` · Fault · seen on the dashboard, the logs
 
 The headset has not accepted the teleop certificate on the pose channel's port. The browser warns only for the page, so a refused pose channel fails silently: the teleop bridge's log never reports *first pose data received*.
 
@@ -650,7 +650,7 @@ The headset has not accepted the teleop certificate on the pose channel's port. 
 
 ### Teleop refused the grip — CH5 is not MANUAL {#arm-teleop-grip-refused-mode}
 
-`ARM_TELEOP_GRIP_REFUSED_MODE` · Refused action · seen on the logs
+`ARM_TELEOP_GRIP_REFUSED_MODE` · Refused action · seen on the dashboard, the logs
 
 Teleop moves an arm only with [CH5](glossary.md#ch5) in MANUAL, the middle position.
 
@@ -662,7 +662,7 @@ Teleop moves an arm only with [CH5](glossary.md#ch5) in MANUAL, the middle posit
 
 ### The arm stopped when CH5 left MANUAL {#arm-teleop-stopped-mode}
 
-`ARM_TELEOP_STOPPED_MODE` · Expected behaviour · seen on the logs
+`ARM_TELEOP_STOPPED_MODE` · Expected behaviour · seen on the dashboard, the logs
 
 CH5 left MANUAL during a grip, so the arm stopped where it was. Holding the grip through the switch does not resume.
 
@@ -674,7 +674,7 @@ CH5 left MANUAL during a grip, so the arm stopped where it was. Holding the grip
 
 ### A hand stopped streaming {#arm-teleop-tracking-lost}
 
-`ARM_TELEOP_TRACKING_LOST` · Expected behaviour · seen on the logs
+`ARM_TELEOP_TRACKING_LOST` · Expected behaviour · seen on the dashboard, the logs
 
 The headset sent no pose for that hand for over half a second — the controller left the headset's view, the headset's menu opened, or the network dropped — so the arm stopped where it was.
 
@@ -687,7 +687,7 @@ The headset sent no pose for that hand for over half a second — the controller
 
 ### Holding A or X did not send the arm home {#arm-teleop-home-refused}
 
-`ARM_TELEOP_HOME_REFUSED` · Refused action · seen on the logs
+`ARM_TELEOP_HOME_REFUSED` · Refused action · seen on the dashboard, the logs
 
 Home needs CH5 in MANUAL, a stow pose configured for that arm, the grip released, and the arm's joint readings. The log names which was missing.
 
@@ -699,7 +699,7 @@ Home needs CH5 in MANUAL, a stow pose configured for that arm, the grip released
 
 ### The arm stops following the hand {#arm-teleop-unreachable}
 
-`ARM_TELEOP_UNREACHABLE` · Refused action · seen on the logs
+`ARM_TELEOP_UNREACHABLE` · Refused action · seen on the dashboard, the logs
 
 The arm's inverse kinematics found no joint configuration for where the hand is asking the arm to be, so the arm holds. The bridge's log says why: a joint at its limit, a target out of reach, or one reachable only with the hand at another angle.
 
