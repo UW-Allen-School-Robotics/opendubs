@@ -196,19 +196,16 @@ From the snapshot, with the steps quoted from the docs, so the tablet needs no n
   (never charge with BATTERY off and RUN on); charger at **48 V**, **8 A**; plug into the charge port;
   unplug before driving.
 
-### Powering the tablet off — it cannot do it itself
+### Powering the tablet off
 
-**Default: the tablet sleeps (tier 3), it does not power off.** The app stays alive, the screen is off,
-and it **wakes by itself at the next power-on** when the mount's power returns
-(`ACTION_POWER_CONNECTED`). Its standby drain is measured (PW-1) before this is relied on for more than
-overnight.
+**The app cannot power the tablet off itself** (a device owner has `reboot()` and `lockNow()`, no shutdown),
+**but the Thor can, over adb** — probed and recommended in **§7**:
 
-**For storage — days unused:** the shutdown screen offers *Power the tablet off*. The app **leaves lock
-task** and shows: press **side key + volume down** together, then **Power off**. (Holding the side key
-alone opens the assistant on this build — or setup changes *Side button › Press and hold* to the
-power-off menu.) Which chord opens the power menu on this build is checked on the bench first (PW-4).
-Turning the power menu on permanently in lock task is possible (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`), but
-it would let anyone power the face off mid-show; leaving lock task only for this step is narrower.
+- **Daily use: the tablet sleeps** (tier 3) and wakes by itself at the next power-on.
+- **Storage: *Power the tablet off too*** on the shutdown screen — the Thor leaves a delayed power-off on
+  the tablet after B8's screens, then halts. At the next power-on a person holds the side key (a
+  switched-off tablet does not boot on charger power).
+- **By hand, always:** hold the side key → Power off (§7, once `power_button_long_press` is set at setup).
 
 ---
 
