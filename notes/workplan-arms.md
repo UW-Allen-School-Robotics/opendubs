@@ -284,6 +284,8 @@ headset connected.*
 
 *A1 is the prerequisite for everything after it: until activation stops moving the arm, activating at power-on is unattended motion.*
 
+*PROPOSED 2026-10-09, pending the user's approval: [arm-authority.md § Amendment, 2026-10-09](design/arm-authority.md#amendment-2026-10-09--proposed-self-healing-arms-motion-gated-like-the-base-leases) — self-healing to HOLD, motion gated by CH5 plus presence, ownership as leases. It adds A7–A10 below and orders the phase: **1** A1 + A7 · **2** A2, A3, A8, A9 (the keeper) · **3** A10 (leases) · **4** A4.*
+
 | # | Item | Kill criterion / done when |
 |---|---|---|
 | A1 | **Activation that holds where the arm is.** Upstream's hardware interface (Enactic `openarm_ros2`) on activate enables every motor, steps to 0 rad at production gains, ramps both arms to zero over ~2 s and snaps the grippers. Change it to command each joint's **measured** position, grippers included. Carried as a copy in the org, like `openarm` (DEC-18) — check the container's checkout for drift first. | Activating an arm left at a non-zero pose (e.g. a wrist 40° off) moves no joint more than 0.5°, both arms, grippers included. |
@@ -292,6 +294,10 @@ headset connected.*
 | A4 | **Teleop bridge always running** (supersedes DEC-15's tablet START). Motion stays gated by CH5 MANUAL and the clutch (1.9, DEC-4). | The bridge comes up at boot; a grip in OFF is refused; a grip in MANUAL moves. |
 | A5 | **Holding cost over a day.** Arms energized and idle for a working day: rotor temperature and current per arm. | Logged numbers; a decision on whether long idle periods should drop to a lower-gain hold. |
 | A6 | **The dashboard shows state, not bring-up.** Per arm: energized / holding / commanded-by, CH5 mode, faults. PARK, HOLD, DE-ENERGIZE move to a maintenance section with their purpose stated. | An operator never needs a bring-up button in normal use. |
+| A7 | **PROPOSED — `openarm-up activate` restarts a link that is not `ERROR-ACTIVE`** before starting, when the contactor is closed. Seen 2026-10-09: `arm_left` BUS-OFF after an e-stop and loose connectors; only a shell `systemctl restart openarm-can@…` cleared it. Ships with A1 (phase 1). | With a link forced to BUS-OFF (`ip link set … down`, or a connector pulled and reseated), ACTIVATE succeeds with no shell. |
+| A8 | **PROPOSED — the keeper**: one long-running service (0.12) reconciling each arm every 0.5 s to `HOLD`, motion-free: restart a bus-off link, restart a dead stack, activate with A1; `FAULT` naming its one action for a latched motor fault, a missing motor, or repeated failure. Never acts with the contactor open. | E-stop, restore: both arms holding again with no human action and **no joint moving more than 0.5°**, ten cycles in a row, sampled from `/joint_states`, a person watching. |
+| A9 | **PROPOSED — the maintenance lock**: a tablet toggle that keeps both arms `OFF` (no self-healing) while someone works on them; survives power cycles. | With the lock set, an e-stop/restore leaves the arms limp; releasing it heals them to `HOLD`. |
+| A10 | **PROPOSED — leases**: our wrapper around `OwnershipRegistry` with expiry and the `[AUTH]` precondition, the only path to `acquire`/`release`; teleop, the show runner, `park` and homing go through it; tablet RELEASE / TAKE OVER per arm. Expiry, release and CH5 changes go to `HOLD` at the measured pose. | GAZE-style motion check on the robot: ownership never flaps while renewed; after expiry every joint stays within 0.5° for the whole wait; a second writer is refused naming the holder. |
 
 ## Phase M — the headset on the robot (DEC-22)
 
