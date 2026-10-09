@@ -33,6 +33,7 @@ addEventListener("resize", fit); fit();
 // ---- the layers: the face (canvas) and a media layer (video), cut by visibility ---------------
 const video = document.getElementById("media");
 if (q.get("video")) { video.src = q.get("video"); video.loop = true; video.muted = true; video.play().catch(() => {}); }
+window.cut = (layer) => cut(layer);                // for a harness through devtools
 export function cut(layer) { video.style.visibility = layer === "media" ? "visible" : "hidden"; }
 
 // ---- measuring --------------------------------------------------------------------------------
@@ -66,11 +67,17 @@ function frame(now) {
   if (hud && frames.length % 15 === 0) {
     stats.p50 = pct(frames, 0.5); stats.p95 = pct(frames, 0.95); stats.fps = 1000 / stats.p50;
     stats.drawP95 = pct(draws, 0.95);
+    if (q.get("video")) {
+      const v = video.getVideoPlaybackQuality();
+      stats.video = { dropped: v.droppedVideoFrames, total: v.totalVideoFrames, w: video.videoWidth, h: video.videoHeight,
+                      showing: video.style.visibility === "visible" };
+    }
     hud.textContent = `${stats.fps.toFixed(0)} fps  frame p50 ${stats.p50.toFixed(1)} p95 ${stats.p95.toFixed(1)} ms` +
       `  draw p95 ${stats.drawP95.toFixed(2)} ms  ${canvas.width}x${canvas.height}  skin ${skin.name}` +
       `  ${face.stateName()} ${face.emote}${face.pin ? " (pinned)" : ""}  theme ${face.theme}` +
       (neck ? `  neck ${neck.pan.toFixed(0)}/${neck.tilt.toFixed(0)} ${neck.owner} (simulated)` : "") +
-      (stats.track ? `  track ${stats.track}` : "");
+      (stats.track ? `  track ${stats.track}` : "") +
+      (stats.video ? `  video ${stats.video.w}x${stats.video.h} dropped ${stats.video.dropped}/${stats.video.total}${stats.video.showing ? " (showing)" : ""}` : "");
   }
   requestAnimationFrame(frame);
 }

@@ -93,8 +93,19 @@ async def neck_feed(neck):
         await asyncio.sleep(0.05)
 
 
+class NoCache(http.server.SimpleHTTPRequestHandler):
+    """A development server: never cached, so an edit is what the tablet runs on the next load."""
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
 async def main(a):
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=HERE)
+    handler = functools.partial(NoCache, directory=HERE)
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", a.http), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     neck = FakeHead("neck", port=a.neck).start()

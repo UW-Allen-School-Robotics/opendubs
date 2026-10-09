@@ -58,11 +58,67 @@ function yawPitch(m) {
 }
 
 export async function start(face, stats, src = new URLSearchParams(location.search).get("tracksrc") || "camera") {
+  const q = new URLSearchParams(location.search);
+  const delegate = (q.get("delegate") || "GPU").toUpperCase();
+  if (q.get("trackmain") === "1") return startMain(face, stats, src, delegate);
+  stats.track = "loading";
+  const worker = new Worker(new URL("./track_worker.js", import.meta.url), { type: "module" });
+  const video = await (src === "sweep" ? sweepSource() : cameraSource());
+  const m = { detectMs: [], latencyMs: [], hits: 0, frames: 0, since: performance.now(), src, delegate, worker: true };
+  window.trackStats = m;
+  const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  worker.onerror = (e) => { stats.track = `worker failed: ${e.message || "error"} (${e.filename || ""}:${e.lineno || ""})`; };
+  const ready = new Promise((res, rej) => { worker.onmessage = (e) => {
+    if (e.data.error) { stats.track = "worker failed: " + e.data.error.split("\n")[0]; rej(new Error(e.data.error)); }
+    else if (e.data.ready) { m.loadMs = e.data.loadMs; res(); } }; });
+  worker.postMessage({ init: true, delegate });
+  await ready;
+
+  let busy = false, seq = 0;
+  const captured = new Map();
+  worker.onmessage = (e) => {
+    const r = e.data;
+    busy = false;
+    if (r.error) { stats.track = "worker failed: " + r.error.split("\n")[0]; return; }
+    const now = performance.now();
+    if (m.warmupMs === undefined) { m.warmupMs = r.detectMs; m.since = now; return; }   // the first is a warm-up
+    m.frames++;
+    m.detectMs.push(r.detectMs); if (m.detectMs.length > 120) m.detectMs.shift();
+    const cap = captured.get(r.seq); captured.delete(r.seq);
+    if (cap) { m.latencyMs.push(now - cap); if (m.latencyMs.length > 120) m.latencyMs.shift(); }
+    if (r.found) {
+      m.hits++;
+      const facing = Math.max(0, 1 - Math.abs(r.yaw) / 45);
+      face.look({ x: -(r.x - 0.5) * 2 * GAIN, y: (r.y - 0.5) * 2 * GAIN, conf: 0.4 + 0.6 * facing, at: now });
+      m.yaw = r.yaw;
+    } else face.look(null);
+    const el = (now - m.since) / 1000;
+    stats.track = `${src} ${delegate} worker, warm-up ${m.warmupMs.toFixed(0)} ms, ${(m.frames / el).toFixed(1)} Hz, ` +
+      `${(100 * m.hits / Math.max(1, m.frames)).toFixed(0)}% found, detect p50 ${pct(m.detectMs, 0.5).toFixed(1)} ` +
+      `p95 ${pct(m.detectMs, 0.95).toFixed(1)} ms, frame->result p50 ${pct(m.latencyMs, 0.5).toFixed(0)} ms` +
+      (m.yaw !== undefined ? `, yaw ${m.yaw.toFixed(0)}` : "");
+  };
+  const onFrame = async (now, meta) => {
+    if (!busy) {
+      busy = true;
+      const s = ++seq;
+      // From the camera's own capture time where the browser gives one, else from now.
+      captured.set(s, meta && meta.captureTime ? meta.captureTime : performance.now());
+      const bitmap = await createImageBitmap(video);
+      worker.postMessage({ bitmap, ts: performance.now(), seq: s }, [bitmap]);
+    }
+    video.requestVideoFrameCallback(onFrame);
+  };
+  video.requestVideoFrameCallback(onFrame);
+}
+
+// The first version: the detector on the page's main thread. Kept for comparison (trackmain=1).
+async function startMain(face, stats, src, delegate) {
   stats.track = "loading";
   const tLoad = performance.now();
   const fileset = await FilesetResolver.forVisionTasks(VENDOR + "wasm");
   const lm = await FaceLandmarker.createFromOptions(fileset, {
-    baseOptions: { modelAssetPath: VENDOR + "face_landmarker.task", delegate: "GPU" },
+    baseOptions: { modelAssetPath: VENDOR + "face_landmarker.task", delegate },
     runningMode: "VIDEO", numFaces: 1,
     outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
   });
