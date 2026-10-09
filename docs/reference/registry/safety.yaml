@@ -24,7 +24,7 @@ entries:
   - code: CONTACTOR_OPEN
     title: The drive contactor is open
     symptom: [head-dark, wont-drive, lift-wont-move, arms-wont-activate]
-    rank: 5
+    rank: 4
     kind: warning
     seen_on: [dashboard, head, lights]
     means: >

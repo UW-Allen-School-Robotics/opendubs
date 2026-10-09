@@ -345,8 +345,8 @@ StamPLC relays 1 and 2 drive the lift's two legs, up and down. Switching them di
 
 Check in this order:
 
-1. [ACTIVATE recovered the arm after a power loss](#arm-power-restored)
-2. [The drive contactor is open](#contactor-open)
+1. [The drive contactor is open](#contactor-open)
+2. [ACTIVATE recovered the arm after a power loss](#arm-power-restored)
 3. [Another arm action is running](#arm-op-running)
 4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
 5. [The arms' CAN links are not ready](#arm-can-not-ready)
