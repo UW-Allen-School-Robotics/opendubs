@@ -1,0 +1,102 @@
+# Troubleshooting entries: battery, power distribution and temperature.
+# Owned by the Docs and BOM lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+
+entries:
+  - code: POWER_NOT_ON
+    title: Nothing powers up
+    symptom: wont-start
+    rank: 10
+    kind: expected
+    seen_on: [robot]
+    derived: true
+    means: >
+      The robot has two power switches, and it needs both. **BATTERY**, on the battery itself,
+      connects the pack; **RUN**, on the rear face, switches the logic bus. RUN is lit green while
+      the logic bus is up.
+    do:
+      - Turn **BATTERY** on.
+      - Turn **RUN** on, and check that it lights green.
+    see: [operating.md#powering-on]
+
+  - code: POWER_CHARGING_PACK_OFF
+    title: The electronics cycle on and off while charging
+    symptom: power-warning
+    rank: 5
+    kind: warning
+    seen_on: [robot]
+    derived: true
+    means: >
+      The **BATTERY** switch is off while the charger is connected. The charger's output then
+      reaches the logic bus with no pack in the circuit, and a charger cannot hold its voltage
+      against that load, so the electronics brown out and restart over and over.
+    do:
+      - Turn **BATTERY** on whenever the charger is connected.
+    see: [operating.md#charging]
+
+  - code: POWER_BATTERY_LOW
+    title: The battery is low
+    symptom: power-warning
+    rank: 10
+    kind: warning
+    seen_on: [dashboard]
+    derived: true
+    means: >
+      The pack's state of charge, as its [BMS](glossary.md#bms) reports it, is low. When it is
+      very low the dashboard says **RETURN**.
+    do:
+      - Bring the robot back and charge it.
+    see: [operating.md#charging]
+
+  - code: POWER_OVERTEMP
+    title: Part of the robot is over temperature
+    symptom: power-warning
+    rank: 20
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      One of the robot's internal temperature sensors reads 70 °C or more, so the dashboard marks
+      the robot [DEGRADED](glossary.md#degraded).
+    do:
+      - Stop and let the robot cool.
+      - >
+        Check that the cooling fan runs and that its airflow is not blocked. The dashboard's
+        thermal view shows which zone is hot.
+      - >
+        The fault stays shown after the temperature falls. Restarting the robot clears it.
+    see: [build/cooling-fan.md]
+
+  - code: POWER_PDH_BROWNOUT
+    title: The power distribution hub reported a brownout
+    symptom: power-warning
+    rank: 30
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh)); a robot
+      built with a fuse block never shows it. The hub saw its input voltage dip too low, and the
+      dashboard marks the robot DEGRADED.
+    do:
+      - Check the pack's charge on the dashboard.
+      - Check that the hub's input connections are tight.
+      - >
+        The fault stays shown after the voltage recovers. Restarting the robot clears it.
+    see: [build/power-bay.md]
+
+  - code: POWER_PDH_FAULT
+    title: The power distribution hub reported a hardware fault
+    symptom: power-warning
+    rank: 40
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Only on a robot built with the REV PDH. The hub reports an internal hardware fault. The PDH
+      is designed for 12 V systems and here runs on the 24 V drive bus, which is why new builds
+      use a fuse block instead.
+    do:
+      - Stop the robot and turn the **BATTERY** switch off.
+      - Inspect the hub, and replace it with a fuse block.
+      - >
+        This fault cannot be cleared from the dashboard. After the repair, restart the robot.
+    see: [build/power-bay.md]

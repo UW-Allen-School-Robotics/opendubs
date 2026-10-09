@@ -1,0 +1,190 @@
+# Glossary terms. Owned by the Docs and BOM lane; other lanes propose terms to it.
+# Rendered alphabetically into docs/reference/glossary.md by tools/faults.py --inject.
+#
+#   term:    the word as it appears on the robot or in the docs
+#   anchor:  optional; defaults to the term lower-cased with hyphens. Other pages link to it.
+#   aka:     optional; other names for the same thing
+#   means:   the definition. Links are relative to docs/reference/
+#   see:     optional; pages under docs/
+
+terms:
+  - term: Abort
+    means: >
+      Ending a routine — a show, or an autonomous task — so that it stays ended. An abort does not
+      pause: once a person has stepped in, the routine does not resume. Compare **stop**, which
+      only commands the robot to stand still, and **e-stop**, which removes drive power.
+    see: [control-authority.md]
+
+  - term: Arbiter
+    means: >
+      The software that decides which command source holds each [lease](#lease), so that two
+      sources never command the same axis at once.
+    see: [control-authority.md]
+
+  - term: Authority
+    aka: [CH5]
+    anchor: authority
+    means: >
+      Who may command the robot, set by the transmitter's CH5 switch: `OFF` (nobody), `MANUAL`
+      (the sticks) or `AUTO` (the computer). See [CH5](#ch5).
+    see: [control-authority.md]
+
+  - term: BMS
+    aka: [battery management system]
+    means: >
+      The electronics inside the battery pack that protect its cells and report its state of
+      charge, voltage and temperature. The pack's BMS reports to the StamPLC over RS-485.
+    see: [power-architecture.md]
+
+  - term: CH5
+    means: >
+      The transmitter's three-position **authority** switch: `OFF`, `MANUAL` or `AUTO`. At `OFF`
+      nothing may command motion. Re-arming after an e-stop requires CH5 at `OFF`.
+    see: [operating.md#the-transmitter, control-authority.md]
+
+  - term: Contactor
+    means: >
+      A heavy-duty, electrically operated switch. The robot's drive contactor connects the battery
+      to the drive bus; every e-stop works by opening it. It is held closed only while every
+      e-stop in the chain is released and the StamPLC holds its relay closed, so losing power
+      opens it too.
+    see: [e-stop.md]
+
+  - term: Deadman
+    aka: [CH6]
+    means: >
+      The transmitter's CH6 control. It must be held for the sticks to move the robot, and
+      releasing it commands neutral. In `AUTO` it must be held too.
+    see: [control-authority.md#the-deadman]
+
+  - term: DEGRADED
+    means: >
+      The robot state shown when a fault is latched — an over-temperature, for example. A
+      DEGRADED fault stays shown after its cause has gone, so an operator sees that it happened.
+    see: [state-machines.md]
+
+  - term: Drive bus
+    means: >
+      The 24 V supply for everything that moves — the drive motors, the lift — and for the head.
+      It sits behind the [contactor](#contactor), so an e-stop removes it. Compare the
+      [logic bus](#logic-bus).
+    see: [power-architecture.md]
+
+  - term: E-stop
+    aka: [emergency stop]
+    means: >
+      Anything that opens the drive [contactor](#contactor). The red buttons on the robot do it in
+      hardware, independent of all software. A **software e-stop** — from the dashboard or the
+      head — has the controller open it, and [latches](#latch) until an operator re-arms.
+    see: [e-stop.md, operating.md#stopping-the-robot]
+
+  - term: Edge controller
+    means: >
+      A small controller that sits between the computer and the hardware and enforces safety
+      locally, so the robot stays safe if the computer stops. The StamPLC is the mobile base's
+      edge controller.
+    see: [system-overview.md]
+
+  - term: ESC
+    aka: [electronic speed controller]
+    means: >
+      The motor driver that turns a control signal into motor power. The robot's drive motors run
+      from two dual-channel ESCs.
+    see: [pwm-esc-safety.md]
+
+  - term: Failsafe
+    means: >
+      What an RC receiver reports when it has lost the transmitter's signal. The robot treats
+      failsafe as no command.
+    see: [rc-control-mapping.md]
+
+  - term: Head
+    aka: [the head]
+    means: >
+      The robot's face and front control panel: a touchscreen on the front of the robot with its
+      own **E-STOP** button. It is powered from the drive bus, so it turns off whenever the
+      contactor opens.
+    see: [system-overview.md]
+
+  - term: Latch
+    means: >
+      A condition that holds once it is set, until someone deliberately clears it. A software
+      e-stop latches; so does a DEGRADED fault.
+
+  - term: Lease
+    means: >
+      Temporary ownership of an axis — the drive, the lift, an arm. Every lease expires unless its
+      holder keeps renewing it, so a command source that dies stops commanding.
+    see: [control-authority.md]
+
+  - term: Logic bus
+    means: >
+      The 24 V supply for the robot's thinking parts — the computer, the StamPLC, the router, the
+      sensors. It is switched by **RUN** and is not behind the contactor, so the robot keeps
+      reporting while its actuators are unpowered.
+    see: [power-architecture.md, operating.md#the-controls]
+
+  - term: Mecanum wheel
+    means: >
+      A wheel ringed with angled rollers. Driving four of them in different combinations moves the
+      robot forward, sideways or round on the spot.
+    see: [design-philosophy.md]
+
+  - term: Monitor
+    means: >
+      Software that constrains whoever is commanding — it can limit or stop motion — but never
+      commands motion itself. The pinch guard is a monitor. A monitor that changes the robot's
+      behaviour must say so.
+    see: [control-authority.md]
+
+  - term: Payload mode
+    aka: [CH7]
+    means: >
+      The transmitter's CH7 switch: what the right stick talks to — `OFF`, `Z-AXIS` (the lift) or
+      `PAN-TILT`. It is not an enable; authority is CH5 alone.
+    see: [operating.md#the-transmitter]
+
+  - term: PDH
+    aka: [Power Distribution Hub]
+    means: >
+      A REV Robotics power distribution board with built-in breakers. Some robots use one on the
+      drive bus; new builds use a fuse block instead.
+    see: [build/power-bay.md]
+
+  - term: Pinch guard
+    means: >
+      The lift's [monitor](#monitor) that stops its descent short of the bottom, where the
+      closing gap can trap a hand. Continuing down needs a fresh, deliberate command.
+    see: [operating.md#z-axis-pinch-protection]
+
+  - term: Re-arm
+    means: >
+      Closing the drive contactor again after an e-stop. On the dashboard, hold **RE-ARM**. It is
+      guarded: it refuses unless CH5 is at `OFF`, every button is released, the StamPLC is
+      reporting, and the contactor is not welded.
+    see: [operating.md#stopping-the-robot]
+
+  - term: Regen clamp
+    means: >
+      A circuit that absorbs the energy a motor returns when it brakes, which would otherwise
+      push the drive bus voltage up.
+    see: [regen-clamp-sizing.md]
+
+  - term: StamPLC
+    means: >
+      The mobile base's [edge controller](#edge-controller), an M5Stack StamPLC. It reads the RC
+      receiver and the e-stop circuit, holds the contactor, commands the drive and the lift, and
+      runs the pinch guard.
+    see: [stamplc-connections.md, system-overview.md]
+
+  - term: Thor
+    means: >
+      The robot's main computer, an NVIDIA Jetson AGX Thor. It runs the dashboard, the ROS
+      software and the arms.
+    see: [thor-setup.md]
+
+  - term: Z-axis
+    aka: [the lift]
+    means: >
+      The robot's vertical axis — a scissor lift that raises and lowers the top deck.
+    see: [build/scissor-lift.md]

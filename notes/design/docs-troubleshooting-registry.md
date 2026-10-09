@@ -41,7 +41,8 @@ cataloguing them.
 
 ```
 docs/reference/registry/
-  safety.yaml        e-stop, contactor, RC, CH5, deadman, StamPLC link   (docs lane, until the StamPLC has one)
+  symptoms.yaml      the symptom groups, in page order                    (docs lane)
+  safety.yaml        e-stop, contactor, RC, CH5, deadman, StamPLC link, lift (docs lane, until the StamPLC has one)
   power.yaml         PDH, battery, overtemp                               (docs lane, same reason)
   head.yaml          head offline, head refusals                          (Tablet lane)
   arms.yaml          arm refusals and faults                              (Arms lane)
@@ -52,8 +53,9 @@ docs/reference/registry/
 **Why not one CSV like `parts.csv`.** A part is one line of facts. A troubleshooting entry is
 prose — what it means, then an ordered list of things to check, with links — and a CSV cell holding
 a markdown list is unreadable in a diff and impossible to review. YAML keeps one entry per block.
-PyYAML already arrives with MkDocs, so neither CI nor the deploying machine gains a dependency.
-(TOML via `tomllib` would need Python 3.11, and the dev Mac's system Python is 3.9.)
+PyYAML arrives with MkDocs, so CI gains no dependency. A machine whose `python3` lacks it runs
+`uv run tools/faults.py`, which installs it from the script's inline metadata. (TOML via `tomllib`
+would need Python 3.11.)
 
 **Why one file per lane, not one shared file.** Every lane appending to one file is a merge
 conflict per PR and makes the file a shared path forever. Per-lane files make ownership
@@ -68,8 +70,10 @@ so the deployed dashboard could later read the registry itself (see *Later*).
 ```yaml
 - code: HEAD_OFFLINE
   title: The head is offline
-  symptom: head                 # which symptom group it is listed under (below)
-  seen_on: [dashboard, head]    # dashboard | head | transmitter | log | lights
+  symptom: head-dark            # a symptom id, or a list of them (below)
+  rank: 10                      # order within the symptom; lower = check first (default 50)
+  kind: fault                   # refusal | fault | warning | info | expected (default refusal)
+  seen_on: [dashboard, head]    # dashboard | head | transmitter | lights | log | robot
   means: >
     The dashboard has not heard from the head for several seconds.
   do:
@@ -89,8 +93,9 @@ names on the wire, and the dashboard prefixes `SHOW_` before linking (`PRECONDIT
 ### 2. Organised by symptom, keyed by code
 
 Operators see symptoms; code sees codes. The page does both: a short fixed list of **symptoms**
-(defined in `safety.yaml`, so they are the docs lane's to change), each listing its entries **in the
-order to check them**.
+(defined in `symptoms.yaml`, the docs lane's), each listing its entries **in the order to check
+them**. Each entry names its own symptoms and its `rank`, so a lane adding an entry never edits
+another lane's file.
 
 | symptom | first entries |
 |---|---|
@@ -121,7 +126,7 @@ Same shape as `bom.py`:
   2. a stale page (as `bom.py --check`);
   3. **a code used in source that the registry lacks.** Scanned by explicit call sites, not by
      guessing at upper-case strings: `refuse("CODE"` in the backend, `helpLink("CODE"` in the
-     frontend, and later the firmware's equivalent. A convention the checker can see is the whole
+     frontend, and an `@fault CODE` annotation for any other language (shell, C++). A convention the checker can see is the whole
      point — a regex over every capitalised string would drown in false positives.
 - It **warns**, not fails, on a registry entry no source uses, unless the entry is `derived: true`.
 
@@ -141,7 +146,8 @@ A refusal body gains one field, next to the text it already carries:
 
 `error` stays, so nothing that reads it today breaks. A backend helper,
 `refuse(code, text, status=409, **extra)`, is the only way to build one — which is also what makes
-check 3 work. `blockers` becomes a list of `{code, text}`. The show runner already returns `code`;
+check 3 work. `blockers` stays a list of sentences, because `operate.js` reads it; a parallel
+`codes` list carries the codes in the same order. The show runner already returns `code`;
 the proxy passes it through unchanged.
 
 ### 5. The "?" on the dashboard — an overlay, never a navigation

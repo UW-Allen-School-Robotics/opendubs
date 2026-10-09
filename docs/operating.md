@@ -188,14 +188,6 @@ bring down the compute — is specified but not yet implemented.
 
 ## When something is wrong
 
-| Symptom | Look here first |
-|---|---|
-| Nothing powers up | BATTERY, then RUN |
-| Dashboard unreachable | the robot and the tablet on the same network; the Thor takes the longest to boot |
-| Sticks do nothing | CH5 not in `MANUAL`; CH6 not held; the two-second neutral hold not yet elapsed |
-| Drive dead, brain alive | an e-stop is pressed or software-latched — the contactor is open |
-| Lift stops near the bottom | expected behaviour — see *Z-axis pinch protection* |
-| Drive refused with no other fault | the charger is still connected |
-| Electronics cycling while charging | the BATTERY switch is off — see *Charging* |
-| Tab5 dark after an e-stop | expected — it is powered behind the contactor. Re-arm from the dashboard |
-| PRISM strobing amber at power-on | it is waiting to arm; CH5 is not OFF |
+See [Troubleshooting](reference/troubleshooting.md). It is organised by what you see — the robot
+won't drive, re-arm is refused, the head is dark — and lists the causes in the order to check
+them. The dashboard's **?** beside a refusal opens the matching entry.

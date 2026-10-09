@@ -1,0 +1,326 @@
+# Troubleshooting entries: e-stop, contactor, RC, drive gate, controller link and the lift.
+# Owned by the Docs and BOM lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+
+entries:
+  - code: LINK_DASHBOARD_UNREACHABLE
+    title: The dashboard won't load
+    symptom: wont-start
+    rank: 20
+    kind: fault
+    seen_on: [dashboard]
+    derived: true
+    means: >
+      The tablet cannot reach the dashboard, which the robot's computer serves. The computer is the
+      slowest part of the robot to start, so the dashboard is the last thing to appear after
+      power-on.
+    do:
+      - Give the computer time to finish booting.
+      - Check that the tablet is on the robot's network.
+      - Check that **RUN** is on — the computer and the router run from the logic bus.
+    see: [operating.md#powering-on, network-architecture.md]
+
+  - code: CONTACTOR_OPEN
+    title: The drive contactor is open
+    symptom: [head-dark, wont-drive, lift-wont-move]
+    rank: 5
+    kind: warning
+    seen_on: [dashboard, head, lights]
+    means: >
+      The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no
+      wheel, lift or other drive-bus load can move. That includes the head, which is powered
+      from the drive bus and turns off. The computer, the controller and the router stay on —
+      they run from the logic bus, which the contactor does not switch.
+    do:
+      - >
+        If the dashboard reports an e-stop, deal with that first — the entries below say how for
+        each source.
+      - >
+        After any e-stop the contactor stays open until an operator re-arms: set
+        [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
+      - >
+        At power-on the robot closes the contactor by itself a few seconds after boot, but only
+        with CH5 at `OFF`. While it waits, the status lights strobe amber.
+      - >
+        You cannot re-arm from the head: it is off while the contactor is open. Use the dashboard.
+    see: [operating.md#stopping-the-robot, e-stop.md]
+
+  - code: ESTOP_BUTTON
+    title: An emergency stop button is pressed
+    symptom: [wont-drive, rearm-refused]
+    rank: 10
+    kind: fault
+    seen_on: [dashboard, robot]
+    means: >
+      A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor directly, in
+      hardware, whatever the software is doing. The controller senses the e-stop circuit
+      separately, so a circuit that is open for any other reason reads the same: a payload's own
+      e-stop wired in series, or a broken conductor in the e-stop wiring.
+    do:
+      - >
+        Find the pressed button — there are two on the rear of the robot, left and right, plus any
+        e-stop a payload has added — and twist it to release.
+      - >
+        Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does
+        not re-close the contactor by itself.
+      - >
+        If no button is pressed and this persists, the e-stop circuit is open somewhere else.
+        Check the payload e-stop jumpers and the e-stop wiring.
+    see: [e-stop.md, operating.md#stopping-the-robot]
+
+  - code: ESTOP_SOFTWARE
+    title: A software e-stop is latched
+    symptom: wont-drive
+    rank: 12
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Someone pressed **E-STOP** on the dashboard or on the head, and the controller opened the
+      contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an
+      operator re-arms, and nothing clears it on its own.
+    do:
+      - Make sure it is safe for the robot to move again.
+      - Set CH5 to `OFF`.
+      - >
+        Hold **RE-ARM** on the dashboard. The head cannot re-arm: it is powered behind the
+        contactor, so it is off until the dashboard has re-armed.
+    see: [operating.md#stopping-the-robot]
+
+  - code: ESTOP_REARM_CH5
+    title: Re-arm needs CH5 at OFF
+    symptom: rearm-refused
+    rank: 5
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      Re-arming closes the contactor, and the dashboard will not do that while the transmitter
+      grants [authority](glossary.md#authority) — the robot could move the instant drive power
+      returned. This is the most common refusal.
+    do:
+      - Set CH5 to `OFF`.
+      - Hold **RE-ARM** again.
+      - Set CH5 back to `MANUAL` when you are ready to drive.
+    see: [operating.md#stopping-the-robot, control-authority.md]
+
+  - code: CONTACTOR_WELDED
+    title: The contactor is welded shut
+    symptom: [rearm-refused, wont-drive]
+    rank: 15
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The contactor's auxiliary contact reports its main contacts closed when they were commanded
+      open. The e-stop works by opening this contactor, so **treat the robot as having no working
+      e-stop** until this is resolved. A fault in the auxiliary-contact wiring reports the same
+      thing.
+    do:
+      - Do not drive the robot.
+      - >
+        Turn the **BATTERY** switch off. With the contactor welded, that is the way to remove
+        drive power.
+      - >
+        Check the auxiliary-contact wiring first; if it is sound, replace the contactor.
+      - >
+        This fault cannot be cleared from the dashboard. After the repair, restart the robot.
+    see: [e-stop.md, build/power-bay.md]
+
+  - code: LINK_STAMPLC_LOST
+    title: No link to the StamPLC
+    symptom: [rearm-refused, wont-drive, lift-wont-move]
+    rank: 20
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The dashboard has stopped hearing from the [StamPLC](glossary.md#stamplc), the controller
+      that owns the e-stop, the RC receiver, the drive and the lift. With its telemetry stale the
+      dashboard cannot know the safety state, so it shows the robot as e-stopped (source
+      **STALE TELEMETRY**), refuses to re-arm, and does not send lift or relay commands. The
+      e-stop buttons and the transmitter act on the StamPLC directly and do not depend on this
+      link.
+    do:
+      - Check that **RUN** is on and the StamPLC's screen is lit.
+      - >
+        If its firmware was just updated or it was restarted, wait — the link returns by itself
+        once it is back up.
+      - Check the network cable between the StamPLC and the computer, and the router.
+    see: [stamplc-ethernet-transport.md, operating.md#the-controls]
+
+  - code: RC_NO_LINK
+    title: No RC link
+    symptom: [wont-drive, lift-wont-move]
+    rank: 25
+    kind: fault
+    seen_on: [dashboard, head]
+    means: >
+      The receiver on the robot is hearing nothing from the transmitter. Without a link nothing
+      moves, whatever the switches show.
+    do:
+      - Turn the transmitter on, and check its battery.
+      - Move closer to the robot.
+      - >
+        If the transmitter is on and close, check the receiver and its cable to the StamPLC.
+    see: [build/rc-receiver.md, rc-control-mapping.md]
+
+  - code: RC_FAILSAFE
+    title: The RC receiver is in failsafe
+    symptom: [wont-drive, lift-wont-move]
+    rank: 26
+    kind: fault
+    seen_on: [dashboard, head]
+    means: >
+      The receiver has lost the transmitter's signal and is reporting
+      [failsafe](glossary.md#failsafe) instead of live stick positions. The robot treats this as
+      no command.
+    do:
+      - Check that the transmitter is on, charged and within range.
+      - >
+        If it persists with the transmitter close by, check the receiver and its cable to the
+        StamPLC.
+    see: [build/rc-receiver.md]
+
+  - code: RC_AUTHORITY_OFF
+    title: CH5 is at OFF
+    symptom: [wont-drive, lift-wont-move]
+    rank: 30
+    kind: expected
+    seen_on: [dashboard, head, transmitter]
+    means: >
+      [CH5](glossary.md#ch5) is the authority switch. At `OFF` nobody may command motion — not the
+      sticks and not the computer. The dashboard shows this as **STANDBY**.
+    do:
+      - Set CH5 to `MANUAL` to drive with the sticks.
+      - >
+        Set CH5 to `AUTO` to let the computer drive. `AUTO` also needs the deadman held.
+    see: [control-authority.md, operating.md#making-it-move]
+
+  - code: DRIVE_DEADMAN
+    title: The deadman is released
+    symptom: wont-drive
+    rank: 35
+    kind: expected
+    seen_on: [dashboard, transmitter]
+    means: >
+      [CH6](glossary.md#deadman) is the deadman. The sticks do nothing unless it is held, and
+      releasing it commands neutral. In `AUTO` it must be held too.
+    do:
+      - Hold CH6 while you drive.
+    see: [control-authority.md#the-deadman]
+
+  - code: DRIVE_ARMING
+    title: Arming — hold the sticks at neutral
+    symptom: wont-drive
+    rank: 40
+    kind: expected
+    seen_on: [dashboard]
+    means: >
+      The drive arms only after the sticks have been at neutral for two seconds with every other
+      condition met. If any condition drops out, the two seconds start again — so an intermittent
+      RC link, or a deadman that slips, keeps the drive disarmed even though every switch looks
+      right.
+    do:
+      - Centre both sticks and wait two seconds.
+      - If it never arms, work through the RC link entries above.
+    see: [operating.md#making-it-move]
+
+  - code: DRIVE_NOT_READY
+    title: The robot is still settling
+    symptom: wont-drive
+    rank: 45
+    kind: expected
+    seen_on: [dashboard]
+    means: >
+      After power-on, or after the StamPLC restarts — a firmware update restarts it — its control
+      loop takes a moment to start keeping time, and the dashboard holds motion off until it does.
+      The dashboard shows **ROBOT NOT READY**.
+    do:
+      - Wait. It clears by itself.
+      - If it lasts longer than about 30 seconds, see *Not ready after 30 seconds*.
+    see: [state-machines.md]
+
+  - code: LINK_NOT_READY
+    title: Not ready after 30 seconds
+    symptom: wont-drive
+    rank: 46
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The dashboard declares the robot ready only once it has both fresh StamPLC telemetry and a
+      live RC link. If it has not had both within 30 seconds of starting, it raises **TELEMETRY
+      NOT READY** rather than declaring the robot ready.
+    do:
+      - Work through *No link to the StamPLC*.
+      - Work through *No RC link*.
+      - It clears by itself once both are present.
+    see: [state-machines.md]
+
+  - code: DRIVE_CHARGER_CONNECTED
+    title: The charger is connected
+    symptom: wont-drive
+    rank: 50
+    kind: expected
+    seen_on: [dashboard]
+    means: >
+      While the charger is plugged in, the drive is inhibited, so the robot cannot drive off while
+      tethered to it.
+    do:
+      - Unplug the charger.
+    see: [operating.md#charging]
+
+  - code: LIFT_PINCH_HOLD
+    title: The lift stopped near the bottom
+    symptom: lift-wont-move
+    rank: 1
+    kind: expected
+    seen_on: [head, robot]
+    means: >
+      The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom,
+      where the closing gap can trap a hand. The head shows an amber **Z-AXIS HELD** banner and two
+      short tones sound. Nothing is latched and nothing needs clearing.
+    do:
+      - Release the stick, and keep it released for about half a second.
+      - Command down again. The banner turns green and reads **LOWERING**.
+    see: [operating.md#z-axis-pinch-protection, build/scissor-lift.md]
+
+  - code: LIFT_CH7_NOT_ZAXIS
+    title: CH7 is not set to Z-AXIS
+    symptom: lift-wont-move
+    rank: 10
+    kind: expected
+    seen_on: [transmitter]
+    derived: true
+    means: >
+      [CH7](glossary.md#payload-mode) chooses what the right stick talks to: `OFF`, `Z-AXIS` or
+      `PAN-TILT`. Unless it is at `Z-AXIS`, the right stick does not move the lift.
+    do:
+      - Set CH7 to `Z-AXIS`.
+    see: [operating.md#the-transmitter]
+
+  - code: LIFT_NOT_RESPONDING
+    title: The lift is not reporting
+    symptom: lift-wont-move
+    rank: 40
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The StamPLC link is healthy, but its report of the lift — height, motion and the pinch
+      guard's state — has stopped, so the dashboard marks the robot
+      [DEGRADED](glossary.md#degraded).
+    do:
+      - Do not move the lift until it reports again; the pinch guard's state is unknown.
+      - >
+        The fault stays shown after the report returns. Restarting the robot clears it.
+    see: [build/scissor-lift.md]
+
+  - code: LIFT_RELAY_RESERVED
+    title: Relays 1 and 2 belong to the lift
+    symptom: lift-wont-move
+    rank: 60
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      StamPLC relays 1 and 2 drive the lift's two legs, up and down. Switching them directly would
+      bypass the pinch guard, the travel limits and the authority gate, so the dashboard refuses.
+    do:
+      - Move the lift with the lift controls, which go through all three.
+    see: [build/scissor-lift.md, stamplc-connections.md]

@@ -5,6 +5,9 @@ docs_dir: docs
 
 theme:
   name: material
+  # No Google Fonts: the robot serves its own copy of this site to a tablet that may have no
+  # internet, and every page would stall on the font request first.
+  font: false
   icon:
     logo: material/robot-mower
   features:
@@ -61,6 +64,7 @@ nav:
   - Home: index.md
   - System overview: system-overview.md
   - Operating the robot: operating.md
+  - Troubleshooting: reference/troubleshooting.md
   - Educators: educators.md
   - Design & Interfaces:
       - Design philosophy: design-philosophy.md
@@ -112,6 +116,7 @@ nav:
   - Hardware:
       - Bill of materials: hardware-bom.md
   - Reference:
+      - Glossary: reference/glossary.md
       - Coordinate frames & naming: naming-frames.md
       - State machines: state-machines.md
       - Control authority: control-authority.md

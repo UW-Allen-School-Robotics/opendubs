@@ -196,6 +196,17 @@ write a bench that only reports on the panel.
 3. `python3 tools/bom.py --check`   → must print `OK`.
 4. Commit the CSV **and** the regenerated `.md` pages together.
 
+## Recipe — add a troubleshooting entry
+The troubleshooting page and the glossary (`docs/reference/`) are generated from
+`docs/reference/registry/*.yaml` — one file per lane, the same idea as `parts.csv`. Schema and
+usage are at the top of `tools/faults.py`.
+1. Add the entry to **your lane's** registry file: a stable `code` (an `ARM_`, `SHOW_`, `HEAD_`…
+   prefix), a `symptom` from `symptoms.yaml`, what it `means`, and what to `do`.
+2. Name the code where the operator meets it: `refuse("CODE", …)` in the dashboard backend,
+   `helpLink("CODE")` in the frontend, or an `@fault CODE` comment anywhere else.
+3. `uv run tools/faults.py --inject`, then `--check` → must print `OK`. CI fails on a code the
+   source uses that the registry lacks.
+
 ## Recipe — add assembly photos
 1. Team photos are on the shared Drive, grouped by module, usually **HEIC**. Download the
    module's shots to a scratch folder.
@@ -226,6 +237,7 @@ write a bench that only reports on the panel.
 | `docs/hardware-bom.md` | global Hardware/Purchase BOM |
 | `hardware/parts.csv` | **the parts source of truth** |
 | `tools/bom.py` | BOM generator + validator (`--inject`, `--check`, `--module <id>`) |
+| `docs/reference/registry/` + `tools/faults.py` | troubleshooting + glossary source and generator (`--inject`, `--check`) |
 | `tools/convert-build-photos.sh` | HEIC → web photos |
 | `docs/assets/build/<module>/` | that module's photos (+ `photos.manifest`) |
 | `mkdocs.yml` | nav + theme · `docs/stylesheets/extra.css` styling |
