@@ -12,7 +12,13 @@
    3. Start. The runner names show time 0 as a Thor monotonic time. It becomes this page's time
       (− θ), then audio-hardware time through getOutputTimestamp(), which already includes the output
       latency where the platform reports it truthfully (experiment S2 measures whether it does).
-   4. Stop fades (an abort, DEC-6); cut is immediate (an e-stop). Losing the connection stops the music
+   4. Keep in step. Measured on the tablet (S1/S3, 2026-10-08): the Thor's and the tablet's clocks agree
+      within 0.1 ppm and the audio clock runs true when the tablet is left alone — but handling it (a
+      cable pulled, the tablet picked up) can stall the audio clock by 10–70 ms, which would leave the
+      music behind for the rest of the show. So, once a second while playing, the show time being HEARD
+      is compared with the show time the Thor's clock says it is, and any difference is removed by a
+      slight speed change (at most 1 %, which is inaudible) — or, if it is large, by restarting in step.
+   5. Stop fades (an abort, DEC-6); cut is immediate (an e-stop). Losing the connection stops the music
       and nothing else (DEC-7).
 
    Optional and detected (rule 12): any browser can hold the role by pressing "Play show audio here";
@@ -21,7 +27,8 @@
 (() => {
   const K = window.OpenDubsKiosk;
   const st = { connected: false, holder: null, youHold: false, state: "idle", loadId: null,
-               clock: null, error: null, late_ms: null, last_start: null };
+               clock: null, error: null, late_ms: null, last_start: null,
+               sync: { err_ms: null, rate: 1, corrections: 0, resyncs: 0 } };
   let ws = null, ctx = null, buffers = [], playing = [], gain = null, retry = 500;
   const samples = [];                        // {theta, delta, at}
   const pending = new Map();                 // ping t0 -> true
@@ -62,6 +69,7 @@
 
   /* ---- 2. load, 3. start, 4. stop ----------------------------------------------------------- */
   function silence(fadeS) {
+    if (play) { clearInterval(play.timer); play = null; }
     const c = ctx, srcs = playing; playing = [];
     if (!c || !srcs.length) { st.state = buffers.length ? "ready" : "idle"; return; }
     const end = c.currentTime + (fadeS || 0);
@@ -86,6 +94,27 @@
     }
   }
 
+  /* What is heard is a straight line in context time between corrections: show time `anchorShow` at
+     context time `anchorCtx`, advancing at `rate`. */
+  let play = null;                   // {m, anchorCtx, anchorShow, rate, timer}
+  const SYNC_EVERY_MS = 1000;        // how often to check
+  const DEADBAND_S = 0.005;          // closer than this is in step
+  const CORRECT_OVER_S = 3;          // remove an error over about this long...
+  const MAX_RATE_DEV = 0.01;         // ...never faster or slower than 1 % (inaudible)
+  const RESYNC_S = 0.25;             // further off than this: restart in step instead
+  const heard = (ctxT) => play.anchorShow + (ctxT - play.anchorCtx) * play.rate;
+
+  // Every item from show time `showT`, heard from context time `atCtx`, at speed 1.
+  function startSources(c, atCtx, showT) {
+    for (const it of buffers) {
+      const off = showT - it.at;
+      if (off >= it.buf.duration) continue;                       // long over
+      const s = c.createBufferSource(); s.buffer = it.buf; s.connect(gain);
+      if (off >= 0) s.start(atCtx, off); else s.start(atCtx - off);   // already due: join in step
+      playing.push(s);
+    }
+  }
+
   function start(m) {
     if (m.id !== st.loadId || st.state !== "ready" || !st.clock) return;
     const c = audio(); c.resume();
@@ -97,14 +126,42 @@
                       ctx_now: c.currentTime, clock: { ...st.clock },
                       latency_s: (c.outputLatency || 0) + (c.baseLatency || 0),
                       via: c.getOutputTimestamp && c.getOutputTimestamp().performanceTime > 0 ? "getOutputTimestamp" : "latency" };
-    for (const it of buffers) {
-      const when = base + it.at, late = c.currentTime - when;
-      if (late >= it.buf.duration) continue;                    // long over by the time we heard
-      const s = c.createBufferSource(); s.buffer = it.buf; s.connect(gain);
-      if (late > 0) s.start(c.currentTime, late); else s.start(when);   // late: join in step, not from 0
-      playing.push(s);
-    }
+    const now = Math.max(c.currentTime, base);                   // late: join in step, not from 0
+    play = { m, anchorCtx: now, anchorShow: now - base, rate: 1, timer: null };
+    startSources(c, now, now - base);
+    st.sync = { err_ms: 0, rate: 1, corrections: 0, resyncs: 0 };
+    play.timer = setInterval(keepInStep, SYNC_EVERY_MS);
     st.state = "playing";
+  }
+
+  function keepInStep() {
+    const c = ctx;
+    if (!play || st.state !== "playing" || !c || !c.getOutputTimestamp || !st.clock) return;
+    const ts = c.getOutputTimestamp();
+    if (!(ts.performanceTime > 0)) return;
+    // Where the Thor's clock says the show is, at the moment the sample now leaving the speaker is heard.
+    const t0perf = toPerf(play.m.t0_mono * 1000);
+    const err = (ts.performanceTime - t0perf) / 1000 - heard(ts.contextTime);   // > 0: the music is behind
+    st.sync.err_ms = Math.round(err * 1000);
+    const now = c.currentTime;
+    if (Math.abs(err) > RESYNC_S) {
+      // Too far to ease back without being heard: restart everything in step, a moment from now.
+      const at = now + 0.05;
+      const showAt = (ts.performanceTime + (at - ts.contextTime) * 1000 - t0perf) / 1000;
+      for (const s of playing) { try { s.stop(now); } catch (e) { /* not started */ } }
+      playing = [];
+      play.anchorCtx = at; play.anchorShow = showAt; play.rate = 1;
+      startSources(c, at, showAt);
+      st.sync.rate = 1; st.sync.resyncs++;
+      return;
+    }
+    const want = Math.abs(err) < DEADBAND_S ? 1
+      : 1 + Math.max(-MAX_RATE_DEV, Math.min(MAX_RATE_DEV, err / CORRECT_OVER_S));
+    if (want === play.rate) return;
+    play.anchorShow = heard(now); play.anchorCtx = now; play.rate = want;   // re-anchor, then change speed
+    for (const s of playing) { try { s.playbackRate.setValueAtTime(want, now); } catch (e) { /* ended */ } }
+    st.sync.rate = Math.round(want * 10000) / 10000;
+    if (want !== 1) st.sync.corrections++;
   }
 
   /* ---- the connection ------------------------------------------------------------------------ */

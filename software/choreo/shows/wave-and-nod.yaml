@@ -1,0 +1,59 @@
+id: wave-and-nod
+name: Wave and nod
+# A palette routine that exercises the head, both arms and the show music together: the head nods
+# to the beat, looks at each arm as it waves, and the arms return to rest on the closing chord.
+# Ends at rest, head centred. An arm cue's time is when the arm ARRIVES; a head cue's is when the
+# head STARTS to turn (it slews at its own speed).
+#
+# The music is generated, not committed:  python3 shows/audio/make_test_audio.py
+# (120 BPM, beat 1 at 0.5 s, so bar n starts at 0.5 + 2(n-1) s; the melody runs bars 1-8, and a held
+# chord from 16.5 s to the end, at 19 s.)
+palette: { label: Wave and nod, order: 4 }
+slots: [ARM_L, ARM_R, HEAD, FACE]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+music:
+  file: audio/wave-and-nod-120.wav
+  bpm: 120
+  offset_s: 0.5
+  beats_per_bar: 4
+
+cues:
+  # bars 1-2: look up and nod to the beat while both arms rise
+  - { t: 0.0, slot: FACE, do: emote, name: SOFT }
+  - { t: 0.5, slot: HEAD, tilt: 100 }
+  - { t: 1.5, slot: HEAD, tilt: 80 }
+  - { t: 2.5, slot: HEAD, tilt: 100 }
+  - { t: 3.5, slot: HEAD, tilt: 80 }
+  - { t: 4.5, slot: HEAD, tilt: 90 }
+  - { t: 4.5, slot: ARM_L, joints: { 2: 30, 4: 60 } }
+  - { t: 4.5, slot: ARM_R, joints: { 2: 30, 4: 60 } }
+
+  # bars 3-4: the right hand waves, and the head turns to watch it
+  - { t: 4.5, slot: FACE, do: emote, name: ALERT }
+  - { t: 5.5, slot: HEAD, pan: 110 }
+  - { t: 5.5, slot: ARM_R, joints: { 7: 15 } }
+  - { t: 6.5, slot: ARM_R, joints: { 7: -15 } }
+  - { t: 7.5, slot: ARM_R, joints: { 7: 15 } }
+  - { t: 8.5, slot: ARM_R, joints: { 7: 0 } }
+
+  # bars 5-6: the left hand's turn
+  - { t: 9.5, slot: ARM_L, joints: { 7: 15 } }
+  - { t: 10.0, slot: HEAD, pan: 70 }
+  - { t: 10.5, slot: ARM_L, joints: { 7: -15 } }
+  - { t: 11.5, slot: ARM_L, joints: { 7: 15 } }
+  - { t: 12.5, slot: ARM_L, joints: { 7: 0 } }
+
+  # bars 7-8: face front, both arms reach forward together, one more nod
+  - { t: 12.5, slot: FACE, do: emote, name: SOFT }
+  - { t: 12.5, slot: HEAD, pan: 90, tilt: 100 }
+  - { t: 14.5, slot: ARM_L, joints: { 1: 15 } }
+  - { t: 14.5, slot: ARM_R, joints: { 1: 15 } }
+  - { t: 14.5, slot: HEAD, tilt: 80 }
+
+  # the closing chord: everything home — the rejoin state
+  - { t: 16.5, slot: HEAD, pan: 90, tilt: 90 }
+  - { t: 18.5, slot: ARM_L, pose: rest }
+  - { t: 18.5, slot: ARM_R, pose: rest }

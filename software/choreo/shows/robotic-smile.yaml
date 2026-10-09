@@ -1,0 +1,108 @@
+id: robotic-smile
+name: Robotic smile
+# A palette routine on the opening of a song: the quiet intro, the first build, and back to rest. The
+# runner fades the song out when the routine ends, so the whole file is used, untrimmed.
+#
+# The song is NOT in the repo (shows/audio/.gitignore): copy robotic_smile.mp3 to shows/audio/ on
+# the machine that runs it. Its grid was measured, not guessed: 123 BPM, the first beat at 1.625 s,
+# beats steady to about 9 ms. A bar is 1.95 s, so bar n starts at 1.625 + 1.951(n-1) s.
+#
+# An arm keyframe's time is when the arm ARRIVES; a head cue's is when the head STARTS to turn.
+#
+# The arms move on single beats (0.49 s), at the speeds measured on the robot (cue.SPEED_CAP_DEG_S,
+# 2026-10-08): a 30 deg wrist swing per beat averages 61 deg/s, a 25 deg forearm pump 51, a 20 deg
+# shoulder lift 41 — each one's eased peak still under its joint's cap, so nothing warns. The head
+# nods on every beat too: 16 deg at its 70 deg/s takes 0.23 s, inside a beat.
+palette: { label: Robotic smile, order: 5 }
+slots: [ARM_L, ARM_R, HEAD, FACE, SOUND]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+music:
+  file: audio/robotic_smile.mp3
+  bpm: 123
+  offset_s: 1.625
+  beats_per_bar: 4
+
+clips:
+  # a wrist wave, one swing per beat: 30 deg in 0.49 s
+  wave_r:
+    length_beats: 8
+    cues:
+      - { beat: 1, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 2, slot: ARM_R, joints: { 7: -15 } }
+      - { beat: 3, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 4, slot: ARM_R, joints: { 7: -15 } }
+      - { beat: 5, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 6, slot: ARM_R, joints: { 7: -15 } }
+      - { beat: 7, slot: ARM_R, joints: { 7: 15 } }
+      - { beat: 8, slot: ARM_R, joints: { 7: 0 } }
+  # the forearms pump in turn, one per beat: one up while the other is down
+  pump:
+    length_beats: 2
+    cues:
+      - { beat: 1, slot: ARM_R, joints: { 4: 85 } }
+      - { beat: 1, slot: ARM_L, joints: { 4: 60 } }
+      - { beat: 2, slot: ARM_R, joints: { 4: 60 } }
+      - { beat: 2, slot: ARM_L, joints: { 4: 85 } }
+  # raise the roof: both shoulders up on the beat, down on the next
+  roof:
+    length_beats: 2
+    cues:
+      - { beat: 1, slot: ARM_R, joints: { 2: 50 } }
+      - { beat: 1, slot: ARM_L, joints: { 2: 50 } }
+      - { beat: 2, slot: ARM_R, joints: { 2: 30 } }
+      - { beat: 2, slot: ARM_L, joints: { 2: 30 } }
+  # the face on the beat: wide-eyed on each odd bar's downbeat, droopy on the next — two strongly
+  # contrasting expressions, so the change reads as a hit rather than a mood (asked 2026-10-08,
+  # after the first live run's four mood changes went unnoticed)
+  face_beat:
+    length_beats: 8
+    cues:
+      - { beat: 1, slot: FACE, do: emote, name: ALERT }
+      - { beat: 5, slot: FACE, do: emote, name: SLEEPY }
+  # a head nod on every beat: down on the beat, up on the next
+  nod:
+    length_beats: 2
+    cues:
+      - { beat: 1, slot: HEAD, tilt: 82 }
+      - { beat: 2, slot: HEAD, tilt: 98 }
+
+cues:
+  # the intro (bars 1-4): wake up and look around; the arms rise over bars 3-4, arriving on bar 5
+  - { t: 0.0, slot: SOUND, do: play, sound: attend }
+  - { bar: "1.1", clip: face_beat, repeat: 8 }     # every bar, bars 1-16
+  - { bar: "1.1", slot: HEAD, tilt: 100 }
+  - { bar: "3.1", slot: HEAD, pan: 105 }
+  - { bar: "3.1", slot: ARM_L, joints: { 2: 0 } }        # hold at rest until bar 3
+  - { bar: "3.1", slot: ARM_R, joints: { 2: 0 } }
+  - { bar: "4.1", slot: HEAD, pan: 75 }
+  - { bar: "5.1", slot: ARM_L, joints: { 2: 30, 4: 60 } }
+  - { bar: "5.1", slot: ARM_R, joints: { 2: 30, 4: 60 } }
+
+  # the music kicks in (bars 5-8): look ahead; the right hand waves on every beat, then the left
+  - { bar: "5.1", slot: HEAD, pan: 110, tilt: 90 }
+  - { bar: "5.2", clip: wave_r }
+  - { bar: "7.1", slot: ARM_L, joints: { 7: 0 } }        # hold still until its turn
+  - { bar: "7.1", slot: HEAD, pan: 70 }
+  - { bar: "7.2", clip: wave_r, mirror: true }
+
+  # bars 9-12: the forearms pump on every beat while the head nods along
+  - { bar: "9.1", slot: HEAD, pan: 90 }
+  - { bar: "9.1", clip: nod, repeat: 8 }
+  - { bar: "9.1", slot: ARM_R, joints: { 4: 60 } }        # hold, so the first pump is one beat long
+  - { bar: "9.2", clip: pump, repeat: 7 }
+  - { bar: "13.1", slot: ARM_R, joints: { 4: 60 } }
+  - { bar: "13.1", slot: ARM_L, joints: { 4: 60 } }
+
+  # bars 13-14: raise the roof, both shoulders on every beat
+  - { bar: "13.2", clip: roof, repeat: 3 }
+
+  # bars 15-16: both arms reach out together, a happy chirp, and everything home by bar 17
+  - { bar: "15.1", slot: ARM_L, joints: { 1: 15 } }
+  - { bar: "15.1", slot: ARM_R, joints: { 1: 15 } }
+  - { bar: "15.1", slot: SOUND, do: play, sound: heard }
+  - { bar: "16.1", slot: HEAD, pan: 90, tilt: 90 }
+  - { bar: "17.1", slot: ARM_L, pose: rest }
+  - { bar: "17.1", slot: ARM_R, pose: rest }

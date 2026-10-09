@@ -120,10 +120,13 @@ def dance_excursion_m(move: str, secs: float, amp: float = 1.0) -> float:
     return far
 
 MARGIN_DEG = 5.0
-# UNSOURCED. These came over from showcase_demo.py with the rest of the checks and carry no note
-# of how they were chosen; measuring or sourcing them is workplan item 6.1. Every message that
-# cites one says "unsourced" until then.
-SPEED_CAP_DEG_S = {1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70}
+# MEASURED, 2026-10-08 (workplan 6.1; speed_test.py on opendubs2's right arm, the left a mirror of
+# it): 75% of the speed at which a joint first fell more than 5 deg behind its path in steady motion,
+# or was stopped near its trip. J1/J2 failed at 120 (the shoulder fell 17 deg behind), J3 at 240
+# (it overran to 252, near its 312 trip), J4-J7 at 180. Effort stayed under 60% of every limit: the
+# limit is how closely the joints follow, not torque. Were 25/30/35/30/35/60/70, unsourced.
+# Adopted for both arms by the user, 2026-10-08.
+SPEED_CAP_DEG_S = {1: 90, 2: 90, 3: 180, 4: 135, 5: 135, 6: 135, 7: 135}
 # INTERIM, agreed 2026-10-07 (workplan DEC-1, item 1.1). The AVERAGE speed over a segment is the
 # hard gate. Its average times this factor — the peak of a minimum-jerk (quintic) move, the worst
 # profile the arm controller plausibly uses — is checked as a WARNING: the real profile is
@@ -132,6 +135,12 @@ SPEED_CAP_DEG_S = {1: 25, 2: 30, 3: 35, 4: 30, 5: 35, 6: 60, 7: 70}
 # measured, this becomes its peak-to-average ratio (1.0 for constant speed, 1.5 for a cubic) and
 # the peak becomes the gate.
 PEAK_FACTOR = 1.875
+# The arm controller's own velocity TRIPS — the URDF joint limits, read from the arm stack by the
+# arms plan on 2026-10-08. Past one the controller freezes the arm and aborts the whole goal, so a
+# show stops mid-routine. Nothing below the trajectory clamps speed; these are trips, not limits.
+# A move whose PEAK (average x PEAK_FACTOR) reaches one is refused outright — not caution: that move
+# would stop the show every time. Matters once the speed caps rise (workplan 6.1).
+TRIP_DEG_S = {1: 960, 2: 960, 3: 312, 4: 312, 5: 1200, 6: 1200, 7: 1200}
 
 # Measured on opendubs2, per side. Both open on a POSITIVE command, but their zeros sit at
 # opposite physical ends, so one range cannot serve both.
@@ -172,8 +181,9 @@ CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
-# uses the same constant to show where the head actually is.
-HEAD_SLEW_DPS = 25.0
+# uses the same constant to show where the head actually is. 70 since Tab5 PR #81 (2026-10-08, the
+# user's call: a nod must land on a beat; was 25), measured on opendubs2 at 74 deg/s effective.
+HEAD_SLEW_DPS = 70.0
 HEAD_REACH_TOL_DEG = 1.5       # the firmware's deadband (kDeadbandDeg): closer than this is "there"
 LIFT_MAX_S = 8.0               # a single continuous lift command
 
@@ -260,8 +270,9 @@ NOT_EXECUTABLE = {
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
              "every state change, so the runner must LAYER it before a show may (two writers "
              "on one register otherwise)",
-    "SOUND": "SOUND files are valid but play nowhere yet: the tablet and Thor audio paths are not "
-             "built (workplan 4.2); Tab5 earcons play on the head (CUE)",
+    "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
+             "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
+             "(2026-10-08) and the robot's runner holds earcons back",
 }
 
 
@@ -831,7 +842,7 @@ class Show:
         quiet = free_at + need_avg[bind] * PEAK_FACTOR
         if t > t_want + 1e-9:
             reason = (f"J{bind} changes {abs(target[bind] - before[bind]):.0f} deg and may average at "
-                      f"most {SPEED_CAP_DEG_S[bind]} deg/s (unsourced cap), so it needs "
+                      f"most {SPEED_CAP_DEG_S[bind]} deg/s (measured cap), so it needs "
                       f"{need_avg[bind]:.1f}s from t={free_at:.2f}s")
         else:
             reason = "reachable at the time asked for"
@@ -909,13 +920,17 @@ class Show:
             avg = abs(signed - prev) / dt
             peak = avg * PEAK_FACTOR
             cap = SPEED_CAP_DEG_S[j]
-            if avg > cap + 1e-9:
+            if peak >= TRIP_DEG_S[j]:
+                p.append(f"{where}: {slot} J{j} may peak at {peak:.0f} deg/s, at or over the arm "
+                         f"controller's {TRIP_DEG_S[j]} deg/s trip — it would freeze the arm and stop "
+                         f"the show; give it at least {abs(signed - prev) * PEAK_FACTOR / TRIP_DEG_S[j]:.2f}s")
+            elif avg > cap + 1e-9:
                 p.append(f"{where}: {slot} J{j} moves {avg:.0f} deg/s over {dt:.1f}s "
-                         f"(cap {cap}, unsourced)")
+                         f"(cap {cap}, measured)")
             elif peak > cap + 1e-9 and warn is not None:
                 need = abs(signed - prev) * PEAK_FACTOR / cap
                 warn.append(f"{where}: {slot} J{j} may peak at {peak:.0f} deg/s if the arm eases "
-                            f"(average {avg:.0f} x {PEAK_FACTOR}; cap {cap}, unsourced) — "
+                            f"(average {avg:.0f} x {PEAK_FACTOR}; cap {cap}, measured) — "
                             f"{need:.1f}s would be safe either way")
             state[j] = signed
 
@@ -1345,7 +1360,7 @@ def describe(limits: dict) -> str:
             if j in MIRRORED_JOINTS and m < 0:
                 lo_d, hi_d = -hi_d, -lo_d
             w(f"  {side:5s} J{j}: usable {lo_d:+7.1f} .. {hi_d:+7.1f} deg (as written in a show)   "
-              f"cap {SPEED_CAP_DEG_S[j]} deg/s average (unsourced); warns above it x {PEAK_FACTOR}")
+              f"cap {SPEED_CAP_DEG_S[j]} deg/s average (measured); warns above it x {PEAK_FACTOR}")
     w(f"  margin {MARGIN_DEG:g} deg inside each limit. pose: rest = every joint 0, clamped into the"
       " limits with no margin:")
     for side in ("left", "right"):

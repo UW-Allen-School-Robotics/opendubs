@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=f35fc600" />
+  <link rel="stylesheet" href="style.css?v=a9e80ddc" />
 </head>
 <body>
   <div id="app">
@@ -25,6 +25,7 @@
         <span id="conn" class="conn down" title="link">●</span>
       </div>
       <span id="opState" class="op-state">—</span>
+      <span id="opDead" class="op-state dim" title="The RC deadman. Shows and driving need it held.">DEADMAN —</span>
       <span class="spacer"></span>
       <button id="btnAiToggle" class="op-ai off">AI TRACKING: OFF</button>
       <span id="host" class="op-meta">—</span>
@@ -302,14 +303,19 @@
     <!-- SHOWS view — the routine palette (choreography plan 4.4). Pick one, it runs, pick the next. -->
     <main id="view-shows" class="view showsview">
       <section class="card shows-card">
-        <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="The show runner drives only the twins (MuJoCo, the face twin) until live output is built — choreography plan 5.6">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
+        <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held; grippers, head and lift stay twin-only. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
+        <div class="shows-req">Shows need the mode in AUTO and the deadman held. Letting go of the deadman stops the show, and the arms hold where they are.</div>
         <div id="showsStatus" class="shows-status">—</div>
         <div class="shows-audio">
           <span id="showsAudio" class="dim" title="Show music and sound files play on ONE device. The Thor tells it when to start; it matches its clock to the Thor's to start on time.">Show audio: —</span>
           <button id="showsAudioClaim" class="sysbtn" title="Play show music and sounds on this device instead (any browser can; the kiosk tablet takes it by default)">Play show audio here</button>
         </div>
         <div id="showsList" class="shows-list"></div>
-        <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
+        <div class="shows-legend">Icons show what each routine does. Bright: on the robot. Faded: in the twin only, not on the robot yet.</div>
+        <div class="shows-ctl">
+          <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
+          <button id="showsPark" class="sysbtn shows-stop" title="Moves both arms to their stow pose, e.g. after a stopped run left them part-way. Confirm-on-tap; not while a routine runs.">PARK BOTH ARMS</button>
+        </div>
         <div class="sub">Each routine ends with the arms at rest and the head centred, so any can follow any. A routine that does not validate cannot be started.</div>
       </section>
     </main>
@@ -521,10 +527,10 @@
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=0a1c032a"></script>
-  <script src="operate.js?v=7ef5cdb2"></script>
+  <script src="app.js?v=2dd16ff8"></script>
+  <script src="operate.js?v=1c63abb5"></script>
   <script type="module" src="teleop.js?v=62f2695f"></script>
-  <script src="show_audio.js?v=1"></script>
-  <script src="choreo.js?v=2"></script>
+  <script src="show_audio.js?v=2"></script>
+  <script src="choreo.js?v=7"></script>
 </body>
 </html>
