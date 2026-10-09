@@ -32,7 +32,7 @@ lruns, lproblems = S.plan("left", S.JOINT_ORDER, S.SPEEDS, LIMITS)
 check("... and the left arm's (mirrored) swings fit its limits too", not lproblems, lproblems)
 
 for arm in ("right", "left"):
-    pts, knots = S.swing(arm, 4, 120)
+    pts, knots, _ = S.swing(arm, 4, 120)
     base = S.signed(arm, S.BASE)
     vmax = max(abs(b[1][3] - a[1][3]) / (b[0] - a[0]) for a, b in zip(pts, pts[1:]))
     others = all(p[1][k] == base[k] for p in pts for k in range(7) if k != 3)
@@ -41,8 +41,24 @@ for arm in ("right", "left"):
     check(f"{arm}: ... within +-20 deg of the base, ending at the base",
           max(abs(p[1][3] - base[3]) for p in pts) <= S.AMPLITUDE_DEG + 1e-6 and pts[-1][1] == base, pts[-1])
 
+print("\nspeed test: the smoothed swing (the path shows now follow)")
+pts, knots, ref = S.swing("right", 6, 120, shape="smooth")
+v = [abs(b[1][5] - a[1][5]) / (b[0] - a[0]) for a, b in zip(pts, pts[1:])]
+check("a smooth swing reaches the same ends at the same times, peaking at 1.5x the leg's average",
+      all(abs(ref(t) - q) < 1e-9 for t, q in knots) and 175 <= max(v) <= 181, max(v))
+check("... and slows to zero at each reversal, where the linear swing flips at full speed",
+      all(abs(ref(t + 1e-4) - ref(t)) / 1e-4 < 0.5 for t, _ in knots[2:-2]))
+sruns, sprob = S.plan("right", (4, 7), (120, 180, 240), LIMITS, "smooth")
+check("a smooth plan keeps its PEAK under 80% of the trip: the elbow stops at 120 (1.5x 180 = 270 > 250)",
+      not sprob and max(r["speed"] for r in sruns if r["joint"] == 4) == 120
+      and max(r["speed"] for r in sruns if r["joint"] == 7) == 240, [(r["joint"], r["speed"]) for r in sruns])
+samples = [(t, [0, 30, 0, 60, 0, ref(t - 0.05), 0], None, None) for t in [i * 0.004 for i in range(int(pts[-1][0] / 0.004))]]
+r = S.analyse(samples, knots, 6, ref)
+check("the analysis measures a smooth swing against its own smooth path (50 ms late reads as 50 ms, ~0 error)",
+      abs(r["lag_ms"] - 50) <= 5 and r["steady_error_deg"] < 0.3 and r["reversal_error_deg"] < 0.3, r)
+
 print("\nspeed test: the analysis")
-pts, knots = S.swing("right", 4, 120)
+pts, knots, _ = S.swing("right", 4, 120)
 lag = 0.06
 samples = [(t, [0, 30, 0, S.ref_at(knots, t - lag), 0, 0, 0], None, [0, 0, 0, 5.0, 0, 0, 0])
            for t in [i * 0.004 for i in range(int(pts[-1][0] / 0.004))]]
@@ -64,7 +80,7 @@ check("no effort reported is not a failure", S.verdict(dict(res, steady_effort_s
 check("the wrist's effort is measured against its 7 N·m motor rating, not its 15 N·m trip",
       S.EFFORT_LIMIT_NM[7] == 7 and S.EFFORT_LIMIT_NM[4] == 20)
 
-pts, knots = S.swing("right", 7, 240)
+pts, knots, _ = S.swing("right", 7, 240)
 fast = [(t, [0, 30, 0, 60, 0, 0, S.ref_at(knots, t - 0.03)], None, None)
         for t in [i * 0.004 for i in range(int(pts[-1][0] / 0.004))]]
 r = S.analyse(fast, knots, 7)
