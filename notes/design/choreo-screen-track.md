@@ -84,11 +84,11 @@ A new slot, **SCREEN**, and a new FACE action:
 requires:
   screen: essential            # optional: refuse rather than play on the face if media is not ready
 music:
-  song: robotic-smile          # a library id (replaces `file:`; `file:` stays valid for now)
+  song: example-song           # a library id (replaces `file:`; `file:` stays valid for now)
 cues:
-  - { bar: "9.1",  slot: SCREEN, do: show, clip: neon-tunnel, from: 0 }    # cut to the clip
+  - { bar: "9.1",  slot: SCREEN, do: show, clip: example-clip, from: 0 }   # cut to the clip
   - { bar: "11.1", slot: SCREEN, do: face }                                # cut back to the face
-  - { bar: "1.1",  slot: FACE, do: skin, name: pumpkin-eyes }              # head protocol v2
+  - { bar: "1.1",  slot: FACE, do: skin, name: example-eyes }              # head protocol v2
 ```
 
 Clips are **silent** in a show: the show's music is the soundtrack (see Open questions).
@@ -110,22 +110,28 @@ E_STOP) always shows the default eyes whatever SKIN says; and the panel is 1340�
 
 ## The library index
 
-Owned by the choreography lane, since the validator reads it; agreed with the tablet lane.
+Its SCHEMA is owned by the choreography lane, since the validator reads it; agreed with the tablet
+lane. Its ENTRIES are library content, like the files they describe: never committed. The real
+index — names, hashes, source and licence lines, which name third-party sources and show-specific
+content — lives with the assets on the Thor and syncs alongside them. The repo holds only the
+schema, the add-item tool (which writes to the library, never into the tree), the validator (which
+reads the index from the library location, never from the repo), and test fixtures with made-up
+entries. The example below is made up.
 
 ```yaml
 # /var/lib/opendubs/library/index.yaml on the Thor (synced to composing laptops; the tablet syncs
 # by hash — tablet plan 5.3 — and keeps its last good set while the Thor is down)
-- id: robotic-smile
+- id: example-song
   kind: song                    # song | clip | skin (later: overlay, theme, sound)
-  file: songs/robotic_smile.mp3
+  file: songs/example_song.mp3
   sha256: 3f1c…
-  duration_s: 150.02
-  bpm: 123                      # optional, measured; the show's music block still governs
+  duration_s: 150.0
+  bpm: 120                      # optional, measured; the show's music block still governs
   source: "…"                   # where it came from — REQUIRED
   licence: "…"                  # REQUIRED
-- id: neon-tunnel
+- id: example-clip
   kind: clip
-  file: clips/neon_tunnel.mp4
+  file: clips/example_clip.mp4
   sha256: 9a0e…
   duration_s: 12.0
   width: 1340
@@ -133,9 +139,9 @@ Owned by the choreography lane, since the validator reads it; agreed with the ta
   fps: 60
   source: "…"
   licence: "…"
-- id: pumpkin-eyes
+- id: example-eyes
   kind: skin
-  file: skins/pumpkin-eyes/
+  file: skins/example-eyes/
   sha256: …
   inputs: [lookX, lookY, lid, emote, colour]   # which face-contract inputs it uses (face-engine.md §A)
   source: "…"
