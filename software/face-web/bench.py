@@ -31,6 +31,9 @@ RUNS = [   # (label, query, seconds, before-reading action)
     ("eyes + 1200p60 video decoding behind", "&skin=eyes&video=vendor/test-1200p60.mp4", 15, None),
     ("1200p60 video showing (cut to media)", "&skin=eyes&video=vendor/test-1200p60.mp4", 15, "cut('media')"),
     ("eyes + 1080p60 video showing", "&skin=eyes&video=vendor/test-1080p60.mp4", 15, "cut('media')"),
+    ("image skin (test-gear PNG, spinning)", "&skin=test-gear", 15, None),
+    ("video skin (test-orb, WebM VP9 with alpha)", "&skin=test-orb", 15, None),
+    ("video skin + 1200p60 clip decoding behind", "&skin=test-orb&video=vendor/test-1200p60.mp4", 15, None),
     ("eyes + tracking, worker, GPU (sweep stimulus)", "&skin=eyes&track=1&tracksrc=sweep", 25, None),
     ("eyes + tracking, worker, CPU (sweep stimulus)", "&skin=eyes&track=1&tracksrc=sweep&delegate=CPU", 25, None),
     ("eyes + tracking, MAIN THREAD, GPU (sweep stimulus)", "&skin=eyes&track=1&tracksrc=sweep&trackmain=1", 25, None),
@@ -62,7 +65,11 @@ async def evaluate(ws, expr, i=[0]):
     while True:
         m = json.loads(await ws.recv())
         if m.get("id") == i[0]:
-            return m.get("result", {}).get("result", {}).get("value")
+            r = m.get("result", {})
+            if "exceptionDetails" in r:            # say what failed, rather than return nothing
+                d = r["exceptionDetails"]
+                raise RuntimeError(f"in the page: {d.get('exception', {}).get('description') or d.get('text')}")
+            return r.get("result", {}).get("value")
 
 
 async def main(a):
@@ -81,6 +88,18 @@ async def main(a):
                      gl: d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : (g ? 'webgl2 (renderer hidden)' : 'no webgl2'),
                      webgpu: !!navigator.gpu };
         })()""")
+        # Does the decoder claim hardware ("powerEfficient") for the skin's size? Alpha is not a
+        # field MediaCapabilities can ask about, so the dropped-frame count below is the real answer.
+        results["decode"] = await evaluate(ws, """(async () => {
+            const ask = (c) => navigator.mediaCapabilities.decodingInfo({type: 'file', video:
+                {contentType: c, width: 400, height: 400, bitrate: 1000000, framerate: 30}});
+            const out = {};
+            for (const [k, c] of [['vp9', 'video/webm; codecs="vp09.00.10.08"'], ['vp8', 'video/webm; codecs="vp8"'],
+                                  ['h264', 'video/mp4; codecs="avc1.42E01E"'], ['hevc', 'video/mp4; codecs="hvc1.1.6.L93.B0"']]) {
+                const r = await ask(c); out[k] = {supported: r.supported, smooth: r.smooth, powerEfficient: r.powerEfficient};
+            }
+            return out; })()""")
+        print("decode:", json.dumps(results["decode"]))
         print(json.dumps(results["device"], indent=1))
         for label, query, secs, action in RUNS:
             if a.only and a.only not in label:
@@ -90,14 +109,17 @@ async def main(a):
             if action:
                 await evaluate(ws, action)
             time.sleep(secs)
-            v = await evaluate(ws, "JSON.stringify({face: window.faceStats, track: window.trackStats ? "
+            v = await evaluate(ws, "JSON.stringify({skin: window.faceSkins ? {shown: faceSkins.shownName(), error: faceSkins.error, "
+                                   "video: faceSkins.current.source && faceSkins.current.source.getVideoPlaybackQuality ? "
+                                   "(q => ({dropped: q.droppedVideoFrames, total: q.totalVideoFrames}))(faceSkins.current.source.getVideoPlaybackQuality()) : null} : null, "
+                                   "face: window.faceStats, track: window.trackStats ? "
                                    "{warmupMs: trackStats.warmupMs, loadMs: trackStats.loadMs, frames: trackStats.frames, "
                                    "hits: trackStats.hits, detectMs: trackStats.detectMs} : null, "
                                    "hud: document.getElementById('hud').textContent})")
             r = json.loads(v)
             r["label"] = label
             results["runs"].append(r)
-            print(f"\n== {label}\n{r['hud']}")
+            print(f"\n== {label}\n{r['hud']}" + (f"\n   skin {json.dumps(r['skin'])}" if r.get("skin") and r["skin"]["shown"] != "default" or (r.get("skin") or {}).get("error") else ""))
     out = a.out or f"bench-{'webview' if a.webview else 'chrome'}-{time.strftime('%Y%m%d-%H%M%S')}.json"
     with open(out, "w") as f:
         json.dump(results, f, indent=1)

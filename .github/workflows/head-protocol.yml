@@ -13,12 +13,16 @@ on:
       - "software/head-protocol/**"
       - "firmware/tab5_idf/app_face/net_cmd.cpp"
       - "firmware/tab5_idf/app_face/app_face.cpp"
+      - "software/face-web/engine/vocab.js"
+      - "software/face-web/engine/skins/index.js"
       - ".github/workflows/head-protocol.yml"
   pull_request:
     paths:
       - "software/head-protocol/**"
       - "firmware/tab5_idf/app_face/net_cmd.cpp"
       - "firmware/tab5_idf/app_face/app_face.cpp"
+      - "software/face-web/engine/vocab.js"
+      - "software/face-web/engine/skins/index.js"
       - ".github/workflows/head-protocol.yml"
 
 permissions:

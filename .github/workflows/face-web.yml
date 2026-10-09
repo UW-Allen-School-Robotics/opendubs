@@ -1,0 +1,35 @@
+name: face-web
+
+# The tablet face engine (software/face-web) held to the head protocol: its own model and protocol
+# code run headless in Node behind a UDP door, a reference neck beside it, and the head protocol's
+# conformance suite with --active --motion against both. No browser; nothing is drawn — what is
+# checked is that the face answers every message as notes/design/head-protocol.md says.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/face-web/**"
+      - "software/head-protocol/**"
+      - ".github/workflows/face-web.yml"
+  pull_request:
+    paths:
+      - "software/face-web/**"
+      - "software/head-protocol/**"
+      - ".github/workflows/face-web.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bash software/face-web/tests/conformance.sh

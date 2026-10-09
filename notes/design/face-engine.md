@@ -62,35 +62,80 @@ the panel's size; it cost nothing here either way.
   layer moves to WebGL (PixiJS), the rest stays.
 - **The robot's own WebView 131 behaves differently** from the bench's 153 → re-measured there first.
 
-## The art tool
+## Skin types — decided 2026-10-08
 
-**Open, 2026-10-08: the team is deciding whether a special tool is needed at all.** Two candidates,
-both feeding the same skin contract below, so the engine is not tied to either:
+**The team's decision:** code-drawn eyes stay first-class; two simple asset-driven skin types are
+built now; rigged SVG and Rive come later, on the same contract.
 
-- **A rigged SVG**: draw in any vector tool (Inkscape, Illustrator, Figma, Affinity) and name the
-  layers — `pupil`, `lid`, `brow`, … — which the engine moves, scales and recolours from the contract's
-  inputs. No new tool to learn, and the file is plain text.
-- **Rive**, recommended first in this note's draft: because a skin must still blink, emote and look where it is
-told, and Rive is the one tool whose output *takes inputs at run time*. The team draws eyes in it and
-exposes a small set of inputs (the *skin contract*, below). Its output is one `.riv` file per skin.
+| type | what it is | made with | status |
+|---|---|---|---|
+| **code** | eyes drawn by the engine's code: `default` (the standard eyes) and `ring` | — (in `engine/skins/`) | built; `default` stays the default |
+| **image** | one transparent **PNG or SVG**, placed where each eye is, moved by declared parameters | any drawing tool that exports a transparent PNG or SVG | **built, measured on the bench tablet** |
+| **video** | a short **looping clip with transparency**, placed where each eye is, same parameters | any animation or video tool → **WebM VP9 with alpha** (export settings below) | **built, measured on the bench tablet** |
+| **svg** (rigged) | one SVG with named layers (`pupil`, `lid`, `brow`, …) the engine moves from the contract | any vector tool | later |
+| **riv** | a Rive file whose state machine takes the contract's inputs | the Rive editor | later |
 
-For everything that does not take inputs:
+### An image or video skin's declared motion
 
-| asset | tool | becomes |
+**Declared in the library entry's `params`, never in code per asset** (`engine/skins/asset.js`):
+
+| param | meaning | default |
 |---|---|---|
-| clips for music-video mode | any video editor | MP4, H.264, at the panel's 1340 × 800 |
-| overlays, one-shot animations | After Effects (Bodymovin) or LottieFiles' editors | Lottie (`.json` / `.lottie`) |
-| simple or pixel-art skins | Aseprite, or any sprite-sheet exporter | a sprite sheet plus its JSON |
+| `size` | the object's size, as a fraction of the eye's neutral 480 px | 0.8 |
+| `spin_dps` | a continuous spin, degrees per second; 0 for none | 0 |
+| `follow_look` | whether it moves toward where the eyes look | true |
+| `look` | how far it moves, as a fraction of its size | 0.3 |
+| `blink` | `squash`: a blink, and an emote's lid, squash it vertically; `none` | `squash` |
+| `mirror` | the right eye is the left mirrored, spinning the other way | false |
 
-**Decisions for the team:** whether to pay for Rive seats (or accept its Free-plan splash), and which
-of the other tools anyone already uses.
+A library entry, in the index schema of [`choreo-screen-track.md`](choreo-screen-track.md):
 
-**How any of these becomes a library asset:** the file goes into the robot's library (§D) with a small
-entry naming its kind, and for a skin, which contract inputs it uses. Nothing is committed to the repo.
+```yaml
+- id: pumpkin-eyes
+  kind: skin
+  type: image                 # image | video   (later: svg | riv); code skins are never in the index
+  file: skins/pumpkin-eyes.png
+  sha256: …
+  width: 512
+  height: 512
+  params: { size: 0.8, spin_dps: 45, follow_look: true, look: 0.3, blink: squash, mirror: true }
+  inputs: [lookX, lookY, lid]
+  source: "…"                 # required
+  licence: "…"                # required
+```
+
+### Making a video skin — export settings
+
+**H.264 / MP4 has no transparency.** The format the tablet plays with transparency is **WebM, VP9,
+pixel format `yuva420p`** (the `a` is the alpha plane). From any tool, export a PNG sequence with
+transparency (or ProRes 4444), then:
+
+```bash
+ffmpeg -framerate 30 -i frame%03d.png -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 1M -row-mt 1 -auto-alt-ref 0 skin.webm
+```
+
+- **Square, 400–512 px**, the size it is shown at; **30 fps**; a loop of whole seconds whose last frame
+  leads into its first.
+- `-auto-alt-ref 0` because VP9's alternate reference frames do not carry alpha.
+- **Not** HEVC with alpha: that is Apple-only and does not play in the tablet's WebView.
+
+### Measured — bench SM-X133, kiosk WebView, 1339 × 800, 90 Hz
+
+| skin | frame p50 / p95 | drawing p95 | skin video dropped |
+|---|---|---|---|
+| image (a 512 px PNG gear, spinning, mirrored) | 11.1 / 11.2 ms | 0.2–0.4 ms | — |
+| video (a 400 px WebM VP9 with alpha, 30 fps loop) | 11.1 / 11.2 ms | 1.5–2.0 ms | 0 / 533 |
+| that video skin, with a 1920 × 1200 60 fps clip decoding behind | 11.1 / 11.2 ms | 1.6 ms | 0 / 529 (the clip: 0 / 995) |
+
+**The transparency is real:** drawn over a coloured background (`bg=` in the page), the clip's
+surroundings show the colour, not a black square. MediaCapabilities reports VP9, VP8, H.264 and HEVC
+all as hardware (`powerEfficient`) at this size; it cannot say whether the alpha plane is decoded in
+hardware, so the dropped-frame count is the evidence. The test assets are generated
+(`make_test_library.py`), not authored.
 
 ### The skin contract
 
-Every skin — built in, sprite sheet or Rive — is drawn from the same per-frame inputs, so a show's
+Every skin — code, image, video, and later rigged SVG or Rive — is drawn from the same per-frame inputs, so a show's
 `EMOTE`, a blink and a tracked person read on any skin with no change anywhere else:
 
 | input | range | meaning |
@@ -105,6 +150,21 @@ Every skin — built in, sprite sheet or Rive — is drawn from the same per-fra
 **A reserved state overrides any skin.** While the robot is `DEGRADED` or `E_STOP` the engine draws
 the default eyes in the state's own colour, whatever skin is set. A skin is decoration; "something is
 wrong" must look the same on every robot and every show.
+
+### Choosing a skin
+
+- **By name.** A code skin's name (`default`, `ring`) or a library skin's id; the library entry declares
+  its type. A library skin may not take a code skin's name.
+- **From a show:** a FACE cue `{ do: skin, name: … }`, sent as `SKIN <name>` (head protocol version 2)
+  by the runner. Persistent, like a theme, until changed.
+- **`SKIN default` returns** to the standard eyes. `default` is an ordinary name, not a separate reset.
+- **From the dashboard:** planned, not built — a skin picker on the face's dashboard page (tablet plan
+  5.6), listing the code skins and the library's, sending the same `SKIN <name>` a show would.
+- **Never a blank face.** An unknown name, or a library skin whose file is missing or will not decode,
+  shows `default` and is reported: the reply is `ERR unknown skin <name> (showing default)` (or `ERR skin
+  <name>: <why> (showing default)`), and `PING` carries `skin=default skin_error=…`. While an asset is
+  still loading, the default eyes stand in.
+- **A reserved state wins** (above), whatever is chosen.
 
 ## B. The spike
 

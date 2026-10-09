@@ -258,6 +258,26 @@ def test_the_vocabulary_is_the_tab5s():
         assert f'"{t}"' in face, t
 
 
+# ---- the web face engine agrees too (software/face-web) ------------------------------------------
+
+def test_the_web_face_speaks_the_same_vocabulary():
+    """vocab.js promises this check: the tablet face's states, emotes, cues and themes are the
+    protocol's, and so (above) the Tab5's."""
+    js = _src("software/face-web/engine/vocab.js")
+    states = tuple(re.findall(r'^\s*\["([A-Z_]+)",', js[js.index("STATES"):js.index("];", js.index("STATES"))], re.M))
+    emotes = tuple(re.findall(r'^\s*([A-Z]+):\s*\[', js[js.index("EMOTES"):js.index("};", js.index("EMOTES"))], re.M))
+    cues = tuple(re.findall(r'"([a-z]+)"', js[js.index("export const CUES"):js.index("];", js.index("export const CUES"))]))
+    themes = tuple(re.findall(r'^\s*([a-z]+):', js[js.index("THEMES"):js.index("};\n", js.index("THEMES"))], re.M))
+    assert states == hp.STATES and emotes == hp.EMOTES and cues == hp.CUES, (states, emotes, cues)
+    assert themes == hp.THEMES_BUILT_IN, themes
+
+
+def test_the_code_skins_are_the_engines():
+    js = _src("software/face-web/engine/skins/index.js")
+    line = next(l for l in js.splitlines() if l.startswith("export const CODE_SKINS"))
+    assert tuple(re.findall(r"(\w+)(?::\s*\w+)?\s*[,}]", line.split("=", 1)[1])) == hp.CODE_SKINS, line
+
+
 if __name__ == "__main__":
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_")]
     for name, fn in tests:

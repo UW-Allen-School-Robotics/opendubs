@@ -6,13 +6,14 @@ import { EMOTES, CUES, THEMES } from "./vocab.js";
 
 export const ENGINE_VERSION = "0.1.0";
 
-export function handle(face, audio, line, now) {
+export function handle(face, audio, line, now, skins) {
   const [verb, ...rest] = line.trim().split(" ");
   const arg = rest.join(" ");
   switch (verb) {
     case "PING":
       return `PONG kind=tablet-face engine=${ENGINE_VERSION} library=none mount=unknown mode=face ` +
-             `st=${face.stateName()} audio=${audio.enabled ? "on" : "OFF"}`;
+             `st=${face.stateName()} audio=${audio.enabled ? "on" : "OFF"}` +
+             (skins ? ` skin=${skins.shownName()}` + (skins.error ? ` skin_error=${skins.error.replace(/\s+/g, "_")}` : "") : "");
     case "STATE":
       if (!arg) break;
       face.setState(arg, now);                // like the Tab5: stored, acknowledged, shown if known
@@ -27,6 +28,15 @@ export function handle(face, audio, line, now) {
       if (!CUES.includes(arg.toLowerCase())) return "ERR unknown cue";
       audio.cue(arg.toLowerCase());
       return audio.enabled ? `OK cue ${arg}` : `OK cue ${arg} (AUDIO OFF -- enable it in SETTINGS)`;
+    case "SKIN": {
+      // Head protocol v2. A code skin (default, ring) or a library skin's id. Unknown, or an asset
+      // that will not load: the default eyes, and say so. Never a blank face.
+      if (!arg || !skins) return "ERR skin <name> | default";
+      const r = skins.select(arg);
+      if (r.ok) return `OK skin ${arg}`;
+      return r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
+                                        : `ERR skin ${arg}: ${r.error} (showing default)`;
+    }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";
   }
