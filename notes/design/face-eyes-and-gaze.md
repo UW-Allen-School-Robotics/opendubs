@@ -123,12 +123,30 @@ stronger one.)*
 whole note is an argument about where to find frames. A per-frame curved path with two lids was not
 affordable. On the tablet — 90 Hz and a GPU — it is free.
 
-### 2. A catchlight fixed to the LIGHT, not to the pupil. Nearly free.
+### 2. ~~A catchlight fixed to the LIGHT~~ — PROPOSED, TRIED, AND REJECTED 2026-10-09
 
-Today the highlight is drawn at `px - pw/6, py - pw/6`: it rides the pupil, so it reads as a decal
-painted on the iris. A real catchlight is a reflection of the room and **stays where it is while the
-pupil slides underneath it.** Anchoring it to the eye body instead of the pupil is a two-line change
-and is the strongest "this is a wet sphere" cue available.
+**Settled: the glint rides the pupil. Do not re-propose anchoring it.**
+
+I proposed anchoring the highlight to the eye body so the pupil slides underneath it, on the
+grounds that a real catchlight is a reflection of the room. It was built in the prototype, the
+maintainers looked at it, and it reads as wrong.
+
+**The record already said so, and was split** — which is why this reached the prototype at all:
+
+- `firmware/tab5_idf/app_face/app_face.cpp:893`, **the shipping head**: *"CHILD OF THE PUPIL. A
+  catchlight is a corneal reflection sitting over the iris and pupil, not a spot floating on the
+  sclera"*, and parenting it there means it travels with the pupil and can never escape the eye.
+- `firmware/tab5_face/src/face.cpp:215`, **the retired Arduino head**: *"ONE highlight, and it
+  stays put … a highlight that chases the gaze is the wrong primitive for this kind of eye at
+  all."*
+
+Two heads, opposite conclusions, neither referring to the other. The shipping one governs.
+
+**And the physics argument was overstated.** A corneal reflection does stay fixed while the pupil
+moves under it — that is the basis of pupil/corneal-reflection eye tracking — but **this eye has no
+cornea and no sclera.** It is a flat slab with a dark disc on it, so the reflection has nothing to
+be fixed relative to. That is what "the wrong primitive for this kind of eye" meant, and it was
+right.
 
 ### 3. Pupil size as an affective channel. Nearly free.
 
