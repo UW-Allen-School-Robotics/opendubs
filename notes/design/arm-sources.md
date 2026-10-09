@@ -1,21 +1,22 @@
 # Where the arm stack comes from, and a canonical setup for it — design
 
-Arms plan DEC-18, DEC-20, DEC-26, Q9, 6.3 (#107). **Investigation and discussion only: nothing
-here has been changed.** Written 2026-10-09.
+Arms plan DEC-27 (this design), DEC-18 (narrowed by it), DEC-20, DEC-26, Q9 (retired), 6.3 (#107).
+Written 2026-10-09 as a proposal; **design of record since 2026-10-09** — option B below.
 
-## Decisions for the user
+## Decided, 2026-10-09
 
-1. **Pick a canonical setup** (options below). Recommended: **B, upstream-first with a manifest,
-   forking only the teleop package.** It ends the student forks of the lab's libraries, which is
-   most of the "messy" feeling, and keeps the one repo where we hold real, growing work.
-2. **Ask the teleop's author three things**, all of which every option needs:
-   - a licence file for `openarm` and `openarm_impedance_control`;
-   - consent to send their generic changes to the lab's libraries upstream, credited to them;
-   - and DEC-20's question again: whether our copy of `openarm` may become a public fork.
-3. **Retire Q9 (mirror ~15 repos)** in favour of "fork only what we change." It goes with B; under
-   A or C it shrinks in different ways.
-4. **Approve a desk test of SSIK 8.1.0 on our V1 arms** before anything moves. It decides whether
-   the student's SSIK fork can be dropped, and it needs no robot.
+1. **Canonical setup: B — upstream-first with a manifest, forking only the `openarm` teleop
+   package** (DEC-27). DEC-18 narrows to that one repository; Q9 (mirror ~15 repositories) is
+   retired.
+2. **The SSIK desk test** (below) is approved: build the V1 solvers with SSIK 8.1.0 and compare
+   them with the student fork's. Desk only.
+3. **The teleop's author is asked** for licence files (`openarm`, `openarm_impedance_control`),
+   consent to send their library changes upstream as credited PRs, and DEC-20's public-fork
+   question. **No upstream PR to the lab or enactic is opened until they consent.**
+4. **The image base** is a pinned plain `ros:jazzy-ros-base`, as #107 builds it — not the Isaac
+   ROS base.
+5. **The backup** of opendubs2's arm image and source is kept on the project team's machine,
+   outside the repo, taken at the next robot session together with `capture-pins.sh`.
 
 ## What makes the arms work today
 
@@ -242,7 +243,7 @@ from: its pose channel is a WebRTC data channel that drops stale poses rather th
 them. Ours is a WebSocket, over TCP, which retransmits. Given the lag seen in testing, that design
 deserves a comparison. It is not a canonical setup for this robot.
 
-## Recommendation
+## Recommendation (adopted)
 
 **B.** It meets all three goals, and it removes the root of the mess.
 
@@ -263,6 +264,13 @@ deserves a comparison. It is not a canonical setup for this robot.
    it.
 
 ## Open facts
+
+- **Personal-account URLs in `repos.lock`.** Under B, three repositories are still consumed from
+  the author's own account: `openarm_impedance_control`, `openarm_assets` and `rosbag_recorder`.
+  `openarm`'s `main` also tracks that account. So the manifest will carry those URLs. They are
+  addresses, not attributions. If the project team prefers no personal account in committed files,
+  those three are the only candidates for an org copy, which is a fork in name only, since nothing
+  of ours is on them.
 
 - The commits of every repository except `openarm` on opendubs2, and whether any has uncommitted
   changes. `capture-pins.sh` refuses a dirty one, which is the point.
