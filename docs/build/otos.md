@@ -82,7 +82,7 @@ The wiring harness — the 5 V M5 Grove cable from the PaHub, joined through WAG
   ![OTOS wiring harness — M5 Grove cable from the PaHub, four WAGOs, the Adafruit level converter, then the OTOS](../assets/diagrams/otos-wiring-harness.png)
   <figcaption>The PaHub Grove cable (SCL / SDA / 5 V / GND) joins through four WAGOs to the Adafruit
   logic level converter; its 3.3 V side runs over Qwiic to the OTOS. The level converter is what
-  keeps the 5 V bus off the 3.3 V sensor.</figcaption>
+  keeps the 5 V bus off the 3.3 V sensor.<br><small>Product photos: SparkFun Optical Tracking Odometry Sensor, © SparkFun Electronics, licensed CC BY-NC-SA 3.0; Adafruit QT 5V to 3V Level Shifter, © Adafruit Industries, all rights reserved. They are not covered by this site's CC BY 4.0 licence.</small></figcaption>
 </figure>
 
 The build splits cleanly in two, and the photos follow that split: **Construction** is all
