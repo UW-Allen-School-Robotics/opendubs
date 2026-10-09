@@ -86,19 +86,84 @@ async function boot() {
 /* Every one of these moves an arm or stops a session, so all are confirm-on-tap via the same
  * helper the e-stop RE-ARM uses — a tablet is exactly where a single stray touch should not
  * sweep an elbow through 87 degrees. */
+/* Arm actions run in the BACKGROUND -- the POST returns at once, and the arm work (activate,
+ * park) takes tens of seconds. So a button's state must come from the backend's op, not from its
+ * request: the pressed one reads "ACTIVATING… 12 s" until the op really ends, the others are
+ * disabled meanwhile (one arm action at a time -- a second would be refused with 409), and a press
+ * that is refused anyway says so instead of looking like success. */
+const ARM_BUTTONS = [
+  { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
+  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L" },
+  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R" },
+  { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE L" },
+  { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE R" },
+  { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
+];
+let lastOp = null;             // the backend's op, from the last status poll
+let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
+const flash = {};              // id -> { text, until } -- REFUSED / DONE / FAILED, shown briefly
+
+function paintArmButtons() {
+  const now = Date.now();
+  const running = !!(lastOp && lastOp.running);
+  if (requested) {
+    if (running && lastOp.name === opOf(requested.id)) requested = null;   // the poll shows it running
+    else if (now - requested.at > 4000) requested = null;                   // it never showed up
+  }
+  for (const b of ARM_BUTTONS) {
+    const el = $(b.id);
+    if (!el || el.classList.contains("armed")) continue;          // mid-confirm: leave it alone
+    const f = flash[b.id];
+    const mine = running ? lastOp.name === b.op : !!(requested && requested.id === b.id);
+    el.classList.toggle("busy", mine);
+    el.disabled = running || !!requested;                          // one arm action at a time
+    if (mine) {
+      el.textContent = running ? `${b.pending} ${Math.round(lastOp.elapsed || 0)} s` : b.pending;
+      el.title = "";
+    } else if (f && f.until > now) {
+      el.textContent = f.text;
+    } else {
+      el.textContent = b.label;
+      el.title = running ? `waits for: ${lastOp.name} (${Math.round(lastOp.elapsed || 0)} s)` : "";
+    }
+  }
+}
+function opOf(id) { const b = ARM_BUTTONS.find((x) => x.id === id); return b ? b.op : null; }
+
+function noteArm(text, cls) {
+  let n = $("tpArmNote");
+  const anchor = $("btnArmDown");
+  if (!n && anchor && anchor.parentElement) {
+    n = document.createElement("div");
+    n.id = "tpArmNote";
+    n.className = "sub";
+    anchor.parentElement.after(n);
+  }
+  if (n) { n.textContent = text || ""; n.className = cls || "sub"; }
+}
+
+async function onArmResponse(b, r) {
+  if (r && r.ok) { requested = { id: b.id, at: Date.now() }; paintArmButtons(); pollStatus(); return; }
+  let why = "the dashboard did not answer";
+  if (r) { try { why = (await r.json()).error || `HTTP ${r.status}`; } catch (e) { why = `HTTP ${r.status}`; } }
+  flash[b.id] = { text: r && r.status === 409 ? "BUSY — WAIT" : "REFUSED", until: Date.now() + 4000 };
+  noteArm(`${b.label} refused: ${why}`, "badx");
+  paintArmButtons();
+  setTimeout(paintArmButtons, 4100);
+}
+
 function wire() {
   const cb = window.confirmButton;
   if (typeof cb !== "function") return;
+  for (const b of ARM_BUTTONS) {
+    const el = $(b.id);
+    if (el) cb(el, { url: () => b.url, confirm: b.confirm, pending: b.pending,
+                     label: paintArmButtons, onResponse: (r) => onArmResponse(b, r) });
+  }
   const mk = (id, url, confirmText, pending, label) => {
     const el = $(id);
     if (el) cb(el, { url: () => url, confirm: confirmText, pending, label: () => { el.textContent = label; } });
   };
-  mk("btnArmPark",  "/api/arms/park?arm=both",       "CONFIRM PARK",  "PARKING…",   "PARK BOTH");
-  mk("btnArmHoldL", "/api/arms/hold?arm=left",       "CONFIRM HOLD",  "…",          "HOLD L");
-  mk("btnArmHoldR", "/api/arms/hold?arm=right",      "CONFIRM HOLD",  "…",          "HOLD R");
-  mk("btnArmActL",  "/api/arms/activate?arm=left",   "MOVES TO ZERO", "ACTIVATING…", "ACTIVATE L");
-  mk("btnArmActR",  "/api/arms/activate?arm=right",  "MOVES TO ZERO", "ACTIVATING…", "ACTIVATE R");
-  mk("btnArmDown",  "/api/arms/down",                "CONFIRM DROP",  "STOPPING…",  "DE-ENERGIZE");
   mk("btnTeleopStart", "/api/teleop/start", "CONFIRM START", "STARTING…", "START");
   mk("btnTeleopStop",  "/api/teleop/stop",  "CONFIRM STOP",  "STOPPING…", "STOP");
 }
@@ -153,6 +218,7 @@ function paintStatus(s) {
     } else if (s.op && s.op.error) {
       const d = document.createElement("div");
       d.className = "badx";
+      d.style.whiteSpace = "pre-line";  // the error names the fix on its own line
       d.textContent = `${s.op.name}: ${s.op.error}`;
       r.append(d);
     }
@@ -187,6 +253,20 @@ async function pollStatus() {
     const r = await fetch("/api/arms/status", { cache: "no-store" });
     if (r.ok) {
       const s = await r.json();
+      const prev = lastOp;
+      lastOp = s.op || null;
+      // An op just finished: say how, on its own button, for a few seconds.
+      if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
+        const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);
+        if (b) {
+          const ok = lastOp.rc === 0 && !lastOp.error;
+          flash[b.id] = { text: ok ? "DONE" : "FAILED — SEE BELOW", until: Date.now() + (ok ? 2500 : 6000) };
+          noteArm(ok ? `${b.label}: done in ${Math.round(lastOp.elapsed || 0)} s` : "", ok ? "ok" : "sub");
+          setTimeout(paintArmButtons, ok ? 2600 : 6100);
+        }
+      }
+      if (lastOp && lastOp.running) noteArm(`${lastOp.name} running — ${Math.round(lastOp.elapsed || 0)} s. Other arm buttons wait until it finishes.`, "warnx");
+      paintArmButtons();
       paintStatus(s);
       // Shared, so the Operate page's ARMS tile needs no second poller: every read of this endpoint
       // also queries the motors over the arms' own CAN bus.
@@ -197,5 +277,7 @@ async function pollStatus() {
 
 boot();
 wire();
-pollStatus();
-setInterval(pollStatus, 2000);
+// Every second while an arm action runs, so its elapsed time moves; every two otherwise.
+(function loop() {
+  pollStatus().finally(() => setTimeout(loop, lastOp && lastOp.running ? 1000 : 2000));
+})();

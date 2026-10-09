@@ -130,7 +130,7 @@ Each with its question and kill criterion, for the hardware session.
 | TB-3 | Does the websocket stay connected through screen-off and Samsung's battery management? | No reconnect in 10 minutes. |
 | TB-4 | Does One UI honour the device owner's update policy, or still prompt? | No update prompt over a week of normal use. |
 | TB-5 | Does Do Not Disturb (Alarms only) leave media audible on this model? | The show's music is audible with DND on. |
-| TB-6 | **The plan's kill criterion:** a 10-minute show, start to finish. | Not one interruption: no sleep, no prompt, no notification, no audio gap. |
+| TB-6 | **The plan's kill criterion:** a two-minute show, start to finish (DEC-16: tests sized to the use; TB-2 already covered ten minutes of music). | Not one interruption: no sleep, no prompt, no notification, no audio gap. |
 
 **The team's tablet runs Android 15 / One UI 7** (SM-X133, build AP3A.240905.015.A2, WebView/Chrome
 131), checked 2026-10-08.
@@ -151,7 +151,7 @@ audio and power state over `adb` every two seconds, and a timer inside the page.
 | TB-1 on the robot | **Pass, 2026-10-08, on opendubs2.** The robot's own CA (fingerprint `E9:60:8F:8F…`) installed by the app with `ca_clear` + `ca_b64`; the dashboard over `https://10.42.2.10:8443/` as a secure context; the mic live with no prompt; a wake lock granted. The tablet is on the robot's Wi-Fi only — every other network forgotten, so it cannot wander off mid-show. |
 | TB-4 | **Begun 2026-10-08.** A week of normal use; nothing to report yet. |
 | TB-5 | **Pass.** Do Not Disturb on *Alarms only* for the whole of TB-2; the music played. |
-| TB-6 | **Needs the robot.** |
+| TB-6 | **Marked off, 2026-10-08 (team call).** Covered by what already ran: TB-2's ten minutes of music, and nineteen minutes of the click track docked in the cradle on the robot, on its own Wi-Fi, with no interruption and no gap heard. |
 
 Also measured, for the music-sync work (4.2/6.4): the WebView reports **37 ms** of output latency
 through `getOutputTimestamp()`. Whether that is true is S2's question.

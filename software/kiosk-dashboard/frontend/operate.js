@@ -113,6 +113,8 @@
     const auth = AUTH[inp.authority];
     set("osAuth", auth || "—", auth === "STANDBY" ? "dim" : auth ? "ok" : "dim");
     set("osDead", inp.deadman == null ? "—" : inp.deadman ? "HELD" : "RELEASED", inp.deadman ? "ok" : "warn");
+    set("opDead", "DEADMAN " + (inp.deadman == null ? "—" : inp.deadman ? "HELD" : "RELEASED"),
+        "op-state " + (inp.deadman == null ? "dim" : inp.deadman ? "" : "warn"));
     const why = lastRS ? whyNot(inp, d) : "";
     set("osDrive", d.armed == null ? "—" : d.armed ? "ARMED" : "DISARMED", d.armed ? "ok" : "warn");
     set("osWhy", why ? "· " + why : "", "op-why");

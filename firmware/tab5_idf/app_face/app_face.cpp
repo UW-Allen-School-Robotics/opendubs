@@ -1,6 +1,8 @@
 #include "app_face.h"
 #include "cost_gate.h"
 #include "cues.h"
+#include "mic.h"
+#include "voice/glance.h"
 #include "net.h"
 #include "net_cmd.h"
 #include "sim_inputs.h"
@@ -1393,6 +1395,11 @@ void AppFace::onOpen()
     // reticle, and so that nothing re-orders the z-stack per frame.
     costGateBegin();          // desktop only; measures what this would cost the device
     cuesBegin();              // render the earcon PCM once
+    // Safe unconditionally: a no-op when voice is compiled out, and it DEGRADES rather than
+    // aborting if the task cannot be created. It allocates its one 12.3 kB buffer here and does no
+    // filesystem work, so it cannot cost the image its twelve healthy seconds.
+    micBegin();
+    glanceBegin();            // owned by THIS task; see mic.h on why the mic only publishes
     // NOTHING THE FACE DRAWS MAY ABSORB INPUT.
     //
     // lv_obj_create() sets LV_OBJ_FLAG_CLICKABLE by default in LVGL 9. Clearing it inside
@@ -1895,7 +1902,41 @@ void AppFace::onRunning()
     {
         const bool known   = g_linkUp && g_linkState >= 0;
         const bool stopped = stateFault(g_state);
-        pantiltTick(now, known && !stopped, haveGaze, gi.nx, gi.ny, gi.confidence);
+
+        // A GLANCE TOWARD A VOICE -- Phase A step 4, and it takes NO LEASE.
+        //
+        // It enters through the same per-frame door vision uses rather than joining pantilt's
+        // touch > RC > tracker hierarchy, whose ownership fight cost a whole session. So touch and
+        // RC still outrank it automatically, and not a line of pantilt.cpp changed.
+        //
+        // AND ONLY WHEN VISION HAS NOTHING, which is the correct behaviour and not just the
+        // cautious one: if the robot can SEE someone it is already looking at them, and twitching
+        // toward a noise would fight the tracker and read as broken. A glance earns its keep
+        // precisely when the speaker is OUTSIDE the camera's view -- which is when haveGaze is
+        // false.
+        bool  useGlance = false;
+        float gnx = 0.0f, gny = 0.0f, gconf = 0.0f;
+        {
+            MicHeard h;
+            static uint32_t s_actedSeq = 0;
+            // One voice produces one glance however often this polls: the seq is the event.
+            if (micHeard(&h) && h.seq != s_actedSeq) {
+                s_actedSeq = h.seq;
+                glanceTrigger(h.atMs, (VoiceDir)h.dir);
+            }
+            if (!haveGaze && glanceActive(now)) {
+                useGlance = true;
+                gnx   = glanceNx();
+                gny   = glanceNy();
+                gconf = glanceConfidence();
+            }
+        }
+
+        pantiltTick(now, known && !stopped,
+                    useGlance ? true  : haveGaze,
+                    useGlance ? gnx   : gi.nx,
+                    useGlance ? gny   : gi.ny,
+                    useGlance ? gconf : gi.confidence);
     }
 
     // Bench only: alternate plain and themed so the difference is visible and the reserved

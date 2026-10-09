@@ -76,6 +76,35 @@ void pantiltRcRate(float panDps, float tiltDps);
 // so a head cannot be left driving by a press event that never got its matching release.
 void pantiltTouchRate(float panDps, float tiltDps);
 
+// A SHOW AIMS THE HEAD -- `GAZE` on udp/4242. notes/workplan-choreography.md 5.6b.
+//
+// ABSOLUTE DEGREES, 90 centred, because that is the cue format's own convention and a show is
+// authored as positions rather than as rates. It is the one input here that is not a rate: RC and
+// touch are spring-centred sticks where the head owns the position, while a show already knows
+// where it wants the head and sending rates would mean two integrators disagreeing.
+//
+// A LEASE, AND THE RC ONE -- held only while renewed (the runner resends every 200 ms), capped at
+// kGazeMaxLeaseMs. On expiry or `GAZE OFF` the head STOPS WHERE IT IS and normal behaviour resumes.
+//
+// IT DOES NOT TOUCH g_tracking, and that is load-bearing rather than incidental. pantiltTouchRate
+// clears tracking permanently -- that is the fix for the head re-centring after someone aims it by
+// hand -- and if a show did the same, every show would leave the head unable to follow a person
+// afterwards, with nothing on screen to explain why. So GAZE follows the RC pattern: a lease, and
+// tracking is none of its business.
+//
+// PRECEDENCE: touch > RC > GAZE > the local vision tracker > a voice glance. A person always wins,
+// and a show resumes when they let go.
+//
+// Returns false when no pan/tilt is fitted. `panOut`/`tiltOut` receive the CLAMPED angles -- the
+// caller echoes those, not what was asked, so a sender can see that a limit bit. That matters on an
+// uncommissioned robot: with no tilt limits in NVS the band is a cautious +/-10 degrees around
+// centre, and a show's tilt is nearly flattened with no other sign of it.
+bool pantiltGaze(float panDeg, float tiltDeg, uint32_t leaseMs, float* panOut, float* tiltOut);
+
+// Release at once rather than waiting for the lease to lapse. Safe to call when GAZE does not own
+// the head.
+void pantiltGazeOff();
+
 // Local autonomous tracking enable, toggled by the HMI's MODE button. The Arduino's equivalent was
 // g_trackingMode (MANUAL/AI).
 void pantiltSetTracking(bool on);
