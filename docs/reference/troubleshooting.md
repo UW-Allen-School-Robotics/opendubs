@@ -401,11 +401,11 @@ The arm buttons run `openarm-up` and the teleop service through sudo, and the da
 
 `ARM_CAN_NOT_READY` · Fault · seen on the dashboard
 
-The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing. The commonest cause is an e-stop, even one already cleared: the arms are powered from the drive bus, behind the contactor, so while it was open the links lost their motors and went to error or bus-off, and a bus-off link does not recover by itself when power returns.
+The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing. A link can be left in bus-off after an e-stop, even one already cleared -- the arms are powered from the drive bus, behind the contactor -- or by a loose CAN connector, and a bus-off link does not recover by itself when power or the connection returns. (Both were seen together on 2026-10-09; on 2026-10-08 an e-stop cleared without one.)
 
 **What to do**
 
-1. After an e-stop, once the contactor is closed again, restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then activate.
+1. Once the contactor is closed and the CAN connectors are seated, restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right` on the robot's computer, check `openarm-up status` shows both `ERROR-ACTIVE`, then activate.
 2. Otherwise, check that the CAN adapter is plugged in and its driver is installed.
 3. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
 
