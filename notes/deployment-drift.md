@@ -51,3 +51,12 @@ What is actually missing is a deploy path that knows the difference between a fi
 should be identical everywhere and a file that holds a per-robot value — the same
 distinction `tools/access.py` makes for accounts. Until that exists, run the audit before
 trusting the robot to match a merged PR, and especially before diagnosing anything strange.
+
+**First step, 2026-10-09:** `deploy-all.sh` reads the audit's `PER_ROBOT` list
+(`deploy-audit.py --rsync-protect`) and never rsyncs over those files. Before that, its
+`rsync --delete` replaced the robot's `main.cpp`, and the drive calibration in it, with the
+repo's worked example. It also protects the robot-side backups (`*.bak*`, `*.pre-*`), and it
+deploys the dashboard through `deploy.sh`, which no longer has its `docs-site/` deleted or a
+dangling `assets/arm` symlink copied in. Still missing: one manifest for every deploy path,
+and per-robot values that live outside the source tree altogether (NVS on the StamPLC), which
+is a firmware change.
