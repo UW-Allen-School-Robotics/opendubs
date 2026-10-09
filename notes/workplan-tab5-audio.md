@@ -1,5 +1,48 @@
 # Work plan — two-way voice: the robot listens and answers
 
+> ## PAUSED — 2026-10-08
+>
+> **The robot is moving to the Galaxy tablet as its face, and the tablet's microphone is already
+> live.** So this pipeline may never ship, and Phase A and any new voice features stop here. The
+> head gets maintenance only.
+>
+> **Not cancelled.** If the tablet does not work out we may come back to this, which is why nothing
+> below has been deleted and why the state is written down properly.
+>
+> ### Where it actually stood
+>
+> Phases A and B are **code-complete and host-verified**, and **nothing has ever met a microphone
+> or a speaker.** `./build.sh voice` is 21 cases and `./build.sh loopback` is 8, all against
+> synthetic stimulus and a fake Thor. The device image builds with `OPENDUBS_VOICE=1`, but the
+> SHIPPING image has never included it — `SHIP_FLAGS` does not set that flag — so no voice code has
+> ever run on the robot.
+>
+> ### Most of it is NOT Tab5-specific, and that is the point
+>
+> `app_face/voice/` is HAL-free pure compute by construction. If the voice work resumes on the
+> tablet or on the Thor, these port with no changes at all:
+>
+> - `listen.cpp` — push-to-talk, the VAD, the hangover, the half-duplex gate
+> - `level.cpp` — RMS, the asymmetric noise-floor tracker, left/right/centre direction
+> - `glance.cpp` — the time-boxed glance that takes no lease
+> - `clip.cpp`, `wire.cpp`, `stream.cpp` — the utterance buffer and the whole Tab5↔Thor protocol
+> - `tools/fake_thor.py` and the loopback harness — the Thor-side specification, platform-independent
+>
+> Only two pieces are genuinely Tab5-bound: `resample.cpp`/`upsample.cpp`, because the channel
+> layout (`[MIC-L, AEC, MIC-R, MIC-HP]` at 48 kHz) and the 48 kHz stereo speaker sink are this
+> board's, and `mic.cpp`/`voice_net.cpp`, which are the thin shims that touch the HAL.
+>
+> The **decisions** in the table below — half-duplex, bounded clips, push-to-talk, raw PCM, TCP per
+> utterance — were reasoned from the interaction design and the bandwidth, not from the Tab5, so
+> they carry over too.
+>
+> ### What a resumption would still owe
+>
+> The four unknowns that only hardware settles, unchanged: the noise floor **with the drive motors
+> running**, whether the head glances the right way (`kRightIsPositive`), whether `Heard` lands
+> inside a second, and whether 100 ms chunked playback is gap-free.
+
+
 **Purpose: make the robot a thing you can talk to.** Not a face that invites speech it cannot
 answer — `design/hri-interaction-design.md` is blunt that a face expressive enough to invite speech,
 on a robot that cannot converse, *spends* its credibility — but an actual conversational loop:
