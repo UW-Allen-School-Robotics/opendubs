@@ -79,7 +79,7 @@ The module hand-mounts to the rear rail with **3D-printed M10 thumb screws** tha
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables) —
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables) —
 **plus a riv-nut tool** for the mount (manual or drill attachment; see the *Mounting tools*
 group in the BOM above).
 

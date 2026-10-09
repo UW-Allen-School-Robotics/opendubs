@@ -85,7 +85,7 @@ all snap to it, so the bay is built up on the bench and dropped in as a unit.
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 
 ## Assembly
 

@@ -57,7 +57,7 @@ identical and built at the same time**.
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 Module-specific tools/consumables: *none beyond the shared set*.
 
 ## Assembly

@@ -157,7 +157,7 @@ The full branch map, fuse values, and the Micro-Fit detail — pan/zoom the live
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 You will also want a **multimeter** for the Micro-Fit continuity check, and a **Micro-Fit
 extraction tool** (or a small precision pick) if you need to depin the Thor cable.
 

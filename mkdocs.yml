@@ -3,6 +3,11 @@ site_description: A low-cost, low-fabrication, open-source mobile robot
 repo_url: https://github.com/UW-Allen-School-Robotics/opendubs
 docs_dir: docs
 
+# A link to a heading that does not exist is only "info" by default, which let nine of them sit
+# unnoticed. As a warning it fails `mkdocs build --strict`, so CI catches the next one.
+validation:
+  anchors: warn
+
 theme:
   name: material
   # No Google Fonts: the robot serves its own copy of this site to a tablet that may have no
