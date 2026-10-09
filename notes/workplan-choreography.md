@@ -238,7 +238,7 @@ Everything that pretends, so nothing is forgotten at robot time.
 | ~~Earcons held back~~ — **decided 2026-10-08: no earcons on the Tab5.** The user turned the head's audio off and keeps it off; the runner keeps `--earcons off` for good, and shows' SOUND earcons play in the twin only. (The suspected audio-task damping was never confirmed: the Tab5 work's pinning fix, #83, did not cure it, so face-tracking damping is still unexplained — the Tab5 work's to chase.) | `deploy/opendubs-runner.service` | — |
 | ~~Speed caps, unsourced~~ — measured 2026-10-08 (6.1) | `cue.py` `SPEED_CAP_DEG_S` | — |
 | The left arm's caps are the right arm's, by mirror symmetry — the left was not measured | `cue.py` `SPEED_CAP_DEG_S` | a left-arm run of `speed_test.py --arm left` |
-| The runner's arm paths are straight segments with instant reversals; joints lag and overrun there (6.1) | `arm_output.track_points` | corner blending |
+| ~~The runner's arm paths are straight segments with instant reversals~~ — **smoothed 2026-10-08** (`motion.py`, the user's priority via the orchestrator): a monotone cubic per joint through the keyframes, each still reached at its time; zero speed at reversals and hold edges, continuous speed elsewhere, no overshoot, a segment's peak at most 1.5x its average (inside the trip refusal's 1.875x, which stays as strict). The robot (`arm_output.track_points`, points now every 0.02 s) and the twins (`sim_preview.arm_pose`) share the one path. **On the robot, still to do:** `speed_test.py --shape smooth` on the wrists and elbow, to confirm the reversal error drops; then a live run of Robotic smile. | `motion.py` | the robot runs |
 
 ## Parked
 

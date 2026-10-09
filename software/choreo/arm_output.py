@@ -9,9 +9,10 @@ already cut the arms' power. Grippers are NOT driven until each side is calibrat
 What the arm does, and why it matches what was validated:
   * The validator and the twin both start every arm at ZERO (cue.py speed check, sim_preview.arm_pose),
     so before the show the arm is moved there — from where it is MEASURED to be, slowly (runner PREPPING).
-  * Then it follows the show's keyframes, each reached at its time, moving in a straight line in joint
-    space from the previous one (the format's definition). The points are sent densely (every
-    DENSE_S), so the path is that straight line whatever interpolation the controller uses.
+  * Then it follows the show's keyframes, each reached at its time, along motion.py's smoothed path
+    (since 2026-10-08: a joint slows to zero where it reverses or holds, instead of flipping speed —
+    the speed test's finding). The points are sent densely (every DENSE_S), so the path is that curve
+    whatever interpolation the controller uses.
   * Angles go out in the controller's own sense: the export's `pose_signed` (the left arm's mirrored
     joints already flipped, by cue.py — one copy of that rule).
 
@@ -25,8 +26,10 @@ import math
 import threading
 import time
 
+import motion
+
 ARM_SIDES = {"ARM_L": "left", "ARM_R": "right"}
-DENSE_S = 0.1            # trajectory point spacing — the path is the format's straight line
+DENSE_S = 0.02           # trajectory point spacing: fine enough to follow motion.py's curve
 JOINT_STATE_MAX_AGE_S = 0.5
 
 
@@ -37,35 +40,20 @@ def joint_names(side: str) -> list:
 def track_points(keyframes: list, t_from: float = 0.0, start=None) -> list:
     """The arm's path as [(seconds from now, [7 signed degrees])], from show time `t_from`.
 
-    Straight lines in joint space between keyframes, each reached at its `t`, holding between a
-    keyframe and the next one's `start` — exactly sim_preview.arm_pose, sampled every DENSE_S. The
-    arm starts at `start` (signed degrees; default zero, where the validator assumes it is)."""
-    prev = list(start) if start else [0.0] * 7
-    segs = []                                  # (t0, t1, pose0, pose1)
-    for kf in keyframes:
-        pose = [float(kf["pose_signed"][str(j)]) for j in range(1, 8)]
-        segs.append((kf["start"], kf["t"], prev, pose))
-        prev = pose
-    if not segs:
+    Each keyframe reached at its `t`, holding between a keyframe and the next one's `start`, along
+    the SMOOTHED path of motion.py (the same one the twins play): a joint slows to zero where it
+    reverses or holds rather than flipping speed. Sampled every DENSE_S, finely enough that the
+    straight lines between samples follow the curve. The arm starts at `start` (signed degrees;
+    default zero, where the validator assumes it is)."""
+    if not keyframes:
         return []
-    end = segs[-1][1]
-
-    def at(t):
-        p = segs[0][2]
-        for t0, t1, a, b in segs:
-            if t < t0:
-                return p
-            if t <= t1:
-                f = (t - t0) / (t1 - t0) if t1 > t0 else 1.0
-                return [x + (y - x) * f for x, y in zip(a, b)]
-            p = b
-        return p
-
+    path = motion.Path(motion.knots(keyframes, "pose_signed", start))
+    end = path.end
     out, t = [], max(t_from, 0.0) + DENSE_S
     while t < end - 1e-9:
-        out.append((round(t - t_from, 3), [round(v, 4) for v in at(t)]))
+        out.append((round(t - t_from, 3), [round(v, 4) for v in path.at(t)]))
         t += DENSE_S
-    out.append((round(end - t_from, 3), [round(v, 4) for v in at(end)]))
+    out.append((round(end - t_from, 3), [round(v, 4) for v in path.at(end)]))
     return [p for p in out if p[0] > 0]
 
 

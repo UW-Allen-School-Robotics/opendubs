@@ -17,8 +17,8 @@ The clearance it reports is the sim's, which is SIX DEGREES OPTIMISTIC near the 
 the validator's measured constant stays in charge.
 
 THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fact:
-  * arms interpolate LINEARLY between keyframes (the format's definition; the real controller's
-    profile is unverified — choreo-format-v1.md 5);
+  * arms follow motion.py's smoothed path between keyframes — the one the robot is sent (since
+    2026-10-08); how closely the real controller tracks it was measured by speed_test.py (plan 6.1);
   * the lift's height is net up-time x LIFT_MM_PER_S, a PLACEHOLDER copied from the sim's own
     damping (description/opendubs/opendubs.xml), not a measurement of the real lift;
   * head degrees map as 90 = the sim's zero for both axes, and the SIGN of tilt is unverified —
@@ -45,6 +45,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
 import cue  # noqa: E402
+import motion  # noqa: E402
 
 LIFT_MM_PER_S = 56.0      # PLACEHOLDER: the sim's damping-limited speed, not the robot's
 LIFT_MAX_MM = 275.1       # measured stroke (sim/README)
@@ -56,17 +57,12 @@ HEAD_SLEW_DPS = cue.HEAD_SLEW_DPS
 
 
 def arm_pose(keyframes: list, t: float) -> dict:
-    """Outward-sense pose at time t: linear from each keyframe's start to its t, then held."""
-    prev = {str(j): 0.0 for j in range(1, 8)}
-    for kf in keyframes:
-        if t < kf["start"]:
-            return prev
-        if t <= kf["t"]:
-            span = kf["t"] - kf["start"]
-            f = (t - kf["start"]) / span if span > 0 else 1.0
-            return {j: prev[j] + (kf["pose"][j] - prev[j]) * f for j in prev}
-        prev = dict(kf["pose"])
-    return prev
+    """Outward-sense pose at time t, along the robot's own smoothed path (motion.py): the twin shows
+    exactly what the arm is sent."""
+    if not keyframes:
+        return {str(j): 0.0 for j in range(1, 8)}
+    p = motion.Path(motion.knots(keyframes, "pose")).at(t)
+    return {str(j): p[j - 1] for j in range(1, 8)}
 
 
 def lift_mm(events: list, t: float) -> float:

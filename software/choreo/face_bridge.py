@@ -364,9 +364,12 @@ def head_face_host() -> str:
 
 
 def head_neck_host() -> str:
-    """Where the pan/tilt is: OPENDUBS_HEAD_NECK_HOST (the tablet plan's neck), else the same head."""
-    return (os.environ.get("OPENDUBS_HEAD_NECK_HOST") or os.environ.get("OPENDUBS_TAB5_HOST")
-            or "opendubs-tab5.local")
+    """Where the pan/tilt is: OPENDUBS_HEAD_NECK_HOST (the tablet plan's neck), else the face's
+    address, else the dashboard's old name, else the head's mDNS name — the same order as the
+    dashboard's backend/head.py (tablet PR #69), so the two never disagree when the face and the
+    neck are different devices."""
+    return (os.environ.get("OPENDUBS_HEAD_NECK_HOST") or os.environ.get("OPENDUBS_HEAD_FACE_HOST")
+            or os.environ.get("OPENDUBS_TAB5_HOST") or "opendubs-tab5.local")
 
 
 def loopback_only(host: str) -> str:

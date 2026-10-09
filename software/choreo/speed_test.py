@@ -49,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import cue  # noqa: E402
+import motion  # noqa: E402
 
 BASE = {1: 0.0, 2: 30.0, 3: 0.0, 4: 60.0, 5: 0.0, 6: 0.0, 7: 0.0}   # outward sense, as a show writes it
 AMPLITUDE_DEG = 20.0
@@ -83,9 +84,12 @@ def signed(arm: str, outward: dict) -> list:
     return [outward[j] * (m if j in cue.MIRRORED_JOINTS else 1) for j in range(1, 8)]
 
 
-def swing(arm: str, joint: int, speed: float, amp: float = AMPLITUDE_DEG) -> list:
-    """[(seconds from goal start, [7 signed deg])]: hold at base, swing the joint +-amp CYCLES times at
-    constant `speed`, return to base, hold. Points every POINT_S, so the path is the straight line."""
+def swing(arm: str, joint: int, speed: float, amp: float = AMPLITUDE_DEG, shape: str = "linear") -> tuple:
+    """(points, knots, ref): hold at base, swing the joint +-amp CYCLES times with each leg taking
+    |leg| / `speed`, return to base, hold. Points every POINT_S. `shape` "linear": constant speed
+    with instant reversals (a show's path before 2026-10-08); "smooth": motion.py's path, which shows
+    now follow — slowing to zero at each reversal, peaking at 1.5x `speed` mid-leg. `ref(t)` is the
+    tested joint's commanded angle at t, for the analysis."""
     base = signed(arm, BASE)
     j = joint - 1
     sgn = -1 if (arm == "left" and joint in cue.MIRRORED_JOINTS) else 1
@@ -100,17 +104,22 @@ def swing(arm: str, joint: int, speed: float, amp: float = AMPLITUDE_DEG) -> lis
         knots.append((t, e))
         q = e
     knots.append((t + HOLD_S, base[j]))
+    if shape == "smooth":
+        path = motion.Path([(kt, [q if k == j else base[k] for k in range(7)]) for kt, q in knots])
+        ref = lambda tt: path.at(tt)[j]
+    else:
+        ref = lambda tt: ref_at(knots, tt)
     pts, k = [], POINT_S
     end_t = knots[-1][0]
     while k < end_t - 1e-9:
         pose = list(base)
-        pose[j] = ref_at(knots, k)
+        pose[j] = ref(k)
         pts.append((round(k, 3), pose))
         k += POINT_S
     pose = list(base)
     pose[j] = base[j]
     pts.append((round(end_t, 3), pose))
-    return pts, knots
+    return pts, knots, ref
 
 
 def ref_at(knots, t):
@@ -122,8 +131,11 @@ def ref_at(knots, t):
     return knots[-1][1]
 
 
-def plan(arm: str, joints, speeds, limits: dict) -> tuple:
-    """Every run, checked: (runs, problems). A problem means the test must not run as planned."""
+def plan(arm: str, joints, speeds, limits: dict, shape: str = "linear") -> tuple:
+    """Every run, checked: (runs, problems). A problem means the test must not run as planned.
+    `speed` is each leg's AVERAGE; a smooth swing peaks at PEAK_TO_AVERAGE x it, and that peak is
+    what is kept under 80% of the trip."""
+    peak = motion.PEAK_TO_AVERAGE if shape == "smooth" else 1.0
     runs, problems = [], []
     side = arm
     for j in joints:
@@ -139,15 +151,15 @@ def plan(arm: str, joints, speeds, limits: dict) -> tuple:
                             f"leaves the usable range [{lo_d:+.0f}, {hi_d:+.0f}]")
             continue
         for v in speeds:
-            if v >= TRIP_SHARE_MAX * cue.TRIP_DEG_S[j]:
+            if v * peak >= TRIP_SHARE_MAX * cue.TRIP_DEG_S[j]:
                 continue                     # never near a velocity trip
-            pts, knots = swing(arm, j, v)
-            runs.append({"joint": j, "speed": v, "points": pts, "knots": knots,
-                         "duration_s": pts[-1][0]})
+            pts, knots, ref = swing(arm, j, v, shape=shape)
+            runs.append({"joint": j, "speed": v, "points": pts, "knots": knots, "ref": ref,
+                         "shape": shape, "duration_s": pts[-1][0]})
     return runs, problems
 
 
-def analyse(samples, knots, joint: int) -> dict:
+def analyse(samples, knots, joint: int, ref=None) -> dict:
     """samples: [(t from goal start, pos[7], vel[7]|None, eff[7]|None)].
 
     Tracking error after the best-fitting lag (the controller starts a little after the goal is
@@ -157,6 +169,7 @@ def analyse(samples, knots, joint: int) -> dict:
     runner's corners, not for a lower cap). Plus overshoot past the swing's ends, peak effort
     against the joint's effort limit, and the measured peak speed against its trip."""
     j = joint - 1
+    ref = ref or (lambda tt: ref_at(knots, tt))
     if len(samples) < 5:
         return {"error": "too few joint samples"}
     span = (knots[1][0], knots[-2][0])                         # the swing, without the holds
@@ -165,7 +178,7 @@ def analyse(samples, knots, joint: int) -> dict:
     lag_max = min(LAG_SEARCH_MAX_S, 0.4 * min(legs)) if legs else LAG_SEARCH_MAX_S
 
     def err_at(lag, sel=None):
-        es = [abs(p[j] - ref_at(knots, t - lag)) for t, p, _, _ in samples
+        es = [abs(p[j] - ref(t - lag)) for t, p, _, _ in samples
               if span[0] <= t - lag <= span[1] and (sel is None or sel(t - lag))]
         return max(es) if es else 0.0
 
@@ -373,11 +386,11 @@ def run_one(arms, gate, side, slot, r, log):
             elif s[2] is not None and abs(s[2][j]) > STOP_VEL_SHARE * cue.TRIP_DEG_S[r["joint"]]:
                 live = f"speed {abs(s[2][j]):.0f} deg/s, over {STOP_VEL_SHARE:.0%} of the trip"
             elif r["knots"][1][0] <= ts <= r["knots"][-2][0] + STOP_LAG_S and \
-                    abs(s[1][j] - ref_at(r["knots"], ts)) > raw_allow:
-                live = f"off the path by {abs(s[1][j] - ref_at(r['knots'], ts)):.1f} deg"
+                    abs(s[1][j] - r["ref"](ts)) > raw_allow:
+                live = f"off the path by {abs(s[1][j] - r['ref'](ts)):.1f} deg"
             if live:
                 arms.cancel_all()
-                res = analyse(samples, r["knots"], r["joint"])
+                res = analyse(samples, r["knots"], r["joint"], r["ref"])
                 res.update(stopped_live=live, status=arms.results.get(slot), at_s=round(ts, 3))
                 return res, samples
         if now >= next_gate:
@@ -390,7 +403,7 @@ def run_one(arms, gate, side, slot, r, log):
         if status is not None or now > r["duration_s"] + 3.0:
             break
         time.sleep(0.005)
-    res = analyse(samples, r["knots"], r["joint"])
+    res = analyse(samples, r["knots"], r["joint"], r["ref"])
     res["status"] = arms.results.get(slot)
     return res, samples
 
@@ -402,6 +415,9 @@ def main() -> int:
     ap.add_argument("--speeds", default=",".join(map(str, SPEEDS)))
     ap.add_argument("--limits", default=os.environ.get("OPENDUBS_ARM_LIMITS", cue.DEFAULT_LIMITS))
     ap.add_argument("--dry-run", action="store_true", help="print the plan and check it; send nothing")
+    ap.add_argument("--shape", choices=("linear", "smooth"), default="linear",
+                    help="linear: constant speed, instant reversals (the reviewed baseline); smooth: the "
+                         "path shows now follow (motion.py) — to check the reversals improve")
     ap.add_argument("--twin", type=int, metavar="PORT",
                     help="play the whole plan in the MuJoCo twin (serves a twin feed on this port); "
                          "nothing is sent to the robot")
@@ -412,8 +428,8 @@ def main() -> int:
 
     joints = [int(x) for x in a.joints.split(",") if x]
     speeds = [float(x) for x in a.speeds.split(",") if x]
-    runs, problems = plan(a.arm, joints, speeds, cue.load_limits(a.limits))
-    print(f"speed test: {a.arm} arm, joints {joints}, speeds {speeds} deg/s, +-{AMPLITUDE_DEG:.0f} deg "
+    runs, problems = plan(a.arm, joints, speeds, cue.load_limits(a.limits), a.shape)
+    print(f"speed test ({a.shape}): {a.arm} arm, joints {joints}, speeds {speeds} deg/s, +-{AMPLITUDE_DEG:.0f} deg "
           f"about shoulder {BASE[2]:.0f} / elbow {BASE[4]:.0f}")
     for p in problems:
         print("  PROBLEM:", p)
@@ -454,7 +470,7 @@ def main() -> int:
         log.write(json.dumps({"wall": round(time.time(), 3), **kw}) + "\n")
         log.flush()
 
-    rec(kind="start", arm=a.arm, joints=joints, speeds=speeds, base=BASE, amplitude=AMPLITUDE_DEG)
+    rec(kind="start", arm=a.arm, joints=joints, speeds=speeds, base=BASE, amplitude=AMPLITUDE_DEG, shape=a.shape)
     print(f"moving to the base pose (slowly)… log: {a.log}")
     summary, stopped = {}, watched_move(arms, gate, a.arm, slot, signed(a.arm, BASE), 0.5)
     for j in (joints if not stopped else []):
