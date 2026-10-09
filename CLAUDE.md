@@ -55,8 +55,9 @@ those sessions don't collide in git and so each area's expertise stays in one pl
 | **Arms** | `software/openarm/`, `software/teleop/`; dashboard `frontend/teleop.js`, `frontend/armview.js`, `backend/openarm.py`; `notes/design/arm-*.md`, `notes/design/pinch-guard-consent.md`; `docs/openarm-setup.md` | `notes/workplan-arms.md` |
 | **Choreography** | `software/choreo/`; dashboard `frontend/choreo.js`, `frontend/show_audio.js`, `backend/choreo_proxy.py`, `backend/show_audio.py`; `notes/design/choreo-*.md` | `notes/workplan-choreography.md` |
 | **Tab5 head** (firmware and voice) | `firmware/tab5_*/`; `notes/design/tab5-*.md`, `notes/design/face-*.md`, `notes/design/hri-interaction-design.md` | `notes/workplan-tab5-audio.md` (`workplan-tab5-idf.md` is closed) |
-| **Tablet and head interface** | `software/tablet-kiosk/`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md` | `notes/workplan-tablet.md` |
-| **Thor stack** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; `docs/thor-setup.md`, `docs/portability-audit.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
+| **Tablet and head interface** | `software/tablet-kiosk/`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
+| **Thor stack and localization** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; the robot description and TF tree (sensor frames, LIDAR extrinsics), the odometry and IMU pipeline into `/odom`, and the NVIDIA / Isaac ROS stack; `docs/thor-setup.md`, `docs/portability-audit.md`, `docs/localization-fusion.md`, `docs/naming-frames.md`, `notes/design/lidar-frames-and-fusion.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
+| **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
 | **Hat PCB** (parked) | `hardware/hat/` | — |
 
 **The head's protocol** (the messages the Thor and the dashboard send the head) is owned by the
@@ -64,12 +65,12 @@ Tablet lane. The Tab5 head lane implements it in firmware. A new head message is
 Tablet lane before either side ships it.
 
 **Shared paths:** dashboard `frontend/app.js`, `frontend/index.html`, `frontend/style.css`,
-`backend/app.py`, `software/kiosk-dashboard/deploy/`; `notes/punch-list.md`; `mkdocs.yml`; this
-file outside this section.
+`backend/app.py`, `software/kiosk-dashboard/deploy/`; `notes/punch-list.md`; this file outside
+this section. A lane adding a page to `docs/` may add its `nav:` entry to `mkdocs.yml`.
 
-**No lane yet; ask the orchestrator first:** `firmware/rc_serial_probe/` (the StamPLC, which is
-the robot's safety controller), `docs/build/`, `hardware/parts.csv`, `tools/bom.py`, and the rest
-of `docs/`.
+**No lane yet; ask the orchestrator first:** `firmware/rc_serial_probe/`, the StamPLC, which is
+the robot's safety controller. A lane that needs a StamPLC change, such as odometry or IMU
+readings for the localization lane, asks the orchestrator for it.
 
 ## Hardware: how to flash each board
 
