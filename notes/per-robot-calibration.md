@@ -1,9 +1,13 @@
 # Per-robot calibration — recorded values
 
 **This file is a BACKUP, not a source.** These values belong to one physical robot and must never
-be copied into another, nor flashed at a robot without verifying them on that robot. It exists
-because the place they actually live — `static constexpr` in a tracked source file — is overwritten
-by any deploy, and that cost most of a working day on 2026-10-01.
+be copied into another, nor flashed at a robot without verifying them on that robot.
+
+The values live as `static constexpr` in the robot's own copy of `rc_serial_probe/src/main.cpp`,
+which is not the repo's copy. `deploy-all.sh` never writes that file: it is on
+`tools/deploy-audit.py`'s `PER_ROBOT` list, which the deploy reads. They can still be lost by a hand
+copy, by flashing a repo checkout over USB, or by reflashing the Thor. This file is the copy to restore
+from.
 
 The real fix is to move them out of committed source into NVS. The firmware already does this for
 one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`), set by the
@@ -16,7 +20,7 @@ one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`)
 Read from `/opt/opendubs/rc_serial_probe/src/main.cpp` on 2026-10-01, after recovering the drive
 signs and verifying them by driving.
 
-### Drive — `main.cpp`, overwritten by any `deploy-all.sh`
+### Drive — `main.cpp` (a per-robot file; deploys skip it)
 
 | Constant | Value | Notes |
 |---|---|---|
