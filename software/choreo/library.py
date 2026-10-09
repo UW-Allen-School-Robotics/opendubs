@@ -45,6 +45,8 @@ SKIN_PARAMS = {
     "look": "how far it follows (default 0.3)",
     "blink": "squash | none (default squash)",
     "mirror": "the right eye mirrors the left (default false)",
+    "counter": "occasionally break a together-spin into opposite directions: {every_s: [lo, hi], hold_s: "
+               "[lo, hi], ease_s} (default off; face-web asset.js, #138)",
 }
 VIDEO_SKIN_SIZE_PX = (400, 512)
 SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # face-engine.md §A
@@ -112,6 +114,7 @@ def entry_problems(e: dict) -> list:
                 p.append(f"{e['id']!r}: unknown params {', '.join(bad)} (known: {', '.join(SKIN_PARAMS)})")
             if "blink" in params and params["blink"] not in ("squash", "none"):
                 p.append(f"{e['id']!r}: blink must be squash or none")
+            p += _counter_problems(e["id"], params.get("counter"))
         if e.get("type") not in SKIN_TYPES:
             p.append(f"{e['id']!r}: skin type {e.get('type')!r} is not one of {', '.join(SKIN_TYPES)}")
         elif e["type"] == "video":
@@ -124,6 +127,27 @@ def entry_problems(e: dict) -> list:
         bad = [x for x in (e.get("inputs") or []) if x not in SKIN_INPUTS]
         if bad:
             p.append(f"{e['id']!r}: unknown face inputs {', '.join(bad)} (face-engine.md §A: {', '.join(SKIN_INPUTS)})")
+    return p
+
+
+def _counter_problems(item_id, c) -> list:
+    """A skin's `counter` (face-web #138): off (absent/null/false), or {every_s: [lo, hi] seconds between
+    counter-spins, hold_s: [lo, hi] seconds each lasts, ease_s: the reversal's ease}; each key
+    optional, with the engine's defaults [8, 20], [2, 4] and 0.9."""
+    if c in (None, False):
+        return []
+    if not isinstance(c, dict):
+        return [f"{item_id!r}: counter must be a mapping {{every_s, hold_s, ease_s}} or off"]
+    p = [f"{item_id!r}: counter has unknown keys {', '.join(sorted(set(c) - {'every_s', 'hold_s', 'ease_s'}))}"] \
+        if set(c) - {"every_s", "hold_s", "ease_s"} else []
+    for k in ("every_s", "hold_s"):
+        v = c.get(k)
+        if v is not None and not (isinstance(v, (list, tuple)) and len(v) == 2
+                                  and all(isinstance(x, (int, float)) and x >= 0 for x in v) and v[0] <= v[1]):
+            p.append(f"{item_id!r}: counter {k} must be [lo, hi] seconds, lo <= hi")
+    e = c.get("ease_s")
+    if e is not None and not (isinstance(e, (int, float)) and e >= 0):
+        p.append(f"{item_id!r}: counter ease_s must be seconds >= 0")
     return p
 
 

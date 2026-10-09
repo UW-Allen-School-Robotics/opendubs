@@ -66,6 +66,14 @@ check("a video skin must be WebM: MP4/H.264 cannot carry the transparency a skin
       "WebM" in (refused(library.add, os.path.join(src, "made-up-video-eyes.mp4"), "made-up-video-eyes", "skin",
                          "made up", "CC0", lib_root=lib, type="video", width=480, height=480, fps=30,
                          duration_s=2.0) or ""))
+check("a spinning skin's counter-rotation (face-web #138) is a known param, and its shape is checked",
+      not library.entry_problems({"id": "x", "kind": "skin", "file": "f.png", "sha256": "0", "source": "s", "licence": "l",
+                                  "type": "image", "width": 480, "height": 480,
+                                  "params": {"spin_dps": 90, "counter": {"every_s": [8, 20], "hold_s": [2, 4], "ease_s": 0.9}}})
+      and all(library._counter_problems("x", bad) for bad in
+              ({"every_s": [20, 8]}, {"every": [8, 20]}, {"ease_s": -1}, {"hold_s": 3}, "sometimes")))
+check("... and `counter` off (absent, null or false) is fine", not library._counter_problems("x", None)
+      and not library._counter_problems("x", False))
 e = library.add(EYES, "made-up-eyes", "skin", "made up for a test", "CC0", params={"spin_dps": 90, "blink": "none"}, **IMG)
 check("a skin is COPIED into the library (skins/), never into the repo, with its own hash",
       os.path.isfile(os.path.join(lib, "skins", "made-up-eyes.png")) and e["sha256"] == library.item_hash(EYES), e)
