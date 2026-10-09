@@ -70,7 +70,7 @@ recommended **10 mm** height above the ground plane.
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 If you **solder** the joins instead of using WAGOs, add a soldering iron + heat-shrink.
 
 ## Assembly

@@ -126,7 +126,7 @@ For example, **`1120-0025-0624`** is a U-channel (`1120`) with **25 large holes*
 
 Structural screws are bought in bulk, not itemized here — each drive assembly uses
 ~1 × M4 × 10 mm + 4 × M4 × 8 mm socket-head screws. See the fasteners on the
-[Hardware BOM](../hardware-bom.md#tools--consumables).
+[Hardware BOM](../hardware-bom.md#tools-consumables).
 
 ## Tools
 

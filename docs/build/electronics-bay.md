@@ -147,7 +147,7 @@ The bay's bus + wiring layout — pan/zoom the live board:
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables) —
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables) —
 **plus a soldering iron** (regen clamp resistor lead; see the *Bay-specific tools* group above).
 
 ## Assembly
@@ -155,7 +155,7 @@ Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-
 !!! danger "Wire it de-energized"
     Everything below is done with the **DC/DC input disconnected and the bus dead**. The
     ESC power leads terminate in XT90s that are easy to mate by reflex — leave them
-    unmated until the [verify](#verify--done-when) checks pass.
+    unmated until the [verify](#verify-done-when) checks pass.
 
 ### Step 1 — Mount the back plate and lay the modules out
 
