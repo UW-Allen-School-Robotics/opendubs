@@ -111,8 +111,9 @@ def test_sampled_motion_passes_on_a_head_that_moves():
     r = _run("tablet-face", "neck", sampled=True)
     assert _by(r, "FAIL") == [], _by(r, "FAIL")
     judged = {c for s, h, c, d in r.results if s == "PASS" and h == "neck"}
-    for c in ("GAZE: reaches pan", "GAZE: slews", "GAZE: lease expired, stays put",
-              "TRACK thor: slews", "PARK: reaches pan 90", "PARK: lease expired, stays put"):
+    for c in ("GAZE: holds ownership while renewed", "GAZE: reaches pan", "GAZE: slews",
+              "GAZE: lease expired, no jump", "GAZE: lease expired, stays put (owner=none)",
+              "TRACK thor: slews", "PARK: reaches pan 90", "PARK: lease expired, stays put (owner=none)"):
         assert any(j.startswith(c) for j in judged), (c, judged)
 
 
@@ -127,18 +128,59 @@ def test_a_head_that_crawls_fails_though_every_reply_says_ok():
     assert replies and all(s == "PASS" for s, h_, c, d in r.results if c in replies)
 
 
+def test_the_tab5s_resting_tracker_is_a_handover_not_a_failure():
+    """On the Tab5 the local tracker is always live and rests at centre: after a lease expires the
+    head goes back to centre, at the slew rate, owned by `local`. That is the protocol working."""
+    r = _run("tab5", sampled=True)
+    assert _by(r, "FAIL") == [], _by(r, "FAIL")
+    over = [d for s, h, c, d in r.results if c == "GAZE: lease expired, handed over" and s == "PASS"]
+    assert over and over[0].startswith("owner=local"), r.results
+
+
 class _SpringNeck(Neck):
-    """Returns to centre when nothing owns it — which the protocol forbids."""
+    """Returns to centre while reporting that nothing owns it — a move nobody is responsible for."""
 
     def target(self, now):
         return (90.0, 90.0) if self.owner(now) == "none" else super().target(now)
 
 
-def test_a_head_that_springs_back_when_the_lease_ends_fails():
-    h = FakeHead("legacy-tab5", port=0)
+def test_a_head_that_moves_with_nobody_owning_it_fails():
+    h = FakeHead("neck", port=0)
     h.neck = _SpringNeck()
     r = _run(None, sampled=True, face_head=h)
-    assert any(c == "GAZE: lease expired, stays put" for _, c, _ in _by(r, "FAIL")), r.results
+    assert any(c == "GAZE: lease expired, stays put (owner=none)" for _, c, _ in _by(r, "FAIL")), r.results
+
+
+class _JumpNeck(Neck):
+    """Snaps to centre the moment the resting tracker takes over — the jump the rule exists for."""
+
+    def advance(self, now):
+        super().advance(now)
+        if self.owner(now) == "local":
+            self.pan, self.tilt = 90.0, 90.0
+
+
+def test_a_head_that_jumps_when_the_lease_ends_fails():
+    h = FakeHead("tab5", port=0)
+    h.neck = _JumpNeck()
+    h.rest_at_centre()
+    r = _run(None, sampled=True, face_head=h)
+    assert any(c == "GAZE: lease expired, no jump" for _, c, _ in _by(r, "FAIL")), r.results
+
+
+class _FlapNeck(Neck):
+    """A renewed lease that keeps dropping out — the GAZE lease underflow of 2026-10-08."""
+
+    def owner(self, now):
+        o = super().owner(now)
+        return "none" if o == "gaze" and int(now // 150) % 2 else o
+
+
+def test_a_lease_that_flaps_while_renewed_fails():
+    h = FakeHead("neck", port=0)
+    h.neck = _FlapNeck()
+    r = _run(None, sampled=True, face_head=h)
+    assert any(c == "GAZE: holds ownership while renewed" for _, c, _ in _by(r, "FAIL")), r.results
 
 
 # ---- precedence and leases, on a clock the test drives -------------------------------------------
@@ -199,9 +241,9 @@ def test_every_message_the_tab5_parses_is_in_the_spec_and_none_is_missing():
     assert parsed <= set(hp.MESSAGES), parsed - set(hp.MESSAGES)
     shipping = {v for v, (_, st) in hp.MESSAGES.items() if st in ("shipping", "tab5-only", "twin-only")}
     assert shipping <= parsed, shipping - parsed
-    # A new message the Tab5 has started parsing is no longer "new": update the document.
-    new_now_built = {v for v, (_, st) in hp.MESSAGES.items() if st == "new"} & parsed
-    assert not new_now_built, f"built on the Tab5, still marked new: {new_now_built}"
+    # A message proposed but NOT agreed must not be parsed yet: that is the agreement gate.
+    unagreed_built = {v for v, (_, st) in hp.MESSAGES.items() if st == "new"} & parsed
+    assert not unagreed_built, f"parsed by the Tab5 before the lanes agreed it: {unagreed_built}"
 
 
 def test_the_vocabulary_is_the_tab5s():

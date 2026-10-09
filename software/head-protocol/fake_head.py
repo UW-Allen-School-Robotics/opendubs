@@ -104,10 +104,18 @@ class FakeHead:
         self.clock = clock or (lambda: time.monotonic() * 1000.0)
         self.state, self.emote, self.theme = "", "AUTO", "plain"
         self.neck = Neck()
+        if kind in ("tab5", "legacy-tab5"):
+            self.rest_at_centre()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", port))
         self.port = self.sock.getsockname()[1]
         self._stop = False
+
+    def rest_at_centre(self):
+        """The Tab5's local tracker is ALWAYS a live source while tracking is on, and its resting
+        behaviour returns the head to centre at the slew rate (app_face.cpp, "the slew and the return
+        to centre are continuous"). So after a lease expires the head is handed over, not left."""
+        self.neck.src["local"] = (float("inf"), "at", 90.0, 90.0)
 
     # ---- what this kind answers ---------------------------------------------------------------
     def implements(self, verb):

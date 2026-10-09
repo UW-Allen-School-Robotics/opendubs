@@ -87,8 +87,9 @@ class Run:
                              f"not a {kind} message: {r}" if unknown else f"{kind} should not answer: {r}")
         if unknown:
             status = hp.MESSAGES[verb][1]
-            return self.note(PENDING if status == "new" else FAIL, half, check,
-                             f"{verb} not built on this {kind} yet" if status == "new" else r)
+            unbuilt = status in hp.NOT_YET_SHIPPING
+            return self.note(PENDING if unbuilt else FAIL, half, check,
+                             f"{verb} not built on this {kind} yet" if unbuilt else r)
         # The reply is shown either way: a PASS still says what the head did.
         return self.note(PASS if ok(r) else FAIL, half, check, r)
 
@@ -184,54 +185,82 @@ class Run:
     HOLD_TOL_DEG = 1.0
     MIN_RATE_FRACTION = 0.5          # of the head's slew rate: a crawl fails, a slow servo does not
     MIN_RATE_MOVE_DEG = 15.0         # a shorter move ends inside the rate window and proves nothing
+    JUMP_TOL_DEG = 3.0               # sampling jitter and the 1.5 deg write deadband, with room
 
-    def angle(self):
-        """(pan, tilt) now: NECK where it is built, else the pan/tilt status in today's PING."""
+    def status(self):
+        """(pan, tilt, owner) now, from NECK — one coherent snapshot. A head without NECK (today's
+        Tab5) gives the angle in PING's pan/tilt field, which is free text for people, not a field to
+        parse; it is read here only until NECK exists, and its owner is None (unreadable)."""
         r = self.ask(hp.NECK, "NECK")
         m = hp.REPLY["neck_ok"].match(r or "")
         if m:
-            return float(m.group(1)), float(m.group(2))
+            return float(m.group(1)), float(m.group(2)), m.group(6)
         m = self._PING_ANGLE.search(self.ask(hp.NECK, "PING") or "")
-        return (float(m.group(1)), float(m.group(2))) if m else None
+        return (float(m.group(1)), float(m.group(2)), None) if m else None
+
+    def angle(self):
+        a = self.status()
+        return a[:2] if a else None
 
     def drive(self, line, seconds, renew_s=0.2, sample_s=0.1):
-        """Renew `line` every renew_s for `seconds`, sampling the angle. -> [(t, pan, tilt)]"""
+        """Renew `line` every renew_s for `seconds`, sampling.
+        -> [(t since this call, pan, tilt, owner, absolute monotonic time)]"""
         out, t0, next_renew = [], time.monotonic(), 0.0
         while (t := time.monotonic() - t0) < seconds:
             if line and t >= next_renew:
                 self.ask(hp.NECK, line)
                 next_renew = t + renew_s
-            a = self.angle()
+            a = self.status()
             if a:
-                out.append((t, a[0], a[1]))
+                out.append((t, a[0], a[1], a[2], time.monotonic()))
             time.sleep(sample_s)
         return out
 
     @staticmethod
     def peak_rate(samples, span_s=0.3):
         best = 0.0
-        for i, (t0, p0, _) in enumerate(samples):
-            for t1, p1, _ in samples[i + 1:]:
+        for i, (t0, p0, *_) in enumerate(samples):
+            for t1, p1, *_ in samples[i + 1:]:
                 if t1 - t0 >= span_s:
                     best = max(best, abs(p1 - p0) / (t1 - t0))
                     break
         return best
 
-    def sampled(self, label, verb, start_line, renew_line, target_pan, off_line, lease_ms):
-        """Move the pan by a lease-holding message and judge the motion: it reaches the target in
-        time, at no less than half the slew rate, and after the lease expires it stays put."""
+    @staticmethod
+    def biggest_step(samples):
+        """The largest pan change between consecutive samples, beyond what the slew rate allows
+        in that interval. Positive means a JUMP."""
+        worst = float("-inf")
+        for a, b in zip(samples, samples[1:]):        # absolute times: samples may span two drives
+            worst = max(worst, abs(b[1] - a[1]) - hp.SLEW_DPS * (b[4] - a[4]))
+        return worst
+
+    def sampled(self, label, verb, start_line, renew_line, target_pan, off_line, lease_ms, source):
+        """Move the pan by a lease-holding message (`source` is the owner it should make) and judge
+        what the head DOES: it holds ownership while renewed, reaches the target in time at no less
+        than half the slew rate, and when the lease expires it never JUMPS — it stays where it is
+        (owner=none) or the next live source takes it over at the slew rate."""
         N = hp.NECK
         a0 = self.angle()
         if a0 is None:
             return self.note(SKIP, N, f"{label}: sampled", "no angle to read (no NECK, no pan/tilt in PING)")
         r = self.ask(N, start_line)
         if r is None or hp.REPLY["unknown"].match(r) or r.startswith("ERR"):
-            status = PENDING if (r and hp.REPLY["unknown"].match(r) and hp.MESSAGES[verb][1] == "new") else SKIP
+            status = PENDING if (r and hp.REPLY["unknown"].match(r)
+                                 and hp.MESSAGES[verb][1] in hp.NOT_YET_SHIPPING) else SKIP
             return self.note(status, N, f"{label}: sampled", f"{verb} not available: {r}")
         dist = abs(target_pan - a0[0])
         budget = 1.5 * dist / hp.SLEW_DPS + 0.5
         moving = self.drive(renew_line, budget + 0.4)
-        reached = [t for t, p, _ in moving if abs(p - target_pan) <= self.REACH_TOL_DEG]
+        owners = [x[3] for x in moving if x[3] is not None]
+        if not owners:
+            self.note(SKIP, N, f"{label}: holds ownership while renewed", "owner unreadable without NECK")
+        else:
+            lost = [o for o in owners if o != source]
+            self.note(PASS if not lost else FAIL, N, f"{label}: holds ownership while renewed",
+                      f"owner={source} in all {len(owners)} samples" if not lost
+                      else f"owner was {sorted(set(lost))} in {len(lost)} of {len(owners)} samples: a flapping lease")
+        reached = [t for t, p, *_ in moving if abs(p - target_pan) <= self.REACH_TOL_DEG]
         rate = self.peak_rate(moving)
         ok_reach = bool(reached) and reached[0] <= budget
         ok_rate = rate >= self.MIN_RATE_FRACTION * hp.SLEW_DPS
@@ -244,15 +273,31 @@ class Run:
         else:
             self.note(PASS if ok_rate else FAIL, N, f"{label}: slews",
                       f"peak {rate:.0f} deg/s against {hp.SLEW_DPS:.0f} (needs {self.MIN_RATE_FRACTION:.0%})")
-        # Let the lease run out without renewing, then watch: it must stay where it is.
-        after = self.drive(None, lease_ms / 1000.0 + 0.9)
-        late = [p for t, p, _ in after if t > lease_ms / 1000.0 + 0.2]
+        # Let the lease run out without renewing, then watch. It must never jump. With no live source
+        # it stays where it is; otherwise the next one down takes over, at the slew rate (the Tab5's
+        # always-live local tracker returns it to centre this way, by design).
+        after = self.drive(None, lease_ms / 1000.0 + 1.2)
+        late = [x for x in after if x[0] > lease_ms / 1000.0 + 0.2]
         if late and moving:
-            drift = max(late) - min(late)
-            gone_home = abs(late[-1] - a0[0]) < self.HOLD_TOL_DEG < dist
-            self.note(PASS if drift <= self.HOLD_TOL_DEG and not gone_home else FAIL, N,
-                      f"{label}: lease expired, stays put",
-                      f"pan {late[0]:.1f}..{late[-1]:.1f} after expiry")
+            step = self.biggest_step(moving[-1:] + after)
+            self.note(PASS if step <= self.JUMP_TOL_DEG else FAIL, N, f"{label}: lease expired, no jump",
+                      f"largest step {step:+.1f} deg beyond the slew rate (allowed {self.JUMP_TOL_DEG})")
+            owner = late[-1][3]
+            pans = [p for _, p, *_ in late]
+            if owner is None:
+                self.note(SKIP, N, f"{label}: lease expired, handed over",
+                          f"owner unreadable without NECK; pan {pans[0]:.1f}..{pans[-1]:.1f}")
+            elif owner == "none":
+                # Nobody owns it, so nothing may have moved it since the lease left it: judged over
+                # the whole wait, not only its end, or a head that sprang back early would pass.
+                left_at = moving[-1][1]
+                drift = max(abs(x[1] - left_at) for x in after)
+                self.note(PASS if drift <= self.HOLD_TOL_DEG else FAIL, N,
+                          f"{label}: lease expired, stays put (owner=none)",
+                          f"left at pan {left_at:.1f}; moved up to {drift:.1f} deg since")
+            else:
+                self.note(PASS if owner != source else FAIL, N, f"{label}: lease expired, handed over",
+                          f"owner={owner} (was {source}); pan {pans[0]:.1f}..{pans[-1]:.1f}")
         if off_line:
             self.ask(N, off_line)
 
@@ -263,16 +308,16 @@ class Run:
         home = a0[0]
         out = home + 20 if home <= 150 else home - 20
         self.sampled("GAZE", "GAZE", f"GAZE {out:.0f} {a0[1]:.0f} 600", f"GAZE {out:.0f} {a0[1]:.0f} 600",
-                     out, "GAZE OFF", 600)
+                     out, "GAZE OFF", 600, "gaze")
         # A tracker is held to the autonomous envelope, so move within it.
         tgt = 100.0 if self.angle()[0] < 95 else 85.0
         self.sampled("TRACK thor", "TRACK", f"TRACK thor {tgt:.0f} {a0[1]:.0f} 600",
-                     f"TRACK thor {tgt:.0f} {a0[1]:.0f} 600", tgt, "TRACK thor OFF", 600)
+                     f"TRACK thor {tgt:.0f} {a0[1]:.0f} 600", tgt, "TRACK thor OFF", 600, "thor")
         if "PARK" in hp.KINDS.get(self.kind.get(hp.NECK), set()):
             # Off centre first, so the park has a distance to travel and a rate to show.
             self.drive(f"GAZE 110 {a0[1]:.0f} 600", 1.5 * abs(self.angle()[0] - 110) / hp.SLEW_DPS + 0.4)
             self.ask(hp.NECK, "GAZE OFF")
-            self.sampled("PARK", "PARK", "PARK 1000", "PARK 1000", 90.0, "PARK OFF", 1000)
+            self.sampled("PARK", "PARK", "PARK 1000", "PARK 1000", 90.0, "PARK OFF", 1000, "park")
         # Back where it started, so the check leaves the head as it found it.
         back = self.drive(f"GAZE {home:.0f} {a0[1]:.0f} 600", 1.5 * abs(self.angle()[0] - home) / hp.SLEW_DPS + 0.6)
         self.ask(hp.NECK, "GAZE OFF")

@@ -32,8 +32,9 @@ TOUCH_RATE_MAX_DPS = 45.0
 # ---- which half answers what (§1) --------------------------------------------------------------
 FACE, NECK, DEVICE, TWIN = "face", "neck", "device", "twin"
 
-# verb -> (half, status). status: "shipping" (the Tab5 answers it today), "new" (proposed in v1),
-# "tab5-only", "twin-only".
+# verb -> (half, status). status: "shipping" (the Tab5 answers it today); "agreed" (agreed between
+# the lanes, not built yet: a head may start parsing it); "new" (proposed, NOT agreed: no head may
+# parse it yet — CI fails if one does); "tab5-only"; "twin-only".
 MESSAGES = {
     "PING":    (DEVICE, "shipping"),
     "STATE":   (FACE, "shipping"),
@@ -44,15 +45,17 @@ MESSAGES = {
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
-    "TRACK":   (NECK, "new"),
-    "NECK":    (NECK, "new"),
-    "TOUCH":   (NECK, "new"),
-    "PARK":    (NECK, "new"),
+    "TRACK":   (NECK, "agreed"),
+    "NECK":    (NECK, "agreed"),
+    "TOUCH":   (NECK, "agreed"),
+    "PARK":    (NECK, "agreed"),
     "TOF":     (NECK, "shipping"),
     "I2CSCAN": (NECK, "shipping"),
     "REBOOT":  (DEVICE, "shipping"),
     "OTA":     (DEVICE, "shipping"),
 }
+
+NOT_YET_SHIPPING = ("new", "agreed")    # a head that should answer these but says ERR unknown: PENDING
 
 # What each kind of head implements. A head answers everything else `ERR unknown`.
 KINDS = {
