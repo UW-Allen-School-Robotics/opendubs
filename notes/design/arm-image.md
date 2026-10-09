@@ -19,9 +19,9 @@ pinned source commits — and one command runs it with the same flags in develop
 | Base | `ros:jazzy-ros-base`, unpinned | **the same `ros:jazzy-ros-base`, by digest**: `ROS_BASE_IMAGE` in the Thor stack's version manifest, `software/stack/versions.env`. The build refuses an empty or tag-only value. Not the Isaac ROS base: the arm stack has no GPU code, and GPU motion planning arrives as its own module talking to the arms over FollowJointTrajectory, so a CUDA-free image runs the same on JetPack 7.1, 7.2 and Orin and does not wait on the JetPack choice (Thor stack T-1a) |
 | ROS and system packages | upstream's apt list, unpinned; then whatever `rosdep` resolved on the day | the same apt list, recorded with versions in `packages.lock`; `rosdep` runs at build time and its result is recorded too |
 | OpenArm CAN library | `ppa:openarm/main`, unpinned | the same PPA, pinned to a version |
-| Source | a host directory, cloned at unrecorded tips | **cloned at the commits in `repos.lock`** by the build script, then copied into the image. The org's private `openarm` copy is cloned on the build host with its credentials, so no secret enters the image |
+| Source | a host directory, cloned at unrecorded tips by a fork of the lab's workspace root | **our workspace root** (`workspace/`), each repository **cloned at its `repos.lock` commit** by the build script, the **overlay** (`overlay/<name>/*.patch`, the student's changes to the lab's libraries) applied, then copied into the image (DEC-27). The org's private `openarm` is cloned on the build host with its credentials |
 | Workspace build (`colcon`) | host-mounted `build/`, `install/`, `log/` | built into the image |
-| Python environment | `uv sync` on the host into `src/.venv` | `uv sync --frozen` in the image, into the same path, from the source's own `uv.lock` |
+| Python environment | `uv sync` on the host into `src/.venv`, no lock committed anywhere | `uv sync --frozen` in the image, into the same path, from **`workspace/uv.lock`** (ours, committed). SSIK is a uv git source at its `v8.1.0` tag, built non-editable, so it compiles its native backend on aarch64 |
 | FastDDS profile | written into the container at runtime by `openarm-up` | baked into the image at the same path (until the Thor stack's shared DDS profile, its item 3.2, replaces it) |
 | Teleop certificate | in the host-mounted source tree | **per machine, never in the image**: a host directory mounted over `certs/`, generated on first start if empty |
 | Stow pose, CAN naming | `/etc/opendubs/`, udev on the host | unchanged: per-robot values stay on the robot |
@@ -36,9 +36,9 @@ Paths inside the image stay exactly as today — `/openarm_ws/src`, `/openarm_ws
 | File | What |
 |---|---|
 | `software/openarm/image/Dockerfile.openarm` | the image, built with plain `docker buildx build` — no Isaac CLI layering is needed without the Isaac base |
-| `software/openarm/image/repos.lock` | every source repository: name, URL, and the full commit it is built at |
-| `software/openarm/image/capture-pins.sh` | run on a robot (read-only): writes the commits that robot's arm stack actually runs into `repos.lock` format, and **refuses** a repository with uncommitted changes — those are untracked configuration and must become commits first |
-| `software/openarm/image/build.sh` | refuses an unpinned base or any unpinned repository; clones each at its commit into a build context; applies `setup.sh`'s workspace preparation; builds; prints the image digest |
+| `software/openarm/image/repos.lock` | every source repository: name, kind (`uv` / `ros`), URL and the full commit it is built at, each with its provenance on the comment line above. Two enactic pins are **provisional** until `capture-pins.sh` reports what a robot runs |
+| `software/openarm/image/capture-pins.sh` | run on a robot (read-only): **compares** the robot's checkouts with `repos.lock` (SAME / DIFFERS per repository), reports the workspace root and `ssik` the manifest replaces and anything the manifest leaves out, compares the container's versions with `pins.env`, and **refuses** while a repository has uncommitted changes |
+| `software/openarm/image/build.sh` | refuses an unpinned base, an unpinned or unknown-kind repository, an overlay for a repository not in the lock, or a missing workspace root -- before cloning; copies the workspace root, clones each repository at its commit, checks then applies the overlay, marks the uv members `COLCON_IGNORE`, builds, prints the image digest |
 | `software/openarm/image/run.sh` | creates the `openarm` container with today's flags and the mounts above; `--dev NAME=PATH` bind-mounts one repository's checkout over its place in the image (for example the teleop bridge's `openarm`) — the only difference between development and production. One repository at a time, not the whole tree: the Python environment lives inside `/openarm_ws/src`, so mounting all of it would hide that |
 | `software/openarm/image/fastdds-udp-only.xml` | the profile `openarm-up` writes today, as a tracked file |
 
@@ -68,18 +68,43 @@ fast loop and makes it explicit.
 6. **The private repository** is cloned on the build host with its own credentials, so no secret
    reaches the build at all.
 
+## The manifest, filled (DEC-27), 2026-10-09
+
+**Each repository from its maintainer at a recorded commit:** a release where it is current, else
+main. The lab's releases are months behind what the teleop was built on (`mj_manipulator` v2.0.0 is
+from April, `mj_environment` v1.1.0 from March), and the lab renamed two repositories in late
+September (`pycbirrt` became `sscbirrt`, `tsr` became `sstsr`), after which `sscbirrt` no longer
+provides the `pycbirrt` that `mj_manipulator` imports. The one set that holds together is the lab's
+main **as of 2026-09-21**, the student's setup date and exactly where the student's forks branch
+from. `mj_manipulator` is pinned at the fork's own upstream base, `b5ade5d`: main's two later
+commits collide with ArmGroup's refactor of `arm.py`, and neither matters to OpenArm (one affects
+joints with more than 2π of range, the other packaging). Moving to the lab's current releases is a
+later, separate step.
+
+**The overlay** carries the student's changes to three of the lab's libraries -- ArmGroup and the
+`sstsr` switch (`mj_manipulator`), the real-robot fixes (`mj_environment`), the hardware context
+and bimanual refactor (`mj_manipulator_ros`) -- each the fork's net change over the pinned upstream
+commit, code only. **Checked: base + overlay equals the fork's tree, file for file.** Each patch is
+deleted when upstream has it.
+
+**Left out:** `mujoco_menagerie` (only the lab's demos for other arms use it).
+
+**Desk-tested, 2026-10-09** (from GitHub tarballs, so no git on the desk): every repository at its
+pin, the overlay applied, `uv lock` and `uv sync --frozen` on the development Mac (macOS arm64; the
+lock is universal). SSIK installs from its tag with `_ssik_native`. Test suites in that environment:
+`mj_manipulator` 439 passed, `mj_environment` 129 passed, `mj_manipulator_ros` 2 skipped (no ROS
+here), `openarm` 190 passed / 30 failed. Of the 30, **27 fail with the student's SSIK fork too**
+(they are the suite's own state, not this change); the other 3 are planner tests that 8.1.0 sends
+within the tests' 0.05 rad margin of a joint limit -- see the plan's 0.16. `build.sh` refuses each
+bad input before cloning (10 cases); ShellCheck clean; the three patches parse with `git apply`.
+
+**Found while locking:** the old workspace root's `toppra` override applied only on aarch64, and a
+uv override replaces every requirement on its package, marker included -- so on any other machine
+`toppra` was not installed at all. `workspace/pyproject.toml` adds the non-aarch64 line.
+
 ## Not done here
 
-- **DEC-27's manifest** (design: `arm-sources.md`). `repos.lock` gets the upstream URLs: the lab's
-  and enactic's repositories at releases, the author's own three, and the org `openarm`. The
-  student forks of the lab's libraries go. `setup.sh`'s clone-at-tips goes too.
-- **SSIK installed non-editable, from its `v8.1.0` tag**, not as `ssik` beside the workspace. That
-  layout is installed editable through the workspace root's `path` source. SSIK publishes no Linux
-  aarch64 wheel. A non-editable build from the tag compiles its native backend (0.08 ms per solve,
-  measured on the development Mac). Editable or from the sdist, it runs pure Python (3.1 ms). The
-  teleop solves IK on every engaged control step, at 6.7 ms per tick.
-
-- **The pins themselves.** `repos.lock` ships with the repositories named and the commits blank;
-  `capture-pins.sh` fills them from a robot, and the build refuses until it has.
+- **Confirming the provisional enactic pins** with `capture-pins.sh` on opendubs2 (read-only, at the
+  next robot session).
 - **A build on the non-robot Thor.** Desk work only until that machine is reachable; never on
   opendubs2.
