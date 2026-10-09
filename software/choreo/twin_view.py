@@ -51,6 +51,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--composer", default="http://127.0.0.1:8091")
     ap.add_argument("--assets", help="an openarm_assets checkout instead of description/openarm")
+    ap.add_argument("--head", choices=("tab5_pantilt", "galaxy_tablet"), default=None,
+                    help="which head (default: the robot description's head_assembly.fitted)")
     ap.add_argument("--log", action="store_true", help="print the followed state once a second")
     ap.add_argument("--face-frames", default=None,
                     help="the face twin's shared frame file (default: $OPENDUBS_FACE_FRAMES, as face.sh sets it)")
@@ -62,7 +64,7 @@ def main() -> int:
     import scene
 
     import face_frames
-    model = scene.build(a.assets, face_screen=True)
+    model = scene.build(a.assets, face_screen=True, head=a.head)
     data = mujoco.MjData(model)
     face_tex = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TEXTURE, scene.FACE_TEXTURE)
     face_adr, face_n = model.tex_adr[face_tex], scene.FACE_TEX_W * scene.FACE_TEX_H * 3
