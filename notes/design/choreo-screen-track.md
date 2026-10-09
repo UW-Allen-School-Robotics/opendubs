@@ -42,7 +42,12 @@ Two things a show can drive once the tablet is the robot's face:
    sounds). Each item has a library id and a content hash, with its source and licence recorded.
    Nothing in the library is ever committed; shows name items by id. Show music moves there too
    (today it is a git-ignored file in `shows/audio/`, referenced by path).
-6. **Eye skins are a face cue, not media**: `SKIN <name>` is head protocol v2 (tablet lane), sent
+6. **A reserved robot state takes the screen by itself.** If the robot goes DEGRADED or E_STOP
+   while media is showing, the face engine drops the media layer at once — it hears the robot's
+   state directly (STATE, and the StamPLC's broadcast) and does not wait for the runner's `cut`.
+   The system layer is always on top and never authorable: the same rule as "a reserved state
+   shows the default eyes, whatever SKIN says".
+7. **Eye skins are a face cue, not media**: `SKIN <name>` is head protocol v2 (tablet lane), sent
    by the runner's LiveFace like THEME, persistent until changed. A Tab5 answers `ERR unknown` — the
    runner logs it once and plays on, as it did for GAZE before the head had it.
 
@@ -55,7 +60,7 @@ a `load` with only today's `items` is an audio load.
 |---|---|---|
 | `claim {role}` | page | hold `audio` or `screen` (or both); the previous holder of that role is told `cut` |
 | `load {id, audio: [...], screen: {...}}` | runner | everything this show plays, by role; each role's holder fetches its part |
-| `ready {id, role}` | page | that role's part is downloaded and PRELOADED (clips decoded to their first frame, paused) |
+| `ready {id, role}` | page | that role's part is on the device; for `screen`, every file is downloaded and the FIRST shots are decoded and paused |
 | `start {id, t0_mono}` | runner | show time 0 is this Thor-monotonic instant; every item is scheduled from it |
 | `stop {fade_s}` | runner | an abort: audio fades; the screen fades back to the face |
 | `cut` | runner | an e-stop: silence and the face, at once |
@@ -65,7 +70,11 @@ a `load` with only today's `items` is an audio load.
 to start. Between shots the face shows. The runner builds this list from the show's SCREEN track.
 
 Readiness: the runner waits (its WAITING phase, as for audio) until every role that has items has
-reported ready, or a deadline passes — then rule 4.
+reported ready, or a deadline passes — then rule 4. `ready` does NOT mean every clip is decoded:
+Android has a limited number of hardware video decoders (on the tablet's MT6789, not yet measured),
+and many paused video elements could fail or fall back to software decoding. The face engine
+preloads the next shots on a rolling window ahead of the playhead; the window is the tablet lane's
+to size, from a bench measurement of the decoder limit and a cut's real latency (before build step 4).
 
 ## In the show format
 
@@ -133,6 +142,10 @@ Owned by the choreography lane, since the validator reads it; agreed with the ta
   licence: "…"
 ```
 
+**An item's hash.** For a single file, the sha256 of the file. For a folder (a skin), the sha256 of
+the sorted list of `relative/path<TAB>sha256-of-that-file` lines, one per file — one rule for any
+multi-file item, so a changed or added file changes the item's hash.
+
 The dashboard serves library files to the holding device by id (as it serves show audio today).
 A small tool adds an item: it hashes the file, reads duration and size, and refuses an entry
 without source and licence.
@@ -140,8 +153,11 @@ without source and licence.
 ## Composer and twins
 
 * The composer gets a SCREEN lane (shots as blocks, cuts snapping to beats) and a skin picker on
-  the FACE lane. Its preview pane plays the clip from the laptop's synced library alongside the
-  face twin, cutting on the same timeline.
+  the FACE lane.
+* Its preview **embeds the web face engine itself** (`software/face-web/`, tablet PR #110), fed the
+  same shot list and skins from the laptop's synced library. The web face engine IS the tablet's
+  face, not a model of it, so the composer's preview and the robot run the same code — the
+  strongest form of "one timeline document". (The Tab5's desktop twin stays the Tab5's twin.)
 * The MuJoCo body twin is unchanged (it has no screen of its own); the face twin shows the skin
   once the face engine's desktop build supports it.
 
