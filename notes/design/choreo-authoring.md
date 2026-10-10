@@ -102,9 +102,9 @@ What it deliberately does not do:
 * **It does not copy the elbow.** The OpenArm is not a human arm; the solver picks the elbow nearest
   where the show has the arm at that moment. Copy the hand, then judge the elbow in the twin.
 * **It does not bend a pose to fit.** The proposals are ordinary IK targets: `ik.py` solves them and
-  the validator checks them, so a pose the robot cannot copy is refused with the reason (a hand
-  reaching across the body is out of this arm's reach; a hand behind the back is not — its shoulder
-  swings back).
+  the validator checks them, so a pose the robot cannot copy is refused with the reason. Measured
+  on the twin: arms up (a "Y", overhead) are copied by folding the elbow; a hand reaching across the
+  body, behind the back, or back-and-up is out of this arm's reach inside the shoulder rules.
 * **It does not guess.** A side MediaPipe is not confident it can see is skipped, and said.
 * **It does not move anything.** It writes cues; `--overlay` saves each frame with the skeleton it
   found, so the author can check the read before keeping the cues.

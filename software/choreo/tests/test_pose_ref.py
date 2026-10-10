@@ -101,6 +101,7 @@ try:
 except ImportError:
     print("  skip  MuJoCo is not installed here")
 else:
+    import cue
     import ik
     import yaml
     sys.path.insert(0, os.path.join(HERE, "..", "composer"))
@@ -113,20 +114,21 @@ else:
         text = yamledit.apply(text, [{"op": "add", "cue": c} for c in cues])
         open(path, "w").write(text)
         problems = ik.compile_show(path, LIMITS_PATH, write=True, verbose=False)
-        return problems, yaml.safe_load(open(path))["cues"]
+        valid = cue.load_show(path).export(cue.load_limits(LIMITS_PATH), LIMITS_PATH)["valid"]
+        return problems, yaml.safe_load(open(path))["cues"], valid
 
     reach = P.propose_cues(person((1, 0, 0.3), (0.5, -0.3, 0.6), right_bend=math.radians(40)), "t:3.0")[0]
-    problems, out = solve(reach)
-    check("a forward reach and a raised, bent arm: both solved, angles written for the validator",
-          not problems and all("solved" in c for c in out if "reach" in c), problems)
-    behind = P.propose_cues(person((-1, 0, -0.2), (1, 0, 0)), "t:3.0", arms=("left",))[0]
-    problems, out = solve(behind)
-    check("a hand behind the back is a pose this arm CAN copy (its shoulder swings back): solved",
-          not problems and all("solved" in c for c in out if "reach" in c), problems)
-    across = P.propose_cues(person((0.2, -1, 0), (1, 0, 0)), "t:3.0", arms=("left",))[0]
-    problems, out = solve(across)
-    check("one it cannot (the left hand reaching across to the right) is REFUSED with the reason, not bent to fit",
-          problems and "out of reach" in problems[0] and not any("solved" in c for c in out if "reach" in c), problems)
+    problems, out, valid = solve(reach)
+    check("a forward reach and a raised, bent arm: both solved, and the show validates",
+          not problems and valid and all("solved" in c for c in out if "reach" in c), problems)
+    y = P.propose_cues(person((0, 0.5, 1), (0, -0.5, 1)), "t:3.0")[0]
+    problems, out, valid = solve(y)
+    check("arms up in a Y: solved by folding the elbows (the shoulder rules), and the show validates",
+          not problems and valid, problems)
+    for what, dirs in (("a hand behind the back", (-1, 0, -0.2)), ("the left hand reaching across to the right", (0.2, -1, 0))):
+        problems, out, valid = solve(P.propose_cues(person(dirs, (1, 0, 0)), "t:3.0", arms=("left",))[0])
+        check(f"a pose this arm cannot copy ({what}) is REFUSED with the reason, not bent to fit",
+              problems and "out of reach" in problems[0] and not any("solved" in c for c in out if "reach" in c), problems)
 
 print()
 if FAILS:
