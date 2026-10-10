@@ -29,6 +29,12 @@ import time
 import motion
 
 ARM_SIDES = {"ARM_L": "left", "ARM_R": "right"}
+GRIP_SIDES = {"GRIP_L": "left", "GRIP_R": "right"}
+# The gripper controllers (the Arms lane's contract, 2026-10-10): GripperCommand on
+# /<side>_gripper_controller/gripper_cmd, position in the finger joint's raw METRES, max_effort 5.0
+# (not enforced at the motor — position only). With allow_stalling false a close that meets something
+# ABORTS after ~1 s: that abort is the "something is in there" signal.
+GRIP_MAX_EFFORT = 5.0
 DENSE_S = 0.02           # trajectory point spacing: fine enough to follow motion.py's curve
 JOINT_STATE_MAX_AGE_S = 0.5
 
@@ -63,6 +69,10 @@ class FakeArms:
     def __init__(self, measured=None):
         self.sent, self.cancelled = [], 0
         self._measured = measured if measured is not None else {"ARM_L": [0.0] * 7, "ARM_R": [0.0] * 7}
+        self.grips, self.results = [], {}          # (slot, metres) sent; slot -> a goal's final status
+
+    def send_grip(self, slot, metres):
+        self.grips.append((slot, round(float(metres), 5)))
 
     def measured(self):
         return self._measured
@@ -100,6 +110,13 @@ class RosArms:
         self.clients = {slot: ActionClient(self.node, FollowJointTrajectory,
                                            f"/{side}_controller/follow_joint_trajectory")
                         for slot, side in ARM_SIDES.items()}
+        try:
+            from control_msgs.action import GripperCommand
+            self._GC = GripperCommand
+            self.grip_clients = {slot: ActionClient(self.node, GripperCommand, f"/{side}_gripper_controller/gripper_cmd")
+                                 for slot, side in GRIP_SIDES.items()}
+        except ImportError:                     # no GripperCommand here: the runner sends no gripper cues
+            self._GC, self.grip_clients = None, {}
         self.lock = threading.Lock()
         self._js, self._js_at = {}, 0.0
         self._jv, self._je = {}, {}          # velocity and effort, when the arm stack publishes them
@@ -186,8 +203,23 @@ class RosArms:
         with self.lock:
             self.results[slot] = status
 
+    def send_grip(self, slot, metres):
+        """One gripper position goal, in the controller's metres (grippers.py maps the show's 0..1).
+        Its final status lands in self.results[slot]: 4 reached, 6 aborted (a STALL on a close)."""
+        client = self.grip_clients.get(slot)
+        if client is None or not client.wait_for_server(timeout_sec=1.0):
+            raise RuntimeError(f"{GRIP_SIDES[slot]} gripper controller not available")
+        goal = self._GC.Goal()
+        goal.command.position = float(metres)
+        goal.command.max_effort = GRIP_MAX_EFFORT
+        with self.lock:
+            gen = self._gen
+            self.results[slot] = None
+        fut = client.send_goal_async(goal)
+        fut.add_done_callback(lambda f: self._accepted(f, gen, slot))
+
     def cancel_all(self):
-        """Stop every arm where it is: the controller holds its current state."""
+        """Stop every arm and gripper where it is: the controllers hold their current state."""
         with self.lock:
             goals, self._goals = self._goals, []
             self._gen += 1

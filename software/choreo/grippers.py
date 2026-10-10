@@ -38,6 +38,7 @@ TEMPLATE = """\
 # How to measure: software/choreo/grippers.py (docstring). Check with: grippers.py check
 robot: <name>          # which robot these numbers belong to
 measured: <YYYY-MM-DD>
+stroke_s: <optional: open<->closed seconds, if timed — informational, not read>
 left:
   closed: <position when fully closed>
   open:   <position when fully open>

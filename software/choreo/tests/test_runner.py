@@ -430,6 +430,62 @@ check("with the face, its icons and the head's earcons are real; pan/tilt stays 
 uses2 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal2.routines()}
 check("... and with no arms on this runner, the arms are twin-only too", uses2["celebrate"]["arms"] is False, uses2["celebrate"])
 
+print("\nrunner: the grippers, live (plan item 3)")
+import grippers as G  # noqa: E402
+CAL = G.load(os.path.join(HERE, "gripper_calibration_fixture.yaml"))
+
+
+def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=None):
+    robot = R.FakeRobotState()
+    sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
+    log = io.StringIO()
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+    tmp.write("id: g\nslots: [ARM_R, GRIP_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n"
+              + "".join(f"  - {c}\n" for c in show_text_cues))
+    tmp.close()
+    arms = AO.FakeArms()
+    if results is not None:
+        orig = arms.send_grip
+
+        def send_grip(slot, m):
+            orig(slot, m)
+            arms.results[slot] = results.pop(0) if results else 4
+        arms.send_grip = send_grip
+    r = R.Runner(tmp.name, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                 arms=arms, live=True, grips=grips)
+    end = r.run()
+    return end, arms, [json.loads(x) for x in log.getvalue().splitlines()]
+
+
+cues = ["{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 2.0, slot: GRIP_R, open: 0.5 }",
+        "{ t: 3.0, slot: GRIP_R, do: close }", "{ t: 4.0, slot: ARM_R, pose: rest }"]
+end, arms, lines = run_grips(cues)
+check("a live run sends each gripper cue through this robot's calibration, at its time",
+      end[0] == "COMPLETED" and arms.grips == [("GRIP_R", 0.04), ("GRIP_R", 0.02), ("GRIP_R", 0.0)], arms.grips)
+check("... and `close` is EXACTLY the calibrated closed position, never past it",
+      arms.grips[-1][1] == CAL["right"][0], arms.grips[-1])
+end, arms, lines = run_grips(cues, grips=None)
+check("with no calibration on the robot, no gripper cue is sent, and the log says why",
+      end[0] == "COMPLETED" and not arms.grips and any("no gripper calibration" in x.get("note", "") for x in lines))
+cues2 = ["{ t: 1.0, slot: GRIP_R, do: close }", "{ t: 2.0, slot: GRIP_R, do: open }",
+         "{ t: 3.0, slot: GRIP_R, do: close }", "{ t: 4.0, slot: ARM_R, pose: rest }"]
+end, arms, lines = run_grips(cues2, results=[6, 4, 4])          # the first close STALLS
+check("a close that STALLED (something in the gripper) is never re-sent that run; an open still is",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04)]
+      and any("STALLED" in x.get("note", "") for x in lines), (arms.grips, [x.get("note") for x in lines if x.get("note")]))
+end, arms, lines = run_grips(["{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 6.0, slot: GRIP_R, do: close }"],
+                             flip_after=3.0, change={"deadman": False})
+check("releasing the deadman cancels the gripper goals too, even in a run that moved no arm — they hold",
+      end[0] == "ABORTED" and arms.cancelled == 1 and arms.grips == [("GRIP_R", 0.04)], (end, arms.cancelled, arms.grips))
+os.environ["OPENDUBS_GRIPPER_CAL"] = os.path.join(HERE, "gripper_calibration_fixture.yaml")
+palg = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms())
+check("with a calibration, Reach's GRIPPERS icon is real",
+      {u["part"]: u["live"] for u in next(r for r in palg.routines() if r["id"] == "reach")["uses"]}["grippers"] is True)
+os.environ["OPENDUBS_GRIPPER_CAL"] = os.path.join(HERE, "no-such-calibration.yaml")
+check("... and without one it stays twin-only",
+      {u["part"]: u["live"] for u in next(r for r in palg.routines() if r["id"] == "reach")["uses"]}["grippers"] is False)
+del os.environ["OPENDUBS_GRIPPER_CAL"]
+
 print("\nrunner: on the robot (4.4c)")
 missing = R.Palette(SHOWS, "/nonexistent/joint_limits.yaml", R.FakeRobotState(), R.TwinFeed(), io.StringIO())
 rs = missing.routines()
