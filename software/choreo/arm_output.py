@@ -70,9 +70,15 @@ class FakeArms:
         self.sent, self.cancelled = [], 0
         self._measured = measured if measured is not None else {"ARM_L": [0.0] * 7, "ARM_R": [0.0] * 7}
         self.grips, self.results = [], {}          # (slot, metres) sent; slot -> a goal's final status
+        self.goal_status = {}                      # goal id -> that goal's own final status
+        self.grips_missing = []                    # sides whose gripper controller is "not up"
+
+    def grips_ready(self):
+        return list(self.grips_missing)
 
     def send_grip(self, slot, metres):
         self.grips.append((slot, round(float(metres), 5)))
+        return len(self.grips)
 
     def measured(self):
         return self._measured
@@ -121,6 +127,9 @@ class RosArms:
         self._js, self._js_at = {}, 0.0
         self._jv, self._je = {}, {}          # velocity and effort, when the arm stack publishes them
         self.results = {}                    # slot -> the last goal's final status (4 ok, 5 cancelled, 6 aborted)
+        self.goal_status = {}                # goal id -> that goal's OWN final status, whatever was sent since
+        self._latest = {}                    # slot -> the id of the goal most recently sent to it
+        self._seq = 0
         self._goals = []
         self._gen = 0                  # bumped by cancel_all: a goal from an older generation is stale
         self.node.create_subscription(JointState, "/joint_states", self._on_js, 10)
@@ -173,50 +182,65 @@ class RosArms:
             sec = int(t)
             pt.time_from_start = self._Duration(sec=sec, nanosec=int(round((t - sec) * 1e9)))
             goal.trajectory.points.append(pt)
+        return self._send_goal(client, slot, goal)
+
+    def _send_goal(self, client, slot, goal):
+        """Send one goal; returns its id. Its final status lands in goal_status[id], and in
+        results[slot] only while it is still the slot's latest goal — a superseded goal's late result
+        never overwrites a newer one's."""
         with self.lock:
             gen = self._gen
-        with self.lock:
+            self._seq += 1
+            gid = self._latest[slot] = self._seq
             self.results[slot] = None
         fut = client.send_goal_async(goal)
-        fut.add_done_callback(lambda f: self._accepted(f, gen, slot))
+        fut.add_done_callback(lambda f: self._accepted(f, gen, slot, gid))
+        return gid
 
-    def _accepted(self, fut, gen, slot=None):
+    def _record(self, slot, gid, status):
+        with self.lock:
+            self.goal_status[gid] = status
+            if self._latest.get(slot) == gid:
+                self.results[slot] = status
+
+    def _accepted(self, fut, gen, slot, gid):
         h = fut.result()
         if h is None or not h.accepted:
-            with self.lock:
-                self.results[slot] = "REJECTED"
+            self._record(slot, gid, "REJECTED")
             return
         with self.lock:
             stale = gen != self._gen
             if not stale:
                 self._goals.append(h)
-        h.get_result_async().add_done_callback(lambda f: self._done(f, slot))
+        h.get_result_async().add_done_callback(lambda f: self._done(f, slot, gid))
         if stale:
             # Stopped between sending and the controller accepting: cancel it the moment it lands.
             h.cancel_goal_async()
 
-    def _done(self, fut, slot):
+    def _done(self, fut, slot, gid):
         try:
             status = fut.result().status
         except Exception:  # noqa: BLE001
             status = "UNKNOWN"
-        with self.lock:
-            self.results[slot] = status
+        self._record(slot, gid, status)
+
+    def grips_ready(self):
+        """The sides whose gripper controller is NOT up. Never blocks: the clients were made when the
+        runner started, so discovery is long done — the runner asks once, as a show starts."""
+        return [side for slot, side in GRIP_SIDES.items()
+                if slot not in self.grip_clients or not self.grip_clients[slot].server_is_ready()]
 
     def send_grip(self, slot, metres):
-        """One gripper position goal, in the controller's metres (grippers.py maps the show's 0..1).
-        Its final status lands in self.results[slot]: 4 reached, 6 aborted (a STALL on a close)."""
+        """One gripper position goal, in the controller's metres (grippers.py maps the show's 0..1);
+        returns its goal id. goal_status[id] gets its final status: 4 reached, 6 aborted (a STALL
+        on a close). Never blocks the dispatch loop: an absent controller raises at once."""
         client = self.grip_clients.get(slot)
-        if client is None or not client.wait_for_server(timeout_sec=1.0):
+        if client is None or not client.server_is_ready():
             raise RuntimeError(f"{GRIP_SIDES[slot]} gripper controller not available")
         goal = self._GC.Goal()
         goal.command.position = float(metres)
         goal.command.max_effort = GRIP_MAX_EFFORT
-        with self.lock:
-            gen = self._gen
-            self.results[slot] = None
-        fut = client.send_goal_async(goal)
-        fut.add_done_callback(lambda f: self._accepted(f, gen, slot))
+        return self._send_goal(client, slot, goal)
 
     def cancel_all(self):
         """Stop every arm and gripper where it is: the controllers hold their current state."""

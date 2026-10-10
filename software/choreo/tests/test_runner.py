@@ -435,7 +435,8 @@ import grippers as G  # noqa: E402
 CAL = G.load(os.path.join(HERE, "gripper_calibration_fixture.yaml"))
 
 
-def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=None):
+def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=None, missing=(), late=None,
+              fail=False):
     robot = R.FakeRobotState()
     sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
     log = io.StringIO()
@@ -444,12 +445,23 @@ def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=N
               + "".join(f"  - {c}\n" for c in show_text_cues))
     tmp.close()
     arms = AO.FakeArms()
-    if results is not None:
-        orig = arms.send_grip
+    if missing:
+        arms.grips_missing = list(missing)
+    if results is not None or late or fail:
+        orig, pending = arms.send_grip, []
 
         def send_grip(slot, m):
-            orig(slot, m)
-            arms.results[slot] = results.pop(0) if results else 4
+            if fail:
+                raise RuntimeError("right gripper controller not available")
+            gid = orig(slot, m)
+            if late:                    # each goal's result lands only after the NEXT goal is sent
+                arms.goal_status[gid] = None
+                for g, st in pending:
+                    arms.goal_status[g] = st
+                pending[:] = [(gid, late.pop(0))]
+            else:
+                arms.goal_status[gid] = results.pop(0) if results else 4
+            return gid
         arms.send_grip = send_grip
     r = R.Runner(tmp.name, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
                  arms=arms, live=True, grips=grips)
@@ -473,6 +485,21 @@ end, arms, lines = run_grips(cues2, results=[6, 4, 4])          # the first clos
 check("a close that STALLED (something in the gripper) is never re-sent that run; an open still is",
       arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04)]
       and any("STALLED" in x.get("note", "") for x in lines), (arms.grips, [x.get("note") for x in lines if x.get("note")]))
+cues3 = ["{ t: 1.0, slot: GRIP_R, do: close }", "{ t: 1.5, slot: GRIP_R, do: open }",
+         "{ t: 2.0, slot: GRIP_R, do: open }", "{ t: 3.0, slot: GRIP_R, do: close }",
+         "{ t: 4.0, slot: ARM_R, pose: rest }"]
+end, arms, lines = run_grips(cues3, late=[6, 4, 4, 4])     # the close's stall lands AFTER the open was sent
+check("... even when the stall arrives late, after an open went out (judged on the close goal's own result)",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.04)]
+      and any("STALLED" in x.get("note", "") for x in lines), arms.grips)
+end, arms, lines = run_grips(cues, missing=["right"])
+check("a gripper controller that is not up: no gripper cue is sent, the log says which, the show keeps time",
+      end[0] == "COMPLETED" and not arms.grips
+      and any("no gripper controller for right" in x.get("note", "") for x in lines), arms.grips)
+end, arms, lines = run_grips(cues, fail=True)
+errs = [x for x in lines if x.get("kind") == "live_error"]
+check("a failed gripper send stops gripper cues for the rest of the run, logged once",
+      end[0] == "COMPLETED" and len(errs) == 1 and "no more gripper cues" in errs[0]["error"], errs)
 end, arms, lines = run_grips(["{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 6.0, slot: GRIP_R, do: close }"],
                              flip_after=3.0, change={"deadman": False})
 check("releasing the deadman cancels the gripper goals too, even in a run that moved no arm — they hold",

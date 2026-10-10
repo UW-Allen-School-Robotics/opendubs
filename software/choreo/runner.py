@@ -372,6 +372,7 @@ class Runner:
         self.grips = grips if self.live else None
         self._grip_last = {}                      # slot -> 0..1 last sent
         self._grip_stalled = set()
+        self._grip_closes = {}                    # slot -> ids of the close goals sent this run
         self.sent: list = []                      # (show time, slot, cue) as dispatched
         self.stop_requested = False
 
@@ -403,7 +404,8 @@ class Runner:
         the calibrated closed position, never past it (grippers.py). A side whose last close STALLED
         is not closed again this run — the stall is the "something is in there" signal."""
         side = arm_output.GRIP_SIDES[slot]
-        if self.arms.results.get(slot) == 6 and self._grip_last.get(slot) == 0.0:
+        if any(self.arms.goal_status.get(g) == 6 for g in self._grip_closes.get(slot, ())):
+            # Judged on each CLOSE goal's own result, so a late stall still counts after an open.
             if slot not in self._grip_stalled:
                 self._log("live", note=f"the {side} gripper's close STALLED — something is in it; "
                                        "it will not be closed again this run", slot=slot)
@@ -417,12 +419,17 @@ class Runner:
             return
         metres = grippers.to_controller(self.grips, side, frac)
         try:
-            self.arms.send_grip(slot, metres)
+            gid = self.arms.send_grip(slot, metres)
             self._grip_last[slot] = frac
+            if frac == 0.0:
+                self._grip_closes.setdefault(slot, []).append(gid)
             self._arms_moving = True
             self._log("grip", slot=slot, open=round(frac, 3), metres=round(metres, 5), show_t=round(t, 3))
         except Exception as e:  # noqa: BLE001  a gripper is never a reason to stop the show
-            self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e}")
+            # Once, then no more grips this run: a retry per cue would only repeat the failure.
+            self.grips = None
+            self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e} — no more gripper cues "
+                                          "are sent this run")
 
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
@@ -554,6 +561,10 @@ class Runner:
                                            f"({grippers.default_path()}; plan 6.2)")
                 elif not hasattr(self.arms, "send_grip"):
                     self._log("live", note="gripper cues are NOT sent: this runner's arm output has no grippers")
+                    self.grips = None
+                elif (missing := self.arms.grips_ready()):
+                    self._log("live", note="gripper cues are NOT sent: no gripper controller for "
+                                           f"{' and '.join(missing)} (is that arm active?)")
                     self.grips = None
                 else:
                     self._log("live", note="LIVE: the grippers follow this routine (calibrated per side)")
