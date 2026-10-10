@@ -94,6 +94,34 @@ keep their order, and no zoom, colour, lane height or position ever enters the f
 file round-trips byte-identical. That is what keeps an editor save reviewable by a person or an
 agent (format §9).
 
+## Watch a show on the twins (a Mac at the desk)
+
+Three windows follow the composer's playhead: the composer itself, the **body twin** (MuJoCo, the
+whole robot) and the **face twin** (the head's own face code). Nothing here can reach the robot:
+every twin binds 127.0.0.1 and refuses anything else. Run each in its own terminal, from
+`software/choreo/`:
+
+```bash
+python3 composer/server.py                   # 1. the composer — then open http://127.0.0.1:8091/
+./twin.sh                                    # 2. the body twin, a native MuJoCo window
+./face.sh                                    # 3. the face twin, opens the face page in the browser
+```
+
+* **Which head.** Both twins follow the robot description's fitted head
+  (`description/opendubs/dimensions.yaml`, `head_assembly.fitted`). To choose: `./twin.sh --head
+  galaxy_tablet` (the tablet placeholder) or `--head tab5_pantilt`; `./face.sh --head tablet` (the
+  web face engine, `software/face-web`) or `--head tab5` (the Tab5 desktop face, or a stand-in that
+  prints). With the tablet's face, the HEAD track also turns the twin's reference neck.
+* **Busy ports.** Another session may already run a web face twin. `face.sh` never reuses a door it
+  did not start: it stops and names the owner. Choose other ports with
+  `OPENDUBS_FACE_WEB_PORTS=http,ws,face,neck ./face.sh --head tablet` (e.g. `8785,8786,4264,4265`).
+* **Your own shows.** `python3 composer/server.py --shows <a folder>` edits shows outside the repo —
+  the right place for show content that should not be committed — and `--port` moves it off 8091;
+  then give both twins `--composer http://127.0.0.1:<port>`.
+* **Play.** Open the show in the composer and press play (space). The body twin and the face follow
+  the playhead, including scrubbing and seeking. The body twin's screen does not show the web face
+  yet; watch the face page beside it.
+
 ## What is stubbed, and what is not here
 
 - **The joint source for teaching is fake.** `FakeJointSource` in `static/composer.js` fabricates
