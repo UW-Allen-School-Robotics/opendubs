@@ -160,8 +160,24 @@ class Composer:
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
         os.replace(tmp, p)
+        ik_note = None
+        if any(isinstance(c, dict) and cue.ik_target_key(c) for c in (doc.get("cues") or [])):
+            # IK targets (ik.py): solve them now, writing the angles into the file, so what is saved
+            # is what the twin shows and the robot will play. Needs MuJoCo; without it, say so.
+            try:
+                import ik
+            except ImportError as e:
+                ik_note = (f"IK targets not compiled here ({e.name or e} missing) — run "
+                           "`python3 ik.py compile <show>` with MuJoCo installed")
+            else:
+                bad = ik.compile_show(p, self.limits_path, write=True, verbose=False)
+                with open(p, encoding="utf-8") as fh:
+                    text = fh.read()
+                ik_note = "; ".join(bad) if bad else "IK targets compiled"
         out = self.analyse(rel, text)
         out["saved"] = True
+        if ik_note:
+            out["ik"] = ik_note
         return out
 
     # ---- audio ------------------------------------------------------------------------------

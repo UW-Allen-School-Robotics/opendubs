@@ -10,10 +10,14 @@ on:
     branches: [main]
     paths:
       - "software/choreo/**"
+      - "sim/**"
+      - "description/**"
       - ".github/workflows/choreo.yml"
   pull_request:
     paths:
       - "software/choreo/**"
+      - "sim/**"
+      - "description/**"
       - ".github/workflows/choreo.yml"
 
 permissions:
@@ -27,13 +31,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - run: pip install pyyaml
+      - run: pip install pyyaml mujoco numpy   # mujoco: the IK solver's tests (ik.py) need the twin's model
       - run: python3 software/choreo/tests/test_cue.py
       - run: python3 software/choreo/tests/test_composer.py
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
+      - run: python3 software/choreo/tests/test_ik.py
       - run: python3 software/choreo/tests/test_library.py
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py

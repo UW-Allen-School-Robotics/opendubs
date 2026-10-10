@@ -249,7 +249,9 @@ REPEAT_MAX = 64
 TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
-    "ARM_L": {"joints", "pose"}, "ARM_R": {"joints", "pose"},
+    # reach / point_at: an IK target (ik.py); solved / solved_for: the joint angles compiled for it
+    "ARM_L": {"joints", "pose", "reach", "point_at", "standoff", "solved", "solved_for"},
+    "ARM_R": {"joints", "pose", "reach", "point_at", "standoff", "solved", "solved_for"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
@@ -284,6 +286,21 @@ NOT_EXECUTABLE = {
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
 }
+
+
+def ik_target_key(c: dict):
+    """`reach:head_screen` / `point_at:[0.5, -0.2, 1.1]` — the target an arm cue names, as
+    `solved_for` records it (ik.py); None for a cue with no target."""
+    for mode in ("reach", "point_at"):
+        if mode in c:
+            v = c[mode]
+            if isinstance(v, (list, tuple)):
+                try:
+                    return f"{mode}:[" + ", ".join(f"{float(x):g}" for x in v) + "]"
+                except (TypeError, ValueError):
+                    return f"{mode}:{v!r}"
+            return f"{mode}:{v}"
+    return None
 
 
 def _num(x) -> bool:
@@ -896,6 +913,21 @@ class Show:
         m = -1 if side == "left" else 1
         joints = c.get("joints")
         at_rest = False
+        key = ik_target_key(c)
+        if key or "solved" in c:
+            # An IK target (ik.py): its angles are compiled at authoring time and checked here like
+            # any others, so the robot plays exactly what the twin previewed.
+            kinds = [k for k in ("reach", "point_at", "joints", "pose") if k in c]
+            if len(kinds) != 1 or not key:
+                return [f"{where}: {slot} needs exactly one of joints, pose, reach or point_at "
+                        f"(has {', '.join(kinds) or 'none'})"]
+            if not isinstance(c.get("solved"), dict):
+                return [f"{where}: {slot} {key} is not compiled — run `python3 ik.py compile <show>` "
+                        "(the composer does it on save); a target inside a clip cannot be compiled yet"]
+            if str(c.get("solved_for", "")).split("@")[0] != key:
+                return [f"{where}: {slot} {key} was edited after its angles were solved (they are for "
+                        f"{str(c.get('solved_for', '')).split('@')[0] or 'nothing'}) — compile again"]
+            joints = c["solved"]
         if "pose" in c:
             if "joints" in c:
                 return [f"{where}: {slot} has both pose and joints — say one"]
