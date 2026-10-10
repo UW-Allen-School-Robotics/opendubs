@@ -79,6 +79,20 @@ planner, or a test. **Name the tool frame once:**
   solver through the adapter.
 - Treat the URDFs' `hand_tcp` as model-specific, never as a shared name.
 
+## The choreography twin's copy
+
+The Choreography lane's twin vendors its own copy of the MuJoCo model,
+`description/openarm/mjcf/openarm_bimanual_decorated.xml`, from `openarm_assets` at `71d81a8`, the
+head, not the robot's `31eebb9`. The same check, run on that exact file on 2026-10-10:
+- **Arm chain:** rigidly identical to the V1 URDF on both arms (0.0000 mm, 0.0000° over 500
+  configurations).
+- **`ee_site`:** at the same (0, −4.5, 180.1) mm from the flange.
+
+So the head and `31eebb9` agree on the arm chain and the tool site. The twin's `point_at` and `reach`
+solve at `ee_site` and compile to joint angles, bounded by the robot's `joint_limits.yaml` rather than
+the model's widened J4. They don't go through the live solver. What `71d81a8` changes — the finger
+actuators and the collision geometry — was not compared.
+
 ## Not checked
 
 - Masses and inertias: the impedance controller's gravity compensation.
