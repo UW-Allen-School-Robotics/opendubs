@@ -37,6 +37,15 @@ head clearance — and the runner plays them. So:
 flange, or 186 mm out); a pose for one of those would be off by up to ~18 cm, so nothing here uses
 them. Anything that ever targets the LIVE arm solver goes through the Arms lane's SSIK adapter instead.
 
+**The twin's arm model is the robot's, checked.** The twin loads openarm_assets at 71d81a8; the robot
+pins 31eebb9. The Arms lane verified (2026-10-10, method `arm-kinematic-models.md`) that 71d81a8's arm
+chain and `ee_site` are rigidly identical to the V1 URDF and to 31eebb9's model — over 500 random
+configurations the tool site agrees to 0.0000 mm and 0.0000° — with `ee_site` at (0, -4.5, 180.1) mm
+in the flange frame. The one joint difference, J4's lower limit (-2.9° in the MJCF, 0° on the robot),
+never reaches a solve: the solver's bounds come from the robot's `joint_limits.yaml`. NOT checked: the
+finger and collision geometry, which 71d81a8 changes — so the collision check below uses the head's
+finger geometry, not necessarily the robot's.
+
 ## Safe by construction
 
 * A reach to a named part of the robot (`head_screen`, `head`, `lift_platform`) stops **12 cm in
