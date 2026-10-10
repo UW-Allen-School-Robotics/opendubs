@@ -39,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import arm_output  # noqa: E402
+import grippers  # noqa: E402
 import cue  # noqa: E402
 import face_bridge  # noqa: E402
 
@@ -259,13 +260,33 @@ USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRI
              ("LIFT", "lift"), ("DANCE", "base"))
 
 
+def _grips_calibrated() -> bool:
+    """Whether this robot has a gripper calibration the runner can use (grippers.py)."""
+    try:
+        return bool(grippers.load())
+    except grippers.CalibrationError:
+        return False
+
+
+def _grip_target(c: dict, current=None):
+    """A GRIP cue's target as 0..1 (0 closed, 1 open): `do: open` 1, `do: close` 0, or `open:`."""
+    if c.get("do") == "open":
+        return 1.0
+    if c.get("do") == "close":
+        return 0.0
+    if c.get("open") is not None:
+        return min(1.0, max(0.0, float(c["open"])))
+    return current
+
+
 def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
-                 earcons: bool = True) -> list:
+                 earcons: bool = True, grips_live: bool = False) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
     twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
     tablet (4.2), the face and the head's earcons (when the runner has the face), and the head's
-    pan/tilt (when the runner has the gaze AND the head answers GAZE); grippers wait for calibration
+    pan/tilt (when the runner has the gaze AND the head answers GAZE), the grippers (when this robot
+    has a gripper calibration, grippers.py — and with it, so does the runner); before that, calibration
     (6.2), and the light, lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
@@ -287,6 +308,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
             live = face_live
         elif part == "head":
             live = gaze_live
+        elif part == "grippers":
+            live = grips_live
         else:
             live = False
         out.append({"part": part, "live": live})
@@ -330,7 +353,7 @@ class TwinFeed:
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
-                 arms=None, live=False):
+                 arms=None, live=False, grips=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # LIVE: the real arms follow this run. Only with an arm output AND the operator's LIVE mark.
         self.arms = arms
@@ -343,6 +366,13 @@ class Runner:
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
         self._arms_moving = False
+        # The grippers (plan item 3): this robot's calibration (grippers.py), read at the run's start;
+        # None sends no gripper cues. A close that STALLED (its goal aborted: something is in there)
+        # is never re-sent on that side for the rest of the run.
+        self.grips = grips if self.live else None
+        self._grip_last = {}                      # slot -> 0..1 last sent
+        self._grip_stalled = set()
+        self._grip_closes = {}                    # slot -> ids of the close goals sent this run
         self.sent: list = []                      # (show time, slot, cue) as dispatched
         self.stop_requested = False
 
@@ -369,6 +399,38 @@ class Runner:
         self.audio_live = False
         self._log("audio_warning", note=why)
 
+    def _grip(self, slot, c, t):
+        """Send one gripper cue: the show's 0..1 through this robot's calibration. `close` is exactly
+        the calibrated closed position, never past it (grippers.py). A side whose last close STALLED
+        is not closed again this run — the stall is the "something is in there" signal."""
+        side = arm_output.GRIP_SIDES[slot]
+        if any(self.arms.goal_status.get(g) == 6 for g in self._grip_closes.get(slot, ())):
+            # Judged on each CLOSE goal's own result, so a late stall still counts after an open.
+            if slot not in self._grip_stalled:
+                self._log("live", note=f"the {side} gripper's close STALLED — something is in it; "
+                                       "it will not be closed again this run", slot=slot)
+            self._grip_stalled.add(slot)
+        frac = _grip_target(c, self._grip_last.get(slot))
+        if frac is None:
+            return
+        if frac == 0.0 and slot in self._grip_stalled:
+            self._log("live", note=f"{side} gripper close NOT sent: it stalled earlier this run", slot=slot,
+                      show_t=round(t, 3))
+            return
+        metres = grippers.to_controller(self.grips, side, frac)
+        try:
+            gid = self.arms.send_grip(slot, metres)
+            self._grip_last[slot] = frac
+            if frac == 0.0:
+                self._grip_closes.setdefault(slot, []).append(gid)
+            self._arms_moving = True
+            self._log("grip", slot=slot, open=round(frac, 3), metres=round(metres, 5), show_t=round(t, 3))
+        except Exception as e:  # noqa: BLE001  a gripper is never a reason to stop the show
+            # Once, then no more grips this run: a retry per cue would only repeat the failure.
+            self.grips = None
+            self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e} — no more gripper cues "
+                                          "are sent this run")
+
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
         if self.live and status != COMPLETED and self._arms_moving:
@@ -376,7 +438,7 @@ class Runner:
             # has already cut their power; cancelling costs nothing.
             try:
                 self.arms.cancel_all()
-                self._log("live", note="arm goals cancelled — the arms hold where they are")
+                self._log("live", note="arm and gripper goals cancelled — they hold where they are")
             except Exception as e:  # noqa: BLE001
                 self._log("live_error", error=f"cancel: {type(e).__name__}: {e}")
         if self.audio_live:
@@ -494,7 +556,18 @@ class Runner:
                     self.arms.send(slot, arm_output.track_points(kfs))
                     self._arms_moving = True
             if any(tl.get("tracks", {}).get(g) for g in ("GRIP_L", "GRIP_R")):
-                self._log("live", note="gripper cues are NOT sent: grippers are uncalibrated (plan 6.2)")
+                if self.grips is None:
+                    self._log("live", note="gripper cues are NOT sent: this robot has no gripper calibration "
+                                           f"({grippers.default_path()}; plan 6.2)")
+                elif not hasattr(self.arms, "send_grip"):
+                    self._log("live", note="gripper cues are NOT sent: this runner's arm output has no grippers")
+                    self.grips = None
+                elif (missing := self.arms.grips_ready()):
+                    self._log("live", note="gripper cues are NOT sent: no gripper controller for "
+                                           f"{' and '.join(missing)} (is that arm active?)")
+                    self.grips = None
+                else:
+                    self._log("live", note="LIVE: the grippers follow this routine (calibrated per side)")
         events = sorted(((e["t"], slot, e["cue"]) for slot, evs in tl["tracks"].items() for e in evs),
                         key=lambda x: x[0])
         i = 0
@@ -505,6 +578,8 @@ class Runner:
             while i < len(events) and events[i][0] <= t:
                 self.sent.append(events[i])
                 self._log("cue", show_t=round(events[i][0], 3), slot=events[i][1], cue=events[i][2])
+                if self.grips is not None and events[i][1] in arm_output.GRIP_SIDES:
+                    self._grip(events[i][1], events[i][2], events[i][0])
                 i += 1
             self.feed.playhead(t, True, RUNNING)
             if t >= tl["duration_s"] and i >= len(events):
@@ -567,7 +642,8 @@ class Palette:
                                              face_live=self.face is not None and self.arms is not None,
                                              gaze_live=(self.gaze is not None and self.arms is not None
                                                         and self.gaze.supported is True),
-                                             earcons=self.face is None or self.face.earcons)})
+                                             earcons=self.face is None or self.face.earcons,
+                                             grips_live=self.arms is not None and _grips_calibrated())})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -595,9 +671,17 @@ class Palette:
             # The head follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
             sinks = [x for x in (self.face, self.gaze) if x is not None] if live else []
             feed = face_bridge.HeadTee(self.feed, *sinks) if sinks else self.feed
+            grips = None
+            if live:
+                try:
+                    grips = grippers.load()       # read each run, so a new calibration needs no restart
+                except grippers.CalibrationError as e:
+                    if os.path.isfile(grippers.default_path()) and self.log:   # there, but malformed: say so
+                        self.log.write(json.dumps({"wall": round(time.time(), 3), "kind": "live_error",
+                                                   "error": f"gripper calibration: {e}"}) + "\n")
             runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=live)
+                            audio=self.audio, arms=self.arms, live=live, grips=grips)
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)

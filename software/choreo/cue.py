@@ -622,6 +622,7 @@ class Show:
         notices: list[str] = []
         P = problems.append
         self._unchecked_skins, self._skin_assets, self._lib = set(), {}, False
+        self._grip_effort = False
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:
@@ -819,6 +820,10 @@ class Show:
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
                       + " — the runner's preflight is built from the declaration"))
+        if self._grip_effort:
+            notices.append("gripper `effort` has no physical effect on this robot: its grippers take a "
+                           "position only, and how hard they squeeze is set by the calibrated closed "
+                           "position (Arms lane, 2026-10-10)")
         if self._unchecked_skins:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
@@ -1021,6 +1026,8 @@ class Show:
         if frac is not None and not (_num(frac) and 0.0 <= float(frac) <= 1.0):
             p.append(f"{where}: {slot} open {frac!r} must be within 0..1 (0 closed, 1 open)")
         eff = c.get("effort")
+        if eff is not None:
+            self._grip_effort = True
         if eff is not None and not (_num(eff) and 0 < float(eff) <= GRIP_EFFORT_MAX):
             p.append(f"{where}: {slot} effort {eff} outside (0, {GRIP_EFFORT_MAX}]")
         return p
