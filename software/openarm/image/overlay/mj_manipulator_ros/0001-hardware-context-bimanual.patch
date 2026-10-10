@@ -1,0 +1,1182 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    the real-hardware context, the bimanual refactor, and the gripper fix.
+Source:  the teleop author's fork, https://github.com/EricJGoossen/mj_manipulator_ros, 8b96a8b1219a..6104a7c07d50
+         (the fork's net change over the upstream commit repos.lock pins; code only --
+         .gitignore, .vscode and .github are left out).
+Author:  the teleop's author. MIT, as the upstream repository.
+Status:  to be offered upstream as a PR credited to its author, once they consent
+         (arms plan DEC-27). Delete this file when upstream has it.
+Check:   base + this patch == the fork's tree, file for file.
+
+diff --git a/src/mj_manipulator_ros/config.py b/src/mj_manipulator_ros/config.py
+index 84d7875..821a8cb 100644
+--- a/src/mj_manipulator_ros/config.py
++++ b/src/mj_manipulator_ros/config.py
+@@ -6,6 +6,7 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass, field
++from typing import Literal
+ 
+ 
+ @dataclass
+@@ -17,6 +18,27 @@ class ArmHardwareConfig:
+     has_gripper: bool = True
+     gripper_open: float = 0.0
+     gripper_closed: float = 0.255  # Robotiq 2F-140 max travel (meters)
++    # ros2_control controller that owns this arm's FollowJointTrajectory
++    # action server. Defaults to the "{name}_controller" convention
++    joint_trajectory_controller: str | None = None
++    # Action interface the gripper controller actually serves. Grippers
++    # driven by a dedicated gripper_action_controller (e.g. a Robotiq
++    # gripper) use "gripper_command" (control_msgs/GripperCommand); grippers
++    # driven by a plain joint_trajectory_controller (e.g. OpenArm's
++    # parallel-jaw gripper) use "follow_joint_trajectory" instead, which
++    # requires gripper_joint_name to be set.
++    gripper_interface: Literal["gripper_command", "follow_joint_trajectory"] = "gripper_command"
++    # Required when gripper_interface == "follow_joint_trajectory" -- the
++    # single joint name the gripper controller's trajectory goal targets.
++    gripper_joint_name: str | None = None
++
++    def __post_init__(self) -> None:
++        if self.joint_trajectory_controller is None:
++            self.joint_trajectory_controller = f"{self.name}_controller"
++        if self.gripper_interface == "follow_joint_trajectory" and self.gripper_joint_name is None:
++            raise ValueError(
++                "gripper_joint_name is required when gripper_interface == 'follow_joint_trajectory'"
++            )
+ 
+ 
+ @dataclass
+diff --git a/src/mj_manipulator_ros/hardware_arm_controller.py b/src/mj_manipulator_ros/hardware_arm_controller.py
+index 558864a..eb0dca7 100644
+--- a/src/mj_manipulator_ros/hardware_arm_controller.py
++++ b/src/mj_manipulator_ros/hardware_arm_controller.py
+@@ -29,8 +29,9 @@ def __init__(
+     ):
+         self._config = config
+         self._gripper = gripper_client
++        self._last_width: float | None = None
+ 
+-    def grasp(self, object_name: str) -> str | None:
++    def grasp(self, object_name: str, synchronous: bool = True) -> str | None:
+         """Close gripper to grasp an object.
+ 
+         Sends a GripperCommand to close position. On real hardware,
+@@ -50,6 +51,7 @@ def grasp(self, object_name: str) -> str | None:
+         ok = self._gripper.send_command(
+             position=self._config.gripper_closed,
+             max_effort=50.0,
++            synchronous=synchronous
+         )
+ 
+         if ok:
+@@ -59,7 +61,7 @@ def grasp(self, object_name: str) -> str | None:
+         logger.warning("Grasp failed for %s", object_name)
+         return None
+ 
+-    def release(self, object_name: str | None = None) -> None:
++    def release(self, object_name: str | None = None, synchronous: bool = True) -> None:
+         """Open gripper to release held object(s).
+ 
+         Args:
+@@ -72,4 +74,47 @@ def release(self, object_name: str | None = None) -> None:
+         self._gripper.send_command(
+             position=self._config.gripper_open,
+             max_effort=50.0,
++            synchronous=synchronous,
+         )
++
++    def set_width(self, width: float, synchronous: bool = True) -> bool:
++        """Set gripper width as a fraction open (0.0=closed, 1.0=open).
++
++        Sends a GripperCommand to the real gripper, mapping the [0, 1]
++        fraction onto this arm's [gripper_open, gripper_closed] raw travel
++        range. When synchronous=True (the default), blocks until the
++        action server reports the motion complete -- i.e. until the
++        physical gripper has actually finished moving, not just until the
++        command was accepted.
++
++        Args:
++            width: Desired width, clamped to [0.0, 1.0].
++            synchronous: If True, block until the gripper finishes moving.
++                If False, send the command and return immediately.
++        """
++        if self._gripper is None:
++            logger.warning("No gripper configured for arm %s", self._config.name)
++            return False
++
++        width = max(0.0, min(1.0, width))
++        open_pos = self._config.gripper_open
++        closed_pos = self._config.gripper_closed
++        position = open_pos + (1.0 - width) * (closed_pos - open_pos)
++
++        ok = self._gripper.send_command(
++            position=position,
++            max_effort=50.0,
++            synchronous=synchronous,
++        )
++        if ok:
++            self._last_width = width
++        return ok
++
++    def get_width(self) -> float:
++        """Last commanded gripper width as a fraction open.
++
++        Real hardware has no position feedback wired here yet -- this
++        reflects the last width successfully sent via set_width, defaulting
++        to 1.0 (open) before any command has been sent.
++        """
++        return self._last_width if self._last_width is not None else 1.0
+diff --git a/src/mj_manipulator_ros/hardware_context.py b/src/mj_manipulator_ros/hardware_context.py
+index d3460dc..809ae72 100644
+--- a/src/mj_manipulator_ros/hardware_context.py
++++ b/src/mj_manipulator_ros/hardware_context.py
+@@ -27,12 +27,15 @@
+ import threading
+ import time
+ from typing import TYPE_CHECKING
++from collections.abc import Callable
+ 
+ import numpy as np
+ import rclpy
+ import rclpy.executors
++import rclpy.duration
+ from std_msgs.msg import Bool
+ from trajectory_msgs.msg import JointTrajectoryPoint
++from control_msgs.action import FollowJointTrajectory
+ 
+ from mj_manipulator_ros.config import HardwareConfig
+ from mj_manipulator_ros.hardware_arm_controller import HardwareArmController
+@@ -41,12 +44,12 @@
+     joint_commands_topic,
+ )
+ from mj_manipulator_ros.ros_arm_client import ArmTrajectoryClient
+-from mj_manipulator_ros.ros_gripper_client import GripperClient
++from mj_manipulator_ros.ros_gripper_client import GripperClient, TrajectoryGripperClient
+ from mj_manipulator_ros.ros_state_listener import JointStateListener
+ from mj_manipulator_ros.trajectory_convert import trajectory_to_msg
+ 
+ if TYPE_CHECKING:
+-    from mj_manipulator.planning import PlanResult
++    from mj_manipulator.planning import PlanResult, PlanGroupResult
+     from mj_manipulator.trajectory import Trajectory
+ 
+ logger = logging.getLogger(__name__)
+@@ -70,6 +73,7 @@ def __init__(
+ 
+         # Initialized in __enter__
+         self._node = None
++        self._executor = None
+         self._spin_thread = None
+         self._state_listener = None
+         self._arm_clients: dict[str, ArmTrajectoryClient] = {}
+@@ -85,6 +89,15 @@ def __enter__(self) -> HardwareContext:
+             rclpy.init()
+ 
+         self._node = rclpy.create_node(self._node_name)
++        # TODO(review): dedicated executor, not the implicit global one --
++        # see _spin_loop() below for why. Confirmed to matter: Stage 6
++        # hw_validation's phase_concurrent_independent runs two
++        # HardwareContext instances' spin threads concurrently (one per
++        # arm) and hit "RuntimeError: Executor is already spinning" +
++        # a real "Timed out waiting for /joint_states" on the other arm
++        # when both shared the global executor.
++        self._executor = rclpy.executors.SingleThreadedExecutor()
++        self._executor.add_node(self._node)
+ 
+         # Joint state listener
+         self._state_listener = JointStateListener(self._node)
+@@ -102,13 +115,15 @@ def __enter__(self) -> HardwareContext:
+             name = arm_config.name
+ 
+             # Trajectory action client
+-            traj_client = ArmTrajectoryClient(self._node, name)
+-            self._arm_clients[name] = traj_client
++            self._arm_clients[name] = ArmTrajectoryClient(self._node, arm_config)
+ 
+             # Gripper action client
+             gripper_client = None
+             if arm_config.has_gripper:
+-                gripper_client = GripperClient(self._node, name)
++                if arm_config.gripper_interface == "follow_joint_trajectory":
++                    gripper_client = TrajectoryGripperClient(self._node, name, arm_config.gripper_joint_name)
++                else:
++                    gripper_client = GripperClient(self._node, name)
+                 self._gripper_clients[name] = gripper_client
+ 
+             # Arm controller
+@@ -157,6 +172,9 @@ def __exit__(self, exc_type, exc_val, exc_tb):
+         self._running = False
+         if self._spin_thread is not None:
+             self._spin_thread.join(timeout=2.0)
++        if self._executor is not None:
++            self._executor.shutdown()
++            self._executor = None
+         if self._node is not None:
+             self._node.destroy_node()
+             self._node = None
+@@ -164,32 +182,42 @@ def __exit__(self, exc_type, exc_val, exc_tb):
+ 
+     # -- ExecutionContext protocol -------------------------------------------
+ 
+-    def execute(self, item: Trajectory | PlanResult) -> bool:
+-        """Execute a trajectory or plan result via FollowJointTrajectory."""
+-        from mj_manipulator.planning import PlanResult
++    def execute(
++        self,
++        item: Trajectory | PlanResult | PlanGroupResult,
++        *,
++        abort_fn: Callable[[], bool] | None = None,
++    ) -> bool:
++        """Execute a trajectory or plan result via ROS 2."""
++        from mj_manipulator.planning import PlanGroupResult, PlanResult
+         from mj_manipulator.trajectory import Trajectory
+ 
+-        if isinstance(item, PlanResult):
+-            for traj in item.trajectories:
+-                if not self._execute_trajectory(traj):
+-                    return False
+-            return True
++        if isinstance(item, PlanGroupResult):
++            trajectories = [r.arm_trajectory for r in item.arm_results.values()]
++        elif isinstance(item, PlanResult):
++            trajectories = item.trajectories
+         elif isinstance(item, Trajectory):
+-            return self._execute_trajectory(item)
++            trajectories = [item]
+         else:
+             raise TypeError(f"Cannot execute {type(item)}")
+ 
++        return self._execute_trajectories(trajectories, abort_fn=abort_fn)
++
++
++
+     def step(self, targets: dict[str, np.ndarray] | None = None) -> None:
+         """Publish streaming joint commands for one control cycle."""
+-        if targets:
+-            for name, q in targets.items():
+-                pub = self._streaming_pubs.get(name)
+-                if pub is not None:
+-                    point = JointTrajectoryPoint()
+-                    point.positions = q.tolist()
+-                    pub.publish(point)
++        if not targets:
++            return
++
++        for name, q in targets.items():
++            pub = self._streaming_pubs.get(name)
++            if pub is None:
++                raise ValueError(f"No streaming publisher for arm: {name}")
+ 
+-        time.sleep(self._config.control_dt)
++            point = JointTrajectoryPoint()
++            point.positions = np.asarray(q).tolist()
++            pub.publish(point)
+ 
+     def step_cartesian(
+         self,
+@@ -199,6 +227,8 @@ def step_cartesian(
+     ) -> None:
+         """Publish streaming cartesian-resolved joint command."""
+         pub = self._streaming_pubs.get(arm_name)
++        if pub is None:
++            raise ValueError(f"No streaming publisher for arm: {arm_name}")
+         if pub is not None:
+             point = JointTrajectoryPoint()
+             point.positions = np.asarray(position).tolist()
+@@ -206,8 +236,6 @@ def step_cartesian(
+                 point.velocities = np.asarray(velocity).tolist()
+             pub.publish(point)
+ 
+-        time.sleep(self._config.control_dt)
+-
+     def sync(self) -> None:
+         """Read latest joint states (no-op — listener updates continuously)."""
+         pass
+@@ -237,28 +265,151 @@ def get_joint_positions(self, joint_names: list[str]) -> np.ndarray | None:
+ 
+     # -- Internal -----------------------------------------------------------
+ 
+-    def _execute_trajectory(self, traj: Trajectory) -> bool:
+-        """Send a single trajectory to the appropriate arm controller."""
++    def _execute_trajectories(
++        self,
++        trajectories: list[Trajectory],
++        *,
++        abort_fn: Callable[[], bool] | None = None,
++    ) -> bool:
++        """Execute one or more arm trajectories, synchronized to a shared
++        start time, with cancel-on-sibling-failure and abort_fn support.
++
++        A single trajectory takes the same path minus the threading/shared-
++        stamp overhead -- there's no sibling to synchronize against, but the
++        correctness-relevant logic (abort_fn, cancellation) is identical.
++        """
++        if not trajectories:
++            return True
++
++        if abort_fn is not None and abort_fn():
++            return False
++
++        if len(trajectories) == 1:
++            return self._execute_single(trajectories[0], abort_fn=abort_fn)
++
++        first_timestamps = trajectories[0].timestamps
++        for i, traj in enumerate(trajectories[1:], start=1):
++            if not np.allclose(traj.timestamps, first_timestamps):
++                raise ValueError(
++                    f"Trajectory {i} timestamps do not match trajectory 0: "
++                    f"{traj.timestamps} vs {first_timestamps}"
++                )
++
++        # ONE stamp, computed once, shared by every arm.
++        buffer_sec = getattr(self._config, "sync_start_buffer_sec", 0.15)
++        start_stamp = (
++            self._node.get_clock().now() + rclpy.duration.Duration(seconds=buffer_sec)
++        ).to_msg()
++
++        results: list[bool] = [False] * len(trajectories)
++        errors: list[Exception] = []
++        cancel_event = threading.Event()
++
++        def run(index: int, traj: Trajectory) -> None:
++            try:
++                results[index] = self._execute_single(
++                    traj, start_stamp=start_stamp, abort_fn=abort_fn, cancel_event=cancel_event,
++                )
++            except Exception as exc:
++                errors.append(exc)
++            finally:
++                if not results[index]:
++                    cancel_event.set()  # tell every sibling thread to cancel
++
++        threads = [
++            threading.Thread(target=run, args=(i, t), daemon=True)
++            for i, t in enumerate(trajectories)
++        ]
++        for t in threads:
++            t.start()
++        for t in threads:
++            t.join()
++
++        if errors:
++            raise errors[0]
++        return all(results)
++
++    def _execute_single(
++        self,
++        traj: Trajectory,
++        *,
++        start_stamp=None,
++        abort_fn: Callable[[], bool] | None = None,
++        cancel_event: threading.Event | None = None,
++    ) -> bool:
++        """Send one trajectory and wait for it, honoring abort_fn and a
++        shared cancel_event set by a sibling arm's failure."""
+         entity = traj.entity
+         if entity is None:
+             raise ValueError("Trajectory has no entity set")
+ 
+-        # Map entity to arm name (e.g. "left_arm" -> "left", "left" -> "left")
+-        arm_name = entity.replace("_arm", "")
+-        client = self._arm_clients.get(arm_name)
+-        if client is None:
+-            # Try exact entity name
+-            client = self._arm_clients.get(entity)
++        if cancel_event is not None and cancel_event.is_set():
++            logger.info("Skipping %s: sibling already failed before send", entity)
++            return False
++
++        client = self._arm_clients.get(entity)
+         if client is None:
+             raise ValueError(f"No trajectory client for entity: {entity}")
+ 
+-        msg = trajectory_to_msg(traj)
+-        return client.send_trajectory(msg, timeout_sec=self._config.action_timeout)
++        msg = trajectory_to_msg(traj, start_stamp=start_stamp)
++        goal_handle = client.send_goal(msg)
++        if goal_handle is None:
++            return False
++
++        result_future = goal_handle.get_result_async()
++        poll_interval = 0.02
++        deadline = time.monotonic() + self._config.action_timeout
++
++        while not result_future.done():
++            if cancel_event is not None and cancel_event.is_set():
++                goal_handle.cancel_goal_async()
++                logger.info("Cancelling %s: sibling arm failed or aborted", entity)
++                return False
++            if abort_fn is not None and abort_fn():
++                goal_handle.cancel_goal_async()
++                logger.info("Cancelling %s: abort_fn triggered", entity)
++                if cancel_event is not None:
++                    cancel_event.set()
++                return False
++            if time.monotonic() > deadline:
++                goal_handle.cancel_goal_async()
++                logger.warning("Trajectory execution timed out on %s", entity)
++                if cancel_event is not None:
++                    cancel_event.set()
++                return False
++            time.sleep(poll_interval)
++
++        result = result_future.result()
++        if result is None:
++            logger.warning("Trajectory execution timed out on %s", entity)
++            return False
++
++        error_code = result.result.error_code
++        if error_code != FollowJointTrajectory.Result.SUCCESSFUL:
++            logger.warning("Trajectory execution failed on %s: error_code=%d", entity, error_code)
++            return False
++
++        return True
+ 
+     def _status_callback(self, msg: Bool) -> None:
+         self._robot_status = msg.data
+ 
+     def _spin_loop(self) -> None:
+-        """Background thread: spin the ROS 2 node for callbacks."""
++        """Background thread: spin the ROS 2 node for callbacks.
++
++        TODO(review): calls self._executor.spin_once() directly rather than
++        the rclpy.spin_once(node) free function -- that free function
++        defaults to a single GLOBAL executor shared by the whole process
++        when no `executor=` is passed (see rclpy/__init__.py's spin_once:
++        `executor = get_global_executor() if executor is None else executor`),
++        and rclpy's own docstring warns it "should not be called from
++        multiple threads with the same node or executor argument". Every
++        other stage only ever has one HardwareContext active at a time, so
++        this never surfaced -- CONFIRMED to break (RuntimeError: Executor is
++        already spinning, plus a real /joint_states timeout on the other
++        arm) once two HardwareContext instances' spin loops run
++        concurrently, which only happens in Stage 6 hw_validation's
++        phase_concurrent_independent (two arms dispatched on two threads).
++        """
+         while self._running and rclpy.ok():
+-            rclpy.spin_once(self._node, timeout_sec=0.01)
++            self._executor.spin_once(timeout_sec=0.01)
+diff --git a/src/mj_manipulator_ros/interfaces.py b/src/mj_manipulator_ros/interfaces.py
+index 223b4c0..6fdace8 100644
+--- a/src/mj_manipulator_ros/interfaces.py
++++ b/src/mj_manipulator_ros/interfaces.py
+@@ -1,16 +1,33 @@
+ # SPDX-License-Identifier: MIT
+ # Copyright (c) 2025 Siddhartha Srinivasa
+ 
++import threading
++
+ """ROS 2 interface names and conventions.
+ 
+ All interfaces use standard ROS 2 message types — no custom messages.
+ Topic and action names are parameterized by arm name for multi-arm support.
+ """
+ 
++def wait_for_future(future, timeout_sec: float):
++    """Block until 'future' completes, without spinning ourselfs"""
++    event = threading.Event()
++    future.add_done_callback(lambda _: event.set())
++
++    if not event.wait(timeout_sec):
++        raise TimeoutError(f"Timed out after {timeout_sec}s waiting for future")
++    
++    return future.result()
++
+ 
+ def follow_joint_trajectory_action(arm_name: str) -> str:
+     """FollowJointTrajectory action server name for an arm."""
+-    return f"/{arm_name}_controller/follow_joint_trajectory"
++    return follow_joint_trajectory_action_for_controller(f"{arm_name}_controller")
++
++
++def follow_joint_trajectory_action_for_controller(controller_name: str) -> str:
++    """FollowJointTrajectory action server name for a given controller."""
++    return f"/{controller_name}/follow_joint_trajectory"
+ 
+ 
+ def gripper_command_action(arm_name: str) -> str:
+diff --git a/src/mj_manipulator_ros/ros_arm_client.py b/src/mj_manipulator_ros/ros_arm_client.py
+index 314b218..0329929 100644
+--- a/src/mj_manipulator_ros/ros_arm_client.py
++++ b/src/mj_manipulator_ros/ros_arm_client.py
+@@ -16,7 +16,8 @@
+ from rclpy.action import ActionClient
+ from trajectory_msgs.msg import JointTrajectory
+ 
+-from mj_manipulator_ros.interfaces import follow_joint_trajectory_action
++from mj_manipulator_ros.config import ArmHardwareConfig
++from mj_manipulator_ros.interfaces import follow_joint_trajectory_action_for_controller, wait_for_future
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -24,10 +25,10 @@
+ class ArmTrajectoryClient:
+     """Action client for sending trajectories to an arm controller."""
+ 
+-    def __init__(self, node: rclpy.node.Node, arm_name: str):
++    def __init__(self, node: rclpy.node.Node, arm_config: ArmHardwareConfig):
+         self._node = node
+-        self._arm_name = arm_name
+-        self._action_name = follow_joint_trajectory_action(arm_name)
++        self._arm_name = arm_config.name
++        self._action_name = follow_joint_trajectory_action_for_controller(arm_config.joint_trajectory_controller)
+ 
+         self._client = ActionClient(
+             node,
+@@ -44,41 +45,26 @@ def send_trajectory(
+         trajectory_msg: JointTrajectory,
+         timeout_sec: float = 30.0,
+     ) -> bool:
+-        """Send a trajectory and wait for completion.
++        """Send a trajectory and block until it completes.
+ 
+-        Args:
+-            trajectory_msg: JointTrajectory to execute.
+-            timeout_sec: Maximum time to wait for completion.
+-
+-        Returns:
+-            True if trajectory executed successfully.
++        For single-arm callers with no cancellation needs. Synchronized
++        multi-arm execution uses send_goal() directly instead --
++        see HardwareContext._execute_single.
+         """
+-        goal = FollowJointTrajectory.Goal()
+-        goal.trajectory = trajectory_msg
+-
+         logger.info(
+             "Sending trajectory to %s (%d points, %.2fs)",
+             self._action_name,
+             len(trajectory_msg.points),
+             trajectory_msg.points[-1].time_from_start.sec + trajectory_msg.points[-1].time_from_start.nanosec * 1e-9
+-            if trajectory_msg.points
+-            else 0.0,
++            if trajectory_msg.points else 0.0,
+         )
+ 
+-        future = self._client.send_goal_async(goal)
+-        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
+-
+-        goal_handle = future.result()
+-        if goal_handle is None or not goal_handle.accepted:
+-            logger.warning("Trajectory goal rejected by %s", self._action_name)
++        goal_handle = self.send_goal(trajectory_msg, timeout_sec=5.0)
++        if goal_handle is None:
+             return False
+ 
+         result_future = goal_handle.get_result_async()
+-        rclpy.spin_until_future_complete(
+-            self._node,
+-            result_future,
+-            timeout_sec=timeout_sec,
+-        )
++        wait_for_future(result_future, timeout_sec=timeout_sec)
+ 
+         result = result_future.result()
+         if result is None:
+@@ -95,3 +81,24 @@ def send_trajectory(
+             return False
+ 
+         return True
++
++    def send_goal(self, trajectory_msg: JointTrajectory, timeout_sec: float = 5.0):
++        """Send a trajectory and return its accepted goal handle without
++        waiting for execution to finish.
++
++        Returns None if the server rejects the goal or acceptance itself
++        times out. The caller owns waiting on goal_handle.get_result_async()
++        and may call goal_handle.cancel_goal_async() to abort mid-execution.
++        """
++        goal = FollowJointTrajectory.Goal()
++        goal.trajectory = trajectory_msg
++
++        future = self._client.send_goal_async(goal)
++        wait_for_future(future, timeout_sec=timeout_sec)
++
++        goal_handle = future.result()
++        if goal_handle is None or not goal_handle.accepted:
++            logger.warning("Trajectory goal rejected by %s", self._action_name)
++            return None
++
++        return goal_handle
+diff --git a/src/mj_manipulator_ros/ros_gripper_client.py b/src/mj_manipulator_ros/ros_gripper_client.py
+index f9b45b7..992808e 100644
+--- a/src/mj_manipulator_ros/ros_gripper_client.py
++++ b/src/mj_manipulator_ros/ros_gripper_client.py
+@@ -11,10 +11,16 @@
+ import logging
+ 
+ import rclpy.node
+-from control_msgs.action import GripperCommand
++from builtin_interfaces.msg import Duration
++from control_msgs.action import FollowJointTrajectory, GripperCommand
+ from rclpy.action import ActionClient
++from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+ 
+-from mj_manipulator_ros.interfaces import gripper_command_action
++from mj_manipulator_ros.interfaces import (
++    follow_joint_trajectory_action_for_controller,
++    gripper_command_action,
++    wait_for_future,
++)
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -42,6 +48,7 @@ def send_command(
+         position: float,
+         max_effort: float = 50.0,
+         timeout_sec: float = 10.0,
++        synchronous: bool = True,
+     ) -> bool:
+         """Send a gripper command and wait for completion.
+ 
+@@ -58,7 +65,7 @@ def send_command(
+         goal.command.max_effort = max_effort
+ 
+         future = self._client.send_goal_async(goal)
+-        rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
++        wait_for_future(future, timeout_sec=5.0)
+ 
+         goal_handle = future.result()
+         if goal_handle is None or not goal_handle.accepted:
+@@ -66,15 +73,113 @@ def send_command(
+             return False
+ 
+         result_future = goal_handle.get_result_async()
+-        rclpy.spin_until_future_complete(
+-            self._node,
+-            result_future,
+-            timeout_sec=timeout_sec,
++    
++        if not synchronous:
++            result_future.add_done_callback(
++                lambda f: logger.info(
++                    "Gripper command on %s finished (async): %s",
++                    self._action_name, "ok" if f.result() is not None else "failed/timed out"))
++            return True
++
++        wait_for_future(result_future, timeout_sec=timeout_sec)
++        if result_future.result() is None:
++            logger.warning("Gripper command timed out on %s", self._action_name)
++            return False
++
++        return True
++
++
++class TrajectoryGripperClient:
++    """FollowJointTrajectory-based gripper client.
++
++    For a gripper driven by a plain joint_trajectory_controller (single
++    joint) rather than a dedicated GripperCommand action server -- e.g.
++    OpenArm's parallel-jaw gripper, as opposed to the Robotiq gripper
++    GripperClient above was built for. Implements the same
++    wait_for_server()/send_command() interface so HardwareContext can use
++    either client interchangeably based on ArmHardwareConfig.gripper_interface.
++    """
++
++    def __init__(self, node: rclpy.node.Node, arm_name: str, joint_name: str):
++        self._node = node
++        self._arm_name = arm_name
++        self._joint_name = joint_name
++        self._action_name = follow_joint_trajectory_action_for_controller(f"{arm_name}_gripper_controller")
++
++        self._client = ActionClient(
++            node,
++            FollowJointTrajectory,
++            self._action_name,
+         )
+ 
++    def wait_for_server(self, timeout_sec: float = 5.0) -> bool:
++        """Wait for the action server to become available."""
++        return self._client.wait_for_server(timeout_sec)
++
++    def send_command(
++        self,
++        position: float,
++        max_effort: float = 50.0,
++        timeout_sec: float = 10.0,
++        synchronous: bool = True,
++        move_duration_s: float = 1.0,
++    ) -> bool:
++        """Send a single-point trajectory moving the gripper joint to `position`.
++
++        Args:
++            position: Target gripper joint position.
++            max_effort: Accepted for interface parity with GripperClient but
++                unused -- FollowJointTrajectory has no effort field. Stall/
++                effort handling belongs to the controller's own parameters
++                (see allow_stalling in the controller config).
++            timeout_sec: Maximum time to wait for the move to complete.
++            move_duration_s: Nominal duration commanded for the single
++                trajectory point.
++
++        Returns:
++            True if the move completed successfully.
++        """
++        secs = int(move_duration_s)
++        nsecs = int((move_duration_s - secs) * 1e9)
++        point = JointTrajectoryPoint()
++        point.positions = [position]
++        point.time_from_start = Duration(sec=secs, nanosec=nsecs)
++
++        trajectory = JointTrajectory()
++        trajectory.joint_names = [self._joint_name]
++        trajectory.points = [point]
++
++        goal = FollowJointTrajectory.Goal()
++        goal.trajectory = trajectory
++
++        future = self._client.send_goal_async(goal)
++        wait_for_future(future, timeout_sec=5.0)
++
++        goal_handle = future.result()
++        if goal_handle is None or not goal_handle.accepted:
++            logger.warning("Gripper trajectory goal rejected by %s", self._action_name)
++            return False
++
++        result_future = goal_handle.get_result_async()
++
++        if not synchronous:
++            result_future.add_done_callback(
++                lambda f: logger.info(
++                    "Gripper trajectory on %s finished (async): %s",
++                    self._action_name, "ok" if f.result() is not None else "failed/timed out"))
++            return True
++
++        wait_for_future(result_future, timeout_sec=timeout_sec)
+         result = result_future.result()
+         if result is None:
+-            logger.warning("Gripper command timed out on %s", self._action_name)
++            logger.warning("Gripper trajectory timed out on %s", self._action_name)
++            return False
++
++        if result.result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
++            logger.warning(
++                "Gripper trajectory failed on %s: error_code=%d",
++                self._action_name, result.result.error_code,
++            )
+             return False
+ 
+         return True
+diff --git a/src/mj_manipulator_ros/trajectory_convert.py b/src/mj_manipulator_ros/trajectory_convert.py
+index 8879bf9..e77a1bf 100644
+--- a/src/mj_manipulator_ros/trajectory_convert.py
++++ b/src/mj_manipulator_ros/trajectory_convert.py
+@@ -10,13 +10,17 @@
+ 
+ from __future__ import annotations
+ 
++from typing import TYPE_CHECKING
+ import numpy as np
+ from builtin_interfaces.msg import Duration
+ from mj_manipulator.trajectory import Trajectory
+ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+ 
++if TYPE_CHECKING:
++    from builtin_interfaces.msg import Time
+ 
+-def trajectory_to_msg(traj: Trajectory) -> JointTrajectory:
++
++def trajectory_to_msg(traj: Trajectory, start_stamp: Time | None = None) -> JointTrajectory:
+     """Convert mj_manipulator Trajectory to ROS 2 JointTrajectory.
+ 
+     Args:
+@@ -36,6 +40,8 @@ def trajectory_to_msg(traj: Trajectory) -> JointTrajectory:
+ 
+     msg = JointTrajectory()
+     msg.joint_names = list(traj.joint_names)
++    if start_stamp is not None:
++        msg.header.stamp = start_stamp
+ 
+     for i in range(traj.num_waypoints):
+         point = JointTrajectoryPoint()
+diff --git a/tests/test_hardware_context_concurrent.py b/tests/test_hardware_context_concurrent.py
+new file mode 100644
+index 0000000..9995e88
+--- /dev/null
++++ b/tests/test_hardware_context_concurrent.py
+@@ -0,0 +1,382 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2025 Siddhartha Srinivasa
++
++"""Tests for HardwareContext's concurrent multi-arm trajectory execution.
++
++Covers HardwareContext._execute_trajectories() / _execute_single():
++
++- A single trajectory takes the fast path (no threading, no shared start
++  stamp) straight through _execute_single().
++- Two or more trajectories are synchronized to ONE shared start stamp
++  (computed once from the node clock) and sent from separate threads.
++- Every trajectory in a batch must share identical timestamps -- checked
++  up front, before anything is sent to any action server.
++- If one arm's goal fails, rejects, times out, or the caller's abort_fn
++  fires, a shared cancel_event tells every other still-running arm in the
++  batch to cancel its own goal too, instead of running to completion
++  alone.
++- An exception raised while sending/polling one arm's goal propagates out
++  of _execute_trajectories(), and still-running siblings get cancelled.
++
++No real ROS 2 node or action server is used -- HardwareContext is built
++directly (bypassing __enter__, which would try to connect to one) with a
++fake node and fake per-arm trajectory clients standing in for
++ArmTrajectoryClient. This keeps the tests fast and deterministic while
++exercising the real _execute_trajectories/_execute_single logic.
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from types import SimpleNamespace
++
++import numpy as np
++import pytest
++from mj_manipulator.planning import PlanGroupResult
++from mj_manipulator.trajectory import Trajectory
++
++from tests.conftest import HAS_ROS2
++
++if not HAS_ROS2:
++    pytest.skip("ROS 2 not installed", allow_module_level=True)
++
++import rclpy.duration
++import rclpy.time
++from control_msgs.action import FollowJointTrajectory
++
++from mj_manipulator_ros.config import HardwareConfig
++from mj_manipulator_ros.hardware_context import HardwareContext
++
++SUCCESS = FollowJointTrajectory.Result.SUCCESSFUL
++ABORTED = getattr(FollowJointTrajectory.Result, "PATH_TOLERANCE_VIOLATED", SUCCESS + 1)
++
++
++# ---------------------------------------------------------------------------
++# Fakes -- stand-ins for the ROS 2 node/action-client layer
++# ---------------------------------------------------------------------------
++
++
++class FakeClock:
++    def now(self):
++        return rclpy.time.Time()
++
++
++class FakeNode:
++    """Just enough of a rclpy.node.Node for _execute_trajectories()'s
++    self._node.get_clock().now() call."""
++
++    def get_clock(self):
++        return FakeClock()
++
++
++class FakeResultFuture:
++    """Stand-in for goal_handle.get_result_async()'s Future.
++
++    Starts NOT done unless constructed with an immediate result --
++    lets a test hold a goal "in flight" until it explicitly resolves it,
++    to exercise the cancel-on-sibling-failure polling loop.
++    """
++
++    def __init__(self):
++        self._done = threading.Event()
++        self._value = None
++
++    def done(self) -> bool:
++        return self._done.is_set()
++
++    def result(self):
++        return self._value
++
++    def resolve(self, error_code: int) -> None:
++        self._value = SimpleNamespace(result=SimpleNamespace(error_code=error_code))
++        self._done.set()
++
++
++class FakeGoalHandle:
++    def __init__(self, *, error_code: int | None = SUCCESS):
++        """error_code=None leaves the goal unresolved until resolve() is
++        called explicitly (simulates a goal that's still executing)."""
++        self.cancel_calls = 0
++        self._result_future = FakeResultFuture()
++        if error_code is not None:
++            self._result_future.resolve(error_code)
++
++    def get_result_async(self) -> FakeResultFuture:
++        return self._result_future
++
++    def cancel_goal_async(self) -> None:
++        self.cancel_calls += 1
++
++    def resolve(self, error_code: int = SUCCESS) -> None:
++        self._result_future.resolve(error_code)
++
++
++class FakeClient:
++    """Stand-in for ArmTrajectoryClient, used only via send_goal()."""
++
++    def __init__(self, goal_handle=None, *, raises: Exception | None = None):
++        self._goal_handle = goal_handle
++        self._raises = raises
++        self.sent_msgs: list = []
++
++    def send_goal(self, msg, timeout_sec: float = 5.0):
++        self.sent_msgs.append(msg)
++        if self._raises is not None:
++            raise self._raises
++        return self._goal_handle
++
++
++# ---------------------------------------------------------------------------
++# Helpers
++# ---------------------------------------------------------------------------
++
++
++def _make_context(clients: dict[str, FakeClient], *, action_timeout: float = 30.0) -> HardwareContext:
++    """Build a HardwareContext without going through __enter__ (which would
++    try to connect to a real ROS 2 node and wait for action servers)."""
++    config = HardwareConfig(arms=[], action_timeout=action_timeout)
++    ctx = HardwareContext(config)
++    ctx._node = FakeNode()
++    ctx._arm_clients = clients
++    return ctx
++
++
++def _traj(start: float, end: float, *, entity: str, n: int = 5, timestamps=None) -> Trajectory:
++    if timestamps is not None:
++        n = len(timestamps)
++    positions = np.linspace(start, end, n).reshape(-1, 1)
++    return Trajectory(
++        timestamps=timestamps if timestamps is not None else np.linspace(0.0, 1.0, n),
++        positions=positions,
++        velocities=np.zeros_like(positions),
++        accelerations=np.zeros_like(positions),
++        joint_names=["joint1"],
++        entity=entity,
++    )
++
++
++# ---------------------------------------------------------------------------
++# Basic dispatch / single vs. multi path
++# ---------------------------------------------------------------------------
++
++
++class TestExecuteTrajectoriesBasics:
++    def test_empty_list_returns_true_without_touching_any_client(self):
++        client = FakeClient(raises=AssertionError("should never be called"))
++        ctx = _make_context({"left": client})
++        assert ctx._execute_trajectories([]) is True
++        assert client.sent_msgs == []
++
++    def test_abort_fn_already_true_short_circuits_before_sending(self):
++        client = FakeClient(raises=AssertionError("should never be called"))
++        ctx = _make_context({"left": client})
++        traj = _traj(0.0, 0.3, entity="left")
++        assert ctx._execute_trajectories([traj], abort_fn=lambda: True) is False
++        assert client.sent_msgs == []
++
++    def test_single_trajectory_takes_fast_path_no_shared_stamp(self):
++        """A lone trajectory skips the synchronized-start machinery
++        entirely -- no start_stamp is attached to its message."""
++        client = FakeClient(FakeGoalHandle())
++        ctx = _make_context({"left": client})
++        traj = _traj(0.0, 0.3, entity="left")
++        assert ctx._execute_trajectories([traj]) is True
++        assert len(client.sent_msgs) == 1
++        stamp = client.sent_msgs[0].header.stamp
++        assert stamp.sec == 0 and stamp.nanosec == 0
++
++    def test_unknown_entity_raises(self):
++        ctx = _make_context({})
++        traj = _traj(0.0, 0.3, entity="left")
++        with pytest.raises(ValueError, match="No trajectory client"):
++            ctx._execute_trajectories([traj])
++
++    def test_no_entity_raises(self):
++        ctx = _make_context({})
++        traj = _traj(0.0, 0.3, entity=None)
++        with pytest.raises(ValueError, match="no entity"):
++            ctx._execute_trajectories([traj])
++
++
++class TestExecuteTrajectoriesSynchronizedStart:
++    def test_two_trajectories_share_one_start_stamp(self):
++        left_client = FakeClient(FakeGoalHandle())
++        right_client = FakeClient(FakeGoalHandle())
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++        assert ctx._execute_trajectories([traj_left, traj_right]) is True
++
++        left_stamp = left_client.sent_msgs[0].header.stamp
++        right_stamp = right_client.sent_msgs[0].header.stamp
++        assert (left_stamp.sec, left_stamp.nanosec) == (right_stamp.sec, right_stamp.nanosec)
++        # A synchronized start is scheduled in the future, not "now".
++        assert left_stamp.sec > 0 or left_stamp.nanosec > 0
++
++    def test_mismatched_timestamps_raises_before_sending_anything(self):
++        left_client = FakeClient(raises=AssertionError("should never be called"))
++        right_client = FakeClient(raises=AssertionError("should never be called"))
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        traj_left = _traj(0.0, 0.3, entity="left", timestamps=np.array([0.0, 0.5, 1.0]))
++        traj_right = _traj(0.0, -0.3, entity="right", timestamps=np.array([0.0, 0.3, 1.0]))
++
++        with pytest.raises(ValueError, match="timestamps"):
++            ctx._execute_trajectories([traj_left, traj_right])
++
++        assert left_client.sent_msgs == []
++        assert right_client.sent_msgs == []
++
++
++# ---------------------------------------------------------------------------
++# Sibling-failure cancellation
++# ---------------------------------------------------------------------------
++
++
++class TestSiblingFailureCancellation:
++    def test_one_arm_failing_cancels_still_running_sibling(self):
++        """"right" fails outright; "left" is still polling its goal
++        (never resolved) when that happens -- it must be cancelled
++        rather than left to run to completion on its own."""
++        left_handle = FakeGoalHandle(error_code=None)  # never resolves on its own
++        left_client = FakeClient(left_handle)
++        right_client = FakeClient(FakeGoalHandle(error_code=ABORTED))
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++
++        assert ctx._execute_trajectories([traj_left, traj_right]) is False
++        assert left_handle.cancel_calls >= 1
++
++    def test_goal_rejection_cancels_sibling(self):
++        """send_goal() returning None (server rejected the goal) fails
++        that arm immediately and must still cancel a sibling that was
++        accepted and is polling."""
++        left_handle = FakeGoalHandle(error_code=None)
++        left_client = FakeClient(left_handle)
++        right_client = FakeClient(None)  # rejected
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++
++        assert ctx._execute_trajectories([traj_left, traj_right]) is False
++        assert left_handle.cancel_calls >= 1
++
++    def test_caller_abort_fn_cancels_every_running_arm(self):
++        left_handle = FakeGoalHandle(error_code=None)
++        right_handle = FakeGoalHandle(error_code=None)
++        ctx = _make_context(
++            {"left": FakeClient(left_handle), "right": FakeClient(right_handle)}
++        )
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++
++        stop = threading.Event()
++        threading.Timer(0.05, stop.set).start()
++
++        assert ctx._execute_trajectories([traj_left, traj_right], abort_fn=stop.is_set) is False
++        assert left_handle.cancel_calls >= 1
++        assert right_handle.cancel_calls >= 1
++
++    def test_timeout_cancels_and_fails_the_arm(self):
++        handle = FakeGoalHandle(error_code=None)  # never resolves
++        ctx = _make_context({"left": FakeClient(handle)}, action_timeout=0.01)
++
++        # Single-trajectory path still honors action_timeout.
++        traj = _traj(0.0, 0.3, entity="left")
++        assert ctx._execute_trajectories([traj]) is False
++        assert handle.cancel_calls >= 1
++
++    def test_skips_send_if_sibling_already_failed_before_this_arm_sent(self):
++        """If the cancel_event is already set by the time this arm's
++        thread gets to send its goal, it must not send at all."""
++        right_client = FakeClient(FakeGoalHandle(error_code=ABORTED))
++        left_client = FakeClient(raises=AssertionError("should not be reached"))
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        # Force "left"'s thread to run after "right" has already failed
++        # by making its send_goal block until we release it.
++        release = threading.Event()
++
++        def blocking_send(msg, timeout_sec=5.0):
++            release.wait(timeout=2.0)
++            left_client.sent_msgs.append(msg)
++            return FakeGoalHandle(error_code=SUCCESS)
++
++        left_client.send_goal = blocking_send
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++
++        result_holder: dict[str, bool] = {}
++
++        def run() -> None:
++            result_holder["result"] = ctx._execute_trajectories([traj_left, traj_right])
++
++        t = threading.Thread(target=run, daemon=True)
++        t.start()
++        # Give "right"'s thread time to fail and set cancel_event, then
++        # release "left" to proceed with the (now-pointless) send.
++        time.sleep(0.1)
++        release.set()
++        t.join(timeout=5.0)
++
++        assert not t.is_alive()
++        assert result_holder["result"] is False
++
++
++class TestExecuteTrajectoriesErrorPropagation:
++    def test_exception_in_one_thread_propagates_and_cancels_sibling(self):
++        boom = RuntimeError("boom")
++        left_handle = FakeGoalHandle(error_code=None)
++        left_client = FakeClient(left_handle)
++        right_client = FakeClient(raises=boom)
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        traj_left = _traj(0.0, 0.3, entity="left")
++        traj_right = _traj(0.0, -0.3, entity="right")
++
++        with pytest.raises(RuntimeError, match="boom"):
++            ctx._execute_trajectories([traj_left, traj_right])
++
++        assert left_handle.cancel_calls >= 1
++
++
++# ---------------------------------------------------------------------------
++# execute() dispatch
++# ---------------------------------------------------------------------------
++
++
++class TestExecuteDispatch:
++    def test_dispatches_single_trajectory(self):
++        client = FakeClient(FakeGoalHandle())
++        ctx = _make_context({"left": client})
++        traj = _traj(0.0, 0.3, entity="left")
++        assert ctx.execute(traj) is True
++        assert len(client.sent_msgs) == 1
++
++    def test_dispatches_plan_group_result_as_synchronized_batch(self):
++        left_client = FakeClient(FakeGoalHandle())
++        right_client = FakeClient(FakeGoalHandle())
++        ctx = _make_context({"left": left_client, "right": right_client})
++
++        group = PlanGroupResult.from_trajectories(
++            {
++                "left": _traj(0.0, 0.3, entity="left"),
++                "right": _traj(0.0, -0.3, entity="right"),
++            }
++        )
++        assert ctx.execute(group) is True
++        left_stamp = left_client.sent_msgs[0].header.stamp
++        right_stamp = right_client.sent_msgs[0].header.stamp
++        assert (left_stamp.sec, left_stamp.nanosec) == (right_stamp.sec, right_stamp.nanosec)
++
++    def test_unsupported_type_raises_type_error(self):
++        ctx = _make_context({})
++        with pytest.raises(TypeError):
++            ctx.execute(object())

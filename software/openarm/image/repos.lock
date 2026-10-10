@@ -1,29 +1,56 @@
 # Every source repository the openarm image is built from, at the exact commit it is built at.
-# Written by capture-pins.sh on a robot whose arm stack is known good; build.sh refuses while any
-# URL or commit below is blank. Layout matches upstream's setup.sh: siblings live inside the
-# top-level checkout, ssik beside it.
+# Arms plan DEC-27 (design: notes/design/arm-sources.md): each from its maintainer at a recorded
+# commit -- a release where it is current, else main. The student forks of the lab's libraries are
+# NOT here: their changes are carried as patches in overlay/<name>/, applied by build.sh.
 #
-# kind:  top  the top-level workspace checkout (becomes /openarm_ws/src)
-#        uv   a Python workspace member (marked COLCON_IGNORE)
+# Not here, on purpose:
+#   - the workspace root: ours, in workspace/ (pyproject.toml and its committed uv.lock)
+#   - ssik: a uv git source at its v8.1.0 tag, pinned by workspace/uv.lock, built non-editable
+#   - mujoco_menagerie: only the lab's demos for other arms use it
+#
+# kind:  uv   a Python workspace member (marked COLCON_IGNORE)
 #        ros  a colcon package
-#        asset a model or data repository (marked COLCON_IGNORE)
-#        ssik the IK library, mounted beside the workspace (/openarm_ws/ssik)
 #
-# name                     kind   url                                                         commit
-openarm_robot-code         top
-asset_manager              uv
-mj_environment             uv
-mj_manipulator             uv
-mj_viser                   uv
-prl_assets                 uv
-pycbirrt                   uv
-tsr                        uv
-openarm_assets             uv
-openarm                    uv
-mj_manipulator_ros         ros
-openarm_impedance_control  ros
-rosbag_recorder            ros
-openarm_ros2               ros
-openarm_description        ros
-mujoco_menagerie           asset
-ssik                       ssik
+# build.sh reads the uncommented lines as: name kind url commit -- nothing may follow the commit.
+
+# asset_manager: the lab's main as of 2026-09-21 (no releases) -- commit of 2026-04-15
+asset_manager              uv   https://github.com/personalrobotics/asset_manager            8c6c4ecee2e30e6b733a72f8e4e1431f0e16c5f4
+
+# mj_environment: the lab's main as of 2026-09-21 (v1.1.0 is older); overlay: mj_environment/ -- commit of 2026-04-08
+mj_environment             uv   https://github.com/personalrobotics/mj_environment           58f6a49c89c54b70258575419489a7cf7a79d354
+
+# mj_manipulator: the lab's main at b5ade5d, the commit the student's fork branched from (v2.0.0 is older; main's two later commits collide with ArmGroup's refactor); overlay: mj_manipulator/ -- commit of 2026-06-02
+mj_manipulator             uv   https://github.com/personalrobotics/mj_manipulator           b5ade5d1720991dbc9dfb1b6707d6ceacf8250fe
+
+# mj_viser: the lab's main as of 2026-09-21 (no releases) -- commit of 2026-04-26
+mj_viser                   uv   https://github.com/personalrobotics/mj_viser                 cb853deff26e75c67292af32b666b0a084b40ebd
+
+# prl_assets: the lab's main as of 2026-09-21 (no releases) -- commit of 2026-05-15
+prl_assets                 uv   https://github.com/personalrobotics/prl_assets               c7c474e74961c773f6adc44249ed33599fbf510a
+
+# pycbirrt: the lab's main as of 2026-09-21; the repository is now sscbirrt, but here its package is still pycbirrt, which mj_manipulator imports -- commit of 2026-09-20
+pycbirrt                   uv   https://github.com/personalrobotics/sscbirrt                 10e0efee9189a30729ee7a4e2d910f51f97729d0
+
+# tsr: the lab's main as of 2026-09-21; the repository is now sstsr, package sstsr -- commit of 2026-09-21
+tsr                        uv   https://github.com/personalrobotics/sstsr                    85dd66de5d3e195b6bf428b76e1476df1adccd31
+
+# openarm_assets: the teleop author's repository (no releases) -- commit of 2026-10-07
+openarm_assets             uv   https://github.com/EricJGoossen/openarm_assets               71d81a8447ffe7930aa8b91a209b6e53fd15c6f0
+
+# openarm: the org copy (DEC-18): the opendubs branch -- commit of 2026-10-09
+openarm                    uv   https://github.com/UW-Allen-School-Robotics/openarm          570cc42952918262ee81acf3a00087924739f47c
+
+# mj_manipulator_ros: the lab's main as of 2026-09-21 (no releases); overlay: mj_manipulator_ros/ -- commit of 2026-04-05
+mj_manipulator_ros         ros  https://github.com/personalrobotics/mj_manipulator_ros       8b96a8b1219ad85b1f8b8f8f256f77311d60bd91
+
+# openarm_impedance_control: the teleop author's repository (no releases) -- commit of 2026-09-22
+openarm_impedance_control  ros  https://github.com/EricJGoossen/openarm_impedance_control    b5179993ea2cdcd984c0a5bfc6ef6b3712c8bfc5
+
+# rosbag_recorder: the teleop author's repository (no releases) -- commit of 2026-07-20
+rosbag_recorder            ros  https://github.com/EricJGoossen/rosbag_recorder              efb44ad3f0983247ba3f9e930ef1eeaf0c52f006
+
+# openarm_ros2: PROVISIONAL: enactic's main as of 2026-09-21 (0.9.2 is from January), until capture-pins.sh reports what a robot runs -- commit of 2026-06-29
+openarm_ros2               ros  https://github.com/enactic/openarm_ros2                      4e837e1d0dae692ff67b560b69d8d281d7a8d4ed
+
+# openarm_description: PROVISIONAL: enactic's main as of 2026-09-21 (1.0.4 is from February), until capture-pins.sh reports what a robot runs -- commit of 2026-09-08
+openarm_description        ros  https://github.com/enactic/openarm_description               14ff67b638ff1c738a1b9a6be8aaa5ce5ed2c831

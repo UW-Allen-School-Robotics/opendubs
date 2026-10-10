@@ -4,10 +4,17 @@
 #   build.sh                     check every pin, assemble the build context, build, print the image
 #   build.sh --context-only DIR  assemble the context in DIR and stop (no Docker needed)
 #
+# The sources (arms plan DEC-27; design: notes/design/arm-sources.md): the workspace root in
+# workspace/ (ours, with its committed uv.lock), each repos.lock repository cloned beside it at its
+# commit, and the patches in overlay/<name>/ applied to that repository.
+#
 # REFUSES, before cloning anything, when:
 #   - software/stack/versions.env has no ROS_BASE_IMAGE, or it is tag-only (no @sha256:)
 #   - pins.env has an empty value
-#   - any repos.lock entry has no URL, or a commit that is not a full 40-character hash
+#   - any repos.lock entry has no URL, a commit that is not a full 40-character hash, or a kind
+#     other than uv / ros
+#   - overlay/ has patches for a repository repos.lock does not list
+# and, after cloning, when a patch does not apply cleanly to its pinned commit.
 # There is no fallback to :latest or to a branch tip: an image that cannot be rebuilt identically
 # is what this replaces.
 #
@@ -19,6 +26,8 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 MANIFEST=${OPENDUBS_VERSIONS:-$ROOT/software/stack/versions.env}
 LOCK=$HERE/repos.lock
 PINS=$HERE/pins.env
+WORKSPACE=$HERE/workspace
+OVERLAY=$HERE/overlay
 die() { echo "build.sh: $*" >&2; exit 1; }
 
 CONTEXT_ONLY=""
@@ -40,8 +49,17 @@ bad=0
 while read -r name kind url commit; do
   if [ -z "${url:-}" ]; then echo "build.sh: $name has no URL in repos.lock" >&2; bad=1; continue; fi
   [[ "${commit:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "build.sh: $name's commit is not a full hash: '${commit:-}'" >&2; bad=1; }
+  case "$kind" in uv|ros) ;; *) echo "build.sh: $name has kind '$kind' (uv or ros)" >&2; bad=1 ;; esac
 done < <(sed -n '/^[a-z]/p' "$LOCK")
-[ "$bad" = 0 ] || die "repos.lock is not fully pinned (capture-pins.sh fills it from a robot)"
+[ "$bad" = 0 ] || die "repos.lock is not fully pinned"
+[ -f "$WORKSPACE/pyproject.toml" ] && [ -f "$WORKSPACE/uv.lock" ] \
+  || die "no workspace root in $WORKSPACE (pyproject.toml and uv.lock)"
+if [ -d "$OVERLAY" ]; then
+  for d in "$OVERLAY"/*/; do
+    n=$(basename "$d")
+    grep -q "^$n " "$LOCK" || die "overlay/$n has patches, but repos.lock does not list $n"
+  done
+fi
 
 # ---- the build context ---------------------------------------------------------------------
 CTX=${CONTEXT_ONLY:-$(mktemp -d)}
@@ -54,29 +72,30 @@ fetch() {  # fetch NAME URL COMMIT DEST
   [ "$(git -C "$4" rev-parse HEAD)" = "$3" ] || die "$1: checked out $(git -C "$4" rev-parse HEAD), not $3"
   echo "  $1 @ ${3:0:12}"
 }
+echo "== workspace root (workspace/)"
+mkdir -p "$CTX/src"
+cp "$WORKSPACE/pyproject.toml" "$WORKSPACE/uv.lock" "$CTX/src/"
 echo "== sources (repos.lock)"
 while read -r name kind url commit; do
-  case "$kind" in
-    top)  fetch "$name" "$url" "$commit" "$CTX/src" ;;
-  esac
-done < <(sed -n '/^[a-z]/p' "$LOCK")
-[ -d "$CTX/src" ] || die "repos.lock has no 'top' entry"
-while read -r name kind url commit; do
-  case "$kind" in
-    top)  ;;
-    ssik) fetch "$name" "$url" "$commit" "$CTX/ssik" ;;
-    *)    rm -rf "${CTX:?}/src/$name"          # upstream tracks siblings as empty gitlink placeholders
-          fetch "$name" "$url" "$commit" "$CTX/src/$name" ;;
-  esac
+  fetch "$name" "$url" "$commit" "$CTX/src/$name"
 done < <(sed -n '/^[a-z]/p' "$LOCK")
 
-# What upstream's setup.sh does to the tree, minus its host-side `uv sync` (the image does that).
-echo "== preparing the workspace (setup.sh's steps)"
+# The student's changes to the lab's libraries, until upstream has them (DEC-27). Checked first, so
+# a patch that no longer fits its pinned commit stops the build instead of half-applying.
+echo "== overlay (overlay/)"
+for p in "$OVERLAY"/*/*.patch; do
+  [ -e "$p" ] || continue
+  n=$(basename "$(dirname "$p")")
+  git -C "$CTX/src/$n" apply --check "$p" || die "overlay/$n/$(basename "$p") does not apply to $n's pinned commit"
+  git -C "$CTX/src/$n" apply "$p"
+  echo "  $n: $(basename "$p")"
+done
+
+# The workspace layout colcon and uv expect: uv members are not colcon packages.
 while read -r name kind _; do
-  case "$kind" in uv|asset) touch "$CTX/src/$name/COLCON_IGNORE" ;; esac
+  [ "$kind" = uv ] && touch "$CTX/src/$name/COLCON_IGNORE"
 done < <(sed -n '/^[a-z]/p' "$LOCK")
 find "$CTX/src" -mindepth 2 -maxdepth 2 -name .venv -type d -prune -exec rm -rf {} +
-[ -f "$CTX/src/uv.lock" ] || die "the workspace has no uv.lock, so its Python environment cannot be pinned"
 
 cp "$HERE/Dockerfile.openarm" "$HERE/entrypoint.sh" "$HERE/fastdds-udp-only.xml" "$CTX/"
 chmod +x "$CTX/entrypoint.sh"
@@ -86,7 +105,8 @@ if [ -n "$CONTEXT_ONLY" ]; then
 fi
 
 # ---- the image -----------------------------------------------------------------------------
-PIN_HASH=$(cat "$MANIFEST" "$PINS" "$LOCK" "$HERE/Dockerfile.openarm" "$HERE/entrypoint.sh" \
+PIN_HASH=$(cat "$MANIFEST" "$PINS" "$LOCK" "$WORKSPACE/pyproject.toml" "$WORKSPACE/uv.lock" \
+           "$OVERLAY"/*/*.patch "$HERE/Dockerfile.openarm" "$HERE/entrypoint.sh" \
            "$HERE/fastdds-udp-only.xml" | sha256sum | cut -c1-12)
 TAG=openarm-ros2:$PIN_HASH
 echo "== building $TAG on $ROS_BASE_IMAGE"

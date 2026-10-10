@@ -6,7 +6,9 @@ Written 2026-10-09 as a proposal; **design of record since 2026-10-09** — opti
 ## Decided, 2026-10-09
 
 1. **Canonical setup: B — upstream-first with a manifest, forking only the `openarm` teleop
-   package** (DEC-27). DEC-18 narrows to that one repository; Q9 (mirror ~15 repositories) is
+   package** (DEC-27). **Amended 2026-10-09:** each repository from its maintainer *at a recorded commit — a
+   release where it is current, else main*; the lab's releases are months behind what the teleop
+   was built on. The manifest is filled: see `arm-image.md` § The manifest, filled. DEC-18 narrows to that one repository; Q9 (mirror ~15 repositories) is
    retired.
 2. **The SSIK desk test** was approved and **is done**: SSIK 8.1.0 solves V1 completely and about
    100× faster than the fork (below).

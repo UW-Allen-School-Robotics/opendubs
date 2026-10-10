@@ -60,9 +60,10 @@ ARG UV_VERSION
 ENV UV_INSTALL_DIR=/usr/local/bin UV_LINK_MODE=copy
 RUN test -n "${UV_VERSION}" && curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
 
-# The sources, at the commits in repos.lock, prepared by build.sh as upstream's setup.sh would.
+# The sources: our workspace root, each repos.lock repository at its commit, the overlay applied
+# (build.sh). SSIK is not here: it is a uv git source at its release tag, pinned by uv.lock, and
+# built non-editable below, which is how it gets its native backend on aarch64.
 COPY src/ /openarm_ws/src/
-COPY ssik/ /openarm_ws/ssik/
 
 # ROS dependencies, then the colcon workspace -- what upstream's post-create.sh does, at build time.
 # rosdep resolves against its online index; what it installed is recorded below for the audit.
@@ -76,7 +77,7 @@ RUN . /opt/ros/jazzy/setup.sh \
   && rm -rf /var/lib/apt/lists/*
 RUN . /opt/ros/jazzy/setup.sh && colcon build
 
-# The Python workspace, from the source's own uv.lock, into the path the teleop service runs from.
+# The Python workspace, from workspace/uv.lock, into the path the teleop service runs from.
 RUN cd /openarm_ws/src && uv sync --frozen
 
 # The DDS profile openarm-up and the teleop service point FastDDS at.
