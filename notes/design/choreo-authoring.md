@@ -55,6 +55,11 @@ finger geometry, not necessarily the robot's.
   (Found by rendering the first version: a reach "to the head screen" put the gripper inside the head.)
 * A target the arm cannot meet gets no angles at all, so the validator refuses it rather than
   playing angles that miss.
+* The solver keeps to the validator's shoulder rules, not just each joint's limits: past ~135° the
+  shoulder needs the elbow folded (the 1.2 m workspace box), and it never comes within the margin of
+  the head. A hand raised overhead is reached by folding the elbow, never handed to the validator to
+  refuse. (Found by the reference-image prototype: an overhead "Y" was solved at 146° with the arm
+  straight.)
 
 ## Making it expressive — animation principles, inside the envelope
 
