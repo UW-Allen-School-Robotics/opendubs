@@ -85,6 +85,13 @@ else:
     d = np.linalg.norm(site("right") - screen)
     check("a reach to a named part of the robot stops at its standoff, not on it",
           abs(d - ik.STANDOFF_M) < 0.02, d)
+    lo4 = {sd: math.degrees(LIMITS[f"openarm_{sd}_joint4"][0]) for sd in ("left", "right")}
+    b4 = {sd: math.degrees(kin._bounds(sd)[3][0]) for sd in ("left", "right")}
+    import yaml as _yaml
+    j4 = [c["solved"][4] for c in _yaml.safe_load(open(demo))["cues"] if isinstance(c, dict) and "solved" in c]
+    check("the elbow's bound is the ROBOT's limit (joint_limits.yaml) plus the margin, not the MJCF's wider range",
+          all(abs(b4[sd] - (lo4[sd] + cue.MARGIN_DEG)) < 1e-6 for sd in b4)
+          and all(v >= min(lo4.values()) + cue.MARGIN_DEG for v in j4), (b4, j4))
     far = os.path.join(tmp, "far.yaml")
     with open(far, "w") as fh:
         fh.write('id: far\nslots: [ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\n'
