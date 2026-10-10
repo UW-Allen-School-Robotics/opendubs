@@ -35,7 +35,8 @@ inspect() {  # inspect NAME DIR [LOCK_COMMIT] -> prints one row
   fi
   url=$(G "$dir" remote get-url origin 2>/dev/null)
   sha=$(G "$dir" rev-parse HEAD 2>/dev/null)
-  dirty=$(G "$dir" status --porcelain 2>/dev/null)
+  # COLCON_IGNORE is the marker setup.sh (and build.sh) puts in every uv member: not configuration.
+  dirty=$(G "$dir" status --porcelain 2>/dev/null | grep -v '^?? COLCON_IGNORE$')
   if [ -n "$dirty" ]; then
     echo "capture-pins: $name has uncommitted changes — commit them before comparing:" >&2
     echo "$dirty" | sed 's/^/    /' >&2

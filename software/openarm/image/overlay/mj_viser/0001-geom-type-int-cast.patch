@@ -1,0 +1,45 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    cast model.geom_type[i] to int before looking it up. It is a numpy.int32, and mujoco's
+         mjtGeom enum compares unequal to numpy scalars, so the lookup silently missed every
+         geometry and the viewer's scene was empty.
+Source:  found UNCOMMITTED on opendubs2 (src/mj_viser/gui.py and scene.py, over cb853deff26e),
+         captured from the 2026-10-09 backup. Who wrote it is not recorded.
+Author:  unrecorded -- an uncommitted edit on the robot. MIT, as the upstream repository.
+Status:  a bug fix for the lab's library: a candidate upstream PR. The robot runs the teleop
+         headless, so it matters only when the viewer is on.
+Check:   base + this patch == opendubs2's checkout, file for file.
+
+diff --git a/src/mj_viser/gui.py b/src/mj_viser/gui.py
+--- a/src/mj_viser/gui.py
++++ b/src/mj_viser/gui.py
+@@ -37,7 +37,10 @@
+ 
+         used_groups: set[int] = set()
+         for geom_id in range(model.ngeom):
+-            if model.geom_type[geom_id] in GEOM_BUILDERS:
++            # int(...): see the matching comment in scene.py -- geom_type[geom_id]
++            # is a numpy.int32 and `in GEOM_BUILDERS` (keyed by mjtGeom enum
++            # members) silently never matches without this cast.
++            if int(model.geom_type[geom_id]) in GEOM_BUILDERS:
+                 used_groups.add(int(model.geom_group[geom_id]))
+ 
+         gui = server.gui
+diff --git a/src/mj_viser/scene.py b/src/mj_viser/scene.py
+--- a/src/mj_viser/scene.py
++++ b/src/mj_viser/scene.py
+@@ -53,7 +53,13 @@
+             if alpha == 0:
+                 continue
+ 
+-            geom_type = self._model.geom_type[geom_id]
++            # int(...): model.geom_type[geom_id] is a numpy.int32, and
++            # mujoco's mjtGeom enum's __eq__ returns False (not
++            # NotImplemented) against numpy scalars even though the hash
++            # matches -- dict lookup compares stored_key == lookup_key, so
++            # GEOM_BUILDERS.get(geom_type) silently misses every entry
++            # without this cast, leaving the scene empty.
++            geom_type = int(self._model.geom_type[geom_id])
+             builder = GEOM_BUILDERS.get(geom_type)
+             if builder is None:
+                 continue

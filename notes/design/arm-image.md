@@ -102,9 +102,44 @@ bad input before cloning (10 cases); ShellCheck clean; the three patches parse w
 uv override replaces every requirement on its package, marker included -- so on any other machine
 `toppra` was not installed at all. `workspace/pyproject.toml` adds the non-aarch64 line.
 
+## What opendubs2 actually runs, and the manifest's parity — 2026-10-10
+
+`capture-pins.sh` ran on opendubs2, read-only, on 2026-10-09, and the source tree was backed up
+the same day. The manifest was corrected from both. **It now rebuilds the robot's arm source tree
+file for file.** Each repository was assembled from `repos.lock` and `overlay/` as committed, then
+compared with the backup:
+- **11 of 14 repositories are identical.**
+- **`openarm` differs, by design:** the lock pins the org copy's newer `opendubs` (the teleop status
+  report and the SSIK 8.1.0 modules), which the robot has not been moved to yet.
+- **`openarm_ros2` differs by exactly the A1 patch,** which the robot runs since that evening.
+- **`openarm_impedance_control` differs by one robot-only file,** below.
+
+What the capture found, and what was done about each:
+
+| Found on the robot | Done |
+|---|---|
+| `mj_manipulator` is the fork's **`armgroup` branch at `0858fef`**, 10 commits past the fork's `main` the first overlay was built from | `0001-armgroup.patch` is rebuilt from `0858fef`, against the same upstream `b5ade5d` |
+| an **uncommitted `use_measured_dt`** in `mj_manipulator`'s `teleop.py`, which the teleop bridge relies on | carried as `0002-teleop-measured-dt.patch`. Who wrote it is unrecorded |
+| an **uncommitted bug fix** in `mj_viser` (a numpy `int32` cast, without which the viewer's scene is empty) | carried as `mj_viser/0001-geom-type-int-cast.patch` |
+| `openarm_description` is **the student's fork**: enactic's `14ff67b` plus one commit, the CAN interface args | carried as `openarm_description/0001-can-interface-args.patch` on enactic's `14ff67b`. **Pending the user's choice** (plan Q11) |
+| `openarm_ros2` at `c15982d` | pinned there (#152), no longer provisional |
+| `openarm_assets` at `31eebb9`, 6 commits behind its head, which changes the MuJoCo models and finger actuators | pinned at `31eebb9`. Moving to the head is a separate, deliberate step. The V1 URDF the IK modules are built from is the same in both |
+| **uv 0.12.17**, and a host-made `uv.lock` | `pins.env` is 0.12.17. `workspace/uv.lock` was re-locked **starting from the robot's lock**, so 135 of 136 packages are at the robot's exact versions, MuJoCo 3.13.0 included. The one change is SSIK 8.1.0 from its tag, the intended one. A lock made fresh had 26 drift, MuJoCo 3.13 → 3.15 among them |
+| **`ros-jazzy-ros2controlcli`** added by hand to the robot's container build, and never committed | added to `Dockerfile.openarm`. Without it `openarm-up`, which calls `ros2 control` for every step, would fail in the new image |
+| an untracked `openarm_impedance_control_autostart.launch.py`: activates the hardware, then the controllers, from the launch | **not carried.** Nothing launches it. It is input for phase 2's boot bring-up (A3), now that activation is motion-free |
+| untracked `scripts/run_teleop.sh` and `run_teleop_sim.sh` in the old workspace root | not carried. The teleop service runs the bridge directly |
+| eight "dirty" checkouts that only had a `COLCON_IGNORE` marker | `capture-pins.sh` now ignores that marker. It is setup's, not configuration |
+
+Tested again in the corrected environment, on the development Mac:
+- **Install:** `uv sync --frozen` with uv 0.12.17 succeeds, giving MuJoCo 3.13.0 and SSIK 8.1.0 with
+  its native backend.
+- **Library suites:** `mj_manipulator` 439 passed; `mj_environment` 129 passed.
+- **`openarm`:** 188 passed, 32 failed. Of the 32, 29 fail with the student's SSIK too, and 3 are
+  0.16's planner cases.
+- **`build.sh`** refuses all 10 bad inputs; ShellCheck is clean; every patch parses with
+  `git apply`.
+
 ## Not done here
 
-- **Confirming the provisional enactic pins** with `capture-pins.sh` on opendubs2 (read-only, at the
-  next robot session).
 - **A build on the non-robot Thor.** Desk work only until that machine is reachable; never on
   opendubs2.

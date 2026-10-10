@@ -1,19 +1,20 @@
 Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
 
-What:    ArmGroup (bimanual arm groups; the teleop bridge imports ArmGroupConfig) and the switch from tsr to sstsr.
-Source:  the teleop author's fork, https://github.com/EricJGoossen/mj_manipulator, b5ade5d17209..de0ae1354585
-         (the fork's net change over the upstream commit repos.lock pins; code only --
-         .gitignore, .vscode and .github are left out).
+What:    ArmGroup (bimanual arm groups; the teleop bridge imports ArmGroupConfig), the bimanual
+         refactor, collision checking on retime, the real-robot integration, and the switch from
+         tsr to sstsr.
+Source:  the teleop author's fork, https://github.com/EricJGoossen/mj_manipulator, its armgroup
+         branch at 0858fef9912f (what opendubs2 runs), as its net change over b5ade5d17209; code
+         only -- .gitignore, .vscode and .github are left out.
 Author:  the teleop's author. MIT, as the upstream repository.
-Status:  to be offered upstream as a PR credited to its author, once they consent
-         (arms plan DEC-27). Delete this file when upstream has it.
-Check:   base + this patch == the fork's tree, file for file.
+Status:  to be offered upstream as a PR credited to its author, once they consent (arms plan
+         DEC-27). Delete this file when upstream has it.
+Check:   base + 0001 + 0002 == opendubs2's checkout, file for file (2026-10-10, from the backup).
 
 diff --git a/pyproject.toml b/pyproject.toml
-index e90e937..4ee5488 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -19,7 +19,7 @@ dependencies = [
+@@ -19,7 +19,7 @@
      "py_trees>=2.2",
      "mj-environment @ git+https://github.com/personalrobotics/mj_environment.git",
      "pycbirrt @ git+https://github.com/personalrobotics/pycbirrt.git",
@@ -22,7 +23,7 @@ index e90e937..4ee5488 100644
      "eaik",
      "mink>=1.1.0",
      "prl-assets @ git+https://github.com/personalrobotics/prl_assets.git",
-@@ -29,7 +29,7 @@ dependencies = [
+@@ -29,7 +29,7 @@
  [tool.uv.sources]
  mj-environment = { workspace = true }
  pycbirrt = { workspace = true }
@@ -32,7 +33,6 @@ index e90e937..4ee5488 100644
  mj-viser = { workspace = true }
  
 diff --git a/src/mj_manipulator/__init__.py b/src/mj_manipulator/__init__.py
-index 233dd39..28ce5d7 100644
 --- a/src/mj_manipulator/__init__.py
 +++ b/src/mj_manipulator/__init__.py
 @@ -15,7 +15,8 @@
@@ -77,7 +77,6 @@ index 233dd39..28ce5d7 100644
      "GraspManager",
      # Grippers
 diff --git a/src/mj_manipulator/arm.py b/src/mj_manipulator/arm.py
-index 948994e..d2afcff 100644
 --- a/src/mj_manipulator/arm.py
 +++ b/src/mj_manipulator/arm.py
 @@ -13,20 +13,13 @@
@@ -94,14 +93,15 @@ index 948994e..d2afcff 100644
 -from pycbirrt import CBiRRT, CBiRRTConfig
 -from pycbirrt.exceptions import PlanningError
 -from tsr import TSR
- 
+-
 -from mj_manipulator.collision import CollisionChecker
++
  from mj_manipulator.config import ArmConfig
 -from mj_manipulator.trajectory import Trajectory
  
  if TYPE_CHECKING:
      from mj_environment import Environment
-@@ -64,51 +57,12 @@ def forward_kinematics(self, q: np.ndarray) -> np.ndarray:
+@@ -64,51 +57,12 @@
          return self._arm.forward_kinematics(q)
  
  
@@ -154,7 +154,7 @@ index 948994e..d2afcff 100644
      data: mujoco.MjData,
      site_id: int,
      tcp_offset: np.ndarray | None = None,
-@@ -487,7 +441,7 @@ def get_ee_pose(self) -> np.ndarray:
+@@ -487,7 +441,7 @@
          if self.ee_site_id == -1:
              raise RuntimeError("No ee_site configured")
          mujoco.mj_forward(self.env.model, self.env.data)
@@ -163,7 +163,7 @@ index 948994e..d2afcff 100644
  
      def get_ee_jacobian(self) -> np.ndarray:
          """6xN end-effector Jacobian in world frame.
-@@ -544,427 +498,4 @@ def forward_kinematics(self, q: np.ndarray) -> np.ndarray:
+@@ -544,427 +498,4 @@
          for i, idx in enumerate(self.joint_qpos_indices):
              tmp_data.qpos[idx] = q[i]
          mujoco.mj_forward(self.env.model, tmp_data)
@@ -593,8 +593,6 @@ index 948994e..d2afcff 100644
 -        return self.solve(pose, q_init)
 +        return read_site_pose(tmp_data, self.ee_site_id, self.config.tcp_offset)
 diff --git a/src/mj_manipulator/arm_group.py b/src/mj_manipulator/arm_group.py
-new file mode 100644
-index 0000000..452ab9b
 --- /dev/null
 +++ b/src/mj_manipulator/arm_group.py
 @@ -0,0 +1,921 @@
@@ -1521,8 +1519,6 @@ index 0000000..452ab9b
 +        return self.solve(pose, q_init)
 \ No newline at end of file
 diff --git a/src/mj_manipulator/cartesian_path.py b/src/mj_manipulator/cartesian_path.py
-deleted file mode 100644
-index 371e9c3..0000000
 --- a/src/mj_manipulator/cartesian_path.py
 +++ /dev/null
 @@ -1,259 +0,0 @@
@@ -1786,7 +1782,6 @@ index 371e9c3..0000000
 -        waypoints.append(pose)
 -    return waypoints
 diff --git a/src/mj_manipulator/collision.py b/src/mj_manipulator/collision.py
-index 72fde5f..9567503 100644
 --- a/src/mj_manipulator/collision.py
 +++ b/src/mj_manipulator/collision.py
 @@ -14,6 +14,7 @@
@@ -1797,7 +1792,7 @@ index 72fde5f..9567503 100644
  import logging
  
  import mujoco
-@@ -58,6 +59,7 @@ def __init__(
+@@ -58,6 +59,7 @@
          grasped_objects: frozenset[tuple[str, str]] | None = None,
          attachments: dict[str, tuple[str, np.ndarray]] | None = None,
          extra_arm_body_names: list[str] | None = None,
@@ -1805,17 +1800,18 @@ index 72fde5f..9567503 100644
      ):
          """Initialize collision checker.
  
-@@ -74,7 +76,22 @@ def __init__(
+@@ -74,7 +76,22 @@
              extra_arm_body_names: Additional body names (and their descendants)
                  to treat as part of the arm for collision filtering. Use for
                  welded tool bodies that aren't children in the body tree.
+-        """
 +            margin_mm: Safety standoff. When > 0, MuJoCo starts generating
 +                contacts once geoms are within this distance, not just once
 +                they overlap, so get_contacts()/is_valid() flag "too close"
 +                the same way they already flag "overlapping". A reported
 +                depth can come out negative for one of these near-miss
 +                contacts -- that's a gap in mm, not a penetration.
-         """
++        """
 +        if margin_mm > 0:
 +            # geom_margin lives on the MjModel, which planning code treats as
 +            # shared/immutable across forks -- bumping it in place would leak
@@ -1828,10 +1824,11 @@ index 72fde5f..9567503 100644
          self.model = model
          self._grasp_manager = grasp_manager
  
-@@ -201,6 +218,22 @@ def get_contacts(self, q: np.ndarray) -> list[tuple[str, str, float]]:
+@@ -200,6 +217,22 @@
+             contacts.append((arm_name, env_name, -contact.dist * 1000))
  
          return contacts
- 
++
 +    def body_ids_for_joints(self, joint_names: list[str], extra_body_names: list[str] | None = None) -> set[int]:
 +        ids: set[int] = set()
 +        for name in joint_names:
@@ -1847,15 +1844,13 @@ index 72fde5f..9567503 100644
 +                ids.add(bid)
 +                ids.update(self._get_body_and_descendants(bid))
 +        return ids
-+
+ 
      def is_valid_batch(self, qs: np.ndarray) -> np.ndarray:
          """Check multiple configurations for collisions."""
-         results = np.zeros(len(qs), dtype=bool)
 diff --git a/src/mj_manipulator/config.py b/src/mj_manipulator/config.py
-index fe39b17..cef8ea8 100644
 --- a/src/mj_manipulator/config.py
 +++ b/src/mj_manipulator/config.py
-@@ -38,6 +38,7 @@ class PlanningDefaults:
+@@ -38,6 +38,7 @@
      step_size: float = 0.1
      goal_bias: float = 0.1
      smoothing_iterations: int = 100
@@ -1863,7 +1858,7 @@ index fe39b17..cef8ea8 100644
  
      @classmethod
      def fast(cls) -> "PlanningDefaults":
-@@ -58,6 +59,28 @@ class EntityConfig:
+@@ -58,6 +59,28 @@
      entity_type: str  # Category: "arm", "base", "gripper"
      joint_names: list[str]  # MuJoCo joint names this entity controls
  
@@ -1892,7 +1887,7 @@ index fe39b17..cef8ea8 100644
  
  @dataclass
  class ArmConfig(EntityConfig):
-@@ -82,6 +105,7 @@ class ArmConfig(EntityConfig):
+@@ -82,6 +105,7 @@
      ft_torque_sensor: str | None = None  # MuJoCo torque sensor name (3-axis)
      extra_arm_body_names: list[str] | None = None  # Additional bodies to treat as part of arm for collision
      planning_defaults: PlanningDefaults = field(default_factory=PlanningDefaults)
@@ -1900,7 +1895,7 @@ index fe39b17..cef8ea8 100644
  
      # Cartesian control limits — the arm declares what it can do.
      # TeleopController and servo primitives read these.
-@@ -121,6 +145,11 @@ class ExecutionConfig:
+@@ -121,6 +145,11 @@
      velocity_tolerance: float = 0.1  # rad/s
      convergence_timeout_steps: int = 500
      base_settling_steps: int = 50
@@ -1913,7 +1908,6 @@ index fe39b17..cef8ea8 100644
      @classmethod
      def tight(cls) -> "ExecutionConfig":
 diff --git a/src/mj_manipulator/controller.py b/src/mj_manipulator/controller.py
-index f8e417e..408fb04 100644
 --- a/src/mj_manipulator/controller.py
 +++ b/src/mj_manipulator/controller.py
 @@ -32,6 +32,7 @@
@@ -1924,7 +1918,7 @@ index f8e417e..408fb04 100644
      from mj_manipulator.config import ExecutionConfig
      from mj_manipulator.protocols import Gripper
      from mj_manipulator.trajectory import Trajectory
-@@ -291,7 +292,7 @@ def __init__(
+@@ -291,7 +292,7 @@
          self,
          model: mujoco.MjModel,
          data: mujoco.MjData,
@@ -1933,7 +1927,7 @@ index f8e417e..408fb04 100644
          *,
          config: ExecutionConfig | None = None,
          gripper_config: object | None = None,
-@@ -321,7 +322,7 @@ def __init__(
+@@ -321,7 +322,7 @@
          self._arms: dict[str, _ArmState] = {}
          self._grippers: dict[str, _GripperState] = {}
  
@@ -1943,7 +1937,6 @@ index f8e417e..408fb04 100644
                  target_pos = np.asarray(initial_positions[name]).copy()
              else:
 diff --git a/src/mj_manipulator/grippers/_base.py b/src/mj_manipulator/grippers/_base.py
-index dfcadaf..e8e77ca 100644
 --- a/src/mj_manipulator/grippers/_base.py
 +++ b/src/mj_manipulator/grippers/_base.py
 @@ -12,6 +12,7 @@
@@ -1954,7 +1947,7 @@ index dfcadaf..e8e77ca 100644
  
  from mj_manipulator.contacts import iter_contacts
  
-@@ -193,6 +194,38 @@ def kinematic_open(self) -> None:
+@@ -193,6 +194,38 @@
          """Open gripper kinematically."""
          self._apply_kinematic_position(0.0)
  
@@ -1994,7 +1987,6 @@ index dfcadaf..e8e77ca 100644
  
      def _scan_contacts(self) -> tuple[bool, str | None]:
 diff --git a/src/mj_manipulator/kinematic_controller.py b/src/mj_manipulator/kinematic_controller.py
-index 46f3534..f024fb3 100644
 --- a/src/mj_manipulator/kinematic_controller.py
 +++ b/src/mj_manipulator/kinematic_controller.py
 @@ -26,6 +26,7 @@
@@ -2005,7 +1997,7 @@ index 46f3534..f024fb3 100644
  
  logger = logging.getLogger(__name__)
  
-@@ -47,7 +48,7 @@ class KinematicController(Controller):
+@@ -47,7 +48,7 @@
      Args:
          model: MuJoCo model.
          data: MuJoCo data (modified during execution).
@@ -2014,7 +2006,7 @@ index 46f3534..f024fb3 100644
          config: Execution parameters. Defaults to 250 Hz control_dt.
          viewer: Optional viewer to sync during execution.
          viewer_sync_interval: Minimum seconds between viewer syncs.
-@@ -60,7 +61,7 @@ def __init__(
+@@ -60,7 +61,7 @@
          self,
          model: mujoco.MjModel,
          data: mujoco.MjData,
@@ -2023,7 +2015,7 @@ index 46f3534..f024fb3 100644
          *,
          config: ExecutionConfig | None = None,
          viewer=None,
-@@ -74,7 +75,7 @@ def __init__(
+@@ -74,7 +75,7 @@
          super().__init__(
              model,
              data,
@@ -2033,7 +2025,6 @@ index 46f3534..f024fb3 100644
              gripper_config=None,
              viewer=viewer,
 diff --git a/src/mj_manipulator/planning.py b/src/mj_manipulator/planning.py
-index 6ae33fb..f9aafb9 100644
 --- a/src/mj_manipulator/planning.py
 +++ b/src/mj_manipulator/planning.py
 @@ -11,6 +11,38 @@
@@ -2076,10 +2067,9 @@ index 6ae33fb..f9aafb9 100644
  @dataclass
  class PlanResult:
 diff --git a/src/mj_manipulator/protocols.py b/src/mj_manipulator/protocols.py
-index 632235b..052d673 100644
 --- a/src/mj_manipulator/protocols.py
 +++ b/src/mj_manipulator/protocols.py
-@@ -296,6 +296,20 @@ def get_actual_position(self) -> float:
+@@ -296,6 +296,20 @@
          """Get current gripper position (0.0 = fully open, 1.0 = fully closed)."""
          ...
  
@@ -2101,10 +2091,9 @@ index 632235b..052d673 100644
  @runtime_checkable
  class IKSolver(Protocol):
 diff --git a/src/mj_manipulator/robot.py b/src/mj_manipulator/robot.py
-index 6d8594f..cc26924 100644
 --- a/src/mj_manipulator/robot.py
 +++ b/src/mj_manipulator/robot.py
-@@ -36,6 +36,7 @@ def __init__(self):
+@@ -36,6 +36,7 @@
  
  if TYPE_CHECKING:
      from mj_manipulator.arm import Arm
@@ -2112,7 +2101,7 @@ index 6d8594f..cc26924 100644
      from mj_manipulator.grasp_manager import GraspManager
      from mj_manipulator.protocols import GraspSource
  
-@@ -55,7 +56,7 @@ def model(self) -> mujoco.MjModel: ...
+@@ -55,7 +56,7 @@
      def data(self) -> mujoco.MjData: ...
  
      @property
@@ -2121,7 +2110,7 @@ index 6d8594f..cc26924 100644
          """All arms, keyed by name (e.g. {"left": arm, "right": arm})."""
          ...
  
-@@ -101,7 +102,7 @@ def __init__(
+@@ -101,7 +102,7 @@
          self,
          model: mujoco.MjModel,
          data: mujoco.MjData,
@@ -2130,7 +2119,7 @@ index 6d8594f..cc26924 100644
          grasp_manager: GraspManager,
          named_poses: dict[str, dict[str, list[float]]] | None = None,
          grasp_source: GraspSource | None = None,
-@@ -109,7 +110,7 @@ def __init__(
+@@ -109,7 +110,7 @@
      ):
          self.model = model
          self.data = data
@@ -2139,7 +2128,7 @@ index 6d8594f..cc26924 100644
          self.grasp_manager = grasp_manager
          self.named_poses = named_poses or {}
          self._grasp_source = grasp_source
-@@ -124,7 +125,7 @@ def __init__(
+@@ -124,7 +125,7 @@
          # can set ``arm.gripper.grasp_verifier`` before or after super().__init__.
          from mj_manipulator.grasp_verifier import GraspVerifier
  
@@ -2148,7 +2137,7 @@ index 6d8594f..cc26924 100644
              gripper = arm.gripper
              if gripper is not None and gripper.grasp_verifier is None:
                  gripper.grasp_verifier = GraspVerifier(gripper=gripper, signals=[])
-@@ -149,8 +150,8 @@ def _active_context(self, ctx):
+@@ -149,8 +150,8 @@
  
      def __getitem__(self, arm_name: str) -> _ArmScope:
          """Get a per-arm accessor: robot["franka"].get_ee_pose()"""
@@ -2159,7 +2148,7 @@ index 6d8594f..cc26924 100644
          return _ArmScope(self, arm_name)
  
      # -- Execution context -----------------------------------------------------
-@@ -162,7 +163,7 @@ def sim(self, *, physics=True, headless=False, viewer=None, event_loop=None):
+@@ -162,7 +163,7 @@
          inner = SimContext(
              self.model,
              self.data,
@@ -2168,7 +2157,7 @@ index 6d8594f..cc26924 100644
              physics=physics,
              headless=headless,
              viewer=viewer,
-@@ -260,7 +261,7 @@ def setup_scenario_scene(self, scene: dict) -> None:
+@@ -260,7 +261,7 @@
  
          # 2. Move arms to "ready" if defined.
          ready = self.named_poses.get("ready", {})
@@ -2177,7 +2166,7 @@ index 6d8594f..cc26924 100644
              if arm_name in ready:
                  q = ready[arm_name]
                  for i, idx in enumerate(arm.joint_qpos_indices):
-@@ -297,7 +298,7 @@ def find_objects(self, target=None):
+@@ -297,7 +298,7 @@
  
      def holding(self):
          """Get (arm_name, object_name) if any arm is holding, else None."""
@@ -2186,7 +2175,7 @@ index 6d8594f..cc26924 100644
              if arm.gripper and arm.gripper.is_holding and arm.gripper.held_object:
                  return (arm_name, arm.gripper.held_object)
          return None
-@@ -340,15 +341,8 @@ def forward(self):
+@@ -340,15 +341,8 @@
              self._context.sync()
  
      def check_collisions(self, arm_name: str | None = None):
@@ -2204,7 +2193,7 @@ index 6d8594f..cc26924 100644
  
  
  class _ArmScope:
-@@ -371,7 +365,7 @@ def __init__(self, robot: RobotBase, arm_name: str):
+@@ -371,7 +365,7 @@
  
      @property
      def _arm(self):
@@ -2213,7 +2202,7 @@ index 6d8594f..cc26924 100644
  
      def __getattr__(self, name):
          return getattr(self._arm, name)
-@@ -406,7 +400,7 @@ def open(self):
+@@ -406,7 +400,7 @@
  
      def check_collisions(self):
          """Print collision contacts for this arm."""
@@ -2223,7 +2212,6 @@ index 6d8594f..cc26924 100644
      def __repr__(self):
          return f"ArmScope({self._arm_name})"
 diff --git a/src/mj_manipulator/safe_retract.py b/src/mj_manipulator/safe_retract.py
-index 3c1092b..d90208a 100644
 --- a/src/mj_manipulator/safe_retract.py
 +++ b/src/mj_manipulator/safe_retract.py
 @@ -25,17 +25,15 @@
@@ -2246,7 +2234,7 @@ index 3c1092b..d90208a 100644
      ctx: ExecutionContext,
      twist: np.ndarray,
      max_distance: float,
-@@ -44,45 +42,35 @@ def safe_retract(
+@@ -44,45 +42,35 @@
      max_branch_jump: float | None = None,
      stop_condition: Callable[[], bool] | None = None,
  ) -> float:
@@ -2304,7 +2292,7 @@ index 3c1092b..d90208a 100644
          )
  
      linear = np.asarray(twist[:3], dtype=float)
-@@ -93,21 +81,27 @@ def safe_retract(
+@@ -93,21 +81,27 @@
  
      direction = linear / linear_norm
  
@@ -2315,7 +2303,13 @@ index 3c1092b..d90208a 100644
 +        pose[:3, 3].copy()
 +        for pose in start_poses
 +    ]
-+
+ 
+-    waypoints = translational_waypoints(
+-        start_pose,
+-        direction,
+-        max_distance,
+-        segment_length=segment_length,
+-    )
 +    goals = {}
 +
 +    for arm_name, start_pose in zip(arm_group.arms, start_poses):
@@ -2325,26 +2319,20 @@ index 3c1092b..d90208a 100644
 +            max_distance,
 +            segment_length=segment_length,
 +        )
- 
--    waypoints = translational_waypoints(
--        start_pose,
--        direction,
--        max_distance,
--        segment_length=segment_length,
--    )
++
      try:
 -        trajectory = plan_cartesian_path(
 -            arm,
 -            waypoints,
--            partial_ok=True,
 +        trajectory = arm_group.plan_cartesian_path(
 +            goals,
-             max_branch_jump=max_branch_jump,
-+            partial_ok=True,
++            max_branch_jump=max_branch_jump,
+             partial_ok=True,
+-            max_branch_jump=max_branch_jump,
          )
      except ValueError as exc:
          logger.warning("safe_retract: no feasible prefix (%s); not moving", exc)
-@@ -115,8 +109,71 @@ def safe_retract(
+@@ -115,8 +109,71 @@
  
      ctx.execute(trajectory, abort_fn=stop_condition)
  
@@ -2421,10 +2409,9 @@ index 3c1092b..d90208a 100644
 +    return waypoints
 +
 diff --git a/src/mj_manipulator/sim_context.py b/src/mj_manipulator/sim_context.py
-index 9f74afb..3ae9c7b 100644
 --- a/src/mj_manipulator/sim_context.py
 +++ b/src/mj_manipulator/sim_context.py
-@@ -37,13 +37,40 @@
+@@ -37,12 +37,39 @@
  
  if TYPE_CHECKING:
      from mj_manipulator.arm import Arm
@@ -2436,7 +2423,7 @@ index 9f74afb..3ae9c7b 100644
 +    from mj_manipulator.ownership import OwnershipRegistry, OwnerKind
  
  logger = logging.getLogger(__name__)
- 
++
 +# ---------------------------------------------------------------------------
 +# SiblingFailureSignal
 +# ---------------------------------------------------------------------------
@@ -2462,11 +2449,10 @@ index 9f74afb..3ae9c7b 100644
 +    def triggered(self) -> bool:
 +        """True once any sibling has failed."""
 +        return self._event.is_set()
-+
+ 
  
  # ---------------------------------------------------------------------------
- # SimArmController
-@@ -69,7 +96,7 @@ def __init__(self, arm: Arm, context: SimContext):
+@@ -69,7 +96,7 @@
          self._arm = arm
          self._context = context
  
@@ -2475,7 +2461,7 @@ index 9f74afb..3ae9c7b 100644
          """Close gripper and attempt to grasp an object.
  
          In physics mode: gradually closes the gripper with contact detection.
-@@ -169,7 +196,7 @@ def _run_close(self, candidates: list[str] | None) -> None:
+@@ -169,7 +196,7 @@
          arm_name = self._arm.config.name
          self._context._controller.close_gripper(arm_name, candidate_objects=candidates)
  
@@ -2484,10 +2470,11 @@ index 9f74afb..3ae9c7b 100644
          """Open gripper and release held object(s).
  
          Args:
-@@ -207,6 +234,27 @@ def release(self, object_name: str | None = None) -> None:
+@@ -206,6 +233,27 @@
+         self._context._controller.open_gripper(arm_name)
  
          self._context.sync()
- 
++
 +    def set_width(self, width: float, synchronous: bool = True) -> bool:
 +        """Set gripper width as a fraction open (0.0=closed, 1.0=open).
 +
@@ -2508,11 +2495,10 @@ index 9f74afb..3ae9c7b 100644
 +        """Current gripper width as a fraction open, or 0.0 if no gripper."""
 +        gripper = self._arm.gripper
 +        return gripper.get_width() if gripper is not None else 0.0
-+
+ 
  
  # ---------------------------------------------------------------------------
- # SimContext
-@@ -255,7 +303,7 @@ def __init__(
+@@ -255,7 +303,7 @@
          self,
          model: mujoco.MjModel,
          data: mujoco.MjData,
@@ -2521,7 +2507,7 @@ index 9f74afb..3ae9c7b 100644
          *,
          physics: bool = True,
          headless: bool = False,
-@@ -269,7 +317,7 @@ def __init__(
+@@ -269,7 +317,7 @@
      ):
          self._model = model
          self._data = data
@@ -2530,7 +2516,7 @@ index 9f74afb..3ae9c7b 100644
          self._entities = entities or {}
          self._physics = physics
          self._headless = headless
-@@ -324,7 +372,7 @@ def __enter__(self) -> SimContext:
+@@ -324,7 +372,7 @@
              self._setup_kinematic(viewer_sync_interval)
  
          # Mark F/T sensors as valid in physics mode (always valid on hardware)
@@ -2539,7 +2525,7 @@ index 9f74afb..3ae9c7b 100644
              arm.ft_valid = self._physics
  
          # Wire event loop to controller (both physics and kinematic modes)
-@@ -334,7 +382,7 @@ def __enter__(self) -> SimContext:
+@@ -334,7 +382,7 @@
              # Create ownership registry for all arms + entities
              from mj_manipulator.ownership import OwnershipRegistry
  
@@ -2548,7 +2534,7 @@ index 9f74afb..3ae9c7b 100644
              self._ownership = OwnershipRegistry(all_names)
  
          self.sync()
-@@ -369,7 +417,7 @@ def _make_drop_abort(self) -> Callable[[], bool] | None:
+@@ -369,7 +417,7 @@
          more common case where no grasp is active.
          """
          holding_verifiers = []
@@ -2557,7 +2543,7 @@ index 9f74afb..3ae9c7b 100644
              gripper = arm.gripper
              if gripper is None or gripper.grasp_verifier is None:
                  continue
-@@ -442,123 +490,180 @@ def _execute_tick_driven(
+@@ -442,123 +490,180 @@
          - **Background thread** (chat): starts the runner via submit, then
            blocks on Future. The inputhook pumps tick() on the owner thread.
          """
@@ -2692,13 +2678,14 @@ index 9f74afb..3ae9c7b 100644
 -                    # Background thread — submit start, block on future while
 -                    # the inputhook pumps tick() on the owner thread
 -                    runner_future: Future[bool] = Future()
+-
+-                    def _start(t=traj, af=runner_abort_fn, rf=runner_future):
 +                wrapper_future: Future[bool] = Future()
 +
 +                def _start(t=traj, af=runner_abort_fn, rf=wrapper_future) -> None:
 +                    if self._controller is None:
 +                        raise RuntimeError("Cannot start trajectory: controller is not set")
- 
--                    def _start(t=traj, af=runner_abort_fn, rf=runner_future):
++
 +                    def _on_done(done_f, rf=rf, fs=signal):
                          try:
 -                            f = self._controller.start_trajectory(t.entity, t, af)
@@ -2706,18 +2693,19 @@ index 9f74afb..3ae9c7b 100644
 +                            result = done_f.result()
                          except Exception as e:
                              rf.set_exception(e)
-+                            fs.mark()
-+                            return
-+                        rf.set_result(result)
-+                        if not result:
-+                            fs.mark()
- 
+-
 -                    self._event_loop.submit(_start)
 -                    if not runner_future.result():
 -                        return False
 -            finally:
 -                # Release ownership (unless preempted — owner already changed)
 -                if self._ownership is not None:
++                            fs.mark()
++                            return
++                        rf.set_result(result)
++                        if not result:
++                            fs.mark()
++
 +                    try:
 +                        f = self._controller.start_trajectory(t.entity, t, af)
 +                        f.add_done_callback(_on_done)
@@ -2826,7 +2814,7 @@ index 9f74afb..3ae9c7b 100644
  
      def _execute_impl(
          self,
-@@ -567,7 +672,7 @@ def _execute_impl(
+@@ -567,7 +672,7 @@
          abort_fn: Callable[[], bool] | None = None,
      ) -> bool:
          """Execute implementation — synchronous, always runs on the physics thread."""
@@ -2835,7 +2823,7 @@ index 9f74afb..3ae9c7b 100644
          from mj_manipulator.trajectory import Trajectory
  
          # In the kinematic/legacy path, abort checks happen between
-@@ -592,6 +697,24 @@ def _should_abort() -> bool:
+@@ -592,6 +697,24 @@
              if _should_abort():
                  return False
              return self._execute_trajectory(item)
@@ -2860,7 +2848,7 @@ index 9f74afb..3ae9c7b 100644
          else:
              raise TypeError(f"Cannot execute {type(item)}")
  
-@@ -737,7 +860,7 @@ def reset_state(self) -> None:
+@@ -737,7 +860,7 @@
  
          # 3. Release all grasps: clear grasp manager bookkeeping, detach
          #    kinematic welds, and reset grasp verifiers to IDLE.
@@ -2869,7 +2857,7 @@ index 9f74afb..3ae9c7b 100644
              arm_name = arm.config.name
              gm = arm.grasp_manager
              if gm is not None:
-@@ -798,12 +921,12 @@ def arm(self, name: str) -> SimArmController:
+@@ -798,12 +921,12 @@
          Returns:
              SimArmController for the specified arm.
          """
@@ -2884,7 +2872,7 @@ index 9f74afb..3ae9c7b 100644
                  self,
              )
          return self._arm_controllers[name]
-@@ -839,13 +962,15 @@ def _deactivate_teleop_for_item(self, item: object) -> None:
+@@ -839,13 +962,15 @@
          if self._ownership is None:
              return
          from mj_manipulator.ownership import OwnerKind
@@ -2901,7 +2889,7 @@ index 9f74afb..3ae9c7b 100644
          else:
              return
  
-@@ -904,7 +1029,7 @@ def _setup_physics(self, viewer_sync_interval: float) -> None:
+@@ -904,7 +1029,7 @@
          self._controller = PhysicsController(
              self._model,
              self._data,
@@ -2910,7 +2898,7 @@ index 9f74afb..3ae9c7b 100644
              config=exec_config,
              gripper_config=gripper_config,
              viewer=self._viewer,
-@@ -914,7 +1039,7 @@ def _setup_physics(self, viewer_sync_interval: float) -> None:
+@@ -914,7 +1039,7 @@
              abort_fn=self._abort_fn,
          )
  
@@ -2919,7 +2907,7 @@ index 9f74afb..3ae9c7b 100644
              self._executors[name] = self._controller.get_executor(name)
  
          for name in self._entities:
-@@ -928,10 +1053,15 @@ def _setup_kinematic(self, viewer_sync_interval: float) -> None:
+@@ -928,10 +1053,15 @@
          """Create KinematicController and per-arm executor wrappers."""
          from mj_manipulator.kinematic_controller import KinematicController
  
@@ -2936,7 +2924,7 @@ index 9f74afb..3ae9c7b 100644
              viewer=self._viewer,
              viewer_sync_interval=viewer_sync_interval,
              initial_positions=self._initial_positions,
-@@ -940,7 +1070,7 @@ def _setup_kinematic(self, viewer_sync_interval: float) -> None:
+@@ -940,7 +1070,7 @@
          )
  
          # Executor wrappers for the no-event-loop legacy path
@@ -2946,10 +2934,9 @@ index 9f74afb..3ae9c7b 100644
  
          for name in self._entities:
 diff --git a/src/mj_manipulator/teleop.py b/src/mj_manipulator/teleop.py
-index 75ff83d..50b3ea6 100644
 --- a/src/mj_manipulator/teleop.py
 +++ b/src/mj_manipulator/teleop.py
-@@ -359,9 +359,9 @@ def _execute_gripper_toggle(self) -> None:
+@@ -359,9 +359,9 @@
  
          pos = gripper.get_actual_position()
          if pos > 0.5:
@@ -2962,10 +2949,9 @@ index 75ff83d..50b3ea6 100644
  
          # Restore tracking at current EE pose (not the old target)
 diff --git a/src/mj_manipulator/trajectory.py b/src/mj_manipulator/trajectory.py
-index 3d7ad1c..402ec13 100644
 --- a/src/mj_manipulator/trajectory.py
 +++ b/src/mj_manipulator/trajectory.py
-@@ -98,6 +98,48 @@ def sample(self, t: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+@@ -98,6 +98,48 @@
  
          return pos, vel, acc
  
@@ -3014,7 +3000,7 @@ index 3d7ad1c..402ec13 100644
      @classmethod
      def from_path(
          cls,
-@@ -107,9 +149,26 @@ def from_path(
+@@ -107,8 +149,25 @@
          control_dt: float = 0.008,
          entity: str | None = None,
          joint_names: list[str] | None = None,
@@ -3026,7 +3012,7 @@ index 3d7ad1c..402ec13 100644
 +        collision_max_densify: int = 4,
      ) -> "Trajectory":
          """Create time-optimal trajectory from geometric path using TOPP-RA.
- 
++
 +        The input `path` is only guaranteed collision-free at the straight-line
 +        edges the planner checked -- retiming fits a smooth cubic spline
 +        (`toppra.SplineInterpolator`) through those waypoints, and that spline
@@ -3037,11 +3023,10 @@ index 3d7ad1c..402ec13 100644
 +        inserted between every consecutive pair of waypoints, halving the
 +        spline's freedom to deviate from the checked straight lines) and
 +        retiming is retried, up to `collision_max_densify` times.
-+
+ 
          Args:
              path: List of waypoint configurations (joint angles in radians)
-             vel_limits: Joint velocity limits in rad/s (shape: (dof,))
-@@ -117,13 +176,21 @@ def from_path(
+@@ -117,13 +176,21 @@
              control_dt: Control timestep in seconds (default: 125 Hz)
              entity: Entity name for hardware deployment
              joint_names: MuJoCo joint names for validation
@@ -3064,14 +3049,42 @@ index 3d7ad1c..402ec13 100644
          """
          if not path:
              raise ValueError("Path cannot be empty")
-@@ -157,8 +224,119 @@ def from_path(
+@@ -157,35 +224,56 @@
                  joint_names=joint_names,
              )
  
 -        path_positions = toppra.SplineInterpolator(np.linspace(0, 1, len(path_array)), path_array)
+-
+-        vel_limits_minmax = np.stack((-vel_limits, vel_limits)).T
+-        acc_limits_minmax = np.stack((-acc_limits, acc_limits)).T
+-
+-        pc_vel = constraint.JointVelocityConstraint(vel_limits_minmax)
+-        pc_acc = constraint.JointAccelerationConstraint(acc_limits_minmax)
+-
+-        instance = algo.TOPPRA(
+-            [pc_vel, pc_acc],
+-            path_positions,
+-            parametrizer="ParametrizeConstAccel",
+-        )
+-
+-        jnt_traj = instance.compute_trajectory()
+-
+-        if jnt_traj is None:
+-            raise RuntimeError(
+-                "TOPP-RA failed to find valid trajectory. Path may violate velocity or acceleration constraints."
+-            )
+-
+-        duration = jnt_traj.duration
+-        timestamps = np.arange(0.0, duration, control_dt)
+-        if not np.isclose(timestamps[-1], duration, rtol=0.0, atol=1e-8):
+-            timestamps = np.append(timestamps, duration)
+-
+-        positions = jnt_traj(timestamps)
+-        velocities = jnt_traj(timestamps, 1)
+-        accelerations = jnt_traj(timestamps, 2)
 +        for densify_attempt in range(collision_max_densify + 1):
 +            path_positions = toppra.SplineInterpolator(np.linspace(0, 1, len(path_array)), path_array)
- 
++
 +            # The solve grid must stay dense relative to the knot count (see
 +            # _solve_toppra's docstring) -- a fixed retime_gridpoints becomes
 +            # too coarse once densify has multiplied the knot count, and
@@ -3119,16 +3132,13 @@ index 3d7ad1c..402ec13 100644
 +                )
 +
 +            path_array = cls._densify_path(path_array)
-+
-+        return cls(
-+            timestamps=timestamps,
-+            positions=positions,
-+            velocities=velocities,
-+            accelerations=accelerations,
-+            entity=entity,
-+            joint_names=joint_names,
-+        )
-+
+ 
+         return cls(
+             timestamps=timestamps,
+@@ -196,6 +284,84 @@
+             joint_names=joint_names,
+         )
+ 
 +    @staticmethod
 +    def _densify_path(path_array: np.ndarray) -> np.ndarray:
 +        """Insert a midpoint between every consecutive waypoint pair.
@@ -3182,45 +3192,35 @@ index 3d7ad1c..402ec13 100644
 +        durations were 30-50% longer than dense-grid ones, independent of
 +        the accel-limit issue).
 +        """
-         vel_limits_minmax = np.stack((-vel_limits, vel_limits)).T
-         acc_limits_minmax = np.stack((-acc_limits, acc_limits)).T
- 
-@@ -168,11 +346,11 @@ def from_path(
-         instance = algo.TOPPRA(
-             [pc_vel, pc_acc],
-             path_positions,
++        vel_limits_minmax = np.stack((-vel_limits, vel_limits)).T
++        acc_limits_minmax = np.stack((-acc_limits, acc_limits)).T
++
++        pc_vel = constraint.JointVelocityConstraint(vel_limits_minmax)
++        pc_acc = constraint.JointAccelerationConstraint(acc_limits_minmax)
++
++        instance = algo.TOPPRA(
++            [pc_vel, pc_acc],
++            path_positions,
 +            gridpoints=np.linspace(0, 1, n_gridpoints),
-             parametrizer="ParametrizeConstAccel",
-         )
- 
-         jnt_traj = instance.compute_trajectory()
--
-         if jnt_traj is None:
-             raise RuntimeError(
-                 "TOPP-RA failed to find valid trajectory. Path may violate velocity or acceleration constraints."
-@@ -183,19 +361,7 @@ def from_path(
-         if not np.isclose(timestamps[-1], duration, rtol=0.0, atol=1e-8):
-             timestamps = np.append(timestamps, duration)
- 
--        positions = jnt_traj(timestamps)
--        velocities = jnt_traj(timestamps, 1)
--        accelerations = jnt_traj(timestamps, 2)
--
--        return cls(
--            timestamps=timestamps,
--            positions=positions,
--            velocities=velocities,
--            accelerations=accelerations,
--            entity=entity,
--            joint_names=joint_names,
--        )
--
++            parametrizer="ParametrizeConstAccel",
++        )
++
++        jnt_traj = instance.compute_trajectory()
++        if jnt_traj is None:
++            raise RuntimeError(
++                "TOPP-RA failed to find valid trajectory. Path may violate velocity or acceleration constraints."
++            )
++
++        duration = jnt_traj.duration
++        timestamps = np.arange(0.0, duration, control_dt)
++        if not np.isclose(timestamps[-1], duration, rtol=0.0, atol=1e-8):
++            timestamps = np.append(timestamps, duration)
++
 +        return timestamps, jnt_traj(timestamps), jnt_traj(timestamps, 1), jnt_traj(timestamps, 2)
  
  def create_linear_trajectory(
      start: float,
 diff --git a/tests/test_arm.py b/tests/test_arm.py
-index 74c12b2..6335545 100644
 --- a/tests/test_arm.py
 +++ b/tests/test_arm.py
 @@ -12,7 +12,7 @@
@@ -3232,7 +3232,7 @@ index 74c12b2..6335545 100644
  from mj_manipulator.config import ArmConfig, KinematicLimits
  
  # UR5e constants
-@@ -78,6 +78,16 @@ def ur5e_arm(ur5e_env):
+@@ -78,6 +78,16 @@
  class TestStateQueries:
      """Tests for joint position/velocity and EE pose queries."""
  
@@ -3249,10 +3249,12 @@ index 74c12b2..6335545 100644
      def test_joint_positions(self, ur5e_arm):
          """get_joint_positions returns correct values after setting home."""
          q = ur5e_arm.get_joint_positions()
-@@ -167,125 +177,6 @@ def test_tcp_offset(self, ur5e_env):
+@@ -165,125 +175,6 @@
+ 
+         expected = pose_no @ offset
          np.testing.assert_allclose(pose_yes, expected, atol=1e-6)
- 
- 
+-
+-
 -# ---------------------------------------------------------------------------
 -# Adapter tests
 -# ---------------------------------------------------------------------------
@@ -3370,12 +3372,10 @@ index 74c12b2..6335545 100644
 -        """plan_to_tsrs raises without IK solver."""
 -        with pytest.raises(RuntimeError, match="requires an IK solver"):
 -            ur5e_arm.plan_to_tsrs([])
--
--
+ 
+ 
  # ---------------------------------------------------------------------------
- # Error handling tests
- # ---------------------------------------------------------------------------
-@@ -332,77 +223,3 @@ def test_no_ee_site_raises_on_fk(self, ur5e_env):
+@@ -332,77 +223,3 @@
          arm = Arm(ur5e_env, config)
          with pytest.raises(RuntimeError, match="No ee_site"):
              arm.get_ee_pose()
@@ -3454,8 +3454,6 @@ index 74c12b2..6335545 100644
 -        tsr = TSR(T0_w=np.eye(4), Tw_e=np.eye(4), Bw=np.zeros((6, 2)))
 -        assert arm.plan_to_tsrs([tsr]) is None
 diff --git a/tests/test_arm_group.py b/tests/test_arm_group.py
-new file mode 100644
-index 0000000..56a08d0
 --- /dev/null
 +++ b/tests/test_arm_group.py
 @@ -0,0 +1,922 @@
@@ -4383,7 +4381,6 @@ index 0000000..56a08d0
 +        np.testing.assert_array_equal(captured["vel_limits"], two_arm_group.kinematic_limits.velocity)
 \ No newline at end of file
 diff --git a/tests/test_cartesian_path.py b/tests/test_cartesian_path.py
-index 088ab25..bce2f89 100644
 --- a/tests/test_cartesian_path.py
 +++ b/tests/test_cartesian_path.py
 @@ -19,7 +19,23 @@
@@ -4411,7 +4408,7 @@ index 088ab25..bce2f89 100644
  
  # ---------------------------------------------------------------------------
  # translational_waypoints — pure logic, no menagerie
-@@ -102,13 +118,16 @@ class TestPlanCartesianPathValidation:
+@@ -102,13 +118,16 @@
      """Tests that exercise plan_cartesian_path's error-handling paths."""
  
      def test_empty_waypoints_raises(self, franka_arm_at_home):
@@ -4430,7 +4427,7 @@ index 088ab25..bce2f89 100644
  
      def test_no_arm_ik_solver_raises(self, franka_env_with_gravcomp):
          """Arm built without an IK solver should refuse Cartesian planning."""
-@@ -116,25 +135,25 @@ def test_no_arm_ik_solver_raises(self, franka_env_with_gravcomp):
+@@ -116,25 +135,25 @@
  
          env = franka_env_with_gravcomp
          arm = create_franka_arm(env, with_ik=False)
@@ -4461,12 +4458,13 @@ index 088ab25..bce2f89 100644
  
  
  # ---------------------------------------------------------------------------
-@@ -146,30 +165,27 @@ class TestPlanCartesianPathHappy:
+@@ -146,30 +165,27 @@
      """Integration tests that actually plan a trajectory."""
  
      def test_lift_produces_executable_trajectory(self, franka_arm_at_home):
 -        """A 10 cm +Z lift from home yields a valid, non-empty trajectory."""
-         arm = franka_arm_at_home
+-        arm = franka_arm_at_home
++        arm = franka_arm_at_home
 +        group = _one_arm_group(arm)
          start = arm.get_ee_pose()
          wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005)
@@ -4480,15 +4478,17 @@ index 088ab25..bce2f89 100644
  
      def test_trajectory_reaches_target_kinematically(self, franka_arm_at_home):
 -        """Final joint config in the trajectory produces the target EE z."""
-         arm = franka_arm_at_home
+-        arm = franka_arm_at_home
++        arm = franka_arm_at_home
 +        group = _one_arm_group(arm)
          start = arm.get_ee_pose()
          target_z = start[2, 3] + 0.1
          wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005)
 -        traj = plan_cartesian_path(arm, wps)
-+        traj = group.plan_cartesian_path({arm.config.name: wps})
- 
+-
 -        # Forward-kinematics the last waypoint and check the EE z.
++        traj = group.plan_cartesian_path({arm.config.name: wps})
++
          final_q = traj.positions[-1]
          pose = arm.forward_kinematics(final_q)
          assert abs(pose[2, 3] - target_z) < 1e-3
@@ -4496,7 +4496,7 @@ index 088ab25..bce2f89 100644
          np.testing.assert_allclose(pose[:2, 3], start[:2, 3], atol=1e-3)
  
      def test_trajectory_preserves_orientation(self, franka_arm_at_home):
-@@ -183,9 +199,10 @@ def test_trajectory_preserves_orientation(self, franka_arm_at_home):
+@@ -183,9 +199,10 @@
          flagging this expected interpolation error.
          """
          arm = franka_arm_at_home
@@ -4508,7 +4508,7 @@ index 088ab25..bce2f89 100644
  
          # Check first, middle, and last waypoint
          for idx in [0, traj.num_waypoints // 2, traj.num_waypoints - 1]:
-@@ -203,6 +220,7 @@ def test_partial_ok_returns_feasible_prefix(self, franka_arm_at_home):
+@@ -203,6 +220,7 @@
          feasible portion — not a raise, and not an empty plan.
          """
          arm = franka_arm_at_home
@@ -4516,7 +4516,7 @@ index 088ab25..bce2f89 100644
          start = arm.get_ee_pose()
          # 80 cm lift — Franka reach is ~85 cm, so the very top will be
          # unreachable but the first ~30 cm should plan fine.
-@@ -210,10 +228,10 @@ def test_partial_ok_returns_feasible_prefix(self, franka_arm_at_home):
+@@ -210,10 +228,10 @@
  
          # Without partial_ok, should raise.
          with pytest.raises(ValueError, match="no valid IK solution"):
@@ -4529,7 +4529,7 @@ index 088ab25..bce2f89 100644
          assert traj.dof == 7
          assert traj.num_waypoints > 0
          assert traj.duration > 0.0
-@@ -235,17 +253,19 @@ def test_partial_ok_first_waypoint_infeasible_raises(self, franka_arm_at_home):
+@@ -235,17 +253,19 @@
          hide "nothing is reachable" failures.
          """
          arm = franka_arm_at_home
@@ -4550,7 +4550,7 @@ index 088ab25..bce2f89 100644
          # Move the arm physically to a different pose, but plan from FRANKA_HOME
          import mujoco
  
-@@ -256,7 +276,7 @@ def test_q_start_override(self, franka_arm_at_home):
+@@ -256,7 +276,7 @@
          # FK from FRANKA_HOME — not the current (perturbed) pose
          start_pose_at_home = arm.forward_kinematics(FRANKA_HOME)
          wps = translational_waypoints(start_pose_at_home, np.array([0.0, 0.0, 1.0]), 0.05, segment_length=0.005)
@@ -4560,8 +4560,6 @@ index 088ab25..bce2f89 100644
          # First trajectory waypoint should be FRANKA_HOME (the retimer seeds
          # the path at q_start), not the perturbed current qpos.
 diff --git a/tests/test_concurrent_trajectories.py b/tests/test_concurrent_trajectories.py
-new file mode 100644
-index 0000000..c20f876
 --- /dev/null
 +++ b/tests/test_concurrent_trajectories.py
 @@ -0,0 +1,428 @@
@@ -4994,25 +4992,23 @@ index 0000000..c20f876
 +            assert abs(data.qpos[left_arm.joint_qpos_indices[0]]) < 1e-9
 +            assert abs(data.qpos[right_arm.joint_qpos_indices[0]]) < 1e-9
 diff --git a/tests/test_protocols.py b/tests/test_protocols.py
-index e07e62c..1615b3a 100644
 --- a/tests/test_protocols.py
 +++ b/tests/test_protocols.py
-@@ -128,6 +128,13 @@ def kinematic_open(self) -> None:
+@@ -127,6 +127,13 @@
+ 
      def get_actual_position(self) -> float:
          return 0.0 if not self._holding else 0.7
- 
++
 +    def get_width(self) -> float:
 +        return 1.0 - self.get_actual_position()
 +
 +    def set_width(self, width: float, synchronous: bool = True) -> bool:
 +        self._holding = width < 0.5
 +        return True
-+
+ 
  
  class MockIKSolver:
-     """Minimal IK solver for protocol testing."""
 diff --git a/tests/test_safe_retract.py b/tests/test_safe_retract.py
-index 0aa6b5f..bc1cb5a 100644
 --- a/tests/test_safe_retract.py
 +++ b/tests/test_safe_retract.py
 @@ -21,7 +21,79 @@
@@ -5096,7 +5092,7 @@ index 0aa6b5f..bc1cb5a 100644
  
  # ---------------------------------------------------------------------------
  # Input validation — no physics needed
-@@ -36,31 +108,47 @@ def test_angular_twist_raises(self, franka_arm_at_home):
+@@ -36,31 +108,47 @@
          from mj_manipulator.sim_context import SimContext
  
          arm = franka_arm_at_home
@@ -5148,7 +5144,7 @@ index 0aa6b5f..bc1cb5a 100644
              assert distance == 0.0
  
  
-@@ -83,6 +171,14 @@ def _run(self, franka_arm_at_home, home_q, physics: bool, distance: float = 0.15
+@@ -83,6 +171,14 @@
          from mj_manipulator.sim_context import SimContext
  
          arm = franka_arm_at_home
@@ -5163,7 +5159,7 @@ index 0aa6b5f..bc1cb5a 100644
          env = arm.env
  
          # Override the fixture's home with the requested config
-@@ -95,7 +191,7 @@ def _run(self, franka_arm_at_home, home_q, physics: bool, distance: float = 0.15
+@@ -95,7 +191,7 @@
          with SimContext(
              env.model,
              env.data,
@@ -5172,7 +5168,7 @@ index 0aa6b5f..bc1cb5a 100644
              physics=physics,
              headless=True,
          ) as ctx:
-@@ -104,7 +200,7 @@ def _run(self, franka_arm_at_home, home_q, physics: bool, distance: float = 0.15
+@@ -104,7 +200,7 @@
              start_rot = env.data.site_xmat[ee_id].reshape(3, 3).copy()
  
              twist = np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
@@ -5181,7 +5177,7 @@ index 0aa6b5f..bc1cb5a 100644
  
              end_pos = env.data.site_xpos[ee_id].copy()
              end_rot = env.data.site_xmat[ee_id].reshape(3, 3).copy()
-@@ -154,13 +250,18 @@ def test_physics_low_pose_reaches_target(self, franka_arm_at_home):
+@@ -154,13 +250,18 @@
  # ---------------------------------------------------------------------------
  
  
@@ -5204,16 +5200,17 @@ index 0aa6b5f..bc1cb5a 100644
        <geom type="box" size="0.3 0.3 0.01" rgba="0.4 0.4 0.4 1"/>
      </body>
    </worldbody>
-@@ -170,11 +271,13 @@ def test_physics_low_pose_reaches_target(self, franka_arm_at_home):
+@@ -170,11 +271,13 @@
  
  @pytest.fixture
  def franka_with_ceiling():
 -    """Franka + a ceiling box 8 cm above the home EE pose.
-+    """Franka + a ceiling box above the home configuration's tallest link.
- 
+-
 -    The ceiling is thin and positioned so the Franka hand will contact it
 -    after a few cm of upward lift. Used to test that safe_retract stops on
 -    new contact rather than pushing through.
++    """Franka + a ceiling box above the home configuration's tallest link.
++
 +    At FRANKA_HOME, link5 (not the hand) is the highest point of the arm
 +    (~92 cm, vs. the EE site at ~55 cm). The ceiling is positioned so the
 +    arm starts collision-free but link5 contacts the box after ~5-6 cm of
@@ -5222,7 +5219,7 @@ index 0aa6b5f..bc1cb5a 100644
      """
      try:
          import mujoco
-@@ -200,7 +303,7 @@ def franka_with_ceiling():
+@@ -200,7 +303,7 @@
      # Add a ceiling box directly to the spec so its mesh paths resolve
      ceiling = spec.worldbody.add_body()
      ceiling.name = "ceiling"
@@ -5231,17 +5228,18 @@ index 0aa6b5f..bc1cb5a 100644
      g = ceiling.add_geom()
      g.type = mujoco.mjtGeom.mjGEOM_BOX
      g.size = [0.3, 0.3, 0.01]
-@@ -220,18 +323,26 @@ class TestSafeRetractCollision:
+@@ -220,18 +323,26 @@
      """Tests for the baseline-contact / new-contact abort logic."""
  
      def test_stops_on_new_contact(self, franka_with_ceiling):
 -        """Lift command of 15 cm stops early when hitting a ceiling ~8 cm up.
-+        """Lift command of 15 cm stops early when hitting a ceiling.
- 
+-
 -        The ceiling is a thin box at z=0.64, ~8 cm above the home EE pose
 -        at z=0.566. The Franka hand is longer than just the EE site, so
 -        contact happens somewhere before the EE itself reaches the ceiling
 -        — expect motion to halt between 1 cm and 10 cm of z travel.
++        """Lift command of 15 cm stops early when hitting a ceiling.
++
 +        The ceiling is a thin box at z=0.88. At FRANKA_HOME, link5 (not
 +        the hand) is the tallest point of the arm (~92 cm) and is the
 +        first to contact the box, after ~5-6 cm of upward lift — expect
@@ -5264,7 +5262,7 @@ index 0aa6b5f..bc1cb5a 100644
          env = arm.env
  
          mujoco.mj_forward(env.model, env.data)
-@@ -240,12 +351,12 @@ def test_stops_on_new_contact(self, franka_with_ceiling):
+@@ -240,12 +351,12 @@
          with SimContext(
              env.model,
              env.data,
@@ -5279,7 +5277,7 @@ index 0aa6b5f..bc1cb5a 100644
  
          end_pos = env.data.site_xpos[arm.ee_site_id].copy()
          z_travel = end_pos[2] - start_pos[2]
-@@ -275,9 +386,17 @@ def test_first_waypoint_is_close_to_start(self, franka_arm_at_home):
+@@ -275,9 +386,17 @@
          """A 5mm step up shouldn't require a huge joint motion."""
          import mujoco
  
@@ -5298,19 +5296,20 @@ index 0aa6b5f..bc1cb5a 100644
  
          # Set to home explicitly
          for i, idx in enumerate(arm.joint_qpos_indices):
-@@ -289,13 +408,13 @@ def test_first_waypoint_is_close_to_start(self, franka_arm_at_home):
+@@ -289,13 +408,13 @@
  
          # Single 5mm step up
          waypoints = translational_waypoints(start_pose, np.array([0.0, 0.0, 1.0]), 0.005, segment_length=0.005)
 -        trajectory = plan_cartesian_path(arm, waypoints, q_start=q_start)
-+        path = group.plan_to_poses({arm.config.name: waypoints}, partial_ok=True)
-+        assert path is not None, "expected a feasible path for a 5mm step from home"
- 
+-
 -        # The first commanded joint position should be within a reasonable
 -        # distance of q_start. A 5mm Cartesian step on a 7-DOF arm away
 -        # from singularity should be ~0.05-0.15 rad per joint at most,
 -        # vector norm well under 0.5 rad.
 -        q_first = trajectory.positions[0]
++        path = group.plan_to_poses({arm.config.name: waypoints}, partial_ok=True)
++        assert path is not None, "expected a feasible path for a 5mm step from home"
++
 +        # path[0] is q_start itself; the first *planned* config is path[1].
 +        # A 5mm Cartesian step on a 7-DOF arm away from singularity should
 +        # be ~0.05-0.15 rad per joint at most, vector norm well under 0.5 rad.
@@ -5318,7 +5317,7 @@ index 0aa6b5f..bc1cb5a 100644
          jump = float(np.linalg.norm(q_first - q_start))
          assert jump < 0.5, (
              f"First commanded config is {jump:.3f} rad from q_start; "
-@@ -307,25 +426,33 @@ def test_joint_path_has_no_discontinuities(self, franka_arm_at_home):
+@@ -307,25 +426,33 @@
          """Consecutive joint configs should be within one segment's IK jump."""
          import mujoco
  
@@ -5356,7 +5355,7 @@ index 0aa6b5f..bc1cb5a 100644
          for i in range(1, len(positions)):
              step = float(np.linalg.norm(positions[i] - positions[i - 1]))
              assert step < 0.3, (
-@@ -344,7 +471,15 @@ def test_safe_retract_does_not_cause_large_initial_jump(self, franka_arm_at_home
+@@ -344,7 +471,15 @@
          from mj_manipulator.safe_retract import safe_retract
          from mj_manipulator.sim_context import SimContext
  
@@ -5373,7 +5372,7 @@ index 0aa6b5f..bc1cb5a 100644
          env = arm.env
  
          for i, idx in enumerate(arm.joint_qpos_indices):
-@@ -358,12 +493,12 @@ def test_safe_retract_does_not_cause_large_initial_jump(self, franka_arm_at_home
+@@ -358,12 +493,12 @@
          with SimContext(
              env.model,
              env.data,
@@ -5389,8 +5388,6 @@ index 0aa6b5f..bc1cb5a 100644
          q_end = arm.get_joint_positions()
          total_joint_motion = float(np.linalg.norm(q_end - q_start))
 diff --git a/tests/test_trajectory_split.py b/tests/test_trajectory_split.py
-new file mode 100644
-index 0000000..3de83d0
 --- /dev/null
 +++ b/tests/test_trajectory_split.py
 @@ -0,0 +1,168 @@
