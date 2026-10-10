@@ -92,6 +92,18 @@ else:
     check("the elbow's bound is the ROBOT's limit (joint_limits.yaml) plus the margin, not the MJCF's wider range",
           all(abs(b4[sd] - (lo4[sd] + cue.MARGIN_DEG)) < 1e-6 for sd in b4)
           and all(v >= min(lo4.values()) + cue.MARGIN_DEG for v in j4), (b4, j4))
+    up = os.path.join(tmp, "up.yaml")
+    with open(up, "w") as fh:
+        fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
+                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.62] }\n'
+                 '  - { t: 4.0, slot: ARM_R, reach: [0.5, -0.28, 1.6] }\n')
+    p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
+    tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
+    sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
+    check("a hand raised overhead is solved INSIDE the validator's shoulder rules (fold the elbow past 135 deg)",
+          not p and tu["valid"] and len(sol) == 2
+          and all(abs(q[2]) <= cue.SHOULDER_EXTENDED_MAX_DEG or q[4] >= cue.ELBOW_FOLD_MIN_DEG for q in sol),
+          (p, tu["problems"], sol))
     far = os.path.join(tmp, "far.yaml")
     with open(far, "w") as fh:
         fh.write('id: far\nslots: [ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\n'

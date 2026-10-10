@@ -157,6 +157,27 @@ class Kin:
             out.append((mlo, mhi))
         return out
 
+    @staticmethod
+    def _envelopes(bounds):
+        """The validator's shoulder rules, as two sets of joint bounds the solver can keep to: the
+        shoulder (J2) never within SHOULDER_MARGIN_DEG of the head, and past ~135 deg only with the
+        elbow (J4) folded (the 1.2 m workspace box). Either the shoulder stays under 135 deg with the
+        elbow free, or the elbow is folded and the shoulder may go up to the head margin. J2's
+        bound is symmetric, so its mirroring on the left does not matter; J4 is not mirrored."""
+        pad = 0.5
+        head = math.radians(cue.SHOULDER_HEAD_CONTACT_DEG - cue.SHOULDER_MARGIN_DEG - pad)
+        ext = math.radians(cue.SHOULDER_EXTENDED_MAX_DEG - pad)
+        fold = math.radians(cue.ELBOW_FOLD_MIN_DEG + pad)
+        out = []
+        for j2, j4_lo in ((ext, None), (head, fold)):
+            b = list(bounds)
+            b[1] = (max(b[1][0], -j2), min(b[1][1], j2))
+            if j4_lo is not None:
+                b[3] = (max(b[3][0], j4_lo), b[3][1])
+            if all(lo < hi for lo, hi in b):
+                out.append(b)
+        return out
+
     def _error(self, mode, site, goal):
         """(task error vector, its jacobian rows selector, scalar error) for the pose last set."""
         np = self.np
@@ -208,13 +229,15 @@ class Kin:
         tol = REACH_TOL_M if mode == "reach" else POINT_TOL_DEG
         # Seeds: from where the arm is, and from the middle of each joint's range nudged toward it —
         # the converged answer nearest the starting pose wins (the smallest move).
-        mid = np.array([(lo + hi) / 2 for lo, hi in bounds])
         best = None
-        for seed in (q0, 0.5 * (q0 + mid), mid):
-            q, err = self._descend(mode, site, goal, qadr, dadr, bounds, seed, q0)
-            score = (err > tol, float(np.abs(q - q0).sum()) if err <= tol else err)
-            if best is None or score < best[0]:
-                best = (score, q, err)
+        for env in self._envelopes(bounds):
+            mid = np.array([(lo + hi) / 2 for lo, hi in env])
+            for seed in (q0, 0.5 * (q0 + mid), mid):
+                seed = np.array([min(max(v, lo), hi) for v, (lo, hi) in zip(seed, env)])
+                q, err = self._descend(mode, site, goal, qadr, dadr, env, seed, q0)
+                score = (err > tol, float(np.abs(q - q0).sum()) if err <= tol else err)
+                if best is None or score < best[0]:
+                    best = (score, q, err)
         q, err = best[1], best[2]
         for k, a in enumerate(qadr):
             self.d.qpos[a] = q[k]
