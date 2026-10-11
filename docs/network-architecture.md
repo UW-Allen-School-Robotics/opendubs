@@ -78,6 +78,28 @@ outbound with **no inbound hole needed.**
 - **Cut-off is one action** — disable the guest SSID, revoke a VPN peer, flip a router firewall rule,
   or disable the dashboard's guest role — instantly, and fleet-wide if centrally managed.
 
+## Reaching ROS from a laptop or an app
+
+rosbridge, the WebSocket gateway to the robot's ROS graph, listens only on the robot itself
+(`127.0.0.1:9090`). Everything else reaches it through the dashboard's `/rosbridge` route, which
+relays each message unchanged:
+
+| Dashboard served over | rosbridge URL |
+|---|---|
+| HTTP, port 8080 | `ws://<robot>:8080/rosbridge` |
+| HTTPS, port 8443 | `wss://<robot>:8443/rosbridge` |
+
+The route checks the WebSocket handshake's `Origin` header:
+
+- **Native clients** — a Python script using roslibpy, a command-line tool, a native app — send no
+  `Origin`, and connect.
+- **Browser pages** must be served from the dashboard's own origin (the same host and port). A page
+  loaded from anywhere else is refused (close code 1008), because otherwise any web page a LAN user
+  opened could publish to the robot's topics.
+
+So a student web app talks to ROS by being served from the dashboard; a script or native app
+connects directly.
+
 ## Fleet (several robots)
 
 - Per-robot subnet (e.g. `10.42.<robot-id>.0/24`) — no collisions; each robot's dashboard is
@@ -91,8 +113,9 @@ untrusted user, close these:**
 
 1. **The dashboard has no authentication** (`uvicorn 0.0.0.0:8080`) — fine on a trusted LAN; **add
    auth before any user-facing exposure.**
-2. **rosbridge (`:9090`) and Foxglove (`:8765`) bind `0.0.0.0` with no auth** — bind them to the LAN
-   interface and firewall them off the WAN.
+2. **Foxglove (`:8765`) binds `0.0.0.0` with no auth** — bind it to the LAN interface and firewall
+   it off the WAN. rosbridge is reachable only through the dashboard
+   ([above](#reaching-ros-from-a-laptop-or-an-app)), so it is covered by item 1.
 3. **Default-deny inbound at the router WAN** — the robot initiates outbound only (updates, NTP, VPN
    dial-out); ROS / DDS / StamPLC are never WAN-reachable.
 
