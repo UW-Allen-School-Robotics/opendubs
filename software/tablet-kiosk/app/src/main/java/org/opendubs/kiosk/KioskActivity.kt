@@ -30,16 +30,16 @@ import java.util.Date
  * The whole app: the robot's dashboard, full screen, awake, locked in front. A shell, never a UI of
  * its own (tablet-device.md, "The scope rule").
  *
- * The dashboard address is res/values/strings.xml `default_url`, overridden per tablet by starting
- * this activity with a string extra `url` (remembered). An extra `ca_b64` installs this robot's
- * local CA and `ca_clear=true` first removes every CA installed before (device owner only; send both
- * to replace one). `unlock=true` leaves lock task, for maintenance over adb, and `lock=true` ends
- * that maintenance — a device-owner app cannot be force-stopped, so "until the app restarts" alone
- * would never come.
+ * The dashboard address is res/values/strings.xml `default_url`, overridden per tablet through
+ * [ProvisionActivity] (remembered), which also installs the robot's CA and starts and ends
+ * maintenance. This activity takes no settings from an intent: it is exported, being the launcher,
+ * so anything that could start it could have changed them. `unlock` leaves lock task, for maintenance
+ * over adb, and `lock` ends that maintenance — a device-owner app cannot be force-stopped, so
+ * "until the app restarts" alone would never come.
  */
 class KioskActivity : Activity() {
     private lateinit var web: WebView
-    private var maintenance = false     // after `unlock=true`: stay out of lock task until restart
+    private var maintenance = false     // after `unlock`: stay out of lock task until `lock` or a restart
 
     // WAITING FOR THE ROBOT. The tablet often starts before the Thor (both come up at RUN, and the
     // Thor is slower), and a WebView that cannot reach its page shows "Webpage not available" and
@@ -110,25 +110,24 @@ class KioskActivity : Activity() {
         enterLockTaskIfAllowed()
     }
 
-    /** Loads the dashboard on first start or when given a new `url`; otherwise leaves the page
-     *  alone — bridge `wake()` brings this activity forward and must not reload the dashboard. */
+    /** Loads the dashboard on first start or after a new `url`; otherwise leaves the page alone —
+     *  bridge `wake()` brings this activity forward and must not reload the dashboard. */
     private fun handle(intent: Intent?) {
-        val newUrl = intent?.getStringExtra("url")
-        newUrl?.let { getPreferences(MODE_PRIVATE).edit().putString("url", it).apply() }
-        // Clear before install, so `ca_clear` + `ca_b64` in one start replaces the CA.
-        if (intent?.getBooleanExtra("ca_clear", false) == true) DeviceOwner.clearCas(this)
-        intent?.getStringExtra("ca_b64")?.let { DeviceOwner.installCa(this, it) }
-        if (intent?.getBooleanExtra("unlock", false) == true) {
+        val stale = intent?.extras?.keySet()?.filter { it in Provision.EXTRAS }.orEmpty()
+        if (stale.isNotEmpty())
+            Log.w("OpenDubsKiosk", "ignored $stale: provisioning goes to .ProvisionActivity (README)")
+        val req = Provision.take()
+        if (req?.unlock == true) {
             maintenance = true
             runCatching { stopLockTask() }
-            Log.i("OpenDubsKiosk", "left lock task for maintenance, until lock=true or a restart")
+            Log.i("OpenDubsKiosk", "left lock task for maintenance, until lock or a restart")
         }
-        if (intent?.getBooleanExtra("lock", false) == true) {
+        if (req?.lock == true) {
             maintenance = false
             enterLockTaskIfAllowed()
             Log.i("OpenDubsKiosk", "maintenance over: back in lock task")
         }
-        if (web.url == null || newUrl != null) web.loadUrl(dashboardUrl())
+        if (web.url == null || req?.reload == true) web.loadUrl(dashboardUrl())
     }
 
     /** Show what is happening, then try the dashboard again. Called on every failed attempt. */
@@ -150,8 +149,7 @@ class KioskActivity : Activity() {
         retryDelayMs = (retryDelayMs * 2).coerceAtMost(RETRY_MAX_MS)
     }
 
-    private fun dashboardUrl(): String =
-        getPreferences(MODE_PRIVATE).getString("url", null) ?: getString(R.string.default_url)
+    private fun dashboardUrl(): String = Provision.url(this) ?: getString(R.string.default_url)
 
     private fun sameOrigin(a: Uri, b: String): Boolean {
         val u = Uri.parse(b)

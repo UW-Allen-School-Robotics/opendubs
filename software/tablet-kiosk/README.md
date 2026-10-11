@@ -73,10 +73,14 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
    `sudo systemctl restart opendubs-dash`. That makes this robot's own CA and the dashboard's
    certificate, and brings HTTPS up on **8443** beside the unchanged HTTP on 8080.
 4. Install the robot's CA and point the app at the HTTPS dashboard (both remembered). The app, as
-   device owner, installs the CA itself — by hand Android would demand a lock-screen PIN:
+   device owner, installs the CA itself — by hand Android would demand a lock-screen PIN.
+   Every setting goes to `ProvisionActivity`, which only adb can start (it requires
+   `android.permission.DUMP`, which the adb shell holds and no ordinary app can be granted), so
+   another app on the tablet cannot repoint the kiosk, add a CA or leave lock task. The app logs
+   what it did under the tag `OpenDubsKiosk` (`adb logcat -s OpenDubsKiosk`).
 
    ```bash
-   adb shell am start -n org.opendubs.kiosk/.KioskActivity \
+   adb shell am start -n org.opendubs.kiosk/.ProvisionActivity \
        --es ca_b64 "$(ssh <robot> base64 -w0 /etc/opendubs/tls/ca.crt)" \
        --es url https://<robot>.local:8443/
    ```
@@ -100,10 +104,10 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
 **Maintenance.** Leave lock task, and later return to it:
 
 ```bash
-adb shell am start -n org.opendubs.kiosk/.KioskActivity --ez unlock true
+adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --ez unlock true
 adb shell am start -a android.settings.SETTINGS                       # e.g. to change a setting
 adb shell am force-stop com.android.settings                          # close it when done
-adb shell am start -n org.opendubs.kiosk/.KioskActivity --ez lock true
+adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --ez lock true
 ```
 
 `lock=true` is how maintenance ends: **a device-owner app cannot be force-stopped** (Android refuses,

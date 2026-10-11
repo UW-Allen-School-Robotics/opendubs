@@ -69,7 +69,7 @@ CA fingerprint (check it on the tablet): $(openssl x509 -in "$DIR/ca.crt" -noout
 Next:
   sudo systemctl restart opendubs-dash          # HTTPS comes up on :8443
   # From a machine with the tablet on adb — the kiosk app (device owner) installs the CA itself:
-  adb shell am start -n org.opendubs.kiosk/.KioskActivity \\
+  adb shell am start -n org.opendubs.kiosk/.ProvisionActivity \\
       --es ca_b64 "\$(ssh <this robot> base64 -w0 $DIR/ca.crt)" \\
       --es url https://$NAME.local:8443/
 MSG
