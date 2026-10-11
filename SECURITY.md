@@ -8,9 +8,15 @@ deploy it safely) and how to report vulnerabilities.
 The on-board services are currently designed for a **trusted local network only** and have **no
 authentication**:
 
-- **Dashboard** (FastAPI, kiosk) — no auth; exposes telemetry and control endpoints.
-- **rosbridge** (`:9090`) and **Foxglove bridge** — no auth; full ROS graph access to anyone who can
-  reach the port.
+- **Dashboard** (FastAPI, kiosk, `:8080` HTTP and `:8443` HTTPS) — no auth; exposes telemetry and
+  control endpoints. It refuses a request or WebSocket opened by a web page from another site (its
+  `Origin` check). That stops a page in a browser on the robot's network from driving the robot.
+  Tools and scripts, which send no `Origin`, are let through.
+- **ROS access from the network** goes through the dashboard's `/rosbridge`
+  (`ws://<robot>:8080/rosbridge`, `wss://<robot>:8443/rosbridge`). It relays the ordinary rosbridge
+  protocol, gives full access to the ROS graph, and has the same `Origin` check. rosbridge itself
+  listens only on the robot (`127.0.0.1:9090`).
+- **Foxglove bridge** (`:8765`) — no auth; full ROS graph access to anyone who can reach the port.
 - **Robot control** ultimately actuates motors and a contactor. Treat network access to the robot as
   equivalent to physical access.
 
@@ -29,8 +35,8 @@ network detail committed anywhere in this repository, please report it (below) �
 
 Please report security issues **privately** rather than opening a public issue:
 
-- Use GitHub's private "Report a vulnerability" (Security Advisories) on this repository, or
-- Contact the maintainers directly.
+- Contact the maintainers directly. Once the repository is public, you can also use GitHub's private
+  "Report a vulnerability" (Security Advisories) on it.
 
 > Maintainers: add a security contact email here before publishing.
 
