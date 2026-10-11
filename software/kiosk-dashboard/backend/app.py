@@ -131,18 +131,10 @@ def tracker_control(state: str) -> JSONResponse:
                              "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
                             status_code=503)
 
-    # Starting the process is only half of it: the head gates whether the tracker may command
-    # it, and that was settable only from the Tab5's own screen. Ask for the matching mode so one
-    # button does one thing.
-    import state_out
-    mode_sent = state_out.head_set_tracking(target == "on")
-
+    # Nothing to ask the head. A tracker that sends owns the head whenever nothing above it does
+    # (head-protocol.md §4); the old tracking-mode frame is retired (§8).
     STATE["ai_tracking"] = _tracker_active()
-    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"],
-                         "head_mode_sent": mode_sent,
-                         **({} if mode_sent else
-                            {"warning": "could not reach the head — it may still be in MANUAL, "
-                                        "so the tracker will not be given the head"})})
+    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/arms/status")
