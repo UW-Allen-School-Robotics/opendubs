@@ -165,14 +165,14 @@ The tablet head's door does the same for its Thor-down panel (tablet plan DT-17)
 
 ## 8. Retired — decided 2026-10-08
 
-Answered `ERR unknown` by the ESP-IDF head. **Not carried over.** Senders are to stop sending them.
+Answered `ERR unknown` by the ESP-IDF head. **Not carried over.** Senders are to stop sending them; the dashboard's tests fail if one does (`tests/test_no_retired_head_messages.py`). The dashboard's UDP 5006 listener (the Arduino head's lift buttons and status) is gone with them.
 
 | retired | what it was | sent today by | replaced by |
 |---|---|---|---|
-| `0x104` absolute pan/tilt frame | the Arduino head's tracker input | `yolo_tracker.py`, `ros/tab5_bridge_node.py` | `TRACK thor` |
-| `0x108` tracking-mode frame | AI/MANUAL tracking switch | `state_out.head_set_tracking` | the precedence itself: a tracker that sends owns the head when nothing above it does |
-| `TURN`, `LIFT`, `PMODE` | turn-signal chevrons, lift height, CH7 mode on the Arduino face | `state_out.py` | nothing yet; a face message, specified here first, if wanted again |
-| `PLCIP` | "the StamPLC may command you" | `state_out._introduce_peers` | the head resolves the StamPLC by name (`opendubs-stamplc.local`) and hears its broadcast |
+| `0x104` absolute pan/tilt frame | the Arduino head's tracker input | `yolo_tracker.py`, until the Tab5 parses `TRACK thor` (`ros/tab5_bridge_node.py` deleted 2026-10-11) | `TRACK thor` |
+| `0x108` tracking-mode frame | AI/MANUAL tracking switch | nothing (removed from the dashboard 2026-10-11) | the precedence itself: a tracker that sends owns the head when nothing above it does |
+| `TURN`, `LIFT`, `PMODE` | turn-signal chevrons, lift height, CH7 mode on the Arduino face | nothing (removed 2026-10-11) | nothing yet; a face message, specified here first, if wanted again |
+| `PLCIP` | "the StamPLC may command you" | nothing (removed 2026-10-11) | the head resolves the StamPLC by name (`opendubs-stamplc.local`) and hears its broadcast |
 
 ## 9. Conformance
 

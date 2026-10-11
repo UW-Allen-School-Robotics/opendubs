@@ -47,12 +47,18 @@ def test_two_boxes_mean_two_peers():
     assert (face.host, neck.host) == ("tablet.local", "neck.local")
 
 
-def test_a_learned_address_beats_the_name(monkeypatch):
+def test_a_found_address_is_cached(monkeypatch):
     import socket
-    monkeypatch.setattr(socket, "gethostbyname", lambda h: "10.0.0.9")
+    calls = []
+
+    def found(h):
+        calls.append(h)
+        return "10.42.2.14"
+    monkeypatch.setattr(socket, "gethostbyname", found)
     p = state_out._Peer("opendubs-tab5.local")
-    p.learned = ("10.42.2.14", state_out.time.monotonic())
     assert p.resolve() == "10.42.2.14"
+    assert p.resolve() == "10.42.2.14"
+    assert len(calls) == 1                         # the name is looked up once per 30 s
 
 
 def test_a_failed_lookup_is_not_repeated_at_once(monkeypatch):
