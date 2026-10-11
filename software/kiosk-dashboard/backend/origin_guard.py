@@ -53,6 +53,19 @@ def is_own(origin: str, host_header: str, request_port: int | None) -> bool:
     return o_port == (req.port or request_port) or o_port in DASH_PORTS
 
 
+async def refuse_websocket(ws) -> bool:
+    """The same rule for a WebSocket handshake, which HTTP middleware never sees. A browser sends
+    Origin on the handshake but does not enforce same-origin on it, so without this any page on the
+    LAN could open the dashboard's sockets — /rosbridge among them, which can publish. Call before
+    accept(); True means it was refused (closed with 1008, policy violation) and the handler returns.
+    A handshake with no Origin (a script, a tool) passes, as for POSTs."""
+    origin = ws.headers.get("origin")
+    if origin is not None and not is_own(origin, ws.headers.get("host", ""), ws.url.port):
+        await ws.close(code=1008)
+        return True
+    return False
+
+
 def install(app) -> None:
     @app.middleware("http")
     async def origin_guard(request, call_next):

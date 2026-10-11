@@ -87,6 +87,45 @@ def test_extra_origins_from_the_robots_settings(monkeypatch):
     assert _client().post("/api/estop/clear", headers={"Origin": "https://appassets.androidplatform.net"}).status_code == 403
 
 
+def _ws_client(host="10.42.2.10:8080"):
+    from fastapi import WebSocket
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def ws(socket: WebSocket):
+        if await origin_guard.refuse_websocket(socket):
+            return
+        await socket.accept()
+        await socket.send_text("hello")
+        await socket.close()
+
+    return TestClient(app, base_url=f"http://{host}")
+
+
+def test_a_websocket_from_the_dashboard_connects():
+    # TestClient's websocket_connect sends Host: testserver whatever the base URL, so set the Host a
+    # browser on the robot would send.
+    with _ws_client().websocket_connect("/ws", headers={"Origin": "http://10.42.2.10:8080",
+                                                        "Host": "10.42.2.10:8080"}) as w:
+        assert w.receive_text() == "hello"
+
+
+def test_a_websocket_with_no_origin_connects():
+    with _ws_client().websocket_connect("/ws") as w:
+        assert w.receive_text() == "hello"
+
+
+def test_a_websocket_from_another_page_is_refused():
+    from starlette.websockets import WebSocketDisconnect
+    import pytest
+    with pytest.raises(WebSocketDisconnect) as e:
+        with _ws_client().websocket_connect("/ws", headers={"Origin": "http://evil.example"}) as w:
+            w.receive_text()
+    assert e.value.code == 1008
+
+
 def test_the_dashboard_installs_it():
     src = open(os.path.join(os.path.dirname(__file__), "..", "app.py")).read()
     assert "origin_guard.install(app)" in src
+    # both of the dashboard's own sockets check, before they accept
+    assert src.count("await origin_guard.refuse_websocket(socket)") == 2
