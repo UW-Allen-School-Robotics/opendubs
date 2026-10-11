@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# The face engine, headless, held to the head protocol: its face half in Node, a reference neck
-# beside it, and the conformance suite with --active --motion (local only). Used by CI.
+# The face engine, headless: the spin geometry checked directly, then the engine held to the head
+# protocol -- its face half in Node, a reference neck beside it, and the conformance suite with
+# --active --motion (local only). Used by CI.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+# First the engine geometry the protocol suite cannot see: SPIN's timing and the promise that it
+# never makes anything jump (tests/test_spin.mjs). Cheap, and it fails before any port is opened.
+node software/face-web/tests/test_spin.mjs
+
 FACE=${FACE_PORT:-14244}; NECK=${NECK_PORT:-14245}
 node software/face-web/tests/node_door.mjs "$FACE" & D=$!
 python3 software/head-protocol/fake_head.py --kind neck --port "$NECK" & N=$!

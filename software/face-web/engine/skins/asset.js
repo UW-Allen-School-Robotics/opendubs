@@ -9,10 +9,15 @@
 //   blink        "squash" — a blink, and an emote's lid, squash it vertically; or "none"
 //   mirror       the right eye is the left mirrored, and spins the other way        (default false)
 //   counter      occasionally break a together-spin into opposite directions        (default off)
+//                A show can drive the same effect on a beat with the head protocol's SPIN, which
+//                suppresses this schedule while it holds it. A SPINNING skin honours SPIN even
+//                with no `counter` block, using the default ease.
 //                { every_s: [8, 20], hold_s: [2, 4], ease_s: 0.9 } -- a counter-spin starts at a
 //                random interval in every_s, lasts a random time in hold_s, and the reversal is
-//                EASED over ease_s: the right eye decelerates through zero and spins back up the
-//                other way, never snapping. Composes with `mirror`, which flips the base direction.
+//                EASED over ease_s: BOTH eyes decelerate to a standstill together, half way
+//                through, and then spin back up in opposite directions -- never snapping, and
+//                reading as one gesture rather than one eye misbehaving. Composes with `mirror`,
+//                which flips the base direction.
 //
 // It takes the same per-eye inputs as every skin (face-engine.md, the skin contract), so a show's
 // EMOTE, a blink and a tracked person read on it with no change anywhere else.
@@ -23,49 +28,123 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   const p = { size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
               counter: null, ...(entry.params || {}) };
 
-  // ---- the counter-spin's state -------------------------------------------------------------
+  // ---- the counter-spin ------------------------------------------------------------------
   //
-  // WHY AN ACCUMULATED ANGLE, AND ONLY WHEN `counter` IS SET. The spin below is `rate * t`: an
-  // angle computed from absolute time, which is exact and drift-free but can only express a
-  // CONSTANT rate. Flipping its sign would teleport the object to a mirrored orientation, which is
-  // the snap this feature exists to avoid. A rate that changes has to be integrated instead.
+  // WHY AN ACCUMULATED ANGLE. The spin below is `rate * t`: an angle computed from absolute time,
+  // exact and drift-free, but it can only express a CONSTANT rate. Flipping its sign teleports the
+  // object to a mirrored orientation, which is the snap this feature exists to avoid. A rate that
+  // changes has to be integrated. The integrator runs ONLY when a counter-spin is configured or a
+  // show is holding one; otherwise the original expression is used untouched, so an ordinary entry
+  // is bit-for-bit what it was.
   //
-  // So the integrator is used only when a counter-spin is configured. Without it the original
-  // expression runs untouched, so every existing library entry is bit-for-bit what it was and
-  // cannot pick up accumulation drift over a long run.
+  // SYMMETRIC, at the Choreography lane's request, and it is not a detail. A single split factor
+  // s runs 0 (together) to 1 (counter), and the two eyes take
+  //
+  //     left = omega * |1 - 2s|        right = omega * (1 - 2s)
+  //
+  //     s = 0      left +w   right +w     together
+  //     s = 0.5    left  0   right  0     BOTH STOPPED  <- this is what lands on the beat
+  //     s = 1      left +w   right -w     counter-rotating
+  //
+  // So both eyes decelerate to a standstill together and then split. The earlier version reversed
+  // only the right eye, which read as one eye misbehaving rather than as one gesture -- and this
+  // version also makes the SHOW TIMING exact: both eyes cross zero at the SAME instant, so "the
+  // cue's time is the zero crossing" is true of the pair and not just of one of them.
+  //
+  // s travels at 1/ease_s per second, so a full change takes ease_s and THE ZERO CROSSING IS AT
+  // ease_s/2 AFTER RECEIPT. head-protocol.md records that number; the runner sends the line early
+  // by it. Do not change the traversal rate without telling the Tablet and Choreography lanes.
+  const EASE_DEFAULT = 0.9;
   const cfg = p.counter && {
     every: p.counter.every_s || [8, 20],
     hold: p.counter.hold_s || [2, 4],
-    ease: p.counter.ease_s ?? 0.9,
+    ease: p.counter.ease_s ?? EASE_DEFAULT,
   };
+  // A SHOW MAY DRIVE A SPINNING SKIN THAT HAS NO `counter` BLOCK. Agreed with Choreography: a cue
+  // must not silently depend on whether an operator configured the autonomous feature, because
+  // they are different features that merely share a mechanism.
+  const easeS = cfg ? cfg.ease : EASE_DEFAULT;
   const pick = ([lo, hi]) => lo + Math.random() * Math.max(0, hi - lo);
-  // One schedule for BOTH eyes: they must break apart together, or it reads as two objects rather
-  // than one face. Hence per-skin state, advanced once a frame, not per-eye state advanced twice.
-  const spinState = { t: null, angL: 0, angR: 0, cf: 1, cfTarget: 1, nextAt: null, untilAt: 0 };
 
-  // Advance the shared schedule. Called once per frame, from whichever eye is drawn first.
-  function stepSpin(t) {
-    if (spinState.t === null) { spinState.t = t; spinState.nextAt = t + pick(cfg.every); return; }
-    const dt = Math.max(0, Math.min(0.1, t - spinState.t));      // a tab that was hidden can hand
-    spinState.t = t;                                             // back a huge dt; clamp it
-    if (t >= spinState.nextAt && spinState.cfTarget === 1) {
-      spinState.cfTarget = -1;
-      spinState.untilAt = t + pick(cfg.hold);
-    } else if (spinState.cfTarget === -1 && t >= spinState.untilAt) {
-      spinState.cfTarget = 1;
-      spinState.nextAt = t + pick(cfg.every);
-    }
-    // EASE THROUGH ZERO at a bounded rate: the full swing is 2 units (+1 to -1), so covering it in
-    // ease_s seconds is 2/ease_s per second. The object therefore slows, stops and spins back up,
-    // which is the whole point -- a linear ramp through zero looks like a real reversal, while a
-    // step looks like a dropped frame.
-    const rate = 2 / Math.max(0.05, cfg.ease);
-    const d = spinState.cfTarget - spinState.cf;
-    spinState.cf += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
-    const w = (p.spin_dps * Math.PI / 180) * dt;
-    spinState.angL += w;
-    spinState.angR += w * spinState.cf;
+  // One schedule for BOTH eyes: they must break apart together, or it reads as two objects rather
+  // than one face. Hence per-skin state advanced once a frame, not per-eye state advanced twice.
+  const sp = {
+    t: null, angL: 0, angR: 0,
+    s: 0, sTarget: 0,          // 0 together .. 1 counter
+    nextAt: null, untilAt: 0,  // the autonomous schedule
+    held: false, holdUntil: null,
+    pending: null,             // a SPIN line, applied on the next frame (see spin())
+  };
+
+  // The head protocol's SPIN, called by protocol.js. mode is "counter" | "together" | "auto";
+  // holdS is a number or null. Recorded rather than applied, because applying it needs the frame's
+  // clock and this is called from the command path -- so it takes effect on the next frame, within
+  // one frame of receipt and far inside the ease.
+  function spin(mode, holdS) {
+    if (!p.spin_dps) return;                 // a non-spinning skin: the protocol says OK, do nothing
+    sp.pending = { mode, holdS: typeof holdS === "number" ? holdS : null };
   }
+
+  function stepSpin(t) {
+    if (sp.t === null) {
+      sp.t = t;
+      sp.nextAt = cfg ? t + pick(cfg.every) : null;
+      // CONTINUITY: start the accumulator where the free-running formula had got to, or the object
+      // teleports on the frame a show first touches it. The mirror factor is applied identically in
+      // both paths at draw time, so one unsigned seed serves both eyes.
+      sp.angL = sp.angR = (p.spin_dps * Math.PI / 180) * t;
+    }
+    const dt = Math.max(0, Math.min(0.1, t - sp.t));   // a hidden tab hands back a huge dt; clamp
+    sp.t = t;
+
+    if (sp.pending) {
+      const { mode, holdS } = sp.pending;
+      sp.pending = null;
+      if (mode === "auto") {
+        // Hand the schedule back. Ease to together first; the timer picks up from there.
+        sp.held = false; sp.holdUntil = null; sp.sTarget = 0;
+        if (cfg) sp.nextAt = t + pick(cfg.every);
+      } else {
+        sp.held = true;
+        sp.sTarget = mode === "counter" ? 1 : 0;
+        sp.holdUntil = mode === "counter" && holdS ? t + holdS : null;
+      }
+    }
+
+    if (sp.held) {
+      // A hold that expires returns to together but STAYS held: the show still owns the spin
+      // until it sends AUTO, so the random schedule cannot fire mid-show.
+      if (sp.holdUntil !== null && t >= sp.holdUntil) { sp.sTarget = 0; sp.holdUntil = null; }
+    } else if (cfg) {
+      if (t >= sp.nextAt && sp.sTarget === 0) { sp.sTarget = 1; sp.untilAt = t + pick(cfg.hold); }
+      else if (sp.sTarget === 1 && t >= sp.untilAt) { sp.sTarget = 0; sp.nextAt = t + pick(cfg.every); }
+    }
+
+    const rate = 1 / Math.max(0.05, easeS);            // s travels 0..1 in ease_s
+    const d = sp.sTarget - sp.s;
+    sp.s += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
+
+    const w = (p.spin_dps * Math.PI / 180) * dt;
+    sp.angL += w * Math.abs(1 - 2 * sp.s);
+    sp.angR += w * (1 - 2 * sp.s);
+  }
+
+  // ONCE INTEGRATING, ALWAYS INTEGRATING -- a LATCH, not a live test, and the difference matters.
+  //
+  // The two paths produce completely different angles for the same moment: `rate * t` is an
+  // absolute position, while the accumulator is wherever the object has got to. Switching back
+  // after a show finished would therefore TELEPORT the object, which is precisely the snap this
+  // whole feature exists to avoid -- and it would happen on SPIN AUTO, at the end of every show.
+  //
+  // The cost of latching is accumulation drift for the rest of the session on a skin a show has
+  // touched. For a spin that is invisible: the angle is used modulo a full turn. A visible jump is
+  // not invisible. So the latch stays set.
+  //
+  // To hand the angle back cleanly one day you would have to solve rate * t == angL for t, which
+  // means lying about the clock; not worth it.
+  let latched = Boolean(cfg);
+  const integrating = () => { if (!latched && (sp.held || sp.pending)) latched = true; return latched; };
+
   const url = new URL(entry.file, baseUrl).href;
   let source, ready = false, failed = null;
 
@@ -87,6 +166,7 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   return {
     name: entry.id,
     type: entry.type,
+    spin,                               // head protocol SPIN; see spin() above
     get failed() { return failed; },
     source,
     stop() { if (entry.type === "video") { source.pause(); source.removeAttribute("src"); source.load(); } },
@@ -98,17 +178,17 @@ export function makeAssetSkin(entry, baseUrl, onError) {
       const dy = p.follow_look ? e.gazeY * s * p.look : 0;
       const right = e.side === "right";
       const flip = p.mirror && right ? -1 : 1;
-      let spin;
-      if (!cfg) {
-        spin = (p.spin_dps * Math.PI / 180) * t * (p.mirror && right ? -1 : 1);
+      let rot;
+      if (!integrating()) {
+        rot = (p.spin_dps * Math.PI / 180) * t * (p.mirror && right ? -1 : 1);
       } else {
-        if (t !== spinState.t) stepSpin(t);                      // first eye of this frame
-        spin = (right ? spinState.angR : spinState.angL) * (p.mirror && right ? -1 : 1);
+        if (t !== sp.t) stepSpin(t);                             // first eye of this frame
+        rot = (right ? sp.angR : sp.angL) * (p.mirror && right ? -1 : 1);
       }
       ctx.save();
       ctx.translate(e.cx + dx, e.cy + dy);
       ctx.scale(flip, sq);
-      ctx.rotate(spin);
+      ctx.rotate(rot);
       ctx.drawImage(source, -s / 2, -s / 2, s, s);
       ctx.restore();
       return true;
