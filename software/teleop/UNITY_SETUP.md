@@ -1,7 +1,8 @@
 # Quest Teleop — Unity Setup (click-by-click)
 
 Explicit build of the proof-of-life app. Outcome: a Quest APK that publishes HMD +
-controller pose (`PoseStamped`) and buttons (`Joy`) to the Thor's rosbridge. Scripts
+controller pose (`PoseStamped`) and buttons (`Joy`) to the Thor's rosbridge, through the dashboard's
+`/rosbridge` route (rosbridge's own port 9090 listens on the robot only). Scripts
 are in [`unity/`](unity/); topic contract + verify steps in [`README.md`](README.md).
 
 **Versions (verified 2026-06):** Unity **6000.0 LTS** (≥ 6000.0.66f2), Meta XR
@@ -74,7 +75,9 @@ either unless you pin Meta XR SDK ≤ v73.
    → Add. (Imports RosBridgeClient + Unity components.)
 2. Create the connector: in the Hierarchy **right-click → Create Empty**, name it
    **`RosConnector`**. In the Inspector **Add Component → RosConnector**. Set:
-   - **Ros Bridge Server Url:** `ws://opendubs2.local:9090`
+   - **Ros Bridge Server Url:** `ws://<robot>:8080/rosbridge` (`<robot>`: the robot computer's
+     address. Plain `ws://` on 8080: the headset won't trust the robot's self-signed certificate on
+     8443. A native app sends no `Origin` header, so the route lets it through.)
    - **Serializer:** `Microsoft` (JSON) · **Protocol:** `Web Socket NET`
    - (If it won't connect on the headset later, switch Protocol to the other option.)
 
@@ -127,8 +130,8 @@ with your head/hands. **That's the proof of life.**
 ## Gotchas
 
 - **No `/quest/*` topics:** RosConnector didn't connect. Verify the Quest is on the
-  same Wi-Fi LAN as the Thor, the URL is right, rosbridge is up
-  (`systemctl is-active opendubs-rosbridge`), and try the other RosConnector
+  same Wi-Fi LAN as the Thor, the URL is `ws://<robot>:8080/rosbridge` (not `:9090`), the dashboard
+  and rosbridge are up (`systemctl is-active opendubs-dash opendubs-rosbridge`), and try the other RosConnector
   Protocol.
 - **Publish/type errors in the log:** that's the ros-sharp **ROS1-vs-ROS2 message
   set**. rosbridge usually tolerates the default types (extra `seq` ignored); if not,

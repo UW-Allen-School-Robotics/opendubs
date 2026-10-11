@@ -12,7 +12,7 @@ TOPICS=(
   /quest/controller/right/joy
 )
 
-echo "== Quest teleop topics (rosbridge :9090) =="
+echo "== Quest teleop topics (on the robot; the Quest reaches rosbridge at ws://<robot>:8080/rosbridge) =="
 echo "-- advertised topics --"
 ros2 topic list 2>/dev/null | grep '^/quest/' || echo "  (none yet — is the Quest app running + connected?)"
 echo "-- live rate per topic (3 s sample) --"
