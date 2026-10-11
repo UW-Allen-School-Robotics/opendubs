@@ -117,6 +117,11 @@ hub = Hub()
 
 @router.websocket("/ws/show-audio")
 async def show_audio_ws(ws: WebSocket):
+    # A page on another origin may not claim the show-audio role (Hygiene S4); scripts and the
+    # runner send no Origin and pass.
+    import origin_guard
+    if await origin_guard.refuse_websocket(ws):
+        return
     await ws.accept()
     cid = await hub.join(ws, "a browser")
     try:
