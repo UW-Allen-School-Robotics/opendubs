@@ -194,6 +194,13 @@ class FakeHead:
         self.skin = "default"                    # unknown: the default eyes, and say so
         return f"ERR unknown skin {a} (showing default)"
 
+    def do_spin(self, a, _):
+        parts = a.split()
+        ok = (len(parts) == 1 and parts[0] in ("TOGETHER", "AUTO")) or \
+             (parts[:1] == ["COUNTER"] and len(parts) <= 2 and
+              (len(parts) == 1 or parts[1].replace(".", "", 1).isdigit()))
+        return f"OK spin {parts[0].lower()}" if ok else "ERR spin COUNTER [hold_s] | TOGETHER | AUTO"
+
     def do_voice(self, a, _):
         return "voice: off (reference head)"
 

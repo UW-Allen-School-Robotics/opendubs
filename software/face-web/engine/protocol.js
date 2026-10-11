@@ -37,6 +37,18 @@ export function handle(face, audio, line, now, skins) {
       return r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
                                         : `ERR skin ${arg}: ${r.error} (showing default)`;
     }
+    case "SPIN": {
+      // Head protocol v3: a show lands a spinning skin's counter-rotation on a beat. The skin eases
+      // it (its own ease_s; the wire cannot make it snap). A skin that does not spin answers OK and
+      // does nothing, so a show never fails because a different skin was chosen.
+      const [mode, hold, extra] = rest;
+      const ok = !extra && ((mode === "COUNTER" && (hold === undefined || /^\d+(\.\d+)?$/.test(hold))) ||
+                            ((mode === "TOGETHER" || mode === "AUTO") && hold === undefined));
+      if (!ok) return "ERR spin COUNTER [hold_s] | TOGETHER | AUTO";
+      const skin = skins && skins.current;
+      if (skin && typeof skin.spin === "function") skin.spin(mode.toLowerCase(), hold === undefined ? null : Number(hold));
+      return `OK spin ${mode.toLowerCase()}`;
+    }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";
   }
