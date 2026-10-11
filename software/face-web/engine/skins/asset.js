@@ -80,9 +80,16 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // holdS is a number or null. Recorded rather than applied, because applying it needs the frame's
   // clock and this is called from the command path -- so it takes effect on the next frame, within
   // one frame of receipt and far inside the ease.
+  const MODES = ["counter", "together", "auto"];
   function spin(mode, holdS) {
     if (!p.spin_dps) return;                 // a non-spinning skin: the protocol says OK, do nothing
-    sp.pending = { mode, holdS: typeof holdS === "number" ? holdS : null };
+    // NORMALISE, THEN REFUSE WHAT IS LEFT. A mode this does not recognise used to fall through to
+    // the `together` branch, so a caller that passed "COUNTER" got a spin that drew TOGETHER --
+    // silently the wrong gesture, on the beat, with nothing anywhere reporting a problem. Doing
+    // nothing is the better failure: the spin simply carries on as it was.
+    const m = String(mode).toLowerCase();
+    if (!MODES.includes(m)) return;
+    sp.pending = { mode: m, holdS: typeof holdS === "number" && isFinite(holdS) ? holdS : null };
   }
 
   function stepSpin(t) {

@@ -149,5 +149,63 @@ for (const mirror of [false, true]) {
   ok(worst === 0, `an ordinary entry is exactly rate*t (mirror ${mirror})`, `deviation ${worst}`);
 }
 
+// ---- 5b. the mode is normalised, and anything left over does NOTHING -------------------------
+// A mode the skin did not recognise used to fall through to the `together` branch, so a caller
+// passing "COUNTER" got a spin that drew TOGETHER: silently the wrong gesture, on the beat,
+// reported nowhere. Now case is normalised -- so "COUNTER" is simply accepted -- and what is still
+// unrecognised leaves the spin exactly as it was, which is the better failure.
+//
+// Did the eyes separate, over `frames` frames?
+const separates = (draw, from, frames) => {
+  let t = from, p = draw(t), apart = false;
+  for (let i = 0; i < frames; i++) { t += DT; const f = draw(t); const r = rate(p, f);
+    if (Math.abs(r.l - r.r) > 1) apart = true; p = f; }
+  return apart;
+};
+{
+  const { sk, draw } = rig({ spin_dps: DPS });
+  let t = 0; draw(t);
+  for (let i = 0; i < 60; i++) { t += DT; draw(t); }
+  for (const bad of ["spin", "", "counter ", null, undefined, 7, {}]) sk.spin(bad, 2);
+  ok(!separates(draw, t, 120), "an unrecognised mode leaves the spin exactly as it was");
+
+  sk.spin("COUNTER", 2);                       // the same word, differently cased, IS the mode
+  ok(separates(draw, t, 120), "a differently-cased mode is accepted, not silently misread");
+}
+
+// ---- 6. THE WIRE REACHES THE SKIN ---------------------------------------------------------------
+// The conformance suite checks that SPIN is answered correctly, but it runs against a CODE skin,
+// whose `spin` is undefined -- so the guard in protocol.js skips and nothing there ever proves the
+// dispatch reaches an asset skin, or that it translates the line the way the skin expects. This
+// drives the REAL parser (engine/protocol.js, the Tablet lane's) into a REAL asset skin.
+{
+  const { handle } = await import(join(here, "../engine/protocol.js"));
+  const { sk, draw } = rig({ spin_dps: DPS });
+  const skins = { current: sk, shownName: () => "t", error: null, select: () => ({ ok: true }) };
+  const say = (line) => handle({}, { enabled: false }, line, 0, skins);
+
+  let t = 0; draw(t);
+  for (let i = 0; i < 60; i++) { t += DT; draw(t); }
+
+  ok(say("SPIN COUNTER 3") === "OK spin counter", "the wire answers OK spin counter");
+  const t0 = t; let zero = null, p = draw(t);
+  for (let i = 0; i < 90; i++) {
+    t += DT; const f = draw(t);
+    if (zero === null && rate(p, f).r <= 0.5) zero = t - t0;
+    p = f;
+  }
+  ok(zero !== null && Math.abs(zero - 0.45) <= 2 * DT,
+     "a SPIN COUNTER line off the wire eases the skin through zero",
+     `crossed at ${zero?.toFixed(3)}s`);
+
+  // The mode must arrive lowercased and the hold as a NUMBER, or the skin silently mishandles it.
+  const seen = [];
+  const spy = { spin: (mode, holdS) => seen.push([mode, holdS]), };
+  const say2 = (line) => handle({}, { enabled: false }, line, 0, { current: spy, shownName: () => "t", error: null });
+  say2("SPIN COUNTER 2.5"); say2("SPIN TOGETHER"); say2("SPIN AUTO");
+  ok(JSON.stringify(seen) === JSON.stringify([["counter", 2.5], ["together", null], ["auto", null]]),
+     "the wire hands the skin lowercase modes and a numeric hold", JSON.stringify(seen));
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall spin checks passed");
 process.exit(failed ? 1 : 0);
