@@ -122,6 +122,27 @@ sudo systemctl daemon-reload && sudo systemctl restart opendubs-drive-bridge
 
 The pin is per-robot identity: it lives in the drop-in on the robot, never in the repo.
 
+### Holding the bridge off on a robot
+
+Until a robot's Pinpoint is commissioned (`PPCAL SHOW` reports it, see
+[the Pinpoint build page](../../docs/build/pinpoint.md)), its `/odom` is not trustworthy, so the bridge
+can be held off. **Do not `systemctl mask` it:** the unit file lives in `/etc/systemd/system/`, so the
+mask is refused. Even if it worked, `provision-ros.sh` re-installs the unit and its `systemctl enable`
+would fail under `set -e`, which aborts the rest of provisioning. Use a start condition instead, which
+survives every deploy:
+
+```sh
+sudo mkdir -p /etc/systemd/system/opendubs-drive-bridge.service.d
+printf '[Unit]\nConditionPathExists=/etc/opendubs/drive-bridge.enabled\n' |
+  sudo tee /etc/systemd/system/opendubs-drive-bridge.service.d/hold.conf
+sudo systemctl daemon-reload
+```
+
+`systemctl status opendubs-drive-bridge` then reads *start condition unmet*, and provisioning still
+enables and "restarts" it cleanly. To turn it on: `sudo touch /etc/opendubs/drive-bridge.enabled &&
+sudo systemctl restart opendubs-drive-bridge`. Nothing on the robot consumes `/odom` or publishes
+`/cmd_vel` yet, so holding it costs nothing; the dashboard's odometry card reads `[ODO]` directly.
+
 ## /scan watchdog
 
 The A1 can hit a serial `RESULT_OPERATION_TIMEOUT` (USB glitch / unplug) and get
