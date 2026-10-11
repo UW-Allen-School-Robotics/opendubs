@@ -163,6 +163,11 @@ through `getOutputTimestamp()`. Whether that is true is S2's question.
   ended. New: `lock=true` ends maintenance.
 - The app could install a CA but never remove one, and a bench CA must not follow the tablet to a
   robot. New: `ca_clear=true`, alone or with `ca_b64` to replace.
+- **Any app on the tablet could provision the kiosk**: KioskActivity is exported (it is the
+  launcher) and acted on `url`, `ca_b64`, `ca_clear`, `unlock` and `lock` from any intent. New
+  (2026-10-11, Hygiene S7): those go to `ProvisionActivity`, which requires `android.permission.DUMP`
+  (held by the adb shell, grantable to no ordinary app); KioskActivity ignores them and logs where
+  they go now.
 - An update stops the app and nothing restarted it. New: it brings itself back, locked, after an
   update — provided no other screen was left open behind it (maintenance now closes Settings).
 - Plugging in USB while **unlocked** raised Samsung's "allow access to tablet data?" prompt over the

@@ -37,5 +37,5 @@ python3 software/head-protocol/conformance.py 127.0.0.1:4244 --neck 127.0.0.1:42
 
 With the tablet on USB, `adb reverse tcp:8765 tcp:8765` and `adb reverse tcp:8766 tcp:8766` make the
 laptop's door the tablet's `localhost` (a secure context, so the camera works). Point the kiosk app at
-it with `--es url http://localhost:8765/?…` — and back at the dashboard afterwards, since the app
-remembers its URL.
+it with `adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --es url http://localhost:8765/?…`
+— and back at the dashboard afterwards, since the app remembers its URL.
