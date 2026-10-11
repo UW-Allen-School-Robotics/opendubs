@@ -428,7 +428,8 @@ Everything that pretends, or names a device where it means a role, so nothing is
 | Show requirements and audio output name the Tab5 | `software/choreo/cue.py` `REQUIRES_KEYS`, `AUDIO_OUTPUTS` | 0.2 (choreography plan) |
 | "Charging" stands in for "on mount power" | kiosk bridge `battery()` | 0.3 |
 | The head reports no owner outward | Tab5 firmware (`head-ownership.md` §4) | 2.1, 6.1 |
-| Messages sent to the head that the ESP-IDF head ignores — `0x104`, `0x108`, `TURN`, `LIFT`, `PMODE`, `PLCIP`. 0.1 routes them by role, but today they reach nothing | `yolo_tracker.py`, `ros/tab5_bridge_node.py`, `state_out.py` | 2.1 (retire or re-specify, e.g. as `GAZE`) |
+| Messages sent to the head that the ESP-IDF head ignores. Only `yolo_tracker.py`'s `0x104` is left; the rest went in 2.5 | `yolo_tracker.py` | 2.5 (`TRACK thor`, once the Tab5 parses it) |
+| **The head's front ToF is in no ROS topic.** `ros/tab5_bridge_node.py`, its only publisher, was deleted in 2.5. When it returns over the head protocol, it keeps the contract the robot description reserves (agreed with the Thor lane, 2026-10-11): `frame_id` `tof_front_link`, `sensor_msgs/Range` with radiation type INFRARED, on a topic this lane names and the Thor lane adds to its tablet-sensor topic contract (its plan L.6) | nothing publishes it | 2.1 (a ToF report in the head protocol), then a Thor-side publisher |
 | Debounce and thresholds for the mount state | 1.1 | TS-3, TS-4, TS-7 |
 
 ## Parked
