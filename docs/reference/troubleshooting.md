@@ -252,6 +252,7 @@ Check in this order:
 2. [An emergency stop button is pressed](#estop-button)
 3. [The contactor is welded shut](#contactor-welded)
 4. [No link to the StamPLC](#link-stamplc-lost)
+5. [The dashboard refused a request from another web page](#link-foreign-origin)
 
 ### Re-arm needs CH5 at OFF {#estop-rearm-ch5}
 
@@ -266,6 +267,17 @@ Re-arming closes the contactor, and the dashboard will not do that while the tra
 3. Set CH5 back to `MANUAL` when you are ready to drive.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [Control authority and modes](../control-authority.md)
+
+### The dashboard refused a request from another web page {#link-foreign-origin}
+
+`LINK_FOREIGN_ORIGIN` · Refused action · seen on the dashboard
+
+Something asked the dashboard to change the robot's state — clear an e-stop, move the lift, shut down — from a web page that is not the robot's own dashboard. A browser on the robot's network names the page a request came from, and the dashboard only accepts state changes from its own pages (on the robot's address, port 8080 or 8443). This is not a login: scripts and tools that name no page, such as `curl`, are not affected.
+
+**What to do**
+
+1. Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
+2. If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
 
 ## The head is dark or offline {#head-dark}
 
@@ -290,6 +302,7 @@ Check in this order:
 7. [CH5 is at OFF](#rc-authority-off)
 8. [The lift is not reporting](#lift-not-responding)
 9. [Relays 1 and 2 belong to the lift](#lift-relay-reserved)
+10. [The dashboard refused a request from another web page](#link-foreign-origin)
 
 ### The lift stopped near the bottom {#lift-pinch-hold}
 

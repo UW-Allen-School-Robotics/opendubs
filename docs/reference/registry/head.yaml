@@ -1,0 +1,21 @@
+# Troubleshooting entries: the head, the tablet, and the dashboard's own front door.
+# Owned by the Tablet & head interface lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+
+entries:
+  - code: LINK_FOREIGN_ORIGIN
+    title: The dashboard refused a request from another web page
+    symptom: [rearm-refused, lift-wont-move]
+    rank: 60
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      Something asked the dashboard to change the robot's state — clear an e-stop, move the lift,
+      shut down — from a web page that is not the robot's own dashboard. A browser on the robot's
+      network names the page a request came from, and the dashboard only accepts state changes from
+      its own pages (on the robot's address, port 8080 or 8443). This is not a login: scripts and
+      tools that name no page, such as `curl`, are not affected.
+    do:
+      - Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
+      - If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
