@@ -138,7 +138,7 @@ head interface lane. Two edges remain, as S4b and S4c.
 - **Fix:** pin the StamPLC address (configured, or by mDNS name), and share one link module between
   the two (Q2).
 
-**S7 · Any app on the tablet can install a trusted CA or unlock the kiosk.** · agreed; Tablet lane fixing it on top of #120 · owner:
+**S7 · Any app on the tablet can install a trusted CA or unlock the kiosk.** · **fixed in PR #172 (open; verified at `a3a70eb`)**: a separate `ProvisionActivity` guarded by `android.permission.DUMP` takes the extras, and `KioskActivity` ignores them. The APK builds; on-tablet checks wait for the bench tablet · owner:
 **Tablet lane.**
 - `KioskActivity` is exported (`software/tablet-kiosk/app/src/main/AndroidManifest.xml:18`).
 - `KioskActivity.kt:115-131` acts on intent extras from any caller:
@@ -249,8 +249,8 @@ These are proposals for the owners. Hygiene will not refactor other lanes' code.
 | Q1 | safety | Drive calibration in shared source, overwritten by deploy | see S3 | NVS |
 | Q2 | safety | `software/ros/drive_bridge.py` re-implements the StamPLC link without the dashboard's peer guard, with its own parser, no tests, and no CI for `software/ros` | Thor stack | one shared StamPLC link module; a path-filtered `ros` CI job |
 | Q3 | safety | StamPLC firmware is one 3,343-line `main.cpp` (drive gate, mixer, ~290-line command parser, BMS, UI, OTA) with no CI build and no tests | unowned | pull the drive gate and mixer out as pure functions with host tests (the `firmware/comms/test` pattern), plus a CI `pio run` |
-| Q4 | safety (agreed: delete, Tablet plan 2.5) | Two UDP/5006 lift bridges (`backend/state_out.py:296-330`, `software/ros/tab5_bridge_node.py:91-196`) decode a frame the shipping head no longer sends (`firmware/tab5_idf/app_face/net.cpp:61`). Dead code on the pinch-zone path | Tablet | delete both listeners |
-| Q5 | defect (agreed, Tablet plan 2.5; the 0x104 tracker stays, marked, until a head implements TRACK) | The AI TRACKING button sends `0x108` (`state_out.py:145`), which `software/head-protocol/head_protocol.py:77` lists as retired. No sender imports `head_protocol`; port 4242 is hard-coded at ~10 sites | Tablet, with Choreography | senders import `head_protocol`; a CI test fails on any retired frame |
+| Q4 | safety (**fixed in PR #171, open, `b3c4155`**) | Two UDP/5006 lift bridges (`backend/state_out.py:296-330`, `software/ros/tab5_bridge_node.py:91-196`) decode a frame the shipping head no longer sends (`firmware/tab5_idf/app_face/net.cpp:61`). Dead code on the pinch-zone path | Tablet | delete both listeners |
+| Q5 | defect (**fixed in PR #171, open, `b3c4155`**, with a test that fails on a retired message; the 0x104 tracker stays, marked, until a head implements TRACK) | The AI TRACKING button sends `0x108` (`state_out.py:145`), which `software/head-protocol/head_protocol.py:77` lists as retired. No sender imports `head_protocol`; port 4242 is hard-coded at ~10 sites | Tablet, with Choreography | senders import `head_protocol`; a CI test fails on any retired frame |
 | Q6 | risk | No tests for `software/openarm/openarm-up` (541 lines of bash where "the guards live") or for the HTTP routes `/api/estop`, `/api/mast`, `/api/relay`; `dashboard.yml` does not run when `software/choreo` changes the proxy contract | Arms · shared | TestClient route tests; shellcheck plus `openarm-up --dry-run` in CI |
 | Q7 | time per change | `backend/app.py` (25 routes, edited by 5+ lanes in 30 days) and `frontend/app.js` (1,419 lines) are god-modules. `stamplc.py` starts a thread at import, forcing 17 function-local imports. `app.py:4-7` says "Nothing here commands actuators", which is false | shared | one router per lane (as `choreo_proxy` already does); explicit `reader.start()`; fix the docstring |
 | Q8 | defect | Two deploy paths disagree (see S3); `tools/deploy-audit.py:5` says there is no deployment mechanism, and still maps the retired `tab5_face` | Thor stack | one deploy manifest |
