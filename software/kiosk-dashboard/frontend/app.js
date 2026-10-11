@@ -962,12 +962,12 @@ function renderMast(st) {
   lim(2, "mastBot", "mastBotDot");   // DI2 = MAST LIMIT BOT
 }
 
-/* ---------- LIDAR (rosbridge :9090 — live /scan front + /scan_rear rear) ---------- */
+/* ---------- LIDAR (rosbridge, via the dashboard's /rosbridge — live /scan front + /scan_rear rear) ---------- */
 (function lidarModule() {
-  // Over HTTPS (the tablet) rosbridge is reached through the dashboard's own origin — an HTTPS page
-  // may not open ws:// — and over plain HTTP directly on :9090 as before.
-  const ROS_URL = location.protocol === "https:" ? `wss://${location.host}/rosbridge`
-                                                 : `ws://${location.hostname || "localhost"}:9090`;
+  // rosbridge is ALWAYS reached through the dashboard's own origin, over HTTP and HTTPS alike: an HTTPS
+  // page may not open ws://, and the proxy refuses a handshake from another page's origin
+  // (origin_guard), where rosbridge's own :9090 accepts any.
+  const ROS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host || "localhost:8080"}/rosbridge`;
   let ws = null, wsReady = false;
   let frontScan = null, frontStamp = 0, frontRate = 0, lastMsgT = 0;
   let rearScan = null, rearStamp = 0, rearRate = 0, lastRearT = 0;
