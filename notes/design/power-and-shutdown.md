@@ -155,7 +155,7 @@ refusal does not stop someone cutting RUN, which drops unparked arms (they are o
 opens the contactor). **Decided 2026-10-09: a second path, *shut down anyway — the arms will drop*,**
 offered **only** when parking fails or is refused: an explicit warning (*the arms will fall; clear the area
 around them*), then its **own** hold-to-confirm, separate from the first. It runs Phase B with `down
---drop`, and is logged with the refusal that led to it (`SHUTDOWN_ARMS_WILL_DROP`).
+--drop`, and is logged with the refusal that led to it (`POWER_SHUTDOWN_ARMS_WILL_DROP`).
 
 **The lift does not move by itself during a shutdown.** `docs/operating.md` says to lower it or leave it
 at a height from which it cannot fall; moving it is a person's decision (and needs `MANUAL`). The
@@ -168,20 +168,20 @@ code wraps them:
 
 | refused when | code |
 |---|---|
-| CH5 is not `OFF` at Phase B | `SHUTDOWN_NOT_STANDBY` |
-| a show is loaded or running | `SHUTDOWN_SHOW_RUNNING` |
-| the base, the lift or an arm is moving | `SHUTDOWN_MOVING` |
-| a software update is running (dpkg's lock is held) — a cut then breaks packages | `SHUTDOWN_UPDATE_RUNNING` |
-| the arms cannot be made safe — wraps the arm code below | `SHUTDOWN_ARMS_NOT_SAFE` |
+| CH5 is not `OFF` at Phase B | `POWER_SHUTDOWN_NOT_STANDBY` |
+| a show is loaded or running | `POWER_SHUTDOWN_SHOW_RUNNING` |
+| the base, the lift or an arm is moving | `POWER_SHUTDOWN_MOVING` |
+| a software update is running (dpkg's lock is held) — a cut then breaks packages | `POWER_SHUTDOWN_UPDATE_RUNNING` |
+| the arms cannot be made safe — wraps the arm code below | `POWER_SHUTDOWN_ARMS_NOT_SAFE` |
 | — no stow pose configured | `ARM_NO_STOW_POSE` (arms registry) |
 | — `down` would drop an arm (energized, away from stow, CH5 `OFF`) | `ARM_DOWN_WOULD_DROP` (arms registry) |
 | — an arm operation is already running | `ARM_OP_RUNNING` (arms registry) |
 | — the arm stack is dead | `ARM_STACK_DEAD` (arms registry) |
 | — the arm command was refused by sudo | `ARM_SUDO_DENIED` (arms registry) |
 | no link to the StamPLC (the contactor and battery cannot be read) | `LINK_STAMPLC_LOST` (exists) |
-| *not a refusal* — the operator chose *shut down anyway*, and the arms were dropped | `SHUTDOWN_ARMS_WILL_DROP` (logged, and shown on the warning) |
+| *not a refusal* — the operator chose *shut down anyway*, and the arms were dropped | `POWER_SHUTDOWN_ARMS_WILL_DROP` (logged, and shown on the warning) |
 
-New `SHUTDOWN_*` codes to be agreed with the Docs lane, which owns the registry
+New `POWER_SHUTDOWN_*` codes to be agreed with the Docs lane, which owns the registry
 (`docs/reference/registry/power.yaml`).
 
 ### The battery advice — after the Thor is gone
@@ -278,7 +278,7 @@ The team asked for a harder look before accepting "sleep only". Four routes, tri
 
 | route | what was found | verdict |
 |---|---|---|
-| **(a) The Thor powers it off over adb** | `adb shell svc power shutdown` ("runtime shutdown and power off") **powered the bench tablet off** from a USB host, off adb in under 8 s. A delayed command left on the tablet (`nohup sh -c 'sleep N; …' &`) **ran on time with the host's adb gone** — so the Thor can schedule the power-off and then halt. A device owner **can keep USB debugging on**: `ADB_ENABLED` and `ADB_WIFI_ENABLED` are in AOSP's `setGlobalSetting` allowlist. `adb_enabled` survived a power cycle. | **works — recommended**, for *storage* (below) |
+| **(a) The Thor powers it off over adb** | `adb shell svc power shutdown` ("runtime shutdown and power off") **powered the bench tablet off** from a USB host, off adb in under 8 s. A delayed command left on the tablet (`nohup sh -c 'sleep N; …' &`) **ran on time with the host's adb gone** — so the Thor can schedule the power-off and then halt. A device owner **can keep USB debugging on**: `ADB_ENABLED` and `ADB_WIFI_ENABLED` are in AOSP's `setGlobalSetting` allowlist. `adb_enabled` survived a power cycle. | **works over USB** — but the team has since ruled out a USB link (below), so it now depends on **wireless** adb, **not yet probed** |
 | **(b) Samsung Knox SDK** | `SystemManager.powerOff()` exists (Knox API 20), and `setForceAutoStartUpState(ON)` would even boot the tablet on charger power — but both need a **KPE Premium** key: free, yet since 2025 issued only to approved enterprise customers through the Knox Partner Program, and activated **online** against Samsung's licence server. Tab A11 support likely (an Enterprise Edition of its LTE sibling exists), not confirmed. | **possible later**, if the team applies for a key; not a path today |
 | **(c) An accessibility service** | Samsung's power menu, once open, has stable, language-independent controls (`com.android.systemui:id/sec_global_actions_icon`, "Power off,"), so a service *could* press it — but it needs the power menu reachable in lock task, the service enabled at setup (not settable by a device owner), and two presses through Samsung UI that One UI updates can move. Not tried end to end. | **too fragile** — not recommended |
 | **(d) Manual, made workable** | With AOSP's `power_button_long_press` = `1`, a long press opens Samsung's **power-off menu** (Power off, Restart) — confirmed on the bench (it is `103`, the assistant, by default; Samsung's own `function_key_config_longpress_type` did not change it). A device owner **cannot** set it (not in the allowlist), so it is **one setup step over adb**. The kiosk must also allow the power menu in lock task (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`). | **works — the fallback**, and the operator's way at any time |
@@ -287,26 +287,37 @@ The team asked for a harder look before accepting "sleep only". Four routes, tri
 showed Samsung's charging screen briefly, then went dark; a person had to hold the side key. So a powered
 **off** tablet costs a button press at the next power-on — unless Knox's auto-start is ever licensed.
 
-### Recommendation
+### Recommendation — revised 2026-10-11: no USB data link
 
-- **Daily use — the tablet sleeps** (screen off, app alive): it **wakes by itself** when RUN brings the
-  mount's power back. Nothing to press.
-- **Storage — the shutdown screen offers *Power the tablet off too*:** the Thor, during safe-shutdown,
-  leaves `sleep 120; svc power shutdown` on the tablet (after the RUN-off countdown and the battery advice
-  have been shown), then halts. One tap, nothing to hold; at the next power-on a person presses the side
-  key.
-- **The manual way always works** (d), for an operator, or if the Thor is already down.
+**The team decided against a USB data link from the Thor to the mount** (the Thor's USB bus is already
+contested): the mount gets **one dumb charge connector** (§8). Route (a) therefore has to run **over Wi-Fi**
+— Android's *wireless debugging*, with the Thor as the adb host — or not at all.
 
-**What route (a) needs:**
+- **Daily use — the tablet sleeps** (screen off, app alive): it **wakes by itself** when the mount's power
+  returns — which, with the mount on the drive bus (§8), is when the contactor closes after RUN on.
+- **Storage — *Power the tablet off too*, by the Thor over wireless adb, IF the probe below shows it is
+  robust.** The mechanism is the one proven over USB: the Thor leaves `sleep 120; svc power shutdown` on the
+  tablet and halts. Otherwise storage power-off is **manual** (d).
+- **The manual way always works** (d).
 
-- **A USB data link from the Thor to the tablet's mount** — today's cradle is not known to be one (TS-3).
-  The same cable could also power the mount from the **logic bus**, so the mount's power would drop at
-  RUN off rather than at an e-stop — which the mount signal wants anyway (DT-1).
-- **`adb` on the Thor** and the Thor's adb key **authorised once** on the tablet (one tap, *always allow*).
-- **The device owner keeps `ADB_ENABLED` on**; wireless debugging stays **off**.
-- **Exposure, stated rather than blocked on:** adb is full control of the tablet. Over USB only, the one
-  host that has it is the Thor — and whoever controls the Thor controls the robot already. Consistent with
-  the LAN-first stance; it widens nothing on the network.
+**What wireless adb needs, and what is still to be shown on the bench** (the bench tablet was not on a Wi-Fi
+network when this was written, so none of this has been tried yet):
+
+| question | expectation (unverified) | how the bench answers it |
+|---|---|---|
+| can the device owner keep it on? | `ADB_WIFI_ENABLED` is in AOSP's device-owner allowlist (checked in the source) | set it, read it back |
+| does it survive a reboot, a Wi-Fi drop and a long sleep? | Android tends to switch wireless debugging **off** at boot and when the network changes, unless the network is "always allowed" | reboot; Wi-Fi off and on; an hour asleep — then read it, and reconnect |
+| pairing | a **one-time pairing code** per host; the Thor's key then stays authorised | pair once, reconnect after a reboot without pairing again |
+| finding it | its **port changes** each time it is enabled; the Thor finds it by mDNS (`_adb-tls-connect._tcp`) | `adb mdns services` after each change |
+| reachable while asleep and in lock task? | the adb daemon is a system service, so lock task should not matter; Wi-Fi power saving might | connect to a screen-off tablet after 30 min |
+| time to power-off | as over USB (under 8 s); the scheduled form outlives the Thor | the same two tests, over Wi-Fi |
+
+**Exposure, stated rather than blocked on:** only a host whose key was **paired** can connect (TLS, key-based);
+the pairing service is open only while someone has the pairing screen up on the tablet. Anyone on the robot's
+LAN can see the port; only the Thor can use it. Consistent with the LAN-first stance.
+
+**If wireless adb is not robust** — if it switches itself off at reboot and the device owner cannot keep it on
+— route (a) is dropped and storage power-off is manual (d); the guidance below covers when sleeping is fine.
 
 ### Operator instructions — powering the tablet off by hand (route d)
 
@@ -325,3 +336,32 @@ charges it. **PW-1 measures it** (an hour unplugged, screen off, the app running
 before and after), and the guidance becomes a number: *sleep if the robot will be used again within N
 days; otherwise power off.* Until then: **power the tablet off if the robot will sit unused for more than
 a few days.**
+
+---
+
+## 8. The mount's power — wiring (decided 2026-10-11)
+
+**The tablet charges from one dumb USB-C charge connector at the mount, fed from the DRIVE bus**
+(e-stop-switched) — the same bus as the neck controller (an M5 AtomS3R, also decided). So on an e-stop or at
+RUN off the mount's power drops and the neck goes dark, as the Tab5 did; the tablet runs on its own battery and
+shows E_STOP (DT-8); PRISM stays the safety channel (HRI §0).
+
+**Consequence for the mount signal:** losing the mount's power means *the contactor opened*, not *lifted
+off* — exactly the case DT-1 (as amended) handles: power counts only while the StamPLC says the contactor is
+closed; the **magnet** (TS-7) is the presence signal that holds through an e-stop.
+
+**What the tablet wants:** the SM-X133 charges at **15 W over USB-C**; its FCC filing names Samsung's 15 W
+adapter (EP-T1510, a USB-C PD charger). Battery about **5,000 mAh** (4,980 rated; retailers say 5,100). Android's
+own estimate on the bench reads 2.7 Ah, so its charge counter is not to be trusted as an absolute.
+
+**A short parts recommendation — nothing bought:**
+
+| part | what to look for | why |
+|---|---|---|
+| **a 24 V → USB-C PD converter** | input covering the drive bus (24 V nominal; check its range against the bus); **USB PD 3.0, 20 W or more** (offers 9 V at ≥2.2 A); a module meant for vehicles or panels, with its own input protection | 15 W into the tablet with margin; PD so the tablet negotiates 9 V rather than crawling at 5 V |
+| **its own fused branch on the drive bus** | a spare channel of the drive bus's distribution (the REV PDH), fused for the converter's input current at 24 V (about 1–2 A) | a fault in the head's charger cannot take down the drive |
+| **a magnetic breakaway USB-C connector at the mount** | rated for **PD at 9 V and 20 W or more** (some magnetic adapters pass 5 V only — check); the tip stays in the tablet | the tablet lifts off cleanly with no strain on its port, and drops back on without aiming a plug |
+
+**What the CAD needs from this:** the connector's position must meet the tablet's USB-C port (on its short
+edge) when the tablet seats; a short lead-in so the magnetic tip finds its socket; cable strain relief on the
+robot side; and room for the converter in the head or on the lift, near the neck controller's own supply.

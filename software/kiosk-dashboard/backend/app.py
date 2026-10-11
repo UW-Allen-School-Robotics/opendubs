@@ -34,6 +34,10 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 VNC_DISABLED_FLAG = status_mod.VNC_DISABLED_FLAG
 
 app = FastAPI(title="OpenDubs Kiosk Dashboard")
+# A state-changing request that another web page sent is refused; one that names no page (curl,
+# scripts, the Thor's services) is not. Not a login — see origin_guard.py.
+import origin_guard  # noqa: E402
+origin_guard.install(app)
 
 # Server-side state for non-safety soft controls.
 STATE = {"last_action": None, "ai_tracking": False}

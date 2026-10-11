@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 2                 # v2 adds SKIN (tablet face only)
+VERSION = 3                 # v2 adds SKIN, v3 adds SPIN (both tablet face only)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -46,6 +46,7 @@ MESSAGES = {
     "CUE":     (FACE, "shipping"),
     "CFG":     (FACE, "shipping"),
     "SKIN":    (FACE, "agreed"),        # v2, tablet face only
+    "SPIN":    (FACE, "agreed"),        # v3, tablet face only
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -65,7 +66,7 @@ NOT_YET_SHIPPING = ("new", "agreed")    # a head that should answer these but sa
 KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
-    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "REBOOT", "OTA"},
+    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -119,5 +120,7 @@ REPLY = {
     "park_err":  re.compile(r"^ERR park "),
     "skin_ok":   re.compile(r"^OK skin \S+$"),
     "skin_unknown": re.compile(r"^ERR unknown skin \S+ \(showing default\)$"),
+    "spin_ok":   re.compile(r"^OK spin (counter|together|auto)$"),
+    "spin_err":  re.compile(r"^ERR spin "),
     "unknown":   re.compile(r"^ERR unknown$"),
 }
