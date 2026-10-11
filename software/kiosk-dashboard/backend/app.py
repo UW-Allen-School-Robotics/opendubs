@@ -410,6 +410,8 @@ def system_power(action: str) -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
+    if await origin_guard.refuse_websocket(socket):
+        return
     await socket.accept()
     # RC telemetry is cheap (reads the latest StamPLC frame from memory) → push
     # fast for responsive sticks. System metrics are expensive (nvidia-smi
@@ -456,6 +458,8 @@ async def rosbridge_proxy(socket: WebSocket) -> None:
     message is relayed unchanged to the local rosbridge. Over plain HTTP the page still talks to
     :9090 directly. Nothing here interprets ROS traffic."""
     import websockets
+    if await origin_guard.refuse_websocket(socket):     # a foreign page may not publish to ROS
+        return
     await socket.accept()
     try:
         async with websockets.connect(ROSBRIDGE_URL, max_size=None, open_timeout=3) as up:
