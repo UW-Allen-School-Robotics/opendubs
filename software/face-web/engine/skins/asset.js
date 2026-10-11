@@ -55,6 +55,14 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // ease_s/2 AFTER RECEIPT. head-protocol.md records that number; the runner sends the line early
   // by it. Do not change the traversal rate without telling the Tablet and Choreography lanes.
   const EASE_DEFAULT = 0.9;
+  // THE SHORTEST EASE THE SKIN WILL DO, and a number two other lanes now mirror.
+  // `library.py` accepts `ease_s: 0` (it refuses only negatives and non-numbers), so an entry can
+  // legitimately ask for an instant reversal -- which v3 says the wire may not have, and which
+  // would be the snap this whole mechanism exists to avoid. It is clamped instead, so an ease_s
+  // below this still crosses zero EASE_MIN/2 after receipt, not immediately.
+  // The show side computes its lead as max(ease_s, EASE_MIN) / 2 and prints which it used, so
+  // CHANGING THIS NUMBER SILENTLY MAKES EVERY CUE SHEET WRONG. Tell Choreography first.
+  const EASE_MIN = 0.05;
   const cfg = p.counter && {
     every: p.counter.every_s || [8, 20],
     hold: p.counter.hold_s || [2, 4],
@@ -127,7 +135,7 @@ export function makeAssetSkin(entry, baseUrl, onError) {
       else if (sp.sTarget === 1 && t >= sp.untilAt) { sp.sTarget = 0; sp.nextAt = t + pick(cfg.every); }
     }
 
-    const rate = 1 / Math.max(0.05, easeS);            // s travels 0..1 in ease_s
+    const rate = 1 / Math.max(EASE_MIN, easeS);       // s travels 0..1 in ease_s
     const d = sp.sTarget - sp.s;
     sp.s += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
 

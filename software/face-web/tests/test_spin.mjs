@@ -173,6 +173,27 @@ const separates = (draw, from, frames) => {
   ok(separates(draw, t, 120), "a differently-cased mode is accepted, not silently misread");
 }
 
+// ---- 5c. ease_s: 0 is clamped, not snapped ----------------------------------------------------
+// library.py accepts ease_s: 0 -- it refuses only negatives and non-numbers -- so a VALID entry can
+// ask for an instant reversal, which protocol v3 says the wire may not have. The skin clamps to
+// EASE_MIN = 0.05, so the crossing is 0.025 s rather than immediate. Choreography computes its
+// lead as max(ease_s, 0.05)/2 to match; this pins the number so the two cannot drift apart.
+{
+  const { sk, draw } = rig({ spin_dps: DPS, counter: { every_s: [99, 99], hold_s: [9, 9], ease_s: 0 } });
+  let t = 0; draw(t);
+  sk.spin("counter", 5);
+  const t0 = t; let zero = null, p = draw(t), maxStep = 0;
+  for (let i = 0; i < 30; i++) {
+    t += DT; const f = draw(t);
+    maxStep = Math.max(maxStep, step(p, f));
+    if (zero === null && rate(p, f).r <= 0.5) zero = t - t0;
+    p = f;
+  }
+  ok(zero !== null && zero <= 3 * DT, "ease_s 0 is clamped, so it still eases through zero",
+     `crossed at ${zero?.toFixed(3)}s, EASE_MIN/2 = 0.025s`);
+  ok(maxStep <= FRAME_DEG + EPS, "and even then nothing snaps", `largest frame ${maxStep.toFixed(3)} deg`);
+}
+
 // ---- 6. THE WIRE REACHES THE SKIN ---------------------------------------------------------------
 // The conformance suite checks that SPIN is answered correctly, but it runs against a CODE skin,
 // whose `spin` is undefined -- so the guard in protocol.js skips and nothing there ever proves the
