@@ -268,7 +268,13 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "themes", "palette"}
+            "cues", "dance", "sounds", "themes", "palette", "timeline_notes"}
+# Timeline notes (composer plan #5): requests to whoever edits the show next — often an agent —
+# anchored to a time range and optionally to slots. NON-EXECUTABLE: the runner never reads them, the
+# validator checks only their shape (as warnings: a typo in a note never stops a show), and they
+# reach the export only when the composer asks for them (export(with_notes=True)).
+NOTE_KEYS = {"id", "at", "to", "slots", "text", "status", "reply", "by"}
+NOTE_STATUS = ("open", "done", "declined")
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -850,8 +856,61 @@ class Show:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
+        tnotes = self._timeline_notes(music, warnings.append)
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
-                "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets)}
+                "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets),
+                "timeline_notes": tnotes}
+
+    def _timeline_notes(self, music, W) -> list:
+        """The show's timeline notes, each resolved to seconds, or [] — their shape checked, as
+        warnings. `at`/`to`: a string is "bar.beat" (like a cue's bar:), a number is seconds."""
+        raw = self.doc.get("timeline_notes")
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            W(Problem("timeline_notes: must be a list of notes"))
+            return []
+        out, seen = [], set()
+        for i, n in enumerate(raw):
+            where = f"timeline note {i + 1}"
+            if not isinstance(n, dict):
+                W(Problem(f"{where}: must be a mapping {{id, at, text, status, ...}}"))
+                continue
+            bad = sorted(set(map(str, n)) - NOTE_KEYS)
+            if bad:
+                W(Problem(f"{where}: unknown key(s) {', '.join(bad)} (known: {', '.join(sorted(NOTE_KEYS))})"))
+            nid = n.get("id")
+            if not isinstance(nid, str) or not nid or nid in seen:
+                W(Problem(f"{where}: needs a unique id"))
+            seen.add(nid)
+            if not isinstance(n.get("text"), str) or not n["text"].strip():
+                W(Problem(f"{where} ({nid}): has no text"))
+            status = n.get("status", "open")
+            if status not in NOTE_STATUS:
+                W(Problem(f"{where} ({nid}): status {status!r} is not one of {', '.join(NOTE_STATUS)}"))
+            slots = n.get("slots") or []
+            if not isinstance(slots, list) or any(x not in SLOTS for x in slots):
+                W(Problem(f"{where} ({nid}): slots must be a list of {', '.join(SLOTS)}"))
+                slots = [x for x in slots if x in SLOTS] if isinstance(slots, list) else []
+
+            def when(v, what):
+                if v is None:
+                    return None
+                form = {"t": v} if _num(v) else {"bar": v}
+                t, _ = self._time(form, music, False, f"{where} ({nid}) {what}", W, ())
+                return t
+            t0 = when(n.get("at"), "at")
+            if n.get("at") is None:
+                W(Problem(f"{where} ({nid}): needs at (a bar \"9.1\" or seconds)"))
+            t1 = when(n.get("to"), "to")
+            if t0 is not None and t1 is not None and t1 < t0:
+                W(Problem(f"{where} ({nid}): to is before at"))
+                t1 = None
+            out.append({"index": i, "id": nid, "at": n.get("at"), "to": n.get("to"), "t0": t0,
+                        "t1": t1 if t1 is not None else t0, "slots": slots, "text": n.get("text", ""),
+                        "status": status if status in NOTE_STATUS else "open", "reply": n.get("reply"),
+                        "by": n.get("by")})
+        return out
 
     def _library(self):
         """The show library's index on this machine (library.py), read once per analysis."""
@@ -1302,7 +1361,7 @@ class Show:
         return p
 
     # ---- the resolved timeline --------------------------------------------------------------
-    def export(self, limits: dict, limits_path: str | None = None) -> dict:
+    def export(self, limits: dict, limits_path: str | None = None, with_notes: bool = False) -> dict:
         """The resolved timeline: what the show MEANS, with every inference made explicit.
         Schema in notes/design/choreo-format-v1.md 10. Deterministic for a given show+limits."""
         a = self.analyse(limits)
@@ -1352,6 +1411,8 @@ class Show:
             # the content hash of every library asset the show was validated against (plan 4.6), so a
             # run can tell when one has changed since
             "assets": a.get("assets", {}),
+            # timeline notes only for the composer to draw — never in the runner's cue sheet
+            **({"timeline_notes": a.get("timeline_notes", [])} if with_notes else {}),
             "duration_s": _r(max(ends, default=0.0)),
             "markers": [{"t": _r(m["t"]), "name": m["name"], "src": m["src"]}
                         for m in a["markers"]],

@@ -39,9 +39,14 @@
     </span>
     <span class="spacer"></span>
     <button id="undo" disabled title="Undo (Ctrl/Cmd-Z)">undo</button>
+    <button id="historyBtn" title="Earlier versions of this show — one is kept at every save and before an agent edits it. Compare any of them with now, and restore">history</button>
     <button id="yamlBtn" title="Show the show's text — exactly what will be saved">YAML</button>
     <button id="save" title="Save (Ctrl/Cmd-S)">save</button>
     <span id="status" class="chip" title="The validator's verdict on the whole show. Valid means allowed, not safe">…</span>
+    <div id="diskBar" hidden><span id="diskMsg"></span>
+      <button id="diskReview" title="See what changed on disk, against the text in this editor">review</button>
+      <button id="diskLoad" title="Load the version on disk; your current text stays one undo away">load them</button>
+      <button id="diskKeep" title="Keep editing yours; saving would replace the disk version, which History keeps first">keep mine</button></div>
   </header>
 
   <main id="tl">
@@ -114,6 +119,10 @@
       <h3>In the library</h3>
       <ul id="songList"></ul>
     </section>
+  </dialog>
+  <dialog id="textDlg" aria-labelledby="textTitle">
+    <div class="drawerHead"><b id="textTitle"></b><span class="spacer"></span><span id="textActions"></span><button id="textClose">close</button></div>
+    <section id="textBody"></section>
   </dialog>
   <div id="toast" hidden></div>
 

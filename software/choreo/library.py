@@ -461,7 +461,8 @@ def shows_using(item_id: str, shows_dir: str) -> list:
     (`music: song:`), a face skin (`do: skin, name:`) or a clip (`clip:`). A show that does not
     parse is skipped — it names nothing yet."""
     out = []
-    for d, _, files in os.walk(shows_dir):
+    for d, dirs, files in os.walk(shows_dir):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]     # .history keeps old versions, not shows
         for f in sorted(files):
             if not f.endswith((".yaml", ".yml")):
                 continue

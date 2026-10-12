@@ -86,6 +86,26 @@ def make_router(comp: "Composer"):
         p, ctype = _wrap(comp.audio, rel)
         return FileResponse(p, media_type=ctype)
 
+    @r.get("/api/show/disk")
+    def disk(path: str):
+        return _wrap(comp.disk, path)
+
+    @r.get("/api/history")
+    def history(path: str):
+        return _wrap(comp.history, path)
+
+    @r.post("/api/history/read")
+    def history_read(b: dict = Body(...)):
+        return _wrap(comp.history_read, b.get("path"), b.get("name"), b.get("text") or "")
+
+    @r.post("/api/diff")
+    def diff(b: dict = Body(...)):
+        return _wrap(comp.diff, b.get("a") or "", b.get("b") or "")
+
+    @r.get("/api/notes/prompt")
+    def notes_prompt(path: str):
+        return _wrap(comp.notes_prompt, path)
+
     @r.get("/api/library/songs")
     def songs():
         return comp.songs()

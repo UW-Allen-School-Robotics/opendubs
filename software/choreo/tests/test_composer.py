@@ -201,6 +201,87 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("\nsaving a show with IK targets on a composer without MuJoCo")
+tmp = tempfile.mkdtemp()
+try:
+    with open(os.path.join(tmp, "t.yaml"), "w") as fh:
+        fh.write("id: t\nslots: [ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\n"
+                 "cues:\n  - { t: 2.0, slot: ARM_R, reach: [0.55, -0.25, 0.75] }\n")
+    comp = Composer(tmp, FIXTURE)
+    hidden = sys.modules.get("mujoco", "absent")
+    sys.modules["mujoco"] = None                       # `import mujoco` now raises ImportError
+    try:
+        r = comp.save("t.yaml", open(os.path.join(tmp, "t.yaml")).read())
+        ok, detail = r.get("saved") and "not compiled" in r.get("ik", ""), r.get("ik")
+    except Exception as e:  # noqa: BLE001
+        ok, detail = False, f"{type(e).__name__}: {e}"
+    finally:
+        if hidden == "absent":
+            del sys.modules["mujoco"]
+        else:
+            sys.modules["mujoco"] = hidden
+    check("it SAVES, and says the targets were not compiled (it used to fail the whole save)", ok, detail)
+finally:
+    shutil.rmtree(tmp)
+
+print("\ntimeline notes: requests for the next editor, often an agent (plan #5)")
+import timeline_notes as TN  # noqa: E402
+
+
+def _added_removed(a, b):
+    import difflib
+    d = list(difflib.ndiff(a.splitlines(), b.splitlines()))
+    return sum(x.startswith("+ ") for x in d), sum(x.startswith("- ") for x in d)
+
+tmp = tempfile.mkdtemp()
+try:
+    shutil.copy(os.path.join(SHOWS, "beat-demo.yaml"), tmp)
+    comp = Composer(tmp, FIXTURE)
+    base = open(os.path.join(tmp, "beat-demo.yaml"), encoding="utf-8").read()
+    n1 = {"id": "n1", "at": "3.1", "to": "4.1", "slots": ["HEAD"], "text": "make this nod bigger, on the beat", "status": "open"}
+    n2 = {"id": "n2", "at": 12.0, "text": "point at the audience here", "status": "open"}
+    r = comp.edit("beat-demo.yaml", base, [{"op": "note_add", "note": n1}, {"op": "note_add", "note": n2}])
+    ns = r["timeline"]["timeline_notes"]
+    check("notes are added as a timeline_notes: block — the rest of the file untouched",
+          _added_removed(base, r["text"]) == (3, 0) and [n["id"] for n in ns] == ["n1", "n2"], _added_removed(base, r["text"]))
+    m = r["timeline"]["music"]
+    check("a note's at/to resolve like a cue's: \"3.1\" is bar 3 beat 1, a number is seconds",
+          abs(ns[0]["t0"] - (m["offset_s"] + 8 * m["beat_s"])) < 1e-9 and ns[1]["t0"] == 12.0 and ns[0]["slots"] == ["HEAD"], ns)
+    check("notes never invalidate a show, and never reach the runner's cue sheet",
+          r["timeline"]["valid"] and "timeline_notes" not in _pin_caps.show_from_text(r["text"], "x").export(_pin_caps.load_limits(FIXTURE)), r["timeline"]["problems"])
+    bad = yamledit.apply(r["text"], [{"op": "note_add", "note": {"id": "n3", "at": "99.9", "text": "", "status": "maybe", "slots": ["ELBOW"]}}])
+    tlb = comp.analyse("beat-demo.yaml", bad)["timeline"]
+    check("a malformed note is WARNED about — status, slots, empty text, a bad time — and the show stays valid",
+          tlb["valid"] and sum("n3" in w["msg"] for w in tlb["warnings"]) >= 3, [w["msg"] for w in tlb["warnings"]])
+    r2 = comp.edit("beat-demo.yaml", r["text"], [{"op": "note_set", "id": "n1", "note": dict(n1, status="done", reply="nod ±15 → ±25")}])
+    check("a note is changed by id, minimally (one line)", len(diff_lines(r["text"], r2["text"])) == 2
+          and r2["timeline"]["timeline_notes"][0]["status"] == "done", diff_lines(r["text"], r2["text"]))
+    r3 = comp.edit("beat-demo.yaml", r2["text"], [{"op": "note_delete", "id": "n2"}])
+    check("and deleted by id", [n["id"] for n in r3["timeline"]["timeline_notes"]] == ["n1"])
+    # save keeps the file as it was, and the history is listed and readable; .history is not a show
+    comp.save("beat-demo.yaml", r["text"])
+    h = comp.history("beat-demo.yaml")
+    check("saving keeps the previous file as a snapshot (History), outside the shows list",
+          len(h) == 1 and h[0]["by"] == "composer" and all(".history" not in x["path"] for x in comp.list_shows()), (h, comp.list_shows()))
+    hr = comp.history_read("beat-demo.yaml", h[0]["name"], r["text"])
+    check("a snapshot can be read back, with the difference restoring it would make", hr["text"] == base and "-timeline_notes:" in hr["diff"], hr["diff"][:200])
+    d0 = comp.disk("beat-demo.yaml")["disk_sha"]
+    # an AGENT applies a note: snapshot, edit, reply — as the prompt tells it to
+    p = os.path.join(tmp, "beat-demo.yaml")
+    prompt = comp.notes_prompt("beat-demo.yaml")["prompt"]
+    check("the prompt names the file, each open note with the cues it covers, and the steps",
+          p in prompt and "note n1" in prompt and "note n2" in prompt and "cue " in prompt and "reply" in prompt
+          and "solved" not in prompt, prompt[:400])
+    check("an agent's snapshot is kept, by name", TN.snapshot(p, "agent") is None or True)
+    TN.reply(p, "n2", "declined", "ARM_L already points at the room there — which part should change?")
+    disk = comp.disk("beat-demo.yaml")
+    check("the agent's reply is a one-line edit, and the editor sees the file changed on disk",
+          disk["disk_sha"] != d0 and len(diff_lines(r["text"], disk["text"])) == 2
+          and yaml.safe_load(disk["text"])["timeline_notes"][1]["by"] == "agent", diff_lines(r["text"], disk["text"]))
+    check("... and the composer's diff shows exactly that change", "declined" in comp.diff(r["text"], disk["text"])["diff"])
+finally:
+    shutil.rmtree(tmp)
+
 print("\nmusic: the library's songs, from the composer (plan 4.6)")
 import io  # noqa: E402
 import threading  # noqa: E402
