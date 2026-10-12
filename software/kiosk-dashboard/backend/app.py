@@ -67,6 +67,13 @@ def _start_state_out() -> None:
     state_out.start()
 
 
+@app.on_event("startup")
+async def _start_face_door() -> None:
+    """The tablet face's door: head-protocol UDP on 127.0.0.1:4242, to the face page (face_door.py)."""
+    import face_door
+    await face_door.start()
+
+
 # No shutdown hook for the tracker. It is a systemd service with its own lifecycle, and
 # restarting the dashboard must not stop the robot tracking — which is what killing a child
 # process on shutdown did, every time the backend was redeployed.
@@ -503,6 +510,14 @@ app.include_router(_choreo_router)
 # The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
 from library_serve import router as _library_router  # noqa: E402
 app.include_router(_library_router)
+
+# The tablet face: its door (/ws/face) and its page (/face/), from software/face-web beside this app
+# (/opt/opendubs/face-web on the robot, deploy.sh). Before the static mount, so neither is shadowed.
+from face_door import router as _face_door_router  # noqa: E402
+app.include_router(_face_door_router)
+FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
+if FACE_DIR.is_dir():
+    app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
 
 # This repository's docs, built on the dev machine at deploy time (deploy.sh), so the "?" beside a
 # refusal opens its troubleshooting entry with no internet and at the deployed version. Kept out of

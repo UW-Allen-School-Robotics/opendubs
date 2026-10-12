@@ -128,3 +128,15 @@ def test_a_folder_item_is_its_listing_then_its_files(tmp_path, monkeypatch):
     f = c.get(f"/api/library/item/{folder_hash}/parts/lid.svg")
     assert f.status_code == 200 and f.content == b"<svg id='lid'/>"
     assert c.get(f"/api/library/item/{folder_hash}/../../index.yaml").status_code == 404
+
+
+def test_the_face_page_reads_the_library_by_file_name(tmp_path, monkeypatch):
+    """index.json and <entry.file> under /api/library/files/: how engine/skins loads a library."""
+    c = _library(tmp_path, monkeypatch, [_skin("gear", GEAR)], {"skins/gear.png": GEAR})
+    assert [e["id"] for e in c.get("/api/library/files/index.json").json()] == ["gear"]
+    r = c.get("/api/library/files/skins/gear.png")
+    assert r.status_code == 200 and r.content == GEAR and r.headers["content-type"] == "image/png"
+    assert c.get("/api/library/files/skins/other.png").status_code == 404     # not indexed
+    assert c.get("/api/library/files/index.yaml").status_code == 404          # only indexed files
+    (tmp_path / "skins" / "gear.png").write_bytes(GEAR + b" edited")
+    assert c.get("/api/library/files/skins/gear.png").status_code == 409      # hash no longer matches
