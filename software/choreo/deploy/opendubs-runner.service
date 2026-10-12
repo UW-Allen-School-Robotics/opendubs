@@ -12,6 +12,10 @@ WorkingDirectory=/opt/opendubs/choreo
 # drop-in that binds just that one directory here, read-only, for this service alone. Without it the
 # file is absent and the runner refuses every routine, saying why.
 Environment=OPENDUBS_ARM_LIMITS=/etc/opendubs/arm-limits/joint_limits.yaml
+# This robot's own settings, as opendubs-dash and the tracker read them — above all where the head is
+# (OPENDUBS_HEAD_FACE_HOST / OPENDUBS_HEAD_NECK_HOST, face_bridge.head_face_host()): without this the
+# runner's live face fell back to opendubs-tab5.local whatever robot.env said. "-": absent is fine.
+EnvironmentFile=-/etc/opendubs/robot.env
 # Localhost only (the runner binds 127.0.0.1); the dashboard forwards the Shows page's calls. Robot
 # state is the dashboard's read-only view of it; nothing here commands the robot.
 # Show audio (plan 4.2) plays on the dashboard's show-audio device — the tablet by default.
