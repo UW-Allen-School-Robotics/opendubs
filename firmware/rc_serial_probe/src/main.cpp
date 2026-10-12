@@ -2195,11 +2195,16 @@ static void driveTick()
     const bool deadHeld = rcAxis(FN_DEAD, rc_ch) > 0.5f;
     const bool autoAuth = (mode == RCM_AUTO) && rosFresh            // autonomous needs a fresh Thor heartbeat
                        && (!kAutoRequiresDeadman || deadHeld);      // ...and, for now, a held deadman
-    const bool armOK    = (manual || autoAuth)                  // manual or autonomous authority (CH5)
-                       &&  contactor                            // drive bus actually powered
+    const bool motionOK =  contactor                            // drive bus actually powered
                        && !local_estop_active && !di0estop      // no e-stop (host/btn or DI0)
                        &&  rc_live && !rc_failsafe && !rc_range_bad   // RC fresh, not failsafe, in-band
                        &&  g_driveSafe;                         // ... and the loop is actually running
+    const bool armOK    = (manual || autoAuth) && motionOK;     // manual or autonomous authority (CH5)
+    // The Z-axis has its own authority. In AUTO it needs the deadman HELD but NOT the DRIVE
+    // heartbeat (rosFresh): MAST CMD carries its own, and a robot that is not being driven can
+    // still need its lift. Gating it on armOK meant that in AUTO with nothing sending DRIVE the
+    // lift's intent was silently zeroed. Used ONLY for the lift -- the wheels stay on armOK.
+    const bool mastOK   = (manual || (mode == RCM_AUTO && deadHeld)) && motionOK;
 
     // ==== (A) ARM SEQUENCE — 2 s of neutral with the gate satisfied ====
     if (!armOK)            { g_escArmed = false; g_armStart_ms = 0; }
@@ -2269,13 +2274,14 @@ static void driveTick()
     }
 
     // ==== Z-AXIS ====
-    // Same gate as the wheels: authority, deadman, no e-stop, contactor closed, RC fresh.
+    // The wheels' gate minus the DRIVE heartbeat (mastOK): authority, deadman in AUTO, no
+    // e-stop, contactor closed, RC fresh.
     // The lift's 24 V comes off the drive bus, so it is unpowered whenever the contactor
     // is open -- software and hardware agree by construction. Intent is asserted EVERY
     // tick (0 when not permitted), so "stop" is continuous rather than a one-shot that
     // could go missing.
     // Z-axis intent. Both sources go through the same driver, so neither can skip the pinch
-    // guard, and both are gated by armOK -- contactor closed, no e-stop, RC link alive.
+    // guard, and both are gated by mastOK -- contactor closed, no e-stop, RC link alive.
     //
     // THE STICK WINS while it is being used. Otherwise the Thor's command applies, under
     // MANUAL authority as well as AUTO: the dashboard is a normal operator interface and the
@@ -2295,10 +2301,29 @@ static void driveTick()
                        ? rcAxis(FN_MAST, rc_ch) : 0.0f;
     const bool  thorFresh = (g_rosMast.ms != 0) && (millis() - g_rosMast.ms < kRosCmdTimeoutMs);
     float mastIntent = 0.0f;
-    if (!armOK)                              mastIntent = 0.0f;
+    if (!mastOK)                             mastIntent = 0.0f;
     else if (fabsf(rcMast) > 0.05f)          mastIntent = rcMast;      // operator at the stick
     else if (thorFresh)                      mastIntent = g_rosMast.v;
     g_mast.setIntent(mastIntent);
+
+    // A Thor intent we will not act on is REFUSED OUT LOUD: on entry, then every 2 s while it
+    // persists. A held MAST CMD that does nothing must read as "refused, because", not as a
+    // broken lift.
+    static uint32_t mastRefusedMs = 0;
+    if (thorFresh && fabsf(g_rosMast.v) > 0.05f && !mastOK) {
+        if (mastRefusedMs == 0 || millis() - mastRefusedMs >= 2000) {
+            mastRefusedMs = millis();
+            const char* why = (local_estop_active || di0estop)              ? "e-stop"
+                            : !contactor                                     ? "contactor open"
+                            : (!rc_live || rc_failsafe || rc_range_bad)      ? "RC link not OK"
+                            : !g_driveSafe                                   ? "loop not ready"
+                            : (mode == RCM_AUTO)                             ? "AUTO needs the deadman held"
+                            :                                                  "CH5 not MANUAL or AUTO";
+            tprintf("[MAST] refused cmd=%.2f: %s\n", (double)g_rosMast.v, why);
+        }
+    } else {
+        mastRefusedMs = 0;
+    }
 
     // ---- head: the right stick, when CH7 says it is aiming rather than driving ----
     // Same gate as everything else that moves: authority, contactor, no e-stop, RC alive,
