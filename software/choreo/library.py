@@ -424,6 +424,10 @@ def _write_index(r: str, items: list) -> None:
     fd, tmp = tempfile.mkstemp(prefix=".index-", suffix=".yaml", dir=r)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
+    # mkstemp makes the file 0600. The index is read by OTHER users — on the robot the show runner
+    # runs as `kiosk` and the library belongs to whoever pushed it — so make it readable like the
+    # items beside it (a 0600 index crashed every library show at the robot, 2026-10-12).
+    os.chmod(tmp, 0o644)
     os.replace(tmp, os.path.join(r, INDEX))
 
 
