@@ -294,6 +294,19 @@ NOT_EXECUTABLE = {
 }
 
 
+def slot_requirements(slot: str) -> dict:
+    """What `requires:` must say for a show that uses this slot — the same rules the validator
+    applies (_check_requires), so the composer can add them when it lists a part."""
+    out = {}
+    if slot in MOTION_SLOTS:
+        out["rc_authority"] = "AUTO"
+    if slot in ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R"):
+        out["arms"] = "active"
+    if slot in TAB5_SLOTS:
+        out["tab5"] = True
+    return out
+
+
 def ik_target_key(c: dict):
     """`reach:head_screen` / `point_at:[0.5, -0.2, 1.1]` — the target an arm cue names, as
     `solved_for` records it (ik.py); None for a cue with no target."""

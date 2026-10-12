@@ -282,6 +282,67 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("\nshow files: new, save a copy, rename, delete (the user: 'no way to make a new composer file')")
+tmp = tempfile.mkdtemp()
+try:
+    comp = Composer(tmp, FIXTURE)
+    d = comp.new_show("Welcome Wave", None, 110)
+    t = d["text"]
+    check("a new show is a safe file name, its id the same, a readable name, a beat grid if a BPM is given",
+          d["path"] == "welcome-wave.yaml" and yaml.safe_load(t)["id"] == "welcome-wave"
+          and yaml.safe_load(t)["name"] == "Welcome wave" and d["timeline"]["music"]["bpm"] == 110.0, t)
+    check("... it is empty, and says so (an empty show must never run)",
+          [p["msg"] for p in d["timeline"]["problems"]] == ["show has no cues"], d["timeline"]["problems"])
+    need = comp.info()["slot_requires"]["HEAD"]
+    r = comp.edit(d["path"], t, [{"op": "declare", "slot": "HEAD"}]
+                  + [{"op": "require", "key": k, "value": v} for k, v in need.items()]
+                  + [{"op": "add", "cue": {"bar": "1.1", "slot": "HEAD", "pan": 80}}])
+    check("its first cue (as + on a lane sends it: list the part, require what it needs, add) makes it valid",
+          need == {"rc_authority": "AUTO", "tab5": True} and r["timeline"]["valid"]
+          and yaml.safe_load(r["text"])["cues"][0]["slot"] == "HEAD", r["timeline"]["problems"])
+    comp.save(d["path"], r["text"])
+    for bad in ("../escape", "a/b", ".hidden", "", "x" * 80):
+        e = None
+        try:
+            comp.new_show(bad)
+        except ApiError as err:
+            e = err
+        check(f"a show name {bad[:20]!r} is refused (inside the shows folder, safe characters only)", e is not None)
+    try:
+        comp.new_show("welcome-wave")
+        check("an existing name is refused, never overwritten", False)
+    except ApiError as e:
+        check("an existing name is refused, never overwritten", e.status == 409)
+    edited = r["text"].replace("pan: 80", "pan: 70")
+    c = comp.save_as("welcome-wave.yaml", "wave-two", edited)
+    orig = open(os.path.join(tmp, "welcome-wave.yaml")).read()
+    check("save a copy: the edited text under the new name, its id and name following; the original untouched",
+          c["path"] == "wave-two.yaml" and yaml.safe_load(c["text"])["id"] == "wave-two"
+          and yaml.safe_load(c["text"])["name"] == "Wave two"
+          and "pan: 70" in c["text"] and "pan: 80" in orig and "id: welcome-wave" in orig, c["text"])
+    hist_before = comp.history("welcome-wave.yaml")
+    rn = comp.rename("welcome-wave.yaml", "hello-wave")
+    check("rename moves the file, its id and derived name, and its History",
+          rn["path"] == "hello-wave.yaml" and not os.path.exists(os.path.join(tmp, "welcome-wave.yaml"))
+          and yaml.safe_load(rn["text"])["id"] == "hello-wave" and yaml.safe_load(rn["text"])["name"] == "Hello wave"
+          and len(comp.history("hello-wave.yaml")) == len(hist_before) >= 1, (rn["text"], comp.history("hello-wave.yaml")))
+    try:
+        comp.rename("hello-wave.yaml", "wave-two")
+        check("rename onto an existing show is refused", False)
+    except ApiError as e:
+        check("rename onto an existing show is refused", e.status == 409 and os.path.exists(os.path.join(tmp, "hello-wave.yaml")))
+    try:
+        comp.delete_show("wave-two.yaml", True)
+        check("delete needs confirm = the show's path", False)
+    except ApiError:
+        check("delete needs confirm = the show's path", os.path.exists(os.path.join(tmp, "wave-two.yaml")))
+    dl = comp.delete_show("wave-two.yaml", "wave-two.yaml")
+    check("delete removes the file and keeps its last version in History",
+          not os.path.exists(os.path.join(tmp, "wave-two.yaml")) and comp.history("wave-two.yaml")
+          and "wave-two.yaml" not in [x["path"] for x in dl["shows"]], dl)
+finally:
+    shutil.rmtree(tmp)
+
 print("\nmusic: the library's songs, from the composer (plan 4.6)")
 import io  # noqa: E402
 import threading  # noqa: E402
