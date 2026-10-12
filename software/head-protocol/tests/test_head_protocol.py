@@ -280,11 +280,8 @@ def test_the_moves_are_the_engines():
 
 def test_the_move_peaks_in_the_spec_are_the_engines():
     """head-protocol.md's MOVE peak table == face.js MOVES[name].peak, which the face's own
-    test_moves.mjs holds to the measured curve. Skipped until the engine has moves (#196)."""
-    import pytest
+    test_moves.mjs holds to the measured curve. Plain asserts: CI runs this file with bare python3."""
     js = _src("software/face-web/engine/face.js")
-    if "export const MOVES" not in js:
-        pytest.skip("face.js has no MOVES yet")
     block = js.split("export const MOVES", 1)[1].split("\n};", 1)[0]
     engine = {m: int(v) for m, v in re.findall(r"^\s*(\w+):\s*\{[^\n]*?\bpeak:\s*(\d+)", block, re.M)}
     assert set(engine) == set(hp.MOVES), sorted(engine)
