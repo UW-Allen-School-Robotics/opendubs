@@ -57,6 +57,13 @@ rsync -az --delete --filter 'P shows/audio/*' \
   --exclude '__pycache__' --exclude '*.pyc' --exclude 'MUJOCO_LOG.TXT' \
   "$CHOREO" "$HOST:$DEST_ROOT/choreo/"
 
+# The tablet face's page (software/face-web), served by the dashboard at /face/ (backend/face_door.py).
+# Its test library and downloaded vendor files are laptop-only and never copied.
+ssh "$HOST" "mkdir -p $DEST_ROOT/face-web"
+rsync -az --delete --exclude 'library/' --exclude 'vendor/' --exclude 'node_modules/' \
+  --exclude '__pycache__' --exclude '*.pyc' \
+  "$SRC../face-web/" "$HOST:$DEST_ROOT/face-web/"
+
 # deploy-all.sh calls this script and provisions everything itself afterwards.
 if [ -n "${OPENDUBS_SKIP_PROVISION:-}" ]; then
   echo "== dashboard copied; provisioning left to the caller =="

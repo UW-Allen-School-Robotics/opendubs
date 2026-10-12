@@ -213,3 +213,45 @@ def library_item_file(sha: str, rel: str) -> Response:
         return JSONResponse({"error": "no such file in this item"}, status_code=404)
     media = mimetypes.guess_type(full)[0] or "application/octet-stream"
     return FileResponse(full, media_type=media, headers={"Cache-Control": IMMUTABLE})
+
+
+# ---- by file name, for the face page --------------------------------------------------------------
+# The face page loads a library the way a folder is laid out: `<base>/index.json`, then each item at
+# `<base>/<entry.file>` (engine/skins/index.js, asset.js). These serve the same validated index and
+# the same hash-checked items under that layout, so the page reads the Thor's library unchanged with
+# `library=/api/library/files/`, same origin as the page. Not immutable: a name, unlike a hash, can
+# be given new content by the sync.
+
+@router.get("/api/library/files/index.json")
+def library_files_index(request: Request) -> Response:
+    return library_index(request)
+
+
+@router.get("/api/library/files/{rel:path}")
+def library_files_item(rel: str) -> Response:
+    lib = _library()
+    if lib is None:
+        return JSONResponse({"error": "no show library on this robot"}, status_code=503)
+    _, entries, _ = _load(lib)
+    for e in entries:
+        f = str(e["file"]).rstrip("/")
+        if rel == f:
+            found, err = _item(e["sha256"])
+        elif rel.startswith(f + "/"):
+            found, err = _item(e["sha256"])
+            if not err:
+                full = _inside(found[2], rel[len(f) + 1:])
+                if full is None or not os.path.isfile(full):
+                    return JSONResponse({"error": "no such file in this item"}, status_code=404)
+                return FileResponse(full, media_type=mimetypes.guess_type(full)[0] or "application/octet-stream",
+                                    headers={"Cache-Control": "no-cache"})
+        else:
+            continue
+        if err:
+            return err
+        path = found[2]
+        if not os.path.isfile(path):
+            return JSONResponse({"error": f"{e['id']} is a folder: ask for a file in it"}, status_code=404)
+        return FileResponse(path, media_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+                            headers={"Cache-Control": "no-cache"})
+    return JSONResponse({"error": "no such file in the library index"}, status_code=404)
