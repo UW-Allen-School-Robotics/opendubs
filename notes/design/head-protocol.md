@@ -71,16 +71,16 @@ sender resolves the two in this order** (`software/kiosk-dashboard/backend/head.
 | `SIM LINK\|ESTOP\|PERSON\|TOF …` | `OK sim …` / `ERR SIM …` | twins only | Simulated inputs for the face twin. A real head refuses them rather than pretending. |
 
 
-**`MOVE` peak offsets** (receipt → peak, seconds; measured on the face engine, as `SPIN`'s 0.450 was). Empty until Face & HRI publishes each one; a move without a measured offset is not used on a beat.
+**`MOVE` peak offsets** (receipt → peak, seconds; measured on the face engine, as `SPIN`'s 0.450 was). Measured by Face & HRI (PR #196). The engine keeps them as `MOVES[name].peak` in `face.js`; its `test_moves.mjs` re-measures every run and fails if a move's curve and its number drift apart by more than a frame, and `test_head_protocol.py` fails if this table and `face.js` differ.
 
 | move | peak | what peaks |
 |---|---|---|
-| `wink_l`, `wink_r` | — | that eye's lid fully shut |
-| `blink2` | — | the second blink's lids shut |
-| `look_l`, `look_r` | — | the gaze at its furthest |
-| `roll` | — | the eyes at the top of the roll |
-| `bob` | — | the bottom of the bob |
-| `sparkle` | — | the sparkle at its brightest (code skins only) |
+| `wink_l`, `wink_r` | 0.139 | that eye's lid fully shut |
+| `blink2` | 0.333 | the second blink's lids shut |
+| `look_l`, `look_r` | 0.231 | the gaze at its furthest |
+| `roll` | 0.148 | the eyes at the top of the roll |
+| `bob` | 0.138 | the bottom of the bob |
+| `sparkle` | 0.124 | the sparkle at its brightest (code skins only) |
 
 ## 4. Neck messages
 

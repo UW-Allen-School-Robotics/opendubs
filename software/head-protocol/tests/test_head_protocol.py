@@ -278,6 +278,24 @@ def test_the_moves_are_the_engines():
     assert tuple(re.findall(r'"(\w+)"', line)) == hp.MOVES, line
 
 
+def test_the_move_peaks_in_the_spec_are_the_engines():
+    """head-protocol.md's MOVE peak table == face.js MOVES[name].peak, which the face's own
+    test_moves.mjs holds to the measured curve. Skipped until the engine has moves (#196)."""
+    import pytest
+    js = _src("software/face-web/engine/face.js")
+    if "export const MOVES" not in js:
+        pytest.skip("face.js has no MOVES yet")
+    block = js.split("export const MOVES", 1)[1].split("\n};", 1)[0]
+    engine = {m: int(v) for m, v in re.findall(r"^\s*(\w+):\s*\{[^\n]*?\bpeak:\s*(\d+)", block, re.M)}
+    assert set(engine) == set(hp.MOVES), sorted(engine)
+    doc = _src("notes/design/head-protocol.md").split("**`MOVE` peak offsets**", 1)[1].split("\n## ", 1)[0]
+    spec = {}
+    for names, peak in re.findall(r"^\| (`[^|]+`) \| ([0-9.]+) \|", doc, re.M):
+        for m in re.findall(r"`(\w+)`", names):
+            spec[m] = round(float(peak) * 1000)
+    assert spec == engine, f"spec {spec} != engine {engine}"
+
+
 def test_the_code_skins_are_the_engines():
     js = _src("software/face-web/engine/skins/index.js")
     line = next(l for l in js.splitlines() if l.startswith("export const CODE_SKINS"))

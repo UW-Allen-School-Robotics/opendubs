@@ -16,6 +16,7 @@ on:
       - "software/face-web/engine/vocab.js"
       - "software/face-web/engine/skins/index.js"
       - "software/face-web/engine/protocol.js"
+      - "software/face-web/engine/face.js"
       - ".github/workflows/head-protocol.yml"
   pull_request:
     paths:
@@ -25,6 +26,7 @@ on:
       - "software/face-web/engine/vocab.js"
       - "software/face-web/engine/skins/index.js"
       - "software/face-web/engine/protocol.js"
+      - "software/face-web/engine/face.js"
       - ".github/workflows/head-protocol.yml"
 
 permissions:
