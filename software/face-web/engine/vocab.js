@@ -23,6 +23,25 @@ export const EMOTES = {
   SLEEPY:  [0.99, 0.40, 0.733, 0.35, -0.60, +2.0],
 };
 
+// How each emote shapes the LIDS. Expression comes from the lids' shape, not from scaling the eye:
+// the maintainers chose this by looking at it beside the old behaviour (#136, decision 1).
+//
+//   lu  how far the UPPER lid closes, 0..1 of the eye's height
+//   ll  the LOWER lid, the same
+//   lc  how the lids' edges BOW. The sign is the whole meaning: POSITIVE droops the upper lid's
+//       middle downward and bulges the LOWER lid's middle upward -- the smile. NEGATIVE lifts the
+//       upper lid's middle into a wide, alert aperture.
+//
+// There is no pupil channel. Per-emote pupil sizes were looked at and rejected ("the pupil is too
+// big for several of them"), so the pupil stays at the baseline for every emote.
+export const SHAPES = {
+  NEUTRAL: { lu: 0.00, ll: 0.00, lc:  0.0, wm: 1.00, hm: 1.00 },
+  ALERT:   { lu: 0.00, ll: 0.00, lc: -0.5, wm: 1.00, hm: 1.00 },
+  SQUINT:  { lu: 0.30, ll: 0.26, lc: +0.3, wm: 1.02, hm: 0.80 },
+  SOFT:    { lu: 0.10, ll: 0.22, lc: -0.2, wm: 1.00, hm: 1.00 },
+  SLEEPY:  { lu: 0.52, ll: 0.06, lc: +0.8, wm: 1.00, hm: 1.00 },
+};
+
 export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 
 // Built-in themes: per-state colours for the states a theme may touch. Reserved states are absent

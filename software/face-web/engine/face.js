@@ -3,7 +3,7 @@
 // saccades and looks where it is told in the same way.
 
 import { Spring, Ease } from "./anim.js";
-import { STATES, EMOTES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
+import { STATES, EMOTES, SHAPES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
 
 export const DESIGN_W = 1280, DESIGN_H = 720;        // the Tab5's panel, the geometry's frame
 const BODY = 480, GAP_FRAC = 0.34;
@@ -102,6 +102,7 @@ export class Face {
     this.bodyW = new Spring(BODY); this.bodyH = new Spring(BODY);
     this.radius = new Spring(BODY * 0.205);
     this.lid = new Spring(1);   // shut at first: the eyes open once, as the face's first act
+    this.lidLower = new Spring(0); this.lidCurve = new Spring(0);
     this.browRaise = new Spring(0); this.browAngle = new Spring(0);
     this.asym = new Spring(0);
     this.gazeX = new Ease(0); this.gazeY = new Ease(0);
@@ -111,6 +112,8 @@ export class Face {
     this.quote = -1; this.nextQuote = 0;
     this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at}
     this.woke = false;
+    this.nextAvert = 0; this.avertUntil = 0;   // the gaze break; see tick()
+    this.microX = 0; this.microY = 0; this.nextMicro = 0;
     this.mv = null;             // the one move in flight: {name, t0}; see move()
     this.mvOut = NO_MOVE;       // what it contributes this frame
   }
@@ -180,11 +183,15 @@ export class Face {
     rgb(colour).forEach((v, k) => { if (this.col[k].target !== v) this.col[k].set(v, 0.45); });
   }
   applyEmote(name) {
-    const [wm, hm, rf, lid, br, ba] = EMOTES[name];
+    const [, , rf, , br, ba] = EMOTES[name];
+    const shape = SHAPES[name];
     this.emote = name;
-    const w = BODY * wm, h = BODY * hm;
+    // The SIZE comes from SHAPES, which holds it at 1.0 except where a size change IS the meaning,
+    // so the eye stops changing shape to show a feeling and the lids do it instead.
+    const w = BODY * shape.wm, h = BODY * shape.hm;
     this.bodyW.set(w); this.bodyH.set(h); this.radius.set(Math.min(w, h) * rf);
-    if (!this.blinking) this.lid.set(lid);
+    if (!this.blinking) this.lid.set(shape.lu);
+    this.lidLower.set(shape.ll); this.lidCurve.set(shape.lc);
     this.browRaise.set(br); this.browAngle.set(ba);
   }
 
@@ -215,7 +222,7 @@ export class Face {
       this.lid.snap(this.lid.value); this.lid.set(1); this.lid.k = 900; this.lid.c = 60;
     } else if (this.blinking && now >= this.blinkEnd) {
       this.blinking = false; this.lid.k = 170; this.lid.c = 19;
-      this.lid.set(EMOTES[this.emote][3]);
+      this.lid.set(SHAPES[this.emote].lu);       // the same resting lid applyEmote sets
       this.nextBlink = now + 2200 + rnd(3000);
     }
 
@@ -224,9 +231,40 @@ export class Face {
     if (t && now - t.at < 700) {
       const amp = GAZE_AMP_FLOOR + (1 - GAZE_AMP_FLOOR) * Math.max(0, Math.min(1, t.conf));
       const tx = Math.max(-1, Math.min(1, t.x)) * amp, ty = Math.max(-1, Math.min(1, t.y)) * amp * GAZE_V;
-      if (Math.hypot(tx - this.gazeX.target, ty - this.gazeY.target) > 0.04) this.aim(tx, ty);
+
+      // ---- THE GAZE BREAK (#136, decision 5) -------------------------------------------------
+      // hri-interaction-design.md: "multiple short fixations beat one long stare", and the pattern
+      // it records is attract -> eye contact -> avert -> shift. The engine used to do the first two
+      // and NEVER avert: `nextSaccade = now + 600` was rewritten on every frame a confident target
+      // was present, so the robot held a person's gaze for as long as they stood there. That is the
+      // one failure a person actually notices.
+      if (!this.nextAvert) this.nextAvert = now + 2600 + rnd(1600);
+      if (now >= this.avertUntil && now >= this.nextAvert) {
+        // Away, briefly, and somewhere plausible rather than randomly: down and to one side is what
+        // people do, and it reads as thought rather than distraction.
+        const side = Math.random() < 0.5 ? -1 : 1;
+        this.aim(tx + side * (0.28 + rnd(18) / 100), ty + 0.16 + rnd(12) / 100);
+        this.avertUntil = now + 500 + rnd(700);
+        this.nextAvert = this.avertUntil + 2200 + rnd(2600);
+      } else if (now >= this.avertUntil
+                 && Math.hypot(tx - this.gazeX.target, ty - this.gazeY.target) > 0.04) {
+        this.aim(tx, ty);                      // back to the person, by a saccade as before
+      }
       this.nextSaccade = now + 600;
-    } else if (now >= this.nextSaccade) this.saccade(now);
+    } else if (now >= this.nextSaccade) {
+      this.saccade(now);
+      this.nextAvert = 0;                      // nobody to avert from
+    }
+
+    // ---- MICROSACCADES -----------------------------------------------------------------------
+    // Between saccades the gaze used to be perfectly still, which is the frozen quality most robot
+    // eyes have. A fraction of a degree of jitter, a few times a second, is most of the difference
+    // between alive and paused. Added in eyes() rather than to the target, so it cannot accumulate.
+    if (now >= this.nextMicro) {
+      this.microX = (Math.random() - 0.5) * 0.016;   // ~0.25 deg at 30 deg full deflection
+      this.microY = (Math.random() - 0.5) * 0.010;
+      this.nextMicro = now + 90 + rnd(220);
+    }
 
     // Emote: pinned by the state, or by a show, or cycling every 4-9 s, never repeating.
     const locked = this.lockedEmote();
@@ -244,7 +282,8 @@ export class Face {
 
     this.stepMove(now);
 
-    for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.browRaise, this.browAngle,
+    for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.lidLower, this.lidCurve,
+                     this.browRaise, this.browAngle,
                      this.asym, this.gazeX, this.gazeY, ...this.col]) v.step(dt);
   }
 
@@ -264,13 +303,14 @@ export class Face {
       // A move adds to the lid rather than replacing it, so a wink during SLEEPY still shuts from
       // an already-low lid instead of snapping the eye open to wink it.
       lid: clamp01(this.lid.value + (i === 0 ? m.lidL : m.lidR)),
+      lidLower: this.lidLower.value, lidCurve: this.lidCurve.value,
       browRaise: this.browRaise.value, browAngle: this.browAngle.value,
       // Likewise the gaze: a move nudges where the eyes already are. Clamped, so a look during a
       // saccade to the same side cannot leave the eye's range.
       // `pull` draws the gaze toward centre before the offset, so `to_camera` lands on the viewer
       // from wherever the eyes were, while every other move still just nudges.
-      gazeX: clamp01((this.gazeX.value * (1 - m.pull) + m.gx + 1) / 2) * 2 - 1,
-      gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + 1) / 2) * 2 - 1,
+      gazeX: clamp01((this.gazeX.value * (1 - m.pull) + m.gx + this.microX + 1) / 2) * 2 - 1,
+      gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + this.microY + 1) / 2) * 2 - 1,
       sparkle: m.sparkle,       // 0..1, THE ONE FIELD A SKIN MAY IGNORE (face-engine.md A)
       colour, dim, rgb: c,
     }));
