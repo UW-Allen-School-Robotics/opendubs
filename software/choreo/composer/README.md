@@ -123,6 +123,21 @@ python3 composer/server.py                   # 1. the composer — then open htt
   the playhead, including scrubbing and seeking. The body twin's screen does not show the web face
   yet; watch the face page beside it.
 
+## Which parts a show moves: `slots:`
+
+A show lists, at its top, the parts of the robot it uses — `slots: [ARM_L, ARM_R, HEAD]` — and the
+runner builds its pre-run checks from that list (an arm show needs the arms active, a head show
+needs the head, and so on). In the composer a lane whose part is NOT listed is drawn hatched with
+its name dimmed and dotted.
+
+- **Adding a cue to an unlisted lane lists it**, in the same edit: the toast says so, and one undo
+  takes back both the cue and the listing.
+- **Tapping an unlisted lane's name** lists it without adding a cue.
+- To take a part off the list, edit `slots:` in the YAML view. (A listed part with no cues is
+  harmless.)
+- A cue on an unlisted part (written by hand) is still drawn on its lane, with the validator's
+  problem on it — it is never dropped from the timeline.
+
 ## Music
 
 A show names its music by the id of a song in the **show library** (`music: song: <id>`; the

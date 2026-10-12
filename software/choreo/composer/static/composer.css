@@ -204,3 +204,4 @@ button:not(:disabled):active { background: var(--line); }
 #musicDlg code { color: var(--accent-2); }
 #songList .sync { margin-top: 6px; font-size: 12px; word-break: break-all; }
 #songList .sync button { margin: 0 0 0 6px; }
+.head.undeclared .name[data-declare] { cursor: pointer; text-decoration: underline dotted; }
