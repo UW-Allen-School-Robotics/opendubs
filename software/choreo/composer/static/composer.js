@@ -287,7 +287,16 @@ function postPlayhead(force) {
   fetch("api/playhead", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ t: S.t, playing: S.playing }) }).catch(() => {});
 }
+/* The twins follow ONE show: whichever any composer page last sent (every edit, load and undo sends
+ * it). With two pages open — a second window, a tab left on another show, a page that reloaded when
+ * the server restarted — the twins could be playing the other page's show while this one plays, and
+ * do nothing at all past its end. So Play claims them: it sends this page's show (or clip) again.
+ * Fire-and-forget, like the playhead: nothing waits on it, and the music starts as before. */
+function claimTwins() {
+  api("api/analyse", { path: S.path, text: S.text, clip: S.clip }).catch(() => {});
+}
 async function play() {
+  claimTwins();
   /* a fresh context, made inside this click (see freshCtx); wait until it is really running before
      anything is scheduled on its clock */
   const c = freshCtx();
