@@ -283,6 +283,50 @@ try:
     check("over HTTP: an upload over the limit is refused by its declared length (413)", code == 413, (code, j))
     code, j = post("/api/library/songs/delete", json.dumps({"id": "tune", "confirm": "tune"}).encode(), "application/json")
     check("over HTTP: a confirmed delete", code == 200 and j["deleted"] == "tune", (code, j))
+
+    # A user's MP3 (ID3v2.3, a GEOB frame first) failed with a bare "Load failed". A made-up one of the
+    # same shape: the server reads its length itself, with no duration from the browser.
+    geob = b"\x00application/octet-stream\x00x.bin\x00made up\x00" + bytes(2000)
+    tag = b"GEOB" + len(geob).to_bytes(4, "big") + b"\x00\x00" + geob
+    n = len(tag)
+    MP3 = (b"ID3\x03\x00\x00" + bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F]) + tag
+           + (b"\xff\xfb\x90\x00" + bytes(413)) * 120)
+    q = urlencode({"filename": "made up.mp3", "id": "made-up-mp3", "source": "made up", "licence": "CC0"})
+    code, j = post("/api/library/songs?" + q, MP3)
+    check("over HTTP: an MP3 with an ID3v2.3+GEOB tag is added with NO duration from the browser — the "
+          "server reads it", code == 200 and abs(j["songs"][0]["duration_s"] - 120 * 1152 / 44100) < 0.05, (code, j))
+    import http.client  # noqa: E402
+    hc = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+    hc.putrequest("POST", "/api/library/songs?" + q.replace("made-up-mp3", "chunked-mp3"))
+    hc.putheader("Content-Type", "application/octet-stream")
+    hc.putheader("Transfer-Encoding", "chunked")
+    hc.endheaders()
+    for k in range(0, len(MP3), 4096):
+        part = MP3[k:k + 4096]
+        hc.send(f"{len(part):x}\r\n".encode() + part + b"\r\n")
+    hc.send(b"0\r\n\r\n")
+    resp = hc.getresponse()
+    check("over HTTP: a CHUNKED upload (no Content-Length) is read too", resp.status == 200, (resp.status, resp.read()[:200]))
+    hc.close()
+    hc = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+    hc.putrequest("POST", "/api/library/songs?" + q.replace("made-up-mp3", "nolen"), skip_accept_encoding=True)
+    hc.endheaders()
+    resp = hc.getresponse()
+    body = json.loads(resp.read() or b"{}")
+    check("over HTTP: an upload with no length at all gets a readable 411, not a dropped connection",
+          resp.status == 411 and "length" in body.get("error", ""), (resp.status, body))
+    hc.close()
+    real_songs = comp.songs
+    comp.songs = lambda: 1 / 0
+    try:
+        with urllib.request.urlopen(base + "/api/library/songs", timeout=10) as resp:
+            code, j = resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        code, j = e.code, json.loads(e.read() or b"{}")
+    comp.songs = real_songs
+    check("over HTTP: an unexpected error in the composer comes back as a 500 the editor can show, never "
+          "a dropped connection (a browser's bare \"Load failed\")",
+          code == 500 and "ZeroDivisionError" in j.get("error", ""), (code, j))
     srv.shutdown()
 finally:
     if saved_env is None:

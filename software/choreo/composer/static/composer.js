@@ -49,8 +49,18 @@ function toast(msg, ms = 3200) {
   document.addEventListener("pointerup", cancel);
   document.addEventListener("pointercancel", cancel);
 })();
+/* A request that gets no answer at all (the composer stopped, restarted, or the network dropped)
+ * reaches here as a bare TypeError — "Load failed" in Safari, "Failed to fetch" in Chrome. Say what
+ * that means instead. */
+function noAnswer(e) {
+  return new Error(`the composer at ${location.host} did not answer (the browser said: ${e.message}). `
+    + "Is it still running? Reload this page once it is — unsaved edits are in the YAML view.");
+}
+async function send(path, init) {
+  try { return await fetch(path, init); } catch (e) { throw noAnswer(e); }
+}
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {
+  const r = await send(path, body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
   if (!r.ok) throw new Error(j.error || j.detail || `HTTP ${r.status}`);
@@ -191,7 +201,7 @@ async function loadAudio() {
   S.audio.file = url;
   $("waveMsg").textContent = "loading " + label + "…";
   try {
-    const r = await fetch(url);
+    const r = await send(url);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "HTTP " + r.status);
     const buf = await r.arrayBuffer();
     S.audio.buffer = await new Promise((ok, no) => ctx().decodeAudioData(buf, ok, no));
@@ -736,7 +746,9 @@ function renderMusicDlg() {
       <button data-del="${esc(x.id)}" ${x.used_by.length ? `disabled title="Still the music of ${esc(x.used_by.join(", "))} — take it out of those shows first"` : 'title="Delete this song from the library: its file and its entry. Cannot be undone."'}>delete from library</button></li>`).join("")
     : `<li class="dim">No songs yet${S.info && !S.info.library_exists ? " — the library folder is created when the first one is added" : ""}.</li>`;
   const u = S.upload;
-  $("songHint").textContent = u ? `${u.file.name}, ${(u.file.size / 1048576).toFixed(1)} MB${u.duration ? ", " + fmtDur(u.duration) : ""}` : "";
+  $("songHint").textContent = S.uploadError
+    || (u ? `${u.file.name}, ${(u.file.size / 1048576).toFixed(1)} MB${u.duration ? ", " + fmtDur(u.duration) : ""}` : "");
+  $("songHint").className = S.uploadError ? "err" : "dim";
   $("songAdd").disabled = !u;
 }
 async function openMusic(file) {
@@ -750,7 +762,7 @@ function setUpload(file) {
   if (!SONG_EXT.includes(ext)) { toast(`a song is ${SONG_EXT.join(", ")} — not ${ext || "that"}`, 5000); return; }
   const maxMb = S.info ? S.info.max_song_mb : 80;
   if (file.size > maxMb * 1048576) { toast(`${file.name} is over the ${maxMb} MB limit for a song`, 5000); return; }
-  S.upload = { file, duration: null };
+  S.upload = { file, duration: null }; S.uploadError = null;
   if (!$("songId").value) $("songId").value = slug(file.name);
   /* the browser's own reading of the length: the server uses it only when it cannot read one */
   const a = new Audio(), url = URL.createObjectURL(file);
@@ -771,16 +783,20 @@ async function addSong() {
   if (!source || !licence) { toast("a song needs its source and its licence", 5000); return; }
   const q = new URLSearchParams({ filename: u.file.name, id, source, licence });
   if (u.duration && isFinite(u.duration)) q.set("duration_s", u.duration.toFixed(3));
-  $("songAdd").disabled = true; $("songHint").textContent = "adding…";
+  S.uploadError = null; $("songAdd").disabled = true; $("songHint").textContent = "adding…";
   try {
-    const r = await fetch("api/library/songs?" + q, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: u.file });
-    const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-    if (!r.ok) throw new Error(j.error || j.detail || `HTTP ${r.status}`);
+    /* the file is read into memory first: a read failure (the file moved, or no permission) is then
+       its own message, and the request carries a plain body with a known length */
+    let body;
+    try { body = await u.file.arrayBuffer(); } catch (e) { throw new Error(`could not read ${u.file.name} from this computer: ${e.message}`); }
+    const r = await send("api/library/songs?" + q, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body });
+    const j = await r.json().catch(() => ({ error: `the composer answered HTTP ${r.status} with no explanation` }));
+    if (!r.ok) throw new Error(`${j.error || j.detail || "HTTP " + r.status} (HTTP ${r.status})`);
     S.songs = j.songs; S.upload = null;
     ["songId", "songSource", "songLicence"].forEach((k) => ($(k).value = "")); $("songFile").value = "";
     toast(`added “${id}” to the library`, 2500);
     await attachSong(id);
-  } catch (e) { toast("not added: " + e.message, 7000); }
+  } catch (e) { S.uploadError = "not added: " + e.message; toast(S.uploadError, 7000); }
   renderMusicDlg();
 }
 async function deleteSong(id) {

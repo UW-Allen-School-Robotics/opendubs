@@ -198,6 +198,80 @@ check("... and a show naming a song this robot does not have plays silently, say
                          {"music": {"song": "made-up-tune", "output": "tablet"}})[1]
       == [f"song made-up-tune is not in this robot's library ({lib})"])
 
+print("\nlibrary: a song's length, read from the file itself (no ffprobe, no browser)")
+SYN = os.path.join(tmp, "synthetic-audio")
+os.makedirs(SYN)
+
+
+def syncsafe(n):
+    return bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
+
+
+def id3v23_with_geob():
+    """An ID3v2.3 tag whose FIRST frame is a GEOB (embedded object) — the shape that made a user's
+    MP3 fail — then a text frame. Made up here; no real song."""
+    geob = b"\x00" + b"application/octet-stream\x00" + b"x.bin\x00" + b"made up\x00" + bytes(3000)
+    tit2 = b"\x00made-up title"
+    frames = b"GEOB" + len(geob).to_bytes(4, "big") + b"\x00\x00" + geob + \
+             b"TIT2" + len(tit2).to_bytes(4, "big") + b"\x00\x00" + tit2
+    return b"ID3\x03\x00\x00" + syncsafe(len(frames)) + frames
+
+
+FRAME = 417                                     # MPEG-1 layer III, 128 kbps, 44.1 kHz, no padding
+HDR = b"\xff\xfb\x90\x00"
+
+
+def mp3(path, frames, xing=None):
+    body = bytearray()
+    for k in range(frames):
+        f = bytearray(HDR + bytes(FRAME - 4))
+        if k == 0 and xing is not None:          # a VBR header in the first frame: its frame count
+            f[36:48] = b"Xing" + (1).to_bytes(4, "big") + xing.to_bytes(4, "big")
+        body += f
+    with open(path, "wb") as fh:
+        fh.write(id3v23_with_geob() + bytes(body) + b"TAG" + bytes(125))
+
+
+mp3(os.path.join(SYN, "cbr.mp3"), 200)
+mp3(os.path.join(SYN, "vbr.mp3"), 50, xing=1000)
+with open(os.path.join(SYN, "a.flac"), "wb") as fh:          # STREAMINFO: 44.1 kHz, 441000 samples
+    si = bytearray(34)
+    si[10:13] = bytes([44100 >> 12 & 0xFF, 44100 >> 4 & 0xFF, (44100 & 0x0F) << 4 | 0x02])
+    si[13:18] = bytes([0x10]) + (441000).to_bytes(4, "big")
+    fh.write(b"fLaC" + bytes([0x80, 0, 0, 34]) + si + bytes(100))
+
+
+def atom(kind, body):
+    return (8 + len(body)).to_bytes(4, "big") + kind + body
+
+
+mvhd = b"\x00\x00\x00\x00" + bytes(8) + (1000).to_bytes(4, "big") + (12345).to_bytes(4, "big") + bytes(80)
+with open(os.path.join(SYN, "a.m4a"), "wb") as fh:            # mdat BEFORE moov, as many encoders write it
+    fh.write(atom(b"ftyp", b"M4A \x00\x00\x00\x00") + atom(b"mdat", bytes(5000)) + atom(b"moov", atom(b"mvhd", mvhd)))
+
+
+def ogg_page(granule, payload):
+    return b"OggS\x00\x00" + granule.to_bytes(8, "little") + bytes(12) + bytes([1, len(payload)]) + payload
+
+
+with open(os.path.join(SYN, "a.ogg"), "wb") as fh:            # Vorbis, 44.1 kHz, 20 s
+    fh.write(ogg_page(0, b"\x01vorbis" + bytes(4) + b"\x02" + (44100).to_bytes(4, "little") + bytes(10))
+             + ogg_page(882000, bytes(50)))
+with open(os.path.join(SYN, "opus.ogg"), "wb") as fh:         # Opus: always 48 kHz, less the pre-skip
+    fh.write(ogg_page(0, b"OpusHead\x01\x02" + (312).to_bytes(2, "little") + bytes(9))
+             + ogg_page(480312, bytes(50)))
+for name, want, tol in (("cbr.mp3", 200 * 1152 / 44100, 0.05), ("vbr.mp3", 1000 * 1152 / 44100, 0.001),
+                        ("a.flac", 10.0, 0.001), ("a.m4a", 12.345, 0.001), ("a.ogg", 20.0, 0.001),
+                        ("opus.ogg", 10.0, 0.001)):
+    got = library.song_seconds(os.path.join(SYN, name))
+    check(f"{name}: {want:.3f} s read from the file (got {got})", got is not None and abs(got - want) <= tol)
+check("an ID3v2.3 tag with a GEOB frame first is skipped, and the file is still recognised as MP3",
+      library.looks_like_song(os.path.join(SYN, "cbr.mp3")))
+with open(os.path.join(SYN, "junk.mp3"), "wb") as fh:
+    fh.write(b"ID3\x03\x00\x00" + syncsafe(10) + bytes(10) + b"no audio frames at all")
+check("a file with no audio in it has no length (None), never a guess",
+      library.song_seconds(os.path.join(SYN, "junk.mp3")) is None)
+
 print("\nlibrary: the face bridge sends SKIN")
 tl = cue.Show({"id": "t", "slots": ["FACE"], "requires": {"tab5": True},
                "cues": [{"t": 1.0, "slot": "FACE", "do": "skin", "name": "ring"},
