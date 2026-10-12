@@ -51,7 +51,8 @@ def fmt(v) -> str:
     if isinstance(v, str):
         if _PLAIN.match(v) and v.lower() not in _YAML_SPECIAL:
             return v
-        return json.dumps(v)          # a JSON string is a valid YAML double-quoted scalar
+        # a JSON string is a valid YAML double-quoted scalar; prose (notes) keeps its own characters
+        return json.dumps(v, ensure_ascii=False)
     if isinstance(v, (list, tuple)):
         return "[" + ", ".join(fmt(x) for x in v) + "]"
     if isinstance(v, dict):
@@ -116,7 +117,7 @@ def _line_bounds(text, start, end):
     return ls, (len(text) if le < 0 else le + 1)
 
 
-def _set_cue(text, seq, index, new):
+def _set_cue(text, seq, index, new, key="cues"):
     if not 0 <= index < len(seq.value):
         raise EditError(f"no cue {index}")
     node = seq.value[index]
@@ -124,7 +125,7 @@ def _set_cue(text, seq, index, new):
         raise EditError(f"cue {index} is not a mapping")
     if not isinstance(new, dict) or not new:
         raise EditError("a cue must be a non-empty mapping")
-    old = yaml.safe_load(text)["cues"][index]
+    old = yaml.safe_load(text)[key][index]
     old_keys = [k.value for k, _ in node.value]
     if set(map(str, old_keys)) == set(map(str, new)):
         # same fields: replace only the values that changed, back to front
@@ -265,6 +266,43 @@ def _declare(text, slot, on: bool):
     return text[:ls] + text[le:]
 
 
+NOTES = "timeline_notes"
+
+
+def _notes_seq(text):
+    _, seq = _key(_root(text), NOTES)
+    if seq is not None and not isinstance(seq, yaml.SequenceNode):
+        raise EditError(f"{NOTES}: must be a list")
+    return seq
+
+
+def _note_index(text, note_id):
+    for i, n in enumerate(yaml.safe_load(text).get(NOTES) or []):
+        if isinstance(n, dict) and n.get("id") == note_id:
+            return i
+    raise EditError(f"no timeline note {note_id!r}")
+
+
+def _note_add(text, note):
+    """Append a note. A show with no notes yet gets a `timeline_notes:` block above `cues:`."""
+    if not isinstance(note, dict) or not note.get("id"):
+        raise EditError("a timeline note needs an id")
+    seq = _notes_seq(text)
+    line = "- " + fmt({str(k): v for k, v in note.items()})
+    if seq is None or not seq.value:
+        root = _root(text)
+        if seq is not None:                            # `timeline_notes: []` — replace it with a block
+            k, _ = _key(root, NOTES)
+            ls, le = _line_bounds(text, k.start_mark.index, _end(seq))
+            return text[:ls] + f"{NOTES}:\n  {line}\n" + text[le:]
+        kc, _ = _key(root, "cues")
+        if kc is None:
+            raise EditError("the show has no cues: list")
+        ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+        return text[:ls] + f"{NOTES}:\n  {line}\n" + text[ls:]
+    return _add_cue(text, seq, note)
+
+
 def apply(text: str, edits: list) -> str:
     """Apply edits in order. Each edit is one of:
         {"op": "set", "index": i, "cue": {...whole cue...}}
@@ -273,6 +311,9 @@ def apply(text: str, edits: list) -> str:
         {"op": "music", "key": "bpm", "value": 121.5}
         {"op": "music", "key": "song", "value": None}      # None removes song or file
         {"op": "declare", "slot": "GRIP_R"}                 # add to slots: (undeclare removes)
+        {"op": "note_add", "note": {...}}                   # timeline notes, addressed by id
+        {"op": "note_set", "id": "n1", "note": {...whole note...}}
+        {"op": "note_delete", "id": "n1"}
     Indices refer to the file as it is when that edit is applied (so delete back to front)."""
     for ed in edits:
         op = ed.get("op")
@@ -280,6 +321,12 @@ def apply(text: str, edits: list) -> str:
             text = _set_music(text, ed.get("key"), ed.get("value"))
         elif op in ("declare", "undeclare"):
             text = _declare(text, ed.get("slot"), op == "declare")
+        elif op == "note_add":
+            text = _note_add(text, ed.get("note"))
+        elif op == "note_set":
+            text = _set_cue(text, _notes_seq(text), _note_index(text, ed.get("id")), ed.get("note"), NOTES)
+        elif op == "note_delete":
+            text = _delete_cue(text, _notes_seq(text), _note_index(text, ed.get("id")))
         elif op in ("set", "delete", "add"):
             seq = cue_nodes(text)
             if op == "set":

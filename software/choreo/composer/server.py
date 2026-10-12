@@ -102,6 +102,12 @@ def make_handler(comp: Composer):
                     return self._file(p, ctype)
                 if u.path == "/api/library/songs":
                     return self._json(comp.songs())
+                if u.path == "/api/show/disk":
+                    return self._json(comp.disk((q.get("path") or [""])[0]))
+                if u.path == "/api/history":
+                    return self._json(comp.history((q.get("path") or [""])[0]))
+                if u.path == "/api/notes/prompt":
+                    return self._json(comp.notes_prompt((q.get("path") or [""])[0]))
                 if u.path.startswith("/library/song/"):
                     p, ctype = comp.song_audio(unquote(u.path[len("/library/song/"):]))
                     return self._file(p, ctype)
@@ -155,6 +161,10 @@ def make_handler(comp: Composer):
                     return self._json(comp.add_song(q.get("filename", ""), data, q.get("id"), q.get("source"),
                                                     q.get("licence"), q.get("duration_s")))
                 b = self._body()
+                if u.path == "/api/history/read":
+                    return self._json(comp.history_read(b.get("path"), b.get("name"), b.get("text") or ""))
+                if u.path == "/api/diff":
+                    return self._json(comp.diff(b.get("a") or "", b.get("b") or ""))
                 if u.path == "/api/library/songs/delete":
                     return self._json(comp.delete_song(b.get("id"), b.get("confirm")))
                 if u.path == "/api/analyse":

@@ -13,6 +13,7 @@ choreo-teach-and-sync.md, not implemented.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -29,6 +30,7 @@ sys.path.insert(0, HERE)
 
 import cue  # noqa: E402  the validator is the gate; we call it, never copy it
 import library  # noqa: E402  the show library (songs, clips, skins) — its rules, not copies of them
+import timeline_notes  # noqa: E402  notes for the next editor, their history, the agent prompt
 import yamledit  # noqa: E402
 
 FIXTURE_LIMITS = os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml")
@@ -40,6 +42,10 @@ AUDIO_EXT = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".f
 # upload is limited to what a song needs: about 7 minutes of CD-quality WAV, or hours of MP3.
 MAX_SONG_BYTES = 80 * 1024 * 1024
 MAX_SONG_S = 20 * 60
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 class ApiError(Exception):
@@ -90,7 +96,8 @@ class Composer:
 
     def list_shows(self) -> list:
         out = []
-        for root, _, files in os.walk(self.shows_dir):
+        for root, dirs, files in os.walk(self.shows_dir):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]      # .history is not a show
             for f in sorted(files):
                 if f.endswith((".yaml", ".yml")):
                     rel = os.path.relpath(os.path.join(root, f), self.shows_dir)
@@ -110,7 +117,7 @@ class Composer:
             out["parse_error"] = str(e)
             return out
         try:
-            tl = show.export(self.limits, self.limits_path)
+            tl = show.export(self.limits, self.limits_path, with_notes=True)
         except Exception as e:  # noqa: BLE001 — a validator crash is a finding, shown not hidden
             out["parse_error"] = f"the validator crashed on this text: {type(e).__name__}: {e}"
             return out
@@ -153,7 +160,44 @@ class Composer:
         if not os.path.isfile(p):
             raise ApiError("no such show", 404)
         with open(p, encoding="utf-8") as fh:
-            return self.analyse(rel, fh.read())
+            text = fh.read()
+        out = self.analyse(rel, text)
+        out["disk_sha"] = _sha(text)
+        return out
+
+    # ---- the show on disk, and its history (timeline notes, plan #5) -------------------------
+    def disk(self, rel: str) -> dict:
+        """The show file's fingerprint as it is on disk now: the editor polls this to notice edits
+        made outside it (an agent applying notes), and never overwrites them silently."""
+        p = self._path(rel)
+        if not os.path.isfile(p):
+            raise ApiError("no such show", 404)
+        with open(p, encoding="utf-8") as fh:
+            text = fh.read()
+        return {"path": rel, "disk_sha": _sha(text), "text": text}
+
+    def history(self, rel: str) -> list:
+        return timeline_notes.list_snapshots(self._path(rel))
+
+    def history_read(self, rel: str, name: str, text: str) -> dict:
+        """One snapshot, and what restoring it would change in the text being edited."""
+        try:
+            snap = timeline_notes.read_snapshot(self._path(rel), name)
+        except (ValueError, OSError) as e:
+            raise ApiError(f"no such snapshot: {e}", 404) from e
+        return {"name": name, "text": snap, "diff": timeline_notes.diff(text or "", snap, "now", name)}
+
+    def diff(self, a: str, b: str) -> dict:
+        return {"diff": timeline_notes.diff(a or "", b or "", "yours", "on disk")}
+
+    def notes_prompt(self, rel: str) -> dict:
+        """The open notes as a request any agent can act on (timeline_notes.prompt) — from the file
+        on DISK, which is what the agent will read."""
+        p = self._path(rel)
+        try:
+            return {"prompt": timeline_notes.prompt(p)}
+        except Exception as e:  # noqa: BLE001
+            raise ApiError(f"could not build the prompt: {type(e).__name__}: {e}") from e
 
     def edit(self, rel: str, text: str, edits: list) -> dict:
         try:
@@ -172,6 +216,8 @@ class Composer:
             raise ApiError(f"not saved: the text is not valid YAML: {e}") from e
         if not isinstance(doc, dict):
             raise ApiError("not saved: a show is a mapping")
+        # the file as it was is kept first: every save can be compared and restored (History)
+        timeline_notes.snapshot(p, "composer")
         tmp = p + ".composer-tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
@@ -180,18 +226,21 @@ class Composer:
         if any(isinstance(c, dict) and cue.ik_target_key(c) for c in (doc.get("cues") or [])):
             # IK targets (ik.py): solve them now, writing the angles into the file, so what is saved
             # is what the twin shows and the robot will play. Needs MuJoCo; without it, say so.
+            # MuJoCo is imported by the solver, not by `import ik`: catch its absence at the solve,
+            # or a save of any show with targets fails outright on a composer without it
             try:
                 import ik
-            except ImportError as e:
-                ik_note = (f"IK targets not compiled here ({e.name or e} missing) — run "
-                           "`python3 ik.py compile <show>` with MuJoCo installed")
-            else:
                 bad = ik.compile_show(p, self.limits_path, write=True, verbose=False)
+            except ImportError as e:
+                ik_note = (f"saved, but IK targets were not compiled here ({e.name or e} is not installed) — run "
+                           "`python3 ik.py compile <show>` with MuJoCo installed, or start the composer with it")
+            else:
                 with open(p, encoding="utf-8") as fh:
                     text = fh.read()
                 ik_note = "; ".join(bad) if bad else "IK targets compiled"
         out = self.analyse(rel, text)
         out["saved"] = True
+        out["disk_sha"] = _sha(text)
         if ik_note:
             out["ik"] = ik_note
         return out

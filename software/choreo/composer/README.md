@@ -123,6 +123,30 @@ python3 composer/server.py                   # 1. the composer — then open htt
   the playhead, including scrubbing and seeking. The body twin's screen does not show the web face
   yet; watch the face page beside it.
 
+## Notes for an agent (or anyone): the NOTES lane
+
+The lane at the top holds **notes**: what you want changed, over a stretch of time and (optionally)
+some parts — "make this wave bigger and on the beat", "point at the audience here". They are kept in
+the show as `timeline_notes:` and **never move the robot**: the runner never reads them, and the
+validator checks only their shape (a malformed note is a warning, never a reason to refuse a show).
+
+- **`+` on the NOTES lane** adds a note at the playhead (a bar long). Tap a note to edit its text,
+  its range (`at`/`to`: a bar like `9.1`, or seconds), the parts it is about, and its status —
+  `open`, `done`, `declined` — with the reply of whoever acted on it. A note about some parts also
+  shades those lanes over its range.
+- **⧉ copies the open notes as a prompt** for any agent session: the show file's path, each note with
+  the cues it covers, and the steps (snapshot, edit, validate, reply). Save first — the agent reads
+  the file. Or ask the choreography lane to "apply the notes in <show>".
+- **The agent** snapshots the show (`timeline_notes.py snapshot`), edits the other lanes, validates,
+  and marks each note done with a one-line reply, or declined with why (`timeline_notes.py reply`).
+- **This editor notices** the file changed on disk: a banner offers **review** (the difference),
+  **load them** (your text stays one undo away) or **keep mine** — never a silent overwrite.
+- **History** lists every earlier version — one is kept at each save and before an agent edits —
+  shows what restoring it would change, and restores it into the editor (then save, or undo).
+  History lives beside the shows (`<shows>/.history/`), never in the repository.
+
+`timeline_notes.py` is the same loop from a terminal: `list`, `prompt`, `snapshot`, `reply`, `history`.
+
 ## Which parts a show moves: `slots:`
 
 A show lists, at its top, the parts of the robot it uses — `slots: [ARM_L, ARM_R, HEAD]` — and the

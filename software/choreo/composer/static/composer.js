@@ -14,7 +14,7 @@
 "use strict";
 
 const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE"];
-const LANES = ["CLIPS", ...SLOTS];
+const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
 const S = {
@@ -140,7 +140,7 @@ function newCueTime(t) {
 async function loadShow(path) {
   if (S.text !== S.savedText && !confirm("Discard unsaved changes?")) { $("show").value = S.path; return; }
   const d = await api("api/show?path=" + encodeURIComponent(path));
-  S.path = path; S.undo = []; S.selected = null; S.savedText = d.text;
+  S.path = path; S.undo = []; S.selected = null; S.selectedNote = null; S.savedText = d.text; S.diskSha = d.disk_sha || null;
   S.muted = new Set(store.get("muted." + path, []));
   stop(); S.t = 0; postPlayhead(true);
   setData(d);
@@ -167,7 +167,9 @@ async function undo() {
 async function save() {
   try {
     const d = await api("api/save", { path: S.path, text: S.text });
-    S.savedText = d.text; setData(d); toast("saved " + S.path, 1600);
+    S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha; setData(d);
+    /* a show with reach/point_at targets is compiled on save: say what happened to them */
+    toast("saved " + S.path + (d.ik ? " — " + d.ik : ""), d.ik && d.ik !== "IK targets compiled" ? 8000 : 2000);
     if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
   } catch (e) { toast(e.message, 5000); }
 }
@@ -327,6 +329,13 @@ function renderHeads() {
   let html = `<div class="head ruler"><span class="name dim">${music() ? `${music().bpm} BPM · ${music().beats_per_bar}/4` : "seconds"}</span></div>`;
   html += `<div class="head music ${S.muted.has("MUSIC") ? "muted" : ""}"><span class="name">MUSIC</span>${muteBtn("MUSIC")}</div>`;
   for (const lane of LANES) {
+    if (lane === "NOTES") {
+      const open = notes().filter((n) => n.status === "open").length;
+      html += `<div class="head notes" title="Notes for whoever edits this show next — often an agent. Write what you want changed, over a range of time and (optionally) some parts; the agent edits the other lanes and replies on each note."><span class="name">NOTES${open ? ` <b class="cnt">${open}</b>` : ""}</span>`
+        + `<button data-addnote="1" title="Add a note at the playhead">+</button>`
+        + `<button data-prompt="1" title="Copy the open notes as a prompt for any agent session (the file must be saved: the agent reads the file)">⧉</button></div>`;
+      continue;
+    }
     const und = lane !== "CLIPS" && !dec.has(lane);
     const cls = ["head", und ? "undeclared" : "", S.muted.has(lane) ? "muted" : ""].join(" ");
     let btns = "";
@@ -378,8 +387,21 @@ function renderLanes() {
   $("canvas").style.width = W + "px";
   const parts = [];
   for (const lane of LANES) {
+    if (lane === "NOTES") {
+      parts.push(`<div class="row lane grid notes" data-lane="NOTES">`);
+      for (const n of notes()) {
+        if (n.t0 === null || n.t0 === undefined) continue;
+        const w = Math.max(14, (n.t1 - n.t0) * pps), sel = S.selectedNote === n.id ? "sel" : "";
+        parts.push(`<div class="tnote ${n.status} ${sel}" data-note="${esc(n.id)}" style="left:${n.t0 * pps}px;width:${w}px" title="${esc(`${n.id} (${n.status}): ${n.text}` + (n.reply ? `\n↳ ${n.reply}` : ""))}">${esc(n.text)}</div>`);
+      }
+      parts.push("</div>");
+      continue;
+    }
     const und = lane !== "CLIPS" && !dec.has(lane);
     parts.push(`<div class="row lane grid ${und ? "undeclared" : ""} ${S.muted.has(lane) ? "muted" : ""}" data-lane="${lane}">`);
+    /* a note on this part shades its range here too, so the request sits over what it is about */
+    for (const n of notes()) if (n.slots.includes(lane) && n.t0 !== null && n.t0 !== undefined && n.status === "open")
+      parts.push(`<div class="noteshade" style="left:${n.t0 * pps}px;width:${Math.max(4, (n.t1 - n.t0) * pps)}px"></div>`);
     if (lane === "CLIPS") {
       for (const p of placements()) {
         const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
@@ -560,6 +582,7 @@ function renderProblems() {
   if (det) det.addEventListener("toggle", () => store.set("notesOpen", det.open));
 }
 function renderInspector() {
+  if (S.selectedNote) return renderNoteInspector();
   const el = $("inspector"), i = S.selected, a = (S.data && S.data.authored) || [];
   if (i === null || !a[i]) { el.innerHTML = '<p class="dim" title="Tap an empty lane to move the playhead; + on a lane adds a cue there; drag a cue to retime it">Tap a cue to inspect it.</p>'; return; }
   const c = a[i], form = "t" in c ? "t" : "beat" in c ? "beat" : "bar" in c ? "bar" : "t";
@@ -679,6 +702,8 @@ async function teach(slot) {
 function laneX(ev) { const r = $("canvas").getBoundingClientRect(); return ev.clientX - r.left; }
 let drag = null;
 function onDown(ev) {
+  const nt = ev.target.closest("[data-note]");
+  if (nt) { S.selectedNote = nt.dataset.note; S.selected = null; renderLanes(); renderInspector(); return; }
   const target = ev.target.closest("[data-cue]");
   if (!target || !target.closest("#lanes")) {
     if (ev.target.closest("#lanes") || ev.target.closest("#ruler") || ev.target.closest("#music")) {
@@ -709,7 +734,7 @@ function onUp(ev) {
     if (Math.abs(ev.clientX - d.x0) < 8 && Math.abs(ev.clientY - d.y0) < 8) seek(laneX(ev) / S.pps);
     return;
   }
-  if (!d.moved) { S.selected = d.i; renderLanes(); renderInspector(); return; }
+  if (!d.moved) { S.selected = d.i; S.selectedNote = null; renderLanes(); renderInspector(); return; }
   S.selected = d.i;
   const c = S.data.authored[d.i];
   if (d.anchor === null || d.newT === undefined || Math.abs(d.newT - d.anchor) < 1e-6) { renderLanes(); return; }
@@ -859,6 +884,134 @@ function removeMusic() {
     "music taken out of this show (the song stays in the library) — save to keep it").then(loadAudio);
 }
 
+/* ---------- timeline notes (plan #5): requests for the next editor, often an agent ----------
+ * Stored in the show as `timeline_notes:` — never read by the runner. The loop: write notes here;
+ * copy them as a prompt (⧉) or ask the choreography lane to "apply the notes in <show>"; the agent
+ * snapshots the show, edits the other lanes, and replies on each note; this editor notices the file
+ * changed on disk and shows the difference; History compares and restores any earlier version. */
+S.selectedNote = null; S.diskSha = null;
+const notes = () => (tl() && tl().timeline_notes) || [];
+function nextNoteId() {
+  const used = new Set(notes().map((n) => n.id));
+  let k = notes().length + 1; while (used.has("n" + k)) k++; return "n" + k;
+}
+function noteTime(t) {
+  /* at / to: "bar.beat" when the show has a beat grid (rounded to a beat), else seconds */
+  const m = music();
+  if (!m) return round(t, 2);
+  const beat = Math.max(1, Math.round(beatOf(t))), bar = Math.floor((beat - 1) / m.beats_per_bar) + 1;
+  return `${bar}.${((beat - 1) % m.beats_per_bar) + 1}`;
+}
+function addNote() {
+  const m = music(), t0 = S.t, t1 = S.t + (m ? m.beat_s * m.beats_per_bar : 2);
+  const id = nextNoteId();
+  const note = { id, at: noteTime(t0), to: noteTime(t1), text: "describe the change you want here", status: "open" };
+  edit([{ op: "note_add", note }], `note ${id} added — write what you want changed`).then(() => {
+    S.selectedNote = id; S.selected = null; renderLanes(); renderInspector();
+    const ta = $("nText"); if (ta) { ta.focus(); ta.select(); }
+  });
+}
+function renderNoteInspector() {
+  const el = $("inspector"), n = notes().find((x) => x.id === S.selectedNote);
+  if (!n) { S.selectedNote = null; return renderInspector(); }
+  const slotsBox = SLOTS.map((s) => `<label class="chk"><input type="checkbox" data-nslot="${s}" ${n.slots.includes(s) ? "checked" : ""}>${s}</label>`).join("");
+  const span = n.t0 === null ? "" : `${n.t0.toFixed(2)}${n.t1 !== n.t0 ? "–" + n.t1.toFixed(2) : ""} s`;
+  el.innerHTML = `
+    <div class="meta">note ${esc(n.id)} · ${esc(span)} ${n.by ? "· replied by " + esc(n.by) : ""}</div>
+    <textarea id="nText" spellcheck="true" placeholder="What should change here? e.g. make this wave bigger and on the beat">${esc(n.text)}</textarea>
+    <div class="row2">
+      <label>at <input id="nAt" value="${esc(n.at ?? "")}" title="a bar.beat like 9.1, or seconds"></label>
+      <label>to <input id="nTo" value="${esc(n.to ?? "")}" title="optional: a bar.beat or seconds"></label>
+      <select id="nStatus" title="open: still to do · done · declined (the reply says why)">${["open", "done", "declined"].map((x) => `<option ${x === n.status ? "selected" : ""}>${x}</option>`).join("")}</select>
+    </div>
+    <div class="row2 slots" title="Which parts the note is about (none: the whole show at that time)">${slotsBox}</div>
+    ${n.reply ? `<div class="reply">↳ ${esc(n.reply)}</div>` : ""}
+    <div class="row2"><button id="nApply">apply</button><button id="nDelete">delete note</button><button id="nCopy" title="Copy the open notes as a prompt">⧉ copy notes as a prompt</button></div>
+    <div class="note">Notes never move the robot: the runner ignores them. Save, then hand them to an agent.</div>`;
+  $("nApply").onclick = () => {
+    const at = $("nAt").value.trim(), to = $("nTo").value.trim();
+    /* "9.1" is a bar; a plain number like "12" or "12.5s" is seconds */
+    const asTime = (x) => x === "" ? undefined : /^\d+\.\d+$/.test(x) ? x : /^\d+(\.\d+)?s$/.test(x) ? Number(x.slice(0, -1)) : /^\d+$/.test(x) ? Number(x) : x;
+    const slots = [...el.querySelectorAll("[data-nslot]")].filter((c) => c.checked).map((c) => c.dataset.nslot);
+    const nn = { id: n.id, at: asTime(at) };
+    if (asTime(to) !== undefined) nn.to = asTime(to);
+    if (slots.length) nn.slots = slots;
+    nn.text = $("nText").value.trim() || n.text;
+    nn.status = $("nStatus").value;
+    if (n.reply) nn.reply = n.reply;
+    if (n.by) nn.by = n.by;
+    edit([{ op: "note_set", id: n.id, note: nn }], `note ${n.id} updated`);
+  };
+  $("nDelete").onclick = () => { S.selectedNote = null; edit([{ op: "note_delete", id: n.id }], `note ${n.id} deleted`); };
+  $("nCopy").onclick = copyPrompt;
+}
+async function copyPrompt() {
+  if (S.text !== S.savedText) { toast("save first — the agent reads the show FILE, and your latest notes are not in it yet", 6000); return; }
+  try {
+    const r = await api("api/notes/prompt?path=" + encodeURIComponent(S.path));
+    await navigator.clipboard.writeText(r.prompt);
+    toast("copied: paste it into any agent session — or ask the choreography lane to “apply the notes in " + S.path + "”", 7000);
+  } catch (e) { toast("could not copy the prompt: " + e.message, 6000); }
+}
+
+/* ---- the file on disk: notice edits made outside the editor (an agent), never overwrite them ---- */
+async function watchDisk() {
+  if (!S.path || $("diskBar").dataset.pending === "1") return;
+  try {
+    const d = await api("api/show/disk?path=" + encodeURIComponent(S.path));
+    if (S.diskSha && d.disk_sha !== S.diskSha && d.text !== S.text) {
+      S.disk = d; $("diskBar").dataset.pending = "1"; $("diskBar").hidden = false;
+      $("diskMsg").textContent = S.text !== S.savedText
+        ? "This show changed on disk (an agent applying notes?) — and you have unsaved edits here."
+        : "This show changed on disk (an agent applying notes?).";
+    } else if (!S.diskSha || d.text === S.text) { S.diskSha = d.disk_sha; }
+  } catch (e) { /* the composer may be restarting: the next poll tries again */ }
+}
+async function loadDisk() {
+  const d = S.disk; if (!d) return;
+  S.undo.push(S.text);                       /* your text stays one undo away */
+  setData(await api("api/analyse", { path: S.path, text: d.text }));
+  S.savedText = d.text; S.diskSha = d.disk_sha; S.disk = null;
+  $("diskBar").hidden = true; $("diskBar").dataset.pending = "";
+  toast("loaded the changes from disk — undo brings your previous text back", 5000);
+  await loadAudio();
+}
+function keepMine() {
+  S.diskSha = S.disk ? S.disk.disk_sha : S.diskSha; S.disk = null;
+  $("diskBar").hidden = true; $("diskBar").dataset.pending = "";
+  toast("kept yours: saving will replace the disk version (it is kept in History first)", 6000);
+}
+async function reviewDisk() {
+  if (!S.disk) return;
+  const r = await api("api/diff", { a: S.text, b: S.disk.text });
+  showText("Changes on disk", r.diff || "(no difference in the text)", [["load them", loadDisk], ["keep mine", keepMine]]);
+}
+
+/* ---- history: every save, and every agent's snapshot, kept beside the shows ---- */
+async function openHistory() {
+  const list = await api("api/history?path=" + encodeURIComponent(S.path));
+  const rows = list.length ? list.map((h) => `<li><button data-snap="${esc(h.name)}">${esc(h.when)}</button> <span class="dim">by ${esc(h.by)}</span></li>`).join("")
+    : '<li class="dim">No earlier versions yet: one is kept every time the show is saved, and before an agent edits it.</li>';
+  showText("History of " + S.path, "", [], `<ul class="hist">${rows}</ul>`);
+  $("textBody").querySelectorAll("[data-snap]").forEach((b) => (b.onclick = async () => {
+    const r = await api("api/history/read", { path: S.path, name: b.dataset.snap, text: S.text });
+    showText(`Restore ${b.dataset.snap}?`, r.diff || "(identical to the text now)", [["restore into the editor", async () => {
+      S.undo.push(S.text);
+      setData(await api("api/analyse", { path: S.path, text: r.text }));
+      $("textDlg").close(); toast("restored into the editor — save to keep it, undo to go back", 6000);
+      await loadAudio();
+    }], ["back", openHistory]]);
+  }));
+}
+function showText(title, text, actions, html) {
+  $("textTitle").textContent = title;
+  $("textBody").innerHTML = (html || "") + (text ? `<pre class="diff">${text.split("\n").map((l) =>
+    `<span class="${l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : l.startsWith("@@") ? "hunk" : ""}">${esc(l)}</span>`).join("\n")}</pre>` : "");
+  $("textActions").innerHTML = actions.map((a, k) => `<button data-act="${k}">${esc(a[0])}</button>`).join("");
+  $("textActions").querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => { const f = actions[+b.dataset.act][1]; if (f !== openHistory) $("textDlg").close(); f(); }));
+  if (!$("textDlg").open) $("textDlg").showModal();
+}
+
 /* ---------- tap tempo ---------- */
 function tap(ev) {
   const now = ev.timeStamp / 1000;
@@ -886,6 +1039,10 @@ function bind() {
   $("undo").onclick = undo;
   $("save").onclick = save;
   bindMusic();
+  $("historyBtn").onclick = openHistory;
+  $("textClose").onclick = () => $("textDlg").close();
+  $("diskReview").onclick = reviewDisk; $("diskLoad").onclick = loadDisk; $("diskKeep").onclick = keepMine;
+  setInterval(watchDisk, 2000);
   $("yamlBtn").onclick = () => { $("yamlText").value = S.text; $("yamlDrawer").hidden = false; };
   $("yamlClose").onclick = () => ($("yamlDrawer").hidden = true);
   $("yamlApply").onclick = async () => {
@@ -896,6 +1053,8 @@ function bind() {
     const d = e.target.closest("[data-declare]");
     if (d) { edit([{ op: "declare", slot: d.dataset.declare }], `${d.dataset.declare} is now in slots:`); return; }
     const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.addnote) addNote();
+    if (b.dataset.prompt) copyPrompt();
     if (b.dataset.add) addCue(b.dataset.add);
     if (b.dataset.teach) teach(b.dataset.teach);
     if (b.dataset.mute) {
@@ -918,7 +1077,7 @@ function bind() {
   window.addEventListener("pointercancel", () => { drag = null; renderLanes(); });
   sc.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e); } }, { passive: false });
   window.addEventListener("keydown", (e) => {
-    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || $("musicDlg").open;
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || $("musicDlg").open || $("textDlg").open;
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); return; }
     if (typing) return;
     if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }
