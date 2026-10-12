@@ -7,8 +7,11 @@ standing test client afterward. Speaks the same rosbridge path the real Unity
 ros-sharp client uses, so "topics show up correctly here" proves the robot half.
 
 Needs roslibpy (`pip install roslibpy`). Usage:
-    python3 sim_quest_client.py [host] [port] [seconds]
+    python3 sim_quest_client.py [host] [port] [seconds]     ON the robot: rosbridge itself
     (defaults: localhost 9090 6)
+    python3 sim_quest_client.py ws://<robot>:8080/rosbridge [seconds]     from a laptop
+rosbridge's port 9090 listens on the robot only, so off the robot use the dashboard's /rosbridge
+route, which relays the same frames. It sends no Origin header, so the route lets it through.
 """
 import math
 import sys
@@ -16,11 +19,15 @@ import time
 
 import roslibpy
 
-host = sys.argv[1] if len(sys.argv) > 1 else "localhost"
-port = int(sys.argv[2]) if len(sys.argv) > 2 else 9090
-dur = float(sys.argv[3]) if len(sys.argv) > 3 else 6.0
-
-client = roslibpy.Ros(host=host, port=port)
+if len(sys.argv) > 1 and "://" in sys.argv[1]:          # a full URL: the dashboard's /rosbridge
+    url = sys.argv[1]
+    dur = float(sys.argv[2]) if len(sys.argv) > 2 else 6.0
+    client = roslibpy.Ros(host=url)                      # roslibpy takes a whole URL when no port is given
+else:
+    host = sys.argv[1] if len(sys.argv) > 1 else "localhost"
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 9090
+    dur = float(sys.argv[3]) if len(sys.argv) > 3 else 6.0
+    client = roslibpy.Ros(host=host, port=port)
 client.run()
 
 hmd = roslibpy.Topic(client, "/quest/hmd/pose", "geometry_msgs/PoseStamped")

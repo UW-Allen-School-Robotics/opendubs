@@ -2,10 +2,9 @@
 
 A head has two halves:
 
-  - the FACE: what shows. It takes STATE, TURN, LIFT, PMODE and answers PING, and its lift buttons
-    send their requests from it.
-  - the NECK: what moves. It takes pan/tilt (the YOLO tracker's frames, the StamPLC's RC aiming)
-    and the tracking-mode request, and the StamPLC is told where it is (TAB5IP, PLCIP).
+  - the FACE: what shows. It takes STATE (and a show's EMOTE, THEME, CUE) and answers PING.
+  - the NECK: what moves. It takes pan/tilt (the YOLO tracker's frames, the StamPLC's RC aiming),
+    and the StamPLC is told where it is (TAB5IP).
 
 With the Tab5 fitted they are the same box, so both default to the same address and nothing
 changes. With the tablet as the face, the neck is a separate controller (plan DT-7).

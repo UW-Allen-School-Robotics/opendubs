@@ -14,6 +14,7 @@ requires:
   tab5: true
   rc_authority: AUTO
 
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "7e0c8355f99d@dc74e24f" }
 cues:
   - { t: 0.0, slot: HEAD, pan: 110, tilt: 80 }
   - { t: 1.0, slot: FACE, do: emote, name: ALERT }

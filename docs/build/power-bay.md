@@ -89,7 +89,7 @@ The power bay is **simple**: it holds the **drive-bus distribution** and nothing
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables) —
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables) —
 **plus a crimper** for the battery / high-current connections (see *Wiring tools* above).
 
 ## Assembly

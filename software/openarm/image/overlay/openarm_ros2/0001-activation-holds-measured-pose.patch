@@ -1,0 +1,297 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    activation holds the measured pose instead of driving every joint to zero (OpenDubs arms
+         plan A1, DEC-28). Two reads a refresh apart are checked (every motor answered, none in
+         error, the reads agree within ~1 deg); a doubtful read refuses with the motors still
+         disabled. Then the pose is held while the stiffness ramps from zero over 0.5 s, and
+         pos_commands_ is seeded with it, because write() would otherwise command zero before any
+         controller writes. The checks and the ramp are pure, in activation_hold.hpp, with a unit
+         test that needs no ROS.
+Against: enactic/openarm_ros2 c15982d910eb3c09f03ed4b7ac7ae737427a1397 (what opendubs2 runs,
+         per capture-pins.sh, 2026-10-09).
+Author:  the project team. Apache-2.0, as the upstream repository.
+Status:  to be offered to enactic upstream. Delete this file when upstream has it.
+
+--- /dev/null
++++ b/openarm_hardware/include/openarm_hardware/activation_hold.hpp
+@@ -0,0 +1,79 @@
++// Activation that holds where the arm is, instead of driving it to zero.
++//
++// Upstream's on_activate enables every motor, sends one full-stiffness command to 0 rad, then ramps
++// every joint to zero over 2 s and snaps the gripper, so activating an arm left anywhere but zero
++// sweeps it. This holds the pose the arm is measured at: read twice, check the reads, then command
++// exactly that pose while the stiffness ramps up from zero. The checks and the ramp are pure, here,
++// so they can be tested without a robot (test/test_activation_hold.cpp).
++//
++// What the checks cannot see: a motor that answered once and then went silent keeps its last
++// reading, and the library keeps no timestamp. Two agreeing reads from such a motor still pass.
++// The caller's enable check (every motor reports enabled afterwards) is what catches it.
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++#include <cstddef>
++#include <string>
++#include <vector>
++
++namespace openarm_hardware {
++namespace activation_hold {
++
++// Two reads of one joint, a refresh apart, must agree this closely (about 1 degree).
++constexpr double kAgreeTolRad = 0.0175;
++// The stiffness ramp: kRampSteps steps of kRampStepMs, 0.5 s in all.
++constexpr int kRampSteps = 50;
++constexpr int kRampStepMs = 10;
++// For log messages.
++constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
++// A joint that moved more than this while activating is logged as a warning (about 3 degrees).
++constexpr double kMovedWarnRad = 0.0524;
++
++struct Check {
++  bool ok;
++  std::string reason;
++};
++
++// Before enabling. Every motor must have answered -- a DAMIAO reply carries the MOS temperature, so a
++// motor that never replied reads 0 -- none may report an error, and two reads one refresh apart must
++// agree. A hold commanded from a stale or wrong reading is the one way this activation could still
++// move the arm, so a doubtful reading refuses rather than guessing.
++inline Check check_reads(const std::vector<double>& first, const std::vector<double>& second,
++                         const std::vector<int>& tmos, const std::vector<bool>& error,
++                         double tol = kAgreeTolRad) {
++  const std::size_t n = first.size();
++  if (n == 0 || second.size() != n || tmos.size() != n || error.size() != n) {
++    return {false, "the motor reads are incomplete"};
++  }
++  for (std::size_t i = 0; i < n; ++i) {
++    const std::string id = "motor " + std::to_string(i + 1);
++    if (tmos[i] <= 0) return {false, id + " has not answered"};
++    if (error[i]) return {false, id + " reports an error"};
++    if (!std::isfinite(first[i]) || !std::isfinite(second[i])) {
++      return {false, id + " reports a position that is not a number"};
++    }
++    if (std::fabs(first[i] - second[i]) > tol) {
++      return {false, id + " moved between two reads, so its position cannot be trusted"};
++    }
++  }
++  return {true, ""};
++}
++
++// The stiffness at ramp step `step` of `steps`: 0 at step 0, rising linearly to `full` at the last.
++inline double ramp_gain(double full, int step, int steps = kRampSteps) {
++  if (steps <= 0) return full;
++  const double t = std::clamp(static_cast<double>(step) / static_cast<double>(steps), 0.0, 1.0);
++  return full * t;
++}
++
++// The largest |a[i] - b[i]|; for reporting how far activation moved the arm.
++inline double max_abs_diff(const std::vector<double>& a, const std::vector<double>& b) {
++  double worst = 0.0;
++  const std::size_t n = std::min(a.size(), b.size());
++  for (std::size_t i = 0; i < n; ++i) worst = std::max(worst, std::fabs(a[i] - b[i]));
++  return worst;
++}
++
++}  // namespace activation_hold
++}  // namespace openarm_hardware
+--- a/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp
++++ b/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp
+@@ -147,6 +147,13 @@
+ 
+   // Helper methods
+   void return_to_zero();
++  // Activation that holds the measured pose (activation_hold.hpp): one refresh-and-receive, then the
++  // arm joints' positions (and the gripper motor's, last, when there is one), their MOS temperatures
++  // and error flags, in that order.
++  void read_measured(std::vector<double>& pos, std::vector<int>& tmos, std::vector<bool>& error);
++  // Command `hold` (arm joints, then the gripper motor) while the stiffness ramps from zero to the
++  // configured gains. Damping is full throughout.
++  void hold_with_stiffness_ramp(const std::vector<double>& hold);
+   bool parse_config(const hardware_interface::HardwareInfo& info);
+   void generate_joint_names();
+ 
+--- a/openarm_hardware/src/openarm_simple_hardware.cpp
++++ b/openarm_hardware/src/openarm_simple_hardware.cpp
+@@ -14,6 +14,8 @@
+ 
+ #include "openarm_hardware/openarm_simple_hardware.hpp"
+ 
++#include "openarm_hardware/activation_hold.hpp"
++
+ #include <algorithm>
+ #include <cctype>
+ #include <chrono>
+@@ -220,19 +222,99 @@
+   return command_interfaces;
+ }
+ 
++// Activation holds the arm where it is (OpenDubs arms plan A1) instead of return_to_zero(), which
++// swept every joint to 0 rad. Read the pose twice, refuse a doubtful read with the motors still
++// disabled, then hold exactly that pose while the stiffness ramps up from zero. pos_commands_ is
++// seeded with the same pose, because write() sends it every cycle from now on -- before any
++// controller has written a target, it would otherwise still command zero.
+ hardware_interface::CallbackReturn OpenArmHW::on_activate(
+     const rclcpp_lifecycle::State& /*previous_state*/) {
+-  RCLCPP_INFO(rclcpp::get_logger("OpenArmHW"), "Activating OpenArm V10...");
++  namespace ah = openarm_hardware::activation_hold;
++  const auto log = rclcpp::get_logger("OpenArmHW");
++  RCLCPP_INFO(log, "Activating OpenArm V10, holding the measured pose...");
+   openarm_->set_callback_mode_all(openarm::damiao_motor::CallbackMode::STATE);
+-  openarm_->enable_all();
+-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+-  openarm_->recv_all();
+ 
+-  // Return to zero position
+-  return_to_zero();
++  std::vector<double> first, hold;
++  std::vector<int> tmos;
++  std::vector<bool> error;
++  read_measured(first, tmos, error);
++  read_measured(hold, tmos, error);
++  const ah::Check check = ah::check_reads(first, hold, tmos, error);
++  if (!check.ok) {
++    RCLCPP_ERROR(log, "Not activating: %s. The motors stay disabled.", check.reason.c_str());
++    return CallbackReturn::ERROR;
++  }
+ 
+-  RCLCPP_INFO(rclcpp::get_logger("OpenArmHW"), "OpenArm V10 activated");
++  hold_with_stiffness_ramp(hold);
++
++  for (size_t i = 0; i < ARM_DOF; ++i) {
++    pos_commands_[i] = hold[i];
++    vel_commands_[i] = 0.0;
++    tau_commands_[i] = 0.0;
++  }
++  if (hand_ && joint_names_.size() > ARM_DOF && hold.size() > ARM_DOF) {
++    pos_commands_[ARM_DOF] = motor_radians_to_joint(hold[ARM_DOF]);
++  }
++
++  std::vector<double> after;
++  read_measured(after, tmos, error);
++  const double moved = ah::max_abs_diff(hold, after);
++  if (moved > ah::kMovedWarnRad) {
++    RCLCPP_WARN(log, "Activated, but a joint moved %.1f deg while activating", moved * ah::kRadToDeg);
++  }
++  RCLCPP_INFO(log, "OpenArm V10 activated, holding (largest move %.2f deg)", moved * ah::kRadToDeg);
+   return CallbackReturn::SUCCESS;
++}
++
++void OpenArmHW::read_measured(std::vector<double>& pos, std::vector<int>& tmos,
++                              std::vector<bool>& error) {
++  openarm_->refresh_all();
++  std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  openarm_->recv_all();
++  pos.clear();
++  tmos.clear();
++  error.clear();
++  const auto& arm_motors = openarm_->get_arm().get_motors();
++  for (size_t i = 0; i < ARM_DOF && i < arm_motors.size(); ++i) {
++    pos.push_back(arm_motors[i].get_position());
++    tmos.push_back(arm_motors[i].get_state_tmos());
++    error.push_back(arm_motors[i].has_error());
++  }
++  if (hand_) {
++    const auto& gripper_motors = openarm_->get_gripper().get_motors();
++    if (!gripper_motors.empty()) {
++      pos.push_back(gripper_motors[0].get_position());
++      tmos.push_back(gripper_motors[0].get_state_tmos());
++      error.push_back(gripper_motors[0].has_error());
++    }
++  }
++}
++
++void OpenArmHW::hold_with_stiffness_ramp(const std::vector<double>& hold) {
++  namespace ah = openarm_hardware::activation_hold;
++  const bool gripper = hand_ && hold.size() > ARM_DOF;
++  auto send = [&](int step) {
++    std::vector<openarm::damiao_motor::MITParam> arm_params;
++    for (size_t i = 0; i < ARM_DOF; ++i) {
++      arm_params.push_back({ah::ramp_gain(kp_[i], step), kd_[i], hold[i], 0.0, 0.0});
++    }
++    openarm_->get_arm().mit_control_all(arm_params);
++    if (gripper) {
++      openarm_->get_gripper().mit_control_all(
++          {{ah::ramp_gain(gripper_kp_, step), gripper_kd_, hold[ARM_DOF], 0.0, 0.0}});
++    }
++    openarm_->recv_all();
++  };
++  // A zero-stiffness command at the hold pose before AND straight after enabling, so the first
++  // command a freshly enabled motor acts on is "stay here, softly", never an older setpoint.
++  send(0);
++  openarm_->enable_all();
++  std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  openarm_->recv_all();
++  for (int step = 0; step <= ah::kRampSteps; ++step) {
++    send(step);
++    std::this_thread::sleep_for(std::chrono::milliseconds(ah::kRampStepMs));
++  }
+ }
+ 
+ hardware_interface::CallbackReturn OpenArmHW::on_deactivate(
+--- /dev/null
++++ b/openarm_hardware/test/test_activation_hold.cpp
+@@ -0,0 +1,64 @@
++// Tests for activation_hold.hpp, the checks and the ramp behind "activation holds where the arm
++// is". Plain C++17 and no ROS, so it runs anywhere:
++//   c++ -std=c++17 -I include test/test_activation_hold.cpp -o /tmp/t && /tmp/t
++#include <cmath>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++#include "openarm_hardware/activation_hold.hpp"
++
++namespace ah = openarm_hardware::activation_hold;
++
++static int failures = 0;
++static void expect(bool cond, const char* what) {
++  std::printf("  %s  %s\n", cond ? "ok  " : "FAIL", what);
++  if (!cond) ++failures;
++}
++
++int main() {
++  const std::vector<double> pose = {0.1, -0.2, 0.3, 0.5, -0.1, 0.0, 0.05, 0.4};  // 7 joints + gripper
++  const std::vector<int> warm(8, 27);
++  const std::vector<bool> clean(8, false);
++
++  expect(ah::check_reads(pose, pose, warm, clean).ok, "two agreeing reads from answering motors pass");
++
++  std::vector<double> nudged = pose;
++  nudged[3] += 0.01;  // ~0.6 deg: read noise
++  expect(ah::check_reads(pose, nudged, warm, clean).ok, "reads within 1 deg pass");
++
++  std::vector<double> moved = pose;
++  moved[3] += 0.03;  // ~1.7 deg between two reads one refresh apart
++  auto c = ah::check_reads(pose, moved, warm, clean);
++  expect(!c.ok && c.reason.find("motor 4") != std::string::npos, "reads 1.7 deg apart refuse, naming motor 4");
++
++  std::vector<int> silent = warm;
++  silent[7] = 0;  // the gripper never replied
++  c = ah::check_reads(pose, pose, silent, clean);
++  expect(!c.ok && c.reason.find("motor 8 has not answered") != std::string::npos,
++         "a motor that never answered refuses");
++
++  std::vector<bool> faulted = clean;
++  faulted[1] = true;
++  c = ah::check_reads(pose, pose, warm, faulted);
++  expect(!c.ok && c.reason.find("motor 2 reports an error") != std::string::npos, "a motor in error refuses");
++
++  std::vector<double> nan_read = pose;
++  nan_read[0] = std::nan("");
++  expect(!ah::check_reads(nan_read, nan_read, warm, clean).ok, "a NaN position refuses");
++
++  expect(!ah::check_reads({}, {}, {}, {}).ok, "no reads at all refuses");
++  expect(!ah::check_reads(pose, std::vector<double>(7, 0.0), warm, clean).ok, "mismatched read sizes refuse");
++
++  expect(ah::ramp_gain(70.0, 0) == 0.0, "the ramp starts at zero stiffness");
++  expect(std::fabs(ah::ramp_gain(70.0, ah::kRampSteps) - 70.0) < 1e-12, "the ramp ends at the full gain");
++  expect(std::fabs(ah::ramp_gain(70.0, ah::kRampSteps / 2) - 35.0) < 1e-12, "the ramp is linear");
++  expect(ah::ramp_gain(70.0, ah::kRampSteps + 10) == 70.0, "past the last step it stays at the full gain");
++  expect(ah::ramp_gain(70.0, -3) == 0.0, "before the first step it stays at zero");
++  expect(ah::kRampSteps * ah::kRampStepMs == 500, "the ramp takes 0.5 s");
++
++  expect(std::fabs(ah::max_abs_diff(pose, moved) - 0.03) < 1e-12, "max_abs_diff finds the largest move");
++
++  std::printf("%s\n", failures ? "FAILED" : "all passed");
++  return failures ? 1 : 0;
++}

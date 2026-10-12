@@ -1,0 +1,51 @@
+# The arm stack's Python workspace root (arms plan DEC-27; design: notes/design/arm-sources.md).
+#
+# A virtual root: no installable package of its own. build.sh copies this file and uv.lock to
+# /openarm_ws/src and clones each member beside them at its repos.lock commit, with the overlay in
+# software/openarm/image/overlay/ applied. It replaces the root the stack used to be cloned from
+# (a fork of the lab's robot-code workspace, whose setup.sh cloned every member at its tip and
+# whose uv.lock was never committed).
+[tool.uv]
+# labmaze needs Bazel and is not needed (dm_control.mjcf only). toppra 0.6.4+ ships no aarch64
+# wheel and no sdist, so on the Thor 0.6.3 -- the oldest mj_manipulator accepts -- is built.
+# An override REPLACES every requirement on the package, marker included: with only the aarch64
+# line, toppra is not installed at all anywhere else. Hence the second line.
+override-dependencies = [
+    "labmaze ; sys_platform == 'never'",
+    "toppra==0.6.3 ; platform_machine == 'aarch64'",
+    "toppra>=0.6.3 ; platform_machine != 'aarch64'",
+]
+
+[tool.uv.workspace]
+# Directory names are repos.lock's names. pycbirrt and tsr are the lab's repositories since renamed
+# sscbirrt and sstsr; at the pinned commits their packages are pycbirrt and sstsr.
+members = [
+    "asset_manager",
+    "mj_environment",
+    "mj_manipulator",
+    "mj_manipulator_ros",
+    "mj_viser",
+    "prl_assets",
+    "pycbirrt",
+    "tsr",
+    "openarm_assets",
+    "openarm",
+]
+
+[tool.uv.sources]
+# SSIK from its release tag, installed NON-editable. SSIK publishes no Linux aarch64 wheel, and only a
+# build of the tagged source tree compiles its native backend; an editable or sdist install runs
+# pure Python, about 40x slower. The teleop solves IK on every engaged control step.
+ssik = { git = "https://github.com/personalrobotics/ssik", tag = "v8.1.0" }
+sstsr = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "catkin_pkg",
+    "pin>=4.1.0",
+    "robot-descriptions>=3.0.0",
+    "ssik",
+]
+
+[tool.pytest.ini_options]
+addopts = "-p no:launch_testing -p no:launch_ros"

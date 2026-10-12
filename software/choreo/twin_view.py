@@ -113,6 +113,7 @@ def main() -> int:
                                    smp["head_pan"] - sim_preview.HEAD_CENTRE_DEG,
                                    smp["head_tilt"] - sim_preview.HEAD_CENTRE_DEG)
                 sim_preview.apply_base(model, data, smp["base"])
+                sim_preview.apply_grips(model, data, smp)
 
             if a.log and now - last_log >= 1.0 and tl:
                 last_log = now

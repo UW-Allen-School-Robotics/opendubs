@@ -206,7 +206,9 @@ write a bench that only reports on the panel.
   power-bay, lidar). Each has hero, at-a-glance, CAD links, a **generated BOM**, tools,
   assembly steps, verify.
 - `hardware/parts.csv` — one row per part. Columns:
-  `id,name,type,group,sku,module,qty,need,source,notes`
+  `id,name,type,group,sku,module,qty,need,source,notes,buy_qty,price_usd,price_source,price_date`
+    - the four price columns go together: the price of one listed item (single, pack or kit), how
+      many of it a robot needs, the listing, and the date read. `tools/bom.py` explains them.
     - `type`: `structure | component | fastener | tool | consumable | printed | fabricated`
     - `module`: a module id (`base-frame`, `otos`, …) **or** `shared` (used everywhere)
     - `group`: the sub-heading it appears under in that module's Build BOM

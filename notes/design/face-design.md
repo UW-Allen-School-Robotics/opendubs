@@ -137,16 +137,40 @@ presence alone.
   its own layer, so gaze travel is unbounded and the ±11 px budget that defeated every previous
   attempt does not exist.
 - **Saccadic motion with main-sequence timing**, already written and carried over unchanged.
-- **No pupils.** Anki added them to Cozmo, found they made him read as too human, removed them and
-  recovered the same legibility through **size and ratio**. Gaze direction lives in shape and in
-  inter-eye asymmetry.
-- **One highlight, fixed.** A highlight that chases the gaze was tried and read as confusing.
+- ~~**No pupils.**~~ **OVERRIDDEN 2026-10-09: the face keeps its pupil.** The evidence below still
+  stands and is kept for whoever revisits this — Anki added pupils to Cozmo, found they made him
+  read as too human, removed them, and recovered the same legibility through **size and ratio**,
+  with gaze direction living in shape and in inter-eye asymmetry.
+
+  **Two things changed.** First, the reason the rule failed *here* was structural, not aesthetic:
+  the retired head's two eyes came from one mirrored sprite, so the pair was always perfectly
+  symmetric, and `face.cpp:547` records that "a symmetric pair of pupil-less eyes has almost
+  nothing left to say about direction". **That constraint is gone** — the web engine and any
+  tablet renderer draw the two eyes independently. Second, the maintainers chose a pupil-borne
+  glint on looking at both (see the highlight item below), and a travelling highlight needs
+  something to travel on.
+
+  The Cozmo caution is not void: it is a warning that a pupil pushes the face toward the human end,
+  which is a thing to watch when tuning rather than a rule that was wrong.
+- ~~**One highlight, fixed.**~~ **OVERRIDDEN 2026-10-09: the glint rides the pupil.** The original
+  finding — that a highlight chasing the gaze was tried and read as confusing — is kept, because it
+  is the reason this was ever in doubt.
+
+  The maintainers looked at both in the `?eyes=` prototype and chose the travelling one. It also
+  matches the **shipping** head, which parents the glint to the pupil on the grounds that "a
+  catchlight is a corneal reflection sitting over the iris and pupil, not a spot floating on the
+  sclera" (`app_face.cpp:893`).
+
+  **The record was three-way and this resolves it:** the retired head and this note said fixed, the
+  shipping head said travelling, and the maintainers' eye agreed with the shipping head. The
+  opposite proposal — anchoring the highlight to the eye — is struck through in
+  [`face-eyes-and-gaze.md`](face-eyes-and-gaze.md) with the reason, so it is not re-proposed.
 
 ---
 
 ## What NOT to build, and why
 
-- **No pupils** — the Cozmo lesson above.
+- ~~**No pupils**~~ — overridden 2026-10-09; see the rendering section above.
 - **No emotion palette.** Express *state*, which is true and bystander-legible, not feelings, which
   are not.
 - **No speech-shaped NON-SPEECH audio.** Earcons stay clearly abstract so they are not mistaken
@@ -154,6 +178,14 @@ presence alone.
   speaks, and when it does it should use actual speech.
 - **No continuous smooth tracking.** It reads as a stare and it exposes sensor jitter that discrete
   glances conceal.
+
+  > **OPEN, pending a look — do not treat either side as settled.**
+  > [`face-eyes-and-gaze.md`](face-eyes-and-gaze.md) proposes **smooth pursuit**, and the
+  > `?eyes=full` prototype implements it, which contradicts this line. The maintainers will judge it
+  > by eye in the prototype. One reading is that the two are not actually opposed — this rule is
+  > about *holding* a person, which the prototype's aversion timer separately addresses, while the
+  > prototype changed *how* an already-followed target is tracked rather than for how long — but
+  > that is a reading, not a ruling. Whichever loses gets corrected here.
 - **Nothing implying recognition.** The robot must not appear to know who you are.
 - **No LLM authority over motion.** See the safety boundary below. This is the one hard line.
 

@@ -34,6 +34,10 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 VNC_DISABLED_FLAG = status_mod.VNC_DISABLED_FLAG
 
 app = FastAPI(title="OpenDubs Kiosk Dashboard")
+# A state-changing request that another web page sent is refused; one that names no page (curl,
+# scripts, the Thor's services) is not. Not a login — see origin_guard.py.
+import origin_guard  # noqa: E402
+origin_guard.install(app)
 
 # Server-side state for non-safety soft controls.
 STATE = {"last_action": None, "ai_tracking": False}
@@ -127,18 +131,10 @@ def tracker_control(state: str) -> JSONResponse:
                              "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
                             status_code=503)
 
-    # Starting the process is only half of it: the head gates whether the tracker may command
-    # it, and that was settable only from the Tab5's own screen. Ask for the matching mode so one
-    # button does one thing.
-    import state_out
-    mode_sent = state_out.head_set_tracking(target == "on")
-
+    # Nothing to ask the head. A tracker that sends owns the head whenever nothing above it does
+    # (head-protocol.md §4); the old tracking-mode frame is retired (§8).
     STATE["ai_tracking"] = _tracker_active()
-    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"],
-                         "head_mode_sent": mode_sent,
-                         **({} if mode_sent else
-                            {"warning": "could not reach the head — it may still be in MANUAL, "
-                                        "so the tracker will not be given the head"})})
+    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/arms/status")
@@ -171,6 +167,14 @@ def arms_op(op: str, arm: str = "both") -> JSONResponse:
                              "hint": ("arm operations need a sudoers rule for "
                                       "/usr/local/bin/openarm-up")}, status_code=code)
     return JSONResponse({"ok": True, "started": detail, "poll": "/api/arms/status"})
+
+
+@app.get("/api/arms/teleop")
+def arms_teleop() -> JSONResponse:
+    """The teleop bridge's per-hand state -- why a grip, a home or a target is being refused.
+    Cheap (no CAN, no shell), so the TELEOP page polls it fast while the bridge runs."""
+    import openarm
+    return JSONResponse(openarm.teleop_status())
 
 
 @app.post("/api/teleop/{verb}")
@@ -398,6 +402,8 @@ def system_power(action: str) -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
+    if await origin_guard.refuse_websocket(socket):
+        return
     await socket.accept()
     # RC telemetry is cheap (reads the latest StamPLC frame from memory) → push
     # fast for responsive sticks. System metrics are expensive (nvidia-smi
@@ -444,6 +450,8 @@ async def rosbridge_proxy(socket: WebSocket) -> None:
     message is relayed unchanged to the local rosbridge. Over plain HTTP the page still talks to
     :9090 directly. Nothing here interprets ROS traffic."""
     import websockets
+    if await origin_guard.refuse_websocket(socket):     # a foreign page may not publish to ROS
+        return
     await socket.accept()
     try:
         async with websockets.connect(ROSBRIDGE_URL, max_size=None, open_timeout=3) as up:
@@ -491,6 +499,10 @@ class NoCacheStaticFiles(StaticFiles):
 # static mount so /api/choreo/* is not shadowed by it.
 from choreo_proxy import router as _choreo_router  # noqa: E402
 app.include_router(_choreo_router)
+
+# The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
+from library_serve import router as _library_router  # noqa: E402
+app.include_router(_library_router)
 
 # This repository's docs, built on the dev machine at deploy time (deploy.sh), so the "?" beside a
 # refusal opens its troubleshooting entry with no internet and at the deployed version. Kept out of

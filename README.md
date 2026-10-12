@@ -56,7 +56,8 @@ questions about clearance and reach and not about force, torque or timing.
 |---|---|
 | `docs/` | The documentation site (MkDocs Material) — build/flash guides, reference, safety |
 | `firmware/rc_serial_probe/` | **StamPLC** ESP32-S3 firmware (PlatformIO) — RC, drive mixer, safety I/O, BMS/PDH, `[TAG]` telemetry over USB **or** Ethernet |
-| `firmware/tab5_face/` | **Tab5** ESP32-P4 face + operator UI (pioarduino) |
+| `firmware/tab5_idf/` | **Tab5** ESP32-P4 head — face, front control panel and voice (ESP-IDF + LVGL, on M5Stack's factory firmware). Flashed over the network by `ota-from-thor.sh` |
+| `firmware/tab5_face/` | The head's retired Arduino firmware — not flashed; its flash script refuses to run by default |
 | `firmware/tab5_pantilt/` · `tab5_roller/` · `servo_mode_programmer/` | Bring-up tools for the pan/tilt head and its servos — not flashed in normal operation |
 | `software/kiosk-dashboard/` | Touchscreen dashboard — FastAPI backend + vanilla-JS frontend + provisioning. Runs on the Thor |
 | `software/ros/` | ROS 2 (Jazzy) bringup — RPLIDAR drivers, rosbridge, foxglove, watchdogs |

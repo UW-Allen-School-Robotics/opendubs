@@ -43,7 +43,7 @@ identical and built at the same time**.
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
 | [Slamtec RPLIDAR A1](https://www.adafruit.com/product/4010) | — | 2 | One front, one rear; the A1 typically ships with its USB adapter + cable |
-| RPLIDAR USB adapter (daughter board) | — | 2 | Interface/daughter board — usually included with the A1 |
+| RPLIDAR USB adapter (daughter board) | — | 2 | Comes with the RPLIDAR A1 kit. |
 | USB cable (A1 to hub) | — | 2 | Usually included with the A1 |
 | 3D-printed lidar mount set | — | 2 | One set per unit (front + rear); STLs in hardware/ TBD |
 
@@ -57,7 +57,7 @@ identical and built at the same time**.
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 Module-specific tools/consumables: *none beyond the shared set*.
 
 ## Assembly

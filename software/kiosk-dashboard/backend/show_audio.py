@@ -11,7 +11,7 @@ origin (standing rule 12):
     with a fade, or cut. Relayed to the ONE device holding the claim, never broadcast.
   * GET /api/choreo/audio — who holds it, and whether what was last loaded is ready.
   * GET /api/choreo/media/<path> — the show's audio files, from the shows directory's audio/ and
-    sounds/ only.
+    sounds/ only; and `library/songs/<file>`, a song from the show library (plan 4.6).
 
 Decided (plan 4.2): the device downloads the whole file and starts it on cue, rather than streaming;
 the last device to press "Play show audio here" holds the role, and the kiosk tablet claims it on
@@ -32,6 +32,9 @@ from fastapi.responses import FileResponse, JSONResponse
 
 SHOWS_DIR = os.environ.get("OPENDUBS_CHOREO_SHOWS", "/opt/opendubs/choreo/shows")
 MEDIA_SUBDIRS = ("audio", "sounds")
+# The show library (software/choreo/library.py): only its songs are served, under media/library/.
+LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
+LIBRARY_MEDIA_SUBDIRS = ("songs",)
 OPS = ("load", "start", "stop", "cut")
 
 router = APIRouter()
@@ -117,6 +120,11 @@ hub = Hub()
 
 @router.websocket("/ws/show-audio")
 async def show_audio_ws(ws: WebSocket):
+    # A page on another origin may not claim the show-audio role (Hygiene S4); scripts and the
+    # runner send no Origin and pass.
+    import origin_guard
+    if await origin_guard.refuse_websocket(ws):
+        return
     await ws.accept()
     cid = await hub.join(ws, "a browser")
     try:
@@ -152,7 +160,14 @@ async def audio_command(request: Request):
 
 
 def media_path(rel: str) -> str | None:
-    """A show's audio file, or None: only under the shows directory's audio/ or sounds/."""
+    """A show's audio file, or None: only under the shows directory's audio/ or sounds/, or the
+    library's songs/ (as `library/songs/...`)."""
+    if rel.startswith("library/"):
+        root = os.path.realpath(LIBRARY_DIR)
+        full = os.path.realpath(os.path.join(root, rel[len("library/"):]))
+        if not any(full.startswith(os.path.join(root, d) + os.sep) for d in LIBRARY_MEDIA_SUBDIRS):
+            return None
+        return full if os.path.isfile(full) else None
     root = os.path.realpath(SHOWS_DIR)
     full = os.path.realpath(os.path.join(root, rel))
     if not any(full.startswith(os.path.join(root, d) + os.sep) for d in MEDIA_SUBDIRS):

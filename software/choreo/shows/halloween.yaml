@@ -25,6 +25,7 @@ clips:
       - { t: 0.6, slot: LIGHT, do: color, rgb: [120, 0, 200], br: 90 }
       - { t: 0.9, slot: LIGHT, do: color, rgb: [60, 255, 40], br: 60 }
 
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "3deb9e14d07a@dc74e24f" }
 cues:
   # lights down, eyes narrow, a falling two-note "refuse" as the hello
   - { t: 0.0, slot: LIGHT, do: color, rgb: [60, 255, 40], br: 40 }

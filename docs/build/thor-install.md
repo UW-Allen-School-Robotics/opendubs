@@ -36,7 +36,7 @@ to both sides of the rail.
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
 | [goBILDA 1205-series dual block mount (2-pack)](https://www.servocity.com/1205-series-dual-block-mount-1-5-2-pack/) | — | 1 | The 2-pack gives the two dual blocks that clamp the Thor cradle to the rail. |
-| [M4 x 55 mm socket-head screws](https://www.amazon.com/gp/product/B0DFYK39N6) | — | 2 | Run up through the dual blocks into the printed Thor cradle; confirm exact qty. |
+| [M4 x 55 mm socket-head screws](https://www.amazon.com/gp/product/B0DFYK39N6) | — | 2 | Run up through the dual blocks to receive the cradle. The 50-pack bought for the OTOS module covers these two. |
 | Thor cradle (3D-printed) | — | 1 | Holds the Thor to the frame; STL in hardware/ TBD. |
 <!-- /BOM-AUTO:build:thor-install -->
 

@@ -1,0 +1,18 @@
+id: ik-demo
+name: IK demo (test fixture)
+# IK targets for tests/test_ik.py: a reach to a point, a point at the head's screen, a point out to
+# the audience, a reach to the screen (stopping at its standoff), then rest. No music.
+slots: [ARM_L, ARM_R, HEAD]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+cues:
+  - { t: 2.0, slot: ARM_R, reach: [0.55, -0.25, 0.75] }
+  - { t: 4.0, slot: ARM_R, point_at: head_screen }
+  - { t: 4.0, slot: HEAD, pan: 70 }
+  - { t: 6.0, slot: ARM_L, point_at: [2.0, 0.6, 1.4] }
+  - { t: 8.0, slot: ARM_R, reach: head_screen }
+  - { t: 11.0, slot: ARM_L, pose: rest }
+  - { t: 11.0, slot: ARM_R, pose: rest }
+  - { t: 11.0, slot: HEAD, pan: 90 }

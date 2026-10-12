@@ -1,6 +1,6 @@
 # The head protocol
 
-**Status: version 2, 2026-10-08** — version 1 agreed with the Tab5 head lane; version 2 adds `SKIN` (tablet face only), agreed with the Choreography lane. Tablet plan items 2.1 and 2.2
+**Status: version 3, 2026-10-11** — version 1 agreed with the Tab5 head lane; version 2 adds `SKIN` (tablet face only), agreed with the Choreography lane; version 3 adds `SPIN` (tablet face only), agreed with Face & HRI and Choreography. Tablet plan items 2.1 and 2.2
 ([`workplan-tablet.md`](../workplan-tablet.md)). The messages marked **shipping** are what the
 ESP-IDF Tab5 head answers today, read from its source on `main` (`d6d2e4c`). The four marked
 **new** — `TRACK`, `NECK`, `TOUCH`, `PARK` — and `kind=` in `PING` were **agreed with the Tab5 head
@@ -64,7 +64,8 @@ sender resolves the two in this order** (`software/kiosk-dashboard/backend/head.
 | `THEME <name>` | `OK theme <name>` / `ERR unknown theme` | shipping | Built in: `plain` (alias `NONE`) and `halloween`; plus any authored theme installed by `CFG`. No theme can recolour `DEGRADED` or `E_STOP`. |
 | `CUE <earcon>` | `OK cue <earcon>`, or `OK cue <earcon> (AUDIO OFF -- …)` / `ERR unknown cue` | shipping | `heard`, `attend`, `refuse`, `fault`, `mode`, `boot`. Audio is a per-robot setting that defaults **off**. The reply says so, because an acked cue that nobody hears is otherwise unexplainable. |
 | `CFG <url>` | `OK …` / `ERR …` (a verdict) | shipping | Fetch an authored configuration (today: themes as palettes, per `face-config-data-model.md`). On the tablet head, "fetch this library item now". |
-| `SKIN <name>` | `OK skin <name>` / `ERR unknown skin <name> (showing default)` / `ERR skin <name>: <why> (showing default)` | **version 2, agreed** (with the Choreography lane, 2026-10-08), tablet face only | Which skin draws the eyes: a code skin — `default` (the standard eyes, an ordinary argument) or `ring` — or a library skin's id. Persistent, like `THEME`. **Never a blank face:** an unknown name, or a library skin whose file will not load, shows `default` and says so; `PING` then reports `skin=default skin_error=…`. A reserved state draws `default` whatever is set. A library skin may not use a code skin's name. The Tab5 answers `ERR unknown`. |
+| `SKIN <name>` | `OK skin <name>` / `ERR unknown skin <name> (showing default)` / `ERR skin <name>: <why> (showing default)` | **version 2, agreed** (with the Choreography lane, 2026-10-08), tablet face only | Which skin draws the eyes: a code skin — `default` (the standard eyes, an ordinary argument) or `ring` — or a library skin's id. Persistent, like `THEME`. **Never a blank face:** an unknown name, or a library skin whose file will not load, shows `default` and says so; `PING` then reports `skin=default skin_error=…`. A reserved state draws `default` whatever is set. A library skin may not use a code skin's name. The Tab5 answers `ERR unknown`. **An unknown name gets a second look first**: the face re-reads its library (at most every 2 s, for at most 250 ms) and shows the skin if it has just arrived, so a skin added after the face loaded is not reported unknown. |
+| `SPIN COUNTER [hold_s]` / `SPIN TOGETHER` / `SPIN AUTO` | `OK spin <counter\|together\|auto>` / `ERR spin COUNTER [hold_s] \| TOGETHER \| AUTO` | **version 3, agreed 2026-10-11** (with Face & HRI and Choreography), tablet face only | A spinning skin's **counter-rotation on a beat**. `COUNTER` breaks the eyes into opposite spins (held `hold_s`, or until `TOGETHER`, `AUTO` or the show's end); `TOGETHER` returns them; `AUTO` hands the schedule back to the library entry's `counter` block. **While a show holds it, the skin's random counter-spins are suppressed.** The **ease belongs to the skin** (`ease_s`, default 0.9 s) and cannot be set from the wire, so a show cannot make the reversal snap. **The cue's time is the zero crossing** — both eyes slow to a standstill together and spin up the other way, and that pause is what lands on the beat; the eyes reach it `ease_s / 2` after the line arrives (450 ms by default), so the runner sends it that much early. A skin that does not spin answers `OK` and does nothing. The Tab5 answers `ERR unknown`. |
 | `VOICE PRESS` / `RELEASE` / `STATUS` / `THOR <host> <port>` | `OK …` / a status line / `ERR VOICE {…}` | Tab5 only | Push-to-talk. Compiled into the twin, **out of the shipping image**, and **paused** (decided 2026-10-08). A tablet head answers `ERR unknown` until a voice decision says otherwise. |
 | `SIM LINK\|ESTOP\|PERSON\|TOF …` | `OK sim …` / `ERR SIM …` | twins only | Simulated inputs for the face twin. A real head refuses them rather than pretending. |
 
@@ -164,14 +165,14 @@ The tablet head's door does the same for its Thor-down panel (tablet plan DT-17)
 
 ## 8. Retired — decided 2026-10-08
 
-Answered `ERR unknown` by the ESP-IDF head. **Not carried over.** Senders are to stop sending them.
+Answered `ERR unknown` by the ESP-IDF head. **Not carried over.** Senders are to stop sending them; the dashboard's tests fail if one does (`tests/test_no_retired_head_messages.py`). The dashboard's UDP 5006 listener (the Arduino head's lift buttons and status) is gone with them.
 
 | retired | what it was | sent today by | replaced by |
 |---|---|---|---|
-| `0x104` absolute pan/tilt frame | the Arduino head's tracker input | `yolo_tracker.py`, `ros/tab5_bridge_node.py` | `TRACK thor` |
-| `0x108` tracking-mode frame | AI/MANUAL tracking switch | `state_out.head_set_tracking` | the precedence itself: a tracker that sends owns the head when nothing above it does |
-| `TURN`, `LIFT`, `PMODE` | turn-signal chevrons, lift height, CH7 mode on the Arduino face | `state_out.py` | nothing yet; a face message, specified here first, if wanted again |
-| `PLCIP` | "the StamPLC may command you" | `state_out._introduce_peers` | the head resolves the StamPLC by name (`opendubs-stamplc.local`) and hears its broadcast |
+| `0x104` absolute pan/tilt frame | the Arduino head's tracker input | `yolo_tracker.py`, until the Tab5 parses `TRACK thor` (`ros/tab5_bridge_node.py` deleted 2026-10-11) | `TRACK thor` |
+| `0x108` tracking-mode frame | AI/MANUAL tracking switch | nothing (removed from the dashboard 2026-10-11) | the precedence itself: a tracker that sends owns the head when nothing above it does |
+| `TURN`, `LIFT`, `PMODE` | turn-signal chevrons, lift height, CH7 mode on the Arduino face | nothing (removed 2026-10-11) | nothing yet; a face message, specified here first, if wanted again |
+| `PLCIP` | "the StamPLC may command you" | nothing (removed 2026-10-11) | the head resolves the StamPLC by name (`opendubs-stamplc.local`) and hears its broadcast |
 
 ## 9. Conformance
 

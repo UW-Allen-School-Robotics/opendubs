@@ -29,6 +29,22 @@ def test_the_clock_ping_is_answered_with_thor_monotonic_times():
         assert abs(m["t2"] - show_audio.thor_ms()) < 1000
 
 
+def test_a_page_on_another_origin_cannot_join_but_the_dashboard_and_scripts_can():
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    c = _client()
+    with pytest.raises(WebSocketDisconnect) as e:
+        with c.websocket_connect("/ws/show-audio", headers={"origin": "http://evil.example"}):
+            pass
+    assert e.value.code == 1008
+    # the dashboard's own page (the Host a browser on the robot sends) joins
+    with c.websocket_connect("/ws/show-audio", headers={"origin": "http://10.42.2.10:8080",
+                                                       "host": "10.42.2.10:8080"}) as ws:
+        ws.receive_json()
+    with c.websocket_connect("/ws/show-audio") as ws:      # no Origin: a script, the runner
+        ws.receive_json()
+
+
 def test_commands_go_to_the_one_holder_and_no_one_else():
     c = _client()
     with c.websocket_connect("/ws/show-audio") as a, c.websocket_connect("/ws/show-audio") as b:
@@ -98,6 +114,19 @@ def test_a_holder_that_disconnects_releases_the_role():
 def test_only_known_ops_are_accepted():
     c = _client()
     assert c.post("/api/choreo/audio", json={"op": "volume"}).status_code == 400
+
+
+def test_media_serves_the_librarys_songs_and_nothing_else_of_it():
+    lib = tempfile.mkdtemp()
+    for sub, name, data in (("songs", "tune.wav", b"RIFF"), ("skins", "eyes.png", b"png"), ("", "index.yaml", b"[]")):
+        os.makedirs(os.path.join(lib, sub), exist_ok=True)
+        open(os.path.join(lib, sub, name), "wb").write(data)
+    show_audio.LIBRARY_DIR = lib
+    c = _client()
+    assert c.get("/api/choreo/media/library/songs/tune.wav").content == b"RIFF"
+    for rel in ("library/skins/eyes.png", "library/index.yaml", "library/songs/../index.yaml",
+                "library/songs/none.wav"):
+        assert c.get("/api/choreo/media/" + rel).status_code == 404, rel
 
 
 def test_media_serves_only_audio_and_sounds_under_the_shows_directory():

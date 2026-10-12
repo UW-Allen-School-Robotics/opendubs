@@ -51,3 +51,55 @@ sdkconfig.*
 
 # MuJoCo scribbles a load log next to whatever it compiles
 MUJOCO_LOG.TXT
+
+# --- Keys and certificates. Public SSH keys (*.pub) are fine; private material never is. ---
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+!*.pub
+
+# --- Firmware images and app packages: built from source, or pulled off a device. A provisioning
+#     image can carry Wi-Fi credentials. ---
+*.bin
+*.elf
+*.hex
+*.uf2
+*.apk
+*.aab
+
+# --- Recordings, logs, dumps and bags pulled off the robot. Keep them outside the repo; a log that
+#     is evidence for a write-up is added deliberately (see the exception below). ---
+*.log
+!notes/history/**/*.log
+*.mcap
+*.db3
+*.bag
+*.pcap
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.HEIC
+*.heic
+core
+core.[0-9]*
+
+# --- Caches and editor / OS junk ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.gradle/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+desktop.ini

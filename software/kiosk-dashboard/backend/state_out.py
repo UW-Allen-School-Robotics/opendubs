@@ -56,40 +56,33 @@ _REFRESH_S = 3.0   # re-push at least this often (Tab5 link timeout is 5 s)
 # motion. Resolved once per push attempt so a DHCP change or a reboot is picked up without
 # restarting the dashboard.
 _TAB5_UDP_PORT = int(os.environ.get("OPENDUBS_TAB5_UDP_PORT", "4242"))
-_TAB5_RX_PORT = int(os.environ.get("OPENDUBS_TAB5_RX_PORT", "5006"))
-_CAN_ID_LIFT_CMD = 0x102
 _tab5_sock = None
 _PEER_REINTRO_S = 20.0        # re-assert the pairing this often; both ends hold it in RAM
 _peers_last_intro = 0.0
 # A failed lookup of an absent head takes 5 s. Remember the failure rather than paying it
 # on every write, which is what turned the state loop from 0.3 s into 10-15 s.
 _TAB5_RESOLVE_RETRY_S = 30.0
-# The head's own packets to _TAB5_RX_PORT say where it is, more reliably than mDNS.
-_TAB5_LEARNED_TTL_S = 10.0
 _tab5_q: "queue.Queue[str]" = queue.Queue(maxsize=64)
 
 
 class _Peer:
-    """One half of the head, found by name. `learned` is (ip, monotonic time), written by the rx
-    thread when the device's own packets arrive."""
+    """One half of the head, found by name."""
 
     def __init__(self, host: str):
         self.host = host
         self.addr = None
         self.addr_ts = 0.0
         self.fail_ts = -_TAB5_RESOLVE_RETRY_S
-        self.learned = None
 
     def resolve(self):
-        """Where it is right now, or None. In order of trust: the address its own packets came
-        from (fresh within _TAB5_LEARNED_TTL_S), a cached mDNS answer (30 s), then a new lookup —
-        but never more than once per _TAB5_RESOLVE_RETRY_S after a failure. Called only from the
-        head's own thread (and the on-demand PING probe), because a lookup can block for 5 s."""
+        """Where it is right now, or None: a cached mDNS answer (30 s), else a new lookup — but
+        never more than once per _TAB5_RESOLVE_RETRY_S after a failure. Called only from the
+        head's own thread (and the on-demand PING probe), because a lookup can block for 5 s.
+
+        (The Arduino head's packets to UDP 5006 used to teach this its address. The ESP-IDF head
+        sends the Thor nothing, so a name is all there is: head-protocol.md §8.)"""
         import socket
         now = time.monotonic()
-        learned = self.learned
-        if learned is not None and now - learned[1] < _TAB5_LEARNED_TTL_S:
-            return learned[0]
         if self.addr is not None and now - self.addr_ts < 30:
             return self.addr
         if now - self.fail_ts < _TAB5_RESOLVE_RETRY_S:
@@ -106,7 +99,7 @@ class _Peer:
 
 def _make_peers(face_host: str, neck_host: str):
     """With the Tab5 fitted both halves are one box, so they share ONE peer — the same lookups,
-    the same learned address, exactly the behaviour from before the split."""
+    exactly the behaviour from before the split."""
     face = _Peer(face_host)
     return face, (face if neck_host == face_host else _Peer(neck_host))
 
@@ -125,40 +118,13 @@ def face_addr():
 _tab5_resolve = face_addr
 
 
-def head_set_tracking(ai: bool) -> bool:
-    """Ask the head to enter AI or MANUAL tracking (CAN_ID_TRACK_MODE, 0x108). Goes to the NECK:
-    it is the authority over head motion (head-ownership.md).
-
-    Tracking mode was writable only by the Tab5's own touchscreen, so the dashboard's AI
-    TRACKING button could start the tracker process but never grant it the head — pressing it
-    did nothing visible. This is the missing half.
-
-    A request, not a seizure: the head still reports tracking=0 whenever the RC or the on-screen
-    d-pad actually owns the head, so this cannot take it from someone holding a stick.
-    """
-    global _tab5_sock
-    import socket, struct
-    addr = _neck.resolve()
-    if addr is None:
-        return False
-    # can_frame_udp is {uint32 can_id; uint8 can_dlc; uint8 data[8]}, packed little-endian.
-    frame = struct.pack("<IB8s", 0x108, 1, bytes([1 if ai else 0]))
-    try:
-        if _tab5_sock is None:
-            _tab5_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        _tab5_sock.sendto(frame, (addr, _TAB5_UDP_PORT))
-        return True
-    except Exception:
-        return False
-
-
-def _tab5_udp(line: str, peer=None) -> None:
-    """Best-effort line to the head over UDP — the face unless told otherwise. Silent on failure:
+def _tab5_udp(line: str) -> None:
+    """Best-effort line to the head's FACE over UDP. Silent on failure:
     the face is an indicator, not a control path, and a missing head must not disturb the
     dashboard."""
     global _tab5_sock
     import socket
-    addr = (peer or _face).resolve()
+    addr = _face.resolve()
     if addr is None:
         return
     try:
@@ -274,80 +240,23 @@ def _push_tab5(rs: str) -> None:
         _tab5_write(f"STATE {ent[0]}")
 
 
-def _tab5_listen() -> None:
-    """Receive the Tab5's lift REQUESTS and turn them into MAST CMD on the StamPLC.
-
-    The head's up/down buttons are hold-to-move and it republishes its request every 50 ms,
-    which is exactly the heartbeat `MAST CMD` wants: let go of the button, or lose the head,
-    and the lift stops within 250 ms. Everything still goes through ScissorRelayMast, so the
-    pinch guard applies to the touchscreen the same as to the stick.
-
-    This lives in the dashboard because the dashboard is what actually runs on every robot
-    and already owns the StamPLC link. The ROS bridge can do the same job, but it is
-    optional, and the head's buttons should not depend on ROS being up.
-    """
-    import socket
-    import struct
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Deliberately NOT SO_REUSEPORT: if something else grabs this port we want a loud
-    # failure, not datagrams silently load-balanced away from us.
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sock.bind(("", _TAB5_RX_PORT))
-    except OSError as e:
-        import sys
-        sys.stderr.write(f"TAB5: cannot bind UDP {_TAB5_RX_PORT}: {e}\n")
-        return
-    sock.settimeout(1.0)
-    last = None
-    while True:
-        try:
-            data, addr = sock.recvfrom(64)
-            if len(data) < 13:
-                continue
-            # The face is here, right now: its lift buttons send from it. (With the Tab5 the neck is
-            # the same peer. A separate neck is found by name until it reports outward, plan 2.1.)
-            _face.learned = (addr[0], time.monotonic())
-            can_id, dlc, payload = struct.unpack("<IB8s", data[:13])
-            if can_id != _CAN_ID_LIFT_CMD or dlc < 1:
-                continue
-            v = {1: 1.0, 2: -1.0}.get(payload[0], 0.0)
-            # While a button is held, re-send every frame: this IS the heartbeat. An idle head
-            # says STOP 20 times a second, though, and forwarding all of that made it a second,
-            # permanent Z-axis commander: the StamPLC keeps only the latest MAST CMD, so any
-            # other sender (the dashboard's own buttons, a script) saw its UP interleaved with
-            # the head's STOPs and the relays pulsed on every flip. So a STOP is forwarded once,
-            # on release; after that, silence, and the firmware's 250 ms expiry keeps it stopped.
-            import stamplc
-            if v != 0.0 or last != 0.0:
-                stamplc.reader.send(f"MAST CMD {v:.2f}")
-            if v != last:
-                import sys
-                sys.stderr.write(f"TAB5: lift request {v:+.0f}\n")
-                last = v
-        except socket.timeout:
-            continue
-        except Exception:
-            time.sleep(0.2)
-
-
 def _introduce_peers() -> None:
-    """Tell each device where the other one is, once each.
+    """Tell the StamPLC where the head's NECK is (`TAB5IP`, the StamPLC's own word for "where RC
+    pan/tilt goes"; kept as is so the firmware needs no change).
 
-    The head takes pan/tilt commands straight from the StamPLC — direct, so it keeps
-    answering the sticks even if this dashboard stops — but only from an address the Thor
-    has vouched for. The Thor is the one machine that can see both, so it does the
-    introduction; after that the data path does not involve it at all.
+    The StamPLC sends the RC stick's pan/tilt rate (0x107) straight to the neck — direct, so it
+    keeps answering the sticks even if this dashboard stops. The Thor is the one machine that
+    can find both, so it does the introduction; after that the data path does not involve it.
 
-    RE-ASSERTED PERIODICALLY, not once. Both devices hold the pairing in RAM, so either
-    one rebooting forgets it — and a firmware flash reboots the StamPLC every time. A
-    one-shot handshake left it with nowhere to send and no way to say so: the sticks simply
-    did nothing, with every other indicator healthy. Cheap to repeat, and it means the
-    pairing heals itself instead of needing someone to remember.
+    One way only. The head finds the StamPLC by name itself (`opendubs-stamplc.local`) and
+    takes 0x107 from any sender, so the old `PLCIP` line back to it vouched for nothing and is
+    retired (head-protocol.md §8).
 
-    The pairing is between the StamPLC and the NECK, the half that moves. With the Tab5 fitted
-    that is the Tab5 itself, as before. (`TAB5IP` is the StamPLC's own word for "where RC
-    pan/tilt goes"; it is kept as is so the firmware needs no change.)
+    RE-ASSERTED PERIODICALLY, not once. The StamPLC holds the address in RAM, so it forgets it
+    on every reboot — and a firmware flash reboots it every time. A one-shot handshake left it
+    with nowhere to send and no way to say so: the sticks simply did nothing, with every other
+    indicator healthy. Cheap to repeat, and it heals itself instead of needing someone to
+    remember.
     """
     global _peers_last_intro
     now = time.monotonic()
@@ -361,38 +270,9 @@ def _introduce_peers() -> None:
         return
     try:
         import stamplc
-        plc = os.environ.get("OPENDUBS_STAMPLC_IP", "10.42.2.20")
-        if _neck is _face:
-            _tab5_write(f"PLCIP {plc}")        # head <- "the StamPLC may command you"
-        else:
-            _tab5_udp(f"PLCIP {plc}", _neck)   # already on the head's own thread
-        stamplc.reader.send(f"TAB5IP {neck}")  # PLC  <- "the neck lives here"
+        stamplc.reader.send(f"TAB5IP {neck}")  # PLC <- "the neck lives here"
     except Exception:
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
-
-
-def _push_lift() -> None:
-    """Send the StamPLC's measured Z-axis state to the Tab5, so the head's height readout is
-    the SAME number the pinch guard acts on rather than a second opinion from its own sensor.
-
-    Sent from here rather than from the ROS bridge because this thread actually runs on every
-    robot; the bridge is optional."""
-    try:
-        import stamplc
-        d = (stamplc.reader.snapshot().get("drive") or {})
-    except Exception:
-        return
-    h = d.get("mast_h_mm")
-    height = -1 if (h is None or h < 0) else int(h)
-    motion = 0
-    mast = d.get("mast") or ""          # e.g. "scissor:2"
-    if ":" in mast:
-        try:
-            motion = int(mast.split(":")[1])
-        except ValueError:
-            motion = 0
-    flags = 0x04 if d.get("pinch") == "HOLD" else 0
-    _tab5_write(f"LIFT {height} {motion} {flags}")
 
 
 def _loop() -> None:
@@ -401,14 +281,12 @@ def _loop() -> None:
 
     prev = None
     last = 0.0
-    prev_turn = None
-    prev_pmode = None
     prev_conn = False
     while True:
         try:
             # StamPLC (re)connect edge — e.g. after a firmware flash or replug the MCU reboots
-            # with a blank PRISM. Force a base-color re-push so the strip isn't dark (and so the
-            # turn-signal overlay has a real color to reveal when it clears) until the next state flip.
+            # with a blank PRISM. Force a base-color re-push so the strip isn't dark until the
+            # next state flip.
             conn = bool(stamplc.reader.snapshot().get("connected"))
             if conn and not prev_conn:
                 prev = None
@@ -424,19 +302,9 @@ def _loop() -> None:
                 elif (now - last) >= _REFRESH_S:
                     _push_tab5(rs)           # refresh keeps the Tab5 link-alive; held port → no reboot
                     last = now
-            # turn-signal (movement intent) → Tab5 chevrons, on change
-            turn = (stamplc.reader.snapshot().get("drive") or {}).get("turn")
-            if turn != prev_turn:
-                _tab5_write(f"TURN {turn or '0'}")
-                prev_turn = turn
-            _push_lift()          # every pass — the head's height should not go stale
-            # CH7 payload mode. The head shows it because the OPERATOR needs to know whether
-            # the right stick is aiming them or strafing the robot, and their eyes are on the
-            # machine rather than on the transmitter.
-            pmode = (stamplc.reader.snapshot().get("rc") or {}).get("pmode")
-            if pmode and pmode != prev_pmode:
-                _tab5_write(f"PMODE {pmode}")
-                prev_pmode = pmode
+            # TURN, LIFT and PMODE (turn chevrons, lift height, CH7 mode) went to the Arduino face
+            # from here. The ESP-IDF head answers them ERR unknown, so they are retired
+            # (head-protocol.md §8); a face message is specified there first if wanted again.
         except Exception:
             pass
         time.sleep(0.3)
@@ -453,5 +321,5 @@ def start() -> None:
     threading.Thread(target=_loop, name="state_out", daemon=True).start()
     # All Tab5 I/O — separate so an absent or slow head can never delay the PRISM.
     threading.Thread(target=_tab5_sender, name="tab5_tx", daemon=True).start()
-    # Receive side: the head's lift buttons. Separate thread because it blocks on recv.
-    threading.Thread(target=_tab5_listen, name="tab5_rx", daemon=True).start()
+    # No receive side. The Arduino head sent its lift buttons here on UDP 5006; the ESP-IDF head
+    # sends `MAST CMD` straight to the StamPLC (head-protocol.md §7), so nothing listens on 5006.

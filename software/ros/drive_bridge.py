@@ -54,9 +54,12 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from tf2_ros import TransformBroadcaster
 
+from plc_peer import MOVED, ADOPTED, REFUSED_OWN, REFUSED_PIN, PeerGuard
+
 PLC_PORT = int(os.environ.get("OPENDUBS_STAMPLC_UDP_PORT", "5005"))
-# Where to send commands. Learned from received telemetry, so a DHCP change does not need a
-# config edit — the same approach the dashboard and the OTA script use.
+# Where to send commands: OPENDUBS_STAMP_IP if this robot pins it (a systemd drop-in), otherwise
+# learned from telemetry that passes plc_peer's checks, so a DHCP change needs no config edit.
+STAMP_IP = os.environ.get("OPENDUBS_STAMP_IP", "").strip() or None
 _KV = re.compile(r"([a-z_]+)=(-?[0-9.]+)")
 
 
@@ -84,7 +87,9 @@ class DriveBridge(Node):
             f"max_angular_rps={self.max_ang} — THESE ARE UNMEASURED DEFAULTS; "
             "measure the robot's actual top speed and set them (punch list C2)")
 
-        self._peer: tuple[str, int] | None = None
+        self._guard = PeerGuard(STAMP_IP)
+        self._peer: tuple[str, int] | None = (STAMP_IP, PLC_PORT) if STAMP_IP else None
+        self._warned: set[str] = set()
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -108,7 +113,9 @@ class DriveBridge(Node):
         self.create_timer(0.05, self._send_cmd)  # 20 Hz
 
         threading.Thread(target=self._rx_loop, name="plc-rx", daemon=True).start()
-        self.get_logger().info(f"listening for [ODO] on UDP {PLC_PORT}; DRIVE goes to the sender")
+        self.get_logger().info(
+            f"listening for [ODO] on UDP {PLC_PORT}; DRIVE goes to "
+            + (f"the pinned StamPLC {STAMP_IP}" if STAMP_IP else "the StamPLC learned from telemetry"))
 
     # ---- /cmd_vel → DRIVE ------------------------------------------------------------------
     def _on_cmd(self, msg: Twist) -> None:
@@ -145,6 +152,20 @@ class DriveBridge(Node):
                 data, addr = self._sock.recvfrom(4096)
             except OSError:
                 continue
+            verdict = self._guard.offer(data, addr[0])
+            if not PeerGuard.usable(verdict):
+                # Report each kind of refusal once per address, not per packet.
+                key = f"{verdict}:{addr[0]}"
+                if verdict in (REFUSED_OWN, REFUSED_PIN) and key not in self._warned:
+                    self._warned.add(key)
+                    self.get_logger().warn(
+                        f"ignoring UDP {PLC_PORT} traffic from {addr[0]}: "
+                        + ("one of this host's own addresses" if verdict == REFUSED_OWN
+                           else f"not the pinned StamPLC {STAMP_IP}"))
+                continue
+            if verdict in (ADOPTED, MOVED):
+                (self.get_logger().info if verdict == ADOPTED else self.get_logger().warn)(
+                    f"StamPLC peer {'is' if verdict == ADOPTED else 'MOVED to'} {addr[0]}")
             self._peer = (addr[0], PLC_PORT)
             for line in data.decode("utf-8", "replace").splitlines():
                 if line.startswith("[ODO] "):

@@ -23,14 +23,15 @@ entries:
 
   - code: CONTACTOR_OPEN
     title: The drive contactor is open
-    symptom: [head-dark, wont-drive, lift-wont-move]
-    rank: 5
+    symptom: [head-dark, wont-drive, lift-wont-move, arms-wont-activate]
+    rank: 4
     kind: warning
     seen_on: [dashboard, head, lights]
     means: >
       The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no
-      wheel, lift or other drive-bus load can move. That includes the head, which is powered
-      from the drive bus and turns off. The computer, the controller and the router stay on —
+      wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered
+      from the drive bus and turns off, and the arms, which can leave their CAN links needing a
+      restart once power is back. The computer, the controller and the router stay on —
       they run from the logic bus, which the contactor does not switch.
     do:
       - >

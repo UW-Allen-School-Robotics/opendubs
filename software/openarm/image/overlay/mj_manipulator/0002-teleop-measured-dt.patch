@@ -1,0 +1,116 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    TeleopConfig.use_measured_dt: clamp each tick's step by the real elapsed time (capped by
+         max_measured_dt) instead of a fixed twist_dt, so a loop that runs slower than its target
+         rate does not silently command less than the configured speed. The teleop bridge relies on
+         it (its overrun warning says speed "is compensated via use_measured_dt").
+Source:  found UNCOMMITTED on opendubs2 (src/mj_manipulator/teleop.py, over 0858fef9912f), captured
+         from the 2026-10-09 backup. Who wrote it is not recorded.
+Author:  unrecorded -- an uncommitted edit on the robot. MIT, as the upstream repository.
+Status:  carried so the image runs what the robot runs. A generic improvement: a candidate for the
+         same upstream PR as 0001.
+Check:   as 0001.
+
+diff --git a/src/mj_manipulator/teleop.py b/src/mj_manipulator/teleop.py
+--- a/src/mj_manipulator/teleop.py
++++ b/src/mj_manipulator/teleop.py
+@@ -88,6 +88,27 @@
+     """Timestep for twist integration. If None (default), uses
+     ctx.control_dt from the execution context. Only set explicitly
+     for testing."""
++
++    use_measured_dt: bool = False
++    """If True, use actual wall-clock time since the previous step() call
++    (clamped to max_measured_dt) instead of the fixed twist_dt when
++    computing the per-tick velocity clamp in _check_and_commit/_step_twist.
++
++    twist_dt assumes step() is called at a fixed rate (ctx.control_dt).
++    If the control loop can't sustain that rate (e.g. IK/collision/ROS
++    overhead on a slower CPU), every clamp still limits each step to
++    velocity * twist_dt, but ticks arrive slower than assumed -- so
++    commanded speed silently drops below the configured limit. Measuring
++    real elapsed time fixes that, at the cost of admitting a bigger
++    single-tick step after a stall (still bounded by max_measured_dt).
++    Default False -- preserves existing behavior for callers relying on
++    the fixed-dt assumption."""
++
++    max_measured_dt: float = 0.05
++    """Ceiling on the measured dt used when use_measured_dt is True.
++    Bounds how large a single commanded step can be after a stall (GC
++    pause, ROS hiccup, dropped frame) so a long gap between ticks can't
++    translate into an oversized, potentially unsafe jump."""
+ 
+     idle_timeout: float = 0.5
+     """Seconds without input before transitioning to IDLE."""
+@@ -160,6 +181,12 @@
+         if self._config.twist_dt is None:
+             self._config.twist_dt = getattr(context, "control_dt", 0.008)
+ 
++        # dt actually used by _check_and_commit/_step_twist this tick --
++        # resolved fresh at the top of every step() call. See
++        # TeleopConfig.use_measured_dt.
++        self._current_dt = self._config.twist_dt
++        self._last_step_time: float | None = None
++
+         self._state = TeleopState.IDLE
+         self._active = False
+ 
+@@ -245,6 +272,8 @@
+         if not self._active:
+             self._state = TeleopState.IDLE
+             return self._state
++
++        self._current_dt = self._resolve_dt()
+ 
+         # Read latest input (keep it for next step — gizmo only fires on drag)
+         with self._lock:
+@@ -295,6 +324,23 @@
+ 
+         return self._state
+ 
++    def _resolve_dt(self) -> float:
++        """Timestep to use for this tick's velocity clamp.
++
++        Fixed (twist_dt) by default. When use_measured_dt is set, uses
++        actual wall-clock time since the previous step() call instead,
++        clamped to max_measured_dt -- see TeleopConfig.use_measured_dt.
++        """
++        if not self._config.use_measured_dt:
++            return self._config.twist_dt
++
++        now = time.monotonic()
++        last = self._last_step_time
++        self._last_step_time = now
++        if last is None:
++            return self._config.twist_dt
++        return min(max(now - last, 1e-6), self._config.max_measured_dt)
++
+     # -- Lifecycle ------------------------------------------------------------
+ 
+     def activate(self) -> np.ndarray:
+@@ -304,6 +350,7 @@
+             Current EE pose (4x4) for initializing the gizmo position.
+         """
+         self._active = True
++        self._last_step_time = None
+         self._state = TeleopState.IDLE
+         with self._lock:
+             self._target_pose = None
+@@ -446,7 +493,7 @@
+         # teleop/servo achieve the commanded Cartesian speed.
+         q_base = q_ref if q_ref is not None else self._arm.get_joint_positions()
+         delta = q_target - q_base
+-        dt = self._config.twist_dt
++        dt = self._current_dt
+         limits = getattr(self._arm.config, "kinematic_limits", None)
+         if limits is not None:
+             max_step = limits.velocity * dt  # per-joint, rad/tick
+@@ -726,7 +773,7 @@
+         from mj_manipulator.cartesian import step_twist
+ 
+         ctrl = self._get_cart_ctrl()
+-        dt = self._config.twist_dt
++        dt = self._current_dt
+ 
+         # Seed internal reference if needed (same as CartesianController.step)
+         if ctrl._q_ref is None:

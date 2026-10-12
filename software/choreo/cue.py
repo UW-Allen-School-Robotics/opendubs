@@ -56,11 +56,12 @@ FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
-SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE")
-# DRIVE is deliberately absent. The base does not move until odometry can say where it is:
-# opendubs2 currently reports y_mm as NaN with a climbing failure count, so "keep X and Y clear"
-# would be advice the robot itself cannot honour. Adding the slot is not the hard part; earning
-# it is. (A bounded open-loop alternative is written up, not built: choreo-format-v1.md 12.)
+SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE")
+# DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
+# the twin drives the base, but the runner refuses any show that uses it on the robot, because the
+# robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
+# "drive 1 m forward" is a claim open-loop wheels cannot keep. Earning it on the robot is still
+# odometry's job (choreo-format-v1.md 12).
 
 ARM_SLOTS = ("ARM_L", "ARM_R")
 
@@ -71,7 +72,7 @@ CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
 CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
 REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
-MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE")
+MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
 TAB5_SLOTS = ("HEAD", "FACE")          # the pan/tilt head and the face are driven by the Tab5
 
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
@@ -101,10 +102,41 @@ FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
 BASE_M_PER_S_FULL = 0.70
 BASE_RAD_PER_S_FULL = 1.40
 AUTO_MAX_UNIT = 0.35
+DRIVE_V_MAX = AUTO_MAX_UNIT * BASE_M_PER_S_FULL                  # m/s, PLACEHOLDER-based
+DRIVE_W_MAX_DEG = math.degrees(AUTO_MAX_UNIT * BASE_RAD_PER_S_FULL)  # deg/s, PLACEHOLDER-based
 # APPROXIMATE: the chassis box's half-diagonal (description/opendubs/dimensions.yaml: x -32..612 mm,
 # y +-324.5 mm -> 0.457 m). The arms are NOT counted. The floor radius is clear space around the
 # robot, so a move needs footprint + how far it strays.
 ROBOT_FOOTPRINT_RADIUS_M = 0.46
+
+
+# ---- DRIVE: a relative move of the base, TWIN-ONLY (see SLOTS) --------------------------------
+# A cue moves the base by forward_m / left_m and turns it by turn_deg, over secs, in the robot's
+# own frame as it is at the cue — no velocities, no room coordinates. Its speed is bounded by the
+# same autonomy ceiling DANCE uses, at the same PLACEHOLDER base speeds: a move that would need more
+# is refused with the time it needs.
+DRIVE_SECS = (0.5, 10.0)
+
+
+def drive_path(cues: list, step_s: float = 0.05):
+    """[(t from the first cue's start, x, y, yaw rad)] of the base under DRIVE cues given as
+    [(start_t, cue)], in the show's starting frame. Each move: constant body velocity and turn rate
+    over its secs, in the frame it started in turning with it."""
+    x = y = yaw = 0.0
+    pts = [(0.0, 0.0, 0.0, 0.0)]
+    for start, c in sorted(cues, key=lambda sc: sc[0]):
+        secs = float(c.get("secs", 1.0))
+        fwd, left = float(c.get("forward_m", 0) or 0) / secs, float(c.get("left_m", 0) or 0) / secs
+        w = math.radians(float(c.get("turn_deg", 0) or 0)) / secs
+        n = max(1, int(secs / step_s))
+        dt = secs / n
+        for k in range(n):
+            mid = yaw + w * dt / 2
+            x += (fwd * math.cos(mid) - left * math.sin(mid)) * dt
+            y += (fwd * math.sin(mid) + left * math.cos(mid)) * dt
+            yaw += w * dt
+            pts.append((start + (k + 1) * dt, x, y, yaw))
+    return pts
 
 
 def dance_net(move: str) -> tuple:
@@ -205,7 +237,7 @@ FACE_THEMES = ("plain", "none", "halloween")
 # skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
 # answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
 # reserved robot state (DEGRADED, E_STOP) always shows `default`.
-CODE_SKINS = ("default", "ring")
+CODE_SKINS = ("default", "ring", "fireworks")
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it
 # (firmware/rc_serial_probe/src/main.cpp). The firmware CLAMPS; the validator REJECTS, so an
@@ -249,7 +281,9 @@ REPEAT_MAX = 64
 TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
-    "ARM_L": {"joints", "pose"}, "ARM_R": {"joints", "pose"},
+    # reach / point_at: an IK target (ik.py); solved / solved_for: the joint angles compiled for it
+    "ARM_L": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
+    "ARM_R": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
@@ -258,6 +292,7 @@ SLOT_KEYS = {
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
+    "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
 }
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
@@ -266,7 +301,13 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "themes", "palette"}
+            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance"}
+# Timeline notes (composer plan #5): requests to whoever edits the show next — often an agent —
+# anchored to a time range and optionally to slots. NON-EXECUTABLE: the runner never reads them, the
+# validator checks only their shape (as warnings: a typo in a note never stops a show), and they
+# reach the export only when the composer asks for them (export(with_notes=True)).
+NOTE_KEYS = {"id", "at", "to", "slots", "text", "status", "reply", "by"}
+NOTE_STATUS = ("open", "done", "declined")
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 # A marker that reads as wiring has put per-unit hardware into a committed show (workplan 5.6).
@@ -275,6 +316,8 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 # What a show may use that NOTHING ON THE ROBOT EXECUTES YET. Valid is not executable; these are
 # reported as notices on every validation so nobody mistakes the one for the other.
 NOT_EXECUTABLE = {
+    "DRIVE": "DRIVE runs only in the twin until odometry is trusted — the runner REFUSES this show on "
+             "the robot (format 12); the distances shown use placeholder base speeds",
     "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
              "6.6): open loop, and the distances shown use placeholder base speeds",
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
@@ -284,6 +327,63 @@ NOT_EXECUTABLE = {
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
 }
+
+
+# ---- the self-collision sweep's stamp (sweep.py) — the robot gate ------------------------------
+# A show that moves an arm must carry `clearance:` from sweep.py: the closest any part of the robot
+# came to any other along the whole show, on the path the robot plays, for the show's motion AS IT
+# IS NOW (the motion hash). Required wherever a show meets the robot (require_sweep — the runner,
+# the composer, `cue.py validate`); at least SWEEP_MIN_MM or the show is refused.
+SWEEP_MIN_MM = 30.0
+SWEEP_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
+
+
+def motion_hash(events: list) -> str:
+    """A hash of everything that MOVES in an analysis — what the sweep checked. A face, a light or a
+    sound does not change it; any arm, gripper, head, lift or base change does."""
+    keep = []
+    for e in events:
+        if e.get("slot") not in SWEEP_SLOTS or e.get("bad"):
+            continue
+        keep.append([e["slot"], round(float(e.get("t", 0.0)), 4), round(float(e.get("start", e.get("t", 0.0))), 4),
+                     round(float(e.get("end", e.get("t", 0.0))), 4), _jsonable(e.get("pose")),
+                     {k: _jsonable(v) for k, v in (e.get("cue") or {}).items() if k not in ("solved_for",)}])
+    keep.sort(key=lambda r: (r[0], r[1], json.dumps(r[5], sort_keys=True, default=str)))
+    return hashlib.sha256(json.dumps(keep, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def slot_requirements(slot: str) -> dict:
+    """What `requires:` must say for a show that uses this slot — the same rules the validator
+    applies (_check_requires), so the composer can add them when it lists a part."""
+    out = {}
+    if slot in MOTION_SLOTS:
+        out["rc_authority"] = "AUTO"
+    if slot in ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R"):
+        out["arms"] = "active"
+    if slot in TAB5_SLOTS:
+        out["tab5"] = True
+    return out
+
+
+# An arm target's optional `elbow:` (pose_ref.py copies arm SHAPE, not just the hand): a secondary
+# goal the solver meets as closely as the hand allows. Further off than this is a warning.
+ELBOW_WARN_M = 0.05
+
+
+def ik_target_key(c: dict):
+    """`reach:head_screen` / `point_at:[0.5, -0.2, 1.1]` (+ `elbow:[...]`) — the target an arm cue
+    names, as `solved_for` records it (ik.py); None for a cue with no target."""
+    def form(mode, v):
+        if isinstance(v, (list, tuple)):
+            try:
+                return f"{mode}:[" + ", ".join(f"{float(x):g}" for x in v) + "]"
+            except (TypeError, ValueError):
+                return f"{mode}:{v!r}"
+        return f"{mode}:{v}"
+    for mode in ("reach", "point_at"):
+        if mode in c:
+            return form(mode, c[mode]) + ("+" + form("elbow", c["elbow"]) if "elbow" in c else "")
+    return None
 
 
 def _num(x) -> bool:
@@ -335,13 +435,13 @@ class Show:
         if m is None:
             return None
         if not isinstance(m, dict):
-            P(Problem("music: must be a mapping (file, bpm, offset_s, beats_per_bar)"))
+            P(Problem("music: must be a mapping (song or file, bpm, offset_s, beats_per_bar)"))
             return None
-        out = {"file": m.get("file"), "bpm": m.get("bpm"), "offset_s": m.get("offset_s", 0.0),
-               "beats_per_bar": m.get("beats_per_bar", 4)}
+        out = {"file": m.get("file"), "song": m.get("song"), "bpm": m.get("bpm"),
+               "offset_s": m.get("offset_s", 0.0), "beats_per_bar": m.get("beats_per_bar", 4)}
         for k in m:
             if k not in out and k != "output":
-                P(Problem(f"music: unknown key {k!r} (known: file, bpm, offset_s, beats_per_bar, output)"))
+                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output)"))
         written = m.get("output", DEFAULT_AUDIO_OUTPUT)
         if written not in AUDIO_OUTPUTS:
             P(Problem(f"music: output {written!r} is not one of {', '.join(AUDIO_OUTPUTS)}"))
@@ -370,6 +470,14 @@ class Show:
             ok = False
         if out["file"] is not None and not isinstance(out["file"], str):
             P(Problem("music: file must be a path relative to the show"))
+            ok = False
+        # `song:` names a song in the show library (plan 4.6); `file:` is a file next to the show and
+        # stays valid. One or the other: two would leave it unclear which plays.
+        if out["song"] is not None and (not isinstance(out["song"], str) or not out["song"]):
+            P(Problem("music: song must be a library song's id"))
+            ok = False
+        if out["song"] is not None and out["file"] is not None:
+            P(Problem("music: give a song (from the library) or a file, not both"))
             ok = False
         if not ok:
             return None
@@ -605,6 +713,8 @@ class Show:
         notices: list[str] = []
         P = problems.append
         self._unchecked_skins, self._skin_assets, self._lib = set(), {}, False
+        self._unchecked_song = None
+        self._grip_effort = False
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:
@@ -652,6 +762,16 @@ class Show:
                     notices.append(f"authored face theme(s) {', '.join(authored)}: install them on the "
                                    "head (CFG) before the show, or THEME answers 'unknown theme' and the "
                                    "face keeps the theme it has")
+        if music and music.get("song"):
+            idx = self._library()
+            if idx is None:
+                self._unchecked_song = music["song"]      # no library here: a notice, not a problem
+            else:
+                e = idx.get(music["song"])
+                if e is None or e.get("kind") != "song":
+                    P(Problem(f"music: song {music['song']!r} is not a song in the library at {library.root()}"))
+                else:
+                    self._skin_assets[music["song"]] = e.get("sha256")
         if music and music.get("file") and self.path and os.path.isfile(self.path):
             audio = os.path.join(os.path.dirname(os.path.abspath(self.path)), music["file"])
             if not os.path.isfile(audio):
@@ -679,6 +799,7 @@ class Show:
             else:
                 floor_r = float(r)
         dance_total = 0.0
+        drive_cues = []
         # where the head is and where it is going, as the firmware would slew it from centre
         head_pos = {"pan": 90.0, "tilt": 90.0}
         head_tgt = dict(head_pos)
@@ -778,6 +899,12 @@ class Show:
                             f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor "
                             f"radius {floor_r:g} m (placeholder speeds, arms not counted — an estimate)",
                             *ref))
+            elif slot == "DRIVE":
+                msgs = self._check_drive(where, c)
+                if not msgs:
+                    intrinsic = float(c["secs"])
+                    dance_total += intrinsic
+                    drive_cues.append((t, c))
             elif slot == "FACE":
                 msgs = self._check_face(where, c)
             else:
@@ -788,12 +915,19 @@ class Show:
             e["start"], e["end"] = t, t + max(intrinsic, hold)
             owner_until[slot] = e["end"]
 
-        if "DANCE" in used and floor_r is None and dance_doc is None:
-            P(Problem("the show dances but declares no floor space — add dance: { floor_radius_m: "
+        if ("DANCE" in used or "DRIVE" in used) and floor_r is None and dance_doc is None:
+            P(Problem("the show moves the base but declares no floor space — add dance: { floor_radius_m: "
                       "<metres> }; the runner asks a human to confirm it before the base moves"))
         if dance_total > DANCE_TOTAL_MAX_S + 1e-9:
-            P(Problem(f"the show dances for {dance_total:.1f}s in total, over the "
+            P(Problem(f"the show moves the base for {dance_total:.1f}s in total (DANCE and DRIVE), over the "
                       f"{DANCE_TOTAL_MAX_S:g}s cap on open-loop base motion"))
+        if drive_cues and floor_r is not None:
+            far = max(math.hypot(px, py) for _, px, py, _ in drive_path(drive_cues))
+            if far + ROBOT_FOOTPRINT_RADIUS_M > floor_r:
+                warnings.append(Problem(
+                    f"the DRIVE cues take the base ~{far:.2f} m from where the show starts; with its own "
+                    f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor radius "
+                    f"{floor_r:g} m (placeholder speeds, open loop — an estimate)"))
         for msg in self._check_requires(used):
             P(Problem(msg))
         for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
@@ -802,12 +936,97 @@ class Show:
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
                       + " — the runner's preflight is built from the declaration"))
+        if self._grip_effort:
+            notices.append("gripper `effort` has no physical effect on this robot: its grippers take a "
+                           "position only, and how hard they squeeze is set by the calibrated closed "
+                           "position (Arms lane, 2026-10-10)")
+        if self._unchecked_song:
+            notices.append(f"no show library at {library.root()}: song {self._unchecked_song!r} is unchecked "
+                           "here — the Thor checks it against its library before every run")
         if self._unchecked_skins:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
+        if getattr(self, "require_sweep", False) and used & {"ARM_L", "ARM_R"}:
+            for msg, fatal in self._check_sweep(events):
+                # "warn" (the composer while editing): a missing or stale stamp is a warning — saving
+                # sweeps it — but a measured collision is a problem everywhere
+                if fatal or self.require_sweep != "warn":
+                    P(Problem(msg))
+                else:
+                    warnings.append(Problem(msg + " (the composer sweeps it when you save)"))
+        tnotes = self._timeline_notes(music, warnings.append)
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
-                "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets)}
+                "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets),
+                "timeline_notes": tnotes}
+
+    def _check_sweep(self, events) -> list:
+        st = self.doc.get("clearance")
+        how = "save it in the composer, or run `python3 sweep.py stamp <show>` (needs MuJoCo)"
+        """[(sentence, fatal)]: fatal is a MEASURED collision; the others say the stamp is missing or stale."""
+        if not isinstance(st, dict) or not st.get("checked_for"):
+            return [(f"this show moves the arms but has not been swept for collisions — {how}", False)]
+        if str(st["checked_for"]).split("@")[0] != motion_hash(events):
+            return [(f"the show's motion changed since it was swept for collisions — sweep it again: {how}", False)]
+        mm = st.get("min_mm")
+        if not _num(mm):
+            return [(f"clearance: min_mm must be a number — sweep it again: {how}", False)]
+        if float(mm) < SWEEP_MIN_MM:
+            return [(f"the robot comes within {float(mm):.0f} mm of itself at {st.get('at_s')} s "
+                     f"({st.get('between', 'two parts')}) — at least {SWEEP_MIN_MM:g} mm is required; change the "
+                     "motion there", True)]
+        return []
+
+    def _timeline_notes(self, music, W) -> list:
+        """The show's timeline notes, each resolved to seconds, or [] — their shape checked, as
+        warnings. `at`/`to`: a string is "bar.beat" (like a cue's bar:), a number is seconds."""
+        raw = self.doc.get("timeline_notes")
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            W(Problem("timeline_notes: must be a list of notes"))
+            return []
+        out, seen = [], set()
+        for i, n in enumerate(raw):
+            where = f"timeline note {i + 1}"
+            if not isinstance(n, dict):
+                W(Problem(f"{where}: must be a mapping {{id, at, text, status, ...}}"))
+                continue
+            bad = sorted(set(map(str, n)) - NOTE_KEYS)
+            if bad:
+                W(Problem(f"{where}: unknown key(s) {', '.join(bad)} (known: {', '.join(sorted(NOTE_KEYS))})"))
+            nid = n.get("id")
+            if not isinstance(nid, str) or not nid or nid in seen:
+                W(Problem(f"{where}: needs a unique id"))
+            seen.add(nid)
+            if not isinstance(n.get("text"), str) or not n["text"].strip():
+                W(Problem(f"{where} ({nid}): has no text"))
+            status = n.get("status", "open")
+            if status not in NOTE_STATUS:
+                W(Problem(f"{where} ({nid}): status {status!r} is not one of {', '.join(NOTE_STATUS)}"))
+            slots = n.get("slots") or []
+            if not isinstance(slots, list) or any(x not in SLOTS for x in slots):
+                W(Problem(f"{where} ({nid}): slots must be a list of {', '.join(SLOTS)}"))
+                slots = [x for x in slots if x in SLOTS] if isinstance(slots, list) else []
+
+            def when(v, what):
+                if v is None:
+                    return None
+                form = {"t": v} if _num(v) else {"bar": v}
+                t, _ = self._time(form, music, False, f"{where} ({nid}) {what}", W, ())
+                return t
+            t0 = when(n.get("at"), "at")
+            if n.get("at") is None:
+                W(Problem(f"{where} ({nid}): needs at (a bar \"9.1\" or seconds)"))
+            t1 = when(n.get("to"), "to")
+            if t0 is not None and t1 is not None and t1 < t0:
+                W(Problem(f"{where} ({nid}): to is before at"))
+                t1 = None
+            out.append({"index": i, "id": nid, "at": n.get("at"), "to": n.get("to"), "t0": t0,
+                        "t1": t1 if t1 is not None else t0, "slots": slots, "text": n.get("text", ""),
+                        "status": status if status in NOTE_STATUS else "open", "reply": n.get("reply"),
+                        "by": n.get("by")})
+        return out
 
     def _library(self):
         """The show library's index on this machine (library.py), read once per analysis."""
@@ -896,6 +1115,27 @@ class Show:
         m = -1 if side == "left" else 1
         joints = c.get("joints")
         at_rest = False
+        key = ik_target_key(c)
+        if "elbow" in c and not ("reach" in c or "point_at" in c):
+            return [f"{where}: {slot} elbow: goes with a reach: or point_at: target"]
+        if key or "solved" in c:
+            # An IK target (ik.py): its angles are compiled at authoring time and checked here like
+            # any others, so the robot plays exactly what the twin previewed.
+            kinds = [k for k in ("reach", "point_at", "joints", "pose") if k in c]
+            if len(kinds) != 1 or not key:
+                return [f"{where}: {slot} needs exactly one of joints, pose, reach or point_at "
+                        f"(has {', '.join(kinds) or 'none'})"]
+            if not isinstance(c.get("solved"), dict):
+                return [f"{where}: {slot} {key} is not compiled — run `python3 ik.py compile <show>` "
+                        "(the composer does it on save); a target inside a clip cannot be compiled yet"]
+            if str(c.get("solved_for", "")).split("@")[0] != key:
+                return [f"{where}: {slot} {key} was edited after its angles were solved (they are for "
+                        f"{str(c.get('solved_for', '')).split('@')[0] or 'nothing'}) — compile again"]
+            joints = c["solved"]
+            off = c.get("elbow_off")
+            if "elbow" in c and _num(off) and off > ELBOW_WARN_M and warn is not None:
+                warn.append(f"{where}: {slot}'s elbow ends {off * 100:.0f} cm from its target — this arm "
+                            "cannot take that shape here (the hand is on its target)")
         if "pose" in c:
             if "joints" in c:
                 return [f"{where}: {slot} has both pose and joints — say one"]
@@ -989,6 +1229,8 @@ class Show:
         if frac is not None and not (_num(frac) and 0.0 <= float(frac) <= 1.0):
             p.append(f"{where}: {slot} open {frac!r} must be within 0..1 (0 closed, 1 open)")
         eff = c.get("effort")
+        if eff is not None:
+            self._grip_effort = True
         if eff is not None and not (_num(eff) and 0 < float(eff) <= GRIP_EFFORT_MAX):
             p.append(f"{where}: {slot} effort {eff} outside (0, {GRIP_EFFORT_MAX}]")
         return p
@@ -1162,6 +1404,28 @@ class Show:
                      "the Tab5 drives — add tab5: true")
         return p
 
+    def _check_drive(self, where, c):
+        p = []
+        vals = {}
+        for k in ("forward_m", "left_m", "turn_deg"):
+            v = c.get(k, 0)
+            if not _num(v):
+                p.append(f"{where}: drive {k} must be a number")
+            vals[k] = float(v) if _num(v) else 0.0
+        if not any(abs(v) > 1e-9 for v in vals.values()):
+            p.append(f"{where}: a drive needs forward_m, left_m or turn_deg — it moves nothing")
+        secs = c.get("secs")
+        if not (_num(secs) and DRIVE_SECS[0] <= float(secs) <= DRIVE_SECS[1]):
+            p.append(f"{where}: drive secs {secs!r} must be {DRIVE_SECS[0]:g}–{DRIVE_SECS[1]:g} "
+                     "(one move; a longer journey is several)")
+            return p
+        # the wheels share one command budget between moving and turning: the time each needs adds up
+        need = math.hypot(vals["forward_m"], vals["left_m"]) / DRIVE_V_MAX + abs(vals["turn_deg"]) / DRIVE_W_MAX_DEG
+        if need > float(secs) + 1e-9:
+            p.append(f"{where}: this drive needs at least {need:.1f}s at the base's autonomy ceiling "
+                     f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s — placeholder speeds), not {float(secs):g}s")
+        return p
+
     def _check_dance(self, where, c):
         move = c.get("move")
         if move not in DANCE_MOVES:
@@ -1241,12 +1505,14 @@ class Show:
         return p
 
     # ---- the resolved timeline --------------------------------------------------------------
-    def export(self, limits: dict, limits_path: str | None = None) -> dict:
+    def export(self, limits: dict, limits_path: str | None = None, with_notes: bool = False) -> dict:
         """The resolved timeline: what the show MEANS, with every inference made explicit.
         Schema in notes/design/choreo-format-v1.md 10. Deterministic for a given show+limits."""
         a = self.analyse(limits)
         declared = [s for s in SLOTS if s in a["declared"]] or [s for s in SLOTS if s in a["used"]]
-        tracks = {s: [] for s in declared}
+        # a track for every slot a cue USES too, declared or not: an undeclared cue is a problem, and
+        # it must be seen on its lane with that problem — never dropped from the timeline
+        tracks = {s: [] for s in SLOTS if s in declared or s in a["used"]}
         for e in a["events"]:
             if e.get("bad") or "start" not in e or e["slot"] not in tracks:
                 continue
@@ -1265,7 +1531,7 @@ class Show:
             evs.sort(key=lambda x: (x["start"], x["t"]))
         music = None
         if a["music"]:
-            music = {k: a["music"][k] for k in ("file", "bpm", "offset_s", "beats_per_bar")}
+            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar")}
             music["output"] = a["music"].get("output", DEFAULT_AUDIO_OUTPUT)
             music["beat_s"] = _r(a["music"]["beat_s"])
         ends = [e["end"] for e in a["events"] if "end" in e] + [m["t"] for m in a["markers"]]
@@ -1289,6 +1555,8 @@ class Show:
             # the content hash of every library asset the show was validated against (plan 4.6), so a
             # run can tell when one has changed since
             "assets": a.get("assets", {}),
+            # timeline notes only for the composer to draw — never in the runner's cue sheet
+            **({"timeline_notes": a.get("timeline_notes", [])} if with_notes else {}),
             "duration_s": _r(max(ends, default=0.0)),
             "markers": [{"t": _r(m["t"]), "name": m["name"], "src": m["src"]}
                         for m in a["markers"]],
@@ -1443,6 +1711,8 @@ def main():
     ap.add_argument("-o", "--out", help="export: write here instead of stdout")
     ap.add_argument("--allow-invalid", action="store_true",
                     help="export: write the timeline even if the show fails (valid: false)")
+    ap.add_argument("--no-sweep", action="store_true",
+                    help="do not require the self-collision stamp (sweep.py) the robot requires — desk work only")
     a = ap.parse_args()
 
     limits = load_limits(a.limits)
@@ -1456,7 +1726,9 @@ def main():
     if a.cmd == "export":
         if len(paths) != 1:
             sys.exit("export takes exactly one show")
-        tl = load_show(paths[0]).export(limits, a.limits)
+        show = load_show(paths[0])
+        show.require_sweep = not a.no_sweep
+        tl = show.export(limits, a.limits)
         if not tl["valid"] and not a.allow_invalid:
             for q in tl["problems"]:
                 print("FAIL:", q["msg"], file=sys.stderr)
@@ -1472,6 +1744,7 @@ def main():
     bad = 0
     for path in paths:
         show = load_show(path)
+        show.require_sweep = not a.no_sweep
         a_ = show.analyse(limits)
         problems = a_["problems"]
         dur = max((e.get("end", e["t"]) for e in a_["events"]), default=0.0)

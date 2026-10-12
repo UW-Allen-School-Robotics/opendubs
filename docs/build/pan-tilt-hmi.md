@@ -1,10 +1,10 @@
 # Pan/Tilt HMI Module
 
-!!! warning "Stub — this module is in bring-up"
-    Tilt is characterised and working; pan is blocked on a servo configuration
-    change. Structure, interfaces and the commissioning procedure are recorded
-    here; step photos, CAD and the parts list are still to come. The working
-    notes live in
+!!! warning "In development"
+    Tilt is characterised and working; pan needs a servo configuration change first. The
+    structure, interfaces and commissioning procedure are recorded here; the assembly steps,
+    photos, CAD and parts list are not yet. The complete build today is the
+    [lower frame](lower-frame.md), steps 1–13. The working notes live in
     [`firmware/tab5_pantilt/README.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/tab5_pantilt/README.md).
 
 !!! info "At a glance"

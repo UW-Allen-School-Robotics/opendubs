@@ -1,0 +1,33 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    let the v2.0 xacro take the CAN interface names as arguments, so the launch can pass
+         left_can_interface:=arm_left right_can_interface:=arm_right.
+Source:  the teleop author's fork of enactic's repository,
+         https://github.com/EricJGoossen/openarm_description, its one commit e6f3af6108a2 over
+         enactic's 14ff67b638ff (what opendubs2 runs).
+Author:  the teleop's author. Apache-2.0, as the upstream repository.
+Status:  to be offered to enactic, once the author consents. PENDING the user's choice between this
+         overlay on enactic's repository and pinning the fork itself.
+Check:   base + this patch == opendubs2's checkout, file for file.
+
+diff --git a/assets/robot/openarm_v2.0/urdf/openarm_v20.urdf.xacro b/assets/robot/openarm_v2.0/urdf/openarm_v20.urdf.xacro
+--- a/assets/robot/openarm_v2.0/urdf/openarm_v20.urdf.xacro
++++ b/assets/robot/openarm_v2.0/urdf/openarm_v20.urdf.xacro
+@@ -23,6 +23,8 @@
+   <xacro:arg name="emit_grasp_frame" default="false" />
+ 
+   <xacro:arg name="use_fake_hardware" default="true" />
++  <xacro:arg name="left_can_interface" default="can1" />
++  <xacro:arg name="right_can_interface" default="can0" />
+ 
+   <xacro:property name="robot_root" value="$(find openarm_description)/assets/robot/openarm_v2.0" />
+   <xacro:property name="config_root" value="${robot_root + '/config'}" />
+@@ -44,6 +46,8 @@
+     arm_type="v20"
+     control_gains="${gains_dict}"
+     use_fake_hardware="$(arg use_fake_hardware)"
++    left_can_interface="$(arg left_can_interface)"
++    right_can_interface="$(arg right_can_interface)"
+     ee_type="pinch_gripper"
+     left_arm_prefix="left_"
+     right_arm_prefix="right_"

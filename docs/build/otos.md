@@ -70,7 +70,7 @@ recommended **10 mm** height above the ground plane.
 
 ## Tools
 
-Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools--consumables).
+Uses the shared build tools — see the [Hardware BOM](../hardware-bom.md#tools-consumables).
 If you **solder** the joins instead of using WAGOs, add a soldering iron + heat-shrink.
 
 ## Assembly
@@ -82,7 +82,7 @@ The wiring harness — the 5 V M5 Grove cable from the PaHub, joined through WAG
   ![OTOS wiring harness — M5 Grove cable from the PaHub, four WAGOs, the Adafruit level converter, then the OTOS](../assets/diagrams/otos-wiring-harness.png)
   <figcaption>The PaHub Grove cable (SCL / SDA / 5 V / GND) joins through four WAGOs to the Adafruit
   logic level converter; its 3.3 V side runs over Qwiic to the OTOS. The level converter is what
-  keeps the 5 V bus off the 3.3 V sensor.</figcaption>
+  keeps the 5 V bus off the 3.3 V sensor.<br><small>Product photo: Adafruit QT 5V to 3V Level Shifter, © Adafruit Industries, all rights reserved, used to identify the part. It is not covered by this site's CC BY 4.0 licence.</small></figcaption>
 </figure>
 
 The build splits cleanly in two, and the photos follow that split: **Construction** is all

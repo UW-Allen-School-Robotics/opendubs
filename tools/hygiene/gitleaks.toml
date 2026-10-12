@@ -1,0 +1,40 @@
+# gitleaks configuration for the hygiene check (.github/workflows/hygiene.yml).
+#
+# Gitleaks' default rules find provider tokens and private keys. They do not find a credential
+# written as a bare string literal with no keyword next to it, which is how the robot's Wi-Fi
+# password was committed (notes/hygiene-findings.md, S1) and missed by every scanner. The rules
+# below cover the shapes this repo's firmware and scripts actually use.
+
+title = "OpenDubs hygiene"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "wifi-begin-literal"
+description = "Wi-Fi credentials passed to WiFi.begin() as string literals"
+regex = '''WiFi\.begin\(\s*"[^"]{1,32}"\s*,\s*"([^"]{8,63})"\s*\)'''
+secretGroup = 1
+keywords = ["wifi.begin"]
+
+[[rules]]
+id = "credential-define-literal"
+description = "A password, PSK or token compiled in as a string literal"
+regex = '''(?i)#define\s+\w*(?:pass|passwd|password|psk|secret|token|apikey|api_key)\w*\s+"([^"]{8,})"'''
+secretGroup = 1
+keywords = ["pass", "psk", "secret", "token", "key"]
+
+[[rules]]
+id = "wpa-psk-assignment"
+description = "A Wi-Fi PSK in a wpa_supplicant, NetworkManager or hostapd style file"
+regex = '''(?im)^\s*(?:psk|wpa_passphrase|wpa-psk)\s*=\s*"?([^\s"$]{8,63})"?\s*$'''
+secretGroup = 1
+keywords = ["psk", "wpa_passphrase", "wpa-psk"]
+
+# Placeholders that document where a credential goes are not credentials.
+[[allowlists]]
+description = "documented placeholders"
+regexTarget = "secret"
+regexes = [
+  '''(?i)^(?:changeme|change-me|my-pass|my-password|password|placeholder|example|x+|\*+)$''',
+]

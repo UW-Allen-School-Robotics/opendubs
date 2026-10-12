@@ -47,6 +47,11 @@ such as reading the published extrinsics, are handed to the dashboard's lane rat
 
 - **T-1:** JetPack 7.2 with Isaac ROS 4.6 on Jazzy is the common base for Thor and Orin.
   5.0/Lyrical is a later, deliberate milestone.
+- **T-1, wording (2026-10-09):** "Isaac ROS 4.6 is the common base" means the **platform** base,
+  not that every image builds FROM it. GPU modules build on our Isaac ROS base
+  (`ISAAC_ROS_BASE_IMAGE`). CPU-only modules build on the pinned plain ROS image
+  (`ROS_BASE_IMAGE`, `ros:jazzy-ros-base` by digest) and run unchanged on 7.1, 7.2 and Orin. The
+  `openarm` image is the first of these (arms PR #107).
 - **T-2:** option (b). Every ROS node runs in a container; the dashboard stays on the host for now.
   Migrate one unit at a time (3.3).
 
@@ -156,6 +161,43 @@ recreates them.
 | Kernel / devices | `peak_usb` DKMS, `70-openarm-can.rules`, PlatformIO udev rules, LIDAR `by-path` drop-ins | `provision-openarm.sh`, `provision-firmware.sh`, drop-ins by hand | `dkms status; ls /etc/systemd/system/opendubs-rplidar*.d` |
 | Power | unknown; nothing in the repo sets it | — | `nvpmodel -q` |
 
+### Found on opendubs2, 2026-10-09 (0.1 / 0.1a done)
+
+Read-only audit before the deploy of `877454b`.
+
+**Platform.**
+- R38.4 (JetPack 7.1), Ubuntu 24.04.3, kernel 6.8.12-tegra.
+- 120 W power mode. 2 GB swapfile. 122 GiB RAM.
+- WD SN5000S 1 TB NVMe, 13 % used. Whether it has power-loss protection is unknown.
+- **No apt hold on `nvidia-l4t-*`**, although `thor-setup.md` prescribes one.
+
+**Containers.**
+- Docker 29.5.2 from the docker-ce repo. Container Toolkit 1.18.1, which is new enough for Thor.
+- `nvidia` runtime registered, but the **default runtime is `runc`**. No CDI.
+- Running: `openarm` (`openarm-ros2:opendubs2`, 7.5 GB).
+- About 13 GB of leftover images and containers, which belong to the Arms lane.
+
+**Host software.**
+- 231 host `ros-jazzy-*` packages.
+- **The host torch is 2.14.0+cu130 with CUDA available.** The expected-state row above guessed CPU-only and was wrong. `requirements.txt` does not pin that build, so whether a fresh provision reproduces it is unverified.
+
+**Not in the repo, or retired but still present.**
+- `opendubs-telemetry-log.service` and `/opt/opendubs/telemetry-log.py`, the 8Servo-wedge recorder. It also listens on UDP 5005.
+- `opendubs-xorg-fix` is still enabled.
+- An `opendubs-mavros` drop-in directory is left over.
+- `/etc/opendubs-fastdds-udp-only.xml` is absent; the teleop unit is not installed either.
+- `opendubs-camera` launches the Astra driver while a D415 is fitted.
+
+**Drift.**
+- 22 files differed from the repo. **All 22 were exact older repo versions**, checked against git history, so the deploy overwrote no robot-side edits.
+- After the deploy: 99 identical, 0 drifted, and `main.cpp` (per-robot) unchanged by md5.
+
+**The drive bridge was installed but disabled.**
+- It is **held off on purpose** until the Pinpoint is commissioned: a start-condition drop-in, documented in `software/ros/README.md`.
+- Proven through provisioning: *start condition unmet*.
+
+**Side effect.** Provisioning's `apt-get install` upgraded five installed ROS packages, among them foxglove-bridge 3.5 → 3.6. It now passes `--no-upgrade`.
+
 ## Phase 1 — container host as code
 
 | # | Item | Done when |
@@ -187,7 +229,7 @@ recreates them.
 |---|---|---|
 | 4.1 | Define a **stack module** as: an image, or a host package; its topic, service and action contract; its launch arguments; its device needs. Same discipline as the hardware interfaces in `design-philosophy.md` | A one-page spec in `docs/interfaces/` |
 | 4.2 | Write the arm adapter contract from `arm-authority.md` as a module spec, so SSIK and cuMotion are interchangeable at `FollowJointTrajectory` and the streaming path is named | Accepted by the arms plan (goal 4) |
-| 4.3 | Bring the `openarm` image (arms plan 6.3) onto the Phase 1–3 pattern: manifest pin, image-key build, shared DDS profile | The arms plan marks 6.3 done |
+| 4.3 | Bring the `openarm` image (arms plan 6.3) onto the Phase 1–3 pattern: the manifest pin (`ROS_BASE_IMAGE`, plain buildx; no Isaac base or image keys, per the T-1 wording) and the shared DDS profile | The arms plan marks 6.3 done |
 
 ## Phase L — localization: frames, odometry, IMU (runs alongside Phases 1–3)
 

@@ -39,6 +39,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import arm_output  # noqa: E402
+import library  # noqa: E402
+import grippers  # noqa: E402
 import cue  # noqa: E402
 import face_bridge  # noqa: E402
 
@@ -46,6 +48,9 @@ import face_bridge  # noqa: E402
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
+# An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
+# of other things turn it off for their throwaway shows; nothing on the robot does.
+REQUIRE_SWEEP = True
 FINAL = (COMPLETED, ABORTED, ESTOPPED, REFUSED)
 
 TICK_S = 0.02             # 50 Hz
@@ -174,11 +179,20 @@ def audio_items(show, tl) -> tuple:
     base = os.path.dirname(os.path.abspath(show.path)) if show.path else ""
     items, skipped = [], []
     m = tl.get("music") or {}
-    if m.get("file") and (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet":
+    to_tablet = (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"
+    if m.get("file") and to_tablet:
         if base and os.path.isfile(os.path.join(base, m["file"])):
             items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music"})
         else:
             skipped.append(f"music {m['file']} is not on this machine")
+    elif m.get("song") and to_tablet:
+        # A library song (plan 4.6): the dashboard serves the library's songs/ under media/library/.
+        e = (library.load_index() or {}).get(m["song"])
+        f = e and os.path.join(library.root(), e.get("file", ""))
+        if e and e.get("kind") == "song" and os.path.isfile(f):
+            items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music"})
+        else:
+            skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
         if e.get("output") != "tablet":
             continue
@@ -256,22 +270,42 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"))
+
+
+def _grips_calibrated() -> bool:
+    """Whether this robot has a gripper calibration the runner can use (grippers.py)."""
+    try:
+        return bool(grippers.load())
+    except grippers.CalibrationError:
+        return False
+
+
+def _grip_target(c: dict, current=None):
+    """A GRIP cue's target as 0..1 (0 closed, 1 open): `do: open` 1, `do: close` 0, or `open:`."""
+    if c.get("do") == "open":
+        return 1.0
+    if c.get("do") == "close":
+        return 0.0
+    if c.get("open") is not None:
+        return min(1.0, max(0.0, float(c["open"])))
+    return current
 
 
 def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
-                 earcons: bool = True) -> list:
+                 earcons: bool = True, grips_live: bool = False) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
     twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
     tablet (4.2), the face and the head's earcons (when the runner has the face), and the head's
-    pan/tilt (when the runner has the gaze AND the head answers GAZE); grippers wait for calibration
+    pan/tilt (when the runner has the gaze AND the head answers GAZE), the grippers (when this robot
+    has a gripper calibration, grippers.py — and with it, so does the runner); before that, calibration
     (6.2), and the light, lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
     out, seen = [], set()
     m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
-    if m and m.get("file"):
+    if m and (m.get("file") or m.get("song")):
         out.append({"part": "music", "live": (m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"})
         seen.add("music")
     for slot, part in USE_PARTS:
@@ -287,6 +321,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
             live = face_live
         elif part == "head":
             live = gaze_live
+        elif part == "grippers":
+            live = grips_live
         else:
             live = False
         out.append({"part": part, "live": live})
@@ -330,7 +366,7 @@ class TwinFeed:
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
-                 arms=None, live=False):
+                 arms=None, live=False, grips=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # LIVE: the real arms follow this run. Only with an arm output AND the operator's LIVE mark.
         self.arms = arms
@@ -343,6 +379,13 @@ class Runner:
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
         self._arms_moving = False
+        # The grippers (plan item 3): this robot's calibration (grippers.py), read at the run's start;
+        # None sends no gripper cues. A close that STALLED (its goal aborted: something is in there)
+        # is never re-sent on that side for the rest of the run.
+        self.grips = grips if self.live else None
+        self._grip_last = {}                      # slot -> 0..1 last sent
+        self._grip_stalled = set()
+        self._grip_closes = {}                    # slot -> ids of the close goals sent this run
         self.sent: list = []                      # (show time, slot, cue) as dispatched
         self.stop_requested = False
 
@@ -369,6 +412,38 @@ class Runner:
         self.audio_live = False
         self._log("audio_warning", note=why)
 
+    def _grip(self, slot, c, t):
+        """Send one gripper cue: the show's 0..1 through this robot's calibration. `close` is exactly
+        the calibrated closed position, never past it (grippers.py). A side whose last close STALLED
+        is not closed again this run — the stall is the "something is in there" signal."""
+        side = arm_output.GRIP_SIDES[slot]
+        if any(self.arms.goal_status.get(g) == 6 for g in self._grip_closes.get(slot, ())):
+            # Judged on each CLOSE goal's own result, so a late stall still counts after an open.
+            if slot not in self._grip_stalled:
+                self._log("live", note=f"the {side} gripper's close STALLED — something is in it; "
+                                       "it will not be closed again this run", slot=slot)
+            self._grip_stalled.add(slot)
+        frac = _grip_target(c, self._grip_last.get(slot))
+        if frac is None:
+            return
+        if frac == 0.0 and slot in self._grip_stalled:
+            self._log("live", note=f"{side} gripper close NOT sent: it stalled earlier this run", slot=slot,
+                      show_t=round(t, 3))
+            return
+        metres = grippers.to_controller(self.grips, side, frac)
+        try:
+            gid = self.arms.send_grip(slot, metres)
+            self._grip_last[slot] = frac
+            if frac == 0.0:
+                self._grip_closes.setdefault(slot, []).append(gid)
+            self._arms_moving = True
+            self._log("grip", slot=slot, open=round(frac, 3), metres=round(metres, 5), show_t=round(t, 3))
+        except Exception as e:  # noqa: BLE001  a gripper is never a reason to stop the show
+            # Once, then no more grips this run: a retry per cue would only repeat the failure.
+            self.grips = None
+            self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e} — no more gripper cues "
+                                          "are sent this run")
+
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
         if self.live and status != COMPLETED and self._arms_moving:
@@ -376,7 +451,7 @@ class Runner:
             # has already cut their power; cancelling costs nothing.
             try:
                 self.arms.cancel_all()
-                self._log("live", note="arm goals cancelled — the arms hold where they are")
+                self._log("live", note="arm and gripper goals cancelled — they hold where they are")
             except Exception as e:  # noqa: BLE001
                 self._log("live_error", error=f"cancel: {type(e).__name__}: {e}")
         if self.audio_live:
@@ -409,12 +484,18 @@ class Runner:
         try:
             show = cue.load_show(self.path)
             show.audio_override = self.audio_output
+            show.require_sweep = REQUIRE_SWEEP   # an arm show needs a current self-collision stamp (sweep.py)
             tl = show.export(cue.load_limits(self.limits_path), self.limits_path)
         except Exception as e:  # noqa: BLE001
             return self._end(REFUSED, "PARSING_FAILURE", f"{type(e).__name__}: {e}")
         if not tl["valid"]:
             return self._end(REFUSED, "INVALID_SHOW",
                              "; ".join(p["msg"] for p in tl["problems"][:3]))
+        if (tl.get("tracks") or {}).get("DRIVE"):
+            # DRIVE is twin-only (cue.py SLOTS): the robot cannot yet say where it is, and every cue
+            # after a drive assumes the base moved — so the whole show is refused, not the drives skipped
+            return self._end(REFUSED, "SHOW_DRIVE_TWIN_ONLY",
+                             "this show uses DRIVE, which runs only in the twin until odometry is trusted")
         if tl.get("dance") is not None:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
@@ -494,7 +575,18 @@ class Runner:
                     self.arms.send(slot, arm_output.track_points(kfs))
                     self._arms_moving = True
             if any(tl.get("tracks", {}).get(g) for g in ("GRIP_L", "GRIP_R")):
-                self._log("live", note="gripper cues are NOT sent: grippers are uncalibrated (plan 6.2)")
+                if self.grips is None:
+                    self._log("live", note="gripper cues are NOT sent: this robot has no gripper calibration "
+                                           f"({grippers.default_path()}; plan 6.2)")
+                elif not hasattr(self.arms, "send_grip"):
+                    self._log("live", note="gripper cues are NOT sent: this runner's arm output has no grippers")
+                    self.grips = None
+                elif (missing := self.arms.grips_ready()):
+                    self._log("live", note="gripper cues are NOT sent: no gripper controller for "
+                                           f"{' and '.join(missing)} (is that arm active?)")
+                    self.grips = None
+                else:
+                    self._log("live", note="LIVE: the grippers follow this routine (calibrated per side)")
         events = sorted(((e["t"], slot, e["cue"]) for slot, evs in tl["tracks"].items() for e in evs),
                         key=lambda x: x[0])
         i = 0
@@ -505,6 +597,8 @@ class Runner:
             while i < len(events) and events[i][0] <= t:
                 self.sent.append(events[i])
                 self._log("cue", show_t=round(events[i][0], 3), slot=events[i][1], cue=events[i][2])
+                if self.grips is not None and events[i][1] in arm_output.GRIP_SIDES:
+                    self._grip(events[i][1], events[i][2], events[i][0])
                 i += 1
             self.feed.playhead(t, True, RUNNING)
             if t >= tl["duration_s"] and i >= len(events):
@@ -552,6 +646,7 @@ class Palette:
             path = os.path.join(self.shows_dir, name)
             try:
                 show = cue.load_show(path)
+                show.require_sweep = REQUIRE_SWEEP
             except Exception:  # noqa: BLE001  a broken file is not a routine
                 continue
             pal = show.doc.get("palette")
@@ -559,6 +654,10 @@ class Palette:
                 continue
             tl = (show.export(limits, self.limits_path) if limits is not None else
                   {"valid": False, "duration_s": None, "problems": [{"msg": why}], "warnings": []})
+            if (tl.get("tracks") or {}).get("DRIVE"):
+                # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
+                tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
+                                                              "is trusted"}] + list(tl["problems"]))
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
@@ -567,7 +666,8 @@ class Palette:
                                              face_live=self.face is not None and self.arms is not None,
                                              gaze_live=(self.gaze is not None and self.arms is not None
                                                         and self.gaze.supported is True),
-                                             earcons=self.face is None or self.face.earcons)})
+                                             earcons=self.face is None or self.face.earcons,
+                                             grips_live=self.arms is not None and _grips_calibrated())})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -595,9 +695,17 @@ class Palette:
             # The head follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
             sinks = [x for x in (self.face, self.gaze) if x is not None] if live else []
             feed = face_bridge.HeadTee(self.feed, *sinks) if sinks else self.feed
+            grips = None
+            if live:
+                try:
+                    grips = grippers.load()       # read each run, so a new calibration needs no restart
+                except grippers.CalibrationError as e:
+                    if os.path.isfile(grippers.default_path()) and self.log:   # there, but malformed: say so
+                        self.log.write(json.dumps({"wall": round(time.time(), 3), "kind": "live_error",
+                                                   "error": f"gripper calibration: {e}"}) + "\n")
             runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=live)
+                            audio=self.audio, arms=self.arms, live=live, grips=grips)
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)

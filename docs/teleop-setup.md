@@ -111,7 +111,10 @@ On the tablet's TELEOP page:
 
 - **SERVER** reads **READY**, with **HTTPS page :8444** and **pose channel :8766** both shown as
   good, **arms energized**, and **motors 16 enabled, 0 faults**.
-- **SESSION** reads **ARMS LIVE**, and the arm view moves with the arms.
+- **SESSION** reads **ARMS LIVE**, and the arm view moves with the arms. Each hand's tile shows a
+  filled dot once the headset is streaming, and **GRIPPING** while you squeeze. A message under the
+  tiles says what is holding a hand back; see
+  [Arm controls on the tablet § Teleop messages](arm-dashboard.md#teleop-messages).
 - **LOOP vs BUDGET** shows the bridge's control loop meeting its rate. Occasional overruns are
   normal; a large share over budget is why teleop can feel vague.
 
@@ -135,8 +138,6 @@ session.
   network delay, and joints overrun the commanded speed briefly when they reverse direction.
 - **Wrist rotation follows world axes.** Tipping the controller nose-down tips a gripper that hangs
   straight down *backward*, which can read as mirrored.
-- **The bridge's refusals are not shown on the tablet yet.** A refused grip, a lost hand or a refused
-  home appears only in the bridge's log; see [Arm controls on the tablet](arm-dashboard.md#teleop-messages).
 
 ## Troubleshooting
 

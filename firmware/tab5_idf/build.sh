@@ -140,6 +140,21 @@ fi
 DEMO="${OPENDUBS_DEMO:?set OPENDUBS_DEMO to the M5Tab5-UserDemo clone}"
 IDF="${OPENDUBS_IDF:-$(dirname "$DEMO")/esp-idf}"
 
+# Overwrite the generated credential header with the no-credentials version. Overwrite rather than
+# delete: net.cpp includes it unconditionally, so removing the file would break the NEXT build.
+#
+# What this does NOT clean, stated so nobody believes more than it does: the compiled .bin and the
+# object files still contain the key. They are in the demo tree, outside this repository, and the
+# notice printed after a provisioning build says to delete them.
+blank_credentials() {
+    [ -n "${CRED_HEADER:-}" ] || return 0
+    printf '#pragma once\n// blanked by build.sh after the build; see sync_sources\n' \
+        > "$CRED_HEADER" 2>/dev/null || true
+    echo "wifi credentials: the generated header has been blanked"
+    echo "    NOTE: the built .bin and the object files in the demo tree STILL contain the key."
+    echo "          Flash the board, then delete that image. \`idf.py fullclean\` clears the rest."
+}
+
 sync_sources() {
     # Sync whole DIRECTORIES, not a hand-maintained file list. The list version copied three of
     # the nine files we own; cues.cpp, cost_gate.* and the startup anim were only ever in the
@@ -359,10 +374,31 @@ PATCH
     # file lives only in the clone. Needed once per board -- esp_wifi persists to NVS after a
     # successful association, so later builds can omit them entirely.
     if [ -n "${OPENDUBS_WIFI_SSID:-}" ]; then
+        # THE DEMO TREE MUST BE OUTSIDE THIS REPOSITORY. It always has been by convention, and a
+        # provisioning build is the one case where the convention carries a real cost if broken:
+        # the generated header would land inside a git worktree, where the next `git add -A` commits
+        # the key. The literal that prompted all this sat in the repo for five weeks.
+        if [ "$(cd "$DEMO" && git rev-parse --show-toplevel 2>/dev/null)" = \
+             "$(cd "$HERE" && git rev-parse --show-toplevel 2>/dev/null)" ]; then
+            echo "REFUSING: \$OPENDUBS_DEMO is inside this repository, so a provisioning build" >&2
+            echo "          would write the Wi-Fi key into a git worktree. Point it outside." >&2
+            exit 1
+        fi
         printf '#pragma once\n#define OPENDUBS_WIFI_SSID "%s"\n#define OPENDUBS_WIFI_PASS "%s"\n' \
             "$OPENDUBS_WIFI_SSID" "${OPENDUBS_WIFI_PASS:-}" \
             > "$DEMO/app/apps/app_face/net_credentials.h"
-        echo "wifi credentials: compiled in for SSID '$OPENDUBS_WIFI_SSID' (one-time provisioning)"
+        # BLANK IT AGAIN WHEN WE EXIT, however we exit.
+        #
+        # The header lives in the ephemeral clone rather than the repo, which was already the right
+        # shape -- but "ephemeral" meant "not in git", not "gone". It persisted on the build machine
+        # until the next build overwrote it, so a one-time provisioning left the key readable on
+        # disk indefinitely. An EXIT trap rather than a line at the end of the happy path, because
+        # a build that FAILS is exactly when someone walks away and forgets.
+        CRED_HEADER="$DEMO/app/apps/app_face/net_credentials.h"
+        trap blank_credentials EXIT
+        # The SSID is no longer echoed. It was, and it is half of the credential pair: printing it
+        # put it into terminal scrollback and into the log of any CI or wrapper that runs this.
+        echo "wifi credentials: compiled in for this build only (one-time provisioning)"
     else
         printf '#pragma once\n// no build-time credentials; NVS-stored ones will be used\n' \
             > "$DEMO/app/apps/app_face/net_credentials.h"

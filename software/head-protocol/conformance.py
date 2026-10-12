@@ -172,6 +172,11 @@ class Run:
         self.expect(F, "SKIN <unknown name>", "SKIN no_such_skin", "SKIN",
                     lambda r: r == "ERR unknown skin no_such_skin (showing default)")
         self.expect(F, "SKIN default", "SKIN default", "SKIN", lambda r: r == "OK skin default")
+        # SPIN (v3): a skin's counter-rotation on a beat. A non-spinning skin answers OK and does
+        # nothing, so these hold whatever skin is showing.
+        for line, want in (("SPIN COUNTER 2", "counter"), ("SPIN TOGETHER", "together"), ("SPIN AUTO", "auto")):
+            self.expect(F, line, line, "SPIN", lambda r, w=want: r == f"OK spin {w}")
+        self.expect(F, "SPIN <malformed>", "SPIN SIDEWAYS", "SPIN", lambda r: bool(hp.REPLY["spin_err"].match(r)))
         back = getattr(self, "state_found", None)
         if back in hp.STATES:
             self.ask(F, f"STATE {back}")

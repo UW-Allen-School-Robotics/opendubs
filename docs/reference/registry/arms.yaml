@@ -1,0 +1,376 @@
+# Troubleshooting entries: the arms (openarm-up and the tablet's arm buttons) and WebXR teleop.
+# Owned by the Arms lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+# Each code matches its entry in docs/arm-dashboard.md, anchored as the code lower-cased.
+
+entries:
+  # ---- the arms won't activate ---------------------------------------------------------------
+  - code: ARM_POWER_RESTORED
+    title: ACTIVATE recovered the arm after a power loss
+    symptom: arms-wont-activate
+    rank: 5
+    kind: info
+    seen_on: [dashboard]
+    means: >
+      After an e-stop, or any loss of the arms' power, the motors come back disabled while the arm
+      stack still has the arm marked active. ACTIVATE recognises that state — every motor
+      answering, none enabled, none faulted — resets just that arm, and activates it as usual.
+    do:
+      - Nothing. The press already recovered the arm; its output says so before the normal activation.
+    see: [arm-dashboard.md#arm-power-restored]
+
+  - code: ARM_OP_RUNNING
+    title: Another arm action is running
+    symptom: [arms-wont-activate, arms-wont-park]
+    rank: 10
+    seen_on: [dashboard]
+    means: >
+      One arm action runs at a time, because two would be two commands fighting over the same arm.
+      This one was requested while another was running, usually from another screen such as the
+      Shows page.
+    do:
+      - Wait for the running action to finish — its button counts its seconds — then press again.
+    see: [arm-dashboard.md#arm-op-running]
+
+  - code: ARM_SUDO_DENIED
+    title: The dashboard is not allowed to run the arm commands
+    symptom: [arms-wont-activate, arms-wont-park, teleop-wont-move]
+    rank: 15
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arm buttons run `openarm-up` and the teleop service through sudo, and the dashboard's
+      sudoers rule is missing, so every press reports *sudo: a password is required*.
+    do:
+      - Install the dashboard's sudoers rule from `software/kiosk-dashboard/deploy/opendubs-sudoers`.
+    see: [arm-dashboard.md#arm-sudo-denied, openarm-setup.md#running-teleop-from-the-dashboard]
+
+  - code: ARM_CAN_NOT_READY
+    title: The arms' CAN links are not ready
+    symptom: arms-wont-activate
+    rank: 20
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and
+      starts nothing. A link can be left in bus-off after an e-stop, even one already cleared --
+      the arms are powered from the drive bus, behind the contactor -- or by a loose CAN connector,
+      and a bus-off link does not recover by itself when power or the connection returns. (Both
+      were seen together on 2026-10-09; on 2026-10-08 an e-stop cleared without one.)
+    do:
+      - >
+        Once the contactor is closed and the CAN connectors are seated, restart both links,
+        `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right` on the robot's
+        computer, check `openarm-up status` shows both `ERROR-ACTIVE`, then activate.
+      - Otherwise, check that the CAN adapter is plugged in and its driver is installed.
+      - Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
+    see: [arm-dashboard.md#arm-can-not-ready, reference/troubleshooting.md#contactor-open, openarm-setup.md#troubleshooting]
+
+  - code: ARM_STACK_START_FAILED
+    title: The arm stack did not start
+    symptom: arms-wont-activate
+    rank: 25
+    kind: fault
+    seen_on: [dashboard, log]
+    means: >
+      The arm software could not start: its container is missing or would not start, or it launched
+      and exited, or the arms did not report inactive within 30 s.
+    do:
+      - On the robot's computer, run `openarm-up status` and `openarm-up logs` to see which.
+    see: [arm-dashboard.md#arm-stack-start-failed, openarm-setup.md#troubleshooting]
+
+  - code: ARM_MOTORS_SILENT
+    title: Some arm motors do not answer
+    symptom: arms-wont-activate
+    rank: 30
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Those motors are unpowered, or the CAN wiring is broken at or before the first silent one. The
+      gripper is last in each arm's chain.
+    do:
+      - Check that the e-stop is released and the drive contactor is closed — the arms are on the drive bus.
+      - Press ACTIVATE again.
+      - If they still do not answer, `openarm-motors status` on the robot's computer lists the silent motors.
+    see: [arm-dashboard.md#arm-motors-silent, e-stop.md]
+
+  - code: ARM_MOTOR_FAULT
+    title: An arm motor reports a fault
+    symptom: arms-wont-activate
+    rank: 35
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      A motor reports a fault such as over-voltage. A motor's fault latches until the motor loses
+      power.
+    do:
+      - >
+        Press and release the e-stop to power-cycle the arms. Once the contactor is closed again,
+        restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE.
+    see: [arm-dashboard.md#arm-motor-fault]
+
+  - code: ARM_MOTORS_DISABLED
+    title: The arm's motors answer but are disabled
+    symptom: arms-wont-activate
+    rank: 40
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arms lost power and got it back, and the motors restarted disabled under an arm the stack
+      still marks active — a case the automatic reset did not cover.
+    do:
+      - Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm.
+    see: [arm-dashboard.md#arm-motors-disabled]
+
+  - code: ARM_RESET_FAILED
+    title: The arm could not be reset after a power loss
+    symptom: arms-wont-activate
+    rank: 41
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      ACTIVATE tried to reset the arm after a power loss, and the arm did not go inactive.
+    do:
+      - Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm.
+    see: [arm-dashboard.md#arm-reset-failed]
+
+  - code: ARM_PARTIAL_ENABLE
+    title: Only some of an arm's motors enabled
+    symptom: arms-wont-activate
+    rank: 45
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arm's hardware went active, but not all eight of its motors enabled.
+    do:
+      - Press **DE-ENERGIZE**, tap again to confirm, then **ACTIVATE**.
+      - If it happens again, power-cycle the arms with the e-stop first.
+    see: [arm-dashboard.md#arm-partial-enable]
+
+  - code: ARM_CONTROLLER_INACTIVE
+    title: An arm's controller would not start
+    symptom: arms-wont-activate
+    rank: 50
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arm energized, but its controller is inactive or not loaded, so it cannot be commanded.
+    do:
+      - Press **DE-ENERGIZE**, then **ACTIVATE**.
+      - If it repeats, `openarm-up logs` on the robot's computer says why.
+    see: [arm-dashboard.md#arm-controller-inactive]
+
+  - code: ARM_GRIPPER_CONTROLLER_INACTIVE
+    title: An arm's gripper controller would not start
+    symptom: [arms-wont-activate, teleop-wont-move]
+    rank: 52
+    kind: warning
+    seen_on: [dashboard]
+    means: >
+      The arm works, but its gripper controller is not running. The teleop bridge needs both
+      grippers' controllers and exits about 30 s after START without them.
+    do:
+      - Press **DE-ENERGIZE**, then **ACTIVATE** that arm again.
+    see: [arm-dashboard.md#arm-gripper-controller-inactive]
+
+  - code: ARM_STACK_DEAD
+    title: The arm stack is dead
+    symptom: [arms-wont-activate, arms-wont-park]
+    rank: 55
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arm software crashed but did not fully exit, so nothing answers it.
+    do:
+      - Press **DE-ENERGIZE**, which clears a dead stack, then **ACTIVATE**.
+      - >
+        If DE-ENERGIZE refuses because motors are still energized with no controller, follow the
+        options it prints: the motors hold their last command until something disables them.
+    see: [arm-dashboard.md#arm-stack-dead]
+
+  - code: ARM_CAME_UP_ACTIVE
+    title: An arm came up active by itself
+    symptom: arms-wont-activate
+    rank: 60
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The arm software's configuration energizes arms on launch. Activation moves an arm, so it must
+      always be a deliberate step, and `openarm-up` stops the stack instead.
+    do:
+      - Restore `hardware_components_initial_state` to `inactive` in the arm controller configuration.
+    see: [arm-dashboard.md#arm-came-up-active, openarm-setup.md#start-the-arms-inactive]
+
+  - code: ARM_OP_TIMEOUT
+    title: An arm action timed out
+    symptom: [arms-wont-activate, arms-wont-park]
+    rank: 70
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The action did not finish within its time limit. It may have partly completed.
+    do:
+      - Run `openarm-up status` on the robot's computer before pressing anything else.
+    see: [arm-dashboard.md#arm-op-timeout]
+
+  # ---- an arm won't park, hold or power down -------------------------------------------------
+  - code: ARM_NOT_ACTIVE
+    title: There is nothing to park or hold
+    symptom: arms-wont-park
+    rank: 20
+    seen_on: [dashboard]
+    means: >
+      PARK and HOLD command an energized arm, and this one is not energized — or the arm stack is not
+      running at all. A de-energized arm is already limp.
+    do:
+      - Press **ACTIVATE** for that arm first, if it should move at all.
+    see: [arm-dashboard.md#arm-not-active]
+
+  - code: ARM_NO_STOW_POSE
+    title: No stow pose is configured
+    symptom: arms-wont-park
+    rank: 30
+    seen_on: [dashboard]
+    means: >
+      The robot has not been told where its arms are safe to rest. PARK refuses rather than guess,
+      because a wrong pose can drive an arm into the robot's own head.
+    do:
+      - Set the stow pose in the robot's stow file.
+    see: [arm-dashboard.md#arm-no-stow-pose, openarm-setup.md#configuring-the-stow-pose]
+
+  - code: ARM_DOWN_WOULD_DROP
+    title: De-energize refused, because an arm would fall
+    symptom: arms-wont-park
+    rank: 40
+    seen_on: [dashboard]
+    means: >
+      An energized arm is away from its stow pose. De-energizing removes its torque, and it would
+      fall from wherever it is.
+    do:
+      - Press **PARK BOTH**, then **DE-ENERGIZE**.
+      - >
+        If the arm is already somewhere it can safely drop from, say so explicitly from the robot's
+        computer: `openarm-up down --drop`.
+    see: [arm-dashboard.md#arm-down-would-drop, openarm-setup.md#bringing-the-arms-down-without-dropping-them]
+
+  # ---- teleop doesn't move the arm ---------------------------------------------------------
+  - code: ARM_SERVICE_FAILED
+    title: Teleop would not start or stop
+    symptom: teleop-wont-move
+    rank: 10
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The dashboard could not start or stop the teleop bridge's service.
+    do:
+      - Check `systemctl status opendubs-teleop` and `journalctl -u opendubs-teleop` on the robot's computer.
+    see: [arm-dashboard.md#arm-service-failed]
+
+  - code: ARM_TELEOP_GRIPPER_TIMEOUT
+    title: Teleop exits about 30 s after START
+    symptom: teleop-wont-move
+    rank: 15
+    kind: fault
+    seen_on: [dashboard, log]
+    means: >
+      An arm's gripper controller is not running, and the teleop bridge needs both. Its log ends with
+      *Timed out waiting for left gripper action server*.
+    do:
+      - Press **ACTIVATE** for both arms, which starts their gripper controllers, then **START** again.
+    see: [arm-dashboard.md#arm-teleop-gripper-timeout]
+
+  - code: ARM_TELEOP_CERT_NOT_ACCEPTED
+    title: The teleop page loads but nothing reaches the robot
+    symptom: teleop-wont-move
+    rank: 20
+    kind: fault
+    seen_on: [dashboard, log]
+    derived: true
+    means: >
+      The headset has not accepted the teleop certificate on the pose channel's port. The browser
+      warns only for the page, so a refused pose channel fails silently: the teleop bridge's log
+      never reports *first pose data received*.
+    do:
+      - In the Quest Browser, open the pose channel's address once and accept the warning, then reload the teleop page.
+    see: [arm-dashboard.md#arm-teleop-cert-not-accepted, teleop-setup.md#certificates]
+
+  - code: ARM_TELEOP_GRIP_REFUSED_MODE
+    title: Teleop refused the grip — CH5 is not MANUAL
+    symptom: teleop-wont-move
+    rank: 25
+    seen_on: [dashboard, log]
+    means: >
+      Teleop moves an arm only with [CH5](glossary.md#ch5) in MANUAL, the middle position.
+    do:
+      - Set CH5 to MANUAL, release the grip, and squeeze it again.
+    see: [arm-dashboard.md#arm-teleop-grip-refused-mode, control-authority.md]
+
+  - code: ARM_TELEOP_STOPPED_MODE
+    title: The arm stopped when CH5 left MANUAL
+    symptom: teleop-wont-move
+    rank: 26
+    kind: expected
+    seen_on: [dashboard, log]
+    means: >
+      CH5 left MANUAL during a grip, so the arm stopped where it was. Holding the grip through the
+      switch does not resume.
+    do:
+      - Set CH5 back to MANUAL, release the grip, and squeeze again.
+    see: [arm-dashboard.md#arm-teleop-stopped-mode]
+
+  - code: ARM_TELEOP_TRACKING_LOST
+    title: A hand stopped streaming
+    symptom: teleop-wont-move
+    rank: 30
+    kind: expected
+    seen_on: [dashboard, log]
+    means: >
+      The headset sent no pose for that hand for over half a second — the controller left the
+      headset's view, the headset's menu opened, or the network dropped — so the arm stopped where it
+      was.
+    do:
+      - Bring the controller back into view, release the grip, and squeeze again.
+      - Frequent losses with the controller in plain view point at the network.
+    see: [arm-dashboard.md#arm-teleop-tracking-lost]
+
+  - code: ARM_TELEOP_HOME_REFUSED
+    title: Holding A or X did not send the arm home
+    symptom: teleop-wont-move
+    rank: 35
+    seen_on: [dashboard, log]
+    means: >
+      Home needs CH5 in MANUAL, a stow pose configured for that arm, the grip released, and the arm's
+      joint readings. The log names which was missing.
+    do:
+      - Fix the stated reason. For the grip, release it first, then hold A or X.
+    see: [arm-dashboard.md#arm-teleop-home-refused]
+
+  - code: ARM_TELEOP_UNREACHABLE
+    title: The arm stops following the hand
+    symptom: teleop-wont-move
+    rank: 40
+    seen_on: [dashboard, log]
+    means: >
+      The arm's inverse kinematics found no joint configuration for where the hand is asking the arm
+      to be, so the arm holds. The bridge's log says why: a joint at its limit, a target out of reach,
+      or one reachable only with the hand at another angle.
+    do:
+      - Move the hand back the way it came.
+      - >
+        If it happens constantly, especially right after starting, restart the immersive session
+        while facing the robot's forward.
+    see: [arm-dashboard.md#arm-teleop-unreachable, teleop-setup.md#known-limits]
+
+  - code: ARM_JOINT_DATA_MISSING
+    title: The tablet shows no joint data
+    symptom: teleop-wont-move
+    rank: 45
+    seen_on: [dashboard]
+    derived: true
+    means: >
+      The TELEOP page is not receiving the arms' joint states, so its arm view is blank or stale.
+    do:
+      - Check the **ROSBRIDGE** badge at the top of the page. DOWN means the page lost its data connection.
+      - Reload the tablet's page.
+    see: [arm-dashboard.md#arm-joint-data-missing]

@@ -65,6 +65,29 @@ def arm_pose(keyframes: list, t: float) -> dict:
     return {str(j): p[j - 1] for j in range(1, 8)}
 
 
+# The grippers (plan item 3, 2026-10-10). A cue sets a TARGET — `do: open` (1), `do: close` (0) or
+# `open: 0..1` — and the fingers travel there at a finite speed. GRIP_STROKE_S is ASSUMED, not
+# measured: half a second for a full stroke, until the Arms lane measures the real controller. The
+# fingers start CLOSED (0) — the twin's rest — since nothing yet says where the real ones begin.
+GRIP_STROKE_S = 0.5
+
+
+def grip_open(events: list, t: float) -> float:
+    """How open (0 closed .. 1 open) a gripper is at t: moving toward each cue's target from where
+    it was, at 1 / GRIP_STROKE_S per second."""
+    pos, t_prev, target = 0.0, 0.0, 0.0
+    for e in sorted(events, key=lambda x: x["t"]):
+        if e["t"] > t:
+            break
+        step = (e["t"] - t_prev) / GRIP_STROKE_S
+        pos = target if abs(target - pos) <= step else pos + step * (1 if target > pos else -1)
+        c = e["cue"]
+        target = 1.0 if c.get("do") == "open" else 0.0 if c.get("do") == "close" else float(c.get("open", target))
+        t_prev = e["t"]
+    step = (t - t_prev) / GRIP_STROKE_S
+    return round(target if abs(target - pos) <= step else pos + step * (1 if target > pos else -1), 4)
+
+
 def lift_mm(events: list, t: float) -> float:
     h = 0.0
     for e in events:
@@ -99,12 +122,28 @@ def head(events: list, t: float) -> tuple:
     return _slew(pan, tgt_pan, t - last), _slew(tilt, tgt_tilt, t - last)
 
 
-def base_pose(events: list, t: float) -> tuple:
-    """(x m, y m, yaw deg) of the base at t, from DANCE moves, in the robot's starting frame.
+def base_pose(events: list, t: float, drive: list | None = None) -> tuple:
+    """(x m, y m, yaw deg) of the base at t, in the robot's starting frame: the DRIVE moves made by t
+    (twin-only; cue.drive_path), then a DANCE move in progress on top, from wherever the base is.
 
-    Every library move returns the base to where it started, so only the move in progress
+    Every library dance returns the base to where it started, so only the move in progress
     displaces it. Open loop and at the PLACEHOLDER speeds in cue.py (+x forward, +y to the robot's
-    left, assumed); this is how a dance reads, not where the real robot would end up."""
+    left, assumed); this is how a show reads, not where the real robot would end up."""
+    import math
+    bx = by = byaw = 0.0
+    if drive:
+        pts = cue.drive_path([(e["start"], e["cue"]) for e in drive])
+        for pt in pts:
+            if pt[0] > t + 1e-9:
+                break
+            _, bx, by, byaw = pt
+    dx, dy, dyaw = _dance_pose(events, t)
+    c, s_ = math.cos(byaw), math.sin(byaw)
+    return bx + dx * c - dy * s_, by + dx * s_ + dy * c, math.degrees(byaw) + dyaw
+
+
+def _dance_pose(events: list, t: float) -> tuple:
+    """(x, y, yaw deg) a DANCE move in progress adds, in the base's frame at the move's start."""
     import math
     for e in events:
         c = e["cue"]
@@ -128,6 +167,22 @@ def base_pose(events: list, t: float) -> tuple:
             left -= dt
         return x, y, math.degrees(yaw)
     return 0.0, 0.0, 0.0
+
+
+FINGER_JOINT = "oa_openarm_{side}_finger_joint{k}"     # the vendored arm model's two slides per hand
+
+
+def apply_grips(model, data, smp: dict) -> None:
+    """Open the twin's fingers to each side's `grip_*` fraction (after clearance.set_pose): both
+    slides of a hand at fraction x their travel (0..44 mm in the vendored model)."""
+    import mujoco
+    for side in ("left", "right"):
+        frac = float(smp.get(f"grip_{side}", 0.0))
+        for k in (1, 2):
+            j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, FINGER_JOINT.format(side=side, k=k))
+            if j >= 0:
+                data.qpos[model.jnt_qposadr[j]] = frac * model.jnt_range[j][1]
+    mujoco.mj_forward(model, data)
 
 
 def apply_base(model, data, base: tuple) -> None:
@@ -157,8 +212,10 @@ def sample(tl: dict, t: float) -> dict:
         "left": {j: round(v, 2) for j, v in arm_pose(tr.get("ARM_L", []), t).items()},
         "right": {j: round(v, 2) for j, v in arm_pose(tr.get("ARM_R", []), t).items()},
         "lift_mm": round(lift_mm(tr.get("LIFT", []), t), 1),
+        "grip_left": grip_open(tr.get("GRIP_L", []), t),
+        "grip_right": grip_open(tr.get("GRIP_R", []), t),
         "head_pan": pan, "head_tilt": tilt,
-        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t)),
+        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))),
     }
 
 
@@ -228,6 +285,7 @@ def main():
         clearance.set_pose(model, data, joints_arg(s), s["lift_mm"],
                            s["head_pan"] - HEAD_CENTRE_DEG, s["head_tilt"] - HEAD_CENTRE_DEG)
         apply_base(model, data, s["base"])
+        apply_grips(model, data, s)
         if a.clearance:
             rows = clearance.clearances(model, data)
             moving = [(c, g1, g2) for c, g1, g2 in rows if c < base.get((g1, g2), c) - 0.05]

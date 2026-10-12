@@ -83,8 +83,10 @@ All of the previously-manual items now live in provisioning:
    platformio, fetches the canonical udev rules, adds flashing user to
    dialout,plugdev). *Validated.*
 7. ✅ **Top-level `provision-all.sh`** — chains kiosk → ros → firmware.
-8. ✅ **`deploy-all.sh`** — rsyncs all three subsystems + `provision-all.sh`, runs
-   provisioning. Repo `*.sh` are kept +x so `rsync -a` carries the bit (the
+8. ✅ **`deploy-all.sh`** — rsyncs the subsystems + `provision-all.sh`, runs
+   provisioning. It never overwrites a robot's own files (drive calibration in
+   `rc_serial_probe/src/main.cpp`, `platformio.ini`): the list is `tools/deploy-audit.py`'s
+   `PER_ROBOT` entries. The dashboard goes through its own `deploy.sh`. Repo `*.sh` are kept +x so `rsync -a` carries the bit (the
    strips-+x footgun from track 6).
 
 ## 4. Per-unit identity (do NOT bake into the repo)

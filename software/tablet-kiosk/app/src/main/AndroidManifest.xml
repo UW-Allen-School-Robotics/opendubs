@@ -31,6 +31,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Provisioning over adb: the dashboard's address, the robot's CA, maintenance. DUMP is
+             held by the adb shell and grantable to no ordinary app, so only adb can start it
+             (ProvisionActivity.kt). Never shown: it does its work and finishes. -->
+        <activity
+            android:name=".ProvisionActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <!-- Back to the dashboard after an update (the update stops the app). -->
         <receiver android:name=".UpdateReceiver" android:exported="false">
             <intent-filter>

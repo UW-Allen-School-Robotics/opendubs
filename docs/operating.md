@@ -34,7 +34,7 @@ robot keeps thinking, reporting and showing state while its actuators are dead.
 
 <figure markdown="span">
   ![RC transmitter control mapping — which stick and switch drives which robot function](assets/diagrams/rc-control-mapping.png)
-  <figcaption>Physical layout of the sticks and switches.</figcaption>
+  <figcaption>Physical layout of the sticks and switches.<br><small>Product images: RadioLink T8S transmitter, © RadioLink, all rights reserved, used to identify the part. They are not covered by this site's CC BY 4.0 licence.</small></figcaption>
 </figure>
 
 | Channel | Function |

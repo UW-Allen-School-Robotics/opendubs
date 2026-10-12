@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1
+# The openarm image: the arm stack (ROS 2 Jazzy, ros2_control, the OpenArm impedance controllers)
+# and the WebXR teleop bridge, built from pinned sources. Design: notes/design/arm-image.md.
+#
+# Do not build this directly. build.sh checks every pin, assembles the build context (the source
+# repositories at the commits in repos.lock) and passes the base digest and versions in.
+#
+# Paths match the hand-built container exactly -- /openarm_ws/src, /openarm_ws/install,
+# /openarm_ws/src/.venv -- so openarm-up, openarm-motors and opendubs-teleop.service work unchanged.
+
+# A pinned ros:jazzy-ros-base digest: ROS_BASE_IMAGE in software/stack/versions.env.
+ARG ROS_BASE_IMAGE
+FROM ${ROS_BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Upstream's dev-container package list, VERBATIM, so the first rebuilt image matches the
+# hand-built one as closely as possible. Trimming (the desktop and developer tools) is a later,
+# separately measured change.
+RUN apt-get update && apt-get install -y \
+  tree \
+  build-essential \
+  cmake \
+  ros-jazzy-desktop \
+  ros-jazzy-controller-manager \
+  ros-jazzy-gripper-controllers \
+  ros-jazzy-hardware-interface \
+  ros-jazzy-joint-state-broadcaster \
+  ros-jazzy-joint-trajectory-controller \
+  ros-jazzy-joint-state-publisher \
+  ros-jazzy-joint-state-publisher-gui \
+  ros-jazzy-xacro \
+  ros-jazzy-ros2-controllers \
+  ros-jazzy-ros2controlcli \
+  ros-jazzy-ros2-control-test-assets \
+  ros-jazzy-pinocchio \
+  ros-jazzy-rmw-cyclonedds-cpp \
+  git \
+  curl \
+  vim \
+  software-properties-common \
+  python3-rosdep \
+  python3-colcon-common-extensions \
+  clangd \
+  && rm -rf /var/lib/apt/lists/*
+
+# The OpenArm CAN library, from its PPA, at the pinned version.
+ARG OPENARM_CAN_VERSION
+RUN test -n "${OPENARM_CAN_VERSION}" \
+  && add-apt-repository -y ppa:openarm/main \
+  && apt-get update && apt-get install -y \
+     libopenarm-can-dev="${OPENARM_CAN_VERSION}" \
+     openarm-can-utils="${OPENARM_CAN_VERSION}" \
+  && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /usr/local/lib/cmake/openarm_can && \
+    echo 'include("/usr/lib/aarch64-linux-gnu/cmake/OpenArmCAN/OpenArmCANConfig.cmake")' \
+    > /usr/local/lib/cmake/openarm_can/openarm_canConfig.cmake
+
+# uv, at the pinned version, for the workspace's Python environment.
+ARG UV_VERSION
+ENV UV_INSTALL_DIR=/usr/local/bin UV_LINK_MODE=copy
+RUN test -n "${UV_VERSION}" && curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+
+# The sources: our workspace root, each repos.lock repository at its commit, the overlay applied
+# (build.sh). SSIK is not here: it is a uv git source at its release tag, pinned by uv.lock, and
+# built non-editable below, which is how it gets its native backend on aarch64.
+COPY src/ /openarm_ws/src/
+
+# ROS dependencies, then the colcon workspace -- what upstream's post-create.sh does, at build time.
+# rosdep resolves against its online index; what it installed is recorded below for the audit.
+WORKDIR /openarm_ws
+RUN rosdep init || true
+RUN . /opt/ros/jazzy/setup.sh \
+  && rosdep update \
+  && apt-get update \
+  && rosdep install --from-paths /openarm_ws/src --ignore-src -r -y --skip-keys \
+     "openarm_can openarm_description moveit_ros_move_group moveit_kinematics moveit_planners moveit_simple_controller_manager moveit_configs_utils moveit_ros_visualization moveit_setup_assistant" \
+  && rm -rf /var/lib/apt/lists/*
+RUN . /opt/ros/jazzy/setup.sh && colcon build
+
+# The Python workspace, from workspace/uv.lock, into the path the teleop service runs from.
+RUN cd /openarm_ws/src && uv sync --frozen
+
+# The DDS profile openarm-up and the teleop service point FastDDS at.
+COPY fastdds-udp-only.xml /etc/opendubs-fastdds-udp-only.xml
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+    FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml \
+    FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+
+# What actually went in, for the deploy audit: every package and its version.
+RUN dpkg-query -W -f='${Package}\t${Version}\n' > /opt/openarm-packages.tsv
+
+COPY entrypoint.sh /usr/local/bin/openarm-entrypoint
+ENTRYPOINT ["/usr/local/bin/openarm-entrypoint"]
+WORKDIR /openarm_ws/src
+CMD ["sleep", "infinity"]

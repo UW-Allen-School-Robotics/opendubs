@@ -4,18 +4,17 @@
 payload module speaks to the base — command/telemetry frame layout, transport, and presence and
 safety semantics.
 
-The encode/decode core is `firmware/comms/opendubs_can.h`, which is framework-free and compiles
-for the host as well as for both firmware targets; `firmware/comms/test/test_opendubs_can.cpp`
-exercises it:
+The encode/decode core is `firmware/comms/opendubs_can.h`. It is framework-free C++, so it builds
+on a host computer as well as on a microcontroller, and `firmware/comms/test/test_opendubs_can.cpp`
+exercises it on the host:
 
 ```sh
 cd firmware/comms/test
 g++ -std=c++17 -Wall -Wextra -I.. test_opendubs_can.cpp -o /tmp/test_opendubs_can && /tmp/test_opendubs_can
 ```
 
-**Neither firmware speaks it yet.** The Tab5 currently uses the ad-hoc IDs in
-`firmware/tab5_face/src/can_protocol.h` rather than this scheme, and no transport adapter is
-wired up. Replacing that is tracked work, not a documentation gap.
+**No firmware speaks it yet.** No firmware includes the header, and no transport adapter is wired
+up. Wiring it in is tracked work, not a documentation gap.
 
 This is the *protocol* only — how bytes are laid out and moved. It does not cover *sending and
 receiving* it (the transport adapter's concrete implementation), which is separate follow-on work.
@@ -117,16 +116,16 @@ isUp() -> bool
 
 ## Message catalog — module 1: lift (scissor lift)
 
-The only module type this spec is validated against (see [Non-goals](#non-goals)). Fields taken
-from the real controller model in
-`firmware/tab5_face/src/lift.h` — relay-pulse + ToF
-height sensing, not a PWM/position-servo lift.
+The only module type this spec is validated against (see [Non-goals](#non-goals)). The fields
+follow the lift driver the StamPLC runs, `ScissorRelayMast` in
+`firmware/rc_serial_probe/src/mast.h` — relay-pulse control and time-of-flight height sensing, not
+a PWM/position-servo lift.
 
 ### `LIFT_STATE` — `0x080`, module → base
 
 | Byte | Field | Notes |
 |---|---|---|
-| 0–1 | `heightMm` (u16, big-endian) | mm; matches `Snapshot.heightMm` (0–900 mm today) |
+| 0–1 | `heightMm` (u16, big-endian) | mm; the driver's `heightMm()` |
 | 2 | flags | bit0 `inhibit`, bit1 `atTop`, bit2 `atBot`, bit3 `tofOk`, bit4 `relayUpPulse`, bit5 `relayDnPulse`, bits6–7 `motion` (0=STOP/1=UP/2=DOWN) |
 | 3 | seq (u8) | increments per publish — lets the base detect drops/staleness (also doubles as this module's presence signal — see [Module presence](#module-presence-and-required-module-alerting)) |
 
@@ -227,8 +226,7 @@ happen to have been unwired until now.
   validation point for the schema's generality, not a currently-defined catalog.
 - **CAN wire adapter implementation, and send/receive plumbing generally.** This document
   specifies the protocol; implementing the transport adapters (the WiFi/UDP one now, CAN one
-  later) and wiring them into `firmware/tab5_face`'s `commsTask` and the StamPLC firmware is
-  separate follow-on work.
+  later) and wiring them into the firmware is separate follow-on work.
 
 ## See also
 

@@ -1,0 +1,104 @@
+Overlay patch, applied by build.sh after the pinned upstream commit is checked out.
+
+What:    integration with the real robot, and bug fixes.
+Source:  the teleop author's fork, https://github.com/EricJGoossen/mj_environment, 58f6a49c89c5..4f7ea40dbea1
+         (the fork's net change over the upstream commit repos.lock pins; code only --
+         .gitignore, .vscode and .github are left out).
+Author:  the teleop's author. MIT, as the upstream repository.
+Status:  to be offered upstream as a PR credited to its author, once they consent
+         (arms plan DEC-27). Delete this file when upstream has it.
+Check:   base + this patch == the fork's tree, file for file.
+
+diff --git a/src/mj_environment/environment.py b/src/mj_environment/environment.py
+index 57c606b..00e3060 100644
+--- a/src/mj_environment/environment.py
++++ b/src/mj_environment/environment.py
+@@ -362,6 +362,40 @@ def _build_scene_xml_string(self, base_scene_xml: str, scene_cfg: Dict[str, Any]
+ 
+         mujoco_el = Element("mujoco", {"model": "autogen_scene"})
+         abs_scene_path = os.path.abspath(base_scene_xml)
++
++        # Parse the base scene XML so we can collect any <asset> entries
++        # (meshes, textures) it declares. Many scenes use a compiler
++        # 'meshdir' to reference meshes; respect that when resolving files.
++        try:
++            base_tree = ETparse(base_scene_xml)
++            base_root = base_tree.getroot()
++        except Exception:
++            base_root = None
++
++        # Create the combined <asset> element first so base and object
++        # assets are aggregated into the same block.
++        asset_el = SubElement(mujoco_el, "asset")
++
++        # If the base scene has its own assets, copy them and load files
++        # into the assets_dict so mujoco can access them when compiling
++        # from an XML string.
++        base_meshdir = None
++        if base_root is not None:
++            compiler_el = base_root.find("compiler")
++            if compiler_el is not None:
++                base_meshdir = compiler_el.get("meshdir")
++
++            base_asset = base_root.find("asset")
++            if base_asset is not None:
++                for child in base_asset:
++                    # Do NOT copy the base scene's <asset> children into the
++                    # composed XML (that would duplicate materials/meshes when
++                    # we also include the base XML).  Instead, only load the
++                    # referenced files into assets_dict so mujoco can resolve
++                    # them when compiling the included XML.
++                    if child.tag == "mesh":
++                        self._load_asset_file(base_scene_xml, child, "file", assets_dict, base_meshdir)
++
+         SubElement(mujoco_el, "include", {"file": abs_scene_path})
+ 
+         # Robot-only scene: no objects to add
+@@ -373,8 +407,8 @@ def _build_scene_xml_string(self, base_scene_xml: str, scene_cfg: Dict[str, Any]
+         # Parse object XMLs once and cache them
+         parsed_objects = self._parse_object_xmls(scene_cfg)
+ 
+-        # Collect assets and mesh files from object XMLs
+-        asset_el = SubElement(mujoco_el, "asset")
++        # Collect assets and mesh files from object XMLs (appended to the
++        # same <asset> element we created earlier)
+         self._collect_object_assets(parsed_objects, asset_el, assets_dict)
+ 
+         # Add object instances to worldbody
+@@ -470,6 +504,7 @@ def _load_asset_file(
+         element: Element,
+         file_attr: str,
+         assets_dict: dict[str, bytes],
++        base_meshdir: Optional[str] = None,
+     ) -> None:
+         """
+         Load an asset file (mesh, texture, etc.) into the assets dictionary.
+@@ -487,12 +522,26 @@ def _load_asset_file(
+             return
+ 
+         obj_dir = os.path.dirname(xml_path)
+-        file_path = os.path.join(obj_dir, filename)
+ 
++        # If a base meshdir is provided (from a scene's <compiler meshdir="..">),
++        # try resolving the filename relative to that directory first.
++        tried: List[str] = []
++        if base_meshdir:
++            meshdir_path = os.path.join(obj_dir, base_meshdir)
++            candidate = os.path.join(meshdir_path, filename)
++            tried.append(candidate)
++            if os.path.exists(candidate):
++                with open(candidate, "rb") as f:
++                    assets_dict[filename] = f.read()
++                return
++
++        # Fallback: resolve relative to the XML file's directory
++        file_path = os.path.join(obj_dir, filename)
++        tried.append(file_path)
+         if not os.path.exists(file_path):
+             raise ConfigurationError(
+                 f"Asset file not found: {file_path}",
+-                hint=f"Check that files exist relative to {os.path.dirname(xml_path)}",
++                hint=f"Tried paths: {tried}. Check that files exist relative to {os.path.dirname(xml_path)}",
+             )
+         with open(file_path, "rb") as f:
+             assets_dict[filename] = f.read()

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compare what is RUNNING on a robot against what is in the repo.
 
-There is no deployment mechanism on this fleet: files are copied to the robots by hand,
-one at a time, usually in the middle of debugging something else. So the repo and the
-robots drift, silently, and the drift is only discovered when it breaks something.
+Files reach the robots through deploy-all.sh, deploy.sh and, too often, by hand in the middle of
+debugging something else. So the repo and the robots drift, silently, and the drift is only
+discovered when it breaks something. deploy-all.sh reads the PER_ROBOT list below
+(--rsync-protect), so the audit and the deploy agree on which files are a robot's own.
 
 It has already cost us. `platform = espressif32` was pinned to 7.0.1 in PR #9 on
 2026-09-01 because an unpinned platform breaks the M5StamPLC build; opendubs2 never
@@ -13,6 +14,7 @@ platform and broke the StamPLC build outright. The fix had been merged for a wee
     tools/deploy-audit.py <robot>              what differs, classified
     tools/deploy-audit.py <robot> --diff PATH  the actual difference for one file
     tools/deploy-audit.py --list               the mapping, no robot needed
+    tools/deploy-audit.py --rsync-protect DIR  rsync filters keeping DIR's per-robot files
 
 WHY NOT JUST RSYNC. Some deployed files are SUPPOSED to differ. Drive calibration,
 relay assignment and ESC spans are properties of an individual machine, discovered on
@@ -39,8 +41,6 @@ MAP = [
     ("firmware/rc_serial_probe/src",            "/opt/opendubs/rc_serial_probe/src",            SYNC),
     ("firmware/rc_serial_probe/src/main.cpp",   "/opt/opendubs/rc_serial_probe/src/main.cpp",   PER_ROBOT),
     ("firmware/rc_serial_probe/platformio.ini", "/opt/opendubs/rc_serial_probe/platformio.ini", PER_ROBOT),
-    ("firmware/tab5_face/src",                  "/opt/opendubs/tab5_face/src",                  SYNC),
-    ("firmware/tab5_face/platformio.ini",       "/opt/opendubs/tab5_face/platformio.ini",       SYNC),
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
@@ -119,7 +119,21 @@ def main():
     ap.add_argument("robot", nargs="?", help="ssh host, e.g. opendubs2")
     ap.add_argument("--diff", metavar="PATH", help="show the difference for one repo path")
     ap.add_argument("--list", action="store_true", help="print the mapping and exit")
+    ap.add_argument("--rsync-protect", metavar="DIR",
+                    help="print rsync filter rules that keep DIR's PER_ROBOT files and the "
+                         "robot-side backups from being overwritten or deleted (deploy-all.sh)")
     a = ap.parse_args()
+
+    if a.rsync_protect:
+        # One list, read by the audit AND by the deploy: a path marked PER_ROBOT here is never
+        # rsynced over. --exclude also shields the receiver's copy from --delete.
+        base = a.rsync_protect.rstrip("/") + "/"
+        for rel, _remote, kind in MAP:
+            if kind == PER_ROBOT and rel.startswith(base):
+                print(f"--exclude=/{rel[len(base):]}")
+        for part in (".bak", ".pre-", ".orig"):   # backups left mid-debug (see SKIP_PART)
+            print(f"--exclude=*{part}*")
+        return
 
     pairs = build_pairs()
 

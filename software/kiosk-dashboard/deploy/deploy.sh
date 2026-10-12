@@ -57,6 +57,11 @@ rsync -az --delete --filter 'P shows/audio/*' \
   --exclude '__pycache__' --exclude '*.pyc' --exclude 'MUJOCO_LOG.TXT' \
   "$CHOREO" "$HOST:$DEST_ROOT/choreo/"
 
+# deploy-all.sh calls this script and provisions everything itself afterwards.
+if [ -n "${OPENDUBS_SKIP_PROVISION:-}" ]; then
+  echo "== dashboard copied; provisioning left to the caller =="
+  exit 0
+fi
 echo "== running provisioning on $HOST =="
 ssh "$HOST" "sudo bash $DEST/deploy/provision.sh"
 

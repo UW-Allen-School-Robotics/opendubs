@@ -307,6 +307,182 @@ Three `openarm-up` defects fell out of running this on hardware, all fixed:
   a `SIGKILL`ed control node, so `start` refused as "already running" while `activate` failed with
   `rcl node's context is invalid`. That state is now named, with the fix (`down` first).
 
+## Amendment, 2026-10-09 — ADOPTED: self-healing arms, motion gated like the base, leases
+
+**Status: ADOPTED 2026-10-09 (arms plan DEC-28)** — the model, self-healing after an e-stop with no second human act, and the tablet ownership controls. **The maintenance lock is open (Q10)**, not rejected; see *Residual risks*. Phase 1 (A1 + A7) is under way; nothing reaches the robot without its own check. It
+carries out DEC-24 ("the arms follow the base's model"), which was decided but never built. The
+user's brief: the arms keep ending up in unready states or with disputed control, because
+*activation* has become the safety layer. Mode (MANUAL or AUTO) and the deadman or clutch should be
+the gate against **movement**. After a disruption the arms should heal themselves back to an
+activated, holding state. Ownership should be a lease that times out, and that a user can revoke.
+
+### The model in one paragraph
+
+An arm is **either holding or being moved under a live lease.** Energized and holding is the
+normal state, like the base's armed ESCs, and it is not "moving". Getting back to it after any
+disruption is automatic and motion-free: an e-stop, a power return, a CAN bus-off, a controller
+crash. Movement needs three things at once:
+- CH5 permitting the source's kind (MANUAL for a human, AUTO for a show or planner);
+- that source holding the arm's lease;
+- the source's own presence signal, renewing the lease: the teleop grip clutch, a show's deadman,
+  or a hold-to-run button.
+
+Lose any of the three and the arm returns to HOLD **at its measured pose**. Activation stops being
+a gate, because it no longer moves anything.
+
+### The states
+
+| State | Energized | Who commands | How it is entered | How it is left |
+|---|---|---|---|---|
+| `UNPOWERED` | no | nobody | the contactor opens (e-stop), or the motors go silent | automatically, when power returns: `RECOVERING` |
+| `RECOVERING` | ramping | the keeper | power returned, bus-off, controller crash, boot | `HOLD` on success; `FAULT` after its retries |
+| `HOLD` | yes, at the measured pose | nobody | recovery; every lease expiry, release or revocation; CH5 changing | a source acquires a lease |
+| `LEASED` (`TELEOP` / `AUTO` / `MANUAL-TOOL`) | yes | the lease holder | an acquire that CH5 permits | expiry, release, revocation or CH5: always to `HOLD` |
+| `FAULT` | no, or holding | nobody | a latched motor fault, a missing motor, recovery failing N times | one named action, then `RECOVERING` |
+| `OFF` (maintenance) | no, limp | nobody | an explicit DE-ENERGIZE (or the maintenance lock, if Q10 adopts it) | ACTIVATE (or releasing the lock): `RECOVERING` |
+
+`FAULT` is the only state that needs a person, and it names the action. Today's free-floating
+stuck states — "stack active over disabled motors", "links not ready", "already running" — all
+fold into `RECOVERING` and stop being visible to an operator, unless recovery fails.
+
+### Every stuck state seen so far, and what removes it
+
+| # | Stuck state (source) | Why it sticks today | Removed by |
+|---|---|---|---|
+| 1 | **The stack is "active" over disabled motors after a power loss** (F16) | Nothing notices that power came back. ACTIVATE fixes it now (#84), but only when pressed | The keeper sees "motors answering, none enabled, arm marked active" and recovers on its own |
+| 2 | **A dashboard restart fires a brief software e-stop** (F17, Q8) | When the motors drop, someone has to recover them | Recovery is automatic and motion-free, so a brief e-stop costs a few seconds of `RECOVERING`, not a visit. (Q8's grace period becomes optional) |
+| 3 | **A CAN link in BUS-OFF after an e-stop or a loose connector** (2026-10-09) | The link service sets no `restart-ms`; only a shell restart clears it | The keeper restarts a link that isn't `ERROR-ACTIVE` once power is present, with backoff. Phase 1 ships this inside `openarm-up activate` first |
+| 4 | **Recovery advice nobody can follow** (F18, F19: "de-energize what?", a hidden confirm tap) | Recovery was a human procedure | No procedure: recovery is the keeper's job. `FAULT` names its one action |
+| 5 | **Activation drives every joint to zero** (A1; today, handled joints would have swung up to 25°) | Recovery was itself a motion, so DEC-21 gated it on CH5 and it couldn't happen in OFF | **A1:** activation holds the measured pose. Then it isn't motion, needs no CH5, and can be automatic |
+| 6 | **A half-dead stack**: the launch process is alive and the control node dead, so `start` says "already running" and `activate` fails | Liveness was read from the wrong process | The keeper checks the controller manager itself, and restarts the stack when it's dead |
+| 7 | **An energized arm frozen away from stow can't be brought down without `park`** (motion, CH5-gated) | DOWN refuses to drop a loaded arm | Mostly gone: a frozen arm is just `HOLD`, which is normal. DOWN stays a maintenance action |
+| 8 | **Ownership kept after an abort**: the registry's `abort_all()` keeps the lease, so the same teleop can't re-acquire (*A verified gap*, above) | No expiry, and abort doesn't release | Leases expire, and our wrapper releases on abort itself (as *Open* already requires) |
+| 9 | **Teleop dead until someone presses START**: the bridge has `Restart=no`, and hard-fails in about 30 s without the gripper servers | A process lifecycle tied to a button | A4: the bridge always runs and waits for `HOLD`. Motion stays gated by CH5 and the clutch |
+| 10 | **Disputed control**: teleop, a show, the speed test, `park` and X/A homing can all write to an arm, kept apart only by procedure ("stop teleop first") | No arbiter across processes | One arbiter, the lease wrapper. A second writer is refused, and says who holds the arm |
+| 11 | **One arm op at a time, and slow** (ARM_OP_RUNNING 409; ACTIVATE takes 27 s, failures 123–144 s; F21) | Each step is a command-line call | The keeper is the long-running arm service of 0.12. Operators no longer start bring-up operations |
+| 12 | **A latched motor fault** (ARM_MOTOR_FAULT) needs a power cycle | Physical: the fault latches until power drops | Stays a `FAULT`, the one genuinely physical case, with its action named: cycle the e-stop. Then recovery is automatic |
+| 13 | **One motor silent under an active controller** (right J4 today) | Nothing reconciles per motor while running | The keeper's reconciliation: a missing motor makes the arm a `FAULT` (holding its other joints), never a silent half-arm |
+
+What it keeps, on purpose: the **fresh grip after a dropout or a CH5 change** (F14, DEC-23). It's
+the arm's version of the pinch guard's rule that every resumed descent is its own decision. It's
+not a stuck state, because it costs one squeeze and the page says so (0.13).
+
+### Activation becomes motion-free, and the keeper runs it
+
+**A1 is the prerequisite, and nothing below ships without it.** Upstream's hardware interface,
+enactic's `openarm_ros2`, enables each motor, steps it to 0 rad at production gains, and ramps both
+arms to zero over about 2 s. A1 changes it:
+1. read each joint's position over CAN;
+2. command exactly that position;
+3. ramp the stiffness up from zero over about 0.5 s.
+
+So a stale or wrong reading shows up as a soft pull, not a snap. Before the ramp it refuses to
+enable a joint whose commanded hold differs from a fresh read by more than about 1°. It lives as an
+overlay patch under DEC-27; it's ours to offer enactic later.
+
+**The keeper** reconciles, every 0.5 s, per arm. It is the long-running arm service 0.12 already
+calls for, holding its own controller-manager connection.
+
+| It observes | It does, motion-free |
+|---|---|
+| contactor closed (`[AUTH]`) and the link `BUS-OFF` or `ERROR-PASSIVE` | restart the link (backoff 1, 2, 4 … 30 s) |
+| link healthy, controller manager dead or unresponsive | restart the stack |
+| stack up, all 8 motors answering, the arm not holding | activate in HOLD (A1) |
+| fewer than 8 answering for more than about 2 s | `FAULT`, naming the ids; the other joints keep holding |
+| a motor reports a fault | `FAULT`, with "cycle the e-stop" |
+| contactor open | `UNPOWERED`; do nothing. Never touch a link that has no power behind it |
+
+**The human act after an e-stop stays the same as the base's: clearing the e-stop.** For the drive
+that's the only step. The arms then heal without a second action, which is the user's "back to an
+activated state".
+
+### Motion is gated like the base
+
+| Source | Lease kind | CH5 | Presence that renews the lease |
+|---|---|---|---|
+| WebXR teleop | `TELEOP` | MANUAL | the grip clutch, with tracking live (0.5 s) |
+| X/A home, `park` from the tablet | `MANUAL-TOOL` | MANUAL | hold-to-run: the button held |
+| shows, the speed test | `AUTO` | AUTO | the deadman (CH6) held, as shows require today |
+| planners, policies (later) | `AUTO` | AUTO | the deadman, or a decision recorded for unattended running |
+| (bench tests) | `MANUAL-TOOL` | MANUAL | hold-to-run |
+
+**DEC-21's amendment:** "nothing that moves an arm in OFF" stands unchanged. *Activation* leaves
+that list **once A1 is verified on the robot** (A1's done-when), because it no longer moves.
+Before then, DEC-21 applies exactly as today.
+
+**The pinch-guard consent** (`pinch-guard-consent.md`) is the lift's firmware guard and is not
+touched. Its principle carries over: resuming near a hazard is a fresh decision (the fresh grip),
+and the operator is told what the robot is waiting for (0.13's notices).
+
+### Ownership is a lease
+
+One arbiter per arm: **our wrapper around `OwnershipRegistry`**, as *Reconciling the two lease
+models* already decided. It is the only caller of `acquire` / `release`, and every writer goes
+through it: the teleop bridge, the show runner, `park`, homing and bench tools.
+
+- **A lease** carries a holder, a kind and an expiry. The holder renews it at least three times per
+  lease period: teleop every tick (the lease is 0.5 s, the tracking timeout); shows every 100 ms
+  (lease 0.5 s, like the 250 ms `MAST CMD` heartbeat); hold-to-run buttons on each repeat.
+- **Acquire** needs: `HOLD`, CH5 permitting the kind, no other holder.
+- **Expiry, release, a CH5 change, or `[AUTH]` going stale** → `HOLD` at the **measured** pose
+  (`stop_here`, DEC-23), never the last commanded target. A stream that outran the arm must not
+  carry it further. **A dropped lease never causes motion.**
+- **The tablet:** per arm, the holder and its kind, plus **RELEASE**: revoke, to `HOLD`. HOLD
+  BOTH stays the primary control. **TAKE OVER** is RELEASE followed by the requesting source's own
+  acquire, not a tablet that commands. The tablet is never a motion source.
+- **What GAZE's leases taught** (head protocol, 2026-10-08), as tests:
+  - judge motion, not replies: sample `/joint_states` at 50 Hz;
+  - **holds ownership:** no flapping while renewed;
+  - **after expiry:** every joint within 0.5° of where the lease left it, for the whole wait;
+  - **no jump:** no step faster than the joint's cap allows.
+
+  A lease is signed off on the robot by that check, with a person watching, never by `OK` replies.
+
+### What stays a safety layer, and what does not
+
+| Layer | Role |
+|---|---|
+| **The e-stop and the contactor** | removes arm power, in hardware, whatever the software does. Unchanged |
+| **CH5** | whether anything may move, and which kind of source may |
+| **Presence**: the clutch, the deadman, hold-to-run | omission stops motion, through lease expiry |
+| **The controller's trips** (torque, velocity, wrench) | unchanged |
+| **The lease** | arbitration with a fail-safe expiry, but the gate is CH5 plus presence |
+| ~~Activation~~ | **no longer a safety layer**, once A1 is verified |
+
+**Residual risks, stated:**
+- **Energized arms hold torque indefinitely**, measured 2026-10-02 with 0° drift in 18 s and no
+  motor watchdog. An arm that heals itself is energized more of the day: heat and current (A5),
+  and an arm that resists a hand.
+- **Self-healing while someone has their hands in the arm** is the new hazard. After an e-stop
+  for a mechanical fix, closing the contactor would stiffen the arm around the person's hand: in
+  place with A1, but stiff. **The maintenance lock that would cover it is open (Q10).** Until then,
+  three things cover it, and the rest is a risk the user accepts for now:
+  - **A deliberate DE-ENERGIZE is not a disruption** (decided under DEC-28). The keeper leaves an
+    arm the operator put in `OFF` alone until ACTIVATE. So "de-energize, then work on the arm" stays limp through e-stops
+    and power returns, short of a Thor reboot.
+  - **Clearing the e-stop is the act that re-energizes the arms**, exactly as it re-arms the drive.
+    The person clearing it decides that hands are clear. That's the base's rule, now stated for the
+    arms too.
+  - **With A1, healing never moves a joint.** The arm stiffens where it is, so the hazard is being
+    held, not being struck.
+
+  It isn't a blocker for phase 1, which adds no self-healing. Decide Q10 before phase 2's robot
+  check.
+- **A1 failing silently** (a stale position at activation) would be a jump. Hence the
+  read-compare-ramp, and A1's 0.5° done-when.
+- **The keeper is new code with authority over power state.** It may only ever do motion-free
+  things. Every action in its table is a link restart, a stack restart or an A1 activation, and
+  its tests assert no joint moves more than 0.5° across a full e-stop/restore cycle.
+
+### Cost, in phases
+
+| Phase | What | Gives | Roughly |
+|---|---|---|---|
+| **1 — ship first** | **A1** (activation holds the measured pose); **`openarm-up activate` restarts a bus-off link** before starting | most of the reliability: today's stuck states 3 and 5, and recovery without motion | 2–3 days at the desk, then one robot session (A1's done-when, with a person) |
+| 2 | **The keeper** (A2, A3, 0.12): automatic recovery to `HOLD` after power return, bus-off or a crash; bring-up at boot; `FAULT` naming its action; the maintenance lock only if Q10 adopts it; activation leaves DEC-21's list | stuck states 1, 2, 4, 6, 7, 11, 12, 13. No bring-up buttons in normal use (A6) | 1 week, plus 2 robot sessions (e-stop/restore ×10, boot ×10) |
+| 3 | **Leases**: the wrapper with expiry and the `[AUTH]` precondition; bridge, runner, `park` and homing through it; tablet RELEASE / TAKE OVER; the motion-sampled lease check | stuck states 8 and 10: disputed control | 1 week, plus a robot session |
+| 4 | **The bridge always runs** (A4) | stuck state 9 | small, after phase 2 |
+
 ## Open
 
 - **Report the abort-recovery gap upstream.** The mechanism and the evidence are in *A verified gap

@@ -15,6 +15,10 @@ answered on the robot's network could be mistaken for the head.
 
 A bench tablet on USB reaches it through `adb reverse tcp:8765 tcp:8765` and `adb reverse
 tcp:8766 tcp:8766`, which keeps it on localhost: a secure context, so the camera works.
+
+With OPENDUBS_FACE_FRAMES naming a file (choreography's face.sh sets it), the page also sends its
+picture, about 15 times a second and only when it changed, and this writes it there for the MuJoCo
+body twin's head (frame_tap.py; the same file the Tab5 desktop face writes). Unset, nothing is sent.
 """
 from __future__ import annotations
 
@@ -32,10 +36,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "head-protocol"))
 import websockets  # noqa: E402
 from fake_head import FakeHead  # noqa: E402
+from frame_tap import FrameFile, W as TAP_W, H as TAP_H  # noqa: E402
 
-pages: set = set()
+pages: dict = {}                                     # connected pages, oldest first
 waiting: dict = {}
 ids = itertools.count(1)
+FRAMES = os.environ.get("OPENDUBS_FACE_FRAMES")
+tap = None                                           # the FrameFile, opened on the first frame
 
 
 class FaceDoor(asyncio.DatagramProtocol):
@@ -56,7 +63,7 @@ class FaceDoor(asyncio.DatagramProtocol):
             i = next(ids)
             fut = asyncio.get_running_loop().create_future()
             waiting[i] = fut
-            await next(iter(pages)).send(json.dumps({"id": i, "line": line}))
+            await newest().send(json.dumps({"id": i, "line": line}))
             try:
                 reply = await asyncio.wait_for(fut, 0.4)
             except asyncio.TimeoutError:
@@ -66,16 +73,32 @@ class FaceDoor(asyncio.DatagramProtocol):
         self.t.sendto(reply.encode(), addr)
 
 
+def newest():
+    """The page the door talks to: the most recently connected. After a reload that is the live one,
+    and an old page's socket can outlive it for a while."""
+    return next(reversed(pages), None)
+
+
 async def page(ws):
-    pages.add(ws)
+    global tap
+    pages[ws] = True
+    if FRAMES:                                       # ask this page for its picture
+        await ws.send(json.dumps({"frames": {"w": TAP_W, "h": TAP_H, "fps": 15}}))
     try:
         async for m in ws:
+            if isinstance(m, bytes):                 # a frame: RGB, TAP_W x TAP_H, rows top to bottom
+                # One picture, from the page the door talks to: two pages (the tablet and a laptop
+                # browser) would otherwise interleave their frames in one file.
+                if FRAMES and ws is newest():
+                    tap = tap or FrameFile(FRAMES)
+                    tap.write(m)
+                continue
             msg = json.loads(m)
             fut = waiting.get(msg.get("id"))
             if fut and not fut.done():
                 fut.set_result(msg.get("reply", "ERR"))
     finally:
-        pages.discard(ws)
+        pages.pop(ws, None)
 
 
 async def neck_feed(neck):
@@ -114,6 +137,8 @@ async def main(a):
     async with websockets.serve(page, "127.0.0.1", a.ws):
         print(f"face page  http://127.0.0.1:{a.http}/?door=ws://127.0.0.1:{a.ws}&hud=1&state=SAFE_IDLE")
         print(f"face udp 127.0.0.1:{a.face}   neck udp 127.0.0.1:{neck.port} (reference)")
+        if FRAMES:
+            print(f"face frames -> {FRAMES} ({TAP_W}x{TAP_H}, for the body twin)")
         await neck_feed(neck)
 
 

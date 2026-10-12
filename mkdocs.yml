@@ -3,6 +3,11 @@ site_description: A low-cost, low-fabrication, open-source mobile robot
 repo_url: https://github.com/UW-Allen-School-Robotics/opendubs
 docs_dir: docs
 
+# A link to a heading that does not exist is only "info" by default, which let nine of them sit
+# unnoticed. As a warning it fails `mkdocs build --strict`, so CI catches the next one.
+validation:
+  anchors: warn
+
 theme:
   name: material
   # No Google Fonts: the robot serves its own copy of this site to a tablet that may have no
@@ -88,11 +93,11 @@ nav:
       - 11 · OTOS Module: build/otos.md
       - 12 · Battery Install: build/battery-install.md
       - 13 · Base Frame Final Assembly + Wiring: build/base-frame-final.md
-      - Upper Frame Assembly:
+      - Upper Frame Assembly (in development):
           - build/upper-frame.md
           - Right Upper Electronics Bay: build/upper-right-electronics-bay.md
       - Pinpoint Odometry: build/pinpoint.md
-      - Payload Modules:
+      - Payload Modules (in development):
           - Scissor Lift Module: build/scissor-lift.md
           - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
       - Lidar (Front & Rear): build/lidar.md
