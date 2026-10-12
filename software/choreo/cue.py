@@ -237,7 +237,7 @@ FACE_THEMES = ("plain", "none", "halloween")
 # skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
 # answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
 # reserved robot state (DEGRADED, E_STOP) always shows `default`.
-CODE_SKINS = ("default", "ring")
+CODE_SKINS = ("default", "ring", "fireworks")
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it
 # (firmware/rc_serial_probe/src/main.cpp). The firmware CLAMPS; the validator REJECTS, so an
