@@ -17,13 +17,24 @@ same direction from the robot's shoulder, the same fraction of the robot's reach
 WHAT IT DOES NOT DO. It proposes; nothing here moves an arm. The cues are ordinary IK targets, so
 ik.py solves them against the twin and the validator checks them like any hand-written cue —
 limits, speed caps, the head clearance, the robot's own body. A pose the robot cannot copy safely
-is REFUSED there, with the reason, never bent into something nearby. The person's elbow is not
-copied: the robot's arm is not a human arm, and the solver picks the elbow nearest the arm's pose
-at that moment. Copy the hand; judge the elbow in the twin.
+is REFUSED there, with the reason, never bent into something nearby. The elbow is copied as a
+secondary goal (see ARM SHAPE): the hand always wins, and an elbow the arm cannot match is reported
+with how far off it is.
 
 ARMS. `--arms left|right|both` (default both). Anatomical by default: the person's LEFT arm drives
 the robot's LEFT arm (ARM_L). `--mirror` swaps them, for a performer facing the robot as if in a
 mirror. `--point` proposes `point_at:` (aim the hand along the person's arm) instead of `reach:`.
+
+ARM SHAPE (default; `--no-elbows` for the hand only). Each cue also carries `elbow:`: the person's
+upper arm and forearm directions laid out from the robot's shoulder at the robot's own segment
+lengths, so a bent overhead arm stays bent overhead. The solver (ik.py) keeps the hand on its target
+and brings the elbow as near as the arm's spare freedom allows; how far it ends up is written as
+`elbow_off`, and the validator warns above 5 cm — a shape the arm cannot take is said, not hidden.
+
+UP (default `--frame gravity`): measured from gravity — a level camera's vertical — with only the
+facing taken from the body, because the robot's torso is upright: a level arm on a leaning dancer
+stays level. `--frame torso` measures against the person's torso instead. `--crop` chooses the
+subject when others are in frame (the pose model follows one person).
 
 TIMES. `--at WHEN` for an image; `--at VIDEO_SECONDS=WHEN` for a video, one per beat you want, where
 WHEN is `t:SECONDS` or `bar:BAR.BEAT` in the show. A video frame with no `=WHEN` lands at the same
@@ -46,6 +57,13 @@ sys.path[:0] = [HERE, os.path.join(HERE, "composer")]
 # meet, in the chassis frame, and the shoulder-to-tool-site length with the arm straight.
 ROBOT_SHOULDER = {"left": (0.423, 0.153, 1.055), "right": (0.423, -0.153, 1.055)}
 ROBOT_REACH_M = 0.616
+# The arm's two segments, measured in the twin the same way: the shoulder to the elbow joint (J4),
+# and the elbow joint to the tool site. Copying the arm's SHAPE scales each segment separately.
+UPPER_ARM_M = 0.222
+FOREARM_M = 0.398
+# MediaPipe's world landmarks are in the CAMERA's axes: x right, y DOWN, z away. With a level camera,
+# "up" is -y — gravity's up, which the robot's upright torso shares.
+CAMERA_UP = (0.0, -1.0, 0.0)
 MAX_EXTENSION = 0.95       # a fully straight arm is a singular pose; stop just short of it
 POINT_DISTANCE_M = 2.5     # a point_at target is put this far out along the person's arm
 MIN_VISIBILITY = 0.5       # MediaPipe's own confidence that a landmark is in view
@@ -66,16 +84,27 @@ def _np():
     return np
 
 
-def body_frame(lm: dict):
-    """The person's own axes as a 3x3 matrix whose ROWS are forward, left, up, in the landmarks'
-    frame. MediaPipe's world landmarks are metres in a right-handed camera frame (x right, y down,
-    z away from the camera); only the person's anatomy is used here, so any right-handed frame works."""
+def body_frame(lm: dict, frame: str = "gravity"):
+    """The person's axes as a 3x3 matrix whose ROWS are forward, left, up, in the landmarks' frame.
+
+    frame="gravity" (the default): UP is gravity's (a level camera's vertical), and only the FACING
+    comes from the body — the shoulders' line, made level. The robot's torso is upright, so an arm
+    held level by a leaning dancer is level on the robot too (found on a real photo: measured against
+    a torso leaning ~30°, a level arm came out raised ~30°).
+    frame="torso": the torso's own axes (up from the hips to the shoulders) — an arm is copied
+    relative to the body however it leans."""
     np = _np()
     left = np.asarray(lm["left_shoulder"]) - np.asarray(lm["right_shoulder"])
-    up = ((np.asarray(lm["left_shoulder"]) + np.asarray(lm["right_shoulder"])) / 2
-          - (np.asarray(lm["left_hip"]) + np.asarray(lm["right_hip"])) / 2)
+    if frame == "gravity":
+        up = np.asarray(CAMERA_UP, dtype=float)
+        left = left - up * (left @ up)           # the shoulders' line, made level
+        if np.linalg.norm(left) < 1e-6:
+            raise PoseError("the shoulders are one above the other: no facing to take")
+    else:
+        up = ((np.asarray(lm["left_shoulder"]) + np.asarray(lm["right_shoulder"])) / 2
+              - (np.asarray(lm["left_hip"]) + np.asarray(lm["right_hip"])) / 2)
     left = left / np.linalg.norm(left)
-    up = up - left * (up @ left)                 # square the torso up: shoulders may be tilted
+    up = up - left * (up @ left)                 # square the frame: shoulders may be tilted
     up = up / np.linalg.norm(up)
     fwd = np.cross(left, up)                     # x = y × z, so forward = left × up
     return np.vstack([fwd, left, up])
@@ -87,11 +116,11 @@ def hand_point(lm: dict, side: str):
     return (np.asarray(lm[f"{side}_wrist"]) + np.asarray(lm[f"{side}_index"]) + np.asarray(lm[f"{side}_pinky"])) / 3
 
 
-def arm_vector(lm: dict, side: str):
+def arm_vector(lm: dict, side: str, frame: str = "gravity"):
     """(unit direction in the person's body frame, extension 0..1) of one arm: shoulder to hand,
     as a fraction of that arm's own length (upper arm + forearm + wrist to hand)."""
     np = _np()
-    R = body_frame(lm)
+    R = body_frame(lm, frame)
     s, e, w = (np.asarray(lm[f"{side}_{k}"]) for k in ("shoulder", "elbow", "wrist"))
     h = hand_point(lm, side)
     length = np.linalg.norm(e - s) + np.linalg.norm(w - e) + np.linalg.norm(h - w)
@@ -111,6 +140,37 @@ def robot_target(direction, extension: float, robot_side: str, point: bool = Fal
     return [round(float(x), 3) for x in s + np.asarray(direction) * reach]
 
 
+def arm_shape(lm: dict, side: str, frame: str = "gravity"):
+    """(upper-arm direction, forearm direction) in the person's body frame, each a unit vector:
+    shoulder to elbow, and elbow to the middle of the hand."""
+    np = _np()
+    R = body_frame(lm, frame)
+    s, e = np.asarray(lm[f"{side}_shoulder"]), np.asarray(lm[f"{side}_elbow"])
+    h = hand_point(lm, side)
+    u, f = R @ (e - s), R @ (h - e)
+    if np.linalg.norm(u) < 1e-6 or np.linalg.norm(f) < 1e-6:
+        raise PoseError(f"the {side} arm has a segment of no length in this frame")
+    return u / np.linalg.norm(u), f / np.linalg.norm(f)
+
+
+def robot_shape(upper, fore, robot_side: str, point: bool = False):
+    """(hand target, elbow target) for the robot arm, chassis frame: the person's upper arm and
+    forearm directions laid out from the robot's shoulder at the robot's own segment lengths, so the
+    arm takes the same SHAPE. The hand stops short of a fully straight arm, a singular pose. With
+    `point`, the hand target becomes a point far out along the forearm."""
+    np = _np()
+    s = np.asarray(ROBOT_SHOULDER[robot_side])
+    elbow = s + np.asarray(upper) * UPPER_ARM_M
+    hand = elbow + np.asarray(fore) * FOREARM_M
+    d = hand - s
+    if np.linalg.norm(d) > MAX_EXTENSION * ROBOT_REACH_M:
+        hand = s + d / np.linalg.norm(d) * MAX_EXTENSION * ROBOT_REACH_M
+    if point:
+        hand = hand + np.asarray(fore) * POINT_DISTANCE_M
+    r = lambda v: [round(float(x), 3) for x in v]  # noqa: E731
+    return r(hand), r(elbow)
+
+
 def _when(cue: dict, when: str) -> dict:
     kind, _, val = when.partition(":")
     if kind == "t":
@@ -121,9 +181,11 @@ def _when(cue: dict, when: str) -> dict:
 
 
 def propose_cues(lm: dict, when: str, arms=("left", "right"), mirror=False, point=False,
-                 vis: dict | None = None) -> tuple[list, list]:
+                 vis: dict | None = None, elbows: bool = True, frame: str = "gravity") -> tuple[list, list]:
     """(cues, notes) for one frame's landmarks. A side whose shoulder, elbow or hand is out of view
-    is skipped with a note, never guessed."""
+    is skipped with a note, never guessed. With `elbows` (the default) each cue carries the arm's
+    SHAPE: `elbow:` beside `reach:` (or point_at:), the person's upper arm and forearm laid out at
+    the robot's segment lengths; without, only the hand is copied."""
     np = _np()
     cues, notes = [], []
     for person_side in ("left", "right"):
@@ -136,13 +198,22 @@ def propose_cues(lm: dict, when: str, arms=("left", "right"), mirror=False, poin
             notes.append(f"{when}: the person's {person_side} arm is not clearly in view "
                          f"({', '.join(low)}) — no cue for {SLOT[robot_side]}")
             continue
-        d, ext = arm_vector(lm, person_side)
-        if mirror:
-            d = d * np.array([1.0, -1.0, 1.0])   # a mirror image swaps left and right
-        tgt = robot_target(d, ext, robot_side, point)
-        cues.append(_when({"slot": SLOT[robot_side], ("point_at" if point else "reach"): tgt}, when))
-        notes.append(f"{when}: {SLOT[robot_side]} from the person's {person_side} arm — "
-                     f"{_describe(d)}, {ext:.0%} extended")
+        flip = np.array([1.0, -1.0, 1.0]) if mirror else np.ones(3)   # a mirror image swaps left and right
+        d, ext = arm_vector(lm, person_side, frame)
+        d = d * flip
+        mode = "point_at" if point else "reach"
+        if elbows:
+            upper, fore = (v * flip for v in arm_shape(lm, person_side, frame))
+            tgt, elbow = robot_shape(upper, fore, robot_side, point)
+            cues.append(_when({"slot": SLOT[robot_side], mode: tgt, "elbow": elbow}, when))
+            bend = float(np.degrees(np.arccos(np.clip(upper @ fore, -1.0, 1.0))))
+            notes.append(f"{when}: {SLOT[robot_side]} from the person's {person_side} arm — upper arm "
+                         f"{_describe(upper)[9:]}, elbow bent {bend:.0f}°, hand {_describe(d)[9:]}")
+        else:
+            tgt = robot_target(d, ext, robot_side, point)
+            cues.append(_when({"slot": SLOT[robot_side], mode: tgt}, when))
+            notes.append(f"{when}: {SLOT[robot_side]} from the person's {person_side} arm — "
+                         f"{_describe(d)}, {ext:.0%} extended")
     return cues, notes
 
 
@@ -232,6 +303,12 @@ def main() -> int:
     p.add_argument("--limits", default=os.environ.get("OPENDUBS_ARM_LIMITS", "/etc/opendubs/arm-limits/joint_limits.yaml"),
                    help="the arm limits ik.py solves within (with --into)")
     p.add_argument("--overlay", metavar="DIR", help="save each frame with the skeleton MediaPipe found, to check it")
+    p.add_argument("--frame", choices=("gravity", "torso"), default="gravity",
+                   help="'up' is gravity's (a level camera's vertical; default) or the person's torso")
+    p.add_argument("--no-elbows", action="store_true", help="copy the hand only, not the arm's shape")
+    p.add_argument("--crop", metavar="X0,Y0,X1,Y1",
+                   help="look for the person only inside this part of the image (fractions 0..1 of its "
+                        "width and height) — to choose the subject when others are in frame")
     a = ap.parse_args()
 
     import yaml
@@ -241,6 +318,14 @@ def main() -> int:
     if not is_video and len(ats) != 1:
         raise SystemExit("an image is one moment: give exactly one --at")
     frames = read_frames(a.ref, [vt for vt, _ in ats])
+    if a.crop:
+        try:
+            x0, y0, x1, y1 = (float(v) for v in a.crop.split(","))
+            assert 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1
+        except (ValueError, AssertionError):
+            raise SystemExit("--crop is X0,Y0,X1,Y1, fractions of the image with X0 < X1 and Y0 < Y1")
+        frames = [(vt, rgb[int(y0 * rgb.shape[0]):int(y1 * rgb.shape[0]), int(x0 * rgb.shape[1]):int(x1 * rgb.shape[1])].copy())
+                  for vt, rgb in frames]
     arms = ("left", "right") if a.arms == "both" else (a.arms,)
     pose = _detector()
     cues = []
@@ -253,7 +338,7 @@ def main() -> int:
         if a.overlay:
             os.makedirs(a.overlay, exist_ok=True)
             _overlay(rgb, res, os.path.join(a.overlay, f"{when.replace(':', '_')}.jpg"))
-        c, notes = propose_cues(lm, when, arms, a.mirror, a.point, vis)
+        c, notes = propose_cues(lm, when, arms, a.mirror, a.point, vis, elbows=not a.no_elbows, frame=a.frame)
         for n in notes:
             print("#", n, file=sys.stderr)
         cues += c

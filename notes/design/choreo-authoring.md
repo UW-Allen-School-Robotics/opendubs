@@ -99,8 +99,23 @@ robot; `--point` proposes `point_at:` along the person's arm instead.
 
 What it deliberately does not do:
 
-* **It does not copy the elbow.** The OpenArm is not a human arm; the solver picks the elbow nearest
-  where the show has the arm at that moment. Copy the hand, then judge the elbow in the twin.
+* **It copies the arm's SHAPE, the hand first** (decided by the user, 2026-10-11, after the first real
+  photo). Each cue carries `elbow:` beside `reach:`: the person's upper-arm and forearm directions
+  laid out from the robot's shoulder at the robot's own segment lengths (0.222 m to the elbow joint,
+  0.398 m on to the tool site). The solver keeps the hand on its target and brings the elbow as
+  near as the arm's spare freedom (its swivel) allows — a second task in the hand task's null space —
+  and writes how far it ended as `elbow_off`; above 5 cm the validator warns that the arm cannot take
+  that shape there. `--no-elbows` copies the hand only. Why: on a real photo, hand-only matched both
+  hands to 0.1 mm and still did not read as the pose — the solver hung both elbows low, and the
+  shape of a raised, bent arm is most of what makes a dance pose read.
+* **Up is gravity's** (`--frame gravity`, the default, also the user's decision): a level camera's
+  vertical, with only the facing taken from the body, because the robot's torso is upright. On the
+  same photo a level arm on a dancer leaning ~30° came out raised ~30° when measured against the
+  torso. `--frame torso` keeps that behaviour for a pose meant relative to the body.
+* **One image is one view.** A limb pointing toward or away from the camera is a depth estimate the
+  pose model guesses; on a dab photo the straight arm came out flatter and more forward than it
+  looks. A second view, or a short video, is the remedy — not the solver. `--crop` chooses the
+  subject when other people are in frame (the pose model follows one person).
 * **It does not bend a pose to fit.** The proposals are ordinary IK targets: `ik.py` solves them and
   the validator checks them, so a pose the robot cannot copy is refused with the reason. Measured
   on the twin: arms up (a "Y", overhead) are copied by folding the elbow; a hand reaching across the
