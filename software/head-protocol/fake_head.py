@@ -201,6 +201,10 @@ class FakeHead:
               (len(parts) == 1 or parts[1].replace(".", "", 1).isdigit()))
         return f"OK spin {parts[0].lower()}" if ok else "ERR spin COUNTER [hold_s] | TOGETHER | AUTO"
 
+    def do_move(self, a, _):
+        name = a.strip().lower()
+        return f"OK move {name}" if name in hp.MOVES else f"ERR move {name or '<name>'}"
+
     def do_voice(self, a, _):
         return "voice: off (reference head)"
 

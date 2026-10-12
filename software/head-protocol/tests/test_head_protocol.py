@@ -272,6 +272,12 @@ def test_the_web_face_speaks_the_same_vocabulary():
     assert themes == hp.THEMES_BUILT_IN, themes
 
 
+def test_the_moves_are_the_engines():
+    js = _src("software/face-web/engine/protocol.js")
+    line = next(l for l in js.splitlines() if l.startswith("export const MOVES"))
+    assert tuple(re.findall(r'"(\w+)"', line)) == hp.MOVES, line
+
+
 def test_the_code_skins_are_the_engines():
     js = _src("software/face-web/engine/skins/index.js")
     line = next(l for l in js.splitlines() if l.startswith("export const CODE_SKINS"))

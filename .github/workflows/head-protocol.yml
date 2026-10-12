@@ -15,6 +15,7 @@ on:
       - "firmware/tab5_idf/app_face/app_face.cpp"
       - "software/face-web/engine/vocab.js"
       - "software/face-web/engine/skins/index.js"
+      - "software/face-web/engine/protocol.js"
       - ".github/workflows/head-protocol.yml"
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - "firmware/tab5_idf/app_face/app_face.cpp"
       - "software/face-web/engine/vocab.js"
       - "software/face-web/engine/skins/index.js"
+      - "software/face-web/engine/protocol.js"
       - ".github/workflows/head-protocol.yml"
 
 permissions:

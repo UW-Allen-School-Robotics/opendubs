@@ -1,6 +1,6 @@
 # The head protocol
 
-**Status: version 3, 2026-10-11** — version 1 agreed with the Tab5 head lane; version 2 adds `SKIN` (tablet face only), agreed with the Choreography lane; version 3 adds `SPIN` (tablet face only), agreed with Face & HRI and Choreography. Tablet plan items 2.1 and 2.2
+**Status: version 4, 2026-10-11** — version 1 agreed with the Tab5 head lane; version 2 adds `SKIN` (tablet face only), agreed with the Choreography lane; version 3 adds `SPIN` (tablet face only), agreed with Face & HRI and Choreography; version 4 adds `MOVE` (tablet face only), proposed by Face & HRI for Choreography's shows. Tablet plan items 2.1 and 2.2
 ([`workplan-tablet.md`](../workplan-tablet.md)). The messages marked **shipping** are what the
 ESP-IDF Tab5 head answers today, read from its source on `main` (`d6d2e4c`). The four marked
 **new** — `TRACK`, `NECK`, `TOUCH`, `PARK` — and `kind=` in `PING` were **agreed with the Tab5 head
@@ -66,8 +66,21 @@ sender resolves the two in this order** (`software/kiosk-dashboard/backend/head.
 | `CFG <url>` | `OK …` / `ERR …` (a verdict) | shipping | Fetch an authored configuration (today: themes as palettes, per `face-config-data-model.md`). On the tablet head, "fetch this library item now". |
 | `SKIN <name>` | `OK skin <name>` / `ERR unknown skin <name> (showing default)` / `ERR skin <name>: <why> (showing default)` | **version 2, agreed** (with the Choreography lane, 2026-10-08), tablet face only | Which skin draws the eyes: a code skin — `default` (the standard eyes, an ordinary argument) or `ring` — or a library skin's id. Persistent, like `THEME`. **Never a blank face:** an unknown name, or a library skin whose file will not load, shows `default` and says so; `PING` then reports `skin=default skin_error=…`. A reserved state draws `default` whatever is set. A library skin may not use a code skin's name. The Tab5 answers `ERR unknown`. **An unknown name gets a second look first**: the face re-reads its library (at most every 2 s, for at most 250 ms) and shows the skin if it has just arrived, so a skin added after the face loaded is not reported unknown. |
 | `SPIN COUNTER [hold_s]` / `SPIN TOGETHER` / `SPIN AUTO` | `OK spin <counter\|together\|auto>` / `ERR spin COUNTER [hold_s] \| TOGETHER \| AUTO` | **version 3, agreed 2026-10-11** (with Face & HRI and Choreography), tablet face only | A spinning skin's **counter-rotation on a beat**. `COUNTER` breaks the eyes into opposite spins (held `hold_s`, or until `TOGETHER`, `AUTO` or the show's end); `TOGETHER` returns them; `AUTO` hands the schedule back to the library entry's `counter` block. **While a show holds it, the skin's random counter-spins are suppressed.** The **ease belongs to the skin** (`ease_s`, default 0.9 s) and cannot be set from the wire, so a show cannot make the reversal snap. **The cue's time is the zero crossing** — both eyes slow to a standstill together and spin up the other way, and that pause is what lands on the beat; the eyes reach it `ease_s / 2` after the line arrives (450 ms by default), so the runner sends it that much early. A skin that does not spin answers `OK` and does nothing. The Tab5 answers `ERR unknown`. |
+| `MOVE <name>` | `OK move <name>` / `ERR move <name>` | **version 4, agreed 2026-10-11** (proposed by Face & HRI, for Choreography's shows), tablet face only | A **one-shot gesture**: it plays, then the face returns to whatever emote is held. It does not touch `EMOTE`'s pin, so `EMOTE SOFT` then `MOVE wink_l` is a wink while soft, and `AUTO` is unaffected. Names, case-insensitive, answered lowercase: `wink_l`, `wink_r`, `blink2`, `look_l`, `look_r`, `roll`, `bob`, `sparkle`. **No parameters:** the face owns each move's timing, as a skin owns `SPIN`'s ease, so a show cannot make a gesture snap. **The cue's time is the move's peak** (a wink's lid fully shut, the bottom of a bob): the face publishes each move's offset from receipt to peak, **measured**, in the table below before it ships the move, and the runner sends the line that much early. A new `MOVE` **replaces** the one playing; it does not queue, so a run of beats stays predictable. An **unknown** name is `ERR move <name>`, so a typo in a show is loud; a **known** name a skin cannot draw (today `sparkle` on an asset skin) is `OK` and does nothing, so a show never fails because a different skin was chosen. Not a `CUE`: a cue says something happened and the face chooses how to react; a move says do this now. The Tab5 answers `ERR unknown`. |
 | `VOICE PRESS` / `RELEASE` / `STATUS` / `THOR <host> <port>` | `OK …` / a status line / `ERR VOICE {…}` | Tab5 only | Push-to-talk. Compiled into the twin, **out of the shipping image**, and **paused** (decided 2026-10-08). A tablet head answers `ERR unknown` until a voice decision says otherwise. |
 | `SIM LINK\|ESTOP\|PERSON\|TOF …` | `OK sim …` / `ERR SIM …` | twins only | Simulated inputs for the face twin. A real head refuses them rather than pretending. |
+
+
+**`MOVE` peak offsets** (receipt → peak, seconds; measured on the face engine, as `SPIN`'s 0.450 was). Empty until Face & HRI publishes each one; a move without a measured offset is not used on a beat.
+
+| move | peak | what peaks |
+|---|---|---|
+| `wink_l`, `wink_r` | — | that eye's lid fully shut |
+| `blink2` | — | the second blink's lids shut |
+| `look_l`, `look_r` | — | the gaze at its furthest |
+| `roll` | — | the eyes at the top of the roll |
+| `bob` | — | the bottom of the bob |
+| `sparkle` | — | the sparkle at its brightest (code skins only) |
 
 ## 4. Neck messages
 

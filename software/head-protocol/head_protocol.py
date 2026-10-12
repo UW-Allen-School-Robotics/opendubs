@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import re
 
-VERSION = 3                 # v2 adds SKIN, v3 adds SPIN (both tablet face only)
+VERSION = 4                 # v2 adds SKIN, v3 SPIN, v4 MOVE (all tablet face only)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
 STATES = ("INIT", "SAFE_IDLE", "MANUAL", "AUTONOMOUS", "DEGRADED", "E_STOP", "CHARGING")
 EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
+# One-shot gestures (v4, MOVE). The face owns each one's timing; §3 lists when each peaks.
+MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle")
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.
@@ -47,6 +49,7 @@ MESSAGES = {
     "CFG":     (FACE, "shipping"),
     "SKIN":    (FACE, "agreed"),        # v2, tablet face only
     "SPIN":    (FACE, "agreed"),        # v3, tablet face only
+    "MOVE":    (FACE, "agreed"),        # v4, tablet face only
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -66,7 +69,8 @@ NOT_YET_SHIPPING = ("new", "agreed")    # a head that should answer these but sa
 KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
-    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "REBOOT", "OTA"},
+    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "REBOOT",
+                    "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -122,5 +126,6 @@ REPLY = {
     "skin_unknown": re.compile(r"^ERR unknown skin \S+ \(showing default\)$"),
     "spin_ok":   re.compile(r"^OK spin (counter|together|auto)$"),
     "spin_err":  re.compile(r"^ERR spin "),
+    "move_err":  re.compile(r"^ERR move \S+$"),
     "unknown":   re.compile(r"^ERR unknown$"),
 }
