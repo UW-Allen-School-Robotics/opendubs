@@ -126,6 +126,16 @@ function settled(emote) {
   for (let t = 0; t < 4000 && !(f.woke && !f.blinking && f.lid.value < 0.2); t += 16) f.tick(t, 0.016);
   return f;
 }
+// Settling runs the face's own saccades, which are RANDOM, so the eyes end up looking somewhere
+// arbitrary. A move OFFSETS the gaze, so a drawn gaze is then that random base plus the move -- and
+// an assertion about the drawn value passes or fails on the draw of the dice. One did: `side_eye_l`
+// read -0.960 here and -0.443 on CI, which is not a bug, it is +0.307 of pre-existing gaze. Any
+// check on where the eyes END UP must start them from a known place.
+function stillAt(emote, x = 0, y = 0) {
+  const f = settled(emote);
+  f.gazeX.set(x, 0); f.gazeY.set(y, 0); f.gazeX.step(1); f.gazeY.step(1);
+  return f;
+}
 {
   const f = settled("SOFT");
   // Every piece of the face's own timing, not just its current values. A move that nudged
@@ -179,9 +189,7 @@ function settled(emote) {
   // `pull` ARRIVES. This is the claim that separates to_camera from every other move: wherever the
   // eyes were looking, it ends up on the viewer. Offsetting could not do that -- the landing place
   // would depend on where they started -- so the test starts them somewhere definite and far.
-  const f = settled("NEUTRAL");
-  f.gazeX.snap ? f.gazeX.snap(0.9) : (f.gazeX.set(0.9, 0), f.gazeX.step(1));
-  f.gazeY.set(0.4, 0); f.gazeY.step(1);
+  const f = stillAt("NEUTRAL", 0.9, 0.4);
   const away = f.eyes()[0].gazeX;
   f.move("to_camera", 0);
   f.stepMove(MOVES.to_camera.peak);
@@ -197,7 +205,7 @@ function settled(emote) {
 }
 {
   // `scale` widens the eye the emote shaped, corner radius with it, and puts it back.
-  const f = settled("NEUTRAL");
+  const f = stillAt("NEUTRAL");
   const before = f.eyes()[0];
   f.move("startle", 0);
   f.stepMove(MOVES.startle.peak);
@@ -214,7 +222,7 @@ function settled(emote) {
   // side_eye is a LOOK, not a turn: the lids come down while the gaze goes across. A pair, so the
   // two must be mirror images -- one of them silently not mirroring would be invisible until a show
   // glanced the wrong way at the wave.
-  const look = (name) => { const f = settled("NEUTRAL"); const b = f.eyes()[0];
+  const look = (name) => { const f = stillAt("NEUTRAL"); const b = f.eyes()[0];
     f.move(name, 0); f.stepMove(MOVES[name].peak); return { b, e: f.eyes()[0] }; };
   const L = look("side_eye_l"), R = look("side_eye_r");
   ok(L.e.gazeX < -0.5 && L.e.lid > L.b.lid + 0.2,
@@ -232,7 +240,7 @@ function settled(emote) {
 }
 {
   // double_take: away first, then back wide. The order is the gesture.
-  const f = settled("NEUTRAL");
+  const f = stillAt("NEUTRAL");
   f.move("double_take", 0);
   f.stepMove(260);                                   // during the look away
   const away = f.eyes()[0];
