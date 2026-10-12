@@ -367,6 +367,27 @@ show fell into it). And `release` is what it means: the show stops asserting a c
 robot's own state colour shows through again — the lighting world's *release*, which is not the
 same as blacking the light out (workplan 2.4).
 
+### Self-collision: the sweep and its stamp (the robot gate)
+
+A show that moves an arm carries, written by `software/choreo/sweep.py` (the composer runs it on
+every save):
+
+```yaml
+clearance: { min_mm: 38.9, at_s: 0.0, between: "… / …", checked_for: "<motion hash>@<model sig>" }
+```
+
+the closest any part of the robot came to any other over the WHOLE show — on motion.py's smoothed
+path, the one the robot plays — against the twin's collision model (arm–arm, arm–head, arm–body),
+with the head, lift and grippers where the show has them. The sweep samples every 80 ms and at every
+keyframe, then halves any interval where the joints moved enough to hide a dip below the threshold,
+so the minimum is bounded, not a sampling accident. The robot validates without MuJoCo: it recomputes
+the motion hash from the show and refuses an arm show whose stamp is missing, stale (any arm,
+gripper, head, lift or base change since) or under **30 mm** — the margin `ik.py` keeps for a solved
+target. A face, light or sound edit does not stale it. In the composer a missing or stale stamp is a
+warning until the save sweeps it; a measured collision is an error everywhere. Cost: about 0.5–2 s
+for the shows in this repository, up to ~10 s for a dense 2½-minute show; an unchanged show is not
+swept again.
+
 ### Valid is not the same as executable
 
 Some verbs above **have no receiver today**, and the validator says so as a *notice* (not a

@@ -14,6 +14,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 import runner as R  # noqa: E402
+R.REQUIRE_SWEEP = False      # these tests' throwaway shows are not about collisions (test_sweep.py is)
 
 SHOWS = os.path.join(HERE, "..", "shows")
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")

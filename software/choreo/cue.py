@@ -301,7 +301,7 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "themes", "palette", "timeline_notes"}
+            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance"}
 # Timeline notes (composer plan #5): requests to whoever edits the show next — often an agent —
 # anchored to a time range and optionally to slots. NON-EXECUTABLE: the runner never reads them, the
 # validator checks only their shape (as warnings: a typo in a note never stops a show), and they
@@ -327,6 +327,29 @@ NOT_EXECUTABLE = {
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
 }
+
+
+# ---- the self-collision sweep's stamp (sweep.py) — the robot gate ------------------------------
+# A show that moves an arm must carry `clearance:` from sweep.py: the closest any part of the robot
+# came to any other along the whole show, on the path the robot plays, for the show's motion AS IT
+# IS NOW (the motion hash). Required wherever a show meets the robot (require_sweep — the runner,
+# the composer, `cue.py validate`); at least SWEEP_MIN_MM or the show is refused.
+SWEEP_MIN_MM = 30.0
+SWEEP_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
+
+
+def motion_hash(events: list) -> str:
+    """A hash of everything that MOVES in an analysis — what the sweep checked. A face, a light or a
+    sound does not change it; any arm, gripper, head, lift or base change does."""
+    keep = []
+    for e in events:
+        if e.get("slot") not in SWEEP_SLOTS or e.get("bad"):
+            continue
+        keep.append([e["slot"], round(float(e.get("t", 0.0)), 4), round(float(e.get("start", e.get("t", 0.0))), 4),
+                     round(float(e.get("end", e.get("t", 0.0))), 4), _jsonable(e.get("pose")),
+                     {k: _jsonable(v) for k, v in (e.get("cue") or {}).items() if k not in ("solved_for",)}])
+    keep.sort(key=lambda r: (r[0], r[1], json.dumps(r[5], sort_keys=True, default=str)))
+    return hashlib.sha256(json.dumps(keep, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 def slot_requirements(slot: str) -> dict:
@@ -924,10 +947,35 @@ class Show:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
+        if getattr(self, "require_sweep", False) and used & {"ARM_L", "ARM_R"}:
+            for msg, fatal in self._check_sweep(events):
+                # "warn" (the composer while editing): a missing or stale stamp is a warning — saving
+                # sweeps it — but a measured collision is a problem everywhere
+                if fatal or self.require_sweep != "warn":
+                    P(Problem(msg))
+                else:
+                    warnings.append(Problem(msg + " (the composer sweeps it when you save)"))
         tnotes = self._timeline_notes(music, warnings.append)
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
                 "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets),
                 "timeline_notes": tnotes}
+
+    def _check_sweep(self, events) -> list:
+        st = self.doc.get("clearance")
+        how = "save it in the composer, or run `python3 sweep.py stamp <show>` (needs MuJoCo)"
+        """[(sentence, fatal)]: fatal is a MEASURED collision; the others say the stamp is missing or stale."""
+        if not isinstance(st, dict) or not st.get("checked_for"):
+            return [(f"this show moves the arms but has not been swept for collisions — {how}", False)]
+        if str(st["checked_for"]).split("@")[0] != motion_hash(events):
+            return [(f"the show's motion changed since it was swept for collisions — sweep it again: {how}", False)]
+        mm = st.get("min_mm")
+        if not _num(mm):
+            return [(f"clearance: min_mm must be a number — sweep it again: {how}", False)]
+        if float(mm) < SWEEP_MIN_MM:
+            return [(f"the robot comes within {float(mm):.0f} mm of itself at {st.get('at_s')} s "
+                     f"({st.get('between', 'two parts')}) — at least {SWEEP_MIN_MM:g} mm is required; change the "
+                     "motion there", True)]
+        return []
 
     def _timeline_notes(self, music, W) -> list:
         """The show's timeline notes, each resolved to seconds, or [] — their shape checked, as
@@ -1663,6 +1711,8 @@ def main():
     ap.add_argument("-o", "--out", help="export: write here instead of stdout")
     ap.add_argument("--allow-invalid", action="store_true",
                     help="export: write the timeline even if the show fails (valid: false)")
+    ap.add_argument("--no-sweep", action="store_true",
+                    help="do not require the self-collision stamp (sweep.py) the robot requires — desk work only")
     a = ap.parse_args()
 
     limits = load_limits(a.limits)
@@ -1676,7 +1726,9 @@ def main():
     if a.cmd == "export":
         if len(paths) != 1:
             sys.exit("export takes exactly one show")
-        tl = load_show(paths[0]).export(limits, a.limits)
+        show = load_show(paths[0])
+        show.require_sweep = not a.no_sweep
+        tl = show.export(limits, a.limits)
         if not tl["valid"] and not a.allow_invalid:
             for q in tl["problems"]:
                 print("FAIL:", q["msg"], file=sys.stderr)
@@ -1692,6 +1744,7 @@ def main():
     bad = 0
     for path in paths:
         show = load_show(path)
+        show.require_sweep = not a.no_sweep
         a_ = show.analyse(limits)
         problems = a_["problems"]
         dur = max((e.get("end", e["t"]) for e in a_["events"]), default=0.0)

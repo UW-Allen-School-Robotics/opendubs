@@ -50,6 +50,7 @@ markers:
   - { bar: "9.1", name: chorus }
   - { bar: "15.1", name: outro }
 
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "85284b5c976e@dc74e24f" }
 cues:
   # before the music: in seconds, because it is not about the music
   - { t: 0.0, slot: SOUND, do: play, sound: attend }

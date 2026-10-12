@@ -174,7 +174,8 @@ async function save() {
     S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha;
     setData(S.clip ? await api("api/analyse", { path: S.path, text: d.text, clip: S.clip }) : d);
     /* a show with reach/point_at targets is compiled on save: say what happened to them */
-    toast("saved " + S.path + (d.ik ? " — " + d.ik : ""), d.ik && d.ik !== "IK targets compiled" ? 8000 : 2000);
+    const extra = [d.ik, d.sweep].filter(Boolean).join(" · ");
+    toast("saved " + S.path + (extra ? " — " + extra : ""), /UNDER|not |refuse/.test(extra) ? 9000 : 2500);
     if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
   } catch (e) { toast(e.message, 5000); }
 }
