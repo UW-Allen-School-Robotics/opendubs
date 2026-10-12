@@ -75,6 +75,7 @@ class FakeArms:
         # What the fake controllers answer: slots whose arm goals are REJECTED, or never answered
         self.reject, self.silent = set(), set()
         self._events, self._seq = [], 0
+        self.ranges = None                         # {slot: [(lo, hi) signed deg] * 7}, as controller_ranges()
 
     def grips_ready(self):
         return list(self.grips_missing)
@@ -98,6 +99,9 @@ class FakeArms:
     def drain_events(self):
         out, self._events = self._events, []
         return out
+
+    def controller_ranges(self):
+        return self.ranges
 
     def cancel_all(self):
         self.cancelled += 1
@@ -220,6 +224,55 @@ class RosArms:
     def _event(self, **kw):
         with self.lock:
             self._events.append(kw)
+
+    def controller_ranges(self, timeout=3.0):
+        """The joint range each ARM CONTROLLER admits, {slot: [(lo, hi)] * 7} in signed degrees — read,
+        once, from the stack itself (Arms, 2026-10-12): the URDF limits in /robot_state_publisher's
+        robot_description, widened by each controller's joint_position_margin (a negative margin
+        widens). NOT the arm-limits file the validator uses, which is narrower. None if it cannot be
+        read: the runner then sends as before and says so."""
+        if hasattr(self, "_ranges"):
+            return self._ranges
+        self._ranges = None
+        try:
+            import xml.etree.ElementTree as ET
+            urdf = self._param("/robot_state_publisher", "robot_description", timeout)
+            if not urdf:
+                return None
+            limits = {j.get("name"): j.find("limit") for j in ET.fromstring(urdf).iter("joint")}
+            out = {}
+            for slot, side in ARM_SIDES.items():
+                margin = self._param(f"/{side}_controller", "joint_position_margin", timeout)
+                m = float(margin) if margin is not None else 0.0
+                rows = []
+                for name in joint_names(side):
+                    lim = limits.get(name)
+                    lo, hi = float(lim.get("lower")), float(lim.get("upper"))
+                    rows.append((math.degrees(lo + m), math.degrees(hi - m)))
+                out[slot] = rows
+            self._ranges = out
+        except Exception:  # noqa: BLE001  unreadable: no clamping, and the runner says so
+            self._ranges = None
+        return self._ranges
+
+    def _param(self, node, name, timeout):
+        from rcl_interfaces.srv import GetParameters
+        cli = self.node.create_client(GetParameters, f"{node}/get_parameters")
+        try:
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return None
+            req = GetParameters.Request()
+            req.names = [name]
+            fut = cli.call_async(req)
+            end = time.monotonic() + timeout
+            while not fut.done() and time.monotonic() < end:
+                time.sleep(0.02)
+            if not fut.done() or not fut.result().values:
+                return None
+            v = fut.result().values[0]
+            return {1: v.bool_value, 2: v.integer_value, 3: v.double_value, 4: v.string_value}.get(v.type)
+        finally:
+            self.node.destroy_client(cli)
 
     def drain_events(self):
         """What the controllers have said about our goals since the last call, oldest first: the

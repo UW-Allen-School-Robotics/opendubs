@@ -49,6 +49,7 @@ jobs:
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_arm_goals.py   # a rejected or unanswered arm goal ends the show
+      - run: python3 software/choreo/tests/test_hand_box.py   # hand_tcp against the arm controllers' workspace box
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
       - run: python3 software/choreo/tests/test_ik.py

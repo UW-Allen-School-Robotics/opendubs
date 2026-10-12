@@ -82,6 +82,32 @@ end, goals = run(AbortingArms())
 check("the arm's CURRENT goal aborted by its controller ends the show, with the controller's reason",
       end[0] == "ABORTED" and end[1] == "ARM_GOAL_ABORTED" and "path tolerance" in end[2], end)
 
+print("\nwaypoints into the controller's own joint range")
+# The controllers' admitted ranges (Arms, 2026-10-12: the URDF's limits widened 0.005 rad), signed degrees
+COMMON = [(-90.29, 90.29), (-0.29, 140.29), (-90.29, 90.29), (-45.29, 45.29), (-90.29, 90.29)]
+RANGES = {"ARM_L": [(-200.29, 80.29), (-190.29, 10.29)] + COMMON,
+          "ARM_R": [(-80.29, 200.29), (-10.29, 190.29)] + COMMON}
+
+
+def run_from(right_j4):
+    # J1 30 deg away too: a start-pose move long enough that its first waypoints still sit near J4's start
+    a = AO.FakeArms(measured={"ARM_L": [0.0] * 7, "ARM_R": [30.0, 0.0, 0.0, right_j4, 0.0, 0.0, 0.0]})
+    a.ranges = RANGES
+    sc, log = SimClock(), io.StringIO()
+    end = R.Runner(SHOW, LIMITS, R.FakeRobotState(), log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                   arms=a, live=True).run()
+    return end, a, log.getvalue()
+
+
+end, a, log = run_from(-0.4)        # an arm that hung limp: J4 rests a hair past its limit
+first_r = next(p for s, p in a.sent if s == "ARM_R")
+check("an arm resting 0.11 deg past its controller's J4 range: the start-pose waypoints are clamped in, "
+      "and the show runs", end[0] == "COMPLETED" and min(pt[1][3] for pt in first_r) >= -0.29 - 1e-9, end)
+check("... and the clamp is said, with how far", "clamped into the controller's range" in log and '"4": 0.109' in log)
+end, a, log = run_from(-2.0)
+check("2 deg outside: refused before anything is sent, naming the joint and the range",
+      end[0] == "REFUSED" and end[1] == "ARM_OUT_OF_RANGE" and "J4" in end[2] and not any(s == "ARM_R" for s, _ in a.sent), end)
+
 print()
 if FAILS:
     for f in FAILS:

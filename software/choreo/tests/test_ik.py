@@ -101,9 +101,14 @@ else:
     tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
     sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
     check("a hand raised overhead is solved INSIDE the validator's shoulder rules (fold the elbow past 135 deg)",
-          not p and tu["valid"] and len(sol) == 2
+          not p and len(sol) == 2
           and all(abs(q[2]) <= cue.SHOULDER_EXTENDED_MAX_DEG or q[4] >= cue.ELBOW_FOLD_MIN_DEG for q in sol),
-          (p, tu["problems"], sol))
+          (p, sol))
+    # ... but this high, the ARM CONTROLLERS' workspace box (hand_tcp z <= 1.2 m, tcp.py) refuses it —
+    # the robot would reject the whole goal (found at the robot 2026-10-12), so the validator does too
+    check("... and a hand this high is refused for the controllers' workspace box, and for nothing else",
+          not tu["valid"] and tu["problems"] and all("workspace box" in q["msg"] for q in tu["problems"]),
+          tu["problems"])
     far = os.path.join(tmp, "far.yaml")
     with open(far, "w") as fh:
         fh.write('id: far\nslots: [ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\n'
