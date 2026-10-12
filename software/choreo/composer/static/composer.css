@@ -249,3 +249,4 @@ button.danger { border-color: var(--bad); color: var(--bad); }
 #clipMsg { flex: 1; }
 button.on { border-color: var(--accent); color: var(--accent); }
 #tl, #heads { user-select: none; -webkit-user-select: none; }   /* shift-click selects cues, not text */
+#audioState { font-size: 11px; min-width: 0; white-space: nowrap; }
