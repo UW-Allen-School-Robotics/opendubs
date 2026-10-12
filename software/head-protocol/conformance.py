@@ -177,6 +177,11 @@ class Run:
         for line, want in (("SPIN COUNTER 2", "counter"), ("SPIN TOGETHER", "together"), ("SPIN AUTO", "auto")):
             self.expect(F, line, line, "SPIN", lambda r, w=want: r == f"OK spin {w}")
         self.expect(F, "SPIN <malformed>", "SPIN SIDEWAYS", "SPIN", lambda r: bool(hp.REPLY["spin_err"].match(r)))
+        # MOVE (v4): one-shot gestures. Every known name is OK on any skin (one it cannot draw does
+        # nothing); an unknown one is an error, so a typo in a show is loud.
+        for m in hp.MOVES:
+            self.expect(F, f"MOVE {m}", f"MOVE {m}", "MOVE", lambda r, m=m: r == f"OK move {m}")
+        self.expect(F, "MOVE <unknown name>", "MOVE no_such_move", "MOVE", lambda r: r == "ERR move no_such_move")
         back = getattr(self, "state_found", None)
         if back in hp.STATES:
             self.ask(F, f"STATE {back}")

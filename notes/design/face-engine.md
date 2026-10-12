@@ -146,6 +146,9 @@ Every skin — code, image, video, and later rigged SVG or Rive — is drawn fro
 | `widthMul`, `heightMul`, `roundness`, `browRaise`, `browAngle` | as the Tab5's emote table | the emote's shape, sprung, for skins that morph |
 | `colour` | RGB | the state colour |
 | `side` | left / right | which eye |
+| `sparkle` | 0 … 1, default 0 | a one-shot glint (`MOVE sparkle`, head protocol v4): 1 at its peak, decaying to 0 on its own and never held. **The one input a skin may ignore**: a skin that honours it adds a highlight scaled by it; one that does not draws as always, and since it is never held, no skin is left stuck lit. |
+
+Every input except `sparkle` is mandatory: a skin must respond to it. `MOVE`'s other gestures (winks, a bob, a roll) reach a skin only through these inputs — a per-eye `lid`, the eye's centre, the look — so they need no change to any skin.
 
 **A reserved state overrides any skin.** While the robot is `DEGRADED` or `E_STOP` the engine draws
 the default eyes in the state's own colour, whatever skin is set. A skin is decoration; "something is

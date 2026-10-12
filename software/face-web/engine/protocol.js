@@ -5,6 +5,8 @@
 import { EMOTES, CUES, THEMES } from "./vocab.js";
 
 export const ENGINE_VERSION = "0.1.0";
+// Head protocol v4's gestures, by their wire names (software/head-protocol/head_protocol.py MOVES).
+export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle"];
 
 export function handle(face, audio, line, now, skins) {
   const [verb, ...rest] = line.trim().split(" ");
@@ -52,6 +54,16 @@ export function handle(face, audio, line, now, skins) {
       const skin = skins && skins.current;
       if (skin && typeof skin.spin === "function") skin.spin(mode.toLowerCase(), hold === undefined ? null : Number(hold));
       return `OK spin ${mode.toLowerCase()}`;
+    }
+    case "MOVE": {
+      // Head protocol v4: a one-shot gesture, timed by the face (no parameters, so it cannot snap).
+      // Unknown names are loud; a known one a skin cannot draw is the face's to ignore, OK.
+      // Answered `ERR unknown` until the face can play moves at all, so conformance says PENDING.
+      if (typeof face.move !== "function") break;
+      const name = arg.trim().toLowerCase();
+      if (!MOVES.includes(name)) return `ERR move ${name || "<name>"}`;
+      face.move(name, now);
+      return `OK move ${name}`;
     }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";
