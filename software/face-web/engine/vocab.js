@@ -49,6 +49,20 @@ export const SHAPES = {
   PLEASED: { lu: 0.12, ll: 0.26, lc: -0.1, pu: 0.38, wm: 1.00, hm: 1.00 },
 };
 
+// PLEASED, to be picked by eye with `?pleased=`. The reviewed version "doesn't really read as
+// pleased", and the reason is in the sign, not the amount: its lidCurve was NEGATIVE (-0.1), and on
+// the lower lid a negative curve bows DOWNWARD -- away from a smile. A positive curve bulges the
+// lower lid up, which is the smile, and droops the upper lid, which is the squeeze that goes with
+// it. So all three below curve positively and all are more closed than the reviewed one.
+//
+// Aperture at the centre of the eye is 1 - lu - ll - 0.44*lidCurve (the lids' bowed edges meet in
+// the middle). The reviewed PLEASED left 0.66 of the eye open, which is why it read as neutral.
+export const PLEASED_VARIANTS = {
+  soft:     { lu: 0.16, ll: 0.28, lc: +0.45, pu: 0.37, wm: 1.00, hm: 1.00 },  // aperture 0.36
+  crescent: { lu: 0.16, ll: 0.34, lc: +0.75, pu: 0.38, wm: 1.00, hm: 1.00 },  // 0.17 -- the "^ ^"
+  deep:     { lu: 0.26, ll: 0.34, lc: +0.60, pu: 0.36, wm: 1.00, hm: 1.00 },  // 0.14 -- warmer, sleepier
+};
+
 export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 
 // Built-in themes: per-state colours for the states a theme may touch. Reserved states are absent

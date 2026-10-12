@@ -3,7 +3,7 @@
 // saccades and looks where it is told in the same way.
 
 import { Spring, Ease } from "./anim.js";
-import { STATES, EMOTES, SHAPES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
+import { STATES, EMOTES, SHAPES, PLEASED_VARIANTS, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
 
 export const DESIGN_W = 1280, DESIGN_H = 720;        // the Tab5's panel, the geometry's frame
 
@@ -28,6 +28,12 @@ export const PROTO = Q.get("eyes") || "";            // "", "shape" or "full"
 // thing, so nothing can be compared. Prototype wiring, and the same name the protocol uses.
 const PIN = (Q.get("emote") || "").toUpperCase();
 const QUOTES_ON = Q.get("quotes") !== "0";     // ?quotes=0 for a clean side-by-side
+
+// ?pleased=soft|crescent|deep swaps PLEASED's lids, so the three can be compared in three windows
+// without a rebuild. Without it, the version that was reviewed is shown unchanged.
+const PLEASED_V = Q.get("pleased");
+const SHAPE_TABLE = PLEASED_V && PLEASED_VARIANTS[PLEASED_V]
+  ? { ...SHAPES, PLEASED: PLEASED_VARIANTS[PLEASED_V] } : SHAPES;
 const SHAPE_MODE = PROTO === "shape" || PROTO === "full";
 const FULL_MODE  = PROTO === "full";
 
@@ -116,13 +122,13 @@ export class Face {
   // killed the render loop: the face froze mid-blink a few seconds after the page loaded. One rule
   // in one place, used by both.
   restingLid(name) {
-    const shape = SHAPE_MODE ? SHAPES[name] : null;
+    const shape = SHAPE_MODE ? SHAPE_TABLE[name] : null;
     if (shape) return shape.lu;
     return (EMOTES[name] ?? EMOTES.NEUTRAL)[3];
   }
   applyEmote(name) {
     const base = EMOTES[name];
-    const shape = SHAPE_MODE ? SHAPES[name] : null;
+    const shape = SHAPE_MODE ? SHAPE_TABLE[name] : null;
     // PLEASED exists only in SHAPES, so the baseline table may not have this name at all.
     if (!base && !shape) return;
     const [wm, hm, rf, lid, br, ba] = base ?? EMOTES.NEUTRAL;
