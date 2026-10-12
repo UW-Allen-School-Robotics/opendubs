@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- The audio lab page: served by audio_lab.py. NOT YET RUN ON THE TABLET. See audio_lab.py. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio lab</title>
+<style>
+  body { margin: 0; padding: 16px; background: #0b0d10; color: #d8dde3; font: 16px system-ui, sans-serif; }
+  button { font: inherit; padding: 10px 14px; margin: 4px 4px 4px 0; border-radius: 8px; border: 1px solid #445; background: #1a1f26; color: inherit; }
+  #rec { position: fixed; top: 12px; right: 12px; padding: 4px 10px; border-radius: 12px; background: #c0262d; color: #fff; font-weight: 700; display: none; }
+  pre { white-space: pre-wrap; background: #12161b; padding: 10px; border-radius: 8px; min-height: 8em; }
+  .v { color: #8fd18f } .bad { color: #f08a8a }
+</style>
+<div id="rec">● REC</div>
+<h1>Audio lab</h1>
+<p>Tablet ↔ Thor audio, measured before any speech model. Each test prints a verdict.</p>
+<button id="up-on">1. Uplink, echo cancellation ON</button>
+<button id="up-off">1b. Uplink, echo cancellation OFF</button>
+<button id="down">2. Downlink (streamed reply)</button>
+<button id="echo">3. Echo test (on, then off)</button>
+<button id="stop">Stop mic</button>
+<pre id="log"></pre>
+<script>
+"use strict";
+const log = (s, cls) => { const e = document.createElement("div"); if (cls) e.className = cls; e.textContent = s; document.getElementById("log").prepend(e); };
+const UP_RATE = 16000, FRAME = 320;            // 20 ms of 16 kHz mono
+let ctx, stream, node, ws, seq = 0, sent = new Map(), rtts = [], lastLevel = 0;
+
+// The REC dot is driven by the microphone track itself, never by a message: if the track is live,
+// the dot is on. This is the rule the study proposes for the face.
+function watchTrack(t) {
+  const show = () => { document.getElementById("rec").style.display = (t.readyState === "live" && t.enabled) ? "block" : "none"; };
+  t.addEventListener("ended", show); show(); setInterval(show, 250);
+}
+
+// Capture worklet: low-pass at 7 kHz, resample to 16 kHz, emit 20 ms Int16 frames and an RMS level.
+const WORKLET = `
+class Cap extends AudioWorkletProcessor {
+  constructor(o) { super(); this.ratio = sampleRate / ${UP_RATE}; this.pos = 0; this.out = new Int16Array(${FRAME}); this.n = 0;
+    const taps = 63, fc = 7000 / sampleRate; this.h = new Float32Array(taps); let s = 0;
+    for (let i = 0; i < taps; i++) { const m = i - (taps - 1) / 2, w = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (taps - 1));
+      this.h[i] = (m === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * m) / (Math.PI * m)) * w; s += this.h[i]; }
+    for (let i = 0; i < taps; i++) this.h[i] /= s; this.z = new Float32Array(taps); this.zi = 0; this.y = new Float32Array(0); }
+  process(inputs) { const x = inputs[0][0]; if (!x) return true;
+    const y = new Float32Array(x.length), h = this.h, z = this.z, T = h.length;
+    for (let i = 0; i < x.length; i++) { z[this.zi] = x[i]; let acc = 0, k = this.zi;
+      for (let j = 0; j < T; j++) { acc += h[j] * z[k]; k = k === 0 ? T - 1 : k - 1; } y[i] = acc; this.zi = (this.zi + 1) % T; }
+    let sum = 0;
+    for (; this.pos < y.length; this.pos += this.ratio) { const i = Math.floor(this.pos), f = this.pos - i;
+      const v = i + 1 < y.length ? y[i] * (1 - f) + y[i + 1] * f : y[i];
+      sum += v * v; this.out[this.n++] = Math.max(-32768, Math.min(32767, v * 32767));
+      if (this.n === ${FRAME}) { this.port.postMessage({ frame: this.out.slice(0) }); this.n = 0; } }
+    this.pos -= y.length; this.port.postMessage({ level: Math.sqrt(sum / Math.max(1, x.length / this.ratio)) }); return true; } }
+registerProcessor("cap", Cap);`;
+
+async function openMic(aec) {
+  await closeMic();
+  ctx = new AudioContext();
+  const c = { echoCancellation: aec, noiseSuppression: aec, autoGainControl: aec, channelCount: 1 };
+  stream = await navigator.mediaDevices.getUserMedia({ audio: c });
+  const t = stream.getAudioTracks()[0]; watchTrack(t);
+  log(`mic: context ${ctx.sampleRate} Hz; settings ${JSON.stringify(t.getSettings())}`);
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+  node = new AudioWorkletNode(ctx, "cap");
+  ctx.createMediaStreamSource(stream).connect(node);
+  node.port.onmessage = (e) => {
+    if (e.data.level !== undefined) { lastLevel = e.data.level; return; }
+    if (ws && ws.readyState === 1) {
+      const b = new ArrayBuffer(8 + FRAME * 2), dv = new DataView(b), now = performance.now();
+      dv.setUint32(0, seq, true); dv.setUint32(4, now >>> 0, true);
+      new Int16Array(b, 8).set(e.data.frame); sent.set(seq, now); seq++; ws.send(b);
+    }
+  };
+}
+async function closeMic() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ctx) await ctx.close();
+  stream = ctx = node = null;
+}
+function openWs() {
+  return new Promise((res, rej) => {
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/audio");
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => res(ws); ws.onerror = rej;
+    ws.onmessage = (e) => {
+      if (typeof e.data !== "string") return onReplyChunk(e.data);
+      const m = JSON.parse(e.data);
+      if (m.ack !== undefined && sent.has(m.ack)) { rtts.push(performance.now() - sent.get(m.ack)); sent.delete(m.ack); }
+      if (m.reply_done) onReplyDone();
+      if (m.error) log("server: " + m.error, "bad");
+    };
+  });
+}
+const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))] : NaN; };
+
+async function uplink(aec) {
+  await openMic(aec); if (!ws || ws.readyState !== 1) await openWs();
+  rtts = []; sent.clear(); seq = 0;
+  log(`uplink (AEC ${aec ? "on" : "off"}): sending 20 ms frames for 10 s…`);
+  await new Promise(r => setTimeout(r, 10000));
+  const lost = sent.size, n = rtts.length;
+  log(`uplink: ${n} frames acked (expected ~500), ${lost} unacked; ack round trip p50 ${pct(rtts, 50).toFixed(1)} ms, ` +
+      `p95 ${pct(rtts, 95).toFixed(1)} ms, max ${Math.max(...rtts).toFixed(1)} ms`,
+      (n > 450 && pct(rtts, 95) < 100) ? "v" : "bad");
+}
+
+// Downlink: schedule each 100 ms chunk right after the previous one; a chunk that arrives after its
+// slot has passed is a gap a listener hears.
+let play, tNext = 0, gaps = 0, chunks = 0;
+function onReplyChunk(buf) {
+  const pcm = new Int16Array(buf), ab = play.createBuffer(1, pcm.length, 24000), ch = ab.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = play.createBufferSource(); src.buffer = ab; src.connect(play.destination);
+  if (tNext < play.currentTime + 0.005) { if (chunks > 0) gaps++; tNext = play.currentTime + 0.12; }  // 120 ms jitter buffer
+  src.start(tNext); tNext += ab.duration; chunks++;
+}
+function onReplyDone() { log(`downlink: ${chunks} chunks of 100 ms, ${gaps} audible gaps (jitter buffer 120 ms)`, gaps ? "bad" : "v"); }
+async function downlink() {
+  if (!ws || ws.readyState !== 1) await openWs();
+  play = play || new AudioContext(); await play.resume(); tNext = 0; gaps = 0; chunks = 0;
+  log("downlink: asking for a 3 s streamed reply…"); ws.send("reply");
+}
+
+// Echo: what the mic hears of the robot's own output, through Web Audio (TTS) and through an
+// <audio> element (show music), with the canceller on and off. Reported as dB above the room.
+function noiseBuffer(c, secs) { const b = c.createBuffer(1, c.sampleRate * secs, c.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.3; return b; }
+function wavUrl(secs) { const r = 24000, n = r * secs, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+  const w = (o, s) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, r, true); v.setUint32(28, r * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, (Math.random() * 2 - 1) * 0.3 * 32767, true);
+  return URL.createObjectURL(new Blob([b], { type: "audio/wav" })); }
+async function meanLevel(ms) { const xs = []; const t0 = performance.now();
+  while (performance.now() - t0 < ms) { xs.push(lastLevel); await new Promise(r => setTimeout(r, 20)); }
+  return xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length); }
+const dB = (a, b) => 20 * Math.log10(Math.max(a, 1e-6) / Math.max(b, 1e-6));
+async function echoRun(aec) {
+  await openMic(aec); await new Promise(r => setTimeout(r, 800));
+  const room = await meanLevel(1000);
+  const src = ctx.createBufferSource(); src.buffer = noiseBuffer(ctx, 2); src.connect(ctx.destination); src.start();
+  await new Promise(r => setTimeout(r, 300)); const webaudio = await meanLevel(1500); await new Promise(r => setTimeout(r, 400));
+  const el = new Audio(wavUrl(2)); await el.play();
+  await new Promise(r => setTimeout(r, 300)); const media = await meanLevel(1500); await new Promise(r => setTimeout(r, 400));
+  return { room, webaudio: dB(webaudio, room), media: dB(media, room) };
+}
+async function echo() {
+  log("echo: keep the room quiet; the tablet will play two noise bursts twice (about 12 s)…");
+  const on = await echoRun(true), off = await echoRun(false);
+  log(`echo, canceller OFF: Web Audio ${off.webaudio.toFixed(1)} dB, <audio> ${off.media.toFixed(1)} dB above the room`);
+  log(`echo, canceller ON:  Web Audio ${on.webaudio.toFixed(1)} dB, <audio> ${on.media.toFixed(1)} dB above the room`);
+  const erleW = off.webaudio - on.webaudio, erleM = off.media - on.media;
+  log(`canceller removes ~${erleW.toFixed(1)} dB of TTS-path echo and ~${erleM.toFixed(1)} dB of music-path echo. ` +
+      `Above ~20 dB with the ON residue near the room: full duplex is plausible. Under ~10 dB: plan half-duplex.`,
+      (erleW > 20 && erleM > 20) ? "v" : "bad");
+  await closeMic();
+}
+
+document.getElementById("up-on").onclick = () => uplink(true).catch(e => log(String(e), "bad"));
+document.getElementById("up-off").onclick = () => uplink(false).catch(e => log(String(e), "bad"));
+document.getElementById("down").onclick = () => downlink().catch(e => log(String(e), "bad"));
+document.getElementById("echo").onclick = () => echo().catch(e => log(String(e), "bad"));
+document.getElementById("stop").onclick = () => closeMic();
+log(`secure context: ${window.isSecureContext}; mediaDevices: ${!!navigator.mediaDevices}; ` +
+    `AudioWorklet: ${typeof AudioWorkletNode !== "undefined"}; kiosk bridge: ${!!window.OpenDubsKiosk}`,
+    window.isSecureContext ? "v" : "bad");
+</script>
