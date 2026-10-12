@@ -15,7 +15,9 @@ WHAT THIS CAN COMMAND: by default nothing on the robot — its outputs are the t
 /api/twin the composer serves), so the MuJoCo and face twins play exactly what the runner decides.
 LIVE OUTPUT (workplan 5.6) is a separately armed binding: only with `--arms ros` on the robot, and
 only for a run the operator marks LIVE (the Shows page's switch, off again after every run), the
-real ARMS follow the routine (arm_output.py). Grippers, head, lift, light and dance stay twin-only. The robot's
+real ARMS follow the routine (arm_output.py); the grippers, the face and the head's pan/tilt as each is
+available; the LIFT (`--lift dashboard`) and the state LIGHT (`--light dashboard`), each armed separately
+(show_outputs.py). The base (DANCE) stays twin-only until the floor test. The robot's
 state comes from a provider: a fake, settable over HTTP, so every abort path can be exercised with
 no robot (--robot fake, the default); or, on the robot, the dashboard's own read-only view of it
 (--robot dashboard, plan 4.4c), so preflight and aborts answer to the real e-stop, CH5 and deadman
@@ -43,6 +45,7 @@ import library  # noqa: E402
 import grippers  # noqa: E402
 import cue  # noqa: E402
 import face_bridge  # noqa: E402
+import show_outputs  # noqa: E402
 
 # ---- status, after Spot's ChoreographyStatus; codes after BML's typed warnings (PA proposal 8) --
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
@@ -84,7 +87,8 @@ class FakeRobotState:
     def __init__(self, **kw):
         self.lock = threading.Lock()
         self.s = {"ch5": "AUTO", "deadman": True, "estop": False, "arms": "active",
-                  "tab5": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}}}
+                  "tab5": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}},
+                  "mast_operator_seq": 0}
         self.s.update(kw)
 
     def read(self) -> dict:
@@ -293,14 +297,15 @@ def _grip_target(c: dict, current=None):
 
 
 def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
-                 earcons: bool = True, grips_live: bool = False) -> list:
+                 earcons: bool = True, grips_live: bool = False, lift_live: bool = False,
+                 light_live: bool = False) -> list:
     """What a routine will do, for the operator before they tap it: [{"part", "live"}], one per part
     it moves or plays. `live` says whether THIS runner does it on the robot; the rest plays in the
     twin only. Today that is the arms (plan 5.6, when the runner has them), audio routed to the
     tablet (4.2), the face and the head's earcons (when the runner has the face), and the head's
     pan/tilt (when the runner has the gaze AND the head answers GAZE), the grippers (when this robot
-    has a gripper calibration, grippers.py — and with it, so does the runner); before that, calibration
-    (6.2), and the light, lift and base have no robot output yet. Read from the export when the show validates, else from its `slots:`."""
+    has a gripper calibration, grippers.py — and with it, so does the runner), and the lift and the
+    light when the runner is armed for them (--lift / --light dashboard). The base has no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
     out, seen = [], set()
@@ -323,6 +328,10 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
             live = gaze_live
         elif part == "grippers":
             live = grips_live
+        elif part == "lift":
+            live = lift_live
+        elif part == "light":
+            live = light_live
         else:
             live = False
         out.append({"part": part, "live": live})
@@ -366,7 +375,7 @@ class TwinFeed:
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
-                 arms=None, live=False, grips=None):
+                 arms=None, live=False, grips=None, lift=None, light=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # LIVE: the real arms follow this run. Only with an arm output AND the operator's LIVE mark.
         self.arms = arms
@@ -383,6 +392,10 @@ class Runner:
         # None sends no gripper cues. A close that STALLED (its goal aborted: something is in there)
         # is never re-sent on that side for the rest of the run.
         self.grips = grips if self.live else None
+        # The lift and the state light (show_outputs.py): each armed separately, a live run's only.
+        self.lift = lift if self.live else None
+        self.light = light if self.live else None
+        self._state = {}                          # the robot's state as last read, each tick
         self._grip_last = {}                      # slot -> 0..1 last sent
         self._grip_stalled = set()
         self._grip_closes = {}                    # slot -> ids of the close goals sent this run
@@ -446,6 +459,9 @@ class Runner:
 
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
+        for out in (self.lift, self.light):       # every end: the lift stops now, the light is released
+            if out is not None:
+                out.end()
         if self.live and status != COMPLETED and self._arms_moving:
             # Anything but running to the end: the arms hold where they are (ABORT_STATE). An e-stop
             # has already cut their power; cancelling costs nothing.
@@ -587,6 +603,8 @@ class Runner:
                     self.grips = None
                 else:
                     self._log("live", note="LIVE: the grippers follow this routine (calibrated per side)")
+        if self.lift is not None:
+            self.lift.start((self._state or self.robot.read()).get("mast_operator_seq"))
         events = sorted(((e["t"], slot, e["cue"]) for slot, evs in tl["tracks"].items() for e in evs),
                         key=lambda x: x[0])
         i = 0
@@ -599,7 +617,14 @@ class Runner:
                 self._log("cue", show_t=round(events[i][0], 3), slot=events[i][1], cue=events[i][2])
                 if self.grips is not None and events[i][1] in arm_output.GRIP_SIDES:
                     self._grip(events[i][1], events[i][2], events[i][0])
+                elif self.lift is not None and events[i][1] == "LIFT":
+                    self.lift.cue(events[i][2], self.clock(), events[i][0])
+                elif self.light is not None and events[i][1] == "LIGHT":
+                    self.light.cue(events[i][2], self.clock(), events[i][0])
                 i += 1
+            for out in (self.lift, self.light):
+                if out is not None:
+                    out.tick(self.clock(), self._state.get("mast_operator_seq"))
             self.feed.playhead(t, True, RUNNING)
             if t >= tl["duration_s"] and i >= len(events):
                 return self._end(COMPLETED, "COMPLETED", "the show ran to its end", t)
@@ -609,7 +634,8 @@ class Runner:
         self.feed.heartbeat()
         if self.stop_requested:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator", t)
-        end = monitor(show.requires or {}, self.robot.read())
+        self._state = self.robot.read()
+        end = monitor(show.requires or {}, self._state)
         if end:
             return self._end(*end, t)
         return None
@@ -630,9 +656,13 @@ class Palette:
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
                  clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None,
-                 local_shows=None):
+                 local_shows=None, dashboard=None, lift_live=False, light_live=False):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
         self.local_shows = local_shows
+        # The lift and the light (show_outputs.py), armed separately; both need a dashboard to speak to
+        self.dashboard = dashboard
+        self.lift_live = bool(lift_live and dashboard is not None)
+        self.light_live = bool(light_live and dashboard is not None)
         self.audio = audio or NullAudio()
         self.arms = arms                     # None: live output is not available on this runner
         self.face = face                     # face_bridge.LiveFace: live runs drive the real face
@@ -683,7 +713,9 @@ class Palette:
                                              gaze_live=(self.gaze is not None and self.arms is not None
                                                         and self.gaze.supported is True),
                                              earcons=self.face is None or self.face.earcons,
-                                             grips_live=self.arms is not None and _grips_calibrated())})
+                                             grips_live=self.arms is not None and _grips_calibrated(),
+                                             lift_live=self.arms is not None and self.lift_live,
+                                             light_live=self.arms is not None and self.light_live)})
         return sorted(out, key=lambda r: (r["order"], r["label"]))
 
     def status(self) -> dict:
@@ -720,9 +752,16 @@ class Palette:
                     if os.path.isfile(grippers.default_path()) and self.log:   # there, but malformed: say so
                         self.log.write(json.dumps({"wall": round(time.time(), 3), "kind": "live_error",
                                                    "error": f"gripper calibration: {e}"}) + "\n")
+            lift = light = None
+            if live:
+                note = lambda kind, **kw: runner._log(kind, **kw)   # noqa: E731  bound once runner exists
+                if self.lift_live:
+                    lift = show_outputs.LiftOutput(self.dashboard, lambda *a, **kw: note(*a, **kw))
+                if self.light_live:
+                    light = show_outputs.LightOutput(self.dashboard, lambda *a, **kw: note(*a, **kw))
             runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=live, grips=grips)
+                            audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light)
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
@@ -828,6 +867,10 @@ def main() -> int:
                    help="play all of the show's audio here (the show is re-checked against it)")
     pp = sub.add_parser("palette", help="serve the routine palette; the operator picks, it runs")
     pp.add_argument("shows", nargs="?", default=os.path.join(HERE, "shows"))
+    pp.add_argument("--lift", choices=("none", "dashboard"), default="none",
+                    help="dashboard: a live run moves the real lift through /api/mast (show_outputs.py)")
+    pp.add_argument("--light", choices=("none", "dashboard"), default="none",
+                    help="dashboard: a live run lays its colour over the state light (show_light.py)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
                     help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
                          "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
@@ -874,8 +917,11 @@ def main() -> int:
         if a.gaze != "none":
             gaze = face_bridge.LiveGaze(face_bridge.head_neck_host() if a.gaze == "auto" else a.gaze)
             gaze.probe()                     # release a crashed run's lease; learn whether GAZE exists
+        dash = (show_outputs.Dashboard(show_outputs.base_of(a.dashboard))
+                if "dashboard" in (a.lift, a.light) else None)
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
-                      local_shows=a.local_shows)
+                      local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
+                      light_live=a.light == "dashboard")
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "

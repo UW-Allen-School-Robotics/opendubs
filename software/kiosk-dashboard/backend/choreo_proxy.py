@@ -91,6 +91,23 @@ CH5_NAME = {"OFF": "STANDBY", "RC_MANUAL": "MANUAL", "AUTONOMOUS": "AUTO"}
 PROBE_MAX_AGE_S = 10.0     # an arms/head answer older than this is no answer
 
 
+# Every lift command an OPERATOR sends (a dashboard or head button: /api/mast without `by=show`)
+# counts here. A show's lift output stands down for the rest of its run when this moves — the
+# operator wins, as the RC stick does in the firmware.
+_mast_operator = {"seq": 0}
+_mast_lock = threading.Lock()
+
+
+def note_operator_mast() -> None:
+    with _mast_lock:
+        _mast_operator["seq"] += 1
+
+
+def operator_mast_seq() -> int:
+    with _mast_lock:
+        return _mast_operator["seq"]
+
+
 def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None) -> dict:
     """The runner's fields from the dashboard's robot-state rollup (`rs`), safety (`saf`) and RC
     link (`rc`). Pure, so the mapping is tested without a robot. None means UNKNOWN."""
@@ -112,6 +129,7 @@ def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None) -> dict:
         "arms": arms,
         "tab5": tab5,
         "arm_pose": {"ARM_L": {}, "ARM_R": {}},    # not measured yet: live output (5.6) must
+        "mast_operator_seq": operator_mast_seq(),
     }
 
 

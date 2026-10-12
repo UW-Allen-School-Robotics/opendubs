@@ -214,7 +214,7 @@ def stamplc_status() -> JSONResponse:
 
 
 @app.post("/api/mast/{cmd}")
-def mast_control(cmd: str) -> JSONResponse:
+def mast_control(cmd: str, by: str = "") -> JSONResponse:
     """Z-axis intent: up | down | stop.
 
     This is the ONLY way anything on the network moves the lift. It becomes `MAST CMD` on
@@ -223,11 +223,18 @@ def mast_control(cmd: str) -> JSONResponse:
     relays directly (as /api/relay used to allow) walks past every one of them.
 
     The command is an INTENT and the firmware expires it after 250 ms, so a caller has to
-    keep asking. That is deliberate: a caller that dies stops the lift."""
+    keep asking. That is deliberate: a caller that dies stops the lift.
+
+    `?by=show` marks the show runner's own commands. Every OTHER command is an operator's, and
+    is counted (choreo_proxy.note_operator_mast): a running show's lift output stands down when
+    an operator touches the lift — the operator wins, as the RC stick does."""
     import stamplc
     v = {"up": 1.0, "down": -1.0, "stop": 0.0}.get(cmd.lower())
     if v is None:
         return JSONResponse({"ok": False, "error": "use up|down|stop"}, status_code=400)
+    if by != "show":
+        import choreo_proxy
+        choreo_proxy.note_operator_mast()
     if not stamplc.reader.send(f"MAST CMD {v:.2f}"):
         return refuse("LINK_STAMPLC_LOST", "no link to the StamPLC — command not sent", 503)
     return JSONResponse({"ok": True, "mast": cmd.lower(), "v": v})
@@ -510,6 +517,9 @@ app.include_router(_choreo_router)
 # The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
 from library_serve import router as _library_router  # noqa: E402
 app.include_router(_library_router)
+
+from show_light import router as _show_light_router  # noqa: E402  a show's colour, layered (state_out.py)
+app.include_router(_show_light_router)
 
 # The tablet face: its door (/ws/face) and its page (/face/), from software/face-web beside this app
 # (/opt/opendubs/face-web on the robot, deploy.sh). Before the static mount, so neither is shadowed.

@@ -57,6 +57,7 @@ jobs:
       - run: python3 software/choreo/tests/test_face_moves.py   # MOVE: the peak on the beat, pinned to the face
       - run: python3 software/choreo/tests/test_library_sync.py   # against a fake robot folder, no ssh
       - run: python3 software/choreo/tests/test_show_sync.py   # the robot's own shows folder, a fake robot
+      - run: python3 software/choreo/tests/test_show_outputs.py   # the lift and the light on live runs, a fake dashboard
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml

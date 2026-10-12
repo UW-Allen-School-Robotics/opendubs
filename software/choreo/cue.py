@@ -337,9 +337,9 @@ NOT_EXECUTABLE = {
              "the robot (format 12); the distances shown use placeholder base speeds",
     "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
              "6.6): open loop, and the distances shown use placeholder base speeds",
-    "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
-             "every state change, so the runner must LAYER it before a show may (two writers "
-             "on one register otherwise)",
+    "LIGHT": "LIGHT plays on the robot only where the runner is armed for it (--light dashboard): "
+             "layered over the state colour by the dashboard, a reserved state always winning, and "
+             "colour changes closer than ~0.33 s merged (the strip shares the drive ESCs' I2C)",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
