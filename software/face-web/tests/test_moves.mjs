@@ -40,6 +40,11 @@ const READS = {
   roll:    { of: (o) => -o.gy,  nth: 1 },      // the top of the circle
   bob:     { of: (o) => o.dy,   nth: 1 },
   sparkle: { of: (o) => o.sparkle, nth: 1 },
+  side_eye_l:  { of: (o) => -o.gx,   nth: 1 },   // the glance, held
+  side_eye_r:  { of: (o) => o.gx,    nth: 1 },
+  to_camera:   { of: (o) => o.pull,  nth: 1 },   // fully on the viewer
+  double_take: { of: (o) => o.scale, nth: 1 },   // the SNAP back, not the look away
+  startle:     { of: (o) => o.scale, nth: 1 },
 };
 
 // Drive one move on a real Face and sample its contribution every millisecond.
@@ -121,6 +126,16 @@ function settled(emote) {
   for (let t = 0; t < 4000 && !(f.woke && !f.blinking && f.lid.value < 0.2); t += 16) f.tick(t, 0.016);
   return f;
 }
+// Settling runs the face's own saccades, which are RANDOM, so the eyes end up looking somewhere
+// arbitrary. A move OFFSETS the gaze, so a drawn gaze is then that random base plus the move -- and
+// an assertion about the drawn value passes or fails on the draw of the dice. One did: `side_eye_l`
+// read -0.960 here and -0.443 on CI, which is not a bug, it is +0.307 of pre-existing gaze. Any
+// check on where the eyes END UP must start them from a known place.
+function stillAt(emote, x = 0, y = 0) {
+  const f = settled(emote);
+  f.gazeX.set(x, 0); f.gazeY.set(y, 0); f.gazeX.step(1); f.gazeY.step(1);
+  return f;
+}
 {
   const f = settled("SOFT");
   // Every piece of the face's own timing, not just its current values. A move that nudged
@@ -164,6 +179,76 @@ function settled(emote) {
   for (let t = 0; t <= MOVES.sparkle.dur; t++) { f.stepMove(t);
     const v = f.mvOut.sparkle; hi = Math.max(hi, v); if (v < 0 || v > 1) worst = v; }
   ok(worst === 0 && hi === 1, "sparkle stays within 0..1 and reaches 1", `max ${hi}`);
+}
+
+// ---- 7b. the two new mechanisms actually reach the EYE ----------------------------------------
+// Everything above measures `mvOut`. These check what a skin is actually handed, because `scale`
+// and `pull` are the first contributions that are not simple offsets, and a move that computes a
+// beautiful curve nothing draws is worth nothing.
+{
+  // `pull` ARRIVES. This is the claim that separates to_camera from every other move: wherever the
+  // eyes were looking, it ends up on the viewer. Offsetting could not do that -- the landing place
+  // would depend on where they started -- so the test starts them somewhere definite and far.
+  const f = stillAt("NEUTRAL", 0.9, 0.4);
+  const away = f.eyes()[0].gazeX;
+  f.move("to_camera", 0);
+  f.stepMove(MOVES.to_camera.peak);
+  const [l, r] = f.eyes();
+  ok(Math.abs(away) > 0.5, "the eyes start well off centre", `gazeX ${away.toFixed(3)}`);
+  ok(Math.abs(l.gazeX) < 0.02 && Math.abs(l.gazeY) < 0.02 && Math.abs(r.gazeX) < 0.02,
+     "to_camera ARRIVES on the viewer, from wherever the eyes were",
+     `gazeX ${l.gazeX.toFixed(3)}, gazeY ${l.gazeY.toFixed(3)}`);
+
+  // and it lets go afterwards, rather than pinning the gaze to centre for ever
+  f.stepMove(MOVES.to_camera.dur + 1);
+  ok(Math.abs(f.eyes()[0].gazeX - away) < 1e-9, "and releases the gaze when it ends");
+}
+{
+  // `scale` widens the eye the emote shaped, corner radius with it, and puts it back.
+  const f = stillAt("NEUTRAL");
+  const before = f.eyes()[0];
+  f.move("startle", 0);
+  f.stepMove(MOVES.startle.peak);
+  const wide = f.eyes()[0];
+  ok(wide.w > before.w * 1.15 && wide.h > before.h * 1.15,
+     "startle widens the eye", `w ${before.w.toFixed(0)} -> ${wide.w.toFixed(0)}`);
+  ok(Math.abs(wide.radius / wide.h - before.radius / before.h) < 1e-9,
+     "and the corner radius grows with it, so it reads as bigger and not squarer");
+  ok(wide.lid <= before.lid, "and the lid opens rather than closing", `${before.lid.toFixed(3)} -> ${wide.lid.toFixed(3)}`);
+  f.stepMove(MOVES.startle.dur + 1);
+  ok(Math.abs(f.eyes()[0].w - before.w) < 1e-9, "and the eye returns to its size");
+}
+{
+  // side_eye is a LOOK, not a turn: the lids come down while the gaze goes across. A pair, so the
+  // two must be mirror images -- one of them silently not mirroring would be invisible until a show
+  // glanced the wrong way at the wave.
+  const look = (name) => { const f = stillAt("NEUTRAL"); const b = f.eyes()[0];
+    f.move(name, 0); f.stepMove(MOVES[name].peak); return { b, e: f.eyes()[0] }; };
+  const L = look("side_eye_l"), R = look("side_eye_r");
+  ok(L.e.gazeX < -0.5 && L.e.lid > L.b.lid + 0.2,
+     "side_eye_l glances across with the lids lowered",
+     `gazeX ${L.e.gazeX.toFixed(3)}, lid ${L.b.lid.toFixed(3)} -> ${L.e.lid.toFixed(3)}`);
+  // The mirror claim is about what the two moves CONTRIBUTE, not about where the eyes end up: a
+  // move offsets, so the drawn gaze also carries wherever the face was already looking, and
+  // comparing those two would fail on a face mid-saccade while nothing was wrong.
+  const contrib = (name) => { const f = new Face(); f.move(name, 0); f.stepMove(MOVES[name].peak); return f.mvOut; };
+  const cl = contrib("side_eye_l"), cr = contrib("side_eye_r");
+  ok(Math.abs(cl.gx + cr.gx) < 1e-12 && cl.gx < 0
+     && Math.abs(cl.lidL - cr.lidL) < 1e-12 && Math.abs(cl.lidR - cr.lidR) < 1e-12,
+     "side_eye_r contributes the exact mirror of side_eye_l, with the same lids",
+     `gx ${cl.gx.toFixed(3)} / ${cr.gx.toFixed(3)}, lid ${cl.lidL.toFixed(3)} / ${cr.lidL.toFixed(3)}`);
+}
+{
+  // double_take: away first, then back wide. The order is the gesture.
+  const f = stillAt("NEUTRAL");
+  f.move("double_take", 0);
+  f.stepMove(260);                                   // during the look away
+  const away = f.eyes()[0];
+  f.stepMove(MOVES.double_take.peak);                // at the snap
+  const back = f.eyes()[0];
+  ok(away.gazeX > 0.4 && Math.abs(back.gazeX) < 0.15 && back.w > away.w * 1.1,
+     "double_take looks away, then snaps back wide",
+     `away ${away.gazeX.toFixed(3)} -> back ${back.gazeX.toFixed(3)}, w x${(back.w / away.w).toFixed(2)}`);
 }
 
 // ---- 8. the table stays in the shape two OTHER lanes parse -------------------------------------

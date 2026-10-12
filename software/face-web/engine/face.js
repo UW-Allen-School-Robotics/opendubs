@@ -66,9 +66,31 @@ export const MOVES = {
   // Down then up: the eyes drop and come back, which reads as a bounce on the beat. In eye-heights.
   bob:     { dur: 460, peak: 138, f: (p) => ({ dy: 0.17 * pulse(p, 0.30, 0.06) }) },
   sparkle: { dur: 560, peak: 124, f: (p) => ({ sparkle: pulse(p, 0.22, 0.04) }) },
+  // A sideways glance with the lids half down -- the look, not a full turn of the eyes. A PAIR, as
+  // the winks are: the choreography glances both ways (the wave, the sway), and renaming once shows
+  // used a single `side_eye` would break them, so the pair is cheaper now than later.
+  side_eye_l: { dur: 900, peak: 198, f: (p) => { const g = pulse(p, 0.22, 0.42); return { gx: -0.75 * g, lidL: 0.30 * g, lidR: 0.30 * g }; } },
+  side_eye_r: { dur: 900, peak: 198, f: (p) => { const g = pulse(p, 0.22, 0.42); return { gx: +0.75 * g, lidL: 0.30 * g, lidR: 0.30 * g }; } },
+  // Straight out at the viewer, and HELD: the one move that arrives somewhere rather than nudging.
+  to_camera: { dur: 820, peak: 164, f: (p) => ({ pull: pulse(p, 0.20, 0.45) }) },
+  // Look, look away, then snap back wide-eyed. The gesture is the SNAP, so that is what it reads on.
+  double_take: { dur: 1150, peak: 632, f: (p) => { const a = clamp01(p / 0.45), b = clamp01((p - 0.45) / 0.55); return { gx: 0.70 * pulse(a, 0.25, 0.35) * (1 - ss(b * 2)), pull: ss(b * 2.2), scale: 0.16 * pulse(b, 0.18, 0.12) }; } },
+  // The eyes widen fast and settle. A show uses it for a hit; HRI uses it as a reaction, so it is
+  // deliberately short and needs nothing held afterwards.
+  startle: { dur: 700, peak: 84, f: (p) => { const g = pulse(p, 0.12, 0.10); return { scale: 0.22 * g, lidL: -0.5 * g, lidR: -0.5 * g }; } },
 };
 
-const NO_MOVE = { lidL: 0, lidR: 0, gx: 0, gy: 0, dy: 0, sparkle: 0 };
+// `scale` and `pull` are not new per-eye FIELDS: they change `w`, `h`, `radius` and the gaze the
+// eye object already carries, so every skin gets them with no change and `sparkle` is still the only
+// input a skin may ignore (face-engine.md A). That is what keeps "no new lid shapes" true -- these
+// four moves are the current geometry moved differently, not a new expression.
+//
+// WHY `pull` EXISTS. Every other move OFFSETS the gaze, which is right for a glance: it nudges the
+// eyes from wherever they are. But `to_camera` has to arrive at a PLACE -- straight out at the
+// viewer -- and an offset cannot do that, because where it lands depends on where the eyes happened
+// to be looking. `pull` lerps the gaze toward centre instead, so the eyes meet the viewer whether
+// they were wandering left, tracking a person, or already still.
+const NO_MOVE = { lidL: 0, lidR: 0, gx: 0, gy: 0, dy: 0, sparkle: 0, scale: 0, pull: 0 };
 
 export class Face {
   constructor() {
@@ -235,16 +257,20 @@ export class Face {
     return [0, 1].map((i) => ({
       side: i === 0 ? "left" : "right",
       cx: SLOT[i], cy: EYE_Y + m.dy * this.bodyH.value,
-      w: this.bodyW.value * (1 + (i === 0 ? -this.asym.value : this.asym.value)),
-      h: this.bodyH.value, radius: this.radius.value,
+      // `scale` widens the eye the emote already shaped, and the corner radius goes with it, or a
+      // widened eye reads as a squarer one rather than a bigger one.
+      w: this.bodyW.value * (1 + (i === 0 ? -this.asym.value : this.asym.value)) * (1 + m.scale),
+      h: this.bodyH.value * (1 + m.scale), radius: this.radius.value * (1 + m.scale),
       // A move adds to the lid rather than replacing it, so a wink during SLEEPY still shuts from
       // an already-low lid instead of snapping the eye open to wink it.
       lid: clamp01(this.lid.value + (i === 0 ? m.lidL : m.lidR)),
       browRaise: this.browRaise.value, browAngle: this.browAngle.value,
       // Likewise the gaze: a move nudges where the eyes already are. Clamped, so a look during a
       // saccade to the same side cannot leave the eye's range.
-      gazeX: clamp01((this.gazeX.value + m.gx + 1) / 2) * 2 - 1,
-      gazeY: clamp01((this.gazeY.value + m.gy + 1) / 2) * 2 - 1,
+      // `pull` draws the gaze toward centre before the offset, so `to_camera` lands on the viewer
+      // from wherever the eyes were, while every other move still just nudges.
+      gazeX: clamp01((this.gazeX.value * (1 - m.pull) + m.gx + 1) / 2) * 2 - 1,
+      gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + 1) / 2) * 2 - 1,
       sparkle: m.sparkle,       // 0..1, THE ONE FIELD A SKIN MAY IGNORE (face-engine.md A)
       colour, dim, rgb: c,
     }));

@@ -6,7 +6,7 @@ import { EMOTES, CUES, THEMES } from "./vocab.js";
 
 export const ENGINE_VERSION = "0.1.0";
 // Head protocol v4's gestures, by their wire names (software/head-protocol/head_protocol.py MOVES).
-export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle"];
+export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle"];
 
 export function handle(face, audio, line, now, skins) {
   const [verb, ...rest] = line.trim().split(" ");
