@@ -11,9 +11,10 @@
 
 import * as eyes from "./eyes.js";
 import * as ring from "./ring.js";
+import * as fireworks from "./fireworks.js";
 import { makeAssetSkin } from "./asset.js";
 
-export const CODE_SKINS = { default: eyes, ring };
+export const CODE_SKINS = { default: eyes, ring, fireworks };
 const ASSET_TYPES = ["image", "video"];
 
 export class Skins {
