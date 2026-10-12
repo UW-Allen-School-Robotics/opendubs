@@ -3,6 +3,7 @@
 # beside it, and the conformance suite with --active --motion (local only). Used by CI.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+python3 software/face-web/tests/test_frame_tap.py   # the body twin's picture (no ports, no page)
 FACE=${FACE_PORT:-14244}; NECK=${NECK_PORT:-14245}
 node software/face-web/tests/node_door.mjs "$FACE" & D=$!
 python3 software/head-protocol/fake_head.py --kind neck --port "$NECK" & N=$!
