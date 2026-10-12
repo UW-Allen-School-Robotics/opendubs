@@ -72,6 +72,9 @@ class FakeArms:
         self.grips, self.results = [], {}          # (slot, metres) sent; slot -> a goal's final status
         self.goal_status = {}                      # goal id -> that goal's own final status
         self.grips_missing = []                    # sides whose gripper controller is "not up"
+        # What the fake controllers answer: slots whose arm goals are REJECTED, or never answered
+        self.reject, self.silent = set(), set()
+        self._events, self._seq = [], 0
 
     def grips_ready(self):
         return list(self.grips_missing)
@@ -85,6 +88,16 @@ class FakeArms:
 
     def send(self, slot, points):
         self.sent.append((slot, points))
+        self._seq += 1
+        if slot in self.reject:
+            self._events.append({"goal": self._seq, "slot": slot, "event": "rejected"})
+        elif slot not in self.silent:
+            self._events.append({"goal": self._seq, "slot": slot, "event": "accepted"})
+        return self._seq
+
+    def drain_events(self):
+        out, self._events = self._events, []
+        return out
 
     def cancel_all(self):
         self.cancelled += 1
@@ -132,6 +145,7 @@ class RosArms:
         self._seq = 0
         self._goals = []
         self._gen = 0                  # bumped by cancel_all: a goal from an older generation is stale
+        self._events = []              # {goal, slot, event: accepted|rejected|result, ...}: the runner logs them
         self.node.create_subscription(JointState, "/joint_states", self._on_js, 10)
         ex = SingleThreadedExecutor()
         ex.add_node(self.node)
@@ -203,11 +217,25 @@ class RosArms:
             if self._latest.get(slot) == gid:
                 self.results[slot] = status
 
+    def _event(self, **kw):
+        with self.lock:
+            self._events.append(kw)
+
+    def drain_events(self):
+        """What the controllers have said about our goals since the last call, oldest first: the
+        runner logs every one, and ends the show on a rejection (the arms would not follow it)."""
+        with self.lock:
+            out, self._events = self._events, []
+        return out
+
     def _accepted(self, fut, gen, slot, gid):
         h = fut.result()
         if h is None or not h.accepted:
             self._record(slot, gid, "REJECTED")
+            # FollowJointTrajectory carries no reason on a rejection: the controller logs it
+            self._event(goal=gid, slot=slot, event="rejected")
             return
+        self._event(goal=gid, slot=slot, event="accepted")
         with self.lock:
             stale = gen != self._gen
             if not stale:
@@ -218,11 +246,16 @@ class RosArms:
             h.cancel_goal_async()
 
     def _done(self, fut, slot, gid):
+        err, msg = None, None
         try:
-            status = fut.result().status
+            res = fut.result()
+            status = res.status
+            err = getattr(res.result, "error_code", None)
+            msg = getattr(res.result, "error_string", None) or None
         except Exception:  # noqa: BLE001
             status = "UNKNOWN"
         self._record(slot, gid, status)
+        self._event(goal=gid, slot=slot, event="result", status=status, error_code=err, error=msg)
 
     def grips_ready(self):
         """The sides whose gripper controller is NOT up. Never blocks: the clients were made when the
