@@ -4,7 +4,7 @@
     python3 library_sync.py status opendubs2                      # what the robot has, each item verified
     python3 library_sync.py push opendubs2 my-song --dry-run      # what WOULD move, nothing moved
     python3 library_sync.py push opendubs2 my-song other-skin     # push these
-    python3 library_sync.py push opendubs2 --all                  # every item here
+    python3 library_sync.py push opendubs2 --all                  # every item here (except local_only)
     python3 library_sync.py push opendubs2 my-song --replace      # an item the robot has with OTHER content
     python3 library_sync.py delete opendubs2 old-song             # refused while a show there names it
 
@@ -286,7 +286,10 @@ def plan_push(local_root: str, ids: list, remote: dict, replace: bool) -> list:
             entry["bytes"] = library.item_bytes(f)       # the size travels with every entry
         row = {"id": item_id, "kind": e.get("kind"), "bytes": entry.get("bytes"), "entry": entry}
         problems = library.entry_problems(entry)
-        if not os.path.exists(f):
+        if e.get("local_only") is True:
+            row.update(action="refused", why="marked local_only: it stays on this computer and is never "
+                                             "pushed (take the flag off its index entry to push it)")
+        elif not os.path.exists(f):
             row.update(action="refused", why=f"its file {e.get('file')} is missing here")
         elif library.item_hash(f) != e.get("sha256"):
             row.update(action="refused", why="its file has changed since it was added here (hash differs) — "
@@ -316,7 +319,11 @@ def push(host: str, ids: list, everything: bool, local_root: str, root: str, pyt
     local_idx = library.load_index(local_root)
     if local_idx is None:
         raise SyncError(f"no library on this computer at {local_root}")
-    ids = sorted(local_idx) if everything else ids
+    if everything:
+        kept = sorted(i for i, e in local_idx.items() if e.get("local_only") is True)
+        ids = sorted(i for i in local_idx if i not in kept)
+        if kept:       # --all means "everything that may travel": said, not refused
+            out(f"  left out: {len(kept)} local_only item(s) — they stay on this computer")
     if not ids:
         raise SyncError("name the items to push, or --all")
     t = Target(host, root, python)

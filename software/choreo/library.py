@@ -13,11 +13,16 @@ test fixtures with made-up entries.
     python3 library.py migrate                         # fill `bytes` into entries made before it existed
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
         [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
-        [--duration S] [--width W --height H --fps F]
+        [--duration S] [--width W --height H --fps F] [--local-only]
 
 `add` COPIES the item into the library (songs/, clips/, skins/) and appends its entry, refusing one
 without a source and a licence. Durations and sizes are read with ffprobe when it is installed;
 otherwise pass them. The library root is OPENDUBS_LIBRARY, else /var/lib/opendubs/library.
+
+LOCAL ONLY. An entry marked `local_only: true` (`add --local-only`) stays on the computer it was
+added on: library_sync.py refuses to push it, by name or with --all, until the flag is taken off.
+For anything that must not travel by accident — a private photo, say — rather than relying on
+nobody typing --all.
 """
 from __future__ import annotations
 
@@ -124,6 +129,8 @@ def entry_problems(e: dict) -> list:
     missing = sorted((REQUIRED | REQUIRED_BY_KIND[kind]) - set(k for k, v in e.items() if v not in (None, "")))
     if missing:
         p.append(f"{e['id']!r}: missing {', '.join(missing)}")
+    if "local_only" in e and not isinstance(e["local_only"], bool):
+        p.append(f"{e['id']!r}: local_only must be true or false")
     if str(e.get("id", "")).lower() in CODE_SKIN_NAMES:
         p.append(f"{e['id']!r}: that name belongs to a skin the face draws in code — choose another")
     if kind == "skin":
@@ -532,6 +539,8 @@ def main() -> int:
     a.add_argument("--width", type=int)
     a.add_argument("--height", type=int)
     a.add_argument("--fps", type=float)
+    a.add_argument("--local-only", action="store_true",
+                   help="keep it on this computer: library_sync.py refuses to push it")
     args = ap.parse_args()
     if args.cmd == "check":
         p = check()
@@ -555,7 +564,8 @@ def main() -> int:
         params = dict(x.split("=", 1) for x in args.param if "=" in x) or None
         e = add(args.path, args.id, args.kind, args.source, args.licence, type=args.type, params=params,
                 inputs=[x for x in (args.inputs or "").split(",") if x],
-                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps)
+                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps,
+                local_only=True if args.local_only else None)
     except ValueError as err:
         print(f"refused: {err}")
         return 1

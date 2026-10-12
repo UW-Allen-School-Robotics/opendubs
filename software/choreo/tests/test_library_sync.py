@@ -133,6 +133,24 @@ check("... and replaced with it, verified",
       rc == 0 and "REPLACED" in out and robot_index()["tune-one"]["sha256"] == library.load_index(here_lib)["tune-one"]["sha256"]
       and robot_index()["tune-one"]["source"] == "made up for a test, take two", out)
 
+print("\nlibrary sync: local_only items never leave this computer")
+with open(os.path.join(src, "private.png"), "wb") as fh:
+    fh.write(b"a private picture, made up")
+library.add(os.path.join(src, "private.png"), "private-still", "skin", "made up for a test", "private", here_lib,
+            type="image", width=480, height=480, local_only=True)
+rc, out = push(["private-still"])
+check("a local_only item named for a push is refused, saying why, and nothing is sent",
+      rc == 1 and "local_only" in out and "private-still" not in robot_index(), out)
+rc, out = push(everything=True)
+check("--all leaves local_only items out, says so, and still pushes the rest",
+      rc == 0 and "left out: 1 local_only" in out and "private-still" not in robot_index(), out)
+idx = library.load_index(here_lib)
+idx["private-still"]["local_only"] = "yes"
+check("local_only must be a boolean (a string is a problem, not silently true)",
+      any("local_only must be true or false" in q for q in library.entry_problems(idx["private-still"])))
+idx["private-still"]["local_only"] = True
+library._write_index(here_lib, list(idx.values()))
+
 print("\nlibrary sync: the robot end checks what arrives")
 t = LS.Target(HOST, LS.REMOTE_ROOT, LS.REMOTE_PYTHON)
 e = dict(library.load_index(here_lib)["tune-two"], id="damaged", file="songs/damaged.wav")
