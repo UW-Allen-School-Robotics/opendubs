@@ -1,0 +1,26 @@
+diff --git a/config/openarm_impedance_controllers.yaml b/config/openarm_impedance_controllers.yaml
+index b713e27..8aeef98 100644
+--- a/config/openarm_impedance_controllers.yaml
++++ b/config/openarm_impedance_controllers.yaml
+@@ -43,7 +43,9 @@ left_controller:
+     # TCP workspace box (m, base frame). A goal is rejected whole if any
+     # waypoint's TCP falls outside. Set both to [] to disable the check.
+     cartesian_position_min: [-0.8, -0.8, 0.0]
+-    cartesian_position_max: [ 0.8,  0.8, 1.2]
++    # z raised from 1.2 to 1.30 m (OpenDubs overlay): arms-raised-overhead poses reach 1.27 m at
++    # hand_tcp. The box was never the head guard; there is no self-collision check.
++    cartesian_position_max: [ 0.8,  0.8, 1.30]
+ 
+     # Joint position limits are read from the URDF -- there is no override
+     # here. checkPoint() computes lo=q_lower_+margin, hi=q_upper_-margin,
+@@ -110,7 +112,9 @@ right_controller:
+     motor_gains_file: "../openarm_description/assets/robot/openarm_v1.0/config/arm/control_gains.yaml"
+ 
+     cartesian_position_min: [-0.8, -0.8, 0.0]
+-    cartesian_position_max: [ 0.8,  0.8, 1.2]
++    # z raised from 1.2 to 1.30 m (OpenDubs overlay): arms-raised-overhead poses reach 1.27 m at
++    # hand_tcp. The box was never the head guard; there is no self-collision check.
++    cartesian_position_max: [ 0.8,  0.8, 1.30]
+     joint_position_margin: -0.005
+ 
+     cartesian_velocity_limit: 0.0
