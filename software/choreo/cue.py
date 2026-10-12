@@ -729,7 +729,7 @@ class Show:
         warnings: list[Problem] = []   # pointed at a cue like a problem, but never invalidating
         notices: list[str] = []
         P = problems.append
-        self._unchecked_skins, self._skin_assets, self._lib = set(), {}, False
+        self._unchecked_skins, self._skin_assets, self._lib, self._lib_error = set(), {}, False, None
         self._unchecked_song = None
         self._grip_effort = False
 
@@ -957,6 +957,12 @@ class Show:
             notices.append("gripper `effort` has no physical effect on this robot: its grippers take a "
                            "position only, and how hard they squeeze is set by the calibrated closed "
                            "position (Arms lane, 2026-10-10)")
+        if self._lib_error and (self._unchecked_song or self._unchecked_skins):
+            # A library that is THERE but cannot be read: the runner would fail to find what the show
+            # plays — say so here, rather than let it pass as "no library on this machine"
+            P(Problem(f"the show library at {library.root()} cannot be read ({self._lib_error}) — this "
+                      "show plays from it; on the robot the runner reads it as its own user"))
+            self._unchecked_song, self._unchecked_skins = None, set()
         if self._unchecked_song:
             notices.append(f"no show library at {library.root()}: song {self._unchecked_song!r} is unchecked "
                            "here — the Thor checks it against its library before every run")
@@ -1051,8 +1057,8 @@ class Show:
         if self._lib is False:
             try:
                 self._lib = library.load_index()
-            except Exception:  # noqa: BLE001  an unreadable index is no index
-                self._lib = None
+            except Exception as e:  # noqa: BLE001  unreadable is NOT absent: said below, as a problem
+                self._lib, self._lib_error = None, f"{type(e).__name__}: {e}"
         return self._lib
 
     def earliest_time(self, limits: dict, slot: str, joints: dict, t_want: float,

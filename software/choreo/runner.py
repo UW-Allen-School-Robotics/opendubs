@@ -191,9 +191,15 @@ def audio_items(show, tl) -> tuple:
             skipped.append(f"music {m['file']} is not on this machine")
     elif m.get("song") and to_tablet:
         # A library song (plan 4.6): the dashboard serves the library's songs/ under media/library/.
-        e = (library.load_index() or {}).get(m["song"])
+        try:
+            idx, unreadable = library.load_index() or {}, None
+        except Exception as err:  # noqa: BLE001  audio trouble never stops a show (DEC-7)
+            idx, unreadable = {}, f"{type(err).__name__}: {err}"
+        e = idx.get(m["song"])
         f = e and os.path.join(library.root(), e.get("file", ""))
-        if e and e.get("kind") == "song" and os.path.isfile(f):
+        if unreadable:
+            skipped.append(f"the show library cannot be read ({unreadable}) — running without music")
+        elif e and e.get("kind") == "song" and os.path.isfile(f):
             items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music"})
         else:
             skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
@@ -770,7 +776,16 @@ class Palette:
             return {"started": rid, "live": runner.live}
 
     def _play(self, rid, runner):
-        status, code, cause, _ = runner.run()
+        try:
+            status, code, cause, _ = runner.run()
+        except Exception as e:  # noqa: BLE001  a crash is an end like any other: said, and everything stopped
+            import traceback
+            cause = f"the runner failed: {type(e).__name__}: {e}"
+            runner._log("runner_error", error=cause, trace=traceback.format_exc()[-2000:])
+            try:
+                status, code, cause, _ = runner._end(ABORTED, "RUNNER_ERROR", cause)
+            except Exception:  # noqa: BLE001
+                status, code = ABORTED, "RUNNER_ERROR"
         with self.lock:
             self.last = {"id": rid, "status": status, "code": code, "cause": cause}
         # FAKE robot only: a completed routine left the arms at rest, so the next one's start-pose
