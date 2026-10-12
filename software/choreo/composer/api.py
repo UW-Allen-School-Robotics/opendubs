@@ -14,6 +14,7 @@ choreo-teach-and-sync.md, not implemented.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import shutil
@@ -107,9 +108,12 @@ class Composer:
         return sorted(out, key=lambda x: x["path"])
 
     # ---- the validator in the loop ----------------------------------------------------------
-    def analyse(self, rel: str, text: str) -> dict:
+    def analyse(self, rel: str, text: str, clip: str | None = None) -> dict:
         """Parse + validate + resolve. Never raises on a bad show: a show being edited is
-        allowed to be wrong, and the editor's job is to say where."""
+        allowed to be wrong, and the editor's job is to say where. With `clip`, the timeline is that
+        clip's own, from its start (editing inside a clip)."""
+        if clip:
+            return self._analyse_clip(rel, text, clip)
         abspath = self._path(rel)
         out = {"path": rel, "text": text, "parse_error": None, "timeline": None,
                "authored": None, "cue_lines": None, "info": self.info()}
@@ -128,6 +132,7 @@ class Composer:
         with self._twin_lock:
             self._twin.update(rev=self._twin["rev"] + 1, path=rel, timeline=tl)
         out["authored"] = cue._jsonable(show.cues if isinstance(show.cues, list) else [])
+        out["clip_names"] = sorted(show.doc.get("clips") or {}) if isinstance(show.doc.get("clips"), dict) else []
         try:
             out["cue_lines"] = yamledit.cue_lines(text)
         except yamledit.EditError:
@@ -310,12 +315,107 @@ class Composer:
         except Exception as e:  # noqa: BLE001
             raise ApiError(f"could not build the prompt: {type(e).__name__}: {e}") from e
 
-    def edit(self, rel: str, text: str, edits: list) -> dict:
+    def edit(self, rel: str, text: str, edits: list, clip: str | None = None) -> dict:
         try:
             new = yamledit.apply(text, edits or [])
         except (yamledit.EditError, yaml.YAMLError, KeyError, ValueError, TypeError) as e:
             raise ApiError(f"edit refused: {e}") from e
-        return self.analyse(rel, new)
+        return self.analyse(rel, new, clip)
+
+    # ---- clips: make one from cues, edit inside one (the user's composer item #1) -----------
+    def _analyse_clip(self, rel: str, text: str, clip: str) -> dict:
+        """A clip on its own: its cues on the show's slots and beat grid, from the clip's start (beat
+        1 = t 0, no song under it). Edits made here go into the clip's own cue list."""
+        abspath = self._path(rel)
+        out = {"path": rel, "text": text, "parse_error": None, "timeline": None, "authored": None,
+               "cue_lines": None, "info": self.info(), "clip": clip}
+        try:
+            doc = yaml.safe_load(text)
+            body = (doc.get("clips") or {})[clip]
+        except (yaml.YAMLError, AttributeError, KeyError, TypeError):
+            out["parse_error"] = f"no clip {clip!r} in this show"
+            return out
+        music = dict(doc["music"], offset_s=0.0) if isinstance(doc.get("music"), dict) else None
+        if music:
+            music.pop("song", None)
+            music.pop("file", None)
+        sub = {"id": f"{doc.get('id', 'show')}--clip-{clip}", "name": f"clip {clip}",
+               "slots": doc.get("slots") or [], "requires": doc.get("requires") or {},
+               "cues": list(body.get("cues") or [])}
+        if music:
+            sub["music"] = music
+        show = cue.Show(sub, abspath)
+        try:
+            tl = show.export(self.limits, self.limits_path)
+        except Exception as e:  # noqa: BLE001
+            out["parse_error"] = f"the validator crashed on this clip: {type(e).__name__}: {e}"
+            return out
+        tl["show"]["source"] = rel
+        tl["clip"] = {"name": clip, **{k: body[k] for k in ("length_beats", "length_s") if k in body}}
+        out["timeline"] = tl
+        with self._twin_lock:                    # the twins preview the clip on its own
+            self._twin.update(rev=self._twin["rev"] + 1, path=rel, timeline=tl)
+        out["authored"] = cue._jsonable(sub["cues"])
+        try:
+            out["cue_lines"] = yamledit.cue_lines(text, clip)
+        except yamledit.EditError:
+            out["cue_lines"] = None
+        return out
+
+    def make_clip(self, rel: str, text: str, indices: list, name: str) -> dict:
+        """Turn some of the show's cues into a clip: their times become clip-local (beats when the show
+        has a beat grid), the clip is as long as they last, and ONE placement takes their place at the
+        first one's time, in the first one's own time form. One edit, so one undo."""
+        if not isinstance(name, str) or not yamledit.CLIP_NAME.fullmatch(name):
+            raise ApiError("a clip's name is letters, digits, - and _ (starting with a letter)")
+        a = self.analyse(rel, text)
+        tl = a["timeline"]
+        if tl is None:
+            raise ApiError("the show does not parse — fix it first")
+        doc = yaml.safe_load(text)
+        if name in (doc.get("clips") or {}):
+            raise ApiError(f"there is already a clip {name!r}", 409)
+        authored = doc.get("cues") or []
+        idx = sorted({int(i) for i in indices or []})
+        if not idx or any(not 0 <= i < len(authored) for i in idx):
+            raise ApiError("select the cues to make the clip from")
+        if any("clip" in authored[i] for i in idx):
+            raise ApiError("a clip cannot contain a clip (no nesting in this format)")
+        span = {}
+        for evs in tl["tracks"].values():
+            for e in evs:
+                i = (e.get("src") or {}).get("index")
+                if i in idx and not (e.get("src") or {}).get("clip"):
+                    t = e["t"] if e.get("kind") == "keyframe" else e.get("start", e["t"])
+                    lo, hi = span.get(i, (t, e.get("end", t)))
+                    span[i] = (min(lo, t), max(hi, e.get("end", t)))
+        if set(span) != set(idx):
+            raise ApiError("some of those cues do not resolve to a time (the validator's problems say why)")
+        t0 = min(v[0] for v in span.values())
+        end = max(v[1] for v in span.values())
+        m = tl.get("music")
+        first = min(idx, key=lambda i: span[i][0])
+        cues = []
+        for i in sorted(idx, key=lambda i: span[i][0]):
+            c = {k: v for k, v in authored[i].items() if k not in cue.TIME_KEYS}
+            if m:
+                b = round((span[i][0] - t0) / m["beat_s"] + 1, 4)
+                cues.append({"beat": int(b) if b == int(b) else b, **c})
+            else:
+                cues.append({"t": round(span[i][0] - t0, 3), **c})
+        if m:
+            # through the beat its last cue falls on (beat-demo's `nod`: cues on beats 1 and 2, 2 beats long),
+            # so a repeat starts after it, never on it
+            body = {"length_beats": int((end - t0) / m["beat_s"] + 1e-6) + 1, "cues": cues}
+        else:
+            body = {"length_s": max(0.5, round(end - t0, 3)), "cues": cues}
+        form = next(k for k in cue.TIME_KEYS if k in authored[first])
+        place = {form: authored[first][form], "clip": name}
+        edits = [{"op": "delete", "index": i} for i in sorted(idx, reverse=True)]
+        edits += [{"op": "clip_set", "name": name, "clip": body}, {"op": "add", "cue": place}]
+        out = self.edit(rel, text, edits)
+        out["made_clip"] = name
+        return out
 
     def save(self, rel: str, text: str) -> dict:
         """Write the text exactly as given. A show with VIOLATIONS may be saved — it is work in

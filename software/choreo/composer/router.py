@@ -50,11 +50,15 @@ def make_router(comp: "Composer"):
 
     @r.post("/api/analyse")
     def analyse(b: dict = Body(...)):
-        return _wrap(comp.analyse, b.get("path"), b.get("text") or "")
+        return _wrap(comp.analyse, b.get("path"), b.get("text") or "", b.get("clip"))
 
     @r.post("/api/edit")
     def edit(b: dict = Body(...)):
-        return _wrap(comp.edit, b.get("path"), b.get("text") or "", b.get("edits"))
+        return _wrap(comp.edit, b.get("path"), b.get("text") or "", b.get("edits"), b.get("clip"))
+
+    @r.post("/api/clip/make")
+    def make_clip(b: dict = Body(...)):
+        return _wrap(comp.make_clip, b.get("path"), b.get("text") or "", b.get("indices"), b.get("name"))
 
     @r.post("/api/save")
     def save(b: dict = Body(...)):

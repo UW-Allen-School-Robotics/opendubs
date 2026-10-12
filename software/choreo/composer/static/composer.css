@@ -241,3 +241,11 @@ ul.hist { list-style: none; margin: 0; padding: 0; } ul.hist li { padding: 4px 0
 .files .row2 { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
 .files input, .files select { min-height: var(--hit); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
 button.danger { border-color: var(--bad); color: var(--bad); }
+
+/* clip mode */
+#clipBar { flex-basis: 100%; display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: rgba(180, 140, 255, 0.15);
+  border-bottom: 1px solid var(--clip); }
+#clipBar[hidden] { display: none; }
+#clipMsg { flex: 1; }
+button.on { border-color: var(--accent); color: var(--accent); }
+#tl, #heads { user-select: none; -webkit-user-select: none; }   /* shift-click selects cues, not text */

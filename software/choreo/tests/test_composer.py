@@ -343,6 +343,53 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("\nclips: make one from cues, a new one, edit inside one (the user's item #1)")
+tmp = tempfile.mkdtemp()
+try:
+    shutil.copy(os.path.join(SHOWS, "beat-demo.yaml"), tmp)
+    comp = Composer(tmp, FIXTURE)
+    t = open(os.path.join(tmp, "beat-demo.yaml"), encoding="utf-8").read()
+    doc = yaml.safe_load(t)
+    heads = [i for i, c in enumerate(doc["cues"]) if c.get("slot") == "HEAD" and "clip" not in c][:3]
+    before = comp.analyse("beat-demo.yaml", t)["timeline"]
+    r = comp.make_clip("beat-demo.yaml", t, heads, "look_round")
+    d2 = yaml.safe_load(r["text"])
+    clip = d2["clips"]["look_round"]
+    places = [c for c in d2["cues"] if c.get("clip") == "look_round"]
+    ht = lambda tl: sorted((round(e["t"], 3), json.dumps(e["cue"], sort_keys=True)) for e in tl["tracks"]["HEAD"])
+    check("make a clip: the cues move into it (clip-local beats), one placement takes their place",
+          len(clip["cues"]) == len(heads) and clip["cues"][0]["beat"] == 1 and len(places) == 1
+          and len(d2["cues"]) == len(doc["cues"]) - len(heads) + 1, (clip, places))
+    check("... and the show plays exactly as before: every HEAD cue at the same time, still valid",
+          ht(r["timeline"]) == ht(before) and r["timeline"]["valid"], (ht(r["timeline"])[:4], ht(before)[:4]))
+    last_beat = max(c["beat"] for c in clip["cues"])
+    check("the clip runs through the beat its last cue is on (a repeat starts after it)",
+          clip["length_beats"] == int(last_beat), clip)
+    for bad, why in ((([heads[0]], "9bad"), "bad name"), (([heads[0]], "look_round"), "an existing name"),
+                     (([], "x"), "no cues"), (([next(i for i, c in enumerate(d2["cues"]) if c.get("clip"))], "nest"), "nesting")):
+        try:
+            comp.make_clip("beat-demo.yaml", r["text"] if why != "bad name" else t, *bad)
+            check(f"refused: {why}", False)
+        except ApiError:
+            check(f"refused: {why}", True)
+    cm = comp.analyse("beat-demo.yaml", r["text"], "look_round")
+    check("inside the clip: its own timeline, from its start, its length shown",
+          cm["clip"] == "look_round" and min(e["t"] for e in cm["timeline"]["tracks"]["HEAD"]) == 0.0
+          and cm["timeline"]["clip"]["length_beats"] == clip["length_beats"], cm["timeline"].get("clip"))
+    e2 = comp.edit("beat-demo.yaml", r["text"], [{"op": "add", "clip_name": "look_round", "cue": {"beat": 2.5, "slot": "HEAD", "pan": 120}}], "look_round")
+    d3 = yaml.safe_load(e2["text"])
+    check("an edit inside the clip goes into the clip's own cues, not the show's",
+          len(d3["clips"]["look_round"]["cues"]) == len(heads) + 1 and len(d3["cues"]) == len(d2["cues"])
+          and len(e2["timeline"]["tracks"]["HEAD"]) == len(heads) + 1, d3["clips"]["look_round"])
+    n = comp.edit("beat-demo.yaml", e2["text"], [{"op": "clip_set", "name": "fresh", "clip": {"length_beats": 4}}], None)
+    n2 = comp.edit("beat-demo.yaml", n["text"], [{"op": "add", "clip_name": "fresh", "cue": {"beat": 1, "slot": "HEAD", "tilt": 80}},
+                                                 {"op": "add", "cue": {"bar": "20.1", "clip": "fresh"}}], None)
+    check("a new empty clip takes its first cue, and a placement plays it — still valid",
+          yaml.safe_load(n2["text"])["clips"]["fresh"]["cues"] == [{"beat": 1, "slot": "HEAD", "tilt": 80}]
+          and n2["timeline"]["valid"] and "fresh" in n2["clip_names"], n2["timeline"]["problems"])
+finally:
+    shutil.rmtree(tmp)
+
 print("\nmusic: the library's songs, from the composer (plan 4.6)")
 import io  # noqa: E402
 import threading  # noqa: E402
