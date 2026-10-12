@@ -65,18 +65,42 @@ outbound with **no inbound hole needed.**
 | WAN → internal | **DROP new**; ESTABLISHED/RELATED only |
 | LAN-core → LAN-core | ALLOW (the ROS island) |
 | Admin (VPN peer) → LAN-core | ALLOW |
-| Guest → dashboard `:8080` (+ optional teleop / Foxglove read-only) | ALLOW (narrow allowlist) |
-| Guest → rest of LAN-core (ROS services, StamPLC, SSH) | **DENY** |
+| Guest → dashboard `:8080` / `:8443`, which includes ROS through `/rosbridge` (+ optional teleop / Foxglove read-only) | ALLOW (narrow allowlist) |
+| Guest → rest of LAN-core (direct ROS/DDS, StamPLC, SSH) | **DENY** |
 | Guest → internet | **DENY** (the uplink is for the robot, not a hotspot) |
 | Guest → Guest | DENY (client isolation) |
 
 ## Access control
 
-- **Users never touch robot internals** — only a defined application surface: the dashboard
-  (HTTP), an optional teleop endpoint, optional Foxglove read-only. ROS actuator services, StamPLC
-  command endpoints, and SSH stay LAN-only / admin-only.
+- **Users reach the robot through a defined application surface:** the dashboard (HTTP and
+  HTTPS), an optional teleop endpoint, and optional Foxglove read-only. **The dashboard includes
+  the ROS graph,** through its `/rosbridge` route ([below](#reaching-ros-from-a-laptop-or-an-app)),
+  so anyone who can reach the dashboard can read and publish ROS topics and call ROS services.
+  Direct DDS traffic, the StamPLC's command endpoints, and SSH stay LAN-only / admin-only.
 - **Cut-off is one action** — disable the guest SSID, revoke a VPN peer, flip a router firewall rule,
   or disable the dashboard's guest role — instantly, and fleet-wide if centrally managed.
+
+## Reaching ROS from a laptop or an app
+
+rosbridge, the WebSocket gateway to the robot's ROS graph, listens only on the robot itself
+(`127.0.0.1:9090`). Everything else reaches it through the dashboard's `/rosbridge` route, which
+relays each message unchanged:
+
+| Dashboard served over | rosbridge URL |
+|---|---|
+| HTTP, port 8080 | `ws://<robot>:8080/rosbridge` |
+| HTTPS, port 8443 | `wss://<robot>:8443/rosbridge` |
+
+The route checks the WebSocket handshake's `Origin` header:
+
+- **Native clients** — a Python script using roslibpy, a command-line tool, a native app — send no
+  `Origin`, and connect.
+- **Browser pages** must be served from the dashboard's own origin (the same host and port). A page
+  loaded from anywhere else is refused (close code 1008), because otherwise any web page a LAN user
+  opened could publish to the robot's topics.
+
+So a student web app talks to ROS by being served from the dashboard; a script or native app
+connects directly.
 
 ## Fleet (several robots)
 
@@ -89,10 +113,12 @@ outbound with **no inbound hole needed.**
 The baseline runs some services open on the trusted LAN. **Before exposing the robot to any
 untrusted user, close these:**
 
-1. **The dashboard has no authentication** (`uvicorn 0.0.0.0:8080`) — fine on a trusted LAN; **add
-   auth before any user-facing exposure.**
-2. **rosbridge (`:9090`) and Foxglove (`:8765`) bind `0.0.0.0` with no auth** — bind them to the LAN
-   interface and firewall them off the WAN.
+1. **The dashboard has no authentication** (`uvicorn 0.0.0.0:8080`), and dashboard access includes
+   ROS through `/rosbridge` — fine on a trusted LAN; **add auth before any user-facing exposure,**
+   and it then guards ROS too.
+2. **Foxglove (`:8765`) binds `0.0.0.0` with no auth** — bind it to the LAN interface and firewall
+   it off the WAN. rosbridge is reachable only through the dashboard
+   ([above](#reaching-ros-from-a-laptop-or-an-app)), so it is covered by item 1.
 3. **Default-deny inbound at the router WAN** — the robot initiates outbound only (updates, NTP, VPN
    dial-out); ROS / DDS / StamPLC are never WAN-reachable.
 
