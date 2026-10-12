@@ -454,7 +454,7 @@ CAL = G.load(os.path.join(HERE, "gripper_calibration_fixture.yaml"))
 
 
 def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=None, missing=(), late=None,
-              fail=False):
+              fail=False, fingers=None):
     robot = R.FakeRobotState()
     sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
     log = io.StringIO()
@@ -463,6 +463,8 @@ def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=N
               + "".join(f"  - {c}\n" for c in show_text_cues))
     tmp.close()
     arms = AO.FakeArms()
+    if fingers is not None:
+        arms.fingers = dict(fingers)
     if missing:
         arms.grips_missing = list(missing)
     if results is not None or late or fail:
@@ -510,6 +512,24 @@ end, arms, lines = run_grips(cues3, late=[6, 4, 4, 4])     # the close's stall l
 check("... even when the stall arrives late, after an open went out (judged on the close goal's own result)",
       arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.04)]
       and any("STALLED" in x.get("note", "") for x in lines), arms.grips)
+# Contact is judged by where the fingers STOPPED: the controllers report a close onto an object as
+# SUCCEEDED (goal_tolerance 0.01 m), so a goal's status cannot say (Arms, 2026-10-12)
+cues4 = ["{ t: 1.0, slot: GRIP_R, do: close }", "{ t: 3.0, slot: GRIP_R, do: open }",
+         "{ t: 5.0, slot: GRIP_R, do: close }", "{ t: 6.0, slot: ARM_R, pose: rest }"]
+end, arms, lines = run_grips(cues4, fingers={"right": CAL["right"][0] + 0.012})     # 12 mm short: an object
+check("a close whose fingers stopped 12 mm short of closed is CONTACT, though its goal SUCCEEDED: logged, "
+      "and that side is not closed again (an open still goes)",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04)]
+      and any("CONTACT" in x.get("note", "") for x in lines)
+      and any(x.get("kind") == "grip_settled" and x.get("short_mm") == 12.0 for x in lines), (arms.grips, lines[-6:]))
+end, arms, lines = run_grips(cues4, fingers={"right": CAL["right"][0] + 0.002})     # the usual 1-3 mm settle
+check("... the fingers' usual 1-3 mm settle short of a target is NOT contact: the second close goes",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.0)]
+      and not any("CONTACT" in x.get("note", "") for x in lines), arms.grips)
+end, arms, lines = run_grips(cues4)                                                   # nothing to read
+check("... a finger that cannot be read: said once, and judged by the goal's result as before",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.0)]
+      and sum("cannot be read" in x.get("note", "") for x in lines) == 1, arms.grips)
 end, arms, lines = run_grips(cues, missing=["right"])
 check("a gripper controller that is not up: no gripper cue is sent, the log says which, the show keeps time",
       end[0] == "COMPLETED" and not arms.grips

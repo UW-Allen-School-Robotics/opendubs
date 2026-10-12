@@ -67,6 +67,12 @@ ARM_ACK_S = 2.0
 # that has hung limp rests a hair past its limit (J4 settles to about -0.4 deg), and the controller
 # refuses a goal whose first waypoint starts there. Further outside is refused, never moved.
 CLAMP_DEG = 1.0
+# A gripper that closed on something: its goal reports SUCCEEDED anyway (the controllers' goal_tolerance
+# is 0.01 m), so it is judged by where the fingers REALLY stopped — read GRIP_SETTLE_S after the close.
+# The fingers settle 1-3 mm short of any target (measured on opendubs2, 2026-10-12); further short than
+# GRIP_CONTACT_M is contact: something is in the gripper, and that side is not closed again this run.
+GRIP_SETTLE_S = 1.5
+GRIP_CONTACT_M = 0.005
 AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio device to finish loading
 
 # What every slot is left doing when a show ABORTS (DEC-6: argued per slot, not assumed "stop").
@@ -414,6 +420,8 @@ class Runner:
         self._grip_last = {}                      # slot -> 0..1 last sent
         self._grip_stalled = set()
         self._grip_closes = {}                    # slot -> ids of the close goals sent this run
+        self._grip_watch = {}                     # slot -> (when to read it, the closed position sent)
+        self._said_no_finger = set()
         self.sent: list = []                      # (show time, slot, cue) as dispatched
         self.stop_requested = False
 
@@ -464,6 +472,9 @@ class Runner:
             self._grip_last[slot] = frac
             if frac == 0.0:
                 self._grip_closes.setdefault(slot, []).append(gid)
+                self._grip_watch[slot] = (self.clock() + GRIP_SETTLE_S, metres)
+            else:
+                self._grip_watch.pop(slot, None)  # a newer command: the close is no longer what it holds
             self._arms_moving = True
             self._log("grip", slot=slot, open=round(frac, 3), metres=round(metres, 5), show_t=round(t, 3))
         except Exception as e:  # noqa: BLE001  a gripper is never a reason to stop the show
@@ -471,6 +482,30 @@ class Runner:
             self.grips = None
             self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e} — no more gripper cues "
                                           "are sent this run")
+
+    def _grip_contact_checks(self, t):
+        """After each close has settled: did the fingers stop short of closed? (see GRIP_CONTACT_M)"""
+        for slot, (due, closed) in list(self._grip_watch.items()):
+            if self.clock() < due:
+                continue
+            del self._grip_watch[slot]
+            side = arm_output.GRIP_SIDES[slot]
+            pos = self.arms.finger(side) if hasattr(self.arms, "finger") else None
+            if pos is None:
+                if side not in self._said_no_finger:
+                    self._said_no_finger.add(side)
+                    self._log("live", note=f"the {side} gripper's position cannot be read (/joint_states): "
+                                           "contact is judged by the goal's result alone", slot=slot)
+                continue
+            lo_closed, op = self.grips[side]
+            short = (pos - closed) * (1.0 if op > lo_closed else -1.0)      # metres MORE OPEN than sent
+            self._log("grip_settled", slot=slot, finger_m=round(pos, 4), sent_m=round(closed, 4),
+                      short_mm=round(short * 1000, 1), show_t=round(t, 3))
+            if short > GRIP_CONTACT_M and slot not in self._grip_stalled:
+                self._grip_stalled.add(slot)
+                self._log("live", note=f"the {side} gripper stopped {short * 1000:.0f} mm short of closed — "
+                                       "something is in it (CONTACT); it will not be closed again this run",
+                          slot=slot)
 
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
@@ -642,6 +677,8 @@ class Runner:
             for out in (self.lift, self.light):
                 if out is not None:
                     out.tick(self.clock(), self._state.get("mast_operator_seq"))
+            if self.grips is not None and self._grip_watch:
+                self._grip_contact_checks(t)
             self.feed.playhead(t, True, RUNNING)
             if t >= tl["duration_s"] and i >= len(events):
                 return self._end(COMPLETED, "COMPLETED", "the show ran to its end", t)
