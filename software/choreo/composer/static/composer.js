@@ -725,6 +725,13 @@ function slug(name) {
   return name.replace(/\.[^.]*$/, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64) || "song";
 }
 function fmtDur(s) { return s == null ? "?" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`; }
+/* The robot plays songs from ITS library: library_sync.py pushes one there over ssh (content-addressed,
+ * verified on the robot, never deleting). The composer does not run it — it cannot reach the robot,
+ * by design (PREVIEW ONLY) — it shows the command. <robot> is the robot's ssh host. */
+function pushCmd(id) {
+  const lib = S.info ? S.info.library_dir : "<library>";
+  return `python3 software/choreo/library_sync.py --library ${/\s/.test(lib) ? JSON.stringify(lib) : lib} push <robot> ${id}`;
+}
 function renderMusicDlg() {
   const m = music(), doc = S.data && S.data.timeline;
   $("libDir").textContent = S.info ? S.info.library_dir : "";
@@ -743,6 +750,8 @@ function renderMusicDlg() {
     <li><b>${esc(x.id)}</b> <span class="dim">${fmtDur(x.duration_s)} · ${esc(x.file)}</span><br>
       <span class="dim">source: ${esc(x.source)} · licence: ${esc(x.licence)}</span><br>
       ${x.used_by.length ? `<span class="dim">used by ${x.used_by.map(esc).join(", ")}</span>` : `<span class="dim">used by no show here</span>`}
+      <div class="sync"><span class="dim">to the robot:</span> <code>${esc(pushCmd(x.id))}</code>
+        <button data-copy="${esc(pushCmd(x.id))}" title="Copy the command that sends this song to the robot's library (over ssh; add --dry-run to see what would move first)">copy</button></div>
       <button data-del="${esc(x.id)}" ${x.used_by.length ? `disabled title="Still the music of ${esc(x.used_by.join(", "))} — take it out of those shows first"` : 'title="Delete this song from the library: its file and its entry. Cannot be undone."'}>delete from library</button></li>`).join("")
     : `<li class="dim">No songs yet${S.info && !S.info.library_exists ? " — the library folder is created when the first one is added" : ""}.</li>`;
   const u = S.upload;
@@ -822,7 +831,12 @@ function bindMusic() {
   };
   $("songFile").onchange = (e) => e.target.files[0] && setUpload(e.target.files[0]);
   $("songAdd").onclick = addSong;
-  $("songList").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (b) deleteSong(b.dataset.del); });
+  $("songList").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-del]"); if (b) deleteSong(b.dataset.del);
+    const c = e.target.closest("button[data-copy]");
+    if (c) navigator.clipboard.writeText(c.dataset.copy).then(() => toast("copied — replace <robot> with the robot's ssh host", 3000),
+                                                              () => toast("select the command and copy it", 3000));
+  });
   /* drop an audio file anywhere: the music dialog opens with it */
   const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
   window.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); $("drop").classList.add("over"); } });

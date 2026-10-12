@@ -41,6 +41,7 @@ jobs:
       - run: python3 software/choreo/tests/test_ik.py
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
       - run: python3 software/choreo/tests/test_library.py
+      - run: python3 software/choreo/tests/test_library_sync.py   # against a fake robot folder, no ssh
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml
