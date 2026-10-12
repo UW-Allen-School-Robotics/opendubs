@@ -175,3 +175,95 @@ through `getOutputTimestamp()`. Whether that is true is S2's question.
 - The app is named **OpenDubs** on the tablet, and is absent from Samsung's *Never sleeping apps*
   list because it is already exempt (device owner, plus `dumpsys deviceidle whitelist`, now a setup
   step).
+
+---
+
+## Updating the robot tablet's WebView — prepared 2026-10-08, to run with a person at the tablet
+
+**Why.** The face engine was measured on a bench SM-X133 running Android 16 and **WebView 153**; the
+robot's tablet runs Android 15 and **WebView 131**. Bringing the robot's WebView to 153 makes the bench
+numbers apply to it, and brings a year of WebView fixes.
+
+### How the bench tablet got WebView 153
+
+Read from the bench tablet (`dumpsys package com.google.android.webview`):
+
+- its **firmware** (Android 16, built 2026-05-14) carries **WebView 140** (`/product/app/WebViewGoogle`);
+- **153 was installed over it by Google Play** (`installerPackageName=com.android.vending`), dated
+  2026-09-25 on the tablet's clock — before tonight's setup, so how Play reached a tablet with no account
+  is not known.
+
+**So a Samsung system update would not deliver 153 by itself** — Android 16's firmware has 140.
+
+### The paths, compared
+
+| | WebView only, sideloaded (**recommended**) | full system update, Android 15 → 16 | stay on 131 |
+|---|---|---|---|
+| what changes | one app: the WebView | the whole OS, One UI 7 → 8 | nothing |
+| gets WebView 153 | yes | **no** — the firmware carries 140; Play would still be needed | no |
+| needs | USB and this Mac | internet on the tablet (it knows only the robot's Wi-Fi), lifting the app's postponed-update policy (a code change), Settings through maintenance mode, several reboots | — |
+| reversible | **yes** — `pm uninstall-system-updates` returns the factory WebView, then the saved 131 reinstalls | **no** — Samsung does not downgrade without a factory reset | — |
+| risk to the kiosk | the app restarts once | lock task, device owner, the CA and permission behaviour all meet a new OS | none; bench numbers do not transfer |
+
+**Recommendation: the WebView-only sideload.** The full system update is worth doing eventually for
+security patches, but as its own decision (it meets TB-4's update policy), not to get a WebView.
+
+### The package, and why it can be trusted
+
+`software/tablet-kiosk/webview-update/webview-153.0.8010.36.apk` (git-ignored, 268 MB), pulled over USB from
+the bench tablet's own install. **Not from any download site.**
+
+| | |
+|---|---|
+| sha256 of the file | `a875c3e1e78b4ce90c6bca310839fe2833d93f72e4d7163f169de3b7c88c87e0` |
+| package, version | `com.google.android.webview` 153.0.8010.36, versionCode 801003603, minSdk 32 (Android 15 is 35) |
+| signed by | `CN=webview, OU=Android, O=Google Inc.` — APK Signature Scheme v3, and Google Play's source stamp |
+| signing certificate sha256 | `6faf3c4140407473400934d117815a21af1cfefc5c0bee61c858bc3d72ba6fe5` |
+| the same certificate as | the WebView **inside Samsung's signed firmware image** on the bench tablet (checked) |
+
+And Android checks it again: an update to a system app must carry **the same signature as the installed
+one**, or the install is refused (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`).
+
+### What could break the kiosk, and how each is checked
+
+Installing a WebView restarts every app using it, the kiosk included. As device owner and the home app,
+it should come back in front and locked. `software/tablet-kiosk/kiosk_check.py` checks, before and after:
+
+| could break | checked by |
+|---|---|
+| device owner | `dpm list-owners` names the kiosk app |
+| lock task after the restart | the app is in front and `mLockTaskModeState=LOCKED` |
+| the robot's CA (HTTPS) | the dashboard's page loads as a **secure context** |
+| the bridge | `window.OpenDubsKiosk` present and reporting device owner |
+| the microphone grant | `getUserMedia` returns a live track with no prompt (TB-1) |
+| the wake lock | a screen wake lock is granted |
+| show audio | by eye: the Shows page says this tablet plays show audio, and a sound plays |
+
+### The steps — about 15 minutes, 20 with a rollback
+
+The robot tablet's serial is `R8YY90QDRYE` (the bench tablet's is `…RWW`; unplug it first, so only one
+tablet answers). `A=~/Library/Android/sdk/platform-tools/adb` and run from the repo root.
+
+1. **Ready (2 min).** No show running; the robot tablet on USB to this Mac; the bench tablet unplugged.
+   `$A devices -l` shows exactly one device, `R8YY90QDRYE`.
+2. **Check before (2 min).** `uv run --with websockets python3 software/tablet-kiosk/kiosk_check.py --serial R8YY90QDRYE`
+   — every line PASS. Keep the output.
+3. **Back up the current WebView (3 min).**
+   `$A -s R8YY90QDRYE pull "$($A -s R8YY90QDRYE shell pm path com.google.android.webview | sed 's/package://' | tr -d '\r')" software/tablet-kiosk/webview-update/webview-robot-before.apk`
+   and note the factory version: `$A -s R8YY90QDRYE shell dumpsys package com.google.android.webview | grep -A3 "Hidden system packages"`.
+4. **Verify the new package (1 min).** `shasum -a 256 software/tablet-kiosk/webview-update/webview-153.0.8010.36.apk`
+   matches the table above.
+5. **Install (3 min).** `$A -s R8YY90QDRYE install -r software/tablet-kiosk/webview-update/webview-153.0.8010.36.apk`
+   → `Success`. The tablet's screen may blink as the kiosk app restarts.
+6. **Check after (2 min).** `kiosk_check.py` again: every line PASS, and the header says WebView 153. Then by
+   eye: the dashboard is up, and on the Shows page this tablet holds show audio.
+
+**If step 5 is refused or step 6 fails — roll back (5 min):**
+`$A -s R8YY90QDRYE shell pm uninstall-system-updates com.google.android.webview` (back to the factory
+WebView), then `$A -s R8YY90QDRYE install -r software/tablet-kiosk/webview-update/webview-robot-before.apk`
+(back to what it had), then `kiosk_check.py` once more.
+
+**If the WebView-only path cannot be made to work**, the robot tablet stays on 131 and the face engine is
+re-measured there instead: `software/face-web/bench.py --serial R8YY90QDRYE --webview`, with the app
+pointed at the face page for the run and then back at `https://10.42.2.10:8443/` (the app remembers its
+`url`).
