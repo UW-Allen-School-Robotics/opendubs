@@ -234,7 +234,7 @@ const separates = (draw, from, frames) => {
 // engine: a key dropped from it becomes a key the validator starts rejecting in valid entries.
 {
   const keys = Object.keys(ASSET_PARAM_DEFAULTS).sort().join(",");
-  ok(keys === "blink,counter,follow_look,look,mirror,size,spin_dps",
+  ok(keys === "blink,counter,follow_look,layout,look,mirror,size,spin_dps",
      "the exported param defaults are the full set library.py validates against", keys);
   ok(Object.isFrozen(ASSET_PARAM_DEFAULTS), "and are frozen, so one skin cannot change another's defaults");
 
