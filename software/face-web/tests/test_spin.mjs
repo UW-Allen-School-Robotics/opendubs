@@ -19,7 +19,7 @@ globalThis.Image = class { set src(_) { this.onload && this.onload(); } };
 globalThis.document = { createElement: () => ({ setAttribute() {}, removeAttribute() {}, load() {}, pause() {} }) };
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { makeAssetSkin } = await import(join(here, "../engine/skins/asset.js"));
+const { makeAssetSkin, ASSET_PARAM_DEFAULTS } = await import(join(here, "../engine/skins/asset.js"));
 
 const DPS = 90, FPS = 60, DT = 1 / FPS;
 const FRAME_DEG = DPS * DT;                 // 1.5 deg: what a steady frame advances by
@@ -226,6 +226,21 @@ const separates = (draw, from, frames) => {
   say2("SPIN COUNTER 2.5"); say2("SPIN TOGETHER"); say2("SPIN AUTO");
   ok(JSON.stringify(seen) === JSON.stringify([["counter", 2.5], ["together", null], ["auto", null]]),
      "the wire hands the skin lowercase modes and a numeric hold", JSON.stringify(seen));
+}
+
+// ---- 7. the exported param defaults ------------------------------------------------------------
+// library.py checks an entry's param keys against this export, so it is load-bearing beyond the
+// engine: a key dropped from it becomes a key the validator starts rejecting in valid entries.
+{
+  const keys = Object.keys(ASSET_PARAM_DEFAULTS).sort().join(",");
+  ok(keys === "blink,counter,follow_look,look,mirror,size,spin_dps",
+     "the exported param defaults are the full set library.py validates against", keys);
+  ok(Object.isFrozen(ASSET_PARAM_DEFAULTS), "and are frozen, so one skin cannot change another's defaults");
+
+  // The hoist must not have changed any default: an entry with no params draws as it always did.
+  const { draw } = rig({});
+  const f = draw(1.0);
+  ok(f.left === 0 && f.right === 0, "an entry with no params still has no spin (spin_dps 0)");
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall spin checks passed");

@@ -24,9 +24,18 @@
 
 const NEUTRAL = 480;
 
+// EVERY PARAM AN ASSET ENTRY MAY SET, and its default. Exported because it is the authoritative
+// list: `software/choreo/library.py` refuses an entry with an unknown param key at authoring time,
+// since `spinn_dps: 90` would otherwise silently do nothing at all, and a validator keeping its own
+// copy of this list would drift from the engine. A test reads these keys and fails CI when the two
+// disagree, so ADDING A PARAM HERE IS ENOUGH -- CI then tells library.py about it.
+export const ASSET_PARAM_DEFAULTS = Object.freeze({
+  size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
+  counter: null,
+});
+
 export function makeAssetSkin(entry, baseUrl, onError) {
-  const p = { size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
-              counter: null, ...(entry.params || {}) };
+  const p = { ...ASSET_PARAM_DEFAULTS, ...(entry.params || {}) };
 
   // ---- the counter-spin ------------------------------------------------------------------
   //
