@@ -12,8 +12,9 @@
 //                A show can drive the same effect on a beat with the head protocol's SPIN, which
 //                suppresses this schedule while it holds it. A SPINNING skin honours SPIN even
 //                with no `counter` block, using the default ease.
-//                { every_s: [8, 20], hold_s: [2, 4], ease_s: 0.9 } -- a counter-spin starts at a
-//                random interval in every_s, lasts a random time in hold_s, and the reversal is
+//                { every_s, hold_s, ease_s } (ASSET_COUNTER_DEFAULTS below holds the defaults,
+//                rather than this comment keeping a second copy of them to drift) -- a counter-spin
+//                starts at a random interval in every_s, lasts a random time in hold_s, and is
 //                EASED over ease_s: BOTH eyes decelerate to a standstill together, half way
 //                through, and then spin back up in opposite directions -- never snapping, and
 //                reading as one gesture rather than one eye misbehaving. Composes with `mirror`,
@@ -32,6 +33,17 @@ const NEUTRAL = 480;
 export const ASSET_PARAM_DEFAULTS = Object.freeze({
   size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
   counter: null,
+});
+
+// THE `counter` BLOCK'S OWN KEYS, and their defaults. Exported for the same reason as the list
+// above: library.py checks these keys too, so `counter: { eas_s: 1.2 }` is refused at authoring time
+// instead of quietly doing nothing. The arrays are frozen as well -- the config below can fall back
+// to them by reference, and one skin must not be able to edit another's defaults.
+//
+// EASE_MIN is deliberately NOT here. It is a clamp on what ease_s may be, not a key an entry may
+// set; putting it in would make the validator start accepting `ease_min` as a param.
+export const ASSET_COUNTER_DEFAULTS = Object.freeze({
+  every_s: Object.freeze([8, 20]), hold_s: Object.freeze([2, 4]), ease_s: 0.9,
 });
 
 export function makeAssetSkin(entry, baseUrl, onError) {
@@ -63,7 +75,7 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // s travels at 1/ease_s per second, so a full change takes ease_s and THE ZERO CROSSING IS AT
   // ease_s/2 AFTER RECEIPT. head-protocol.md records that number; the runner sends the line early
   // by it. Do not change the traversal rate without telling the Tablet and Choreography lanes.
-  const EASE_DEFAULT = 0.9;
+  const EASE_DEFAULT = ASSET_COUNTER_DEFAULTS.ease_s;
   // THE SHORTEST EASE THE SKIN WILL DO, and a number two other lanes now mirror.
   // `library.py` accepts `ease_s: 0` (it refuses only negatives and non-numbers), so an entry can
   // legitimately ask for an instant reversal -- which v3 says the wire may not have, and which
@@ -73,8 +85,8 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // CHANGING THIS NUMBER SILENTLY MAKES EVERY CUE SHEET WRONG. Tell Choreography first.
   const EASE_MIN = 0.05;
   const cfg = p.counter && {
-    every: p.counter.every_s || [8, 20],
-    hold: p.counter.hold_s || [2, 4],
+    every: p.counter.every_s || ASSET_COUNTER_DEFAULTS.every_s,
+    hold: p.counter.hold_s || ASSET_COUNTER_DEFAULTS.hold_s,
     ease: p.counter.ease_s ?? EASE_DEFAULT,
   };
   // A SHOW MAY DRIVE A SPINNING SKIN THAT HAS NO `counter` BLOCK. Agreed with Choreography: a cue

@@ -19,7 +19,8 @@ globalThis.Image = class { set src(_) { this.onload && this.onload(); } };
 globalThis.document = { createElement: () => ({ setAttribute() {}, removeAttribute() {}, load() {}, pause() {} }) };
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { makeAssetSkin, ASSET_PARAM_DEFAULTS } = await import(join(here, "../engine/skins/asset.js"));
+const { makeAssetSkin, ASSET_PARAM_DEFAULTS, ASSET_COUNTER_DEFAULTS } =
+  await import(join(here, "../engine/skins/asset.js"));
 
 const DPS = 90, FPS = 60, DT = 1 / FPS;
 const FRAME_DEG = DPS * DT;                 // 1.5 deg: what a steady frame advances by
@@ -241,6 +242,24 @@ const separates = (draw, from, frames) => {
   const { draw } = rig({});
   const f = draw(1.0);
   ok(f.left === 0 && f.right === 0, "an entry with no params still has no spin (spin_dps 0)");
+
+  const ck = Object.keys(ASSET_COUNTER_DEFAULTS).sort().join(",");
+  ok(ck === "ease_s,every_s,hold_s", "the counter block's keys are exported too", ck);
+  ok(Object.isFrozen(ASSET_COUNTER_DEFAULTS) && Object.isFrozen(ASSET_COUNTER_DEFAULTS.every_s)
+     && Object.isFrozen(ASSET_COUNTER_DEFAULTS.hold_s),
+     "and frozen through the arrays, which a config can hold by reference");
+  // EASE_MIN is a clamp, not a key an entry may set: in the export, library.py would accept it.
+  ok(!("ease_min" in ASSET_COUNTER_DEFAULTS) && !("ease_min" in ASSET_PARAM_DEFAULTS),
+     "the clamp is not exported as a settable key");
+
+  // A counter block that sets nothing must land exactly on the exported defaults.
+  const bare = rig({ spin_dps: DPS, counter: {} });
+  bare.sk.spin("counter", 1);
+  const t0 = 0; let zero = null, q = bare.draw(t0), tt = t0;
+  for (let i = 0; i < 90; i++) { tt += DT; const g = bare.draw(tt);
+    if (zero === null && rate(q, g).r <= 0.5) zero = tt - t0; q = g; }
+  ok(zero !== null && Math.abs(zero - ASSET_COUNTER_DEFAULTS.ease_s / 2) <= DT,
+     "an empty counter block uses the exported ease_s", `crossed at ${zero?.toFixed(3)}s`);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall spin checks passed");
