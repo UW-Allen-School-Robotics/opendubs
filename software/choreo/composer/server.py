@@ -26,6 +26,7 @@ import json
 import mimetypes
 import os
 import sys
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -43,7 +44,9 @@ def make_handler(comp: Composer):
         server_version = "opendubs-composer/1"
 
         def log_message(self, fmt, *args):          # quieter than the default
-            if "/api/" in str(args[0] if args else ""):   # send_error passes an HTTPStatus here
+            line = str(args[0] if args else "")       # send_error passes an HTTPStatus here
+            # the twins poll /api/twin many times a second: logging those would bury everything else
+            if "/api/" in line and "/api/twin" not in line and "/api/playhead" not in line:
                 sys.stderr.write("%s\n" % (fmt % args))
 
         # ---- helpers ----
@@ -105,13 +108,42 @@ def make_handler(comp: Composer):
                 raise ApiError("not found", 404)
             except ApiError as e:
                 return self._json({"error": str(e)}, e.status)
+            except Exception as e:  # noqa: BLE001
+                return self._crash(e)
 
         def _upload(self) -> bytes:
-            """A raw upload body, refused by its declared length before a byte is read."""
-            n = int(self.headers.get("Content-Length") or 0)
+            """A raw upload body: by its declared length (refused before a byte is read when that is
+            over the limit), or chunked, read up to the limit."""
+            limit = f"over the {MAX_SONG_BYTES // (1024 * 1024)} MB limit for a song"
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                out = bytearray()
+                while True:
+                    n = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                    if n == 0:
+                        while self.rfile.readline().strip():     # trailers, then the blank line
+                            pass
+                        return bytes(out)
+                    if len(out) + n > MAX_SONG_BYTES:
+                        self.close_connection = True
+                        raise ApiError(limit, 413)
+                    out += self.rfile.read(n)
+                    self.rfile.readline()
+            if self.headers.get("Content-Length") is None:
+                raise ApiError("the upload came with no length — the browser sent no Content-Length", 411)
+            n = int(self.headers["Content-Length"])
             if n > MAX_SONG_BYTES:
-                raise ApiError(f"over the {MAX_SONG_BYTES // (1024 * 1024)} MB limit for a song", 413)
+                self.close_connection = True
+                raise ApiError(limit, 413)
             return self.rfile.read(n)
+
+        def _crash(self, e: Exception):
+            """Anything unexpected comes back as a 500 the editor can show, never a dropped connection
+            (which a browser reports only as "Load failed" / "Failed to fetch")."""
+            traceback.print_exc()
+            try:
+                self._json({"error": f"the composer hit an error: {type(e).__name__}: {e} (its log has the details)"}, 500)
+            except OSError:
+                pass
 
         def do_POST(self):
             u = urlparse(self.path)
@@ -141,6 +173,8 @@ def make_handler(comp: Composer):
                 raise ApiError("not found", 404)
             except ApiError as e:
                 return self._json({"error": str(e)}, e.status)
+            except Exception as e:  # noqa: BLE001
+                return self._crash(e)
 
     return Handler
 

@@ -203,19 +203,159 @@ def looks_like_song(path: str) -> bool:
     return head.startswith(SONG_TYPES[ext])
 
 
+# ---- a song's length, read from the file itself (no ffprobe, no browser) ----------------------
+# The composer must not depend on the browser decoding a song to learn its length: a browser that
+# cannot (or a Safari that has not loaded the metadata yet) would block the add. Each reader returns
+# seconds or None; None means "not readable", never a guess.
+_MP3_BITRATE = {  # kbps by (MPEG-1?, layer) and index 1..14
+    (True, 1): (32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448),
+    (True, 2): (32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384),
+    (True, 3): (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),
+    (False, 1): (32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256),
+    (False, 2): (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+}
+_MP3_RATE = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
+
+
+def _mp3_seconds(path):
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        head = fh.read(10)
+        start = 0
+        if head[:3] == b"ID3" and len(head) == 10:      # ID3v2: skip the whole tag, whatever frames
+            n = (head[6] & 0x7F) << 21 | (head[7] & 0x7F) << 14 | (head[8] & 0x7F) << 7 | (head[9] & 0x7F)
+            start = 10 + n + (10 if head[5] & 0x10 else 0)
+        fh.seek(start)
+        buf = fh.read(256 * 1024)
+        fh.seek(max(0, size - 128))
+        tail = fh.read(128)
+    end = size - (128 if tail[:3] == b"TAG" else 0)
+    for i in range(len(buf) - 4):                     # the first plausible MPEG audio frame header
+        if buf[i] != 0xFF or (buf[i + 1] & 0xE0) != 0xE0:
+            continue
+        ver, layer_bits = (buf[i + 1] >> 3) & 3, (buf[i + 1] >> 1) & 3
+        br_i, sr_i = buf[i + 2] >> 4, (buf[i + 2] >> 2) & 3
+        if ver == 1 or layer_bits == 0 or br_i in (0, 15) or sr_i == 3:
+            continue
+        mpeg1, layer = ver == 3, 4 - layer_bits
+        rate = _MP3_RATE[ver][sr_i]
+        table = (True, layer) if mpeg1 else ((False, 1) if layer == 1 else (False, 2))   # MPEG-2/2.5 L2 and L3 share one
+        kbps = _MP3_BITRATE[table][br_i - 1]
+        per_frame = 384 if layer == 1 else (1152 if (layer == 2 or mpeg1) else 576)
+        mono = (buf[i + 3] >> 6) == 3
+        side = (17 if mono else 32) if mpeg1 else (9 if mono else 17)
+        for off, tag in ((4 + side, (b"Xing", b"Info")), (36, (b"VBRI",))):   # a VBR header: its frame count
+            j = i + off
+            if buf[j:j + 4] in tag:
+                if tag[0] == b"VBRI":
+                    frames = int.from_bytes(buf[j + 14:j + 18], "big")
+                elif int.from_bytes(buf[j + 4:j + 8], "big") & 1:
+                    frames = int.from_bytes(buf[j + 8:j + 12], "big")
+                else:
+                    break
+                return frames * per_frame / rate if frames else None
+        return (end - start - i) * 8 / (kbps * 1000.0)     # constant bitrate
+    return None
+
+
+def _m4a_seconds(path):
+    """The movie header (moov/mvhd): duration / timescale. Atoms are walked, not searched."""
+    with open(path, "rb") as fh:
+        def atoms(end):
+            while fh.tell() + 8 <= end:
+                at = fh.tell()
+                hdr = fh.read(8)
+                n, kind = int.from_bytes(hdr[:4], "big"), hdr[4:8]
+                if n == 1:
+                    n = int.from_bytes(fh.read(8), "big")
+                elif n == 0:
+                    n = end - at
+                if n < 8:
+                    return
+                yield kind, at, at + n
+                fh.seek(at + n)
+        size = os.fstat(fh.fileno()).st_size
+        for kind, at, stop in atoms(size):
+            if kind != b"moov":
+                continue
+            fh.seek(at + 8)
+            for k2, at2, _ in atoms(stop):
+                if k2 == b"mvhd":
+                    fh.seek(at2 + 8)
+                    v = fh.read(4)[0]
+                    fh.read(16 if v == 1 else 8)
+                    scale = int.from_bytes(fh.read(4), "big")
+                    dur = int.from_bytes(fh.read(8 if v == 1 else 4), "big")
+                    return dur / scale if scale else None
+            return None
+    return None
+
+
+def _flac_seconds(path):
+    with open(path, "rb") as fh:
+        if fh.read(4) != b"fLaC":
+            return None
+        hdr = fh.read(4)
+        if hdr[0] & 0x7F != 0:                          # STREAMINFO is always the first block
+            return None
+        b = fh.read(34)
+    rate = (b[10] << 12) | (b[11] << 4) | (b[12] >> 4)
+    total = ((b[13] & 0x0F) << 32) | int.from_bytes(b[14:18], "big")
+    return total / rate if rate and total else None
+
+
+def _ogg_seconds(path):
+    """The last page's granule position over the stream's rate (Vorbis: its own; Opus: 48 kHz,
+    less the pre-skip)."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        first = fh.read(4096)
+        fh.seek(max(0, size - 65536))
+        tail = fh.read()
+    if first[:4] != b"OggS":
+        return None
+    i = first.find(b"\x01vorbis")
+    if i >= 0:
+        rate, skip = int.from_bytes(first[i + 12:i + 16], "little"), 0
+    else:
+        i = first.find(b"OpusHead")
+        if i < 0:
+            return None
+        rate, skip = 48000, int.from_bytes(first[i + 10:i + 12], "little")
+    j = tail.rfind(b"OggS")
+    if j < 0 or not rate:
+        return None
+    granule = int.from_bytes(tail[j + 6:j + 14], "little")
+    return (granule - skip) / rate if granule > skip else None
+
+
+def _wav_seconds(path):
+    with wave.open(path, "rb") as w:
+        return w.getnframes() / float(w.getframerate())
+
+
+SONG_SECONDS = {".wav": _wav_seconds, ".mp3": _mp3_seconds, ".m4a": _m4a_seconds,
+                ".flac": _flac_seconds, ".ogg": _ogg_seconds}
+
+
+def song_seconds(path: str):
+    """A song's length in seconds from its own bytes, or None if it cannot be read."""
+    f = SONG_SECONDS.get(os.path.splitext(path)[1].lower())
+    try:
+        v = f(path) if f else None
+    except (OSError, ValueError, IndexError, KeyError, EOFError, ZeroDivisionError, wave.Error):
+        return None
+    return round(v, 3) if v and v > 0 else None
+
+
 def probe(path: str) -> dict:
-    """duration_s / width / height / fps by ffprobe, when it is installed; a WAV's duration from its
-    header otherwise (the standard library reads it); {} when neither can."""
+    """duration_s / width / height / fps by ffprobe, when it is installed; a song's length read from
+    its own bytes otherwise (song_seconds); {} when neither can."""
     if not os.path.isfile(path):
         return {}
     if not shutil.which("ffprobe"):
-        if path.lower().endswith(".wav"):
-            try:
-                with wave.open(path, "rb") as w:
-                    return {"duration_s": round(w.getnframes() / float(w.getframerate()), 3)}
-            except (wave.Error, EOFError, ZeroDivisionError):
-                return {}
-        return {}
+        d = song_seconds(path)
+        return {"duration_s": d} if d else {}
     try:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
                               "format=duration:stream=width,height,r_frame_rate,codec_type", "-of", "json", path],
