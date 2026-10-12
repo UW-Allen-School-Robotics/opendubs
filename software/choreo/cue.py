@@ -250,6 +250,10 @@ FACE_MOVES = {
     "blink2": (0.333, 0.520),                 # its SECOND shut: a double blink reads on its second
     "look_l": (0.231, 0.700), "look_r": (0.231, 0.700),
     "roll": (0.148, 0.760), "bob": (0.138, 0.460), "sparkle": (0.124, 0.560),
+    "side_eye_l": (0.198, 0.900), "side_eye_r": (0.198, 0.900),   # a sideways glance, lids part-lowered
+    "to_camera": (0.164, 0.820),              # ARRIVES at centre (overrides a tracked gaze for its 0.82 s)
+    "double_take": (0.632, 1.150),            # the longest lead: its peak is the snap back, wide
+    "startle": (0.084, 0.700),
 }
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it

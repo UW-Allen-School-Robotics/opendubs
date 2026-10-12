@@ -40,7 +40,8 @@ const READS = {
   roll:    { of: (o) => -o.gy,  nth: 1 },      // the top of the circle
   bob:     { of: (o) => o.dy,   nth: 1 },
   sparkle: { of: (o) => o.sparkle, nth: 1 },
-  side_eye:    { of: (o) => -o.gx,   nth: 1 },   // the glance, held
+  side_eye_l:  { of: (o) => -o.gx,   nth: 1 },   // the glance, held
+  side_eye_r:  { of: (o) => o.gx,    nth: 1 },
   to_camera:   { of: (o) => o.pull,  nth: 1 },   // fully on the viewer
   double_take: { of: (o) => o.scale, nth: 1 },   // the SNAP back, not the look away
   startle:     { of: (o) => o.scale, nth: 1 },
@@ -210,15 +211,24 @@ function settled(emote) {
   ok(Math.abs(f.eyes()[0].w - before.w) < 1e-9, "and the eye returns to its size");
 }
 {
-  // side_eye is a LOOK, not a turn: the lids come down while the gaze goes across.
-  const f = settled("NEUTRAL");
-  const before = f.eyes()[0];
-  f.move("side_eye", 0);
-  f.stepMove(MOVES.side_eye.peak);
-  const e = f.eyes()[0];
-  ok(e.gazeX < -0.5 && e.lid > before.lid + 0.2,
-     "side_eye glances across with the lids lowered",
-     `gazeX ${e.gazeX.toFixed(3)}, lid ${before.lid.toFixed(3)} -> ${e.lid.toFixed(3)}`);
+  // side_eye is a LOOK, not a turn: the lids come down while the gaze goes across. A pair, so the
+  // two must be mirror images -- one of them silently not mirroring would be invisible until a show
+  // glanced the wrong way at the wave.
+  const look = (name) => { const f = settled("NEUTRAL"); const b = f.eyes()[0];
+    f.move(name, 0); f.stepMove(MOVES[name].peak); return { b, e: f.eyes()[0] }; };
+  const L = look("side_eye_l"), R = look("side_eye_r");
+  ok(L.e.gazeX < -0.5 && L.e.lid > L.b.lid + 0.2,
+     "side_eye_l glances across with the lids lowered",
+     `gazeX ${L.e.gazeX.toFixed(3)}, lid ${L.b.lid.toFixed(3)} -> ${L.e.lid.toFixed(3)}`);
+  // The mirror claim is about what the two moves CONTRIBUTE, not about where the eyes end up: a
+  // move offsets, so the drawn gaze also carries wherever the face was already looking, and
+  // comparing those two would fail on a face mid-saccade while nothing was wrong.
+  const contrib = (name) => { const f = new Face(); f.move(name, 0); f.stepMove(MOVES[name].peak); return f.mvOut; };
+  const cl = contrib("side_eye_l"), cr = contrib("side_eye_r");
+  ok(Math.abs(cl.gx + cr.gx) < 1e-12 && cl.gx < 0
+     && Math.abs(cl.lidL - cr.lidL) < 1e-12 && Math.abs(cl.lidR - cr.lidR) < 1e-12,
+     "side_eye_r contributes the exact mirror of side_eye_l, with the same lids",
+     `gx ${cl.gx.toFixed(3)} / ${cr.gx.toFixed(3)}, lid ${cl.lidL.toFixed(3)} / ${cr.lidL.toFixed(3)}`);
 }
 {
   // double_take: away first, then back wide. The order is the gesture.

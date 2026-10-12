@@ -16,7 +16,7 @@ STATES = ("INIT", "SAFE_IDLE", "MANUAL", "AUTONOMOUS", "DEGRADED", "E_STOP", "CH
 EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
 # One-shot gestures (v4, MOVE). The face owns each one's timing; §3 lists when each peaks.
-MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle")
+MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle")
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.

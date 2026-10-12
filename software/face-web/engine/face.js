@@ -66,10 +66,11 @@ export const MOVES = {
   // Down then up: the eyes drop and come back, which reads as a bounce on the beat. In eye-heights.
   bob:     { dur: 460, peak: 138, f: (p) => ({ dy: 0.17 * pulse(p, 0.30, 0.06) }) },
   sparkle: { dur: 560, peak: 124, f: (p) => ({ sparkle: pulse(p, 0.22, 0.04) }) },
-  // A sideways glance with the lids half down -- the look, not a full turn of the eyes. It goes to
-  // the face's LEFT. One name, so one direction; if a show ever needs both it becomes side_eye_l
-  // and side_eye_r, as the winks are, rather than this one guessing.
-  side_eye: { dur: 900, peak: 198, f: (p) => { const g = pulse(p, 0.22, 0.42); return { gx: -0.75 * g, lidL: 0.30 * g, lidR: 0.30 * g }; } },
+  // A sideways glance with the lids half down -- the look, not a full turn of the eyes. A PAIR, as
+  // the winks are: the choreography glances both ways (the wave, the sway), and renaming once shows
+  // used a single `side_eye` would break them, so the pair is cheaper now than later.
+  side_eye_l: { dur: 900, peak: 198, f: (p) => { const g = pulse(p, 0.22, 0.42); return { gx: -0.75 * g, lidL: 0.30 * g, lidR: 0.30 * g }; } },
+  side_eye_r: { dur: 900, peak: 198, f: (p) => { const g = pulse(p, 0.22, 0.42); return { gx: +0.75 * g, lidL: 0.30 * g, lidR: 0.30 * g }; } },
   // Straight out at the viewer, and HELD: the one move that arrives somewhere rather than nudging.
   to_camera: { dur: 820, peak: 164, f: (p) => ({ pull: pulse(p, 0.20, 0.45) }) },
   // Look, look away, then snap back wide-eyed. The gesture is the SNAP, so that is what it reads on.
