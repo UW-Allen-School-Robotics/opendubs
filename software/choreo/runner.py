@@ -616,14 +616,23 @@ class Runner:
 
 
 # ---- the routine palette (workplan 1.13 / 4.4b) ----------------------------------------------------
+# The robot's OWN shows: a folder outside the deploy (which rsyncs /opt/opendubs/choreo/shows from the
+# repository with --delete), filled by show_sync.py. For shows that are not, or may not be, in the
+# repository — a show built from someone's photo, say. The palette lists both; an id in both is refused.
+LOCAL_SHOWS = os.environ.get("OPENDUBS_LOCAL_SHOWS") or "/var/lib/opendubs/shows"
+
+
 class Palette:
     """The operator's routines: shows marked `palette:`, each validated, run one at a time on the
     operator's pick. Every palette routine ends in the rejoin state (the validator insists), so they
-    can run in any order; the runner's start-pose move covers the gap."""
+    can run in any order; the runner's start-pose move covers the gap. Shows come from the
+    repository's folder and, when it exists, the robot's own (LOCAL_SHOWS)."""
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
-                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None):
+                 clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None,
+                 local_shows=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
+        self.local_shows = local_shows
         self.audio = audio or NullAudio()
         self.arms = arms                     # None: live output is not available on this runner
         self.face = face                     # face_bridge.LiveFace: live runs drive the real face
@@ -639,11 +648,13 @@ class Palette:
             limits, why = cue.load_limits(self.limits_path), None
         except Exception as e:  # noqa: BLE001
             limits, why = None, f"the arms' joint limits cannot be read ({self.limits_path}): {e}"
-        out = []
-        for name in sorted(os.listdir(self.shows_dir)):
-            if not name.endswith((".yaml", ".yml")):
-                continue
-            path = os.path.join(self.shows_dir, name)
+        out, seen = [], {}
+        folders = [(self.shows_dir, "repository")]
+        if self.local_shows and os.path.isdir(self.local_shows):
+            folders.append((self.local_shows, "robot"))
+        files = [(os.path.join(d, n), where) for d, where in folders for n in sorted(os.listdir(d))
+                 if n.endswith((".yaml", ".yml"))]
+        for path, where in files:
             try:
                 show = cue.load_show(path)
                 show.require_sweep = REQUIRE_SWEEP
@@ -658,8 +669,13 @@ class Palette:
                 # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
                 tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
                                                               "is trusted"}] + list(tl["problems"]))
+            if show.id in seen:
+                # two shows, one id: the operator's pick would be ambiguous, so this one is refused
+                tl = dict(tl, valid=False, problems=[{"msg": f"its id {show.id!r} is also the {seen[show.id]} "
+                                                              "show's — rename one"}] + list(tl["problems"]))
+            seen.setdefault(show.id, f"{where} folder's")
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
-                        "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
+                        "path": path, "from": where, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
@@ -686,7 +702,8 @@ class Palette:
         with self.lock:
             if self.current and self.current[2].is_alive():
                 raise RuntimeError(f"{self.current[0]!r} is still running — stop it or let it finish")
-            r = next((x for x in self.routines() if x["id"] == rid), None)
+            r = next((x for x in self.routines() if x["id"] == rid and x["valid"]), None) or \
+                next((x for x in self.routines() if x["id"] == rid), None)
             if r is None:
                 raise KeyError(f"no palette routine {rid!r}")
             if not r["valid"]:
@@ -811,6 +828,9 @@ def main() -> int:
                    help="play all of the show's audio here (the show is re-checked against it)")
     pp = sub.add_parser("palette", help="serve the routine palette; the operator picks, it runs")
     pp.add_argument("shows", nargs="?", default=os.path.join(HERE, "shows"))
+    pp.add_argument("--local-shows", default=LOCAL_SHOWS,
+                    help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
+                         "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
     pp.add_argument("--limits", default=r.get_default("limits"))
     pp.add_argument("--port", type=int, default=8092)
     pp.add_argument("--log", help="append the JSON-lines log here (default: stdout)")
@@ -854,7 +874,8 @@ def main() -> int:
         if a.gaze != "none":
             gaze = face_bridge.LiveGaze(face_bridge.head_neck_host() if a.gaze == "auto" else a.gaze)
             gaze.probe()                     # release a crashed run's lease; learn whether GAZE exists
-        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze)
+        pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
+                      local_shows=a.local_shows)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "

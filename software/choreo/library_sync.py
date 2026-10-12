@@ -26,7 +26,8 @@ WHAT A PUSH DOES, for each chosen item:
 --dry-run stops after the comparison and reports what would move.
 
 DELETING happens only by `delete`, never as a side effect of a push, and is refused while any show
-in the robot's shows folder (--shows, default /opt/opendubs/choreo/shows) still names the item.
+in the robot's shows folders (--shows, default /opt/opendubs/choreo/shows and the robot's own
+/var/lib/opendubs/shows) still names the item.
 
 TRANSPORT: ssh to the robot, as the deploy uses (deploy-all.sh) — no new open port, no service. The
 tool copies itself (this file and library.py) into <root>/.tool/ on the robot and runs there with
@@ -58,6 +59,7 @@ import library  # noqa: E402
 
 REMOTE_ROOT = "/var/lib/opendubs/library"
 REMOTE_SHOWS = "/opt/opendubs/choreo/shows"
+REMOTE_LOCAL_SHOWS = "/var/lib/opendubs/shows"   # the robot's own shows (show_sync.py), outside the deploy
 REMOTE_PYTHON = "/usr/bin/python3"
 TOOL_DIR = ".tool"
 STAGING = ".incoming"
@@ -161,7 +163,7 @@ def _remote_delete(root: str, shows: str, ids: list, dry: bool) -> dict:
         fcntl.flock(lock, fcntl.LOCK_EX)
         idx = library.load_index(root) or {}
         for item_id in ids:
-            used = library.shows_using(item_id, shows) if os.path.isdir(shows) else []
+            used = [u for d in shows.split(os.pathsep) if os.path.isdir(d) for u in library.shows_using(item_id, d)]
             if item_id not in idx:
                 report.append({"id": item_id, "action": "refused", "why": "not in the robot's library"})
             elif used:
@@ -402,7 +404,8 @@ def main() -> int:
     dl = sub.add_parser("delete")
     dl.add_argument("host")
     dl.add_argument("ids", nargs="+")
-    dl.add_argument("--shows", default=REMOTE_SHOWS, help="the robot's shows folder, checked for users")
+    dl.add_argument("--shows", default=REMOTE_SHOWS + os.pathsep + REMOTE_LOCAL_SHOWS,
+                    help="the robot's shows folders, checked for users (repository and its own, ':'-separated)")
     dl.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     local_root = os.path.realpath(a.library or library.root())
