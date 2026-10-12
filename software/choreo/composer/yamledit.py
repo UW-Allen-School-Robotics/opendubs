@@ -290,12 +290,23 @@ def _declare(text, slot, on: bool):
 
 
 def _set_top(text, key, value):
-    """Set a top-level plain field (id, name). A missing one is added as the first line."""
-    if key not in ("id", "name"):
+    """Set a top-level field: a plain id or name (a missing one becomes the first line), or the
+    `clearance:` stamp sweep.py writes (replaced whole; a missing one goes just above `cues:`)."""
+    if key not in ("id", "name", "clearance"):
         raise EditError(f"top-level field {key!r} is not editable this way")
-    k, v = _key(_root(text), key)
+    root = _root(text)
+    k, v = _key(root, key)
     if v is None:
+        if key == "clearance":
+            kc, _ = _key(root, "cues")
+            if kc is None:
+                raise EditError("the show has no cues: list")
+            ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+            return text[:ls] + f"{key}: {fmt(value)}\n" + text[ls:]
         return f"{key}: {fmt(value)}\n" + text
+    if key == "clearance":
+        ls, le = _line_bounds(text, k.start_mark.index, _end(v))
+        return text[:ls] + f"{key}: {fmt(value)}\n" + text[le:]
     if not isinstance(v, yaml.ScalarNode):
         raise EditError(f"{key}: is not a plain value")
     return text[:v.start_mark.index] + fmt(value) + text[_end(v):]

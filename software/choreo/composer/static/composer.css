@@ -252,3 +252,4 @@ button.on { border-color: var(--accent); color: var(--accent); }
 .tnote-end { position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: ew-resize; border-right: 2px solid currentColor; opacity: 0.5; }
 .tnote { cursor: grab; }
 #inspector #nAtT, #inspector #nToT { font-size: 11px; }
+#audioState { font-size: 11px; min-width: 0; white-space: nowrap; }

@@ -174,20 +174,61 @@ async function save() {
     S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha;
     setData(S.clip ? await api("api/analyse", { path: S.path, text: d.text, clip: S.clip }) : d);
     /* a show with reach/point_at targets is compiled on save: say what happened to them */
-    toast("saved " + S.path + (d.ik ? " — " + d.ik : ""), d.ik && d.ik !== "IK targets compiled" ? 8000 : 2000);
+    const extra = [d.ik, d.sweep].filter(Boolean).join(" · ");
+    toast("saved " + S.path + (extra ? " — " + extra : ""), /UNDER|not |refuse/.test(extra) ? 9000 : 2500);
     if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
   } catch (e) { toast(e.message, 5000); }
 }
 
 /* ---------- audio: Web Audio, and the playhead is driven from its clock ---------- */
+/* PLAYBACK gets a FRESH AudioContext inside every Play click (freshCtx). Safari (found 2026-10-11)
+ * starts a context made outside a user gesture "interrupted", and a context that lives for hours
+ * stays bound to whatever output device existed when it was made — the tab then "plays sound" that
+ * reaches no speaker. A context made in the click is allowed to run, on the output that is current.
+ * DECODING uses an offline context, so loading a song never creates a playback context at all. */
 function ctx() {
-  if (!S.audio.ctx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    S.audio.ctx = new AC();
-    S.audio.gain = S.audio.ctx.createGain();
-    S.audio.gain.connect(S.audio.ctx.destination);
-  }
+  if (!S.audio.ctx) freshCtx();
   return S.audio.ctx;
+}
+function freshCtx() {
+  const old = S.audio.ctx;
+  if (old) { try { old.close(); } catch (e) { /* already closed */ } }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const c = new AC();
+  S.audio.ctx = c;
+  S.audio.gain = c.createGain();
+  S.audio.gain.connect(c.destination);
+  /* a level meter on what is sent to the speakers: "signal but silence" is then visibly the
+     output's problem, not the show's */
+  S.audio.meter = c.createAnalyser(); S.audio.meter.fftSize = 512;
+  S.audio.gain.connect(S.audio.meter);
+  c.onstatechange = () => showAudioState();
+  return c;
+}
+function decodeCtx() {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  return OAC ? new OAC(2, 1, 48000) : ctx();
+}
+function showAudioState(level) {
+  const el = $("audioState"); if (!el) return;
+  const c = S.audio.ctx;
+  if (!c) { el.textContent = ""; el.className = "dim"; return; }
+  if (c.state !== "running" && S.playing) {
+    el.textContent = `audio ${c.state} — press ▶ again (Safari: allow auto-play for this site)`; el.className = "wrn"; return;
+  }
+  if (!S.playing) { el.textContent = ""; el.className = "dim"; return; }
+  const lvl = level === undefined ? null : level;
+  const muted = S.muted.has("MUSIC") || (S.audio.gain && S.audio.gain.gain.value === 0);
+  el.className = muted ? "wrn" : "dim";
+  el.textContent = muted ? "music muted (M on the MUSIC lane)"
+    : !S.audio.buffer ? "no music loaded"
+    : `audio ▶ ${Math.round(c.sampleRate / 1000)} kHz · level ${lvl === null ? "…" : "▮".repeat(Math.min(10, Math.round(lvl * 20))) || "silent"}`;
+}
+function meterLevel() {
+  const m = S.audio.meter; if (!m) return null;
+  const d = new Float32Array(m.fftSize); m.getFloatTimeDomainData(d);
+  let pk = 0; for (const v of d) pk = Math.max(pk, Math.abs(v));
+  return pk;
 }
 async function loadAudio() {
   const m = music();
@@ -211,7 +252,7 @@ async function loadAudio() {
     const r = await send(url);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "HTTP " + r.status);
     const buf = await r.arrayBuffer();
-    S.audio.buffer = await new Promise((ok, no) => ctx().decodeAudioData(buf, ok, no));
+    S.audio.buffer = await new Promise((ok, no) => decodeCtx().decodeAudioData(buf, ok, no));
     S.audio.peaks = peaks(S.audio.buffer, 200);
     $("waveMsg").textContent = "";
   } catch (e) {
@@ -246,9 +287,14 @@ function postPlayhead(force) {
   fetch("api/playhead", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ t: S.t, playing: S.playing }) }).catch(() => {});
 }
-function play() {
-  const c = ctx();
-  c.resume();
+async function play() {
+  /* a fresh context, made inside this click (see freshCtx); wait until it is really running before
+     anything is scheduled on its clock */
+  const c = freshCtx();
+  S.audio.startedCtx = c.currentTime; S.audio.startedT = S.t;     /* the clock stays put while it starts */
+  S.playing = true; $("play").textContent = "⏸";
+  try { if (c.state !== "running") await c.resume(); } catch (e) { /* the state shows it */ }
+  if (!S.playing || S.audio.ctx !== c) return;          /* stopped, or replayed, while waiting */
   const a = S.audio;
   a.startedCtx = c.currentTime + 0.05; a.startedT = S.t;
   a.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
@@ -257,7 +303,7 @@ function play() {
     a.src.start(a.startedCtx, S.t);
   }
   a.nextClick = Math.ceil(beatOf(S.t) || 0);
-  S.playing = true; $("play").textContent = "⏸";
+  showAudioState();
   postPlayhead(true);
   requestAnimationFrame(frame);
 }
@@ -265,6 +311,7 @@ function stop() {
   const a = S.audio;
   if (a.src) { try { a.src.stop(); } catch (e) { /* already stopped */ } a.src = null; }
   S.playing = false; $("play").textContent = "▶";
+  showAudioState();
   postPlayhead(true);
 }
 function scheduleClicks() {
@@ -287,6 +334,7 @@ function scheduleClicks() {
   }
 }
 function frame() {
+  if (S.playing && (frame._n = (frame._n || 0) + 1) % 10 === 0) showAudioState(meterLevel());
   if (!S.playing) return;
   S.t = audioNow();
   scheduleClicks();

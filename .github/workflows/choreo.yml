@@ -39,6 +39,7 @@ jobs:
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
       - run: python3 software/choreo/tests/test_ik.py
+      - run: python3 software/choreo/tests/test_sweep.py   # the self-collision sweep and its robot gate
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
       - run: python3 software/choreo/tests/test_library.py
       - run: python3 software/choreo/tests/test_library_sync.py   # against a fake robot folder, no ssh

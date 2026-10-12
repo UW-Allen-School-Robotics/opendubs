@@ -48,6 +48,9 @@ import face_bridge  # noqa: E402
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
+# An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
+# of other things turn it off for their throwaway shows; nothing on the robot does.
+REQUIRE_SWEEP = True
 FINAL = (COMPLETED, ABORTED, ESTOPPED, REFUSED)
 
 TICK_S = 0.02             # 50 Hz
@@ -481,6 +484,7 @@ class Runner:
         try:
             show = cue.load_show(self.path)
             show.audio_override = self.audio_output
+            show.require_sweep = REQUIRE_SWEEP   # an arm show needs a current self-collision stamp (sweep.py)
             tl = show.export(cue.load_limits(self.limits_path), self.limits_path)
         except Exception as e:  # noqa: BLE001
             return self._end(REFUSED, "PARSING_FAILURE", f"{type(e).__name__}: {e}")
@@ -642,6 +646,7 @@ class Palette:
             path = os.path.join(self.shows_dir, name)
             try:
                 show = cue.load_show(path)
+                show.require_sweep = REQUIRE_SWEEP
             except Exception:  # noqa: BLE001  a broken file is not a routine
                 continue
             pal = show.doc.get("palette")
