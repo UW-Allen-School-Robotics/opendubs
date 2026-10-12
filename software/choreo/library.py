@@ -49,6 +49,7 @@ SKIN_PARAMS = {
     "follow_look": "the skin follows where the eyes look (default true)",
     "look": "how far it follows (default 0.3)",
     "blink": "squash | none (default squash)",
+    "layout": "eyes (default: one per eye) or full (once across the whole face, aspect-fit; a still)",
     "mirror": "the right eye mirrors the left (default false)",
     "counter": "occasionally break a together-spin into opposite directions: {every_s: [lo, hi], hold_s: "
                "[lo, hi], ease_s} (default off; face-web asset.js, #138)",
@@ -136,6 +137,8 @@ def entry_problems(e: dict) -> list:
                 p.append(f"{e['id']!r}: unknown params {', '.join(bad)} (known: {', '.join(SKIN_PARAMS)})")
             if "blink" in params and params["blink"] not in ("squash", "none"):
                 p.append(f"{e['id']!r}: blink must be squash or none")
+            if "layout" in params and params["layout"] not in ("eyes", "full"):
+                p.append(f"{e['id']!r}: layout must be eyes or full")
             p += _counter_problems(e["id"], params.get("counter"))
         if e.get("type") not in SKIN_TYPES:
             p.append(f"{e['id']!r}: skin type {e.get('type')!r} is not one of {', '.join(SKIN_TYPES)}")

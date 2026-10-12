@@ -8,6 +8,7 @@
 //   look         how far, as a fraction of its size                                (default 0.3)
 //   blink        "squash" — a blink, and an emote's lid, squash it vertically; or "none"
 //   mirror       the right eye is the left mirrored, and spins the other way        (default false)
+//   layout       "eyes" (default) one copy in each eye, or "full" -- see below
 //   counter      occasionally break a together-spin into opposite directions        (default off)
 //                A show can drive the same effect on a beat with the head protocol's SPIN, which
 //                suppresses this schedule while it holds it. A SPINNING skin honours SPIN even
@@ -20,8 +21,28 @@
 //                reading as one gesture rather than one eye misbehaving. Composes with `mirror`,
 //                which flips the base direction.
 //
+// `layout: full` DRAWS THE ASSET ONCE ACROSS THE WHOLE FACE, aspect-fit and centred, instead of once
+// per eye. It is for a still card -- a photo a show pops up for a bar with `SKIN <id>` and takes
+// away again with `SKIN default`.
+//
+// IT IS A CARD, NOT A FACE, and that is a deliberate trade rather than an oversight: gaze, blink,
+// the emote's shaping, spin, mirror and the counter-spin are ALL ignored while it is up, so the
+// face has no expression and does not blink at all. A photo that squashed vertically every few
+// seconds would read as broken, which is the whole reason. Agreed with Choreography, which is
+// adding a validator notice when such a skin stays up more than a few seconds.
+//
+// The letterbox bars are simply the background: main.js clears to `BG` (black by default) before it
+// transforms into the design area, so an image of any aspect ratio sits on black with nothing to
+// draw. A reserved robot state still shows the default eyes, because main.js overrides the skin
+// before this is ever called -- a full-face still can never hide a fault.
+//
 // It takes the same per-eye inputs as every skin (face-engine.md, the skin contract), so a show's
 // EMOTE, a blink and a tracked person read on it with no change anywhere else.
+
+// The design area, so a `layout: full` skin can cover the whole face. Imported rather than guessed:
+// main.js transforms the context into these coordinates before calling a skin, so they are THE
+// frame a skin draws in, and a second copy here would drift the day the panel changes.
+import { DESIGN_W, DESIGN_H } from "../face.js";
 
 const NEUTRAL = 480;
 
@@ -32,7 +53,7 @@ const NEUTRAL = 480;
 // disagree, so ADDING A PARAM HERE IS ENOUGH -- CI then tells library.py about it.
 export const ASSET_PARAM_DEFAULTS = Object.freeze({
   size: 0.8, spin_dps: 0, follow_look: true, look: 0.3, blink: "squash", mirror: false,
-  counter: null,
+  counter: null, layout: "eyes",
 });
 
 // THE `counter` BLOCK'S OWN KEYS, and their defaults. Exported for the same reason as the list
@@ -111,7 +132,8 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // one frame of receipt and far inside the ease.
   const MODES = ["counter", "together", "auto"];
   function spin(mode, holdS) {
-    if (!p.spin_dps) return;                 // a non-spinning skin: the protocol says OK, do nothing
+    // A full-face still does not spin, whatever its params say: a still is still.
+    if (!p.spin_dps || p.layout === "full") return;   // the protocol says OK, and nothing happens
     // NORMALISE, THEN REFUSE WHAT IS LEFT. A mode this does not recognise used to fall through to
     // the `together` branch, so a caller that passed "COUNTER" got a spin that drew TOGETHER --
     // silently the wrong gesture, on the beat, with nothing anywhere reporting a problem. Doing
@@ -208,6 +230,25 @@ export function makeAssetSkin(entry, baseUrl, onError) {
     stop() { if (entry.type === "video") { source.pause(); source.removeAttribute("src"); source.load(); } },
     draw(ctx, e, t) {
       if (!ready) return false;                         // the caller draws the default instead
+
+      if (p.layout === "full") {
+        // ONE draw for the whole face. The caller calls every skin once per eye, so the right eye
+        // returns having drawn nothing -- `true`, not `false`, or the default eye would be drawn
+        // over the still. (`!ready` above is checked first, so a still that has not loaded falls
+        // back to BOTH default eyes rather than one.)
+        // SIZE FIRST, SIDE SECOND, and the order is the whole point: deciding the side first makes
+        // the right eye report handled before anything has checked the image, so a sizeless one
+        // leaves a default LEFT eye beside a blank right -- half a face, which is worse than none.
+        const iw = source.naturalWidth || source.videoWidth || 0;
+        const ih = source.naturalHeight || source.videoHeight || 0;
+        if (!iw || !ih) return false;                   // decoded but sizeless: stand BOTH eyes in
+        if (e.side !== "left") return true;
+        const k = Math.min(DESIGN_W / iw, DESIGN_H / ih);   // fit, never crop: a face is not croppable
+        const w = iw * k, h = ih * k;
+        ctx.drawImage(source, (DESIGN_W - w) / 2, (DESIGN_H - h) / 2, w, h);
+        return true;
+      }
+
       const s = NEUTRAL * p.size;
       const sq = p.blink === "squash" ? Math.max(0.03, 1 - e.lid) : 1;
       const dx = p.follow_look ? e.gazeX * s * p.look : 0;
