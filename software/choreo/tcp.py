@@ -76,6 +76,26 @@ def tcp_points(chain: dict, side: str, q_rad: np.ndarray) -> np.ndarray:
     return t + R @ np.array([0.0, 0.0, TCP_EXT_M])
 
 
+def link_origin(chain: dict, link: str) -> np.ndarray:
+    """A link's origin with every joint at zero, in the chain's root frame (the box's frame)."""
+    by_child = {j["child"]: j for j in chain["joints"]}
+    joints = []
+    while link in by_child:
+        joints.append(by_child[link])
+        link = by_child[link]["parent"]
+    R, t = np.eye(3), np.zeros(3)
+    for j in reversed(joints):
+        t = t + R @ np.asarray(j["xyz"], float)
+        R = R @ _rpy(*j["rpy"])
+    return t
+
+
+def hand_z_ok(chain: dict, side: str, deg_signed) -> tuple:
+    """(ok, z): whether one pose's hand_tcp is inside the box's height, less the margin."""
+    z = float(tcp_points(chain, side, np.radians(np.array([deg_signed], float)))[0][2])
+    return HAND_BOX["min"][2] + MARGIN_M <= z <= HAND_BOX["max"][2] - MARGIN_M, z
+
+
 def box_problems(chain: dict, tracks: dict, at_label=lambda t: f"t={t:.2f}s") -> list:
     """One sentence per arm whose hand leaves HAND_BOX (less MARGIN_M) anywhere along what the
     runner will send. `tracks`: {slot: [(t, [7 signed degrees])]} (arm_output.track_points)."""

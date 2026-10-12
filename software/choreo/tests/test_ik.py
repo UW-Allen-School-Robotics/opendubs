@@ -100,15 +100,22 @@ else:
     p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
     tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
     sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
-    check("a hand raised overhead is solved INSIDE the validator's shoulder rules (fold the elbow past 135 deg)",
-          not p and len(sol) == 2
+    # The arm CONTROLLERS refuse a hand above their box (hand_tcp z <= 1.2 m, tcp.py; found at the robot
+    # 2026-10-12), so the solver refuses such a target itself — no angles written, and how much lower
+    check("a hand raised overhead past the arm controllers' box is REFUSED by the solver, saying how much lower",
+          len(p) == 2 and all("outside their box" in x and "lower this target" in x for x in p) and not sol
+          and not tu["valid"], (p, sol))
+    with open(up, "w") as fh:
+        fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
+                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.45] }\n'
+                 '  - { t: 4.0, slot: ARM_R, reach: [0.5, -0.28, 1.45] }\n')
+    p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
+    tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
+    sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
+    check("... a hand raised overhead inside the box is solved, within the shoulder rules, and validates",
+          not p and tu["valid"] and len(sol) == 2
           and all(abs(q[2]) <= cue.SHOULDER_EXTENDED_MAX_DEG or q[4] >= cue.ELBOW_FOLD_MIN_DEG for q in sol),
-          (p, sol))
-    # ... but this high, the ARM CONTROLLERS' workspace box (hand_tcp z <= 1.2 m, tcp.py) refuses it —
-    # the robot would reject the whole goal (found at the robot 2026-10-12), so the validator does too
-    check("... and a hand this high is refused for the controllers' workspace box, and for nothing else",
-          not tu["valid"] and tu["problems"] and all("workspace box" in q["msg"] for q in tu["problems"]),
-          tu["problems"])
+          (p, tu["problems"], sol))
     far = os.path.join(tmp, "far.yaml")
     with open(far, "w") as fh:
         fh.write('id: far\nslots: [ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\n'

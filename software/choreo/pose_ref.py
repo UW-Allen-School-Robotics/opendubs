@@ -131,13 +131,34 @@ def arm_vector(lm: dict, side: str, frame: str = "gravity"):
     return v / dist, min(1.0, dist / length)
 
 
+def reach_z_max(robot_side: str):
+    """The highest chassis-frame reach target this proposes: the arm controllers refuse a hand above
+    their box (tcp.py, at hand_tcp, in the arm's own frame), and a person's raised arm goes far higher
+    than the robot's may. The arm frame is placed against the chassis by the shoulder, which both
+    know; HAND_SLACK_M covers the tool's tilt and the solver's tolerance. None without the arm chain."""
+    import tcp
+    chain = tcp.load_chain()
+    if chain is None:
+        return None
+    shoulder_arm = tcp.link_origin(chain, f"openarm_{robot_side}_link2")[2]
+    return tcp.HAND_BOX["max"][2] - tcp.MARGIN_M - HAND_SLACK_M + (ROBOT_SHOULDER[robot_side][2] - shoulder_arm)
+
+
+HAND_SLACK_M = 0.06
+
+
 def robot_target(direction, extension: float, robot_side: str, point: bool = False):
     """Chassis-frame [x, y, z] for the robot arm on `robot_side`: the same direction from its own
-    shoulder, the same fraction of its reach (stopping short of fully straight)."""
+    shoulder, the same fraction of its reach (stopping short of fully straight) — no higher than the
+    arm controllers' box lets the hand go (reach_z_max)."""
     np = _np()
     s = np.asarray(ROBOT_SHOULDER[robot_side])
     reach = POINT_DISTANCE_M if point else ROBOT_REACH_M * min(extension, MAX_EXTENSION)
-    return [round(float(x), 3) for x in s + np.asarray(direction) * reach]
+    out = s + np.asarray(direction) * reach
+    zmax = None if point else reach_z_max(robot_side)
+    if zmax is not None and out[2] > zmax:                 # shortened along the same direction
+        out = s + (out - s) * ((zmax - s[2]) / (out[2] - s[2]))
+    return [round(float(x), 3) for x in out]
 
 
 def arm_shape(lm: dict, side: str, frame: str = "gravity"):
@@ -167,8 +188,15 @@ def robot_shape(upper, fore, robot_side: str, point: bool = False):
         hand = s + d / np.linalg.norm(d) * MAX_EXTENSION * ROBOT_REACH_M
     if point:
         hand = hand + np.asarray(fore) * POINT_DISTANCE_M
+    else:
+        zmax = reach_z_max(robot_side)        # no higher than the arm controllers' box lets the hand go
+        if zmax is not None and hand[2] > zmax:
+            # shortened along the person's own line from the shoulder, so the direction is kept; the
+            # arm's SHAPE cannot be, so the elbow is left to the solver (None) rather than fought
+            hand = s + (hand - s) * ((zmax - s[2]) / (hand[2] - s[2]))
+            elbow = None
     r = lambda v: [round(float(x), 3) for x in v]  # noqa: E731
-    return r(hand), r(elbow)
+    return r(hand), (r(elbow) if elbow is not None else None)
 
 
 def _when(cue: dict, when: str) -> dict:
@@ -205,7 +233,11 @@ def propose_cues(lm: dict, when: str, arms=("left", "right"), mirror=False, poin
         if elbows:
             upper, fore = (v * flip for v in arm_shape(lm, person_side, frame))
             tgt, elbow = robot_shape(upper, fore, robot_side, point)
-            cues.append(_when({"slot": SLOT[robot_side], mode: tgt, "elbow": elbow}, when))
+            cues.append(_when({"slot": SLOT[robot_side], mode: tgt, **({"elbow": elbow} if elbow else {})}, when))
+            if elbow is None:
+                notes.append(f"{when}: {SLOT[robot_side]}: the person's hand is higher than the robot's arm "
+                             "controllers let its hand go — lowered along the same direction, the arm's shape "
+                             "left to the solver")
             bend = float(np.degrees(np.arccos(np.clip(upper @ fore, -1.0, 1.0))))
             notes.append(f"{when}: {SLOT[robot_side]} from the person's {person_side} arm — upper arm "
                          f"{_describe(upper)[9:]}, elbow bent {bend:.0f}°, hand {_describe(d)[9:]}")

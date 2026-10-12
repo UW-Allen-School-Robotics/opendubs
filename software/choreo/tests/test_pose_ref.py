@@ -147,8 +147,8 @@ else:
           not problems and valid and all("solved" in c for c in out if "reach" in c), problems)
     y = P.propose_cues(person((0, 0.5, 1), (0, -0.5, 1)), "t:3.0")[0]
     problems, out, valid = solve(y)
-    check("arms up in a Y: solved by folding the elbows (the shoulder rules), and the show validates",
-          not problems and valid, problems)
+    check("arms up in a Y: lowered into the arm controllers' box along the same direction, solved, and the "
+          "show validates", not problems and valid, problems)
     problems, out, valid = solve(P.propose_cues(person((0.2, -1, 0), (1, 0, 0)), "t:3.0", arms=("left",))[0])
     check("a pose this arm cannot copy (the left hand reaching across to the right) is REFUSED with the reason",
           problems and "out of reach" in problems[0] and not any("solved" in c for c in out if "reach" in c), problems)
