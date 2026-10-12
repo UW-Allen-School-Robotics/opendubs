@@ -214,16 +214,33 @@ def _tab5_serial(line: str) -> None:
         _tab5_ser = None
 
 
-def _push_prism(rs: str) -> None:
+def _prism_target(rs: str):
+    """The colour the PRISM should show in state `rs`: the state's own, or a running show's light
+    layered over it (show_light.py — a reserved state always wins). ((r, g, b), brightness) or None."""
     ent = _MAP.get(rs)
     if not ent:
-        return
-    _, (r, g, b), bright = ent
+        return None
+    _, rgb, bright = ent
+    try:
+        import show_light
+        return show_light.winning(rs, (rgb, bright))
+    except Exception:
+        return rgb, bright
+
+
+def _push_prism_colour(colour) -> None:
+    (r, g, b), bright = colour
     try:
         import stamplc
         stamplc.reader.send(f"LED_COLOR {r} {g} {b} {bright}")   # PRISM via StamPLC I2C (ch0)
     except Exception:
         pass
+
+
+def _push_prism(rs: str) -> None:
+    c = _prism_target(rs)
+    if c is not None:
+        _push_prism_colour(c)
 
 
 _tab5_logged_state = None
@@ -280,6 +297,7 @@ def _loop() -> None:
     import stamplc
 
     prev = None
+    prev_led = None                  # the colour last written to the PRISM: written again only on a change
     last = 0.0
     prev_conn = False
     while True:
@@ -289,13 +307,19 @@ def _loop() -> None:
             # next state flip.
             conn = bool(stamplc.reader.snapshot().get("connected"))
             if conn and not prev_conn:
-                prev = None
+                prev = prev_led = None       # ... and the WINNING colour, a show's if its lease is fresh
             prev_conn = conn
             rs = (status_mod._robot_state() or {}).get("state")
             now = time.monotonic()
             if rs:
+                # PRISM: the winning colour (the state's, or a show's layered over it), written ONLY
+                # when it changes — at most once per pass of this 0.3 s loop. The strip shares the
+                # StamPLC's I2C with the drive ESCs, so nothing writes it faster than this.
+                want = _prism_target(rs)
+                if want is not None and want != prev_led:
+                    _push_prism_colour(want)
+                    prev_led = want
                 if rs != prev:
-                    _push_prism(rs)          # PRISM color ONLY on real change (no periodic re-render flicker)
                     _push_tab5(rs)
                     prev = rs
                     last = now
