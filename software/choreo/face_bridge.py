@@ -16,6 +16,9 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
     (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
     FACE  { do: theme, name: halloween }   ->  THEME halloween (it stays after the show)
+    FACE  { do: move, name: wink_l }       ->  MOVE wink_l, sent at the event's `send_t` (its peak
+                                               offset early, so the wink is shut ON the beat); one-shot,
+                                               so a seek or a resync never replays it
     FACE  { do: skin, name: ring }         ->  SKIN ring       (head protocol v2; it stays, like a theme)
     SOUND { do: play, sound: attend }      ->  CUE attend      (one of the Tab5's six earcons)
 
@@ -114,7 +117,10 @@ class Follower:
         """Cues with t0 < t <= t1, in time order, as lines; unsendable ones go to the log."""
         evs = []
         for slot in ("FACE", "SOUND", "LIGHT"):
-            evs += [(e["t"], slot, e) for e in self._track(slot) if t0 < e["t"] <= t1 + 1e-9]
+            for e in self._track(slot):
+                when = e.get("send_t", e["t"])       # a move goes early, so its peak lands at t
+                if t0 < when <= t1 + 1e-9:
+                    evs.append((when, slot, e))
         out = []
         for t, slot, e in sorted(evs, key=lambda x: x[0]):
             c = e["cue"]
@@ -122,6 +128,8 @@ class Follower:
                 line = f"{c['do'].upper()} {c['name']}"
                 self.sent[c["do"]] = line
                 out.append(line)
+            elif slot == "FACE" and c.get("do") == "move":
+                out.append(f"MOVE {c['name']}")      # not state: nothing to resynchronise to later
             elif slot == "SOUND" and c.get("do") == "play":
                 # Routed by the validator (cue.py sound_route): only the Tab5's sounds go to the face.
                 route = e.get("output") or ("tab5" if c.get("sound") in EARCONS else "tablet")

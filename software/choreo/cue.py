@@ -238,6 +238,19 @@ FACE_THEMES = ("plain", "none", "halloween")
 # answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
 # reserved robot state (DEGRADED, E_STOP) always shows `default`.
 CODE_SKINS = ("default", "ring", "fireworks")
+# Eye MOVES (head protocol v4, `MOVE <name>`, tablet face only): one-shot gestures that play over the
+# held emote and return to it. A move's cue time is its PEAK (a wink's lid fully shut, the bottom of a
+# bob), so it lands on the beat the author wrote: the line is SENT early by the face's published
+# receipt-to-peak offset (exported as `send_t`). name: (peak_s, dur_s), MEASURED by the face, from
+# MOVES in software/face-web/engine/face.js (Face & HRI); tests/test_face_moves.py keeps them in step
+# with it and with head_protocol.MOVES. A new move replaces one still playing; it never queues.
+# `sparkle` is the one a skin may ignore (an asset skin cannot draw it): never make a show depend on it.
+FACE_MOVES = {
+    "wink_l": (0.139, 0.420), "wink_r": (0.139, 0.420),
+    "blink2": (0.333, 0.520),                 # its SECOND shut: a double blink reads on its second
+    "look_l": (0.231, 0.700), "look_r": (0.231, 0.700),
+    "roll": (0.148, 0.760), "bob": (0.138, 0.460), "sparkle": (0.124, 0.560),
+}
 
 # LIGHT: the PRISM base colour, as the StamPLC's `LED_COLOR r g b br` parser takes it
 # (firmware/rc_serial_probe/src/main.cpp). The firmware CLAMPS; the validator REJECTS, so an
@@ -947,6 +960,7 @@ class Show:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
+        notices += self._move_notices(events)
         if getattr(self, "require_sweep", False) and used & {"ARM_L", "ARM_R"}:
             for msg, fatal in self._check_sweep(events):
                 # "warn" (the composer while editing): a missing or stale stamp is a warning — saving
@@ -1443,6 +1457,27 @@ class Show:
             p.append(f"{where}: dance amp {amp!r} must be within (0, 1] — 1 is the autonomy ceiling")
         return p
 
+    @staticmethod
+    def _move_notices(events) -> list[str]:
+        """What a move cannot do where it is: one too early to be sent its lead ahead, and a sparkle
+        on a library (picture) skin, which draws nothing — said, never refused (the face answers OK)."""
+        out, skin = [], "default"
+        face = sorted((e for e in events if e.get("slot") == "FACE" and "start" in e and not e.get("bad")),
+                      key=lambda e: e["t"])
+        for e in face:
+            c = e["fields"]
+            if c.get("do") == "skin" and isinstance(c.get("name"), str):
+                skin = c["name"]
+            elif c.get("do") == "move" and c.get("name") in FACE_MOVES:
+                lead = FACE_MOVES[c["name"]][0]
+                if e["t"] < lead - 1e-9:
+                    out.append(f"face move {c['name']} at t={e['t']:.2f}s cannot be sent {lead:.3f}s early: "
+                               "it is sent at the start and peaks late")
+                if c["name"] == "sparkle" and skin not in CODE_SKINS:
+                    out.append(f"face move sparkle at t={e['t']:.2f}s falls on the picture skin {skin!r}, "
+                               "which cannot draw it: nothing shows")
+        return out
+
     def _check_face(self, where, c):
         do, name = c.get("do"), c.get("name")
         if do == "skin":
@@ -1469,8 +1504,12 @@ class Show:
                         f"({', '.join(FACE_THEMES)}) nor listed under the show's themes: "
                         "(authored themes, installed on the head by CFG)"]
             return []
+        if do == "move":
+            if name not in FACE_MOVES:
+                return [f"{where}: face move {name!r} is not one the face has ({', '.join(FACE_MOVES)})"]
+            return []
         if do != "emote":
-            return [f"{where}: face do must be emote|theme|skin"]
+            return [f"{where}: face do must be emote|theme|skin|move"]
         if name not in FACE_EMOTES:
             return [f"{where}: face emote {name!r} is not one the face has "
                     f"({', '.join(FACE_EMOTES)} — from kEmotes[] in the ESP-IDF face)"]
@@ -1521,6 +1560,10 @@ class Show:
                   "src": e["src"]}
             if e["slot"] == "SOUND":
                 ev["output"] = self.sound_route(e["fields"])     # resolved, so players need not guess
+            if e["slot"] == "FACE" and e["fields"].get("do") == "move" and e["fields"].get("name") in FACE_MOVES:
+                peak, dur = FACE_MOVES[e["fields"]["name"]]
+                ev["send_t"] = _r(max(0.0, e["t"] - peak))      # when the line goes, so the PEAK is at t
+                ev["move_s"] = _r(dur)
             if e["slot"] in ARM_SLOTS:
                 sign = -1 if e["slot"] == "ARM_L" else 1
                 ev["pose_signed"] = {str(j): _r(v, 4) for j, v in e["pose"].items()}
@@ -1687,6 +1730,8 @@ def describe(limits: dict) -> str:
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
     w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
       "under themes: (installed on the head by CFG). A theme stays after the show; an emote is handed back")
+    w(f"FACE: do move, name {tuple(FACE_MOVES)} — a one-shot gesture over the held emote; the cue's time is "
+      "its PEAK (sent early by the face's measured offset); sparkle may not show on a picture skin")
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
       f"anything within {LIGHT_RESERVED_BAND_DEG:g} deg of hue of {dict(LIGHT_RESERVED_HUES)} and at least "
       f"{LIGHT_RESERVED_MIN_SAT:g} saturated (reads as a reserved state colour)")

@@ -15,6 +15,7 @@ on:
       # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
       - "software/face-web/engine/skins/index.js"
       - "software/head-protocol/head_protocol.py"
+      - "software/face-web/engine/face.js"         # the eye moves' measured peak offsets (test_face_moves)
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
@@ -26,6 +27,7 @@ on:
       # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
       - "software/face-web/engine/skins/index.js"
       - "software/head-protocol/head_protocol.py"
+      - "software/face-web/engine/face.js"         # the eye moves' measured peak offsets (test_face_moves)
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
@@ -52,6 +54,7 @@ jobs:
       - run: python3 software/choreo/tests/test_sweep.py   # the self-collision sweep and its robot gate
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
       - run: python3 software/choreo/tests/test_library.py
+      - run: python3 software/choreo/tests/test_face_moves.py   # MOVE: the peak on the beat, pinned to the face
       - run: python3 software/choreo/tests/test_library_sync.py   # against a fake robot folder, no ssh
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
