@@ -4,6 +4,8 @@
     python3 server.py                          # http://127.0.0.1:8091, shows from ../shows
     python3 server.py --limits <arm software>/hw_validation/joint_limits.yaml
     python3 server.py --host 0.0.0.0           # reachable from a tablet on the same network
+    python3 server.py --library ~/opendubs-library   # where songs are added (default: OPENDUBS_LIBRARY,
+                                                     # else /var/lib/opendubs/library)
 
 Standard library + PyYAML. No build step, nothing loaded from a CDN — the robot's LAN may have no
 internet, and the editor must work there.
@@ -13,7 +15,8 @@ there is no robot-facing code path in it, by design (workplan 5.4: the default o
 preview; live output is a separately armed future binding).
 
 --host 0.0.0.0 has NO authentication — anyone who can reach the port can edit the show files in
-the shows directory (and nothing else). That is a smaller exposure than the dashboard's, which
+the shows directory, and add or delete songs in the library (and nothing else). Uploads are limited
+to song types, checked by content, and to api.MAX_SONG_BYTES. That is a smaller exposure than the dashboard's, which
 can move things, but it is still an exposure: bind to localhost unless a tablet needs it.
 """
 from __future__ import annotations
@@ -29,7 +32,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from api import STATIC_DIR, ApiError, Composer  # noqa: E402
+from api import MAX_SONG_BYTES, STATIC_DIR, ApiError, Composer  # noqa: E402
 
 STATIC = STATIC_DIR
 MAX_BODY = 2 * 1024 * 1024
@@ -40,7 +43,7 @@ def make_handler(comp: Composer):
         server_version = "opendubs-composer/1"
 
         def log_message(self, fmt, *args):          # quieter than the default
-            if "/api/" in (args[0] if args else ""):
+            if "/api/" in str(args[0] if args else ""):   # send_error passes an HTTPStatus here
                 sys.stderr.write("%s\n" % (fmt % args))
 
         # ---- helpers ----
@@ -94,14 +97,34 @@ def make_handler(comp: Composer):
                 if u.path.startswith("/audio/"):
                     p, ctype = comp.audio(unquote(u.path[len("/audio/"):]))
                     return self._file(p, ctype)
+                if u.path == "/api/library/songs":
+                    return self._json(comp.songs())
+                if u.path.startswith("/library/song/"):
+                    p, ctype = comp.song_audio(unquote(u.path[len("/library/song/"):]))
+                    return self._file(p, ctype)
                 raise ApiError("not found", 404)
             except ApiError as e:
                 return self._json({"error": str(e)}, e.status)
 
+        def _upload(self) -> bytes:
+            """A raw upload body, refused by its declared length before a byte is read."""
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > MAX_SONG_BYTES:
+                raise ApiError(f"over the {MAX_SONG_BYTES // (1024 * 1024)} MB limit for a song", 413)
+            return self.rfile.read(n)
+
         def do_POST(self):
             u = urlparse(self.path)
             try:
+                if u.path == "/api/library/songs":
+                    # the file is the body; what describes it is in the query string
+                    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+                    data = self._upload()
+                    return self._json(comp.add_song(q.get("filename", ""), data, q.get("id"), q.get("source"),
+                                                    q.get("licence"), q.get("duration_s")))
                 b = self._body()
+                if u.path == "/api/library/songs/delete":
+                    return self._json(comp.delete_song(b.get("id"), b.get("confirm")))
                 if u.path == "/api/analyse":
                     return self._json(comp.analyse(b.get("path"), b.get("text") or ""))
                 if u.path == "/api/edit":
@@ -128,12 +151,17 @@ def main():
     ap.add_argument("--limits", default=None,
                     help="the arm software's joint_limits.yaml; default: the container path if "
                          "present, else the TEST FIXTURE (and the editor says so)")
+    ap.add_argument("--library", default=None,
+                    help="the show library songs are added to (default: OPENDUBS_LIBRARY, else "
+                         "/var/lib/opendubs/library) — outside the repo, never committed")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8091)
     a = ap.parse_args()
 
-    comp = Composer(a.shows, a.limits)
+    comp = Composer(a.shows, a.limits, a.library)
     print(f"composer: shows from {comp.shows_dir}")
+    print(f"composer: library {comp.library_dir}"
+          + ("" if comp.info()["library_exists"] else "   (empty: the first song added creates it)"))
     print(f"composer: limits {comp.limits_path}"
           + ("   <-- TEST FIXTURE, not the robot's file" if comp.fixture else ""))
     if a.host not in ("127.0.0.1", "localhost", "::1"):

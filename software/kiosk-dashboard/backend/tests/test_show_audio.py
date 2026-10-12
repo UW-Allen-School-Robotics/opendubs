@@ -116,6 +116,19 @@ def test_only_known_ops_are_accepted():
     assert c.post("/api/choreo/audio", json={"op": "volume"}).status_code == 400
 
 
+def test_media_serves_the_librarys_songs_and_nothing_else_of_it():
+    lib = tempfile.mkdtemp()
+    for sub, name, data in (("songs", "tune.wav", b"RIFF"), ("skins", "eyes.png", b"png"), ("", "index.yaml", b"[]")):
+        os.makedirs(os.path.join(lib, sub), exist_ok=True)
+        open(os.path.join(lib, sub, name), "wb").write(data)
+    show_audio.LIBRARY_DIR = lib
+    c = _client()
+    assert c.get("/api/choreo/media/library/songs/tune.wav").content == b"RIFF"
+    for rel in ("library/skins/eyes.png", "library/index.yaml", "library/songs/../index.yaml",
+                "library/songs/none.wav"):
+        assert c.get("/api/choreo/media/" + rel).status_code == 404, rel
+
+
 def test_media_serves_only_audio_and_sounds_under_the_shows_directory():
     d = tempfile.mkdtemp()
     os.makedirs(os.path.join(d, "audio"))
