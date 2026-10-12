@@ -36,9 +36,27 @@ ssh thor 'source /opt/ros/jazzy/setup.bash && timeout 4 ros2 topic hz /scan'
 
 ## rosbridge (dashboard ↔ ROS)
 
-`ros-jazzy-rosbridge-suite` exposes a websocket on **`0.0.0.0:9090`** so the
-dashboard frontend (browser JS) talks to ROS directly — the "thin ROS subscriber"
-path. Runs as **`opendubs-rosbridge.service`** → `rosbridge.sh`.
+`ros-jazzy-rosbridge-suite` runs a websocket on **`127.0.0.1:9090` — the Thor only**. Runs as
+**`opendubs-rosbridge.service`** → `rosbridge.sh`.
+
+**To reach ROS from the LAN — the tablet, a laptop, a student's tool, a headset — use the
+dashboard's `/rosbridge`:**
+
+| from | URL |
+|---|---|
+| a plain-HTTP page or a script | `ws://<robot>:8080/rosbridge` |
+| an HTTPS page (the tablet) | `wss://<robot>:8443/rosbridge` |
+
+It speaks the ordinary rosbridge protocol, relayed unchanged, so a rosbridge client (roslibjs,
+roslibpy, ros-sharp) only needs its URL changed. rosbridge itself has no authentication and gives
+full access to the ROS graph, so the raw port is not on the LAN. Instead, the dashboard refuses a
+connection opened by a web page from another site, which is the dashboard's Origin check. Tools and
+scripts that send no `Origin` are let through: the robot's network is the first protection, not a
+login. On the Thor itself, `ws://127.0.0.1:9090` still works. Foxglove has its own bridge on `:8765`
+and is unaffected.
+
+`OPENDUBS_ROSBRIDGE_ADDRESS` overrides the bind address, for an isolated bench network only, as a
+per-robot drop-in.
 
 - The dashboard **LIDAR tab** has a minimal vanilla-JS rosbridge client (no
   roslibjs) that subscribes `/scan` and renders the **front** scan live (left
