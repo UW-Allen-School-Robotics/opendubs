@@ -15,6 +15,10 @@
 // same way as any other; only the drawing differs.
 
 const PUPIL_FRAC = 0.34;        // today's baseline, and it stays there
+const RIM_PAD = 14;             // how close to the rim the pupil may travel
+// The brow, unchanged by the lid-shape change: the lids carry the expression now, but the brow is
+// still half of what reads as ALERT or SQUINT, so it draws exactly as it always did.
+const BROW_W = 0.86, BROW_H = 0.085, BROW_GAP = 0.10, BROW_RANGE = 0.14;
 const CURVE_FRAC = 0.22;
 
 function roundRectPath(ctx, x, y, w, h, r) {
