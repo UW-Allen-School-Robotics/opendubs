@@ -40,6 +40,10 @@ const READS = {
   roll:    { of: (o) => -o.gy,  nth: 1 },      // the top of the circle
   bob:     { of: (o) => o.dy,   nth: 1 },
   sparkle: { of: (o) => o.sparkle, nth: 1 },
+  side_eye:    { of: (o) => -o.gx,   nth: 1 },   // the glance, held
+  to_camera:   { of: (o) => o.pull,  nth: 1 },   // fully on the viewer
+  double_take: { of: (o) => o.scale, nth: 1 },   // the SNAP back, not the look away
+  startle:     { of: (o) => o.scale, nth: 1 },
 };
 
 // Drive one move on a real Face and sample its contribution every millisecond.
@@ -164,6 +168,69 @@ function settled(emote) {
   for (let t = 0; t <= MOVES.sparkle.dur; t++) { f.stepMove(t);
     const v = f.mvOut.sparkle; hi = Math.max(hi, v); if (v < 0 || v > 1) worst = v; }
   ok(worst === 0 && hi === 1, "sparkle stays within 0..1 and reaches 1", `max ${hi}`);
+}
+
+// ---- 7b. the two new mechanisms actually reach the EYE ----------------------------------------
+// Everything above measures `mvOut`. These check what a skin is actually handed, because `scale`
+// and `pull` are the first contributions that are not simple offsets, and a move that computes a
+// beautiful curve nothing draws is worth nothing.
+{
+  // `pull` ARRIVES. This is the claim that separates to_camera from every other move: wherever the
+  // eyes were looking, it ends up on the viewer. Offsetting could not do that -- the landing place
+  // would depend on where they started -- so the test starts them somewhere definite and far.
+  const f = settled("NEUTRAL");
+  f.gazeX.snap ? f.gazeX.snap(0.9) : (f.gazeX.set(0.9, 0), f.gazeX.step(1));
+  f.gazeY.set(0.4, 0); f.gazeY.step(1);
+  const away = f.eyes()[0].gazeX;
+  f.move("to_camera", 0);
+  f.stepMove(MOVES.to_camera.peak);
+  const [l, r] = f.eyes();
+  ok(Math.abs(away) > 0.5, "the eyes start well off centre", `gazeX ${away.toFixed(3)}`);
+  ok(Math.abs(l.gazeX) < 0.02 && Math.abs(l.gazeY) < 0.02 && Math.abs(r.gazeX) < 0.02,
+     "to_camera ARRIVES on the viewer, from wherever the eyes were",
+     `gazeX ${l.gazeX.toFixed(3)}, gazeY ${l.gazeY.toFixed(3)}`);
+
+  // and it lets go afterwards, rather than pinning the gaze to centre for ever
+  f.stepMove(MOVES.to_camera.dur + 1);
+  ok(Math.abs(f.eyes()[0].gazeX - away) < 1e-9, "and releases the gaze when it ends");
+}
+{
+  // `scale` widens the eye the emote shaped, corner radius with it, and puts it back.
+  const f = settled("NEUTRAL");
+  const before = f.eyes()[0];
+  f.move("startle", 0);
+  f.stepMove(MOVES.startle.peak);
+  const wide = f.eyes()[0];
+  ok(wide.w > before.w * 1.15 && wide.h > before.h * 1.15,
+     "startle widens the eye", `w ${before.w.toFixed(0)} -> ${wide.w.toFixed(0)}`);
+  ok(Math.abs(wide.radius / wide.h - before.radius / before.h) < 1e-9,
+     "and the corner radius grows with it, so it reads as bigger and not squarer");
+  ok(wide.lid <= before.lid, "and the lid opens rather than closing", `${before.lid.toFixed(3)} -> ${wide.lid.toFixed(3)}`);
+  f.stepMove(MOVES.startle.dur + 1);
+  ok(Math.abs(f.eyes()[0].w - before.w) < 1e-9, "and the eye returns to its size");
+}
+{
+  // side_eye is a LOOK, not a turn: the lids come down while the gaze goes across.
+  const f = settled("NEUTRAL");
+  const before = f.eyes()[0];
+  f.move("side_eye", 0);
+  f.stepMove(MOVES.side_eye.peak);
+  const e = f.eyes()[0];
+  ok(e.gazeX < -0.5 && e.lid > before.lid + 0.2,
+     "side_eye glances across with the lids lowered",
+     `gazeX ${e.gazeX.toFixed(3)}, lid ${before.lid.toFixed(3)} -> ${e.lid.toFixed(3)}`);
+}
+{
+  // double_take: away first, then back wide. The order is the gesture.
+  const f = settled("NEUTRAL");
+  f.move("double_take", 0);
+  f.stepMove(260);                                   // during the look away
+  const away = f.eyes()[0];
+  f.stepMove(MOVES.double_take.peak);                // at the snap
+  const back = f.eyes()[0];
+  ok(away.gazeX > 0.4 && Math.abs(back.gazeX) < 0.15 && back.w > away.w * 1.1,
+     "double_take looks away, then snaps back wide",
+     `away ${away.gazeX.toFixed(3)} -> back ${back.gazeX.toFixed(3)}, w x${(back.w / away.w).toFixed(2)}`);
 }
 
 // ---- 8. the table stays in the shape two OTHER lanes parse -------------------------------------
