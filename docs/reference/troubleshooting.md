@@ -414,14 +414,15 @@ The arm buttons run `openarm-up` and the teleop service through sudo, and the da
 
 `ARM_CAN_NOT_READY` · Fault · seen on the dashboard
 
-The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing.
+The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing. A link can be left in bus-off after an e-stop, even one already cleared -- the arms are powered from the drive bus, behind the contactor -- or by a loose CAN connector, and a bus-off link does not recover by itself when power or the connection returns. (Both were seen together on 2026-10-09; on 2026-10-08 an e-stop cleared without one.)
 
 **What to do**
 
-1. Check that the CAN adapter is plugged in and its driver is installed.
-2. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
+1. Once the contactor is closed and the CAN connectors are seated, restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right` on the robot's computer, check `openarm-up status` shows both `ERROR-ACTIVE`, then activate.
+2. Otherwise, check that the CAN adapter is plugged in and its driver is installed.
+3. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
 
-**See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [OpenArm setup](../openarm-setup.md#troubleshooting)
+**See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [Troubleshooting](troubleshooting.md#contactor-open) · [OpenArm setup](../openarm-setup.md#troubleshooting)
 
 ### The arm stack did not start {#arm-stack-start-failed}
 
@@ -457,7 +458,7 @@ A motor reports a fault such as over-voltage. A motor's fault latches until the 
 
 **What to do**
 
-1. Press and release the e-stop to power-cycle the arms, re-arm, then press ACTIVATE again.
+1. Press and release the e-stop to power-cycle the arms. Once the contactor is closed again, restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE.
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-motor-fault)
 
