@@ -122,6 +122,7 @@ class Composer:
         except (yaml.YAMLError, cue.ShowError) as e:
             out["parse_error"] = str(e)
             return out
+        show.require_sweep = "warn"          # what the robot will require, said while writing (a warning until saved)
         try:
             tl = show.export(self.limits, self.limits_path, with_notes=True)
         except Exception as e:  # noqa: BLE001 — a validator crash is a finding, shown not hidden
@@ -449,11 +450,34 @@ class Composer:
                 with open(p, encoding="utf-8") as fh:
                     text = fh.read()
                 ik_note = "; ".join(bad) if bad else "IK targets compiled"
+        # the self-collision sweep (sweep.py): a show that moves an arm is swept on every save, and the
+        # result stamped into the file — the robot refuses an arm show without a current stamp
+        sweep_note = None
+        if any(s in (doc.get("slots") or []) for s in ("ARM_L", "ARM_R")):
+            try:
+                import sweep
+                r = sweep.run(p, self.limits_path, write=True)
+            except ImportError as e:
+                sweep_note = (f"not swept for collisions here ({e.name or e} is not installed) — the robot will refuse "
+                              "it until it is: run `python3 sweep.py stamp <show>` with MuJoCo, or start the composer with it")
+            except Exception as e:  # noqa: BLE001  an invalid show cannot be swept yet; the validator says why
+                sweep_note = f"not swept for collisions: {type(e).__name__}: {e}"
+            else:
+                with open(p, encoding="utf-8") as fh:
+                    text = fh.read()
+                if r.get("current"):
+                    sweep_note = "motion unchanged — its collision sweep still stands"
+                else:
+                    sweep_note = f"swept: closest {r['min_mm']:.0f} mm at {float(r['at_s']):.1f} s"
+                if r["min_mm"] < sweep.THRESHOLD_MM:
+                    sweep_note += f" — UNDER {sweep.THRESHOLD_MM:g} mm"
         out = self.analyse(rel, text)
         out["saved"] = True
         out["disk_sha"] = _sha(text)
         if ik_note:
             out["ik"] = ik_note
+        if sweep_note:
+            out["sweep"] = sweep_note
         return out
 
     # ---- audio ------------------------------------------------------------------------------

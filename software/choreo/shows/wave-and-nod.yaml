@@ -20,6 +20,7 @@ music:
   offset_s: 0.5
   beats_per_bar: 4
 
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "edfc790fd3fd@dc74e24f" }
 cues:
   # bars 1-2: look up and nod to the beat while both arms rise
   - { t: 0.0, slot: FACE, do: emote, name: SOFT }
