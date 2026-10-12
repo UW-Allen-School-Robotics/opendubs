@@ -95,20 +95,31 @@ def _end(node):
     return node.end_mark.index
 
 
-def cue_nodes(text):
-    """The `cues:` sequence node and its items."""
+def cue_nodes(text, clip=None):
+    """The `cues:` sequence node — the show's, or with `clip`, that clip's own (clips.<name>.cues)."""
     root = _root(text)
+    where = "cues:"
+    if clip is not None:
+        _, clips = _key(root, "clips")
+        _, body = _key(clips, clip) if isinstance(clips, yaml.MappingNode) else (None, None)
+        if not isinstance(body, yaml.MappingNode):
+            raise EditError(f"no clip {clip!r}")
+        root, where = body, f"clip {clip}'s cues:"
     _, seq = _key(root, "cues")
     if seq is None:
-        raise EditError("the show has no cues: list")
+        raise EditError(f"the show has no {where} list")
     if not isinstance(seq, yaml.SequenceNode):
-        raise EditError("cues: must be a list")
+        raise EditError(f"{where} must be a list")
     return seq
 
 
-def cue_lines(text) -> list[int]:
+def _cues_path(clip=None):
+    return ["clips", clip, "cues"] if clip is not None else ["cues"]
+
+
+def cue_lines(text, clip=None) -> list[int]:
     """1-based line number of each cue, in file order — for 'line N' in the editor."""
-    return [n.start_mark.line + 1 for n in cue_nodes(text).value]
+    return [n.start_mark.line + 1 for n in cue_nodes(text, clip).value]
 
 
 def _line_bounds(text, start, end):
@@ -118,6 +129,7 @@ def _line_bounds(text, start, end):
 
 
 def _set_cue(text, seq, index, new, key="cues"):
+    """`key` is the list's name at the top level, or a path to it (["clips", name, "cues"])."""
     if not 0 <= index < len(seq.value):
         raise EditError(f"no cue {index}")
     node = seq.value[index]
@@ -125,7 +137,10 @@ def _set_cue(text, seq, index, new, key="cues"):
         raise EditError(f"cue {index} is not a mapping")
     if not isinstance(new, dict) or not new:
         raise EditError("a cue must be a non-empty mapping")
-    old = yaml.safe_load(text)[key][index]
+    old = yaml.safe_load(text)
+    for k in ([key] if isinstance(key, str) else key):
+        old = old[k]
+    old = old[index]
     old_keys = [k.value for k, _ in node.value]
     if set(map(str, old_keys)) == set(map(str, new)):
         # same fields: replace only the values that changed, back to front
@@ -171,7 +186,8 @@ def _add_cue(text, seq, cue):
         key_line = text[ls:seq.start_mark.index].rstrip()
         le = text.find("\n", seq.start_mark.index)
         le = len(text) if le < 0 else le + 1
-        return text[:ls] + key_line + "\n  " + line + "\n" + text[le:]
+        indent = " " * (len(key_line) - len(key_line.lstrip()) + 2)    # under its own key, however deep
+        return text[:ls] + key_line + "\n" + indent + line + "\n" + text[le:]
     last = seq.value[-1]
     s, e = last.start_mark.index, _end(last)
     ls, le = _line_bounds(text, s, e)
@@ -311,6 +327,50 @@ def _require(text, key, value):
     return text[:le] + f"{' ' * lastk.start_mark.column}{key}: {fmt(value)}\n" + text[le:]
 
 
+CLIP_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
+
+
+def _clip_block(name, clip, indent):
+    """A clip definition as block text: its length (and notes) as plain lines, its cues one per line."""
+    pad, lines = " " * indent, [f"{' ' * indent}{name}:"]
+    for k, v in clip.items():
+        if k != "cues":
+            lines.append(f"{pad}  {k}: {fmt(v)}")
+    cues = clip.get("cues") or []
+    if cues:
+        lines.append(f"{pad}  cues:")
+        lines += [f"{pad}    - {fmt({str(a): b for a, b in c.items()})}" for c in cues]
+    else:
+        lines.append(f"{pad}  cues: []")
+    return "\n".join(lines) + "\n"
+
+
+def _clip_set(text, name, clip):
+    """Create a clip, or replace one whole: `clips:` is made above `cues:` if the show has none."""
+    if not isinstance(name, str) or not CLIP_NAME.fullmatch(name):
+        raise EditError("a clip's name is letters, digits, - and _ (starting with a letter)")
+    if not isinstance(clip, dict):
+        raise EditError("a clip is a mapping {length_beats or length_s, cues}")
+    root = _root(text)
+    k, clips = _key(root, "clips")
+    if clips is None:
+        kc, _ = _key(root, "cues")
+        if kc is None:
+            raise EditError("the show has no cues: list")
+        ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+        return text[:ls] + "clips:\n" + _clip_block(name, clip, 2) + "\n" + text[ls:]
+    if not isinstance(clips, yaml.MappingNode) or clips.flow_style:
+        raise EditError("clips: must be a block mapping to edit it here")
+    indent = clips.value[0][0].start_mark.column if clips.value else 2
+    for ck, cv in clips.value:
+        if ck.value == name:                      # replace this clip's whole block
+            ls, le = _line_bounds(text, ck.start_mark.index, _end(cv))
+            return text[:ls] + _clip_block(name, clip, indent) + text[le:]
+    last_k, last_v = clips.value[-1]
+    _, le = _line_bounds(text, last_k.start_mark.index, _end(last_v))
+    return text[:le] + _clip_block(name, clip, indent) + text[le:]
+
+
 NOTES = "timeline_notes"
 
 
@@ -376,10 +436,13 @@ def apply(text: str, edits: list) -> str:
             text = _set_cue(text, _notes_seq(text), _note_index(text, ed.get("id")), ed.get("note"), NOTES)
         elif op == "note_delete":
             text = _delete_cue(text, _notes_seq(text), _note_index(text, ed.get("id")))
+        elif op == "clip_set":
+            text = _clip_set(text, ed.get("name"), ed.get("clip"))
         elif op in ("set", "delete", "add"):
-            seq = cue_nodes(text)
+            clip = ed.get("clip_name")                 # a clip's own cues, when editing inside it
+            seq = cue_nodes(text, clip)
             if op == "set":
-                text = _set_cue(text, seq, int(ed["index"]), ed.get("cue"))
+                text = _set_cue(text, seq, int(ed["index"]), ed.get("cue"), _cues_path(clip))
             elif op == "delete":
                 text = _delete_cue(text, seq, int(ed["index"]))
             else:

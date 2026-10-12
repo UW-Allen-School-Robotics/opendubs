@@ -200,7 +200,13 @@ each song. The tablet's own cache, by hash from the robot's library, is the tabl
   un-mirroring in `cue.py` is exercised end to end. On the robot the browser would read **one
   sample** of `/joint_states` through rosbridge — read-only — and post it to `api/capture`. That
   interface is specified in `notes/design/choreo-teach-and-sync.md`; it is not wired.
-- **Clip definitions are edited in the YAML**, not in the timeline. Placements are editable.
+- **Clips are made and edited on the timeline.** Select cues (shift-click, or "select several" on a
+  touch screen) and **make a clip of these** — their times become the clip's own (beats when the
+  show has a beat grid), the clip runs through its last beat, and one placement takes their place,
+  so the show plays exactly as before (one undo takes it back). **+** on the CLIPS lane makes an
+  empty clip; **⇥** places one at the playhead; a placement's **edit the clip ✎** shows the clip's
+  own cues from its start, where every edit goes into the clip — **back to the show** returns. No
+  clips inside clips (the format's v1 rule). Deleting a clip definition is still a YAML edit.
 - **Show files are managed from the editor** (the **file** button): a NEW show (a name; a library song
   and a BPM optional — it starts empty, and the first cue on a lane lists that part and what it
   requires); SAVE A COPY (also how to duplicate: the text being edited, under a new name, the

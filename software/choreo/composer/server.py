@@ -176,9 +176,11 @@ def make_handler(comp: Composer):
                 if u.path == "/api/library/songs/delete":
                     return self._json(comp.delete_song(b.get("id"), b.get("confirm")))
                 if u.path == "/api/analyse":
-                    return self._json(comp.analyse(b.get("path"), b.get("text") or ""))
+                    return self._json(comp.analyse(b.get("path"), b.get("text") or "", b.get("clip")))
                 if u.path == "/api/edit":
-                    return self._json(comp.edit(b.get("path"), b.get("text") or "", b.get("edits")))
+                    return self._json(comp.edit(b.get("path"), b.get("text") or "", b.get("edits"), b.get("clip")))
+                if u.path == "/api/clip/make":
+                    return self._json(comp.make_clip(b.get("path"), b.get("text") or "", b.get("indices"), b.get("name")))
                 if u.path == "/api/save":
                     return self._json(comp.save(b.get("path"), b.get("text") or ""))
                 if u.path == "/api/playhead":

@@ -141,6 +141,7 @@ async function loadShow(path) {
   if (S.text !== S.savedText && !confirm("Discard unsaved changes?")) { $("show").value = S.path; return; }
   const d = await api("api/show?path=" + encodeURIComponent(path));
   S.path = path; S.undo = []; S.selected = null; S.selectedNote = null; S.savedText = d.text; S.diskSha = d.disk_sha || null;
+  S.clip = null; S.multi = new Set(); $("clipBar").hidden = true;
   S.muted = new Set(store.get("muted." + path, []));
   stop(); S.t = 0; postPlayhead(true);
   setData(d);
@@ -151,9 +152,12 @@ function setData(d) {
   S.data = d; S.text = d.text;
   render();
 }
+/* Inside a clip (S.clip), the timeline is the clip's own and cue edits go into its cue list. */
+S.clip = null; S.multi = new Set(); S.multiMode = false;
+const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
 async function edit(edits, label) {
   try {
-    const d = await api("api/edit", { path: S.path, text: S.text, edits });
+    const d = await api("api/edit", { path: S.path, text: S.text, edits: inClip(edits), clip: S.clip });
     S.undo.push(S.text);
     setData(d);
     if (label) toast(label, 1600);
@@ -162,12 +166,13 @@ async function edit(edits, label) {
 async function undo() {
   if (!S.undo.length) return;
   const text = S.undo.pop();
-  setData(await api("api/analyse", { path: S.path, text }));
+  setData(await api("api/analyse", { path: S.path, text, clip: S.clip }));
 }
 async function save() {
   try {
     const d = await api("api/save", { path: S.path, text: S.text });
-    S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha; setData(d);
+    S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha;
+    setData(S.clip ? await api("api/analyse", { path: S.path, text: d.text, clip: S.clip }) : d);
     /* a show with reach/point_at targets is compiled on save: say what happened to them */
     toast("saved " + S.path + (d.ik ? " — " + d.ik : ""), d.ik && d.ik !== "IK targets compiled" ? 8000 : 2000);
     if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
@@ -336,7 +341,12 @@ function renderHeads() {
         + `<button data-prompt="1" title="Copy the open notes as a prompt for any agent session (the file must be saved: the agent reads the file)">⧉</button></div>`;
       continue;
     }
-    const und = lane !== "CLIPS" && !dec.has(lane);
+    if (lane === "CLIPS") {
+      html += `<div class="head"><span class="name">CLIPS</span><button data-newclip="1" title="A new, empty clip — then add its cues">+</button>`
+        + `<button data-placeclip="1" title="Place a clip at the playhead">⇥</button></div>`;
+      continue;
+    }
+    const und = !dec.has(lane);
     const cls = ["head", und ? "undeclared" : "", S.muted.has(lane) ? "muted" : ""].join(" ");
     let btns = "";
     if (lane !== "CLIPS") btns += `<button data-add="${lane}" title="Add a ${lane} cue at the playhead">+</button>`;
@@ -404,13 +414,13 @@ function renderLanes() {
       parts.push(`<div class="noteshade" style="left:${n.t0 * pps}px;width:${Math.max(4, (n.t1 - n.t0) * pps)}px"></div>`);
     if (lane === "CLIPS") {
       for (const p of placements()) {
-        const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
+        const cls = ["place", isSel(p.index) ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
         parts.push(`<div class="${cls}" data-cue="${p.index}" style="left:${p.start * pps}px;width:${Math.max(20, (p.end - p.start) * pps)}px" title="${esc(p.title)}">${esc(p.text)}</div>`);
       }
     } else if (tl() && tl().tracks[lane]) {
       for (const ev of tl().tracks[lane]) {
         const i = ev.src.index, fc = ev.src.clip ? "fromClip" : "";
-        const sel = S.selected === i ? "sel" : "", b = bad.has(i) ? "bad" : warn.has(i) ? "warn" : "";
+        const sel = isSel(i) && !ev.src.clip ? "sel" : "", b = bad.has(i) ? "bad" : warn.has(i) ? "warn" : "";
         const tip = esc(JSON.stringify(ev.cue) + `  @ ${ev.t.toFixed(3)} s (${ev.src.time})` + (ev.src.clip ? `  clip ${ev.src.clip} #${ev.src.instance + 1}` : ""));
         if (ev.kind === "keyframe") {
           parts.push(`<div class="seg ${b}" style="left:${ev.start * pps}px;width:${Math.max(0, ev.t - ev.start) * pps}px"></div>`);
@@ -581,8 +591,10 @@ function renderProblems() {
   const det = el.querySelector("details.notices");
   if (det) det.addEventListener("toggle", () => store.set("notesOpen", det.open));
 }
+function isSel(i) { return S.multi.size ? S.multi.has(i) : S.selected === i; }
 function renderInspector() {
   if (S.selectedNote) return renderNoteInspector();
+  if (S.multi.size > 1) return renderMultiInspector();
   const el = $("inspector"), i = S.selected, a = (S.data && S.data.authored) || [];
   if (i === null || !a[i]) { el.innerHTML = '<p class="dim" title="Tap an empty lane to move the playhead; + on a lane adds a cue there; drag a cue to retime it">Tap a cue to inspect it.</p>'; return; }
   const c = a[i], form = "t" in c ? "t" : "beat" in c ? "beat" : "bar" in c ? "bar" : "t";
@@ -597,7 +609,7 @@ function renderInspector() {
     resolved = `t = ${e.t.toFixed(3)} s <span class="dim">(${esc(e.src.time)})</span> · span ${e.start.toFixed(3)}–${e.end.toFixed(3)} s`;
     if (e.pose) resolved += `<div class="dim">resolved pose (outward): ${Object.values(e.pose).map((v) => v.toFixed(1)).join(", ")}</div>`;
   } else if (evs.length) {
-    resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <span class="dim">(edit the clip's own cues in the YAML)</span>`;
+    resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <button data-openclip="${esc(c.clip)}" title="Show this clip's own cues on the timeline, from its start, and edit them there">edit the clip ✎</button>`;
   }
   el.innerHTML = `
     <div class="meta">cue ${i}${line ? ` · line ${line}` : ""}${c.slot ? " · " + c.slot : ""}${c.clip ? " · clip placement" : ""}</div>
@@ -607,7 +619,8 @@ function renderInspector() {
       <input id="iTime" value="${esc(c[form] ?? "")}" inputmode="decimal">
       <button id="iApply">apply</button>
       <button id="iDelete" title="Delete this cue (Delete key)">delete</button>
-      ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
+      ${!c.clip && !S.clip ? '<button data-makeclip="1" title="Turn this cue into a clip (shift-click to select more first)">make a clip…</button>' : ""}
+      ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints && !S.clip ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
     </div>
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
@@ -696,7 +709,8 @@ async function teach(slot) {
     /* A taught pose has no timing of its own: place it at the soonest time the arm can reach it
        (workplan 1.3), and say so when that is not where the playhead was. Never silently. */
     const asked = snapT(S.t);
-    const r = await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
+    /* inside a clip, time is the clip's own: place it at the playhead (the whole show is checked on the way back) */
+    const r = S.clip ? { moved: false } : await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
     const t = r.moved ? snapUp(r.t) : asked;
     await edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
     toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ")
@@ -741,7 +755,15 @@ function onUp(ev) {
     if (Math.abs(ev.clientX - d.x0) < 8 && Math.abs(ev.clientY - d.y0) < 8) seek(laneX(ev) / S.pps);
     return;
   }
-  if (!d.moved) { S.selected = d.i; S.selectedNote = null; renderLanes(); renderInspector(); return; }
+  if (!d.moved) {
+    /* shift-click, or the "select several" toggle (for touch), adds to the selection */
+    if ((ev.shiftKey || S.multiMode) && S.selected !== null) {
+      if (S.multi.has(d.i)) S.multi.delete(d.i); else S.multi.add(d.i);
+      if (!S.multi.size) S.multi.add(d.i);
+      S.selected = d.i;
+    } else { S.selected = d.i; S.multi = new Set([d.i]); }
+    S.selectedNote = null; renderLanes(); renderInspector(); return;
+  }
   S.selected = d.i;
   const c = S.data.authored[d.i];
   if (d.anchor === null || d.newT === undefined || Math.abs(d.newT - d.anchor) < 1e-6) { renderLanes(); return; }
@@ -1078,6 +1100,60 @@ async function openFiles() {
   });
 }
 
+/* ---------- clips: make one from cues, a new one, edit inside one (the user's composer item #1) ---------- */
+function renderMultiInspector() {
+  const a = (S.data && S.data.authored) || [], idx = [...S.multi].sort((x, y) => x - y);
+  const kinds = idx.map((i) => (a[i] && (a[i].slot || (a[i].clip ? "clip " + a[i].clip : "?")))).join(", ");
+  $("inspector").innerHTML = `
+    <div class="meta">${idx.length} cues selected · ${esc(kinds)}</div>
+    <div class="row2"><button data-makeclip="1" title="Turn these cues into a reusable clip: their times become the clip's own, and one placement takes their place">make a clip of these…</button>
+      <button data-multimode="1" class="${S.multiMode ? "on" : ""}" title="On a touch screen: tap cues to add or remove them (or hold shift and click)">select several: ${S.multiMode ? "on" : "off"}</button>
+      <button data-clearsel="1">clear</button></div>
+    <div class="note">Shift-click (or "select several") adds and removes cues. A placement cannot go into a clip.</div>`;
+}
+async function makeClip() {
+  const idx = [...(S.multi.size ? S.multi : new Set([S.selected]))].filter((i) => i !== null);
+  if (S.clip) { toast("a clip cannot contain a clip — go back to the show first", 5000); return; }
+  const name = prompt("Name the new clip (letters, digits, - and _):", "move" + ((tl().clips_count || 0) + 1));
+  if (!name) return;
+  try {
+    const d = await api("api/clip/make", { path: S.path, text: S.text, indices: idx, name });
+    S.undo.push(S.text); S.multi = new Set(); S.selected = null; setData(d);
+    toast(`clip ${name} made from ${idx.length} cue${idx.length > 1 ? "s" : ""} — one placement took their place (undo takes it back)`, 6000);
+  } catch (e) { toast(e.message, 6000); }
+}
+async function newClip() {
+  if (S.clip) { toast("go back to the show to make another clip", 4000); return; }
+  const name = prompt("Name the new clip (letters, digits, - and _):"); if (!name) return;
+  const m = music(), len = prompt(m ? "How long is it, in beats?" : "How long is it, in seconds?", m ? "4" : "2"); if (len === null) return;
+  const n = Number(len); if (!(n > 0)) { toast("a clip's length is a positive number", 4000); return; }
+  await edit([{ op: "clip_set", name, clip: m ? { length_beats: Math.round(n) } : { length_s: n } }], `clip ${name} made — add its cues`);
+  openClip(name);
+}
+async function placeClip() {
+  if (S.clip) { toast("go back to the show to place a clip", 4000); return; }
+  const names = (S.data && S.data.clip_names) || [];
+  if (!names.length) { toast("this show has no clips yet — + on the CLIPS lane makes one", 5000); return; }
+  const name = prompt("Place which clip at the playhead? (" + names.join(", ") + ")", names[0]); if (!name) return;
+  edit([{ op: "add", cue: { ...newCueTime(snapT(S.t)), clip: name } }], `clip ${name} placed at ${S.t.toFixed(2)} s`);
+}
+async function openClip(name) {
+  try {
+    const d = await api("api/analyse", { path: S.path, text: S.text, clip: name });
+    if (d.parse_error) throw new Error(d.parse_error);
+    S.clip = name; S.selected = null; S.multi = new Set(); S.selectedNote = null;
+    setData(d); seek(0); $("scroller").scrollLeft = 0;
+    const L = d.timeline.clip || {};
+    $("clipMsg").textContent = `Editing the clip “${name}”${L.length_beats ? `, ${L.length_beats} beat${L.length_beats === 1 ? "" : "s"}` : L.length_s ? `, ${L.length_s} s` : ""} — its own cues, from its start. Edits go into the clip; save as usual.`;
+    $("clipBar").hidden = false;
+  } catch (e) { toast(e.message, 5000); }
+}
+async function closeClip() {
+  S.clip = null; S.selected = null; S.multi = new Set();
+  setData(await api("api/analyse", { path: S.path, text: S.text }));
+  $("clipBar").hidden = true;
+}
+
 /* ---------- tap tempo ---------- */
 function tap(ev) {
   const now = ev.timeStamp / 1000;
@@ -1113,7 +1189,7 @@ function bind() {
   $("yamlBtn").onclick = () => { $("yamlText").value = S.text; $("yamlDrawer").hidden = false; };
   $("yamlClose").onclick = () => ($("yamlDrawer").hidden = true);
   $("yamlApply").onclick = async () => {
-    const d = await api("api/analyse", { path: S.path, text: $("yamlText").value });
+    const d = await api("api/analyse", { path: S.path, text: $("yamlText").value, clip: S.clip });
     S.undo.push(S.text); setData(d); toast(d.parse_error ? "applied, but it does not parse" : "applied", 1600);
   };
   $("heads").addEventListener("click", (e) => {
@@ -1121,6 +1197,8 @@ function bind() {
     if (d) { edit(declareIfNeeded(d.dataset.declare), `${d.dataset.declare} is now in slots:`); return; }
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.addnote) addNote();
+    if (b.dataset.newclip) newClip();
+    if (b.dataset.placeclip) placeClip();
     if (b.dataset.prompt) copyPrompt();
     if (b.dataset.add) addCue(b.dataset.add);
     if (b.dataset.teach) teach(b.dataset.teach);
@@ -1131,6 +1209,13 @@ function bind() {
       render();
     }
   });
+  $("inspector").addEventListener("click", (e) => {
+    const o = e.target.closest("[data-openclip]"); if (o) openClip(o.dataset.openclip);
+    if (e.target.closest("[data-makeclip]")) makeClip();
+    if (e.target.closest("[data-multimode]")) { S.multiMode = !S.multiMode; renderInspector(); }
+    if (e.target.closest("[data-clearsel]")) { S.multi = new Set(); S.selected = null; renderLanes(); renderInspector(); }
+  });
+  $("clipBack").onclick = closeClip;
   $("problems").addEventListener("click", (e) => {
     const li = e.target.closest("li[data-cue]"); if (!li || li.dataset.cue === "") return;
     S.selected = +li.dataset.cue; renderLanes(); renderInspector();
