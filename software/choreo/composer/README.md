@@ -145,10 +145,14 @@ it came from and what allows the robot to play it.
 (`/var/lib/opendubs/library` on the Thor): the validator checks the id there before every run, and
 the dashboard serves the file to the tablet under `/api/choreo/media/library/songs/…`, which the
 tablet downloads whole before the start, exactly like a `file:` song. A song added on a laptop is
-in the laptop's library only: copy it to the robot with `library.py add` on the Thor (same id,
-same source and licence) until the library sync is built — laptop→Thor sync is an open question
-in `notes/design/choreo-screen-track.md`, and the tablet's own cache by hash is the tablet lane's
-plan 5.3.
+in the laptop's library only until it is pushed:
+
+    python3 software/choreo/library_sync.py --library <the composer's library> push <robot> <song-id> --dry-run
+    python3 software/choreo/library_sync.py --library <the composer's library> push <robot> <song-id>
+
+over ssh, content-addressed (what the robot has is skipped), every item verified on the robot, and
+never deleting anything there (see `library_sync.py`). The music dialog shows the command under
+each song. The tablet's own cache, by hash from the robot's library, is the tablet lane's plan 5.3.
 
 ## What is stubbed, and what is not here
 

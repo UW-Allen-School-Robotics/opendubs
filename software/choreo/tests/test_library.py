@@ -67,7 +67,7 @@ check("a video skin must be WebM: MP4/H.264 cannot carry the transparency a skin
                          "made up", "CC0", lib_root=lib, type="video", width=480, height=480, fps=30,
                          duration_s=2.0) or ""))
 check("a spinning skin's counter-rotation (face-web #138) is a known param, and its shape is checked",
-      not library.entry_problems({"id": "x", "kind": "skin", "file": "f.png", "sha256": "0", "source": "s", "licence": "l",
+      not library.entry_problems({"id": "x", "kind": "skin", "file": "f.png", "sha256": "0", "bytes": 1, "source": "s", "licence": "l",
                                   "type": "image", "width": 480, "height": 480,
                                   "params": {"spin_dps": 90, "counter": {"every_s": [8, 20], "hold_s": [2, 4], "ease_s": 0.9}}})
       and all(library._counter_problems("x", bad) for bad in
@@ -232,6 +232,51 @@ if os.path.isfile(idx_js):
 else:
     print("  skip  face-web's engine/skins/index.js (CODE_SKINS) is not in this tree yet; cue.CODE_SKINS =",
           cue.CODE_SKINS)
+
+
+def js_object_keys(text, name=None, inside=None):
+    """The top-level keys of a JS object literal: the one assigned to `name` (an exported constant),
+    or else the first `{...}` after `inside` (the literal before it was exported)."""
+    if name and (m := re.search(name + r"\s*=\s*(?:Object\.freeze\()?\{", text)):
+        i = m.end()
+    elif inside and (j := text.find(inside)) >= 0:
+        i = text.index("{", text.index("{", j) + 1) + 1 if inside.endswith("(") else text.index("{", j) + 1
+    else:
+        return None
+    depth, key, keys, k = 0, "", [], i
+    while k < len(text):
+        c = text[k]
+        if c in "{[(":
+            depth += 1
+        elif c in "}])":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and c == ":" and key.strip():
+            keys.append(key.strip().strip("'\"").split()[-1])
+            key = ""
+        elif depth == 0 and c == ",":
+            key = ""
+        elif depth == 0 and not key.strip().startswith("..."):
+            key += c
+        k += 1
+    return keys
+
+
+print("\nlibrary: a skin's params are the face engine's own (face-web asset.js)")
+asset_js = os.path.join(HERE, "..", "..", "face-web", "engine", "skins", "asset.js")
+if os.path.isfile(asset_js):
+    text = open(asset_js, encoding="utf-8").read()
+    # the exported ASSET_PARAM_DEFAULTS (Face & HRI, #165), else the defaults literal in makeAssetSkin
+    keys = js_object_keys(text, "ASSET_PARAM_DEFAULTS") or js_object_keys(text, inside="makeAssetSkin(")
+    check("library.py accepts exactly the skin params the face engine declares (a typo is caught; a new "
+          "engine param makes this fail until library.py knows it)",
+          keys is not None and set(keys) == set(library.SKIN_PARAMS), (keys, sorted(library.SKIN_PARAMS)))
+    ck = js_object_keys(text, "ASSET_COUNTER_DEFAULTS")
+    if ck is not None:
+        check("... and the counter block's keys are the engine's too", set(ck) == set(library.COUNTER_KEYS), ck)
+else:
+    print("  skip  face-web's engine/skins/asset.js is not in this tree")
 
 print()
 if FAILS:

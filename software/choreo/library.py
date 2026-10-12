@@ -10,6 +10,7 @@ test fixtures with made-up entries.
 
     python3 library.py check                      # the index is well-formed and every hash matches
     python3 library.py remove ID --shows SHOWS_DIR     # refused while a show there still uses it
+    python3 library.py migrate                         # fill `bytes` into entries made before it existed
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
         [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
         [--duration S] [--width W --height H --fps F]
@@ -52,11 +53,16 @@ SKIN_PARAMS = {
     "counter": "occasionally break a together-spin into opposite directions: {every_s: [lo, hi], hold_s: "
                "[lo, hi], ease_s} (default off; face-web asset.js, #138)",
 }
+# A skin's `counter` block's keys — the face engine's ASSET_COUNTER_DEFAULTS (asset.js); a test pins
+# the two together. EASE_MIN is a clamp on ease_s, not a key, and is deliberately not here.
+COUNTER_KEYS = ("every_s", "hold_s", "ease_s")
 VIDEO_SKIN_SIZE_PX = (400, 512)
 SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # face-engine.md §A
 FACE_PANEL = (1340, 800)                         # the tablet's 8.7-inch panel
 KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins"}
-REQUIRED = {"id", "kind", "file", "sha256", "source", "licence"}
+# `bytes` is the item's total size (a folder: its files summed). The tablet checks its free space
+# before it fetches anything (tablet plan 5.3), so a missing size would mean fetching blind.
+REQUIRED = {"id", "kind", "file", "sha256", "bytes", "source", "licence"}
 # A song's file types, and the first bytes each really starts with: an upload is checked by its
 # CONTENT, not only its name, so a renamed file of another kind is refused.
 SONG_TYPES = {".wav": (b"RIFF",), ".mp3": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa"),
@@ -85,6 +91,13 @@ def item_hash(path: str) -> str:
             full = os.path.join(d, f)
             lines.append(f"{os.path.relpath(full, path).replace(os.sep, '/')}\t{item_hash(full)}")
     return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
+
+
+def item_bytes(path: str) -> int:
+    """One file: its size. A folder: the sum of its files' sizes."""
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+    return sum(os.path.getsize(os.path.join(d, f)) for d, _, files in os.walk(path) for f in files)
 
 
 def _yaml():
@@ -147,8 +160,8 @@ def _counter_problems(item_id, c) -> list:
         return []
     if not isinstance(c, dict):
         return [f"{item_id!r}: counter must be a mapping {{every_s, hold_s, ease_s}} or off"]
-    p = [f"{item_id!r}: counter has unknown keys {', '.join(sorted(set(c) - {'every_s', 'hold_s', 'ease_s'}))}"] \
-        if set(c) - {"every_s", "hold_s", "ease_s"} else []
+    p = [f"{item_id!r}: counter has unknown keys {', '.join(sorted(set(c) - set(COUNTER_KEYS)))} "
+         f"(known: {', '.join(COUNTER_KEYS)})"] if set(c) - set(COUNTER_KEYS) else []
     for k in ("every_s", "hold_s"):
         v = c.get(k)
         if v is not None and not (isinstance(v, (list, tuple)) and len(v) == 2
@@ -250,7 +263,7 @@ def add(src: str, item_id: str, kind: str, source: str, licence: str, lib_root: 
     if os.path.exists(dest):
         raise ValueError(f"{rel} already exists in the library")
     entry = {"id": item_id, "kind": kind, "file": rel.replace(os.sep, "/"), "sha256": item_hash(src),
-             "source": source.strip(), "licence": licence.strip()}
+             "bytes": item_bytes(src), "source": source.strip(), "licence": licence.strip()}
     entry.update({k: v for k, v in probe(src).items() if v is not None})
     entry.update({k: v for k, v in extra.items() if v not in (None, "", [])})
     p = entry_problems(entry)
@@ -269,6 +282,32 @@ def _write_index(r: str, items: list) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
     os.replace(tmp, os.path.join(r, INDEX))
+
+
+def migrate(lib_root: str | None = None) -> list:
+    """Bring entries made before a field existed up to the schema: fill `bytes` from the file, after
+    checking the file still has the hash the entry records (a changed or missing file is reported,
+    never re-hashed into the index). Returns one sentence per entry changed or refused."""
+    r = lib_root or root()
+    idx = load_index(r)
+    if idx is None:
+        return []
+    out, changed = [], False
+    for e in idx.values():
+        if e.get("bytes") not in (None, ""):
+            continue
+        f = os.path.join(r, e.get("file", ""))
+        if not os.path.exists(f):
+            out.append(f"{e['id']!r}: file {e.get('file')!r} is missing — left as it is")
+        elif e.get("sha256") and item_hash(f) != e["sha256"]:
+            out.append(f"{e['id']!r}: {e['file']} has changed since it was added — left as it is")
+        else:
+            e["bytes"] = item_bytes(f)
+            out.append(f"{e['id']!r}: bytes {e['bytes']}")
+            changed = True
+    if changed:
+        _write_index(r, list(idx.values()))
+    return out
 
 
 def items_of(kind: str, lib_root: str | None = None) -> list:
@@ -334,6 +373,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
+    sub.add_parser("migrate")
     rm = sub.add_parser("remove")
     rm.add_argument("id")
     rm.add_argument("--shows", required=True, help="the shows directory to check for users of it")
@@ -358,6 +398,10 @@ def main() -> int:
             print("  PROBLEM:", x)
         print("ok" if not p else f"{len(p)} problem(s) in {root()}")
         return 1 if p else 0
+    if args.cmd == "migrate":
+        for line in migrate():
+            print(" ", line)
+        return 0
     if args.cmd == "remove":
         try:
             e = remove(args.id, used_by=shows_using(args.id, args.shows))
