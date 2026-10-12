@@ -562,6 +562,16 @@ tl = cue.load_show(os.path.join(SHOWS, "hello.yaml")).export(cue.load_limits(FIX
 s = sim_preview.sample(tl, 1.5)
 check("halfway into the first move, the arm is halfway there",
       abs(s["right"]["4"] - 27.5) < 1e-6 and abs(s["left"]["2"] - 10.0) < 1e-6, s)
+_dt = cue.Show({"id": "d", "slots": ["DRIVE", "DANCE"], "requires": {"rc_authority": "AUTO"},
+                "dance": {"floor_radius_m": 3.0},
+                "cues": [{"t": 1.0, "slot": "DRIVE", "turn_deg": 90, "secs": 4},
+                         {"t": 6.0, "slot": "DRIVE", "forward_m": 0.8, "secs": 4},
+                         {"t": 11.0, "slot": "DANCE", "move": "sway", "secs": 2}]}, "x").export(cue.load_limits(FIXTURE))
+b5, b10, b12 = (sim_preview.sample(_dt, t)["base"] for t in (5.0, 10.0, 13.0))
+check("the twin drives the base: a 90° turn, then 0.8 m forward along the new heading (to the robot's left)",
+      abs(b5[2] - 90) < 0.5 and abs(b10[0]) < 0.01 and abs(b10[1] - 0.8) < 0.01 and abs(b10[2] - 90) < 0.5, (b5, b10))
+check("... and a dance after the drive plays from where the drive left the base (it returns there)",
+      abs(b12[0]) < 0.02 and abs(b12[1] - 0.8) < 0.02, b12)
 s = sim_preview.sample(tl, 12.0)
 check("the lift has risen for its 6 s by t=12 (placeholder speed, clamped to the stroke)",
       abs(s["lift_mm"] - min(275.1, 6 * sim_preview.LIFT_MM_PER_S)) < 1e-6, s["lift_mm"])

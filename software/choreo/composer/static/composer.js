@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE"];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE"];
 const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
@@ -388,6 +388,7 @@ function label(ev) {
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
     case "FACE": return c.do === "theme" ? `theme ${c.name}` : (c.name || c.do);
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
+    case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     default: return "";
   }
@@ -662,6 +663,7 @@ const DEFAULTS = {
   LIFT: { do: "up", secs: 2 }, SOUND: { do: "play", sound: "attend" },
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
   DANCE: { move: "sway", secs: 2 },
+  DRIVE: { forward_m: 0.5, secs: 3 },          /* twin-only: the runner refuses DRIVE on the robot */
 };
 /* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
  * cue to a part not listed there lists it, in the same edit — one undo takes back both. */
