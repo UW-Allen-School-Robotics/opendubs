@@ -23,6 +23,22 @@ if [ -d /opt/ros/jazzy ] && ! dpkg -s ros-jazzy-control-msgs >/dev/null 2>&1; th
   apt-get install -y -qq ros-jazzy-control-msgs || echo "   WARNING: control_msgs not installed — live arm output will be unavailable"
 fi
 install -m 0644 "$APP/deploy/$UNIT" "/etc/systemd/system/$UNIT"
+# The runner talks to the arm container over ROS 2 from the HOST, as the kiosk user. FastDDS's default
+# transports include shared memory, which does not cross users: the runner's node sees NO topics. The
+# UDP-only profile the unit names fixes that (measured on the robot, 2026-10-12), but it was only ever
+# baked INTO the container. Install it on the host from the arm stack's own tracked file (Arms lane:
+# software/openarm/image/fastdds-udp-only.xml, deployed to /opt/opendubs/openarm) — copied, never
+# edited here, and refreshed when it changes. The teleop unit names the same file.
+DDS_SRC=/opt/opendubs/openarm/image/fastdds-udp-only.xml
+DDS_DST=/etc/opendubs-fastdds-udp-only.xml
+if [ -f "$DDS_SRC" ]; then
+  if ! cmp -s "$DDS_SRC" "$DDS_DST"; then
+    install -m 0644 "$DDS_SRC" "$DDS_DST" && echo "   DDS: the UDP-only FastDDS profile installed at $DDS_DST"
+  fi
+else
+  echo "   WARNING: $DDS_SRC is missing (deploy software/openarm first) — the runner's ROS node may see"
+  echo "   no arm topics, so live arm output would not reach the arms."
+fi
 # The demo shows' music is generated, never committed (shows/audio/.gitignore), so a deploy may not
 # carry it: make it here. Deterministic, standard library only, a few seconds.
 python3 "$APP/shows/audio/make_test_audio.py" >/dev/null && echo "   demo show music: generated"
