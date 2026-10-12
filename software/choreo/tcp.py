@@ -23,7 +23,7 @@ import os
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HAND_BOX = {"min": (-0.8, -0.8, 0.0), "max": (0.8, 0.8, 1.2)}   # metres, the controllers' (Arms, 2026-10-12)
+HAND_BOX = {"min": (-0.8, -0.8, 0.0), "max": (0.8, 0.8, 1.3)}   # metres, the controllers' (Arms #214, live 2026-10-12; was z 1.2)
 MARGIN_M = 0.02
 TCP_EXT_M = 0.186                 # hand_tcp: link7 + 186 mm along link7's z
 CHAIN_PATHS = (os.environ.get("OPENDUBS_ARM_CHAIN") or "",

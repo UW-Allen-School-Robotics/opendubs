@@ -84,7 +84,7 @@ check("the arm's CURRENT goal aborted by its controller ends the show, with the 
 
 print("\nwaypoints into the controller's own joint range")
 # The controllers' admitted ranges (Arms, 2026-10-12: the URDF's limits widened 0.005 rad), signed degrees
-COMMON = [(-90.29, 90.29), (-0.29, 140.29), (-90.29, 90.29), (-45.29, 45.29), (-90.29, 90.29)]
+COMMON = [(-90.29, 90.29), (-2.29, 140.29), (-90.29, 90.29), (-45.29, 45.29), (-90.29, 90.29)]   # J4: Arms #214
 RANGES = {"ARM_L": [(-200.29, 80.29), (-190.29, 10.29)] + COMMON,
           "ARM_R": [(-80.29, 200.29), (-10.29, 190.29)] + COMMON}
 
@@ -99,12 +99,12 @@ def run_from(right_j4):
     return end, a, log.getvalue()
 
 
-end, a, log = run_from(-0.4)        # an arm that hung limp: J4 rests a hair past its limit
+end, a, log = run_from(-2.4)        # an arm that hung limp: J4 rests a hair past its limit
 first_r = next(p for s, p in a.sent if s == "ARM_R")
 check("an arm resting 0.11 deg past its controller's J4 range: the start-pose waypoints are clamped in, "
-      "and the show runs", end[0] == "COMPLETED" and min(pt[1][3] for pt in first_r) >= -0.29 - 1e-9, end)
-check("... and the clamp is said, with how far", "clamped into the controller's range" in log and '"4": 0.109' in log)
-end, a, log = run_from(-2.0)
+      "and the show runs", end[0] == "COMPLETED" and min(pt[1][3] for pt in first_r) >= -2.29 - 1e-9, end)
+check("... and the clamp is said, with how far", "clamped into the controller's range" in log and '"4": 0.1' in log)
+end, a, log = run_from(-4.0)
 check("2 deg outside: refused before anything is sent, naming the joint and the range",
       end[0] == "REFUSED" and end[1] == "ARM_OUT_OF_RANGE" and "J4" in end[2] and not any(s == "ARM_R" for s, _ in a.sent), end)
 

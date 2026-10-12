@@ -49,13 +49,13 @@ for f in sorted(os.listdir(os.path.join(HERE, "..", "shows"))):
         check(f"{f}: inside the box", not any("workspace box" in q.msg for q in a["problems"]),
               [q.msg for q in a["problems"] if "workspace box" in q.msg])
 UP = ("id: up\nslots: [ARM_L, ARM_R]\nrequires: { arms: active, rc_authority: AUTO }\ncues:\n"
-      "  - { t: 3.0, slot: ARM_L, joints: { 1: 165, 2: 25, 4: 15 } }\n"
-      "  - { t: 3.0, slot: ARM_R, joints: { 1: 165, 2: 25, 4: 15 } }\n"
+      "  - { t: 3.0, slot: ARM_L, joints: { 1: 178, 2: 5, 4: 9 } }\n"
+      "  - { t: 3.0, slot: ARM_R, joints: { 1: 178, 2: 5, 4: 9 } }\n"
       "  - { t: 6.0, slot: ARM_L, pose: rest }\n  - { t: 6.0, slot: ARM_R, pose: rest }\n")
 a = cue.show_from_text(UP, "up").analyse(LIMITS)
 msgs = [q.msg for q in a["problems"] if "workspace box" in q.msg]
-check("arms raised over the head (hand_tcp 1.26 m) is refused, each arm, with the height and when",
-      len(msgs) == 2 and all("1.25" in m or "1.26" in m for m in msgs) and "REJECT" in msgs[0], msgs)
+check("arms straight up (hand_tcp 1.31 m, over the 1.30 m box) is refused, each arm, with the height and when",
+      len(msgs) == 2 and all("1.31" in m for m in msgs) and "REJECT" in msgs[0], msgs)
 paths = tcp.CHAIN_PATHS
 tcp.CHAIN_PATHS = ("/nonexistent/chain.json",)
 a = cue.show_from_text(UP, "up").analyse(LIMITS)
