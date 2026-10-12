@@ -46,6 +46,9 @@ import library_sync as LS  # noqa: E402
 
 REMOTE_LOCAL_SHOWS = "/var/lib/opendubs/shows"     # runner.py LOCAL_SHOWS on the robot
 REMOTE_LIMITS = "/etc/opendubs/arm-limits/joint_limits.yaml"   # the runner's OPENDUBS_ARM_LIMITS
+# ... which is a bind mount that exists only INSIDE the runner's service (provision-runner.sh writes it
+# as this drop-in). From a login shell the file is read where the drop-in says it really is.
+RUNNER_LIMITS_DROPIN = "/etc/systemd/system/opendubs-runner.service.d/arm-limits.conf"
 
 
 class ShowSyncError(Exception):
@@ -134,11 +137,27 @@ def _target(host: str, root: str) -> LS.Target:
     return t
 
 
-def robot_limits(t: LS.Target, remote_path: str) -> str:
+def robot_limits(t: LS.Target, remote_path: str, dropin: str = RUNNER_LIMITS_DROPIN) -> str:
     """The robot's own joint-limits file, read (only read) into a temporary file here: the one its
-    runner validates against, so a show is judged by the robot's limits before it is sent."""
+    runner validates against, so a show is judged by the robot's limits before it is sent.
+
+    The runner's path is a bind mount visible only inside its service, so when it cannot be read
+    from here the file is read where the runner's drop-in binds it from (BindReadOnlyPaths) — with
+    `sudo -n cat` on a real robot, since that checkout may belong to another user. Read, never written."""
     import tempfile
-    p = _run(t, f"cat {shlex.quote(remote_path)}")
+    q = shlex.quote
+    p = _run(t, f"cat {q(remote_path)}")
+    if p.returncode != 0 or not p.stdout:
+        d = _run(t, f"cat {q(dropin)}")
+        src = None
+        for line in (d.stdout or b"").decode(errors="replace").splitlines():
+            if line.startswith("BindReadOnlyPaths="):
+                spec = line.split("=", 1)[1].lstrip("-")
+                if spec.split(":", 1)[-1].rstrip("/") == os.path.dirname(REMOTE_LIMITS):
+                    src = spec.split(":", 1)[0]
+        if src:
+            sudo = "" if t.local else "sudo -n "
+            p = _run(t, f"{sudo}cat {q(os.path.join(src, os.path.basename(REMOTE_LIMITS)))}")
     if p.returncode != 0 or not p.stdout:
         raise ShowSyncError(f"could not read the robot's joint limits {remote_path} on {t.host}: "
                             f"{p.stderr.decode(errors='replace').strip() or 'empty'}")
@@ -149,10 +168,11 @@ def robot_limits(t: LS.Target, remote_path: str) -> str:
 
 
 def push(host: str, paths: list, root: str, limits_path: str, lib_root: str, repo_shows: str,
-         dry: bool, replace: bool, create: bool, out=print, limits_from_robot: str | None = None) -> int:
+         dry: bool, replace: bool, create: bool, out=print, limits_from_robot: str | None = None,
+         limits_dropin: str = RUNNER_LIMITS_DROPIN) -> int:
     t = _target(host, root)
     if limits_from_robot:
-        limits_path = robot_limits(t, limits_from_robot)
+        limits_path = robot_limits(t, limits_from_robot, limits_dropin)
         out(f"  checking against the robot's joint limits ({limits_from_robot})")
     robot_lib = _robot_library(t, lib_root)
     repo = _repo_ids(t, repo_shows)
@@ -239,7 +259,9 @@ def main() -> int:
     ps.add_argument("--replace", action="store_true")
     ps.add_argument("--create", action="store_true", help="create the robot's shows folder if missing (sudo)")
     ps.add_argument("--limits-from-robot", nargs="?", const=REMOTE_LIMITS, default=None, metavar="PATH",
-                    help=f"validate against the robot's own joint limits, read over ssh (default {REMOTE_LIMITS})")
+                    help=f"validate against the robot's own joint limits, read over ssh (default {REMOTE_LIMITS}, "
+                         "found through the runner's drop-in when that path is the service's own bind mount)")
+    ps.add_argument("--limits-dropin", default=RUNNER_LIMITS_DROPIN, help=argparse.SUPPRESS)
     ps.add_argument("--limits", default=cue.DEFAULT_LIMITS if os.path.isfile(cue.DEFAULT_LIMITS)
                     else os.path.join(HERE, "tests", "joint_limits_fixture.yaml"))
     for p_ in (ps, sub.add_parser("status"), sub.add_parser("delete")):
@@ -255,7 +277,7 @@ def main() -> int:
     try:
         if a.cmd == "push":
             return push(a.host, a.shows, a.root, a.limits, a.library, a.repo_shows, a.dry_run, a.replace, a.create,
-                        limits_from_robot=a.limits_from_robot)
+                        limits_from_robot=a.limits_from_robot, limits_dropin=a.limits_dropin)
         if a.cmd == "status":
             return status(a.host, a.root)
         return delete(a.host, a.root, a.id)
