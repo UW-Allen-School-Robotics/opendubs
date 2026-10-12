@@ -8,6 +8,7 @@ import io
 import json
 import os
 import sys
+import shutil
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -429,6 +430,22 @@ check("with the face, its icons and the head's earcons are real; pan/tilt stays 
       uses4["celebrate"] == {"arms": True, "head": False, "face": True, "sound": True}, uses4["celebrate"])
 uses2 = {r["id"]: {u["part"]: u["live"] for u in r["uses"]} for r in pal2.routines()}
 check("... and with no arms on this runner, the arms are twin-only too", uses2["celebrate"]["arms"] is False, uses2["celebrate"])
+
+print("\nrunner: DRIVE is twin-only (the user's composer item #4)")
+_tmpd = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+_tmpd.write("id: drv\nslots: [DRIVE]\nrequires: {rc_authority: AUTO}\ndance: {floor_radius_m: 2.0}\n"
+            "palette: {label: Drive}\ncues:\n  - { t: 1.0, slot: DRIVE, forward_m: 0.5, secs: 3 }\n")
+_tmpd.close()
+_r = R.Runner(_tmpd.name, LIMITS, R.FakeRobotState(), log=io.StringIO())
+_end = _r.run()
+check("a show with DRIVE is REFUSED on the robot, with the reason — not run with the drives skipped",
+      _end[0] == "REFUSED" and _end[1] == "SHOW_DRIVE_TWIN_ONLY" and "odometry" in _end[2], _end)
+_dir = tempfile.mkdtemp()
+shutil.copy(_tmpd.name, os.path.join(_dir, "drv.yaml"))
+_pal = R.Palette(_dir, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO())
+_row = next(r for r in _pal.routines() if r["id"] == "drv")
+check("... and the palette lists it as not runnable, saying why", _row["valid"] is False
+      and "twin" in _row["problems"][0], _row)
 
 print("\nrunner: the grippers, live (plan item 3)")
 import grippers as G  # noqa: E402

@@ -267,7 +267,7 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"))
 
 
 def _grips_calibrated() -> bool:
@@ -487,6 +487,11 @@ class Runner:
         if not tl["valid"]:
             return self._end(REFUSED, "INVALID_SHOW",
                              "; ".join(p["msg"] for p in tl["problems"][:3]))
+        if (tl.get("tracks") or {}).get("DRIVE"):
+            # DRIVE is twin-only (cue.py SLOTS): the robot cannot yet say where it is, and every cue
+            # after a drive assumes the base moved — so the whole show is refused, not the drives skipped
+            return self._end(REFUSED, "SHOW_DRIVE_TWIN_ONLY",
+                             "this show uses DRIVE, which runs only in the twin until odometry is trusted")
         if tl.get("dance") is not None:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
@@ -644,6 +649,10 @@ class Palette:
                 continue
             tl = (show.export(limits, self.limits_path) if limits is not None else
                   {"valid": False, "duration_s": None, "problems": [{"msg": why}], "warnings": []})
+            if (tl.get("tracks") or {}).get("DRIVE"):
+                # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
+                tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
+                                                              "is trusted"}] + list(tl["problems"]))
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],

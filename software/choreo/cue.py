@@ -56,11 +56,12 @@ FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
-SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE")
-# DRIVE is deliberately absent. The base does not move until odometry can say where it is:
-# opendubs2 currently reports y_mm as NaN with a climbing failure count, so "keep X and Y clear"
-# would be advice the robot itself cannot honour. Adding the slot is not the hard part; earning
-# it is. (A bounded open-loop alternative is written up, not built: choreo-format-v1.md 12.)
+SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE")
+# DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
+# the twin drives the base, but the runner refuses any show that uses it on the robot, because the
+# robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
+# "drive 1 m forward" is a claim open-loop wheels cannot keep. Earning it on the robot is still
+# odometry's job (choreo-format-v1.md 12).
 
 ARM_SLOTS = ("ARM_L", "ARM_R")
 
@@ -71,7 +72,7 @@ CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
 CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
 REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
-MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE")
+MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
 TAB5_SLOTS = ("HEAD", "FACE")          # the pan/tilt head and the face are driven by the Tab5
 
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
@@ -101,10 +102,41 @@ FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
 BASE_M_PER_S_FULL = 0.70
 BASE_RAD_PER_S_FULL = 1.40
 AUTO_MAX_UNIT = 0.35
+DRIVE_V_MAX = AUTO_MAX_UNIT * BASE_M_PER_S_FULL                  # m/s, PLACEHOLDER-based
+DRIVE_W_MAX_DEG = math.degrees(AUTO_MAX_UNIT * BASE_RAD_PER_S_FULL)  # deg/s, PLACEHOLDER-based
 # APPROXIMATE: the chassis box's half-diagonal (description/opendubs/dimensions.yaml: x -32..612 mm,
 # y +-324.5 mm -> 0.457 m). The arms are NOT counted. The floor radius is clear space around the
 # robot, so a move needs footprint + how far it strays.
 ROBOT_FOOTPRINT_RADIUS_M = 0.46
+
+
+# ---- DRIVE: a relative move of the base, TWIN-ONLY (see SLOTS) --------------------------------
+# A cue moves the base by forward_m / left_m and turns it by turn_deg, over secs, in the robot's
+# own frame as it is at the cue — no velocities, no room coordinates. Its speed is bounded by the
+# same autonomy ceiling DANCE uses, at the same PLACEHOLDER base speeds: a move that would need more
+# is refused with the time it needs.
+DRIVE_SECS = (0.5, 10.0)
+
+
+def drive_path(cues: list, step_s: float = 0.05):
+    """[(t from the first cue's start, x, y, yaw rad)] of the base under DRIVE cues given as
+    [(start_t, cue)], in the show's starting frame. Each move: constant body velocity and turn rate
+    over its secs, in the frame it started in turning with it."""
+    x = y = yaw = 0.0
+    pts = [(0.0, 0.0, 0.0, 0.0)]
+    for start, c in sorted(cues, key=lambda sc: sc[0]):
+        secs = float(c.get("secs", 1.0))
+        fwd, left = float(c.get("forward_m", 0) or 0) / secs, float(c.get("left_m", 0) or 0) / secs
+        w = math.radians(float(c.get("turn_deg", 0) or 0)) / secs
+        n = max(1, int(secs / step_s))
+        dt = secs / n
+        for k in range(n):
+            mid = yaw + w * dt / 2
+            x += (fwd * math.cos(mid) - left * math.sin(mid)) * dt
+            y += (fwd * math.sin(mid) + left * math.cos(mid)) * dt
+            yaw += w * dt
+            pts.append((start + (k + 1) * dt, x, y, yaw))
+    return pts
 
 
 def dance_net(move: str) -> tuple:
@@ -260,6 +292,7 @@ SLOT_KEYS = {
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
+    "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
 }
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
@@ -283,6 +316,8 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 # What a show may use that NOTHING ON THE ROBOT EXECUTES YET. Valid is not executable; these are
 # reported as notices on every validation so nobody mistakes the one for the other.
 NOT_EXECUTABLE = {
+    "DRIVE": "DRIVE runs only in the twin until odometry is trusted — the runner REFUSES this show on "
+             "the robot (format 12); the distances shown use placeholder base speeds",
     "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
              "6.6): open loop, and the distances shown use placeholder base speeds",
     "LIGHT": "LIGHT is valid but not executable yet: state_out.py already writes LED_COLOR on "
@@ -735,6 +770,7 @@ class Show:
             else:
                 floor_r = float(r)
         dance_total = 0.0
+        drive_cues = []
         # where the head is and where it is going, as the firmware would slew it from centre
         head_pos = {"pan": 90.0, "tilt": 90.0}
         head_tgt = dict(head_pos)
@@ -834,6 +870,12 @@ class Show:
                             f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor "
                             f"radius {floor_r:g} m (placeholder speeds, arms not counted — an estimate)",
                             *ref))
+            elif slot == "DRIVE":
+                msgs = self._check_drive(where, c)
+                if not msgs:
+                    intrinsic = float(c["secs"])
+                    dance_total += intrinsic
+                    drive_cues.append((t, c))
             elif slot == "FACE":
                 msgs = self._check_face(where, c)
             else:
@@ -844,12 +886,19 @@ class Show:
             e["start"], e["end"] = t, t + max(intrinsic, hold)
             owner_until[slot] = e["end"]
 
-        if "DANCE" in used and floor_r is None and dance_doc is None:
-            P(Problem("the show dances but declares no floor space — add dance: { floor_radius_m: "
+        if ("DANCE" in used or "DRIVE" in used) and floor_r is None and dance_doc is None:
+            P(Problem("the show moves the base but declares no floor space — add dance: { floor_radius_m: "
                       "<metres> }; the runner asks a human to confirm it before the base moves"))
         if dance_total > DANCE_TOTAL_MAX_S + 1e-9:
-            P(Problem(f"the show dances for {dance_total:.1f}s in total, over the "
+            P(Problem(f"the show moves the base for {dance_total:.1f}s in total (DANCE and DRIVE), over the "
                       f"{DANCE_TOTAL_MAX_S:g}s cap on open-loop base motion"))
+        if drive_cues and floor_r is not None:
+            far = max(math.hypot(px, py) for _, px, py, _ in drive_path(drive_cues))
+            if far + ROBOT_FOOTPRINT_RADIUS_M > floor_r:
+                warnings.append(Problem(
+                    f"the DRIVE cues take the base ~{far:.2f} m from where the show starts; with its own "
+                    f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor radius "
+                    f"{floor_r:g} m (placeholder speeds, open loop — an estimate)"))
         for msg in self._check_requires(used):
             P(Problem(msg))
         for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
@@ -1293,6 +1342,28 @@ class Show:
         if used & set(TAB5_SLOTS) and tab5 is not True:
             p.append(f"requires: this show uses {', '.join(sorted(used & set(TAB5_SLOTS)))}, which "
                      "the Tab5 drives — add tab5: true")
+        return p
+
+    def _check_drive(self, where, c):
+        p = []
+        vals = {}
+        for k in ("forward_m", "left_m", "turn_deg"):
+            v = c.get(k, 0)
+            if not _num(v):
+                p.append(f"{where}: drive {k} must be a number")
+            vals[k] = float(v) if _num(v) else 0.0
+        if not any(abs(v) > 1e-9 for v in vals.values()):
+            p.append(f"{where}: a drive needs forward_m, left_m or turn_deg — it moves nothing")
+        secs = c.get("secs")
+        if not (_num(secs) and DRIVE_SECS[0] <= float(secs) <= DRIVE_SECS[1]):
+            p.append(f"{where}: drive secs {secs!r} must be {DRIVE_SECS[0]:g}–{DRIVE_SECS[1]:g} "
+                     "(one move; a longer journey is several)")
+            return p
+        # the wheels share one command budget between moving and turning: the time each needs adds up
+        need = math.hypot(vals["forward_m"], vals["left_m"]) / DRIVE_V_MAX + abs(vals["turn_deg"]) / DRIVE_W_MAX_DEG
+        if need > float(secs) + 1e-9:
+            p.append(f"{where}: this drive needs at least {need:.1f}s at the base's autonomy ceiling "
+                     f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s — placeholder speeds), not {float(secs):g}s")
         return p
 
     def _check_dance(self, where, c):
