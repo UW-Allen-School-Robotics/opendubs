@@ -115,6 +115,8 @@ adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --ez lock true
 screen you opened, too: after an update the app brings itself back, but a screen left open behind
 it comes to the front first.
 
+**Is it still a kiosk?** `uv run --with websockets python3 kiosk_check.py --serial <serial>` checks device owner, lock task, the secure context, the bridge, the microphone grant and a wake lock — run it before and after any update. Updating the tablet's **WebView**: `notes/design/tablet-device.md`, *Updating the robot tablet's WebView*.
+
 **Updates** keep the device owner and every setting: `adb install -r -t app-debug.apk`. To reach
 the tablet without the cable, `adb tcpip 5555` while it is on USB, then `adb connect <tablet-ip>:5555`;
 that stays open on the network until the next reboot, so reboot it when done.
