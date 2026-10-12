@@ -201,7 +201,12 @@ each song. The tablet's own cache, by hash from the robot's library, is the tabl
   sample** of `/joint_states` through rosbridge — read-only — and post it to `api/capture`. That
   interface is specified in `notes/design/choreo-teach-and-sync.md`; it is not wired.
 - **Clip definitions are edited in the YAML**, not in the timeline. Placements are editable.
-- **No new-show / save-as / rename.** Copy a file in `shows/`.
+- **Show files are managed from the editor** (the **file** button): a NEW show (a name; a library song
+  and a BPM optional — it starts empty, and the first cue on a lane lists that part and what it
+  requires); SAVE A COPY (also how to duplicate: the text being edited, under a new name, the
+  original untouched); RENAME (the file, its id, its name if it came from the file name, and its
+  History); DELETE (behind a confirm; its last version stays in History). Names are letters,
+  digits, - and _, `.yaml` added, and only ever inside the shows folder.
 - **No graded snap** (Vixen's weighted marks) and no pinch-zoom; the `−`/`+` buttons and
   Ctrl/Cmd-wheel zoom.
 - **The preview is a readout, not a picture.** Joint bars per arm, the head's target angles,

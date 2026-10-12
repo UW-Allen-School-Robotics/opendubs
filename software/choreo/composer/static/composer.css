@@ -235,3 +235,9 @@ pre.diff { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap
 pre.diff .add { color: var(--good); } pre.diff .del { color: var(--bad); } pre.diff .hunk { color: var(--accent-2); }
 ul.hist { list-style: none; margin: 0; padding: 0; } ul.hist li { padding: 4px 0; }
 #inspector .chk input { min-height: 0; width: auto; }
+
+/* show files */
+.files h3 { margin: 12px 0 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+.files .row2 { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.files input, .files select { min-height: var(--hit); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
+button.danger { border-color: var(--bad); color: var(--bad); }

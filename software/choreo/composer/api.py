@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -92,6 +93,7 @@ class Composer:
                 "limits": os.path.basename(self.limits_path),
                 "limits_are_test_fixture": self.fixture, "preview_only": True,
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
+                "slot_requires": {s: cue.slot_requirements(s) for s in cue.SLOTS},
                 "speed_caps": cue.SPEED_CAP_DEG_S}
 
     def list_shows(self) -> list:
@@ -164,6 +166,115 @@ class Composer:
         out = self.analyse(rel, text)
         out["disk_sha"] = _sha(text)
         return out
+
+    # ---- show files: new, save as (duplicate), rename, delete --------------------------------
+    @staticmethod
+    def _slug(name: str) -> str:
+        n = (name or "").strip()
+        if "/" in n or "\\" in n or n.startswith("."):
+            raise ApiError("a show's name is just a name — no folders, no leading dot")
+        if n.lower().endswith((".yaml", ".yml")):
+            n = n.rsplit(".", 1)[0]
+        n = re.sub(r"[^a-z0-9_-]+", "-", n.lower()).strip("-_")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", n or ""):
+            raise ApiError("a show's name is letters, digits, - and _ (up to 64)")
+        return n
+
+    def _new_rel(self, name: str, beside: str = "") -> str:
+        """`name`, made a safe file name, in the folder of `beside` (or the top of the shows folder).
+        Never an existing file, never outside the shows folder."""
+        slug = self._slug(name)
+        folder = os.path.dirname(beside or "")
+        rel = (folder + "/" if folder else "") + slug + ".yaml"
+        p = self._path(rel)
+        if os.path.exists(p):
+            raise ApiError(f"{rel} already exists — choose another name", 409)
+        return rel
+
+    @staticmethod
+    def _title(slug: str) -> str:
+        return slug.replace("-", " ").replace("_", " ").capitalize()
+
+    def _retitle(self, text: str, old_slug: str, new_slug: str) -> str:
+        """The show's id follows its file name (two shows never share an id); its name follows too
+        when it was the old file's name, and is left alone when it was chosen."""
+        try:
+            doc = yaml.safe_load(text) or {}
+        except yaml.YAMLError as e:
+            raise ApiError(f"the show does not parse: {e}") from e
+        edits = [{"op": "top", "key": "id", "value": new_slug}]
+        if str(doc.get("name", "")).strip() in ("", old_slug, self._title(old_slug)):
+            edits.append({"op": "top", "key": "name", "value": self._title(new_slug)})
+        return yamledit.apply(text, edits)
+
+    def new_show(self, name: str, song=None, bpm=None) -> dict:
+        """A new, empty show: an id and a name, no slots yet (the first cue on a lane lists it), and
+        the music if a library song is chosen. Opens like any other show."""
+        rel = self._new_rel(name)
+        slug = os.path.splitext(os.path.basename(rel))[0]
+        lines = [f"id: {slug}", f"name: {yamledit.fmt(self._title(slug))}", "slots: []",
+                 "requires: { rc_authority: AUTO }"]
+        if song:
+            if song not in {e["id"] for e in library.items_of("song", self.library_dir)}:
+                raise ApiError(f"{song!r} is not a song in the library")
+            try:
+                bpm = float(bpm) if bpm not in (None, "") else 120.0
+            except (TypeError, ValueError) as e:
+                raise ApiError("BPM must be a number") from e
+            lines.append(f"music: {{ song: {yamledit.fmt(song)}, bpm: {yamledit.fmt(bpm)}, offset_s: 0.0 }}")
+        elif bpm not in (None, ""):
+            try:
+                lines.append(f"music: {{ bpm: {yamledit.fmt(float(bpm))}, offset_s: 0.0 }}")
+            except (TypeError, ValueError) as e:
+                raise ApiError("BPM must be a number") from e
+        lines.append("cues: []")
+        with open(self._path(rel), "x", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        return self.load(rel)
+
+    def save_as(self, rel: str, name: str, text: str) -> dict:
+        """The text being edited, written under a new name beside the show (SAVE AS, and DUPLICATE).
+        The original file is not touched."""
+        self._path(rel)
+        new = self._new_rel(name, rel)
+        old_slug = os.path.splitext(os.path.basename(rel))[0]
+        out = self._retitle(text, old_slug, os.path.splitext(os.path.basename(new))[0])
+        with open(self._path(new), "x", encoding="utf-8") as fh:
+            fh.write(out)
+        return self.load(new)
+
+    def rename(self, rel: str, name: str) -> dict:
+        """The show FILE renamed (its id and, if derived from it, its name too), with its history
+        following it. Refuses a name already in use."""
+        p = self._path(rel)
+        if not os.path.isfile(p):
+            raise ApiError("no such show", 404)
+        new = self._new_rel(name, rel)
+        with open(p, encoding="utf-8") as fh:
+            text = fh.read()
+        old_slug = os.path.splitext(os.path.basename(rel))[0]
+        out = self._retitle(text, old_slug, os.path.splitext(os.path.basename(new))[0])
+        q = self._path(new)
+        with open(q, "x", encoding="utf-8") as fh:
+            fh.write(out)
+        h_old, h_new = timeline_notes.history_dir(p), timeline_notes.history_dir(q)
+        if os.path.isdir(h_old) and not os.path.exists(h_new):
+            os.makedirs(os.path.dirname(h_new), exist_ok=True)
+            os.replace(h_old, h_new)
+        os.remove(p)
+        return self.load(new)
+
+    def delete_show(self, rel: str, confirm) -> dict:
+        """Delete a show file, behind confirm = its path. Its last version is kept in History first, so
+        a deleted show can still be read back from <shows>/.history/."""
+        p = self._path(rel)
+        if confirm != rel:
+            raise ApiError("deleting a show needs confirm: <its path>")
+        if not os.path.isfile(p):
+            raise ApiError("no such show", 404)
+        kept = timeline_notes.snapshot(p, "deleted") or "the newest snapshot"
+        os.remove(p)
+        return {"deleted": rel, "kept": kept, "shows": self.list_shows()}
 
     # ---- the show on disk, and its history (timeline notes, plan #5) -------------------------
     def disk(self, rel: str) -> dict:

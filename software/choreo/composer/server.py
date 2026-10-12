@@ -161,6 +161,14 @@ def make_handler(comp: Composer):
                     return self._json(comp.add_song(q.get("filename", ""), data, q.get("id"), q.get("source"),
                                                     q.get("licence"), q.get("duration_s")))
                 b = self._body()
+                if u.path == "/api/show/new":
+                    return self._json(comp.new_show(b.get("name"), b.get("song"), b.get("bpm")))
+                if u.path == "/api/show/save-as":
+                    return self._json(comp.save_as(b.get("path"), b.get("name"), b.get("text") or ""))
+                if u.path == "/api/show/rename":
+                    return self._json(comp.rename(b.get("path"), b.get("name")))
+                if u.path == "/api/show/delete":
+                    return self._json(comp.delete_show(b.get("path"), b.get("confirm")))
                 if u.path == "/api/history/read":
                     return self._json(comp.history_read(b.get("path"), b.get("name"), b.get("text") or ""))
                 if u.path == "/api/diff":

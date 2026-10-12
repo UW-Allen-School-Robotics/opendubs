@@ -652,7 +652,14 @@ const DEFAULTS = {
 };
 /* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
  * cue to a part not listed there lists it, in the same edit — one undo takes back both. */
-function declareIfNeeded(slot) { return declared().has(slot) ? [] : [{ op: "declare", slot }]; }
+function declareIfNeeded(slot) {
+  if (declared().has(slot)) return [];
+  /* and what the show must then require for that part (the validator's own rules, from api/info) */
+  const have = (S.data && S.data.timeline && S.data.timeline.requires) || {};
+  const need = (S.info && S.info.slot_requires && S.info.slot_requires[slot]) || {};
+  const req = Object.entries(need).filter(([k, v]) => have[k] !== v).map(([key, value]) => ({ op: "require", key, value }));
+  return [{ op: "declare", slot }, ...req];
+}
 function addCue(slot) {
   const t = snapT(S.t);
   let body = DEFAULTS[slot];
@@ -1012,6 +1019,65 @@ function showText(title, text, actions, html) {
   if (!$("textDlg").open) $("textDlg").showModal();
 }
 
+/* ---------- show files: new, save a copy (duplicate), rename, delete ---------- */
+async function refreshShows(select) {
+  const shows = await api("api/shows");
+  $("show").innerHTML = shows.map((x) => `<option>${esc(x.path)}</option>`).join("");
+  if (select) $("show").value = select;
+  return shows;
+}
+const slugOf = (p) => (p || "").split("/").pop().replace(/\.ya?ml$/, "");
+async function openFiles() {
+  const songs = await api("api/library/songs").catch(() => []);
+  const cur = slugOf(S.path);
+  const html = `
+    <section class="files">
+      <h3>New show</h3>
+      <div class="row2"><input id="fNewName" placeholder="name, e.g. welcome-wave" autocomplete="off">
+        <select id="fNewSong"><option value="">no music</option>${songs.map((x) => `<option>${esc(x.id)}</option>`).join("")}</select>
+        <input id="fNewBpm" placeholder="BPM" size="5" inputmode="decimal">
+        <button id="fNew">create and open</button></div>
+      <p class="note">Starts empty: the first cue on a lane lists that part. With music, bars and beats are ready to use.</p>
+      <h3>This show: ${esc(S.path || "")}</h3>
+      <div class="row2"><input id="fCopyName" value="${esc(cur)}-copy" autocomplete="off">
+        <button id="fCopy" title="Write what you are editing under a new name and switch to it; the original file is untouched">save a copy and open it</button></div>
+      <div class="row2"><input id="fRenName" value="${esc(cur)}" autocomplete="off">
+        <button id="fRen" title="Rename the file; its id (and its name, if it came from the file name) follow, and so does its History">rename</button></div>
+      <div class="row2"><button id="fDel" class="danger" title="Delete this show file. Its last version is kept in History.">delete this show…</button></div>
+      <p class="note">Names: letters, digits, - and _; ".yaml" is added. Shows live in ${esc((S.info && S.info.shows_dir) || "the shows folder")}.</p>
+    </section>`;
+  showText("Show files", "", [], html);
+  const go = async (fn, okMsg) => {
+    try { const d = await fn(); $("textDlg").close(); return d; } catch (e) { toast(e.message, 6000); }
+  };
+  $("fNew").onclick = () => go(async () => {
+    if (S.text !== S.savedText && !confirm("Discard unsaved changes to " + S.path + "?")) throw new Error("kept editing " + S.path);
+    const d = await api("api/show/new", { name: $("fNewName").value, song: $("fNewSong").value || null, bpm: $("fNewBpm").value || null });
+    S.savedText = S.text; await refreshShows(d.path); await loadShow(d.path);
+    toast(`new show ${d.path} — add cues with + on a lane`, 4000);
+  });
+  $("fCopy").onclick = () => go(async () => {
+    const d = await api("api/show/save-as", { path: S.path, name: $("fCopyName").value, text: S.text });
+    S.savedText = S.text;                                /* the edits now live in the copy */
+    await refreshShows(d.path); await loadShow(d.path);
+    toast(`saved as ${d.path} — the original is unchanged`, 4000);
+  });
+  $("fRen").onclick = () => go(async () => {
+    if (S.text !== S.savedText) throw new Error("save first — rename moves the file as it is on disk");
+    const d = await api("api/show/rename", { path: S.path, name: $("fRenName").value });
+    await refreshShows(d.path); await loadShow(d.path);
+    toast(`renamed to ${d.path} (its History came along)`, 4000);
+  });
+  $("fDel").onclick = () => go(async () => {
+    if (!confirm(`Delete the show ${S.path}?\n\nIts last version is kept in History (${(S.info && S.info.shows_dir) || ""}/.history/).`)) throw new Error("not deleted");
+    const d = await api("api/show/delete", { path: S.path, confirm: S.path });
+    S.savedText = S.text; S.path = null;
+    const shows = await refreshShows();
+    if (shows.length) { $("show").value = shows[0].path; await loadShow(shows[0].path); }
+    toast(`deleted ${d.deleted} — kept in History as ${d.kept}`, 6000);
+  });
+}
+
 /* ---------- tap tempo ---------- */
 function tap(ev) {
   const now = ev.timeStamp / 1000;
@@ -1040,6 +1106,7 @@ function bind() {
   $("save").onclick = save;
   bindMusic();
   $("historyBtn").onclick = openHistory;
+  $("filesBtn").onclick = openFiles;
   $("textClose").onclick = () => $("textDlg").close();
   $("diskReview").onclick = reviewDisk; $("diskLoad").onclick = loadDisk; $("diskKeep").onclick = keepMine;
   setInterval(watchDisk, 2000);
@@ -1051,7 +1118,7 @@ function bind() {
   };
   $("heads").addEventListener("click", (e) => {
     const d = e.target.closest("[data-declare]");
-    if (d) { edit([{ op: "declare", slot: d.dataset.declare }], `${d.dataset.declare} is now in slots:`); return; }
+    if (d) { edit(declareIfNeeded(d.dataset.declare), `${d.dataset.declare} is now in slots:`); return; }
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.addnote) addNote();
     if (b.dataset.prompt) copyPrompt();
@@ -1100,8 +1167,7 @@ async function main() {
   $("snap").value = S.snap; $("metro").checked = S.metro;
   bind();
   S.info = await api("api/info");
-  const shows = await api("api/shows");
-  $("show").innerHTML = shows.map((s) => `<option>${esc(s.path)}</option>`).join("");
+  const shows = await refreshShows();
   const want = new URLSearchParams(location.search).get("show") || store.get("lastShow", null);
   const first = shows.find((s) => s.path === want) || shows[0];
   if (first) { $("show").value = first.path; await loadShow(first.path); }

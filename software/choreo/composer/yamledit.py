@@ -164,7 +164,14 @@ def _add_cue(text, seq, cue):
         raise EditError("a cue must be a non-empty mapping")
     line = "- " + fmt({str(k): v for k, v in cue.items()})
     if not seq.value:
-        raise EditError("add the first cue by hand: an empty cues: list has no indentation to copy")
+        # the first cue: an empty flow list (`cues: []`) becomes a block list with it
+        if not seq.flow_style:
+            raise EditError("add the first cue by hand: an empty cues: list has no indentation to copy")
+        ls = text.rfind("\n", 0, seq.start_mark.index) + 1
+        key_line = text[ls:seq.start_mark.index].rstrip()
+        le = text.find("\n", seq.start_mark.index)
+        le = len(text) if le < 0 else le + 1
+        return text[:ls] + key_line + "\n  " + line + "\n" + text[le:]
     last = seq.value[-1]
     s, e = last.start_mark.index, _end(last)
     ls, le = _line_bounds(text, s, e)
@@ -266,6 +273,44 @@ def _declare(text, slot, on: bool):
     return text[:ls] + text[le:]
 
 
+def _set_top(text, key, value):
+    """Set a top-level plain field (id, name). A missing one is added as the first line."""
+    if key not in ("id", "name"):
+        raise EditError(f"top-level field {key!r} is not editable this way")
+    k, v = _key(_root(text), key)
+    if v is None:
+        return f"{key}: {fmt(value)}\n" + text
+    if not isinstance(v, yaml.ScalarNode):
+        raise EditError(f"{key}: is not a plain value")
+    return text[:v.start_mark.index] + fmt(value) + text[_end(v):]
+
+
+def _require(text, key, value):
+    """Set one entry of the show's `requires:` mapping (added above `cues:` if there is none)."""
+    if not isinstance(key, str) or not key:
+        raise EditError("require needs a key")
+    root = _root(text)
+    _, m = _key(root, "requires")
+    if m is None:
+        kc, _ = _key(root, "cues")
+        if kc is None:
+            raise EditError("the show has no cues: list")
+        ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+        return text[:ls] + "requires: " + fmt({key: value}) + "\n" + text[ls:]
+    if not isinstance(m, yaml.MappingNode):
+        raise EditError("requires: is not a mapping")
+    _, v = _key(m, key)
+    if v is not None:
+        return text[:v.start_mark.index] + fmt(value) + text[_end(v):]
+    if m.flow_style or not m.value:
+        cur = yaml.safe_load(text).get("requires") or {}
+        cur[key] = value
+        return text[:m.start_mark.index] + fmt(cur) + text[_end(m):]
+    lastk = m.value[-1][0]
+    ls, le = _line_bounds(text, lastk.start_mark.index, _end(m.value[-1][1]))
+    return text[:le] + f"{' ' * lastk.start_mark.column}{key}: {fmt(value)}\n" + text[le:]
+
+
 NOTES = "timeline_notes"
 
 
@@ -321,6 +366,10 @@ def apply(text: str, edits: list) -> str:
             text = _set_music(text, ed.get("key"), ed.get("value"))
         elif op in ("declare", "undeclare"):
             text = _declare(text, ed.get("slot"), op == "declare")
+        elif op == "require":
+            text = _require(text, ed.get("key"), ed.get("value"))
+        elif op == "top":
+            text = _set_top(text, ed.get("key"), ed.get("value"))
         elif op == "note_add":
             text = _note_add(text, ed.get("note"))
         elif op == "note_set":

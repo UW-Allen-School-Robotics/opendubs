@@ -86,6 +86,22 @@ def make_router(comp: "Composer"):
         p, ctype = _wrap(comp.audio, rel)
         return FileResponse(p, media_type=ctype)
 
+    @r.post("/api/show/new")
+    def new_show(b: dict = Body(...)):
+        return _wrap(comp.new_show, b.get("name"), b.get("song"), b.get("bpm"))
+
+    @r.post("/api/show/save-as")
+    def save_as(b: dict = Body(...)):
+        return _wrap(comp.save_as, b.get("path"), b.get("name"), b.get("text") or "")
+
+    @r.post("/api/show/rename")
+    def rename(b: dict = Body(...)):
+        return _wrap(comp.rename, b.get("path"), b.get("name"))
+
+    @r.post("/api/show/delete")
+    def delete_show(b: dict = Body(...)):
+        return _wrap(comp.delete_show, b.get("path"), b.get("confirm"))
+
     @r.get("/api/show/disk")
     def disk(path: str):
         return _wrap(comp.disk, path)
