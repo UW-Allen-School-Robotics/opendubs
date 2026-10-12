@@ -282,8 +282,8 @@ TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
     # reach / point_at: an IK target (ik.py); solved / solved_for: the joint angles compiled for it
-    "ARM_L": {"joints", "pose", "reach", "point_at", "standoff", "solved", "solved_for"},
-    "ARM_R": {"joints", "pose", "reach", "point_at", "standoff", "solved", "solved_for"},
+    "ARM_L": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
+    "ARM_R": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
@@ -342,18 +342,24 @@ def slot_requirements(slot: str) -> dict:
     return out
 
 
+# An arm target's optional `elbow:` (pose_ref.py copies arm SHAPE, not just the hand): a secondary
+# goal the solver meets as closely as the hand allows. Further off than this is a warning.
+ELBOW_WARN_M = 0.05
+
+
 def ik_target_key(c: dict):
-    """`reach:head_screen` / `point_at:[0.5, -0.2, 1.1]` — the target an arm cue names, as
-    `solved_for` records it (ik.py); None for a cue with no target."""
+    """`reach:head_screen` / `point_at:[0.5, -0.2, 1.1]` (+ `elbow:[...]`) — the target an arm cue
+    names, as `solved_for` records it (ik.py); None for a cue with no target."""
+    def form(mode, v):
+        if isinstance(v, (list, tuple)):
+            try:
+                return f"{mode}:[" + ", ".join(f"{float(x):g}" for x in v) + "]"
+            except (TypeError, ValueError):
+                return f"{mode}:{v!r}"
+        return f"{mode}:{v}"
     for mode in ("reach", "point_at"):
         if mode in c:
-            v = c[mode]
-            if isinstance(v, (list, tuple)):
-                try:
-                    return f"{mode}:[" + ", ".join(f"{float(x):g}" for x in v) + "]"
-                except (TypeError, ValueError):
-                    return f"{mode}:{v!r}"
-            return f"{mode}:{v}"
+            return form(mode, c[mode]) + ("+" + form("elbow", c["elbow"]) if "elbow" in c else "")
     return None
 
 
@@ -1062,6 +1068,8 @@ class Show:
         joints = c.get("joints")
         at_rest = False
         key = ik_target_key(c)
+        if "elbow" in c and not ("reach" in c or "point_at" in c):
+            return [f"{where}: {slot} elbow: goes with a reach: or point_at: target"]
         if key or "solved" in c:
             # An IK target (ik.py): its angles are compiled at authoring time and checked here like
             # any others, so the robot plays exactly what the twin previewed.
@@ -1076,6 +1084,10 @@ class Show:
                 return [f"{where}: {slot} {key} was edited after its angles were solved (they are for "
                         f"{str(c.get('solved_for', '')).split('@')[0] or 'nothing'}) — compile again"]
             joints = c["solved"]
+            off = c.get("elbow_off")
+            if "elbow" in c and _num(off) and off > ELBOW_WARN_M and warn is not None:
+                warn.append(f"{where}: {slot}'s elbow ends {off * 100:.0f} cm from its target — this arm "
+                            "cannot take that shape here (the hand is on its target)")
         if "pose" in c:
             if "joints" in c:
                 return [f"{where}: {slot} has both pose and joints — say one"]

@@ -189,35 +189,59 @@ class Kin:
         v = v / (np.linalg.norm(v) or 1.0)
         return np.cross(z, v), "r", math.degrees(math.acos(max(-1.0, min(1.0, float(z @ v)))))
 
-    def _descend(self, mode, site, goal, qadr, dadr, bounds, q_start, q_rest, iters=1500):
-        """Damped least squares on the task, with the pull toward `q_rest` projected into the task's
-        null space, so it shapes the posture without fighting the target."""
+    def _elbow_point(self, side):
+        """The arm's elbow, as pose_ref.py means it: where joint 4 (the elbow joint) sits."""
+        jid = self._jid(side, 4)
+        return jid, self.m.jnt_bodyid[jid]
+
+    def _descend(self, mode, site, goal, qadr, dadr, bounds, q_start, q_rest, iters=1500, elbow=None):
+        """Damped least squares on the task. Without an elbow goal, a pull toward `q_rest` is
+        projected into the task's null space, so it shapes the posture without fighting the target.
+        With one — (joint id, body id, world point) — the ELBOW is a second task in that null space
+        instead: the hand stays primary, and the elbow gets as close as the arm's spare freedom (its
+        swivel) allows. Returns (q, hand error, elbow error in metres or None)."""
         mj, np = self.mj, self.np
         for k, a in enumerate(qadr):
             self.d.qpos[a] = q_start[k]
         jp, jr = np.zeros((3, self.m.nv)), np.zeros((3, self.m.nv))
+        ep, er = np.zeros((3, self.m.nv)), np.zeros((3, self.m.nv))
         err = None
         for _ in range(iters):
             mj.mj_forward(self.m, self.d)
             mj.mj_jacSite(self.m, self.d, jp, jr, site)
             e, which, err = self._error(mode, site, goal)
-            if (mode == "reach" and err < 2e-4) or (mode == "point_at" and err < 0.1):
-                break
             J = (jp if which == "p" else jr)[:, dadr]
             Jpinv = J.T @ np.linalg.inv(J @ J.T + 1e-4 * np.eye(3))
+            N = np.eye(7) - Jpinv @ J
             q = np.array([self.d.qpos[a] for a in qadr])
-            dq = Jpinv @ e + (np.eye(7) - Jpinv @ J) @ (0.05 * (q_rest - q))
+            dq = Jpinv @ e
+            if elbow is None:
+                if (mode == "reach" and err < 2e-4) or (mode == "point_at" and err < 0.1):
+                    break
+                dq = dq + N @ (0.05 * (q_rest - q))
+            else:
+                jid, body, egoal = elbow
+                pe = self.d.xanchor[jid].copy()
+                mj.mj_jac(self.m, self.d, ep, er, pe, body)
+                J2 = ep[:, dadr] @ N
+                e2 = egoal - pe
+                dq = dq + N @ (J2.T @ np.linalg.solve(J2 @ J2.T + 1e-3 * np.eye(3), 0.5 * e2 - ep[:, dadr] @ dq))
+                if float(np.abs(dq).max()) < 1e-6:
+                    break
             q = q + np.clip(dq, -0.08, 0.08)
             for k, a in enumerate(qadr):
                 self.d.qpos[a] = min(max(q[k], bounds[k][0]), bounds[k][1])
         mj.mj_forward(self.m, self.d)
         _, _, err = self._error(mode, site, goal)
-        return np.array([self.d.qpos[a] for a in qadr]), err
+        e_err = None if elbow is None else float(np.linalg.norm(elbow[2] - self.d.xanchor[elbow[0]]))
+        return np.array([self.d.qpos[a] for a in qadr]), err, e_err
 
-    def solve(self, side: str, mode: str, goal):
+    def solve(self, side: str, mode: str, goal, elbow_goal=None):
         """Move one arm's 7 joints so its tool site reaches `goal` (reach) or its +z axis points at it
         (point_at), starting from the pose last set and staying as near it as the target allows.
-        Returns (outward degrees {1..7}, error) — metres for reach, degrees for point_at."""
+        With `elbow_goal` (a world point), the elbow is brought as near it as the hand allows.
+        Returns (outward degrees {1..7}, error, elbow error) — metres for reach, degrees for
+        point_at; the elbow's in metres, or None without an elbow goal."""
         mj, np = self.mj, self.np
         site = mj.mj_name2id(self.m, mj.mjtObj.mjOBJ_SITE, TOOL_SITE.format(side=side))
         jids = [self._jid(side, j) for j in range(1, 8)]
@@ -229,22 +253,36 @@ class Kin:
         tol = REACH_TOL_M if mode == "reach" else POINT_TOL_DEG
         # Seeds: from where the arm is, and from the middle of each joint's range nudged toward it —
         # the converged answer nearest the starting pose wins (the smallest move).
+        elbow = None
+        if elbow_goal is not None:
+            jid, body = self._elbow_point(side)
+            elbow = (jid, body, np.asarray(elbow_goal, dtype=float))
         best = None
         for env in self._envelopes(bounds):
             mid = np.array([(lo + hi) / 2 for lo, hi in env])
-            for seed in (q0, 0.5 * (q0 + mid), mid):
+            seeds = [q0, 0.5 * (q0 + mid), mid]
+            if elbow is not None:
+                # an elbow goal can need a different swivel than any nearby pose: try the upper arm
+                # rolled each way too
+                for roll in (-1.0, 1.0):
+                    s2 = mid.copy()
+                    s2[2] = mid[2] + roll * 0.4 * (env[2][1] - env[2][0])
+                    seeds.append(s2)
+            for seed in seeds:
                 seed = np.array([min(max(v, lo), hi) for v, (lo, hi) in zip(seed, env)])
-                q, err = self._descend(mode, site, goal, qadr, dadr, env, seed, q0)
-                score = (err > tol, float(np.abs(q - q0).sum()) if err <= tol else err)
+                q, err, e_err = self._descend(mode, site, goal, qadr, dadr, env, seed, q0, elbow=elbow)
+                # the hand first; then (with an elbow goal) how near the elbow; then the smallest move
+                score = (err > tol, round(e_err, 3) if e_err is not None and err <= tol else 0.0,
+                         float(np.abs(q - q0).sum()) if err <= tol else err)
                 if best is None or score < best[0]:
-                    best = (score, q, err)
-        q, err = best[1], best[2]
+                    best = (score, q, err, e_err)
+        q, err, e_err = best[1], best[2], best[3]
         for k, a in enumerate(qadr):
             self.d.qpos[a] = q[k]
         mj.mj_forward(self.m, self.d)
         sign = {j: (-1 if side == "left" and j in cue.MIRRORED_JOINTS else 1) for j in range(1, 8)}
         out = {j: round(math.degrees(q[j - 1]) * sign[j], 2) for j in range(1, 8)}
-        return out, err
+        return out, err, e_err
 
 
 def _ik_cues(doc: dict) -> list:
@@ -292,7 +330,8 @@ def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool 
         import numpy as np
         qadr = [kin.m.jnt_qposadr[kin._jid(side, j)] for j in range(1, 8)]
         q_from = np.array([kin.d.qpos[a] for a in qadr])
-        sol, err = kin.solve(side, mode, goal)
+        egoal = kin.point(c["elbow"], side) if "elbow" in c else None
+        sol, err, e_err = kin.solve(side, mode, goal, egoal)
         q_to = np.array([kin.d.qpos[a] for a in qadr])
         tol, unit = (REACH_TOL_M, "m") if mode == "reach" else (POINT_TOL_DEG, "deg")
         if err is None or err > tol:
@@ -312,10 +351,16 @@ def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool 
                 print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> TOO CLOSE ({mm:.0f} mm: {ga} / {gb})")
             continue
         new = dict(c, solved={j: v for j, v in sol.items()}, solved_for=f"{target_key(c)}@{kin.sig}")
+        new.pop("elbow_off", None)
+        if e_err is not None:
+            # how far the elbow ended from its goal: the validator warns above cue.ELBOW_WARN_M, so a
+            # shape the arm cannot take is said, never silently bent
+            new["elbow_off"] = round(e_err, 3)
         doc["cues"][i] = new
         text = yamledit.apply(text, [{"op": "set", "index": i, "cue": new}])
         if verbose:
-            print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> {sol}   ({err:.4f} {unit} off)")
+            print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> {sol}   ({err:.4f} {unit} off"
+                  + (f"; elbow {e_err * 100:.1f} cm off" if e_err is not None else "") + ")")
     if write:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
