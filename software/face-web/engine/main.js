@@ -14,7 +14,7 @@
 
 import { Face, DESIGN_W, DESIGN_H } from "./face.js";
 import { STATES, EMOTES } from "./vocab.js";
-import { handle, Earcons } from "./protocol.js";
+import { handle, Earcons, libraryRefresher } from "./protocol.js";
 import { Skins, CODE_SKINS } from "./skins/index.js";
 
 const q = new URLSearchParams(location.search);
@@ -22,9 +22,11 @@ const face = new Face();
 const audio = new Earcons(q.get("audio") === "1");
 const skins = new Skins();
 window.faceSkins = skins;                          // read by a harness through devtools
-skins.loadLibrary(new URL(q.get("library") || "../library/", import.meta.url)).then(() => {
+const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
+skins.loadLibrary(libraryUrl).then(() => {
   if (q.get("skin")) skins.select(q.get("skin"));
 });
+skins.refresh = libraryRefresher(skins, libraryUrl);   // a skin added after this page loaded (protocol.js)
 let neck = null;                                   // {pan, tilt, owner} from a door, if it has a neck
 
 const BG = q.get("bg") || "#000";
@@ -103,11 +105,49 @@ function connect() {
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.neck) neck = msg.neck;
-    if (msg.line !== undefined) ws.send(JSON.stringify({ id: msg.id, reply: handle(face, audio, msg.line, performance.now(), skins) }));
+    if (msg.frames) startTap(ws, msg.frames);
+    if (msg.line !== undefined) {
+      Promise.resolve(handle(face, audio, msg.line, performance.now(), skins))
+        .then((reply) => ws.send(JSON.stringify({ id: msg.id, reply })));
+    }
   };
-  ws.onclose = () => setTimeout(connect, 1000);
+  ws.onclose = () => { stopTap(); setTimeout(connect, 1000); };
 }
 if (doorUrl) connect();
+
+// ---- the body twin's picture (door_dev.py with OPENDUBS_FACE_FRAMES; the robot's door never asks) -
+// The MuJoCo body twin shows this face on its head by copying it, never by drawing its own (a second
+// drawing would drift). Asked for by the door: the face's design area, without the simulated turn
+// (the body twin turns the head itself), scaled to the twin's texture, sent as RGB rows when a pixel
+// changed. door_dev.py writes it where the Tab5 desktop face would (frame_tap.py).
+let tapTimer = null;
+function stopTap() { clearInterval(tapTimer); tapTimer = null; }
+function startTap(ws, { w, h, fps }) {
+  stopTap();
+  stats.tap = { sent: 0, ticks: 0 };
+  const small = document.createElement("canvas");
+  small.width = w; small.height = h;
+  const sctx = small.getContext("2d", { willReadFrequently: true });
+  const rgb = new Uint8Array(w * h * 3);
+  let sent = false;
+  tapTimer = setInterval(() => {
+    stats.tap.ticks++;
+    if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > rgb.length) return;   // never queue up
+    const W = canvas.width, H = canvas.height, s = Math.min(W / DESIGN_W, H / DESIGN_H);
+    if (!W || !H) return;                                       // a minimised window: nothing to copy
+    const turn = neck ? (neck.pan - 90) * 4 : 0;
+    sctx.fillStyle = "#000"; sctx.fillRect(0, 0, w, h);
+    sctx.drawImage(canvas, (W - DESIGN_W * s) / 2 - turn * s, (H - DESIGN_H * s) / 2, DESIGN_W * s, DESIGN_H * s, 0, 0, w, h);
+    const px = sctx.getImageData(0, 0, w, h).data;
+    let changed = !sent;
+    for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
+      if (rgb[j] !== px[i] || rgb[j + 1] !== px[i + 1] || rgb[j + 2] !== px[i + 2]) {
+        changed = true; rgb[j] = px[i]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i + 2];
+      }
+    }
+    if (changed) { ws.send(rgb); sent = true; stats.tap.sent++; }
+  }, 1000 / (fps || 15));
+}
 
 // ---- twin conveniences ------------------------------------------------------------------------
 const names = Object.keys(EMOTES);

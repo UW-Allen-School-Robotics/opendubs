@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# The face engine, headless: the spin geometry checked directly, then the engine held to the head
-# protocol -- its face half in Node, a reference neck beside it, and the conformance suite with
-# --active --motion (local only). Used by CI.
+# The face engine, headless: first the pieces the protocol cannot see (spin geometry, a late skin,
+# the body twin's picture), then the engine held to the head protocol -- its face half in Node, a
+# reference neck beside it, and the conformance suite with --active --motion. Used by CI.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-# First the engine geometry the protocol suite cannot see: SPIN's timing and the promise that it
-# never makes anything jump (tests/test_spin.mjs). Cheap, and it fails before any port is opened.
-node software/face-web/tests/test_spin.mjs
+# First the things the protocol suite cannot see. All cheap, and all fail before a port is opened.
+node software/face-web/tests/test_spin.mjs           # SPIN's timing, and that nothing ever jumps
+node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
+python3 software/face-web/tests/test_frame_tap.py    # the body twin's picture (no ports, no page)
 
 FACE=${FACE_PORT:-14244}; NECK=${NECK_PORT:-14245}
 node software/face-web/tests/node_door.mjs "$FACE" & D=$!

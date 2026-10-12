@@ -12,10 +12,15 @@ next step — see state-machine-review.md R7.)
 Quest (Unity app: Meta XR SDK + ros-sharp)
    │  controller + HMD pose, buttons  →  ros-sharp RosBridgeClient (WebSocket)
    ▼
-ws://opendubs2.local:9090   (opendubs-rosbridge — ALREADY running, no new service)
+ws://<robot>:8080/rosbridge   (the dashboard's route to opendubs-rosbridge — no new service)
    ▼
 ROS 2 topics on the Thor  →  ros2 topic echo / Foxglove 3D
 ```
+
+rosbridge's raw port 9090 listens on the robot's computer only (127.0.0.1); off the robot, every client reaches it through the dashboard's `/rosbridge` route, which relays the same frames unchanged. The route turns away browser pages from other sites (a page always names
+itself in an `Origin` header); a native app like this one sends no `Origin`, so it is let through.
+Plain `ws://` on 8080, not `wss://` on 8443: the headset would not trust the robot's self-signed
+certificate.
 
 Chosen ros-sharp → existing rosbridge over Unity's ROS-TCP-Connector specifically
 to add **zero new robot-side services** (ROS-TCP-Endpoint would need a colcon
@@ -61,7 +66,7 @@ tracking-space frame (`frame_id` per publisher), Unity→ROS converted (REP-103)
    `RightHandAnchor`.
 3. Import **ros-sharp (ROS2)**. Create an empty GameObject **`RosConnector`**, add
    the `RosConnector` component:
-   - **RosBridgeServerUrl:** `ws://opendubs2.local:9090` (the Thor's DHCP IP drifts — prefer a router DHCP reservation; Quest mDNS for `.local` is unreliable, may need the reserved IP)
+   - **RosBridgeServerUrl:** `ws://<robot>:8080/rosbridge`, where `<robot>` is the robot computer's address (the Thor's DHCP IP drifts — prefer a router DHCP reservation; Quest mDNS for `.local` is unreliable, may need the reserved IP)
    - **Serializer:** Microsoft (JSON) · **Protocol:** WebSocket .NET
 4. Drop `QuestTransformPublisher.cs` and `QuestJoyPublisher.cs` (this folder) into
    `Assets/`.
@@ -104,8 +109,9 @@ proof of life.**
 ## Troubleshooting
 
 - **No `/quest/*` topics:** the app isn't connected. Check the Quest is on the
-  same LAN as the Thor, the URL/IP is right, and rosbridge is up
-  (`systemctl is-active opendubs-rosbridge`).
+  same LAN as the Thor, the URL/IP is right (`ws://<robot>:8080/rosbridge` — the raw `:9090` is
+  not reachable off the robot), and both the dashboard and rosbridge are up
+  (`systemctl is-active opendubs-dash opendubs-rosbridge`).
 - **Connects but no data / type errors:** you imported the ROS1 ros-sharp message
   types. Use the **ROS2** variant (header/stamp differ).
 - **Poses look mirrored / axis-swapped:** expected Unity↔ROS handedness; the

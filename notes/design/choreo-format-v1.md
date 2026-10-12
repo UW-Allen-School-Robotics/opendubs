@@ -367,6 +367,27 @@ show fell into it). And `release` is what it means: the show stops asserting a c
 robot's own state colour shows through again — the lighting world's *release*, which is not the
 same as blacking the light out (workplan 2.4).
 
+### Self-collision: the sweep and its stamp (the robot gate)
+
+A show that moves an arm carries, written by `software/choreo/sweep.py` (the composer runs it on
+every save):
+
+```yaml
+clearance: { min_mm: 38.9, at_s: 0.0, between: "… / …", checked_for: "<motion hash>@<model sig>" }
+```
+
+the closest any part of the robot came to any other over the WHOLE show — on motion.py's smoothed
+path, the one the robot plays — against the twin's collision model (arm–arm, arm–head, arm–body),
+with the head, lift and grippers where the show has them. The sweep samples every 80 ms and at every
+keyframe, then halves any interval where the joints moved enough to hide a dip below the threshold,
+so the minimum is bounded, not a sampling accident. The robot validates without MuJoCo: it recomputes
+the motion hash from the show and refuses an arm show whose stamp is missing, stale (any arm,
+gripper, head, lift or base change since) or under **30 mm** — the margin `ik.py` keeps for a solved
+target. A face, light or sound edit does not stale it. In the composer a missing or stale stamp is a
+warning until the save sweeps it; a measured collision is an error everywhere. Cost: about 0.5–2 s
+for the shows in this repository, up to ~10 s for a dense 2½-minute show; an unchanged show is not
+swept again.
+
 ### Valid is not the same as executable
 
 Some verbs above **have no receiver today**, and the validator says so as a *notice* (not a
@@ -513,7 +534,7 @@ remain valid in every version.
 
 | out | why | where it would go |
 |---|---|---|
-| **`DRIVE`** | no trustworthy odometry; "keep X and Y clear" is advice the robot cannot honour. **Not added to `SLOTS`.** | bounded open-loop proposal below |
+| **`DRIVE` on the robot** | no trustworthy odometry; "keep X and Y clear" is advice the robot cannot honour. **Twin-only since 2026-10-11** (the user's composer item #4): a `DRIVE` cue is a relative move — `{ slot: DRIVE, forward_m, left_m, turn_deg, secs }`, in the robot's frame at the cue, no velocities, no room coordinates — bounded by the autonomy ceiling at the placeholder base speeds, counted in the 30 s open-loop cap with DANCE, needing the show's floor space and warning when its path leaves it. The twin drives it; **the runner refuses any show that uses it**, and the palette lists such a show as not runnable. | odometry first; then the robot |
 | Resume-from-middle as recovery | standing rule 2: once a human intervened, the robot is not where the timeline assumes | may exist as an *authoring* start marker, simulator-only |
 | Node graphs | 5.7: graphs cannot state timed order honestly | a trigger-wiring *view* over the same text, later |
 | Tempo map | §3; recorded limit | `music.tempo` |

@@ -13,9 +13,11 @@
     <span class="badge preview" title="This editor has no path to the robot. It reads and writes show files; the preview is drawn here.">PREVIEW ONLY</span>
     <span class="badge fixture" id="fixture" hidden title="Joint limits are the repo's test fixture, not the robot's own joint_limits.yaml">TEST LIMITS</span>
     <select id="show" aria-label="Show" title="The show file being edited (from the shows folder)"></select>
+    <button id="filesBtn" title="New show, save a copy (duplicate), rename, delete">file</button>
     <button id="rewind" class="big" aria-label="Back to the start (Home)" title="Back to the start (Home)">⏮</button>
     <button id="play" class="big" aria-label="Play or pause (space)" title="Play or pause the music and the preview (space)">▶</button>
     <span id="clock" class="clock" title="Playhead time — what is heard, corrected for audio output latency">0.000 s</span>
+    <span id="audioState" class="dim" title="What the speakers are being sent while playing: the audio state and a live level. A level with no sound means the problem is the computer's output, not the show"></span>
     <span class="group">
       <button id="zoomOut" aria-label="Zoom out" title="Zoom out (Ctrl/Cmd + scroll)">−</button>
       <button id="zoomIn" aria-label="Zoom in" title="Zoom in (Ctrl/Cmd + scroll)">+</button>
@@ -35,12 +37,20 @@
       <span id="tapBpm" class="dim" title="Tempo estimated from your taps">—</span>
       <button id="tapUse" disabled title="Write the tapped tempo into the show's music block">use</button>
       <button id="beatOne" title="Set music.offset_s: beat 1 falls at the playhead">beat 1 ⇤</button>
+      <button id="musicBtn" title="The show's music: choose a song from the library, add one, take it out of the show, or delete a song from the library. You can also drop an audio file anywhere on the page">♫ music</button>
     </span>
     <span class="spacer"></span>
     <button id="undo" disabled title="Undo (Ctrl/Cmd-Z)">undo</button>
+    <button id="historyBtn" title="Earlier versions of this show — one is kept at every save and before an agent edits it. Compare any of them with now, and restore">history</button>
     <button id="yamlBtn" title="Show the show's text — exactly what will be saved">YAML</button>
     <button id="save" title="Save (Ctrl/Cmd-S)">save</button>
     <span id="status" class="chip" title="The validator's verdict on the whole show. Valid means allowed, not safe">…</span>
+    <div id="clipBar" hidden><span id="clipMsg"></span>
+      <button id="clipBack" title="Leave the clip: the whole show again, with the clip's placements">back to the show</button></div>
+    <div id="diskBar" hidden><span id="diskMsg"></span>
+      <button id="diskReview" title="See what changed on disk, against the text in this editor">review</button>
+      <button id="diskLoad" title="Load the version on disk; your current text stays one undo away">load them</button>
+      <button id="diskKeep" title="Keep editing yours; saving would replace the disk version, which History keeps first">keep mine</button></div>
   </header>
 
   <main id="tl">
@@ -80,6 +90,44 @@
     </div>
     <textarea id="yamlText" spellcheck="false"></textarea>
   </div>
+  <dialog id="musicDlg" aria-labelledby="musicTitle">
+    <div class="drawerHead"><b id="musicTitle">Music</b><span class="spacer"></span><button id="musicClose">close</button></div>
+    <section>
+      <div id="musicNow" class="dim"></div>
+      <div class="row2">
+        <select id="songSel" aria-label="Song" title="A song from the library — or none"></select>
+        <button id="songUse" title="Make this the show's music">use</button>
+        <button id="songRemove" title="Take the music out of THIS SHOW. The song stays in the library; the tempo grid (BPM, beat 1) stays in the show">remove from show</button>
+      </div>
+      <div class="row2">
+        <label>BPM <input id="mBpm" inputmode="decimal" size="6"></label>
+        <label>beat 1 at <input id="mOff" inputmode="decimal" size="7"> s</label>
+        <button id="mSet" title="Write the tempo and where beat 1 falls into the show (tap and beat 1 ⇤ in the toolbar do the same by ear)">set</button>
+      </div>
+    </section>
+    <section>
+      <h3>Add a song to the library</h3>
+      <div id="drop" title="Drop an audio file here">Drop an audio file here, or <input type="file" id="songFile" accept=".wav,.mp3,.ogg,.flac,.m4a"></div>
+      <div class="form">
+        <label>id <input id="songId" placeholder="lower-case, - and _" autocomplete="off"></label>
+        <label>source <input id="songSource" placeholder="where it came from: a URL, an album, who made it" autocomplete="off"></label>
+        <label>licence <input id="songLicence" placeholder="what allows the robot to play it: CC-BY 4.0, own recording, permission from…" autocomplete="off"></label>
+      </div>
+      <div class="row2"><button id="songAdd" disabled>add to the library and use it</button><span id="songHint" class="dim"></span></div>
+      <p class="note">Songs go into the SHOW LIBRARY (<span id="libDir"></span>), never into the repository — a
+        song is someone's work, and its source and licence are kept with it. The robot plays a song from its
+        own library: send it there with the command shown under each song below (<code>library_sync.py</code>,
+        over ssh; <code>--dry-run</code> first shows what would move).</p>
+    </section>
+    <section>
+      <h3>In the library</h3>
+      <ul id="songList"></ul>
+    </section>
+  </dialog>
+  <dialog id="textDlg" aria-labelledby="textTitle">
+    <div class="drawerHead"><b id="textTitle"></b><span class="spacer"></span><span id="textActions"></span><button id="textClose">close</button></div>
+    <section id="textBody"></section>
+  </dialog>
   <div id="toast" hidden></div>
 
   <script src="static/composer.js"></script>

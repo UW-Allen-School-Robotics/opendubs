@@ -161,6 +161,43 @@ recreates them.
 | Kernel / devices | `peak_usb` DKMS, `70-openarm-can.rules`, PlatformIO udev rules, LIDAR `by-path` drop-ins | `provision-openarm.sh`, `provision-firmware.sh`, drop-ins by hand | `dkms status; ls /etc/systemd/system/opendubs-rplidar*.d` |
 | Power | unknown; nothing in the repo sets it | — | `nvpmodel -q` |
 
+### Found on opendubs2, 2026-10-09 (0.1 / 0.1a done)
+
+Read-only audit before the deploy of `877454b`.
+
+**Platform.**
+- R38.4 (JetPack 7.1), Ubuntu 24.04.3, kernel 6.8.12-tegra.
+- 120 W power mode. 2 GB swapfile. 122 GiB RAM.
+- WD SN5000S 1 TB NVMe, 13 % used. Whether it has power-loss protection is unknown.
+- **No apt hold on `nvidia-l4t-*`**, although `thor-setup.md` prescribes one.
+
+**Containers.**
+- Docker 29.5.2 from the docker-ce repo. Container Toolkit 1.18.1, which is new enough for Thor.
+- `nvidia` runtime registered, but the **default runtime is `runc`**. No CDI.
+- Running: `openarm` (`openarm-ros2:opendubs2`, 7.5 GB).
+- About 13 GB of leftover images and containers, which belong to the Arms lane.
+
+**Host software.**
+- 231 host `ros-jazzy-*` packages.
+- **The host torch is 2.14.0+cu130 with CUDA available.** The expected-state row above guessed CPU-only and was wrong. `requirements.txt` does not pin that build, so whether a fresh provision reproduces it is unverified.
+
+**Not in the repo, or retired but still present.**
+- `opendubs-telemetry-log.service` and `/opt/opendubs/telemetry-log.py`, the 8Servo-wedge recorder. It also listens on UDP 5005.
+- `opendubs-xorg-fix` is still enabled.
+- An `opendubs-mavros` drop-in directory is left over.
+- `/etc/opendubs-fastdds-udp-only.xml` is absent; the teleop unit is not installed either.
+- `opendubs-camera` launches the Astra driver while a D415 is fitted.
+
+**Drift.**
+- 22 files differed from the repo. **All 22 were exact older repo versions**, checked against git history, so the deploy overwrote no robot-side edits.
+- After the deploy: 99 identical, 0 drifted, and `main.cpp` (per-robot) unchanged by md5.
+
+**The drive bridge was installed but disabled.**
+- It is **held off on purpose** until the Pinpoint is commissioned: a start-condition drop-in, documented in `software/ros/README.md`.
+- Proven through provisioning: *start condition unmet*.
+
+**Side effect.** Provisioning's `apt-get install` upgraded five installed ROS packages, among them foxglove-bridge 3.5 → 3.6. It now passes `--no-upgrade`.
+
 ## Phase 1 — container host as code
 
 | # | Item | Done when |

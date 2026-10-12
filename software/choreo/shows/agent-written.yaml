@@ -31,6 +31,7 @@ clips:
 markers:
   - { bar: "9.1", name: chorus }
   - { bar: "11.1", name: dance_start }
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "141c75985988@dc74e24f" }
 cues:
   # wake up
   - { t: 0.0, slot: LIGHT, do: color, rgb: [0, 80, 255], br: 60 }

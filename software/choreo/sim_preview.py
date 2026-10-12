@@ -122,12 +122,28 @@ def head(events: list, t: float) -> tuple:
     return _slew(pan, tgt_pan, t - last), _slew(tilt, tgt_tilt, t - last)
 
 
-def base_pose(events: list, t: float) -> tuple:
-    """(x m, y m, yaw deg) of the base at t, from DANCE moves, in the robot's starting frame.
+def base_pose(events: list, t: float, drive: list | None = None) -> tuple:
+    """(x m, y m, yaw deg) of the base at t, in the robot's starting frame: the DRIVE moves made by t
+    (twin-only; cue.drive_path), then a DANCE move in progress on top, from wherever the base is.
 
-    Every library move returns the base to where it started, so only the move in progress
+    Every library dance returns the base to where it started, so only the move in progress
     displaces it. Open loop and at the PLACEHOLDER speeds in cue.py (+x forward, +y to the robot's
-    left, assumed); this is how a dance reads, not where the real robot would end up."""
+    left, assumed); this is how a show reads, not where the real robot would end up."""
+    import math
+    bx = by = byaw = 0.0
+    if drive:
+        pts = cue.drive_path([(e["start"], e["cue"]) for e in drive])
+        for pt in pts:
+            if pt[0] > t + 1e-9:
+                break
+            _, bx, by, byaw = pt
+    dx, dy, dyaw = _dance_pose(events, t)
+    c, s_ = math.cos(byaw), math.sin(byaw)
+    return bx + dx * c - dy * s_, by + dx * s_ + dy * c, math.degrees(byaw) + dyaw
+
+
+def _dance_pose(events: list, t: float) -> tuple:
+    """(x, y, yaw deg) a DANCE move in progress adds, in the base's frame at the move's start."""
     import math
     for e in events:
         c = e["cue"]
@@ -199,7 +215,7 @@ def sample(tl: dict, t: float) -> dict:
         "grip_left": grip_open(tr.get("GRIP_L", []), t),
         "grip_right": grip_open(tr.get("GRIP_R", []), t),
         "head_pan": pan, "head_tilt": tilt,
-        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t)),
+        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))),
     }
 
 

@@ -70,7 +70,7 @@ Check in this order:
 
 `CONTACTOR_OPEN` · Warning · seen on the dashboard, the head, the status lights
 
-The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
+The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, which can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
 
 **What to do**
 
@@ -358,21 +358,22 @@ StamPLC relays 1 and 2 drive the lift's two legs, up and down. Switching them di
 
 Check in this order:
 
-1. [ACTIVATE recovered the arm after a power loss](#arm-power-restored)
-2. [Another arm action is running](#arm-op-running)
-3. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
-4. [The arms' CAN links are not ready](#arm-can-not-ready)
-5. [The arm stack did not start](#arm-stack-start-failed)
-6. [Some arm motors do not answer](#arm-motors-silent)
-7. [An arm motor reports a fault](#arm-motor-fault)
-8. [The arm's motors answer but are disabled](#arm-motors-disabled)
-9. [The arm could not be reset after a power loss](#arm-reset-failed)
-10. [Only some of an arm's motors enabled](#arm-partial-enable)
-11. [An arm's controller would not start](#arm-controller-inactive)
-12. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
-13. [The arm stack is dead](#arm-stack-dead)
-14. [An arm came up active by itself](#arm-came-up-active)
-15. [An arm action timed out](#arm-op-timeout)
+1. [The drive contactor is open](#contactor-open)
+2. [ACTIVATE recovered the arm after a power loss](#arm-power-restored)
+3. [Another arm action is running](#arm-op-running)
+4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
+5. [The arms' CAN links are not ready](#arm-can-not-ready)
+6. [The arm stack did not start](#arm-stack-start-failed)
+7. [Some arm motors do not answer](#arm-motors-silent)
+8. [An arm motor reports a fault](#arm-motor-fault)
+9. [The arm's motors answer but are disabled](#arm-motors-disabled)
+10. [The arm could not be reset after a power loss](#arm-reset-failed)
+11. [Only some of an arm's motors enabled](#arm-partial-enable)
+12. [An arm's controller would not start](#arm-controller-inactive)
+13. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
+14. [The arm stack is dead](#arm-stack-dead)
+15. [An arm came up active by itself](#arm-came-up-active)
+16. [An arm action timed out](#arm-op-timeout)
 
 ### ACTIVATE recovered the arm after a power loss {#arm-power-restored}
 
@@ -414,14 +415,15 @@ The arm buttons run `openarm-up` and the teleop service through sudo, and the da
 
 `ARM_CAN_NOT_READY` · Fault · seen on the dashboard
 
-The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing.
+The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing. A link can be left in bus-off after an e-stop, even one already cleared -- the arms are powered from the drive bus, behind the contactor -- or by a loose CAN connector, and a bus-off link does not recover by itself when power or the connection returns. (Both were seen together on 2026-10-09; on 2026-10-08 an e-stop cleared without one.)
 
 **What to do**
 
-1. Check that the CAN adapter is plugged in and its driver is installed.
-2. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
+1. Once the contactor is closed and the CAN connectors are seated, restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right` on the robot's computer, check `openarm-up status` shows both `ERROR-ACTIVE`, then activate.
+2. Otherwise, check that the CAN adapter is plugged in and its driver is installed.
+3. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
 
-**See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [OpenArm setup](../openarm-setup.md#troubleshooting)
+**See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [Troubleshooting](troubleshooting.md#contactor-open) · [OpenArm setup](../openarm-setup.md#troubleshooting)
 
 ### The arm stack did not start {#arm-stack-start-failed}
 
@@ -457,7 +459,7 @@ A motor reports a fault such as over-voltage. A motor's fault latches until the 
 
 **What to do**
 
-1. Press and release the e-stop to power-cycle the arms, re-arm, then press ACTIVATE again.
+1. Press and release the e-stop to power-cycle the arms. Once the contactor is closed again, restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE.
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-motor-fault)
 

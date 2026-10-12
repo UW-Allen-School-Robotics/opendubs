@@ -10,12 +10,22 @@ on:
     branches: [main]
     paths:
       - "software/choreo/**"
+      # The code-skin names are pinned in four files across three lanes and tests/test_library.py
+      # checks they agree -- so a change to either of these must run THIS job, or it goes green and
+      # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
+      - "software/face-web/engine/skins/index.js"
+      - "software/head-protocol/head_protocol.py"
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
   pull_request:
     paths:
       - "software/choreo/**"
+      # The code-skin names are pinned in four files across three lanes and tests/test_library.py
+      # checks they agree -- so a change to either of these must run THIS job, or it goes green and
+      # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
+      - "software/face-web/engine/skins/index.js"
+      - "software/head-protocol/head_protocol.py"
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
@@ -39,8 +49,10 @@ jobs:
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
       - run: python3 software/choreo/tests/test_ik.py
+      - run: python3 software/choreo/tests/test_sweep.py   # the self-collision sweep and its robot gate
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
       - run: python3 software/choreo/tests/test_library.py
+      - run: python3 software/choreo/tests/test_library_sync.py   # against a fake robot folder, no ssh
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml

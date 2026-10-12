@@ -25,7 +25,7 @@ part used in two places is listed once, with the quantities added.
 | [GIGAVAC GX11 contactor, 24 V coil](https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors) | `GX11CAB` | 1 | — | The e-stop contactor: sealed, normally open, with an auxiliary contact the StamPLC reads to detect a weld. |
 | [RadioLink T8S transmitter + R8EF receiver](https://a.co/d/0cFzagC4) | — | 1 | — | Manual control; the receiver talks SBUS to the StamPLC. |
 | [M5Stack Tab5 (ESP32-P4)](https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4) | — | 1 | — | The head: the face, front control panel and voice. |
-| Scissor lift with its own up/down controller | — | 1 | — | The StamPLC presses the controller's up and down buttons through two relays. |
+| [DIHOOL electric scissor lift table, 130 lb, 3.95–14.76 in travel](https://www.amazon.com/dp/B0F7H1C4DJ) | — | 1 | — | Comes with its own up/down controller; the StamPLC presses its buttons through two relays. |
 | [M5Stack ToF4M unit (VL53L1X)](https://docs.m5stack.com/en/unit/Unit-ToF4M) | — | 1 | — | Measures the lift's height for the pinch guard. |
 | [OpenArm bimanual arm set (two 7-DOF arms with grippers)](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic) | — | 1 | — | Left and right, from OpenArm's certified seller. Each arm has its own CAN-FD bus. The robot uses the follower set; leader arms are a separate set. |
 | [PEAK PCAN-USB Pro FD](https://www.peak-system.com/PCAN-USB-Pro-FD.366.0.html) | — | 1 | — | Two CAN-FD channels, one per arm. |
@@ -87,11 +87,11 @@ Prices read 2026-10-09, in US dollars, before tax and shipping. Each line is pri
 
 | | Total (USD) | Lines without a price |
 |---|---:|---:|
-| **One robot, all parts** | **$14,871.71** | 8 |
-| One robot, without the Thor and the arms | $3,972.71 | 8 |
+| **One robot, all parts** | **$15,439.59** | 6 |
+| One robot, without the Thor and the arms | $4,540.59 | 6 |
 | Tools, bought once | $188.53 | 4 |
 
-*Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface); ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery; Scissor lift with its own up/down controller; 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
+*Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface); 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
 
 *Tools without a price, not in the totals:* Safety glasses (PPE); Work gloves (PPE); 2.5 mm hex wrench / bit; Soldering iron + solder.
 
@@ -99,12 +99,12 @@ Prices read 2026-10-09, in US dollars, before tax and shipping. Each line is pri
 |---|---:|---:|---:|---|
 | NVIDIA Jetson AGX Thor Developer Kit | 1 | $5,499.00 | $5,499.00 | [developer.nvidia.com](https://developer.nvidia.com/embedded/faq), 2026-10-09 |
 | Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface) | 1 | — | — | no price yet |
-| ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery | 1 | — | — | no price yet |
+| ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery | 1 | $399.00 | $399.00 | price paid (the listing it was bought from has been withdrawn), 2026-10-09 |
 | 48 V LiFePO4 battery charger | 1 | $98.00 | $98.00 | [amazon.com](https://www.amazon.com/dp/B0G8JYWGBP), 2026-10-09 |
 | GIGAVAC GX11 contactor, 24 V coil | 1 | $194.91 | $194.91 | [digikey.com](https://www.digikey.com/en/products/detail/sensata-gigavac-clean-energy/GX11CAB/17867704), 2026-10-09 |
 | RadioLink T8S transmitter + R8EF receiver | 1 | $51.99 | $51.99 | [amazon.com](https://www.amazon.com/dp/B09BTSJN7P), 2026-10-09 |
 | M5Stack Tab5 (ESP32-P4) | 1 | $60.00 | $60.00 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4), 2026-10-09 |
-| Scissor lift with its own up/down controller | 1 | — | — | no price yet |
+| DIHOOL electric scissor lift table, 130 lb, 3.95–14.76 in travel | 1 | $168.88 | $168.88 | [amazon.com](https://www.amazon.com/dp/B0F7H1C4DJ), 2026-10-09 |
 | M5Stack ToF4M unit (VL53L1X) | 1 | $8.95 | $8.95 | [shop.m5stack.com](https://shop.m5stack.com/products/time-of-flight-distance-unit-vl53l1x), 2026-10-09 |
 | OpenArm bimanual arm set (two 7-DOF arms with grippers) | 1 | $5,400.00 | $5,400.00 | [shop.wowrobo.com](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic), 2026-10-09 |
 | PEAK PCAN-USB Pro FD | 1 | $751.00 | $751.00 | [gridconnect.com](https://www.gridconnect.com/products/can-usb-pro-fd-adapter-2-channels-can-lin), 2026-10-09 |

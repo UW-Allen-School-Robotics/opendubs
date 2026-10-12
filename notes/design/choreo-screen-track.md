@@ -185,7 +185,10 @@ without source and licence.
 * **Clip audio.** Proposed: clips are always silent and the show's music is the soundtrack. A clip
   that must carry its own sound would need mixing against the music — not in this version.
 * **Overlay layer** (graphics over the face, not instead of it) — named in the protocol, built later.
-* **Laptop library sync** — the tablet's is the tablet lane's (plan 5.3); how a composing laptop
-  gets the library is open (a pull from the Thor by hash is the obvious shape).
+* **Laptop library sync** — DECIDED and built (2026-10-11): a PUSH from the laptop,
+  `software/choreo/library_sync.py`, over ssh, content-addressed by sha256 and verified on the Thor,
+  never deleting except by an explicit `delete` that a show still naming the item refuses. The
+  tablet's cache, by hash from the Thor's library, is the tablet lane's (plan 5.3), against the same
+  index: id, kind, file, sha256, bytes, source, licence (library.py).
 * **Moving existing shows** from `music: file:` to `music: song:` — after the library exists; both
   forms stay valid until then.

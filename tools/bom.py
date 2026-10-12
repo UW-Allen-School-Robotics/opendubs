@@ -30,7 +30,8 @@ Prices (purchase:cost) — optional per row, but all four go together:
   buy_qty       how many of that listed item one robot needs. Separate from `qty`, which counts
                 pieces as the build uses them ("2-3 packs", "a few", or 10 blocks sold in 2-packs).
                 0 = priced on another row (one kit serving two modules) or an alternative not bought
-  price_source  the listing the price was read from (prefer the maker's or vendor's own store)
+  price_source  the listing the price was read from (prefer the maker's or vendor's own store),
+                or "paid: <why>" for the price actually paid when no listing can be read any more
   price_date    YYYY-MM-DD the price was read
 A row without a price stays out of the totals and is listed under them, so a total never hides a gap.
 """
@@ -98,8 +99,8 @@ def validate(rows):
                 errs.append(f"L{i}: {rid} has a price but not all of buy_qty, price_source, price_date")
             if _price(r) is None:
                 errs.append(f"L{i}: {rid} price_usd is not a number: '{r['price_usd']}'")
-            if not r.get("price_source", "").startswith("http"):
-                errs.append(f"L{i}: {rid} price_source must be a URL")
+            if not r.get("price_source", "").startswith(("http", "paid:")):
+                errs.append(f"L{i}: {rid} price_source must be a URL, or 'paid: <why>'")
             if not DATE_RE.match(r.get("price_date", "")):
                 errs.append(f"L{i}: {rid} price_date must be YYYY-MM-DD")
         if r.get("buy_qty") and (_int(r["buy_qty"]) is None or _int(r["buy_qty"]) < 0):
@@ -213,9 +214,12 @@ def _cost(rows):
         tot[cat] += line
         if any(i in MAJOR for i in a["ids"]):
             tot["major"] += line
-        host = re.sub(r"^https?://(www\.)?", "", r["price_source"]).split("/")[0]
-        out.append(f"| {name} | {a['buy']} | {_money(p)} | {_money(line)} | "
-                   f"[{host}]({r['price_source']}), {r['price_date']} |")
+        if r["price_source"].startswith("paid:"):
+            src = f"price paid ({r['price_source'][5:].strip()}), {r['price_date']}"
+        else:
+            host = re.sub(r"^https?://(www\.)?", "", r["price_source"]).split("/")[0]
+            src = f"[{host}]({r['price_source']}), {r['price_date']}"
+        out.append(f"| {name} | {a['buy']} | {_money(p)} | {_money(line)} | {src} |")
     dates = sorted({r["price_date"] for r in rows if r.get("price_date")})
     span = (f"{dates[0]}" if len(dates) == 1 else f"{dates[0]} to {dates[-1]}") if dates else "—"
     major = " and ".join(MAJOR.values())

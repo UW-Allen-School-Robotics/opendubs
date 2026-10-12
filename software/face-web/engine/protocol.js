@@ -32,10 +32,14 @@ export function handle(face, audio, line, now, skins) {
       // Head protocol v2. A code skin (default, ring) or a library skin's id. Unknown, or an asset
       // that will not load: the default eyes, and say so. Never a blank face.
       if (!arg || !skins) return "ERR skin <name> | default";
+      const answer = (r) => r.ok ? `OK skin ${arg}`
+        : r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
+        : `ERR skin ${arg}: ${r.error} (showing default)`;
       const r = skins.select(arg);
-      if (r.ok) return `OK skin ${arg}`;
-      return r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
-                                        : `ERR skin ${arg}: ${r.error} (showing default)`;
+      // Unknown here may only mean "added since this page read the library" (a show's new skin, the
+      // robot's library sync): look once more before falling back. The reply is then a promise.
+      if (r.ok || r.error !== "unknown skin" || !skins.refresh) return answer(r);
+      return skins.refresh().then((fresh) => answer(fresh ? skins.select(arg) : r));
     }
     case "SPIN": {
       // Head protocol v3: a show lands a spinning skin's counter-rotation on a beat. The skin eases
@@ -56,6 +60,20 @@ export function handle(face, audio, line, now, skins) {
 }
 
 // The six earcons, synthesised; audible only when audio is on, as on the head (it defaults off).
+/** A rate-limited, time-capped re-read of the skin library, for SKIN's second look. At most once per
+ *  `gapMs`, and never longer than `capMs`, so the reply still beats the door's 0.4 s timeout; a read
+ *  that runs over still lands, and the next SKIN finds it. Resolves true if it re-read in time. */
+export function libraryRefresher(skins, baseUrl, { gapMs = 2000, capMs = 250 } = {}) {
+  let last = -Infinity;
+  return () => {
+    const now = performance.now();
+    if (now - last < gapMs) return Promise.resolve(false);
+    last = now;
+    return Promise.race([skins.loadLibrary(baseUrl).then(() => true),
+                         new Promise((res) => setTimeout(() => res(false), capMs))]);
+  };
+}
+
 export class Earcons {
   constructor(enabled = false) { this.enabled = enabled; this.ctx = null; }
   cue(name) {

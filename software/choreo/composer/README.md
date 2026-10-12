@@ -37,6 +37,7 @@ no internet.
 | **Click track** (the `click` box) | scheduled on the audio clock with lookahead, so it cannot drift from the music |
 | **Snap** to bar / beat / ½ / ¼, or off | a `t` cue snapped to a beat **stays a `t` cue**; a `bar` cue stays a `bar` cue while it lands on a whole beat (format §3) |
 | **Tap tempo** → `use` writes `music.bpm`; **beat 1 ⇤** writes `music.offset_s` from the playhead | median of the tap intervals, so one bad tap does not move it |
+| **♫ music**: the show's song | choose a song from the show library (or none); **add** one by dropping an audio file anywhere on the page, or picking one — wav, mp3, ogg, flac or m4a, up to 80 MB, with its **source and licence required**; **remove from show** takes out the show's reference only (the song stays in the library, the tempo grid stays in the show); **delete from library** is behind a confirm and refused while any show here still names the song, listing them. Set BPM and beat 1 there too. See "Music" below |
 | **Drag to retime, tap to select, tap empty lane to seek, `+` to add** | pointer events; works with touch |
 | **Inspector** | the cue as authored, its resolved time and span (Polaris: show inferred values resolved), its problems, editable time form/value and fields |
 | **Violations on the offending cue**, in red, and a clickable problem list | the validator's own sentences, located by cue index |
@@ -122,6 +123,76 @@ python3 composer/server.py                   # 1. the composer — then open htt
   the playhead, including scrubbing and seeking. The body twin's screen does not show the web face
   yet; watch the face page beside it.
 
+## Notes for an agent (or anyone): the NOTES lane
+
+The lane at the top holds **notes**: what you want changed, over a stretch of time and (optionally)
+some parts — "make this wave bigger and on the beat", "point at the audience here". They are kept in
+the show as `timeline_notes:` and **never move the robot**: the runner never reads them, and the
+validator checks only their shape (a malformed note is a warning, never a reason to refuse a show).
+
+- **`+` on the NOTES lane** adds a note at the playhead (a bar long). Tap a note to edit its text,
+  its range (`at`/`to`: a bar like `9.1`, or seconds), the parts it is about, and its status —
+  `open`, `done`, `declined` — with the reply of whoever acted on it. A note about some parts also
+  shades those lanes over its range.
+- **⧉ copies the open notes as a prompt** for any agent session: the show file's path, each note with
+  the cues it covers, and the steps (snapshot, edit, validate, reply). Save first — the agent reads
+  the file. Or ask the choreography lane to "apply the notes in <show>".
+- **The agent** snapshots the show (`timeline_notes.py snapshot`), edits the other lanes, validates,
+  and marks each note done with a one-line reply, or declined with why (`timeline_notes.py reply`).
+- **This editor notices** the file changed on disk: a banner offers **review** (the difference),
+  **load them** (your text stays one undo away) or **keep mine** — never a silent overwrite.
+- **History** lists every earlier version — one is kept at each save and before an agent edits —
+  shows what restoring it would change, and restores it into the editor (then save, or undo).
+  History lives beside the shows (`<shows>/.history/`), never in the repository.
+
+`timeline_notes.py` is the same loop from a terminal: `list`, `prompt`, `snapshot`, `reply`, `history`.
+
+## Which parts a show moves: `slots:`
+
+A show lists, at its top, the parts of the robot it uses — `slots: [ARM_L, ARM_R, HEAD]` — and the
+runner builds its pre-run checks from that list (an arm show needs the arms active, a head show
+needs the head, and so on). In the composer a lane whose part is NOT listed is drawn hatched with
+its name dimmed and dotted.
+
+- **Adding a cue to an unlisted lane lists it**, in the same edit: the toast says so, and one undo
+  takes back both the cue and the listing.
+- **Tapping an unlisted lane's name** lists it without adding a cue.
+- To take a part off the list, edit `slots:` in the YAML view. (A listed part with no cues is
+  harmless.)
+- A cue on an unlisted part (written by hand) is still drawn on its lane, with the validator's
+  problem on it — it is never dropped from the timeline.
+
+## Music
+
+A show names its music by the id of a song in the **show library** (`music: song: <id>`; the
+older `music: file:` next to the show still works). The library lives **outside the repository**
+(`library.py`): a song is someone's work, so it is never committed, and every song carries where
+it came from and what allows the robot to play it.
+
+- **Where the composer's library is:** `server.py --library <folder>`, else `$OPENDUBS_LIBRARY`,
+  else `/var/lib/opendubs/library` (the robot's). The editor shows the path in the music dialog.
+- **Adding** goes through `library.py`'s rules: the type is checked by the file's first bytes as
+  well as its name, the size is capped (the composer has no login when it listens beyond
+  localhost), the file is hashed, and its length is read — from the WAV header, by `ffprobe` when
+  installed, else from the browser's own decode.
+- **Attaching or removing** is an edit of the show text, so it shows in the YAML view, undoes, and
+  needs a save, like any other edit.
+- **Deleting** removes the file and its entry, and is refused while a show in this composer's
+  shows folder still names the song. Shows elsewhere (on the robot) are not visible from here.
+
+**How a song reaches the robot and the tablet.** The robot plays a song from **its own** library
+(`/var/lib/opendubs/library` on the Thor): the validator checks the id there before every run, and
+the dashboard serves the file to the tablet under `/api/choreo/media/library/songs/…`, which the
+tablet downloads whole before the start, exactly like a `file:` song. A song added on a laptop is
+in the laptop's library only until it is pushed:
+
+    python3 software/choreo/library_sync.py --library <the composer's library> push <robot> <song-id> --dry-run
+    python3 software/choreo/library_sync.py --library <the composer's library> push <robot> <song-id>
+
+over ssh, content-addressed (what the robot has is skipped), every item verified on the robot, and
+never deleting anything there (see `library_sync.py`). The music dialog shows the command under
+each song. The tablet's own cache, by hash from the robot's library, is the tablet lane's plan 5.3.
+
 ## What is stubbed, and what is not here
 
 - **The joint source for teaching is fake.** `FakeJointSource` in `static/composer.js` fabricates
@@ -129,8 +200,19 @@ python3 composer/server.py                   # 1. the composer — then open htt
   un-mirroring in `cue.py` is exercised end to end. On the robot the browser would read **one
   sample** of `/joint_states` through rosbridge — read-only — and post it to `api/capture`. That
   interface is specified in `notes/design/choreo-teach-and-sync.md`; it is not wired.
-- **Clip definitions are edited in the YAML**, not in the timeline. Placements are editable.
-- **No new-show / save-as / rename.** Copy a file in `shows/`.
+- **Clips are made and edited on the timeline.** Select cues (shift-click, or "select several" on a
+  touch screen) and **make a clip of these** — their times become the clip's own (beats when the
+  show has a beat grid), the clip runs through its last beat, and one placement takes their place,
+  so the show plays exactly as before (one undo takes it back). **+** on the CLIPS lane makes an
+  empty clip; **⇥** places one at the playhead; a placement's **edit the clip ✎** shows the clip's
+  own cues from its start, where every edit goes into the clip — **back to the show** returns. No
+  clips inside clips (the format's v1 rule). Deleting a clip definition is still a YAML edit.
+- **Show files are managed from the editor** (the **file** button): a NEW show (a name; a library song
+  and a BPM optional — it starts empty, and the first cue on a lane lists that part and what it
+  requires); SAVE A COPY (also how to duplicate: the text being edited, under a new name, the
+  original untouched); RENAME (the file, its id, its name if it came from the file name, and its
+  History); DELETE (behind a confirm; its last version stays in History). Names are letters,
+  digits, - and _, `.yaml` added, and only ever inside the shows folder.
 - **No graded snap** (Vixen's weighted marks) and no pinch-zoom; the `−`/`+` buttons and
   Ctrl/Cmd-wheel zoom.
 - **The preview is a readout, not a picture.** Joint bars per arm, the head's target angles,

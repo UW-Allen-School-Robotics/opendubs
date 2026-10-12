@@ -18,7 +18,7 @@ CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.
-CODE_SKINS = ("default", "ring")
+CODE_SKINS = ("default", "ring", "fireworks")
 OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "none")
 TRACK_SOURCES = ("thor", "local")
 

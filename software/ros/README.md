@@ -122,6 +122,27 @@ sudo systemctl daemon-reload && sudo systemctl restart opendubs-drive-bridge
 
 The pin is per-robot identity: it lives in the drop-in on the robot, never in the repo.
 
+### Holding the bridge off on a robot
+
+Until a robot's Pinpoint is commissioned (`PPCAL SHOW` reports it, see
+[the Pinpoint build page](../../docs/build/pinpoint.md)), its `/odom` is not trustworthy, so the bridge
+can be held off. **Do not `systemctl mask` it:** the unit file lives in `/etc/systemd/system/`, so the
+mask is refused. Even if it worked, `provision-ros.sh` re-installs the unit and its `systemctl enable`
+would fail under `set -e`, which aborts the rest of provisioning. Use a start condition instead, which
+survives every deploy:
+
+```sh
+sudo mkdir -p /etc/systemd/system/opendubs-drive-bridge.service.d
+printf '[Unit]\nConditionPathExists=/etc/opendubs/drive-bridge.enabled\n' |
+  sudo tee /etc/systemd/system/opendubs-drive-bridge.service.d/hold.conf
+sudo systemctl daemon-reload
+```
+
+`systemctl status opendubs-drive-bridge` then reads *start condition unmet*, and provisioning still
+enables and "restarts" it cleanly. To turn it on: `sudo touch /etc/opendubs/drive-bridge.enabled &&
+sudo systemctl restart opendubs-drive-bridge`. Nothing on the robot consumes `/odom` or publishes
+`/cmd_vel` yet, so holding it costs nothing; the dashboard's odometry card reads `[ODO]` directly.
+
 ## /scan watchdog
 
 The A1 can hit a serial `RESULT_OPERATION_TIMEOUT` (USB glitch / unplug) and get
@@ -138,18 +159,6 @@ disabled). `enable=true` → **driver restart** (because `/start_motor` doesn't 
 resume scanning after `/stop_motor` on this driver), so scan returns in ~5–8 s. Validated:
 STOP stays stopped (driver not restarted), START brings scan back; a genuine wedge while
 enabled still triggers a restart.
-
-## Tab5 ROS bridge (optional, not started)
-
-`tab5_bridge_node.py` bridges the Tab5 head into ROS: it publishes the head's front ToF on
-`/sensors/tof_front` (`sensor_msgs/Range`), follows `/robot/state`, and relays pan/tilt and
-tracking requests. It listens for the Tab5 on UDP 5006 and replies on 4242.
-
-No service starts it. The head's lift buttons don't depend on it: the dashboard listens for
-the Tab5 itself (`kiosk-dashboard/backend/state_out.py`) and forwards lift requests as
-`MAST CMD`, so they go through the same pinch guard as the RC stick. That listener binds the
-same UDP 5006, so this node can't bind its port while the dashboard is running. Give one of
-them a different port before running both.
 
 ## Notes / next
 

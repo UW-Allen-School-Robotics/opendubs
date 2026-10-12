@@ -9,6 +9,8 @@ committed. The repo holds only this schema, this tool, the validator that reads 
 test fixtures with made-up entries.
 
     python3 library.py check                      # the index is well-formed and every hash matches
+    python3 library.py remove ID --shows SHOWS_DIR     # refused while a show there still uses it
+    python3 library.py migrate                         # fill `bytes` into entries made before it existed
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
         [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
         [--duration S] [--width W --height H --fps F]
@@ -23,9 +25,12 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import wave
 
 DEFAULT_ROOT = "/var/lib/opendubs/library"
 INDEX = "index.yaml"
@@ -36,7 +41,7 @@ KINDS = ("song", "clip", "skin")                 # later: overlay, theme, sound
 # MP4/H.264 cannot — and should be square, 400-512 px. Skins the engine draws in CODE (`default`,
 # `ring`: cue.CODE_SKINS) are never in the index, and no library item may take one of their names.
 SKIN_TYPES = ("image", "video")
-CODE_SKIN_NAMES = ("default", "ring")
+CODE_SKIN_NAMES = ("default", "ring", "fireworks")
 # A skin's `params`, all optional; any other key is a problem — a typo would otherwise do nothing.
 SKIN_PARAMS = {
     "size": "fraction of the 480 px eye (default 0.8)",
@@ -48,11 +53,21 @@ SKIN_PARAMS = {
     "counter": "occasionally break a together-spin into opposite directions: {every_s: [lo, hi], hold_s: "
                "[lo, hi], ease_s} (default off; face-web asset.js, #138)",
 }
+# A skin's `counter` block's keys — the face engine's ASSET_COUNTER_DEFAULTS (asset.js); a test pins
+# the two together. EASE_MIN is a clamp on ease_s, not a key, and is deliberately not here.
+COUNTER_KEYS = ("every_s", "hold_s", "ease_s")
 VIDEO_SKIN_SIZE_PX = (400, 512)
 SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # face-engine.md §A
 FACE_PANEL = (1340, 800)                         # the tablet's 8.7-inch panel
 KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins"}
-REQUIRED = {"id", "kind", "file", "sha256", "source", "licence"}
+# `bytes` is the item's total size (a folder: its files summed). The tablet checks its free space
+# before it fetches anything (tablet plan 5.3), so a missing size would mean fetching blind.
+REQUIRED = {"id", "kind", "file", "sha256", "bytes", "source", "licence"}
+# A song's file types, and the first bytes each really starts with: an upload is checked by its
+# CONTENT, not only its name, so a renamed file of another kind is refused.
+SONG_TYPES = {".wav": (b"RIFF",), ".mp3": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa"),
+              ".ogg": (b"OggS",), ".flac": (b"fLaC",), ".m4a": (b"ftyp",)}
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")   # an id the composer may create (a safe file name)
 REQUIRED_BY_KIND = {"song": {"duration_s"}, "clip": {"duration_s", "width", "height", "fps"},
                     "skin": {"type", "width", "height"}}
 
@@ -76,6 +91,13 @@ def item_hash(path: str) -> str:
             full = os.path.join(d, f)
             lines.append(f"{os.path.relpath(full, path).replace(os.sep, '/')}\t{item_hash(full)}")
     return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
+
+
+def item_bytes(path: str) -> int:
+    """One file: its size. A folder: the sum of its files' sizes."""
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+    return sum(os.path.getsize(os.path.join(d, f)) for d, _, files in os.walk(path) for f in files)
 
 
 def _yaml():
@@ -138,8 +160,8 @@ def _counter_problems(item_id, c) -> list:
         return []
     if not isinstance(c, dict):
         return [f"{item_id!r}: counter must be a mapping {{every_s, hold_s, ease_s}} or off"]
-    p = [f"{item_id!r}: counter has unknown keys {', '.join(sorted(set(c) - {'every_s', 'hold_s', 'ease_s'}))}"] \
-        if set(c) - {"every_s", "hold_s", "ease_s"} else []
+    p = [f"{item_id!r}: counter has unknown keys {', '.join(sorted(set(c) - set(COUNTER_KEYS)))} "
+         f"(known: {', '.join(COUNTER_KEYS)})"] if set(c) - set(COUNTER_KEYS) else []
     for k in ("every_s", "hold_s"):
         v = c.get(k)
         if v is not None and not (isinstance(v, (list, tuple)) and len(v) == 2
@@ -180,10 +202,173 @@ def check(lib_root: str | None = None) -> list:
     return out
 
 
+def looks_like_song(path: str) -> bool:
+    """The file's first bytes match its extension (SONG_TYPES); m4a's `ftyp` sits at offset 4."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in SONG_TYPES:
+        return False
+    with open(path, "rb") as fh:
+        head = fh.read(12)
+    if ext == ".m4a":
+        return head[4:8] == b"ftyp"
+    if ext == ".wav":
+        return head[:4] == b"RIFF" and head[8:12] == b"WAVE"
+    return head.startswith(SONG_TYPES[ext])
+
+
+# ---- a song's length, read from the file itself (no ffprobe, no browser) ----------------------
+# The composer must not depend on the browser decoding a song to learn its length: a browser that
+# cannot (or a Safari that has not loaded the metadata yet) would block the add. Each reader returns
+# seconds or None; None means "not readable", never a guess.
+_MP3_BITRATE = {  # kbps by (MPEG-1?, layer) and index 1..14
+    (True, 1): (32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448),
+    (True, 2): (32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384),
+    (True, 3): (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),
+    (False, 1): (32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256),
+    (False, 2): (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+}
+_MP3_RATE = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
+
+
+def _mp3_seconds(path):
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        head = fh.read(10)
+        start = 0
+        if head[:3] == b"ID3" and len(head) == 10:      # ID3v2: skip the whole tag, whatever frames
+            n = (head[6] & 0x7F) << 21 | (head[7] & 0x7F) << 14 | (head[8] & 0x7F) << 7 | (head[9] & 0x7F)
+            start = 10 + n + (10 if head[5] & 0x10 else 0)
+        fh.seek(start)
+        buf = fh.read(256 * 1024)
+        fh.seek(max(0, size - 128))
+        tail = fh.read(128)
+    end = size - (128 if tail[:3] == b"TAG" else 0)
+    for i in range(len(buf) - 4):                     # the first plausible MPEG audio frame header
+        if buf[i] != 0xFF or (buf[i + 1] & 0xE0) != 0xE0:
+            continue
+        ver, layer_bits = (buf[i + 1] >> 3) & 3, (buf[i + 1] >> 1) & 3
+        br_i, sr_i = buf[i + 2] >> 4, (buf[i + 2] >> 2) & 3
+        if ver == 1 or layer_bits == 0 or br_i in (0, 15) or sr_i == 3:
+            continue
+        mpeg1, layer = ver == 3, 4 - layer_bits
+        rate = _MP3_RATE[ver][sr_i]
+        table = (True, layer) if mpeg1 else ((False, 1) if layer == 1 else (False, 2))   # MPEG-2/2.5 L2 and L3 share one
+        kbps = _MP3_BITRATE[table][br_i - 1]
+        per_frame = 384 if layer == 1 else (1152 if (layer == 2 or mpeg1) else 576)
+        mono = (buf[i + 3] >> 6) == 3
+        side = (17 if mono else 32) if mpeg1 else (9 if mono else 17)
+        for off, tag in ((4 + side, (b"Xing", b"Info")), (36, (b"VBRI",))):   # a VBR header: its frame count
+            j = i + off
+            if buf[j:j + 4] in tag:
+                if tag[0] == b"VBRI":
+                    frames = int.from_bytes(buf[j + 14:j + 18], "big")
+                elif int.from_bytes(buf[j + 4:j + 8], "big") & 1:
+                    frames = int.from_bytes(buf[j + 8:j + 12], "big")
+                else:
+                    break
+                return frames * per_frame / rate if frames else None
+        return (end - start - i) * 8 / (kbps * 1000.0)     # constant bitrate
+    return None
+
+
+def _m4a_seconds(path):
+    """The movie header (moov/mvhd): duration / timescale. Atoms are walked, not searched."""
+    with open(path, "rb") as fh:
+        def atoms(end):
+            while fh.tell() + 8 <= end:
+                at = fh.tell()
+                hdr = fh.read(8)
+                n, kind = int.from_bytes(hdr[:4], "big"), hdr[4:8]
+                if n == 1:
+                    n = int.from_bytes(fh.read(8), "big")
+                elif n == 0:
+                    n = end - at
+                if n < 8:
+                    return
+                yield kind, at, at + n
+                fh.seek(at + n)
+        size = os.fstat(fh.fileno()).st_size
+        for kind, at, stop in atoms(size):
+            if kind != b"moov":
+                continue
+            fh.seek(at + 8)
+            for k2, at2, _ in atoms(stop):
+                if k2 == b"mvhd":
+                    fh.seek(at2 + 8)
+                    v = fh.read(4)[0]
+                    fh.read(16 if v == 1 else 8)
+                    scale = int.from_bytes(fh.read(4), "big")
+                    dur = int.from_bytes(fh.read(8 if v == 1 else 4), "big")
+                    return dur / scale if scale else None
+            return None
+    return None
+
+
+def _flac_seconds(path):
+    with open(path, "rb") as fh:
+        if fh.read(4) != b"fLaC":
+            return None
+        hdr = fh.read(4)
+        if hdr[0] & 0x7F != 0:                          # STREAMINFO is always the first block
+            return None
+        b = fh.read(34)
+    rate = (b[10] << 12) | (b[11] << 4) | (b[12] >> 4)
+    total = ((b[13] & 0x0F) << 32) | int.from_bytes(b[14:18], "big")
+    return total / rate if rate and total else None
+
+
+def _ogg_seconds(path):
+    """The last page's granule position over the stream's rate (Vorbis: its own; Opus: 48 kHz,
+    less the pre-skip)."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        first = fh.read(4096)
+        fh.seek(max(0, size - 65536))
+        tail = fh.read()
+    if first[:4] != b"OggS":
+        return None
+    i = first.find(b"\x01vorbis")
+    if i >= 0:
+        rate, skip = int.from_bytes(first[i + 12:i + 16], "little"), 0
+    else:
+        i = first.find(b"OpusHead")
+        if i < 0:
+            return None
+        rate, skip = 48000, int.from_bytes(first[i + 10:i + 12], "little")
+    j = tail.rfind(b"OggS")
+    if j < 0 or not rate:
+        return None
+    granule = int.from_bytes(tail[j + 6:j + 14], "little")
+    return (granule - skip) / rate if granule > skip else None
+
+
+def _wav_seconds(path):
+    with wave.open(path, "rb") as w:
+        return w.getnframes() / float(w.getframerate())
+
+
+SONG_SECONDS = {".wav": _wav_seconds, ".mp3": _mp3_seconds, ".m4a": _m4a_seconds,
+                ".flac": _flac_seconds, ".ogg": _ogg_seconds}
+
+
+def song_seconds(path: str):
+    """A song's length in seconds from its own bytes, or None if it cannot be read."""
+    f = SONG_SECONDS.get(os.path.splitext(path)[1].lower())
+    try:
+        v = f(path) if f else None
+    except (OSError, ValueError, IndexError, KeyError, EOFError, ZeroDivisionError, wave.Error):
+        return None
+    return round(v, 3) if v and v > 0 else None
+
+
 def probe(path: str) -> dict:
-    """duration_s / width / height / fps by ffprobe, when it is installed; {} otherwise."""
-    if not shutil.which("ffprobe") or not os.path.isfile(path):
+    """duration_s / width / height / fps by ffprobe, when it is installed; a song's length read from
+    its own bytes otherwise (song_seconds); {} when neither can."""
+    if not os.path.isfile(path):
         return {}
+    if not shutil.which("ffprobe"):
+        d = song_seconds(path)
+        return {"duration_s": d} if d else {}
     try:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
                               "format=duration:stream=width,height,r_frame_rate,codec_type", "-of", "json", path],
@@ -218,7 +403,7 @@ def add(src: str, item_id: str, kind: str, source: str, licence: str, lib_root: 
     if os.path.exists(dest):
         raise ValueError(f"{rel} already exists in the library")
     entry = {"id": item_id, "kind": kind, "file": rel.replace(os.sep, "/"), "sha256": item_hash(src),
-             "source": source.strip(), "licence": licence.strip()}
+             "bytes": item_bytes(src), "source": source.strip(), "licence": licence.strip()}
     entry.update({k: v for k, v in probe(src).items() if v is not None})
     entry.update({k: v for k, v in extra.items() if v not in (None, "", [])})
     p = entry_problems(entry)
@@ -226,16 +411,113 @@ def add(src: str, item_id: str, kind: str, source: str, licence: str, lib_root: 
         raise ValueError("; ".join(p))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     (shutil.copytree if os.path.isdir(src) else shutil.copy2)(src, dest)
-    items = list(idx.values()) + [entry]
-    with open(os.path.join(r, INDEX), "w", encoding="utf-8") as fh:
-        _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
+    _write_index(r, list(idx.values()) + [entry])
     return entry
+
+
+def _write_index(r: str, items: list) -> None:
+    """The whole index, replaced in one step: a reader never sees half of it."""
+    os.makedirs(r, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".index-", suffix=".yaml", dir=r)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
+    os.replace(tmp, os.path.join(r, INDEX))
+
+
+def migrate(lib_root: str | None = None) -> list:
+    """Bring entries made before a field existed up to the schema: fill `bytes` from the file, after
+    checking the file still has the hash the entry records (a changed or missing file is reported,
+    never re-hashed into the index). Returns one sentence per entry changed or refused."""
+    r = lib_root or root()
+    idx = load_index(r)
+    if idx is None:
+        return []
+    out, changed = [], False
+    for e in idx.values():
+        if e.get("bytes") not in (None, ""):
+            continue
+        f = os.path.join(r, e.get("file", ""))
+        if not os.path.exists(f):
+            out.append(f"{e['id']!r}: file {e.get('file')!r} is missing — left as it is")
+        elif e.get("sha256") and item_hash(f) != e["sha256"]:
+            out.append(f"{e['id']!r}: {e['file']} has changed since it was added — left as it is")
+        else:
+            e["bytes"] = item_bytes(f)
+            out.append(f"{e['id']!r}: bytes {e['bytes']}")
+            changed = True
+    if changed:
+        _write_index(r, list(idx.values()))
+    return out
+
+
+def items_of(kind: str, lib_root: str | None = None) -> list:
+    """Every entry of one kind, by id."""
+    return sorted((e for e in (load_index(lib_root) or {}).values() if e.get("kind") == kind),
+                  key=lambda e: e["id"])
+
+
+def shows_using(item_id: str, shows_dir: str) -> list:
+    """The shows under `shows_dir` (relative paths) that name this item: as their music
+    (`music: song:`), a face skin (`do: skin, name:`) or a clip (`clip:`). A show that does not
+    parse is skipped — it names nothing yet."""
+    out = []
+    for d, dirs, files in os.walk(shows_dir):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]     # .history keeps old versions, not shows
+        for f in sorted(files):
+            if not f.endswith((".yaml", ".yml")):
+                continue
+            full = os.path.join(d, f)
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    doc = _yaml().safe_load(fh)
+            except Exception:  # noqa: BLE001
+                continue
+            if not isinstance(doc, dict):
+                continue
+            m = doc.get("music")
+            names = {m.get("song")} if isinstance(m, dict) else set()
+            for c in doc.get("cues") or []:
+                if isinstance(c, dict):
+                    if c.get("do") == "skin":
+                        names.add(c.get("name"))
+                    names.add(c.get("clip"))
+            for cl in (doc.get("clips") or {}).values() if isinstance(doc.get("clips"), dict) else []:
+                for c in (cl.get("cues") or []) if isinstance(cl, dict) else []:
+                    if isinstance(c, dict):
+                        names.add(c.get("clip"))
+                        if c.get("do") == "skin":
+                            names.add(c.get("name"))
+            if item_id in names:
+                out.append(os.path.relpath(full, shows_dir).replace(os.sep, "/"))
+    return sorted(out)
+
+
+def remove(item_id: str, lib_root: str | None = None, used_by=()) -> dict:
+    """Delete an item: its file and its entry. Refused while `used_by` (the shows that still name it)
+    is not empty — the caller finds them, since only it knows which shows directory to look in."""
+    r = lib_root or root()
+    idx = load_index(r) or {}
+    if item_id not in idx:
+        raise ValueError(f"{item_id!r} is not in the library")
+    if used_by:
+        raise ValueError(f"{item_id!r} is still used by {', '.join(sorted(used_by))} — "
+                         "take it out of those shows first")
+    e = idx.pop(item_id)
+    f = os.path.realpath(os.path.join(r, e.get("file", "")))
+    if f.startswith(os.path.realpath(r) + os.sep) and os.path.exists(f):
+        (shutil.rmtree if os.path.isdir(f) else os.remove)(f)
+    _write_index(r, list(idx.values()))
+    return e
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
+    sub.add_parser("migrate")
+    rm = sub.add_parser("remove")
+    rm.add_argument("id")
+    rm.add_argument("--shows", required=True, help="the shows directory to check for users of it")
     a = sub.add_parser("add")
     a.add_argument("path")
     a.add_argument("--id", required=True)
@@ -257,6 +539,18 @@ def main() -> int:
             print("  PROBLEM:", x)
         print("ok" if not p else f"{len(p)} problem(s) in {root()}")
         return 1 if p else 0
+    if args.cmd == "migrate":
+        for line in migrate():
+            print(" ", line)
+        return 0
+    if args.cmd == "remove":
+        try:
+            e = remove(args.id, used_by=shows_using(args.id, args.shows))
+        except ValueError as err:
+            print(f"refused: {err}")
+            return 1
+        print(f"removed {e['id']} ({e['kind']}, {e.get('file')}) from {root()}")
+        return 0
     try:
         params = dict(x.split("=", 1) for x in args.param if "=" in x) or None
         e = add(args.path, args.id, args.kind, args.source, args.licence, type=args.type, params=params,

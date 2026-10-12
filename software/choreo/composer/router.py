@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import os
 
-from api import STATIC_DIR, ApiError, Composer  # noqa: F401  (Composer re-exported for callers)
+from api import MAX_SONG_BYTES, STATIC_DIR, ApiError, Composer  # noqa: F401  (Composer re-exported)
 
 
 def make_router(comp: "Composer"):
-    from fastapi import APIRouter, Body, HTTPException
+    from fastapi import APIRouter, Body, HTTPException, Request
     from fastapi.responses import FileResponse, HTMLResponse
 
     r = APIRouter()
@@ -50,11 +50,15 @@ def make_router(comp: "Composer"):
 
     @r.post("/api/analyse")
     def analyse(b: dict = Body(...)):
-        return _wrap(comp.analyse, b.get("path"), b.get("text") or "")
+        return _wrap(comp.analyse, b.get("path"), b.get("text") or "", b.get("clip"))
 
     @r.post("/api/edit")
     def edit(b: dict = Body(...)):
-        return _wrap(comp.edit, b.get("path"), b.get("text") or "", b.get("edits"))
+        return _wrap(comp.edit, b.get("path"), b.get("text") or "", b.get("edits"), b.get("clip"))
+
+    @r.post("/api/clip/make")
+    def make_clip(b: dict = Body(...)):
+        return _wrap(comp.make_clip, b.get("path"), b.get("text") or "", b.get("indices"), b.get("name"))
 
     @r.post("/api/save")
     def save(b: dict = Body(...)):
@@ -84,6 +88,62 @@ def make_router(comp: "Composer"):
     @r.get("/audio/{rel:path}")
     def audio(rel: str):
         p, ctype = _wrap(comp.audio, rel)
+        return FileResponse(p, media_type=ctype)
+
+    @r.post("/api/show/new")
+    def new_show(b: dict = Body(...)):
+        return _wrap(comp.new_show, b.get("name"), b.get("song"), b.get("bpm"))
+
+    @r.post("/api/show/save-as")
+    def save_as(b: dict = Body(...)):
+        return _wrap(comp.save_as, b.get("path"), b.get("name"), b.get("text") or "")
+
+    @r.post("/api/show/rename")
+    def rename(b: dict = Body(...)):
+        return _wrap(comp.rename, b.get("path"), b.get("name"))
+
+    @r.post("/api/show/delete")
+    def delete_show(b: dict = Body(...)):
+        return _wrap(comp.delete_show, b.get("path"), b.get("confirm"))
+
+    @r.get("/api/show/disk")
+    def disk(path: str):
+        return _wrap(comp.disk, path)
+
+    @r.get("/api/history")
+    def history(path: str):
+        return _wrap(comp.history, path)
+
+    @r.post("/api/history/read")
+    def history_read(b: dict = Body(...)):
+        return _wrap(comp.history_read, b.get("path"), b.get("name"), b.get("text") or "")
+
+    @r.post("/api/diff")
+    def diff(b: dict = Body(...)):
+        return _wrap(comp.diff, b.get("a") or "", b.get("b") or "")
+
+    @r.get("/api/notes/prompt")
+    def notes_prompt(path: str):
+        return _wrap(comp.notes_prompt, path)
+
+    @r.get("/api/library/songs")
+    def songs():
+        return comp.songs()
+
+    @r.post("/api/library/songs")
+    async def add_song(request: Request, filename: str = "", id: str = "", source: str = "",  # noqa: A002
+                       licence: str = "", duration_s: float | None = None):
+        if int(request.headers.get("content-length") or 0) > MAX_SONG_BYTES:
+            raise HTTPException(status_code=413, detail="over the size limit for a song")
+        return _wrap(comp.add_song, filename, await request.body(), id, source, licence, duration_s)
+
+    @r.post("/api/library/songs/delete")
+    def delete_song(b: dict = Body(...)):
+        return _wrap(comp.delete_song, b.get("id"), b.get("confirm"))
+
+    @r.get("/library/song/{item_id}")
+    def song_audio(item_id: str):
+        p, ctype = _wrap(comp.song_audio, item_id)
         return FileResponse(p, media_type=ctype)
 
     return r

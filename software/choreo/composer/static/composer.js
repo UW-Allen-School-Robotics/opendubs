@@ -13,8 +13,8 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE"];
-const LANES = ["CLIPS", ...SLOTS];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE"];
+const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
 const S = {
@@ -49,8 +49,18 @@ function toast(msg, ms = 3200) {
   document.addEventListener("pointerup", cancel);
   document.addEventListener("pointercancel", cancel);
 })();
+/* A request that gets no answer at all (the composer stopped, restarted, or the network dropped)
+ * reaches here as a bare TypeError — "Load failed" in Safari, "Failed to fetch" in Chrome. Say what
+ * that means instead. */
+function noAnswer(e) {
+  return new Error(`the composer at ${location.host} did not answer (the browser said: ${e.message}). `
+    + "Is it still running? Reload this page once it is — unsaved edits are in the YAML view.");
+}
+async function send(path, init) {
+  try { return await fetch(path, init); } catch (e) { throw noAnswer(e); }
+}
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {
+  const r = await send(path, body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
   if (!r.ok) throw new Error(j.error || j.detail || `HTTP ${r.status}`);
@@ -130,7 +140,8 @@ function newCueTime(t) {
 async function loadShow(path) {
   if (S.text !== S.savedText && !confirm("Discard unsaved changes?")) { $("show").value = S.path; return; }
   const d = await api("api/show?path=" + encodeURIComponent(path));
-  S.path = path; S.undo = []; S.selected = null; S.savedText = d.text;
+  S.path = path; S.undo = []; S.selected = null; S.selectedNote = null; S.savedText = d.text; S.diskSha = d.disk_sha || null;
+  S.clip = null; S.multi = new Set(); $("clipBar").hidden = true;
   S.muted = new Set(store.get("muted." + path, []));
   stop(); S.t = 0; postPlayhead(true);
   setData(d);
@@ -141,9 +152,12 @@ function setData(d) {
   S.data = d; S.text = d.text;
   render();
 }
+/* Inside a clip (S.clip), the timeline is the clip's own and cue edits go into its cue list. */
+S.clip = null; S.multi = new Set(); S.multiMode = false;
+const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
 async function edit(edits, label) {
   try {
-    const d = await api("api/edit", { path: S.path, text: S.text, edits });
+    const d = await api("api/edit", { path: S.path, text: S.text, edits: inClip(edits), clip: S.clip });
     S.undo.push(S.text);
     setData(d);
     if (label) toast(label, 1600);
@@ -152,45 +166,97 @@ async function edit(edits, label) {
 async function undo() {
   if (!S.undo.length) return;
   const text = S.undo.pop();
-  setData(await api("api/analyse", { path: S.path, text }));
+  setData(await api("api/analyse", { path: S.path, text, clip: S.clip }));
 }
 async function save() {
   try {
     const d = await api("api/save", { path: S.path, text: S.text });
-    S.savedText = d.text; setData(d); toast("saved " + S.path, 1600);
+    S.savedText = d.text; S.diskSha = d.disk_sha || S.diskSha;
+    setData(S.clip ? await api("api/analyse", { path: S.path, text: d.text, clip: S.clip }) : d);
+    /* a show with reach/point_at targets is compiled on save: say what happened to them */
+    const extra = [d.ik, d.sweep].filter(Boolean).join(" · ");
+    toast("saved " + S.path + (extra ? " — " + extra : ""), /UNDER|not |refuse/.test(extra) ? 9000 : 2500);
+    if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
   } catch (e) { toast(e.message, 5000); }
 }
 
 /* ---------- audio: Web Audio, and the playhead is driven from its clock ---------- */
+/* PLAYBACK gets a FRESH AudioContext inside every Play click (freshCtx). Safari (found 2026-10-11)
+ * starts a context made outside a user gesture "interrupted", and a context that lives for hours
+ * stays bound to whatever output device existed when it was made — the tab then "plays sound" that
+ * reaches no speaker. A context made in the click is allowed to run, on the output that is current.
+ * DECODING uses an offline context, so loading a song never creates a playback context at all. */
 function ctx() {
-  if (!S.audio.ctx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    S.audio.ctx = new AC();
-    S.audio.gain = S.audio.ctx.createGain();
-    S.audio.gain.connect(S.audio.ctx.destination);
-  }
+  if (!S.audio.ctx) freshCtx();
   return S.audio.ctx;
+}
+function freshCtx() {
+  const old = S.audio.ctx;
+  if (old) { try { old.close(); } catch (e) { /* already closed */ } }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const c = new AC();
+  S.audio.ctx = c;
+  S.audio.gain = c.createGain();
+  S.audio.gain.connect(c.destination);
+  /* a level meter on what is sent to the speakers: "signal but silence" is then visibly the
+     output's problem, not the show's */
+  S.audio.meter = c.createAnalyser(); S.audio.meter.fftSize = 512;
+  S.audio.gain.connect(S.audio.meter);
+  c.onstatechange = () => showAudioState();
+  return c;
+}
+function decodeCtx() {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  return OAC ? new OAC(2, 1, 48000) : ctx();
+}
+function showAudioState(level) {
+  const el = $("audioState"); if (!el) return;
+  const c = S.audio.ctx;
+  if (!c) { el.textContent = ""; el.className = "dim"; return; }
+  if (c.state !== "running" && S.playing) {
+    el.textContent = `audio ${c.state} — press ▶ again (Safari: allow auto-play for this site)`; el.className = "wrn"; return;
+  }
+  if (!S.playing) { el.textContent = ""; el.className = "dim"; return; }
+  const lvl = level === undefined ? null : level;
+  const muted = S.muted.has("MUSIC") || (S.audio.gain && S.audio.gain.gain.value === 0);
+  el.className = muted ? "wrn" : "dim";
+  el.textContent = muted ? "music muted (M on the MUSIC lane)"
+    : !S.audio.buffer ? "no music loaded"
+    : `audio ▶ ${Math.round(c.sampleRate / 1000)} kHz · level ${lvl === null ? "…" : "▮".repeat(Math.min(10, Math.round(lvl * 20))) || "silent"}`;
+}
+function meterLevel() {
+  const m = S.audio.meter; if (!m) return null;
+  const d = new Float32Array(m.fftSize); m.getFloatTimeDomainData(d);
+  let pk = 0; for (const v of d) pk = Math.max(pk, Math.abs(v));
+  return pk;
 }
 async function loadAudio() {
   const m = music();
   S.audio.buffer = null; S.audio.peaks = null;
-  if (!m || !m.file) {
-    $("waveMsg").textContent = m ? "music: has no file — the grid still works" : "no music: block — times are in seconds (tap tempo adds one)";
+  if (!m || !(m.file || m.song)) {
+    $("waveMsg").textContent = m ? "no music in this show — the grid still works (♫ music adds a song)" : "no music: block — times are in seconds (tap tempo or ♫ music adds one)";
     drawWave(); return;
   }
-  const dir = S.path.includes("/") ? S.path.slice(0, S.path.lastIndexOf("/") + 1) : "";
-  const rel = dir + m.file;
-  S.audio.file = rel;
-  $("waveMsg").textContent = "loading " + m.file + "…";
+  /* a library song (music: song:) or a file next to the show (music: file:) */
+  let url, label;
+  if (m.song) {
+    url = "library/song/" + encodeURIComponent(m.song); label = "song " + m.song;
+  } else {
+    const dir = S.path.includes("/") ? S.path.slice(0, S.path.lastIndexOf("/") + 1) : "";
+    const rel = dir + m.file;
+    url = "audio/" + rel.split("/").map(encodeURIComponent).join("/"); label = m.file;
+  }
+  S.audio.file = url;
+  $("waveMsg").textContent = "loading " + label + "…";
   try {
-    const r = await fetch("audio/" + rel.split("/").map(encodeURIComponent).join("/"));
+    const r = await send(url);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "HTTP " + r.status);
     const buf = await r.arrayBuffer();
-    S.audio.buffer = await new Promise((ok, no) => ctx().decodeAudioData(buf, ok, no));
+    S.audio.buffer = await new Promise((ok, no) => decodeCtx().decodeAudioData(buf, ok, no));
     S.audio.peaks = peaks(S.audio.buffer, 200);
     $("waveMsg").textContent = "";
   } catch (e) {
-    $("waveMsg").textContent = `no audio (${m.file}): ${e.message || e} — the grid still works`;
+    $("waveMsg").textContent = `no audio (${label}): ${e.message || e} — the grid still works`;
   }
   render();
 }
@@ -221,9 +287,23 @@ function postPlayhead(force) {
   fetch("api/playhead", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ t: S.t, playing: S.playing }) }).catch(() => {});
 }
-function play() {
-  const c = ctx();
-  c.resume();
+/* The twins follow ONE show: whichever any composer page last sent (every edit, load and undo sends
+ * it). With two pages open — a second window, a tab left on another show, a page that reloaded when
+ * the server restarted — the twins could be playing the other page's show while this one plays, and
+ * do nothing at all past its end. So Play claims them: it sends this page's show (or clip) again.
+ * Fire-and-forget, like the playhead: nothing waits on it, and the music starts as before. */
+function claimTwins() {
+  api("api/analyse", { path: S.path, text: S.text, clip: S.clip }).catch(() => {});
+}
+async function play() {
+  claimTwins();
+  /* a fresh context, made inside this click (see freshCtx); wait until it is really running before
+     anything is scheduled on its clock */
+  const c = freshCtx();
+  S.audio.startedCtx = c.currentTime; S.audio.startedT = S.t;     /* the clock stays put while it starts */
+  S.playing = true; $("play").textContent = "⏸";
+  try { if (c.state !== "running") await c.resume(); } catch (e) { /* the state shows it */ }
+  if (!S.playing || S.audio.ctx !== c) return;          /* stopped, or replayed, while waiting */
   const a = S.audio;
   a.startedCtx = c.currentTime + 0.05; a.startedT = S.t;
   a.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
@@ -232,7 +312,7 @@ function play() {
     a.src.start(a.startedCtx, S.t);
   }
   a.nextClick = Math.ceil(beatOf(S.t) || 0);
-  S.playing = true; $("play").textContent = "⏸";
+  showAudioState();
   postPlayhead(true);
   requestAnimationFrame(frame);
 }
@@ -240,6 +320,7 @@ function stop() {
   const a = S.audio;
   if (a.src) { try { a.src.stop(); } catch (e) { /* already stopped */ } a.src = null; }
   S.playing = false; $("play").textContent = "▶";
+  showAudioState();
   postPlayhead(true);
 }
 function scheduleClicks() {
@@ -262,6 +343,7 @@ function scheduleClicks() {
   }
 }
 function frame() {
+  if (S.playing && (frame._n = (frame._n || 0) + 1) % 10 === 0) showAudioState(meterLevel());
   if (!S.playing) return;
   S.t = audioNow();
   scheduleClicks();
@@ -309,13 +391,26 @@ function renderHeads() {
   let html = `<div class="head ruler"><span class="name dim">${music() ? `${music().bpm} BPM · ${music().beats_per_bar}/4` : "seconds"}</span></div>`;
   html += `<div class="head music ${S.muted.has("MUSIC") ? "muted" : ""}"><span class="name">MUSIC</span>${muteBtn("MUSIC")}</div>`;
   for (const lane of LANES) {
-    const und = lane !== "CLIPS" && !dec.has(lane);
+    if (lane === "NOTES") {
+      const open = notes().filter((n) => n.status === "open").length;
+      html += `<div class="head notes" title="Notes for whoever edits this show next — often an agent. Write what you want changed, over a range of time and (optionally) some parts; the agent edits the other lanes and replies on each note."><span class="name">NOTES${open ? ` <b class="cnt">${open}</b>` : ""}</span>`
+        + `<button data-addnote="1" title="Add a note at the playhead">+</button>`
+        + `<button data-prompt="1" title="Copy the open notes as a prompt for any agent session (the file must be saved: the agent reads the file)">⧉</button></div>`;
+      continue;
+    }
+    if (lane === "CLIPS") {
+      html += `<div class="head"><span class="name">CLIPS</span><button data-newclip="1" title="A new, empty clip — then add its cues">+</button>`
+        + `<button data-placeclip="1" title="Place a clip at the playhead">⇥</button></div>`;
+      continue;
+    }
+    const und = !dec.has(lane);
     const cls = ["head", und ? "undeclared" : "", S.muted.has(lane) ? "muted" : ""].join(" ");
     let btns = "";
     if (lane !== "CLIPS") btns += `<button data-add="${lane}" title="Add a ${lane} cue at the playhead">+</button>`;
     if (lane === "ARM_L" || lane === "ARM_R") btns += `<button data-teach="${lane}" title="Capture this arm's measured pose as a keyframe at the playhead (FAKE source in this build)">⦿</button>`;
     if (lane !== "CLIPS") btns += muteBtn(lane);
-    html += `<div class="${cls}" title="${und ? "not declared in slots: — a cue here will fail validation" : ""}"><span class="name">${lane}</span>${btns}</div>`;
+    const tip = und ? `Not in this show's slots: list. Adding a cue here lists it; or tap the name to list it now` : "";
+    html += `<div class="${cls}" title="${tip}"><span class="name" ${und ? `data-declare="${lane}"` : ""}>${lane}</span>${btns}</div>`;
   }
   h.innerHTML = html;
 }
@@ -350,6 +445,7 @@ function label(ev) {
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
     case "FACE": return c.do === "theme" ? `theme ${c.name}` : (c.name || c.do);
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
+    case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     default: return "";
   }
@@ -359,17 +455,30 @@ function renderLanes() {
   $("canvas").style.width = W + "px";
   const parts = [];
   for (const lane of LANES) {
+    if (lane === "NOTES") {
+      parts.push(`<div class="row lane grid notes" data-lane="NOTES">`);
+      for (const n of notes()) {
+        if (n.t0 === null || n.t0 === undefined) continue;
+        const w = Math.max(14, (n.t1 - n.t0) * pps), sel = S.selectedNote === n.id ? "sel" : "";
+        parts.push(`<div class="tnote ${n.status} ${sel}" data-note="${esc(n.id)}" style="left:${n.t0 * pps}px;width:${w}px" title="${esc(`${n.id} (${n.status}): ${n.text}` + (n.reply ? `\n↳ ${n.reply}` : "") + "\n(drag to move; drag the right edge to change where it ends)")}">${esc(n.text)}<span class="tnote-end"></span></div>`);
+      }
+      parts.push("</div>");
+      continue;
+    }
     const und = lane !== "CLIPS" && !dec.has(lane);
     parts.push(`<div class="row lane grid ${und ? "undeclared" : ""} ${S.muted.has(lane) ? "muted" : ""}" data-lane="${lane}">`);
+    /* a note on this part shades its range here too, so the request sits over what it is about */
+    for (const n of notes()) if (n.slots.includes(lane) && n.t0 !== null && n.t0 !== undefined && n.status === "open")
+      parts.push(`<div class="noteshade" style="left:${n.t0 * pps}px;width:${Math.max(4, (n.t1 - n.t0) * pps)}px"></div>`);
     if (lane === "CLIPS") {
       for (const p of placements()) {
-        const cls = ["place", S.selected === p.index ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
+        const cls = ["place", isSel(p.index) ? "sel" : "", bad.has(p.index) ? "bad" : warn.has(p.index) ? "warn" : ""].join(" ");
         parts.push(`<div class="${cls}" data-cue="${p.index}" style="left:${p.start * pps}px;width:${Math.max(20, (p.end - p.start) * pps)}px" title="${esc(p.title)}">${esc(p.text)}</div>`);
       }
     } else if (tl() && tl().tracks[lane]) {
       for (const ev of tl().tracks[lane]) {
         const i = ev.src.index, fc = ev.src.clip ? "fromClip" : "";
-        const sel = S.selected === i ? "sel" : "", b = bad.has(i) ? "bad" : warn.has(i) ? "warn" : "";
+        const sel = isSel(i) && !ev.src.clip ? "sel" : "", b = bad.has(i) ? "bad" : warn.has(i) ? "warn" : "";
         const tip = esc(JSON.stringify(ev.cue) + `  @ ${ev.t.toFixed(3)} s (${ev.src.time})` + (ev.src.clip ? `  clip ${ev.src.clip} #${ev.src.instance + 1}` : ""));
         if (ev.kind === "keyframe") {
           parts.push(`<div class="seg ${b}" style="left:${ev.start * pps}px;width:${Math.max(0, ev.t - ev.start) * pps}px"></div>`);
@@ -540,7 +649,10 @@ function renderProblems() {
   const det = el.querySelector("details.notices");
   if (det) det.addEventListener("toggle", () => store.set("notesOpen", det.open));
 }
+function isSel(i) { return S.multi.size ? S.multi.has(i) : S.selected === i; }
 function renderInspector() {
+  if (S.selectedNote) return renderNoteInspector();
+  if (S.multi.size > 1) return renderMultiInspector();
   const el = $("inspector"), i = S.selected, a = (S.data && S.data.authored) || [];
   if (i === null || !a[i]) { el.innerHTML = '<p class="dim" title="Tap an empty lane to move the playhead; + on a lane adds a cue there; drag a cue to retime it">Tap a cue to inspect it.</p>'; return; }
   const c = a[i], form = "t" in c ? "t" : "beat" in c ? "beat" : "bar" in c ? "bar" : "t";
@@ -555,7 +667,7 @@ function renderInspector() {
     resolved = `t = ${e.t.toFixed(3)} s <span class="dim">(${esc(e.src.time)})</span> · span ${e.start.toFixed(3)}–${e.end.toFixed(3)} s`;
     if (e.pose) resolved += `<div class="dim">resolved pose (outward): ${Object.values(e.pose).map((v) => v.toFixed(1)).join(", ")}</div>`;
   } else if (evs.length) {
-    resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <span class="dim">(edit the clip's own cues in the YAML)</span>`;
+    resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <button data-openclip="${esc(c.clip)}" title="Show this clip's own cues on the timeline, from its start, and edit them there">edit the clip ✎</button>`;
   }
   el.innerHTML = `
     <div class="meta">cue ${i}${line ? ` · line ${line}` : ""}${c.slot ? " · " + c.slot : ""}${c.clip ? " · clip placement" : ""}</div>
@@ -565,7 +677,8 @@ function renderInspector() {
       <input id="iTime" value="${esc(c[form] ?? "")}" inputmode="decimal">
       <button id="iApply">apply</button>
       <button id="iDelete" title="Delete this cue (Delete key)">delete</button>
-      ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
+      ${!c.clip && !S.clip ? '<button data-makeclip="1" title="Turn this cue into a clip (shift-click to select more first)">make a clip…</button>' : ""}
+      ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints && !S.clip ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
     </div>
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
@@ -607,7 +720,18 @@ const DEFAULTS = {
   LIFT: { do: "up", secs: 2 }, SOUND: { do: "play", sound: "attend" },
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
   DANCE: { move: "sway", secs: 2 },
+  DRIVE: { forward_m: 0.5, secs: 3 },          /* twin-only: the runner refuses DRIVE on the robot */
 };
+/* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
+ * cue to a part not listed there lists it, in the same edit — one undo takes back both. */
+function declareIfNeeded(slot) {
+  if (declared().has(slot)) return [];
+  /* and what the show must then require for that part (the validator's own rules, from api/info) */
+  const have = (S.data && S.data.timeline && S.data.timeline.requires) || {};
+  const need = (S.info && S.info.slot_requires && S.info.slot_requires[slot]) || {};
+  const req = Object.entries(need).filter(([k, v]) => have[k] !== v).map(([key, value]) => ({ op: "require", key, value }));
+  return [{ op: "declare", slot }, ...req];
+}
 function addCue(slot) {
   const t = snapT(S.t);
   let body = DEFAULTS[slot];
@@ -617,7 +741,8 @@ function addCue(slot) {
     for (let j = 1; j <= 7; j++) if (Math.abs(p[j]) > 0.05) joints[j] = round(p[j], 1);
     body = { joints: Object.keys(joints).length ? joints : { 7: 0 } };
   }
-  edit([{ op: "add", cue: { ...newCueTime(t), slot, ...body } }], `added ${slot} at ${t.toFixed(2)} s`);
+  edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, ...body } }],
+    `added ${slot} at ${t.toFixed(2)} s` + (declared().has(slot) ? "" : ` — and declared ${slot} in slots: (undo takes back both)`));
 }
 /* A STAND-IN for /joint_states. On the robot the browser would subscribe to /joint_states through
  * rosbridge (the transport notes/design/arm-telemetry-and-viz.md settles), read-only, and post ONE
@@ -643,9 +768,10 @@ async function teach(slot) {
     /* A taught pose has no timing of its own: place it at the soonest time the arm can reach it
        (workplan 1.3), and say so when that is not where the playhead was. Never silently. */
     const asked = snapT(S.t);
-    const r = await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
+    /* inside a clip, time is the clip's own: place it at the playhead (the whole show is checked on the way back) */
+    const r = S.clip ? { moved: false } : await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
     const t = r.moved ? snapUp(r.t) : asked;
-    await edit([{ op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
+    await edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
     toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ")
       + (r.moved ? ` — placed at ${t.toFixed(2)} s, not ${asked.toFixed(2)} s: ${r.reason}` : "")
       + (r.next_problem ? ` · ${r.next_problem}` : ""), r.moved || r.next_problem ? 9000 : 5000);
@@ -656,6 +782,14 @@ async function teach(slot) {
 function laneX(ev) { const r = $("canvas").getBoundingClientRect(); return ev.clientX - r.left; }
 let drag = null;
 function onDown(ev) {
+  const nt = ev.target.closest("[data-note]");
+  if (nt) {
+    const n = notes().find((x) => x.id === nt.dataset.note);
+    drag = { note: n, mode: ev.target.closest(".tnote-end") ? "end" : "move", el: nt, x0: ev.clientX, moved: false,
+             left0: parseFloat(nt.style.left), w0: parseFloat(nt.style.width), id: ev.pointerId };
+    nt.setPointerCapture(ev.pointerId); ev.preventDefault();
+    return;
+  }
   const target = ev.target.closest("[data-cue]");
   if (!target || !target.closest("#lanes")) {
     if (ev.target.closest("#lanes") || ev.target.closest("#ruler") || ev.target.closest("#music")) {
@@ -669,6 +803,22 @@ function onDown(ev) {
   ev.preventDefault();
 }
 function onMove(ev) {
+  if (drag && drag.note && ev.pointerId === drag.id) {
+    const dx = ev.clientX - drag.x0;
+    if (!drag.moved && Math.abs(dx) < 6) return;
+    drag.moved = true;
+    const n = drag.note, len = (n.t1 ?? n.t0) - n.t0;
+    if (drag.mode === "end") {
+      drag.t1 = Math.max(n.t0, snapT((n.t1 ?? n.t0) + dx / S.pps));
+      drag.el.style.width = Math.max(14, (drag.t1 - n.t0) * S.pps) + "px";
+      $("clock").textContent = `note ends → ${drag.t1.toFixed(2)} s${barLabel(drag.t1) ? " · " + barLabel(drag.t1) : ""}`;
+    } else {
+      drag.t0 = Math.max(0, snapT(n.t0 + dx / S.pps)); drag.t1 = drag.t0 + len;
+      drag.el.style.left = (drag.t0 * S.pps) + "px";
+      $("clock").textContent = `note → ${drag.t0.toFixed(2)} s${barLabel(drag.t0) ? " · " + barLabel(drag.t0) : ""}`;
+    }
+    return;
+  }
   if (!drag || drag.seek || ev.pointerId !== drag.id) return;
   const dx = ev.clientX - drag.x0;
   if (!drag.moved && Math.abs(dx) < 6) return;
@@ -682,15 +832,457 @@ function onMove(ev) {
 function onUp(ev) {
   if (!drag || ev.pointerId !== drag.id) return;
   const d = drag; drag = null;
+  if (d.note) {
+    S.selectedNote = d.note.id; S.selected = null;
+    if (!d.moved) { renderLanes(); renderInspector(); return; }
+    const nn = { ...noteDoc(d.note) };
+    if (d.mode === "move") nn.at = noteTime(d.t0);
+    if (d.t1 !== undefined && d.t1 > (d.mode === "move" ? d.t0 : d.note.t0) + 1e-6) nn.to = noteTime(d.t1); else delete nn.to;
+    edit([{ op: "note_set", id: d.note.id, note: nn }], `note ${d.note.id}: ${nn.at}${nn.to !== undefined ? " → " + nn.to : ""}`);
+    return;
+  }
   if (d.seek) {
     if (Math.abs(ev.clientX - d.x0) < 8 && Math.abs(ev.clientY - d.y0) < 8) seek(laneX(ev) / S.pps);
     return;
   }
-  if (!d.moved) { S.selected = d.i; renderLanes(); renderInspector(); return; }
+  if (!d.moved) {
+    /* shift-click, or the "select several" toggle (for touch), adds to the selection */
+    if ((ev.shiftKey || S.multiMode) && S.selected !== null) {
+      if (S.multi.has(d.i)) S.multi.delete(d.i); else S.multi.add(d.i);
+      if (!S.multi.size) S.multi.add(d.i);
+      S.selected = d.i;
+    } else { S.selected = d.i; S.multi = new Set([d.i]); }
+    S.selectedNote = null; renderLanes(); renderInspector(); return;
+  }
   S.selected = d.i;
   const c = S.data.authored[d.i];
   if (d.anchor === null || d.newT === undefined || Math.abs(d.newT - d.anchor) < 1e-6) { renderLanes(); return; }
   edit([{ op: "set", index: d.i, cue: retimed(c, d.newT) }], `moved cue ${d.i} to ${d.newT.toFixed(3)} s`);
+}
+
+/* ---------- music: the show library's songs (plan 4.6) ----------
+ * Songs live in the SHOW LIBRARY, outside the repository (library.py); a show names one by id
+ * (music: song:). Adding goes through the server, which applies the library's rules — a source and a
+ * licence, the type checked by content, a size limit, a hash. Attaching, or taking the music out of a
+ * show, is an ordinary edit of the show text, so it shows in YAML, can be undone, and needs a save. */
+const SONG_EXT = [".wav", ".mp3", ".ogg", ".flac", ".m4a"];
+S.songs = []; S.upload = null;
+async function refreshSongs() {
+  try { S.songs = await api("api/library/songs"); } catch (e) { S.songs = []; toast("library: " + e.message, 5000); }
+}
+function slug(name) {
+  return name.replace(/\.[^.]*$/, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64) || "song";
+}
+function fmtDur(s) { return s == null ? "?" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`; }
+/* The robot plays songs from ITS library: library_sync.py pushes one there over ssh (content-addressed,
+ * verified on the robot, never deleting). The composer does not run it — it cannot reach the robot,
+ * by design (PREVIEW ONLY) — it shows the command. <robot> is the robot's ssh host. */
+function pushCmd(id) {
+  const lib = S.info ? S.info.library_dir : "<library>";
+  return `python3 software/choreo/library_sync.py --library ${/\s/.test(lib) ? JSON.stringify(lib) : lib} push <robot> ${id}`;
+}
+function renderMusicDlg() {
+  const m = music(), doc = S.data && S.data.timeline;
+  $("libDir").textContent = S.info ? S.info.library_dir : "";
+  $("musicNow").textContent = !doc ? "This show does not validate yet — its music is shown once it does."
+    : !m ? "This show has no music block: times are in seconds."
+    : m.song ? `Music: the library song “${m.song}” at ${m.bpm} BPM, beat 1 at ${m.offset_s} s.`
+    : m.file ? `Music: the file ${m.file}, next to the show (an older form — choose a library song to replace it).`
+    : `No music; the tempo grid is ${m.bpm} BPM, beat 1 at ${m.offset_s} s.`;
+  $("songSel").innerHTML = `<option value="">— none —</option>` + S.songs.map((x) =>
+    `<option value="${esc(x.id)}" ${m && m.song === x.id ? "selected" : ""}>${esc(x.id)} (${fmtDur(x.duration_s)})</option>`).join("");
+  $("songRemove").disabled = !(m && (m.song || m.file));
+  $("mBpm").value = m ? m.bpm : ""; $("mOff").value = m ? m.offset_s : "";
+  /* the server knows only SAVED shows; the show open here may name a song before it is saved */
+  const usedBy = (x) => (m && m.song === x.id && !x.used_by.includes(S.path) ? [S.path + " (open here)"] : []).concat(x.used_by);
+  $("songList").innerHTML = S.songs.length ? S.songs.map((x) => ({ ...x, used_by: usedBy(x) })).map((x) => `
+    <li><b>${esc(x.id)}</b> <span class="dim">${fmtDur(x.duration_s)} · ${esc(x.file)}</span><br>
+      <span class="dim">source: ${esc(x.source)} · licence: ${esc(x.licence)}</span><br>
+      ${x.used_by.length ? `<span class="dim">used by ${x.used_by.map(esc).join(", ")}</span>` : `<span class="dim">used by no show here</span>`}
+      <div class="sync"><span class="dim">to the robot:</span> <code>${esc(pushCmd(x.id))}</code>
+        <button data-copy="${esc(pushCmd(x.id))}" title="Copy the command that sends this song to the robot's library (over ssh; add --dry-run to see what would move first)">copy</button></div>
+      <button data-del="${esc(x.id)}" ${x.used_by.length ? `disabled title="Still the music of ${esc(x.used_by.join(", "))} — take it out of those shows first"` : 'title="Delete this song from the library: its file and its entry. Cannot be undone."'}>delete from library</button></li>`).join("")
+    : `<li class="dim">No songs yet${S.info && !S.info.library_exists ? " — the library folder is created when the first one is added" : ""}.</li>`;
+  const u = S.upload;
+  $("songHint").textContent = S.uploadError
+    || (u ? `${u.file.name}, ${(u.file.size / 1048576).toFixed(1)} MB${u.duration ? ", " + fmtDur(u.duration) : ""}` : "");
+  $("songHint").className = S.uploadError ? "err" : "dim";
+  $("songAdd").disabled = !u;
+}
+async function openMusic(file) {
+  await refreshSongs();
+  if (file) setUpload(file);
+  renderMusicDlg();
+  if (!$("musicDlg").open) $("musicDlg").showModal();
+}
+function setUpload(file) {
+  const ext = (file.name.match(/\.[^.]*$/) || [""])[0].toLowerCase();
+  if (!SONG_EXT.includes(ext)) { toast(`a song is ${SONG_EXT.join(", ")} — not ${ext || "that"}`, 5000); return; }
+  const maxMb = S.info ? S.info.max_song_mb : 80;
+  if (file.size > maxMb * 1048576) { toast(`${file.name} is over the ${maxMb} MB limit for a song`, 5000); return; }
+  S.upload = { file, duration: null }; S.uploadError = null;
+  if (!$("songId").value) $("songId").value = slug(file.name);
+  /* the browser's own reading of the length: the server uses it only when it cannot read one */
+  const a = new Audio(), url = URL.createObjectURL(file);
+  a.preload = "metadata";
+  a.onloadedmetadata = () => { if (S.upload && S.upload.file === file) S.upload.duration = a.duration; URL.revokeObjectURL(url); renderMusicDlg(); };
+  a.onerror = () => { URL.revokeObjectURL(url); toast("this browser cannot decode that file — the server may still read it", 5000); };
+  a.src = url;
+  renderMusicDlg();
+}
+function attachSong(id) {
+  return edit([{ op: "music", key: "song", value: id }, { op: "music", key: "file", value: null }],
+    `music is now “${id}” — save to keep it`).then(loadAudio);
+}
+async function addSong() {
+  const u = S.upload; if (!u) return;
+  const id = $("songId").value.trim(), source = $("songSource").value.trim(), licence = $("songLicence").value.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id)) { toast("the id is lower-case letters, digits, - and _, starting with a letter or digit", 5000); return; }
+  if (!source || !licence) { toast("a song needs its source and its licence", 5000); return; }
+  const q = new URLSearchParams({ filename: u.file.name, id, source, licence });
+  if (u.duration && isFinite(u.duration)) q.set("duration_s", u.duration.toFixed(3));
+  S.uploadError = null; $("songAdd").disabled = true; $("songHint").textContent = "adding…";
+  try {
+    /* the file is read into memory first: a read failure (the file moved, or no permission) is then
+       its own message, and the request carries a plain body with a known length */
+    let body;
+    try { body = await u.file.arrayBuffer(); } catch (e) { throw new Error(`could not read ${u.file.name} from this computer: ${e.message}`); }
+    const r = await send("api/library/songs?" + q, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body });
+    const j = await r.json().catch(() => ({ error: `the composer answered HTTP ${r.status} with no explanation` }));
+    if (!r.ok) throw new Error(`${j.error || j.detail || "HTTP " + r.status} (HTTP ${r.status})`);
+    S.songs = j.songs; S.upload = null;
+    ["songId", "songSource", "songLicence"].forEach((k) => ($(k).value = "")); $("songFile").value = "";
+    toast(`added “${id}” to the library`, 2500);
+    await attachSong(id);
+  } catch (e) { S.uploadError = "not added: " + e.message; toast(S.uploadError, 7000); }
+  renderMusicDlg();
+}
+async function deleteSong(id) {
+  if (!confirm(`Delete the song “${id}” from the library?\n\nIts file and its entry are removed. This cannot be undone.`)) return;
+  try {
+    const r = await api("api/library/songs/delete", { id, confirm: id });
+    S.songs = r.songs; toast(`deleted “${id}” from the library`, 2500);
+  } catch (e) { toast(e.message, 7000); await refreshSongs(); }
+  renderMusicDlg();
+}
+function bindMusic() {
+  $("musicBtn").onclick = () => openMusic();
+  $("musicClose").onclick = () => $("musicDlg").close();
+  $("songUse").onclick = () => {
+    const id = $("songSel").value;
+    (id ? attachSong(id) : removeMusic()).then(renderMusicDlg);
+  };
+  $("songRemove").onclick = () => removeMusic().then(renderMusicDlg);
+  $("mSet").onclick = () => {
+    const bpm = Number($("mBpm").value), off = Number($("mOff").value);
+    if (!Number.isFinite(bpm) || !Number.isFinite(off) || off < 0) { toast("BPM and beat 1 must be numbers (beat 1 ≥ 0)"); return; }
+    edit([{ op: "music", key: "bpm", value: bpm }, { op: "music", key: "offset_s", value: off }], `tempo ${bpm} BPM, beat 1 at ${off} s`).then(renderMusicDlg);
+  };
+  $("songFile").onchange = (e) => e.target.files[0] && setUpload(e.target.files[0]);
+  $("songAdd").onclick = addSong;
+  $("songList").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-del]"); if (b) deleteSong(b.dataset.del);
+    const c = e.target.closest("button[data-copy]");
+    if (c) navigator.clipboard.writeText(c.dataset.copy).then(() => toast("copied — replace <robot> with the robot's ssh host", 3000),
+                                                              () => toast("select the command and copy it", 3000));
+  });
+  /* drop an audio file anywhere: the music dialog opens with it */
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  window.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); $("drop").classList.add("over"); } });
+  window.addEventListener("dragleave", () => $("drop").classList.remove("over"));
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); $("drop").classList.remove("over");
+    const f = e.dataTransfer.files[0]; if (f) openMusic(f);
+  });
+}
+function removeMusic() {
+  const m = music();
+  if (!m || !(m.song || m.file)) return Promise.resolve();
+  return edit([{ op: "music", key: "song", value: null }, { op: "music", key: "file", value: null }],
+    "music taken out of this show (the song stays in the library) — save to keep it").then(loadAudio);
+}
+
+/* ---------- timeline notes (plan #5): requests for the next editor, often an agent ----------
+ * Stored in the show as `timeline_notes:` — never read by the runner. The loop: write notes here;
+ * copy them as a prompt (⧉) or ask the choreography lane to "apply the notes in <show>"; the agent
+ * snapshots the show, edits the other lanes, and replies on each note; this editor notices the file
+ * changed on disk and shows the difference; History compares and restores any earlier version. */
+S.selectedNote = null; S.diskSha = null;
+const notes = () => (tl() && tl().timeline_notes) || [];
+function nextNoteId() {
+  const used = new Set(notes().map((n) => n.id));
+  let k = notes().length + 1; while (used.has("n" + k)) k++; return "n" + k;
+}
+function noteTime(t) {
+  /* at / to: "bar.beat" when the show has a beat grid (rounded to a beat), else seconds */
+  const m = music();
+  if (!m) return round(t, 2);
+  const beat = Math.max(1, Math.round(beatOf(t))), bar = Math.floor((beat - 1) / m.beats_per_bar) + 1;
+  return `${bar}.${((beat - 1) % m.beats_per_bar) + 1}`;
+}
+/* a note as written in the file (what note_set writes back), from its resolved form */
+function noteDoc(n) {
+  const out = { id: n.id, at: n.at };
+  if (n.to !== null && n.to !== undefined) out.to = n.to;
+  if (n.slots && n.slots.length) out.slots = n.slots;
+  out.text = n.text; out.status = n.status;
+  if (n.reply) out.reply = n.reply;
+  if (n.by) out.by = n.by;
+  return out;
+}
+function addNote() {
+  const m = music(), t0 = S.t, t1 = S.t + (m ? m.beat_s * m.beats_per_bar : 2);
+  const id = nextNoteId();
+  const note = { id, at: noteTime(t0), to: noteTime(t1), text: "describe the change you want here", status: "open" };
+  edit([{ op: "note_add", note }], `note ${id} added — write what you want changed`).then(() => {
+    S.selectedNote = id; S.selected = null; renderLanes(); renderInspector();
+    const ta = $("nText"); if (ta) { ta.focus(); ta.select(); }
+  });
+}
+/* A note's at / to, as typed: with a beat grid, "30" is bar 30, "30.3" bar 30 beat 3, and "61s" is
+ * seconds; without one, numbers are seconds. Anything else is refused WITH the reason — "30.5" in
+ * 4/4 is not a beat, and silently accepting it collapsed the note to a point (found by the user). */
+function parseWhen(x) {
+  x = (x || "").trim();
+  if (!x) return { value: undefined };
+  const m = music();
+  let mm = x.match(/^(\d+(?:\.\d+)?)\s*s$/);
+  if (mm) return { value: Number(mm[1]), secs: Number(mm[1]) };
+  if (!m) {
+    if (/^\d+(\.\d+)?$/.test(x)) return { value: Number(x), secs: Number(x) };
+    return { error: `“${x}”: write seconds, e.g. 12.5` };
+  }
+  mm = x.match(/^(\d+)(?:\.(\d+))?$/);
+  if (!mm) return { error: `“${x}”: a bar like 9.3 (bar 9, beat 3), or seconds like 18.5s` };
+  const bar = +mm[1], beat = mm[2] === undefined ? 1 : +mm[2], bpb = m.beats_per_bar;
+  if (bar < 1 || beat < 1 || beat > bpb) {
+    return { error: `“${x}”: bar.beat — a bar has ${bpb} beats (${bar}.1–${bar}.${bpb}); halfway through bar ${bar} is ${bar}.${Math.floor(bpb / 2) + 1}, the start of the next is ${bar + 1}.1; for seconds write ${x}s` };
+  }
+  return { value: mm[2] === undefined ? String(bar) : `${bar}.${beat}`, secs: m.offset_s + ((bar - 1) * bpb + beat - 1) * m.beat_s };
+}
+function renderNoteInspector() {
+  const el = $("inspector"), n = notes().find((x) => x.id === S.selectedNote);
+  if (!n) { S.selectedNote = null; return renderInspector(); }
+  const slotsBox = SLOTS.map((s) => `<label class="chk"><input type="checkbox" data-nslot="${s}" ${n.slots.includes(s) ? "checked" : ""}>${s}</label>`).join("");
+  const span = n.t0 === null ? "" : `${n.t0.toFixed(2)}${n.t1 !== n.t0 ? "–" + n.t1.toFixed(2) : ""} s`;
+  el.innerHTML = `
+    <div class="meta">note ${esc(n.id)} · ${esc(span)} ${n.by ? "· replied by " + esc(n.by) : ""}</div>
+    <textarea id="nText" spellcheck="true" placeholder="What should change here? e.g. make this wave bigger and on the beat">${esc(n.text)}</textarea>
+    <div class="row2">
+      <label>at <input id="nAt" value="${esc(n.at ?? "")}" title="bar.beat like 9.3 (bar 9, beat 3), a bar like 9, or seconds like 18.5s"> <span id="nAtT" class="dim"></span></label>
+      <label>to <input id="nTo" value="${esc(n.to ?? "")}" title="optional: bar.beat, a bar, or seconds like 22s — or drag the note's right edge"> <span id="nToT" class="dim"></span></label>
+      <select id="nStatus" title="open: still to do · done · declined (the reply says why)">${["open", "done", "declined"].map((x) => `<option ${x === n.status ? "selected" : ""}>${x}</option>`).join("")}</select>
+    </div>
+    <div class="row2 slots" title="Which parts the note is about (none: the whole show at that time)">${slotsBox}</div>
+    ${n.reply ? `<div class="reply">↳ ${esc(n.reply)}</div>` : ""}
+    ${((tl() && tl().warnings) || []).filter((w) => w.msg.includes(`(${n.id})`)).map((w) => `<div class="wrn">${esc(w.msg)}</div>`).join("")}
+    <div id="nErr" class="err"></div>
+    <div class="row2"><button id="nApply">apply</button><button id="nDelete">delete note</button><button id="nCopy" title="Copy the open notes as a prompt">⧉ copy notes as a prompt</button></div>
+    <div class="note">Notes never move the robot: the runner ignores them. Save, then hand them to an agent.</div>`;
+  const show = () => {
+    const a = parseWhen($("nAt").value), b = parseWhen($("nTo").value);
+    $("nAtT").textContent = a.error ? "?" : a.secs !== undefined ? `= ${a.secs.toFixed(2)} s` : "";
+    $("nToT").textContent = b.error ? "?" : b.secs !== undefined ? `= ${b.secs.toFixed(2)} s` : "";
+    const err = a.error || b.error || (a.value === undefined ? "a note needs its start (at)" : "")
+      || (b.secs !== undefined && a.secs !== undefined && b.secs < a.secs ? "the end (to) is before the start (at)" : "");
+    $("nErr").textContent = err; $("nApply").disabled = !!err;
+    return { a, b, err };
+  };
+  $("nAt").oninput = show; $("nTo").oninput = show; show();
+  $("nApply").onclick = () => {
+    const { a, b, err } = show(); if (err) return;
+    const slots = [...el.querySelectorAll("[data-nslot]")].filter((c) => c.checked).map((c) => c.dataset.nslot);
+    const nn = { id: n.id, at: a.value };
+    if (b.value !== undefined) nn.to = b.value;
+    if (slots.length) nn.slots = slots;
+    nn.text = $("nText").value.trim() || n.text;
+    nn.status = $("nStatus").value;
+    if (n.reply) nn.reply = n.reply;
+    if (n.by) nn.by = n.by;
+    edit([{ op: "note_set", id: n.id, note: nn }], `note ${n.id} updated`);
+  };
+  $("nDelete").onclick = () => { S.selectedNote = null; edit([{ op: "note_delete", id: n.id }], `note ${n.id} deleted`); };
+  $("nCopy").onclick = copyPrompt;
+}
+async function copyPrompt() {
+  if (S.text !== S.savedText) { toast("save first — the agent reads the show FILE, and your latest notes are not in it yet", 6000); return; }
+  try {
+    const r = await api("api/notes/prompt?path=" + encodeURIComponent(S.path));
+    await navigator.clipboard.writeText(r.prompt);
+    toast("copied: paste it into any agent session — or ask the choreography lane to “apply the notes in " + S.path + "”", 7000);
+  } catch (e) { toast("could not copy the prompt: " + e.message, 6000); }
+}
+
+/* ---- the file on disk: notice edits made outside the editor (an agent), never overwrite them ---- */
+async function watchDisk() {
+  if (!S.path || $("diskBar").dataset.pending === "1") return;
+  try {
+    const d = await api("api/show/disk?path=" + encodeURIComponent(S.path));
+    if (S.diskSha && d.disk_sha !== S.diskSha && d.text !== S.text) {
+      S.disk = d; $("diskBar").dataset.pending = "1"; $("diskBar").hidden = false;
+      $("diskMsg").textContent = S.text !== S.savedText
+        ? "This show changed on disk (an agent applying notes?) — and you have unsaved edits here."
+        : "This show changed on disk (an agent applying notes?).";
+    } else if (!S.diskSha || d.text === S.text) { S.diskSha = d.disk_sha; }
+  } catch (e) { /* the composer may be restarting: the next poll tries again */ }
+}
+async function loadDisk() {
+  const d = S.disk; if (!d) return;
+  S.undo.push(S.text);                       /* your text stays one undo away */
+  setData(await api("api/analyse", { path: S.path, text: d.text }));
+  S.savedText = d.text; S.diskSha = d.disk_sha; S.disk = null;
+  $("diskBar").hidden = true; $("diskBar").dataset.pending = "";
+  toast("loaded the changes from disk — undo brings your previous text back", 5000);
+  await loadAudio();
+}
+function keepMine() {
+  S.diskSha = S.disk ? S.disk.disk_sha : S.diskSha; S.disk = null;
+  $("diskBar").hidden = true; $("diskBar").dataset.pending = "";
+  toast("kept yours: saving will replace the disk version (it is kept in History first)", 6000);
+}
+async function reviewDisk() {
+  if (!S.disk) return;
+  const r = await api("api/diff", { a: S.text, b: S.disk.text });
+  showText("Changes on disk", r.diff || "(no difference in the text)", [["load them", loadDisk], ["keep mine", keepMine]]);
+}
+
+/* ---- history: every save, and every agent's snapshot, kept beside the shows ---- */
+async function openHistory() {
+  const list = await api("api/history?path=" + encodeURIComponent(S.path));
+  const rows = list.length ? list.map((h) => `<li><button data-snap="${esc(h.name)}">${esc(h.when)}</button> <span class="dim">by ${esc(h.by)}</span></li>`).join("")
+    : '<li class="dim">No earlier versions yet: one is kept every time the show is saved, and before an agent edits it.</li>';
+  showText("History of " + S.path, "", [], `<ul class="hist">${rows}</ul>`);
+  $("textBody").querySelectorAll("[data-snap]").forEach((b) => (b.onclick = async () => {
+    const r = await api("api/history/read", { path: S.path, name: b.dataset.snap, text: S.text });
+    showText(`Restore ${b.dataset.snap}?`, r.diff || "(identical to the text now)", [["restore into the editor", async () => {
+      S.undo.push(S.text);
+      setData(await api("api/analyse", { path: S.path, text: r.text }));
+      $("textDlg").close(); toast("restored into the editor — save to keep it, undo to go back", 6000);
+      await loadAudio();
+    }], ["back", openHistory]]);
+  }));
+}
+function showText(title, text, actions, html) {
+  $("textTitle").textContent = title;
+  $("textBody").innerHTML = (html || "") + (text ? `<pre class="diff">${text.split("\n").map((l) =>
+    `<span class="${l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : l.startsWith("@@") ? "hunk" : ""}">${esc(l)}</span>`).join("\n")}</pre>` : "");
+  $("textActions").innerHTML = actions.map((a, k) => `<button data-act="${k}">${esc(a[0])}</button>`).join("");
+  $("textActions").querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => { const f = actions[+b.dataset.act][1]; if (f !== openHistory) $("textDlg").close(); f(); }));
+  if (!$("textDlg").open) $("textDlg").showModal();
+}
+
+/* ---------- show files: new, save a copy (duplicate), rename, delete ---------- */
+async function refreshShows(select) {
+  const shows = await api("api/shows");
+  $("show").innerHTML = shows.map((x) => `<option>${esc(x.path)}</option>`).join("");
+  if (select) $("show").value = select;
+  return shows;
+}
+const slugOf = (p) => (p || "").split("/").pop().replace(/\.ya?ml$/, "");
+async function openFiles() {
+  const songs = await api("api/library/songs").catch(() => []);
+  const cur = slugOf(S.path);
+  const html = `
+    <section class="files">
+      <h3>New show</h3>
+      <div class="row2"><input id="fNewName" placeholder="name, e.g. welcome-wave" autocomplete="off">
+        <select id="fNewSong"><option value="">no music</option>${songs.map((x) => `<option>${esc(x.id)}</option>`).join("")}</select>
+        <input id="fNewBpm" placeholder="BPM" size="5" inputmode="decimal">
+        <button id="fNew">create and open</button></div>
+      <p class="note">Starts empty: the first cue on a lane lists that part. With music, bars and beats are ready to use.</p>
+      <h3>This show: ${esc(S.path || "")}</h3>
+      <div class="row2"><input id="fCopyName" value="${esc(cur)}-copy" autocomplete="off">
+        <button id="fCopy" title="Write what you are editing under a new name and switch to it; the original file is untouched">save a copy and open it</button></div>
+      <div class="row2"><input id="fRenName" value="${esc(cur)}" autocomplete="off">
+        <button id="fRen" title="Rename the file; its id (and its name, if it came from the file name) follow, and so does its History">rename</button></div>
+      <div class="row2"><button id="fDel" class="danger" title="Delete this show file. Its last version is kept in History.">delete this show…</button></div>
+      <p class="note">Names: letters, digits, - and _; ".yaml" is added. Shows live in ${esc((S.info && S.info.shows_dir) || "the shows folder")}.</p>
+    </section>`;
+  showText("Show files", "", [], html);
+  const go = async (fn, okMsg) => {
+    try { const d = await fn(); $("textDlg").close(); return d; } catch (e) { toast(e.message, 6000); }
+  };
+  $("fNew").onclick = () => go(async () => {
+    if (S.text !== S.savedText && !confirm("Discard unsaved changes to " + S.path + "?")) throw new Error("kept editing " + S.path);
+    const d = await api("api/show/new", { name: $("fNewName").value, song: $("fNewSong").value || null, bpm: $("fNewBpm").value || null });
+    S.savedText = S.text; await refreshShows(d.path); await loadShow(d.path);
+    toast(`new show ${d.path} — add cues with + on a lane`, 4000);
+  });
+  $("fCopy").onclick = () => go(async () => {
+    const d = await api("api/show/save-as", { path: S.path, name: $("fCopyName").value, text: S.text });
+    S.savedText = S.text;                                /* the edits now live in the copy */
+    await refreshShows(d.path); await loadShow(d.path);
+    toast(`saved as ${d.path} — the original is unchanged`, 4000);
+  });
+  $("fRen").onclick = () => go(async () => {
+    if (S.text !== S.savedText) throw new Error("save first — rename moves the file as it is on disk");
+    const d = await api("api/show/rename", { path: S.path, name: $("fRenName").value });
+    await refreshShows(d.path); await loadShow(d.path);
+    toast(`renamed to ${d.path} (its History came along)`, 4000);
+  });
+  $("fDel").onclick = () => go(async () => {
+    if (!confirm(`Delete the show ${S.path}?\n\nIts last version is kept in History (${(S.info && S.info.shows_dir) || ""}/.history/).`)) throw new Error("not deleted");
+    const d = await api("api/show/delete", { path: S.path, confirm: S.path });
+    S.savedText = S.text; S.path = null;
+    const shows = await refreshShows();
+    if (shows.length) { $("show").value = shows[0].path; await loadShow(shows[0].path); }
+    toast(`deleted ${d.deleted} — kept in History as ${d.kept}`, 6000);
+  });
+}
+
+/* ---------- clips: make one from cues, a new one, edit inside one (the user's composer item #1) ---------- */
+function renderMultiInspector() {
+  const a = (S.data && S.data.authored) || [], idx = [...S.multi].sort((x, y) => x - y);
+  const kinds = idx.map((i) => (a[i] && (a[i].slot || (a[i].clip ? "clip " + a[i].clip : "?")))).join(", ");
+  $("inspector").innerHTML = `
+    <div class="meta">${idx.length} cues selected · ${esc(kinds)}</div>
+    <div class="row2"><button data-makeclip="1" title="Turn these cues into a reusable clip: their times become the clip's own, and one placement takes their place">make a clip of these…</button>
+      <button data-multimode="1" class="${S.multiMode ? "on" : ""}" title="On a touch screen: tap cues to add or remove them (or hold shift and click)">select several: ${S.multiMode ? "on" : "off"}</button>
+      <button data-clearsel="1">clear</button></div>
+    <div class="note">Shift-click (or "select several") adds and removes cues. A placement cannot go into a clip.</div>`;
+}
+async function makeClip() {
+  const idx = [...(S.multi.size ? S.multi : new Set([S.selected]))].filter((i) => i !== null);
+  if (S.clip) { toast("a clip cannot contain a clip — go back to the show first", 5000); return; }
+  const name = prompt("Name the new clip (letters, digits, - and _):", "move" + ((tl().clips_count || 0) + 1));
+  if (!name) return;
+  try {
+    const d = await api("api/clip/make", { path: S.path, text: S.text, indices: idx, name });
+    S.undo.push(S.text); S.multi = new Set(); S.selected = null; setData(d);
+    toast(`clip ${name} made from ${idx.length} cue${idx.length > 1 ? "s" : ""} — one placement took their place (undo takes it back)`, 6000);
+  } catch (e) { toast(e.message, 6000); }
+}
+async function newClip() {
+  if (S.clip) { toast("go back to the show to make another clip", 4000); return; }
+  const name = prompt("Name the new clip (letters, digits, - and _):"); if (!name) return;
+  const m = music(), len = prompt(m ? "How long is it, in beats?" : "How long is it, in seconds?", m ? "4" : "2"); if (len === null) return;
+  const n = Number(len); if (!(n > 0)) { toast("a clip's length is a positive number", 4000); return; }
+  await edit([{ op: "clip_set", name, clip: m ? { length_beats: Math.round(n) } : { length_s: n } }], `clip ${name} made — add its cues`);
+  openClip(name);
+}
+async function placeClip() {
+  if (S.clip) { toast("go back to the show to place a clip", 4000); return; }
+  const names = (S.data && S.data.clip_names) || [];
+  if (!names.length) { toast("this show has no clips yet — + on the CLIPS lane makes one", 5000); return; }
+  const name = prompt("Place which clip at the playhead? (" + names.join(", ") + ")", names[0]); if (!name) return;
+  edit([{ op: "add", cue: { ...newCueTime(snapT(S.t)), clip: name } }], `clip ${name} placed at ${S.t.toFixed(2)} s`);
+}
+async function openClip(name) {
+  try {
+    const d = await api("api/analyse", { path: S.path, text: S.text, clip: name });
+    if (d.parse_error) throw new Error(d.parse_error);
+    S.clip = name; S.selected = null; S.multi = new Set(); S.selectedNote = null;
+    setData(d); seek(0); $("scroller").scrollLeft = 0;
+    const L = d.timeline.clip || {};
+    $("clipMsg").textContent = `Editing the clip “${name}”${L.length_beats ? `, ${L.length_beats} beat${L.length_beats === 1 ? "" : "s"}` : L.length_s ? `, ${L.length_s} s` : ""} — its own cues, from its start. Edits go into the clip; save as usual.`;
+    $("clipBar").hidden = false;
+  } catch (e) { toast(e.message, 5000); }
+}
+async function closeClip() {
+  S.clip = null; S.selected = null; S.multi = new Set();
+  setData(await api("api/analyse", { path: S.path, text: S.text }));
+  $("clipBar").hidden = true;
 }
 
 /* ---------- tap tempo ---------- */
@@ -719,14 +1311,26 @@ function bind() {
   $("beatOne").onclick = () => edit([{ op: "music", key: "offset_s", value: round(S.t, 3) }], `beat 1 is now at ${S.t.toFixed(3)} s`);
   $("undo").onclick = undo;
   $("save").onclick = save;
+  bindMusic();
+  $("historyBtn").onclick = openHistory;
+  $("filesBtn").onclick = openFiles;
+  $("textClose").onclick = () => $("textDlg").close();
+  $("diskReview").onclick = reviewDisk; $("diskLoad").onclick = loadDisk; $("diskKeep").onclick = keepMine;
+  setInterval(watchDisk, 2000);
   $("yamlBtn").onclick = () => { $("yamlText").value = S.text; $("yamlDrawer").hidden = false; };
   $("yamlClose").onclick = () => ($("yamlDrawer").hidden = true);
   $("yamlApply").onclick = async () => {
-    const d = await api("api/analyse", { path: S.path, text: $("yamlText").value });
+    const d = await api("api/analyse", { path: S.path, text: $("yamlText").value, clip: S.clip });
     S.undo.push(S.text); setData(d); toast(d.parse_error ? "applied, but it does not parse" : "applied", 1600);
   };
   $("heads").addEventListener("click", (e) => {
+    const d = e.target.closest("[data-declare]");
+    if (d) { edit(declareIfNeeded(d.dataset.declare), `${d.dataset.declare} is now in slots:`); return; }
     const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.addnote) addNote();
+    if (b.dataset.newclip) newClip();
+    if (b.dataset.placeclip) placeClip();
+    if (b.dataset.prompt) copyPrompt();
     if (b.dataset.add) addCue(b.dataset.add);
     if (b.dataset.teach) teach(b.dataset.teach);
     if (b.dataset.mute) {
@@ -736,6 +1340,13 @@ function bind() {
       render();
     }
   });
+  $("inspector").addEventListener("click", (e) => {
+    const o = e.target.closest("[data-openclip]"); if (o) openClip(o.dataset.openclip);
+    if (e.target.closest("[data-makeclip]")) makeClip();
+    if (e.target.closest("[data-multimode]")) { S.multiMode = !S.multiMode; renderInspector(); }
+    if (e.target.closest("[data-clearsel]")) { S.multi = new Set(); S.selected = null; renderLanes(); renderInspector(); }
+  });
+  $("clipBack").onclick = closeClip;
   $("problems").addEventListener("click", (e) => {
     const li = e.target.closest("li[data-cue]"); if (!li || li.dataset.cue === "") return;
     S.selected = +li.dataset.cue; renderLanes(); renderInspector();
@@ -749,7 +1360,7 @@ function bind() {
   window.addEventListener("pointercancel", () => { drag = null; renderLanes(); });
   sc.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e); } }, { passive: false });
   window.addEventListener("keydown", (e) => {
-    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || $("musicDlg").open || $("textDlg").open;
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); return; }
     if (typing) return;
     if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }
@@ -772,8 +1383,7 @@ async function main() {
   $("snap").value = S.snap; $("metro").checked = S.metro;
   bind();
   S.info = await api("api/info");
-  const shows = await api("api/shows");
-  $("show").innerHTML = shows.map((s) => `<option>${esc(s.path)}</option>`).join("");
+  const shows = await refreshShows();
   const want = new URLSearchParams(location.search).get("show") || store.get("lastShow", null);
   const first = shows.find((s) => s.path === want) || shows[0];
   if (first) { $("show").value = first.path; await loadShow(first.path); }

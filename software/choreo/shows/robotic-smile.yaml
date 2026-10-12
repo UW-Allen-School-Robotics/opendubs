@@ -69,6 +69,7 @@ clips:
       - { beat: 1, slot: HEAD, tilt: 82 }
       - { beat: 2, slot: HEAD, tilt: 98 }
 
+clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "f18791072257@dc74e24f" }
 cues:
   # the intro (bars 1-4): wake up and look around; the arms rise over bars 3-4, arriving on bar 5
   - { t: 0.0, slot: SOUND, do: play, sound: attend }

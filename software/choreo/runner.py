@@ -39,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import arm_output  # noqa: E402
+import library  # noqa: E402
 import grippers  # noqa: E402
 import cue  # noqa: E402
 import face_bridge  # noqa: E402
@@ -47,6 +48,9 @@ import face_bridge  # noqa: E402
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
+# An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
+# of other things turn it off for their throwaway shows; nothing on the robot does.
+REQUIRE_SWEEP = True
 FINAL = (COMPLETED, ABORTED, ESTOPPED, REFUSED)
 
 TICK_S = 0.02             # 50 Hz
@@ -175,11 +179,20 @@ def audio_items(show, tl) -> tuple:
     base = os.path.dirname(os.path.abspath(show.path)) if show.path else ""
     items, skipped = [], []
     m = tl.get("music") or {}
-    if m.get("file") and (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet":
+    to_tablet = (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"
+    if m.get("file") and to_tablet:
         if base and os.path.isfile(os.path.join(base, m["file"])):
             items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music"})
         else:
             skipped.append(f"music {m['file']} is not on this machine")
+    elif m.get("song") and to_tablet:
+        # A library song (plan 4.6): the dashboard serves the library's songs/ under media/library/.
+        e = (library.load_index() or {}).get(m["song"])
+        f = e and os.path.join(library.root(), e.get("file", ""))
+        if e and e.get("kind") == "song" and os.path.isfile(f):
+            items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music"})
+        else:
+            skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
         if e.get("output") != "tablet":
             continue
@@ -257,7 +270,7 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"))
 
 
 def _grips_calibrated() -> bool:
@@ -292,7 +305,7 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
     out, seen = [], set()
     m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
-    if m and m.get("file"):
+    if m and (m.get("file") or m.get("song")):
         out.append({"part": "music", "live": (m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"})
         seen.add("music")
     for slot, part in USE_PARTS:
@@ -471,12 +484,18 @@ class Runner:
         try:
             show = cue.load_show(self.path)
             show.audio_override = self.audio_output
+            show.require_sweep = REQUIRE_SWEEP   # an arm show needs a current self-collision stamp (sweep.py)
             tl = show.export(cue.load_limits(self.limits_path), self.limits_path)
         except Exception as e:  # noqa: BLE001
             return self._end(REFUSED, "PARSING_FAILURE", f"{type(e).__name__}: {e}")
         if not tl["valid"]:
             return self._end(REFUSED, "INVALID_SHOW",
                              "; ".join(p["msg"] for p in tl["problems"][:3]))
+        if (tl.get("tracks") or {}).get("DRIVE"):
+            # DRIVE is twin-only (cue.py SLOTS): the robot cannot yet say where it is, and every cue
+            # after a drive assumes the base moved — so the whole show is refused, not the drives skipped
+            return self._end(REFUSED, "SHOW_DRIVE_TWIN_ONLY",
+                             "this show uses DRIVE, which runs only in the twin until odometry is trusted")
         if tl.get("dance") is not None:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
@@ -627,6 +646,7 @@ class Palette:
             path = os.path.join(self.shows_dir, name)
             try:
                 show = cue.load_show(path)
+                show.require_sweep = REQUIRE_SWEEP
             except Exception:  # noqa: BLE001  a broken file is not a routine
                 continue
             pal = show.doc.get("palette")
@@ -634,6 +654,10 @@ class Palette:
                 continue
             tl = (show.export(limits, self.limits_path) if limits is not None else
                   {"valid": False, "duration_s": None, "problems": [{"msg": why}], "warnings": []})
+            if (tl.get("tracks") or {}).get("DRIVE"):
+                # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
+                tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
+                                                              "is trusted"}] + list(tl["problems"]))
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "valid": tl["valid"], "duration_s": tl["duration_s"],
                         "problems": [q["msg"] for q in tl["problems"][:3]],

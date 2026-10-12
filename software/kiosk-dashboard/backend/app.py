@@ -131,18 +131,10 @@ def tracker_control(state: str) -> JSONResponse:
                              "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
                             status_code=503)
 
-    # Starting the process is only half of it: the head gates whether the tracker may command
-    # it, and that was settable only from the Tab5's own screen. Ask for the matching mode so one
-    # button does one thing.
-    import state_out
-    mode_sent = state_out.head_set_tracking(target == "on")
-
+    # Nothing to ask the head. A tracker that sends owns the head whenever nothing above it does
+    # (head-protocol.md §4); the old tracking-mode frame is retired (§8).
     STATE["ai_tracking"] = _tracker_active()
-    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"],
-                         "head_mode_sent": mode_sent,
-                         **({} if mode_sent else
-                            {"warning": "could not reach the head — it may still be in MANUAL, "
-                                        "so the tracker will not be given the head"})})
+    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/arms/status")
@@ -410,6 +402,8 @@ def system_power(action: str) -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
+    if await origin_guard.refuse_websocket(socket):
+        return
     await socket.accept()
     # RC telemetry is cheap (reads the latest StamPLC frame from memory) → push
     # fast for responsive sticks. System metrics are expensive (nvidia-smi
@@ -456,6 +450,8 @@ async def rosbridge_proxy(socket: WebSocket) -> None:
     message is relayed unchanged to the local rosbridge. Over plain HTTP the page still talks to
     :9090 directly. Nothing here interprets ROS traffic."""
     import websockets
+    if await origin_guard.refuse_websocket(socket):     # a foreign page may not publish to ROS
+        return
     await socket.accept()
     try:
         async with websockets.connect(ROSBRIDGE_URL, max_size=None, open_timeout=3) as up:
@@ -503,6 +499,10 @@ class NoCacheStaticFiles(StaticFiles):
 # static mount so /api/choreo/* is not shadowed by it.
 from choreo_proxy import router as _choreo_router  # noqa: E402
 app.include_router(_choreo_router)
+
+# The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
+from library_serve import router as _library_router  # noqa: E402
+app.include_router(_library_router)
 
 # This repository's docs, built on the dev machine at deploy time (deploy.sh), so the "?" beside a
 # refusal opens its troubleshooting entry with no internet and at the deployed version. Kept out of
