@@ -109,6 +109,18 @@ try:
     except SS.ShowSyncError as e:
         stopped = "joint limits" in str(e)
     check("... and an unreadable robot limits file stops the check, never falling back to the fixture", stopped)
+    # the runner's path is a bind mount only its service sees: found through its drop-in instead
+    real = os.path.join(robot, "someones-checkout", "hw_validation")
+    os.makedirs(real)
+    shutil.copy(LIMITS, os.path.join(real, "joint_limits.yaml"))
+    dropin = os.path.join(robot, "arm-limits.conf")
+    with open(dropin, "w") as fh:
+        fh.write(f"[Service]\nBindReadOnlyPaths=-{real}:/etc/opendubs/arm-limits\n")
+    lines = []
+    rc = SS.push(HOST, [os.path.join(src, "my-shrug.yaml")], SS.REMOTE_LOCAL_SHOWS, "/nonexistent", lib, repo,
+                 True, True, False, out=lines.append, limits_from_robot=SS.REMOTE_LIMITS, limits_dropin=dropin)
+    check("the runner's limits path, a bind mount only its service sees, is read through its drop-in",
+          rc == 0 and "REFUSED" not in "\n".join(lines) and any(x in "\n".join(lines) for x in ("WOULD", "SKIP")), lines)
 
     print("\nshow sync: the palette lists both folders")
     pal = R.Palette(repo, LIMITS, R.FakeRobotState(), R.TwinFeed(), log=io.StringIO(), local_shows=own)
