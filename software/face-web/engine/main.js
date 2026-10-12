@@ -70,11 +70,16 @@ function frame(now) {
   // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
   // every robot and every show, so it is drawn by the default eyes in the state's own colour.
   const drawn = face.reserved() ? CODE_SKINS.default : skins.current;
+  let skinDrew = true;
   for (const e of face.eyes()) {
     // An asset skin still loading (or failed) draws nothing: the default eyes stand in. Never blank.
-    if (drawn.draw(ctx, e, now / 1000) === false) CODE_SKINS.default.draw(ctx, e, now / 1000);
+    if (drawn.draw(ctx, e, now / 1000) === false) { CODE_SKINS.default.draw(ctx, e, now / 1000); skinDrew = false; }
   }
-  const text = face.quoteText();
+  // A `layout: full` skin is a picture across the whole face (a show's photo): the idle quote would
+  // read as a caption printed on it, so it waits. Eye skins keep it; it is the face's own line.
+  const fullFace = skinDrew && drawn !== CODE_SKINS.default &&
+                   skins.library.get(skins.chosen)?.params?.layout === "full";
+  const text = fullFace ? null : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
