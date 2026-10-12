@@ -1,0 +1,85 @@
+name: Hygiene
+
+# Repo-wide checks owned by the Hygiene lane (CLAUDE.md, "Lanes"). They run on every PR and every
+# push to main, whatever paths changed, and look only at what the change adds. The findings
+# register and the plan for each check are in notes/hygiene-findings.md.
+#
+# Mode of each check. Change `warn` to `block` here once its existing findings are fixed; the
+# register says when each one can.
+#   secrets  block  history is clean apart from one recorded finding (tools/hygiene/gitleaks-ignore)
+#   ignore   block  nothing tracked matches an ignore rule today
+#   size     warn
+#   exif     warn
+#   names    warn
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  hygiene:
+    name: Hygiene checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # The PR's own head, not the merge commit, so the range below is exactly its commits.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Work out the range this change adds
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$PUSH_BEFORE}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          echo "checking $(git rev-list --count "$base..HEAD") commit(s) since ${base:0:12}"
+
+      - name: Install gitleaks (pinned, checksum-verified)
+        run: |
+          tgz="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "$RUNNER_TEMP/$tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tgz"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Install exiftool
+        run: sudo apt-get install -y --no-install-recommends libimage-exiftool-perl >/dev/null
+
+      # --redact=100 replaces every secret in the output, so a match is never written to the log.
+      # Run the same command locally to see where a finding is.
+      - name: Secrets (blocking)
+        if: always()
+        run: |
+          gitleaks git --no-banner --redact=100 --verbose \
+            --config tools/hygiene/gitleaks.toml \
+            --gitleaks-ignore-path tools/hygiene/gitleaks-ignore \
+            --log-opts="$BASE..HEAD" .
+
+      - name: Ignore rules, file size, image metadata
+        if: always()
+        run: python3 tools/hygiene/check_files.py --base "$BASE" --size warn --exif warn
+
+      - name: Personal names (warn)
+        if: always()
+        env:
+          HYGIENE_NAME_DENYLIST: ${{ secrets.HYGIENE_NAME_DENYLIST }}
+        run: python3 tools/hygiene/check_names.py --base "$BASE" --mode warn
