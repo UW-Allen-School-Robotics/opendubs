@@ -16,6 +16,55 @@ const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
 const rnd = (n) => Math.floor(Math.random() * n);
 const rgb = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
 
+// ---- MOVES: one-shot gestures a show fires on a beat (head protocol v4, `MOVE <name>`) ---------
+//
+// A move LAYERS ON TOP of everything the face is already doing and then goes away. It never touches
+// the emote, the pin, the blink schedule or where the eyes are looking, so `EMOTE SOFT` plus
+// `MOVE wink_l` is a wink *while* soft, and the face carries on afterwards exactly as it would
+// have. That is what makes a move safe to fire on any beat of a show.
+//
+// EACH IS A PURE FUNCTION OF ITS OWN AGE, for the reason the fireworks skin is: the face can be
+// drawn at any rate, or skipped while a tab is hidden, and the gesture still looks the same instead
+// of drifting or catching up in a rush. It also means a move can simply be ASKED what it looks like
+// at a given moment, which is how the peak offsets below are measured rather than estimated.
+//
+// `peak` IS A CONTRACT WITH THE SHOW RUNNER, like SPIN's ease_s/2. It is the delay from receiving
+// the line to the instant the gesture reads -- the lid fully shut, the lowest point of the bob --
+// so the runner sends the line early by it and the gesture lands ON the beat. The numbers here are
+// the design; `tests/test_moves.mjs` measures the actual curve and fails if the two disagree by
+// more than a frame, so a shape cannot be retuned without the published number following it.
+// CHANGING ONE SILENTLY PUTS EVERY SHOW USING IT OFF THE BEAT. Tell Choreography.
+//
+// Why the shapes are not symmetric: a real lid snaps shut and opens more slowly, so `shut` closes
+// in a third of the move and opens over the rest. A symmetric curve reads as a machine.
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (x) => { const c = clamp01(x); return c * c * (3 - 2 * c); };   // smoothstep
+// Rises to 1 over `up`, holds for `hold`, falls over what is left. Fractions of the whole move.
+const pulse = (p, up, hold) =>
+  p < up ? ss(p / up) : p < up + hold ? 1 : 1 - ss((p - up - hold) / Math.max(1e-6, 1 - up - hold));
+
+const shut = (p) => pulse(p, 0.33, 0.10);          // a lid: quick to close, slower to open
+
+export const MOVES = {
+  // name:   how long it lasts (ms), when it reads (ms), and what it does at age fraction p
+  wink_l:  { dur: 420, peak: 139, f: (p) => ({ lidL: shut(p) }) },
+  wink_r:  { dur: 420, peak: 139, f: (p) => ({ lidR: shut(p) }) },
+  // Two shuts. The SECOND is the one that lands -- a double blink reads on its second beat, not
+  // its first -- so the peak is deliberately not the first maximum.
+  blink2:  { dur: 520, peak: 333, f: (p) => { const l = Math.max(shut(clamp01(p / 0.42)), shut(clamp01((p - 0.5) / 0.42))); return { lidL: l, lidR: l }; } },
+  look_l:  { dur: 700, peak: 231, f: (p) => ({ gx: -0.85 * pulse(p, 0.33, 0.18) }) },
+  look_r:  { dur: 700, peak: 231, f: (p) => ({ gx: +0.85 * pulse(p, 0.33, 0.18) }) },
+  // Up, around and back. It reads at the TOP of the circle, which is where it starts to look like
+  // an eye roll rather than a wander.
+  roll:    { dur: 760, peak: 148, f: (p) => { const a = ss(p) * Math.PI * 2 - Math.PI / 2, r = Math.sin(Math.PI * clamp01(p * 1.15)); return { gx: Math.cos(a) * 0.7 * r, gy: Math.sin(a) * 0.55 * r }; } },
+  // Down then up: the eyes drop and come back, which reads as a bounce on the beat. In eye-heights.
+  bob:     { dur: 460, peak: 138, f: (p) => ({ dy: 0.17 * pulse(p, 0.30, 0.06) }) },
+  sparkle: { dur: 560, peak: 124, f: (p) => ({ sparkle: pulse(p, 0.22, 0.04) }) },
+};
+
+const NO_MOVE = { lidL: 0, lidR: 0, gx: 0, gy: 0, dy: 0, sparkle: 0 };
+
 export class Face {
   constructor() {
     this.state = -1;            // index into STATES; -1 = never heard from the robot
@@ -35,6 +84,8 @@ export class Face {
     this.quote = -1; this.nextQuote = 0;
     this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at}
     this.woke = false;
+    this.mv = null;             // the one move in flight: {name, t0}; see move()
+    this.mvOut = NO_MOVE;       // what it contributes this frame
   }
 
   // ---- inputs: what the head protocol's face messages do ------------------------------------
@@ -63,6 +114,28 @@ export class Face {
     return true;
   }
   look(target) { this.target = target; }      // from a tracker; null to let the eyes wander
+
+  // Head protocol v4, `MOVE <name>`: a one-shot gesture, fired on a beat by a show. The name is
+  // lowercase and already validated by protocol.js; an unknown one is refused there, so reaching
+  // here with one is a bug rather than a show's typo, and saying so is more use than ignoring it.
+  //
+  // REPLACE, NOT QUEUE. A show firing moves on consecutive beats must stay on the beat; a queue
+  // would make each one wait for the last and drift further behind with every beat. Replacing
+  // means the newest gesture always starts now, which is what landing on a beat requires.
+  move(name, now) {
+    if (!(name in MOVES)) return false;
+    this.mv = { name, t0: now };
+    return true;
+  }
+
+  // What the move in flight contributes right now. A pure function of its age, so a frame skipped
+  // or a frame drawn late changes nothing about how it looks.
+  stepMove(now) {
+    if (!this.mv) { this.mvOut = NO_MOVE; return; }
+    const m = MOVES[this.mv.name], age = now - this.mv.t0;
+    if (age >= m.dur) { this.mv = null; this.mvOut = NO_MOVE; return; }
+    this.mvOut = { ...NO_MOVE, ...m.f(clamp01(age / m.dur)) };
+  }
 
   // ---- the model ------------------------------------------------------------------------------
   linked(now) { return this.state >= 0 && now - this.stateAt < LINK_STALE_MS; }
@@ -142,23 +215,32 @@ export class Face {
     if (!this.free()) this.quote = -1;
     else if (now >= this.nextQuote || this.quote < 0) { this.quote = (this.quote + 1) % QUOTES.length; this.nextQuote = now + 9000; }
 
+    this.stepMove(now);
+
     for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.browRaise, this.browAngle,
                      this.asym, this.gazeX, this.gazeY, ...this.col]) v.step(dt);
   }
 
   // What a skin draws, per eye.
   eyes() {
+    const m = this.mvOut;
     const c = this.col.map((v) => Math.round(Math.max(0, Math.min(255, v.value))));
     const colour = `rgb(${c[0]},${c[1]},${c[2]})`;
     const dim = `rgb(${c.map((v) => Math.round(v * 0.35)).join(",")})`;
     return [0, 1].map((i) => ({
       side: i === 0 ? "left" : "right",
-      cx: SLOT[i], cy: EYE_Y,
+      cx: SLOT[i], cy: EYE_Y + m.dy * this.bodyH.value,
       w: this.bodyW.value * (1 + (i === 0 ? -this.asym.value : this.asym.value)),
       h: this.bodyH.value, radius: this.radius.value,
-      lid: Math.max(0, Math.min(1, this.lid.value)),
+      // A move adds to the lid rather than replacing it, so a wink during SLEEPY still shuts from
+      // an already-low lid instead of snapping the eye open to wink it.
+      lid: clamp01(this.lid.value + (i === 0 ? m.lidL : m.lidR)),
       browRaise: this.browRaise.value, browAngle: this.browAngle.value,
-      gazeX: this.gazeX.value, gazeY: this.gazeY.value,
+      // Likewise the gaze: a move nudges where the eyes already are. Clamped, so a look during a
+      // saccade to the same side cannot leave the eye's range.
+      gazeX: clamp01((this.gazeX.value + m.gx + 1) / 2) * 2 - 1,
+      gazeY: clamp01((this.gazeY.value + m.gy + 1) / 2) * 2 - 1,
+      sparkle: m.sparkle,       // 0..1, THE ONE FIELD A SKIN MAY IGNORE (face-engine.md A)
       colour, dim, rgb: c,
     }));
   }
