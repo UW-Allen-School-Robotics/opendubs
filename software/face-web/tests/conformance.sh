@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 # First the things the protocol suite cannot see. All cheap, and all fail before a port is opened.
+node software/face-web/tests/test_draw_smoke.mjs     # every skin actually DRAWS, every state
 node software/face-web/tests/test_spin.mjs           # SPIN's timing, and that nothing ever jumps
 node software/face-web/tests/test_moves.mjs          # MOVE: each gesture lands on its published peak
 node software/face-web/tests/test_layout_full.mjs   # layout: full -- a still across the whole face
