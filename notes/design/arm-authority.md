@@ -361,7 +361,7 @@ fold into `RECOVERING` and stop being visible to an operator, unless recovery fa
 | 10 | **Disputed control**: teleop, a show, the speed test, `park` and X/A homing can all write to an arm, kept apart only by procedure ("stop teleop first") | No arbiter across processes | One arbiter, the lease wrapper. A second writer is refused, and says who holds the arm |
 | 11 | **One arm op at a time, and slow** (ARM_OP_RUNNING 409; ACTIVATE takes 27 s, failures 123–144 s; F21) | Each step is a command-line call | The keeper is the long-running arm service of 0.12. Operators no longer start bring-up operations |
 | 12 | **A latched motor fault** (ARM_MOTOR_FAULT) needs a power cycle | Physical: the fault latches until power drops | Stays a `FAULT`, the one genuinely physical case, with its action named: cycle the e-stop. Then recovery is automatic |
-| 13 | **One motor silent under an active controller** (right J4 today) | Nothing reconciles per motor while running | The keeper's reconciliation: a missing motor makes the arm a `FAULT` (holding its other joints), never a silent half-arm |
+| 13 | **One motor silent under an active controller** (cited from right J4, 2026-10-09; that was most likely `openarm-motors` misreading a held position, plan 0.22, and no real case has been seen since) | Nothing reconciles per motor while running | The keeper's reconciliation: a missing motor makes the arm a `FAULT` (holding its other joints), never a silent half-arm |
 
 What it keeps, on purpose: the **fresh grip after a dropout or a CH5 change** (F14, DEC-23). It's
 the arm's version of the pinch guard's rule that every resumed descent is its own decision. It's
