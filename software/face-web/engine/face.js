@@ -46,6 +46,11 @@ const pulse = (p, up, hold) =>
 
 const shut = (p) => pulse(p, 0.33, 0.10);          // a lid: quick to close, slower to open
 
+// KEEP EACH ENTRY ON ONE LINE, `dur:` BEFORE `peak:`. Two other lanes read this table as TEXT --
+// the head protocol's test_head_protocol.py and the show validator's test_face_moves.py, neither of
+// which can import a JS object from Python -- so wrapping an entry or swapping those two keys turns
+// their suites red while changing nothing here. tests/test_moves.mjs reproduces both patterns, so
+// that fails on YOUR run first, with the reason.
 export const MOVES = {
   // name:   how long it lasts (ms), when it reads (ms), and what it does at age fraction p
   wink_l:  { dur: 420, peak: 139, f: (p) => ({ lidL: shut(p) }) },

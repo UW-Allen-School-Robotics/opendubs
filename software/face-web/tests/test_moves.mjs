@@ -16,6 +16,7 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { Face, MOVES } = await import(join(here, "../engine/face.js"));
@@ -163,6 +164,41 @@ function settled(emote) {
   for (let t = 0; t <= MOVES.sparkle.dur; t++) { f.stepMove(t);
     const v = f.mvOut.sparkle; hi = Math.max(hi, v); if (v < 0 || v > 1) worst = v; }
   ok(worst === 0 && hi === 1, "sparkle stays within 0..1 and reaches 1", `max ${hi}`);
+}
+
+// ---- 8. the table stays in the shape two OTHER lanes parse -------------------------------------
+// THIS GUARD EXISTS SO A COSMETIC EDIT FAILS HERE RATHER THAN IN SOMEONE ELSE'S CI.
+//
+// Three things read MOVES, and only one of them imports it. The head protocol's
+// test_head_protocol.py and the show validator's test_face_moves.py both read face.js as TEXT, with
+// regexes that need each entry on ONE LINE and `dur:` BEFORE `peak:`. So reformatting this table --
+// wrapping a long entry, swapping two keys, nothing that changes behaviour at all -- turns both of
+// their suites red, on a PR that looks like it only touched the face. Neither of their checks runs
+// here first, and the error they give is about a missing name rather than about formatting.
+//
+// They cannot import a JS object from Python, so the text coupling is not their fault and not
+// removable today. What IS removable is the surprise: this reproduces both patterns and fails with
+// the reason, so whoever reformats learns it from their own test run.
+{
+  const src = await readFile(join(here, "../engine/face.js"), "utf8");
+  // NOT `split(sep, 1)[1]`: JavaScript's limit truncates the RESULT ARRAY, so that is undefined --
+  // the same expression in Python (which the other two suites use) means "split once" and works.
+  // An earlier `?? ""` here turned that into an empty block, and every move then failed with
+  // "not on one line" instead of the truth. Fail loudly rather than plausibly.
+  const at = src.indexOf("export const MOVES");
+  if (at < 0) throw new Error("face.js has no `export const MOVES`");
+  const block = src.slice(at).split("\n};")[0];
+  const bad = [];
+  for (const [name, m] of Object.entries(MOVES)) {
+    // head-protocol's pattern, and choreography's stricter `dur:` then `peak:` order, in one.
+    const re = new RegExp(`^\\s*${name}:\\s*\\{\\s*dur:\\s*(\\d+),\\s*peak:\\s*(\\d+)`, "m");
+    const hit = re.exec(block);
+    if (!hit) bad.push(`${name}: not on one line as \`${name}: { dur: N, peak: M, ...\``);
+    else if (+hit[1] !== m.dur || +hit[2] !== m.peak) bad.push(`${name}: text says ${hit[1]}/${hit[2]}, object says ${m.dur}/${m.peak}`);
+  }
+  ok(bad.length === 0,
+     "the MOVES table is still in the shape the head-protocol and show-validator suites parse",
+     bad.join("; "));
 }
 
 if (process.argv.includes("--table")) {
