@@ -500,6 +500,10 @@ class NoCacheStaticFiles(StaticFiles):
 from choreo_proxy import router as _choreo_router  # noqa: E402
 app.include_router(_choreo_router)
 
+# The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
+from library_serve import router as _library_router  # noqa: E402
+app.include_router(_library_router)
+
 # This repository's docs, built on the dev machine at deploy time (deploy.sh), so the "?" beside a
 # refusal opens its troubleshooting entry with no internet and at the deployed version. Kept out of
 # frontend/ so that 35 MB of pages neither feeds /api/frontend-version nor reloads the tablet on

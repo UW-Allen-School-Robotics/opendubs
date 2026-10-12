@@ -2,6 +2,7 @@ fastapi==0.115.*
 uvicorn[standard]==0.30.*
 psutil==6.*
 pyserial==3.5
+pyyaml==6.*              # library_serve.py reads the show library's index; was only transitive
 ultralytics>=8.0.0
 opencv-python>=4.8.0
 pyrealsense2
