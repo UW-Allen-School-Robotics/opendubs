@@ -130,6 +130,10 @@ What the capture found, and what was done about each:
 | untracked `scripts/run_teleop.sh` and `run_teleop_sim.sh` in the old workspace root | not carried. The teleop service runs the bridge directly |
 | eight "dirty" checkouts that only had a `COLCON_IGNORE` marker | `capture-pins.sh` now ignores that marker. It is setup's, not configuration |
 
+**Changed here, not found on the robot:** `openarm_impedance_control/0001-workspace-box-z-1.30.patch` raises both arm controllers' workspace box from z 1.2 to 1.30 m (2026-10-12). A show's arms-raised-overhead poses reach 1.27 m at `hand_tcp`, and the controller refuses a goal whole if one waypoint leaves the box. The box is the only Cartesian check and was never the head guard: the near-head pose fits inside 1.2 m, and there is no self-collision check. The controller reads the box when it is configured, so a change needs the arm controllers reloaded.
+
+`openarm_description/0002-elbow-lower-limit-minus-2deg.patch` (2026-10-12) moves the V1 elbow's (J4) lower limit from 0 to −2°, both arms; no other joint changes. An arm left limp settles with its elbow just past 0 (right J4 at −0.38°), and the impedance controller refuses a goal whole when its first waypoint is outside a limit. It changes `robot_description`, so it takes a stack restart.
+
 Tested again in the corrected environment, on the development Mac:
 - **Install:** `uv sync --frozen` with uv 0.12.17 succeeds, giving MuJoCo 3.13.0 and SSIK 8.1.0 with
   its native backend.
