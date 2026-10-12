@@ -178,8 +178,14 @@ def _add_cue(text, seq, cue):
 
 
 def _set_music(text, key, value):
-    if key not in ("bpm", "offset_s", "beats_per_bar", "file"):
+    """Set one field of the music block, or remove it with value None (song and file only: the
+    tempo grid stays when a show's music is taken out, so bars and beats keep their meaning)."""
+    if key not in ("bpm", "offset_s", "beats_per_bar", "file", "song"):
         raise EditError(f"music: has no field {key!r}")
+    if value is None:
+        if key not in ("file", "song"):
+            raise EditError(f"music: {key} cannot be removed — set it instead")
+        return _drop_music_key(text, key)
     root = _root(text)
     _, m = _key(root, "music")
     if m is None:
@@ -203,12 +209,32 @@ def _set_music(text, key, value):
     return text[:le] + f"{indent}{key}: {fmt(value)}\n" + text[le:]
 
 
+def _drop_music_key(text, key):
+    root = _root(text)
+    _, m = _key(root, "music")
+    if m is None or not isinstance(m, yaml.MappingNode):
+        return text                                   # nothing to remove
+    for i, (k, v) in enumerate(m.value):
+        if k.value != key:
+            continue
+        if m.flow_style or len(m.value) == 1:
+            cur = yaml.safe_load(text)["music"]
+            cur.pop(key, None)
+            return text[:m.start_mark.index] + fmt(cur) + text[_end(m):]
+        ls, le = _line_bounds(text, k.start_mark.index, _end(v))
+        if text[ls:k.start_mark.index].strip():
+            raise EditError(f"music: {key} does not start its own line — edit the YAML by hand")
+        return text[:ls] + text[le:]
+    return text
+
+
 def apply(text: str, edits: list) -> str:
     """Apply edits in order. Each edit is one of:
         {"op": "set", "index": i, "cue": {...whole cue...}}
         {"op": "delete", "index": i}
         {"op": "add", "cue": {...}}
         {"op": "music", "key": "bpm", "value": 121.5}
+        {"op": "music", "key": "song", "value": None}      # None removes song or file
     Indices refer to the file as it is when that edit is applied (so delete back to front)."""
     for ed in edits:
         op = ed.get("op")

@@ -158,6 +158,7 @@ async function save() {
   try {
     const d = await api("api/save", { path: S.path, text: S.text });
     S.savedText = d.text; setData(d); toast("saved " + S.path, 1600);
+    if ($("musicDlg").open) { await refreshSongs(); renderMusicDlg(); }   /* who uses which song changed */
   } catch (e) { toast(e.message, 5000); }
 }
 
@@ -174,23 +175,30 @@ function ctx() {
 async function loadAudio() {
   const m = music();
   S.audio.buffer = null; S.audio.peaks = null;
-  if (!m || !m.file) {
-    $("waveMsg").textContent = m ? "music: has no file — the grid still works" : "no music: block — times are in seconds (tap tempo adds one)";
+  if (!m || !(m.file || m.song)) {
+    $("waveMsg").textContent = m ? "no music in this show — the grid still works (♫ music adds a song)" : "no music: block — times are in seconds (tap tempo or ♫ music adds one)";
     drawWave(); return;
   }
-  const dir = S.path.includes("/") ? S.path.slice(0, S.path.lastIndexOf("/") + 1) : "";
-  const rel = dir + m.file;
-  S.audio.file = rel;
-  $("waveMsg").textContent = "loading " + m.file + "…";
+  /* a library song (music: song:) or a file next to the show (music: file:) */
+  let url, label;
+  if (m.song) {
+    url = "library/song/" + encodeURIComponent(m.song); label = "song " + m.song;
+  } else {
+    const dir = S.path.includes("/") ? S.path.slice(0, S.path.lastIndexOf("/") + 1) : "";
+    const rel = dir + m.file;
+    url = "audio/" + rel.split("/").map(encodeURIComponent).join("/"); label = m.file;
+  }
+  S.audio.file = url;
+  $("waveMsg").textContent = "loading " + label + "…";
   try {
-    const r = await fetch("audio/" + rel.split("/").map(encodeURIComponent).join("/"));
+    const r = await fetch(url);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "HTTP " + r.status);
     const buf = await r.arrayBuffer();
     S.audio.buffer = await new Promise((ok, no) => ctx().decodeAudioData(buf, ok, no));
     S.audio.peaks = peaks(S.audio.buffer, 200);
     $("waveMsg").textContent = "";
   } catch (e) {
-    $("waveMsg").textContent = `no audio (${m.file}): ${e.message || e} — the grid still works`;
+    $("waveMsg").textContent = `no audio (${label}): ${e.message || e} — the grid still works`;
   }
   render();
 }
@@ -693,6 +701,129 @@ function onUp(ev) {
   edit([{ op: "set", index: d.i, cue: retimed(c, d.newT) }], `moved cue ${d.i} to ${d.newT.toFixed(3)} s`);
 }
 
+/* ---------- music: the show library's songs (plan 4.6) ----------
+ * Songs live in the SHOW LIBRARY, outside the repository (library.py); a show names one by id
+ * (music: song:). Adding goes through the server, which applies the library's rules — a source and a
+ * licence, the type checked by content, a size limit, a hash. Attaching, or taking the music out of a
+ * show, is an ordinary edit of the show text, so it shows in YAML, can be undone, and needs a save. */
+const SONG_EXT = [".wav", ".mp3", ".ogg", ".flac", ".m4a"];
+S.songs = []; S.upload = null;
+async function refreshSongs() {
+  try { S.songs = await api("api/library/songs"); } catch (e) { S.songs = []; toast("library: " + e.message, 5000); }
+}
+function slug(name) {
+  return name.replace(/\.[^.]*$/, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64) || "song";
+}
+function fmtDur(s) { return s == null ? "?" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`; }
+function renderMusicDlg() {
+  const m = music(), doc = S.data && S.data.timeline;
+  $("libDir").textContent = S.info ? S.info.library_dir : "";
+  $("musicNow").textContent = !doc ? "This show does not validate yet — its music is shown once it does."
+    : !m ? "This show has no music block: times are in seconds."
+    : m.song ? `Music: the library song “${m.song}” at ${m.bpm} BPM, beat 1 at ${m.offset_s} s.`
+    : m.file ? `Music: the file ${m.file}, next to the show (an older form — choose a library song to replace it).`
+    : `No music; the tempo grid is ${m.bpm} BPM, beat 1 at ${m.offset_s} s.`;
+  $("songSel").innerHTML = `<option value="">— none —</option>` + S.songs.map((x) =>
+    `<option value="${esc(x.id)}" ${m && m.song === x.id ? "selected" : ""}>${esc(x.id)} (${fmtDur(x.duration_s)})</option>`).join("");
+  $("songRemove").disabled = !(m && (m.song || m.file));
+  $("mBpm").value = m ? m.bpm : ""; $("mOff").value = m ? m.offset_s : "";
+  /* the server knows only SAVED shows; the show open here may name a song before it is saved */
+  const usedBy = (x) => (m && m.song === x.id && !x.used_by.includes(S.path) ? [S.path + " (open here)"] : []).concat(x.used_by);
+  $("songList").innerHTML = S.songs.length ? S.songs.map((x) => ({ ...x, used_by: usedBy(x) })).map((x) => `
+    <li><b>${esc(x.id)}</b> <span class="dim">${fmtDur(x.duration_s)} · ${esc(x.file)}</span><br>
+      <span class="dim">source: ${esc(x.source)} · licence: ${esc(x.licence)}</span><br>
+      ${x.used_by.length ? `<span class="dim">used by ${x.used_by.map(esc).join(", ")}</span>` : `<span class="dim">used by no show here</span>`}
+      <button data-del="${esc(x.id)}" ${x.used_by.length ? `disabled title="Still the music of ${esc(x.used_by.join(", "))} — take it out of those shows first"` : 'title="Delete this song from the library: its file and its entry. Cannot be undone."'}>delete from library</button></li>`).join("")
+    : `<li class="dim">No songs yet${S.info && !S.info.library_exists ? " — the library folder is created when the first one is added" : ""}.</li>`;
+  const u = S.upload;
+  $("songHint").textContent = u ? `${u.file.name}, ${(u.file.size / 1048576).toFixed(1)} MB${u.duration ? ", " + fmtDur(u.duration) : ""}` : "";
+  $("songAdd").disabled = !u;
+}
+async function openMusic(file) {
+  await refreshSongs();
+  if (file) setUpload(file);
+  renderMusicDlg();
+  if (!$("musicDlg").open) $("musicDlg").showModal();
+}
+function setUpload(file) {
+  const ext = (file.name.match(/\.[^.]*$/) || [""])[0].toLowerCase();
+  if (!SONG_EXT.includes(ext)) { toast(`a song is ${SONG_EXT.join(", ")} — not ${ext || "that"}`, 5000); return; }
+  const maxMb = S.info ? S.info.max_song_mb : 80;
+  if (file.size > maxMb * 1048576) { toast(`${file.name} is over the ${maxMb} MB limit for a song`, 5000); return; }
+  S.upload = { file, duration: null };
+  if (!$("songId").value) $("songId").value = slug(file.name);
+  /* the browser's own reading of the length: the server uses it only when it cannot read one */
+  const a = new Audio(), url = URL.createObjectURL(file);
+  a.preload = "metadata";
+  a.onloadedmetadata = () => { if (S.upload && S.upload.file === file) S.upload.duration = a.duration; URL.revokeObjectURL(url); renderMusicDlg(); };
+  a.onerror = () => { URL.revokeObjectURL(url); toast("this browser cannot decode that file — the server may still read it", 5000); };
+  a.src = url;
+  renderMusicDlg();
+}
+function attachSong(id) {
+  return edit([{ op: "music", key: "song", value: id }, { op: "music", key: "file", value: null }],
+    `music is now “${id}” — save to keep it`).then(loadAudio);
+}
+async function addSong() {
+  const u = S.upload; if (!u) return;
+  const id = $("songId").value.trim(), source = $("songSource").value.trim(), licence = $("songLicence").value.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id)) { toast("the id is lower-case letters, digits, - and _, starting with a letter or digit", 5000); return; }
+  if (!source || !licence) { toast("a song needs its source and its licence", 5000); return; }
+  const q = new URLSearchParams({ filename: u.file.name, id, source, licence });
+  if (u.duration && isFinite(u.duration)) q.set("duration_s", u.duration.toFixed(3));
+  $("songAdd").disabled = true; $("songHint").textContent = "adding…";
+  try {
+    const r = await fetch("api/library/songs?" + q, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: u.file });
+    const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+    if (!r.ok) throw new Error(j.error || j.detail || `HTTP ${r.status}`);
+    S.songs = j.songs; S.upload = null;
+    ["songId", "songSource", "songLicence"].forEach((k) => ($(k).value = "")); $("songFile").value = "";
+    toast(`added “${id}” to the library`, 2500);
+    await attachSong(id);
+  } catch (e) { toast("not added: " + e.message, 7000); }
+  renderMusicDlg();
+}
+async function deleteSong(id) {
+  if (!confirm(`Delete the song “${id}” from the library?\n\nIts file and its entry are removed. This cannot be undone.`)) return;
+  try {
+    const r = await api("api/library/songs/delete", { id, confirm: id });
+    S.songs = r.songs; toast(`deleted “${id}” from the library`, 2500);
+  } catch (e) { toast(e.message, 7000); await refreshSongs(); }
+  renderMusicDlg();
+}
+function bindMusic() {
+  $("musicBtn").onclick = () => openMusic();
+  $("musicClose").onclick = () => $("musicDlg").close();
+  $("songUse").onclick = () => {
+    const id = $("songSel").value;
+    (id ? attachSong(id) : removeMusic()).then(renderMusicDlg);
+  };
+  $("songRemove").onclick = () => removeMusic().then(renderMusicDlg);
+  $("mSet").onclick = () => {
+    const bpm = Number($("mBpm").value), off = Number($("mOff").value);
+    if (!Number.isFinite(bpm) || !Number.isFinite(off) || off < 0) { toast("BPM and beat 1 must be numbers (beat 1 ≥ 0)"); return; }
+    edit([{ op: "music", key: "bpm", value: bpm }, { op: "music", key: "offset_s", value: off }], `tempo ${bpm} BPM, beat 1 at ${off} s`).then(renderMusicDlg);
+  };
+  $("songFile").onchange = (e) => e.target.files[0] && setUpload(e.target.files[0]);
+  $("songAdd").onclick = addSong;
+  $("songList").addEventListener("click", (e) => { const b = e.target.closest("button[data-del]"); if (b) deleteSong(b.dataset.del); });
+  /* drop an audio file anywhere: the music dialog opens with it */
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  window.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); $("drop").classList.add("over"); } });
+  window.addEventListener("dragleave", () => $("drop").classList.remove("over"));
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); $("drop").classList.remove("over");
+    const f = e.dataTransfer.files[0]; if (f) openMusic(f);
+  });
+}
+function removeMusic() {
+  const m = music();
+  if (!m || !(m.song || m.file)) return Promise.resolve();
+  return edit([{ op: "music", key: "song", value: null }, { op: "music", key: "file", value: null }],
+    "music taken out of this show (the song stays in the library) — save to keep it").then(loadAudio);
+}
+
 /* ---------- tap tempo ---------- */
 function tap(ev) {
   const now = ev.timeStamp / 1000;
@@ -719,6 +850,7 @@ function bind() {
   $("beatOne").onclick = () => edit([{ op: "music", key: "offset_s", value: round(S.t, 3) }], `beat 1 is now at ${S.t.toFixed(3)} s`);
   $("undo").onclick = undo;
   $("save").onclick = save;
+  bindMusic();
   $("yamlBtn").onclick = () => { $("yamlText").value = S.text; $("yamlDrawer").hidden = false; };
   $("yamlClose").onclick = () => ($("yamlDrawer").hidden = true);
   $("yamlApply").onclick = async () => {
@@ -749,7 +881,7 @@ function bind() {
   window.addEventListener("pointercancel", () => { drag = null; renderLanes(); });
   sc.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e); } }, { passive: false });
   window.addEventListener("keydown", (e) => {
-    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || $("musicDlg").open;
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); return; }
     if (typing) return;
     if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }

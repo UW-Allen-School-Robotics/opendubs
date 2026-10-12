@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import os
 
-from api import STATIC_DIR, ApiError, Composer  # noqa: F401  (Composer re-exported for callers)
+from api import MAX_SONG_BYTES, STATIC_DIR, ApiError, Composer  # noqa: F401  (Composer re-exported)
 
 
 def make_router(comp: "Composer"):
-    from fastapi import APIRouter, Body, HTTPException
+    from fastapi import APIRouter, Body, HTTPException, Request
     from fastapi.responses import FileResponse, HTMLResponse
 
     r = APIRouter()
@@ -84,6 +84,26 @@ def make_router(comp: "Composer"):
     @r.get("/audio/{rel:path}")
     def audio(rel: str):
         p, ctype = _wrap(comp.audio, rel)
+        return FileResponse(p, media_type=ctype)
+
+    @r.get("/api/library/songs")
+    def songs():
+        return comp.songs()
+
+    @r.post("/api/library/songs")
+    async def add_song(request: Request, filename: str = "", id: str = "", source: str = "",  # noqa: A002
+                       licence: str = "", duration_s: float | None = None):
+        if int(request.headers.get("content-length") or 0) > MAX_SONG_BYTES:
+            raise HTTPException(status_code=413, detail="over the size limit for a song")
+        return _wrap(comp.add_song, filename, await request.body(), id, source, licence, duration_s)
+
+    @r.post("/api/library/songs/delete")
+    def delete_song(b: dict = Body(...)):
+        return _wrap(comp.delete_song, b.get("id"), b.get("confirm"))
+
+    @r.get("/library/song/{item_id}")
+    def song_audio(item_id: str):
+        p, ctype = _wrap(comp.song_audio, item_id)
         return FileResponse(p, media_type=ctype)
 
     return r

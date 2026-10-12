@@ -182,3 +182,23 @@ button:not(:disabled):active { background: var(--line); }
   max-width: 80vw; box-shadow: 0 6px 20px #000;
 }
 #toast[hidden] { display: none; }
+
+/* the music dialog: the show's song, the library's songs */
+#musicDlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0;
+  background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 10px; }
+#musicDlg::backdrop { background: rgba(0, 0, 0, 0.55); }
+#musicDlg section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+#musicDlg section:last-child { border-bottom: 0; }
+#musicDlg h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+#musicDlg .row2 { display: flex; gap: 6px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+#musicDlg input:not([type=file]), #musicDlg select { min-height: var(--hit); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
+#musicDlg .form { display: grid; gap: 6px; margin: 8px 0; }
+#musicDlg .form label { display: grid; grid-template-columns: 5em 1fr; align-items: center; gap: 6px; }
+#drop { border: 1px dashed var(--line); border-radius: 8px; padding: 14px; text-align: center; color: var(--dim); }
+#drop.over { border-color: var(--accent); color: var(--accent); }
+#songList { list-style: none; margin: 0; padding: 0; }
+#songList li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+#songList li:last-child { border-bottom: 0; }
+#songList button { margin-top: 6px; }
+#musicDlg code { color: var(--accent-2); }

@@ -35,6 +35,7 @@
       <span id="tapBpm" class="dim" title="Tempo estimated from your taps">—</span>
       <button id="tapUse" disabled title="Write the tapped tempo into the show's music block">use</button>
       <button id="beatOne" title="Set music.offset_s: beat 1 falls at the playhead">beat 1 ⇤</button>
+      <button id="musicBtn" title="The show's music: choose a song from the library, add one, take it out of the show, or delete a song from the library. You can also drop an audio file anywhere on the page">♫ music</button>
     </span>
     <span class="spacer"></span>
     <button id="undo" disabled title="Undo (Ctrl/Cmd-Z)">undo</button>
@@ -80,6 +81,40 @@
     </div>
     <textarea id="yamlText" spellcheck="false"></textarea>
   </div>
+  <dialog id="musicDlg" aria-labelledby="musicTitle">
+    <div class="drawerHead"><b id="musicTitle">Music</b><span class="spacer"></span><button id="musicClose">close</button></div>
+    <section>
+      <div id="musicNow" class="dim"></div>
+      <div class="row2">
+        <select id="songSel" aria-label="Song" title="A song from the library — or none"></select>
+        <button id="songUse" title="Make this the show's music">use</button>
+        <button id="songRemove" title="Take the music out of THIS SHOW. The song stays in the library; the tempo grid (BPM, beat 1) stays in the show">remove from show</button>
+      </div>
+      <div class="row2">
+        <label>BPM <input id="mBpm" inputmode="decimal" size="6"></label>
+        <label>beat 1 at <input id="mOff" inputmode="decimal" size="7"> s</label>
+        <button id="mSet" title="Write the tempo and where beat 1 falls into the show (tap and beat 1 ⇤ in the toolbar do the same by ear)">set</button>
+      </div>
+    </section>
+    <section>
+      <h3>Add a song to the library</h3>
+      <div id="drop" title="Drop an audio file here">Drop an audio file here, or <input type="file" id="songFile" accept=".wav,.mp3,.ogg,.flac,.m4a"></div>
+      <div class="form">
+        <label>id <input id="songId" placeholder="lower-case, - and _" autocomplete="off"></label>
+        <label>source <input id="songSource" placeholder="where it came from: a URL, an album, who made it" autocomplete="off"></label>
+        <label>licence <input id="songLicence" placeholder="what allows the robot to play it: CC-BY 4.0, own recording, permission from…" autocomplete="off"></label>
+      </div>
+      <div class="row2"><button id="songAdd" disabled>add to the library and use it</button><span id="songHint" class="dim"></span></div>
+      <p class="note">Songs go into the SHOW LIBRARY (<span id="libDir"></span>), never into the repository — a
+        song is someone's work, and its source and licence are kept with it. The robot plays a song from its
+        own library: copy the song there too (<code>library.py add</code> on the robot) until the library sync
+        is built.</p>
+    </section>
+    <section>
+      <h3>In the library</h3>
+      <ul id="songList"></ul>
+    </section>
+  </dialog>
   <div id="toast" hidden></div>
 
   <script src="static/composer.js"></script>

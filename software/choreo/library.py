@@ -9,6 +9,7 @@ committed. The repo holds only this schema, this tool, the validator that reads 
 test fixtures with made-up entries.
 
     python3 library.py check                      # the index is well-formed and every hash matches
+    python3 library.py remove ID --shows SHOWS_DIR     # refused while a show there still uses it
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
         [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
         [--duration S] [--width W --height H --fps F]
@@ -23,9 +24,12 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import wave
 
 DEFAULT_ROOT = "/var/lib/opendubs/library"
 INDEX = "index.yaml"
@@ -53,6 +57,11 @@ SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # 
 FACE_PANEL = (1340, 800)                         # the tablet's 8.7-inch panel
 KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins"}
 REQUIRED = {"id", "kind", "file", "sha256", "source", "licence"}
+# A song's file types, and the first bytes each really starts with: an upload is checked by its
+# CONTENT, not only its name, so a renamed file of another kind is refused.
+SONG_TYPES = {".wav": (b"RIFF",), ".mp3": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa"),
+              ".ogg": (b"OggS",), ".flac": (b"fLaC",), ".m4a": (b"ftyp",)}
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")   # an id the composer may create (a safe file name)
 REQUIRED_BY_KIND = {"song": {"duration_s"}, "clip": {"duration_s", "width", "height", "fps"},
                     "skin": {"type", "width", "height"}}
 
@@ -180,9 +189,32 @@ def check(lib_root: str | None = None) -> list:
     return out
 
 
+def looks_like_song(path: str) -> bool:
+    """The file's first bytes match its extension (SONG_TYPES); m4a's `ftyp` sits at offset 4."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in SONG_TYPES:
+        return False
+    with open(path, "rb") as fh:
+        head = fh.read(12)
+    if ext == ".m4a":
+        return head[4:8] == b"ftyp"
+    if ext == ".wav":
+        return head[:4] == b"RIFF" and head[8:12] == b"WAVE"
+    return head.startswith(SONG_TYPES[ext])
+
+
 def probe(path: str) -> dict:
-    """duration_s / width / height / fps by ffprobe, when it is installed; {} otherwise."""
-    if not shutil.which("ffprobe") or not os.path.isfile(path):
+    """duration_s / width / height / fps by ffprobe, when it is installed; a WAV's duration from its
+    header otherwise (the standard library reads it); {} when neither can."""
+    if not os.path.isfile(path):
+        return {}
+    if not shutil.which("ffprobe"):
+        if path.lower().endswith(".wav"):
+            try:
+                with wave.open(path, "rb") as w:
+                    return {"duration_s": round(w.getnframes() / float(w.getframerate()), 3)}
+            except (wave.Error, EOFError, ZeroDivisionError):
+                return {}
         return {}
     try:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
@@ -226,16 +258,85 @@ def add(src: str, item_id: str, kind: str, source: str, licence: str, lib_root: 
         raise ValueError("; ".join(p))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     (shutil.copytree if os.path.isdir(src) else shutil.copy2)(src, dest)
-    items = list(idx.values()) + [entry]
-    with open(os.path.join(r, INDEX), "w", encoding="utf-8") as fh:
-        _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
+    _write_index(r, list(idx.values()) + [entry])
     return entry
+
+
+def _write_index(r: str, items: list) -> None:
+    """The whole index, replaced in one step: a reader never sees half of it."""
+    os.makedirs(r, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".index-", suffix=".yaml", dir=r)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        _yaml().safe_dump(items, fh, sort_keys=False, allow_unicode=True)
+    os.replace(tmp, os.path.join(r, INDEX))
+
+
+def items_of(kind: str, lib_root: str | None = None) -> list:
+    """Every entry of one kind, by id."""
+    return sorted((e for e in (load_index(lib_root) or {}).values() if e.get("kind") == kind),
+                  key=lambda e: e["id"])
+
+
+def shows_using(item_id: str, shows_dir: str) -> list:
+    """The shows under `shows_dir` (relative paths) that name this item: as their music
+    (`music: song:`), a face skin (`do: skin, name:`) or a clip (`clip:`). A show that does not
+    parse is skipped — it names nothing yet."""
+    out = []
+    for d, _, files in os.walk(shows_dir):
+        for f in sorted(files):
+            if not f.endswith((".yaml", ".yml")):
+                continue
+            full = os.path.join(d, f)
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    doc = _yaml().safe_load(fh)
+            except Exception:  # noqa: BLE001
+                continue
+            if not isinstance(doc, dict):
+                continue
+            m = doc.get("music")
+            names = {m.get("song")} if isinstance(m, dict) else set()
+            for c in doc.get("cues") or []:
+                if isinstance(c, dict):
+                    if c.get("do") == "skin":
+                        names.add(c.get("name"))
+                    names.add(c.get("clip"))
+            for cl in (doc.get("clips") or {}).values() if isinstance(doc.get("clips"), dict) else []:
+                for c in (cl.get("cues") or []) if isinstance(cl, dict) else []:
+                    if isinstance(c, dict):
+                        names.add(c.get("clip"))
+                        if c.get("do") == "skin":
+                            names.add(c.get("name"))
+            if item_id in names:
+                out.append(os.path.relpath(full, shows_dir).replace(os.sep, "/"))
+    return sorted(out)
+
+
+def remove(item_id: str, lib_root: str | None = None, used_by=()) -> dict:
+    """Delete an item: its file and its entry. Refused while `used_by` (the shows that still name it)
+    is not empty — the caller finds them, since only it knows which shows directory to look in."""
+    r = lib_root or root()
+    idx = load_index(r) or {}
+    if item_id not in idx:
+        raise ValueError(f"{item_id!r} is not in the library")
+    if used_by:
+        raise ValueError(f"{item_id!r} is still used by {', '.join(sorted(used_by))} — "
+                         "take it out of those shows first")
+    e = idx.pop(item_id)
+    f = os.path.realpath(os.path.join(r, e.get("file", "")))
+    if f.startswith(os.path.realpath(r) + os.sep) and os.path.exists(f):
+        (shutil.rmtree if os.path.isdir(f) else os.remove)(f)
+    _write_index(r, list(idx.values()))
+    return e
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
+    rm = sub.add_parser("remove")
+    rm.add_argument("id")
+    rm.add_argument("--shows", required=True, help="the shows directory to check for users of it")
     a = sub.add_parser("add")
     a.add_argument("path")
     a.add_argument("--id", required=True)
@@ -257,6 +358,14 @@ def main() -> int:
             print("  PROBLEM:", x)
         print("ok" if not p else f"{len(p)} problem(s) in {root()}")
         return 1 if p else 0
+    if args.cmd == "remove":
+        try:
+            e = remove(args.id, used_by=shows_using(args.id, args.shows))
+        except ValueError as err:
+            print(f"refused: {err}")
+            return 1
+        print(f"removed {e['id']} ({e['kind']}, {e.get('file')}) from {root()}")
+        return 0
     try:
         params = dict(x.split("=", 1) for x in args.param if "=" in x) or None
         e = add(args.path, args.id, args.kind, args.source, args.licence, type=args.type, params=params,

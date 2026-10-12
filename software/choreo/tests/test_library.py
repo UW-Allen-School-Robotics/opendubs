@@ -124,6 +124,80 @@ check("with no library on this machine a library skin is a NOTICE, not a problem
       not a["problems"] and any("unchecked" in n for n in a["notices"]), (a["problems"], a["notices"]))
 os.environ["OPENDUBS_LIBRARY"] = lib
 
+print("\nlibrary: songs (the composer's music, plan 4.6)")
+import wave  # noqa: E402
+
+
+def made_up_wav(path, secs=0.5, rate=8000):
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00\x01" * int(secs * rate))
+
+
+WAV = os.path.join(src, "made-up-tune.wav")
+made_up_wav(WAV)
+with open(os.path.join(src, "not-a-song.mp3"), "w") as fh:
+    fh.write("this is text with an mp3 name")
+check("a song is recognised by its CONTENT, not its name",
+      library.looks_like_song(WAV) and not library.looks_like_song(os.path.join(src, "not-a-song.mp3")))
+song = library.add(WAV, "made-up-tune", "song", "made up for a test", "CC0", lib_root=lib)
+check("a WAV's length is read from its header when ffprobe is not installed (and it is a song's required field)",
+      song["duration_s"] == 0.5 and os.path.isfile(os.path.join(lib, "songs", "made-up-tune.wav")), song)
+check("songs are listed by kind", [x["id"] for x in library.items_of("song", lib)] == ["made-up-tune"])
+shows = os.path.join(tmp, "shows")
+os.makedirs(os.path.join(shows, "sub"))
+with open(os.path.join(shows, "sub", "uses-it.yaml"), "w") as fh:
+    fh.write("id: u\nslots: [HEAD]\nmusic: { song: made-up-tune, bpm: 120 }\ncues: []\n")
+with open(os.path.join(shows, "other.yaml"), "w") as fh:
+    fh.write("id: o\nslots: [HEAD]\nmusic: { bpm: 120 }\ncues: []\n")
+check("the shows that use a song are found, and only those", library.shows_using("made-up-tune", shows) == ["sub/uses-it.yaml"])
+msg = refused(library.remove, "made-up-tune", lib, used_by=library.shows_using("made-up-tune", shows)) or ""
+check("a song still used by a show is NOT deleted, and the refusal names the show",
+      "sub/uses-it.yaml" in msg and os.path.isfile(os.path.join(lib, "songs", "made-up-tune.wav")), msg)
+
+os.environ["OPENDUBS_LIBRARY"] = lib
+
+
+def music_show(music):
+    return cue.Show({"id": "m", "slots": ["HEAD"], "requires": {"tab5": True, "rc_authority": "AUTO"}, "music": music,
+                     "cues": [{"beat": 1, "slot": "HEAD", "pan": 80}]}, "test")
+
+
+tl = music_show({"song": "made-up-tune", "bpm": 120}).export(LIMITS, None)
+check("music: song: names a library song; the export carries it and the hash it was checked against",
+      tl["valid"] and tl["music"]["song"] == "made-up-tune" and tl["assets"].get("made-up-tune") == song["sha256"],
+      (tl["problems"], tl["music"], tl["assets"]))
+a = music_show({"song": "no-such-tune", "bpm": 120}).analyse(LIMITS)
+check("a song that is not in the library is a problem", any("no-such-tune" in q.msg for q in a["problems"]))
+a = music_show({"song": "made-up-eyes", "bpm": 120}).analyse(LIMITS)
+check("a skin is not a song", any("made-up-eyes" in q.msg for q in a["problems"]))
+a = music_show({"song": "made-up-tune", "file": "audio/x.wav", "bpm": 120}).analyse(LIMITS)
+check("song and file together are a problem: which would play?", any("not both" in q.msg for q in a["problems"]))
+os.environ["OPENDUBS_LIBRARY"] = os.path.join(tmp, "nowhere")
+a = music_show({"song": "made-up-tune", "bpm": 120}).analyse(LIMITS)
+check("with no library on this machine a song is a NOTICE, not a problem (the Thor checks it)",
+      not a["problems"] and any("song 'made-up-tune' is unchecked" in n for n in a["notices"]), a["notices"])
+os.environ["OPENDUBS_LIBRARY"] = lib
+import runner  # noqa: E402
+sh = os.path.join(shows, "sub", "uses-it.yaml")
+s_ = cue.load_show(sh)
+items, skipped = runner.audio_items(s_, s_.export(LIMITS, None))
+check("on the robot, a show's song is played from the library: the dashboard serves it under media/library/",
+      items == [{"url": "/api/choreo/media/library/songs/made-up-tune.wav", "at": 0.0, "kind": "music"}] and not skipped,
+      (items, skipped))
+os.remove(sh)
+gone = library.remove("made-up-tune", lib, used_by=library.shows_using("made-up-tune", shows))
+check("once no show uses it, a song is deleted: its file and its entry",
+      gone["id"] == "made-up-tune" and not os.path.exists(os.path.join(lib, "songs", "made-up-tune.wav"))
+      and "made-up-tune" not in library.load_index(lib) and library.check(lib) == [], library.check(lib))
+s_ = cue.load_show(os.path.join(shows, "other.yaml"))
+check("... and a show naming a song this robot does not have plays silently, saying why",
+      runner.audio_items(cue.Show(dict(s_.doc, music={"song": "made-up-tune", "bpm": 120}), sh),
+                         {"music": {"song": "made-up-tune", "output": "tablet"}})[1]
+      == [f"song made-up-tune is not in this robot's library ({lib})"])
+
 print("\nlibrary: the face bridge sends SKIN")
 tl = cue.Show({"id": "t", "slots": ["FACE"], "requires": {"tab5": True},
                "cues": [{"t": 1.0, "slot": "FACE", "do": "skin", "name": "ring"},

@@ -172,6 +172,125 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("\nmusic: the library's songs, from the composer (plan 4.6)")
+import io  # noqa: E402
+import threading  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+import wave  # noqa: E402
+
+import api as composer_api  # noqa: E402
+
+
+def wav_bytes(secs=0.5, rate=8000):
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00\x01" * int(secs * rate))
+    return b.getvalue()
+
+
+def api_error(fn, *a):
+    try:
+        fn(*a)
+        return None
+    except ApiError as e:
+        return (e.status, str(e))
+
+
+tmp = tempfile.mkdtemp()
+saved_env = os.environ.get("OPENDUBS_LIBRARY")
+try:
+    shows, lib = os.path.join(tmp, "shows"), os.path.join(tmp, "library")
+    os.makedirs(shows)
+    shutil.copy(os.path.join(SHOWS, "hello.yaml"), shows)
+    comp = Composer(shows, FIXTURE, lib)
+    check("the library starts empty and is said to be", comp.songs() == [] and not comp.info()["library_exists"])
+    W = wav_bytes()
+    for what, args, code in (
+            ("a file type that is not a song", ("x.exe", W, "x", "s", "l"), 415),
+            ("a song file whose content is not that type", ("x.mp3", b"just text", "x", "s", "l"), 415),
+            ("a song without its licence", ("x.wav", W, "x", "made up", " "), 400),
+            ("a song without its source", ("x.wav", W, "x", "", "CC0"), 400),
+            ("an id that is not a safe name", ("x.wav", W, "../x", "s", "l"), 400),
+            ("an empty file", ("x.wav", b"", "x", "s", "l"), 400)):
+        err = api_error(comp.add_song, *args)
+        check(f"refused: {what}", err is not None and err[0] == code, err)
+    big = composer_api.MAX_SONG_BYTES
+    composer_api.MAX_SONG_BYTES = 100
+    err = api_error(comp.add_song, "x.wav", W, "x", "s", "l")
+    composer_api.MAX_SONG_BYTES = big
+    check("refused: a song over the size limit (413)", err is not None and err[0] == 413, err)
+    check("nothing refused reached the library", comp.songs() == [])
+    r = comp.add_song("My Tune.wav", W, "my-tune", "made up for a test", "CC0")
+    sg = r["songs"][0]
+    check("a song is added to the LIBRARY under its id, with its source, licence and length (read from the WAV)",
+          r["added"] == "my-tune" and sg["file"] == "songs/my-tune.wav" and sg["duration_s"] == 0.5
+          and sg["licence"] == "CC0" and os.path.isfile(os.path.join(lib, "songs", "my-tune.wav"))
+          and not os.path.exists(os.path.join(shows, "songs")), sg)
+    check("... and the same id again is refused", api_error(comp.add_song, "x.wav", W, "my-tune", "s", "l") is not None)
+    p_, ctype = comp.song_audio("my-tune")
+    check("the editor can play a library song", ctype == "audio/wav" and open(p_, "rb").read() == W)
+    text = open(os.path.join(shows, "hello.yaml"), encoding="utf-8").read()
+    r = comp.edit("hello.yaml", text, [{"op": "music", "key": "song", "value": "my-tune"},
+                                       {"op": "music", "key": "file", "value": None}])
+    m = r["timeline"]["music"]
+    check("attaching a song is an edit of the show's music block: song in, file out, tempo kept (or 120 BPM if new)",
+          m["song"] == "my-tune" and m["file"] is None
+          and m["bpm"] == (yaml.safe_load(text).get("music") or {}).get("bpm", 120)
+          and r["timeline"]["valid"], (m, r["timeline"]["problems"]))
+    comp.save("hello.yaml", r["text"])
+    check("the song lists the show that uses it", comp.songs()[0]["used_by"] == ["hello.yaml"])
+    err = api_error(comp.delete_song, "my-tune", "my-tune")
+    check("deleting a song a show still uses is refused (409), naming the show",
+          err and err[0] == 409 and "hello.yaml" in err[1] and os.path.isfile(os.path.join(lib, "songs", "my-tune.wav")), err)
+    r2 = comp.edit("hello.yaml", r["text"], [{"op": "music", "key": "song", "value": None}])
+    m2 = r2["timeline"]["music"]
+    check("removing the music from a show drops the reference only: the grid stays, the song stays in the library",
+          m2 and m2["song"] is None and m2["bpm"] == m["bpm"] and os.path.isfile(os.path.join(lib, "songs", "my-tune.wav")), m2)
+    comp.save("hello.yaml", r2["text"])
+    check("deleting needs confirm = the song's id", api_error(comp.delete_song, "my-tune", True) is not None)
+    r = comp.delete_song("my-tune", "my-tune")
+    check("once unused, a confirmed delete removes the song's file and entry",
+          r["songs"] == [] and not os.path.exists(os.path.join(lib, "songs", "my-tune.wav")))
+
+    # the same through the standalone server: the file is the body, what describes it is the query
+    import server as composer_server  # noqa: E402
+    from http.server import ThreadingHTTPServer  # noqa: E402
+    from urllib.parse import urlencode  # noqa: E402
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), composer_server.make_handler(comp))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def post(path, body, ctype="application/octet-stream"):
+        req = urllib.request.Request(base + path, data=body, method="POST", headers={"Content-Type": ctype})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    q = urlencode({"filename": "tune.wav", "id": "tune", "source": "made up", "licence": "CC0"})
+    code, j = post("/api/library/songs?" + q, W)
+    check("over HTTP: an upload adds the song", code == 200 and j["added"] == "tune", (code, j))
+    with urllib.request.urlopen(base + "/library/song/tune", timeout=10) as resp:
+        check("over HTTP: the song plays back from the library", resp.read() == W)
+    composer_server.MAX_SONG_BYTES = 100
+    code, j = post("/api/library/songs?" + q.replace("tune", "tune2"), W)
+    composer_server.MAX_SONG_BYTES = big
+    check("over HTTP: an upload over the limit is refused by its declared length (413)", code == 413, (code, j))
+    code, j = post("/api/library/songs/delete", json.dumps({"id": "tune", "confirm": "tune"}).encode(), "application/json")
+    check("over HTTP: a confirmed delete", code == 200 and j["deleted"] == "tune", (code, j))
+    srv.shutdown()
+finally:
+    if saved_env is None:
+        os.environ.pop("OPENDUBS_LIBRARY", None)
+    else:
+        os.environ["OPENDUBS_LIBRARY"] = saved_env
+    shutil.rmtree(tmp)
+
 print("\nthe simulator preview's sampling (no MuJoCo needed)")
 sys.path.insert(0, os.path.join(HERE, ".."))
 import cue  # noqa: E402

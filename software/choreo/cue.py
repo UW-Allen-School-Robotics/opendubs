@@ -352,13 +352,13 @@ class Show:
         if m is None:
             return None
         if not isinstance(m, dict):
-            P(Problem("music: must be a mapping (file, bpm, offset_s, beats_per_bar)"))
+            P(Problem("music: must be a mapping (song or file, bpm, offset_s, beats_per_bar)"))
             return None
-        out = {"file": m.get("file"), "bpm": m.get("bpm"), "offset_s": m.get("offset_s", 0.0),
-               "beats_per_bar": m.get("beats_per_bar", 4)}
+        out = {"file": m.get("file"), "song": m.get("song"), "bpm": m.get("bpm"),
+               "offset_s": m.get("offset_s", 0.0), "beats_per_bar": m.get("beats_per_bar", 4)}
         for k in m:
             if k not in out and k != "output":
-                P(Problem(f"music: unknown key {k!r} (known: file, bpm, offset_s, beats_per_bar, output)"))
+                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output)"))
         written = m.get("output", DEFAULT_AUDIO_OUTPUT)
         if written not in AUDIO_OUTPUTS:
             P(Problem(f"music: output {written!r} is not one of {', '.join(AUDIO_OUTPUTS)}"))
@@ -387,6 +387,14 @@ class Show:
             ok = False
         if out["file"] is not None and not isinstance(out["file"], str):
             P(Problem("music: file must be a path relative to the show"))
+            ok = False
+        # `song:` names a song in the show library (plan 4.6); `file:` is a file next to the show and
+        # stays valid. One or the other: two would leave it unclear which plays.
+        if out["song"] is not None and (not isinstance(out["song"], str) or not out["song"]):
+            P(Problem("music: song must be a library song's id"))
+            ok = False
+        if out["song"] is not None and out["file"] is not None:
+            P(Problem("music: give a song (from the library) or a file, not both"))
             ok = False
         if not ok:
             return None
@@ -622,6 +630,7 @@ class Show:
         notices: list[str] = []
         P = problems.append
         self._unchecked_skins, self._skin_assets, self._lib = set(), {}, False
+        self._unchecked_song = None
         self._grip_effort = False
 
         fmt = self.doc.get("format", FORMAT_VERSION)
@@ -670,6 +679,16 @@ class Show:
                     notices.append(f"authored face theme(s) {', '.join(authored)}: install them on the "
                                    "head (CFG) before the show, or THEME answers 'unknown theme' and the "
                                    "face keeps the theme it has")
+        if music and music.get("song"):
+            idx = self._library()
+            if idx is None:
+                self._unchecked_song = music["song"]      # no library here: a notice, not a problem
+            else:
+                e = idx.get(music["song"])
+                if e is None or e.get("kind") != "song":
+                    P(Problem(f"music: song {music['song']!r} is not a song in the library at {library.root()}"))
+                else:
+                    self._skin_assets[music["song"]] = e.get("sha256")
         if music and music.get("file") and self.path and os.path.isfile(self.path):
             audio = os.path.join(os.path.dirname(os.path.abspath(self.path)), music["file"])
             if not os.path.isfile(audio):
@@ -824,6 +843,9 @@ class Show:
             notices.append("gripper `effort` has no physical effect on this robot: its grippers take a "
                            "position only, and how hard they squeeze is set by the calibrated closed "
                            "position (Arms lane, 2026-10-10)")
+        if self._unchecked_song:
+            notices.append(f"no show library at {library.root()}: song {self._unchecked_song!r} is unchecked "
+                           "here — the Thor checks it against its library before every run")
         if self._unchecked_skins:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
@@ -1304,7 +1326,7 @@ class Show:
             evs.sort(key=lambda x: (x["start"], x["t"]))
         music = None
         if a["music"]:
-            music = {k: a["music"][k] for k in ("file", "bpm", "offset_s", "beats_per_bar")}
+            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar")}
             music["output"] = a["music"].get("output", DEFAULT_AUDIO_OUTPUT)
             music["beat_s"] = _r(a["music"]["beat_s"])
         ends = [e["end"] for e in a["events"] if "end" in e] + [m["t"] for m in a["markers"]]

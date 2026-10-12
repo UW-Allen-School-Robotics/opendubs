@@ -14,7 +14,9 @@ choreo-teach-and-sync.md, not implemented.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
 
@@ -26,12 +28,18 @@ sys.path.insert(0, CHOREO)
 sys.path.insert(0, HERE)
 
 import cue  # noqa: E402  the validator is the gate; we call it, never copy it
+import library  # noqa: E402  the show library (songs, clips, skins) — its rules, not copies of them
 import yamledit  # noqa: E402
 
 FIXTURE_LIMITS = os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml")
 STATIC_DIR = os.path.join(HERE, "static")
 AUDIO_EXT = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".flac": "audio/flac",
              ".m4a": "audio/mp4"}
+# An uploaded song: one of these types, checked by its first bytes as well as its name, and no
+# bigger than this. The composer has no login when it listens beyond localhost (server.py), so an
+# upload is limited to what a song needs: about 7 minutes of CD-quality WAV, or hours of MP3.
+MAX_SONG_BYTES = 80 * 1024 * 1024
+MAX_SONG_S = 20 * 60
 
 
 class ApiError(Exception):
@@ -41,8 +49,13 @@ class ApiError(Exception):
 
 
 class Composer:
-    def __init__(self, shows_dir: str, limits_path: str | None = None):
+    def __init__(self, shows_dir: str, limits_path: str | None = None, library_dir: str | None = None):
         self.shows_dir = os.path.realpath(shows_dir)
+        # The show library the songs come from and go to. The validator reads OPENDUBS_LIBRARY, so
+        # the composer sets it: what it checks against is what it writes.
+        if library_dir:
+            os.environ["OPENDUBS_LIBRARY"] = os.path.realpath(library_dir)
+        self.library_dir = os.path.realpath(library.root())
         if limits_path is None:
             limits_path = cue.DEFAULT_LIMITS if os.path.isfile(cue.DEFAULT_LIMITS) else FIXTURE_LIMITS
         self.limits_path = limits_path
@@ -67,7 +80,10 @@ class Composer:
         return p
 
     def info(self) -> dict:
-        return {"shows_dir": self.shows_dir, "limits": os.path.basename(self.limits_path),
+        return {"shows_dir": self.shows_dir, "library_dir": self.library_dir,
+                "library_exists": library.load_index(self.library_dir) is not None,
+                "max_song_mb": MAX_SONG_BYTES // (1024 * 1024), "song_types": sorted(library.SONG_TYPES),
+                "limits": os.path.basename(self.limits_path),
                 "limits_are_test_fixture": self.fixture, "preview_only": True,
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
                 "speed_caps": cue.SPEED_CAP_DEG_S}
@@ -186,6 +202,82 @@ class Composer:
         if not os.path.isfile(p):
             raise ApiError("no such audio file — see shows/audio/make_test_audio.py", 404)
         return p, AUDIO_EXT[os.path.splitext(p)[1].lower()]
+
+    # ---- the library's songs (plan 4.6): add, list, delete, play ---------------------------
+    def songs(self) -> list:
+        """Every song in the library, with the shows here that use it."""
+        out = []
+        for e in library.items_of("song", self.library_dir):
+            out.append({k: e.get(k) for k in ("id", "file", "duration_s", "source", "licence")}
+                       | {"used_by": library.shows_using(e["id"], self.shows_dir)})
+        return out
+
+    def add_song(self, filename: str, data: bytes, item_id: str, source: str, licence: str,
+                 duration_s=None) -> dict:
+        """One uploaded song into the library, through library.add — its rules: a source and a
+        licence, a hash, a duration. The type is checked by the file's first bytes, not only its
+        name. `duration_s` is the browser's reading, used only when the server cannot read one."""
+        ext = os.path.splitext(filename or "")[1].lower()
+        if ext not in library.SONG_TYPES:
+            raise ApiError(f"a song is one of {', '.join(sorted(library.SONG_TYPES))} — not {ext or 'that'}", 415)
+        if not data:
+            raise ApiError("the file is empty")
+        if len(data) > MAX_SONG_BYTES:
+            raise ApiError(f"over the {MAX_SONG_BYTES // (1024 * 1024)} MB limit for a song", 413)
+        if not isinstance(item_id, str) or not library.ID_RE.match(item_id):
+            raise ApiError("the id is lower-case letters, digits, - and _ (up to 64), starting with a letter or digit")
+        if not (source or "").strip() or not (licence or "").strip():
+            raise ApiError("a song needs its source and its licence — where it came from, and what allows "
+                           "the robot to play it")
+        tmp = tempfile.mkdtemp(prefix="composer-song-")
+        try:
+            path = os.path.join(tmp, item_id + ext)
+            with open(path, "wb") as fh:
+                fh.write(data)
+            if not library.looks_like_song(path):
+                raise ApiError(f"that file does not look like {ext} audio inside — refused", 415)
+            dur = library.probe(path).get("duration_s")
+            if dur is None and duration_s is not None:
+                try:
+                    dur = round(float(duration_s), 3)
+                except (TypeError, ValueError):
+                    dur = None
+            if dur is None or not 0 < dur <= MAX_SONG_S:
+                raise ApiError("could not read the song's length (the browser could not decode it either?)")
+            try:
+                e = library.add(path, item_id, "song", source, licence, self.library_dir, duration_s=dur)
+            except ValueError as err:
+                raise ApiError(f"not added: {err}") from err
+            except OSError as err:
+                raise ApiError(f"not added: cannot write the library at {self.library_dir} ({err.strerror}) — "
+                               "start the composer with --library <a folder you can write>", 500) from err
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        return {"added": e["id"], "songs": self.songs()}
+
+    def delete_song(self, item_id: str, confirm) -> dict:
+        """Delete a song from the library — its file and its entry. Refused while a show here still
+        uses it (the list is returned), and without `confirm` equal to its id."""
+        if confirm != item_id:
+            raise ApiError("deleting a song needs confirm: <its id>")
+        used = library.shows_using(item_id, self.shows_dir)
+        if used:
+            raise ApiError(f"{item_id!r} is still the music of {', '.join(used)} — take it out of "
+                           "those shows first", 409)
+        try:
+            library.remove(item_id, self.library_dir)
+        except ValueError as err:
+            raise ApiError(str(err), 404) from err
+        return {"deleted": item_id, "songs": self.songs()}
+
+    def song_audio(self, item_id: str) -> tuple[str, str]:
+        e = (library.load_index(self.library_dir) or {}).get(item_id)
+        if not e or e.get("kind") != "song":
+            raise ApiError("no such song in the library", 404)
+        p = os.path.realpath(os.path.join(self.library_dir, e["file"]))
+        if not p.startswith(self.library_dir + os.sep) or not os.path.isfile(p):
+            raise ApiError("the song's file is missing from the library", 404)
+        return p, AUDIO_EXT.get(os.path.splitext(p)[1].lower(), "application/octet-stream")
 
     # ---- teaching: measured joints in, outward-sense keyframe out ---------------------------
     def earliest(self, rel: str, text: str, slot: str, joints: dict, t=None, index=None) -> dict:
