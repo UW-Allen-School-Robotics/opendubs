@@ -56,6 +56,26 @@ def drain(s, limit=0.05):
             return
 
 
+def is_param_reply(mid, d):
+    """A register read/write reply, [id_lo, id_hi, 0x33|0x55, reg, value x4], not a status frame.
+
+    Byte 2 alone does not tell them apart: in a status frame it is the low byte of the position,
+    so 0x33 or 0x55 turns up at about 1 pose in 128. Testing only byte 2 reported a held motor
+    as `no reply` for as long as it held still (opendubs2, right J1 at +1.13 deg, 2026-10-12).
+    A status frame matching all three bytes would be DISABLED at about -710 deg: out of reach.
+    """
+    return d[0] == mid and d[1] == 0 and d[2] in (0x33, 0x55)
+
+
+def parse(mid, can_id, n, d):
+    """Motor state (status name, position deg, MOS C, rotor C) if this frame is mid's status."""
+    if (can_id & 0x7FF) != 0x10 + mid or n < 8 or is_param_reply(mid, d):
+        return None
+    q = ((d[1] << 8) | d[2]) * (2 * P_MAX) / 65535.0 - P_MAX
+    st = d[0] >> 4
+    return STATUS.get(st, f"UNKNOWN_0x{st:X}"), q * 57.29578, d[6], d[7]
+
+
 def read(s, mid):
     """Motor state (status name, position deg, MOS C, rotor C), or None if it didn't answer."""
     s.send(refresh(mid))
@@ -66,11 +86,9 @@ def read(s, mid):
         except socket.timeout:
             continue
         can_id, n, _f, _a, _b, data = FRAME.unpack(raw.ljust(FRAME.size, b"\0"))
-        d = data[:8]
-        if (can_id & 0x7FF) == 0x10 + mid and n >= 8 and d[2] not in (0x33, 0x55):
-            q = ((d[1] << 8) | d[2]) * (2 * P_MAX) / 65535.0 - P_MAX
-            st = d[0] >> 4
-            return STATUS.get(st, f"UNKNOWN_0x{st:X}"), q * 57.29578, d[6], d[7]
+        r = parse(mid, can_id, n, data[:8])
+        if r is not None:
+            return r
     return None
 
 
