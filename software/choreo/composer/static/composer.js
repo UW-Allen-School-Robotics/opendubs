@@ -403,7 +403,7 @@ function renderLanes() {
       for (const n of notes()) {
         if (n.t0 === null || n.t0 === undefined) continue;
         const w = Math.max(14, (n.t1 - n.t0) * pps), sel = S.selectedNote === n.id ? "sel" : "";
-        parts.push(`<div class="tnote ${n.status} ${sel}" data-note="${esc(n.id)}" style="left:${n.t0 * pps}px;width:${w}px" title="${esc(`${n.id} (${n.status}): ${n.text}` + (n.reply ? `\n↳ ${n.reply}` : ""))}">${esc(n.text)}</div>`);
+        parts.push(`<div class="tnote ${n.status} ${sel}" data-note="${esc(n.id)}" style="left:${n.t0 * pps}px;width:${w}px" title="${esc(`${n.id} (${n.status}): ${n.text}` + (n.reply ? `\n↳ ${n.reply}` : "") + "\n(drag to move; drag the right edge to change where it ends)")}">${esc(n.text)}<span class="tnote-end"></span></div>`);
       }
       parts.push("</div>");
       continue;
@@ -726,7 +726,13 @@ function laneX(ev) { const r = $("canvas").getBoundingClientRect(); return ev.cl
 let drag = null;
 function onDown(ev) {
   const nt = ev.target.closest("[data-note]");
-  if (nt) { S.selectedNote = nt.dataset.note; S.selected = null; renderLanes(); renderInspector(); return; }
+  if (nt) {
+    const n = notes().find((x) => x.id === nt.dataset.note);
+    drag = { note: n, mode: ev.target.closest(".tnote-end") ? "end" : "move", el: nt, x0: ev.clientX, moved: false,
+             left0: parseFloat(nt.style.left), w0: parseFloat(nt.style.width), id: ev.pointerId };
+    nt.setPointerCapture(ev.pointerId); ev.preventDefault();
+    return;
+  }
   const target = ev.target.closest("[data-cue]");
   if (!target || !target.closest("#lanes")) {
     if (ev.target.closest("#lanes") || ev.target.closest("#ruler") || ev.target.closest("#music")) {
@@ -740,6 +746,22 @@ function onDown(ev) {
   ev.preventDefault();
 }
 function onMove(ev) {
+  if (drag && drag.note && ev.pointerId === drag.id) {
+    const dx = ev.clientX - drag.x0;
+    if (!drag.moved && Math.abs(dx) < 6) return;
+    drag.moved = true;
+    const n = drag.note, len = (n.t1 ?? n.t0) - n.t0;
+    if (drag.mode === "end") {
+      drag.t1 = Math.max(n.t0, snapT((n.t1 ?? n.t0) + dx / S.pps));
+      drag.el.style.width = Math.max(14, (drag.t1 - n.t0) * S.pps) + "px";
+      $("clock").textContent = `note ends → ${drag.t1.toFixed(2)} s${barLabel(drag.t1) ? " · " + barLabel(drag.t1) : ""}`;
+    } else {
+      drag.t0 = Math.max(0, snapT(n.t0 + dx / S.pps)); drag.t1 = drag.t0 + len;
+      drag.el.style.left = (drag.t0 * S.pps) + "px";
+      $("clock").textContent = `note → ${drag.t0.toFixed(2)} s${barLabel(drag.t0) ? " · " + barLabel(drag.t0) : ""}`;
+    }
+    return;
+  }
   if (!drag || drag.seek || ev.pointerId !== drag.id) return;
   const dx = ev.clientX - drag.x0;
   if (!drag.moved && Math.abs(dx) < 6) return;
@@ -753,6 +775,15 @@ function onMove(ev) {
 function onUp(ev) {
   if (!drag || ev.pointerId !== drag.id) return;
   const d = drag; drag = null;
+  if (d.note) {
+    S.selectedNote = d.note.id; S.selected = null;
+    if (!d.moved) { renderLanes(); renderInspector(); return; }
+    const nn = { ...noteDoc(d.note) };
+    if (d.mode === "move") nn.at = noteTime(d.t0);
+    if (d.t1 !== undefined && d.t1 > (d.mode === "move" ? d.t0 : d.note.t0) + 1e-6) nn.to = noteTime(d.t1); else delete nn.to;
+    edit([{ op: "note_set", id: d.note.id, note: nn }], `note ${d.note.id}: ${nn.at}${nn.to !== undefined ? " → " + nn.to : ""}`);
+    return;
+  }
   if (d.seek) {
     if (Math.abs(ev.clientX - d.x0) < 8 && Math.abs(ev.clientY - d.y0) < 8) seek(laneX(ev) / S.pps);
     return;
@@ -933,6 +964,16 @@ function noteTime(t) {
   const beat = Math.max(1, Math.round(beatOf(t))), bar = Math.floor((beat - 1) / m.beats_per_bar) + 1;
   return `${bar}.${((beat - 1) % m.beats_per_bar) + 1}`;
 }
+/* a note as written in the file (what note_set writes back), from its resolved form */
+function noteDoc(n) {
+  const out = { id: n.id, at: n.at };
+  if (n.to !== null && n.to !== undefined) out.to = n.to;
+  if (n.slots && n.slots.length) out.slots = n.slots;
+  out.text = n.text; out.status = n.status;
+  if (n.reply) out.reply = n.reply;
+  if (n.by) out.by = n.by;
+  return out;
+}
 function addNote() {
   const m = music(), t0 = S.t, t1 = S.t + (m ? m.beat_s * m.beats_per_bar : 2);
   const id = nextNoteId();
@@ -941,6 +982,27 @@ function addNote() {
     S.selectedNote = id; S.selected = null; renderLanes(); renderInspector();
     const ta = $("nText"); if (ta) { ta.focus(); ta.select(); }
   });
+}
+/* A note's at / to, as typed: with a beat grid, "30" is bar 30, "30.3" bar 30 beat 3, and "61s" is
+ * seconds; without one, numbers are seconds. Anything else is refused WITH the reason — "30.5" in
+ * 4/4 is not a beat, and silently accepting it collapsed the note to a point (found by the user). */
+function parseWhen(x) {
+  x = (x || "").trim();
+  if (!x) return { value: undefined };
+  const m = music();
+  let mm = x.match(/^(\d+(?:\.\d+)?)\s*s$/);
+  if (mm) return { value: Number(mm[1]), secs: Number(mm[1]) };
+  if (!m) {
+    if (/^\d+(\.\d+)?$/.test(x)) return { value: Number(x), secs: Number(x) };
+    return { error: `“${x}”: write seconds, e.g. 12.5` };
+  }
+  mm = x.match(/^(\d+)(?:\.(\d+))?$/);
+  if (!mm) return { error: `“${x}”: a bar like 9.3 (bar 9, beat 3), or seconds like 18.5s` };
+  const bar = +mm[1], beat = mm[2] === undefined ? 1 : +mm[2], bpb = m.beats_per_bar;
+  if (bar < 1 || beat < 1 || beat > bpb) {
+    return { error: `“${x}”: bar.beat — a bar has ${bpb} beats (${bar}.1–${bar}.${bpb}); halfway through bar ${bar} is ${bar}.${Math.floor(bpb / 2) + 1}, the start of the next is ${bar + 1}.1; for seconds write ${x}s` };
+  }
+  return { value: mm[2] === undefined ? String(bar) : `${bar}.${beat}`, secs: m.offset_s + ((bar - 1) * bpb + beat - 1) * m.beat_s };
 }
 function renderNoteInspector() {
   const el = $("inspector"), n = notes().find((x) => x.id === S.selectedNote);
@@ -951,21 +1013,31 @@ function renderNoteInspector() {
     <div class="meta">note ${esc(n.id)} · ${esc(span)} ${n.by ? "· replied by " + esc(n.by) : ""}</div>
     <textarea id="nText" spellcheck="true" placeholder="What should change here? e.g. make this wave bigger and on the beat">${esc(n.text)}</textarea>
     <div class="row2">
-      <label>at <input id="nAt" value="${esc(n.at ?? "")}" title="a bar.beat like 9.1, or seconds"></label>
-      <label>to <input id="nTo" value="${esc(n.to ?? "")}" title="optional: a bar.beat or seconds"></label>
+      <label>at <input id="nAt" value="${esc(n.at ?? "")}" title="bar.beat like 9.3 (bar 9, beat 3), a bar like 9, or seconds like 18.5s"> <span id="nAtT" class="dim"></span></label>
+      <label>to <input id="nTo" value="${esc(n.to ?? "")}" title="optional: bar.beat, a bar, or seconds like 22s — or drag the note's right edge"> <span id="nToT" class="dim"></span></label>
       <select id="nStatus" title="open: still to do · done · declined (the reply says why)">${["open", "done", "declined"].map((x) => `<option ${x === n.status ? "selected" : ""}>${x}</option>`).join("")}</select>
     </div>
     <div class="row2 slots" title="Which parts the note is about (none: the whole show at that time)">${slotsBox}</div>
     ${n.reply ? `<div class="reply">↳ ${esc(n.reply)}</div>` : ""}
+    ${((tl() && tl().warnings) || []).filter((w) => w.msg.includes(`(${n.id})`)).map((w) => `<div class="wrn">${esc(w.msg)}</div>`).join("")}
+    <div id="nErr" class="err"></div>
     <div class="row2"><button id="nApply">apply</button><button id="nDelete">delete note</button><button id="nCopy" title="Copy the open notes as a prompt">⧉ copy notes as a prompt</button></div>
     <div class="note">Notes never move the robot: the runner ignores them. Save, then hand them to an agent.</div>`;
+  const show = () => {
+    const a = parseWhen($("nAt").value), b = parseWhen($("nTo").value);
+    $("nAtT").textContent = a.error ? "?" : a.secs !== undefined ? `= ${a.secs.toFixed(2)} s` : "";
+    $("nToT").textContent = b.error ? "?" : b.secs !== undefined ? `= ${b.secs.toFixed(2)} s` : "";
+    const err = a.error || b.error || (a.value === undefined ? "a note needs its start (at)" : "")
+      || (b.secs !== undefined && a.secs !== undefined && b.secs < a.secs ? "the end (to) is before the start (at)" : "");
+    $("nErr").textContent = err; $("nApply").disabled = !!err;
+    return { a, b, err };
+  };
+  $("nAt").oninput = show; $("nTo").oninput = show; show();
   $("nApply").onclick = () => {
-    const at = $("nAt").value.trim(), to = $("nTo").value.trim();
-    /* "9.1" is a bar; a plain number like "12" or "12.5s" is seconds */
-    const asTime = (x) => x === "" ? undefined : /^\d+\.\d+$/.test(x) ? x : /^\d+(\.\d+)?s$/.test(x) ? Number(x.slice(0, -1)) : /^\d+$/.test(x) ? Number(x) : x;
+    const { a, b, err } = show(); if (err) return;
     const slots = [...el.querySelectorAll("[data-nslot]")].filter((c) => c.checked).map((c) => c.dataset.nslot);
-    const nn = { id: n.id, at: asTime(at) };
-    if (asTime(to) !== undefined) nn.to = asTime(to);
+    const nn = { id: n.id, at: a.value };
+    if (b.value !== undefined) nn.to = b.value;
     if (slots.length) nn.slots = slots;
     nn.text = $("nText").value.trim() || n.text;
     nn.status = $("nStatus").value;
