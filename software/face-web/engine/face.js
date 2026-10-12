@@ -10,6 +10,7 @@ export const DESIGN_W = 1280, DESIGN_H = 720;        // the Tab5's panel, the ge
 // ---- PROTOTYPE PARAMETERS (notes/design/face-eyes-and-gaze.md) -------------------------------
 // ?eyes=shape  expression through lid shape instead of scale
 // ?eyes=full   the above, plus microsaccades, smooth pursuit and a mutual-gaze aversion timer
+// ?quotes=0   no idle caption, so a side-by-side comparison has nothing moving to read
 // ?eye=<px>    eye width            (ships: 480)
 // ?ipd=<px>    interpupillary dist. (ships: 643 = 480 x 1.34)
 //
@@ -26,6 +27,7 @@ export const PROTO = Q.get("eyes") || "";            // "", "shape" or "full"
 // to a different random emote every few seconds and the two windows are never showing the same
 // thing, so nothing can be compared. Prototype wiring, and the same name the protocol uses.
 const PIN = (Q.get("emote") || "").toUpperCase();
+const QUOTES_ON = Q.get("quotes") !== "0";     // ?quotes=0 for a clean side-by-side
 const SHAPE_MODE = PROTO === "shape" || PROTO === "full";
 const FULL_MODE  = PROTO === "full";
 
@@ -108,6 +110,16 @@ export class Face {
   applyColour(colour = this.stateColour()) {
     rgb(colour).forEach((v, k) => { if (this.col[k].target !== v) this.col[k].set(v, 0.45); });
   }
+  // The lid an emote rests at. PLEASED exists only in SHAPES, so EMOTES[name] can be undefined --
+  // and the blink below needs this answer just as much as applyEmote does. It used to read
+  // EMOTES[this.emote][3] directly, which threw on the first blink after PLEASED was pinned and
+  // killed the render loop: the face froze mid-blink a few seconds after the page loaded. One rule
+  // in one place, used by both.
+  restingLid(name) {
+    const shape = SHAPE_MODE ? SHAPES[name] : null;
+    if (shape) return shape.lu;
+    return (EMOTES[name] ?? EMOTES.NEUTRAL)[3];
+  }
   applyEmote(name) {
     const base = EMOTES[name];
     const shape = SHAPE_MODE ? SHAPES[name] : null;
@@ -120,7 +132,7 @@ export class Face {
     // where a size change is the meaning -- so the eye stops changing shape to show a feeling.
     const w = BODY * (shape ? shape.wm : wm), h = BODY * (shape ? shape.hm : hm);
     this.bodyW.set(w); this.bodyH.set(h); this.radius.set(Math.min(w, h) * rf);
-    if (!this.blinking) this.lid.set(shape ? shape.lu : lid);
+    if (!this.blinking) this.lid.set(this.restingLid(name));
     this.browRaise.set(br); this.browAngle.set(ba);
     if (shape) { this.lidLower.set(shape.ll); this.lidCurve.set(shape.lc); this.pupil.set(shape.pu); }
   }
@@ -152,7 +164,7 @@ export class Face {
       this.lid.snap(this.lid.value); this.lid.set(1); this.lid.k = 900; this.lid.c = 60;
     } else if (this.blinking && now >= this.blinkEnd) {
       this.blinking = false; this.lid.k = 170; this.lid.c = 19;
-      this.lid.set(EMOTES[this.emote][3]);
+      this.lid.set(this.restingLid(this.emote));
       this.nextBlink = now + 2200 + rnd(3000);
     }
 
@@ -228,7 +240,10 @@ export class Face {
     }
 
     // Quotes: only while the face is free, slow enough to read.
-    if (!this.free()) this.quote = -1;
+    // ?quotes=0 keeps the idle caption off entirely. For a side-by-side comparison a line of text
+    // that changes every nine seconds, differently in each window, is something to read rather than
+    // something to judge. main.js needs no change: it draws whatever quoteText() returns.
+    if (!QUOTES_ON || !this.free()) this.quote = -1;
     else if (now >= this.nextQuote || this.quote < 0) { this.quote = (this.quote + 1) % QUOTES.length; this.nextQuote = now + 9000; }
 
     for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.browRaise, this.browAngle,
