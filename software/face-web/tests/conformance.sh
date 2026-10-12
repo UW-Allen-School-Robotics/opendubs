@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 # First the things the protocol suite cannot see. All cheap, and all fail before a port is opened.
 node software/face-web/tests/test_spin.mjs           # SPIN's timing, and that nothing ever jumps
+node software/face-web/tests/test_moves.mjs          # MOVE: each gesture lands on its published peak
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 python3 software/face-web/tests/test_frame_tap.py    # the body twin's picture (no ports, no page)
 
