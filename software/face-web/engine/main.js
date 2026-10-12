@@ -14,7 +14,7 @@
 
 import { Face, DESIGN_W, DESIGN_H } from "./face.js";
 import { STATES, EMOTES } from "./vocab.js";
-import { handle, Earcons } from "./protocol.js";
+import { handle, Earcons, libraryRefresher } from "./protocol.js";
 import { Skins, CODE_SKINS } from "./skins/index.js";
 
 const q = new URLSearchParams(location.search);
@@ -22,9 +22,11 @@ const face = new Face();
 const audio = new Earcons(q.get("audio") === "1");
 const skins = new Skins();
 window.faceSkins = skins;                          // read by a harness through devtools
-skins.loadLibrary(new URL(q.get("library") || "../library/", import.meta.url)).then(() => {
+const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
+skins.loadLibrary(libraryUrl).then(() => {
   if (q.get("skin")) skins.select(q.get("skin"));
 });
+skins.refresh = libraryRefresher(skins, libraryUrl);   // a skin added after this page loaded (protocol.js)
 let neck = null;                                   // {pan, tilt, owner} from a door, if it has a neck
 
 const BG = q.get("bg") || "#000";
@@ -104,7 +106,10 @@ function connect() {
     const msg = JSON.parse(m.data);
     if (msg.neck) neck = msg.neck;
     if (msg.frames) startTap(ws, msg.frames);
-    if (msg.line !== undefined) ws.send(JSON.stringify({ id: msg.id, reply: handle(face, audio, msg.line, performance.now(), skins) }));
+    if (msg.line !== undefined) {
+      Promise.resolve(handle(face, audio, msg.line, performance.now(), skins))
+        .then((reply) => ws.send(JSON.stringify({ id: msg.id, reply })));
+    }
   };
   ws.onclose = () => { stopTap(); setTimeout(connect, 1000); };
 }

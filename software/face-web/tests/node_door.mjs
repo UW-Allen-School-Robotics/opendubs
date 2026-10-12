@@ -18,6 +18,7 @@ setInterval(() => { const now = performance.now(); face.tick(now, (now - last) /
 const sock = dgram.createSocket("udp4");
 sock.on("message", (msg, peer) => {
   const line = msg.toString("latin1").split("\0")[0].replace(/[\r\n]+$/, "");
-  sock.send(handle(face, audio, line, performance.now(), skins), peer.port, peer.address);
+  Promise.resolve(handle(face, audio, line, performance.now(), skins))
+    .then((reply) => sock.send(reply, peer.port, peer.address));
 });
 sock.bind(port, "127.0.0.1", () => console.log(`face engine (headless) on udp 127.0.0.1:${port}`));
