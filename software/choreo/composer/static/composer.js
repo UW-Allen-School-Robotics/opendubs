@@ -333,7 +333,8 @@ function renderHeads() {
     if (lane !== "CLIPS") btns += `<button data-add="${lane}" title="Add a ${lane} cue at the playhead">+</button>`;
     if (lane === "ARM_L" || lane === "ARM_R") btns += `<button data-teach="${lane}" title="Capture this arm's measured pose as a keyframe at the playhead (FAKE source in this build)">⦿</button>`;
     if (lane !== "CLIPS") btns += muteBtn(lane);
-    html += `<div class="${cls}" title="${und ? "not declared in slots: — a cue here will fail validation" : ""}"><span class="name">${lane}</span>${btns}</div>`;
+    const tip = und ? `Not in this show's slots: list. Adding a cue here lists it; or tap the name to list it now` : "";
+    html += `<div class="${cls}" title="${tip}"><span class="name" ${und ? `data-declare="${lane}"` : ""}>${lane}</span>${btns}</div>`;
   }
   h.innerHTML = html;
 }
@@ -626,6 +627,9 @@ const DEFAULTS = {
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
   DANCE: { move: "sway", secs: 2 },
 };
+/* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
+ * cue to a part not listed there lists it, in the same edit — one undo takes back both. */
+function declareIfNeeded(slot) { return declared().has(slot) ? [] : [{ op: "declare", slot }]; }
 function addCue(slot) {
   const t = snapT(S.t);
   let body = DEFAULTS[slot];
@@ -635,7 +639,8 @@ function addCue(slot) {
     for (let j = 1; j <= 7; j++) if (Math.abs(p[j]) > 0.05) joints[j] = round(p[j], 1);
     body = { joints: Object.keys(joints).length ? joints : { 7: 0 } };
   }
-  edit([{ op: "add", cue: { ...newCueTime(t), slot, ...body } }], `added ${slot} at ${t.toFixed(2)} s`);
+  edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, ...body } }],
+    `added ${slot} at ${t.toFixed(2)} s` + (declared().has(slot) ? "" : ` — and declared ${slot} in slots: (undo takes back both)`));
 }
 /* A STAND-IN for /joint_states. On the robot the browser would subscribe to /joint_states through
  * rosbridge (the transport notes/design/arm-telemetry-and-viz.md settles), read-only, and post ONE
@@ -663,7 +668,7 @@ async function teach(slot) {
     const asked = snapT(S.t);
     const r = await api("api/earliest", { path: S.path, text: S.text, slot, joints: cap.joints, t: asked });
     const t = r.moved ? snapUp(r.t) : asked;
-    await edit([{ op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
+    await edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, joints: cap.joints } }]);
     toast(`captured ${slot} from the ${cap.source.toUpperCase()} source: ` + Object.entries(cap.joints).map(([j, v]) => `J${j} ${v}`).join(", ")
       + (r.moved ? ` — placed at ${t.toFixed(2)} s, not ${asked.toFixed(2)} s: ${r.reason}` : "")
       + (r.next_problem ? ` · ${r.next_problem}` : ""), r.moved || r.next_problem ? 9000 : 5000);
@@ -888,6 +893,8 @@ function bind() {
     S.undo.push(S.text); setData(d); toast(d.parse_error ? "applied, but it does not parse" : "applied", 1600);
   };
   $("heads").addEventListener("click", (e) => {
+    const d = e.target.closest("[data-declare]");
+    if (d) { edit([{ op: "declare", slot: d.dataset.declare }], `${d.dataset.declare} is now in slots:`); return; }
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.add) addCue(b.dataset.add);
     if (b.dataset.teach) teach(b.dataset.teach);

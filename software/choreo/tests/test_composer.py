@@ -172,6 +172,35 @@ try:
 finally:
     shutil.rmtree(tmp)
 
+print("\nslots: adding a cue to a part the show does not list (the user's GRIP bug: the demo's shows list no GRIP)")
+tmp = tempfile.mkdtemp()
+try:
+    shutil.copy(os.path.join(SHOWS, "hello.yaml"), tmp)
+    comp = Composer(tmp, FIXTURE)
+    base = open(os.path.join(tmp, "hello.yaml"), encoding="utf-8").read()
+    assert "LIGHT" not in yaml.safe_load(base)["slots"]
+    cue_ = {"t": 2.0, "slot": "LIGHT", "do": "color", "rgb": [255, 255, 255], "br": 50}
+    r = comp.edit("hello.yaml", base, [{"op": "add", "cue": cue_}])
+    check("a cue on an UNDECLARED slot is still drawn, on its own lane, with the problem saying why (it used to vanish)",
+          len(r["timeline"]["tracks"].get("LIGHT", [])) == 1
+          and any("did not declare" in p["msg"] for p in r["timeline"]["problems"]), r["timeline"]["problems"])
+    r = comp.edit("hello.yaml", base, [{"op": "declare", "slot": "LIGHT"}, {"op": "add", "cue": cue_}])
+    doc = yaml.safe_load(r["text"])
+    check("adding it the way the editor does — declare, then add, in ONE edit — lists the slot and validates",
+          "LIGHT" in doc["slots"] and r["timeline"]["valid"] and len(r["timeline"]["tracks"]["LIGHT"]) == 1
+          and r["timeline"]["slots"].index("LIGHT") > r["timeline"]["slots"].index("SOUND"), (doc["slots"], r["timeline"]["problems"]))
+    check("declaring keeps the rest of the file byte-for-byte (one line changes, plus the cue)",
+          len(diff_lines(base, r["text"])) <= 3, diff_lines(base, r["text"]))
+    r2 = comp.edit("hello.yaml", r["text"], [{"op": "declare", "slot": "LIGHT"}])
+    check("declaring a listed slot again changes nothing", r2["text"] == r["text"])
+    for blk in ("slots:\n  - ARM_R\n  - HEAD\n", ""):
+        t0 = "id: x\n" + blk + "cues:\n  - { t: 1.0, slot: HEAD, pan: 80 }\n"
+        t1 = yamledit.apply(t0, [{"op": "declare", "slot": "LIGHT"}])
+        check(f"declare works on a {'block list' if blk else 'show with no slots: yet'}",
+              "LIGHT" in yaml.safe_load(t1)["slots"] and yamledit.apply(t1, [{"op": "undeclare", "slot": "LIGHT"}]).replace("slots: []\n", "") == t0)
+finally:
+    shutil.rmtree(tmp)
+
 print("\nmusic: the library's songs, from the composer (plan 4.6)")
 import io  # noqa: E402
 import threading  # noqa: E402

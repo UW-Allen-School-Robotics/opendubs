@@ -228,6 +228,43 @@ def _drop_music_key(text, key):
     return text
 
 
+def _declare(text, slot, on: bool):
+    """Add a slot to the show's `slots:` list (or take one out). A flow list is rewritten in the
+    validator's slot order; a block list gains or loses one line; no `slots:` key gets one, above
+    `cues:`. Declaring what is declared, or undeclaring what is not, changes nothing."""
+    if not isinstance(slot, str) or not slot:
+        raise EditError("declare needs a slot name")
+    root = _root(text)
+    _, v = _key(root, "slots")
+    if v is None:
+        if not on:
+            return text
+        kc, _ = _key(root, "cues")
+        if kc is None:
+            raise EditError("the show has no cues: list")
+        ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+        return text[:ls] + "slots: " + fmt([slot]) + "\n" + text[ls:]
+    if not isinstance(v, yaml.SequenceNode):
+        raise EditError("slots: must be a list")
+    cur = [n.value for n in v.value]
+    if (slot in cur) == on:
+        return text
+    if v.flow_style or not v.value:
+        new = cur + [slot] if on else [x for x in cur if x != slot]
+        import cue                                    # the validator's own slot order, not a copy of it
+        order = {s: i for i, s in enumerate(cue.SLOTS)}
+        new.sort(key=lambda s: order.get(s, len(order)))
+        return text[:v.start_mark.index] + fmt(new) + text[_end(v):]
+    if on:
+        last = v.value[-1]
+        ls, le = _line_bounds(text, last.start_mark.index, _end(last))
+        indent = text[ls:last.start_mark.index]
+        return text[:le] + f"{indent}{fmt(slot)}\n" + text[le:]
+    node = next(n for n in v.value if n.value == slot)
+    ls, le = _line_bounds(text, node.start_mark.index, _end(node))
+    return text[:ls] + text[le:]
+
+
 def apply(text: str, edits: list) -> str:
     """Apply edits in order. Each edit is one of:
         {"op": "set", "index": i, "cue": {...whole cue...}}
@@ -235,11 +272,14 @@ def apply(text: str, edits: list) -> str:
         {"op": "add", "cue": {...}}
         {"op": "music", "key": "bpm", "value": 121.5}
         {"op": "music", "key": "song", "value": None}      # None removes song or file
+        {"op": "declare", "slot": "GRIP_R"}                 # add to slots: (undeclare removes)
     Indices refer to the file as it is when that edit is applied (so delete back to front)."""
     for ed in edits:
         op = ed.get("op")
         if op == "music":
             text = _set_music(text, ed.get("key"), ed.get("value"))
+        elif op in ("declare", "undeclare"):
+            text = _declare(text, ed.get("slot"), op == "declare")
         elif op in ("set", "delete", "add"):
             seq = cue_nodes(text)
             if op == "set":

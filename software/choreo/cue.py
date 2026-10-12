@@ -1307,7 +1307,9 @@ class Show:
         Schema in notes/design/choreo-format-v1.md 10. Deterministic for a given show+limits."""
         a = self.analyse(limits)
         declared = [s for s in SLOTS if s in a["declared"]] or [s for s in SLOTS if s in a["used"]]
-        tracks = {s: [] for s in declared}
+        # a track for every slot a cue USES too, declared or not: an undeclared cue is a problem, and
+        # it must be seen on its lane with that problem — never dropped from the timeline
+        tracks = {s: [] for s in SLOTS if s in declared or s in a["used"]}
         for e in a["events"]:
             if e.get("bad") or "start" not in e or e["slot"] not in tracks:
                 continue
