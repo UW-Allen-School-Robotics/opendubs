@@ -102,9 +102,11 @@ CH5_NAME = {"OFF": "STANDBY", "RC_MANUAL": "MANUAL", "AUTONOMOUS": "AUTO"}
 PROBE_MAX_AGE_S = 10.0     # an arms/head answer older than this is no answer
 
 
-# Every lift command an OPERATOR sends (a dashboard or head button: /api/mast without `by=show`)
-# counts here. A show's lift output stands down for the rest of its run when this moves — the
-# operator wins, as the RC stick does in the firmware.
+# Every lift command an operator sends THROUGH THIS DASHBOARD (/api/mast without `by=show`: the
+# StamPLC page's Z-AXIS HOLD buttons, the ROS /zaxis triggers) counts here. A show's lift output
+# stands down for the rest of its run when this moves — the operator wins, as the RC stick does in
+# the firmware. The head's RAISE/LOWER go straight to the StamPLC and are not counted
+# (show_outputs.py says what that means for a show).
 _mast_operator = {"seq": 0}
 _mast_lock = threading.Lock()
 

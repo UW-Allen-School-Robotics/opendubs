@@ -121,6 +121,8 @@ t_flip = 1000.0 + 1.0
 check("an operator's lift command during the run: the show's lift stands down for the rest of the run",
       end[0] == "COMPLETED" and not any(c in ("up", "down") for t, c in L if t > t_flip + 0.05)
       and "operator wins" in log, L)
+check("... and every live run says, at its start, that the head's RAISE/LOWER are NOT seen",
+      "are NOT seen" in log and "deadman or STOP" in log, log[:600])
 end, calls, log = run(fail=True)
 check("no dashboard: the lift stands down, logged once, and the show plays on",
       end[0] == "COMPLETED" and log.count("lift output stands down") == 1, log[-400:])
