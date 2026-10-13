@@ -257,6 +257,11 @@ def main():
     parser.add_argument("--tilt-min", type=int, default=0, help="Minimum tilt angle limit")
     parser.add_argument("--tilt-max", type=int, default=180, help="Maximum tilt angle limit")
     args = parser.parse_args()
+    if not args.ip:
+        # OPENDUBS_HEAD_NECK_HOST=none: no neck is fitted, so there is nothing to aim. Say so and stop,
+        # rather than send pan/tilt to an address that is not there.
+        print("No neck fitted (OPENDUBS_HEAD_NECK_HOST=none): the tracker has no head to turn. Exiting.")
+        raise SystemExit(0)
 
     print("Initializing YOLOv8 face model...")
     # /tmp clears on reboot, so the model was re-downloaded from Hugging Face on every boot —

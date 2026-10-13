@@ -49,6 +49,7 @@
           <option value="d415">the RealSense camera (on the robot)</option>
         </select></div>
       <div class="hf-note" id="hfTrackNote"></div>
+      <div class="hf-note" id="hfNeckNote"></div>
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
       <h2 class="mt">SOUND</h2>
@@ -89,6 +90,9 @@
     el("hfVol").value = own ? 0.5 : s.volume_idle;
     el("hfVolV").textContent = own ? "the tablet's own" : pct(s.volume_idle);
     if (el("hfSkin").value !== s.skin) el("hfSkin").value = s.skin;
+    el("hfNeckNote").textContent = s.neck === "none"
+      ? "No neck is fitted on this robot (OPENDUBS_HEAD_NECK_HOST=none): the head doesn't turn, so the eyes follow people but the head stays still."
+      : (s.neck ? `Neck: ${s.neck}` : "");
     el("hfTrackNote").textContent = {
       off: "",
       tablet: "Uses the tablet's front camera, on the tablet itself. The kiosk app must allow the camera.",

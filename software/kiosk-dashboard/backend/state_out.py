@@ -103,6 +103,8 @@ def _make_peers(face_host: str, neck_host: str):
     """With the Tab5 fitted both halves are one box, so they share ONE peer — the same lookups,
     exactly the behaviour from before the split."""
     face = _Peer(face_host)
+    if neck_host is None:                   # no neck fitted (OPENDUBS_HEAD_NECK_HOST=none)
+        return face, None
     # A separate neck is looked up on its own thread (_neck_sender), where a slow lookup costs the
     # face nothing, so it is retried sooner: a neck that is switched on is found within ~10 s.
     return face, (face if neck_host == face_host else _Peer(neck_host, retry_s=_NECK_RETRY_S))
@@ -182,6 +184,10 @@ def _neck_sender() -> None:
     """The neck's introduction to the StamPLC (TAB5IP), on its OWN thread. Finding the neck by name
     can block for 5 s when it is absent, and while that shared the face's thread the face got no
     STATE for over 5 s every 30 s and went grey mid-show (2026-10-13). The face never waits on it now."""
+    if _neck is None:
+        import sys
+        sys.stderr.write("NECK: none fitted (OPENDUBS_HEAD_NECK_HOST=none): the StamPLC is told of no neck\n")
+        return                              # nothing to introduce, ever
     while True:
         try:
             _introduce_peers()
@@ -314,6 +320,8 @@ def _introduce_peers() -> None:
     remember.
     """
     global _peers_last_intro
+    if _neck is None:                       # no neck fitted: never hand the StamPLC an address
+        return
     now = time.monotonic()
     if now - _peers_last_intro < _PEER_REINTRO_S:
         return

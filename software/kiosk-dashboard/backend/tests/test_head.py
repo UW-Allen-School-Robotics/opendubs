@@ -73,3 +73,26 @@ def test_a_failed_lookup_is_not_repeated_at_once(monkeypatch):
     assert p.resolve() is None
     assert p.resolve() is None
     assert len(calls) == 1                         # a 5 s lookup is paid once per retry window
+
+
+def test_none_or_off_means_no_neck():
+    for v in ("none", "NONE", " off "):
+        assert head.neck_host({"OPENDUBS_HEAD_FACE_HOST": "127.0.0.1", "OPENDUBS_HEAD_NECK_HOST": v}) is None
+    # Empty still means "the same box as the face", so a Tab5 robot is unchanged.
+    assert head.neck_host({"OPENDUBS_HEAD_FACE_HOST": "tab5.local", "OPENDUBS_HEAD_NECK_HOST": ""}) == "tab5.local"
+
+
+def test_no_neck_means_the_stamplc_is_never_told_one(monkeypatch):
+    """An address for an absent neck can stall the StamPLC's loop (its pan/tilt send blocks), so with
+    no neck fitted it is never handed one."""
+    import sys
+    import types
+    sent = []
+    monkeypatch.setitem(sys.modules, "stamplc", types.SimpleNamespace(reader=types.SimpleNamespace(send=sent.append)))
+    face, neck = state_out._make_peers("127.0.0.1", None)
+    assert neck is None and face.host == "127.0.0.1"
+    monkeypatch.setattr(state_out, "_neck", None)
+    monkeypatch.setattr(state_out, "_peers_last_intro", -1e9)
+    state_out._introduce_peers()
+    state_out._neck_sender()                               # returns at once: nothing to introduce
+    assert sent == []

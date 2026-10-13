@@ -12,7 +12,9 @@ changes. With the tablet as the face, the neck is a separate controller (plan DT
 Per-robot settings, kept on the robot in /etc/opendubs/robot.env, never in the repo:
 
   OPENDUBS_HEAD_FACE_HOST   default: OPENDUBS_TAB5_HOST if set (the old name), else opendubs-tab5.local
-  OPENDUBS_HEAD_NECK_HOST   default: the face's host
+  OPENDUBS_HEAD_NECK_HOST   default: the face's host. `none` (or `off`): NO NECK is fitted — nothing
+                            is told where a neck is (no TAB5IP to the StamPLC) and nothing aims one.
+                            The M5Dial neck is on the e-stop branch, so a robot may run without it.
 """
 from __future__ import annotations
 
@@ -43,5 +45,12 @@ def face_host(env=os.environ) -> str:
     return DEFAULT_HOST
 
 
-def neck_host(env=os.environ) -> str:
-    return _setting(env, "OPENDUBS_HEAD_NECK_HOST") or face_host(env)
+NO_NECK = ("none", "off")
+
+
+def neck_host(env=os.environ):
+    """The neck's host, or None when the robot says no neck is fitted (`none` / `off`)."""
+    v = _setting(env, "OPENDUBS_HEAD_NECK_HOST")
+    if v.lower() in NO_NECK:
+        return None
+    return v or face_host(env)
