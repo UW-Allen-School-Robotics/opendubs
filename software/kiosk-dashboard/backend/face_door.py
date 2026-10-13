@@ -101,6 +101,13 @@ async def face_ws(socket: WebSocket):
         await socket.send_text(json.dumps({"settings": head_settings.load()}))
     except Exception as e:                          # noqa: BLE001 — a page without settings still works
         log.warning("face page: settings not sent: %s", e)
+    try:                                            # and the robot's state now, so it is never grey
+        import state_out                            # while it waits for the next 3 s refresh
+        st = state_out.face_state()
+        if st:
+            await socket.send_text(json.dumps({"id": 0, "line": f"STATE {st}"}))
+    except Exception as e:                          # noqa: BLE001
+        log.warning("face page: state not sent: %s", e)
     log.info("face page connected (%d showing)", len(pages))
     try:
         while True:
