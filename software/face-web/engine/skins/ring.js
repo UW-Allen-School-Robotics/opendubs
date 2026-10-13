@@ -4,10 +4,19 @@
 // the top, the brow becomes an arc above it, the gaze moves the core and leans the ring — so a
 // show's EMOTE, a blink and a tracked person all read on it with no change anywhere else.
 
+import { drawMouth } from "./mouth.js";
+
 export const name = "ring";
 const SEGMENTS = 18;
 
 export function draw(ctx, e, t) {
+  // The mouth, once for the face rather than once per eye, and only when it is on. FIRST, before
+  // any of the eye drawing: ring and fireworks RETURN EARLY when the lid is shut, so a mouth drawn
+  // at the end would vanish on every blink. It is independent of the eye and does not overlap it,
+  // so drawing it first costs nothing and cannot be skipped. `e.mouth` is null on every face that
+  // has no mouth, so those faces pay one comparison and no draw.
+  if (e.side === "left" && e.mouth) drawMouth(ctx, e.mouth.cx, e.mouth.level, e.colour, e.dim);
+
   const { cx, cy, w, h } = e;
   const r = Math.min(w, h) / 2;
   const open = 1 - e.lid;
