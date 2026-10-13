@@ -205,6 +205,44 @@ class FakeHead:
         name = a.strip().lower()
         return f"OK move {name}" if name in hp.MOVES else f"ERR move {name or '<name>'}"
 
+    # ---- v5: device levels and ARMED. The reference head keeps idle levels and applies the clamps.
+    idle_level = {"volume": 0.5, "bright": 1.0}
+
+    def _level(self, which, a):
+        usage = f"ERR {which} <0..1> [fade_s] | IDLE [fade_s]"
+        parts = a.split()
+        if not parts or len(parts) > 2:
+            return usage
+        try:
+            if len(parts) == 2 and not (0 <= float(parts[1])):
+                return usage
+        except ValueError:
+            return usage
+        if parts[0].upper() == "IDLE":
+            return f"OK {which} idle {self.idle_level[which]:.2f}"
+        try:
+            v = float(parts[0])
+        except ValueError:
+            return usage
+        if not 0 <= v <= 1:
+            return usage
+        v = max(v, hp.BRIGHT_MIN_DEFAULT) if which == "bright" else min(v, hp.VOL_MAX_DEFAULT)
+        return f"OK {which} {v:.2f}"
+
+    def do_volume(self, a, _):
+        return self._level("volume", a)
+
+    def do_bright(self, a, _):
+        return self._level("bright", a)
+
+    def do_armed(self, a, _):
+        x = a.strip().upper()
+        if x in ("WAIT", "OFF"):
+            return f"OK armed {x.lower()}"
+        if x.isdigit() and 1 <= int(x) <= hp.ARMED_COUNT_MAX_S:
+            return f"OK armed {int(x)}"
+        return f"ERR armed WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
+
     def do_voice(self, a, _):
         return "voice: off (reference head)"
 

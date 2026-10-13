@@ -182,6 +182,20 @@ class Run:
         for m in hp.MOVES:
             self.expect(F, f"MOVE {m}", f"MOVE {m}", "MOVE", lambda r, m=m: r == f"OK move {m}")
         self.expect(F, "MOVE <unknown name>", "MOVE no_such_move", "MOVE", lambda r: r == "ERR move no_such_move")
+        # v5: device levels (clamped on the device; the reply carries the APPLIED value) and ARMED.
+        self.expect(F, "VOLUME 0.4 1", "VOLUME 0.4 1", "VOLUME", lambda r: bool(hp.REPLY["volume_ok"].match(r)))
+        self.expect(F, "BRIGHT 0.6", "BRIGHT 0.6", "BRIGHT", lambda r: bool(hp.REPLY["bright_ok"].match(r)))
+        self.expect(F, "BRIGHT below the floor is clamped up", "BRIGHT 0.01", "BRIGHT",
+                    lambda r: bool(hp.REPLY["bright_ok"].match(r)) and float(r.split()[-1]) > 0.01)
+        self.expect(F, "VOLUME <out of range>", "VOLUME 2", "VOLUME", lambda r: bool(hp.REPLY["volume_err"].match(r)))
+        self.expect(F, "BRIGHT <malformed>", "BRIGHT LOUD", "BRIGHT", lambda r: bool(hp.REPLY["bright_err"].match(r)))
+        for line, want in (("ARMED WAIT", "OK armed wait"), ("ARMED 5", "OK armed 5"), ("ARMED OFF", "OK armed off")):
+            self.expect(F, line, line, "ARMED", lambda r, w=want: r == w)
+        self.expect(F, "ARMED <malformed>", "ARMED SOON", "ARMED", lambda r: bool(hp.REPLY["armed_err"].match(r)))
+        self.expect(F, "VOLUME IDLE (put back)", "VOLUME IDLE", "VOLUME",
+                    lambda r: bool(hp.REPLY["volume_ok"].match(r)) and " idle " in r)
+        self.expect(F, "BRIGHT IDLE (put back)", "BRIGHT IDLE", "BRIGHT",
+                    lambda r: bool(hp.REPLY["bright_ok"].match(r)) and " idle " in r)
         back = getattr(self, "state_found", None)
         if back in hp.STATES:
             self.ask(F, f"STATE {back}")
