@@ -111,25 +111,37 @@ void setup() {
     g_nvs.end();
     strncpy(g_ssid, ssid.c_str(), sizeof(g_ssid) - 1);
 
+    // THE NETWORK STACK IS STARTED UNCONDITIONALLY, and that is not tidiness. An earlier version
+    // only called WiFi.mode() when there were credentials, so a board with none never initialised
+    // lwIP -- and the g_udp.begin() below then asserted inside FreeRTOS
+    // (`xQueueSemaphoreTake queue.c:1709`) and the board crash-looped from its first boot. A fresh
+    // board has no credentials BY DEFINITION, so that was the one path guaranteed to run first.
+    WiFi.mode(WIFI_STA);
+    WiFi.setHostname(kHostName);
+
     if (ssid.length()) {
-        WiFi.mode(WIFI_STA);
-        WiFi.setHostname(kHostName);
         WiFi.begin(ssid.c_str(), pass.c_str());
         line("wifi: joining from NVS");
     } else {
         line("wifi: NO CREDENTIALS IN NVS -- send `WIFI <ssid> <pass>` over this port once");
     }
 
-    g_udp.begin(kCmdPort);
     report();
 }
 
 void loop() {
+    // The UDP socket is opened LAZILY, once there is a network to open it on. Binding a socket
+    // before the interface exists is what crashed the first build; waiting costs nothing, because
+    // nothing can reach us before we are on the network anyway.
+    static bool udpUp = false;
+    if (!udpUp && WiFi.isConnected()) { g_udp.begin(kCmdPort); udpUp = true; line("udp: listening"); }
+    if (udpUp && !WiFi.isConnected()) { g_udp.stop(); udpUp = false; }
+
     static bool mdns = false;
     if (WiFi.isConnected() && !mdns) { mdns = MDNS.begin(kHostName); if (mdns) MDNS.addService("opendubs", "udp", kCmdPort); }
     if (!WiFi.isConnected()) mdns = false;
 
-    int sz = g_udp.parsePacket();
+    int sz = udpUp ? g_udp.parsePacket() : 0;
     if (sz > 0) {
         char cmd[256] = {0};
         int got = g_udp.read(cmd, sizeof(cmd) - 1);
