@@ -62,14 +62,16 @@ _peers_last_intro = 0.0
 # A failed lookup of an absent head takes 5 s. Remember the failure rather than paying it
 # on every write, which is what turned the state loop from 0.3 s into 10-15 s.
 _TAB5_RESOLVE_RETRY_S = 30.0
+_NECK_RETRY_S = 10.0
 _tab5_q: "queue.Queue[str]" = queue.Queue(maxsize=64)
 
 
 class _Peer:
     """One half of the head, found by name."""
 
-    def __init__(self, host: str):
+    def __init__(self, host: str, retry_s: float = None):
         self.host = host
+        self.retry_s = _TAB5_RESOLVE_RETRY_S if retry_s is None else retry_s
         self.addr = None
         self.addr_ts = 0.0
         self.fail_ts = -_TAB5_RESOLVE_RETRY_S
@@ -85,7 +87,7 @@ class _Peer:
         now = time.monotonic()
         if self.addr is not None and now - self.addr_ts < 30:
             return self.addr
-        if now - self.fail_ts < _TAB5_RESOLVE_RETRY_S:
+        if now - self.fail_ts < self.retry_s:
             return None
         try:
             self.addr = socket.gethostbyname(self.host)
@@ -101,7 +103,9 @@ def _make_peers(face_host: str, neck_host: str):
     """With the Tab5 fitted both halves are one box, so they share ONE peer — the same lookups,
     exactly the behaviour from before the split."""
     face = _Peer(face_host)
-    return face, (face if neck_host == face_host else _Peer(neck_host))
+    # A separate neck is looked up on its own thread (_neck_sender), where a slow lookup costs the
+    # face nothing, so it is retried sooner: a neck that is switched on is found within ~10 s.
+    return face, (face if neck_host == face_host else _Peer(neck_host, retry_s=_NECK_RETRY_S))
 
 
 import head as _head
@@ -172,7 +176,18 @@ def _tab5_sender() -> None:
             pass
         except Exception:
             time.sleep(0.2)
-        _introduce_peers()             # needs the head's address, so it lives here too
+
+
+def _neck_sender() -> None:
+    """The neck's introduction to the StamPLC (TAB5IP), on its OWN thread. Finding the neck by name
+    can block for 5 s when it is absent, and while that shared the face's thread the face got no
+    STATE for over 5 s every 30 s and went grey mid-show (2026-10-13). The face never waits on it now."""
+    while True:
+        try:
+            _introduce_peers()
+        except Exception:
+            pass
+        time.sleep(1.0)
 
 
 def _tab5_serial(line: str) -> None:
@@ -244,17 +259,40 @@ def _push_prism(rs: str) -> None:
 
 
 _tab5_logged_state = None
+_face_state = None                     # the STATE line's name last sent to the face (face_door.py)
+
+
+def face_state():
+    """The state the face should be showing now, e.g. "SAFE_IDLE", or None before the first push.
+    face_door.py sends it to a face page as it connects, so a reconnect is never a grey gap."""
+    return _face_state
 
 
 def _push_tab5(rs: str) -> None:
-    global _tab5_logged_state
+    global _tab5_logged_state, _face_state
     ent = _MAP.get(rs)
     if ent:
+        _face_state = ent[0]
         if rs != _tab5_logged_state:
             import sys
             sys.stderr.write(f"TAB5: Pushing state {rs} -> {ent[0]}\n")
             _tab5_logged_state = rs
         _tab5_write(f"STATE {ent[0]}")
+
+
+_neck_seen = None                       # what the log last said: an address, False (absent), or None
+
+
+def _report_neck(addr) -> None:
+    """Say once that the neck is absent, and once where it is when it appears — not every retry."""
+    global _neck_seen
+    import sys
+    if addr is None and _neck_seen is not False:
+        sys.stderr.write(f"NECK: {_neck.host} not found; pan/tilt from the RC waits for it\n")
+        _neck_seen = False
+    elif addr is not None and addr != _neck_seen:
+        sys.stderr.write(f"NECK: {_neck.host} at {addr}\n")
+        _neck_seen = addr
 
 
 def _introduce_peers() -> None:
@@ -281,6 +319,7 @@ def _introduce_peers() -> None:
         return
     _peers_last_intro = now
     neck = _neck.resolve()
+    _report_neck(neck)
     if neck is None:
         # Retry in ~5 s rather than on every pass: each attempt used to cost a 5 s lookup.
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
@@ -345,5 +384,7 @@ def start() -> None:
     threading.Thread(target=_loop, name="state_out", daemon=True).start()
     # All Tab5 I/O — separate so an absent or slow head can never delay the PRISM.
     threading.Thread(target=_tab5_sender, name="tab5_tx", daemon=True).start()
+    # The neck's introduction: its own thread, so a neck that cannot be found never delays the face.
+    threading.Thread(target=_neck_sender, name="neck_intro", daemon=True).start()
     # No receive side. The Arduino head sent its lift buttons here on UDP 5006; the ESP-IDF head
     # sends `MAST CMD` straight to the StamPLC (head-protocol.md §7), so nothing listens on 5006.
