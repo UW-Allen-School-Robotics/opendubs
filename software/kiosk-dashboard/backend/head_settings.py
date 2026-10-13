@@ -35,6 +35,7 @@ DEFAULTS = {
     "bright_idle": 1.0,         # 0..1
     "bright_min": 0.15,         # no show can dim the face below this
     "vol_max": 1.0,             # no show can make it louder than this
+    "face_return_min": 2,       # the kiosk goes back to the face after this long untouched; 0 = never
 }
 TRACKING = ("off", "tablet", "d415")
 
@@ -51,6 +52,9 @@ def _check(key, v):
         return None if isinstance(v, str) and 0 < len(v) <= 64 else f"{key} must be a name"
     if key == "volume_idle" and v is None:
         return None
+    if key == "face_return_min":
+        ok = not isinstance(v, bool) and isinstance(v, (int, float)) and 0 <= v <= 60
+        return None if ok else "face_return_min must be minutes from 0 (never) to 60"
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
         return f"{key} must be a number from 0 to 1"
     if key == "bright_min" and not 0.05 <= v <= 1:
