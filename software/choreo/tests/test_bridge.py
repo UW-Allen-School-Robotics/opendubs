@@ -178,6 +178,71 @@ lf.playhead(0.0, True, "RUNNING")
 check("a live run logs the level the head says it applied",
       any(n.get("kind") == "face_device" and n.get("reply") == "OK bright 0.15" for n in notes), notes)
 
+print("\nthe head link never blocks (a name is looked up in the background)")
+import socket as _socket  # noqa: E402
+import threading as _threading  # noqa: E402
+import time as _time  # noqa: E402
+
+
+class _AddrSock(_Sock):
+    def __init__(self):
+        super().__init__([])
+        self.addrs = []
+
+    def sendto(self, data, addr):
+        super().sendto(data, addr)
+        self.addrs.append(addr)
+
+
+calls, gate = [], _threading.Event()
+
+
+def _slow_absent(name):
+    calls.append(name)
+    gate.wait(3.0)                               # a failed mDNS lookup of an absent head: seconds
+    raise _socket.gaierror(-2, "Name or service not known")
+
+
+notes = []
+sk = _AddrSock()
+gz = fb.LiveGaze("opendubs-tab5.local", sock=sk, resolve=_slow_absent, note=lambda **kw: notes.append(kw))
+t = _time.monotonic()
+for _ in range(50):
+    gz._send("GAZE 90 90 600")
+took = _time.monotonic() - t
+check("fifty lines to a head whose name hangs take no time on the caller's thread",
+      took < 0.2 and sk.lines == [], (round(took, 3), sk.lines[:2]))
+check("... one lookup at a time, in the background", len(calls) == 1, calls)
+check("... and it is said once, naming the host",
+      [n.get("kind") for n in notes] == ["gaze_error"] and "opendubs-tab5.local" in notes[0]["error"], notes)
+gate.set()
+_time.sleep(0.1)
+gz.RESOLVE_RETRY_S = 0.05
+_time.sleep(0.06)
+gz._send("GAZE 90 90 600")
+_time.sleep(0.05)
+check("an absent head is looked for again after RESOLVE_RETRY_S, still in the background", len(calls) == 2, calls)
+
+found = []
+sk = _AddrSock()
+gz = fb.LiveGaze("opendubs-tab5.local", port=4242, sock=sk, resolve=lambda n: found.append(n) or "10.42.2.14",
+                 note=lambda **kw: None)
+gz._send("GAZE OFF")                             # starts the lookup; this line has nowhere to go yet
+for _ in range(50):
+    if gz._address():
+        break
+    _time.sleep(0.01)
+gz._send("GAZE 90 90 600")
+check("once the name answers, lines go to its address", sk.addrs == [("10.42.2.14", 4242)] and
+      sk.lines == ["GAZE 90 90 600"], (sk.addrs, sk.lines))
+
+never = []
+sk = _AddrSock()
+lf = fb.LiveFace("127.0.0.1", sock=sk, resolve=lambda n: never.append(n), note=lambda **kw: None)
+lf._send("EMOTE AUTO")
+check("an IPv4 address is used as it is: no lookup at all", never == [] and sk.addrs == [("127.0.0.1", 4242)],
+      (never, sk.addrs))
+
 print()
 if fails:
     for x in fails:

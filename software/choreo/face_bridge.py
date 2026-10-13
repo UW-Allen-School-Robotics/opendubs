@@ -218,31 +218,92 @@ class Follower:
 
 class _HeadLink:
     """One UDP line link to the head: send a line, and read whatever the head has answered since.
-    Never raises — the head is never a reason to stop a show — but says what went wrong, once."""
+    Never raises — the head is never a reason to stop a show — but says what went wrong, once.
 
-    def __init__(self, host: str, port: int, sock, note, kind: str):
+    NEVER BLOCKS. A name (opendubs-tab5.local) is looked up on a background thread, never on the
+    caller's: a failed mDNS lookup of an absent head takes 5 s, and done on the show's own loop it
+    stalled every tick of a live run by 5 s — face cues sent only as 5 s seeks, grip commands sent
+    in bursts that cancelled each other, the deadman checked every 5 s (found at the robot,
+    2026-10-13, with the Tab5 neck off the network). Until the name answers, a line is not sent and
+    the run is told once; an absent head is looked for again every RESOLVE_RETRY_S, a found one
+    re-checked every RESOLVE_TTL_S (DHCP), and the last good address is used meanwhile. An IPv4
+    address is used as it is, with no lookup."""
+
+    RESOLVE_RETRY_S = 5.0
+    RESOLVE_TTL_S = 30.0
+
+    def __init__(self, host: str, port: int, sock, note, kind: str, resolve=None):
+        import threading
         self.host, self.port, self.sock, self.kind = host, port, sock, kind
         self.note = note or (lambda **kw: None)     # the runner's log: note(kind, **fields)
-        self._addr, self._said = None, set()
+        self._said = set()
+        self._resolve = resolve or socket.gethostbyname
+        self._lock, self._looking = threading.Lock(), False
+        self._found_at, self._failed_at, self._lookup_error = None, None, None
+        try:
+            literal = ipaddress.ip_address(host).version == 4
+        except ValueError:
+            literal = False
+        self._literal = literal
+        self._addr = (host, port) if literal else None
 
     def _once(self, key, **kw):
         if key not in self._said:
             self._said.add(key)
             self.note(**kw)
 
+    def _address(self):
+        """Where the head is now, or None — at once. Starts a background lookup when one is due."""
+        if self._literal:
+            return self._addr
+        import threading
+        now = time.monotonic()
+        with self._lock:
+            addr = self._addr
+            due = (now - self._found_at >= self.RESOLVE_TTL_S) if addr is not None else (
+                self._failed_at is None or now - self._failed_at >= self.RESOLVE_RETRY_S)
+            if due and not self._looking:
+                self._looking = True
+                threading.Thread(target=self._lookup, name=f"{self.kind}-lookup", daemon=True).start()
+        return addr
+
+    def _lookup(self):
+        try:
+            ip = self._resolve(self.host)
+            with self._lock:
+                self._addr, self._found_at, self._lookup_error = (ip, self.port), time.monotonic(), None
+        except Exception as e:  # noqa: BLE001  gaierror, timeouts: the head is not there (yet)
+            with self._lock:
+                self._failed_at = time.monotonic()      # a previous address, if any, is kept
+                self._lookup_error = f"{type(e).__name__}: {e}"
+        finally:
+            with self._lock:
+                self._looking = False
+
     def _send(self, line: str, log: bool = True):
+        addr = self._address()
+        if addr is not None and "unresolved" in self._said and "found" not in self._said:
+            self._once("found", kind=f"{self.kind}_found", host=self.host, addr=addr[0],
+                       note=f"{self.host} answers now: {self.kind} lines go to it again")
+        if addr is None:
+            self._once("unresolved", kind=f"{self.kind}_error", line=line,
+                       error=f"{self.host} is not found ({self._lookup_error or 'looking it up'}): "
+                             f"{self.kind} lines are not sent until it answers — looked for every "
+                             f"{self.RESOLVE_RETRY_S:g} s in the background, never on the show's clock")
+            return
         try:
             if self.sock is None:
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.sock.setblocking(False)
-            if self._addr is None:
-                self._addr = (socket.gethostbyname(self.host), self.port)
-            self.sock.sendto((line + "\n").encode(), self._addr)
+            self.sock.sendto((line + "\n").encode(), addr)
             if log:
                 self.note(kind=self.kind, line=line)
         except OSError as e:
-            self._addr = None                        # look the head up again next time
-            self.note(kind=f"{self.kind}_error", line=line, error=f"{type(e).__name__}: {e}")
+            if not self._literal:
+                with self._lock:
+                    self._found_at = -1e18              # look the head up again, in the background
+            self._once(f"send:{type(e).__name__}", kind=f"{self.kind}_error", line=line,
+                       error=f"{type(e).__name__}: {e}")
 
     def _replies(self) -> list:
         out = []
@@ -265,8 +326,8 @@ class LiveFace(_HeadLink):
     set stays (dressing, not state). The head's answers are read: a refusal is logged, and so is
     an earcon the head accepted with its audio switched off (a per-robot setting, off by default)."""
 
-    def __init__(self, host: str, port: int = 4242, sock=None, note=None, earcons: bool = True):
-        super().__init__(host, port, sock, note, "face")
+    def __init__(self, host: str, port: int = 4242, sock=None, note=None, earcons: bool = True, resolve=None):
+        super().__init__(host, port, sock, note, "face", resolve)
         self.f, self.rev, self.tl, self.started = Follower(), 0, None, False
         # Earcons can be held back: the head's first earcon starts its audio task, which damps face
         # tracking until the head restarts (found on opendubs2, 2026-10-08; the fix is the Tab5's).
@@ -347,8 +408,8 @@ class LiveGaze(_HeadLink):
     LEASE_MS = 600            # the head's default; it caps any lease at 1000
     ENDINGS = ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST")
 
-    def __init__(self, host: str, port: int = 4242, sock=None, note=None, clock=None):
-        super().__init__(host, port, sock, note, "gaze")
+    def __init__(self, host: str, port: int = 4242, sock=None, note=None, clock=None, resolve=None):
+        super().__init__(host, port, sock, note, "gaze", resolve)
         import time as _t
         self.clock = clock or _t.monotonic
         self.track, self.started, self.supported = [], False, None   # None: not known yet
