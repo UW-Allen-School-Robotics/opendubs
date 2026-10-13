@@ -84,7 +84,10 @@ def save(s: dict) -> None:
 
 @router.get("/api/head/settings")
 def get_settings() -> JSONResponse:
-    return JSONResponse(load())
+    s = load()
+    import head                                 # read-only: the robot's own config, not a setting
+    s["neck"] = head.neck_host() or "none"
+    return JSONResponse(s)
 
 
 @router.put("/api/head/settings")

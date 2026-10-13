@@ -22,6 +22,7 @@ def _client(tmp_path, monkeypatch):
 
 def test_defaults_until_something_is_set(tmp_path, monkeypatch):
     s = _client(tmp_path, monkeypatch).get("/api/head/settings").json()
+    assert s.pop("neck")                                   # read-only: the robot's neck, or "none"
     assert s == head_settings.DEFAULTS
     assert s["mouth"] is False and s["bright_min"] == 0.15 and s["volume_idle"] is None
 
