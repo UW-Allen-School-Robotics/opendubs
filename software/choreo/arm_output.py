@@ -72,6 +72,10 @@ class FakeArms:
         self.grips, self.results = [], {}          # (slot, metres) sent; slot -> a goal's final status
         self.goal_status = {}                      # goal id -> that goal's own final status
         self.grips_missing = []                    # sides whose gripper controller is "not up"
+        # What the fake controllers answer: slots whose arm goals are REJECTED, or never answered
+        self.reject, self.silent = set(), set()
+        self._events, self._seq = [], 0
+        self.ranges = None                         # {slot: [(lo, hi) signed deg] * 7}, as controller_ranges()
 
     def grips_ready(self):
         return list(self.grips_missing)
@@ -85,6 +89,19 @@ class FakeArms:
 
     def send(self, slot, points):
         self.sent.append((slot, points))
+        self._seq += 1
+        if slot in self.reject:
+            self._events.append({"goal": self._seq, "slot": slot, "event": "rejected"})
+        elif slot not in self.silent:
+            self._events.append({"goal": self._seq, "slot": slot, "event": "accepted"})
+        return self._seq
+
+    def drain_events(self):
+        out, self._events = self._events, []
+        return out
+
+    def controller_ranges(self):
+        return self.ranges
 
     def cancel_all(self):
         self.cancelled += 1
@@ -132,6 +149,7 @@ class RosArms:
         self._seq = 0
         self._goals = []
         self._gen = 0                  # bumped by cancel_all: a goal from an older generation is stale
+        self._events = []              # {goal, slot, event: accepted|rejected|result, ...}: the runner logs them
         self.node.create_subscription(JointState, "/joint_states", self._on_js, 10)
         ex = SingleThreadedExecutor()
         ex.add_node(self.node)
@@ -203,11 +221,74 @@ class RosArms:
             if self._latest.get(slot) == gid:
                 self.results[slot] = status
 
+    def _event(self, **kw):
+        with self.lock:
+            self._events.append(kw)
+
+    def controller_ranges(self, timeout=3.0):
+        """The joint range each ARM CONTROLLER admits, {slot: [(lo, hi)] * 7} in signed degrees — read,
+        once, from the stack itself (Arms, 2026-10-12): the URDF limits in /robot_state_publisher's
+        robot_description, widened by each controller's joint_position_margin (a negative margin
+        widens). NOT the arm-limits file the validator uses, which is narrower. None if it cannot be
+        read: the runner then sends as before and says so."""
+        if hasattr(self, "_ranges"):
+            return self._ranges
+        self._ranges = None
+        try:
+            import xml.etree.ElementTree as ET
+            urdf = self._param("/robot_state_publisher", "robot_description", timeout)
+            if not urdf:
+                return None
+            limits = {j.get("name"): j.find("limit") for j in ET.fromstring(urdf).iter("joint")}
+            out = {}
+            for slot, side in ARM_SIDES.items():
+                margin = self._param(f"/{side}_controller", "joint_position_margin", timeout)
+                m = float(margin) if margin is not None else 0.0
+                rows = []
+                for name in joint_names(side):
+                    lim = limits.get(name)
+                    lo, hi = float(lim.get("lower")), float(lim.get("upper"))
+                    rows.append((math.degrees(lo + m), math.degrees(hi - m)))
+                out[slot] = rows
+            self._ranges = out
+        except Exception:  # noqa: BLE001  unreadable: no clamping, and the runner says so
+            self._ranges = None
+        return self._ranges
+
+    def _param(self, node, name, timeout):
+        from rcl_interfaces.srv import GetParameters
+        cli = self.node.create_client(GetParameters, f"{node}/get_parameters")
+        try:
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return None
+            req = GetParameters.Request()
+            req.names = [name]
+            fut = cli.call_async(req)
+            end = time.monotonic() + timeout
+            while not fut.done() and time.monotonic() < end:
+                time.sleep(0.02)
+            if not fut.done() or not fut.result().values:
+                return None
+            v = fut.result().values[0]
+            return {1: v.bool_value, 2: v.integer_value, 3: v.double_value, 4: v.string_value}.get(v.type)
+        finally:
+            self.node.destroy_client(cli)
+
+    def drain_events(self):
+        """What the controllers have said about our goals since the last call, oldest first: the
+        runner logs every one, and ends the show on a rejection (the arms would not follow it)."""
+        with self.lock:
+            out, self._events = self._events, []
+        return out
+
     def _accepted(self, fut, gen, slot, gid):
         h = fut.result()
         if h is None or not h.accepted:
             self._record(slot, gid, "REJECTED")
+            # FollowJointTrajectory carries no reason on a rejection: the controller logs it
+            self._event(goal=gid, slot=slot, event="rejected")
             return
+        self._event(goal=gid, slot=slot, event="accepted")
         with self.lock:
             stale = gen != self._gen
             if not stale:
@@ -218,11 +299,16 @@ class RosArms:
             h.cancel_goal_async()
 
     def _done(self, fut, slot, gid):
+        err, msg = None, None
         try:
-            status = fut.result().status
+            res = fut.result()
+            status = res.status
+            err = getattr(res.result, "error_code", None)
+            msg = getattr(res.result, "error_string", None) or None
         except Exception:  # noqa: BLE001
             status = "UNKNOWN"
         self._record(slot, gid, status)
+        self._event(goal=gid, slot=slot, event="result", status=status, error_code=err, error=msg)
 
     def grips_ready(self):
         """The sides whose gripper controller is NOT up. Never blocks: the clients were made when the

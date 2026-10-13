@@ -971,6 +971,9 @@ class Show:
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
         notices += self._move_notices(events)
+        if used & {"ARM_L", "ARM_R"}:
+            for msg in self._check_hand_box(events, music):
+                (P(Problem(msg)) if not msg.startswith("NOTICE ") else notices.append(msg[7:]))
         if getattr(self, "require_sweep", False) and used & {"ARM_L", "ARM_R"}:
             for msg, fatal in self._check_sweep(events):
                 # "warn" (the composer while editing): a missing or stale stamp is a warning — saving
@@ -1466,6 +1469,36 @@ class Show:
         if not (_num(amp) and 0.0 < float(amp) <= 1.0):
             p.append(f"{where}: dance amp {amp!r} must be within (0, 1] — 1 is the autonomy ceiling")
         return p
+
+    @staticmethod
+    def _check_hand_box(events, music) -> list[str]:
+        """The hands at the arm CONTROLLERS' own point (hand_tcp), along every waypoint the runner will
+        send, against their workspace box (tcp.py) — a waypoint outside it gets the WHOLE arm goal
+        rejected at the robot. A notice, not a problem, where the arm chain is not on this machine."""
+        try:
+            import arm_output
+            import tcp
+        except ImportError as e:             # numpy absent: say so, never pass silently
+            return [f"NOTICE the hands' workspace box is not checked here ({e})"]
+        chain = tcp.load_chain()
+        if chain is None:
+            return ["NOTICE the hands' workspace box is not checked here: no arm chain (description/openarm/"
+                    "chain.json) on this machine"]
+        tracks = {}
+        for slot in ARM_SLOTS:
+            kfs = [{"start": e["start"], "t": e["t"], "pose_signed": {str(j): v for j, v in e["pose"].items()}}
+                   for e in events if e.get("slot") == slot and "start" in e and not e.get("bad") and e.get("pose")]
+            if kfs:
+                tracks[slot] = arm_output.track_points(sorted(kfs, key=lambda k: k["t"]))
+        beat = 60.0 / music["bpm"] if music and _num(music.get("bpm")) else None
+        bpb = (music or {}).get("beats_per_bar") or 4
+
+        def label(t):
+            if not beat:
+                return f"t={t:.2f}s"
+            k = (t - float((music or {}).get("offset_s") or 0.0)) / beat
+            return f"bar {int(k // bpb) + 1}.{int(k % bpb) + 1} ({t:.1f}s)"
+        return tcp.box_problems(chain, tracks, label)
 
     @staticmethod
     def _move_notices(events) -> list[str]:

@@ -60,6 +60,13 @@ TICK_S = 0.02             # 50 Hz
 LEASE_S = 0.25            # like every remote command on this robot: no heartbeat for 250 ms, no lease
 START_LEAD_S = 2.0        # PLACEHOLDER: time for a start to reach the tablet and the arm goals to land
 AUDIO_FADE_S = 0.25       # DEC-6: an abort fades the music; an e-stop cuts it
+# An arm goal the controller has not ACCEPTED within this is a show the arms are not following: it ends,
+# saying so (found at the robot 2026-10-12: rejected goals left a "live" show running with still arms)
+ARM_ACK_S = 2.0
+# A waypoint up to this far outside a joint's CONTROLLER range is clamped into it, and said: an arm
+# that has hung limp rests a hair past its limit (J4 settles to about -0.4 deg), and the controller
+# refuses a goal whose first waypoint starts there. Further outside is refused, never moved.
+CLAMP_DEG = 1.0
 AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio device to finish loading
 
 # What every slot is left doing when a show ABORTS (DEC-6: argued per slot, not assumed "stop").
@@ -394,6 +401,8 @@ class Runner:
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
         self._arms_moving = False
+        self._arm_goals = {}                      # goal id -> {slot, kind, sent, answered}
+        self._arm_latest = {}                     # slot -> the id of its newest arm goal
         # The grippers (plan item 3): this robot's calibration (grippers.py), read at the run's start;
         # None sends no gripper cues. A close that STALLED (its goal aborted: something is in there)
         # is never re-sent on that side for the rest of the run.
@@ -549,7 +558,8 @@ class Runner:
                 pts = arm_output.track_points([{"start": 0.0, "t": secs, "pose_signed":
                                                 {str(j): 0.0 for j in range(1, 8)}}],
                                                start=signed_pose(measured.get(slot)))
-                self.arms.send(slot, pts)
+                if (why := self._send_arm(slot, pts, "start-pose move")):
+                    return self._end(REFUSED, "ARM_OUT_OF_RANGE", why)
             self._arms_moving = True
         items, skipped = audio_items(show, tl)
         load_id = f"{show.id}@{round(time.time(), 3)}"
@@ -594,7 +604,8 @@ class Runner:
             for slot in cue.ARM_SLOTS:
                 kfs = tl.get("tracks", {}).get(slot) or []
                 if kfs:
-                    self.arms.send(slot, arm_output.track_points(kfs))
+                    if (why := self._send_arm(slot, arm_output.track_points(kfs), "routine")):
+                        return self._end(ABORTED, "ARM_OUT_OF_RANGE", why, 0.0)
                     self._arms_moving = True
             if any(tl.get("tracks", {}).get(g) for g in ("GRIP_L", "GRIP_R")):
                 if self.grips is None:
@@ -636,8 +647,85 @@ class Runner:
                 return self._end(COMPLETED, "COMPLETED", "the show ran to its end", t)
             self.sleep(TICK_S)
 
+    def _clamp(self, slot, points, kind):
+        """(points, refusal): every waypoint inside the arm controller's admitted joint range, moved
+        in by at most CLAMP_DEG and reported; a larger excursion is a refusal, sent nowhere."""
+        ranges = self.arms.controller_ranges() if hasattr(self.arms, "controller_ranges") else None
+        if not ranges or slot not in ranges:
+            if not getattr(self, "_said_no_ranges", False):
+                self._said_no_ranges = True
+                self._log("live", note="the arm controllers' joint ranges could not be read: waypoints are sent "
+                                       "unclamped (a start a hair past a limit would be refused by the controller)")
+            return points, None
+        out, moved = [], {}
+        for t, deg in points:
+            row = list(deg)
+            for j, (lo, hi) in enumerate(ranges[slot]):
+                v = row[j]
+                if v < lo or v > hi:
+                    off = (lo - v) if v < lo else (v - hi)
+                    if off > CLAMP_DEG:
+                        return None, (f"the {arm_output.ARM_SIDES[slot]} arm's J{j + 1} would be at {v:.2f} deg, "
+                                      f"{off:.2f} deg outside what its controller admits ({lo:.2f}..{hi:.2f}) — "
+                                      f"in the {kind}")
+                    row[j] = min(max(v, lo), hi)
+                    moved[j + 1] = max(moved.get(j + 1, 0.0), off)
+            out.append((t, row))
+        if moved:
+            self._log("live", note=f"{arm_output.ARM_SIDES[slot]} arm {kind}: waypoints clamped into the controller's "
+                                   "range (the arm rested just past a limit)",
+                      slot=slot, clamped_deg={str(j): round(v, 3) for j, v in moved.items()})
+        return out, None
+
+    def _send_arm(self, slot, points, kind):
+        points, refusal = self._clamp(slot, points, kind)
+        if refusal:
+            return refusal
+        gid = self.arms.send(slot, points)
+        self._arms_moving = True                  # sent: any end from here on cancels it
+        if gid is not None:
+            self._arm_goals[gid] = {"slot": slot, "kind": kind, "sent": self.clock(), "answered": False}
+            self._arm_latest[slot] = gid
+        self._log("arm_goal", event="sent", slot=slot, goal=gid, goal_kind=kind, points=len(points),
+                  secs=round(points[-1][0], 2) if points else 0.0)
+        return None
+
+    def _arm_checks(self, t):
+        """What the arm controllers said about our goals: every answer logged; a goal REJECTED, never
+        answered within ARM_ACK_S, or ABORTED by the controller while it is the arm's current goal
+        ends the show — the arms are not following it, and a live show must not pretend they are."""
+        if not self.live or not hasattr(self.arms, "drain_events"):
+            return None
+        for ev in self.arms.drain_events():
+            g = self._arm_goals.get(ev.get("goal"))
+            if g is None:                         # a gripper goal: logged, judged by the gripper code
+                self._log("grip_goal", **ev)
+                continue
+            self._log("arm_goal", **ev, goal_kind=g["kind"])
+            side = arm_output.ARM_SIDES[g["slot"]]
+            if ev["event"] == "accepted":
+                g["answered"] = True
+            elif ev["event"] == "rejected":
+                return self._end(ABORTED, "ARM_GOAL_REJECTED",
+                                 f"the {side} arm controller REJECTED the {g['kind']} goal — the arms would not "
+                                 "follow the show (the reason is in the arm container's log)", t)
+            elif ev["event"] == "result" and ev.get("status") == 6 and self._arm_latest.get(g["slot"]) == ev["goal"]:
+                return self._end(ABORTED, "ARM_GOAL_ABORTED",
+                                 f"the {side} arm controller ABORTED the {g['kind']} mid-way"
+                                 + (f": {ev['error']}" if ev.get("error") else ""), t)
+        now = self.clock()
+        for gid, g in self._arm_goals.items():
+            if not g["answered"] and now - g["sent"] > ARM_ACK_S:
+                side = arm_output.ARM_SIDES[g["slot"]]
+                return self._end(ABORTED, "ARM_GOAL_UNANSWERED",
+                                 f"the {side} arm controller did not answer the {g['kind']} goal within "
+                                 f"{ARM_ACK_S:g} s — the arms are not following the show", t)
+        return None
+
     def _tick_checks(self, show, t):
         self.feed.heartbeat()
+        if (stop := self._arm_checks(t)):
+            return stop
         if self.stop_requested:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator", t)
         self._state = self.robot.read()
