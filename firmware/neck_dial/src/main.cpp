@@ -177,7 +177,16 @@ void handle(const char* cmd, char* out, size_t n) {
         g_gazePan = p; g_gazeTilt = t;
         g_gazeLease = got >= 3 && lease ? lease : neck::kGazeHoldMs;
         g_gazeMs = millis();
-        snprintf(out, n, "OK gaze %.1f %.1f", p, t);
+        // THE REPLY IS THE CLAMPED ANGLES, ROUNDED -- head-protocol.md: "the clamped angles
+        // (rounded)... The reply shows what will actually run, so a sender can see a limit bite."
+        // This echoed the REQUEST, unrounded ("OK gaze 120.0 95.0" where the reference neck says
+        // "OK gaze 120 95"). Both are wrong and both matter: a sender could not see a limit bite at
+        // all, and a reply carrying decimals is not what a consumer parsing the reference's format
+        // expects. A live run raised a gaze_warning against this head; these were the two ways this
+        // side departed from the spec.
+        const float cp = p < neck::kRcPanMin ? neck::kRcPanMin : (p > neck::kRcPanMax ? neck::kRcPanMax : p);
+        const float ct = t < g_lim.tiltMin ? g_lim.tiltMin : (t > g_lim.tiltMax ? g_lim.tiltMax : t);
+        snprintf(out, n, "OK gaze %d %d", (int)lroundf(cp), (int)lroundf(ct));
         return;
     }
 
