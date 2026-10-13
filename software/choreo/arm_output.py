@@ -37,10 +37,32 @@ GRIP_SIDES = {"GRIP_L": "left", "GRIP_R": "right"}
 GRIP_MAX_EFFORT = 5.0
 DENSE_S = 0.02           # trajectory point spacing: fine enough to follow motion.py's curve
 JOINT_STATE_MAX_AGE_S = 0.5
+RANGES_RETRY_S = 60.0    # a failed read of the controllers' ranges is tried again after this
 
 
 def joint_names(side: str) -> list:
     return [f"openarm_{side}_joint{j}" for j in range(1, 8)]
+
+
+def urdf_ranges(urdf: str, margins: dict) -> dict:
+    """{slot: [(lo, hi)] * 7} in signed degrees: each arm joint's URDF <limit>, widened by its
+    controller's joint_position_margin ({side: radians}; a negative margin widens).
+
+    Only a <joint> that HAS a <limit> counts: the stack's robot_description names every arm joint a
+    second time inside its <ros2_control> block, with no limit, and taking that one left the runner
+    with no ranges at all (found at the robot 2026-10-13: every live run sent its arm waypoints
+    unclamped)."""
+    import xml.etree.ElementTree as ET
+    limits = {}
+    for j in ET.fromstring(urdf).iter("joint"):
+        lim = j.find("limit")
+        if lim is not None and lim.get("lower") is not None and lim.get("upper") is not None:
+            limits[j.get("name")] = (float(lim.get("lower")), float(lim.get("upper")))
+    out = {}
+    for slot, side in ARM_SIDES.items():
+        m = margins.get(side, 0.0)
+        out[slot] = [(math.degrees(limits[n][0] + m), math.degrees(limits[n][1] - m)) for n in joint_names(side)]
+    return out
 
 
 def track_points(keyframes: list, t_from: float = 0.0, start=None) -> list:
@@ -234,29 +256,26 @@ class RosArms:
         once, from the stack itself (Arms, 2026-10-12): the URDF limits in /robot_state_publisher's
         robot_description, widened by each controller's joint_position_margin (a negative margin
         widens). NOT the arm-limits file the validator uses, which is narrower. None if it cannot be
-        read: the runner then sends as before and says so."""
-        if hasattr(self, "_ranges"):
+        read: the runner then sends as before and says so. A good read is kept; a failed one is tried
+        again only after RANGES_RETRY_S (a failed read can take a few seconds, so never twice a run)."""
+        if getattr(self, "_ranges", None) is not None:
             return self._ranges
+        if time.monotonic() - getattr(self, "_ranges_failed_at", -1e18) < RANGES_RETRY_S:
+            return None
         self._ranges = None
         try:
-            import xml.etree.ElementTree as ET
             urdf = self._param("/robot_state_publisher", "robot_description", timeout)
             if not urdf:
                 return None
-            limits = {j.get("name"): j.find("limit") for j in ET.fromstring(urdf).iter("joint")}
-            out = {}
-            for slot, side in ARM_SIDES.items():
+            margins = {}
+            for side in ARM_SIDES.values():
                 margin = self._param(f"/{side}_controller", "joint_position_margin", timeout)
-                m = float(margin) if margin is not None else 0.0
-                rows = []
-                for name in joint_names(side):
-                    lim = limits.get(name)
-                    lo, hi = float(lim.get("lower")), float(lim.get("upper"))
-                    rows.append((math.degrees(lo + m), math.degrees(hi - m)))
-                out[slot] = rows
-            self._ranges = out
+                margins[side] = float(margin) if margin is not None else 0.0
+            self._ranges = urdf_ranges(urdf, margins)
         except Exception:  # noqa: BLE001  unreadable: no clamping, and the runner says so
             self._ranges = None
+        if self._ranges is None:
+            self._ranges_failed_at = time.monotonic()
         return self._ranges
 
     def _param(self, node, name, timeout):
