@@ -340,6 +340,25 @@ problem for far less work, using parts we already have.
 result.** Revisit only if speech intelligibility proves to be a real problem in a real demo — and
 then measure it rather than assume a mouth fixes it.
 
+> **RULED, 2026-10-13: a mouth is built, and it is OFF BY DEFAULT.** The maintainers asked for one
+> after reading this section; that is theirs to decide, and D8 of
+> [`voice-llm-research.md`](voice-llm-research.md) assigns the call to this lane rather than to the
+> protocol. Shipping it off by default is what lets both things stay true: **the default face is
+> still the face this recommendation describes**, and the mouth is there for whoever turns it on.
+>
+> So the recommendation above **stands** and is not superseded. What changed is that there is now
+> something to turn on, not that the evidence changed.
+>
+> Two things were kept deliberately narrow, from the reasoning above. It is **not a lip-sync** — no
+> visemes, nothing a viewer could read — because this section's own finding is that an inaccurate
+> one buys nothing; it is one envelope driving one shape. And it is **simple and graphic**, in the
+> eyes' own rounded language, because the maintainers had already rejected per-emote pupil sizes as
+> uncanny and a detailed mouth is the same mistake with more surface.
+>
+> The thing that would actually settle this is still unmeasured: whether a mouth helps
+> intelligibility at a real demo, in a real room. Until someone measures that, brows and nods remain
+> the parts with the evidence behind them.
+
 ---
 
 ## The perimeter band: a second channel, and a good idea
