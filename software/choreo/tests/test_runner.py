@@ -9,7 +9,9 @@ import json
 import os
 import sys
 import shutil
+import socket
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
@@ -394,6 +396,57 @@ check("... and every ending releases it: the head stops where it is and goes bac
       gz[-1] == "GAZE OFF" and not [n for n in notes if "warning" in n.get("kind", "")], (gz[-2:], notes))
 end, lines, notes = run_gaze("reach.yaml", FakeHead(), flip_after=3.0, change={"deadman": False})
 check("... an aborted run releases it too", end[0] == "ABORTED" and lines[-1] == "GAZE OFF", lines[-2:])
+
+def _absent_head(name):                 # a failed mDNS lookup of a head that is not there: 5 s, then no
+    time.sleep(2.0)
+    raise socket.gaierror(-2, "Name or service not known")
+
+
+robot, notes = R.FakeRobotState(), []
+sc = SimClock(robot)
+gaze = FB.LiveGaze("opendubs-tab5.local", sock=FakeHead(), clock=sc.clock, resolve=_absent_head,
+                   note=lambda **kw: notes.append(kw))
+r = R.Runner(os.path.join(SHOWS, "reach.yaml"), LIMITS, robot, FB.HeadTee(R.TwinFeed(), gaze), io.StringIO(),
+             clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True)
+t_wall = time.monotonic()
+end = r.run()
+t_wall = time.monotonic() - t_wall
+check("a neck whose name does not answer never holds up the show: the run takes no longer (found at the "
+      "robot 2026-10-13: a 5 s lookup on every GAZE line stalled every tick of a live run)",
+      end[0] == "COMPLETED" and t_wall < 1.5, (end, round(t_wall, 2)))
+check("... and it is said once per run, not on every line",
+      sum(1 for n in notes if n.get("kind") == "gaze_error") == 1, notes)
+
+looks = []
+
+
+def _neck_comes_back(name):             # the neck is off the network at first, then answers
+    looks.append(name)
+    if len(looks) == 1:
+        raise socket.gaierror(-2, "Name or service not known")
+    return "127.0.0.1"
+
+
+class _SlowSim(SimClock):               # real time passes a little each tick, as on the robot
+    def sleep(self, s):
+        super().sleep(s)
+        time.sleep(0.002)
+
+
+robot, notes, head = R.FakeRobotState(), [], FakeHead()
+sc = _SlowSim(robot)
+gaze = FB.LiveGaze("opendubs-neck.local", sock=head, clock=sc.clock, resolve=_neck_comes_back,
+                   note=lambda **kw: notes.append(kw))
+gaze.RESOLVE_RETRY_S = 0.1
+r = R.Runner(os.path.join(SHOWS, "reach.yaml"), LIMITS, robot, FB.HeadTee(R.TwinFeed(), gaze), io.StringIO(),
+             clock=sc.clock, sleep=sc.sleep, start_lead=0.5, arms=AO.FakeArms(), live=True)
+end = r.run()
+kinds = [n.get("kind") for n in notes]
+check("a neck that comes back mid-run gets the show's GAZE from then on, with no restart: absent said "
+      "once, found said once",
+      end[0] == "COMPLETED" and any(ln.startswith("GAZE ") and ln != "GAZE OFF" for ln in head.lines)
+      and kinds.count("gaze_error") == 1 and kinds.count("gaze_found") == 1, (end, kinds[:6], head.lines[:3]))
+
 end, lines, notes = run_gaze("robotic-smile.yaml", FakeHead(tilt_band=(85, 95)))
 warn = [n for n in notes if n.get("kind") == "gaze_warning"]
 check("a move the head limits to its own range is logged ONCE, with what was asked and what it took",
