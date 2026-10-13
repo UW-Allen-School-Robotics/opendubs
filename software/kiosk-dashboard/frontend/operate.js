@@ -20,6 +20,15 @@
   /* ---------- diagnostics drawer (reuses app.js setView) ---------- */
   function drawer(o){ const d=$("opDrawer"), s=$("opScrim"); if(d)d.classList.toggle("open",o); if(s)s.classList.toggle("open",o); }
   $("opHam") && $("opHam").addEventListener("click", () => drawer(true));
+  // Back to the robot's face (software/face-web, served at /face/): one tablet is both the face and
+  // this dashboard (tablet plan 5.4, the minimum). On the face, a long-press brings you back here.
+  if ($("opFs") && !$("opFace")) {
+    const b = document.createElement("button");
+    b.id = "opFace"; b.className = "op-ham"; b.title = "Show the robot's face"; b.textContent = "☺";
+    b.style.fontSize = "20px";
+    b.addEventListener("click", () => { location.href = "/face/"; });
+    $("opFs").before(b);
+  }
   $("opScrim") && $("opScrim").addEventListener("click", () => drawer(false));
   $("opDrawerClose") && $("opDrawerClose").addEventListener("click", () => drawer(false));
   document.querySelectorAll("#opDrawer .ditem").forEach((it) =>
