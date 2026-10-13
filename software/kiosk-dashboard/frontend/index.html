@@ -301,6 +301,8 @@
     </main>
 
     <!-- SHOWS view — the routine palette (choreography plan 4.4). Pick one, it runs, pick the next. -->
+    <!-- HEAD & FACE — what the face does when no show is running (headface.js builds it) -->
+    <main id="view-headface" class="view"></main>
     <main id="view-shows" class="view showsview">
       <section class="card shows-card">
         <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held; grippers, head and lift stay twin-only. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
@@ -538,6 +540,7 @@
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
+    <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
   <script src="app.js?v=b08ad933"></script>
@@ -545,5 +548,6 @@
   <script type="module" src="teleop.js?v=d344359f"></script>
   <script src="show_audio.js?v=dc5bc029"></script>
   <script src="choreo.js?v=4e394e27"></script>
+  <script src="headface.js"></script>
 </body>
 </html>

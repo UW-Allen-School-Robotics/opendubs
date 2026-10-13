@@ -19,7 +19,11 @@ def _free_udp_port() -> int:
     return port
 
 
-def _client(monkeypatch):
+def _client(monkeypatch, tmp_path=None):
+    import tempfile
+    monkeypatch.setenv("OPENDUBS_HEAD_SETTINGS", os.path.join(tempfile.mkdtemp(), "head.json"))
+    import head_settings
+    monkeypatch.setattr(head_settings, "PATH", os.environ["OPENDUBS_HEAD_SETTINGS"])
     monkeypatch.setattr(face_door, "PORT", _free_udp_port())
     monkeypatch.setattr(face_door, "_transport", None)
     face_door.pages.clear()
@@ -61,6 +65,7 @@ def test_a_line_reaches_the_page_and_its_reply_comes_back(monkeypatch):
             got = {}
             t = threading.Thread(target=lambda: got.update(reply=_ask("SKIN cookie")))
             t.start()
+            assert "settings" in page.receive_json()      # first, the head's idle settings
             msg = page.receive_json()
             assert msg["line"] == "SKIN cookie"
             page.send_json({"id": msg["id"], "reply": "OK skin cookie"})
@@ -77,6 +82,7 @@ def test_a_page_that_does_not_answer_times_out(monkeypatch):
             got = {}
             t = threading.Thread(target=lambda: got.update(reply=_ask("MOVE wink_l")))
             t.start()
+            page.receive_json()                    # the settings
             page.receive_json()                    # heard, never answered
             t.join(3)
             assert got["reply"] == "ERR face did not answer"
@@ -92,6 +98,7 @@ def test_the_newest_page_is_the_one_asked(monkeypatch):
             got = {}
             t = threading.Thread(target=lambda: got.update(reply=_ask("EMOTE ALERT")))
             t.start()
+            newer.receive_json()                   # the settings
             msg = newer.receive_json()
             newer.send_json({"id": msg["id"], "reply": "OK emote ALERT"})
             t.join(3)

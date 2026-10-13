@@ -172,6 +172,12 @@ class Run:
         self.expect(F, "SKIN <unknown name>", "SKIN no_such_skin", "SKIN",
                     lambda r: r == "ERR unknown skin no_such_skin (showing default)")
         self.expect(F, "SKIN default", "SKIN default", "SKIN", lambda r: r == "OK skin default")
+        # v5: the idle skin and theme, sent at every show end. THEME is shipping on every face, but
+        # THEME IDLE is a v5 word only a face with SKIN knows: a Tab5 rightly answers
+        # `ERR unknown theme`, which the runner expects, so it is not asked here.
+        self.expect(F, "SKIN IDLE", "SKIN IDLE", "SKIN", lambda r: bool(re.match(r"^OK skin idle \S+$", r)))
+        if "SKIN" in hp.KINDS.get(self.kind.get(F), set()):
+            self.expect(F, "THEME IDLE", "THEME IDLE", "THEME", lambda r: bool(re.match(r"^OK theme idle \S+$", r)))
         # SPIN (v3): a skin's counter-rotation on a beat. A non-spinning skin answers OK and does
         # nothing, so these hold whatever skin is showing.
         for line, want in (("SPIN COUNTER 2", "counter"), ("SPIN TOGETHER", "together"), ("SPIN AUTO", "auto")):
