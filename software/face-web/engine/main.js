@@ -142,6 +142,14 @@ if (doorUrl) connect();
 // Sent by the door on connect and on every change. They are what the face does when no show is
 // running; a show's own cues override them, and VOLUME IDLE / BRIGHT IDLE return to them.
 let tracking = false;
+// What the settings last said, so that a reconnect (the same settings, sent again) does not undo what
+// a running show is doing: the skin, theme and expressions are applied only when they CHANGE (or on
+// the page's first load), never because the door reconnected (2026-10-13: a show's skin was reset).
+const appliedSettings = {};
+function changed(key, value) {
+  if (Object.prototype.hasOwnProperty.call(appliedSettings, key) && appliedSettings[key] === value) return false;
+  appliedSettings[key] = value; return true;
+}
 function applySettings(s) {
   levels.configure({ brightMin: s.bright_min, volMax: s.vol_max,
                      idle: { bright: s.bright_idle, ...(typeof s.volume_idle === "number" ? { volume: s.volume_idle } : {}) } });
@@ -150,10 +158,10 @@ function applySettings(s) {
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
   }
   skins.idle = { skin: s.skin || "default", theme: s.theme || "plain" };   // for SKIN IDLE / THEME IDLE
-  if (s.skin && s.skin !== skins.chosen) skins.select(s.skin);
-  if (s.theme && s.theme !== face.theme) face.setTheme(s.theme);
+  if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen) skins.select(s.skin);
+  if (changed("theme", s.theme) && s.theme && s.theme !== face.theme) face.setTheme(s.theme);
   if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
-  face.setEmote(s.idle_eyes === false ? "NEUTRAL" : "AUTO", performance.now());
+  if (changed("idle_eyes", s.idle_eyes)) face.setEmote(s.idle_eyes === false ? "NEUTRAL" : "AUTO", performance.now());
   const K = window.OpenDubsKiosk;
   if (K && typeof K.keepAwake === "function") K.keepAwake(s.screen_on !== false);
   const want = s.tracking === "tablet";        // the face's own camera; "d415" is the Thor's tracker
