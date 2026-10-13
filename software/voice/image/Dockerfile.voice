@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+# The opendubs-voice image: the voice service (software/voice), its gateway, turn state, brain
+# router and safe tools. Plan: notes/workplan-voice.md, step 1.6.
+#
+# Do not build this directly. build.sh reads the base from software/stack/versions.env (pinned by
+# digest, never a tag) and passes it in. The build context is the repository root.
+#
+# Phase 1 is CPU-only: fake STT/TTS for a desk, the local brain over HTTP to the separate
+# opendubs-llm container, and the cloud brain. So it builds FROM the pinned plain ROS base
+# (ROS_BASE_IMAGE), as every CPU-only module does (Thor stack plan, T-1 wording, 2026-10-09), and
+# runs unchanged on JetPack 7.1, 7.2 and Orin. When Parakeet and Kokoro land (step 1.3) the image
+# needs CUDA and moves to the Isaac ROS base (ISAAC_ROS_BASE_IMAGE), with `build.sh --gpu`.
+#
+# Not a ROS node: it speaks a WebSocket on loopback (the dashboard relays /ws/voice to it), UDP to
+# the face door, and HTTP to the dashboard and the local model. It holds no secret: the API key
+# arrives at run time from the robot's root-owned env file (run.sh), never in a layer.
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY software/voice/image/requirements.txt /opt/voice/requirements.txt
+RUN python3 -m venv /opt/voice/venv \
+ && /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements.txt
+
+# The protocol's vocabularies, which safe_tools reads so the allowlist cannot drift from the face.
+COPY software/head-protocol/head_protocol.py /opt/voice/app/head_protocol.py
+COPY software/voice/*.py software/voice/persona.txt /opt/voice/app/
+
+RUN useradd --system --uid 10093 --home-dir /nonexistent --shell /usr/sbin/nologin voice
+USER voice
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OPENDUBS_VOICE_PORT=8093
+CMD ["/opt/voice/venv/bin/python", "/opt/voice/app/server.py"]
