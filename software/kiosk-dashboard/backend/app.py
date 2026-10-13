@@ -527,6 +527,8 @@ app.include_router(_show_light_router)
 # (/opt/opendubs/face-web on the robot, deploy.sh). Before the static mount, so neither is shadowed.
 from face_door import router as _face_door_router  # noqa: E402
 app.include_router(_face_door_router)
+from head_settings import router as _head_settings_router  # noqa: E402
+app.include_router(_head_settings_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

@@ -127,6 +127,7 @@ function connect() {
     const msg = JSON.parse(m.data);
     if (msg.neck) neck = msg.neck;
     if (msg.frames) startTap(ws, msg.frames);
+    if (msg.settings) applySettings(msg.settings);
     if (msg.line !== undefined) {
       Promise.resolve(handle(face, audio, msg.line, performance.now(), skins, levels))
         .then((reply) => ws.send(JSON.stringify({ id: msg.id, reply })));
@@ -136,6 +137,32 @@ function connect() {
   ws.onclose = () => { stopTap(); levels.restoreIdle(); setTimeout(connect, 1000); };
 }
 if (doorUrl) connect();
+
+// ---- the head's idle settings (the dashboard's Head & face page; backend/head_settings.py) ------
+// Sent by the door on connect and on every change. They are what the face does when no show is
+// running; a show's own cues override them, and VOLUME IDLE / BRIGHT IDLE return to them.
+let tracking = false;
+function applySettings(s) {
+  levels.configure({ brightMin: s.bright_min, volMax: s.vol_max,
+                     idle: { bright: s.bright_idle, ...(typeof s.volume_idle === "number" ? { volume: s.volume_idle } : {}) } });
+  if (!levels.touched) {                       // no show holds the levels: show the idle ones now
+    levels.idle("bright", 0.5);
+    if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
+  }
+  if (s.skin && s.skin !== skins.chosen) skins.select(s.skin);
+  if (s.theme && s.theme !== face.theme) face.setTheme(s.theme);
+  if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
+  face.setEmote(s.idle_eyes === false ? "NEUTRAL" : "AUTO", performance.now());
+  const K = window.OpenDubsKiosk;
+  if (K && typeof K.keepAwake === "function") K.keepAwake(s.screen_on !== false);
+  const want = s.tracking === "tablet";        // the face's own camera; "d415" is the Thor's tracker
+  if (want && !tracking) {
+    tracking = true;
+    import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
+  } else if (!want && tracking) {
+    location.reload();                         // the camera is released with the page
+  }
+}
 
 // ---- the body twin's picture (door_dev.py with OPENDUBS_FACE_FRAMES; the robot's door never asks) -
 // The MuJoCo body twin shows this face on its head by copying it, never by drawing its own (a second
@@ -189,4 +216,5 @@ if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. 
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
 import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
+if (q.get("track") === "1") tracking = true;
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });

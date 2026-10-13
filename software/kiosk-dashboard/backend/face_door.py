@@ -80,12 +80,27 @@ class _Door(asyncio.DatagramProtocol):
             self.t.sendto((await carry(line)).encode(), addr)
 
 
+async def broadcast(msg: dict) -> None:
+    """Something every face page should know now, e.g. changed head settings (head_settings.py)."""
+    text = json.dumps(msg)
+    for ws in list(pages):
+        try:
+            await ws.send_text(text)
+        except Exception:                          # noqa: BLE001 — a page going away
+            pages.pop(ws, None)
+
+
 @router.websocket("/ws/face")
 async def face_ws(socket: WebSocket):
     if await origin_guard.refuse_websocket(socket):
         return
     await socket.accept()
     pages[socket] = True
+    try:                                            # its idle settings, before any line arrives
+        import head_settings
+        await socket.send_text(json.dumps({"settings": head_settings.load()}))
+    except Exception as e:                          # noqa: BLE001 — a page without settings still works
+        log.warning("face page: settings not sent: %s", e)
     log.info("face page connected (%d showing)", len(pages))
     try:
         while True:
