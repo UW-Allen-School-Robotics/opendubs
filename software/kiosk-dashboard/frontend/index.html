@@ -304,7 +304,19 @@
     <main id="view-shows" class="view showsview">
       <section class="card shows-card">
         <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held; grippers, head and lift stay twin-only. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
-        <div class="shows-req">Shows need the mode in AUTO and the deadman held. Letting go of the deadman stops the show, and the arms hold where they are.</div>
+        <div class="shows-req">Shows need the mode in AUTO. On the robot a run first ARMS: then let go of the deadman if you hold it, and press it to start. Once started, letting go stops the show, and the arms hold where they are.</div>
+        <div class="shows-start">
+          <label for="showsStart" title="How a run starts. Deadman: the run arms and waits (up to 5 minutes) for a fresh press of the deadman. Countdown: needs the deadman held now, and counts down at once. Now: starts as soon as its checks pass.">Start</label>
+          <select id="showsStart">
+            <option value="">default</option>
+            <option value="deadman">wait for the deadman</option>
+            <option value="countdown">count down now</option>
+            <option value="now">now, no countdown</option>
+          </select>
+          <label for="showsCountdown" title="Seconds between the go and the first move. Blank: the show's own, else 5.">countdown</label>
+          <input id="showsCountdown" type="number" min="0" max="60" step="1" placeholder="5" inputmode="numeric">
+          <span class="dim">s</span>
+        </div>
         <div id="showsStatus" class="shows-status">—</div>
         <div class="shows-audio">
           <span id="showsAudio" class="dim" title="Show music and sound files play on ONE device. The Thor tells it when to start; it matches its clock to the Thor's to start on time.">Show audio: —</span>
