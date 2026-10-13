@@ -447,6 +447,24 @@ check("a neck that comes back mid-run gets the show's GAZE from then on, with no
       end[0] == "COMPLETED" and any(ln.startswith("GAZE ") and ln != "GAZE OFF" for ln in head.lines)
       and kinds.count("gaze_error") == 1 and kinds.count("gaze_found") == 1, (end, kinds[:6], head.lines[:3]))
 
+for val, want in (("none", None), ("OFF", None), (" Off ", None), ("opendubs-neck.local", "opendubs-neck.local")):
+    os.environ["OPENDUBS_HEAD_NECK_HOST"] = val
+    check(f"OPENDUBS_HEAD_NECK_HOST={val!r}: the neck is {want!r}", FB.head_neck_host() == want, FB.head_neck_host())
+os.environ["OPENDUBS_HEAD_NECK_HOST"] = ""
+os.environ["OPENDUBS_HEAD_FACE_HOST"] = "127.0.0.1"
+check("an empty neck keeps its old meaning: the face's box", FB.head_neck_host() == "127.0.0.1", FB.head_neck_host())
+del os.environ["OPENDUBS_HEAD_NECK_HOST"], os.environ["OPENDUBS_HEAD_FACE_HOST"]
+
+robot, plog = R.FakeRobotState(), io.StringIO()
+sc = SimClock(robot)
+paln = R.Palette(SHOWS, LIMITS, robot, R.TwinFeed(), plog, start_lead=0.5, clock=sc.clock, sleep=sc.sleep,
+                 arms=AO.FakeArms(), no_neck=True)
+paln.run("reach", start="now")
+paln.current[2].join(10)
+said = [json.loads(ln) for ln in plog.getvalue().splitlines() if "no neck is fitted" in ln]
+check("no neck fitted: a routine with pan/tilt still runs, and says ONCE that its pan/tilt stays in the twin",
+      paln.status()["last"]["status"] == "COMPLETED" and len(said) == 1, (paln.status()["last"], len(said)))
+
 end, lines, notes = run_gaze("robotic-smile.yaml", FakeHead(tilt_band=(85, 95)))
 warn = [n for n in notes if n.get("kind") == "gaze_warning"]
 check("a move the head limits to its own range is logged ONCE, with what was asked and what it took",
