@@ -8,7 +8,23 @@ export const ENGINE_VERSION = "0.1.0";
 // Head protocol v4's gestures, by their wire names (software/head-protocol/head_protocol.py MOVES).
 export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle"];
 
-export function handle(face, audio, line, now, skins) {
+// ARMED WAIT is leased (v5): a runner that dies cannot leave the face saying "armed".
+export const ARMED_LEASE_MS = 3000;
+let armedLease = null;
+
+function levelLine(levels, which, rest) {
+  // VOLUME|BRIGHT <0..1> [fade_s]  /  VOLUME|BRIGHT IDLE [fade_s]   (head protocol v5)
+  const usage = `ERR ${which} <0..1> [fade_s] | IDLE [fade_s]`;
+  const [lv, fade, extra] = rest;
+  const num = /^(\d+(\.\d*)?|\.\d+)$/;
+  if (!lv || extra !== undefined || (fade !== undefined && !num.test(fade))) return usage;
+  const f = fade === undefined ? 0 : Number(fade);
+  if (lv.toUpperCase() === "IDLE") return `OK ${which} idle ${levels.idle(which === "bright" ? "bright" : "volume", f).toFixed(2)}`;
+  if (!num.test(lv) || Number(lv) > 1) return usage;
+  return `OK ${which} ${levels.set(which === "bright" ? "bright" : "volume", Number(lv), f).toFixed(2)}`;
+}
+
+export function handle(face, audio, line, now, skins, levels) {
   const [verb, ...rest] = line.trim().split(" ");
   const arg = rest.join(" ");
   switch (verb) {
@@ -64,6 +80,25 @@ export function handle(face, audio, line, now, skins) {
       if (!MOVES.includes(name)) return `ERR move ${name || "<name>"}`;
       face.move(name, now);
       return `OK move ${name}`;
+    }
+    case "VOLUME":
+    case "BRIGHT":
+      if (!levels) break;                     // a face with no device levels: ERR unknown
+      return levelLine(levels, verb.toLowerCase(), rest);
+    case "ARMED": {
+      // "A live show is armed" (v5), drawn by the face over any skin. Answered `ERR unknown` until the
+      // face can draw it (face.setArmed), so conformance says PENDING rather than a false OK.
+      if (typeof face.setArmed !== "function") break;
+      const a = arg.trim().toUpperCase();
+      clearTimeout(armedLease); armedLease = null;
+      if (a === "WAIT") {
+        face.setArmed("wait", now);
+        armedLease = setTimeout(() => { armedLease = null; face.setArmed(null, performance.now()); }, ARMED_LEASE_MS);
+        return "OK armed wait";
+      }
+      if (a === "OFF") { face.setArmed(null, now); return "OK armed off"; }
+      if (/^\d+$/.test(a) && +a >= 1 && +a <= 60) { face.setArmed(+a, now); return `OK armed ${+a}`; }
+      return "ERR armed WAIT | <1..60 seconds> | OFF";
     }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";

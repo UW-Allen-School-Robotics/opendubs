@@ -677,6 +677,10 @@ body.op-estopped .op-rearm{ display:inline-flex; }
 .shows-ctl { display: flex; flex-wrap: wrap; gap: 12px; }
 .shows-stop { margin-top: 14px; min-width: 160px; }
 .shows-req { margin: 0 0 12px; font-size: 16px; font-weight: 700; color: var(--txt); }
+.shows-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
+.shows-start select, .shows-start input { font: inherit; padding: 6px 8px; background: var(--panel-2); color: var(--txt); border: 1px solid var(--line); border-radius: 6px; }
+.shows-start input { width: 64px; }
+.shows-armed { color: var(--warn); }
 
 .shows-audio { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
 .shows-audio .sysbtn { flex: none; width: auto; min-height: 0; padding: 6px 12px; font-size: 13px; }

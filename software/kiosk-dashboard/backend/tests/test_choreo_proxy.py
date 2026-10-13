@@ -68,7 +68,8 @@ def test_the_fake_robot_switches_are_not_forwarded():
     # /api/choreo/robot is the dashboard's own read-only answer, not a forward to the runner
     # ... and the show-audio routes (show_audio.py), which the dashboard serves itself
     assert paths == {"/api/choreo/routines", "/api/choreo/palette", "/api/choreo/run/{rid}", "/api/choreo/stop",
-                     "/api/choreo/robot", "/ws/show-audio", "/api/choreo/audio", "/api/choreo/media/{rel:path}"}
+                     "/api/choreo/robot", "/ws/show-audio", "/api/choreo/audio", "/api/choreo/media/{rel:path}",
+                     "/api/choreo/ambient"}
 
 
 # ---- /api/choreo/robot: the runner's view of the robot (plan 4.4c) -----------------------------
@@ -126,7 +127,8 @@ def test_a_run_is_forwarded_without_a_live_mark():
             pass
 
         def do_POST(self):
-            seen.append(self.path)
+            n = int(self.headers.get("Content-Length") or 0)
+            seen.append((self.path, json.loads(self.rfile.read(n)) if n else None))
             b = b'{"started": "reach"}'
             self.send_response(200)
             self.send_header("Content-Length", str(len(b)))
@@ -144,6 +146,38 @@ def test_a_run_is_forwarded_without_a_live_mark():
         c = TestClient(app)
         c.post("/api/choreo/run/reach")
         c.post("/api/choreo/run/reach?live=1")
-        assert seen == ["/api/run/reach", "/api/run/reach"]
+        assert seen == [("/api/run/reach", None), ("/api/run/reach", None)]
+    finally:
+        srv.shutdown()
+
+
+def test_a_runs_start_mode_is_forwarded_and_nothing_else():
+    seen = []
+
+    class Rec(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            seen.append(json.loads(self.rfile.read(n)) if n else None)
+            b = b'{"started": "reach"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+    srv = HTTPServer(("127.0.0.1", 0), Rec)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    choreo_proxy.RUNNER_URL = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        app = FastAPI()
+        app.include_router(choreo_proxy.router)
+        c = TestClient(app)
+        c.post("/api/choreo/run/reach", json={"start": "deadman", "countdown_s": 3, "live": True})
+        assert c.post("/api/choreo/run/reach", content=b"{not json").status_code == 400
+        assert seen == [{"start": "deadman", "countdown_s": 3}]
     finally:
         srv.shutdown()

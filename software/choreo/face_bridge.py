@@ -21,6 +21,10 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
                                                so a seek or a resync never replays it
     FACE  { do: skin, name: ring }         ->  SKIN ring       (head protocol v2; it stays, like a theme)
     SOUND { do: play, sound: attend }      ->  CUE attend      (one of the Tab5's six earcons)
+    device: { volume: 0.6 } (show level)   ->  VOLUME 0.6      (head protocol v5: at show time 0)
+    DEVICE { do: brightness, level: 0.4,   ->  BRIGHT 0.4 3    (fading over 3 s; on a seek, the level
+             fade_s: 3 }                                        in force, unfaded)
+    (a run ends, however it ends)          ->  VOLUME IDLE, BRIGHT IDLE   (the head's own levels back)
 
 While playing, each cue is sent as the playhead crosses it. On a seek, a pause, a backwards jump or
 an edit, the bridge instead sends the STATE AT THAT TIME — the emote and theme in force — so jumping
@@ -50,6 +54,14 @@ import urllib.request
 POLL_S = 0.05
 SEEK_JUMP_S = 0.5      # a forward step bigger than this while playing is a seek, not playback
 EARCONS = ("heard", "attend", "refuse", "fault", "mode", "boot")   # the Tab5's Cue enum, by name
+
+
+DEVICE_VERB = {"volume": "VOLUME", "brightness": "BRIGHT"}   # head protocol v5
+
+
+def _level(v) -> str:
+    """A 0..1 level (or a fade's seconds) as the head reads it: up to three decimals, no trailing zeros."""
+    return f"{round(float(v), 3):g}"
 
 
 class Follower:
@@ -96,9 +108,28 @@ class Follower:
                 line = f"SKIN {e['cue']['name']}"
         return line
 
+    def _device_at(self, t):
+        """{"VOLUME": level, "BRIGHT": level} in force at t: the show-level device: block from 0, then
+        the DEVICE cues — each one's TARGET (a seek does not replay a fade)."""
+        dev = (self.tl or {}).get("device") or {}
+        out = {}
+        if t >= 0:
+            out.update({DEVICE_VERB[k]: v for k, v in dev.items() if k in DEVICE_VERB})
+        for e in self._track("DEVICE"):
+            if e["t"] > t + 1e-9:
+                break
+            if e["cue"].get("do") in DEVICE_VERB:
+                out[DEVICE_VERB[e["cue"]["do"]]] = e["cue"]["level"]
+        return out
+
     def _sync(self, t):
         """Lines that bring the face to the state in force at t, sending only what changed."""
         out = []
+        for verb, level in self._device_at(t).items():
+            line = f"{verb} {_level(level)}"
+            if self.sent.get(verb) != line:
+                self.sent[verb] = line
+                out.append(line)
         theme = self._theme_at(t)
         if theme and self.sent.get("theme") != theme:
             self.sent["theme"] = theme
@@ -115,16 +146,25 @@ class Follower:
 
     def _crossed(self, t0, t1):
         """Cues with t0 < t <= t1, in time order, as lines; unsendable ones go to the log."""
+        out = []
+        if t0 < 0 <= t1:                            # show time 0: the show-level volume and brightness
+            for k, v in ((self.tl or {}).get("device") or {}).items():
+                if k in DEVICE_VERB:
+                    self.sent[DEVICE_VERB[k]] = line = f"{DEVICE_VERB[k]} {_level(v)}"
+                    out.append(line)
         evs = []
-        for slot in ("FACE", "SOUND", "LIGHT"):
+        for slot in ("FACE", "SOUND", "LIGHT", "DEVICE"):
             for e in self._track(slot):
                 when = e.get("send_t", e["t"])       # a move goes early, so its peak lands at t
                 if t0 < when <= t1 + 1e-9:
                     evs.append((when, slot, e))
-        out = []
         for t, slot, e in sorted(evs, key=lambda x: x[0]):
             c = e["cue"]
-            if slot == "FACE" and c.get("do") in ("emote", "theme", "skin"):
+            if slot == "DEVICE" and c.get("do") in DEVICE_VERB:
+                verb = DEVICE_VERB[c["do"]]
+                self.sent[verb] = f"{verb} {_level(c['level'])}"   # what a later seek compares with
+                out.append(self.sent[verb] + (f" {_level(c['fade_s'])}" if c.get("fade_s") else ""))
+            elif slot == "FACE" and c.get("do") in ("emote", "theme", "skin"):
                 line = f"{c['do'].upper()} {c['name']}"
                 self.sent[c["do"]] = line
                 out.append(line)
@@ -152,6 +192,10 @@ class Follower:
             if self.sent.get("emote") != "EMOTE AUTO":
                 self.sent["emote"] = "EMOTE AUTO"
                 out.append("EMOTE AUTO")
+            for verb in ("VOLUME", "BRIGHT"):        # every end: the head's own volume and brightness
+                if self.sent.get(verb) != f"{verb} IDLE":
+                    self.sent[verb] = f"{verb} IDLE"
+                    out.append(f"{verb} IDLE")
             self.playing, self.t = False, float(t)
             return out
         if rev != self.rev:
@@ -233,6 +277,20 @@ class LiveFace(_HeadLink):
         crashed left it pinned (an EMOTE pin has no lease on the head)."""
         self.f.sent["emote"] = "EMOTE AUTO"
         self._send("EMOTE AUTO")
+        for verb in ("VOLUME", "BRIGHT"):
+            self.f.sent[verb] = f"{verb} IDLE"
+            self._send(f"{verb} IDLE")
+
+    def armed(self, what):
+        """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
+        while a run waits for the deadman (the head holds it 3 s; the runner re-sends it every
+        second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A head
+        without it answers ERR: said once, and the run goes on."""
+        self._send(f"ARMED {what}", log=what != "WAIT")
+        for r in self._replies():
+            if r.startswith("ERR"):
+                self._once("armed:" + r, kind="face_warning",
+                           note=f"the head did not take ARMED ({r}) — no armed indication on the face")
 
     def show(self, tl):
         self.rev, self.tl, self.started = self.rev + 1, tl, False
@@ -262,6 +320,9 @@ class LiveFace(_HeadLink):
             if "AUDIO OFF" in r:
                 self._once("audio", kind="face_warning",
                            note="the head's audio is OFF: its earcons are silent (enable Audio in the head's SETTINGS)")
+            elif r.upper().startswith(("OK VOLUME", "OK BRIGHT")):
+                # the head says the level it APPLIED (a brightness under its floor comes back raised)
+                self.note(kind="face_device", reply=r)
             elif r.startswith("ERR"):
                 self._once(r, kind="face_error", reply=r)
         if status != "RUNNING":

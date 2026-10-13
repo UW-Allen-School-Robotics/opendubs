@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 4                 # v2 adds SKIN, v3 SPIN, v4 MOVE (all tablet face only)
+VERSION = 5                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED (all tablet face only)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -16,6 +16,13 @@ STATES = ("INIT", "SAFE_IDLE", "MANUAL", "AUTONOMOUS", "DEGRADED", "E_STOP", "CH
 EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
 # One-shot gestures (v4, MOVE). The face owns each one's timing; §3 lists when each peaks.
+# v5: show-timed device levels and the "armed" indication. Clamps are per-robot settings; these are
+# the defaults a head uses without one.
+BRIGHT_MIN_DEFAULT = 0.15      # a show can never black the face out by mistake
+VOL_MAX_DEFAULT = 1.0
+FADE_MAX_S = 30.0
+ARMED_LEASE_MS = 3000          # ARMED WAIT clears itself unless re-sent
+ARMED_COUNT_MAX_S = 60
 MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle")
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
@@ -50,6 +57,9 @@ MESSAGES = {
     "SKIN":    (FACE, "agreed"),        # v2, tablet face only
     "SPIN":    (FACE, "agreed"),        # v3, tablet face only
     "MOVE":    (FACE, "agreed"),        # v4, tablet face only
+    "VOLUME":  (FACE, "agreed"),        # v5, tablet face only
+    "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
+    "ARMED":   (FACE, "agreed"),        # v5, tablet face only
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -69,8 +79,8 @@ NOT_YET_SHIPPING = ("new", "agreed")    # a head that should answer these but sa
 KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
-    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "REBOOT",
-                    "OTA"},
+    "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
+                    "BRIGHT", "ARMED", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -127,5 +137,10 @@ REPLY = {
     "spin_ok":   re.compile(r"^OK spin (counter|together|auto)$"),
     "spin_err":  re.compile(r"^ERR spin "),
     "move_err":  re.compile(r"^ERR move \S+$"),
+    "volume_ok": re.compile(r"^OK volume (idle )?[01]\.\d\d$"),
+    "bright_ok": re.compile(r"^OK bright (idle )?[01]\.\d\d$"),
+    "volume_err": re.compile(r"^ERR volume "),
+    "bright_err": re.compile(r"^ERR bright "),
+    "armed_err": re.compile(r"^ERR armed "),
     "unknown":   re.compile(r"^ERR unknown$"),
 }

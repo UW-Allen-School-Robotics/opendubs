@@ -16,11 +16,22 @@ import { Face, DESIGN_W, DESIGN_H } from "./face.js";
 import { STATES, EMOTES } from "./vocab.js";
 import { handle, Earcons, libraryRefresher } from "./protocol.js";
 import { Skins, CODE_SKINS } from "./skins/index.js";
+import { Levels } from "./levels.js";
 
 const q = new URLSearchParams(location.search);
+// Served by the robot's dashboard at /face/ (face_door.py): the door and the library are this page's
+// own origin, so the kiosk URL is just https://<robot>:8443/face/ and can never carry a wrong scheme.
+const onRobot = location.pathname.startsWith("/face/");
+if (onRobot && !q.has("door")) q.set("door", `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/face`);
+if (onRobot && !q.has("library")) q.set("library", "/api/library/files/");
 const face = new Face();
 const audio = new Earcons(q.get("audio") === "1");
 const skins = new Skins();
+const levels = new Levels();                       // VOLUME / BRIGHT (head protocol v5)
+// The ARMED overlay, loaded rather than imported so the page still runs on an engine without it.
+let drawArmed = null;
+import("./skins/armed.js").then((m) => { drawArmed = m.drawArmed; }).catch(() => {});
+window.faceLevels = levels;                        // read by a harness through devtools
 window.faceSkins = skins;                          // read by a harness through devtools
 const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
 skins.loadLibrary(libraryUrl).then(() => {
@@ -79,8 +90,13 @@ function frame(now) {
   // read as a caption printed on it, so it waits. Eye skins keep it; it is the face's own line.
   const fullFace = skinDrew && drawn !== CODE_SKINS.default &&
                    skins.library.get(skins.chosen)?.params?.layout === "full";
-  const text = fullFace ? null : face.quoteText();
+  // Nor while a show is armed: the ARMED sign owns the bottom of the face, and must read alone.
+  const armed = typeof face.armedState === "function" && face.armedState(now);
+  const text = fullFace || armed ? null : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
+  // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
+  // inside the design-space transform, so no skin or photo can hide it (Face & HRI's skins/armed.js).
+  if (drawArmed && typeof face.armedState === "function") drawArmed(ctx, face.armedState(now), now / 1000);
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
@@ -112,11 +128,12 @@ function connect() {
     if (msg.neck) neck = msg.neck;
     if (msg.frames) startTap(ws, msg.frames);
     if (msg.line !== undefined) {
-      Promise.resolve(handle(face, audio, msg.line, performance.now(), skins))
+      Promise.resolve(handle(face, audio, msg.line, performance.now(), skins, levels))
         .then((reply) => ws.send(JSON.stringify({ id: msg.id, reply })));
     }
   };
-  ws.onclose = () => { stopTap(); setTimeout(connect, 1000); };
+  // A lost door: back to the idle levels, so a dead runner cannot leave the robot dimmed or loud.
+  ws.onclose = () => { stopTap(); levels.restoreIdle(); setTimeout(connect, 1000); };
 }
 if (doorUrl) connect();
 
@@ -171,4 +188,5 @@ addEventListener("keydown", (k) => {
 if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. state=SAFE_IDLE
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
+import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });

@@ -17,6 +17,12 @@ const LINK_STALE_MS = 5000;
 const ARMED_LEASE_MS = 3000;
 const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
 
+// `?mouth=1` turns the optional mouth on for testing and for the settings page's own preview. The
+// PREFERENCE lives on the robot and the page calls setMouth(); this is only a way to see it without
+// one. Wrapped because the engine also runs headless in tests, where there is no location.
+const Q = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(""); } })();
+const MOUTH_ON = Q.get("mouth") === "1";
+
 const rnd = (n) => Math.floor(Math.random() * n);
 const rgb = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
 
@@ -118,10 +124,16 @@ export class Face {
     this.woke = false;
     this.nextAvert = 0; this.avertUntil = 0;   // the gaze break; see tick()
     this.microX = 0; this.microY = 0; this.nextMicro = 0;
+    // The optional mouth (skins/mouth.js). OFF unless something turns it on, so a face that never
+    // calls setMouth draws exactly what it has always drawn.
+    this.mouth = MOUTH_ON;
+    this.mouthLevel = 0;        // what is drawn: smoothed, and decaying on its own
+    this.mouthFeed = 0;         // the last envelope handed in
+    this.talkUntil = 0;         // a manual talk, for shows and for looking at it
     // ARMED (head protocol v5): a show is loaded and starts when the operator holds the deadman.
     this.armed = null;          // null | "wait" | seconds remaining
     this.armedAt = -1e9;        // when it was last set, for the lease
-    this._now = 0;              // the last tick's clock, so the seams below need no `now` argument
+    this._now = 0;              // the last tick's clock, so both seams need no `now` argument
     this.mv = null;             // the one move in flight: {name, t0}; see move()
     this.mvOut = NO_MOVE;       // what it contributes this frame
   }
@@ -152,6 +164,37 @@ export class Face {
     return true;
   }
   look(target) { this.target = target; }      // from a tracker; null to let the eyes wander
+
+  // ---- the optional mouth -----------------------------------------------------------------------
+  // The page owns the preference and the audio; the engine owns the drawing. ONE BOOLEAN AND ONE
+  // NUMBER cross that line, which is what keeps the AnalyserNode out of here entirely (the voice
+  // research note, section 5: the speaking animation runs from the audio being played, locally).
+  setMouth(on) { this.mouth = !!on; if (!this.mouth) { this.mouthLevel = 0; this.mouthFeed = 0; } }
+
+  // An envelope, 0..1, from the audio the page is playing. Call it as often as you like: the level
+  // is smoothed, so 20 Hz and 60 Hz look the same.
+  setMouthLevel(x) { this.mouthFeed = Math.max(0, Math.min(1, Number(x) || 0)); }
+
+  // A manual talk, for a show or for looking at it: a generic speaking rhythm for `ms`, with no
+  // audio behind it. Deliberately NOT a lip-sync -- it is the same one number, moved by a timer.
+  talk(ms = 1500, now = this._now) { this.talkUntil = now + Math.max(0, ms); }
+
+  stepMouth(now, dt) {
+    if (!this.mouth) { this.mouthLevel = 0; return; }
+    // A manual talk makes its own envelope: two overlapping rates, so it does not read as a pulse.
+    let want = this.mouthFeed;
+    if (now < this.talkUntil) {
+      const s = now / 1000;
+      want = Math.max(want, 0.28 + 0.34 * Math.abs(Math.sin(s * 9.1)) + 0.22 * Math.abs(Math.sin(s * 3.7)));
+    }
+    // Open quickly, close slowly: speech starts faster than it stops, and a mouth that closes as
+    // fast as it opens flickers. The close is also what makes a feed that STOPS look like silence
+    // rather than a held vowel -- the level decays to shut on its own, with nothing to turn it off.
+    const k = want > this.mouthLevel ? 22 : 7;
+    this.mouthLevel += (want - this.mouthLevel) * Math.min(1, k * dt);
+    if (this.mouthLevel < 0.004) this.mouthLevel = 0;
+    this.mouthFeed *= Math.max(0, 1 - 6 * dt);     // the feed itself fades, so one stale call cannot hold it
+  }
 
   // Head protocol v4, `MOVE <name>`: a one-shot gesture, fired on a beat by a show. The name is
   // lowercase and already validated by protocol.js; an unknown one is refused there, so reaching
@@ -311,6 +354,7 @@ export class Face {
     else if (now >= this.nextQuote || this.quote < 0) { this.quote = (this.quote + 1) % QUOTES.length; this.nextQuote = now + 9000; }
 
     this._now = now;
+    this.stepMouth(now, dt);
     this.stepMove(now);
 
     for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.lidLower, this.lidCurve,
@@ -343,6 +387,10 @@ export class Face {
       gazeX: clamp01((this.gazeX.value * (1 - m.pull) + m.gx + this.microX + 1) / 2) * 2 - 1,
       gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + this.microY + 1) / 2) * 2 - 1,
       sparkle: m.sparkle,       // 0..1, THE ONE FIELD A SKIN MAY IGNORE (face-engine.md A)
+      // NULL unless the mouth is on, so a skin's `if (e.mouth)` is false on exactly the faces that
+      // have always had no mouth -- "off changes nothing" is then structural rather than a promise.
+      // It is face-level, not per-eye: a code skin draws it once, on its left-eye pass.
+      mouth: this.mouth ? { level: this.mouthLevel, cx: DESIGN_W / 2 } : null,
       colour, dim, rgb: c,
     }));
   }

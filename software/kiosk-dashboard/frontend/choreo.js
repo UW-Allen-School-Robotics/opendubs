@@ -1,6 +1,7 @@
 /* OpenDubs dashboard — the Shows page: the routine palette (choreography plan 4.4).
    Lists the show runner's routines (through the dashboard's own /api/choreo/), runs the one the
-   operator taps, and offers STOP. One routine at a time; the runner refuses a second.
+   operator taps — starting it the way the Start picker says — and offers STOP. One routine at a
+   time; the runner refuses a second.
    Works in any browser on plain HTTP or HTTPS (standing rule 12): nothing here needs the tablet. */
 "use strict";
 (() => {
@@ -27,6 +28,7 @@
     sound:    ["SOUND", '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>'],
     light:    ["LIGHT", '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z"/>'],
     lift:     ["LIFT", '<path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/>'],
+    device:   ["LEVELS", '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'],
     base:     ["BASE", '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.2"/><path d="M12 3v6.8M12 14.2V21M3 12h6.8M14.2 12H21"/>'],
   };
   function usesHTML(uses) {
@@ -63,14 +65,15 @@
     const badge = el("showsTwin");
     const armsFollow = !!(status && status.live_available), liveRun = !!(status && status.live);
     if (badge) {
-      badge.textContent = liveRun ? "LIVE · THE ARMS ARE MOVING" : armsFollow ? "LIVE · THE ARMS FOLLOW EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
+      const waiting = liveRun && ["VALIDATING", "PREFLIGHT", "ARMED_WAITING", "COUNTDOWN"].includes(status.status);
+      badge.textContent = waiting ? "LIVE · ARMED, NOTHING MOVES YET" : liveRun ? "LIVE · THE ARMS ARE MOVING" : armsFollow ? "LIVE · THE ARMS FOLLOW EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
       badge.classList.toggle("livebadge", armsFollow);
     }
     el("showsStop").disabled = !running;
     el("showsPark").disabled = !!running;   // the runner owns the arms while a routine runs
     const last = status && status.last;
     el("showsStatus").innerHTML = running
-      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${status.live ? ' <b class="bad">LIVE</b>' : ""} <span class="dim">${esc(status.status || "")}</span>`
+      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${status.live ? ' <b class="bad">LIVE</b>' : ""} ${startHTML(status)}`
       : last ? `Last: <b>${esc(labelOf(last.id))}</b> — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc(last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>`
       : "Pick a routine.";
     /* Rebuild the buttons only when something about them changed: rebuilding every poll would
@@ -86,12 +89,24 @@
         <span class="uses">${usesHTML(r.uses)}</span>
       </button>`).join("") || '<div class="dim">No routines.</div>';
   }
+  /* ARMED_WAITING and COUNTDOWN in words: what the operator must do next, and how long is left. */
+  function startHTML(s) {
+    const si = s.start_info || {}, left = si.left_s != null ? ` · ${Math.ceil(si.left_s)} s left` : "";
+    if (s.status === "ARMED_WAITING")
+      return `<b class="shows-armed">ARMED</b> — ${si.deadman === true ? "let go of the deadman, then press it to start"
+        : si.deadman === false ? "press the deadman to start" : "the deadman is unknown"}<span class="dim">${esc(left)}</span>`;
+    if (s.status === "COUNTDOWN")
+      return `<b class="shows-armed">STARTING in ${Math.ceil(si.left_s || 0)} s</b> — keep the deadman held`;
+    return `<span class="dim">${esc(s.status || "")}</span>`;
+  }
   const labelOf = (id) => (routines.find((r) => r.id === id) || {}).label || id;
 
   async function refresh(full) {
     try {
       if (full || !routines.length) routines = await getJSON("/api/choreo/routines");
       status = await getJSON("/api/choreo/palette");
+      const d = el("showsStart").options[0], def = status.default_start;
+      if (def) d.textContent = `default (${{ deadman: "wait for the deadman", countdown: "count down now", now: "now" }[def] || def})`;
     } catch (e) {
       routines = []; status = null; listKey = "";
       el("showsStatus").innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -103,7 +118,13 @@
 
   el("showsList").addEventListener("click", async (e) => {
     const b = e.target.closest(".shows-btn"); if (!b || b.disabled) return;
-    try { await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, { method: "POST" }); }
+    const body = {}, start = el("showsStart").value, cd = el("showsCountdown").value.trim();
+    if (start) body.start = start;
+    if (cd !== "") body.countdown_s = Number(cd);
+    try {
+      await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
     catch (err) { el("showsStatus").innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
     refresh(false);
   });

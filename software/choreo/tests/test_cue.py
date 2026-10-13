@@ -629,6 +629,34 @@ if os.path.isfile(_face):
 else:
     print("  skip  firmware/tab5_idf/app_face is not on this branch; this runs once both are merged")
 
+print("\nDEVICE: the head's volume and brightness (head protocol v5)")
+_D = lambda **c: {"t": 1.0, "slot": "DEVICE", **c}   # noqa: E731
+_FIX = os.path.join(HERE, "joint_limits_fixture.yaml")
+check_doc("a volume fade and a brightness change pass",
+          doc_show([_D(do="volume", level=0.4, fade_s=2), {"t": 4.0, "slot": "DEVICE", "do": "brightness", "level": 0.8}]), None)
+check_doc("an unknown device do is refused", doc_show([_D(do="contrast", level=0.5)]), "device do must be")
+check_doc("a level outside 0..1 is refused", doc_show([_D(do="volume", level=1.5)]), "needs level 0..1")
+check_doc("a missing level is refused", doc_show([_D(do="volume")]), "needs level 0..1")
+check_doc("a fade over 30 s is refused", doc_show([_D(do="volume", level=0.5, fade_s=31)]), "fade_s")
+check_doc("a fade owns the slot: a second cue inside it collides",
+          doc_show([_D(do="volume", level=0.5, fade_s=5), {"t": 3.0, "slot": "DEVICE", "do": "brightness", "level": 0.5}]),
+          "still busy")
+check_doc("DEVICE needs tab5: true", doc_show([_D(do="volume", level=0.5)], requires={"tab5": False}), "tab5: true")
+_w = doc_show([_D(do="brightness", level=0.1)]).export(LIMITS, _FIX)
+check_true("brightness below 0.15 is valid but warned: the head clamps to its floor",
+           _w["valid"] and any("bright_min" in w["msg"] for w in _w["warnings"]), _w["warnings"])
+_x = doc_show([_D(do="volume", level=0.5)], device={"volume": 0.7, "brightness": 0.9}).export(LIMITS, _FIX)
+check_true("a show-level device: block is exported for the runner",
+           _x["valid"] and _x["device"] == {"volume": 0.7, "brightness": 0.9}
+           and _x["tracks"]["DEVICE"][0]["cue"]["level"] == 0.5, (_x["problems"], _x.get("device")))
+check_doc("device: with an unknown key is refused", doc_show([_D(do="volume", level=0.5)], device={"gain": 1}), "unknown key 'gain'")
+check_doc("device: out of range is refused", doc_show([_D(do="volume", level=0.5)], device={"volume": 2}), "volume 2 must be 0..1")
+check_doc("device: needs tab5: true too",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"volume": 0.5}, requires={}), "tab5: true")
+_y = doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"brightness": 0.05}).export(LIMITS, _FIX)
+check_true("... and a dim show-level brightness is warned too", any("bright_min" in w["msg"] for w in _y["warnings"]),
+           _y["warnings"])
+
 print()
 if fails:
     for f in fails:

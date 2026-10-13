@@ -8,9 +8,10 @@ import dgram from "node:dgram";
 import { Face } from "../engine/face.js";
 import { handle, Earcons } from "../engine/protocol.js";
 import { Skins } from "../engine/skins/index.js";
+import { Levels } from "../engine/levels.js";
 
 const port = Number(process.argv[2]) || 4244;
-const face = new Face(), audio = new Earcons(false), skins = new Skins();
+const face = new Face(), audio = new Earcons(false), skins = new Skins(), levels = new Levels();
 
 let last = performance.now();
 setInterval(() => { const now = performance.now(); face.tick(now, (now - last) / 1000); last = now; }, 16);
@@ -18,7 +19,7 @@ setInterval(() => { const now = performance.now(); face.tick(now, (now - last) /
 const sock = dgram.createSocket("udp4");
 sock.on("message", (msg, peer) => {
   const line = msg.toString("latin1").split("\0")[0].replace(/[\r\n]+$/, "");
-  Promise.resolve(handle(face, audio, line, performance.now(), skins))
+  Promise.resolve(handle(face, audio, line, performance.now(), skins, levels))
     .then((reply) => sock.send(reply, peer.port, peer.address));
 });
 sock.bind(port, "127.0.0.1", () => console.log(`face engine (headless) on udp 127.0.0.1:${port}`));

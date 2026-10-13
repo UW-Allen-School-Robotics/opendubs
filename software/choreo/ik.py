@@ -45,6 +45,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path[:0] = [HERE, os.path.join(REPO, "sim")]
 
 import cue  # noqa: E402
+import tcp  # noqa: E402  the arm controllers' own hand point and box
 
 TOOL_SITE = "oa_openarm_{side}_ee_site"
 JOINT = "oa_openarm_{side}_joint{j}"
@@ -350,6 +351,21 @@ def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool 
             if verbose:
                 print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> TOO CLOSE ({mm:.0f} mm: {ga} / {gb})")
             continue
+        # The arm CONTROLLERS refuse a goal whose hand (hand_tcp) leaves their box (tcp.py): a target
+        # whose solution does is refused here, the same way as one out of reach — no angles written
+        chain = tcp.load_chain()
+        if chain is not None:
+            sign = -1 if c["slot"] == "ARM_L" else 1
+            signed = [sol[j] * (sign if j in cue.MIRRORED_JOINTS else 1) for j in range(1, 8)]
+            ok, z = tcp.hand_z_ok(chain, side, signed)
+            if not ok:
+                top = tcp.HAND_BOX["max"][2] - tcp.MARGIN_M
+                problems.append(f"cue {i} ({c['slot']} {target_key(c)} at {t:.2f}s): the hand would be at z {z:.3f} m "
+                                f"at the arm controllers' own point (hand_tcp), outside their box (z <= {top:.2f} m "
+                                f"kept) — lower this target by at least {max(z - top, 0) * 100 + 0.5:.0f} cm")
+                if verbose:
+                    print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> OUTSIDE THE HAND BOX (z {z:.3f} m)")
+                continue
         new = dict(c, solved={j: v for j, v in sol.items()}, solved_for=f"{target_key(c)}@{kin.sig}")
         new.pop("elbow_off", None)
         if e_err is not None:

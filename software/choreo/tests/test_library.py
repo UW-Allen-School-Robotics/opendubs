@@ -352,6 +352,23 @@ if os.path.isfile(asset_js):
 else:
     print("  skip  face-web's engine/skins/asset.js is not in this tree")
 
+print("\nlibrary: tags (ambient music)")
+library.add(WAV, "tag-tune", "song", "made up for a test", "CC0", lib_root=lib)
+e = library.tag("tag-tune", "ambient", lib_root=lib)
+check("a song is tagged ambient, and the tag is in its index entry",
+      e.get("tags") == ["ambient"] and library.load_index(lib)["tag-tune"].get("tags") == ["ambient"], e)
+library.tag("tag-tune", "ambient", lib_root=lib)
+check("tagging twice keeps one tag", library.load_index(lib)["tag-tune"]["tags"] == ["ambient"])
+library.tag("tag-tune", "ambient", on=False, lib_root=lib)
+check("untagging takes the tag (and an empty tags key) off", "tags" not in library.load_index(lib)["tag-tune"])
+try:
+    library.tag("tag-tune", "Ambient Music", lib_root=lib)
+    check("a tag that is not a short lower-case word is refused", False)
+except ValueError:
+    check("a tag that is not a short lower-case word is refused", True)
+check("an index entry's tags must be short lower-case words",
+      any("tags must be" in q for q in library.entry_problems({"id": "x", "kind": "song", "tags": ["Has Space"]})))
+
 print()
 if FAILS:
     for x in FAILS:

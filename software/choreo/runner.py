@@ -6,8 +6,11 @@
     python3 face_bridge.py --composer http://127.0.0.1:8092
     curl -X POST localhost:8092/api/sim/estop            # the fake robot: estop, deadman, ch5…
 
-A show runs through VALIDATING -> PREFLIGHT -> PREPPING -> WAITING_FOR_START -> RUNNING and ends
-COMPLETED, ABORTED, ESTOPPED or REFUSED. The runner is a lease-holding motion source like any other
+A show runs through VALIDATING -> PREFLIGHT -> [ARMED_WAITING] -> [COUNTDOWN] -> PREPPING ->
+WAITING_FOR_START -> RUNNING and ends COMPLETED, ABORTED, ESTOPPED or REFUSED. How it starts is the
+run's START MODE: `deadman` (the robot's default) arms the run and waits for the operator to press
+the deadman — a fresh press, after arming — then counts down; `countdown` (a twin's default) needs
+the deadman held at the start and counts down at once; `now` starts as soon as preflight passes. The runner is a lease-holding motion source like any other
 (standing rule 1): it may only run in AUTO with the deadman held, and the moment that stops being
 true — or stops being KNOWN — the show ends. Preemption aborts; it never pauses.
 
@@ -50,6 +53,7 @@ import show_outputs  # noqa: E402
 # ---- status, after Spot's ChoreographyStatus; codes after BML's typed warnings (PA proposal 8) --
 VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
+ARMED, COUNTDOWN = "ARMED_WAITING", "COUNTDOWN"
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
 # An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
 # of other things turn it off for their throwaway shows; nothing on the robot does.
@@ -60,7 +64,29 @@ TICK_S = 0.02             # 50 Hz
 LEASE_S = 0.25            # like every remote command on this robot: no heartbeat for 250 ms, no lease
 START_LEAD_S = 2.0        # PLACEHOLDER: time for a start to reach the tablet and the arm goals to land
 AUDIO_FADE_S = 0.25       # DEC-6: an abort fades the music; an e-stop cuts it
+# An arm goal the controller has not ACCEPTED within this is a show the arms are not following: it ends,
+# saying so (found at the robot 2026-10-12: rejected goals left a "live" show running with still arms)
+ARM_ACK_S = 2.0
+# A waypoint up to this far outside a joint's CONTROLLER range is clamped into it, and said: an arm
+# that has hung limp rests a hair past its limit (J4 settles to about -0.4 deg), and the controller
+# refuses a goal whose first waypoint starts there. Further outside is refused, never moved.
+CLAMP_DEG = 1.0
+# A gripper that closed on something: its goal reports SUCCEEDED anyway (the controllers' goal_tolerance
+# is 0.01 m), so it is judged by where the fingers REALLY stopped — read GRIP_SETTLE_S after the close.
+# The fingers settle 1-3 mm short of any target (measured on opendubs2, 2026-10-12); further short than
+# GRIP_CONTACT_M is contact: something is in the gripper, and that side is not closed again this run.
+GRIP_SETTLE_S = 1.5
+GRIP_CONTACT_M = 0.005
 AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio device to finish loading
+
+# Start modes (agreed with the Orchestrator, 2026-10-13). An ARMED run has passed every check but the
+# deadman; nothing moves, the show audio loads, and the e-stop, CH5, faults and the arms are still
+# watched. The GO is the deadman's RISING edge after arming: one already held at Start must be let go
+# and pressed again, so a deadman taped down — or simply never released — can never start a show.
+# Letting go while armed is not an abort; after the GO it is, as always.
+START_MODES = ("deadman", "countdown", "now")
+ARM_TIMEOUT_S = 300.0     # armed this long with no GO: refused, so a forgotten run cannot start later
+ARMED_RESEND_S = 1.0      # the face's ARMED WAIT is re-sent this often; the head holds it for 3 s
 
 # What every slot is left doing when a show ABORTS (DEC-6: argued per slot, not assumed "stop").
 # An e-stop needs none of this: the contactor has already cut motion power, and audio is cut too.
@@ -74,6 +100,7 @@ ABORT_STATE = {
     "DANCE": "base at zero velocity, immediately",
     "SOUND": "stopped",
     "FACE": "handed back to the face's own state-driven behaviour (EMOTE AUTO); the theme stays",
+    "DEVICE": "the head's own volume and brightness back (VOLUME IDLE, BRIGHT IDLE)",
     "LIGHT": "released to the robot's state colour",
     "MUSIC": f"faded out over {AUDIO_FADE_S:g} s",
 }
@@ -215,9 +242,10 @@ def audio_items(show, tl) -> tuple:
     return items, skipped
 
 
-def preflight(requires: dict, st: dict) -> list:
+def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
     """Refusals, as (code, sentence). Built from the show's `requires:` (validated by cue.py), plus
-    what every show needs: no e-stop, the deadman held, no fault — and nothing UNKNOWN."""
+    what every show needs: no e-stop, the deadman held, no fault — and nothing UNKNOWN. `deadman`
+    False leaves the deadman out: a run that will be ARMED waits for it instead."""
     out = []
 
     def need(field, ok, what):
@@ -228,7 +256,8 @@ def preflight(requires: dict, st: dict) -> list:
             out.append(("PRECONDITION_FAILED", f"{field} is {v!r} — {what}"))
 
     need("estop", lambda v: v is False, "the e-stop must be clear")
-    need("deadman", lambda v: v is True, "the deadman must be held")
+    if deadman:
+        need("deadman", lambda v: v is True, "the deadman must be held")
     if st.get("fault"):
         out.append(("PRECONDITION_FAILED", f"fault: {st['fault']}"))
     if "rc_authority" in requires:
@@ -250,6 +279,21 @@ def monitor(requires: dict, st: dict):
         return (ABORTED, "FAULT", f"fault: {st['fault']}")
     if "rc_authority" in requires and st.get("ch5") != requires["rc_authority"]:
         return (ABORTED, "AUTHORITY", f"CH5 is {st.get('ch5')!r}, not {requires['rc_authority']}")
+    return None
+
+
+def armed_monitor(requires: dict, st: dict):
+    """Checked every tick while a run is ARMED and waiting for the deadman: everything `monitor`
+    checks except the deadman, plus the arms (they must still be active when the GO comes).
+    (status, code, cause) to disarm it, or None."""
+    if st.get("estop") is not False:
+        return (ESTOPPED, "ESTOP", "e-stop asserted" if st.get("estop") else "e-stop state unknown")
+    if st.get("fault"):
+        return (ABORTED, "FAULT", f"fault: {st['fault']}")
+    if "rc_authority" in requires and st.get("ch5") != requires["rc_authority"]:
+        return (ABORTED, "AUTHORITY", f"CH5 is {st.get('ch5')!r}, not {requires['rc_authority']}")
+    if "arms" in requires and st.get("arms") != requires["arms"]:
+        return (ABORTED, "ARMS", f"the arms are {st.get('arms')!r}, not {requires['arms']}")
     return None
 
 
@@ -280,7 +324,7 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
 
 
 def _grips_calibrated() -> bool:
@@ -314,6 +358,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
     light when the runner is armed for them (--lift / --light dashboard). The base has no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
+    if isinstance(show.doc.get("device"), dict) and show.doc["device"]:
+        used.add("DEVICE")                # the show-level volume / brightness is a use too
     out, seen = [], set()
     m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
     if m and (m.get("file") or m.get("song")):
@@ -328,8 +374,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
         elif part == "sound":
             live = any(e.get("output") == "tablet" or (face_live and earcons and e.get("output") == "tab5")
                        for e in tracks.get("SOUND", []))
-        elif part == "face":
-            live = face_live
+        elif part in ("face", "device"):
+            live = face_live                # the head's volume and brightness go with the face
         elif part == "head":
             live = gaze_live
         elif part == "grippers":
@@ -381,8 +427,17 @@ class TwinFeed:
 class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
-                 arms=None, live=False, grips=None, lift=None, light=None):
+                 arms=None, live=False, grips=None, lift=None, light=None, start="now",
+                 countdown_s=None, face=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
+        if start not in START_MODES:
+            raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
+        # How this run starts (START_MODES); the countdown is this run's, else the show's, else 5 s.
+        self.start, self.countdown_req = start, countdown_s
+        self.countdown = None                     # resolved once the show is read
+        self.face = face                          # LiveFace on a live run: the ARMED indication
+        self._armed_shown = False
+        self.deadline = None                      # (what, clock time): when ARMED times out / COUNTDOWN ends
         # LIVE: the real arms follow this run. Only with an arm output AND the operator's LIVE mark.
         self.arms = arms
         self.live = bool(live and arms is not None)
@@ -394,6 +449,8 @@ class Runner:
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
         self._arms_moving = False
+        self._arm_goals = {}                      # goal id -> {slot, kind, sent, answered}
+        self._arm_latest = {}                     # slot -> the id of its newest arm goal
         # The grippers (plan item 3): this robot's calibration (grippers.py), read at the run's start;
         # None sends no gripper cues. A close that STALLED (its goal aborted: something is in there)
         # is never re-sent on that side for the rest of the run.
@@ -405,6 +462,8 @@ class Runner:
         self._grip_last = {}                      # slot -> 0..1 last sent
         self._grip_stalled = set()
         self._grip_closes = {}                    # slot -> ids of the close goals sent this run
+        self._grip_watch = {}                     # slot -> (when to read it, the closed position sent)
+        self._said_no_finger = set()
         self.sent: list = []                      # (show time, slot, cue) as dispatched
         self.stop_requested = False
 
@@ -455,6 +514,9 @@ class Runner:
             self._grip_last[slot] = frac
             if frac == 0.0:
                 self._grip_closes.setdefault(slot, []).append(gid)
+                self._grip_watch[slot] = (self.clock() + GRIP_SETTLE_S, metres)
+            else:
+                self._grip_watch.pop(slot, None)  # a newer command: the close is no longer what it holds
             self._arms_moving = True
             self._log("grip", slot=slot, open=round(frac, 3), metres=round(metres, 5), show_t=round(t, 3))
         except Exception as e:  # noqa: BLE001  a gripper is never a reason to stop the show
@@ -463,8 +525,56 @@ class Runner:
             self._log("live_error", error=f"grip {side}: {type(e).__name__}: {e} — no more gripper cues "
                                           "are sent this run")
 
+    def _grip_contact_checks(self, t):
+        """After each close has settled: did the fingers stop short of closed? (see GRIP_CONTACT_M)"""
+        for slot, (due, closed) in list(self._grip_watch.items()):
+            if self.clock() < due:
+                continue
+            del self._grip_watch[slot]
+            side = arm_output.GRIP_SIDES[slot]
+            pos = self.arms.finger(side) if hasattr(self.arms, "finger") else None
+            if pos is None:
+                if side not in self._said_no_finger:
+                    self._said_no_finger.add(side)
+                    self._log("live", note=f"the {side} gripper's position cannot be read (/joint_states): "
+                                           "contact is judged by the goal's result alone", slot=slot)
+                continue
+            lo_closed, op = self.grips[side]
+            short = (pos - closed) * (1.0 if op > lo_closed else -1.0)      # metres MORE OPEN than sent
+            self._log("grip_settled", slot=slot, finger_m=round(pos, 4), sent_m=round(closed, 4),
+                      short_mm=round(short * 1000, 1), show_t=round(t, 3))
+            if short > GRIP_CONTACT_M and slot not in self._grip_stalled:
+                self._grip_stalled.add(slot)
+                self._log("live", note=f"the {side} gripper stopped {short * 1000:.0f} mm short of closed — "
+                                       "something is in it (CONTACT); it will not be closed again this run",
+                          slot=slot)
+
+    def _armed(self, what):
+        """The face's ARMED indication (head protocol v5): WAIT, a countdown's seconds, or OFF. A
+        live run's only, and never a reason to stop a show."""
+        if self.face is None or not hasattr(self.face, "armed"):
+            return
+        if what == "OFF" and not self._armed_shown:
+            return
+        self._armed_shown = what != "OFF"
+        try:
+            self.face.armed(what)
+        except Exception as e:  # noqa: BLE001
+            self._log("face_error", error=f"ARMED {what}: {type(e).__name__}: {e}")
+
+    def start_info(self) -> dict:
+        """For the Shows page: the start mode, and how long is left of ARMED or COUNTDOWN."""
+        out = {"start": self.start, "countdown_s": self.countdown}
+        if self.status == ARMED:
+            out["deadman"] = self._state.get("deadman")
+        if self.deadline and self.status in (ARMED, COUNTDOWN):
+            out["left_s"] = round(max(0.0, self.deadline[1] - self.clock()), 1)
+        return out
+
     def _end(self, status, code, cause, t=None):
         self.ended = (status, code, cause, t)
+        self.deadline = None
+        self._armed("OFF")
         for out in (self.lift, self.light):       # every end: the lift stops now, the light is released
             if out is not None:
                 out.end()
@@ -522,16 +632,29 @@ class Runner:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
 
-        # PREFLIGHT: requires vs the robot as it is now
-        self._set(PREFLIGHT)
+        if self.stop_requested:
+            return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator")
+        self.countdown = 0.0 if self.start == "now" else (
+            cue.countdown_s(self.countdown_req) if self.countdown_req is not None else None)
+        if self.countdown is None:
+            self.countdown = cue.countdown_s(show.doc.get("start_countdown_s"))
+        if self.countdown is None:
+            self.countdown = cue.START_COUNTDOWN_DEFAULT_S
+
+        # PREFLIGHT: requires vs the robot as it is now — all of it but the deadman, when the run
+        # will wait for the deadman
+        self._set(PREFLIGHT, start=self.start, countdown_s=self.countdown)
         if hasattr(self.robot, "refresh"):
             self.robot.refresh()
+        if self.stop_requested:
+            return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator")
         st = self.robot.read()
-        refusals = preflight(show.requires or {}, st)
+        refusals = preflight(show.requires or {}, st, deadman=self.start != "deadman")
         if refusals:
             return self._end(REFUSED, refusals[0][0], "; ".join(r[1] for r in refusals))
 
-        # LIVE: the arms' real position, which the start-pose move must begin from. Unknown refuses.
+        # LIVE: the arms' real position must be known. Unknown refuses — and it is read again after
+        # the GO, because the start-pose move begins from where they are THEN.
         measured = st.get("arm_pose") or {}
         if self.live:
             measured = self.arms.measured()
@@ -541,16 +664,8 @@ class Runner:
             self._log("live", note="LIVE: the real arms will follow this routine",
                       measured={k: [round(v, 1) for v in val] for k, val in measured.items()})
 
-        # PREPPING: travel to the start pose, slowly enough to need no warning — and, meanwhile,
-        # the show-audio device downloads the show's files (4.2: whole files, started on cue)
-        secs, targets = prep_moves(tl, measured)
-        if self.live and secs > 0:
-            for slot in targets:
-                pts = arm_output.track_points([{"start": 0.0, "t": secs, "pose_signed":
-                                                {str(j): 0.0 for j in range(1, 8)}}],
-                                               start=signed_pose(measured.get(slot)))
-                self.arms.send(slot, pts)
-            self._arms_moving = True
+        # The show-audio device downloads the show's files now (4.2: whole files, started on cue),
+        # so an armed run's music is ready by the time the operator gives the GO.
         items, skipped = audio_items(show, tl)
         load_id = f"{show.id}@{round(time.time(), 3)}"
         for why in skipped:
@@ -564,6 +679,40 @@ class Runner:
                 self._audio_silent("no device is playing show audio — running silently")
             elif self._audio({"op": "load", "id": load_id, "items": items}):
                 self.audio_live = True
+
+        # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
+        if self.start == "deadman" and (stop := self._wait_for_go(show, st)):
+            return stop
+
+        # COUNTDOWN: after the GO (or at once, in countdown mode), before anything moves. The
+        # deadman must stay held from here on: letting go aborts.
+        if self.countdown > 0:
+            self.deadline = ("COUNTDOWN", self.clock() + self.countdown)
+            self._set(COUNTDOWN, secs=self.countdown)
+            self._armed(f"{self.countdown:g}")
+            while self.clock() < self.deadline[1]:
+                if (stop := self._tick_checks(show, None)):
+                    return stop
+                self.sleep(TICK_S)
+            self.deadline = None
+        if self.live and self.start != "now":
+            measured = self.arms.measured()
+            if measured is None:
+                return self._end(ABORTED, "UNKNOWN_STATE",
+                                 "the arms' measured position became unknown (/joint_states) before the "
+                                 "start-pose move")
+
+        # PREPPING: travel to the start pose, slowly enough to need no warning — while the
+        # show-audio device finishes loading
+        secs, targets = prep_moves(tl, measured)
+        if self.live and secs > 0:
+            for slot in targets:
+                pts = arm_output.track_points([{"start": 0.0, "t": secs, "pose_signed":
+                                                {str(j): 0.0 for j in range(1, 8)}}],
+                                               start=signed_pose(measured.get(slot)))
+                if (why := self._send_arm(slot, pts, "start-pose move")):
+                    return self._end(REFUSED, "ARM_OUT_OF_RANGE", why)
+            self._arms_moving = True
         self._set(PREPPING, prep_s=secs, targets=targets, audio_items=len(items))
         t_end, wait_until = self.clock() + secs, self.clock() + AUDIO_READY_WAIT_S
         while self.clock() < t_end or (self.audio_live and not self._audio_ready(load_id)):
@@ -589,12 +738,14 @@ class Runner:
 
         # RUNNING
         self._set(RUNNING, duration_s=tl["duration_s"])
+        self._armed("OFF")
         if self.live:
             # Each arm's whole routine as one goal, from show time 0 — sent as the show starts.
             for slot in cue.ARM_SLOTS:
                 kfs = tl.get("tracks", {}).get(slot) or []
                 if kfs:
-                    self.arms.send(slot, arm_output.track_points(kfs))
+                    if (why := self._send_arm(slot, arm_output.track_points(kfs), "routine")):
+                        return self._end(ABORTED, "ARM_OUT_OF_RANGE", why, 0.0)
                     self._arms_moving = True
             if any(tl.get("tracks", {}).get(g) for g in ("GRIP_L", "GRIP_R")):
                 if self.grips is None:
@@ -631,13 +782,128 @@ class Runner:
             for out in (self.lift, self.light):
                 if out is not None:
                     out.tick(self.clock(), self._state.get("mast_operator_seq"))
+            if self.grips is not None and self._grip_watch:
+                self._grip_contact_checks(t)
             self.feed.playhead(t, True, RUNNING)
             if t >= tl["duration_s"] and i >= len(events):
                 return self._end(COMPLETED, "COMPLETED", "the show ran to its end", t)
             self.sleep(TICK_S)
 
+    def _clamp(self, slot, points, kind):
+        """(points, refusal): every waypoint inside the arm controller's admitted joint range, moved
+        in by at most CLAMP_DEG and reported; a larger excursion is a refusal, sent nowhere."""
+        ranges = self.arms.controller_ranges() if hasattr(self.arms, "controller_ranges") else None
+        if not ranges or slot not in ranges:
+            if not getattr(self, "_said_no_ranges", False):
+                self._said_no_ranges = True
+                self._log("live", note="the arm controllers' joint ranges could not be read: waypoints are sent "
+                                       "unclamped (a start a hair past a limit would be refused by the controller)")
+            return points, None
+        out, moved = [], {}
+        for t, deg in points:
+            row = list(deg)
+            for j, (lo, hi) in enumerate(ranges[slot]):
+                v = row[j]
+                if v < lo or v > hi:
+                    off = (lo - v) if v < lo else (v - hi)
+                    if off > CLAMP_DEG:
+                        return None, (f"the {arm_output.ARM_SIDES[slot]} arm's J{j + 1} would be at {v:.2f} deg, "
+                                      f"{off:.2f} deg outside what its controller admits ({lo:.2f}..{hi:.2f}) — "
+                                      f"in the {kind}")
+                    row[j] = min(max(v, lo), hi)
+                    moved[j + 1] = max(moved.get(j + 1, 0.0), off)
+            out.append((t, row))
+        if moved:
+            self._log("live", note=f"{arm_output.ARM_SIDES[slot]} arm {kind}: waypoints clamped into the controller's "
+                                   "range (the arm rested just past a limit)",
+                      slot=slot, clamped_deg={str(j): round(v, 3) for j, v in moved.items()})
+        return out, None
+
+    def _send_arm(self, slot, points, kind):
+        points, refusal = self._clamp(slot, points, kind)
+        if refusal:
+            return refusal
+        gid = self.arms.send(slot, points)
+        self._arms_moving = True                  # sent: any end from here on cancels it
+        if gid is not None:
+            self._arm_goals[gid] = {"slot": slot, "kind": kind, "sent": self.clock(), "answered": False}
+            self._arm_latest[slot] = gid
+        self._log("arm_goal", event="sent", slot=slot, goal=gid, goal_kind=kind, points=len(points),
+                  secs=round(points[-1][0], 2) if points else 0.0)
+        return None
+
+    def _arm_checks(self, t):
+        """What the arm controllers said about our goals: every answer logged; a goal REJECTED, never
+        answered within ARM_ACK_S, or ABORTED by the controller while it is the arm's current goal
+        ends the show — the arms are not following it, and a live show must not pretend they are."""
+        if not self.live or not hasattr(self.arms, "drain_events"):
+            return None
+        for ev in self.arms.drain_events():
+            g = self._arm_goals.get(ev.get("goal"))
+            if g is None:                         # a gripper goal: logged, judged by the gripper code
+                self._log("grip_goal", **ev)
+                continue
+            self._log("arm_goal", **ev, goal_kind=g["kind"])
+            side = arm_output.ARM_SIDES[g["slot"]]
+            if ev["event"] == "accepted":
+                g["answered"] = True
+            elif ev["event"] == "rejected":
+                return self._end(ABORTED, "ARM_GOAL_REJECTED",
+                                 f"the {side} arm controller REJECTED the {g['kind']} goal — the arms would not "
+                                 "follow the show (the reason is in the arm container's log)", t)
+            elif ev["event"] == "result" and ev.get("status") == 6 and self._arm_latest.get(g["slot"]) == ev["goal"]:
+                return self._end(ABORTED, "ARM_GOAL_ABORTED",
+                                 f"the {side} arm controller ABORTED the {g['kind']} mid-way"
+                                 + (f": {ev['error']}" if ev.get("error") else ""), t)
+        now = self.clock()
+        for gid, g in self._arm_goals.items():
+            if not g["answered"] and now - g["sent"] > ARM_ACK_S:
+                side = arm_output.ARM_SIDES[g["slot"]]
+                return self._end(ABORTED, "ARM_GOAL_UNANSWERED",
+                                 f"the {side} arm controller did not answer the {g['kind']} goal within "
+                                 f"{ARM_ACK_S:g} s — the arms are not following the show", t)
+        return None
+
+    def _wait_for_go(self, show, st):
+        """ARMED_WAITING. Returns None on the GO (the deadman's rising edge after arming), else the
+        run's end: an operator stop, a disarm (e-stop, CH5, a fault, the arms) or the timeout."""
+        requires = show.requires or {}
+        self.deadline = ("ARMED", self.clock() + ARM_TIMEOUT_S)
+        prev = st.get("deadman")
+        self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
+                  note=("the deadman is held: let go of it, then press it to start" if prev is True
+                        else "press the deadman to start"))
+        self._armed("WAIT")
+        resend = self.clock() + ARMED_RESEND_S
+        while True:
+            self.feed.heartbeat()
+            if self.stop_requested:
+                return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator while armed")
+            self._state = st = self.robot.read()
+            end = armed_monitor(requires, st)
+            if end:
+                return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
+            dm = st.get("deadman")
+            if dm is True and prev is False:
+                self.deadline = None
+                self._log("go", note="the deadman was pressed: GO")
+                return None
+            if dm != prev:
+                # unknown counts as not released: only a press seen from a KNOWN release is a GO
+                self._log("deadman", held=dm)
+                prev = dm
+            if self.clock() >= self.deadline[1]:
+                return self._end(REFUSED, "START_TIMEOUT",
+                                 f"armed for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
+            if self.clock() >= resend:
+                self._armed("WAIT")
+                resend = self.clock() + ARMED_RESEND_S
+            self.sleep(TICK_S)
+
     def _tick_checks(self, show, t):
         self.feed.heartbeat()
+        if (stop := self._arm_checks(t)):
+            return stop
         if self.stop_requested:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator", t)
         self._state = self.robot.read()
@@ -730,10 +996,16 @@ class Palette:
             running = bool(cur and cur[2].is_alive())
             return {"running": cur[0] if running else None,
                     "status": cur[1].status if cur else None, "last": self.last,
+                    **({"start_info": cur[1].start_info()} if running else {}),
+                    "default_start": self.default_start(),
                     "audio_note": cur[1].audio_note if cur else None,
                     "live": bool(running and cur[1].live), "live_available": self.arms is not None}
 
-    def run(self, rid: str) -> dict:
+    def default_start(self) -> str:
+        """The robot's runs wait for the deadman; a twin's count down (agreed 2026-10-13)."""
+        return "deadman" if self.arms is not None else "countdown"
+
+    def run(self, rid: str, start=None, countdown_s=None) -> dict:
         # A runner with arms always drives them. On the robot, CH5 AUTO and the held deadman are the
         # operator's go; a separate "live" switch only let a run skip the arms unnoticed (decided
         # 2026-10-08). A runner without arms (a laptop, with the composer) drives the twins only.
@@ -746,6 +1018,12 @@ class Palette:
                 raise KeyError(f"no palette routine {rid!r}")
             if not r["valid"]:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
+            start = start or self.default_start()
+            if start not in START_MODES:
+                raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
+            if countdown_s is not None and cue.countdown_s(countdown_s) is None:
+                raise ValueError(f"countdown_s must be 0 to {cue.START_COUNTDOWN_MAX_S:g} seconds, "
+                                 f"not {countdown_s!r}")
             live = self.arms is not None
             # The head follows a LIVE run only — the robot's runs; a laptop's stay in the twins.
             sinks = [x for x in (self.face, self.gaze) if x is not None] if live else []
@@ -767,13 +1045,14 @@ class Palette:
                     light = show_outputs.LightOutput(self.dashboard, lambda *a, **kw: note(*a, **kw))
             runner = Runner(r["path"], self.limits_path, self.robot, feed, self.log,
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
-                            audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light)
+                            audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
+                            start=start, countdown_s=countdown_s, face=self.face if live else None)
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
             self.current = (rid, runner, t)
             t.start()
-            return {"started": rid, "live": runner.live}
+            return {"started": rid, "live": runner.live, "start": start}
 
     def _play(self, rid, runner):
         try:
@@ -846,7 +1125,12 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                 return self._json(robot.read())
             if palette and p.startswith("/api/run/"):
                 try:
-                    return self._json(palette.run(p.partition("?")[0].rsplit("/", 1)[1]))
+                    n = int(self.headers.get("Content-Length") or 0)
+                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    if not isinstance(body, dict):
+                        raise ValueError("the body must be a JSON object: {start, countdown_s}")
+                    return self._json(palette.run(p.partition("?")[0].rsplit("/", 1)[1],
+                                                  start=body.get("start"), countdown_s=body.get("countdown_s")))
                 except RuntimeError as e:
                     return self._json({"error": str(e)}, 409)
                 except KeyError as e:
@@ -880,6 +1164,11 @@ def main() -> int:
     r.add_argument("--hold", type=float, default=0.0, help="seconds to keep serving after it ends")
     r.add_argument("--audio-output", choices=cue.AUDIO_OUTPUTS,
                    help="play all of the show's audio here (the show is re-checked against it)")
+    r.add_argument("--start", choices=START_MODES, default="countdown",
+                   help="deadman: arm, then wait for a fresh deadman press; countdown: count down at once "
+                        "(the deadman held); now: no countdown")
+    r.add_argument("--countdown", type=float, help="seconds between the GO and the first move "
+                                                    "(default: the show's start_countdown_s, else 5)")
     pp = sub.add_parser("palette", help="serve the routine palette; the operator picks, it runs")
     pp.add_argument("shows", nargs="?", default=os.path.join(HERE, "shows"))
     pp.add_argument("--lift", choices=("none", "dashboard"), default="none",
@@ -954,7 +1243,8 @@ def main() -> int:
     log = open(a.log, "a", encoding="utf-8") if a.log else sys.stdout
     print(f"runner: twin feed on http://127.0.0.1:{a.port} — the FAKE robot state is in charge; "
           "nothing here can command the robot", file=sys.stderr, flush=True)
-    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log, audio_output=a.audio_output, audio=audio)
+    ref["r"] = runner = Runner(a.show, a.limits, robot, feed, log, audio_output=a.audio_output, audio=audio,
+                               start=a.start, countdown_s=a.countdown)
     status, code, cause, _ = runner.run()
     print(f"runner: {status} ({code}): {cause}", file=sys.stderr, flush=True)
     time.sleep(a.hold)

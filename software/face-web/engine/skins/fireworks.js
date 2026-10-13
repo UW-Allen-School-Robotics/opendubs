@@ -22,6 +22,8 @@
 // draws `default` whatever is chosen -- main.js enforces it, and this skin cannot be shown then. For
 // every other state the base glow below still carries the state colour.
 
+import { drawMouth } from "./mouth.js";
+
 export const name = "fireworks";
 
 const PERIOD = 0.52;        // seconds between launches, per eye
@@ -39,6 +41,13 @@ const rnd = (i, salt) => {
 };
 
 export function draw(ctx, e, t) {
+  // The mouth, once for the face rather than once per eye, and only when it is on. FIRST, before
+  // any of the eye drawing: ring and fireworks RETURN EARLY when the lid is shut, so a mouth drawn
+  // at the end would vanish on every blink. It is independent of the eye and does not overlap it,
+  // so drawing it first costs nothing and cannot be skipped. `e.mouth` is null on every face that
+  // has no mouth, so those faces pay one comparison and no draw.
+  if (e.side === "left" && e.mouth) drawMouth(ctx, e.mouth.cx, e.mouth.level, e.colour, e.dim);
+
   const { cx, cy, w, h } = e;
   const open = 1 - e.lid;
 

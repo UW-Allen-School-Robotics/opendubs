@@ -3,6 +3,7 @@ package org.opendubs.kiosk
 import android.app.Activity
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.PowerManager
 import android.view.WindowManager
@@ -42,6 +43,33 @@ class KioskBridge(private val activity: Activity) {
 
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
+
+    /** This screen's brightness, 0..1, for head protocol v5's BRIGHT (the face page fades it and
+     *  applies the robot's floor). It sets the WINDOW's brightness, so it holds while the kiosk is in
+     *  front and needs no permission; the system setting is untouched. */
+    @JavascriptInterface
+    fun setBrightness(level: Double) = activity.runOnUiThread {
+        val lp = activity.window.attributes
+        lp.screenBrightness = level.coerceIn(0.01, 1.0).toFloat()
+        activity.window.attributes = lp
+    }
+
+    /** The media (music) stream's volume, 0..1, for head protocol v5's VOLUME. It scales show music,
+     *  ambient and earcons together. Returns what the device applied: the stream has whole steps. */
+    @JavascriptInterface
+    fun setMediaVolume(level: Double): Double {
+        val am = activity.getSystemService(AudioManager::class.java)
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val index = Math.round(level.coerceIn(0.0, 1.0) * max).toInt()
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, index, 0)
+        return am.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / max
+    }
+
+    @JavascriptInterface
+    fun getMediaVolume(): Double {
+        val am = activity.getSystemService(AudioManager::class.java)
+        return am.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    }
 
     /** The tablet's own battery, as JSON `{"level": 0..100, "charging": bool, "plugged": source}` —
      *  shown beside the robot's pack in the dashboard's top bar, each with its own icon so they are

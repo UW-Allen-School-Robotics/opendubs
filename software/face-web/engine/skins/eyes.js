@@ -14,6 +14,8 @@
 // Every skin draws from the same per-eye inputs (Face.eyes()), so it blinks, emotes and looks the
 // same way as any other; only the drawing differs.
 
+import { drawMouth } from "./mouth.js";
+
 const PUPIL_FRAC = 0.34;        // today's baseline, and it stays there
 const RIM_PAD = 14;             // how close to the rim the pupil may travel
 // The brow, unchanged by the lid-shape change: the lids carry the expression now, but the brow is
@@ -56,6 +58,13 @@ function lid(ctx, x, y, w, h, amount, curve, fromTop) {
 export const name = "eyes";
 
 export function draw(ctx, e) {
+  // The mouth, once for the face rather than once per eye, and only when it is on. FIRST, before
+  // any of the eye drawing: ring and fireworks RETURN EARLY when the lid is shut, so a mouth drawn
+  // at the end would vanish on every blink. It is independent of the eye and does not overlap it,
+  // so drawing it first costs nothing and cannot be skipped. `e.mouth` is null on every face that
+  // has no mouth, so those faces pay one comparison and no draw.
+  if (e.side === "left" && e.mouth) drawMouth(ctx, e.mouth.cx, e.mouth.level, e.colour, e.dim);
+
   const { cx, cy, w, h } = e;
   const x = cx - w / 2, y = cy - h / 2;
   const pupilFrac = PUPIL_FRAC;   // fixed: no emote changes the pupil (see above)

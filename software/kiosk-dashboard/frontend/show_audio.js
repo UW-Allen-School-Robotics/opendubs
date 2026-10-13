@@ -22,7 +22,14 @@
       and nothing else (DEC-7).
 
    Optional and detected (rule 12): any browser can hold the role by pressing "Play show audio here";
-   the kiosk tablet claims it on start-up when nobody holds it. Web Audio needs no secure context. */
+   the kiosk tablet claims it on start-up when nobody holds it. Web Audio needs no secure context.
+
+   6. AMBIENT MUSIC (the "Head & face" page's API, /api/choreo/ambient): library songs played here
+      while no show runs — one <audio> element made in script (no page markup, so the face page can
+      include this file as it is), the list looped (shuffled if asked), 1 s fades. A show TAKES OVER:
+      ambient fades out on the runner's `load` and resumes, from the next song, when the show ends
+      (`stop` or `cut`). What plays, and whether the browser blocked starting it, is reported to the
+      hub; claim() (a tap) retries a blocked start. */
 "use strict";
 (() => {
   const K = window.OpenDubsKiosk;
@@ -164,6 +171,69 @@
     if (want !== 1) st.sync.corrections++;
   }
 
+  /* ---- 6. ambient music ---------------------------------------------------------------------------- */
+  const amb = { msg: null, el: null, order: [], idx: -1, show: false, blocked: false, now: null, fade: null };
+  const AMB_FADE_S = 1.0;
+  const ambReport = () => send({ ambient: { now: amb.now, blocked: amb.blocked } });
+  function ambEl() {
+    if (!amb.el) {
+      amb.el = new Audio();
+      amb.el.preload = "auto";
+      amb.el.addEventListener("ended", () => ambNext());
+      amb.el.addEventListener("error", () => ambNext());       // a bad file: skip it, never stall
+    }
+    return amb.el;
+  }
+  function ambFade(to, then) {
+    const el = ambEl(), from = el.volume, steps = 20;
+    clearInterval(amb.fade);
+    let k = 0;
+    amb.fade = setInterval(() => {
+      k++; el.volume = Math.max(0, Math.min(1, from + (to - from) * k / steps));
+      if (k >= steps) { clearInterval(amb.fade); amb.fade = null; if (then) then(); }
+    }, AMB_FADE_S * 1000 / steps);
+  }
+  const ambWanted = () => !!(amb.msg && amb.msg.playing && amb.msg.items && amb.msg.items.length
+                             && !amb.show && st.youHold);
+  function ambOrder() {
+    const ids = amb.msg.items.map((x, i) => i);
+    if (amb.msg.shuffle) for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    amb.order = ids; amb.idx = -1;
+  }
+  function ambPlayCurrent() {
+    const el = ambEl(), it = amb.msg.items[amb.order[amb.idx]];
+    el.src = it.url; el.volume = 0; amb.now = it.id;
+    const p = el.play();
+    if (p && p.then) p.then(() => { amb.blocked = false; ambReport(); ambFade(amb.msg.volume); })
+      .catch((e) => { amb.blocked = e && e.name === "NotAllowedError"; amb.now = null; ambReport(); });
+    else ambFade(amb.msg.volume);
+    ambReport();
+  }
+  function ambNext() {
+    if (!ambWanted()) return ambStop();
+    if (!amb.order.length || amb.idx + 1 >= amb.order.length) ambOrder();     // loop the list
+    amb.idx++;
+    ambPlayCurrent();
+  }
+  function ambStop() {
+    if (!amb.el || amb.el.paused) { if (amb.now) { amb.now = null; ambReport(); } return; }
+    ambFade(0, () => { amb.el.pause(); amb.now = null; ambReport(); });
+  }
+  function ambApply(next) {          // bring what plays in line with what is wanted
+    if (!ambWanted()) return ambStop();
+    if (next || !amb.el || amb.el.paused || !amb.now) return ambNext();
+    ambFade(amb.msg.volume);                                     // a volume change while playing
+  }
+  function onAmbient(m) {
+    const listChanged = !amb.msg || JSON.stringify(amb.msg.items) !== JSON.stringify(m.items)
+                        || amb.msg.shuffle !== m.shuffle;
+    amb.msg = m; amb.show = !!m.show_active;
+    if (listChanged) amb.order = [];
+    ambApply(!!m.next || (listChanged && m.playing));
+  }
+
   /* ---- the connection ------------------------------------------------------------------------ */
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/show-audio`);
@@ -174,15 +244,20 @@
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
       if ("pong" in m) return onPong(m);
-      if ("holder" in m) { st.holder = m.holder; st.youHold = !!m.you_hold; if (!st.youHold) silence(0); return; }
-      if (m.op === "load") load(m);
+      if ("holder" in m) {
+        st.holder = m.holder; st.youHold = !!m.you_hold;
+        if (!st.youHold) { silence(0); ambStop(); }
+        return;
+      }
+      if (m.op === "ambient") return onAmbient(m);
+      if (m.op === "load") { amb.show = true; ambStop(); load(m); }            // a show takes over
       else if (m.op === "start") start(m);
-      else if (m.op === "stop") silence(m.fade_s || 0);
-      else if (m.op === "cut") silence(0);
+      else if (m.op === "stop") { silence(m.fade_s || 0); amb.show = false; setTimeout(() => ambApply(true), (m.fade_s || 0) * 1000 + 500); }
+      else if (m.op === "cut") { silence(0); amb.show = false; ambApply(true); }
     };
     ws.onclose = () => {
       st.connected = false; st.youHold = false; st.holder = null;
-      silence(0);                                                // DEC-7: the music stops, nothing else
+      silence(0); ambStop();                                     // DEC-7: the music stops, nothing else
       setTimeout(connect, retry); retry = Math.min(retry * 2, 8000);
     };
   }
@@ -190,7 +265,8 @@
   connect();
 
   window.OpenDubsShowAudio = {
-    status: () => ({ ...st, ctx: ctx ? ctx.state : "none" }),
-    claim: () => { audio().resume(); send({ claim: true, label: K ? "tablet" : `a browser (${(navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "?"})` }); },
+    status: () => ({ ...st, ctx: ctx ? ctx.state : "none",
+                     ambient: { playing: !!(amb.el && !amb.el.paused), now: amb.now, blocked: amb.blocked, show: amb.show } }),
+    claim: () => { audio().resume(); if (amb.blocked) { amb.blocked = false; ambApply(true); } send({ claim: true, label: K ? "tablet" : `a browser (${(navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "?"})` }); },
   };
 })();

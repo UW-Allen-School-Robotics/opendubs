@@ -227,7 +227,9 @@ def mast_control(cmd: str, by: str = "") -> JSONResponse:
 
     `?by=show` marks the show runner's own commands. Every OTHER command is an operator's, and
     is counted (choreo_proxy.note_operator_mast): a running show's lift output stands down when
-    an operator touches the lift — the operator wins, as the RC stick does."""
+    an operator touches the lift — the operator wins, as the RC stick does. The head's RAISE/LOWER
+    do not come through here (the Tab5 sends `MAST CMD` to the StamPLC itself), so they are not
+    counted."""
     import stamplc
     v = {"up": 1.0, "down": -1.0, "stop": 0.0}.get(cmd.lower())
     if v is None:

@@ -341,9 +341,11 @@ def run_face(show, flip_after=None, change=None):
 
 end, lines = run_face("celebrate.yaml")
 check("a live run sends the face its cues and the head its earcons, then hands the face back",
-      end[0] == "COMPLETED" and lines[:2] == ["EMOTE SOFT", "CUE attend"] and lines[-1] == "EMOTE AUTO", lines)
+      end[0] == "COMPLETED" and lines[:2] == ["EMOTE SOFT", "CUE attend"]
+      and lines[-3:] == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], lines)
 end, lines = run_face("celebrate.yaml", flip_after=2.0, change={"deadman": False})
-check("... an aborted run hands the face back too", end[0] == "ABORTED" and lines[-1] == "EMOTE AUTO", lines)
+check("... an aborted run hands the face back too", end[0] == "ABORTED"
+      and lines[-3:] == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], lines)
 end, lines = run_face("celebrate.yaml", flip_after=0.0, change={"deadman": False})
 check("... and a run that never starts leaves the face alone", end[0] in ("REFUSED", "ABORTED") and lines == [], (end, lines))
 
@@ -454,7 +456,7 @@ CAL = G.load(os.path.join(HERE, "gripper_calibration_fixture.yaml"))
 
 
 def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=None, missing=(), late=None,
-              fail=False):
+              fail=False, fingers=None):
     robot = R.FakeRobotState()
     sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
     log = io.StringIO()
@@ -463,6 +465,8 @@ def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=N
               + "".join(f"  - {c}\n" for c in show_text_cues))
     tmp.close()
     arms = AO.FakeArms()
+    if fingers is not None:
+        arms.fingers = dict(fingers)
     if missing:
         arms.grips_missing = list(missing)
     if results is not None or late or fail:
@@ -510,6 +514,24 @@ end, arms, lines = run_grips(cues3, late=[6, 4, 4, 4])     # the close's stall l
 check("... even when the stall arrives late, after an open went out (judged on the close goal's own result)",
       arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.04)]
       and any("STALLED" in x.get("note", "") for x in lines), arms.grips)
+# Contact is judged by where the fingers STOPPED: the controllers report a close onto an object as
+# SUCCEEDED (goal_tolerance 0.01 m), so a goal's status cannot say (Arms, 2026-10-12)
+cues4 = ["{ t: 1.0, slot: GRIP_R, do: close }", "{ t: 3.0, slot: GRIP_R, do: open }",
+         "{ t: 5.0, slot: GRIP_R, do: close }", "{ t: 6.0, slot: ARM_R, pose: rest }"]
+end, arms, lines = run_grips(cues4, fingers={"right": CAL["right"][0] + 0.012})     # 12 mm short: an object
+check("a close whose fingers stopped 12 mm short of closed is CONTACT, though its goal SUCCEEDED: logged, "
+      "and that side is not closed again (an open still goes)",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04)]
+      and any("CONTACT" in x.get("note", "") for x in lines)
+      and any(x.get("kind") == "grip_settled" and x.get("short_mm") == 12.0 for x in lines), (arms.grips, lines[-6:]))
+end, arms, lines = run_grips(cues4, fingers={"right": CAL["right"][0] + 0.002})     # the usual 1-3 mm settle
+check("... the fingers' usual 1-3 mm settle short of a target is NOT contact: the second close goes",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.0)]
+      and not any("CONTACT" in x.get("note", "") for x in lines), arms.grips)
+end, arms, lines = run_grips(cues4)                                                   # nothing to read
+check("... a finger that cannot be read: said once, and judged by the goal's result as before",
+      arms.grips == [("GRIP_R", 0.0), ("GRIP_R", 0.04), ("GRIP_R", 0.0)]
+      and sum("cannot be read" in x.get("note", "") for x in lines) == 1, arms.grips)
 end, arms, lines = run_grips(cues, missing=["right"])
 check("a gripper controller that is not up: no gripper cue is sent, the log says which, the show keeps time",
       end[0] == "COMPLETED" and not arms.grips
@@ -585,6 +607,166 @@ try:
     check("the real robot's state has no switches: /api/sim/* is not served", False, "served")
 except urllib.error.HTTPError as e:
     check("the real robot's state has no switches: /api/sim/* is not served", e.code == 404, e.code)
+srv.shutdown()
+
+print("\nrunner: start modes — deadman, countdown, now (agreed 2026-10-13)")
+
+
+class Script:
+    """A simulated clock that applies robot changes at set show-clock offsets, and can ask for a stop
+    the first time the run reaches a status."""
+
+    def __init__(self, robot, changes=(), stop_in=None):
+        self.now, self.robot, self.changes, self.stop_in, self.r = 1000.0, robot, sorted(changes, key=lambda c: c[0]), stop_in, None
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+        while self.changes and self.now >= 1000.0 + self.changes[0][0]:
+            self.robot.set(**self.changes.pop(0)[1])
+        if self.stop_in and self.r.status == self.stop_in:
+            self.r.request_stop()
+
+
+class ArmedFace:
+    def __init__(self):
+        self.said = []
+
+    def armed(self, what):
+        self.said.append(what)
+
+
+def run_start(start, robot=None, changes=(), stop_in=None, countdown_s=None, show="hello.yaml", face=None, arms=None):
+    robot = robot or R.FakeRobotState()
+    sc = Script(robot, changes, stop_in)
+    log = io.StringIO()
+    r = R.Runner(os.path.join(SHOWS, show) if not os.path.isabs(show) else show, LIMITS, robot, log=log,
+                 clock=sc.clock, sleep=sc.sleep, start_lead=0.5, start=start, countdown_s=countdown_s,
+                 face=face, arms=arms, live=arms is not None)
+    sc.r = r
+    end = r.run()
+    lines = [json.loads(x) for x in log.getvalue().splitlines()]
+    return r, end, lines, [x["status"] for x in lines if x["kind"] == "status"], sc
+
+
+face = ArmedFace()
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(3.0, {"deadman": True})], face=face)
+check("deadman mode: preflight passes with the deadman released, the run is ARMED, then a press is the GO",
+      end[0] == "COMPLETED" and st[:6] == ["VALIDATING", "PREFLIGHT", "ARMED_WAITING", "COUNTDOWN", "PREPPING",
+                                           "WAITING_FOR_START"], (end, st))
+go = next(x for x in lines if x["kind"] == "go")
+cd = next(x for x in lines if x["kind"] == "status" and x["status"] == "COUNTDOWN")
+check("... the countdown is 5 s by default, and nothing is sent before the GO",
+      cd["secs"] == 5.0 and lines.index(go) < lines.index(cd), cd)
+check("... the face says ARMED WAIT (re-sent each second), the seconds at the GO, OFF as it starts",
+      face.said[0] == "WAIT" and face.said.count("WAIT") >= 3 and face.said[-2:] == ["5", "OFF"]
+      and face.said.count("OFF") == 1, face.said)
+
+r, end, lines, st, sc = run_start("deadman", changes=[(2.0, {"deadman": False}), (4.0, {"deadman": True})])
+seen = [x["held"] if x["kind"] == "deadman" else "GO" for x in lines if x["kind"] in ("deadman", "go")]
+check("deadman HELD at Start is not a GO: it must be let go and pressed again",
+      end[0] == "COMPLETED" and seen == [False, "GO"]
+      and next(x for x in lines if x["kind"] == "status" and x["status"] == "ARMED_WAITING")["deadman"] is True, (end, seen))
+r, end, lines, st, sc = run_start("deadman", changes=[(R.ARM_TIMEOUT_S + 10, {"deadman": False})])
+check("... and held throughout, it never starts: the run times out, REFUSED, with nothing moved",
+      end[:2] == ("REFUSED", "START_TIMEOUT") and not r.sent and "COUNTDOWN" not in st, (end, st))
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False))
+check(f"armed with no press for {R.ARM_TIMEOUT_S:g} s: REFUSED, START_TIMEOUT",
+      end[:2] == ("REFUSED", "START_TIMEOUT") and abs(sc.now - 1000.0 - R.ARM_TIMEOUT_S) < 0.1, (end, sc.now))
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(2.0, {"deadman": None}), (3.0, {"deadman": True})])
+check("an UNKNOWN deadman is not a release: unknown -> held is no GO", end[1] == "START_TIMEOUT", end)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(1.0, {"deadman": True}), (1.5, {"deadman": False})])
+check("letting go during the countdown aborts (DEADMAN)", end[:2] == ("ABORTED", "DEADMAN") and not r.sent, end)
+
+face = ArmedFace()
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(2.0, {"ch5": "MANUAL"})], face=face)
+check("CH5 leaving AUTO while armed disarms it, with the reason",
+      end[:2] == ("ABORTED", "AUTHORITY") and "disarmed" in end[2] and "CH5" in end[2] and not r.sent, end)
+check("... and the face is told ARMED OFF", face.said[-1] == "OFF", face.said)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"estop": True})])
+check("an e-stop while armed disarms it as ESTOPPED", end[0] == "ESTOPPED" and "disarmed" in end[2], end)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"arms": "inactive"})])
+check("the arms going inactive while armed disarms it", end[:2] == ("ABORTED", "ARMS"), end)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"deadman": False})])
+check("letting go while armed is not an abort (it times out only)", end[1] == "START_TIMEOUT", end)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, estop=True))
+check("everything but the deadman is still preflighted: an e-stop refuses before arming",
+      end[0] == "REFUSED" and "ARMED_WAITING" not in st, (end, st))
+
+for state in ("ARMED_WAITING", "COUNTDOWN", "PREPPING", "WAITING_FOR_START", "RUNNING"):
+    r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                      changes=[(1.0, {"deadman": True})], stop_in=state,
+                                      arms=AO.FakeArms({"ARM_L": [0, 0, 0, 30, 0, 0, 0], "ARM_R": [0.0] * 7}))
+    check(f"Stop works in {state}: ABORTED, by the operator", end[:2] == ("ABORTED", "OPERATOR_STOP")
+          and st[-2] == state, (end, st[-3:]))
+
+r, end, lines, st, sc = run_start("countdown")
+check("countdown mode: the deadman held at Start, then the countdown at once",
+      end[0] == "COMPLETED" and st[:4] == ["VALIDATING", "PREFLIGHT", "COUNTDOWN", "PREPPING"], st)
+r, end, lines, st, sc = run_start("countdown", R.FakeRobotState(deadman=False))
+check("... and refuses with the deadman released", end[0] == "REFUSED" and "deadman" in end[2], end)
+r, end, lines, st, sc = run_start("countdown", changes=[(2.0, {"deadman": False})])
+check("... and letting go mid-countdown aborts", end[:2] == ("ABORTED", "DEADMAN") and "RUNNING" not in st, end)
+r, end, lines, st, sc = run_start("countdown", countdown_s=2)
+check("a run's own countdown overrides the default",
+      next(x for x in lines if x.get("status") == "COUNTDOWN")["secs"] == 2.0, st)
+r, end, lines, st, sc = run_start("now")
+check("now: no countdown, no wait", end[0] == "COMPLETED" and "COUNTDOWN" not in st and "ARMED_WAITING" not in st, st)
+with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=SHOWS) as fh:
+    fh.write(open(os.path.join(SHOWS, "hello.yaml")).read() + "\nstart_countdown_s: 3\n")
+try:
+    r, end, lines, st, sc = run_start("countdown", show=fh.name)
+    check("a show's start_countdown_s sets its countdown",
+          next(x for x in lines if x.get("status") == "COUNTDOWN")["secs"] == 3.0, st)
+    r, end, lines, st, sc = run_start("countdown", show=fh.name, countdown_s=0)
+    check("... and a run's 0 skips it", "COUNTDOWN" not in st and end[0] == "COMPLETED", st)
+finally:
+    os.unlink(fh.name)
+bad = R.cue.show_from_text(open(os.path.join(SHOWS, "hello.yaml")).read() + "\nstart_countdown_s: 90\n")
+check("the validator refuses a countdown past the cap", any("start_countdown_s" in m for m in bad.validate(
+    R.cue.load_limits(LIMITS))), "accepted")
+
+palr = R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO())
+check("a twin's palette counts down by default; the robot's waits for the deadman",
+      palr.default_start() == "countdown"
+      and R.Palette(SHOWS, LIMITS, R.FakeRobotState(), R.TwinFeed(), io.StringIO(), arms=AO.FakeArms()).default_start() == "deadman")
+for bad_kw in ({"start": "whenever"}, {"countdown_s": -1}, {"countdown_s": True}):
+    try:
+        palr.run("reach", **bad_kw)
+        check(f"a run asked for {bad_kw} is refused", False, "accepted")
+    except ValueError:
+        check(f"a run asked for {bad_kw} is refused", True)
+sock = FakeSock()
+lf = FB.LiveFace("127.0.0.1", sock=sock)
+for w in ("WAIT", "5", "OFF"):
+    lf.armed(w)
+check("the real face is sent ARMED WAIT / ARMED <seconds> / ARMED OFF (head protocol v5)",
+      sock.lines == ["ARMED WAIT", "ARMED 5", "ARMED OFF"], sock.lines)
+srv = R.serve(R.TwinFeed(), R.FakeRobotState(deadman=False), {}, "127.0.0.1", 0,
+              R.Palette(SHOWS, LIMITS, R.FakeRobotState(deadman=False), R.TwinFeed(), io.StringIO()))
+port = srv.server_address[1]
+try:
+    urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/run/reach", method="POST",
+                                                  data=b'{"start": "sometime"}'))
+    check("over HTTP: a run's start mode comes in the body, and a bad one is refused", False, "accepted")
+except urllib.error.HTTPError as e:
+    check("over HTTP: a run's start mode comes in the body, and a bad one is refused", e.code == 422, e.code)
+with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/run/reach", method="POST",
+                                                   data=b'{"start": "deadman", "countdown_s": 3}')) as resp:
+    got = json.loads(resp.read())
+time.sleep(0.2)
+with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/palette") as resp:
+    ps = json.loads(resp.read())
+check("... a good one starts ARMED, and the page is told how long it has left",
+      got["start"] == "deadman" and ps["status"] == "ARMED_WAITING"
+      and ps["start_info"]["countdown_s"] == 3.0 and 290 < ps["start_info"]["left_s"] <= 300, ps)
+urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/stop", method="POST", data=b""))
 srv.shutdown()
 
 print()

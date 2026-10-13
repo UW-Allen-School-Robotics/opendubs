@@ -9,12 +9,25 @@
   #face, #media { position: fixed; inset: 0; width: 100vw; height: 100vh; }
   #media { object-fit: cover; visibility: hidden; background: #000; }
   #hud { position: fixed; left: 8px; bottom: 6px; color: #9fb; font: 12px ui-monospace, monospace; white-space: pre; }
+  /* The operator's way out of the face (engine/operator.js): a long-press, never a single tap. */
+  #op { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; gap: 28px;
+        background: rgba(0,0,0,.72); font: 600 28px system-ui, sans-serif; }
+  #op.open { display: flex; }
+  #op button { min-width: 230px; min-height: 120px; border-radius: 22px; border: 0; font: inherit; color: #fff; }
+  #op .stop { background: #c62828; } #op .dash { background: #1f6feb; } #op .back { background: #333; }
+  #op .note { position: fixed; bottom: 40px; left: 0; right: 0; text-align: center; color: #ccc; font-size: 20px; }
 </style>
 </head>
 <body>
 <canvas id="face"></canvas>
 <video id="media" playsinline preload="auto"></video>
 <div id="hud"></div>
+<div id="op" role="dialog" aria-label="Operator">
+  <button class="stop" id="opStop">STOP SHOW</button>
+  <button class="dash" id="opDash">DASHBOARD</button>
+  <button class="back" id="opBack">FACE</button>
+  <div class="note" id="opNote">The RC deadman and the e-stop stop everything, always.</div>
+</div>
 <script type="module" src="engine/main.js"></script>
 </body>
 </html>

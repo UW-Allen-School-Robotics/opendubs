@@ -5,7 +5,8 @@ port. The dashboard forwards a small, fixed set of its calls under /api/choreo/ 
 ONE origin — which is what lets the same page work over plain HTTP and over HTTPS (standing rule
 12) with no cross-origin rules.
 
-Read-only except "run a routine" and "stop". What a routine may do is the runner's business: on the
+Read-only except "run a routine" (with how it starts: `start` deadman|countdown|now and
+`countdown_s`, nothing else) and "stop". What a routine may do is the runner's business: on the
 robot it drives the real arms (plan 5.6); without arm output it drives only the twins, and the page
 says which.
 
@@ -25,7 +26,7 @@ import time
 import urllib.error
 import urllib.request
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
@@ -41,9 +42,10 @@ import show_audio  # noqa: E402
 router.routes.extend(show_audio.router.routes)
 
 
-def _call(method: str, path: str) -> tuple[int, object]:
-    req = urllib.request.Request(f"{RUNNER_URL}/api/{path}", method=method,
-                                 data=b"" if method == "POST" else None)
+def _call(method: str, path: str, body: dict | None = None) -> tuple[int, object]:
+    data = (json.dumps(body).encode() if body else b"") if method == "POST" else None
+    req = urllib.request.Request(f"{RUNNER_URL}/api/{path}", method=method, data=data,
+                                 headers={"Content-Type": "application/json"} if data else {})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
             return r.status, json.loads(r.read() or b"null")
@@ -56,8 +58,8 @@ def _call(method: str, path: str) -> tuple[int, object]:
         return 503, {"error": "the show runner is not running", "runner": RUNNER_URL}
 
 
-async def _forward(method: str, path: str) -> JSONResponse:
-    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path)
+async def _forward(method: str, path: str, body: dict | None = None) -> JSONResponse:
+    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path, body)
     return JSONResponse(body, status_code=code)
 
 
@@ -71,13 +73,22 @@ async def palette():
     return await _forward("GET", "palette")
 
 
+RUN_KEYS = ("start", "countdown_s")     # how a run starts; the runner checks the values
+
+
 @router.post("/api/choreo/run/{rid}")
-async def run(rid: str):
+async def run(rid: str, request: Request):
     """On a robot whose runner has the arms, the real arms follow every run (plan 5.6); the runner's
-    preflight gates it on CH5 AUTO, the held deadman and the arms being active."""
+    preflight gates it on CH5 AUTO, the held deadman and the arms being active. The body may say how
+    the run starts ({start: deadman|countdown|now, countdown_s}); only those keys are passed on."""
     if not rid.replace("-", "").replace("_", "").isalnum():
         return JSONResponse({"error": "not a routine id"}, status_code=400)
-    return await _forward("POST", f"run/{rid}")
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON: {start, countdown_s}"}, status_code=400)
+    body = {k: raw[k] for k in RUN_KEYS if isinstance(raw, dict) and raw.get(k) is not None}
+    return await _forward("POST", f"run/{rid}", body or None)
 
 
 @router.post("/api/choreo/stop")
@@ -91,9 +102,11 @@ CH5_NAME = {"OFF": "STANDBY", "RC_MANUAL": "MANUAL", "AUTONOMOUS": "AUTO"}
 PROBE_MAX_AGE_S = 10.0     # an arms/head answer older than this is no answer
 
 
-# Every lift command an OPERATOR sends (a dashboard or head button: /api/mast without `by=show`)
-# counts here. A show's lift output stands down for the rest of its run when this moves — the
-# operator wins, as the RC stick does in the firmware.
+# Every lift command an operator sends THROUGH THIS DASHBOARD (/api/mast without `by=show`: the
+# StamPLC page's Z-AXIS HOLD buttons, the ROS /zaxis triggers) counts here. A show's lift output
+# stands down for the rest of its run when this moves — the operator wins, as the RC stick does in
+# the firmware. The head's RAISE/LOWER go straight to the StamPLC and are not counted
+# (show_outputs.py says what that means for a show).
 _mast_operator = {"seq": 0}
 _mast_lock = threading.Lock()
 

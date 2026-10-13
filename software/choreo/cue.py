@@ -56,7 +56,8 @@ FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
-SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE")
+SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE",
+         "DEVICE")
 # DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
 # the twin drives the base, but the runner refuses any show that uses it on the robot, because the
 # robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
@@ -73,7 +74,16 @@ CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
 REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
 MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
-TAB5_SLOTS = ("HEAD", "FACE")          # the pan/tilt head and the face are driven by the Tab5
+TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the pan/tilt head, the face and its volume/brightness
+
+# ---- DEVICE: the head's media volume and screen brightness (head protocol v5) -------------------
+# Show-level `device: {volume, brightness}` sets both at the start; a DEVICE cue changes one, with an
+# optional fade. Levels are 0..1. VOLUME is the head's own media volume (what the show audio plays
+# at), not a gain in the player. The head will not dim below its own floor (bright_min), so a lower
+# brightness is warned about: it would be raised, not obeyed. Every show end hands both back (IDLE).
+DEVICE_DOS = ("volume", "brightness")
+DEVICE_FADE_MAX_S = 30.0
+DEVICE_BRIGHT_LOW = 0.15
 
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
 # Not DRIVE. A DANCE cue names a move from this library and nothing else: no free-form velocity is
@@ -310,6 +320,7 @@ SLOT_KEYS = {
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
     "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
+    "DEVICE": {"do", "level", "fade_s"},
 }
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
@@ -318,7 +329,12 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance"}
+            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
+            "start_countdown_s", "device"}
+# How a run starts (the runner's start modes): after the GO, a countdown the operator can see on the
+# face, before anything moves. A show may set its own length; a run may override it.
+START_COUNTDOWN_DEFAULT_S = 5.0
+START_COUNTDOWN_MAX_S = 60.0
 # Timeline notes (composer plan #5): requests to whoever edits the show next — often an agent —
 # anchored to a time range and optionally to slots. NON-EXECUTABLE: the runner never reads them, the
 # validator checks only their shape (as warnings: a typo in a note never stops a show), and they
@@ -924,6 +940,12 @@ class Show:
                     drive_cues.append((t, c))
             elif slot == "FACE":
                 msgs = self._check_face(where, c)
+            elif slot == "DEVICE":
+                msgs = self._check_device(where, c)
+                if not msgs:
+                    intrinsic = float(c.get("fade_s") or 0.0)
+                    if c["do"] == "brightness" and c["level"] < DEVICE_BRIGHT_LOW:
+                        warnings.append(Problem(_bright_low(where, c["level"]), *ref))
             else:
                 msgs = self._check_light(where, c)
             for q in msgs:
@@ -949,6 +971,24 @@ class Show:
             P(Problem(msg))
         for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
             P(Problem(msg))
+        if "start_countdown_s" in self.doc and countdown_s(self.doc["start_countdown_s"]) is None:
+            P(Problem(f"start_countdown_s: {self.doc['start_countdown_s']!r} must be a number of seconds, "
+                      f"0 to {START_COUNTDOWN_MAX_S:g}"))
+        dev = self.doc.get("device")
+        if dev is not None:
+            if not isinstance(dev, dict) or not dev:
+                P(Problem("device: must be a mapping of volume / brightness, each 0..1"))
+            else:
+                for k, v in dev.items():
+                    if k not in ("volume", "brightness"):
+                        P(Problem(f"device: unknown key {k!r} (known: volume, brightness)"))
+                    elif not (_num(v) and 0 <= v <= 1):
+                        P(Problem(f"device: {k} {v!r} must be 0..1"))
+                    elif k == "brightness" and v < DEVICE_BRIGHT_LOW:
+                        warnings.append(Problem(_bright_low("device:", v)))
+                if (dev.keys() & {"volume", "brightness"}) and self.requires.get("tab5") is not True:
+                    P(Problem("requires: this show sets the head's volume or brightness (device:) — "
+                              "add tab5: true, so the preflight checks the head is up"))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -971,6 +1011,9 @@ class Show:
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
                            "checks them against its library before every run")
         notices += self._move_notices(events)
+        if used & {"ARM_L", "ARM_R"}:
+            for msg in self._check_hand_box(events, music):
+                (P(Problem(msg)) if not msg.startswith("NOTICE ") else notices.append(msg[7:]))
         if getattr(self, "require_sweep", False) and used & {"ARM_L", "ARM_R"}:
             for msg, fatal in self._check_sweep(events):
                 # "warn" (the composer while editing): a missing or stale stamp is a warning — saving
@@ -1468,6 +1511,36 @@ class Show:
         return p
 
     @staticmethod
+    def _check_hand_box(events, music) -> list[str]:
+        """The hands at the arm CONTROLLERS' own point (hand_tcp), along every waypoint the runner will
+        send, against their workspace box (tcp.py) — a waypoint outside it gets the WHOLE arm goal
+        rejected at the robot. A notice, not a problem, where the arm chain is not on this machine."""
+        try:
+            import arm_output
+            import tcp
+        except ImportError as e:             # numpy absent: say so, never pass silently
+            return [f"NOTICE the hands' workspace box is not checked here ({e})"]
+        chain = tcp.load_chain()
+        if chain is None:
+            return ["NOTICE the hands' workspace box is not checked here: no arm chain (description/openarm/"
+                    "chain.json) on this machine"]
+        tracks = {}
+        for slot in ARM_SLOTS:
+            kfs = [{"start": e["start"], "t": e["t"], "pose_signed": {str(j): v for j, v in e["pose"].items()}}
+                   for e in events if e.get("slot") == slot and "start" in e and not e.get("bad") and e.get("pose")]
+            if kfs:
+                tracks[slot] = arm_output.track_points(sorted(kfs, key=lambda k: k["t"]))
+        beat = 60.0 / music["bpm"] if music and _num(music.get("bpm")) else None
+        bpb = (music or {}).get("beats_per_bar") or 4
+
+        def label(t):
+            if not beat:
+                return f"t={t:.2f}s"
+            k = (t - float((music or {}).get("offset_s") or 0.0)) / beat
+            return f"bar {int(k // bpb) + 1}.{int(k % bpb) + 1} ({t:.1f}s)"
+        return tcp.box_problems(chain, tracks, label)
+
+    @staticmethod
     def _move_notices(events) -> list[str]:
         """What a move cannot do where it is: one too early to be sent its lead ahead, and a sparkle
         on a library (picture) skin, which draws nothing — said, never refused (the face answers OK)."""
@@ -1524,6 +1597,19 @@ class Show:
             return [f"{where}: face emote {name!r} is not one the face has "
                     f"({', '.join(FACE_EMOTES)} — from kEmotes[] in the ESP-IDF face)"]
         return []
+
+    def _check_device(self, where, c):
+        do = c.get("do")
+        if do not in DEVICE_DOS:
+            return [f"{where}: device do must be {'|'.join(DEVICE_DOS)}"]
+        p = []
+        lv = c.get("level")
+        if not (_num(lv) and 0 <= lv <= 1):
+            p.append(f"{where}: device {do} needs level 0..1")
+        f = c.get("fade_s")
+        if f is not None and not (_num(f) and 0 <= f <= DEVICE_FADE_MAX_S):
+            p.append(f"{where}: device fade_s {f!r} outside 0..{DEVICE_FADE_MAX_S:g}")
+        return p
 
     def _check_light(self, where, c):
         do = c.get("do")
@@ -1616,6 +1702,9 @@ class Show:
             "tracks": tracks,
             "dance": ({"floor_radius_m": self.doc["dance"].get("floor_radius_m")}
                       if isinstance(self.doc.get("dance"), dict) else None),
+            # the head's volume and brightness at show time 0 (format §1); DEVICE cues change them
+            "device": ({k: float(v) for k, v in self.doc["device"].items() if k in ("volume", "brightness")}
+                       if isinstance(self.doc.get("device"), dict) else None),
         }
 
 
@@ -1707,6 +1796,18 @@ def show_from_text(text: str, path: str = "") -> Show:
 DEFAULT_LIMITS = "/openarm_ws/src/openarm/hw_validation/joint_limits.yaml"
 
 
+def countdown_s(v):
+    """A start countdown in seconds, or None if `v` is not one (a bool is not a number here)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= START_COUNTDOWN_MAX_S:
+        return None
+    return float(v)
+
+
+def _bright_low(where, level) -> str:
+    return (f"{where}: brightness {level:g} is below {DEVICE_BRIGHT_LOW:g} — the head will not dim past its "
+            "own floor (bright_min), so it will be brighter than written")
+
+
 def describe(limits: dict) -> str:
     """Every number and vocabulary the validator holds a show to — so an author (or an agent)
     reading the format spec can find them without reading this file or tripping an error."""
@@ -1751,6 +1852,11 @@ def describe(limits: dict) -> str:
     w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
       f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
     w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
+    w(f"start_countdown_s: 0..{START_COUNTDOWN_MAX_S:g} (default {START_COUNTDOWN_DEFAULT_S:g}) — the "
+      "countdown between a run's GO and its first move")
+    w(f"DEVICE: do {'|'.join(DEVICE_DOS)}, level 0..1, fade_s 0..{DEVICE_FADE_MAX_S:g}; show-level "
+      f"device: {{ volume, brightness }}; brightness below {DEVICE_BRIGHT_LOW:g} warns (the head's floor); "
+      "every show end hands both back to the head")
     w("palette: { label, order } — a routine must end with its arms at pose: rest, the head at "
       "90/90 and the light released, so any routine can follow any other")
     return "\n".join(L)

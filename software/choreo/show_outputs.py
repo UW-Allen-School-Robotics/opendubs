@@ -10,8 +10,14 @@ and the pinch guard. So the show RENEWS its intent every RENEW_S while a cue is 
 runner that dies stops the lift within 250 ms. The show never sends `MAST ACK`: it cannot authorize a
 descent through the pinch zone, so a long `down` stops at the guard (the twin does not model that).
 THE OPERATOR WINS (decided 2026-10-12, as the RC stick does in the firmware): if anyone else sends a
-lift command during the run — a dashboard or head button, counted by the dashboard as
-`mast_operator_seq` — the show's lift output stands down for the rest of that run, and says so.
+lift command THROUGH THE DASHBOARD during the run — the Z-AXIS HOLD buttons on its StamPLC page, or
+the ROS `/zaxis/*` triggers (stamplc_bridge.py), counted as `mast_operator_seq` — the show's lift
+output stands down for the rest of that run, and says so. NOT SEEN (corrected 2026-10-13): the head's
+RAISE/LOWER, which the Tab5 sends straight to the StamPLC as `MAST CMD`, and the RC stick. The stick
+needs no counting: it moves the lift in MANUAL only, and leaving AUTO aborts the show. The head's
+buttons do: during a run in AUTO with the deadman held, the StamPLC takes either sender's intent,
+latest first — the operator's way to win there is to let go of the deadman (which ends the show and
+stops its lift) or STOP. Seeing them would need the StamPLC to report who sent the intent.
 
 THE LIGHT goes through POST /api/choreo/light (the dashboard's show_light.py): a lease the dashboard
 layers over the state colour, which a reserved state (DEGRADED, E_STOP) always overrides. The strip
@@ -67,6 +73,10 @@ class LiftOutput:
         if operator_seq is None:
             self.note("live", note="the dashboard does not report operator lift commands: the show's lift "
                                    "cannot see an operator take over (it still stops on every end)")
+        else:
+            self.note("live", note="the show's lift stands down if the dashboard's lift buttons or /zaxis are "
+                                   "used; the head's RAISE/LOWER go straight to the StamPLC and are NOT seen — "
+                                   "let go of the deadman or STOP to take the lift back")
 
     def _post(self, cmd) -> bool:
         try:
