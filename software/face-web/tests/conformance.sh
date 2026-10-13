@@ -11,6 +11,7 @@ node software/face-web/tests/test_moves.mjs          # MOVE: each gesture lands 
 node software/face-web/tests/test_layout_full.mjs   # layout: full -- a still across the whole face
 node software/face-web/tests/test_lids_and_gaze.mjs  # lid-shape expression, and the gaze break
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
+node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades and clamps, ARMED's lease
 python3 software/face-web/tests/test_frame_tap.py    # the body twin's picture (no ports, no page)
 
 FACE=${FACE_PORT:-14244}; NECK=${NECK_PORT:-14245}
