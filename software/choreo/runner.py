@@ -458,6 +458,7 @@ class Runner:
         # The lift and the state light (show_outputs.py): each armed separately, a live run's only.
         self.lift = lift if self.live else None
         self.light = light if self.live else None
+        self.no_neck = False                      # set by the palette: no neck fitted on this robot
         self._state = {}                          # the robot's state as last read, each tick
         self._grip_last = {}                      # slot -> 0..1 last sent
         self._grip_stalled = set()
@@ -760,6 +761,9 @@ class Runner:
                     self.grips = None
                 else:
                     self._log("live", note="LIVE: the grippers follow this routine (calibrated per side)")
+            if self.no_neck and tl.get("tracks", {}).get("HEAD"):
+                self._log("live", note="no neck is fitted on this robot (OPENDUBS_HEAD_NECK_HOST=none): "
+                                       "the routine's pan/tilt stays in the twin")
         if self.lift is not None:
             self.lift.start((self._state or self.robot.read()).get("mast_operator_seq"))
         events = sorted(((e["t"], slot, e["cue"]) for slot, evs in tl["tracks"].items() for e in evs),
@@ -928,8 +932,9 @@ class Palette:
 
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
                  clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None,
-                 local_shows=None, dashboard=None, lift_live=False, light_live=False):
+                 local_shows=None, dashboard=None, lift_live=False, light_live=False, no_neck=False):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
+        self.no_neck = no_neck               # this robot has no neck (OPENDUBS_HEAD_NECK_HOST=none)
         self.local_shows = local_shows
         # The lift and the light (show_outputs.py), armed separately; both need a dashboard to speak to
         self.dashboard = dashboard
@@ -1047,6 +1052,7 @@ class Palette:
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
                             audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
                             start=start, countdown_s=countdown_s, face=self.face if live else None)
+            runner.no_neck = live and self.no_neck
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
             t = threading.Thread(target=self._play, args=(rid, runner), daemon=True)
@@ -1187,8 +1193,9 @@ def main() -> int:
     pp.add_argument("--arms", choices=("none", "ros"), default="none",
                     help="ros: the real arms can follow a run marked LIVE (plan 5.6); needs ROS sourced")
     pp.add_argument("--gaze", default="none",
-                    help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local) or a "
-                         "host: live runs turn the real head (its GAZE command, Tab5 PR #56)")
+                    help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local; a "
+                         "neck host of none or off means no neck is fitted) or a host: live runs turn "
+                         "the real head (its GAZE command, Tab5 PR #56)")
     pp.add_argument("--earcons", choices=("on", "off"), default="on",
                     help="off: live runs do not send the head its earcons (CUE) — held back while the "
                          "head's audio task damps its face tracking (2026-10-08)")
@@ -1217,15 +1224,20 @@ def main() -> int:
             face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face,
                                         earcons=a.earcons == "on")
             face.release()                   # a run that crashed may have left the face pinned
-        gaze = None
-        if a.gaze != "none":
-            gaze = face_bridge.LiveGaze(face_bridge.head_neck_host() if a.gaze == "auto" else a.gaze)
+        gaze, no_neck = None, False
+        neck = face_bridge.head_neck_host() if a.gaze == "auto" else a.gaze
+        if a.gaze == "auto" and neck is None:
+            no_neck = True                   # OPENDUBS_HEAD_NECK_HOST=none: as --gaze none, and said
+            print("runner: no neck fitted (OPENDUBS_HEAD_NECK_HOST=none): pan/tilt stays in the twin",
+                  file=sys.stderr, flush=True)
+        elif a.gaze != "none":
+            gaze = face_bridge.LiveGaze(neck)
             gaze.probe()                     # release a crashed run's lease; learn whether GAZE exists
         dash = (show_outputs.Dashboard(show_outputs.base_of(a.dashboard))
                 if "dashboard" in (a.lift, a.light) else None)
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
                       local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
-                      light_live=a.light == "dashboard")
+                      light_live=a.light == "dashboard", no_neck=no_neck)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "
