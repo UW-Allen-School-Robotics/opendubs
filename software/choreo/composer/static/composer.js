@@ -645,7 +645,7 @@ function renderPreview() {
       const e = lastAt(evs.filter((x) => x.cue.do !== "theme"), t);
       const th = lastAt(evs.filter((x) => x.cue.do === "theme"), t);
       row(slot, (e ? e.cue.name : '<span class="dim">face\'s own</span>')
-        + (th ? ` <span class="dim" title="A theme stays after the show; an emote is handed back">· theme ${esc(th.cue.name)}</span>` : ""));
+        + (th ? ` <span class="dim" title="A theme lasts until the show ends: every end hands back the robot's idle skin, theme and emote">· theme ${esc(th.cue.name)}</span>` : ""));
     } else if (slot === "DEVICE") {
       row(slot, deviceHTML(T, t));
     } else if (slot === "DANCE") {

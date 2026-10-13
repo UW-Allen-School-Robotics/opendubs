@@ -132,6 +132,9 @@ def entry_problems(e: dict) -> list:
         p.append(f"{e['id']!r}: tags must be a list of short lower-case words (e.g. [ambient])")
     if str(e.get("id", "")).lower() in CODE_SKIN_NAMES:
         p.append(f"{e['id']!r}: that name belongs to a skin the face draws in code — choose another")
+    elif str(e.get("id", "")).lower() == "idle":
+        p.append(f"{e['id']!r}: `idle` is reserved — SKIN IDLE means the robot's idle skin (head protocol "
+                 "v5) — choose another")
     if kind == "skin":
         params = e.get("params")
         if params is not None and not isinstance(params, dict):

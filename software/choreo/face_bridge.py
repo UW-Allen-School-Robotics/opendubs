@@ -15,21 +15,23 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
 
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
     (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
-    FACE  { do: theme, name: halloween }   ->  THEME halloween (it stays after the show)
+    FACE  { do: theme, name: halloween }   ->  THEME halloween (until the show ends)
     FACE  { do: move, name: wink_l }       ->  MOVE wink_l, sent at the event's `send_t` (its peak
                                                offset early, so the wink is shut ON the beat); one-shot,
                                                so a seek or a resync never replays it
-    FACE  { do: skin, name: ring }         ->  SKIN ring       (head protocol v2; it stays, like a theme)
+    FACE  { do: skin, name: ring }         ->  SKIN ring       (head protocol v2; until the show ends)
     SOUND { do: play, sound: attend }      ->  CUE attend      (one of the Tab5's six earcons)
     device: { volume: 0.6 } (show level)   ->  VOLUME 0.6      (head protocol v5: at show time 0)
     DEVICE { do: brightness, level: 0.4,   ->  BRIGHT 0.4 3    (fading over 3 s; on a seek, the level
              fade_s: 3 }                                        in force, unfaded)
-    (a run ends, however it ends)          ->  VOLUME IDLE, BRIGHT IDLE   (the head's own levels back)
+    (a run ends, however it ends)          ->  EMOTE AUTO, SKIN IDLE, THEME IDLE, VOLUME IDLE, BRIGHT IDLE
+                                               (head protocol v5: the robot's own skin, theme and levels
+                                               back, whether or not the show changed them)
 
 While playing, each cue is sent as the playhead crosses it. On a seek, a pause, a backwards jump or
 an edit, the bridge instead sends the STATE AT THAT TIME — the emote and theme in force — so jumping
 around a show leaves the face correct. Before a show's first theme cue the face keeps whatever theme
-it had: a theme is dressing, not a state the show owns. Sounds are only ever sent while playing, never on a seek.
+it had: a theme is dressing, not a state the show owns; at the end the robot's idle theme comes back. Sounds are only ever sent while playing, never on a seek.
 
 Not sent, and said so on the console: LIGHT cues (the PRISM strip is not the face; the robot
 drives it through the StamPLC, which a bridge must never touch) and SOUND cues naming a sound
@@ -63,6 +65,10 @@ def _level(v) -> str:
     """A 0..1 level (or a fade's seconds) as the head reads it: up to three decimals, no trailing zeros."""
     return f"{round(float(v), 3):g}"
 
+
+# Every show end, however it ends, hands these back to the robot's own settings (head protocol v5):
+# the idle skin and theme (the Head & face page), the media volume and the screen brightness.
+IDLE_VERBS = ("SKIN", "THEME", "VOLUME", "BRIGHT")
 
 class Follower:
     """Playhead updates in, head command lines out. No I/O, so it can be tested alone.
@@ -192,7 +198,7 @@ class Follower:
             if self.sent.get("emote") != "EMOTE AUTO":
                 self.sent["emote"] = "EMOTE AUTO"
                 out.append("EMOTE AUTO")
-            for verb in ("VOLUME", "BRIGHT"):        # every end: the head's own volume and brightness
+            for verb in IDLE_VERBS:                  # every end: the robot's own skin, theme and levels
                 if self.sent.get(verb) != f"{verb} IDLE":
                     self.sent[verb] = f"{verb} IDLE"
                     out.append(f"{verb} IDLE")
@@ -322,13 +328,16 @@ class LiveFace(_HeadLink):
     The runner tees its twin feed into this: `show(tl)` when a run is validated, `playhead(...)` on
     every tick. The Follower above turns that into the head's own lines, sent over UDP to the head.
     Only a run that reaches RUNNING touches the face — a refused run changes nothing — and when it
-    ends, however it ends, the face is handed back its own behaviour (EMOTE AUTO). A theme the show
-    set stays (dressing, not state). The head's answers are read: a refusal is logged, and so is
-    an earcon the head accepted with its audio switched off (a per-robot setting, off by default)."""
+    ends, however it ends, the face is handed back its own behaviour (EMOTE AUTO) and the robot's
+    idle skin, theme, volume and brightness (IDLE_VERBS, head protocol v5). The head's answers are
+    read: a refusal is logged, and so is an earcon the head accepted with its audio switched off (a
+    per-robot setting, off by default). A head without the v5 IDLE lines (the Tab5) refuses them;
+    that is expected, and noted once, not logged as an error."""
 
     def __init__(self, host: str, port: int = 4242, sock=None, note=None, earcons: bool = True, resolve=None):
         super().__init__(host, port, sock, note, "face", resolve)
         self.f, self.rev, self.tl, self.started = Follower(), 0, None, False
+        self._idle_err = {}
         # Earcons can be held back: the head's first earcon starts its audio task, which damps face
         # tracking until the head restarts (found on opendubs2, 2026-10-08; the fix is the Tab5's).
         self.earcons = earcons
@@ -338,9 +347,26 @@ class LiveFace(_HeadLink):
         crashed left it pinned (an EMOTE pin has no lease on the head)."""
         self.f.sent["emote"] = "EMOTE AUTO"
         self._send("EMOTE AUTO")
-        for verb in ("VOLUME", "BRIGHT"):
+        for verb in IDLE_VERBS:
             self.f.sent[verb] = f"{verb} IDLE"
             self._send(f"{verb} IDLE")
+        self._expect_idle_refusals()
+
+    def _expect_idle_refusals(self):
+        # What a head without them (the Tab5) answers the IDLE lines: SKIN, VOLUME and BRIGHT are
+        # unknown verbs there, THEME IDLE an unknown theme. Set, never added: a burst's answers are
+        # read whenever the next read comes, which may be the next run's.
+        self._idle_err = {"ERR unknown": 3, "ERR unknown theme": 1}
+
+    def _idle_refusal(self, r) -> bool:
+        """An expected answer to the IDLE lines: noted once, and True."""
+        if self._idle_err.get(r, 0) <= 0:
+            return False
+        self._idle_err[r] -= 1
+        self._once("idle:" + r, kind="face_note",
+                   note=f"the head answered the show-end IDLE lines with {r!r}: a head without them "
+                        "(the Tab5) — expected")
+        return True
 
     def armed(self, what):
         """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
@@ -349,6 +375,8 @@ class LiveFace(_HeadLink):
         without it answers ERR: said once, and the run goes on."""
         self._send(f"ARMED {what}", log=what != "WAIT")
         for r in self._replies():
+            if self._idle_refusal(r):
+                continue
             if r.startswith("ERR"):
                 self._once("armed:" + r, kind="face_warning",
                            note=f"the head did not take ARMED ({r}) — no armed indication on the face")
@@ -368,6 +396,8 @@ class LiveFace(_HeadLink):
         elif not (self.started and status in ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST")):
             return
         for line in self.f.update(self.rev, self.tl, t, playing, status):
+            if line == "THEME IDLE":
+                self._expect_idle_refusals()
             if line.startswith("CUE ") and not self.earcons:
                 self._once("earcons", kind="face_skipped",
                            line="earcons held back on this runner (--earcons off): the head's audio "
@@ -381,9 +411,15 @@ class LiveFace(_HeadLink):
             if "AUDIO OFF" in r:
                 self._once("audio", kind="face_warning",
                            note="the head's audio is OFF: its earcons are silent (enable Audio in the head's SETTINGS)")
-            elif r.upper().startswith(("OK VOLUME", "OK BRIGHT")):
-                # the head says the level it APPLIED (a brightness under its floor comes back raised)
+            elif r.upper().startswith(("OK VOLUME", "OK BRIGHT", "OK SKIN IDLE", "OK THEME IDLE")):
+                # the head says the level it APPLIED (a brightness under its floor comes back raised),
+                # and which idle skin and theme it went back to
                 self.note(kind="face_device", reply=r)
+            elif self._idle_refusal(r):
+                pass
+            elif r.upper().startswith("ERR SKIN IDLE"):
+                self._once(r, kind="face_warning",
+                           note=f"the robot's idle skin did not load ({r}) — fix it on the Head & face page")
             elif r.startswith("ERR"):
                 self._once(r, kind="face_error", reply=r)
         if status != "RUNNING":

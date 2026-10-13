@@ -7,7 +7,9 @@ It answers the head's line protocol the way the face twin will, so the bridge ca
 tested now: STATE, PING and the new verbs (EMOTE, THEME, CUE) reply OK and print; anything else
 replies `ERR unknown`, as the head does. VOLUME and BRIGHT (head protocol v5) are simulated: the stub
 keeps the level, clamps a brightness to the head's floor (BRIGHT_MIN) and answers with the level it
-applied, `OK volume 0.6` / `OK bright 0.15` — IDLE hands back its own (DEFAULTS). Localhost only. It is not the face; it only shows what the
+applied, `OK volume 0.6` / `OK bright 0.15` — IDLE hands back its own (DEFAULTS). SKIN IDLE and
+THEME IDLE answer as a face with no idle settings does: `OK skin idle default`, `OK theme idle plain`.
+Localhost only. It is not the face; it only shows what the
 face would be told.
 """
 from __future__ import annotations
@@ -17,7 +19,8 @@ import socket
 import sys
 import time
 
-KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "ARMED")
+KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "ARMED", "SKIN")
+IDLE_REPLY = {"SKIN": "OK skin idle default", "THEME": "OK theme idle plain"}   # no idle settings: defaults
 BRIGHT_MIN = 0.15                              # the head's floor: it never dims below this
 DEFAULTS = {"VOLUME": 0.7, "BRIGHT": 0.8}      # its own levels, which IDLE hands back
 
@@ -42,6 +45,15 @@ def device(line: str, levels: dict) -> str:
     return f"OK {'volume' if verb == 'VOLUME' else 'bright'} {levels[verb]:g}"
 
 
+def answer(line: str, levels: dict) -> str:
+    words = line.split()
+    verb = words[0].upper()
+    if verb in IDLE_REPLY and len(words) == 2 and words[1].upper() == "IDLE":
+        return IDLE_REPLY[verb]
+    return ("PONG stub" if verb == "PING" else device(line, levels) if verb in ("VOLUME", "BRIGHT")
+            else "OK" if verb in KNOWN else "ERR unknown")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--port", type=int, default=4242)
@@ -56,9 +68,7 @@ def main() -> int:
             line = line.strip()
             if not line:
                 continue
-            verb = line.split()[0].upper()
-            reply = ("PONG stub" if verb == "PING" else device(line, levels) if verb in ("VOLUME", "BRIGHT")
-                     else "OK" if verb in KNOWN else "ERR unknown")
+            reply = answer(line, levels)
             print(f"{time.monotonic() - t0:8.2f}s  {line:28s} -> {reply}", flush=True)
             s.sendto((reply + "\n").encode(), peer)
 

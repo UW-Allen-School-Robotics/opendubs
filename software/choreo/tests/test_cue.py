@@ -549,6 +549,14 @@ check_doc("an authored theme listed under themes: passes",
 check_doc("a built-in theme listed under themes: is refused, so the list means 'install these'",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "halloween"}], themes=["halloween"]),
           "built into the face")
+check_doc("`idle` is reserved for a theme: every show end sends THEME IDLE itself",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "Idle"}], themes=["Idle"]),
+          "`idle` is reserved")
+check_doc("... and for a skin: every show end sends SKIN IDLE itself",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "skin", "name": "idle"}]), "`idle` is reserved")
+check_doc("... and no authored theme may be listed as idle",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmas"}], themes=["christmas", "idle"]),
+          "themes: `idle` is reserved")
 _a = doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmas"}], themes=["christmas"]).analyse(LIMITS)
 check_true("... and an authored theme is a notice: it must be installed on the head first",
            any("christmas" in n and "CFG" in n for n in _a["notices"]), _a["notices"])
