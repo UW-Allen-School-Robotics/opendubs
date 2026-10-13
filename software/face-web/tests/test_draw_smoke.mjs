@@ -117,6 +117,20 @@ for (const [what, params] of [
      err ? `${err.constructor.name}: ${err.message}` : `${cases} cases`);
 }
 
+// ---- 4. the ARMED overlay, in every state it can be in -------------------------------------------
+// It is drawn over the finished frame rather than by a skin, so it needs its own pass here: nothing
+// else in this file would ever call it.
+{
+  const { drawArmed } = await import(join(here, "../engine/skins/armed.js"));
+  let err = null, n = 0;
+  try {
+    for (const armed of [null, undefined, "wait", 0, 1, 3, 10, 99, 0.5, -1, NaN, Infinity])
+      for (let t = 0; t < 2; t += 0.25) { drawArmed(stubCtx(), armed, t); n++; }
+  } catch (ex) { err = ex; }
+  ok(!err, "the ARMED overlay draws in every state without throwing",
+     err ? `${err.constructor.name}: ${err.message}` : `${n} draws`);
+}
+
 if (unknown.size) console.log(`  note  2D calls not in the stub, worth a look if unexpected: ${[...unknown].join(", ")}`);
 console.log(failed ? `\n${failed} FAILED` : "\nall draw smoke checks passed");
 process.exit(failed ? 1 : 0);

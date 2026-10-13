@@ -11,6 +11,10 @@ const IPD = BODY * (1 + GAP_FRAC);
 export const SLOT = [DESIGN_W / 2 - IPD / 2, DESIGN_W / 2 + IPD / 2];
 export const EYE_Y = DESIGN_H / 2;
 const LINK_STALE_MS = 5000;
+// The ARMED lease, matching the protocol's (head protocol v5): the show runner renews every few
+// seconds, and if it stops the sign must clear itself rather than claim for ever that the robot is
+// about to move. That is the one failure mode that matters for a sign people stand next to.
+const ARMED_LEASE_MS = 3000;
 const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
 
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -114,6 +118,10 @@ export class Face {
     this.woke = false;
     this.nextAvert = 0; this.avertUntil = 0;   // the gaze break; see tick()
     this.microX = 0; this.microY = 0; this.nextMicro = 0;
+    // ARMED (head protocol v5): a show is loaded and starts when the operator holds the deadman.
+    this.armed = null;          // null | "wait" | seconds remaining
+    this.armedAt = -1e9;        // when it was last set, for the lease
+    this._now = 0;              // the last tick's clock, so the seams below need no `now` argument
     this.mv = null;             // the one move in flight: {name, t0}; see move()
     this.mvOut = NO_MOVE;       // what it contributes this frame
   }
@@ -156,6 +164,28 @@ export class Face {
     if (!(name in MOVES)) return false;
     this.mv = { name, t0: now };
     return true;
+  }
+
+  // ---- ARMED --------------------------------------------------------------------------------
+  // `state` is null, "wait", or the seconds remaining. The page owns where it comes from; the
+  // engine owns what it looks like and how long it may be believed.
+  setArmed(state, now = this._now) {
+    this.armed = state === null || state === undefined ? null : state;
+    this.armedAt = now;
+  }
+
+  // What to draw right now, LEASED. If the runner dies mid-show nothing sends OFF, so this expires
+  // on its own. A countdown also keeps counting BETWEEN renewals, rather than freezing on the last
+  // number it was told and reading as stuck.
+  armedState(now = this._now) {
+    if (this.armed === null) return null;
+    const age = now - this.armedAt;
+    if (age > ARMED_LEASE_MS) return null;
+    if (typeof this.armed === "number") {
+      const left = this.armed - age / 1000;
+      return left > 0 ? left : 0;          // 0 still draws the frame: armed, just out of countdown
+    }
+    return this.armed;
   }
 
   // What the move in flight contributes right now. A pure function of its age, so a frame skipped
@@ -280,6 +310,7 @@ export class Face {
     if (!this.free()) this.quote = -1;
     else if (now >= this.nextQuote || this.quote < 0) { this.quote = (this.quote + 1) % QUOTES.length; this.nextQuote = now + 9000; }
 
+    this._now = now;
     this.stepMove(now);
 
     for (const v of [this.bodyW, this.bodyH, this.radius, this.lid, this.lidLower, this.lidCurve,
