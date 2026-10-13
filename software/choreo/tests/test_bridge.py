@@ -71,10 +71,11 @@ h = fb.Follower()
 h.update(1, TL, 0.0, False)
 h.update(1, TL, 0.02, True)
 out = h.update(1, TL, 4.5, False, "ABORTED")
-check("following a runner, an aborted show hands the face back its own behaviour, once",
-      out == ["EMOTE AUTO"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
+check("following a runner, an aborted show hands the face back its own behaviour (and the head its own "
+      "volume and brightness), once",
+      out == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
 check("... and a lost lease does the same",
-      fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO"])
+      fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"])
 
 routed = {"tracks": {"SOUND": [{"t": 1.0, "cue": {"do": "play", "sound": "attend"}, "output": "tablet"},
                                {"t": 2.0, "cue": {"do": "play", "sound": "heard"}, "output": "tab5"}]}}
@@ -99,7 +100,7 @@ out = m.update(1, themed, 2.0, False)
 check("seeking back restores the theme then in force", out == ["THEME halloween"], out)
 out = m.update(1, themed, 2.0, False, "ABORTED")
 check("an aborted show hands back the emote but leaves the theme (it is dressing, not a state)",
-      out == ["EMOTE AUTO"], out)
+      out == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], out)
 check("a show with no theme cue never touches the face's theme",
       not any(x.startswith("THEME") for x in fb.Follower().update(1, TL, 0.0, False)))
 
@@ -128,6 +129,54 @@ tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 tx.sendto(b"EMOTE SOFT\n", (fb.loopback_only("127.0.0.1"), rx.getsockname()[1]))
 th.join(3)
 check("a command line is delivered as one datagram ending in a newline", got == ["EMOTE SOFT\n"], got)
+
+print("\nthe head's volume and brightness (head protocol v5)")
+DEV = {"device": {"volume": 0.6, "brightness": 0.9},
+       "tracks": {"DEVICE": [{"t": 2.0, "cue": {"do": "volume", "level": 0.3, "fade_s": 2}},
+                             {"t": 5.0, "cue": {"do": "brightness", "level": 0.4}}]}}
+d = fb.Follower()
+d.update(1, DEV, -1e-6, True)
+out = []
+for i in range(25):                            # playing: 0.25 s steps (a bigger jump is a seek)
+    out += d.update(1, DEV, i * 0.25, True)
+check("show time 0 sets the show-level volume and brightness; each DEVICE cue is sent as crossed, "
+      "its fade with it", out == ["VOLUME 0.6", "BRIGHT 0.9", "VOLUME 0.3 2", "BRIGHT 0.4"], out)
+out = d.update(1, DEV, 1.0, False)
+check("a seek sends the levels then in force, unfaded", out == ["VOLUME 0.6", "BRIGHT 0.9"], out)
+check("... and nothing when they already are", d.update(1, DEV, 1.5, False) == [])
+check("a show's end hands both back to the head", d.update(1, DEV, 6.0, False, "COMPLETED")[-2:] ==
+      ["VOLUME IDLE", "BRIGHT IDLE"])
+check("a show with no device settings sends no VOLUME or BRIGHT while it plays",
+      not any(x.startswith(("VOLUME", "BRIGHT")) for x in fb.Follower().update(1, TL, 1.0, False)))
+import face_stub  # noqa: E402
+lv = dict(face_stub.DEFAULTS)
+check("the face stub simulates the head: it answers with the level it applied",
+      face_stub.device("VOLUME 0.4 2", lv) == "OK volume 0.4" and lv["VOLUME"] == 0.4)
+check("... a brightness under the head's floor comes back raised to it",
+      face_stub.device("BRIGHT 0.05", lv) == f"OK bright {face_stub.BRIGHT_MIN:g}")
+check("... IDLE hands back its own level, and nonsense is refused",
+      face_stub.device("BRIGHT IDLE", lv) == f"OK bright {face_stub.DEFAULTS['BRIGHT']:g}"
+      and face_stub.device("VOLUME 3", lv).startswith("ERR"))
+
+class _Sock:
+    def __init__(self, replies):
+        self.lines, self.replies = [], list(replies)
+
+    def sendto(self, data, addr):
+        self.lines.append(data.decode().strip())
+
+    def recv(self, n):
+        if not self.replies:
+            raise BlockingIOError
+        return self.replies.pop(0).encode()
+
+
+notes = []
+lf = fb.LiveFace("127.0.0.1", sock=_Sock(["OK bright 0.15"]), note=lambda **kw: notes.append(kw))
+lf.show(DEV)
+lf.playhead(0.0, True, "RUNNING")
+check("a live run logs the level the head says it applied",
+      any(n.get("kind") == "face_device" and n.get("reply") == "OK bright 0.15" for n in notes), notes)
 
 print()
 if fails:

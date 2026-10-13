@@ -100,6 +100,7 @@ ABORT_STATE = {
     "DANCE": "base at zero velocity, immediately",
     "SOUND": "stopped",
     "FACE": "handed back to the face's own state-driven behaviour (EMOTE AUTO); the theme stays",
+    "DEVICE": "the head's own volume and brightness back (VOLUME IDLE, BRIGHT IDLE)",
     "LIGHT": "released to the robot's state colour",
     "MUSIC": f"faded out over {AUDIO_FADE_S:g} s",
 }
@@ -323,7 +324,7 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
 
 
 def _grips_calibrated() -> bool:
@@ -357,6 +358,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
     light when the runner is armed for them (--lift / --light dashboard). The base has no robot output yet. Read from the export when the show validates, else from its `slots:`."""
     tracks = tl.get("tracks") or {}
     used = ({k for k, v in tracks.items() if v} if tracks else set(show.doc.get("slots") or []))
+    if isinstance(show.doc.get("device"), dict) and show.doc["device"]:
+        used.add("DEVICE")                # the show-level volume / brightness is a use too
     out, seen = [], set()
     m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
     if m and (m.get("file") or m.get("song")):
@@ -371,8 +374,8 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
         elif part == "sound":
             live = any(e.get("output") == "tablet" or (face_live and earcons and e.get("output") == "tab5")
                        for e in tracks.get("SOUND", []))
-        elif part == "face":
-            live = face_live
+        elif part in ("face", "device"):
+            live = face_live                # the head's volume and brightness go with the face
         elif part == "head":
             live = gaze_live
         elif part == "grippers":

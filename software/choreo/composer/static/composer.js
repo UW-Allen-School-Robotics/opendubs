@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE"];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE", "DEVICE"];
 const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
@@ -306,7 +306,7 @@ async function play() {
   if (!S.playing || S.audio.ctx !== c) return;          /* stopped, or replayed, while waiting */
   const a = S.audio;
   a.startedCtx = c.currentTime + 0.05; a.startedT = S.t;
-  a.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
+  applyTwinVolume();
   if (a.buffer && S.t < a.buffer.duration) {
     a.src = c.createBufferSource(); a.src.buffer = a.buffer; a.src.connect(a.gain);
     a.src.start(a.startedCtx, S.t);
@@ -346,6 +346,7 @@ function frame() {
   if (S.playing && (frame._n = (frame._n || 0) + 1) % 10 === 0) showAudioState(meterLevel());
   if (!S.playing) return;
   S.t = audioNow();
+  applyTwinVolume();
   scheduleClicks();
   const end = Math.max(tl() ? tl().duration_s : 0, S.audio.buffer ? S.audio.buffer.duration : 0) + 1;
   if (S.t > end) { stop(); }
@@ -447,6 +448,7 @@ function label(ev) {
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
     case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
+    case "DEVICE": return `${c.do === "volume" ? "vol" : "bright"} ${Math.round((c.level ?? 0) * 100)}%` + (c.fade_s ? ` /${c.fade_s}s` : "");
     default: return "";
   }
 }
@@ -569,7 +571,34 @@ function armAt(evs, t) {
   }
   return { pose: prev, state: "holding" };
 }
+/* The head's volume or brightness at t, as the head will have it (head protocol v5): the show-level
+ * `device:` from 0, then each DEVICE cue, fading linearly over its fade_s. null: the show leaves it
+ * to the head. Brightness is shown as the head would clamp it (its floor, bright_min, ~0.15). */
+function deviceAt(T, what, t) {
+  const key = what === "volume" ? "volume" : "brightness";
+  let v = T && T.device && T.device[key] != null ? T.device[key] : null;
+  for (const e of (T && T.tracks.DEVICE) || []) {
+    if (e.cue.do !== key || e.t > t + 1e-9) continue;
+    const f = e.cue.fade_s || 0, from = v == null ? 1 : v;
+    v = f > 0 && t < e.t + f ? from + (e.cue.level - from) * (t - e.t) / f : e.cue.level;
+  }
+  return v;
+}
 function lastAt(evs, t) { let l = null; for (const e of evs) { if (e.t <= t + 1e-9) l = e; } return l; }
+function deviceHTML(T, t) {
+  const v = deviceAt(T, "volume", t), b = deviceAt(T, "brightness", t);
+  const pc = (x) => `${Math.round(x * 100)}%`;
+  return `<span title="The head's media volume (the show audio plays at it) and screen brightness. The twin plays the music at this volume; the head never dims below its floor (~15%)">`
+    + `vol ${v == null ? '<span class="dim">head\'s own</span>' : pc(v)} · bright ${b == null ? '<span class="dim">head\'s own</span>' : pc(Math.max(0.15, b))}</span>`;
+}
+/* The twin's music follows the simulated device volume, as the head's media volume would. */
+function applyTwinVolume() {
+  const a = S.audio;
+  if (!a.gain) return;
+  const v = deviceAt(tl(), "volume", S.t);
+  /* a muted MUSIC lane is silent; a muted DEVICE lane plays at full volume, as if the show set none */
+  a.gain.gain.value = S.muted.has("MUSIC") ? 0 : S.muted.has("DEVICE") || v == null ? 1 : v;
+}
 function renderPreview() {
   const T = tl(), t = S.t, out = [];
   $("previewT").textContent = `${t.toFixed(2)} s`;
@@ -577,6 +606,9 @@ function renderPreview() {
   const row = (k, v) => out.push(`<span class="k">${k}</span><span>${v}</span>`);
   const muted = (k) => S.muted.has(k) ? '<span class="dim">muted</span>' : null;
   for (const slot of SLOTS) {
+    if (slot === "DEVICE" && !T.tracks.DEVICE && T.device) {
+      row(slot, deviceHTML(T, t)); continue;
+    }
     if (!T.tracks[slot]) continue;
     const evs = T.tracks[slot];
     if (muted(slot)) { row(slot, muted(slot)); continue; }
@@ -614,6 +646,8 @@ function renderPreview() {
       const th = lastAt(evs.filter((x) => x.cue.do === "theme"), t);
       row(slot, (e ? e.cue.name : '<span class="dim">face\'s own</span>')
         + (th ? ` <span class="dim" title="A theme stays after the show; an emote is handed back">· theme ${esc(th.cue.name)}</span>` : ""));
+    } else if (slot === "DEVICE") {
+      row(slot, deviceHTML(T, t));
     } else if (slot === "DANCE") {
       const e = evs.find((x) => x.start <= t && t < x.end);
       row(slot, e ? `<span class="moving" title="Open loop, at placeholder base speeds; runs only in the twin until the robot floor test">${esc(e.cue.move)} ${(t - e.start).toFixed(1)} of ${(e.end - e.start).toFixed(1)} s</span>`
@@ -721,6 +755,7 @@ const DEFAULTS = {
   FACE: { do: "emote", name: "NEUTRAL" }, LIGHT: { do: "color", rgb: [255, 255, 255], br: 50 },
   DANCE: { move: "sway", secs: 2 },
   DRIVE: { forward_m: 0.5, secs: 3 },          /* twin-only: the runner refuses DRIVE on the robot */
+  DEVICE: { do: "volume", level: 0.6, fade_s: 2 },
 };
 /* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
  * cue to a part not listed there lists it, in the same edit — one undo takes back both. */
@@ -1336,7 +1371,7 @@ function bind() {
     if (b.dataset.mute) {
       const k = b.dataset.mute; S.muted.has(k) ? S.muted.delete(k) : S.muted.add(k);
       store.set("muted." + S.path, [...S.muted]);
-      if (k === "MUSIC" && S.audio.gain) S.audio.gain.gain.value = S.muted.has("MUSIC") ? 0 : 1;
+      if (k === "MUSIC" || k === "DEVICE") applyTwinVolume();
       render();
     }
   });
