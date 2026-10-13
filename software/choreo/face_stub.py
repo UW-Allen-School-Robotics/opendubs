@@ -5,7 +5,9 @@
 
 It answers the head's line protocol the way the face twin will, so the bridge can be built and
 tested now: STATE, PING and the new verbs (EMOTE, THEME, CUE) reply OK and print; anything else
-replies `ERR unknown`, as the head does. Localhost only. It is not the face; it only shows what the
+replies `ERR unknown`, as the head does. VOLUME and BRIGHT (head protocol v5) are simulated: the stub
+keeps the level, clamps a brightness to the head's floor (BRIGHT_MIN) and answers with the level it
+applied, `OK volume 0.6` / `OK bright 0.15` — IDLE hands back its own (DEFAULTS). Localhost only. It is not the face; it only shows what the
 face would be told.
 """
 from __future__ import annotations
@@ -15,7 +17,29 @@ import socket
 import sys
 import time
 
-KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG")
+KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "ARMED")
+BRIGHT_MIN = 0.15                              # the head's floor: it never dims below this
+DEFAULTS = {"VOLUME": 0.7, "BRIGHT": 0.8}      # its own levels, which IDLE hands back
+
+
+def device(line: str, levels: dict) -> str:
+    """VOLUME / BRIGHT <0..1> [fade_s] | IDLE -> the head's reply, carrying the level it applied."""
+    verb, *args = line.split()
+    verb = verb.upper()
+    if not args:
+        return "ERR args"
+    if args[0].upper() == "IDLE":
+        levels[verb] = DEFAULTS[verb]
+    else:
+        try:
+            v = float(args[0])
+            fade = float(args[1]) if len(args) > 1 else 0.0
+        except ValueError:
+            return "ERR args"
+        if not (0 <= v <= 1 and 0 <= fade <= 30):
+            return "ERR range"
+        levels[verb] = max(BRIGHT_MIN, v) if verb == "BRIGHT" else v
+    return f"OK {'volume' if verb == 'VOLUME' else 'bright'} {levels[verb]:g}"
 
 
 def main() -> int:
@@ -25,7 +49,7 @@ def main() -> int:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind(("127.0.0.1", a.port))
     print(f"face stub: listening on 127.0.0.1:{a.port} (a stand-in, not the face)", flush=True)
-    t0 = time.monotonic()
+    t0, levels = time.monotonic(), dict(DEFAULTS)
     while True:
         data, peer = s.recvfrom(512)
         for line in data.decode(errors="replace").splitlines():
@@ -33,7 +57,8 @@ def main() -> int:
             if not line:
                 continue
             verb = line.split()[0].upper()
-            reply = "PONG stub" if verb == "PING" else ("OK" if verb in KNOWN else "ERR unknown")
+            reply = ("PONG stub" if verb == "PING" else device(line, levels) if verb in ("VOLUME", "BRIGHT")
+                     else "OK" if verb in KNOWN else "ERR unknown")
             print(f"{time.monotonic() - t0:8.2f}s  {line:28s} -> {reply}", flush=True)
             s.sendto((reply + "\n").encode(), peer)
 

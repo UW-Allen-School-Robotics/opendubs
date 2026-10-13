@@ -341,9 +341,11 @@ def run_face(show, flip_after=None, change=None):
 
 end, lines = run_face("celebrate.yaml")
 check("a live run sends the face its cues and the head its earcons, then hands the face back",
-      end[0] == "COMPLETED" and lines[:2] == ["EMOTE SOFT", "CUE attend"] and lines[-1] == "EMOTE AUTO", lines)
+      end[0] == "COMPLETED" and lines[:2] == ["EMOTE SOFT", "CUE attend"]
+      and lines[-3:] == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], lines)
 end, lines = run_face("celebrate.yaml", flip_after=2.0, change={"deadman": False})
-check("... an aborted run hands the face back too", end[0] == "ABORTED" and lines[-1] == "EMOTE AUTO", lines)
+check("... an aborted run hands the face back too", end[0] == "ABORTED"
+      and lines[-3:] == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], lines)
 end, lines = run_face("celebrate.yaml", flip_after=0.0, change={"deadman": False})
 check("... and a run that never starts leaves the face alone", end[0] in ("REFUSED", "ABORTED") and lines == [], (end, lines))
 

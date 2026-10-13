@@ -59,6 +59,7 @@ sounds: [sleigh_bells]    # optional: sound files expected in sounds/, kept loca
 themes: [christmas]       # optional: authored face themes the show selects, installed on the head (§7)
 palette: { label: Wave, order: 1 }   # optional: a routine the operator can pick (below)
 start_countdown_s: 3      # optional: seconds from a run's GO to its first move (0-60, default 5)
+device: { volume: 0.6, brightness: 0.8 }   # optional: the head's media volume and brightness at time 0 (§7)
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
 markers: [ ... ]          # optional, §8
@@ -101,8 +102,8 @@ browser's local storage. A show diff is always a diff of *what the robot does*.
 
 ## 2. Slots
 
-`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT DANCE`. One slot per independently
-commandable thing, one owner at a time.
+`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT DANCE DEVICE` (and the twin-only `DRIVE`,
+§12). One slot per independently commandable thing, one owner at a time.
 
 **`DRIVE` is not a slot and v1 does not add it.** The reason is in `software/choreo/README.md` and
 is unchanged: the robot cannot yet say where it is. **`DANCE` is the bounded alternative** (§12):
@@ -366,6 +367,8 @@ Unchanged from v0 unless marked **new**.
 | `FACE` **new** | `do: emote`, `name: NEUTRAL\|ALERT\|SQUINT\|SOFT\|SLEEPY`; or `do: theme`, `name: plain\|halloween` or an authored theme listed under `themes:` | closed vocabulary; an authored theme not listed is an error (a typo), a listed one is a notice (it must be installed on the head by its `CFG` verb first). A theme **stays** after the show; an emote is handed back to the face | `kEmotes[]` and `theme::name()` in `firmware/tab5_idf/app_face/app_face.cpp`, branch `feat/tab5-idf-subtractive` at `12f5845`; the head takes `EMOTE <name>` and `THEME <name>`, case-insensitively |
 | `FACE` move | `do: move`, `name: wink_l\|wink_r\|blink2\|look_l\|look_r\|roll\|bob\|sparkle\|side_eye_l\|side_eye_r\|to_camera\|double_take\|startle` — a one-shot gesture over the held emote (head protocol v4, `MOVE <name>`; tablet face only) | closed vocabulary. **The cue's time is the move's PEAK** (a wink's lid fully shut, the bottom of a bob): the export carries `send_t`, the time minus the face's receipt-to-peak offset, and the face bridge (twin and robot alike) sends the line then, so the gesture lands on the beat the author wrote. A move is not state: a seek or a resync never replays it, and a new one replaces one still playing. Notices: a move too early to be sent its lead ahead; a `sparkle` on a picture skin, which draws nothing (the face answers OK) | `MOVES` in `software/face-web/engine/face.js` (Face & HRI): each move's duration and its **measured** peak offset, e.g. wink 0.139 s, blink2 0.333 s (its second shut); `cue.FACE_MOVES` copies them and `tests/test_face_moves.py` fails if either drifts, or if the names differ from `head_protocol.MOVES` |
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped; **no colour that reads as the state light's E-STOP red or DEGRADED amber** — within ±20° of their hue and saturated enough to read as it (plan 1.8; `cue.py describe`) | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
+
+| `DEVICE` **new** (2026-10-13) | `do: volume\|brightness`, `level: 0..1`, optional `fade_s` (0–30). Show-level `device: { volume, brightness }` sets both at time 0 | ranges; a fade owns the slot for its length; needs `tab5: true`. **Brightness below 0.15 warns**: the head never dims past its own floor (`bright_min`), so it would come out brighter than written. Every show end hands both back to the head (`VOLUME IDLE`, `BRIGHT IDLE`) | head protocol v5, agreed with the Tablet lane: `VOLUME <0..1> [fade_s]`, `BRIGHT <0..1> [fade_s]`, `VOLUME IDLE`, `BRIGHT IDLE`; the reply carries the level applied. VOLUME is the head's **media volume** — what the show audio plays at — not a gain in the player |
 
 `LIGHT`'s second verb is `release`, not `off`, for two reasons. YAML 1.1 reads a bare `off` as
 the boolean `false` (the validator names this trap when it sees it — the first draft of the demo
