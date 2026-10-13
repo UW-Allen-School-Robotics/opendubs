@@ -78,6 +78,7 @@ WiFiUDP g_udp;
 Preferences g_nvs;
 char g_ssid[33] = {0};
 uint32_t g_lastReport = 0;
+uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
 uint32_t g_packets = 0;
 
 // The firmware identity a PING reports. Filled by the build, not typed here, so an image can always
@@ -190,7 +191,12 @@ void handle(const char* cmd, char* out, size_t n) {
         char reply[128];
         const bool ok = otaPull(cmd + 4, reply, sizeof(reply));
         snprintf(out, n, "%s", reply);
-        if (ok) { line(reply); delay(200); ESP.restart(); }
+        // RESTART LATER, NOT HERE. Restarting inside the handler kills the board before the caller
+        // has sent this reply, so a SUCCESSFUL update looks exactly like a dead board -- which is
+        // what the first end-to-end test showed: the image downloaded, the firmware changed, and
+        // the flashing tool saw NO REPLY. A tool that cannot tell success from bricked is worse
+        // than one that is merely slow.
+        if (ok) { line(reply); g_restartAt = millis() + 400; }
         return;
     }
     // Everything else the neck owes -- GAZE, PARK, TOUCH, TRACK, TOF, I2CSCAN, OTA -- arrives in
@@ -334,6 +340,9 @@ void loop() {
             servoPulse(kChPan,  degToUs(g_pt.pan,  kPanReverse));
         }
     }
+
+    // A pending restart, far enough after the reply that it has certainly gone out.
+    if (g_restartAt && (int32_t)(millis() - g_restartAt) >= 0) { delay(50); ESP.restart(); }
 
     if (millis() - g_lastReport > kReportMs) { g_lastReport = millis(); report(); }
     delay(5);
