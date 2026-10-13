@@ -318,7 +318,12 @@ PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "
 MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R": "GRIP_L"}
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
-            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance"}
+            "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
+            "start_countdown_s"}
+# How a run starts (the runner's start modes): after the GO, a countdown the operator can see on the
+# face, before anything moves. A show may set its own length; a run may override it.
+START_COUNTDOWN_DEFAULT_S = 5.0
+START_COUNTDOWN_MAX_S = 60.0
 # Timeline notes (composer plan #5): requests to whoever edits the show next — often an agent —
 # anchored to a time range and optionally to slots. NON-EXECUTABLE: the runner never reads them, the
 # validator checks only their shape (as warnings: a typo in a note never stops a show), and they
@@ -949,6 +954,9 @@ class Show:
             P(Problem(msg))
         for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
             P(Problem(msg))
+        if "start_countdown_s" in self.doc and countdown_s(self.doc["start_countdown_s"]) is None:
+            P(Problem(f"start_countdown_s: {self.doc['start_countdown_s']!r} must be a number of seconds, "
+                      f"0 to {START_COUNTDOWN_MAX_S:g}"))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -1740,6 +1748,13 @@ def show_from_text(text: str, path: str = "") -> Show:
 DEFAULT_LIMITS = "/openarm_ws/src/openarm/hw_validation/joint_limits.yaml"
 
 
+def countdown_s(v):
+    """A start countdown in seconds, or None if `v` is not one (a bool is not a number here)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= START_COUNTDOWN_MAX_S:
+        return None
+    return float(v)
+
+
 def describe(limits: dict) -> str:
     """Every number and vocabulary the validator holds a show to — so an author (or an agent)
     reading the format spec can find them without reading this file or tripping an error."""
@@ -1784,6 +1799,8 @@ def describe(limits: dict) -> str:
     w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
       f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
     w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
+    w(f"start_countdown_s: 0..{START_COUNTDOWN_MAX_S:g} (default {START_COUNTDOWN_DEFAULT_S:g}) — the "
+      "countdown between a run's GO and its first move")
     w("palette: { label, order } — a routine must end with its arms at pose: rest, the head at "
       "90/90 and the light released, so any routine can follow any other")
     return "\n".join(L)

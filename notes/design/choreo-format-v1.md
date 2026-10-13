@@ -58,6 +58,7 @@ dance: { floor_radius_m: 1.5 }   # required if any cue is DANCE, §12
 sounds: [sleigh_bells]    # optional: sound files expected in sounds/, kept locally, §3a
 themes: [christmas]       # optional: authored face themes the show selects, installed on the head (§7)
 palette: { label: Wave, order: 1 }   # optional: a routine the operator can pick (below)
+start_countdown_s: 3      # optional: seconds from a run's GO to its first move (0-60, default 5)
 notes: >                  # free text for humans; ignored by tools
 clips: { ... }            # optional, §6
 markers: [ ... ]          # optional, §8
@@ -74,6 +75,10 @@ required) and `order`. The operator picks one, it runs to its end, then the next
 order (workplan 1.13). So a palette routine must **end in the rejoin state**: every arm it moves at
 `pose: rest`, the head centred (pan 90, tilt 90), the state light released. The lift is not checked
 (there is no measured height to rejoin to).
+
+**`start_countdown_s:`** — the countdown between a run's GO (on the robot, a fresh press of the
+deadman) and its first move, shown on the face; 0 to 60 s, default 5. A run may override it. How a run
+starts is the runner's business, not the show's (`software/choreo/README.md`, "How a run starts").
 
 **`requires:`** — `arms: active`, `tab5: true|false`, `rc_authority: STANDBY|MANUAL|AUTO`, and no
 other keys. A show that moves anything (arms, grippers, head, lift, dance) must say

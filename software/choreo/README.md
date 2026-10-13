@@ -89,6 +89,16 @@ leaving each slot in the state `ABORT_STATE` argues for; it never pauses. The ro
 fake you can flip (`curl -X POST localhost:8092/api/sim/deadman/release`, `…/estop`, `…/ch5/manual`).
 Every status change and abort cause is a JSON line (`--log`). Live output is not built (plan 5.6).
 
+**How a run starts** (`--start`, or the Shows page's Start picker; plan 5.7). `deadman` — the robot's
+default — passes every check but the deadman and goes ARMED_WAITING: nothing moves, the show audio
+loads, and an e-stop, CH5 leaving AUTO, a fault or the arms going inactive disarms it. The GO is a
+FRESH press: a deadman already held at Start must be let go and pressed again, and letting go while
+armed is not an abort. No GO in 300 s refuses the run (`START_TIMEOUT`). Then a COUNTDOWN (5 s, a show's
+`start_countdown_s`, or the run's own `--countdown`), the start-pose move and the 2 s lead; from the GO
+on, letting go aborts. `countdown` — a twin's default — needs the deadman held at Start and counts down
+at once; `now` skips the countdown. On a live run the face shows it: `ARMED WAIT`, then `ARMED <seconds>`
+at the GO, `ARMED OFF` when the show starts or ends (head protocol v5).
+
 **The routine palette** — `runner.py palette` lists the shows marked `palette:` (each ending at
 rest, so any can follow any) and runs the one the operator picks: `GET /api/routines`,
 `POST /api/run/<id>` (refused while another runs), `POST /api/stop`, `GET /api/palette`. Same twin

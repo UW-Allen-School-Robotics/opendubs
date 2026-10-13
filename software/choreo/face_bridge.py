@@ -234,6 +234,17 @@ class LiveFace(_HeadLink):
         self.f.sent["emote"] = "EMOTE AUTO"
         self._send("EMOTE AUTO")
 
+    def armed(self, what):
+        """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
+        while a run waits for the deadman (the head holds it 3 s; the runner re-sends it every
+        second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A head
+        without it answers ERR: said once, and the run goes on."""
+        self._send(f"ARMED {what}", log=what != "WAIT")
+        for r in self._replies():
+            if r.startswith("ERR"):
+                self._once("armed:" + r, kind="face_warning",
+                           note=f"the head did not take ARMED ({r}) — no armed indication on the face")
+
     def show(self, tl):
         self.rev, self.tl, self.started = self.rev + 1, tl, False
         self.f, self._said = Follower(), set()
