@@ -813,6 +813,57 @@ for bad_kw in ({"start": "whenever"}, {"countdown_s": -1}, {"countdown_s": True}
         check(f"a run asked for {bad_kw} is refused", False, "accepted")
     except ValueError:
         check(f"a run asked for {bad_kw} is refused", True)
+
+
+class LateFaceDoor:
+    """The dashboard's face door while the tablet switches to its face: no page until `appear_at`
+    (`ERR face not showing`), then the face page, which answers `OK armed <what>`."""
+
+    def __init__(self, clock):
+        self.clock, self.appear_at, self.sent, self.out = clock, None, [], []
+
+    def sendto(self, data, addr):
+        line = data.decode().strip()
+        self.sent.append((self.clock(), line))
+        up = self.appear_at is not None and self.clock() >= self.appear_at
+        if line.startswith("ARMED"):
+            self.out.append(f"OK armed {line.split()[1].lower()}" if up else "ERR face not showing")
+
+    def recv(self, n):
+        if not self.out:
+            raise BlockingIOError
+        return self.out.pop(0).encode()
+
+
+class ArmFaceLate(Script):              # the face page comes up 2 s after the run arms
+    def sleep(self, s):
+        super().sleep(s)
+        if self.door.appear_at is None and self.r.status == R.ARMED:
+            self.door.appear_at = self.clock() + 2.0
+
+
+robot = R.FakeRobotState(deadman=False)
+sc = ArmFaceLate(robot, [(8.0, {"deadman": True})], None)
+log = io.StringIO()
+sc.door = LateFaceDoor(sc.clock)
+r = R.Runner(os.path.join(SHOWS, "hello.yaml"), LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep,
+             start_lead=0.5, start="deadman", face=FB.LiveFace("127.0.0.1", sock=sc.door))
+r.face.note = lambda kind, **kw: r._log(kind, **kw)
+sc.r = r
+end = r.run()
+lines = [json.loads(x) for x in log.getvalue().splitlines()]
+waits_after = [t for t, ln in sc.door.sent if ln == "ARMED WAIT" and t >= sc.door.appear_at]
+check("a face that appears 2 s after the run arms is sent ARMED WAIT within about a second (re-sent "
+      "every second while armed; found on the robot 2026-10-13: the tablet switches to its face AS the run arms)",
+      end[0] == "COMPLETED" and waits_after and waits_after[0] - sc.door.appear_at <= R.ARMED_RESEND_S + 0.05,
+      (end, sc.door.appear_at, waits_after[:2]))
+kinds = [x["kind"] for x in lines if x["kind"] in ("face_warning", "face_armed")]
+check("... the log says the first refusal, then the first OK after it — not every re-send",
+      kinds == ["face_warning", "face_armed"], kinds)
+go = next(x for x in lines if x["kind"] == "go")
+check("... and the GO says how many WAITs were sent while armed",
+      go.get("armed_wait_sent", 0) >= 7, go)
+
 sock = FakeSock()
 lf = FB.LiveFace("127.0.0.1", sock=sock)
 for w in ("WAIT", "5", "OFF"):

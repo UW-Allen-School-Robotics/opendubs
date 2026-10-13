@@ -879,6 +879,7 @@ class Runner:
                   note=("the deadman is held: let go of it, then press it to start" if prev is True
                         else "press the deadman to start"))
         self._armed("WAIT")
+        waits = 1
         resend = self.clock() + ARMED_RESEND_S
         while True:
             self.feed.heartbeat()
@@ -891,7 +892,7 @@ class Runner:
             dm = st.get("deadman")
             if dm is True and prev is False:
                 self.deadline = None
-                self._log("go", note="the deadman was pressed: GO")
+                self._log("go", note="the deadman was pressed: GO", armed_wait_sent=waits)
                 return None
             if dm != prev:
                 # unknown counts as not released: only a press seen from a KNOWN release is a GO
@@ -902,6 +903,7 @@ class Runner:
                                  f"armed for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
             if self.clock() >= resend:
                 self._armed("WAIT")
+                waits += 1
                 resend = self.clock() + ARMED_RESEND_S
             self.sleep(TICK_S)
 

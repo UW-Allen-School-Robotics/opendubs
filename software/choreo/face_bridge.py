@@ -338,6 +338,7 @@ class LiveFace(_HeadLink):
         super().__init__(host, port, sock, note, "face", resolve)
         self.f, self.rev, self.tl, self.started = Follower(), 0, None, False
         self._idle_err = {}
+        self._armed_ok = None                       # what the face last said to ARMED: True OK, False ERR
         # Earcons can be held back: the head's first earcon starts its audio task, which damps face
         # tracking until the head restarts (found on opendubs2, 2026-10-08; the fix is the Tab5's).
         self.earcons = earcons
@@ -371,19 +372,27 @@ class LiveFace(_HeadLink):
     def armed(self, what):
         """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
         while a run waits for the deadman (the head holds it 3 s; the runner re-sends it every
-        second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A head
-        without it answers ERR: said once, and the run goes on."""
+        second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A refusal is
+        not final: `ERR face not showing` is the tablet still switching to its face (it does so when
+        a run arms), and the next WAIT, a second later, reaches it. The log says each CHANGE — the
+        first refusal, then the first OK after it — not every re-send."""
         self._send(f"ARMED {what}", log=what != "WAIT")
         for r in self._replies():
             if self._idle_refusal(r):
                 continue
             if r.startswith("ERR"):
-                self._once("armed:" + r, kind="face_warning",
-                           note=f"the head did not take ARMED ({r}) — no armed indication on the face")
+                if self._armed_ok is not False:
+                    self._armed_ok = False
+                    self.note(kind="face_warning", reply=r,
+                              note=f"the head did not take ARMED ({r}) — re-sent every second while armed")
+            elif r.upper().startswith("OK ARMED"):
+                if self._armed_ok is not True:
+                    self._armed_ok = True
+                    self.note(kind="face_armed", reply=r, note="the face shows the armed sign")
 
     def show(self, tl):
         self.rev, self.tl, self.started = self.rev + 1, tl, False
-        self.f, self._said = Follower(), set()
+        self.f, self._said, self._armed_ok = Follower(), set(), None
 
     def playhead(self, t, playing, status):
         if status == "RUNNING":
