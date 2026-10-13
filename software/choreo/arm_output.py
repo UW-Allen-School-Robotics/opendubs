@@ -76,9 +76,13 @@ class FakeArms:
         self.reject, self.silent = set(), set()
         self._events, self._seq = [], 0
         self.ranges = None                         # {slot: [(lo, hi) signed deg] * 7}, as controller_ranges()
+        self.fingers = {}                          # side -> what /joint_states would read (metres), for tests
 
     def grips_ready(self):
         return list(self.grips_missing)
+
+    def finger(self, side):
+        return self.fingers.get(side)
 
     def send_grip(self, slot, metres):
         self.grips.append((slot, round(float(metres), 5)))
@@ -309,6 +313,16 @@ class RosArms:
             status = "UNKNOWN"
         self._record(slot, gid, status)
         self._event(goal=gid, slot=slot, event="result", status=status, error_code=err, error=msg)
+
+    def finger(self, side):
+        """Where `side`'s gripper REALLY is (/joint_states, its finger joint, metres), or None if
+        stale or absent. A goal's status cannot say: the controllers' goal_tolerance (0.01 m) reports
+        a close that stopped on an object as SUCCEEDED (Arms, 2026-10-12)."""
+        name = f"openarm_{side}_finger_joint1"
+        with self.lock:
+            if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S or name not in self._js:
+                return None
+            return float(self._js[name])
 
     def grips_ready(self):
         """The sides whose gripper controller is NOT up. Never blocks: the clients were made when the
