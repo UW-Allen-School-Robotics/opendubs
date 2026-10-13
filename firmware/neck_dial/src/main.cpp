@@ -27,12 +27,52 @@
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <Wire.h>
+#include <HTTPClient.h>
+#include <Update.h>
+#include "../neck/pantilt_core.h"
 
 namespace {
 
 constexpr uint16_t kCmdPort = 4242;      // the head protocol's port, same as the Tab5's
 constexpr char kHostName[] = "opendubs-neck";   // -> opendubs-neck.local
 constexpr uint32_t kReportMs = 10000;    // telemetry cadence; see "report on a timer" below
+
+// ---- the 8Servo on Grove Port A -------------------------------------------------------------
+// PORT A IS `Wire`, NOT `Wire1`. That is a documented M5Dial trap and has cost a session before.
+// Registers and the microsecond conversion are the Tab5's, carried over verbatim: the servo sees
+// the same pulses it always has, so nothing about the mechanism changes with the controller.
+constexpr uint8_t kServoAddr = 0x25;
+constexpr uint8_t kModeReg   = 0x00;    // + channel
+constexpr uint8_t kPulseReg  = 0x60;    // + channel*2, 16-bit LE microseconds
+constexpr uint8_t kModeServo = 3;
+constexpr uint8_t kChTilt    = 0;
+constexpr uint8_t kChPan     = 1;
+constexpr bool    kPanReverse = true, kTiltReverse = true;
+
+neck::State  g_pt;
+neck::Limits g_lim;                     // the narrow fallback until NVS says otherwise
+bool g_servoPresent = false;
+float g_gazePan = 90, g_gazeTilt = 90;
+uint32_t g_gazeMs = 0, g_gazeLease = neck::kGazeHoldMs;
+
+uint16_t degToUs(float deg, bool reverse) {
+    if (deg < 0.0f) deg = 0.0f;
+    if (deg > 180.0f) deg = 180.0f;
+    const float d = reverse ? (180.0f - deg) : deg;
+    return (uint16_t)(500.0f + d * (2000.0f / 180.0f));   // 0..180 -> 500..2500 us
+}
+
+bool servoWrite2(uint8_t reg, uint8_t v) {
+    Wire.beginTransmission(kServoAddr); Wire.write(reg); Wire.write(v);
+    return Wire.endTransmission() == 0;
+}
+bool servoPulse(uint8_t ch, uint16_t us) {
+    Wire.beginTransmission(kServoAddr);
+    Wire.write((uint8_t)(kPulseReg + ch * 2));
+    Wire.write((uint8_t)(us & 0xff)); Wire.write((uint8_t)(us >> 8));
+    return Wire.endTransmission() == 0;
+}
 
 WiFiUDP g_udp;
 Preferences g_nvs;
@@ -66,7 +106,13 @@ void report() {
              WiFi.isConnected() ? WiFi.localIP().toString().c_str() : "-",
              WiFi.isConnected() ? WiFi.RSSI() : 0);                           line(b);
     snprintf(b, sizeof(b), "udp:  port=%u packets=%lu", kCmdPort, (unsigned long)g_packets); line(b);
-    line("pantilt: not fitted yet (step one: protocol only)");
+    if (g_servoPresent) {
+        snprintf(b, sizeof(b), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s", g_pt.pan, g_pt.tilt,
+                 g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? "" : " FALLBACK");
+        line(b);
+    } else {
+        line("pantilt: 8servo not answering at 0x25");
+    }
 }
 
 // ---- the head protocol ------------------------------------------------------------------------
@@ -82,13 +128,71 @@ void replyPing(char* out, size_t n) {
 // `ERR neck no pan/tilt fitted` is the honest answer and is already an accepted reply, so this
 // does not have to pretend to a position it has no way to know.
 void replyNeck(char* out, size_t n) {
-    snprintf(out, n, "ERR neck no pan/tilt fitted");
+    if (!g_servoPresent) { snprintf(out, n, "ERR neck no pan/tilt fitted"); return; }
+    const char* owner = g_pt.owner == neck::Owner::Gaze ? "gaze"
+                      : g_pt.owner == neck::Owner::Rc   ? "rc"
+                      : g_pt.owner == neck::Owner::Touch ? "touch"
+                      : g_pt.owner == neck::Owner::Track ? "track" : "none";
+    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s",
+             g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner);
+}
+
+// OTA, the same shape as the Tab5's: the head PULLS its image over HTTP from a URL we are told,
+// because a push needs a listener that has never worked reliably here. It is implemented EARLY --
+// out of the planned order -- because the Dial is about to lose its USB cable, and a board with no
+// OTA and no USB cannot be fixed at all.
+bool otaPull(const char* url, char* out, size_t n) {
+    if (!WiFi.isConnected()) { snprintf(out, n, "ERR ota no network"); return false; }
+    HTTPClient http;
+    if (!http.begin(url)) { snprintf(out, n, "ERR ota bad url"); return false; }
+    const int code = http.GET();
+    if (code != 200) { snprintf(out, n, "ERR ota http %d", code); http.end(); return false; }
+    const int len = http.getSize();
+    if (len <= 0) { snprintf(out, n, "ERR ota no length"); http.end(); return false; }
+    if (!Update.begin(len)) { snprintf(out, n, "ERR ota no room"); http.end(); return false; }
+    const size_t wrote = Update.writeStream(http.getStream());
+    http.end();
+    if (wrote != (size_t)len || !Update.end(true) || !Update.isFinished()) {
+        snprintf(out, n, "ERR ota write %u/%d", (unsigned)wrote, len);
+        return false;
+    }
+    snprintf(out, n, "OK ota %d bytes, rebooting", len);
+    return true;
 }
 
 void handle(const char* cmd, char* out, size_t n) {
     if (!strncmp(cmd, "PING", 4))      { replyPing(out, n); return; }
     if (!strncmp(cmd, "NECK", 4))      { replyNeck(out, n); return; }
     if (!strncmp(cmd, "REBOOT", 6))    { snprintf(out, n, "OK reboot"); return; }
+
+    // GAZE <pan> <tilt> [lease_ms] -- an absolute target in degrees. The control law owns what
+    // happens next: the slew limit, the bounds and the arbitration are in pantilt_core, not here.
+    if (!strncmp(cmd, "GAZE", 4)) {
+        float p, t; unsigned lease = 0;
+        if (!strncmp(cmd + 4, " OFF", 4)) { g_gazeMs = 0; snprintf(out, n, "OK gaze off"); return; }
+        const int got = sscanf(cmd + 4, " %f %f %u", &p, &t, &lease);
+        if (got < 2) { snprintf(out, n, "ERR gaze <pan> <tilt> [lease_ms] | OFF"); return; }
+        if (!g_servoPresent) { snprintf(out, n, "ERR gaze no pan/tilt fitted"); return; }
+        g_gazePan = p; g_gazeTilt = t;
+        g_gazeLease = got >= 3 && lease ? lease : neck::kGazeHoldMs;
+        g_gazeMs = millis();
+        snprintf(out, n, "OK gaze %.1f %.1f", p, t);
+        return;
+    }
+
+    // TOF: SUPPRESSED on this neck, by decision rather than by omission. The sensor is awkward to
+    // move and has had no use yet, so it is not fitted -- and saying so is not the same as the
+    // message being unknown. A caller can tell "this neck has no ToF" from "this neck is too old
+    // to have heard of ToF", which it could not if this fell through to ERR unknown.
+    if (!strncmp(cmd, "TOF", 3)) { snprintf(out, n, "ERR tof not fitted"); return; }
+
+    if (!strncmp(cmd, "OTA ", 4)) {
+        char reply[128];
+        const bool ok = otaPull(cmd + 4, reply, sizeof(reply));
+        snprintf(out, n, "%s", reply);
+        if (ok) { line(reply); delay(200); ESP.restart(); }
+        return;
+    }
     // Everything else the neck owes -- GAZE, PARK, TOUCH, TRACK, TOF, I2CSCAN, OTA -- arrives in
     // the steps that fit the hardware for it. Until then say so, rather than claiming OK for
     // something that will not happen: a show that gets OK and no movement is harder to diagnose
@@ -126,6 +230,30 @@ void setup() {
         line("wifi: NO CREDENTIALS IN NVS -- send `WIFI <ssid> <pass>` over this port once");
     }
 
+    // THE PER-ROBOT TILT LIMITS, from NVS, in the SAME namespace and keys the Tab5 used
+    // ("opendubs" / tiltMin / tiltMax, int32 degrees) so the numbers are the robot's, not this
+    // board's. Without them the control law keeps its deliberately narrow fallback band: being
+    // wrong narrow costs range, being wrong wide drives the head into its own frame.
+    {
+        g_nvs.begin("opendubs", true);
+        const bool haveLo = g_nvs.isKey("tiltMin"), haveHi = g_nvs.isKey("tiltMax");
+        const long lo = g_nvs.getInt("tiltMin", 0), hi = g_nvs.getInt("tiltMax", 0);
+        g_nvs.end();
+        g_lim = neck::limitsFrom(haveLo, lo, haveHi, hi);
+        char b[120];
+        snprintf(b, sizeof(b), g_lim.known ? "tilt limits: %.0f..%.0f from NVS"
+                                           : "tilt limits: NOT COMMISSIONED -- narrow fallback %.0f..%.0f",
+                 g_lim.tiltMin, g_lim.tiltMax);
+        line(b);
+    }
+
+    // Port A is `Wire`. The 8Servo is put into servo mode on both channels; if it does not answer,
+    // g_servoPresent stays false and the neck says so rather than pretending to a position.
+    Wire.begin();
+    g_servoPresent = servoWrite2(kModeReg + kChTilt, kModeServo) && servoWrite2(kModeReg + kChPan, kModeServo);
+    line(g_servoPresent ? "8servo: present at 0x25, channels in servo mode"
+                        : "8servo: NO ANSWER at 0x25 -- neck reports no pan/tilt fitted");
+
     report();
 }
 
@@ -161,6 +289,23 @@ void loop() {
     if (Serial.available()) {
         String s = Serial.readStringUntil('\n');
         s.trim();
+        // TILT <min> <max>: the per-robot limits, measured on the robot and written once. The same
+        // shape as WIFI above and for the same reason -- it is a property of this machine, so it
+        // belongs in its NVS and never in the repo.
+        if (s.startsWith("TILT ")) {
+            int lo = 0, hi = 0;
+            if (sscanf(s.c_str() + 5, "%d %d", &lo, &hi) == 2 && lo < hi && lo >= 0 && hi <= 180) {
+                g_nvs.begin("opendubs", false);
+                g_nvs.putInt("tiltMin", lo); g_nvs.putInt("tiltMax", hi);
+                g_nvs.end();
+                g_lim = neck::limitsFrom(true, lo, true, hi);
+                char b[96];
+                snprintf(b, sizeof(b), "tilt limits: saved %d..%d to NVS", lo, hi);
+                line(b);
+            } else {
+                line("tilt: usage TILT <min> <max>, 0 <= min < max <= 180");
+            }
+        }
         if (s.startsWith("WIFI ")) {
             int sp = s.indexOf(' ', 5);
             if (sp > 5) {
@@ -172,6 +317,21 @@ void loop() {
             } else {
                 line("wifi: usage WIFI <ssid> <pass>");
             }
+        }
+    }
+
+    // The control law, every loop. It gates itself to its own 50 Hz period.
+    if (g_servoPresent) {
+        neck::In in;
+        in.nowMs = millis();
+        // Motion is allowed while we have a network: with no link we do not know the robot's state,
+        // and the safe reading of "unknown" is "do not move".
+        in.motionAllowed = WiFi.isConnected();
+        in.gazePan = g_gazePan; in.gazeTilt = g_gazeTilt;
+        in.gazeMs = g_gazeMs; in.gazeLease = g_gazeLease;
+        if (neck::tick(g_pt, in, g_lim)) {
+            servoPulse(kChTilt, degToUs(g_pt.tilt, kTiltReverse));
+            servoPulse(kChPan,  degToUs(g_pt.pan,  kPanReverse));
         }
     }
 

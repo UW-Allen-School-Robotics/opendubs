@@ -76,6 +76,12 @@ def main():
         # So: try the write. Only if it could not even connect is the board not in download mode,
         # and only then is a reset the right thing to do.
         print(f"[{attempt}/{ROUNDS}] writing to {port}")
+        # APP ONLY, at 0x10000. Writing the COMBINED image at 0x0 also erases NVS -- esptool's
+        # merged image pads the gaps with 0xff, and the Wi-Fi credentials live in that gap, so a
+        # full write silently un-provisions the board every time. Observed: the neck came back up
+        # with `ssid=(unset)` after a flash that was only meant to change the app. The bootloader
+        # and partition table do not change between builds, so there is nothing to gain by
+        # rewriting them. Pass --full to do it anyway on a virgin board.
         rc = esptool(port, "--before", "no_reset", "--after", "watchdog_reset",
                      "--connect-attempts", "5",
                      "write_flash", "-z", "--flash_mode", "dio", "--flash_freq", "80m",
