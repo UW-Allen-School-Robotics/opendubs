@@ -153,3 +153,74 @@ def test_the_dashboard_serves_these_routes_through_the_choreo_router():
         ws.receive_json()
         ws.send_json({"ping": 1})
         assert "pong" in ws.receive_json()
+
+
+# ---- ambient music (the "Head & face" page) --------------------------------------------------
+def _ambient_client(tmp_path, monkeypatch):
+    import yaml
+    lib = tmp_path / "library"
+    (lib / "songs").mkdir(parents=True)
+    for name in ("calm.mp3", "loud.mp3"):
+        (lib / "songs" / name).write_bytes(b"not really audio")
+    (lib / "index.yaml").write_text(yaml.safe_dump([
+        {"id": "calm", "kind": "song", "file": "songs/calm.mp3", "duration_s": 60.0, "tags": ["ambient"]},
+        {"id": "loud", "kind": "song", "file": "songs/loud.mp3", "duration_s": 30.0},
+        {"id": "eyes", "kind": "skin", "file": "skins/eyes.png"}]))
+    monkeypatch.setattr(show_audio, "LIBRARY_DIR", str(lib))
+    monkeypatch.setattr(show_audio, "AMBIENT_STATE", str(tmp_path / "state" / "ambient.json"))
+    return _client()
+
+
+def test_ambient_lists_the_library_songs_marking_the_ambient_ones(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    v = c.get("/api/choreo/ambient").json()
+    assert [(s["id"], s["ambient"]) for s in v["songs"]] == [("calm", True), ("loud", False)]
+    assert v["state"]["playing"] is False and v["show_active"] is False
+
+
+def test_ambient_play_defaults_to_the_tagged_songs_and_reaches_the_holder(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        r = c.post("/api/choreo/ambient", json={"op": "play", "volume": 0.3}).json()
+        assert r["state"]["playing"] and r["state"]["songs"] == ["calm"] and r["state"]["volume"] == 0.3
+        m = a.receive_json()
+        assert m["op"] == "ambient" and m["playing"] and m["items"] == [
+            {"id": "calm", "url": "/api/choreo/media/library/songs/calm.mp3", "title": "calm"}]
+        a.send_json({"ambient": {"now": "calm", "blocked": False}})
+        a.send_json({"ping": 1})
+        a.receive_json()                                   # the pong: the report was handled before it
+        assert c.get("/api/choreo/ambient").json()["state"]["now_playing"] == "calm"
+
+
+def test_ambient_refuses_what_is_not_a_library_song_and_a_bad_volume(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    assert c.post("/api/choreo/ambient", json={"op": "play", "songs": ["eyes"]}).status_code == 400
+    assert c.post("/api/choreo/ambient", json={"op": "volume", "volume": 2}).status_code == 400
+    assert c.post("/api/choreo/ambient", json={"op": "dance"}).status_code == 400
+
+
+def test_ambient_survives_a_restart(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    c.post("/api/choreo/ambient", json={"op": "play", "songs": ["loud", "calm"], "shuffle": True})
+    show_audio.hub = show_audio.Hub()                      # a dashboard restart
+    st = show_audio.hub.ambient
+    assert st["playing"] and st["songs"] == ["loud", "calm"] and st["shuffle"] is True
+
+
+def test_a_show_takes_the_channel_and_ambient_resumes_after(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    c.post("/api/choreo/ambient", json={"op": "play"})
+    c.post("/api/choreo/audio", json={"op": "load", "id": "L9", "items": []})
+    assert c.get("/api/choreo/ambient").json()["show_active"] is True
+    with c.websocket_connect("/ws/show-audio") as a:      # a device that claims mid-show is told so
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        assert a.receive_json()["id"] == "L9"
+        amb = a.receive_json()
+        assert amb["op"] == "ambient" and amb["show_active"] is True
+    c.post("/api/choreo/audio", json={"op": "stop", "fade_s": 0.25})
+    assert c.get("/api/choreo/ambient").json()["show_active"] is False

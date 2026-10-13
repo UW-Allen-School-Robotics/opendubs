@@ -17,6 +17,13 @@ Decided (plan 4.2): the device downloads the whole file and starts it on cue, ra
 the last device to press "Play show audio here" holds the role, and the kiosk tablet claims it on
 start-up when nobody holds it; if no device is ready, the routine runs silently with a warning.
 
+AMBIENT MUSIC (the "Head & face" page): songs from the library played on the same device while the
+robot is not running a show. GET/POST /api/choreo/ambient (the page's API); the hub keeps the state
+(persisted, so it survives a restart) and tells the role's holder. A show TAKES OVER the channel: the
+device fades ambient out on the runner's `load` and resumes it, from the next song, when the show
+ends (`stop` or `cut`). Songs tagged `ambient` in the library (library.py tag ID ambient) are the
+default list; any library song may be chosen.
+
 Nothing here moves the robot. A page that loses this connection stops its own audio (DEC-7: a
 tablet drop stops the music and nothing else).
 """
@@ -24,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import os
 import time
 
@@ -36,6 +44,9 @@ MEDIA_SUBDIRS = ("audio", "sounds")
 LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
 LIBRARY_MEDIA_SUBDIRS = ("songs",)
 OPS = ("load", "start", "stop", "cut")
+AMBIENT_OPS = ("play", "stop", "volume", "next")
+AMBIENT_STATE = os.environ.get("OPENDUBS_AMBIENT_STATE") or os.path.expanduser("~/.local/state/opendubs/ambient.json")
+AMBIENT_DEFAULT = {"playing": False, "songs": [], "shuffle": False, "volume": 0.5}
 
 router = APIRouter()
 
@@ -57,6 +68,9 @@ class Hub:
         self.ready_id = None                     # the holder's last "ready"
         self.last_load = None                    # resent to a device that claims mid-show
         self.lock = asyncio.Lock()
+        self.show_active = False                 # between the runner's load and its stop/cut
+        self.ambient = load_ambient()
+        self.device = {"now_playing": None, "blocked": False}   # what the holder reports
 
     def view(self) -> dict:
         lbl = self.clients[self.holder][1] if self.holder in self.clients else None
@@ -100,9 +114,60 @@ class Hub:
             if old in self.clients:
                 await self._send(old, {"op": "cut"})     # the old holder stops what it plays
         await self._announce()
-        if self.last_load is not None:
+        if self.last_load is not None and self.show_active:
             await self._send(cid, self.last_load)        # a new holder gets the current show's files
+        if self.ambient["playing"]:
+            await self._send(cid, self.ambient_msg())    # ... and the ambient music, if it is on
         return True
+
+    # ---- ambient music ------------------------------------------------------------------------
+    def ambient_msg(self) -> dict:
+        songs = {x["id"]: x for x in library_songs()}
+        items = [{"id": i, "url": songs[i]["url"], "title": songs[i]["title"]}
+                 for i in self.ambient["songs"] if i in songs]
+        return {"op": "ambient", **self.ambient, "items": items, "show_active": self.show_active}
+
+    async def ambient_command(self, msg) -> dict:
+        op = msg.get("op")
+        a = dict(self.ambient)
+        if op == "play":
+            all_songs = library_songs()
+            ids = msg.get("songs")
+            if ids is None:
+                ids = [x["id"] for x in all_songs if x["ambient"]] or [x["id"] for x in all_songs]
+            known = {x["id"] for x in all_songs}
+            unknown = [i for i in ids if i not in known]
+            if unknown or not ids:
+                return {"error": f"not songs in the library: {', '.join(unknown)}" if unknown
+                        else "the library has no songs"}
+            a.update(playing=True, songs=list(ids), shuffle=bool(msg.get("shuffle", a["shuffle"])))
+        elif op == "stop":
+            a["playing"] = False
+        elif op == "next":
+            pass                                  # the device skips; nothing to store
+        if op in ("play", "volume") and msg.get("volume") is not None:
+            v = msg["volume"]
+            if not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+                return {"error": "volume is 0..1"}
+            a["volume"] = float(v)
+        self.ambient = a
+        save_ambient(a)
+        out = self.ambient_msg()
+        if op == "next":
+            out = {**out, "next": True}
+        if self.holder in self.clients:
+            await self._send(self.holder, out)
+        return self.ambient_view()
+
+    def ambient_view(self) -> dict:
+        return {"songs": [{k: x[k] for k in ("id", "title", "duration_s", "ambient")} for x in library_songs()],
+                "state": {**self.ambient, "now_playing": self.device["now_playing"]},
+                "show_active": self.show_active,
+                "device": {"holder": self.view()["holder"], "blocked": bool(self.device["blocked"])}}
+
+    def device_report(self, cid, report):
+        if cid == self.holder and isinstance(report, dict):
+            self.device = {"now_playing": report.get("now"), "blocked": bool(report.get("blocked"))}
 
     def ready(self, cid, load_id):
         if cid == self.holder:
@@ -111,8 +176,51 @@ class Hub:
     async def command(self, msg) -> dict:
         if msg.get("op") == "load":
             self.load_id, self.ready_id, self.last_load = msg.get("id"), None, msg
+            self.show_active = True               # the device fades ambient out for the show
+        elif msg.get("op") in ("stop", "cut"):
+            self.show_active = False              # ... and resumes it when the show ends
         delivered = await self._send(self.holder, msg) if self.holder in self.clients else False
         return {**self.view(), "delivered": delivered}
+
+
+def load_ambient() -> dict:
+    try:
+        with open(AMBIENT_STATE, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return {**AMBIENT_DEFAULT, **{k: d[k] for k in AMBIENT_DEFAULT if k in d}}
+    except (OSError, ValueError):
+        return dict(AMBIENT_DEFAULT)
+
+
+def save_ambient(a: dict) -> bool:
+    """Kept across restarts, so "ambient on" survives a reboot. Best effort: unwritable is in memory only."""
+    try:
+        os.makedirs(os.path.dirname(AMBIENT_STATE), exist_ok=True)
+        tmp = AMBIENT_STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(a, fh)
+        os.replace(tmp, AMBIENT_STATE)
+        return True
+    except OSError:
+        return False
+
+
+def library_songs() -> list:
+    """Every song in the show library: {id, title, duration_s, ambient, url}. `ambient`: tagged so."""
+    try:
+        import library_serve
+        lib = library_serve._library()
+        idx = (lib.load_index(LIBRARY_DIR) if lib else None) or {}
+    except Exception:  # noqa: BLE001  no library: no songs, never a crash
+        idx = {}
+    out = []
+    for i, e in sorted(idx.items()):
+        if e.get("kind") != "song" or not e.get("file"):
+            continue
+        out.append({"id": i, "title": e.get("title") or i.replace("_", " ").replace("-", " "),
+                    "duration_s": e.get("duration_s"), "ambient": "ambient" in (e.get("tags") or []),
+                    "url": "/api/choreo/media/library/" + e["file"]})
+    return out
 
 
 hub = Hub()
@@ -137,6 +245,8 @@ async def show_audio_ws(ws: WebSocket):
                 await hub.claim(cid, str(m.get("label") or "a browser")[:40], bool(m.get("only_if_free")))
             elif "ready" in m:
                 hub.ready(cid, m["ready"])
+            elif "ambient" in m:                 # the holder: what it is playing, and whether it may
+                hub.device_report(cid, m["ambient"])
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:
@@ -146,6 +256,23 @@ async def show_audio_ws(ws: WebSocket):
 @router.get("/api/choreo/audio")
 async def audio_state():
     return JSONResponse(hub.view())
+
+
+@router.get("/api/choreo/ambient")
+async def ambient_state():
+    return JSONResponse(hub.ambient_view())
+
+
+@router.post("/api/choreo/ambient")
+async def ambient_command(request: Request):
+    try:
+        msg = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "not JSON"}, status_code=400)
+    if not isinstance(msg, dict) or msg.get("op") not in AMBIENT_OPS:
+        return JSONResponse({"error": f"op must be one of {', '.join(AMBIENT_OPS)}"}, status_code=400)
+    out = await hub.ambient_command(msg)
+    return JSONResponse(out, status_code=400 if "error" in out else 200)
 
 
 @router.post("/api/choreo/audio")

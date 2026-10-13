@@ -10,6 +10,8 @@ test fixtures with made-up entries.
 
     python3 library.py check                      # the index is well-formed and every hash matches
     python3 library.py remove ID --shows SHOWS_DIR     # refused while a show there still uses it
+    python3 library.py tag ID ambient                  # tags: what an item is for (ambient = idle music)
+    python3 library.py untag ID ambient
     python3 library.py migrate                         # fill `bytes` into entries made before it existed
     python3 library.py add FILE_OR_DIR --id ID --kind song|clip|skin --source "…" --licence "…" \\
         [--type image|video] [--param size=0.8 --param spin_dps=90 ...] [--inputs lookX,lookY,lid] \\
@@ -125,6 +127,9 @@ def entry_problems(e: dict) -> list:
     missing = sorted((REQUIRED | REQUIRED_BY_KIND[kind]) - set(k for k, v in e.items() if v not in (None, "")))
     if missing:
         p.append(f"{e['id']!r}: missing {', '.join(missing)}")
+    if "tags" in e and not (isinstance(e["tags"], list)
+                            and all(isinstance(x, str) and TAG_RE.match(x) for x in e["tags"])):
+        p.append(f"{e['id']!r}: tags must be a list of short lower-case words (e.g. [ambient])")
     if str(e.get("id", "")).lower() in CODE_SKIN_NAMES:
         p.append(f"{e['id']!r}: that name belongs to a skin the face draws in code — choose another")
     if kind == "skin":
@@ -499,6 +504,29 @@ def shows_using(item_id: str, shows_dir: str) -> list:
     return sorted(out)
 
 
+# Tags say what an item is FOR, beyond its kind. Known today: `ambient` — a song the dashboard may play
+# as the robot's idle music (show_audio.py). Free words otherwise; a typo just tags nothing useful.
+TAG_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+
+
+def tag(item_id: str, word: str, on: bool = True, lib_root: str | None = None) -> dict:
+    """Add (or, with on=False, take off) a tag on one entry. Returns the entry."""
+    if not TAG_RE.match(word or ""):
+        raise ValueError(f"a tag is a short lower-case word, not {word!r}")
+    r = lib_root or root()
+    idx = load_index(r) or {}
+    e = idx.get(item_id)
+    if e is None:
+        raise ValueError(f"{item_id!r} is not in the library at {r}")
+    tags = [x for x in (e.get("tags") or []) if x != word] + ([word] if on else [])
+    if tags:
+        e["tags"] = tags
+    else:
+        e.pop("tags", None)
+    _write_index(r, list(idx.values()))
+    return e
+
+
 def remove(item_id: str, lib_root: str | None = None, used_by=()) -> dict:
     """Delete an item: its file and its entry. Refused while `used_by` (the shows that still name it)
     is not empty — the caller finds them, since only it knows which shows directory to look in."""
@@ -525,6 +553,10 @@ def main() -> int:
     rm = sub.add_parser("remove")
     rm.add_argument("id")
     rm.add_argument("--shows", required=True, help="the shows directory to check for users of it")
+    for verb in ("tag", "untag"):
+        tg = sub.add_parser(verb)
+        tg.add_argument("id")
+        tg.add_argument("word")
     a = sub.add_parser("add")
     a.add_argument("path")
     a.add_argument("--id", required=True)
@@ -549,6 +581,14 @@ def main() -> int:
     if args.cmd == "migrate":
         for line in migrate():
             print(" ", line)
+        return 0
+    if args.cmd in ("tag", "untag"):
+        try:
+            e = tag(args.id, args.word, args.cmd == "tag")
+        except ValueError as err:
+            print(f"refused: {err}")
+            return 1
+        print(f"{e['id']}: tags {e.get('tags') or []}")
         return 0
     if args.cmd == "remove":
         try:
