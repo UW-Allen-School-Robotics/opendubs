@@ -18,6 +18,11 @@ import { handle, Earcons, libraryRefresher } from "./protocol.js";
 import { Skins, CODE_SKINS } from "./skins/index.js";
 
 const q = new URLSearchParams(location.search);
+// Served by the robot's dashboard at /face/ (face_door.py): the door and the library are this page's
+// own origin, so the kiosk URL is just https://<robot>:8443/face/ and can never carry a wrong scheme.
+const onRobot = location.pathname.startsWith("/face/");
+if (onRobot && !q.has("door")) q.set("door", `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/face`);
+if (onRobot && !q.has("library")) q.set("library", "/api/library/files/");
 const face = new Face();
 const audio = new Earcons(q.get("audio") === "1");
 const skins = new Skins();
@@ -171,4 +176,5 @@ addEventListener("keydown", (k) => {
 if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. state=SAFE_IDLE
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
+import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
