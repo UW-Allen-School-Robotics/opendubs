@@ -56,6 +56,8 @@ check("an item without a source or a licence is refused",
       "source" in (refused(library.add, EYES, "made-up-eyes", "skin", "", "CC0", **IMG) or ""))
 check("a library skin may not take a name the face draws in code",
       "code" in (refused(library.add, EYES, "ring", "skin", "made up", "CC0", **IMG) or ""))
+check("no library item may be called idle (SKIN IDLE is the robot's idle skin, head protocol v5)",
+      "reserved" in (refused(library.add, EYES, "idle", "skin", "made up", "CC0", **IMG) or ""))
 check("a skin's type must be one the face can show",
       "type" in (refused(library.add, EYES, "made-up-eyes", "skin", "made up", "CC0",
                          **dict(IMG, type="hologram")) or ""))

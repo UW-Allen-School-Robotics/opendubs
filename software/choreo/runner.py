@@ -99,7 +99,8 @@ ABORT_STATE = {
     "LIFT": "relays off — the lift stops where it is; nothing drives it",
     "DANCE": "base at zero velocity, immediately",
     "SOUND": "stopped",
-    "FACE": "handed back to the face's own state-driven behaviour (EMOTE AUTO); the theme stays",
+    "FACE": "handed back to the face's own state-driven behaviour (EMOTE AUTO), with the robot's idle "
+            "skin and theme (SKIN IDLE, THEME IDLE)",
     "DEVICE": "the head's own volume and brightness back (VOLUME IDLE, BRIGHT IDLE)",
     "LIGHT": "released to the robot's state colour",
     "MUSIC": f"faded out over {AUDIO_FADE_S:g} s",

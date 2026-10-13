@@ -71,11 +71,11 @@ h = fb.Follower()
 h.update(1, TL, 0.0, False)
 h.update(1, TL, 0.02, True)
 out = h.update(1, TL, 4.5, False, "ABORTED")
-check("following a runner, an aborted show hands the face back its own behaviour (and the head its own "
-      "volume and brightness), once",
-      out == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
+check("following a runner, an aborted show hands the face back its own behaviour (and the robot's idle "
+      "skin, theme, volume and brightness), once",
+      out == ["EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE"] and h.update(1, TL, 4.5, False, "ABORTED") == [], out)
 check("... and a lost lease does the same",
-      fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"])
+      fb.Follower().update(1, TL, 2.0, True, "LEASE_LOST") == ["EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE"])
 
 routed = {"tracks": {"SOUND": [{"t": 1.0, "cue": {"do": "play", "sound": "attend"}, "output": "tablet"},
                                {"t": 2.0, "cue": {"do": "play", "sound": "heard"}, "output": "tab5"}]}}
@@ -99,10 +99,12 @@ check("a theme cue is sent as it is crossed", out == ["THEME plain"], out)
 out = m.update(1, themed, 2.0, False)
 check("seeking back restores the theme then in force", out == ["THEME halloween"], out)
 out = m.update(1, themed, 2.0, False, "ABORTED")
-check("an aborted show hands back the emote but leaves the theme (it is dressing, not a state)",
-      out == ["EMOTE AUTO", "VOLUME IDLE", "BRIGHT IDLE"], out)
-check("a show with no theme cue never touches the face's theme",
+check("an aborted show hands back the emote, and the robot's idle theme and skin (THEME IDLE, SKIN IDLE)",
+      out == ["EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE"], out)
+check("a show with no theme cue never touches the face's theme while it plays",
       not any(x.startswith("THEME") for x in fb.Follower().update(1, TL, 0.0, False)))
+check("... but its end still sends SKIN IDLE and THEME IDLE (a crashed earlier run may have left them)",
+      fb.Follower().update(1, empty, 3.0, False, "COMPLETED") == ["EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE"])
 
 print("\nface bridge: local only")
 for host in ("127.0.0.1", "localhost", "::1"):
@@ -242,6 +244,54 @@ lf = fb.LiveFace("127.0.0.1", sock=sk, resolve=lambda n: never.append(n), note=l
 lf._send("EMOTE AUTO")
 check("an IPv4 address is used as it is: no lookup at all", never == [] and sk.addrs == [("127.0.0.1", 4242)],
       (never, sk.addrs))
+
+print("\nface bridge: SKIN IDLE / THEME IDLE at every show end (head protocol v5)")
+for end in ("COMPLETED", "ABORTED", "ESTOPPED", "LEASE_LOST"):
+    sk = _Sock([])
+    lf = fb.LiveFace("127.0.0.1", sock=sk, note=lambda **kw: None)
+    lf.show(TL)
+    lf.playhead(0.0, True, "RUNNING")
+    lf.playhead(1.0, False, end)
+    check(f"a live run that ends {end} sends SKIN IDLE and THEME IDLE with the rest",
+          all(x in sk.lines for x in ("EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE")),
+          sk.lines)
+sk = _Sock([])
+lf = fb.LiveFace("127.0.0.1", sock=sk, note=lambda **kw: None)
+lf.release()
+check("the runner's start-up release sends them too", sk.lines == ["EMOTE AUTO", "SKIN IDLE", "THEME IDLE", "VOLUME IDLE", "BRIGHT IDLE"], sk.lines)
+
+TAB5 = ["ERR unknown", "ERR unknown theme", "ERR unknown", "ERR unknown"]   # SKIN, THEME, VOLUME, BRIGHT
+notes = []
+sk = _Sock([])
+lf = fb.LiveFace("127.0.0.1", sock=sk, note=lambda **kw: notes.append(kw))
+lf.show(TL)
+lf.playhead(0.0, True, "RUNNING")
+lf.playhead(1.0, False, "COMPLETED")
+sk.replies += TAB5                              # the answers arrive after the end: read by the next run
+lf.show(TL)
+lf.armed("WAIT")
+lf.playhead(0.0, True, "RUNNING")
+check("a Tab5 refusing the IDLE lines is an expected note, never a face_error or an ARMED warning",
+      not any(n.get("kind") in ("face_error", "face_warning") for n in notes)
+      and any(n.get("kind") == "face_note" and "expected" in n.get("note", "") for n in notes), notes)
+sk.replies += ["ERR unknown"]                   # a refusal nobody expects: still an error
+lf.playhead(0.5, True, "RUNNING")
+check("... but a refusal beyond what the IDLE lines explain is still logged as an error",
+      any(n.get("kind") == "face_error" and n.get("reply") == "ERR unknown" for n in notes), notes)
+
+notes = []
+sk = _Sock(["OK skin idle sunflower", "OK theme idle plain",
+            "ERR skin idle sunflower: file missing (showing default)"])
+lf = fb.LiveFace("127.0.0.1", sock=sk, note=lambda **kw: notes.append(kw))
+lf.show(TL)
+lf.playhead(0.0, True, "RUNNING")
+check("the face's idle skin and theme are logged as it reports them",
+      sum(1 for n in notes if n.get("kind") == "face_device" and "idle" in n.get("reply", "")) == 2, notes)
+check("an idle skin that did not load is a warning that says where to fix it",
+      any(n.get("kind") == "face_warning" and "Head & face page" in n.get("note", "") for n in notes), notes)
+check("the face stub answers SKIN IDLE / THEME IDLE as a face with no idle settings",
+      face_stub.answer("SKIN IDLE", {}) == "OK skin idle default"
+      and face_stub.answer("THEME IDLE", {}) == "OK theme idle plain")
 
 print()
 if fails:

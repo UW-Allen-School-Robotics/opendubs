@@ -248,6 +248,9 @@ FACE_THEMES = ("plain", "none", "halloween")
 # answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
 # reserved robot state (DEGRADED, E_STOP) always shows `default`.
 CODE_SKINS = ("default", "ring", "fireworks")
+# `IDLE` is the head's own word for "the robot's idle skin / theme" (head protocol v5: every show end
+# sends SKIN IDLE and THEME IDLE), so no skin or theme may be called `idle`, and a show never names it.
+IDLE_NAME = "idle"
 # Eye MOVES (head protocol v4, `MOVE <name>`, tablet face only): one-shot gestures that play over the
 # held emote and return to it. A move's cue time is its PEAK (a wink's lid fully shut, the bottom of a
 # bob), so it lands on the beat the author wrote: the line is SENT early by the face's published
@@ -786,6 +789,9 @@ class Show:
             if not isinstance(themes, list) or not all(isinstance(x, str) and x for x in themes):
                 P(Problem("themes: must be a list of authored face theme names"))
             else:
+                if any(x.lower() == IDLE_NAME for x in themes):
+                    P(Problem("themes: `idle` is reserved (THEME IDLE is the robot's idle theme) — no "
+                              "theme may be called idle"))
                 built_in = sorted(x for x in themes if x.lower() in FACE_THEMES)
                 if built_in:
                     P(Problem(f"themes: {', '.join(built_in)} is built into the face — list only "
@@ -1566,6 +1572,9 @@ class Show:
         if do == "skin":
             if not isinstance(name, str) or not name:
                 return [f"{where}: face skin needs a name (`default` for the standard eyes)"]
+            if name.lower() == IDLE_NAME:
+                return [f"{where}: `idle` is reserved — every show end sends SKIN IDLE itself, the robot's "
+                        "idle skin back; name the skin the show wants"]
             if name in CODE_SKINS:
                 return []
             idx = self._library()
@@ -1582,6 +1591,9 @@ class Show:
             declared = {x.lower() for x in (self.doc.get("themes") or []) if isinstance(x, str)}
             if not isinstance(name, str) or not name:
                 return [f"{where}: face theme needs a name"]
+            if name.lower() == IDLE_NAME:
+                return [f"{where}: `idle` is reserved — every show end sends THEME IDLE itself, the robot's "
+                        "idle theme back; name the theme the show wants"]
             if name.lower() not in FACE_THEMES and name.lower() not in declared:
                 return [f"{where}: face theme {name!r} is neither built into the face "
                         f"({', '.join(FACE_THEMES)}) nor listed under the show's themes: "
@@ -1840,7 +1852,7 @@ def describe(limits: dict) -> str:
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
     w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
-      "under themes: (installed on the head by CFG). A theme stays after the show; an emote is handed back")
+      "under themes: (installed on the head by CFG). A skin and a theme last until the show ends: every end sends SKIN IDLE, THEME IDLE and EMOTE AUTO; `idle` is reserved")
     w(f"FACE: do move, name {tuple(FACE_MOVES)} — a one-shot gesture over the held emote; the cue's time is "
       "its PEAK (sent early by the face's measured offset); sparkle may not show on a picture skin")
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
