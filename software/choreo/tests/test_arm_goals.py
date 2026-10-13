@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import sys
 
@@ -107,6 +108,21 @@ check("... and the clamp is said, with how far", "clamped into the controller's 
 end, a, log = run_from(-4.0)
 check("2 deg outside: refused before anything is sent, naming the joint and the range",
       end[0] == "REFUSED" and end[1] == "ARM_OUT_OF_RANGE" and "J4" in end[2] and not any(s == "ARM_R" for s, _ in a.sent), end)
+
+print("\nthe controllers' ranges, read from the stack's robot_description")
+# As the stack publishes it: each arm joint once with its <limit>, and AGAIN inside <ros2_control>
+# with none (found at the robot 2026-10-13: the second one won, and no run was ever clamped).
+_J = "".join(f'<joint name="openarm_{s}_joint{j}" type="revolute"><limit lower="-1.0" upper="{0.5 * j}"/></joint>'
+             for s in ("left", "right") for j in range(1, 8))
+_RC = "".join(f'<joint name="openarm_{s}_joint{j}"><command_interface name="position"/></joint>'
+              for s in ("left", "right") for j in range(1, 8))
+URDF = f'<robot name="openarm">{_J}<ros2_control name="arms" type="system">{_RC}</ros2_control></robot>'
+rng = AO.urdf_ranges(URDF, {"left": -0.015, "right": 0.0})
+check("a joint named again in <ros2_control>, with no limit, does not hide its URDF limit",
+      len(rng["ARM_L"]) == 7 and len(rng["ARM_R"]) == 7, rng)
+check("... and each controller's margin widens its own arm (a negative margin widens)",
+      abs(rng["ARM_L"][0][0] - math.degrees(-1.015)) < 1e-9 and abs(rng["ARM_L"][6][1] - math.degrees(3.515)) < 1e-9
+      and abs(rng["ARM_R"][0][0] - math.degrees(-1.0)) < 1e-9, (rng["ARM_L"][0], rng["ARM_R"][0]))
 
 print()
 if FAILS:
