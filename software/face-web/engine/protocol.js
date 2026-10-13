@@ -41,6 +41,11 @@ export function handle(face, audio, line, now, skins, levels) {
       return face.setEmote(arg, now) === null ? "ERR unknown emote" : `OK emote ${arg}`;
     case "THEME":
       if (!arg) break;
+      if (arg.toUpperCase() === "IDLE") {        // v5: the robot's idle theme, at every show end
+        const name = (skins && skins.idle && skins.idle.theme) || "plain";
+        face.setTheme(name);
+        return `OK theme idle ${name}`;
+      }
       return face.setTheme(arg) ? `OK theme ${arg}` : "ERR unknown theme";
     case "CUE":
       if (!CUES.includes(arg.toLowerCase())) return "ERR unknown cue";
@@ -50,6 +55,11 @@ export function handle(face, audio, line, now, skins, levels) {
       // Head protocol v2. A code skin (default, ring) or a library skin's id. Unknown, or an asset
       // that will not load: the default eyes, and say so. Never a blank face.
       if (!arg || !skins) return "ERR skin <name> | default";
+      if (arg.toUpperCase() === "IDLE") {        // v5: the robot's idle skin, at every show end
+        const name = (skins.idle && skins.idle.skin) || "default";
+        const r = skins.select(name);
+        return r.ok ? `OK skin idle ${name}` : `ERR skin idle ${name}: ${r.error} (showing default)`;
+      }
       const answer = (r) => r.ok ? `OK skin ${arg}`
         : r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
         : `ERR skin ${arg}: ${r.error} (showing default)`;

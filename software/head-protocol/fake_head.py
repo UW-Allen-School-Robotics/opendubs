@@ -172,6 +172,9 @@ class FakeHead:
         return "ERR unknown emote"
 
     def do_theme(self, a, _):
+        if a.upper() == "IDLE" and self.kind == "tablet-face":     # v5, tablet face only
+            self.theme = "plain"
+            return "OK theme idle plain"
         if a.lower() in hp.THEMES_BUILT_IN or a.upper() == "NONE":
             self.theme = a
             return f"OK theme {a}"
@@ -188,6 +191,9 @@ class FakeHead:
     def do_skin(self, a, _):
         if not a:
             return "ERR skin <name> | default"
+        if a.upper() == "IDLE":                                     # v5: the idle skin
+            self.skin = "default"
+            return "OK skin idle default"
         if a in hp.CODE_SKINS:
             self.skin = a
             return f"OK skin {a}"

@@ -149,6 +149,7 @@ function applySettings(s) {
     levels.idle("bright", 0.5);
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
   }
+  skins.idle = { skin: s.skin || "default", theme: s.theme || "plain" };   // for SKIN IDLE / THEME IDLE
   if (s.skin && s.skin !== skins.chosen) skins.select(s.skin);
   if (s.theme && s.theme !== face.theme) face.setTheme(s.theme);
   if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
