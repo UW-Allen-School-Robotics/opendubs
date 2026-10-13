@@ -31,7 +31,17 @@
 const W = 1280, H = 720;
 const INSET = 10, THICK = 16;        // the frame, in design units
 const VIOLET = "198, 92, 255";       // not a state colour, and far from red and amber
-const WORD_Y = 702;                  // below the quote baseline (672) and the open mouth (659)
+// BOTH THE NUMERAL AND THE WORD LIVE IN THE CHANNEL BETWEEN THE EYES, stacked. The word was at
+// y 702 and that was wrong: the frame's bottom stroke spans 694..710, so a 40 px label centred
+// there crossed the frame and reached y 722 -- past the canvas's own 720 edge, and visibly clipped
+// in a window where the design area fills the height (reported by the Tablet lane from a real page;
+// my tests had only checked it cleared the quote and the mouth, never that it was INSIDE the frame).
+//
+// The gap between an open mouth (659) and the frame's inner edge (694) is 35 px, too tight for a
+// label worth reading. The channel between the eyes is at least 173 px wide and the full height,
+// free of everything, so both go there and nothing lives near an edge that can be clipped.
+const NUM_Y = 312;                   // the countdown, above
+const WORD_Y = 438;                  // the word, below it
 const NUM_CH = 163;                  // the channel between the eyes; a numeral must fit in it
 
 // `armed` is null (nothing drawn), "wait" (no countdown), or a number of seconds remaining.
@@ -59,7 +69,7 @@ export function drawArmed(ctx, armed, t) {
     ctx.font = `bold ${px}px system-ui, sans-serif`;
     const w = ctx.measureText ? (ctx.measureText(text).width || 0) : 0;
     if (w > NUM_CH) { px = Math.max(48, Math.floor(px * (NUM_CH / w))); ctx.font = `bold ${px}px system-ui, sans-serif`; }
-    ctx.fillText(text, W / 2, H / 2);
+    ctx.fillText(text, W / 2, NUM_Y);
   }
 
   // The word, always: the frame alone says "something", this says which something.

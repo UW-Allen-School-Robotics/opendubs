@@ -31,12 +31,14 @@ function rec() {
     log, fills, strokes, texts,
     save: r("save"), restore: r("restore"), strokeRect: r("strokeRect"), fillRect: r("fillRect"),
     beginPath: r("beginPath"), fill: r("fill"), stroke: r("stroke"), rect: r("rect"),
-    fillText: (t, x, y) => { texts.push({ t: String(t), x, y }); log.push(`fillText(${t},${x},${y})`); },
+    fillText: (t, x, y) => { texts.push({ t: String(t), x, y, px: ctx._px }); log.push(`fillText(${t},${x},${y})`); },
     measureText: (t) => ({ width: String(t).length * 72 }),     // ~ a bold 132px digit
   };
   Object.defineProperty(ctx, "fillStyle", { set(v) { fills.push(String(v)); } });
   Object.defineProperty(ctx, "strokeStyle", { set(v) { strokes.push(String(v)); } });
-  for (const k of ["lineWidth", "font", "textAlign", "textBaseline"]) Object.defineProperty(ctx, k, { set() {} });
+  ctx._px = 0;
+  Object.defineProperty(ctx, "font", { set(v) { const m = String(v).match(/(\d+)px/); ctx._px = m ? +m[1] : 0; } });
+  for (const k of ["lineWidth", "textAlign", "textBaseline"]) Object.defineProperty(ctx, k, { set() {} });
   return ctx;
 }
 
@@ -121,9 +123,29 @@ function rec() {
   const num = c.texts.find((t) => t.t === "10");
   ok(num && num.x === 640, "the countdown is centred between the eyes", `x ${num && num.x}`);
   ok(num && num.y > 200 && num.y < 520, "  and vertically in the eye channel", `y ${num && num.y}`);
-  // the word must clear the quote line (672) and a fully open mouth (659)
-  const word = c.texts.find((t) => t.t === "ARMED");
-  ok(word && word.y > 690, "the word clears the quote line and the mouth", `y ${word && word.y}`);
+}
+
+// ---- 5b. NOTHING TOUCHES AN EDGE ------------------------------------------------------------------
+// The check that was missing, and the bug it would have caught: the word sat at y 702, exactly on
+// the frame's bottom stroke (694..710), with its glyphs reaching y 722 -- past the canvas's own 720
+// edge, and visibly clipped on a real page in a window where the design area fills the height. The
+// old test only asked whether the word cleared the quote and the mouth, which it did. Clearing what
+// is BELOW you is not the same as being INSIDE the frame.
+{
+  const INSET = 10, THICK = 16, W = 1280, H = 720;
+  const inner = { t: INSET + THICK, b: H - INSET - THICK, l: INSET + THICK, r: W - INSET - THICK };
+  for (const armed of ["wait", 3, 10, 99]) {
+    const c = rec(); drawArmed(c, armed, 1.0);
+    for (const tx of c.texts) {
+      // generous bounds for a middle baseline: real glyphs are shorter than the em
+      const top = tx.y - tx.px * 0.6, bot = tx.y + tx.px * 0.6;
+      const half = (tx.t.length * tx.px * 0.62) / 2;         // the recorder's own width model
+      ok(top > inner.t && bot < inner.b && tx.x - half > inner.l && tx.x + half < inner.r,
+         `"${tx.t}" (armed ${armed}) is wholly inside the frame`,
+         `y ${top.toFixed(0)}..${bot.toFixed(0)} in ${inner.t}..${inner.b}`);
+      ok(bot < H && top > 0, `  and inside the canvas`, `${top.toFixed(0)}..${bot.toFixed(0)} in 0..${H}`);
+    }
+  }
 }
 
 // ---- 6. THE LEASE: a dead runner must not leave it up for ever -------------------------------------
