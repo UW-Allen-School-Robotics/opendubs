@@ -738,6 +738,34 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-joint-data-missing)
 
+## A show won't start, or stops {#show-wont-start}
+
+Check in this order:
+
+1. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
+2. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
+
+### A sound sent to the robot was refused because a show has the speaker {#show-audio-busy}
+
+`SHOW_AUDIO_BUSY` · Refused action · seen on the dashboard
+
+Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the request was refused rather than queued; nothing is played later.
+
+**What to do**
+
+1. Wait for the show to finish or be stopped, then send the sound again.
+
+### A sound sent to the robot was refused because no speaker is connected {#show-audio-no-device}
+
+`SHOW_AUDIO_NO_DEVICE` · Refused action · seen on the dashboard
+
+The robot plays shows, ambient music and sounds sent from a phone through one device: the tablet on its head, running the dashboard. No device was connected to play it, so the request was refused. A show started now would run without music for the same reason.
+
+**What to do**
+
+1. Check that the head's tablet is on and showing the dashboard or the face.
+2. On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+
 ## A power or temperature warning {#power-warning}
 
 Check in this order:

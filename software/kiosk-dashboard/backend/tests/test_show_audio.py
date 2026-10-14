@@ -224,3 +224,85 @@ def test_a_show_takes_the_channel_and_ambient_resumes_after(tmp_path, monkeypatc
         assert amb["op"] == "ambient" and amb["show_active"] is True
     c.post("/api/choreo/audio", json={"op": "stop", "fade_s": 0.25})
     assert c.get("/api/choreo/ambient").json()["show_active"] is False
+
+
+# ---- play to robot (the Tablet lane's /play/ page) ---------------------------------------------
+def test_a_play_file_reaches_the_holder_once_at_the_ambient_volume(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    c.post("/api/choreo/ambient", json={"op": "volume", "volume": 0.4})
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        r = c.post("/api/choreo/ambient", json={"op": "play_file", "url": "/api/play/files/ab12.mp3",
+                                                "title": "Birthday song"})
+        assert r.status_code == 200
+        assert a.receive_json() == {"op": "play_file", "url": "/api/play/files/ab12.mp3",
+                                    "title": "Birthday song", "volume": 0.4}
+        a.send_json({"ambient": {"now": "Birthday song", "source": "play", "blocked": False}})
+        a.send_json({"ping": 1})
+        a.receive_json()                                      # the report is in once the pong is back
+        st = c.get("/api/choreo/ambient").json()["state"]
+        assert st["now_playing"] == "Birthday song" and st["playing_from"] == "play"
+        a.send_json({"ambient": {"now": "calm", "source": "ambient", "blocked": False}})
+        a.send_json({"ping": 2})
+        a.receive_json()
+        assert c.get("/api/choreo/ambient").json()["state"]["playing_from"] == "ambient"
+
+
+def test_a_play_url_must_be_the_dashboards_own_store(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        for url in ("http://evil.example/a.mp3", "//evil.example/a.mp3", "/api/play/files/../../etc/passwd",
+                    "/api/choreo/media/library/songs/calm.mp3", "/api/play/files/", "/api/play/files/a b.mp3",
+                    "/api/play/files//x.mp3", None, 5):
+            r = c.post("/api/choreo/ambient", json={"op": "play_file", "url": url})
+            assert r.status_code == 400, url
+
+
+def test_a_play_is_refused_while_a_show_has_the_speaker_and_with_no_speaker(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    body = {"op": "play_file", "url": "/api/play/files/x.mp3", "title": "x"}
+    r = c.post("/api/choreo/ambient", json=body)              # nobody holds the role
+    assert r.status_code == 503 and r.json()["code"] == "SHOW_AUDIO_NO_DEVICE"
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        c.post("/api/choreo/audio", json={"op": "load", "id": "show", "items": []})
+        a.receive_json()                                      # the load
+        r = c.post("/api/choreo/ambient", json=body)
+        assert r.status_code == 409 and r.json()["code"] == "SHOW_AUDIO_BUSY"
+        c.post("/api/choreo/audio", json={"op": "stop", "fade_s": 0.25})
+        a.receive_json()
+        assert c.post("/api/choreo/ambient", json=body).status_code == 200
+
+
+def test_stop_play_ends_only_the_play_and_ambient_off_ends_it_too(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    c.post("/api/choreo/ambient", json={"op": "play"})
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json(), a.receive_json()                    # the holder message, then ambient on
+        assert c.post("/api/choreo/ambient", json={"op": "stop_play"}).status_code == 200
+        assert a.receive_json() == {"op": "stop_play"}
+        assert show_audio.hub.ambient["playing"] is True      # ambient stays on
+        c.post("/api/choreo/ambient", json={"op": "stop"})
+        assert a.receive_json() == {"op": "stop_play"}
+        assert a.receive_json()["playing"] is False
+
+
+def test_a_long_title_is_cut_and_control_characters_dropped(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    with c.websocket_connect("/ws/show-audio") as a:
+        a.receive_json()
+        a.send_json({"claim": True, "label": "tablet"})
+        a.receive_json()
+        c.post("/api/choreo/ambient", json={"op": "play_file", "url": "/api/play/files/x.mp3",
+                                            "title": "a\nb\x07" + "z" * 300})
+        m = a.receive_json()
+        assert m["title"].startswith("ab") and len(m["title"]) == show_audio.PLAY_TITLE_MAX
