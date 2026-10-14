@@ -91,7 +91,44 @@ def get_settings() -> JSONResponse:
     s = load()
     import head                                 # read-only: the robot's own config, not a setting
     s["neck"] = head.neck_host() or "none"
+    s["airplay"] = airplay_state()
     return JSONResponse(s)
+
+
+# AirPlay on/off is the receiver unit's own state (the Thor lane's opendubs-airplay.service), not a
+# value kept here: "on" is ENABLED and running, so it survives a reboot. Turning it off stops the
+# receiver, so the robot disappears from iPhones. A sudoers rule from the Thor lane's provisioning
+# allows exactly `systemctl enable --now|disable --now|is-active|is-enabled opendubs-airplay`.
+AIRPLAY_UNIT = "opendubs-airplay"
+
+
+def airplay_state() -> str:
+    """"on", "off", or "absent" (no receiver installed on this robot)."""
+    import subprocess
+    try:
+        r = subprocess.run(["systemctl", "is-enabled", AIRPLAY_UNIT], capture_output=True, text=True, timeout=5)
+    except Exception:                            # noqa: BLE001 — no systemd (a laptop): no receiver
+        return "absent"
+    out = (r.stdout or "").strip()
+    if out in ("enabled", "enabled-runtime"):
+        return "on"
+    if out in ("disabled", "masked", "static", "indirect"):
+        return "off"
+    return "absent"
+
+
+async def _set_airplay(on: bool):
+    """Turn the receiver on (enable --now) or off (disable --now). Returns an error, or None."""
+    import asyncio
+    import subprocess
+    cmd = ["sudo", "-n", "systemctl", "enable" if on else "disable", "--now", AIRPLAY_UNIT]
+    try:
+        r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
+    except Exception as e:                       # noqa: BLE001
+        return str(e)
+    if r.returncode != 0:
+        return (r.stderr or r.stdout or f"systemctl returned {r.returncode}").strip()
+    return None
 
 
 @router.put("/api/head/settings")
@@ -102,6 +139,19 @@ async def put_settings(request: Request) -> JSONResponse:
         return JSONResponse({"error": "send a JSON object of settings"}, status_code=400)
     if not isinstance(change, dict) or not change:
         return JSONResponse({"error": "send a JSON object of settings"}, status_code=400)
+    if "airplay" in change:                      # the receiver's state, not a stored setting
+        want = change.pop("airplay")
+        if not isinstance(want, bool):
+            return JSONResponse({"error": "airplay must be true or false"}, status_code=400)
+        if airplay_state() == "absent":
+            return JSONResponse({"error": "no AirPlay receiver is installed on this robot"}, status_code=409)
+        err = await _set_airplay(want)
+        if err:
+            return JSONResponse({"error": f"AirPlay could not be turned {'on' if want else 'off'}: {err}"},
+                                status_code=503)
+        if not change:
+            s = load(); s["airplay"] = airplay_state()
+            return JSONResponse(s)
     problems = [p for k, v in change.items() if (p := _check(k, v))]
     if problems:
         return JSONResponse({"error": "; ".join(problems)}, status_code=400)
@@ -118,4 +168,5 @@ async def put_settings(request: Request) -> JSONResponse:
                                       f"({e.strerror}); provision.sh creates that folder"}, status_code=503)
     import face_door                            # push to every face page now
     await face_door.broadcast({"settings": s})
+    s["airplay"] = airplay_state()
     return JSONResponse(s)

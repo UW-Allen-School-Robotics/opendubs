@@ -56,6 +56,8 @@
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
       <h2 class="mt">SOUND</h2>
+      <div class="hf-row"><label for="hfAirplay">AirPlay</label><input type="checkbox" id="hfAirplay">
+        <span class="hf-note" id="hfAirplayNote"></span></div>
       <div class="hf-row"><label for="hfVol">Volume</label><input type="checkbox" id="hfVolSet" title="Set it here, or leave the tablet's own volume alone"><input type="range" id="hfVol" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolV"></span></div>
       <div class="hf-row"><label for="hfVolMax">Never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span></div>
 
@@ -84,6 +86,10 @@
 
   function render() {
     el("hfScreen").checked = s.screen_on;
+    el("hfAirplay").checked = s.airplay === "on"; el("hfAirplay").disabled = s.airplay === "absent";
+    el("hfAirplayNote").textContent = s.airplay === "absent" ? "No AirPlay receiver is installed on this robot."
+      : s.airplay === "on" ? "On: iPhones and Macs on the robot's Wi-Fi can play to it. A show always comes first."
+      : "Off: the robot doesn't appear in AirPlay lists.";
     el("hfReturn").value = String(s.face_return_min);
     el("hfIdle").checked = s.idle_eyes;
     el("hfMouth").checked = s.mouth;
@@ -165,6 +171,8 @@
   // ---- controls -----------------------------------------------------------------------------------
   const onChange = (id, fn) => el(id).addEventListener("change", fn);
   onChange("hfScreen", (e) => save({ screen_on: e.target.checked }, true));
+  onChange("hfAirplay", (e) => { el("hfAirplayNote").textContent = e.target.checked ? "Turning AirPlay on…" : "Turning AirPlay off…";
+                                 save({ airplay: e.target.checked }, true); });
   onChange("hfReturn", (e) => save({ face_return_min: Number(e.target.value) }, true));
   onChange("hfIdle", (e) => save({ idle_eyes: e.target.checked }, true));
   onChange("hfMouth", (e) => save({ mouth: e.target.checked }, true));
