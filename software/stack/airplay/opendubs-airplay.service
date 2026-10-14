@@ -1,0 +1,40 @@
+[Unit]
+# An AirPlay-compatible receiver (shairport-sync, AirPlay 2) whose audio goes to the face tablet.
+# This unit only RECEIVES: raw PCM goes into the FIFO /run/opendubs/airplay/audio.pcm and track
+# metadata into /run/opendubs/airplay/meta. The dashboard's airplay_relay.py (Tablet lane) reads
+# both and plays the audio on the tablet. See software/stack/airplay/README.md for the contract.
+#
+# On/off is this unit's enable state: the Head & face page runs `enable --now` / `disable --now`
+# (sudoers: opendubs-airplay-sudoers), so "on" survives a reboot. Stopping the unit removes the
+# receiver from iPhones, because it is advertised through the HOST's avahi.
+#
+# NEVER BUNDLE THE IMAGE into anything this project ships -- a golden disk image, a release or
+# studio bundle, or our own registry mirror. It carries GPL-2.0 code (nqptp, Alpine's busybox) and
+# LGPL libraries; the robot pulls it from Docker Hub by the digest in software/stack/versions.env,
+# which is not distribution. Shipping it would oblige us to supply their source.
+Description=OpenDubs AirPlay-compatible receiver (shairport-sync), audio to the face tablet
+After=network-online.target docker.service avahi-daemon.service
+Wants=network-online.target
+Requires=docker.service avahi-daemon.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Group=kiosk
+EnvironmentFile=-/etc/opendubs/robot.env
+EnvironmentFile=/opt/opendubs/stack/versions.env
+# /run/opendubs/airplay exists only while the receiver runs: a reader that finds it missing knows
+# the receiver is off. airplay-prestart.sh gives the dashboard's user (kiosk) read access.
+RuntimeDirectory=opendubs/airplay
+RuntimeDirectoryMode=0750
+# systemd re-applies the RuntimeDirectory's ownership (recursively) to the unit's User:Group as it
+# sets up each Exec command, which undid a chgrp in ExecStartPre (seen on opendubs2, 2026-10-14). So
+# the group is kiosk HERE. The process is still uid root, which it needs for docker.
+ExecStartPre=/opt/opendubs/stack/airplay/airplay-prestart.sh
+ExecStart=/opt/opendubs/stack/airplay/airplay-run.sh
+ExecStop=/usr/bin/docker stop -t 5 opendubs-airplay
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,3 @@
+# The dashboard (user kiosk) turns the AirPlay-compatible receiver on and off from the Head & face
+# page. "On" survives a reboot, so on/off is the unit's enable state. Nothing else is allowed.
+kiosk ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now opendubs-airplay, /usr/bin/systemctl disable --now opendubs-airplay, /usr/bin/systemctl is-active opendubs-airplay, /usr/bin/systemctl is-enabled opendubs-airplay
