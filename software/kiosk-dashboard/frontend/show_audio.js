@@ -34,7 +34,12 @@
    7. PLAY TO ROBOT (`play_file`, the Tablet lane's /play/ page): one uploaded file, played ONCE on its
       own <audio> element at the ambient volume. Ambient fades out for it and resumes, from the next
       song, when it ends, fails or is stopped (`stop_play`). A show's `load` cuts it and it does not
-      come back. What plays is reported with its source (ambient | play). */
+      come back. What plays is reported with its source (ambient | play).
+
+   8. AIRPLAY (the Tablet lane's player, engine/airplay.js): the hub alone decides when it is heard,
+      and sends `airplay_gate` (on | duck | mute) here, passed straight to window.OpenDubsAirplay.
+      While AirPlay plays, ambient pauses (the hub's ambient message carries `airplay`). Losing the
+      role or the connection mutes it, as everything else stops. */
 "use strict";
 (() => {
   const K = window.OpenDubsKiosk;
@@ -202,7 +207,7 @@
     }, AMB_FADE_S * 1000 / steps);
   }
   const ambWanted = () => !!(amb.msg && amb.msg.playing && amb.msg.items && amb.msg.items.length
-                             && !amb.show && st.youHold && !pf.active);
+                             && !amb.show && st.youHold && !pf.active && !amb.airplay);
   function ambOrder() {
     const ids = amb.msg.items.map((x, i) => i);
     if (amb.msg.shuffle) for (let i = ids.length - 1; i > 0; i--) {
@@ -237,7 +242,7 @@
   function onAmbient(m) {
     const listChanged = !amb.msg || JSON.stringify(amb.msg.items) !== JSON.stringify(m.items)
                         || amb.msg.shuffle !== m.shuffle;
-    amb.msg = m; amb.show = !!m.show_active;
+    amb.msg = m; amb.show = !!m.show_active; amb.airplay = !!m.airplay;
     if (listChanged) amb.order = [];
     ambApply(!!m.next || (listChanged && m.playing));
   }
@@ -273,6 +278,13 @@
     ambReport();
   }
 
+  /* ---- 8. AirPlay's gate ------------------------------------------------------------------------ */
+  function airplayGate(g) {
+    st.airplay_gate = g;
+    const A = window.OpenDubsAirplay;
+    if (A && A.setGate) { try { A.setGate(g); } catch (e) { /* the player's own problem, never ours */ } }
+  }
+
   /* ---- the connection ------------------------------------------------------------------------ */
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/show-audio`);
@@ -285,11 +297,12 @@
       if ("pong" in m) return onPong(m);
       if ("holder" in m) {
         st.holder = m.holder; st.youHold = !!m.you_hold;
-        if (!st.youHold) { silence(0); pfDone(null, false); ambStop(); }
+        if (!st.youHold) { silence(0); pfDone(null, false); ambStop(); airplayGate("mute"); }
         return;
       }
       if (m.op === "ambient") return onAmbient(m);
       if (m.op === "play_file") return playFile(m);
+      if (m.op === "airplay_gate") return airplayGate(m.gate);
       if (m.op === "stop_play") return pfDone(null);
       if (m.op === "load") { amb.show = true; pfDone(null, false); ambStop(); load(m); }   // a show takes over; a play does not come back
       else if (m.op === "start") start(m);
@@ -298,7 +311,7 @@
     };
     ws.onclose = () => {
       st.connected = false; st.youHold = false; st.holder = null;
-      silence(0); pfDone(null, false); ambStop();                // DEC-7: the music stops, nothing else
+      silence(0); pfDone(null, false); ambStop(); airplayGate("mute");   // DEC-7: the music stops, nothing else
       setTimeout(connect, retry); retry = Math.min(retry * 2, 8000);
     };
   }
