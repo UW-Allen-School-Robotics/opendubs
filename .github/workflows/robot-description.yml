@@ -1,18 +1,21 @@
 name: robot-description
 
-# opendubs.urdf is generated from description/opendubs/dimensions.yaml by gen_urdf.py, and the
-# two must not drift: a hand edit to the URDF, or a yaml change without a re-run, fails here.
-# The check also asserts the TF tree is one tree rooted at base_link. Pure Python + PyYAML.
+# Every file derived from the robot description must match its sources: description/describe.py
+# --check runs each generator's own check (gen_urdf.py: opendubs.urdf from dimensions.yaml, plus the
+# one-tree-rooted-at-base_link assertion; tools/arm_chain.py: chain.json from the vendored v1.urdf).
+# A hand edit to a derived file, or a source change without a re-run, fails here. Pure Python + PyYAML.
 
 on:
   push:
     branches: [main]
     paths:
-      - "description/opendubs/**"
+      - "description/**"
+      - "tools/arm_chain.py"
       - ".github/workflows/robot-description.yml"
   pull_request:
     paths:
-      - "description/opendubs/**"
+      - "description/**"
+      - "tools/arm_chain.py"
       - ".github/workflows/robot-description.yml"
 
 permissions:
@@ -27,4 +30,4 @@ jobs:
         with:
           python-version: "3.x"
       - run: pip install pyyaml
-      - run: python3 description/opendubs/gen_urdf.py --check
+      - run: python3 description/describe.py --check
