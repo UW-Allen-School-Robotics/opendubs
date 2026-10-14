@@ -37,6 +37,16 @@ them in.
 ### Step 1 — Slide the fan panel into the rail
 
 <figure markdown="span">
+  ![The fan panel, with the fan mounted, lined up above the open top of the goRAIL uprights](../assets/build/cooling-fan/01b-panel-above-rail.webp)
+  <figcaption>With the fan already on the panel, line it up over the open ends of the two uprights.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The fan panel slid down into the T-slots of both uprights](../assets/build/cooling-fan/01c-panel-slid-in.webp)
+  <figcaption>Slide it down into both T-slots together.</figcaption>
+</figure>
+
+<figure markdown="span">
   ![The printed fan panel slid into the goRAIL T-slot with the axial fan mounted to it](../assets/build/cooling-fan/01-fan-panel-in-rail.webp)
   <figcaption>The white printed panel located in the goRAIL T-slot, with the axial fan already mounted to it. The panel carries the fan — the fan never fastens to the frame directly.</figcaption>
 </figure>
@@ -44,6 +54,11 @@ them in.
 !!! tip "Mount the fan to the panel on the bench"
     Fit the fan to the panel before the panel goes into the rail. Both fan screws are easy
     on a desk and awkward once the assembly is inside the frame.
+
+<figure markdown="span">
+  ![The axial fan laid on the printed fan panel on the bench, before fastening](../assets/build/cooling-fan/01a-fan-on-panel.webp)
+  <figcaption>The fan and its printed panel on the bench, before the fan is fastened down.</figcaption>
+</figure>
 
 ### Step 2 — Set the airflow direction
 
