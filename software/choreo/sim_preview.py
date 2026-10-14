@@ -19,8 +19,12 @@ the validator's measured constant stays in charge.
 THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fact:
   * arms follow motion.py's smoothed path between keyframes — the one the robot is sent (since
     2026-10-08); how closely the real controller tracks it was measured by speed_test.py (plan 6.1);
-  * the lift's height is net up-time x LIFT_MM_PER_S, a PLACEHOLDER copied from the sim's own
-    damping (description/opendubs/opendubs.xml), not a measurement of the real lift;
+  * the lift's height is net up-time x LIFT_MM_PER_S, MEASURED on opendubs2 (2026-10-13): a show's
+    4 s `up` took the platform from ~0 to ~45 mm (the dashboard's mast_h_mm, ToF, +/-10 mm). That is
+    an average over the move; the sensor showed almost nothing for the first ~2 s and the rest
+    after, so a long climb may run faster than this. One measurement, near the bottom of the
+    stroke: re-measure over a long climb. (It replaces a 56 mm/s placeholder from the sim's own
+    damping, five times too fast: the twin showed 224 mm where the robot rose 45.)
   * head degrees map as 90 = the sim's zero for both axes, and the SIGN of tilt is unverified —
     the show's 10..170 convention and the sim's asymmetric tilt range have never been reconciled;
   * FACT, not assumption: the head turns toward each target at 25 deg/s per axis, the Tab5
@@ -47,7 +51,7 @@ sys.path.insert(0, HERE)
 import cue  # noqa: E402
 import motion  # noqa: E402
 
-LIFT_MM_PER_S = 56.0      # PLACEHOLDER: the sim's damping-limited speed, not the robot's
+LIFT_MM_PER_S = 11.25     # MEASURED on opendubs2 (2026-10-13): a 4 s up rose ~45 mm (see above)
 LIFT_MAX_MM = 275.1       # measured stroke (sim/README)
 HEAD_CENTRE_DEG = 90.0    # ASSUMED: the show's 90 is the sim's 0
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's
