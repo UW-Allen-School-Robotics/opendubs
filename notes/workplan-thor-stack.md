@@ -274,6 +274,27 @@ Nothing to build yet. These rules keep the infrastructure from closing the door 
 | 5.1 | cuVSLAM, then nvblox, on the camera chosen at T-4, consuming `/odom` and TF (after L.2 and L.5) | Pose and map on Foxglove from a drive around the lab |
 | 5.2 | Measure 120 W against MAXN under that graph (T-5) | A number, recorded here |
 
+## AirPlay-compatible receiver (decided 2026-10-14)
+
+The user chose route A: **shairport-sync (AirPlay 2) on the Thor**, its audio relayed live to the face
+tablet. The receiver is this lane's (`software/stack/airplay/`). The relay, the player and the on/off
+switch on the Head & face page are the Tablet lane's. The FIFO contract is in that folder's README.
+
+| # | Item | Done when |
+|---|---|---|
+| AP.1 | Image pinned by digest (`SHAIRPORT_IMAGE`); `opendubs-airplay.service` (systemd is the one supervisor, `docker run --rm`, host avahi); config; `provision-airplay.sh`; the kiosk sudoers rule (`enable --now`/`disable --now`, so "on" survives a reboot) | PR merged |
+| AP.2 | First install on opendubs2 (the user chose it as the test robot): an iPhone on the robot's local SSID sees the robot's name; PCM reaches the FIFO; stopping the unit removes the advertisement | Recorded here |
+| AP.3 | With the Tablet relay: end-to-end latency measured and the `-0.3` s offset tuned; the writer survives a dashboard restart mid-stream | Recorded here |
+| AP.4 | Chain into `provision-all.sh` once proven | — |
+
+**Standing rule: the shairport-sync image is NEVER bundled into anything the project ships.** That
+covers a golden disk image, a release or studio bundle, and a registry mirror of our own. It carries
+GPL-2.0 code (nqptp, busybox) and LGPL libraries; each robot pulls it by digest, which is not
+distribution. Bundling it would oblige the project to supply that source.
+
+**Known future clash:** nqptp needs exclusive UDP 319/320. A PTP daemon for PTP-timed Ethernet
+cameras would conflict; the fallback is the `classic` (AirPlay 1) image.
+
 ## Phase 6 — documentation
 
 | # | Item | Done when |

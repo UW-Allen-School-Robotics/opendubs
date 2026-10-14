@@ -35,6 +35,7 @@ deploy_sub() {  # $1=repo path  $2=flat dest
 # delete docs-site/), and ships the show runner. Provisioning runs once, below, via provision-all.sh.
 OPENDUBS_SKIP_PROVISION=1 "$REPO/software/kiosk-dashboard/deploy/deploy.sh" "$HOST"
 deploy_sub software/ros             ros
+deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"

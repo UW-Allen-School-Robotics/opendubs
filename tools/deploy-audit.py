@@ -44,6 +44,7 @@ MAP = [
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
+    ("software/stack",                          "/opt/opendubs/stack",                          SYNC),
     ("software/face-web",                       "/opt/opendubs/face-web",                       SYNC),  # deploy.sh, /face/
     ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
