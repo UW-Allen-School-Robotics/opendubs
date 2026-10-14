@@ -151,12 +151,19 @@ head interface lane. Two edges remain, as S4b and S4c.
   `android:permission="android.permission.DUMP"`. adb shell holds that permission; other apps
   cannot get it.
 
-**L2 · Test photo of a real person.** · open · owners: **Face & HRI lane**
-(`firmware/tab5_idf/probe/`) and **unowned** (`software/face-web/`, to the orchestrator).
-- `firmware/tab5_idf/probe/human_face.jpg` and `software/face-web/test/human_face.jpg` are the
-  same file: esp-dl's example image.
-- There is no MIT notice for it, and no evidence of the subject's consent.
-- **Fix:** replace both with a synthetic or consented CC0 face, and keep one copy.
+**L2 · Face-detection test image.** · **closed 2026-10-14: public-domain artwork; provenance
+noted.** No removal and no rewrite.
+- `software/face-web/test/human_face.jpg` and `firmware/tab5_idf/probe/human_face.jpg` are one
+  39 KB image, committed twice. It is a crop of a reproduction of Leonardo da Vinci's *Mona Lisa*
+  (painted c. 1503–1519). The painting is in the public domain. A faithful photographic
+  reproduction of a 2-D public-domain work is generally treated as public domain in the US. No
+  living subject's consent is involved.
+- Provenance: it came in as esp-dl's `human_face_detect` example image (commit `7ed0194`;
+  `firmware/tab5_idf/app_face/percept/facedet.cpp:55`).
+- It is used at runtime by the face page (`software/face-web/engine/track.js:21`) and embedded in
+  the head firmware by `firmware/tab5_idf/build.sh:450`. Both are fine.
+- The first sweep wrongly described it as a photograph of a real person, because the image itself
+  was not opened. Corrected here. Lesson for the sweeps: look at an image before classifying it.
 
 **L3 · Meshes with no stated source.** · open · owner: **Thor stack lane** (robot description).
 - `description/opendubs/meshes/D415.stl` is almost certainly the camera maker's CAD, and its terms
