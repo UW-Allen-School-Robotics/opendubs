@@ -1,6 +1,11 @@
 # AirPlay into the robot's tablet — feasibility (study, nothing built)
 
-**Status: study, 2026-10-13. For a decision; nothing here is built.** Tablet lane.
+**Status: decided 2026-10-14 — no in-app AirPlay.** The maintainers chose not to put the extracted
+AirPort Express key in this repository (condition 1 below), so there is no AirPlay receiver in the kiosk
+app. Built instead: **Play to robot** (#249), a page at `/play/` that any phone on the robot's network
+opens in its browser to send a sound — an upload or a link the robot fetches — which plays from the face
+tablet through the show-audio path and always gives way to a show. The study below is kept as the record
+of why. Tablet lane.
 
 **The question.** Can someone AirPlay music from a phone or laptop to the robot and hear it from the
 tablet, with the receiver built **into our own kiosk app**? Two other routes were ruled out by the
@@ -26,7 +31,7 @@ kiosk in lock task (`tablet-device.md`), unrooted (Galaxy Tab A11, Android 15/16
     doing so. iOS 18's first beta broke it; a later beta fixed it. Whether current iOS and macOS
     list such a receiver in the audio picker has to be tested on the phones the team uses.
 
-**Recommendation.**
+**Recommendation (at the time of the study; see the decision above).**
 1. Decide condition 1 first. If the maintainers won't put the Apple key in the repository, stop here:
    no in-app AirPlay is possible under these constraints.
 2. If they will, do a small spike before committing to the feature: advertise `_raop._tcp` from the
