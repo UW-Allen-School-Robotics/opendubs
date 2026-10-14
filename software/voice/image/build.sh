@@ -1,10 +1,12 @@
 #!/bin/bash
 # build.sh — build the opendubs-voice image from pinned inputs. Plan: notes/workplan-voice.md 1.6.
 #
-#   build.sh          the CPU image, FROM ROS_BASE_IMAGE (phase 1: fake or cloud speech backends
-#                     off, the local brain in its own container)
-#   build.sh --gpu    FROM ISAAC_ROS_BASE_IMAGE, for Parakeet and Kokoro (step 1.3). Refuses until
-#                     the Thor stack lane has pinned that base.
+#   build.sh          the CPU image, FROM ROS_BASE_IMAGE: Parakeet and Kokoro on the CPU, CPU
+#                     PyTorch; the local language model runs in its own container (run-llm.sh)
+#   build.sh --gpu    FROM ISAAC_ROS_BASE_IMAGE, PyTorch from that base, if gate L-4 needs the GPU.
+#                     Refuses until the Thor stack lane has pinned that base.
+#
+# Either way the image's last step is check_no_gpl.py, and it contains no model weights.
 #
 # REFUSES when the base in software/stack/versions.env is empty or tag-only (no @sha256:). There is
 # no fallback to :latest: an image that cannot be rebuilt identically is not deployable.
@@ -16,10 +18,10 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 MANIFEST=${OPENDUBS_VERSIONS:-$ROOT/software/stack/versions.env}
 die() { echo "build.sh: $*" >&2; exit 1; }
 
-KEY=ROS_BASE_IMAGE
+KEY=ROS_BASE_IMAGE; TORCH=cpu
 case "${1:-}" in
   "")    ;;
-  --gpu) KEY=ISAAC_ROS_BASE_IMAGE ;;
+  --gpu) KEY=ISAAC_ROS_BASE_IMAGE; TORCH=base ;;
   *)     die "usage: build.sh [--gpu]" ;;
 esac
 
@@ -39,5 +41,5 @@ trap 'rm -rf "$CTX"' EXIT
 git -C "$ROOT" archive HEAD software/voice software/head-protocol/head_protocol.py | tar -x -C "$CTX"
 
 TAG=opendubs-voice:$SHA$([ "$KEY" = ISAAC_ROS_BASE_IMAGE ] && echo -gpu || true)
-docker build --build-arg "BASE_IMAGE=$BASE" -f "$CTX/software/voice/image/Dockerfile.voice" -t "$TAG" "$CTX"
+docker build --build-arg "BASE_IMAGE=$BASE" --build-arg "TORCH=$TORCH" -f "$CTX/software/voice/image/Dockerfile.voice" -t "$TAG" "$CTX"
 echo "$TAG"

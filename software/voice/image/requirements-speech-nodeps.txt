@@ -1,0 +1,7 @@
+# Installed with `pip install --no-deps`, so neither can pull in misaki[en] and its GPL members.
+# Their dependencies are in requirements-speech.txt.
+kokoro==0.9.4
+# misaki at a pinned commit of its main branch, not the 0.9.4 release: the release has no fallback
+# for words outside its dictionary unless espeak-ng (GPL) is installed. Commit 232a5e3
+# (2025-04-14) added an Apache-2.0 neural fallback; this commit (2025-08-11) contains it.
+misaki @ https://github.com/hexgrad/misaki/archive/fba1236595f2d2bf21d414ba6e57d25256afada3.tar.gz
