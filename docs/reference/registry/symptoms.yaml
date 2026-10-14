@@ -47,5 +47,11 @@ symptoms:
   - id: show-wont-start
     title: A show won't start, or stops
 
+  - id: no-sound
+    title: The robot won't play a sound
+    intro: >
+      A sound sent to the robot plays on its own speaker. It is refused while a show has the
+      speaker, and when no speaker is connected; the entries below say which.
+
   - id: power-warning
     title: A power or temperature warning
