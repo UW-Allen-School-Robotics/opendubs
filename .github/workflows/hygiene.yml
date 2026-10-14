@@ -25,10 +25,6 @@ concurrency:
   group: hygiene-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  GITLEAKS_VERSION: "8.30.1"
-  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-
 jobs:
   hygiene:
     name: Hygiene checks
@@ -53,13 +49,7 @@ jobs:
           echo "checking $(git rev-list --count "$base..HEAD") commit(s) since ${base:0:12}"
 
       - name: Install gitleaks (pinned, checksum-verified)
-        run: |
-          tgz="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -fsSLo "$RUNNER_TEMP/$tgz" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tgz"
-          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tgz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP" gitleaks
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+        run: tools/hygiene/install-gitleaks.sh
 
       - name: Install exiftool
         run: sudo apt-get install -y --no-install-recommends libimage-exiftool-perl >/dev/null
