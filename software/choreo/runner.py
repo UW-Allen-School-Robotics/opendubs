@@ -78,6 +78,11 @@ CLAMP_DEG = 1.0
 GRIP_SETTLE_S = 1.5
 GRIP_CONTACT_M = 0.005
 AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio device to finish loading
+# The show-audio role can change hands as a run starts: the tablet that pressed start switches to its
+# face page, which drops the role for ~0.3 s and claims it again (found at the robot 2026-10-14: a
+# check at that instant ran every show silently). So the load is ALWAYS sent — the dashboard keeps it
+# for the next device to claim — and only a device still absent this long into PREPPING means silence.
+AUDIO_HOLDER_GRACE_S = 3.0
 
 # Start modes (agreed with the Orchestrator, 2026-10-13). An ARMED run has passed every check but the
 # deadman; nothing moves, the show audio loads, and the e-stop, CH5, faults and the arms are still
@@ -601,6 +606,12 @@ class Runner:
         self.feed.playhead(t or 0.0, False, status)
         return self.ended
 
+    def _audio_holder(self):
+        try:
+            return self.audio.state().get("holder")
+        except Exception:  # noqa: BLE001
+            return None
+
     def _audio_ready(self, load_id):
         try:
             st = self.audio.state()
@@ -673,13 +684,10 @@ class Runner:
         for why in skipped:
             self._log("audio_warning", note=why)
         if items:
-            try:
-                holder = self.audio.state().get("holder")
-            except Exception:  # noqa: BLE001
-                holder = None
-            if not holder:
-                self._audio_silent("no device is playing show audio — running silently")
-            elif self._audio({"op": "load", "id": load_id, "items": items}):
+            if not self._audio_holder():
+                self._log("audio_note", note="no device holds show audio yet — the music goes to the first "
+                                             "that claims it (a tablet changing page as the run starts)")
+            if self._audio({"op": "load", "id": load_id, "items": items}):
                 self.audio_live = True
 
         # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
@@ -716,11 +724,15 @@ class Runner:
                     return self._end(REFUSED, "ARM_OUT_OF_RANGE", why)
             self._arms_moving = True
         self._set(PREPPING, prep_s=secs, targets=targets, audio_items=len(items))
-        t_end, wait_until = self.clock() + secs, self.clock() + AUDIO_READY_WAIT_S
+        t_prep = self.clock()
+        t_end, wait_until = t_prep + secs, t_prep + AUDIO_READY_WAIT_S
         while self.clock() < t_end or (self.audio_live and not self._audio_ready(load_id)):
-            if self.audio_live and self.clock() >= max(t_end, wait_until):
+            no_holder = self.audio_live and self.clock() >= t_prep + AUDIO_HOLDER_GRACE_S \
+                and not self._audio_holder()
+            if no_holder or (self.audio_live and self.clock() >= max(t_end, wait_until)):
                 self._audio({"op": "cut"})
-                self._audio_silent(f"the show-audio device was not ready in {AUDIO_READY_WAIT_S:g} s — "
+                self._audio_silent("no device is playing show audio — running silently" if no_holder else
+                                   f"the show-audio device was not ready in {AUDIO_READY_WAIT_S:g} s — "
                                    "running silently")
                 break
             if (stop := self._tick_checks(show, None)):

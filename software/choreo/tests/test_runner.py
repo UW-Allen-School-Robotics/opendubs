@@ -233,9 +233,40 @@ check("an e-stop cuts it (DEC-6)", end[0] == "ESTOPPED" and au.calls[-1] == {"op
 
 au = R.NullAudio(holder=None)
 r, end, lines = run_audio(au)
-check("with no device holding show audio the routine still runs — silently, with a warning (decided)",
-      end[0] == "COMPLETED" and not au.calls and "running silently" in (r.audio_note or "")
+check("with no device holding show audio the routine still runs — silently, with a warning (decided), "
+      "once the device has had AUDIO_HOLDER_GRACE_S to appear",
+      end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "cut"]
+      and "no device is playing show audio" in (r.audio_note or "")
       and any(x["kind"] == "audio_warning" for x in lines), (end, au.calls, r.audio_note))
+
+
+class LateHolder(R.NullAudio):
+    """The tablet that pressed start switches to its face page: no holder for 0.5 s, then one."""
+
+    def __init__(self, clock):
+        super().__init__(holder=None)
+        self.clock, self.since = clock, None
+
+    def state(self):
+        if self.since is None:
+            self.since = self.clock()
+        if self.clock() - self.since >= 0.5:
+            self.holder = "tablet"
+        return super().state()
+
+
+robot = R.FakeRobotState()
+sc = SimClock(robot)
+au = LateHolder(sc.clock)
+log = io.StringIO()
+r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5, audio=au)
+end = r.run()
+lines = [json.loads(x) for x in log.getvalue().splitlines()]
+check("a device that claims show audio 0.5 s after the check (the tablet switching to its face) plays the "
+      "music: load, start, stop — not silent (found at the robot 2026-10-14)",
+      end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "start", "stop"]
+      and not any(x["kind"] == "audio_warning" for x in lines)
+      and any(x["kind"] == "audio_note" for x in lines), (au.calls, [x for x in lines if "audio" in x["kind"]]))
 
 au = R.NullAudio(holder="tablet", ready=False)
 r, end, lines = run_audio(au)
