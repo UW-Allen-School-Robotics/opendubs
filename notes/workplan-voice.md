@@ -40,25 +40,20 @@ talks. Lease: a claim that expires unless renewed, as in the head protocol.
 
 ### Decided 2026-10-14 (the project team, relayed by the orchestrator)
 
-Four of the five open decisions were taken as recommended, with V-O4 narrowed. **V-O3 is still
-open** (next table).
+All five open decisions were taken as recommended, with V-O4 narrowed to English only. V-O3 was
+taken later the same day.
 
 | # | Decision | Gate that still applies |
 |---|---|---|
 | V-O1 | **Push-to-talk** to start: a Talk button on the face, plus an operator "listen" control. A wake word later, as an opt-in (phase 3). | — |
 | V-O2 | **The on-robot model by default**, with the Claude API as opt-in scaffolding per robot (`VOICE_BRAIN=auto`). | C-1 before `auto` is offered on a robot |
+| V-O3 | **The local brain is Qwen3-30B-A3B-Instruct-2507** on vLLM, at a ≤ 24 GiB share. **Qwen3-4B-Instruct-2507 is the fallback if gate L-3 fails.** Both are Apache-2.0 on their model cards (checked 2026-10-14). | L-1 (its speed), L-3 (whether the fallback is needed) |
 | V-O4 | **STT: Parakeet-TDT-0.6B-v2** (NVIDIA, CC BY 4.0) via sherpa-onnx (Apache-2.0). **TTS: Kokoro-82M** (Apache-2.0). **English only, and no GPL component ships.** Kokoro's other languages take their pronunciation from espeak-ng (GPL-3.0-or-later), so adding any of them is **a separate, explicit decision to ship GPL code**. Riva stays plan B. | L-4 |
 | V-O5 | **The robot's voice plays from the tablet's speaker**, from the face page. | V-2, V-3 |
 
-### Still open
-
-| # | Question | Recommendation | Gate that informs it |
-|---|---|---|---|
-| V-O3 | **Which local model.** Running a model on the robot is decided (V-O2); which one is **the project team's choice, pending**. | **Recommended, pending the project team's choice:** Qwen3-30B-A3B-Instruct-2507 on vLLM at a ≤ 24 GiB share, with Qwen3-4B-Instruct-2507 as the fallback if L-3 fails. Both are Apache-2.0 on their model cards (checked 2026-10-14), which makes them eligible, not chosen. | L-1, L-3 |
-
-**Nothing is built that assumes a model.** The service takes the model's name from
-`VOICE_LLM_MODEL`, `image/run-llm.sh` takes it as an argument, and the vLLM tool-call parser, which
-depends on the model family, is a required setting (`VOICE_LLM_TOOL_PARSER`) with no default.
+The model is still configuration, not code: the service takes its name from `VOICE_LLM_MODEL`, and
+`image/run-llm.sh` takes it as an argument with its tool-call parser (`VOICE_LLM_TOOL_PARSER`), so
+the L-3 fallback is a configuration change.
 
 **How V-O4's "no GPL" is held** (`software/voice/`, see its `NOTICE.md`): kokoro and misaki are
 installed with `--no-deps`, without misaki's `[en]` extra (phonemizer-fork, espeakng-loader);
@@ -126,7 +121,7 @@ near the line.
 | 1.3a | **Parakeet and Kokoro backends, English only, no GPL** (V-O4): `speech.py` on sherpa-onnx and kokoro/misaki, `no_espeak.py`, `check_no_gpl.py` in the build and in CI, pinned packages, pinned weights fetched at provision time, `NOTICE.md` | desk | unit tests with fakes; CI's `speech-deps` job installs the pinned packages as the image does, finds no GPL, and runs Kokoro's English pipeline with no espeak-ng | PR (this change) |
 | 1.3b | **The real weights on the bench Thor**: `fetch_models.py`, then both backends on the CPU first; the GPU image (`build.sh --gpu`) only if L-4 needs it. Check pronunciation without espeak-ng on a set of awkward words (names, numbers, acronyms) | bench Thor | L-4 passes | waits on the bench Thor (TS-3) |
 | 1.4 | **Silero VAD** replaces the energy gate in `audio.py`, tuned on recordings of the robot's own room (motors, ESCs, lift, show music) | desk, then bench Thor | no clip of room noise is sent to STT; no real utterance is rejected, on a recorded set | — |
-| 1.5 | **The local brain**: `opendubs-llm` (vLLM) from `image/run-llm.sh`, with a warm-up request at start so the first visitor does not wait (one reported first run was about 20× slower than warm, the note §3.4) | bench Thor | V-O3 chosen; L-1 and L-3 pass for it; its memory share is recorded | waits on V-O3, L-1, L-3 and the image pin |
+| 1.5 | **The local brain**: `opendubs-llm` (vLLM) from `image/run-llm.sh`, with a warm-up request at start so the first visitor does not wait (one reported first run was about 20× slower than warm, the note §3.4) | bench Thor | L-1 and L-3 pass for Qwen3-30B-A3B (or L-3 sends it to the 4B fallback); its memory share is recorded | waits on L-1, L-3 and the image pin |
 | 1.6 | **Images built and pinned**: `opendubs-voice` and `opendubs-llm` built on the bench Thor, pushed by digest, run from `run.sh` / `run-llm.sh` | bench Thor | both start from pinned digests; `run.sh` refuses a loose `voice.env` | needs the Thor lane (TS-1) |
 | 1.7 | **The face page's side**: mic capture, the `/ws/voice` client, playback, the Talk button and the REC dot | desk (the Tablet lane's) | requests TL-1 to TL-4 below | **Tablet lane** |
 | 1.8 | **The face's looks**: listening, thinking, speaking and recording, with the mouth driven from the playing audio when enabled | desk (Face & HRI's) | request FH-1 to FH-3 below | **Face & HRI** |
