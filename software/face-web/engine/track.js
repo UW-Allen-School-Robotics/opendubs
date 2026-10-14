@@ -17,7 +17,12 @@ const VENDOR = new URL("../vendor/mediapipe/", import.meta.url).href;
 const GAIN = 1.4;                       // the frame's edge is past full deflection, as an eye leads
 
 function sweepSource() {
+  // The bench stimulus: only for `tracksrc=sweep`, never for a face in use. A packaged face ships
+  // without test/, so a missing photo is a clear refusal, not a canvas waiting for an image forever.
   const img = new Image();
+  const missing = new Promise((_, reject) => {
+    img.onerror = () => reject(new Error("the sweep stimulus test/human_face.jpg is not here"));
+  });
   img.src = new URL("../test/human_face.jpg", import.meta.url).href;
   const c = document.createElement("canvas");
   c.width = 640; c.height = 360;
@@ -35,7 +40,7 @@ function sweepSource() {
   draw();
   const v = document.createElement("video");
   v.muted = true; v.playsInline = true; v.srcObject = c.captureStream(30);
-  return v.play().then(() => v);
+  return Promise.race([missing, img.decode().then(() => v.play()).then(() => v)]);
 }
 
 async function cameraSource() {
