@@ -306,3 +306,100 @@ def test_a_long_title_is_cut_and_control_characters_dropped(tmp_path, monkeypatc
                                             "title": "a\nb\x07" + "z" * 300})
         m = a.receive_json()
         assert m["title"].startswith("ab") and len(m["title"]) == show_audio.PLAY_TITLE_MAX
+
+
+# ---- AirPlay: the Tablet lane's relay reports, this hub decides when it is heard -------------------
+def _holder(c):
+    a = c.websocket_connect("/ws/show-audio").__enter__()
+    a.receive_json()
+    a.send_json({"claim": True, "label": "tablet"})
+    a.receive_json()
+    return a
+
+
+def _report(a, active, title=None, artist=None):
+    a.portal.call(show_audio.hub.airplay_report, active, title, artist)   # on the app's own loop
+
+
+def _next_op(a, op):
+    for _ in range(6):
+        m = a.receive_json()
+        if m.get("op") == op:
+            return m
+    raise AssertionError(f"no {op}")
+
+
+def test_airplay_starting_unmutes_it_and_pauses_ambient(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    c.post("/api/choreo/ambient", json={"op": "play"})
+    a = _holder(c)
+    try:
+        a.receive_json()                                      # ambient on, as the role is claimed
+        _report(a, True, "Song", "Artist")
+        assert a.receive_json() == {"op": "airplay_gate", "gate": "on"}
+        amb = _next_op(a, "ambient")
+        assert amb["airplay"] is True and amb["playing"] is True   # the device pauses ambient for it
+        st = c.get("/api/choreo/ambient").json()["airplay"]
+        assert st == {"active": True, "title": "Song", "artist": "Artist", "gate": "on"}
+        _report(a, False)
+        assert _next_op(a, "ambient")["airplay"] is False      # ... and ambient resumes after
+    finally:
+        a.__exit__(None, None, None)
+
+
+def test_a_show_mutes_airplay_and_its_end_lets_it_back(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    a = _holder(c)
+    try:
+        _report(a, True, "Song", None)
+        assert _next_op(a, "airplay_gate")["gate"] == "on"
+        c.post("/api/choreo/audio", json={"op": "load", "id": "show", "items": []})
+        assert _next_op(a, "airplay_gate")["gate"] == "mute"
+        assert c.get("/api/choreo/ambient").json()["airplay"]["gate"] == "mute"
+        c.post("/api/choreo/audio", json={"op": "cut"})
+        assert _next_op(a, "airplay_gate")["gate"] == "on"
+    finally:
+        a.__exit__(None, None, None)
+
+
+def test_a_file_during_airplay_mutes_it_until_the_file_ends(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    a = _holder(c)
+    try:
+        _report(a, True, "Song", None)
+        _next_op(a, "airplay_gate")
+        r = c.post("/api/choreo/ambient", json={"op": "play_file", "url": "/api/play/files/a1.mp3", "title": "A"})
+        assert r.status_code == 200                           # latest wins: not refused
+        assert _next_op(a, "play_file")["url"] == "/api/play/files/a1.mp3"
+        assert _next_op(a, "airplay_gate")["gate"] == "mute"
+        a.send_json({"ambient": {"now": "A", "source": "play", "blocked": False}})
+        a.send_json({"ambient": {"now": None, "source": None, "blocked": False}})   # the file ended
+        assert _next_op(a, "airplay_gate")["gate"] == "on"
+    finally:
+        a.__exit__(None, None, None)
+
+
+def test_airplay_starting_during_a_file_stops_the_file(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    a = _holder(c)
+    try:
+        c.post("/api/choreo/ambient", json={"op": "play_file", "url": "/api/play/files/a1.mp3", "title": "A"})
+        _next_op(a, "play_file")
+        _report(a, True, "Song", None)
+        assert a.receive_json() == {"op": "stop_play"}        # AirPlay is the newer: the file stops
+        assert _next_op(a, "airplay_gate")["gate"] == "on"
+    finally:
+        a.__exit__(None, None, None)
+
+
+def test_no_airplay_means_no_gate_messages(tmp_path, monkeypatch):
+    c = _ambient_client(tmp_path, monkeypatch)
+    a = _holder(c)
+    try:
+        c.post("/api/choreo/audio", json={"op": "load", "id": "show", "items": []})
+        assert a.receive_json()["op"] == "load"
+        c.post("/api/choreo/audio", json={"op": "cut"})
+        assert a.receive_json()["op"] == "cut"                # nothing about AirPlay in between
+        assert c.get("/api/choreo/ambient").json()["airplay"]["active"] is False
+    finally:
+        a.__exit__(None, None, None)

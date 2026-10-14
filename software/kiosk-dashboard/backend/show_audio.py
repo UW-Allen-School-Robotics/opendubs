@@ -32,6 +32,15 @@ is stopped (`stop_play`), ambient resumes if it is on. While a show is loaded or
 (SHOW_AUDIO_BUSY); a show that starts during it cuts it, and it does not come back. `stop` (ambient
 off) ends a play too.
 
+AIRPLAY (agreed with the Tablet lane 2026-10-14): the Tablet lane's relay streams AirPlay (shairport-sync
+on the Thor) to the face page and reports here, in-process, `hub.airplay_report(active, title, artist)`.
+This hub alone decides when it is heard, by sending the holder `{op: "airplay_gate", gate}`:
+  * a show (loaded, armed or running) mutes it for the whole show; it comes back after;
+  * while AirPlay plays, ambient pauses, and resumes when it ends;
+  * a file and AirPlay: the latest wins, both ways — a file sent during AirPlay mutes AirPlay until the
+    file ends; AirPlay starting during a file stops the file.
+  * (later) voice ducks it.
+
 Nothing here moves the robot. A page that loses this connection stops its own audio (DEC-7: a
 tablet drop stops the music and nothing else).
 """
@@ -81,6 +90,9 @@ class Hub:
         self.show_active = False                 # between the runner's load and its stop/cut
         self.ambient = load_ambient()
         self.device = {"now_playing": None, "blocked": False, "source": None, "error": None}   # the holder's report
+        self.airplay = {"active": False, "title": None, "artist": None}   # the Tablet lane's relay reports it
+        self.file = None                         # a play_file: None | "sent" | "playing" (seen in a report)
+        self.gate_sent = None                    # the last airplay_gate the holder was sent
 
     def view(self) -> dict:
         lbl = self.clients[self.holder][1] if self.holder in self.clients else None
@@ -128,14 +140,47 @@ class Hub:
             await self._send(cid, self.last_load)        # a new holder gets the current show's files
         if self.ambient["playing"]:
             await self._send(cid, self.ambient_msg())    # ... and the ambient music, if it is on
+        self.file = None
+        await self._send_gate(force=True)                # ... and whether AirPlay may be heard
         return True
+
+    # ---- AirPlay --------------------------------------------------------------------------------
+    def airplay_gate(self) -> str:
+        if self.show_active:
+            return "mute"
+        if self.airplay["active"] and self.file:
+            return "mute"                                # a file sent after AirPlay began: latest wins
+        return "on"
+
+    async def _send_gate(self, force=False):
+        """Only while AirPlay plays: the device's AirPlay player starts muted, and AirPlay beginning
+        always sends the gate in force, so with no AirPlay nothing extra goes to the device."""
+        if not self.airplay["active"]:
+            self.gate_sent = None
+            return
+        g = self.airplay_gate()
+        if self.holder in self.clients and (force or g != self.gate_sent):
+            if await self._send(self.holder, {"op": "airplay_gate", "gate": g}):
+                self.gate_sent = g
+
+    async def airplay_report(self, active: bool, title: str | None = None, artist: str | None = None):
+        """The relay: AirPlay began or ended playing, or its track changed. In-process, never HTTP."""
+        was = self.airplay["active"]
+        self.airplay = {"active": bool(active), "title": title, "artist": artist}
+        if active and not was and self.file and self.holder in self.clients:
+            await self._send(self.holder, {"op": "stop_play"})   # AirPlay is the newer: the file stops
+            self.file = None
+        await self._send_gate(force=bool(active) and not was)
+        if bool(active) != was and self.holder in self.clients:
+            await self._send(self.holder, self.ambient_msg())    # ambient pauses for it, resumes after
 
     # ---- ambient music ------------------------------------------------------------------------
     def ambient_msg(self) -> dict:
         songs = {x["id"]: x for x in library_songs()}
         items = [{"id": i, "url": songs[i]["url"], "title": songs[i]["title"]}
                  for i in self.ambient["songs"] if i in songs]
-        return {"op": "ambient", **self.ambient, "items": items, "show_active": self.show_active}
+        return {"op": "ambient", **self.ambient, "items": items, "show_active": self.show_active,
+                "airplay": self.airplay["active"]}
 
     async def ambient_command(self, msg) -> dict:
         op = msg.get("op")
@@ -170,6 +215,8 @@ class Hub:
         if self.holder in self.clients:
             if op == "stop":
                 await self._send(self.holder, {"op": "stop_play"})   # ambient off ends a play too
+                self.file = None
+                await self._send_gate()
             await self._send(self.holder, out)
         return self.ambient_view()
 
@@ -178,6 +225,8 @@ class Hub:
         if msg["op"] == "stop_play":
             if self.holder in self.clients:
                 await self._send(self.holder, {"op": "stop_play"})
+            self.file = None
+            await self._send_gate()
             return self.ambient_view()
         url, title = msg.get("url"), msg.get("title", "")
         if not play_url_ok(url):
@@ -193,6 +242,8 @@ class Hub:
                     "code": "SHOW_AUDIO_NO_DEVICE"}
         await self._send(self.holder, {"op": "play_file", "url": url, "title": title,
                                        "volume": self.ambient["volume"]})
+        self.file = "sent"
+        await self._send_gate()                              # AirPlay, if on, is muted for the file
         return self.ambient_view()
 
     def ambient_view(self) -> dict:
@@ -200,17 +251,24 @@ class Hub:
                 "state": {**self.ambient, "now_playing": self.device["now_playing"],
                           "playing_from": self.device["source"] if self.device["now_playing"] else None},
                 "show_active": self.show_active,
+                "airplay": {**self.airplay, "gate": self.airplay_gate()},
                 "device": {"holder": self.view()["holder"], "blocked": bool(self.device["blocked"]),
                            "error": self.device["error"]}}
 
-    def device_report(self, cid, report):
+    async def device_report(self, cid, report):
         """The holder's report: `now` (an ambient song's id, or a play's title), `source` (ambient |
-        play), whether the browser blocked starting it, and the last play that failed."""
+        play), whether the browser blocked starting it, and the last play that failed. A file seen
+        playing and then no longer has ended: AirPlay, muted for it, is heard again."""
         if cid == self.holder and isinstance(report, dict):
             src = report.get("source")
             self.device = {"now_playing": report.get("now"), "blocked": bool(report.get("blocked")),
                            "source": src if src in ("ambient", "play") else ("ambient" if report.get("now") else None),
                            "error": report.get("error")}
+            if self.device["source"] == "play" and self.device["now_playing"] and self.file == "sent":
+                self.file = "playing"
+            elif self.device["source"] != "play" and self.file == "playing":
+                self.file = None
+                await self._send_gate()
 
     def ready(self, cid, load_id):
         if cid == self.holder:
@@ -220,9 +278,11 @@ class Hub:
         if msg.get("op") == "load":
             self.load_id, self.ready_id, self.last_load = msg.get("id"), None, msg
             self.show_active = True               # the device fades ambient out for the show
+            self.file = None                      # ... and cuts a play, which does not come back
         elif msg.get("op") in ("stop", "cut"):
             self.show_active = False              # ... and resumes it when the show ends
         delivered = await self._send(self.holder, msg) if self.holder in self.clients else False
+        await self._send_gate()                   # a show mutes AirPlay; its end lets it back
         return {**self.view(), "delivered": delivered}
 
 
@@ -298,7 +358,7 @@ async def show_audio_ws(ws: WebSocket):
             elif "ready" in m:
                 hub.ready(cid, m["ready"])
             elif "ambient" in m:                 # the holder: what it is playing, and whether it may
-                hub.device_report(cid, m["ambient"])
+                await hub.device_report(cid, m["ambient"])
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:
