@@ -41,11 +41,12 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
-      OPENDUBS_STUDIO_HOME: ${{ runner.temp }}/studio-home
       OPENDUBS_NO_BROWSER: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: The studio's folders, all under the runner's temp folder
+        run: echo "OPENDUBS_STUDIO_HOME=$RUNNER_TEMP/studio-home" >> "$GITHUB_ENV"
       - name: Off-screen OpenGL (Linux has no display)
         if: runner.os == 'Linux'
         run: |
