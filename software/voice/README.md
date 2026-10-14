@@ -90,6 +90,30 @@ mounts read-only and checks before it starts the service. The service then runs 
 `HF_HUB_OFFLINE=1`, so nothing is fetched at run time. Credits and licences:
 [`NOTICE.md`](NOTICE.md), copied beside the weights.
 
+## The local brain
+
+**Qwen3-30B-A3B-Instruct-2507**, chosen by the project team (workplan V-O3), with
+**Qwen3-4B-Instruct-2507** as the fallback if gate L-3 shows the 30B slows perception too much. It
+runs in its own container (`opendubs-llm`, vLLM), so it can be swapped without touching speech.
+
+- **Which build:** the 30B as Red Hat AI's 4-bit W4A16 quantisation (16.7 GB). The BF16 weights
+  are about 61 GB and the FP8 build 31 GB, and neither fits the ≤ 24 GiB share the voice note
+  budgets for it. Whether the 4-bit build's speed and quality hold is gate L-1.
+- **One profile, both sides** ([`llm_profile.py`](llm_profile.py), from `models.lock.json`): the
+  served name, vLLM's tool-call parser (`hermes`: the models' own chat template uses Hermes-style
+  tool calls), an 8,192-token context, two sequences at once, and the sampling the model cards
+  recommend (temperature 0.7, top-p 0.8, top-k 20). `image/run-llm.sh PROFILE` starts vLLM from it;
+  the service reads the same profile (`VOICE_LLM_PROFILE`). The L-3 fallback is
+  `run-llm.sh qwen3-4b` plus `VOICE_LLM_PROFILE=qwen3-4b`.
+- **Pinned weights, served offline:** `fetch_models.py --only qwen3-30b-a3b-w4a16` fetches them,
+  every file verified; `run-llm.sh` checks them again before it starts vLLM with `HF_HUB_OFFLINE=1`
+  and the weights mounted read-only. vLLM never downloads anything itself.
+- **Warm at start:** the service checks that the server answers *and* serves the profile's model
+  (another model is "not ready", never used), then sends one short request with the real persona
+  and tools, so the first visitor does not pay for a cold start and the persona's prefix is
+  cached. Until then a turn gets the honest "I can't think right now".
+- **History within the context:** a conversation keeps its last six questions.
+
 ## Run it on a desk
 
 No robot, tablet, model or key needed: fake speech and a canned brain.

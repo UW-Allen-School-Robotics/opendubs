@@ -47,6 +47,7 @@ GIVE_UP_S = 10.0          # still nothing: apologise and drop the turn
 TURN_CAP_S = 30.0         # a brain that starts and then stalls is cut here
 PLAYED_GRACE_S = 2.0      # after the audio's length, idle even if the page never says `played`
 MAX_ROUNDS = 3            # model rounds per turn (a tool result, then the rest of the answer)
+MAX_HISTORY_TURNS = 6     # questions kept in a conversation; the local brain's context is 8,192 tokens
 
 SAY_AGAIN = "Sorry, could you say that again?"
 DECLINE = "I'd rather not talk about that."
@@ -120,6 +121,7 @@ class Voice:
         self._played = asyncio.Event()
         self._end_after_turn = False
         self._mark = 0
+        self.brain_state = "unknown"              # server.warm_brain: warming | ready | unavailable
         gate.listeners.append(self.on_gate)
 
     # ---- pages ----------------------------------------------------------------------------------
@@ -281,6 +283,8 @@ class Voice:
 
     async def _answer(self, out: dict, speaker: "Speaker", t_release: float, ms: dict) -> None:
         """Ask the brain, speaking each sentence as it completes. Fills out[status, reply]."""
+        self._trim_history()
+        self._mark = len(self.history)
         self.history.append({"role": "user", "text": out["transcript"]})
         think = asyncio.create_task(self._think(out, speaker, t_release, ms))
         try:
@@ -406,6 +410,13 @@ class Voice:
         if self.owner:
             await self.owner.text(wire.control("state", turn=self.turn, convo=s))
         asyncio.create_task(self.face.convo(s))      # never wait on the face door
+
+    def _trim_history(self) -> None:
+        """Keep the last MAX_HISTORY_TURNS - 1 questions and everything after them, cutting only at
+        a question, so a tool call is never separated from its result."""
+        users = [i for i, h in enumerate(self.history) if h["role"] == "user"]
+        if len(users) >= MAX_HISTORY_TURNS:
+            del self.history[:users[len(users) - MAX_HISTORY_TURNS + 1]]
 
     def _drop_turn(self) -> None:
         del self.history[self._mark:]

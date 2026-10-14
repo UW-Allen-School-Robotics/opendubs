@@ -29,7 +29,8 @@ def spec_for(path: str, data: bytes, big: bool) -> dict:
 class Manifest(unittest.TestCase):
     def test_everything_is_pinned(self):
         models = fm.load_lock()
-        self.assertEqual({m["name"] for m in models}, {"parakeet", "kokoro", "g2p-fallback"})
+        self.assertEqual({m["name"] for m in models},
+                         {"parakeet", "kokoro", "g2p-fallback", "qwen3-30b-a3b-w4a16", "qwen3-4b"})
         for m in models:
             self.assertRegex(m["revision"], HEX40, m["name"])
             self.assertIn(m["license"], {"CC-BY-4.0", "Apache-2.0"}, m["name"])

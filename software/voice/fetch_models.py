@@ -2,10 +2,14 @@
 """Download the speech models' weights, pinned and verified, into the robot's model directory.
 
     fetch_models.py [--dest /var/lib/opendubs/models] [--only parakeet,kokoro,g2p-fallback] [--check]
+    fetch_models.py --only qwen3-30b-a3b-w4a16          # a local language model: only when named
 
 Run at PROVISION time, never at build time: the weights go to the host's model directory, which
 run.sh mounts read-only into the container. They are never in the repository or an image, so the
 project does not redistribute them (their licences and credits: NOTICE.md, copied beside them).
+
+Entries marked `optional` (the local language models, 8 to 17 GB each) are fetched only when named
+with --only: a robot gets one only once its gates have passed (notes/workplan-voice.md, 1.5).
 
 Everything comes from models.lock.json: each repository at a full commit hash, each file with its
 size and either its SHA-256 (large files) or its git blob id (small files). A file that does not
@@ -122,7 +126,9 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="verify what is there; download nothing")
     a = ap.parse_args(argv)
     models = load_lock()
-    if a.only:
+    if not a.only:
+        models = [m for m in models if not m.get("optional")]
+    else:
         want = set(a.only.split(","))
         unknown = want - {m["name"] for m in models}
         if unknown:

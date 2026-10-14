@@ -153,7 +153,8 @@ class LocalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(c.id, c.name, c.args) for c in calls], [("call_a", "set_expression", {"expression": "soft"})])
         self.assertEqual(ev[-1], Done("tool_use", "local:some-model"))
         body = FakeOpenAI.bodies[-1]
-        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertNotIn("chat_template_kwargs", body)      # the 2507 Instruct models never think
+        self.assertEqual((body["temperature"], body["top_p"], body["top_k"], body["min_p"]), (0.7, 0.8, 20, 0.0))
         self.assertTrue(body["stream"])
         self.assertEqual(body["messages"][0], {"role": "system", "content": "persona"})
         self.assertEqual([m["role"] for m in body["messages"]], ["system", "user", "assistant", "tool", "user"])

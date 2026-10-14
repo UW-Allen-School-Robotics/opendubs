@@ -14,7 +14,8 @@ History is neutral, so a turn can move between backends (the `auto` fallback):
 Backends, chosen by VOICE_BRAIN (`local` | `cloud` | `auto`; voice note D4):
 
   FakeLLM     scripted replies; tests and a desk demo
-  LocalLLM    any OpenAI-compatible server on the Thor (vLLM in phase 1), at VOICE_LLM_URL
+  LocalLLM    the local brain: vLLM on the Thor at VOICE_LLM_URL, serving the model of the profile
+              VOICE_LLM_PROFILE names (llm_profile.py; Qwen3-30B-A3B by default, workplan V-O3)
   ClaudeLLM   the Claude API (Haiku 5.5), opt-in per robot. TEXT ONLY leaves the robot: the
               transcript and the persona, never audio. The key is read from the environment, which
               on a robot is the root-owned /etc/opendubs/voice.env, never the repo or the browser.
@@ -114,22 +115,57 @@ def to_openai(history, system: str) -> list[dict]:
 
 
 class LocalLLM:
-    """Streams chat completions from an OpenAI-compatible server (vLLM, llama.cpp) on loopback.
-    Thinking is turned off through the chat template: a model that thinks before its first word
-    turns 50 ms into seconds (voice note §3.3)."""
+    """Streams chat completions from an OpenAI-compatible server (vLLM) on loopback.
 
-    def __init__(self, url: str | None = None, model: str | None = None, timeout_s: float = 10.0):
+    The model's name and sampling come from its serving profile (llm_profile.py), the same one
+    run-llm.sh starts vLLM from. A model that thinks before its first word turns 50 ms into seconds
+    (voice note §3.3); the chosen Qwen3-2507 Instruct models never think, and a profile that needs
+    thinking switched off says so in `chat_template_kwargs`. `profile` is a seam for the tests."""
+
+    def __init__(self, url: str | None = None, model: str | None = None, timeout_s: float = 10.0,
+                 profile: dict | None = None):
+        if profile is None:
+            import llm_profile
+            profile = llm_profile.load()
+        self.profile = profile
         self.url = (url or os.environ.get("VOICE_LLM_URL", "http://127.0.0.1:8000")).rstrip("/")
-        self.model = model or os.environ.get("VOICE_LLM_MODEL", "")
+        self.model = model or os.environ.get("VOICE_LLM_MODEL") or profile["served_name"]
+        self.sampling = dict(profile.get("sampling") or {})
         self.timeout_s = timeout_s
-        self.name = f"local:{self.model or '?'}"
+        self.name = f"local:{self.model}"
 
-    def _body(self, history, system) -> bytes:
-        return json.dumps({
-            "model": self.model, "stream": True, "max_tokens": MAX_TOKENS,
-            "messages": to_openai(history, system), "tools": safe_tools.openai_tools(),
-            "chat_template_kwargs": {"enable_thinking": False},
-        }).encode()
+    def _body(self, history, system, max_tokens: int = MAX_TOKENS) -> bytes:
+        body = {"model": self.model, "stream": True, "max_tokens": max_tokens,
+                "messages": to_openai(history, system), "tools": safe_tools.openai_tools(),
+                **self.sampling}
+        if self.profile.get("chat_template_kwargs"):
+            body["chat_template_kwargs"] = self.profile["chat_template_kwargs"]
+        return json.dumps(body).encode()
+
+    def _models(self) -> list[str]:
+        with urllib.request.urlopen(f"{self.url}/v1/models", timeout=3) as r:
+            return [m.get("id") for m in json.loads(r.read()).get("data", [])]
+
+    async def ready(self) -> tuple[bool, str | None]:
+        """(True, None) once the server answers and serves THIS model; otherwise why not. A server
+        serving some other model is not ready: the robot would be talking with the wrong brain."""
+        try:
+            ids = await asyncio.get_running_loop().run_in_executor(None, self._models)
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            return False, f"no model server at {self.url} ({type(e).__name__})"
+        if self.model not in ids:
+            return False, f"the server at {self.url} serves {ids}, not {self.model!r}"
+        return True, None
+
+    async def warm_up(self, system: str) -> float:
+        """One short request with the real persona and tools, so the first visitor does not pay for
+        a cold start, and the persona's prefix is cached. Returns ms to the first event."""
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        first = None
+        async for _ in self.stream([{"role": "user", "text": "Hello."}], system, max_tokens=4):
+            first = first if first is not None else loop.time()
+        return ((first or loop.time()) - t0) * 1000
 
     def _pump(self, body: bytes, put, cancelled: threading.Event) -> None:
         """In a thread: read the SSE stream, hand each `data:` payload to put()."""
@@ -148,12 +184,12 @@ class LocalLLM:
         finally:
             put(None)
 
-    async def stream(self, history, system):
+    async def stream(self, history, system, max_tokens: int = MAX_TOKENS):
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
         cancelled = threading.Event()
         threading.Thread(target=self._pump, daemon=True,
-                         args=(self._body(history, system),
+                         args=(self._body(history, system, max_tokens),
                                lambda x: loop.call_soon_threadsafe(q.put_nowait, x), cancelled)).start()
         calls: dict[int, dict] = {}
         finish = None
@@ -278,6 +314,15 @@ class Router:
         self.first_text_s, self.unhealthy_s, self.clock = first_text_s, unhealthy_s, clock
         self.cloud_bad_until = 0.0
         self.last_served_by = ""
+
+    async def warm_up(self, system: str):
+        """Warm the local brain, if this router uses one. Returns (ready, why, first-event ms)."""
+        if self.mode == "cloud" or not hasattr(self.local, "ready"):
+            return True, None, None
+        ok, why = await self.local.ready()
+        if not ok:
+            return False, why, None
+        return True, None, await self.local.warm_up(system)
 
     def cloud_healthy(self) -> bool:
         return self.cloud is not None and self.clock() >= self.cloud_bad_until

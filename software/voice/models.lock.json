@@ -1,5 +1,5 @@
 {
-  "_": "The speech models' weights, pinned. fetch_models.py downloads exactly these files at PROVISION time into the robot's model directory and verifies every byte; they are never in the repository or an image. sha256 is for large (LFS) files; git_blob is the git blob id of small files. English only, no GPL: see NOTICE.md.",
+  "_": "The speech models' weights, pinned. fetch_models.py downloads exactly these files at PROVISION time into the robot's model directory and verifies every byte; they are never in the repository or an image. sha256 is for large (LFS) files; git_blob is the git blob id of small files. English only, no GPL: see NOTICE.md. Entries marked optional (the local language models) are fetched only when named with --only, since they are large and live on the robot only once their gates pass; each carries the serving profile run-llm.sh and the voice service read.",
   "models": [
     {
       "name": "parakeet",
@@ -40,6 +40,55 @@
         {"path": "config.json", "size": 1257, "git_blob": "f6f03c4cb8deed1f2ff51ca861b83514854e324e"},
         {"path": "generation_config.json", "size": 191, "git_blob": "c0710cf2fbcc9bf0e8bf71de6b0a032b6ee2df6e"},
         {"path": "model.safetensors", "size": 3011692, "sha256": "dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5"}
+      ]
+    },
+    {
+      "name": "qwen3-30b-a3b-w4a16",
+      "what": "the local brain (V-O3): Qwen3-30B-A3B-Instruct-2507, 4-bit weights (W4A16, GPTQ, group 128) by Red Hat AI, so it fits the <= 24 GiB share; the FP8 build is 31 GB",
+      "repo": "RedHatAI/Qwen3-30B-A3B-Instruct-2507-quantized.w4a16",
+      "revision": "e9c59cdcca9d73f24adeda09660af904a79f509f",
+      "license": "Apache-2.0",
+      "dest": "llm/qwen3-30b-a3b-w4a16",
+      "optional": true,
+      "serve": {"served_name": "qwen3-30b-a3b", "tool_parser": "hermes", "max_model_len": 8192, "max_num_seqs": 2, "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0}},
+      "files": [
+        {"path": "added_tokens.json", "size": 707, "git_blob": "b54f9135e44c1e81047e8d05cb027af8bc039eed"},
+        {"path": "chat_template.jinja", "size": 2630, "git_blob": "70adff8a08fb31e0636f618564838d4bf3c05286"},
+        {"path": "config.json", "size": 1840, "git_blob": "05063900c417879ee7b2a8f792516b2c3b97e316"},
+        {"path": "generation_config.json", "size": 213, "git_blob": "473d046ae2c09fde761a299ddc91ab5ba3cf67be"},
+        {"path": "merges.txt", "size": 1671853, "git_blob": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"},
+        {"path": "model-00001-of-00004.safetensors", "size": 5001759432, "sha256": "c58d3e38b25462dfef3ca1d7f4b2144a1d6d91239a4ad53e588ad9d26a564468"},
+        {"path": "model-00002-of-00004.safetensors", "size": 5002072232, "sha256": "2f3b3653dec23ac798603cc076ae2b5ae5c65748b071743c2ff6013c6e77baf9"},
+        {"path": "model-00003-of-00004.safetensors", "size": 5001930568, "sha256": "dc15b449edf207e896587a1ed3cc19353ef99caae110f63f1bad3fbbb924b339"},
+        {"path": "model-00004-of-00004.safetensors", "size": 1668650384, "sha256": "34e985f70feed1c5e637b0c09a23dd79796984b719ff142242362f06bfdc3591"},
+        {"path": "model.safetensors.index.json", "size": 5421086, "git_blob": "864e751c5f9106ef111f216154a34b2d1305effa"},
+        {"path": "special_tokens_map.json", "size": 613, "git_blob": "ac23c0aaa2434523c494330aeb79c58395378103"},
+        {"path": "tokenizer.json", "size": 11422753, "sha256": "b7a6a993d40b42d517297bb247ff66679e5bc9dd7a5143be0620faf210b42861"},
+        {"path": "tokenizer_config.json", "size": 5405, "git_blob": "c9fc12215bad2b9d91ad3289720ddf9839515072"},
+        {"path": "vocab.json", "size": 2776833, "git_blob": "4783fe10ac3adce15ac8f358ef5462739852c569"}
+      ]
+    },
+    {
+      "name": "qwen3-4b",
+      "what": "the local brain's fallback if gate L-3 fails (V-O3): Qwen3-4B-Instruct-2507, BF16",
+      "repo": "Qwen/Qwen3-4B-Instruct-2507",
+      "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+      "license": "Apache-2.0",
+      "dest": "llm/qwen3-4b",
+      "optional": true,
+      "serve": {"served_name": "qwen3-4b", "tool_parser": "hermes", "max_model_len": 8192, "max_num_seqs": 2, "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0}},
+      "files": [
+        {"path": "LICENSE", "size": 11343, "git_blob": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab"},
+        {"path": "config.json", "size": 727, "git_blob": "6988f134db143052042f2bd6e0c897bc6a605189"},
+        {"path": "generation_config.json", "size": 238, "git_blob": "432531a002c181a19de338313d2375e9d7494d7e"},
+        {"path": "merges.txt", "size": 1671839, "git_blob": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"},
+        {"path": "model-00001-of-00003.safetensors", "size": 3957900840, "sha256": "75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6"},
+        {"path": "model-00002-of-00003.safetensors", "size": 3987450520, "sha256": "0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1"},
+        {"path": "model-00003-of-00003.safetensors", "size": 99630640, "sha256": "7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d"},
+        {"path": "model.safetensors.index.json", "size": 32819, "git_blob": "4747b0297d3109f14db49886972e3369c9a00b2a"},
+        {"path": "tokenizer.json", "size": 11422654, "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"},
+        {"path": "tokenizer_config.json", "size": 9377, "git_blob": "51c1be0d9192e7f6e6596de71d0f07d58fbc32ac"},
+        {"path": "vocab.json", "size": 2776833, "git_blob": "4783fe10ac3adce15ac8f358ef5462739852c569"}
       ]
     }
   ]

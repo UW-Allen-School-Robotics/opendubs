@@ -39,6 +39,7 @@ jobs:
       - run: python3 software/voice/tests/test_speech.py
       - run: python3 software/voice/tests/test_fetch_models.py
       - run: python3 software/voice/tests/test_no_gpl.py
+      - run: python3 software/voice/tests/test_llm.py
       - run: for f in software/voice/image/*.sh; do bash -n "$f"; done
 
   # English only, no GPL (the project team, 2026-10-14): install the pinned speech packages exactly
