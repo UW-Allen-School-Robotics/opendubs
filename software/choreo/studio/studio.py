@@ -384,19 +384,35 @@ def cmd_limits(a) -> int:
     return 0
 
 
+NO_GL = ("CGLError", "invalid pixel format", "GLContext", "OSMesa", "EGL", "GLFW", "OpenGL")
+
+
 def cmd_selftest(a) -> int:
-    """One off-screen frame of the whole robot (the twin's own model), checked for content."""
+    """One off-screen frame of the whole robot (the twin's own model), checked for content.
+    `--frame auto`: on a machine with no OpenGL at all (a virtual CI runner), check instead that the
+    model compiles and steps, and say plainly that the frame was skipped."""
     tree = tree_root()
     with tempfile.TemporaryDirectory() as td:
         png = Path(td) / "frame.png"
         r = subprocess.run([sys.executable, tree / "sim" / "scene.py", "--render", png], capture_output=True,
                            cwd=tree / "sim", timeout=180)
-        if r.returncode or not png.is_file() or png.stat().st_size < 2000:
-            print(f"{APP}: selftest FAILED — no frame:\n{r.stdout.decode(errors='replace')[-800:]}"
-                  f"{r.stderr.decode(errors='replace')[-1500:]}", file=sys.stderr)
-            return 1
-        print(f"{APP}: selftest ok — the twin rendered a {png.stat().st_size} B frame")
-    return 0
+        if not r.returncode and png.is_file() and png.stat().st_size >= 2000:
+            print(f"{APP}: selftest ok — the twin rendered a {png.stat().st_size} B frame")
+            return 0
+        err = r.stdout.decode(errors="replace")[-800:] + r.stderr.decode(errors="replace")[-1500:]
+        if a.frame == "auto" and any(k in err for k in NO_GL):
+            c = subprocess.run([sys.executable, "-c", "import sys, mujoco; sys.path.insert(0, '.'); import scene; "
+                                "m = scene.build(); d = mujoco.MjData(m); [mujoco.mj_step(m, d) for _ in range(100)]; "
+                                "print(m.nbody, 'bodies stepped')"],
+                               capture_output=True, cwd=tree / "sim", timeout=180)
+            if c.returncode == 0:
+                print(f"{APP}: selftest ok WITHOUT a frame — this machine has no OpenGL "
+                      f"({err.strip().splitlines()[-1]}); the model compiled and stepped: "
+                      f"{c.stdout.decode().strip().splitlines()[-1]}")
+                return 0
+            err += c.stderr.decode(errors="replace")[-1500:]
+        print(f"{APP}: selftest FAILED — no frame:\n{err}", file=sys.stderr)
+    return 1
 
 
 def main(argv=None) -> int:
@@ -413,7 +429,9 @@ def main(argv=None) -> int:
     lim = sub.add_parser("limits", help="use a robot's arm joint limits")
     lim.add_argument("--from-robot", required=True, metavar="HOST")
     lim.add_argument("--path", default="/etc/opendubs/arm-limits/joint_limits.yaml")
-    sub.add_parser("selftest", help="render one off-screen frame of the twin")
+    slf = sub.add_parser("selftest", help="render one off-screen frame of the twin")
+    slf.add_argument("--frame", choices=("require", "auto"), default="require",
+                     help="auto: where there is no OpenGL at all, compile and step the model instead")
     a = ap.parse_args(argv)
     return {"up": cmd_up, "down": cmd_down, "status": cmd_status, "open": cmd_open, "paths": cmd_paths,
             "limits": cmd_limits, "selftest": cmd_selftest}[a.cmd](a)

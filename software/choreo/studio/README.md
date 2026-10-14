@@ -63,5 +63,5 @@ system for free ones otherwise; `status` shows which.
 `build_wheel.py` copies the files git tracks from `software/choreo`, `software/face-web`,
 `software/head-protocol`, `sim/` and `description/`, in the repository's own layout, without tests,
 deploy files, `software/face-web/vendor/` (camera tracking is off in the studio) or
-`software/face-web/test/`. `.github/workflows/studio.yml` builds it, installs it and runs the whole
+`software/face-web/test/` (bench files the studio never loads). `.github/workflows/studio.yml` builds it, installs it and runs the whole
 app on macOS and Linux for every change to those folders.

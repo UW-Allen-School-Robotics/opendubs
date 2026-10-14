@@ -13,7 +13,7 @@ less what is not the app's to ship:
   * tests (but the arm limits fixture, the composer's TEST limits), and the choreography deploy
     files (the robot's, not a laptop's);
   * software/face-web/vendor/ (MediaPipe, git-ignored anyway: camera tracking is off in the studio);
-  * software/face-web/test/ (a photograph with no provenance: never redistributed).
+  * software/face-web/test/ (a bench-only tracking stimulus; the studio never loads it).
 The staging tree is built in a temporary folder, never in the checkout. A release is cut from it only
 on a `studio-v*` tag, which the maintainers push by hand.
 """

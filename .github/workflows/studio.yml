@@ -77,7 +77,9 @@ jobs:
           assert r.startswith("PONG") and "tablet" in r, r
           PY
       - name: One off-screen frame of the twin
-        run: opendubs-studio selftest
+        # GitHub's macOS runners are virtual machines with no OpenGL at all: there the model is compiled
+        # and stepped instead, and the log says the frame was skipped. Linux renders through osmesa.
+        run: opendubs-studio selftest --frame $([ "$RUNNER_OS" = Linux ] && echo require || echo auto)
       - name: Stop it, and nothing is left
         if: always()
         run: |
