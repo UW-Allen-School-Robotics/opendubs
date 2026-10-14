@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Hygiene gate for a directory that is about to be shipped (a release bundle's staging tree).
 
-    python3 tools/hygiene/check_tree.py --root <staging dir> [--map STAGED=REPO ...]
-                                        [--allow-no-denylist]
+    python3 tools/hygiene/check_tree.py --root <staging dir> --allow-no-denylist [--map STAGED=REPO ...]
+
+--allow-no-denylist is the project's standard call: no deny-list is configured (see Personal names).
 
 The PR checks (check_files.py, check_names.py, gitleaks in hygiene.yml) look at what a change adds
 to git. A bundle is different: it ships files as they are on disk, including anything generated or
@@ -17,8 +18,11 @@ them trips:
   files, nested ones included, at the file's repo path.
 * **Personal names:** the deny-list from the HYGIENE_NAME_DENYLIST environment variable, the same
   Actions secret the PR check uses. Copyright lines in licence files are exempt. Findings print the
-  file and line, never the word. A release gate does not pass blind: with no deny-list set, the
-  check FAILS, unless --allow-no-denylist is given.
+  file and line, never the word.
+  **The deny-list is not configured, by the maintainers' decision (2026-10-14):** names are caught
+  by review and by the no-personal-names rule, not by CI. So callers pass --allow-no-denylist, and
+  the check reports "skipped: no deny-list configured" and passes. Without the flag, an unset
+  deny-list fails, so a caller has to opt in to running without one.
 * **File size:** over 2 MiB, unless the file's repo path is in tools/hygiene/size-allow.txt.
 * **Image metadata:** any image carrying GPS coordinates. Needs exiftool on PATH.
 
@@ -118,10 +122,11 @@ def check_names(root, files, allow_none):
     deny = load_denylist()
     if deny is None:
         if allow_none:
-            report("notice", "names", "HYGIENE_NAME_DENYLIST is not set; check skipped")
+            report("notice", "names", "skipped: no deny-list configured")
         else:
-            report("error", "names", "HYGIENE_NAME_DENYLIST is not set, so names cannot be checked. "
-                   "Pass the Actions secret to this step, or --allow-no-denylist")
+            report("error", "names", "no deny-list configured, and --allow-no-denylist was not "
+                   "given. The project runs without one (names are caught in review), so pass "
+                   "--allow-no-denylist")
         return
     for f in files:
         data = (root / f).read_bytes()
@@ -165,7 +170,7 @@ def main():
     ap.add_argument("--map", action="append", default=[], metavar="STAGED=REPO",
                     help="a staged path prefix and the repo path it came from")
     ap.add_argument("--allow-no-denylist", action="store_true",
-                    help="pass the name check when HYGIENE_NAME_DENYLIST is unset")
+                    help="skip the name check when no deny-list is configured (the project default)")
     a = ap.parse_args()
 
     root = a.root.resolve()

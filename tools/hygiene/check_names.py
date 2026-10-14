@@ -12,7 +12,11 @@ addresses.
 **The deny-list is never committed.** It comes from the `HYGIENE_NAME_DENYLIST` environment
 variable, which the workflow fills from a repository Actions secret of the same name, so the
 check itself publishes no names. For the same reason a finding prints the file and line but
-never the word that matched. With no deny-list set, the check prints a notice and passes.
+never the word that matched.
+
+**The deny-list is not configured, by the maintainers' decision (2026-10-14).** Personal names are
+caught by review and by the project's no-personal-names rule, not by CI, so this check prints
+"skipped: no deny-list configured" and passes. Setting the secret turns it on with no other change.
 
 Not flagged: `Signed-off-by:` and `Co-Authored-By:` trailers (commit metadata, which the rule
 allows), and copyright lines in licence files, which the licences require.
@@ -76,7 +80,7 @@ def main():
 
     deny = load_denylist()
     if deny is None:
-        msg = "personal-name check skipped: HYGIENE_NAME_DENYLIST is not set"
+        msg = "personal names: skipped: no deny-list configured (HYGIENE_NAME_DENYLIST is unset)"
         print(f"::notice::{msg}" if ACTIONS else msg)
         return 0
 
