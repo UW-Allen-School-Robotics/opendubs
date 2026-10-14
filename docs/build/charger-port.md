@@ -37,6 +37,21 @@ in.
 ### Step 1 — Slide the charge-port panel into the rail
 
 <figure markdown="span">
+  ![The charge-port panel lined up above the open top of the goRAIL uprights](../assets/build/charger-port/01a-panel-above-rail.webp)
+  <figcaption>Line the panel up over the open ends of the two uprights.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The charge-port panel slid down into the T-slots of both uprights](../assets/build/charger-port/01b-panel-slid-in.webp)
+  <figcaption>Slide it down into both T-slots together.</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![Tightening the fastener that locks the charge-port panel in the rail](../assets/build/charger-port/01c-locking-the-panel.webp)
+  <figcaption>With the panel at its height, tighten the fasteners to lock it in place.</figcaption>
+</figure>
+
+<figure markdown="span">
   ![The printed charge-port panel slid into the goRAIL T-slot on the frame upright](../assets/build/charger-port/01-charge-port-panel-in-rail.webp)
   <figcaption>The black printed panel located in the goRAIL T-slot. The connector sits behind the upper aperture so it is reachable from outside the robot without opening anything up.</figcaption>
 </figure>
@@ -53,6 +68,11 @@ locking the panel down, check the connector actually presents through its apertu
 charge lead can be mated and released with the robot fully assembled.
 
 ### Step 3 — Land the charger wiring
+
+<figure markdown="span">
+  ![The back of the charge-port panel, showing the connector body and its leads](../assets/build/charger-port/03a-connector-rear.webp)
+  <figcaption>The connector from behind the panel. Its leads leave inboard, ready to run along the rail.</figcaption>
+</figure>
 
 <figure markdown="span">
   ![The lower frame with both the charge-port panel and the fan panel fitted](../assets/build/charger-port/02-both-panels-in-frame.webp)
