@@ -13,6 +13,11 @@ answered on the robot's network could be mistaken for the head.
 
     python3 software/head-protocol/conformance.py 127.0.0.1:4244 --neck 127.0.0.1:4245 --active --motion
 
+Any port may be 0 (the OS picks one), and `--ready-json` prints the ports actually bound as one JSON line
+once everything is listening, for a launcher such as the studio app:
+
+    python3 software/face-web/door_dev.py --http 0 --ws 0 --face 0 --neck 0 --ready-json
+
 A bench tablet on USB reaches it through `adb reverse tcp:8765 tcp:8765` and `adb reverse
 tcp:8766 tcp:8766`, which keeps it on localhost: a secure context, so the camera works.
 
@@ -123,6 +128,19 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def do_GET(self):
+        # No library here (it is git-ignored, and a packaged twin ships without it): an empty one,
+        # rather than a 404 in the page's console. The face draws its code skins either way.
+        if self.path.split("?", 1)[0] == "/library/index.json" and not os.path.exists(os.path.join(HERE, "library", "index.json")):
+            body = b"[]"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
     def log_message(self, *a):
         pass
 
@@ -133,12 +151,19 @@ async def main(a):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     neck = FakeHead("neck", port=a.neck).start()
     loop = asyncio.get_running_loop()
-    await loop.create_datagram_endpoint(FaceDoor, local_addr=("127.0.0.1", a.face))
-    async with websockets.serve(page, "127.0.0.1", a.ws):
-        print(f"face page  http://127.0.0.1:{a.http}/?door=ws://127.0.0.1:{a.ws}&hud=1&state=SAFE_IDLE")
-        print(f"face udp 127.0.0.1:{a.face}   neck udp 127.0.0.1:{neck.port} (reference)")
+    face_t, _ = await loop.create_datagram_endpoint(FaceDoor, local_addr=("127.0.0.1", a.face))
+    async with websockets.serve(page, "127.0.0.1", a.ws) as server:
+        # The ports actually bound: any of them may be 0 (the OS picks), so a launcher never collides
+        # with another door and never has to look for a free port itself.
+        ports = {"http": httpd.server_address[1], "ws": next(iter(server.sockets)).getsockname()[1],
+                 "face": face_t.get_extra_info("sockname")[1], "neck": neck.port}
+        human = sys.stderr if a.ready_json else sys.stdout
+        print(f"face page  http://127.0.0.1:{ports['http']}/?door=ws://127.0.0.1:{ports['ws']}&hud=1&state=SAFE_IDLE", file=human)
+        print(f"face udp 127.0.0.1:{ports['face']}   neck udp 127.0.0.1:{ports['neck']} (reference)", file=human)
         if FRAMES:
-            print(f"face frames -> {FRAMES} ({TAP_W}x{TAP_H}, for the body twin)")
+            print(f"face frames -> {FRAMES} ({TAP_W}x{TAP_H}, for the body twin)", file=human)
+        if a.ready_json:                      # ONE line on stdout, once every socket is listening
+            print(json.dumps({"ready": True, **ports}), flush=True)
         await neck_feed(neck)
 
 
@@ -148,6 +173,9 @@ if __name__ == "__main__":
     ap.add_argument("--ws", type=int, default=8766)
     ap.add_argument("--face", type=int, default=4244)
     ap.add_argument("--neck", type=int, default=4245)
+    ap.add_argument("--ready-json", action="store_true",
+                    help="once listening, print one JSON line {ready, http, ws, face, neck} to stdout "
+                         "(the human lines go to stderr); any port may be 0 to let the OS pick")
     try:
         asyncio.run(main(ap.parse_args()))
     except KeyboardInterrupt:
