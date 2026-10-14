@@ -37,7 +37,7 @@ and does not assume one.
 The arms are deliberately not described here — `openarm_assets` owns them and they are attached
 at runtime. Planners are *consumers* of this description, not owners of it:
 
-- **`mj_manipulator`** (the UW Personal Robotics Lab stack, which Eric works in) plans and
+- **`mj_manipulator`** (the UW Personal Robotics Lab's planning stack) plans and
   executes multi-arm trajectories. It moves **the arms and grippers, and nothing else** — not
   the lift, the head, the base, sound, the face or the lights. Those are ours whatever planner
   is in use.
@@ -80,9 +80,9 @@ whole arm frame rides on the platform, so its reach envelope moves with it and a
 above it. Worth stating because it is easy to model the envelope as if it were fixed to the
 chassis and then go looking for a collision that geometry rules out.
 
-Today `software/choreo/cue.py` refuses a shoulder above 157° because *I measured contact with
-the head at 182° by hand, once, on one axis, with a human watching*. Eric's controller will not
-stop it either — its only Cartesian guard is a 1.2 m workspace box, and the arm reaches the head
+Today `software/choreo/cue.py` refuses a shoulder above 157° because *the project team measured
+contact with the head at 182° by hand, once, on one axis, with a human watching*. The arm controller
+will not stop it either — its only Cartesian guard is a workspace box, and the arm reaches the head
 comfortably inside that box.
 
 With a model we compute the real thing: minimum distance between any arm link and the head, the
