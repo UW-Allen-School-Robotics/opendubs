@@ -187,8 +187,9 @@ meshes:
 # URDF rather than inventing one: a guessed offset is the hardcoded-LIDAR-facing problem in
 # app.js, with more ceremony. A consumer looking up a missing frame fails loudly, which is right.
 #
-# Frame names are the ones the drivers already publish (laser, laser_rear, tof_front_link), so
-# no node has to change. Joint names match the MJCF (zaxis, head_pan, head_tilt), so one
+# Frame names are the ones the drivers publish (laser, laser_rear), so no node has to change.
+# tof_front_link is reserved for the head's front ToF (sensor_msgs/Range), which has no ROS
+# publisher until it returns through the head protocol (workplan-tablet 2.1; thor-stack L.6). Joint names match the MJCF (zaxis, head_pan, head_tilt), so one
 # joint_states message means the same thing to the simulator and the robot.
 
 base_link:
