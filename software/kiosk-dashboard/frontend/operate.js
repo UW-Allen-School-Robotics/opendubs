@@ -28,6 +28,20 @@
   // show: an operator who comes back here during a show (long-press on the face) is not dragged away.
   if (window.OpenDubsKiosk) {
     const SHOW = new Set(["ARMED_WAITING", "COUNTDOWN", "PREPPING", "WAITING_FOR_START", "RUNNING"]);
+    // At once, not on the next poll: the moment a run the operator started HERE is accepted, show the
+    // face, so the runner's ARMED sign has a face to land on. After the request succeeds, never on the
+    // tap itself — leaving the page mid-request would cancel the run it is starting.
+    const fetch0 = window.fetch.bind(window);
+    window.fetch = async (url, opts) => {
+      const r = await fetch0(url, opts);
+      try {
+        const u = typeof url === "string" ? url : url.url;
+        if (r.ok && /\/api\/choreo\/run\//.test(u) && (opts && String(opts.method).toUpperCase() === "POST")) {
+          setTimeout(() => { location.href = "/face/"; }, 50);
+        }
+      } catch (e) {}
+      return r;
+    };
     let last;                                       // undefined until the first answer: no jump on load
     setInterval(async () => {
       try {
@@ -36,13 +50,35 @@
         last = st;
       } catch (e) { /* no runner: no show to follow */ }
     }, 1000);
+
+    // Back to the face when nobody is using the dashboard: after `face_return_min` minutes untouched
+    // (the Head & face page; 0 = never). Never while a show runs, a menu or dialog is open, or a
+    // control is held — so it can't pull the screen from under an operator.
+    let returnMin = 2, lastTouch = Date.now(), held = 0;
+    const touched = () => { lastTouch = Date.now(); };
+    for (const ev of ["pointerdown", "keydown", "wheel", "input"]) addEventListener(ev, touched, true);
+    addEventListener("pointerdown", () => { held++; }, true);
+    for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { held = Math.max(0, held - 1); touched(); }, true);
+    const loadReturn = async () => {
+      try { const m = (await (await fetch("/api/head/settings", { cache: "no-store" })).json()).face_return_min;
+            if (typeof m === "number") returnMin = m; } catch (e) {}
+    };
+    loadReturn(); setInterval(loadReturn, 60000);
+    const modalOpen = () => !!document.querySelector("#opDrawer.open, dialog[open], [role=dialog]:not([hidden]), .modal.open");
+    setInterval(() => {
+      if (!returnMin || held || modalOpen() || SHOW.has(last)) return;
+      if (Date.now() - lastTouch >= returnMin * 60000) location.href = "/face/";
+    }, 5000);
   }
-  if ($("opFs") && !$("opFace")) {
+  // The FACE control: labelled, on the LEFT next to the brand, so it is never mistaken for or tapped
+  // instead of E-STOP, which stays at the far right with clear space beside it.
+  const brand = document.querySelector("#topbar .brand");
+  if (brand && !$("opFace")) {
     const b = document.createElement("button");
-    b.id = "opFace"; b.className = "op-ham"; b.title = "Show the robot's face"; b.textContent = "☺";
-    b.style.fontSize = "20px";
+    b.id = "opFace"; b.className = "op-face"; b.title = "Show the robot's face";
+    b.innerHTML = '<span aria-hidden="true" style="font-size:17px;line-height:0">☺</span> FACE';
     b.addEventListener("click", () => { location.href = "/face/"; });
-    $("opFs").before(b);
+    brand.after(b);
   }
   $("opScrim") && $("opScrim").addEventListener("click", () => drawer(false));
   $("opDrawerClose") && $("opDrawerClose").addEventListener("click", () => drawer(false));

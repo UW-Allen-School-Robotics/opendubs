@@ -30,6 +30,9 @@
 
       <h2 class="mt">SCREEN</h2>
       <div class="hf-row"><label for="hfScreen">Keep the screen on</label><input type="checkbox" id="hfScreen"></div>
+      <div class="hf-row"><label for="hfReturn">Back to the face after</label>
+        <select id="hfReturn"><option value="0">never</option><option value="1">1 minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select>
+        <span class="hf-note">untouched on the dashboard (the robot's own tablet; never during a show)</span></div>
       <div class="hf-row"><label for="hfBright">Brightness</label><input type="range" id="hfBright" min="0.05" max="1" step="0.05"><span class="hf-val" id="hfBrightV"></span></div>
       <div class="hf-row"><label for="hfBrightMin">Never dimmer than</label><input type="range" id="hfBrightMin" min="0.05" max="1" step="0.05"><span class="hf-val" id="hfBrightMinV"></span>
         <span class="hf-note">A show can't go below this, so the face never goes dark by mistake.</span></div>
@@ -78,6 +81,7 @@
 
   function render() {
     el("hfScreen").checked = s.screen_on;
+    el("hfReturn").value = String(s.face_return_min);
     el("hfIdle").checked = s.idle_eyes;
     el("hfMouth").checked = s.mouth;
     el("hfTheme").value = s.theme;
@@ -158,6 +162,7 @@
   // ---- controls -----------------------------------------------------------------------------------
   const onChange = (id, fn) => el(id).addEventListener("change", fn);
   onChange("hfScreen", (e) => save({ screen_on: e.target.checked }, true));
+  onChange("hfReturn", (e) => save({ face_return_min: Number(e.target.value) }, true));
   onChange("hfIdle", (e) => save({ idle_eyes: e.target.checked }, true));
   onChange("hfMouth", (e) => save({ mouth: e.target.checked }, true));
   onChange("hfTheme", (e) => save({ theme: e.target.value }, true));

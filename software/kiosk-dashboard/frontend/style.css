@@ -516,6 +516,25 @@ body {
 
 /* ═══════════════ OPERATE screen (driving front door) ═══════════════ */
 #topbar.opbar{ justify-content:flex-start; gap:12px; }
+/* The Operate bar stays ONE row on the tablet (1340 px): wrapping put RE-ARM on a second row under the
+   bar. Tighter gaps, the host name hidden below 1600 px (the robot's name is in the brand), and the
+   state pills may shorten; E-STOP never does, and keeps clear space beside it. */
+@media (max-width: 1600px) {
+  #topbar.opbar{ flex-wrap:nowrap; gap:8px; }
+  #topbar.opbar > *{ white-space:nowrap; flex-shrink:0; }       /* nothing wraps or is cut: the state reads in full */
+  #topbar.opbar .spacer{ flex-shrink:1; min-width:0; }
+  #topbar.opbar #host{ display:none; }
+  #topbar.opbar .op-rearm{ margin-left:0; }
+  /* While e-stopped, RE-ARM needs the room, and the robot is stopped: the AI TRACKING toggle (also on
+     the Head & face page) steps aside until it is re-armed. */
+  body.op-estopped #topbar.opbar #btnAiToggle{ display:none; }
+}
+#topbar.opbar .op-estop{ flex-shrink:0; margin-left:16px; }
+/* Show the robot's face: labelled, and on the LEFT, far from E-STOP (operate.js). */
+.op-face{ display:inline-flex; align-items:center; gap:6px; padding:7px 13px; min-height:40px; border-radius:20px;
+  border:1px solid var(--accent, #2ec27e); background:transparent; color:var(--accent, #2ec27e);
+  font-weight:800; font-size:13px; letter-spacing:.08em; cursor:pointer; white-space:nowrap; flex-shrink:0; }
+.op-face:active{ background:var(--accent, #2ec27e); color:#04221a; }
 #topbar.opbar .spacer{ flex:1; }
 .op-ham{ color:var(--dim); background:none; border:0; padding:6px; cursor:pointer; line-height:0; }
 .op-ham:hover{ color:var(--txt); }
