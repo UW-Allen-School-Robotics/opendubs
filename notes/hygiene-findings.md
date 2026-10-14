@@ -30,6 +30,7 @@ history.
 | 5 | **Copyright holder: keep the TODO**, awaiting legal advice. | L4's holder question is parked. Sweeps and CI do not raise it again. |
 | 6 | **`access/`: move the roster to the git-ignored `ops/access/`**, with role handles in the repo. | Hygiene does it (the path is unowned): branch `hygiene/access-roster`. **Merges only after the maintainer copies the current roster and keys into `ops/access/`.** |
 | 7 | **Dependabot alerts: on. Required checks on `main`: approved.** | Config approved as proposed: require `Hygiene checks` (GitHub Actions, app 15368), not strict, admins included, 0 approvals, other settings unchanged. **Applied by the orchestrator only after the `hygiene/ci` PR merges**, then read back to confirm. |
+| 9 | **No name deny-list in CI** (2026-10-14). The `HYGIENE_NAME_DENYLIST` secret will not be set. | The PR name check and the bundle gate's name check report "skipped: no deny-list configured" and pass. Personal names are caught by review and by the no-personal-names rule, not by CI. |
 
 ### Still open
 
@@ -305,7 +306,7 @@ Not started; waiting on review of A.
 | Secrets in the PR diff | gitleaks binary (the GitHub Action needs a paid licence for organisation repos), plus a project rule for literal Wi-Fi credentials | **blocking** (history is clean) | now |
 | File size | script; limit 2 MB per added file, with an allow-list for the existing meshes and diagrams | warn | after the allow-list is reviewed |
 | Image metadata | exiftool: fail on GPS, warn on camera make, model or serial | warn | after D1 is fixed |
-| Personal names | script that reads a deny-list from an Actions secret (never committed). It checks the diff and the PR's commit messages, prints `file:line` and never the matched word | warn | after N1–N3 are fixed |
+| Personal names | script reading a deny-list from the `HYGIENE_NAME_DENYLIST` Actions secret | **skipped by decision** | The secret will not be set (2026-10-14). The check reports "skipped: no deny-list configured" and passes, and the bundle gate is called with `--allow-no-denylist`. Names are caught by review and by the no-personal-names rule. |
 | Licence | `reuse lint` with a REUSE.toml (a draft already passes on an export) | **parked** | a REUSE.toml must name a copyright holder, which awaits legal advice (decision 5) |
 | Ignore sanity | `git ls-files -ci --exclude-standard` must be empty; no build or download artefact paths | blocking | now |
 

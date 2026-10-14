@@ -10,7 +10,8 @@ name: Hygiene
 #   ignore   block  nothing tracked matches an ignore rule today
 #   size     warn
 #   exif     warn
-#   names    warn
+#   names    skipped: no deny-list is configured, by the maintainers' decision (2026-10-14);
+#            names are caught in review. Setting the HYGIENE_NAME_DENYLIST secret turns it on.
 
 on:
   pull_request:
@@ -68,7 +69,7 @@ jobs:
         if: always()
         run: python3 tools/hygiene/check_files.py --base "$BASE" --size warn --exif warn
 
-      - name: Personal names (warn)
+      - name: Personal names (skipped unless a deny-list is configured)
         if: always()
         env:
           HYGIENE_NAME_DENYLIST: ${{ secrets.HYGIENE_NAME_DENYLIST }}
