@@ -20,12 +20,16 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+Group=kiosk
 EnvironmentFile=-/etc/opendubs/robot.env
 EnvironmentFile=/opt/opendubs/stack/versions.env
 # /run/opendubs/airplay exists only while the receiver runs: a reader that finds it missing knows
 # the receiver is off. airplay-prestart.sh gives the dashboard's user (kiosk) read access.
 RuntimeDirectory=opendubs/airplay
 RuntimeDirectoryMode=0750
+# systemd re-applies the RuntimeDirectory's ownership (recursively) to the unit's User:Group as it
+# sets up each Exec command, which undid a chgrp in ExecStartPre (seen on opendubs2, 2026-10-14). So
+# the group is kiosk HERE. The process is still uid root, which it needs for docker.
 ExecStartPre=/opt/opendubs/stack/airplay/airplay-prestart.sh
 ExecStart=/opt/opendubs/stack/airplay/airplay-run.sh
 ExecStop=/usr/bin/docker stop -t 5 opendubs-airplay
