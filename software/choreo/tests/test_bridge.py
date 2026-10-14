@@ -293,6 +293,47 @@ check("the face stub answers SKIN IDLE / THEME IDLE as a face with no idle setti
       face_stub.answer("SKIN IDLE", {}) == "OK skin idle default"
       and face_stub.answer("THEME IDLE", {}) == "OK theme idle plain")
 
+print("\nGAZE replies: each is matched to what was asked, not only to the newest target")
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def _gaze_run(replies_after_change, band=None):
+    """A nod (tilt 105) renewed, then the target goes back to level (90); the head's answers to the
+    nod's last renewals arrive only after the change, as they did on the robot (2026-10-13)."""
+    clk, notes = _Clock(), []
+    sk = _Sock([])
+    gz = fb.LiveGaze("127.0.0.1", sock=sk, clock=clk, note=lambda **kw: notes.append(kw))
+    gz.show({"tracks": {"HEAD": [{"t": 0.0, "cue": {"pan": 90, "tilt": 105}},
+                                 {"t": 2.0, "cue": {"pan": 90, "tilt": 90}}]}})
+    for i in range(10):                          # 0.0 .. 1.8 s: the nod, renewed every 0.2 s
+        clk.t = 100.0 + i * 0.2
+        gz.playhead(i * 0.2, True, "RUNNING")
+    clk.t = 102.0
+    gz.playhead(2.0, True, "RUNNING")            # the target changes to level
+    sk.replies += replies_after_change           # ... and the nod's last answers land now
+    clk.t = 102.05
+    gz.playhead(2.05, True, "RUNNING")
+    return [n for n in notes if n.get("kind") == "gaze_warning"], sk.lines
+
+
+warn, lines = _gaze_run(["OK gaze 90 105"])
+check("a late answer to the previous target is not a clamp (the false 'asked 90, got 105' at the robot)",
+      warn == [] and "GAZE 90 105 600" in lines and "GAZE 90 90 600" in lines, (warn, lines[-3:]))
+warn, _ = _gaze_run(["OK gaze 90.0 105.0"])
+check("... nor in the decimal form a head may send", warn == [], warn)
+warn, _ = _gaze_run(["OK gaze 89.6 104.7"])
+check("... and a reply is ROUNDED to whole degrees, not truncated (89.6 is 90)", warn == [], warn)
+warn, _ = _gaze_run(["OK gaze 90 95"])
+check("a real clamp (asked 105 or 90, the head took 95) is still logged once, with the raw reply",
+      len(warn) == 1 and warn[0]["got"] == [90, 95] and warn[0]["reply"] == "OK gaze 90 95", warn)
+
 print()
 if fails:
     for x in fails:

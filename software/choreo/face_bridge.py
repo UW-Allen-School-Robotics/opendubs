@@ -451,6 +451,10 @@ class LiveGaze(_HeadLink):
 
     RENEW_S = 0.2
     LEASE_MS = 600            # the head's default; it caps any lease at 1000
+    # A reply answers a line sent up to this long ago, not necessarily the newest: it is compared
+    # with every target sent in that window (found at the robot 2026-10-13: the head's answer to the
+    # last renewal of a nod arrived after the next target was sent, and read as a clamp).
+    REPLY_WINDOW_S = 1.0
     ENDINGS = ("ABORTED", "ESTOPPED", "COMPLETED", "LEASE_LOST")
 
     def __init__(self, host: str, port: int = 4242, sock=None, note=None, clock=None, resolve=None):
@@ -459,6 +463,7 @@ class LiveGaze(_HeadLink):
         self.clock = clock or _t.monotonic
         self.track, self.started, self.supported = [], False, None   # None: not known yet
         self._last, self._sent_at = None, -1e9
+        self._asked = []                          # [(when, (pan, tilt))] sent in the last REPLY_WINDOW_S
 
     def target_at(self, t) -> tuple:
         pan = tilt = 90.0
@@ -471,6 +476,7 @@ class LiveGaze(_HeadLink):
     def show(self, tl):
         self.track = sorted((tl or {}).get("tracks", {}).get("HEAD", []), key=lambda e: e["t"])
         self.started, self._last, self._sent_at, self._said = False, None, -1e9, set()
+        self._asked = []
         if self.supported is False:
             self.supported = None          # learn again: the head may have been flashed since
 
@@ -480,9 +486,15 @@ class LiveGaze(_HeadLink):
                 self.supported = True
             elif r.startswith("OK gaze "):
                 self.supported = True
-                got = tuple(int(float(x)) for x in r.split()[2:4])
-                if self._last and got != self._last:
-                    self._once("clamped", kind="gaze_warning", asked=list(self._last), got=list(got),
+                try:
+                    got = tuple(round(float(x)) for x in r.split()[2:4])    # pan, tilt (head-protocol.md)
+                except ValueError:
+                    self._once("reply:" + r, kind="gaze_error", reply=r, note="a GAZE reply this runner cannot read")
+                    continue
+                now = self.clock()
+                recent = [a for t, a in self._asked if now - t <= self.REPLY_WINDOW_S]
+                if recent and got not in recent:
+                    self._once("clamped", kind="gaze_warning", asked=list(recent[-1]), got=list(got), reply=r,
                                note="the head limited this move to its own range (tilt band?)")
             elif r.startswith("ERR unknown"):
                 self.supported = False
@@ -516,6 +528,7 @@ class LiveGaze(_HeadLink):
                 # Logged only when the target changes, not on every renewal.
                 self._send(f"GAZE {tgt[0]} {tgt[1]} {self.LEASE_MS}", log=tgt != self._last)
                 self._last, self._sent_at = tgt, now
+                self._asked = [(t, a) for t, a in self._asked if now - t <= self.REPLY_WINDOW_S] + [(now, tgt)]
         elif self.started and status in self.ENDINGS:
             self.started = False
             if self.supported is not False:
