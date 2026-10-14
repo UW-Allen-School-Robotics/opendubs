@@ -132,6 +132,11 @@ desktop, driven by `face_bridge.py`. With both running, the body twin's head sho
 own picture (`face_frames.py`), so one window shows the whole robot. Both follow the composer by default, or the runner with
 `--composer http://127.0.0.1:8092`. Details in [`composer/README.md`](composer/README.md).
 
+**All three at once:** `./studio-up.sh` starts the composer (:8091), the face twin and the body
+twin, waits for the composer, and opens it in the browser; `./studio-down.sh` stops them — only what
+`studio-up.sh` started, never another session's twins. It uses `~/opendubs-shows` and
+`~/opendubs-library` when they exist; the settings are at the top of `studio-up.sh`.
+
 ## Not here yet
 
 Live output: nothing here commands the robot. The runner drives only the twins until the armed
