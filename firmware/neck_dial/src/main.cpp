@@ -31,6 +31,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include "../neck/pantilt_core.h"
+#include "../neck/rc_frame.h"
 
 namespace {
 
@@ -55,6 +56,11 @@ neck::Limits g_lim;                     // the narrow fallback until NVS says ot
 bool g_servoPresent = false;
 float g_gazePan = 90, g_gazeTilt = 90;
 uint32_t g_gazeMs = 0, g_gazeLease = neck::kGazeHoldMs;
+// RC, from the StamPLC's 0x107 rate frames. A RATE: the stick is spring-centred and the head owns
+// the position. Silence is how the operator releases the head, so this expires on the control
+// law's RC lease rather than waiting for a "stop" that is never sent.
+float g_rcPan = 0, g_rcTilt = 0;
+uint32_t g_rcMs = 0, g_rcFrames = 0;
 
 uint16_t degToUs(float deg, bool reverse) {
     if (deg < 0.0f) deg = 0.0f;
@@ -106,7 +112,8 @@ void report() {
              WiFi.isConnected() ? "up" : "down",
              WiFi.isConnected() ? WiFi.localIP().toString().c_str() : "-",
              WiFi.isConnected() ? WiFi.RSSI() : 0);                           line(b);
-    snprintf(b, sizeof(b), "udp:  port=%u packets=%lu", kCmdPort, (unsigned long)g_packets); line(b);
+    snprintf(b, sizeof(b), "udp:  port=%u packets=%lu rc_frames=%lu", kCmdPort,
+             (unsigned long)g_packets, (unsigned long)g_rcFrames); line(b);
     if (g_servoPresent) {
         snprintf(b, sizeof(b), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s", g_pt.pan, g_pt.tilt,
                  g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? "" : " FALLBACK");
@@ -289,13 +296,25 @@ void loop() {
         char cmd[256] = {0};
         int got = g_udp.read(cmd, sizeof(cmd) - 1);
         if (got > 0) {
-            while (got > 0 && (cmd[got - 1] == '\n' || cmd[got - 1] == '\r')) cmd[--got] = 0;
-            g_packets++;
-            char out[256];
-            handle(cmd, out, sizeof(out));
-            g_udp.beginPacket(g_udp.remoteIP(), g_udp.remotePort());
-            g_udp.write((const uint8_t*)out, strlen(out));
-            g_udp.endPacket();
+            // A RATE FRAME FIRST, before anything strips or parses it as text. It shares this port
+            // with the text protocol, so the length/id/dlc triple is the only thing telling them
+            // apart -- and it gets NO REPLY, because the StamPLC does not read one and sends these
+            // at 20 Hz while an operator is aiming.
+            float rp = 0, rt = 0;
+            if (neck::parseRcFrame((const uint8_t*)cmd, (size_t)got, rp, rt)) {
+                g_rcPan = rp; g_rcTilt = rt; g_rcMs = millis(); g_rcFrames++;
+                // NOT `return`: that would skip this iteration's control-law tick and the pending
+                // restart check, which lets a fast enough stream of rate frames starve the very
+                // loop that acts on them. Fall through instead and do nothing else with it.
+            } else {
+                while (got > 0 && (cmd[got - 1] == '\n' || cmd[got - 1] == '\r')) cmd[--got] = 0;
+                g_packets++;
+                char out[256];
+                handle(cmd, out, sizeof(out));
+                g_udp.beginPacket(g_udp.remoteIP(), g_udp.remotePort());
+                g_udp.write((const uint8_t*)out, strlen(out));
+                g_udp.endPacket();
+            }
         }
     }
 
@@ -344,6 +363,8 @@ void loop() {
         in.motionAllowed = WiFi.isConnected();
         in.gazePan = g_gazePan; in.gazeTilt = g_gazeTilt;
         in.gazeMs = g_gazeMs; in.gazeLease = g_gazeLease;
+        // RC outranks a show, in the control law, not here.
+        in.rcPan = g_rcPan; in.rcTilt = g_rcTilt; in.rcMs = g_rcMs;
         if (neck::tick(g_pt, in, g_lim)) {
             servoPulse(kChTilt, degToUs(g_pt.tilt, kTiltReverse));
             servoPulse(kChPan,  degToUs(g_pt.pan,  kPanReverse));

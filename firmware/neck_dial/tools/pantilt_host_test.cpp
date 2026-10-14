@@ -15,6 +15,8 @@
 #include <cstdio>
 #include <cmath>
 #include "../neck/pantilt_core.h"
+#include "../neck/rc_frame.h"
+#include <cstring>
 
 using namespace neck;
 
@@ -186,6 +188,60 @@ int main()
         In idle; idle.nowMs = 5000; idle.motionAllowed = true; idle.rcMs = 1;  // stale
         State s2 = s; s2.lastMs = 4000; tick(s2, idle, lim);
         ok(s2.owner != Owner::Rc, "and letting go of the stick hands the head back");
+    }
+
+    // ---- 9. the StamPLC's 0x107 rate frame ------------------------------------------------------
+    // Byte-for-byte the Tab5's format, because the StamPLC is unchanged and must stay so. It shares
+    // a UDP port with the text protocol, so the length/id/dlc triple is the ONLY thing telling a
+    // rate frame from a command -- and acting on a text line as if it were a rate would move the
+    // head. Every rejection below is therefore a safety check, not tidiness.
+    {
+        auto frame = [](uint32_t id, uint8_t dlc, int16_t pan, int16_t tilt, uint8_t* b) {
+            b[0] = id & 0xff; b[1] = (id >> 8) & 0xff; b[2] = (id >> 16) & 0xff; b[3] = (id >> 24) & 0xff;
+            b[4] = dlc;
+            std::memcpy(b + 5, &pan, 2); std::memcpy(b + 7, &tilt, 2);
+            std::memset(b + 9, 0, 4);
+        };
+        uint8_t b[13]; float p = -1, t = -1;
+
+        frame(0x107, 4, 60, -30, b);
+        ok(parseRcFrame(b, 13, p, t) && p == 60.0f && t == -30.0f,
+           "a 0x107 frame gives pan and tilt in deg/s", "60 / -30");
+
+        frame(0x107, 4, -60, 0, b);
+        ok(parseRcFrame(b, 13, p, t) && p == -60.0f, "and a negative rate keeps its sign", "-60");
+
+        frame(0x106, 4, 60, 60, b);
+        ok(!parseRcFrame(b, 13, p, t), "another CAN id is NOT a pan/tilt rate");
+        frame(0x107, 8, 60, 60, b);
+        ok(!parseRcFrame(b, 13, p, t), "nor is 0x107 with the wrong dlc");
+        ok(!parseRcFrame(b, 12, p, t) && !parseRcFrame(b, 14, p, t), "nor the wrong length");
+        ok(!parseRcFrame(nullptr, 13, p, t), "and a null packet is refused rather than read");
+
+        // A 13-BYTE TEXT LINE. This is the case that would move the head for no reason, so it is
+        // the one worth being sure about.
+        const char* text = "GAZE 120 95\r\n";    // exactly 13 bytes, the rate frame's length
+        ok(std::strlen(text) == 13 && !parseRcFrame((const uint8_t*)text, 13, p, t),
+           "a 13-byte TEXT command is not mistaken for a rate frame", text);
+    }
+
+    // ---- 10. RC through the real control law ------------------------------------------------------
+    {
+        const Limits lim = limitsFrom(true, 62, true, 118);
+        State s; s.lastMs = 0;
+        In in; in.nowMs = 0; in.motionAllowed = true;
+        in.rcMs = 1; in.rcTilt = 60;                  // full stick up, the StamPLC's 60 deg/s
+        run(s, in, lim, 500);
+        ok(s.owner == Owner::Rc, "an RC frame takes the head");
+        char rd[48]; snprintf(rd, sizeof(rd), "tilt %.1f", s.tilt);
+        ok(s.tilt > kCentreDeg + 10.0f, "and moves it at the stick's rate", rd);
+
+        // SILENCE RELEASES IT. The StamPLC only sends while someone is aiming, so the lease
+        // expiring is how the operator lets go -- there is no "stop" message to wait for.
+        In quiet; quiet.nowMs = 5000; quiet.motionAllowed = true; quiet.rcMs = 1;
+        State s2 = s; s2.lastMs = 4000;
+        tick(s2, quiet, lim);
+        ok(s2.owner != Owner::Rc, "and silence hands it back rather than holding it");
     }
 
     printf(failed ? "\n%d FAILED\n" : "\nall pantilt checks passed\n", failed);

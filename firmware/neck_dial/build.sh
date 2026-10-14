@@ -14,7 +14,7 @@ case "${1:-pantilt}" in
   pantilt)
     out="$(mktemp -d)/pantilt_host_test"
     c++ -std=c++17 -O1 -Wall -Wextra -Werror \
-        "$HERE/tools/pantilt_host_test.cpp" "$HERE/neck/pantilt_core.cpp" -o "$out"
+        "$HERE/tools/pantilt_host_test.cpp" "$HERE/neck/pantilt_core.cpp" "$HERE/neck/rc_frame.cpp" -o "$out"
     exec "$out"
     ;;
   image)
