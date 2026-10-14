@@ -55,14 +55,17 @@ jobs:
           echo "PYOPENGL_PLATFORM=osmesa" >> "$GITHUB_ENV"
       - name: Stage what the wheel will carry
         run: python3 software/choreo/studio/build_wheel.py --stage "$RUNNER_TEMP/stage"
+      - name: The gate's tools (pinned gitleaks, exiftool), on PATH for the next step
+        if: runner.os == 'Linux'
+        run: |
+          tools/hygiene/install-gitleaks.sh
+          sudo apt-get install -y -q --no-install-recommends libimage-exiftool-perl >/dev/null
       - name: The Hygiene lane's release gate, over exactly that tree (Linux)
         if: runner.os == 'Linux'
         # The staging tree nests the repository under opendubs_studio/tree/: the maps give each file
         # its repository path, so the ignore rules and the size allow-list judge it as in the repo.
         # No name deny-list is set for this repository (a maintainers' decision): that check is skipped.
         run: |
-          tools/hygiene/install-gitleaks.sh
-          sudo apt-get install -y -q --no-install-recommends libimage-exiftool-perl >/dev/null
           python3 tools/hygiene/check_tree.py --root "$RUNNER_TEMP/stage" --allow-no-denylist \
             --map opendubs_studio/studio.py=software/choreo/studio/studio.py \
             --map opendubs_studio/tree/software=software \
@@ -98,6 +101,7 @@ jobs:
       - name: Stop it, and nothing is left
         if: always()
         run: |
+          command -v opendubs-studio >/dev/null || { echo "never installed: nothing to stop"; exit 0; }
           opendubs-studio down
           sleep 2
           if pgrep -fl "opendubs_studio/tree"; then echo "processes left running"; exit 1; fi
