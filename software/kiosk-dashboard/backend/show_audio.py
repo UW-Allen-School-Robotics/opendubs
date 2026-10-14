@@ -24,6 +24,14 @@ device fades ambient out on the runner's `load` and resumes it, from the next so
 ends (`stop` or `cut`). Songs tagged `ambient` in the library (library.py tag ID ambient) are the
 default list; any library song may be chosen.
 
+PLAY TO ROBOT (the Tablet lane's /play/ page, agreed 2026-10-14): `{op: "play_file", url, title}`
+plays one uploaded file ONCE on the same device, at the ambient volume. The url must be the
+dashboard's own `/api/play/files/...` (the Tablet lane's store; a URL someone gave is fetched by the
+Thor first), so the device never loads another origin. It interrupts ambient; when it ends, fails or
+is stopped (`stop_play`), ambient resumes if it is on. While a show is loaded or running it is refused
+(SHOW_AUDIO_BUSY); a show that starts during it cuts it, and it does not come back. `stop` (ambient
+off) ends a play too.
+
 Nothing here moves the robot. A page that loses this connection stops its own audio (DEC-7: a
 tablet drop stops the music and nothing else).
 """
@@ -44,7 +52,9 @@ MEDIA_SUBDIRS = ("audio", "sounds")
 LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
 LIBRARY_MEDIA_SUBDIRS = ("songs",)
 OPS = ("load", "start", "stop", "cut")
-AMBIENT_OPS = ("play", "stop", "volume", "next")
+AMBIENT_OPS = ("play", "stop", "volume", "next", "play_file", "stop_play")
+PLAY_URL_PREFIX = "/api/play/files/"      # the Tablet lane's store, same origin
+PLAY_TITLE_MAX = 120
 AMBIENT_STATE = os.environ.get("OPENDUBS_AMBIENT_STATE") or os.path.expanduser("~/.local/state/opendubs/ambient.json")
 AMBIENT_DEFAULT = {"playing": False, "songs": [], "shuffle": False, "volume": 0.5}
 
@@ -70,7 +80,7 @@ class Hub:
         self.lock = asyncio.Lock()
         self.show_active = False                 # between the runner's load and its stop/cut
         self.ambient = load_ambient()
-        self.device = {"now_playing": None, "blocked": False}   # what the holder reports
+        self.device = {"now_playing": None, "blocked": False, "source": None, "error": None}   # the holder's report
 
     def view(self) -> dict:
         lbl = self.clients[self.holder][1] if self.holder in self.clients else None
@@ -129,6 +139,8 @@ class Hub:
 
     async def ambient_command(self, msg) -> dict:
         op = msg.get("op")
+        if op in ("play_file", "stop_play"):
+            return await self.play_command(msg)
         a = dict(self.ambient)
         if op == "play":
             all_songs = library_songs()
@@ -156,18 +168,49 @@ class Hub:
         if op == "next":
             out = {**out, "next": True}
         if self.holder in self.clients:
+            if op == "stop":
+                await self._send(self.holder, {"op": "stop_play"})   # ambient off ends a play too
             await self._send(self.holder, out)
+        return self.ambient_view()
+
+    async def play_command(self, msg) -> dict:
+        """Play to robot: one file, once. {error, code?} when refused (the endpoint makes the refusal)."""
+        if msg["op"] == "stop_play":
+            if self.holder in self.clients:
+                await self._send(self.holder, {"op": "stop_play"})
+            return self.ambient_view()
+        url, title = msg.get("url"), msg.get("title", "")
+        if not play_url_ok(url):
+            return {"error": f"url must be the dashboard's own {PLAY_URL_PREFIX}<file>"}
+        if not isinstance(title, str):
+            return {"error": "title is text"}
+        title = "".join(ch for ch in title if ch.isprintable())[:PLAY_TITLE_MAX] or url.rsplit("/", 1)[-1]
+        if self.show_active:
+            return {"error": "a show is loaded or running: it has the speaker — try again after it",
+                    "code": "SHOW_AUDIO_BUSY"}
+        if self.holder not in self.clients:
+            return {"error": "no device is playing show audio (the robot's speaker is not connected)",
+                    "code": "SHOW_AUDIO_NO_DEVICE"}
+        await self._send(self.holder, {"op": "play_file", "url": url, "title": title,
+                                       "volume": self.ambient["volume"]})
         return self.ambient_view()
 
     def ambient_view(self) -> dict:
         return {"songs": [{k: x[k] for k in ("id", "title", "duration_s", "ambient")} for x in library_songs()],
-                "state": {**self.ambient, "now_playing": self.device["now_playing"]},
+                "state": {**self.ambient, "now_playing": self.device["now_playing"],
+                          "playing_from": self.device["source"] if self.device["now_playing"] else None},
                 "show_active": self.show_active,
-                "device": {"holder": self.view()["holder"], "blocked": bool(self.device["blocked"])}}
+                "device": {"holder": self.view()["holder"], "blocked": bool(self.device["blocked"]),
+                           "error": self.device["error"]}}
 
     def device_report(self, cid, report):
+        """The holder's report: `now` (an ambient song's id, or a play's title), `source` (ambient |
+        play), whether the browser blocked starting it, and the last play that failed."""
         if cid == self.holder and isinstance(report, dict):
-            self.device = {"now_playing": report.get("now"), "blocked": bool(report.get("blocked"))}
+            src = report.get("source")
+            self.device = {"now_playing": report.get("now"), "blocked": bool(report.get("blocked")),
+                           "source": src if src in ("ambient", "play") else ("ambient" if report.get("now") else None),
+                           "error": report.get("error")}
 
     def ready(self, cid, load_id):
         if cid == self.holder:
@@ -181,6 +224,15 @@ class Hub:
             self.show_active = False              # ... and resumes it when the show ends
         delivered = await self._send(self.holder, msg) if self.holder in self.clients else False
         return {**self.view(), "delivered": delivered}
+
+
+def play_url_ok(url) -> bool:
+    """Only the dashboard's own play store, as a same-origin path: never a scheme, a host or a way out."""
+    if not isinstance(url, str) or not url.startswith(PLAY_URL_PREFIX) or len(url) > 300:
+        return False
+    rest = url[len(PLAY_URL_PREFIX):]
+    return bool(rest) and not rest.startswith("/") and ".." not in rest and "//" not in rest and "\\" not in rest \
+        and all(ch.isascii() and (ch.isalnum() or ch in "._-/") for ch in rest)
 
 
 def load_ambient() -> dict:
@@ -272,6 +324,11 @@ async def ambient_command(request: Request):
     if not isinstance(msg, dict) or msg.get("op") not in AMBIENT_OPS:
         return JSONResponse({"error": f"op must be one of {', '.join(AMBIENT_OPS)}"}, status_code=400)
     out = await hub.ambient_command(msg)
+    from refusals import refuse
+    if out.get("code") == "SHOW_AUDIO_BUSY":
+        return refuse("SHOW_AUDIO_BUSY", out["error"], 409)
+    if out.get("code") == "SHOW_AUDIO_NO_DEVICE":
+        return refuse("SHOW_AUDIO_NO_DEVICE", out["error"], 503)
     return JSONResponse(out, status_code=400 if "error" in out else 200)
 
 

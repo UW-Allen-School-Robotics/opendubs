@@ -1,0 +1,31 @@
+# Troubleshooting entries: shows, and the show-audio device that plays their music and other sound.
+# Owned by the Choreography lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+
+entries:
+  - code: SHOW_AUDIO_BUSY
+    title: A sound sent to the robot was refused because a show has the speaker
+    symptom: [show-wont-start]
+    rank: 70
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show
+      was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the
+      request was refused rather than queued; nothing is played later.
+    do:
+      - Wait for the show to finish or be stopped, then send the sound again.
+  - code: SHOW_AUDIO_NO_DEVICE
+    title: A sound sent to the robot was refused because no speaker is connected
+    symptom: [show-wont-start]
+    rank: 71
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The robot plays shows, ambient music and sounds sent from a phone through one device: the
+      tablet on its head, running the dashboard. No device was connected to play it, so the request
+      was refused. A show started now would run without music for the same reason.
+    do:
+      - Check that the head's tablet is on and showing the dashboard or the face.
+      - On the dashboard's Shows page, use "Play show audio here" on the device that should play.

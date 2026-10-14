@@ -29,7 +29,12 @@
       include this file as it is), the list looped (shuffled if asked), 1 s fades. A show TAKES OVER:
       ambient fades out on the runner's `load` and resumes, from the next song, when the show ends
       (`stop` or `cut`). What plays, and whether the browser blocked starting it, is reported to the
-      hub; claim() (a tap) retries a blocked start. */
+      hub; claim() (a tap) retries a blocked start.
+
+   7. PLAY TO ROBOT (`play_file`, the Tablet lane's /play/ page): one uploaded file, played ONCE on its
+      own <audio> element at the ambient volume. Ambient fades out for it and resumes, from the next
+      song, when it ends, fails or is stopped (`stop_play`). A show's `load` cuts it and it does not
+      come back. What plays is reported with its source (ambient | play). */
 "use strict";
 (() => {
   const K = window.OpenDubsKiosk;
@@ -173,8 +178,11 @@
 
   /* ---- 6. ambient music ---------------------------------------------------------------------------- */
   const amb = { msg: null, el: null, order: [], idx: -1, show: false, blocked: false, now: null, fade: null };
+  const pf = { el: null, active: false, title: null, error: null };     // 7. play to robot
   const AMB_FADE_S = 1.0;
-  const ambReport = () => send({ ambient: { now: amb.now, blocked: amb.blocked } });
+  const ambReport = () => send({ ambient: pf.active
+    ? { now: pf.title, source: "play", blocked: amb.blocked, error: pf.error }
+    : { now: amb.now, source: amb.now ? "ambient" : null, blocked: amb.blocked, error: pf.error } });
   function ambEl() {
     if (!amb.el) {
       amb.el = new Audio();
@@ -194,7 +202,7 @@
     }, AMB_FADE_S * 1000 / steps);
   }
   const ambWanted = () => !!(amb.msg && amb.msg.playing && amb.msg.items && amb.msg.items.length
-                             && !amb.show && st.youHold);
+                             && !amb.show && st.youHold && !pf.active);
   function ambOrder() {
     const ids = amb.msg.items.map((x, i) => i);
     if (amb.msg.shuffle) for (let i = ids.length - 1; i > 0; i--) {
@@ -234,6 +242,37 @@
     ambApply(!!m.next || (listChanged && m.playing));
   }
 
+  /* ---- 7. play to robot --------------------------------------------------------------------- */
+  function pfEl() {
+    if (!pf.el) {
+      pf.el = new Audio();
+      pf.el.preload = "auto";
+      pf.el.addEventListener("ended", () => pfDone(null));
+      pf.el.addEventListener("error", () => pfDone("the file could not be played"));
+    }
+    return pf.el;
+  }
+  function pfDone(error, resume = true) {           // ended, failed or stopped: ambient comes back
+    if (!pf.active) return;
+    pf.active = false; pf.title = null; pf.error = error;
+    if (pf.el) { pf.el.pause(); pf.el.removeAttribute("src"); pf.el.load(); }
+    ambReport();
+    if (resume) ambApply(true);
+  }
+  function playFile(m) {
+    if (amb.show || !st.youHold) return;            // the hub refuses these; never play over a show
+    if (pf.active) pfDone(null, false);             // the latest wins
+    const el = pfEl();
+    pf.active = true; pf.title = m.title || m.url; pf.error = null;
+    ambStop();                                      // ambient fades out (ambWanted is now false)
+    el.src = m.url; el.volume = Math.max(0, Math.min(1, m.volume == null ? 0.5 : m.volume));
+    const p = el.play();
+    if (p && p.then) p.then(() => { amb.blocked = false; ambReport(); })
+      .catch((e) => { amb.blocked = e && e.name === "NotAllowedError";
+                      pfDone(amb.blocked ? "the browser blocked playback (tap the tablet)" : String(e && e.message || e)); });
+    ambReport();
+  }
+
   /* ---- the connection ------------------------------------------------------------------------ */
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/show-audio`);
@@ -246,18 +285,20 @@
       if ("pong" in m) return onPong(m);
       if ("holder" in m) {
         st.holder = m.holder; st.youHold = !!m.you_hold;
-        if (!st.youHold) { silence(0); ambStop(); }
+        if (!st.youHold) { silence(0); pfDone(null, false); ambStop(); }
         return;
       }
       if (m.op === "ambient") return onAmbient(m);
-      if (m.op === "load") { amb.show = true; ambStop(); load(m); }            // a show takes over
+      if (m.op === "play_file") return playFile(m);
+      if (m.op === "stop_play") return pfDone(null);
+      if (m.op === "load") { amb.show = true; pfDone(null, false); ambStop(); load(m); }   // a show takes over; a play does not come back
       else if (m.op === "start") start(m);
       else if (m.op === "stop") { silence(m.fade_s || 0); amb.show = false; setTimeout(() => ambApply(true), (m.fade_s || 0) * 1000 + 500); }
-      else if (m.op === "cut") { silence(0); amb.show = false; ambApply(true); }
+      else if (m.op === "cut") { silence(0); pfDone(null, false); amb.show = false; ambApply(true); }
     };
     ws.onclose = () => {
       st.connected = false; st.youHold = false; st.holder = null;
-      silence(0); ambStop();                                     // DEC-7: the music stops, nothing else
+      silence(0); pfDone(null, false); ambStop();                // DEC-7: the music stops, nothing else
       setTimeout(connect, retry); retry = Math.min(retry * 2, 8000);
     };
   }
@@ -266,7 +307,8 @@
 
   window.OpenDubsShowAudio = {
     status: () => ({ ...st, ctx: ctx ? ctx.state : "none",
-                     ambient: { playing: !!(amb.el && !amb.el.paused), now: amb.now, blocked: amb.blocked, show: amb.show } }),
+                     ambient: { playing: !!(amb.el && !amb.el.paused), now: amb.now, blocked: amb.blocked, show: amb.show },
+                     play: { active: pf.active, title: pf.title, error: pf.error } }),
     claim: () => { audio().resume(); if (amb.blocked) { amb.blocked = false; ambApply(true); } send({ claim: true, label: K ? "tablet" : `a browser (${(navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "?"})` }); },
   };
 })();
