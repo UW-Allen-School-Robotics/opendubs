@@ -24,7 +24,8 @@ state folder: `down` stops exactly those processes and their children, never any
 name or port, because other sessions may run their own twins on the same machine.
 
 PORTS. The usual ones (composer 8091; face page 8765/8766; face and neck 4244/4245) when they are
-free; otherwise the system picks free ones, and `status` says which. A busy port is never taken over.
+free; otherwise the system picks free ones (the face door binds port 0 and reports what it got), and
+`status` says which. A busy port is never taken over.
 
 FOLDERS. Shows: $OPENDUBS_STUDIO_SHOWS, else `shows_dir` in the settings file, else ~/opendubs-shows
 when it exists, else a `shows` folder in the platform's data folder, first filled with the example
@@ -239,6 +240,24 @@ def wait_http(url: str, comp: dict, timeout=READY_TIMEOUT_S) -> bool:
     return False
 
 
+def door_ready(comp: dict, timeout=READY_TIMEOUT_S) -> dict | None:
+    """The face door's own word on the ports it bound: its one `--ready-json` line, in its log."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        for line in Path(comp["log"]).read_text(errors="replace").splitlines():
+            if line.startswith("{") and '"ready"' in line:
+                try:
+                    d = json.loads(line)
+                    if d.get("ready"):
+                        return d
+                except ValueError:
+                    pass
+        if not alive(comp):
+            return None
+        time.sleep(0.2)
+    return None
+
+
 def mujoco_python() -> str:
     """macOS: a script-driven MuJoCo window must run under mjpython (the mujoco package's own)."""
     if platform.system() != "Darwin":
@@ -286,18 +305,21 @@ def cmd_up(a) -> int:
         return fail("composer", "did not start")
 
     if s["head"] == "tablet":
-        taken = {ports["composer"]}
-        http, ws = (pick(p, taken=taken) for p in s["door_ports"][:2])
-        taken |= {http, ws}
-        face = pick(s["door_ports"][2], socket.SOCK_DGRAM, taken)
-        neck = pick(s["door_ports"][3], socket.SOCK_DGRAM, taken | {face})
+        # The usual ports when free, else 0: the door binds what the system gives it and says which
+        # in its one --ready-json line, so a port is never guessed and never taken over.
+        want = [p if free(p, kind) else 0 for p, kind in zip(s["door_ports"], (socket.SOCK_STREAM,
+                socket.SOCK_STREAM, socket.SOCK_DGRAM, socket.SOCK_DGRAM))]
+        comps["face_door"] = spawn("face_door", [py, face_web / "door_dev.py", "--http", want[0], "--ws", want[1],
+                                                 "--face", want[2], "--neck", want[3], "--ready-json"],
+                                   env, face_web, d["log"])
+        save()
+        got = door_ready(comps["face_door"])
+        if not got:
+            return fail("face_door", "did not say it was ready")
+        http, ws, face, neck = got["http"], got["ws"], got["face"], got["neck"]
         ports.update(face_http=http, face_ws=ws, face=face, neck=neck)
-        comps["face_door"] = spawn("face_door", [py, face_web / "door_dev.py", "--http", http, "--ws", ws,
-                                                 "--face", face, "--neck", neck], env, face_web, d["log"])
         urls["face"] = f"http://127.0.0.1:{http}/?door=ws://127.0.0.1:{ws}&hud=1"
         save()
-        if not wait_http(f"http://127.0.0.1:{http}/", comps["face_door"]):
-            return fail("face_door", "did not start")
         comps["face_bridge"] = spawn("face_bridge", [py, choreo / "face_bridge.py", "--composer", urls["composer"],
                                                      "--face", f"127.0.0.1:{face}", "--neck", f"127.0.0.1:{neck}"],
                                      env, choreo, d["log"])
