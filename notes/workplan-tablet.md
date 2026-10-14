@@ -31,6 +31,42 @@ someone's hands.
 
 ---
 
+## Where things stand — 2026-10-14
+
+**Decided by the user (2026-10-12–14).** The robot tablet is the ONE device for the face, the
+operator's dashboard and the robot's audio; the M5Dial is the neck (`opendubs-neck.local`); the Tab5
+is no longer the face. In-app AirPlay with the extracted Apple key was refused; AirPlay route A
+(shairport-sync on the Thor) was chosen instead; **iPhone senders only** for now.
+
+**On the robot (opendubs2), working:**
+- The robot tablet shows the face at `https://<robot>:8443/face/` (kiosk app updated after a signing
+  check; WebView 153; kiosk_check 9/9). The door is the dashboard's (`face_door.py`, UDP
+  127.0.0.1:4242 → `/ws/face`); the robot's state reaches the face without waits (#237).
+- One device, two roles (#219, #244): long-press the face for STOP SHOW / DASHBOARD; the dashboard's
+  FACE control is on the left, far from E-STOP; the kiosk returns to the face after
+  `face_return_min` untouched and goes to the face when a run starts.
+- Head protocol v5 (#223, #228, #229): `VOLUME`, `BRIGHT` and their `IDLE`, `ARMED`, `SKIN IDLE`,
+  `THEME IDLE`; the kiosk bridge sets the tablet's volume and brightness.
+- The Head & face page (#229, #244, #258): the face's idle settings, kept on the robot.
+- Play to robot (#249 with #250): `/play/` from any phone on the robot's network.
+- **AirPlay (#268 relay, #261 hub, #263 receiver): confirmed audible on the face tablet, timing fine.**
+
+**Notes worth keeping:**
+- AirPlay's caption shows `♪ AirPlay` when the sender gives no track name (the iPhone app may not).
+- The face tablet's audio normally plays without a touch (the kiosk allows it); if it ever stays
+  silent with everything green, one tap on the face resumes its AudioContext.
+- A Mac sender failed: its AirPlay-2 timing peers are IPv6 link-local, so the receiver never locked.
+  iPhones over IPv4 lock. (The Thor lane has the trace.)
+- Another browser with `/face/` open (a laptop) takes the door's commands (newest page wins) and could
+  take the show-audio role: keep only the robot tablet on the face.
+- A show started from the tablet briefly drops the show-audio role while the kiosk switches to the
+  face; the runner now always loads and waits for ready (the Choreography lane's fix).
+
+**Open:** the neck on the Dial (`OPENDUBS_HEAD_NECK_HOST=opendubs-neck.local`, or `none` with no neck,
+#241); camera tracking on the tablet (the kiosk must grant the camera); the door inside the kiosk app
+(5.2) is no longer needed while the Thor serves the face; renaming the Tab5-era names (`TAB5IP`,
+`OPENDUBS_TAB5_HOST`) to neck names, as a compatible step.
+
 ## Standing rules
 
 1. **A held tablet is never the robot.** Everything the tablet contributes carries its mount state.
