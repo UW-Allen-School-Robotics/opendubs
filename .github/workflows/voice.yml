@@ -1,0 +1,38 @@
+name: voice
+
+# The voice service's tests (software/voice). Fake audio and fake backends: no robot, no tablet,
+# no model, no network beyond loopback ports the tests open themselves. The safety boundary tests
+# (test_safe_tools.py) read the head protocol's vocabularies, so a protocol change runs this too.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "software/voice/**"
+      - "software/head-protocol/head_protocol.py"
+      - ".github/workflows/voice.yml"
+  pull_request:
+    paths:
+      - "software/voice/**"
+      - "software/head-protocol/head_protocol.py"
+      - ".github/workflows/voice.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"     # the Thor's
+      - run: pip install websockets==17.2
+      - run: python3 software/voice/tests/test_wire_audio.py
+      - run: python3 software/voice/tests/test_safe_tools.py
+      - run: python3 software/voice/tests/test_face_gate.py
+      - run: python3 software/voice/tests/test_brains.py
+      - run: python3 software/voice/tests/test_conversation.py
+      - run: python3 software/voice/tests/test_server.py
+      - run: for f in software/voice/image/*.sh; do bash -n "$f"; done
