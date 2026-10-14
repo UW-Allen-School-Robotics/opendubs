@@ -738,7 +738,9 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-joint-data-missing)
 
-## A show won't start, or stops {#show-wont-start}
+## The robot won't play a sound {#no-sound}
+
+A sound sent to the robot plays on its own speaker. It is refused while a show has the speaker, and when no speaker is connected; the entries below say which.
 
 Check in this order:
 
