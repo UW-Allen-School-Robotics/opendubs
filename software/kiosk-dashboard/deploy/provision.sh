@@ -63,6 +63,11 @@ install -m 0644 "$DEPLOY/opendubs-stamplc-hb.service" /etc/systemd/system/opendu
 # on every run, so a provision silently removed a working demo and nothing could put it back.
 install -m 0644 "$DEPLOY/opendubs-yolo-tracker.service" /etc/systemd/system/opendubs-yolo-tracker.service
 install -d -o "$SVC_USER" -g "$SVC_USER" -m 0755 /opt/opendubs/models   # persistent YOLO weights
+# The dashboard's own state on the robot. /var/lib/opendubs is root's, and the dashboard runs as
+# $SVC_USER, so each folder it writes is made here and given to it (a folder it cannot create is a 503).
+install -d -m 0755 /var/lib/opendubs
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 0755 /var/lib/opendubs/play   # Play to robot (play_store.py)
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 0755 /var/lib/opendubs/head   # Head & face settings (head_settings.py)
 systemctl daemon-reload
 systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
