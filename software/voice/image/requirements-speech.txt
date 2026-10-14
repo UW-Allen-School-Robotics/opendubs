@@ -1,0 +1,29 @@
+# Speech-to-text and text-to-speech for the voice service: ENGLISH ONLY, NO GPL (the project team,
+# 2026-10-14; notes/workplan-voice.md V-O4). Each pin is the newest release at least two weeks old
+# when it was chosen (2026-10-14). Transitive dependencies are not locked yet (workplan 2.6).
+#
+# misaki's `[en]` extra is deliberately NOT used: it installs phonemizer-fork (GPL-3.0+) and
+# espeakng-loader (which bundles the GPL espeak-ng library). Its other members are listed here
+# instead; kokoro and misaki themselves are installed with --no-deps (requirements-speech-nodeps.txt).
+# check_no_gpl.py refuses the build if a GPL package or espeak-ng appears anyway.
+
+# Parakeet-TDT-0.6B-v2 (int8 ONNX) on sherpa-onnx, Apache-2.0
+sherpa-onnx==1.13.8
+
+# kokoro 0.9.4's own dependencies, less misaki[en]
+transformers==5.17.0
+huggingface-hub==1.33.0
+tokenizers==0.23.2
+safetensors==0.8.0
+numpy==2.5.3
+loguru==0.7.3
+# kokoro 0.9.4 imports `attr` without declaring it
+attrs==26.1.0
+
+# misaki's core dependencies, and the members of its [en] extra that are not GPL
+addict==2.4.0
+regex==2026.9.29
+spacy==3.8.16
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# LGPL-2.1, reviewed and allowed (check_no_gpl.py ALLOWED_LGPL)
+num2words==0.5.14

@@ -161,8 +161,10 @@ stand up:
 - **STT:** Moonshine (MIT, streaming, built for CPU; WER about 6.65 on its medium model
   [C](https://huggingface.co/UsefulSensors/moonshine-streaming-medium)), or sherpa-onnx streaming
   (Apache-2.0, aarch64 CPU) — **on the Thor's CPU**.
-- **TTS:** Kokoro through `kokoro-onnx` (MIT wrapper, about 80 MB quantized
-  [C](https://github.com/thewh1teagle/kokoro-onnx)) on the CPU.
+- **TTS:** Kokoro on the CPU. *(Corrected 2026-10-14: this note first said "through `kokoro-onnx`
+  (MIT wrapper)". The wrapper is MIT, but it requires `phonemizer` (GPL-3.0-or-later) and
+  `espeakng-loader`, which bundles the GPL espeak-ng library, so it always ships GPL code. The team
+  then decided "English only, no GPL"; how that is held is in `notes/workplan-voice.md`, V-O4.)*
 - **Brain:** **Claude Haiku 5.5** when the uplink is up, and **Qwen3-4B on llama.cpp** (about
   2.5 GB) when it is not.
 - **The same tablet path, protocol and safe tools.** Only the container behind `/ws/voice` changes,
@@ -333,13 +335,24 @@ from the linked model cards and repositories unless marked.
 
 | model | licence | streaming | Thor status | verdict |
 |---|---|---|---|---|
-| **Kokoro-82M** | Apache-2.0 weights ([card](https://huggingface.co/hexgrad/Kokoro-82M)); `kokoro-onnx` MIT | per sentence | jetson-containers packages exist ([dir](https://github.com/dusty-nv/jetson-containers/tree/master/packages/speech/kokoro-tts)); no Thor numbers | **recommended**: small, permissive, 54 voices. Its output is 24 kHz, which sets the downlink format |
+| **Kokoro-82M** | Apache-2.0 weights ([card](https://huggingface.co/hexgrad/Kokoro-82M)); the `kokoro` and `misaki` code is Apache-2.0, **but their default install brings in GPL code** (corrected 2026-10-14, below) | per sentence | jetson-containers packages exist ([dir](https://github.com/dusty-nv/jetson-containers/tree/master/packages/speech/kokoro-tts)); no Thor numbers | **recommended**: small, permissive, 54 voices. Its output is 24 kHz, which sets the downlink format |
 | Piper | the original repository (MIT) was **archived 2025-10-06**; development moved to `piper1-gpl`, which is **GPL-3.0**, and voices carry their own licences ([repo](https://github.com/OHF-Voice/piper1-gpl)) | — | jetson-containers package | avoid: GPL in a project with permissive code licences, per-voice terms |
 | Riva Magpie TTS | Riva EULA | yes | on Thor, 8.5 GB | plan B, with Riva |
 | Magpie TTS multilingual 357M (open weights) | NVIDIA Open Model License | — | L4T listed | if multilingual matters ([card](https://huggingface.co/nvidia/magpie_tts_multilingual_357m)) |
 | Chatterbox | MIT; every output carries a watermark | — | jetson-containers package | possible; watermark |
 | F5-TTS, XTTS-v2 | non-commercial weights | — | — | no |
 | Kyutai TTS / Unmute | CC-BY-4.0 / MIT | true streaming | x86_64 only | no |
+
+**Correction, 2026-10-14: Kokoro and GPL.** Checked against the packages themselves, not only
+their licence files. `pip install kokoro` requires `misaki[en]`, whose extra installs
+`phonemizer-fork` (GPL-3.0-or-later) and `espeakng-loader` (an MIT wrapper whose wheel bundles the
+espeak-ng library, GPL-3.0-or-later, and its data, with no licence declared). `kokoro-onnx` requires
+`phonemizer` and `espeakng-loader` too. espeak-ng is how Kokoro pronounces words outside misaki's
+English dictionary, and how it speaks Spanish, French, Hindi, Italian and Portuguese. The team
+decided **English only, no GPL** (`notes/workplan-voice.md`, V-O4). That needs misaki at a commit of
+its main branch: the 0.9.4 release drops out-of-dictionary words when espeak-ng is absent, and a
+later commit added an Apache-2.0 neural fallback. The implementation and its checks are in
+`software/voice/` (`no_espeak.py`, `image/check_no_gpl.py`, `NOTICE.md`).
 
 ### 4.3 VAD and end-of-turn
 

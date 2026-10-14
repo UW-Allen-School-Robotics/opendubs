@@ -7,6 +7,11 @@
 # The image is VOICE_LLM_IMAGE in software/stack/versions.env, pinned by digest (a request to the
 # Thor stack lane: the key does not exist yet, so this refuses until it does).
 #
+# The model is the caller's choice (workplan V-O3, open): nothing here assumes one. Its tool-call
+# format is too, so VOICE_LLM_TOOL_PARSER is REQUIRED with no default: vLLM's parser name for that
+# model family (for example `hermes` for Qwen3, `llama3_json` for Llama 3; see vLLM's tool-calling
+# documentation for the model you choose).
+#
 # GPU memory share is REQUIRED, per robot, as VOICE_LLM_GPU_SHARE (e.g. 0.20 for about 24 GiB of
 # the Thor's 122). vLLM's default of 0.9 would take the whole machine, perception included, so
 # there is no default here.
@@ -45,6 +50,9 @@ IMAGE=$(sed -n 's/^VOICE_LLM_IMAGE=//p' "$MANIFEST" 2>/dev/null | tail -1)
 [ -n "$IMAGE" ] || die "VOICE_LLM_IMAGE is not set in $MANIFEST (requested from the Thor stack lane)"
 [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || die "VOICE_LLM_IMAGE is not pinned by digest: $IMAGE"
 
+PARSER=${VOICE_LLM_TOOL_PARSER:-}
+[[ "$PARSER" =~ ^[a-z0-9_]+$ ]] || die "set VOICE_LLM_TOOL_PARSER to vLLM's tool-call parser for $MODEL; there is deliberately no default"
+
 SHARE=${VOICE_LLM_GPU_SHARE:-}
 [[ "$SHARE" =~ ^0\.[0-9]+$ ]] || die "set VOICE_LLM_GPU_SHARE (a fraction like 0.20); there is deliberately no default"
 
@@ -66,5 +74,5 @@ docker run -d --name "$NAME" \
   "$IMAGE" \
   vllm serve "$MODEL" --host 127.0.0.1 --port "$PORT" \
     --gpu-memory-utilization "$SHARE" --max-model-len 8192 \
-    --enable-auto-tool-choice --tool-call-parser hermes
+    --enable-auto-tool-choice --tool-call-parser "$PARSER"
 echo "run-llm.sh: $NAME serving $MODEL on 127.0.0.1:$PORT at a $SHARE GPU memory share"

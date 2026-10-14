@@ -1,8 +1,8 @@
 # Work plan — voice: push-to-talk conversation with the robot, from a desk demo to hardening
 
-**DRAFT, 2026-10-13, written by the Voice lane. Not yet agreed.** Once the team takes the open
-decisions below it becomes the plan of record; finished items are then struck through with a date,
-as in [`workplan-tablet.md`](workplan-tablet.md). Only the Voice lane edits this file (CLAUDE.md
+**DRAFT, 2026-10-13, written by the Voice lane; the open decisions were taken on 2026-10-14
+(below). Not yet agreed as a whole.** Once it is, it becomes the plan of record; finished items
+are then struck through with a date, as in [`workplan-tablet.md`](workplan-tablet.md). Only the Voice lane edits this file (CLAUDE.md
 "Lanes", rule 3); findings from other lanes come as messages.
 
 **Background.** The research behind every choice here is
@@ -38,15 +38,35 @@ talks. Lease: a claim that expires unless renewed, as in the head protocol.
 | V-D4 | **Voice is off during shows.** |
 | V-D5 | **API keys live only in a robot-local, root-owned env file** (`/etc/opendubs/voice.env`, mode 0600). Never in the repository, an image, or the browser. |
 
-## Open decisions (recommendations from the note, sent to the orchestrator)
+### Decided 2026-10-14 (the project team, relayed by the orchestrator)
+
+Four of the five open decisions were taken as recommended, with V-O4 narrowed. **V-O3 is still
+open** (next table).
+
+| # | Decision | Gate that still applies |
+|---|---|---|
+| V-O1 | **Push-to-talk** to start: a Talk button on the face, plus an operator "listen" control. A wake word later, as an opt-in (phase 3). | — |
+| V-O2 | **The on-robot model by default**, with the Claude API as opt-in scaffolding per robot (`VOICE_BRAIN=auto`). | C-1 before `auto` is offered on a robot |
+| V-O4 | **STT: Parakeet-TDT-0.6B-v2** (NVIDIA, CC BY 4.0) via sherpa-onnx (Apache-2.0). **TTS: Kokoro-82M** (Apache-2.0). **English only, and no GPL component ships.** Kokoro's other languages take their pronunciation from espeak-ng (GPL-3.0-or-later), so adding any of them is **a separate, explicit decision to ship GPL code**. Riva stays plan B. | L-4 |
+| V-O5 | **The robot's voice plays from the tablet's speaker**, from the face page. | V-2, V-3 |
+
+### Still open
 
 | # | Question | Recommendation | Gate that informs it |
 |---|---|---|---|
-| V-O1 | How a turn starts (note D1) | **Push-to-talk** on a Talk button in the face's system strip, plus an operator "listen" control. A wake word only later, as an opt-in (phase 3) | — |
-| V-O2 | Which brain by default (D4) | **`local`**, with the Claude API opt-in per robot (`VOICE_BRAIN=auto`) | C-1, L-1 |
-| V-O3 | Local model (D5) | **Qwen3-30B-A3B-Instruct-2507** on vLLM at a ≤ 24 GiB share; **Qwen3-4B-Instruct-2507** if L-3 fails | L-1, L-3 |
-| V-O4 | STT and TTS (D6) | **Parakeet-TDT-0.6B-v2** and **Kokoro-82M**; Riva only as plan B | L-4 |
-| V-O5 | Where the voice plays (D7) | **The tablet's speakers, from the face page**, for conversation | V-2, V-3 |
+| V-O3 | **Which local model.** Running a model on the robot is decided (V-O2); which one is **the project team's choice, pending**. | **Recommended, pending the project team's choice:** Qwen3-30B-A3B-Instruct-2507 on vLLM at a ≤ 24 GiB share, with Qwen3-4B-Instruct-2507 as the fallback if L-3 fails. Both are Apache-2.0 on their model cards (checked 2026-10-14), which makes them eligible, not chosen. | L-1, L-3 |
+
+**Nothing is built that assumes a model.** The service takes the model's name from
+`VOICE_LLM_MODEL`, `image/run-llm.sh` takes it as an argument, and the vLLM tool-call parser, which
+depends on the model family, is a required setting (`VOICE_LLM_TOOL_PARSER`) with no default.
+
+**How V-O4's "no GPL" is held** (`software/voice/`, see its `NOTICE.md`): kokoro and misaki are
+installed with `--no-deps`, without misaki's `[en]` extra (phonemizer-fork, espeakng-loader);
+misaki is pinned to a commit of its main branch, because the 0.9.4 release has no fallback for
+words outside its dictionary unless espeak-ng is installed (the commit's Apache-2.0 neural
+fallback replaces it); `no_espeak.py` stands in for misaki's espeak module; `image/check_no_gpl.py`
+is the image build's last step and a CI job. Weights are fetched at provision time
+(`fetch_models.py`, `models.lock.json`), never in the repository or an image.
 
 ## Standing rules for this lane
 
@@ -88,7 +108,7 @@ near the line.
 | **L-1** | bench Thor | TTFS of each candidate model at **120 W** | `tools/voice-bench/thor_llm_bench.sh vllm` (and `llamacpp`) | TTFS p90 ≤ 450 ms for the chosen model | the light model | 1.5, V-O3 |
 | **L-2** | robot, read-only | memory and GPU the robot's stack already uses | `tegrastats` and `free -m` for 10 min in normal use, the Thor lane's audit method | recorded | — | the budget for L-3 |
 | **L-3** | bench Thor | perception frame time with an LLM turn beside it | a perception stand-in, with and without L-1's best case at concurrency 1 and 2 | perception p99 ≤ 10 % worse | the light model, or the CPU fallback (note §2.3) | 1.5, 1.12 |
-| **L-4** | bench Thor | Parakeet and Kokoro latency, alone and under L-3's load | 1, 3 and 8 s clips; a 12-word sentence | STT ≤ 200 ms for a 3 s clip; TTS first chunk ≤ 200 ms | Riva (plan B), or Moonshine and `kokoro-onnx` on the CPU | 1.3, V-O4 |
+| **L-4** | bench Thor | Parakeet and Kokoro latency, alone and under L-3's load, CPU first; and Kokoro's pronunciation without espeak-ng | 1, 3 and 8 s clips; a 12-word sentence; a list of awkward words | STT ≤ 200 ms for a 3 s clip; TTS first chunk ≤ 200 ms; awkward words intelligible | the GPU (`build.sh --gpu`); then Riva (plan B). **Not** kokoro-onnx: it requires phonemizer (GPL) | 1.3b, V-O4 |
 | **C-1** | robot's uplink | Claude TTFS and cost per turn from the robot's own network | `tools/voice-bench/claude_bench.py` with the robot's key | first text p90 ≤ 1.2 s | `auto` mode not offered on that robot | 2.1, V-O2 |
 | **V-7** | robot | wake-word CPU cost and false accepts with show music | sherpa-onnx in the face page | < 0.5 false accepts per hour | no wake word | 3.1 only |
 
@@ -101,11 +121,12 @@ near the line.
 
 | # | step | where | done when | status |
 |---|---|---|---|---|
-| 1.1 | **The voice service skeleton**: the `/ws/voice` wire protocol, turn state, pluggable STT/LLM/TTS (fake, local OpenAI-compatible, Claude), the brain router, `safe_tools`, the show interlock, the face-door client | desk | its tests pass in CI (67, fake audio and fake backends) | PR #230 |
-| 1.2 | **The `/ws/voice` relay** in the dashboard: origin guard, frame cap, `VOICE_SERVICE_DOWN` | desk | its tests pass in `dashboard.yml` | PR #231 |
-| 1.3 | **Parakeet and Kokoro** behind `speech.py`, in the GPU image (`build.sh --gpu`, on `ISAAC_ROS_BASE_IMAGE`) | bench Thor | L-4 passes; the fakes stay for tests | waits on L-4 and the Thor lane's base image |
+| 1.1 | **The voice service skeleton**: the `/ws/voice` wire protocol, turn state, pluggable STT/LLM/TTS (fake, local OpenAI-compatible, Claude), the brain router, `safe_tools`, the show interlock, the face-door client | desk | its tests pass in CI (67, fake audio and fake backends) | merged, #230 |
+| 1.2 | **The `/ws/voice` relay** in the dashboard: origin guard, frame cap, `VOICE_SERVICE_DOWN` | desk | its tests pass in `dashboard.yml` | merged, #231 |
+| 1.3a | **Parakeet and Kokoro backends, English only, no GPL** (V-O4): `speech.py` on sherpa-onnx and kokoro/misaki, `no_espeak.py`, `check_no_gpl.py` in the build and in CI, pinned packages, pinned weights fetched at provision time, `NOTICE.md` | desk | unit tests with fakes; CI's `speech-deps` job installs the pinned packages as the image does, finds no GPL, and runs Kokoro's English pipeline with no espeak-ng | PR (this change) |
+| 1.3b | **The real weights on the bench Thor**: `fetch_models.py`, then both backends on the CPU first; the GPU image (`build.sh --gpu`) only if L-4 needs it. Check pronunciation without espeak-ng on a set of awkward words (names, numbers, acronyms) | bench Thor | L-4 passes | waits on the bench Thor (TS-3) |
 | 1.4 | **Silero VAD** replaces the energy gate in `audio.py`, tuned on recordings of the robot's own room (motors, ESCs, lift, show music) | desk, then bench Thor | no clip of room noise is sent to STT; no real utterance is rejected, on a recorded set | — |
-| 1.5 | **The local brain**: `opendubs-llm` (vLLM) from `image/run-llm.sh`, with a warm-up request at start so the first visitor does not wait (one reported first run was about 20× slower than warm, the note §3.4) | bench Thor | L-1 and L-3 pass; the chosen model and its memory share are recorded | waits on L-1, L-3 and the image pin |
+| 1.5 | **The local brain**: `opendubs-llm` (vLLM) from `image/run-llm.sh`, with a warm-up request at start so the first visitor does not wait (one reported first run was about 20× slower than warm, the note §3.4) | bench Thor | V-O3 chosen; L-1 and L-3 pass for it; its memory share is recorded | waits on V-O3, L-1, L-3 and the image pin |
 | 1.6 | **Images built and pinned**: `opendubs-voice` and `opendubs-llm` built on the bench Thor, pushed by digest, run from `run.sh` / `run-llm.sh` | bench Thor | both start from pinned digests; `run.sh` refuses a loose `voice.env` | needs the Thor lane (TS-1) |
 | 1.7 | **The face page's side**: mic capture, the `/ws/voice` client, playback, the Talk button and the REC dot | desk (the Tablet lane's) | requests TL-1 to TL-4 below | **Tablet lane** |
 | 1.8 | **The face's looks**: listening, thinking, speaking and recording, with the mouth driven from the playing audio when enabled | desk (Face & HRI's) | request FH-1 to FH-3 below | **Face & HRI** |
@@ -193,8 +214,10 @@ These are written here and sent through the orchestrator. Each owning lane decid
 | stub | where | replaced by |
 |---|---|---|
 | energy-based speech gate (peak vs floor) | `software/voice/audio.py` | Silero VAD (1.4) |
-| fake STT and TTS | `speech.py` | Parakeet and Kokoro (1.3); the fakes stay for tests |
-| `parakeet` / `kokoro` refuse to start | `speech.py` | 1.3 |
+| fake STT and TTS | `speech.py` | the image's default is now Parakeet and Kokoro (1.3a); the fakes stay for tests and desk demos |
+| Kokoro on random stand-in weights in CI | `tests/smoke_speech_deps.py` | the real weights on the bench Thor (1.3b) |
+| British English refused | `speech.py` | pin misaki's `en_gb` fallback in `models.lock.json`, if wanted |
+| transitive Python dependencies not locked; misaki's build pulls `hatchling` unpinned | `image/requirements-*.txt` | 2.6 |
 | `CONVO` not sent (`OPENDUBS_VOICE_CONVO=0`) | `face.py` | TL-5 |
 | holding and apology lines synthesised live | `conversation.py` | 2.2 |
 | a generic persona | `persona.txt` (per robot via `OPENDUBS_VOICE_PERSONA`) | the team's own, with the eval set (2.5) |

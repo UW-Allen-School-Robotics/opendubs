@@ -75,12 +75,14 @@ class EndToEnd(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
         self.assertEqual(code, 3)
 
-    def test_check_names_an_unpackaged_backend(self):
-        os.environ["VOICE_STT"] = "parakeet"
-        try:
-            self.assertEqual(server.main(["--check"]), 2)
-        finally:
-            del os.environ["VOICE_STT"]
+    def test_check_names_a_backend_without_its_weights(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            os.environ.update(VOICE_STT="parakeet", OPENDUBS_VOICE_MODELS=d)
+            try:
+                self.assertEqual(server.main(["--check"]), 2)
+            finally:
+                del os.environ["VOICE_STT"], os.environ["OPENDUBS_VOICE_MODELS"]
 
 
 if __name__ == "__main__":

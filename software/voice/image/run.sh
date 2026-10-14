@@ -12,11 +12,17 @@
 # by other accounts on the robot has already leaked. Without the file the service starts with the
 # defaults (local brain, voice on).
 #
+# The speech models' weights are not in the image: they are on the host in $MODELS (fetched at
+# provision time by fetch_models.py) and mounted read-only at /models. This refuses to start the
+# container unless every pinned file is there and verifies (fetch_models.py --check, run in the
+# image itself), so a robot never boots into a voice that cannot speak.
+#
 # Hardened: read-only root filesystem, no capabilities, no new privileges, a non-root user.
 set -euo pipefail
 die() { echo "run.sh: $*" >&2; exit 1; }
 NAME=opendubs-voice
 ENVFILE=${OPENDUBS_VOICE_ENV:-/etc/opendubs/voice.env}
+MODELS=${OPENDUBS_VOICE_MODELS:-/var/lib/opendubs/models}
 
 IMAGE=${1:?usage: run.sh IMAGE [--replace]}; shift
 REPLACE=0
@@ -38,6 +44,12 @@ if [ -e "$ENVFILE" ]; then
   ENVARGS=(--env-file "$ENVFILE")
 fi
 
+[ -d "$MODELS" ] || die "no model directory $MODELS. Fetch the pinned weights first:
+  sudo mkdir -p $MODELS && docker run --rm --user 0 -v $MODELS:/models $IMAGE /opt/voice/venv/bin/python -I /opt/voice/app/fetch_models.py --dest /models"
+docker run --rm --network none -v "$MODELS:/models:ro" "$IMAGE" \
+  /opt/voice/venv/bin/python -I /opt/voice/app/fetch_models.py --dest /models --check \
+  || die "the weights in $MODELS do not match models.lock.json (see above); re-run fetch_models.py"
+
 if docker inspect "$NAME" >/dev/null 2>&1; then
   [ "$REPLACE" = 1 ] || die "a '$NAME' container already exists; pass --replace to remove it"
   docker rm -f "$NAME" >/dev/null
@@ -47,6 +59,7 @@ docker run -d --name "$NAME" \
   --network host \
   --restart unless-stopped \
   --read-only --tmpfs /tmp \
+  -v "$MODELS:/models:ro" \
   --cap-drop ALL --security-opt no-new-privileges \
   --log-opt max-size=10m --log-opt max-file=3 \
   "${ENVARGS[@]}" \

@@ -16,8 +16,9 @@ Configuration, all from the environment (on a robot: /etc/opendubs/voice.env, ro
   OPENDUBS_FACE_DOOR_PORT 4242                    the face door, UDP on loopback
   OPENDUBS_VOICE_CONVO    0; 1 sends CONVO lines to the face (only once the Tablet lane ships it)
   OPENDUBS_VOICE_PERSONA  a per-robot persona file; default persona.txt beside this file
-  VOICE_STT               fake | parakeet           (parakeet: not packaged yet)
-  VOICE_TTS               fake | kokoro             (kokoro: not packaged yet)
+  VOICE_STT               fake | parakeet           (Parakeet-TDT-0.6B-v2 on sherpa-onnx)
+  VOICE_TTS               fake | kokoro             (Kokoro-82M, American English only, no espeak-ng)
+  OPENDUBS_VOICE_MODELS   /var/lib/opendubs/models  the weights, fetched by fetch_models.py (/models in the image)
   VOICE_BRAIN             local | cloud | auto
   VOICE_LLM               local | fake              the local brain: an OpenAI-compatible server, or canned
   VOICE_LLM_URL           http://127.0.0.1:8000     the local model server (opendubs-llm)

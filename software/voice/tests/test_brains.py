@@ -142,7 +142,7 @@ class LocalTests(unittest.IsolatedAsyncioTestCase):
         self.srv.server_close()
 
     async def test_stream_text_and_a_fragmented_tool_call(self):
-        llm = brains.LocalLLM(self.url, "qwen3-test")
+        llm = brains.LocalLLM(self.url, "some-model")
         hist = [{"role": "user", "text": "smile"},
                 {"role": "assistant", "text": "", "tool_calls": [{"id": "x", "name": "face_gesture", "args": {"gesture": "bob"}}]},
                 {"role": "tool", "results": [{"id": "x", "content": "done", "is_error": False}]},
@@ -151,7 +151,7 @@ class LocalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text_of(ev), "Sure, I can.")
         calls = [e for e in ev if isinstance(e, ToolCall)]
         self.assertEqual([(c.id, c.name, c.args) for c in calls], [("call_a", "set_expression", {"expression": "soft"})])
-        self.assertEqual(ev[-1], Done("tool_use", "local:qwen3-test"))
+        self.assertEqual(ev[-1], Done("tool_use", "local:some-model"))
         body = FakeOpenAI.bodies[-1]
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
         self.assertTrue(body["stream"])

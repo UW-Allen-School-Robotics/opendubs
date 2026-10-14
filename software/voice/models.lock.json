@@ -1,0 +1,46 @@
+{
+  "_": "The speech models' weights, pinned. fetch_models.py downloads exactly these files at PROVISION time into the robot's model directory and verifies every byte; they are never in the repository or an image. sha256 is for large (LFS) files; git_blob is the git blob id of small files. English only, no GPL: see NOTICE.md.",
+  "models": [
+    {
+      "name": "parakeet",
+      "what": "speech-to-text: Parakeet-TDT-0.6B-v2, int8 ONNX export for sherpa-onnx",
+      "repo": "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+      "revision": "1ab9323565ddb038682214b292f588070a538ce2",
+      "license": "CC-BY-4.0",
+      "dest": "parakeet-tdt-0.6b-v2-int8",
+      "files": [
+        {"path": "encoder.int8.onnx", "size": 652184296, "sha256": "a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab"},
+        {"path": "decoder.int8.onnx", "size": 7257753, "sha256": "b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e"},
+        {"path": "joiner.int8.onnx", "size": 1739080, "sha256": "7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2"},
+        {"path": "tokens.txt", "size": 9384, "git_blob": "f0742785f6073e80b911964c455b05f3609bf23b"}
+      ]
+    },
+    {
+      "name": "kokoro",
+      "what": "text-to-speech: Kokoro-82M v1.0, and two English voices",
+      "repo": "hexgrad/Kokoro-82M",
+      "revision": "f3ff3571791e39611d31c381e3a41a3af07b4987",
+      "license": "Apache-2.0",
+      "dest": "kokoro-82m",
+      "files": [
+        {"path": "config.json", "size": 2351, "git_blob": "14a726edd3718279eac426630879ff743955b16a"},
+        {"path": "kokoro-v1_0.pth", "size": 327212226, "sha256": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4"},
+        {"path": "voices/af_heart.pt", "size": 523425, "sha256": "0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff"},
+        {"path": "voices/am_michael.pt", "size": 523435, "sha256": "9a443b79a4b22489a5b0ab7c651a0bcd1a30bef675c28333f06971abbd47bd37"}
+      ]
+    },
+    {
+      "name": "g2p-fallback",
+      "what": "misaki's English fallback for words not in its dictionary (a small BART model); replaces the GPL espeak-ng fallback",
+      "repo": "PeterReid/graphemes_to_phonemes_en_us",
+      "revision": "a5631b285d18d59483c32c0c3379cb9fac924f4b",
+      "license": "Apache-2.0",
+      "hf_cache": true,
+      "files": [
+        {"path": "config.json", "size": 1257, "git_blob": "f6f03c4cb8deed1f2ff51ca861b83514854e324e"},
+        {"path": "generation_config.json", "size": 191, "git_blob": "c0710cf2fbcc9bf0e8bf71de6b0a032b6ee2df6e"},
+        {"path": "model.safetensors", "size": 3011692, "sha256": "dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5"}
+      ]
+    }
+  ]
+}

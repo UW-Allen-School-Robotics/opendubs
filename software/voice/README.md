@@ -3,9 +3,10 @@
 Push-to-talk conversation for the robot: the face page's microphone in, the robot's voice out, and a
 language model in between that can change **the face, and nothing else**.
 
-**Status: phase 1 skeleton, desk-tested only.** The wire protocol, turn state, brain router, safe
-tools and container definition are here and tested with fake audio and fake backends. The speech
-models (Parakeet, Kokoro) are not packaged yet, and nothing here has run on a Thor or a tablet. The
+**Status: phase 1, desk-tested only.** The wire protocol, turn state, brain router, safe tools,
+the speech backends (Parakeet and Kokoro) and the container definition are here and tested with
+fake audio and fake backends; the pinned speech packages are installed and smoke-tested in CI.
+Nothing here has run on a Thor or a tablet, and the speech models' real latency is gate L-4. The
 plan, with the measurements that gate each step, is [`notes/workplan-voice.md`](../../notes/workplan-voice.md);
 the research behind it is `notes/design/voice-llm-research.md`.
 
@@ -53,12 +54,41 @@ place the cloud brain's API key may live: never the repository, the image, or th
 | setting | values |
 |---|---|
 | `VOICE_BRAIN` | `local` (default), `cloud`, `auto` (cloud while healthy, local otherwise) |
-| `VOICE_STT` / `VOICE_TTS` | `fake` today; `parakeet` / `kokoro` once packaged |
+| `VOICE_STT` / `VOICE_TTS` | `parakeet` / `kokoro` in the image; `fake` for tests and a desk demo |
 | `VOICE_LLM` | `local` (the vLLM container) or `fake` |
 | `OPENDUBS_VOICE` | `0` keeps voice off without stopping the service |
 
 In cloud and auto mode **text leaves the robot**: the transcript and the persona, never audio. Check
 your institution's policy before turning it on in a public space.
+
+## Speech: English only, no GPL
+
+**STT:** Parakeet-TDT-0.6B-v2 (NVIDIA, CC BY 4.0), as the k2-fsa project's int8 ONNX conversion,
+on sherpa-onnx (Apache-2.0). **TTS:** Kokoro-82M (Apache-2.0) on kokoro and misaki (Apache-2.0).
+Both run on the CPU until gate L-4 says otherwise.
+
+The project team decided on 2026-10-14 that the voice is **English only and ships no GPL code**.
+Kokoro's default install brings in espeak-ng and phonemizer (both GPL-3.0-or-later) through
+misaki's `[en]` extra, so:
+
+- kokoro and misaki are installed with `--no-deps`, and `image/requirements-speech.txt` lists
+  their other dependencies without the GPL ones;
+- misaki is pinned to a commit of its main branch, because the 0.9.4 release has no fallback for
+  words outside its dictionary without espeak-ng; that commit's own neural fallback (Apache-2.0)
+  handles them instead;
+- [`no_espeak.py`](no_espeak.py) stands in for misaki's espeak module, so kokoro imports without it
+  and any language that needs espeak-ng is refused by name;
+- [`image/check_no_gpl.py`](image/check_no_gpl.py) is the image build's last step and a CI job: an
+  image or environment with a GPL package, an espeak-ng library or espeak-ng data fails.
+
+Another language is a separate, explicit decision to ship GPL code.
+
+**Weights are never in the repository or an image.** [`fetch_models.py`](fetch_models.py) fetches
+exactly the files in [`models.lock.json`](models.lock.json) (each repository at a commit, each file
+by SHA-256 or git blob id) into the robot's model directory at provision time, which `image/run.sh`
+mounts read-only and checks before it starts the service. The service then runs with
+`HF_HUB_OFFLINE=1`, so nothing is fetched at run time. Credits and licences:
+[`NOTICE.md`](NOTICE.md), copied beside the weights.
 
 ## Run it on a desk
 
@@ -86,11 +116,15 @@ python3 software/voice/tests/test_conversation.py
 
 and likewise for each `tests/test_*.py`. They use fake audio (tone bursts on noise, silence, a
 steady hum) and fake backends, and open sockets only on free loopback ports of their own.
+`tests/smoke_speech_deps.py` needs the pinned speech packages installed (the CI job `speech-deps`
+installs them as the image does).
 
 ## The container
 
 `image/` follows the Thor stack's pinning rules: the base comes from `software/stack/versions.env`
-by digest, and `build.sh` refuses a tag. Phase 1 is CPU-only and builds on `ROS_BASE_IMAGE`; with
-the speech models it moves to the Isaac ROS base (`build.sh --gpu`). `run-llm.sh` starts the local
+by digest, and `build.sh` refuses a tag. It builds on `ROS_BASE_IMAGE` with CPU PyTorch; if gate
+L-4 needs the GPU, `build.sh --gpu` builds on the Isaac ROS base with its PyTorch. Provision the
+weights once per robot (`sudo mkdir -p /var/lib/opendubs/models`, then run `fetch_models.py` in the
+image with that directory mounted; `run.sh` prints the exact command). `run-llm.sh` starts the local
 model (vLLM) and refuses on a robot until the measurement gates have passed. Deployment through
 `deploy-all.sh` belongs to the Thor stack lane.

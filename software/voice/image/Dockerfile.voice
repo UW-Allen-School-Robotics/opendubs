@@ -5,11 +5,18 @@
 # Do not build this directly. build.sh reads the base from software/stack/versions.env (pinned by
 # digest, never a tag) and passes it in. The build context is the repository root.
 #
-# Phase 1 is CPU-only: fake STT/TTS for a desk, the local brain over HTTP to the separate
-# opendubs-llm container, and the cloud brain. So it builds FROM the pinned plain ROS base
-# (ROS_BASE_IMAGE), as every CPU-only module does (Thor stack plan, T-1 wording, 2026-10-09), and
-# runs unchanged on JetPack 7.1, 7.2 and Orin. When Parakeet and Kokoro land (step 1.3) the image
-# needs CUDA and moves to the Isaac ROS base (ISAAC_ROS_BASE_IMAGE), with `build.sh --gpu`.
+# Speech runs on the CPU first: Parakeet (int8 ONNX, sherpa-onnx) and Kokoro (CPU PyTorch). So the
+# image builds FROM the pinned plain ROS base (ROS_BASE_IMAGE), as every CPU-only module does (Thor
+# stack plan, T-1 wording, 2026-10-09), and runs unchanged on JetPack 7.1, 7.2 and Orin. If gate L-4
+# shows the GPU is needed, `build.sh --gpu` builds FROM the Isaac ROS base with TORCH=base, taking
+# CUDA PyTorch from that base instead of the CPU wheel.
+#
+# ENGLISH ONLY, NO GPL (the project team, 2026-10-14). kokoro and misaki are installed with
+# --no-deps so misaki's [en] extra (phonemizer, espeak-ng) never comes in, and the LAST step runs
+# check_no_gpl.py over the whole image: an image containing GPL code is never produced.
+#
+# NO WEIGHTS IN THE IMAGE. fetch_models.py puts them on the host at provision time; run.sh mounts
+# that directory read-only at /models.
 #
 # Not a ROS node: it speaks a WebSocket on loopback (the dashboard relays /ws/voice to it), UDP to
 # the face door, and HTTP to the dashboard and the local model. It holds no secret: the API key
@@ -23,15 +30,25 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
-COPY software/voice/image/requirements.txt /opt/voice/requirements.txt
-RUN python3 -m venv /opt/voice/venv \
+ARG TORCH=cpu
+COPY software/voice/image/requirements*.txt /opt/voice/
+RUN python3 -m venv $([ "$TORCH" = base ] && echo --system-site-packages) /opt/voice/venv \
+ && if [ "$TORCH" = cpu ]; then /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements-torch-cpu.txt; fi \
+ && /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements-speech.txt \
+ && /opt/voice/venv/bin/pip install --no-cache-dir --no-deps -r /opt/voice/requirements-speech-nodeps.txt \
  && /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements.txt
 
 # The protocol's vocabularies, which safe_tools reads so the allowlist cannot drift from the face.
 COPY software/head-protocol/head_protocol.py /opt/voice/app/head_protocol.py
-COPY software/voice/*.py software/voice/persona.txt /opt/voice/app/
+COPY software/voice/*.py software/voice/persona.txt software/voice/models.lock.json software/voice/NOTICE.md /opt/voice/app/
+COPY software/voice/image/check_no_gpl.py /opt/voice/check_no_gpl.py
+
+# The gate: refuse the image if any GPL package, espeak-ng library or espeak-ng data is in it.
+RUN /opt/voice/venv/bin/python -I /opt/voice/check_no_gpl.py
 
 RUN useradd --system --uid 10093 --home-dir /nonexistent --shell /usr/sbin/nologin voice
 USER voice
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OPENDUBS_VOICE_PORT=8093
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OPENDUBS_VOICE_PORT=8093 \
+    OPENDUBS_VOICE_MODELS=/models HF_HUB_CACHE=/models/hf/hub HF_HUB_OFFLINE=1 \
+    XDG_CACHE_HOME=/tmp VOICE_STT=parakeet VOICE_TTS=kokoro
 CMD ["/opt/voice/venv/bin/python", "/opt/voice/app/server.py"]

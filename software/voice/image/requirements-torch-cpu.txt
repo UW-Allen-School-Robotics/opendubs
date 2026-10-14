@@ -1,0 +1,6 @@
+# PyTorch for the voice image: the CPU build, from PyTorch's own CPU index, so no CUDA libraries
+# come with it (PyPI's Linux wheel pulls in the NVIDIA stack). Kokoro and misaki's G2P fallback
+# need it. If gate L-4 shows the GPU is needed, the GPU image takes torch from its CUDA base
+# instead and skips this file. Installed on its own so every other package resolves from PyPI only.
+--index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
