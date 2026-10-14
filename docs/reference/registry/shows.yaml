@@ -6,7 +6,7 @@
 entries:
   - code: SHOW_AUDIO_BUSY
     title: A sound sent to the robot was refused because a show has the speaker
-    symptom: [show-wont-start]
+    symptom: [no-sound]
     rank: 70
     kind: refusal
     seen_on: [dashboard]
@@ -18,7 +18,7 @@ entries:
       - Wait for the show to finish or be stopped, then send the sound again.
   - code: SHOW_AUDIO_NO_DEVICE
     title: A sound sent to the robot was refused because no speaker is connected
-    symptom: [show-wont-start]
+    symptom: [no-sound]
     rank: 71
     kind: refusal
     seen_on: [dashboard]
