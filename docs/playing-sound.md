@@ -1,13 +1,13 @@
 # Playing sound on the robot
 
 The robot plays sound from the face tablet's speaker. There are two ways to send it something: an
-iPhone or iPad can stream to it over **AirPlay**, and any phone or computer can send it a sound
+iPhone can stream to it over **AirPlay**, and any phone or computer can send it a sound
 file or a link from the dashboard's **Play to robot** page.
 
 A **show always comes first.** While a show runs, AirPlay and Play to robot go quiet and pick up
 again when it ends. The robot's background music pauses while either is playing.
 
-## AirPlay from an iPhone or iPad
+## AirPlay from an iPhone
 
 The robot runs an AirPlay-compatible receiver
 ([shairport-sync](https://github.com/mikebrady/shairport-sync)). AirPlay is Apple's trademark; the
@@ -48,6 +48,8 @@ The phone's volume slider works as usual. Two limits apply on top of it: the rob
 
 **A Mac** can see the robot and connect, but plays nothing: its AirPlay timing does not lock with the
 robot's receiver.
+
+**An iPad** should work the same way, but hasn't been tested yet.
 
 ## Play to robot — a file or a link
 
