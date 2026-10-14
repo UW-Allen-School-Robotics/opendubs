@@ -59,6 +59,8 @@
       <div class="hf-row"><label for="hfVol">Volume</label><input type="checkbox" id="hfVolSet" title="Set it here, or leave the tablet's own volume alone"><input type="range" id="hfVol" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolV"></span></div>
       <div class="hf-row"><label for="hfVolMax">Never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span></div>
 
+      <div class="hf-note">Anyone on the robot's Wi-Fi can send it a sound from their phone: open <b id="hfPlayUrl"></b> in the phone's browser.</div>
+
       <h2 class="mt">AMBIENT MUSIC</h2>
       <div id="hfAmbient" class="hf-status dim">—</div>
       <div id="hfSongs" class="hf-songs"></div>
@@ -69,6 +71,7 @@
     </section>`;
 
   let s = null, saveTimer = null;
+  el("hfPlayUrl").textContent = `${location.protocol}//${location.host}/play/`;
   const pct = (v) => `${Math.round(v * 100)}%`;
   const say = (text, cls) => { const b = el("hfSaved"); b.textContent = text; b.className = `badge ${cls || "dimbadge"}`; };
 
