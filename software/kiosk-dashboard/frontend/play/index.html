@@ -165,6 +165,7 @@ async function refresh() {
       : st.playing ? `▶ ${(st.now_playing && st.now_playing.title) || st.now_playing || "playing"}` +
                      (st.playing_from === "ambient" ? " (ambient music)" : "") : "Nothing playing.";
     if (document.activeElement !== $("vol") && typeof st.volume === "number") $("vol").value = st.volume;
+    if (a.device && a.device.error) say(`The robot couldn't play it: ${a.device.error}`, true);
   } catch (e) { $("now").textContent = "The robot's speaker isn't available right now."; }
 }
 
