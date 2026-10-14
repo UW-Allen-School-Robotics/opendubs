@@ -23,6 +23,7 @@ def _client(tmp_path, monkeypatch):
 def test_defaults_until_something_is_set(tmp_path, monkeypatch):
     s = _client(tmp_path, monkeypatch).get("/api/head/settings").json()
     assert s.pop("neck")                                   # read-only: the robot's neck, or "none"
+    assert s.pop("airplay") in ("on", "off", "absent")     # the receiver unit's own state
     assert s == head_settings.DEFAULTS
     assert s["mouth"] is False and s["bright_min"] == 0.15 and s["volume_idle"] is None
 
@@ -78,3 +79,25 @@ def test_an_unwritable_settings_folder_is_a_clear_503(tmp_path, monkeypatch):
         assert c.get("/api/head/settings").status_code == 200       # reading still works: the defaults
     finally:
         locked.chmod(0o755)
+
+
+def test_airplay_on_and_off_drive_the_receiver_unit(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    calls, state = [], {"v": "off"}
+
+    async def set_airplay(on):
+        calls.append(on); state["v"] = "on" if on else "off"
+    monkeypatch.setattr(head_settings, "airplay_state", lambda: state["v"])
+    monkeypatch.setattr(head_settings, "_set_airplay", set_airplay)
+    r = c.put("/api/head/settings", json={"airplay": True})
+    assert r.status_code == 200 and r.json()["airplay"] == "on" and calls == [True]
+    assert "airplay" not in head_settings.load()          # systemd is the truth, not the file
+    assert c.put("/api/head/settings", json={"airplay": False}).json()["airplay"] == "off"
+    assert c.put("/api/head/settings", json={"airplay": "yes"}).status_code == 400
+
+
+def test_no_receiver_means_airplay_cannot_be_turned_on(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(head_settings, "airplay_state", lambda: "absent")
+    r = c.put("/api/head/settings", json={"airplay": True})
+    assert r.status_code == 409 and "no AirPlay receiver" in r.json()["error"]

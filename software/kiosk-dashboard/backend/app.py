@@ -68,6 +68,13 @@ def _start_state_out() -> None:
 
 
 @app.on_event("startup")
+async def _start_airplay_relay() -> None:
+    """Drain the AirPlay receiver's FIFOs from the start, listener or not (airplay_relay.py)."""
+    import airplay_relay
+    await airplay_relay.start()
+
+
+@app.on_event("startup")
 async def _start_face_door() -> None:
     """The tablet face's door: head-protocol UDP on 127.0.0.1:4242, to the face page (face_door.py)."""
     import face_door
@@ -538,6 +545,9 @@ app.include_router(_voice_router)
 # Play to robot: sounds sent from a phone, stored on the robot (play_store.py; the page is /play/).
 from play_store import router as _play_router  # noqa: E402
 app.include_router(_play_router)
+# AirPlay, live: the Thor's receiver → the face page (airplay_relay.py; the receiver is the Thor lane's).
+from airplay_relay import router as _airplay_router  # noqa: E402
+app.include_router(_airplay_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

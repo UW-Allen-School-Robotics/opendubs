@@ -92,7 +92,10 @@ function frame(now) {
                    skins.library.get(skins.chosen)?.params?.layout === "full";
   // Nor while a show is armed: the ARMED sign owns the bottom of the face, and must read alone.
   const armed = typeof face.armedState === "function" && face.armedState(now);
-  const text = fullFace || armed ? null : face.quoteText();
+  // AirPlay playing and heard: what it is, in the quote's place.
+  const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
+  const text = fullFace || armed ? null
+    : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
   // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
   // inside the design-space transform, so no skin or photo can hide it (Face & HRI's skins/armed.js).
@@ -225,5 +228,6 @@ if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. 
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
 import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
+import("./airplay.js").then((m) => m.start({ onRobot })).catch(() => {});   // AirPlay, live (on the robot)
 if (q.get("track") === "1") tracking = true;
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
