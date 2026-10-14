@@ -14,8 +14,10 @@ less what is not the app's to ship:
     files (the robot's, not a laptop's);
   * software/face-web/vendor/ (MediaPipe, git-ignored anyway: camera tracking is off in the studio);
   * software/face-web/test/ (a bench-only tracking stimulus; the studio never loads it).
-The staging tree is built in a temporary folder, never in the checkout. A release is cut from it only
-on a `studio-v*` tag, which the maintainers push by hand.
+The staging tree is built in a temporary folder, never in the checkout. CI writes it with --stage,
+runs the Hygiene lane's release gate over it (tools/hygiene/check_tree.py), and builds the wheel
+from that same tree with --from-stage, so what was checked is what ships. A release is cut only from
+a `studio-v*` tag, which the maintainers push by hand.
 """
 from __future__ import annotations
 
@@ -90,9 +92,25 @@ def main() -> int:
     ap.add_argument("--out", default=None, help="where the wheel goes (default: a new temporary folder)")
     ap.add_argument("--version", default=None, help="default: 0.1.0+g<commit>")
     ap.add_argument("--list", action="store_true", help="print what would go in, and stop")
+    ap.add_argument("--stage", metavar="DIR", help="only write the staging tree to DIR (for the hygiene gate)")
+    ap.add_argument("--from-stage", metavar="DIR", help="build the wheel from a staging tree already written")
     a = ap.parse_args()
     if a.list:
         print("\n".join(tracked()))
+        return 0
+    if a.stage:
+        d = Path(a.stage).resolve()
+        if d == REPO or REPO in d.parents or (d.exists() and any(d.iterdir())):
+            sys.exit(f"--stage {d}: must be a new or empty folder outside the checkout")
+        files = stage(d, a.version or version())
+        print(f"staged {len(files)} files from the repository in {d}")
+        return 0
+    if a.from_stage:
+        out = Path(a.out or tempfile.mkdtemp(prefix="opendubs-studio-dist-")).resolve()
+        r = subprocess.run(["uv", "build", "--wheel", "--out-dir", str(out), str(Path(a.from_stage).resolve())])
+        if r.returncode:
+            return r.returncode
+        print(f"built {sorted(out.glob('opendubs_studio-*.whl'))[-1]}")
         return 0
     out = Path(a.out or tempfile.mkdtemp(prefix="opendubs-studio-dist-")).resolve()
     if out == REPO or REPO in out.parents and not a.out:
