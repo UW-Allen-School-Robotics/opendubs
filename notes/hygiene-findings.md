@@ -33,7 +33,7 @@ history.
 
 ### Still open
 
-8. **The unowned items** below (`backend/stamplc.py`, `software/face-web/`, `sim/`,
+8. **The unowned items** below (`backend/stamplc.py`,
    `firmware/rc_serial_probe/`, and `notes/per-robot-calibration.md`, which goes stale when S3's fix
    merges).
 ---
@@ -121,7 +121,7 @@ and for the `/ws` and `/rosbridge` WebSockets. A request naming a foreign page i
 no page passes, so curl, scripts and native clients keep working. Approved 2026-10-09; Tablet &
 head interface lane. Two edges remain, as S4b and S4c.
 
-**S4b · A ROS network-access gap; details held privately while open.** · **approved, in progress** (2026-10-11). Clients move first (Tablet, Arms), then the Thor stack lane closes it (draft #167); `SECURITY.md` changes with #167 · owners: **Thor stack & localization**, Tablet, Arms.
+**S4b · A ROS network-access gap.** · **fixed 2026-10-12**: rosbridge now listens on `127.0.0.1` only (PR #167, `188ecc2`), and network clients use the dashboard's Origin-guarded `/rosbridge`. `SECURITY.md` was updated with it (PR #195) · owners: Thor stack & localization, Tablet, Arms.
 
 **S4c · `/ws/show-audio` has no origin check.** · **approved, in progress** · owner: **Choreography**
 (`backend/show_audio.py`). The Tablet lane has asked that lane to add
@@ -207,7 +207,7 @@ lane.**
 - `notes/design/arm-authority.md:156,180,203,316`, `notes/design/arm-telemetry-and-viz.md:99`,
   `software/openarm/patches/README.md:3,9,59` and `software/openarm/patches/teleop-optional-viewer.py:2`
   (Arms).
-- `sim/README.md:40,84` (unowned).
+- `sim/README.md:40,84` (Choreography, which has owned `sim/` since PR #253 and is fixing these).
 - `notes/punch-list.md:40,46,65,127,245` (shared).
 - `firmware/rc_serial_probe/src/mast.h:146` (unowned).
 - `firmware/tab5_face/src/ui_shared.cpp:26` (Face & HRI).
