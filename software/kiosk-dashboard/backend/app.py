@@ -535,6 +535,9 @@ app.include_router(_head_settings_router)
 from voice_proxy import router as _voice_router  # noqa: E402
 app.include_router(_voice_router)
 
+# Play to robot: sounds sent from a phone, stored on the robot (play_store.py; the page is /play/).
+from play_store import router as _play_router  # noqa: E402
+app.include_router(_play_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

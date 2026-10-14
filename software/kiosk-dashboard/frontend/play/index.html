@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Play to robot</title>
+<!-- Play to robot: from any phone on the robot's network, send a sound to the robot's speaker (the face
+     tablet). The robot keeps the file (backend/play_store.py); playing it is the show-audio path's job
+     (/api/choreo/ambient), which steps aside for a show. -->
+<style>
+  :root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --txt: #e6edf3; --dim: #8b949e; --accent: #2ec27e; --bad: #ef5a5a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt); font: 16px/1.4 system-ui, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  h1 { font-size: 20px; letter-spacing: .04em; margin: 4px 0 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+  .card h2 { font-size: 12px; letter-spacing: .14em; color: var(--dim); margin: 0; }
+  button, .pick { font: inherit; font-weight: 700; min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line);
+                  background: #21262d; color: var(--txt); cursor: pointer; }
+  button.go, .pick { background: var(--accent); border-color: var(--accent); color: #05210f; }
+  button.stop { border-color: var(--bad); color: var(--bad); background: transparent; }
+  button:disabled { opacity: .45; }
+  .pick { display: flex; align-items: center; justify-content: center; }
+  input[type=url] { font: inherit; min-height: 48px; width: 100%; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line);
+                    background: var(--bg); color: var(--txt); }
+  input[type=range] { width: 100%; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; }
+  .dim { color: var(--dim); font-size: 14px; }
+  .bad { color: var(--bad); }
+  .now { font-size: 18px; font-weight: 700; }
+  progress { width: 100%; height: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li { display: flex; gap: 8px; align-items: center; }
+  li .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li button { min-height: 40px; padding: 0 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>▶ Play to robot</h1>
+  <div class="dim">Sends a sound to the robot's speaker. A show always comes first: what you send waits, and stops when a show starts.</div>
+
+  <section class="card">
+    <h2>NOW</h2>
+    <div class="now" id="now">—</div>
+    <div class="row"><button class="stop" id="stop">STOP</button></div>
+    <label class="dim" for="vol">Volume</label>
+    <input type="range" id="vol" min="0" max="1" step="0.05">
+  </section>
+
+  <section class="card">
+    <h2>FROM THIS PHONE</h2>
+    <label class="pick" for="file">Choose a sound…</label>
+    <input type="file" id="file" accept="audio/*" hidden>
+    <progress id="prog" max="1" value="0" hidden></progress>
+    <div class="dim" id="limit"></div>
+  </section>
+
+  <section class="card">
+    <h2>FROM A LINK</h2>
+    <input type="url" id="url" placeholder="https://… a link to an audio file" inputmode="url">
+    <button class="go" id="fetch">FETCH AND PLAY</button>
+  </section>
+
+  <section class="card">
+    <h2>RECENT</h2>
+    <ul id="list"></ul>
+  </section>
+
+  <div class="dim" id="msg" role="status"></div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const say = (text, bad) => { $("msg").textContent = text; $("msg").className = bad ? "bad" : "dim"; };
+
+const PLAIN = {   // the show-audio path's refusals, said plainly (the codes are in the troubleshooting registry)
+  SHOW_AUDIO_BUSY: "A show is on, and it comes first. Try again when it's over.",
+  SHOW_AUDIO_NO_DEVICE: "The robot's speaker isn't connected right now (the face tablet holds it).",
+};
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(PLAIN[body.code] || body.error || body.detail || `HTTP ${r.status}`);
+  return body;
+}
+
+// Play a stored file through the show-audio path (the Choreography lane's ambient channel).
+async function play(entry) {
+  try {
+    await api("/api/choreo/ambient", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "play_file", url: entry.url, title: entry.title }) });
+    say(`Playing “${entry.title}”.`);
+    refresh();
+  } catch (e) {
+    say(`Saved on the robot, but not playing: ${e.message}`, true);
+  }
+}
+
+function upload(file) {
+  // XHR rather than fetch, for the progress bar. The file goes as the raw body; the name is only a title.
+  const x = new XMLHttpRequest();
+  x.open("POST", `/api/play/upload?name=${encodeURIComponent(file.name)}`);
+  $("prog").hidden = false; $("prog").value = 0;
+  x.upload.onprogress = (e) => { if (e.lengthComputable) $("prog").value = e.loaded / e.total; };
+  x.onload = () => {
+    $("prog").hidden = true;
+    let body = {}; try { body = JSON.parse(x.responseText); } catch (e) {}
+    if (x.status === 200) { say(`Sent “${body.title}”.`); play(body); list(); }
+    else say(body.error || `Not sent (HTTP ${x.status})`, true);
+  };
+  x.onerror = () => { $("prog").hidden = true; say("Not sent: the robot didn't answer. Are you on its Wi-Fi?", true); };
+  say(`Sending “${file.name}”…`);
+  x.send(file);
+}
+
+$("file").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) upload(f); e.target.value = ""; });
+
+$("fetch").addEventListener("click", async () => {
+  const url = $("url").value.trim();
+  if (!url) return;
+  $("fetch").disabled = true; say("The robot is fetching it…");
+  try { const e = await api("/api/play/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+        $("url").value = ""; play(e); list(); }
+  catch (e) { say(e.message, true); }
+  finally { $("fetch").disabled = false; }
+});
+
+$("stop").addEventListener("click", async () => {
+  try { await api("/api/choreo/ambient", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "stop_play" }) }); refresh(); }
+  catch (e) { say(e.message, true); }
+});
+
+let volTimer = null;
+$("vol").addEventListener("input", (e) => {
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => api("/api/choreo/ambient", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ op: "volume", volume: Number(e.target.value) }) }).catch((err) => say(err.message, true)), 200);
+});
+
+async function list() {
+  try {
+    const { files, max_mb } = await api("/api/play/files");
+    $("limit").textContent = `Up to ${max_mb} MB: mp3, m4a, wav, ogg, flac or webm.`;
+    $("list").innerHTML = "";
+    for (const f of files) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="t"></span><button>PLAY</button><button>✕</button>`;
+      li.querySelector(".t").textContent = f.title;
+      const [p, d] = li.querySelectorAll("button");
+      p.onclick = () => play(f);
+      d.onclick = async () => { await api(`/api/play/files/${f.id}`, { method: "DELETE" }).catch(() => {}); list(); };
+      $("list").appendChild(li);
+    }
+    if (!files.length) $("list").innerHTML = '<li class="dim">Nothing sent yet.</li>';
+  } catch (e) { say(`The robot's store isn't available: ${e.message}`, true); }
+}
+
+async function refresh() {
+  try {
+    const a = await api("/api/choreo/ambient");
+    const st = a.state || {};
+    $("now").textContent = a.show_active ? "A show is running — it comes first."
+      : st.playing ? `▶ ${(st.now_playing && st.now_playing.title) || st.now_playing || "playing"}` +
+                     (st.playing_from === "ambient" ? " (ambient music)" : "") : "Nothing playing.";
+    if (document.activeElement !== $("vol") && typeof st.volume === "number") $("vol").value = st.volume;
+    if (a.device && a.device.error) say(`The robot couldn't play it: ${a.device.error}`, true);
+  } catch (e) { $("now").textContent = "The robot's speaker isn't available right now."; }
+}
+
+list(); refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>
