@@ -20,6 +20,20 @@ case "$SHAIRPORT_IMAGE" in
   *) echo "refusing an image that is not pinned by digest: $SHAIRPORT_IMAGE" >&2; exit 2 ;;
 esac
 NAME="${OPENDUBS_ROBOT_NAME:-OpenDubs}"
+
+# The robot's IPv4 address on the interface the host's avahi advertises on (see shairport-sync.conf
+# for why IPv4). Per robot and from DHCP, so it is read here, at each start, never committed.
+# OPENDUBS_AIRPLAY_IFACE (robot.env) overrides the interface.
+IFACE="${OPENDUBS_AIRPLAY_IFACE:-$(sed -n 's/^allow-interfaces=\([^,]*\).*/\1/p' /etc/avahi/avahi-daemon.conf | head -1)}"
+ADDR="$(ip -4 -o addr show dev "${IFACE:-none}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+if [ -z "$ADDR" ]; then
+  echo "no IPv4 address on interface '${IFACE}' yet; systemd will retry" >&2
+  exit 1
+fi
+CONF=/run/opendubs/airplay/shairport-sync.conf
+sed "s|@ADDRESS@|$ADDR|" /etc/opendubs/airplay/shairport-sync.conf > "$CONF"
+echo "receiver '$NAME' on $IFACE $ADDR"
+
 docker rm -f opendubs-airplay >/dev/null 2>&1 || true
 exec docker run --rm --name opendubs-airplay \
   --net host --cap-add SYS_NICE --security-opt apparmor=unconfined \
@@ -27,5 +41,5 @@ exec docker run --rm --name opendubs-airplay \
   -v /run/dbus:/run/dbus \
   -v /run/avahi-daemon:/run/avahi-daemon:ro \
   -v /run/opendubs/airplay:/run/opendubs/airplay \
-  -v /etc/opendubs/airplay/shairport-sync.conf:/etc/shairport-sync.conf:ro \
+  -v "$CONF":/etc/shairport-sync.conf:ro \
   "$SHAIRPORT_IMAGE" -a "$NAME"
