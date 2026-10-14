@@ -286,6 +286,7 @@ switch on the Head & face page are the Tablet lane's. The FIFO contract is in th
 | AP.2 | First install on opendubs2 (the user chose it as the test robot): an iPhone on the robot's local SSID sees the robot's name; PCM reaches the FIFO; stopping the unit removes the advertisement | Recorded here |
 | AP.3 | With the Tablet relay: end-to-end latency measured and the `-0.3` s offset tuned; the writer survives a dashboard restart mid-stream | Recorded here |
 | AP.4 | Chain into `provision-all.sh` once proven | — |
+| AP.5 | **Hardening:** replace `--security-opt apparmor=unconfined` with an AppArmor profile that is docker-default plus D-Bus to `org.freedesktop.Avahi` only. Unconfined was needed because docker-default has no D-Bus rules and the host bus refused the container's `Hello` (2026-10-14) | The receiver advertises under the tailored profile |
 
 **Standing rule: the shairport-sync image is NEVER bundled into anything the project ships.** That
 covers a golden disk image, a release or studio bundle, and a registry mirror of our own. It carries
