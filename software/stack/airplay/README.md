@@ -31,8 +31,8 @@ write side is blocking: the relay drains it at all times.
 
 ## Network
 
-**Senders: iPhone and iPad.** These connect over IPv4, and play. A **Mac does not play** (seen
-2026-10-14): it lists its timing peers as IPv6 link-local addresses without an interface scope, and
+**Senders: iPhone.** Tested on 2026-10-14: an iPhone connects over IPv4 and plays. An **iPad**
+should behave the same but has **not been tested**. A **Mac does not play** (seen 2026-10-14): it lists its timing peers as IPv6 link-local addresses without an interface scope, and
 the timing helper cannot reach them, so no clock locks and nothing is output. The Mac still sees the
 receiver and connects. Workplan item AP.6 holds the options.
 
