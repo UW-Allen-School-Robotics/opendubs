@@ -22,7 +22,9 @@ Configuration, all from the environment (on a robot: /etc/opendubs/voice.env, ro
   VOICE_BRAIN             local | cloud | auto
   VOICE_LLM               local | fake              the local brain: an OpenAI-compatible server, or canned
   VOICE_LLM_URL           http://127.0.0.1:8000     the local model server (opendubs-llm)
-  VOICE_LLM_MODEL         the model id that server serves
+  VOICE_LLM_PROFILE       qwen3-30b-a3b-w4a16       the local model's serving profile (llm_profile.py);
+                                                    qwen3-4b is the L-3 fallback. run-llm.sh takes the same name
+  VOICE_LLM_MODEL         overrides the profile's served model name (rarely needed)
   VOICE_CLOUD_MODEL       claude-haiku-5-5
   ANTHROPIC_API_KEY       only for cloud/auto; never in the repo, the image or the browser
 """
@@ -95,19 +97,46 @@ async def handle(voice: Voice, ws) -> None:
         log.info("page %d gone", page.id)
 
 
+WARM_BACKOFF_S = (2, 4, 8, 15, 30)
+
+
+async def warm_brain(voice: Voice, sleep=asyncio.sleep) -> None:
+    """Until the local brain answers, retry; then send it one warm-up request. The service is up
+    and the face usable throughout: a turn before the brain is ready gets the honest "I can't think
+    right now". `voice.brain_state` says where it is, for the status view (workplan 2.4)."""
+    attempt, last_why = 0, None
+    while True:
+        voice.brain_state = "warming"
+        try:
+            ok, why, ms = await voice.brain.warm_up(voice.persona)
+        except brains.BrainOffline as e:
+            ok, why, ms = False, str(e), None
+        if ok:
+            voice.brain_state = "ready"
+            log.info("brain ready%s", f": first event {ms:.0f} ms on a warm-up request" if ms is not None else "")
+            return
+        voice.brain_state = "unavailable"
+        if why != last_why:
+            log.warning("brain not ready: %s (retrying)", why)
+            last_why = why
+        await sleep(WARM_BACKOFF_S[min(attempt, len(WARM_BACKOFF_S) - 1)])
+        attempt += 1
+
+
 async def serve(voice: Voice, port: int, ready: asyncio.Future | None = None):
     from websockets.asyncio.server import serve as ws_serve
-    gate_task = None
+    tasks = []
     try:
         async with ws_serve(lambda ws: handle(voice, ws), HOST, port, max_size=MAX_FRAME,
                             ping_interval=10, ping_timeout=10) as server:
-            gate_task = asyncio.create_task(voice.gate.run())     # only once the port is ours
+            tasks.append(asyncio.create_task(voice.gate.run()))     # only once the port is ours
+            tasks.append(asyncio.create_task(warm_brain(voice)))
             if ready is not None:
                 ready.set_result(server.sockets[0].getsockname()[1])
             await asyncio.get_running_loop().create_future()      # forever
     finally:
-        if gate_task:
-            gate_task.cancel()
+        for t in tasks:
+            t.cancel()
 
 
 def main(argv=None) -> int:

@@ -52,6 +52,21 @@ This is a record, not legal advice.
   dictionary, in place of espeak-ng.
 - **Licence:** Apache License 2.0.
 
+### Qwen3-30B-A3B-Instruct-2507 and Qwen3-4B-Instruct-2507, the local brain
+
+- **By** the Qwen team, Alibaba Cloud. Model cards:
+  <https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507> and
+  <https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507>.
+- **Licence:** Apache License 2.0, for both.
+- **Chosen by** the project team (workplan V-O3, 2026-10-14): the 30B is the local brain, the 4B its
+  fallback if gate L-3 fails. Fetched only when named (`fetch_models.py --only ...`), and served by
+  vLLM in its own container (`image/run-llm.sh`).
+- **Modified:** the 30B is used as a **4-bit quantisation** made by Red Hat AI: W4A16, GPTQ with
+  group size 128, made with llm-compressor, Apache-2.0,
+  <https://huggingface.co/RedHatAI/Qwen3-30B-A3B-Instruct-2507-quantized.w4a16> (pinned at commit
+  `e9c59cdcca9d73f24adeda09660af904a79f509f`). The 4B is Qwen's own BF16 release (pinned at commit
+  `cdbee75f17c01a7cc42f958dc650907174af0554`), with its LICENSE fetched beside it.
+
 ## Libraries (installed in the image, pinned in `image/requirements-*.txt`)
 
 | library | used for | licence |
