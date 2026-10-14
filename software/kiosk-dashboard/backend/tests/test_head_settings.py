@@ -64,3 +64,17 @@ def test_a_face_page_gets_them_on_connect_and_on_change(tmp_path, monkeypatch):
         assert page.receive_json()["settings"]["skin"] == "default"
         c.put("/api/head/settings", json={"skin": "ring"})
         assert page.receive_json()["settings"]["skin"] == "ring"
+
+
+def test_an_unwritable_settings_folder_is_a_clear_503(tmp_path, monkeypatch):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        c = _client(tmp_path, monkeypatch)
+        monkeypatch.setattr(head_settings, "PATH", str(locked / "head" / "settings.json"))
+        r = c.put("/api/head/settings", json={"mouth": True})
+        assert r.status_code == 503 and "provision.sh" in r.json()["error"]
+        assert c.get("/api/head/settings").status_code == 200       # reading still works: the defaults
+    finally:
+        locked.chmod(0o755)

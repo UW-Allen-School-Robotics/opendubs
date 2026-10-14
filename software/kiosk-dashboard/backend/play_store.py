@@ -59,9 +59,39 @@ def sniff(head: bytes):
     return None
 
 
+class Unwritable(Exception):
+    pass
+
+
 def _root() -> str:
-    os.makedirs(ROOT, exist_ok=True)
+    try:
+        os.makedirs(ROOT, exist_ok=True)
+        if not os.access(ROOT, os.W_OK):
+            raise PermissionError(13, "Permission denied")
+    except OSError as e:
+        raise Unwritable(f"the robot can't keep sounds in {ROOT} ({e.strerror}); provision.sh creates that folder") from e
     return ROOT
+
+
+def _guarded(fn):
+    """A store that can't be written answers 503 with the reason, never a bare 500."""
+    import functools
+    import inspect
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapper(*a, **k):
+            try:
+                return await fn(*a, **k)
+            except Unwritable as e:
+                return JSONResponse({"error": str(e)}, status_code=503)
+    else:
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            try:
+                return fn(*a, **k)
+            except Unwritable as e:
+                return JSONResponse({"error": str(e)}, status_code=503)
+    return wrapper
 
 
 def _title(name: str) -> str:
@@ -129,6 +159,7 @@ def _tmp() -> str:
 
 
 @router.post("/api/play/upload")
+@_guarded
 async def upload(request: Request, name: str = "") -> JSONResponse:
     size = int(request.headers.get("content-length") or 0)
     if size > MAX_BYTES:
@@ -166,6 +197,7 @@ def _fetch(url: str, tmp: str) -> None:
 
 
 @router.post("/api/play/url")
+@_guarded
 async def from_url(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -188,11 +220,13 @@ async def from_url(request: Request) -> JSONResponse:
 
 
 @router.get("/api/play/files")
+@_guarded
 def list_files() -> JSONResponse:
     return JSONResponse({"files": entries(), "max_mb": MAX_BYTES // (1024 * 1024)})
 
 
 @router.get("/api/play/files/{name}")
+@_guarded
 def get_file(name: str):
     if not NAME_RE.match(name) or not os.path.exists(os.path.join(_root(), name)):
         return JSONResponse({"error": "no such file"}, status_code=404)
@@ -201,6 +235,7 @@ def get_file(name: str):
 
 
 @router.delete("/api/play/files/{fid}")
+@_guarded
 def delete_file(fid: str) -> JSONResponse:
     if not re.match(r"^[0-9a-f]{16}$", fid):
         return JSONResponse({"error": "no such file"}, status_code=404)

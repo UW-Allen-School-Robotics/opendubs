@@ -89,3 +89,22 @@ def test_delete_and_bad_names(tmp_path, monkeypatch):
     assert c.get(e["url"]).status_code == 404
     assert c.get("/api/play/files/..%2F..%2Fetc%2Fpasswd").status_code == 404
     assert c.delete("/api/play/files/not-an-id").status_code == 404
+
+
+def test_an_unwritable_store_is_a_clear_503_not_a_500(tmp_path, monkeypatch):
+    """On the robot /var/lib/opendubs is root's and the dashboard runs as kiosk: until provision.sh
+    makes the folder, every call says why rather than failing with a 500."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        monkeypatch.setattr(play_store, "ROOT", str(locked / "play"))
+        app = FastAPI()
+        app.include_router(play_store.router)
+        c = TestClient(app)
+        for r in (c.get("/api/play/files"), c.post("/api/play/upload?name=a.wav", content=WAV),
+                  c.get("/api/play/files/0123456789abcdef.wav"), c.delete("/api/play/files/0123456789abcdef")):
+            assert r.status_code == 503, (r.status_code, r.text)
+            assert "provision.sh" in r.json()["error"]
+    finally:
+        locked.chmod(0o755)

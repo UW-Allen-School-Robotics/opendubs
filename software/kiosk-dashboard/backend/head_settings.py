@@ -3,8 +3,8 @@
   GET /api/head/settings    the settings, every key present (defaults filled in)
   PUT /api/head/settings    change some of them; returns the whole set
 
-Kept on the robot (OPENDUBS_HEAD_SETTINGS, default /var/lib/opendubs/head-settings.json), written
-atomically, so they survive restarts and reboots. Never in the repo: they are this robot's choices.
+Kept on the robot (OPENDUBS_HEAD_SETTINGS, default /var/lib/opendubs/head/settings.json, in a folder
+provision.sh gives the dashboard's user), written atomically, so they survive restarts and reboots. Never in the repo: they are this robot's choices.
 A change is pushed at once to every connected face page (face_door.py); a page that connects later
 gets them on connect. A show overrides the levels and the skin with its own cues and ends with
 `VOLUME IDLE` / `BRIGHT IDLE` (head protocol v5), which return to the values here.
@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 log = logging.getLogger("head_settings")
 router = APIRouter()
 
-PATH = os.environ.get("OPENDUBS_HEAD_SETTINGS") or "/var/lib/opendubs/head-settings.json"
+PATH = os.environ.get("OPENDUBS_HEAD_SETTINGS") or "/var/lib/opendubs/head/settings.json"
 
 DEFAULTS = {
     "screen_on": True,          # keep the tablet's screen on
@@ -111,7 +111,11 @@ async def put_settings(request: Request) -> JSONResponse:
         s["bright_idle"] = s["bright_min"]
     if s["volume_idle"] is not None and s["volume_idle"] > s["vol_max"]:
         s["volume_idle"] = s["vol_max"]
-    save(s)
+    try:
+        save(s)
+    except OSError as e:                         # e.g. the folder was never provisioned: say so plainly
+        return JSONResponse({"error": f"the robot can't save the head settings in {os.path.dirname(PATH)} "
+                                      f"({e.strerror}); provision.sh creates that folder"}, status_code=503)
     import face_door                            # push to every face page now
     await face_door.broadcast({"settings": s})
     return JSONResponse(s)
