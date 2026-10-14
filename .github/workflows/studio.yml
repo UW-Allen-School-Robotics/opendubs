@@ -1,0 +1,97 @@
+# The choreography studio (software/choreo/studio): build the wheel, install it, and run the whole
+# app on each platform — start it headless, probe the composer and the face door, render one
+# off-screen frame of the twin, stop it, and check nothing it started is left running.
+# Owned by the Choreography lane.
+#
+# A `studio-v*` tag (pushed by a maintainer, by hand) builds the release wheel and keeps it as this
+# run's artifact. Cutting the GitHub release from it is a separate, manual step:
+#   gh release create studio-vX.Y.Z <the downloaded wheel> --title "Studio X.Y.Z"
+name: studio
+
+on:
+  pull_request:
+    paths:
+      - "software/choreo/**"
+      - "software/face-web/**"
+      - "software/head-protocol/**"
+      - "sim/**"
+      - "description/**"
+      - "software/openarm/limits/**"
+      - ".github/workflows/studio.yml"
+  push:
+    branches: [main]
+    paths:
+      - "software/choreo/**"
+      - "software/face-web/**"
+      - "software/head-protocol/**"
+      - "sim/**"
+      - "description/**"
+      - "software/openarm/limits/**"
+      - ".github/workflows/studio.yml"
+    tags: ["studio-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      OPENDUBS_NO_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: The studio's folders, all under the runner's temp folder
+        run: echo "OPENDUBS_STUDIO_HOME=$RUNNER_TEMP/studio-home" >> "$GITHUB_ENV"
+      - name: Off-screen OpenGL (Linux has no display)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libosmesa6
+          echo "MUJOCO_GL=osmesa" >> "$GITHUB_ENV"
+          echo "PYOPENGL_PLATFORM=osmesa" >> "$GITHUB_ENV"
+      - name: Build the wheel
+        run: python3 software/choreo/studio/build_wheel.py --out "$RUNNER_TEMP/dist"
+      - name: Install it, as a user would
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/venv"
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
+          if [ "$RUNNER_OS" = Linux ]; then uv pip install --python "$RUNNER_TEMP/venv/bin/python" pyopengl; fi
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Start it
+        run: opendubs-studio up --headless && opendubs-studio status
+      - name: The composer answers, and the face door answers PING
+        run: |
+          port=$(python3 -c "import json,os; print(json.load(open(os.environ['OPENDUBS_STUDIO_HOME'] + '/state/state.json'))['ports']['composer'])")
+          curl -fsS "http://127.0.0.1:$port/api/twin"
+          python3 - <<'PY'
+          import json, os, socket
+          ports = json.load(open(os.environ["OPENDUBS_STUDIO_HOME"] + "/state/state.json"))["ports"]
+          s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(5)
+          s.sendto(b"PING\n", ("127.0.0.1", ports["face"]))
+          r = s.recv(512).decode()
+          print(r)
+          assert r.startswith("PONG") and "tablet" in r, r
+          PY
+      - name: One off-screen frame of the twin
+        # GitHub's macOS runners are virtual machines with no OpenGL at all: there the model is compiled
+        # and stepped instead, and the log says the frame was skipped. Linux renders through osmesa.
+        run: opendubs-studio selftest --frame $([ "$RUNNER_OS" = Linux ] && echo require || echo auto)
+      - name: Stop it, and nothing is left
+        if: always()
+        run: |
+          opendubs-studio down
+          sleep 2
+          if pgrep -fl "opendubs_studio/tree"; then echo "processes left running"; exit 1; fi
+      - name: The logs, when something failed
+        if: failure()
+        run: tail -n 40 "$OPENDUBS_STUDIO_HOME"/log/*.log || true
+      - name: Keep the wheel (a studio-v* tag only)
+        if: startsWith(github.ref, 'refs/tags/studio-v') && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendubs-studio-wheel
+          path: ${{ runner.temp }}/dist/*.whl

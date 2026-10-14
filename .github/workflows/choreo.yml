@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - run: pip install pyyaml mujoco numpy   # mujoco: the IK solver's tests (ik.py) need the twin's model
+      - run: pip install pyyaml mujoco numpy psutil platformdirs   # mujoco: ik.py's tests; psutil, platformdirs: the studio launcher's
       - run: python3 software/choreo/tests/test_cue.py
       - run: python3 software/choreo/tests/test_composer.py
       - run: python3 software/choreo/tests/test_bridge.py
@@ -63,4 +63,5 @@ jobs:
       - run: python3 software/choreo/tests/test_show_outputs.py   # the lift and the light on live runs, a fake dashboard
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
+      - run: python3 software/choreo/tests/test_studio.py   # the studio launcher and its wheel's contents
       - run: python3 software/choreo/cue.py validate 'software/choreo/shows/*.yaml' --limits software/choreo/tests/joint_limits_fixture.yaml
