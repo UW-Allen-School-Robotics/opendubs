@@ -1,26 +1,20 @@
 #!/bin/bash
-# Stops what ./studio-up.sh started — the MuJoCo twin, the face twin and the composer — and nothing
-# else: only the process groups it recorded in $OPENDUBS_STUDIO_DIR, never a process found by name
-# or port (another session's twins may be running on this machine).
+# Stops the choreography studio (= opendubs-studio down): only what it started, never another
+# session's twins. Also stops a studio the earlier version of studio-up.sh started, from the process
+# groups it recorded in ~/.cache/opendubs-studio.
 set -u
-DIR="${OPENDUBS_STUDIO_DIR:-$HOME/.cache/opendubs-studio}"
-stopped=0
+HERE="$(cd "$(dirname "$0")" && pwd)"
+OLD="${OPENDUBS_STUDIO_DIR:-$HOME/.cache/opendubs-studio}"
 for name in body face composer; do
-    f="$DIR/$name.pid"
+    f="$OLD/$name.pid"
     [ -f "$f" ] || continue
     pid="$(cat "$f")"
     if kill -0 "$pid" 2>/dev/null; then
         kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
-        for _ in $(seq 1 25); do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 0.2
-        done
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
-        fi
-        echo "studio: $name stopped (pid $pid)"
-        stopped=1
+        for _ in $(seq 1 25); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+        kill -0 "$pid" 2>/dev/null && { kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null; }
+        echo "studio: $name stopped (pid $pid, started by the earlier studio-up.sh)"
     fi
     rm -f "$f"
 done
-[ "$stopped" = 1 ] || echo "studio: nothing of ours was running"
+exec "$(command -v uv || echo "$HOME/.local/bin/uv")" run -q "$HERE/studio/studio.py" down "$@"
