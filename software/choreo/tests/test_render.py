@@ -81,6 +81,17 @@ with tempfile.TemporaryDirectory() as td:
               (len(hs), sum(x != y for x, y in zip(hs[:10], hs[10:]))))
     check("the face source is fed the live bridge's lines (the show's face state, at least once)", len(stub.lines) > 0,
           stub.lines[:3])
+
+    class RefusingFace(StubFace):
+        def frame(self, lines, t):
+            px, _ = super().frame(lines, t)
+            return px, ["ERR skin x: file missing (showing default)"] * len(lines)
+
+    said = []
+    render.render(SHOW, os.path.join(td, "e.mp4"), layout="c", fps=10, size=(320, 180), limits=LIMITS,
+                  t_from=0.5, t_to=1.0, log=said.append, face=RefusingFace())
+    warns = [m for m in said if "WARNING" in m and "ERR skin x" in m]
+    check("a face reply starting ERR is a WARNING, said once, with its show time", len(warns) == 1, said[-4:])
     p = render.plan("c", 1280, 720)
     check("layout c: the robot in a tall pane on the left, the face filling the rest, centred",
           p["robot"] == (576, 720, 0, 0) and p["face"][0] == 704 and p["face"][2] == 576

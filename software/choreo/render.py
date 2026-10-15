@@ -388,10 +388,10 @@ def render(show_path: str, out: str, layout="c", fps=30.0, size=(1280, 720), lim
 
         def face_at(t):
             px, replies = face.frame(follow.update(1, tl, t, True), t)
-            for r in replies:
+            for r in replies:                     # e.g. "ERR skin x: <why> (showing default)": said at once
                 if isinstance(r, str) and r.startswith("ERR") and r not in refused:
                     refused.add(r)
-                    notes.append(f"face: the page answered {r!r}")
+                    log(f"render: WARNING at {t:.2f} s the face answered {r!r}")
             return px
 
         digest = []
