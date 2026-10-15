@@ -173,6 +173,19 @@ def tablet_head(u, d, asm):
     for frame, spec in (asm.get("frames") or {}).items():
         u.fixed_sensor("head_tilt_link", frame, spec.get("xyz_mm"), spec.get("rpy_deg"), pivot,
                        "galaxy_tablet")
+        if spec.get("optical"):
+            optical_frame(u, frame)
+
+
+def optical_frame(u, parent):
+    """A camera's optical frame (z forward, x right, y down), as a child of its body frame
+    (x forward). Missing whenever the body frame is."""
+    name = parent.removesuffix("_link") + "_optical_frame"
+    if parent not in u.links:
+        u.missing.append(f"{name} (follows {parent})")
+        return
+    u.link(name)
+    u.joint(f"{name}_joint", "fixed", parent, name, (0, 0, 0), (-90, 0, -90))
 
 
 def tab5_head(u, d, asm):

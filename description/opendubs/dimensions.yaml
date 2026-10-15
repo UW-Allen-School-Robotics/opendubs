@@ -219,11 +219,8 @@ sensors:
     fitted: true
     xyz_mm: TODO_CAD                   # housing on the rear rail (docs/build/pinpoint.md)
     rpy_deg: [0, 0, 0]                 # ASSUMED; its heading sign is checked by PPCAL DIRX/DIRY
-  gps:
-    frame: gps_link                    # Holybro M9N on the front lidar's stack
-    fitted: true                       # mounted per docs/build/lidar.md; nothing reads it yet
-    xyz_mm: TODO_CAD
-    rpy_deg: [0, 0, 0]
+  # No GPS on the chassis (confirmed 2026-10-15). The robot's GNSS is the head tablet's:
+  # /tablet/fix, frame tablet_gps_link in head_assembly.galaxy_tablet.
   otos:
     frame: otos_link                   # SparkFun OTOS on the middle cross rail, 10 mm ride height
     fitted: false                      # off the bus on opendubs2
@@ -261,9 +258,13 @@ head_assembly:
     geometry: head
     # Frame positions use the same convention as tab5_pantilt: CAD coordinates with pan = tilt = 0
     # and the lift down, riding on head_tilt_link. Left out of the URDF until measured.
+    # `optical: true` adds <name minus _link>_optical_frame (z forward, x right, y down; REP-103).
+    # The camera feeds are on demand (off unless requested): /tablet/camera/front, /tablet/camera/rear.
     frames:
       head_screen_link:   { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # screen centre, x out of the glass
-      tablet_camera_link: { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the screen-side (front) camera
+      tablet_front_camera_link: { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0], optical: true }  # screen side, facing out
+      tablet_rear_camera_link:  { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 180], optical: true }  # back side; full rear view. Yaw ASSUMED
+      tablet_gps_link:    { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the tablet's GNSS antenna: the robot's GPS
       tablet_imu_link:    { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the tablet's IMU; Android axes
     # Not on this head: the D415 (camera_link) and the front ToF (tof_front_link) were parts of
     # the Tab5 head. If either is remounted, it gets a frame here with a measured position.
