@@ -57,9 +57,8 @@ def _now() -> str:
     return json.dumps({"now": {"active": state["active"], "title": state["title"], "artist": state["artist"]}})
 
 
-async def _report():
-    """Tell the face pages what is playing (for the caption), and the show-audio hub."""
-    _send_all(_now())
+async def _report_hub():
+    """Tell the show-audio hub what is playing."""
     # The hub, guarded: before it has airplay_report, AirPlay is never heard, because the face page's
     # gate starts muted and only the hub opens it.
     try:
@@ -71,9 +70,19 @@ async def _report():
         log.warning("airplay: hub report failed: %s", e)
 
 
-def _from_thread(coro_fn):
-    if _loop is not None:
-        asyncio.run_coroutine_threadsafe(coro_fn(), _loop)
+def _announce():
+    """From a reader thread: what is playing, to the face pages and then the hub. The pages' message
+    goes with call_soon_threadsafe, IN ORDER with the audio that follows it (a coroutine's first step
+    would run a turn later, after audio already queued). A loop that has closed (the dashboard
+    stopping) is skipped quietly."""
+    loop = _loop
+    if loop is None or loop.is_closed():
+        return
+    try:
+        loop.call_soon_threadsafe(_send_all, _now())
+        asyncio.run_coroutine_threadsafe(_report_hub(), loop)
+    except RuntimeError:                         # closed between the check and the call
+        pass
 
 
 # ---- audio: the FIFO, drained always -----------------------------------------------------------------
@@ -151,9 +160,13 @@ def _audio_reader():
         if not state["active"]:
             state["active"] = True
             log.info("airplay: playing")
-            _from_thread(_report)
-        if _loop is not None and clients:
-            _loop.call_soon_threadsafe(_send_all, data)
+            _announce()
+        loop = _loop
+        if loop is not None and clients and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(_send_all, data)
+            except RuntimeError:
+                pass
 
 
 def _idle_watch():
@@ -162,7 +175,7 @@ def _idle_watch():
         if state["active"] and time.monotonic() - state["last_audio"] > IDLE_S:
             state["active"] = False
             log.info("airplay: stopped")
-            _from_thread(_report)
+            _announce()
 
 
 # ---- metadata: what is playing --------------------------------------------------------------------
@@ -210,7 +223,7 @@ def _meta_reader():
         items, buf = parse_items(buf)
         buf = buf[-65536:]                              # never grows without bound
         if any([apply_item(*it) for it in items]) and state["active"]:
-            _from_thread(_report)
+            _announce()
 
 
 # ---- the face page's end -----------------------------------------------------------------------------

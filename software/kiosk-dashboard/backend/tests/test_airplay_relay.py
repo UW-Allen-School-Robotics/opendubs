@@ -100,7 +100,8 @@ def test_a_session_streams_to_the_page_and_is_reported_to_the_hub(tmp_path, monk
         pcm = bytes(range(256)) * 64                      # 16 KB
         _writer(path, pcm, 0.1)
         got, nows = b"", []
-        while len(got) < len(pcm):
+        # Until all the audio AND a "now: active" have come, in whatever order the loop delivers them.
+        while len(got) < len(pcm) or not any(n["active"] for n in nows):
             m = page.receive()
             if m.get("bytes") is not None:
                 got += m["bytes"]                         # audio
