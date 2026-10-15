@@ -75,11 +75,23 @@
            alt: c.altitude, alt_acc: c.altitudeAccuracy, age_ms: Math.max(0, age) });
   }, 1000);
 
-  let motion = [];                                     // samples since the last batch
-  addEventListener("devicemotion", (e) => {
+  let motion = [], lastMotion = performance.now();      // samples since the last batch
+  const onMotion = (e) => {
+    lastMotion = performance.now();
     const a = e.accelerationIncludingGravity;
     if (a && a.x !== null && motion.length < 64) motion.push({ t: e.timeStamp, ax: a.x, ay: a.y, az: a.z });
-  });
+  };
+  addEventListener("devicemotion", onMotion);
+  // Found on the robot tablet (2026-10-15): after the kiosk app restarted for an update, the page got
+  // no motion events at all until it was reloaded. A visible page with no motion for 10 s takes its
+  // listener off and puts it back, which makes the browser start the sensor again.
+  st.motion_restarts = 0;
+  setInterval(() => {
+    if (document.visibilityState !== "visible" || performance.now() - lastMotion < 10000) return;
+    removeEventListener("devicemotion", onMotion);
+    setTimeout(() => addEventListener("devicemotion", onMotion), 200);
+    st.motion_restarts++; lastMotion = performance.now();
+  }, 5000);
   setInterval(() => {
     if (!motion.length) return;
     const now = performance.now();

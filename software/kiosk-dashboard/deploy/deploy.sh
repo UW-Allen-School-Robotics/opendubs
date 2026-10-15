@@ -63,6 +63,12 @@ rsync -az --delete --filter 'P shows/audio/*' \
 # loads it from the robot, which may have no internet. Deploying from a checkout without it leaves the
 # robot's copy alone rather than deleting it.
 ssh "$HOST" "mkdir -p $DEST_ROOT/face-web"
+# A checkout that never fetched it (vendor/ is git-ignored) fetches it now: pinned, and checked by
+# fetch-vendor.sh. On 2026-10-15 a deploy from such a checkout left the robot with no tracking at all.
+if [ ! -f "$SRC../face-web/vendor/mediapipe/vision_bundle.mjs" ]; then
+  echo "== fetching the face's MediaPipe files (software/face-web/fetch-vendor.sh) =="
+  "$SRC../face-web/fetch-vendor.sh" || echo "== note: fetch-vendor.sh failed (npm and internet needed); tracking stays as the robot has it =="
+fi
 if [ -f "$SRC../face-web/vendor/mediapipe/vision_bundle.mjs" ]; then
   FACE_VENDOR=(--include 'vendor/' --include 'vendor/mediapipe/***' --exclude 'vendor/*')
 else
