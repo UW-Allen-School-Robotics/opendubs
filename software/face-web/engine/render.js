@@ -49,7 +49,11 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
 
   const skins = new Skins();
   if (library) await skins.loadLibrary(library);   // read once: no second look during a render
-  if (typeof skins.ready === "function") await skins.ready();
+  // An asset skin loads after it is chosen; until it has, the default eyes stand in. A render waits
+  // for it (Face & HRI's skins.ready(): the skin chosen NOW, true once it can draw, false if it failed
+  // or timed out), so the frame after a SKIN line is the skin, every time. A video skin is ready
+  // once its first frame is, but which frame it shows later follows the wall clock: not repeatable.
+  const skinReady = async () => { if (typeof skins.ready === "function") await skins.ready(); };
   if (drawArmed === undefined) drawArmed = await import("./skins/armed.js").then((m) => m.drawArmed).catch(() => null);
 
   let t = 0, lastStep = 0;
@@ -57,7 +61,7 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
   const face = new Face();
   const silent = { enabled: false, cue() {} };      // earcons are not part of the picture
   if (state) face.setState(state, 0);
-  if (skin) skins.select(skin);
+  if (skin) { skins.select(skin); await skinReady(); }
 
   const advance = (to) => {
     if (typeof to !== "number" || !Number.isFinite(to)) throw new TypeError(`t_ms must be a number, got ${to}`);
@@ -72,7 +76,9 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
     /** A head-protocol line at show time `tMs`. Resolves to the reply the robot's face would give. */
     async apply(line, tMs) {
       advance(tMs);
-      return handle(face, silent, String(line), tMs, skins, levels, { timers: false });
+      const reply = await handle(face, silent, String(line), tMs, skins, levels, { timers: false });
+      if (/^\s*SKIN\b/i.test(String(line))) await skinReady();
+      return reply;
     },
     /** Move the face to show time `tMs` and draw it. */
     step(tMs) {

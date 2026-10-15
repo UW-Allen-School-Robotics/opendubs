@@ -51,7 +51,9 @@ OpenDubsRender.frame();                           // {w, h, rgba: base64 of w*h*
 
 `apply` and `step` share one clock. It only runs forward, and a step back throws. The face starts at
 t = 0 as a page does, with its eyes opening, so step through a short lead-in before a show's first frame.
-BRIGHT is drawn into the frame as a dimming, and fades and the ARMED lease run on the show's clock.
+`apply("SKIN …")` resolves once the skin can draw, so the frame after it shows the skin. Image skins
+are repeatable. A video skin is not, because which of its frames shows follows the wall clock. BRIGHT
+is drawn into the frame as a dimming, and fades and the ARMED lease run on the show's clock.
 `tests/test_render.mjs` holds this in CI, and `tests/test_render_browser.mjs` compares real pixels in Chrome.
 
 ## On a tablet

@@ -102,6 +102,16 @@ check("a different seed draws something different", JSON.stringify(a.log) !== JS
     check("  and lapses at show time, not wall time", r.face.armedState(4000) === null, r.face.armedState(4000));
   }
 }
+// A SKIN line is answered once the skin can draw (an asset loads after it is chosen).
+{
+  const { ctx } = recorder(64, 36);
+  const r = await createRenderer({ ctx, w: 64, h: 36, seed: 1, drawArmed: null });
+  let waited = 0;
+  r.skins.ready = async () => { await sleep(50); waited++; return true; };
+  await r.apply("SKIN ring", 0);
+  await r.apply("EMOTE HAPPY", 10);
+  check("apply waits for a chosen skin to be ready, and only for SKIN", waited === 1, waited);
+}
 // Time only runs forward, and says so.
 {
   const { ctx } = recorder(64, 36);
