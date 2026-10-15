@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cmath>
 #include "../neck/pantilt_core.h"
+#include "../neck/tilt_confirm.h"
 #include "../neck/rc_frame.h"
 #include <cstring>
 
@@ -242,6 +243,78 @@ int main()
         State s2 = s; s2.lastMs = 4000;
         tick(s2, quiet, lim);
         ok(s2.owner != Owner::Rc, "and silence hands it back rather than holding it");
+    }
+
+    // ---- 11. the TILT button confirm -------------------------------------------------------------
+    // The interlock the maintainers asked for: a TILT over the network waits for somebody at the
+    // head to press the button. Tested here rather than on the board because the board has no USB
+    // cable, and because the cases that matter are the awkward ones -- a button already held, a
+    // press one tick too late -- which are miserable to stage by hand and easy to get wrong.
+    {
+        Pending p;
+        ok(!request(p, 150, 10, 1000, false), "a reversed band is refused, and arms nothing");
+        ok(!request(p, -5, 100, 1000, false), "a negative floor is refused");
+        ok(!request(p, 0, 200, 1000, false), "a ceiling past 180 is refused");
+        ok(!p.waiting, "none of those left anything waiting");
+
+        ok(request(p, 71, 150, 1000, false), "a sane band is accepted");
+        ok(p.waiting, "and waits for the press");
+        ok(poll(p, 1100, false) == Confirm::None, "nothing happens while the button is untouched");
+        ok(poll(p, 1200, true) == Confirm::Applied, "the press applies it");
+        ok(!p.waiting, "and clears the request, so one press cannot confirm twice");
+        ok(poll(p, 1300, true) == Confirm::None, "a second press does nothing on its own");
+    }
+    {
+        // THE WHOLE POINT OF THE INTERLOCK. A button already held when the request arrives must
+        // not confirm it -- otherwise a hand resting on the Dial, or anything leaning on it, turns
+        // the interlock into a no-op while still passing a test written with a tidy press.
+        Pending p;
+        request(p, 71, 150, 1000, true);                 // button ALREADY down
+        ok(poll(p, 1100, true) == Confirm::None, "a button already held does NOT confirm");
+        ok(poll(p, 1200, true) == Confirm::None, "nor does keeping it held");
+        ok(poll(p, 1300, false) == Confirm::None, "releasing it does not confirm either");
+        ok(poll(p, 1400, true) == Confirm::Applied, "but a fresh press, after the release, does");
+    }
+    {
+        Pending p;
+        request(p, 71, 150, 1000, false);
+        ok(poll(p, 1000 + kTiltConfirmMs - 1, false) == Confirm::None, "the window is still open just before the deadline");
+        ok(poll(p, 1000 + kTiltConfirmMs, false) == Confirm::Expired, "and closes on it");
+        ok(!p.waiting, "an expired request is dropped");
+        ok(poll(p, 1000 + kTiltConfirmMs + 5000, true) == Confirm::None, "a press after the window does nothing");
+    }
+    {
+        // A press on the very tick the window shuts is REFUSED rather than raced: expiry is
+        // checked first, so there is one answer and not two.
+        Pending p;
+        request(p, 71, 150, 1000, false);
+        ok(poll(p, 1000 + kTiltConfirmMs, true) == Confirm::Expired, "a press exactly on the deadline is too late");
+    }
+    {
+        // LATEST WINS. During a commissioning the operator sends notch after notch; an earlier
+        // request must not be confirmable later by a press meant for the current one.
+        Pending p;
+        request(p, 71, 150, 1000, false);
+        request(p, 74, 140, 2000, false);
+        ok(p.lo == 74 && p.hi == 140, "a second request replaces the first");
+        ok(poll(p, 2100, true) == Confirm::Applied, "and the press confirms the SECOND one");
+    }
+    {
+        Pending p;
+        ok(secondsLeft(p, 5000) == 0, "nothing waiting, no countdown");
+        request(p, 71, 150, 1000, false);
+        ok(secondsLeft(p, 1000) == kTiltConfirmMs / 1000, "the countdown starts at the full window");
+        ok(secondsLeft(p, 1000 + kTiltConfirmMs) == 0, "and reaches zero at the deadline");
+    }
+    {
+        // The clock wraps after 49 days. Signed arithmetic throughout, as in the control law --
+        // the same unsigned-underflow bug that made the GAZE lease flap would expire every
+        // pending request the instant it was made.
+        Pending p;
+        const uint32_t nearWrap = 0xFFFFFF00u;
+        request(p, 71, 150, nearWrap, false);
+        ok(poll(p, nearWrap + 100, false) == Confirm::None, "a request made just before the clock wraps does not expire early");
+        ok(poll(p, nearWrap + 200, true) == Confirm::Applied, "and can still be confirmed across the wrap");
     }
 
     printf(failed ? "\n%d FAILED\n" : "\nall pantilt checks passed\n", failed);
