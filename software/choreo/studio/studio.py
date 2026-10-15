@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow"]
+# dependencies = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow", "imageio-ffmpeg"]
 # ///
 """The choreography studio: the composer, the face twin and the MuJoCo body twin, as one app.
 
@@ -11,6 +11,7 @@
     opendubs-studio paths         # the folders and settings it uses
     opendubs-studio limits --from-robot opendubs2   # use that robot's arm limits from now on
     opendubs-studio selftest      # render one off-screen frame of the twin (CI uses this)
+    opendubs-studio render monster_mash --out show.mp4   # the show as a video, offline (render.py)
 
 Installed from a release wheel, or run from a checkout without installing:
 
@@ -437,6 +438,29 @@ def cmd_selftest(a) -> int:
     return 1
 
 
+def cmd_render(a) -> int:
+    """A show as a video file, offline (render.py), with this studio's library, shows and arm limits."""
+    s, tree = load_settings(), tree_root()
+    show = Path(a.show).expanduser()
+    if not show.is_file():
+        name = a.show if a.show.endswith((".yaml", ".yml")) else a.show + ".yaml"
+        show = shows_dir(s) / name
+    if not show.is_file():
+        print(f"{APP}: no show {a.show!r} (looked for it as a path and in {shows_dir(s)})", file=sys.stderr)
+        return 1
+    argv = [sys.executable, tree / "software" / "choreo" / "render.py", show, "--out", Path(a.out).expanduser(),
+            "--layout", a.layout, "--fps", a.fps, "--size", a.size, "--from", a.t_from]
+    lim = limits_file(s)
+    if lim:
+        argv += ["--limits", lim]
+    if a.t_to is not None:
+        argv += ["--to", a.t_to]
+    if a.allow_invalid:
+        argv.append("--allow-invalid")
+    env = {**os.environ, "OPENDUBS_LIBRARY": str(library_dir(s))}
+    return subprocess.run([str(x) for x in argv], env=env, cwd=tree / "software" / "choreo").returncode
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog=APP, description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -454,8 +478,17 @@ def main(argv=None) -> int:
     slf = sub.add_parser("selftest", help="render one off-screen frame of the twin")
     slf.add_argument("--frame", choices=("require", "auto"), default="require",
                      help="auto: where there is no OpenGL at all, compile and step the model instead")
+    ren = sub.add_parser("render", help="a show as a video file (offline, nothing plays)")
+    ren.add_argument("show", help="a show file, or a show's name in the shows folder")
+    ren.add_argument("--out", required=True)
+    ren.add_argument("--layout", choices=("a", "b", "c"), default="a")
+    ren.add_argument("--fps", default="30")
+    ren.add_argument("--size", default="1920x1080")
+    ren.add_argument("--from", dest="t_from", default="0")
+    ren.add_argument("--to", dest="t_to", default=None)
+    ren.add_argument("--allow-invalid", action="store_true")
     a = ap.parse_args(argv)
-    return {"up": cmd_up, "down": cmd_down, "status": cmd_status, "open": cmd_open, "paths": cmd_paths,
+    return {"render": cmd_render, "up": cmd_up, "down": cmd_down, "status": cmd_status, "open": cmd_open, "paths": cmd_paths,
             "limits": cmd_limits, "selftest": cmd_selftest}[a.cmd](a)
 
 
