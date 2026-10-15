@@ -61,7 +61,7 @@ export async function startChrome({ args = [] } = {}) {
   let ws = null;
   try {
     let port = null;
-    for (let i = 0; i < 100 && !port; i++) {
+    for (let i = 0; i < 300 && !port; i++) {           // 30 s: a CI runner can be slow to start it
       await sleep(100);
       try { port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n"); } catch { /* not yet */ }
     }

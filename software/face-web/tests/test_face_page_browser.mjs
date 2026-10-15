@@ -1,5 +1,5 @@
 // The live face page in a real browser, for what only the page does:
-//   - the camera indicator follows a camera opening and closing (Chrome's fake camera stands in; in
+//   - the camera sign follows a camera opening and closing (Chrome's fake camera stands in; in
 //     the kiosk the app's cameras() reports the hardware as well),
 //   - a short tap shows how to open the controls, and a long-press opens them.
 // SKIP without Chrome (chrome_page.mjs). Muted and headless; nothing is left running.
@@ -17,17 +17,14 @@ if (!c) {
   console.log(`SKIP ${startChrome.why}: the face page check did not run`);
   process.exit(0);
 }
-// The sign's place: the corridor between the brows at the top centre (Face & HRI's CAMERA_SIGN_BOX,
-// 542,26 196x68, which the plain dot sits in too), read as the brightest pixel there. Whichever look
-// draws it, something bright is there while a camera is open and nothing when none is.
-const DOT = `(() => {
-  const cv = document.getElementById('face'), W = cv.width, H = cv.height, s = Math.min(W / 1280, H / 720);
-  const x0 = (W - 1280 * s) / 2, y0 = (H - 720 * s) / 2;
-  const t = document.createElement('canvas'); t.width = W; t.height = H; const g = t.getContext('2d');
-  g.drawImage(cv, 0, 0);
-  const d = g.getImageData(Math.round(x0 + 542 * s), Math.round(y0 + 26 * s), Math.round(196 * s), Math.round(68 * s)).data;
-  let max = 0; for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i] + d[i + 1] + d[i + 2]);
-  return max > 300; })()`;
+// Whether the frame drew the camera sign (frame.js reports it; main.js keeps it in faceStats). What
+// it draws is test_camera_indicator.mjs's business; here, that a real camera turns it on and off.
+const DOT = "window.faceStats.cameraSign === true";
+// Wait for a condition in the page, up to 3 s: the camera poll and the frame loop each take a moment.
+const until = async (p, expr) => {
+  for (let i = 0; i < 30; i++) { if (await p.evaluate(expr)) return true; await sleep(100); }
+  return false;
+};
 try {
   const p = await c.open("/index.html?state=SAFE_IDLE");
   await sleep(1500);
@@ -35,12 +32,10 @@ try {
   check("no camera open: no indicator", (await p.evaluate("JSON.stringify(window.faceCameras)")) === '{"screen":false,"back":false}' &&
         !(await p.evaluate(DOT)), await p.evaluate("JSON.stringify(window.faceCameras)"));
   await p.evaluate("navigator.mediaDevices.getUserMedia({video: true}).then((s) => { window.__cam = s; return true; })");
-  await sleep(800);
-  check("a camera opens: the face says so", (await p.evaluate("window.faceCameras.screen")) === true && (await p.evaluate(DOT)) === true,
+  check("a camera opens: the face says so", await until(p, `window.faceCameras.screen === true && ${DOT}`),
         await p.evaluate("JSON.stringify(window.faceCameras)"));
   await p.evaluate("window.__cam.getTracks().forEach((t) => t.stop()); true");
-  await sleep(800);
-  check("it closes: the indicator goes", (await p.evaluate("window.faceCameras.screen")) === false && (await p.evaluate(DOT)) === false,
+  check("it closes: the indicator goes", await until(p, `window.faceCameras.screen === false && !(${DOT})`),
         await p.evaluate("JSON.stringify(window.faceCameras)"));
 
   const press = (ms) => p.evaluate(`(async () => {

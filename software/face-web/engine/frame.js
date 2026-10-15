@@ -18,7 +18,7 @@ import { CODE_SKINS } from "./skins/index.js";
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
  *              cams: {screen, back}, which of the tablet's cameras are open; drawCamera: the skin's
  *              indicator (Face & HRI's skins/camera.js), else the plain one here
- * @returns     {fullFace, armed}
+ * @returns     {fullFace, armed, camera}: camera is whether the camera sign was drawn
  */
 export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
                           cams = null, drawCamera = null }) {
@@ -50,7 +50,8 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // A CAMERA IS OPEN (the user's condition for using the tablet's cameras, 2026-10-15): shown whenever
   // either camera is open, for tracking or a stream, over every skin, photo and reserved state, and
   // never when none is. Drawn after ARMED, so nothing covers it.
-  if (cams && (cams.screen || cams.back)) (drawCamera || drawCameraPlain)(ctx, cams, now / 1000);
+  const camera = !!(cams && (cams.screen || cams.back));
+  if (camera) (drawCamera || drawCameraPlain)(ctx, cams, now / 1000);
   // BRIGHT, in the picture itself: black over the whole frame at (1 - bright) is exactly CSS
   // brightness(bright), which is how the page shows it live without the kiosk app.
   if (bright < 1) {
@@ -58,7 +59,7 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = `rgba(0,0,0,${(1 - Math.max(0, bright)).toFixed(4)})`; ctx.fillRect(0, 0, W, H);
   }
-  return { fullFace, armed };
+  return { fullFace, armed, camera };
 }
 
 /** The plain camera indicator, until Face & HRI's skins/camera.js draws its own: a red dot at the
