@@ -29,6 +29,15 @@ on:
       - "software/openarm/limits/**"
       - ".github/workflows/studio.yml"
     tags: ["studio-v*"]
+  # macOS minutes bill at 10x Linux, so the macOS leg runs only on main, weekly and by hand (below).
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
+
+# A newer push to a branch cancels its older run; every main run is kept.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -38,7 +47,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Pull requests: Linux only. Push to main, a studio-v* tag, the weekly run and a manual run: Linux and macOS.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     env:
       OPENDUBS_NO_BROWSER: "1"

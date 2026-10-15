@@ -32,6 +32,11 @@ on:
       - "description/**"
       - ".github/workflows/choreo.yml"
 
+# A newer push to a branch cancels its older run; every main run is kept.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
