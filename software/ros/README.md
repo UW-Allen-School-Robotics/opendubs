@@ -178,6 +178,20 @@ resume scanning after `/stop_motor` on this driver), so scan returns in ~5–8 s
 STOP stays stopped (driver not restarted), START brings scan back; a genuine wedge while
 enabled still triggers a restart.
 
+## Tablet camera demand
+
+The head tablet's cameras reach ROS through the dashboard (`backend/tablet_relay.py`) as
+`/tablet/camera/{front,rear}/image_raw/compressed`, and the tablet streams a camera only while that
+topic has a subscriber. **`opendubs-tablet-camera-demand.service`** (`tablet-camera-demand.sh` →
+`tablet_camera_demand.py`) counts the subscribers once a second with rclpy's `count_subscribers()`,
+which sees every subscription, command-line tools included. It POSTs
+`{"front": bool, "rear": bool, "counts": {...}}` to the dashboard's `/api/tablet/camera/demand`
+whenever either answer changes, and every 2 s otherwise. The dashboard treats demand it has not heard
+for a few seconds as false, so a camera never keeps streaming because this node stopped.
+
+To make the rear camera stream from a shell, subscribe to it:
+`ros2 topic hz /tablet/camera/rear/image_raw/compressed`.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts

@@ -10,7 +10,7 @@ ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge opendubs-camera \
-opendubs-drive-bridge"
+opendubs-drive-bridge opendubs-tablet-camera-demand"
 
 # The two LIDAR drivers cannot be started until each has been PINNED to a physical unit. Both A1
 # adapters report CP2102 serial 0001, so /dev/serial/by-id holds one ambiguous entry and the

@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenDubs tablet camera demand (tells the dashboard which tablet cameras have ROS subscribers)
+After=network.target opendubs-dash.service opendubs-rosbridge.service
+Wants=opendubs-dash.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+ExecStart=/opt/opendubs/ros/tablet-camera-demand.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
