@@ -94,6 +94,11 @@ jobs:
           print(r)
           assert r.startswith("PONG") and "tablet" in r, r
           PY
+      - name: A show rendered to video, twice, frame-identical (Linux, osmesa)
+        if: runner.os == 'Linux'
+        run: |
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" imageio-ffmpeg
+          "$RUNNER_TEMP/venv/bin/python" software/choreo/tests/test_render.py
       - name: One off-screen frame of the twin
         # GitHub's macOS runners are virtual machines with no OpenGL at all: there the model is compiled
         # and stepped instead, and the log says the frame was skipped. Linux renders through osmesa.
