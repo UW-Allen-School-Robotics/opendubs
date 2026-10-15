@@ -130,8 +130,17 @@ def snapshot() -> JSONResponse:
     })
 
 
+@app.on_event("startup")
+async def _reconcile_tracker() -> None:
+    """The RealSense tracker's service runs exactly when the Head & face setting says d415."""
+    import head_settings
+    err = await asyncio.get_running_loop().run_in_executor(None, head_settings.reconcile_tracker)
+    if err:
+        print(f"TRACKER: could not match the setting: {err}")
+
+
 @app.post("/api/tracker/{state}")
-def tracker_control(state: str) -> JSONResponse:
+async def tracker_control(state: str) -> JSONResponse:
     """Start or stop the AI face tracker.
 
     This drives the systemd unit. It used to `subprocess.Popen` the script itself with the Tab5's
@@ -142,11 +151,24 @@ def tracker_control(state: str) -> JSONResponse:
     target = state.lower()
     if target not in ("on", "off"):
         return JSONResponse({"ok": False, "error": "use on|off"}, status_code=400)
+    # One truth: this button writes the Head & face `tracking` setting, which the service follows.
+    import head_settings
+    import face_door
+    if target == "on" and not head_settings.realsense_present():
+        return JSONResponse({"ok": False, "error": "no RealSense camera is connected to the robot"}, status_code=409)
+    s = head_settings.load()
+    if target == "on" or s.get("tracking") == "d415":
+        s["tracking"] = "d415" if target == "on" else "off"
+        try:
+            head_settings.save(s)
+            await face_door.broadcast({"settings": s})
+        except OSError:
+            pass                                  # the service still follows the button
 
     verb = "start" if target == "on" else "stop"
     try:
-        r = subprocess.run(["sudo", "-n", "systemctl", verb, TRACKER_UNIT],
-                           capture_output=True, text=True, timeout=15)
+        r = await asyncio.to_thread(subprocess.run, ["sudo", "-n", "systemctl", verb, TRACKER_UNIT],
+                                    capture_output=True, text=True, timeout=15)
     except Exception as e:
         return JSONResponse({"ok": False, "error": f"systemctl {verb} failed: {e}"},
                             status_code=503)

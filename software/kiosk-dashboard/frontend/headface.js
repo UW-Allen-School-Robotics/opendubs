@@ -110,10 +110,15 @@
     el("hfNeckNote").textContent = s.neck === "none"
       ? "No neck is fitted on this robot (OPENDUBS_HEAD_NECK_HOST=none): the head doesn't turn, so the eyes follow people but the head stays still."
       : (s.neck ? `Neck: ${s.neck}` : "");
+    const rs = el("hfTrack").querySelector('option[value="d415"]');
+    if (rs) {
+      rs.disabled = !s.realsense && s.tracking !== "d415";
+      rs.textContent = s.realsense ? "the RealSense camera (on the robot)" : "the RealSense camera (not connected)";
+    }
     el("hfTrackNote").textContent = {
       off: "",
-      tablet: "Uses the tablet's front camera, on the tablet itself. The kiosk app must allow the camera.",
-      d415: "Runs the robot's own tracker (the same as AI TRACKING on Operate). The RealSense camera must be connected.",
+      tablet: "The face's own camera: the eyes follow people, and the head turns toward them when a neck is fitted.",
+      d415: "The robot's RealSense tracker (the same as AI TRACKING on Operate). It aims the neck only; the face's eyes don't follow it.",
     }[s.tracking];
   }
 
@@ -198,13 +203,8 @@
   onChange("hfTheme", (e) => save({ theme: e.target.value }, true));
   onChange("hfSkin", (e) => save({ skin: e.target.value }, true));
   onChange("hfTrack", async (e) => {
-    const v = e.target.value, was = s.tracking;
-    // The RealSense tracker is a service on the robot: start or stop it with the setting.
-    if (v === "d415" || was === "d415") {
-      try { await getJSON(`/api/tracker/${v === "d415" ? "on" : "off"}`, { method: "POST" }); }
-      catch (err) { say(`tracker: ${err.message}`, "bad"); }
-    }
-    save({ tracking: v }, true);
+    // The robot starts or stops the RealSense tracker's service with the setting itself.
+    save({ tracking: e.target.value }, true);
   });
   onChange("hfVolSet", (e) => save({ volume_idle: e.target.checked ? Number(el("hfVol").value) : null }, true));
   for (const [id, key, label] of [["hfBright", "bright_idle", "hfBrightV"], ["hfBrightMin", "bright_min", "hfBrightMinV"],

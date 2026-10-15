@@ -71,7 +71,9 @@ install -d -o "$SVC_USER" -g "$SVC_USER" -m 0755 /var/lib/opendubs/head   # Head
 systemctl daemon-reload
 systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
-systemctl enable opendubs-yolo-tracker.service
+# Not enabled at boot: the dashboard starts it when the Head & face setting says `d415` (the RealSense
+# tracker), and stops it otherwise (head_settings.reconcile_tracker).
+systemctl disable opendubs-yolo-tracker.service 2>/dev/null || true
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
 
