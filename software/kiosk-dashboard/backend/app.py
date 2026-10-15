@@ -82,10 +82,14 @@ async def _start_neck_follow() -> None:
 
 
 @app.get("/api/head/follow")
-def _neck_follow_status() -> dict:
-    """Why the head is or is not following right now, and what it last sent."""
+async def _neck_follow_status(live: int = 0) -> dict:
+    """Why the head is or is not following right now, and what it last sent. `neck` is the last NECK
+    read before a send (`neck_age_s` says how old); `?live=1` adds `neck_live`, asked of the neck now."""
     import neck_follow
-    return neck_follow.status()
+    s = neck_follow.status()
+    if live:
+        s["neck_live"] = await asyncio.get_running_loop().run_in_executor(None, neck_follow.live_neck)
+    return s
 
 
 @app.on_event("startup")
