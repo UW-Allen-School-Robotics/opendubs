@@ -112,6 +112,18 @@ export function handle(face, audio, line, now, skins, levels, opts = {}) {
       if (/^\d+$/.test(a) && +a >= 1 && +a <= 60) { face.setArmed(+a, now); return `OK armed ${+a}`; }
       return "ERR armed WAIT | <1..60 seconds> | OFF";
     }
+    case "BATT": {
+      // Head protocol v6: the pack's charge, for the gauge (Face & HRI's face.setBatt). The STATE says
+      // whether the gauge shows (CHARGING); this says what it reads. Out of range is refused, never
+      // clamped. Answered `ERR unknown` by a face that cannot draw it, so conformance says PENDING.
+      if (typeof face.setBatt !== "function") break;
+      const [soc, ch, extra] = rest;
+      const ok = extra === undefined && (ch === "0" || ch === "1") &&
+                 (soc === "-" || (/^\d{1,3}$/.test(soc || "") && Number(soc) <= 100));
+      if (!ok) return "ERR batt <0..100|-> <0|1>";
+      face.setBatt(soc === "-" ? null : Number(soc), ch === "1", now);
+      return `OK batt ${soc === "-" ? "-" : Number(soc)} ${ch}`;
+    }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";
   }

@@ -32,7 +32,7 @@ def test_the_fsm_itself_is_untouched():
 
 def test_the_prism_breathes_purple_in_slow_steps():
     (rgb, _), seen = so._prism_target("CHARGING", now=0.0), set()
-    assert rgb == (150, 50, 255)
+    assert rgb == (109, 48, 224)                          # the face's CHARGING purple, 0x6d30e0
     writes, last = 0, None
     for i in range(400):                                    # 0.3 s passes over two breaths (8 s) ...
         c = so._prism_target("CHARGING", now=i * 0.02)      # ... sampled every 20 ms here

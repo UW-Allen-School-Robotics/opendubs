@@ -45,7 +45,7 @@ _MAP = {
     "DEGRADED":           ("DEGRADED",   (240, 150, 40),  85),
     "E_STOP_LATCH":       ("E_STOP",     (255, 35, 35),   95),
     # Not an FSM state: how a charging robot is SHOWN (present() below). Purple, breathing on the PRISM.
-    "CHARGING":           ("CHARGING",   (150, 50, 255),  70),
+    "CHARGING":           ("CHARGING",   (109, 48, 224),  70),   # the face's CHARGING purple (0x6d30e0)
 }
 
 # ---- charging: presentation only ---------------------------------------------------------------
@@ -324,14 +324,24 @@ def _push_tab5(rs: str) -> None:
 _BATT_REFRESH_S = 30.0
 _batt_line = None                       # the BATT line last sent; face_door.py sends it as a page connects
 _batt_at = 0.0
+_batt_bad_logged = False
 
 
 def batt_line(pack: dict, charger: dict):
     """`BATT <soc 0-100|-> <charging 0|1>` from status._pack() and status._charger()."""
     soc = pack.get("soc") if pack.get("present") else None
     try:
-        soc = None if soc is None else max(0, min(100, int(round(float(soc)))))
+        soc = None if soc is None else int(round(float(soc)))
     except (TypeError, ValueError):
+        soc = None
+    if soc is not None and not 0 <= soc <= 100:
+        # A reading out of range is a bug upstream (the BMS or its parser): say "unknown", and say so,
+        # rather than clamp it into a plausible number the face would show.
+        global _batt_bad_logged
+        if not _batt_bad_logged:
+            import sys
+            sys.stderr.write(f"BATT: the BMS reports state of charge {soc} %: sent as unknown\n")
+            _batt_bad_logged = True
         soc = None
     return f"BATT {'-' if soc is None else soc} {1 if charger.get('charging') else 0}"
 

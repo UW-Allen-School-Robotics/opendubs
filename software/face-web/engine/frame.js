@@ -12,7 +12,7 @@ import { CODE_SKINS } from "./skins/index.js";
  * @param ctx   a 2D context
  * @param W,H   its size in pixels
  * @param now   the face's clock, ms
- * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption, cams, drawCamera}
+ * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption, cams, drawCamera, drawCharge}
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
@@ -21,7 +21,7 @@ import { CODE_SKINS } from "./skins/index.js";
  * @returns     {fullFace, armed, camera}: camera is whether the camera sign was drawn
  */
 export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
-                          cams = null, drawCamera = null }) {
+                          cams = null, drawCamera = null, drawCharge = null }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -40,10 +40,17 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
                    skins.library.get(skins.chosen)?.params?.layout === "full";
   // Nor while a show is armed: the ARMED sign owns the bottom of the face, and must read alone.
   const armed = typeof face.armedState === "function" && face.armedState(now);
+  // On charge (head protocol v6 BATT, drawn by Face & HRI's skins/charge.js): what the robot itself is
+  // doing comes before a song or the idle quote. Below ARMED, which owns the bottom while it shows.
+  const charge = typeof face.chargeText === "function" ? face.chargeText(now) : null;
   // AirPlay playing and heard: what it is, in the quote's place.
   const text = !caption || fullFace || armed ? null
+    : charge ? charge
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
+  // The charge gauge round the edge (the outermost 8 px), FIRST of the overlays, under ARMED's frame
+  // (which starts at 10 px) and the camera sign.
+  if (drawCharge && typeof face.chargeState === "function") drawCharge(ctx, face.chargeState(now), now / 1000);
   // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
   // inside the design-space transform, so no skin or photo can hide it (Face & HRI's skins/armed.js).
   if (drawArmed && typeof face.armedState === "function") drawArmed(ctx, face.armedState(now), now / 1000);
