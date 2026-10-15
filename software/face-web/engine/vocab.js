@@ -10,7 +10,10 @@ export const STATES = [
   ["AUTONOMOUS", "AUTONOMOUS", 0x00b0eb, null,      false],
   ["DEGRADED",   "DEGRADED",   0xf3b64a, "SQUINT",  true],
   ["E_STOP",     "E-STOP",     0xff4d4d, "ALERT",   true],
-  // PURPLE, the maintainers' pick, matching the PRISM's charging colour. It was teal 0x00c4a8,
+  // PURPLE, the maintainers' pick. THIS VALUE IS THE REFERENCE for charging across the robot:
+  // the PRISM's charging colour is set to it, not the other way round, because the face is
+  // where the constraint lives -- it has to stay clear of the ARMED violet and of six other
+  // state colours, and an LED strip has no such neighbours. It was teal 0x00c4a8,
   // which sat close enough to SAFE_IDLE's green (0x2ecc58) that charging never read as its own
   // thing -- and the dashboard sent SAFE_IDLE while charging anyway, so the state was never
   // shown at all. Deliberately DEEPER than the ARMED overlay's violet (198,92,255): see
