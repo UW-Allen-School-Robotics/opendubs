@@ -548,6 +548,9 @@ app.include_router(_play_router)
 # AirPlay, live: the Thor's receiver → the face page (airplay_relay.py; the receiver is the Thor lane's).
 from airplay_relay import router as _airplay_router  # noqa: E402
 app.include_router(_airplay_router)
+# The robot tablet's sensors into ROS as /tablet/*: light, battery, GNSS (tablet_relay.py).
+from tablet_relay import router as _tablet_relay_router  # noqa: E402
+app.include_router(_tablet_relay_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
