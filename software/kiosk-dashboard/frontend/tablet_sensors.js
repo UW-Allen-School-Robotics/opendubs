@@ -142,5 +142,14 @@
   setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ ping: performance.now() })); }, 5000);
   connect();
   setTimeout(battery, 2000);
+
+  // The kiosk app's version and what its self-updater last decided (the Head & face page shows it).
+  const app = () => {
+    let update = null;
+    try { update = typeof K.updateStatus === "function" ? JSON.parse(K.updateStatus()) : null; } catch (e) { /* older app */ }
+    send({ kind: "app", version: K.version ? K.version() : null,
+           versionCode: typeof K.versionCode === "function" ? K.versionCode() : null, update });
+  };
+  setInterval(app, 30000); setTimeout(app, 2500);
   window.OpenDubsTabletSensors = { status: () => ({ ...st }) };
 })();

@@ -55,6 +55,10 @@
       <div class="hf-note" id="hfNeckNote"></div>
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
+      <h2 class="mt">TABLET</h2>
+      <div class="hf-row"><label>Kiosk app</label><span id="hfApp">…</span></div>
+      <div class="hf-note" id="hfAppNote">The tablet updates its app from the robot by itself, over Wi-Fi, when no show is loaded.</div>
+
       <h2 class="mt">SOUND</h2>
       <div class="hf-row"><label for="hfAirplay">AirPlay</label><input type="checkbox" id="hfAirplay">
         <span class="hf-note" id="hfAirplayNote"></span></div>
@@ -140,6 +144,21 @@
   async function load() {
     try { s = await getJSON("/api/head/settings"); render(); say("saved on the robot"); }
     catch (e) { say(`unavailable: ${e.message}`, "bad"); }
+    loadApp();
+  }
+
+  // The kiosk app: what the tablet runs, what the robot serves, and what the updater last decided.
+  async function loadApp() {
+    let t = null, served = null;
+    try { t = await getJSON("/api/tablet/sensors"); } catch (e) { /* no relay */ }
+    try { served = await getJSON("/api/kiosk/latest"); } catch (e) { /* this robot serves no build */ }
+    const a = t && t.app;
+    const runs = a ? `the tablet runs ${a.version}` : "the tablet hasn't reported (an app older than 0.3.0, or not connected)";
+    const serves = served ? `; the robot serves ${served.versionName || served.versionCode}` : "; the robot serves no build";
+    el("hfApp").textContent = runs + serves;
+    const u = a && a.update;
+    if (u && u.state) el("hfAppNote").textContent = `Updates: ${u.state}${u.detail ? ` (${u.detail})` : ""}` +
+      (u.at ? `, ${Math.max(0, Math.round((Date.now() - u.at) / 60000))} min ago` : "");
   }
 
   // ---- ambient music (the show-audio lane's API) ------------------------------------------------

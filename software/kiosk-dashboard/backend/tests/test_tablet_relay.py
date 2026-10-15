@@ -298,3 +298,16 @@ def test_thermal_is_published_on_change_and_not_every_reading(monkeypatch):
         diags = [m["status"][0] for t, m in rec.got if t == "/diagnostics"]
         assert [d["message"] for d in diags][-2:] == ["none", "moderate"] and diags[-1]["level"] == 1
         assert sum(d["message"] == "none" for d in diags) == 1          # the same status twice: once
+
+
+def test_the_kiosk_app_reports_its_version_and_updater(monkeypatch):
+    rec = _Recorder()
+    c = _client(monkeypatch, None, ros=rec)
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json(); page.receive_json()
+        page.send_json({"kind": "app", "version": "0.3.0", "versionCode": 3, "update": {"state": "current"}})
+        page.send_json({"ping": 1}); page.receive_json()
+        app = c.get("/api/tablet/sensors").json()["app"]
+        assert app == {"version": "0.3.0", "versionCode": 3, "update": {"state": "current"}}
+        assert rec.sensors() == []                                  # not a ROS topic

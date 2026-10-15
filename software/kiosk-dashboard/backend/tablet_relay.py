@@ -90,6 +90,7 @@ for _c in CAMERAS:
 state = {"page": None, "rtt_ms": None, "published": 0, "dropped": 0, "last": {}, "thermal": None,
          # per camera: mode "auto" (on while subscribed) | "on" | "off"; subscribed; on (what the page
          # was last told); frames published; busy (a frame is being published: the next one is dropped)
+         "app": None,                                       # the kiosk app's version and its updater's last word
          "tilt": None, "impacts": [], "thermal_at": None, "thermal_sent": None, "thermal_sent_at": 0.0,
          "camera": {c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
                         "busy": False, "error": None, "w": None, "h": None} for c in CAMERAS}}
@@ -400,6 +401,10 @@ async def tablet_ws(socket: WebSocket) -> None:
                 continue
             if socket is not state["page"]:
                 break
+            if m.get("kind") == "app":                     # the kiosk app: version and self-update state
+                state["app"] = {"version": str(m.get("version"))[:32], "versionCode": _num(m.get("versionCode"), 0),
+                                "update": m.get("update") if isinstance(m.get("update"), dict) else None}
+                continue
             if m.get("kind") == "battery" and isinstance(m.get("thermal"), (str, type(None))):
                 state["thermal"] = m.get("thermal")
                 state["thermal_at"] = time.monotonic() if m.get("thermal") else state["thermal_at"]
@@ -469,7 +474,7 @@ def sensors_status() -> dict:
     """What the relay last published, for the dashboard and for checking it by hand."""
     return {"page": state["page"] is not None, "rosbridge": ros.ws is not None, "rtt_ms": state["rtt_ms"],
             "published": state["published"], "dropped": state["dropped"], "thermal": state["thermal"],
-            "tilt": state["tilt"], "impacts": state["impacts"][-10:],
+            "app": state["app"], "tilt": state["tilt"], "impacts": state["impacts"][-10:],
             "camera": {c: {k: v for k, v in d.items() if k != "busy"} for c, d in state["camera"].items()},
             "last": {t: json.loads(json.dumps(m, default=str).replace("NaN", "null")) for t, m in state["last"].items()}}
 

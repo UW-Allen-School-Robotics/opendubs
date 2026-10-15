@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The app installs its own next build from the robot, silently, as device owner (Updater.kt). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
@@ -49,6 +51,9 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.NoDisplay" />
+
+        <!-- The outcome of a self-update's install (Updater.kt). -->
+        <receiver android:name=".Updater$InstallResult" android:exported="false" />
 
         <!-- Back to the dashboard after an update (the update stops the app). -->
         <receiver android:name=".UpdateReceiver" android:exported="false">
