@@ -202,3 +202,36 @@ def test_a_brisk_walker_with_the_right_sign_is_not_mistaken_for_a_runaway(monkey
     # 3 degrees per update at 5 Hz = 15 deg/s across the view, starting left of centre.
     neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0, person_pan=75.0, steps=12, walk=3.0)
     assert not (why or "").startswith("STOPPED"), why
+def test_the_trackers_report_is_kept_cleanly_and_served():
+    nf.note_status({"state": "running", "hz": 10.4, "found_pct": 3, "frame": [640, 480], "last_found_s": 2.5,
+                    "junk": "x" * 999, "hz2": True})
+    st = nf.status()["tracker"]
+    assert st["state"] == "running" and st["hz"] == 10.4 and st["frame"] == [640, 480] and st["last_found_s"] == 2.5
+    assert "junk" not in st and st["age_s"] < 1
+    nf.note_status({"state": "failed: camera: NotAllowedError", "frame": ["a", 1], "hz": True})
+    st = nf.status()["tracker"]
+    assert st["state"].startswith("failed: camera") and "frame" not in st and "hz" not in st
+    nf.note_status("nonsense")                                            # ignored
+    assert nf.status()["tracker"]["state"].startswith("failed")
+
+
+def test_the_door_takes_the_report_from_the_newest_page_only(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import face_door
+    import head_settings
+    monkeypatch.setattr(head_settings, "load", lambda: dict(head_settings.DEFAULTS))
+    face_door.pages.clear()
+    nf.state["tracker"] = None
+    app = FastAPI()
+    app.include_router(face_door.router)
+    with TestClient(app) as c, c.websocket_connect("/ws/face") as old, c.websocket_connect("/ws/face") as new:
+        old.receive_json(); new.receive_json()
+        new.send_json({"track_status": {"state": "running", "hz": 9}})
+        old.send_json({"track_status": {"state": "off"}})                 # last, but not the newest page
+        for _ in range(50):
+            if nf.state["tracker"]:
+                break
+            time.sleep(0.02)
+        time.sleep(0.1)
+        assert nf.state["tracker"] == {"state": "running", "hz": 9}

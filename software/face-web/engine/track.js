@@ -67,8 +67,17 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   const delegate = (q.get("delegate") || "GPU").toUpperCase();
   if (q.get("trackmain") === "1") return startMain(face, stats, src, delegate);
   stats.track = "loading";
+  // What the tracker is doing, as numbers, for the robot (main.js → the door → /api/head/follow and
+  // the Head & face page): visible without plugging the tablet in.
+  const info = stats.trackInfo = { state: "loading", hz: 0, found_pct: 0, frame: null, last_found_at: null };
   const worker = new Worker(new URL("./track_worker.js", import.meta.url), { type: "module" });
-  let video = await (src === "sweep" ? sweepSource() : cameraSource());
+  let video;
+  try {
+    video = await (src === "sweep" ? sweepSource() : cameraSource());
+  } catch (e) {
+    info.state = `failed: camera: ${e.message || e.name}`; stats.track = info.state;
+    throw e;
+  }
   // The tablet opens ONE camera at a time. The robot's own camera streams (the dashboard's
   // tablet_sensors.js) share this capture for the screen-side camera, and PAUSE tracking to use the
   // back-side one (the user's decision, 2026-10-15): the eyes go back to their idle gaze, and tracking
@@ -81,12 +90,12 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
     pause() {
       if (paused) return;
       paused = true; stopVideo(); face.look(null);
-      stats.track = "paused: the camera is lent to a stream";
+      stats.track = info.state = "paused: the camera is lent to a stream";
     },
     async resume() {
       if (!paused) return;
       video = await (src === "sweep" ? sweepSource() : cameraSource());
-      paused = false; stats.track = "resumed";
+      paused = false; stats.track = "resumed"; info.state = "running";
       video.requestVideoFrameCallback(onFrame);
     },
   };
@@ -94,9 +103,9 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   const m = { detectMs: [], latencyMs: [], hits: 0, frames: 0, since: performance.now(), src, delegate, worker: true };
   window.trackStats = m;
   const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
-  worker.onerror = (e) => { stats.track = `worker failed: ${e.message || "error"} (${e.filename || ""}:${e.lineno || ""})`; };
+  worker.onerror = (e) => { stats.track = info.state = `failed: worker: ${e.message || "error"} (${e.filename || ""}:${e.lineno || ""})`; };
   const ready = new Promise((res, rej) => { worker.onmessage = (e) => {
-    if (e.data.error) { stats.track = "worker failed: " + e.data.error.split("\n")[0]; rej(new Error(e.data.error)); }
+    if (e.data.error) { stats.track = info.state = "failed: worker: " + e.data.error.split("\n")[0]; rej(new Error(e.data.error)); }
     else if (e.data.ready) { m.loadMs = e.data.loadMs; res(); } }; });
   worker.postMessage({ init: true, delegate });
   await ready;
@@ -106,7 +115,7 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   worker.onmessage = (e) => {
     const r = e.data;
     busy = false;
-    if (r.error) { stats.track = "worker failed: " + r.error.split("\n")[0]; return; }
+    if (r.error) { stats.track = info.state = "failed: worker: " + r.error.split("\n")[0]; return; }
     const now = performance.now();
     if (m.warmupMs === undefined) { m.warmupMs = r.detectMs; m.since = now; return; }   // the first is a warm-up
     m.frames++;
@@ -114,13 +123,16 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
     const cap = captured.get(r.seq); captured.delete(r.seq);
     if (cap) { m.latencyMs.push(now - cap); if (m.latencyMs.length > 120) m.latencyMs.shift(); }
     if (r.found) {
-      m.hits++;
+      m.hits++; info.last_found_at = now;
       const facing = Math.max(0, 1 - Math.abs(r.yaw) / 45);
       // ix, iy: where in the camera's image (0..1), for the neck (main.js → the door → neck_follow.py)
       face.look({ x: -(r.x - 0.5) * 2 * GAIN, y: (r.y - 0.5) * 2 * GAIN, conf: 0.4 + 0.6 * facing, at: now, ix: r.x, iy: r.y });
       m.yaw = r.yaw;
     } else face.look(null);
     const el = (now - m.since) / 1000;
+    info.state = "running"; info.hz = +(m.frames / el).toFixed(1);
+    info.found_pct = Math.round(100 * m.hits / Math.max(1, m.frames));
+    info.frame = video && video.videoWidth ? [video.videoWidth, video.videoHeight] : null;
     stats.track = `${src} ${delegate} worker, warm-up ${m.warmupMs.toFixed(0)} ms, ${(m.frames / el).toFixed(1)} Hz, ` +
       `${(100 * m.hits / Math.max(1, m.frames)).toFixed(0)}% found, detect p50 ${pct(m.detectMs, 0.5).toFixed(1)} ` +
       `p95 ${pct(m.detectMs, 0.95).toFixed(1)} ms, frame->result p50 ${pct(m.latencyMs, 0.5).toFixed(0)} ms` +

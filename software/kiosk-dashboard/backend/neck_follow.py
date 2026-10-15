@@ -71,7 +71,8 @@ def config() -> dict:
 
 
 state = {"target": None, "target_at": 0.0, "why": "starting", "neck": None, "neck_at": 0.0, "sent": None,
-         "sent_count": 0, "history": [], "stopped": None, "limit_since": None}
+         "sent_count": 0, "history": [], "stopped": None, "limit_since": None,
+         "tracker": None, "tracker_at": 0.0}
 
 # ---- the safety net: a wrong sign must not run the head into its limits ---------------------------
 # The camera rides the head, so a wrong PAN_SIGN or TILT_SIGN is positive feedback: turning the wrong
@@ -99,6 +100,22 @@ def runaway(history) -> str | None:
         if one_way and abs(h[-1][ai] - h[0][ai]) >= RUNAWAY_DEG and abs(h[-1][oi]) >= abs(h[0][oi]) + RUNAWAY_GROW:
             return axis
     return None
+
+
+def note_status(s) -> None:
+    """From the face page every 2 s: its tracker's state, Hz, % found, frame size, last find."""
+    if not isinstance(s, dict):
+        return
+    keep = {}
+    if isinstance(s.get("state"), str):
+        keep["state"] = s["state"][:160]
+    for k in ("hz", "found_pct", "last_found_s"):
+        if isinstance(s.get(k), (int, float)) and not isinstance(s.get(k), bool):
+            keep[k] = s[k]
+    f = s.get("frame")
+    if isinstance(f, list) and len(f) == 2 and all(isinstance(x, int) for x in f):
+        keep["frame"] = f
+    state["tracker"], state["tracker_at"] = keep, time.monotonic()
 
 
 def note_target(t) -> None:
@@ -239,8 +256,11 @@ async def start() -> None:
 
 
 def status() -> dict:
-    return {"why": state["why"], "stopped": state["stopped"], "neck": state["neck"],
-            "neck_age_s": round(time.monotonic() - state["neck_at"], 1) if state["neck"] else None, "sent": state["sent"], "sent_count": state["sent_count"],
+    tr = state["tracker"]
+    tracker = dict(tr, age_s=round(time.monotonic() - state["tracker_at"], 1)) if tr else None
+    return {"why": state["why"], "stopped": state["stopped"], "tracker": tracker, "neck": state["neck"],
+            "neck_age_s": round(time.monotonic() - state["neck_at"], 1) if state["neck"] else None,
+            "sent": state["sent"], "sent_count": state["sent_count"],
             "target": state["target"], "target_age_s": round(time.monotonic() - state["target_at"], 2) if state["target"] else None,
             "config": config()}
 

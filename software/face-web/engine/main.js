@@ -170,6 +170,16 @@ if (doorUrl) connect();
 // Up to 10 a second while someone is seen, and one "nobody" when they are lost. The robot decides
 // whether the neck moves (the setting, a show, RC); the page only says what it sees.
 let sentNobody = true;
+// And what the tracker is doing, every 2 s: off, loading, running (Hz, % found, the frame's size) or
+// why it failed. The robot shows it on /api/head/follow and the Head & face page.
+setInterval(() => {
+  if (!door || door.readyState !== WebSocket.OPEN) return;
+  const i = stats.trackInfo;
+  const st = !tracking ? { state: "off" } : !i ? { state: "loading" } : {
+    state: i.state, hz: i.hz, found_pct: i.found_pct, frame: i.frame,
+    last_found_s: i.last_found_at ? +((performance.now() - i.last_found_at) / 1000).toFixed(1) : null };
+  door.send(JSON.stringify({ track_status: st }));
+}, 2000);
 setInterval(() => {
   if (!door || door.readyState !== WebSocket.OPEN || !tracking) return;
   const t = face.target;

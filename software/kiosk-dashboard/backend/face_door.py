@@ -123,6 +123,11 @@ async def face_ws(socket: WebSocket):
                 msg = json.loads(m["text"])
             except ValueError:
                 continue
+            if "track_status" in msg:                # what the face's tracker is doing (neck_follow.py)
+                if pages and list(pages)[-1] is socket:
+                    import neck_follow
+                    neck_follow.note_status(msg["track_status"])
+                continue
             if "track" in msg:                       # the tracker's target, for the neck (neck_follow.py)
                 if pages and list(pages)[-1] is socket:     # the newest page only, as for every line
                     import neck_follow
