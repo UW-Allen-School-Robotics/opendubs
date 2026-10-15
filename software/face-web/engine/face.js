@@ -3,7 +3,10 @@
 // saccades and looks where it is told in the same way.
 
 import { Spring, Ease } from "./anim.js";
+import { random, setRandom } from "./rng.js";
 import { STATES, EMOTES, SHAPES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
+
+export { setRandom };          // the engine's random source (rng.js); an offline render seeds it
 
 export const DESIGN_W = 1280, DESIGN_H = 720;        // the Tab5's panel, the geometry's frame
 const BODY = 480, GAP_FRAC = 0.34;
@@ -23,7 +26,7 @@ const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
 const Q = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(""); } })();
 const MOUTH_ON = Q.get("mouth") === "1";
 
-const rnd = (n) => Math.floor(Math.random() * n);
+const rnd = (n) => Math.floor(random() * n);
 const rgb = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
 
 // ---- MOVES: one-shot gestures a show fires on a beat (head protocol v4, `MOVE <name>`) ---------
@@ -315,7 +318,7 @@ export class Face {
       if (now >= this.avertUntil && now >= this.nextAvert) {
         // Away, briefly, and somewhere plausible rather than randomly: down and to one side is what
         // people do, and it reads as thought rather than distraction.
-        const side = Math.random() < 0.5 ? -1 : 1;
+        const side = random() < 0.5 ? -1 : 1;
         this.aim(tx + side * (0.28 + rnd(18) / 100), ty + 0.16 + rnd(12) / 100);
         this.avertUntil = now + 500 + rnd(700);
         this.nextAvert = this.avertUntil + 2200 + rnd(2600);
@@ -334,8 +337,8 @@ export class Face {
     // eyes have. A fraction of a degree of jitter, a few times a second, is most of the difference
     // between alive and paused. Added in eyes() rather than to the target, so it cannot accumulate.
     if (now >= this.nextMicro) {
-      this.microX = (Math.random() - 0.5) * 0.016;   // ~0.25 deg at 30 deg full deflection
-      this.microY = (Math.random() - 0.5) * 0.010;
+      this.microX = (random() - 0.5) * 0.016;   // ~0.25 deg at 30 deg full deflection
+      this.microY = (random() - 0.5) * 0.010;
       this.nextMicro = now + 90 + rnd(220);
     }
 

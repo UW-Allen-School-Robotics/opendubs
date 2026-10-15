@@ -46,6 +46,35 @@ export class Skins {
 
   names() { return [...Object.keys(CODE_SKINS), ...this.library.keys()]; }
 
+  /**
+   * Resolves when the skin now selected can actually draw. True if it can, false if its asset
+   * failed or did not arrive inside `timeoutMs`.
+   *
+   * FOR AN OFFLINE RENDER, and nothing else needs it. The live face is a loop at 60 fps: an asset
+   * skin returns false from `draw` until it has decoded, the caller stands the default eyes in for
+   * a few frames, and nobody sees it. A render writes frames as fast as it can, with no wall clock
+   * holding it back, so the SAME behaviour puts the default eyes in the first second of the video.
+   * Awaiting this before the first frame is what fixes that.
+   *
+   * A code skin resolves at once -- there is nothing to load -- so a renderer can await this
+   * unconditionally after every `select()` without caring which kind of skin it got.
+   *
+   * IT RESOLVES RATHER THAN HANGS. An asset whose load neither succeeds nor errors (a dead network)
+   * would otherwise stall the whole render with no output and no reason given; the cap turns that
+   * into a false, which the caller can report. The error itself already went to the onError path.
+   */
+  skinsReady(timeoutMs = 10000) {
+    const s = this.current;
+    if (!s || typeof s.ready !== "function") return Promise.resolve(true);   // a code skin: nothing to load
+    if (!(timeoutMs > 0)) return Promise.resolve(s.ready());
+    let timer;
+    const capped = new Promise((res) => { timer = setTimeout(() => res(false), timeoutMs); });
+    return Promise.race([Promise.resolve(s.ready()), capped]).then((v) => { clearTimeout(timer); return v; });
+  }
+
+  /** The same thing under the name the page calls it by. One implementation, two callers. */
+  ready(timeoutMs = 10000) { return this.skinsReady(timeoutMs); }
+
   // -> the reply's outcome: {ok, shown, error}
   select(name) {
     if (this.current && this.current.stop) this.current.stop();

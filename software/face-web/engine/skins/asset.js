@@ -43,6 +43,7 @@
 // main.js transforms the context into these coordinates before calling a skin, so they are THE
 // frame a skin draws in, and a second copy here would drift the day the panel changes.
 import { DESIGN_W, DESIGN_H } from "../face.js";
+import { random } from "../rng.js";       // the one source of chance; an offline render seeds it
 
 const NEUTRAL = 480;
 
@@ -114,7 +115,7 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   // must not silently depend on whether an operator configured the autonomous feature, because
   // they are different features that merely share a mechanism.
   const easeS = cfg ? cfg.ease : EASE_DEFAULT;
-  const pick = ([lo, hi]) => lo + Math.random() * Math.max(0, hi - lo);
+  const pick = ([lo, hi]) => lo + random() * Math.max(0, hi - lo);
 
   // One schedule for BOTH eyes: they must break apart together, or it reads as two objects rather
   // than one face. Hence per-skin state advanced once a frame, not per-eye state advanced twice.
@@ -206,16 +207,25 @@ export function makeAssetSkin(entry, baseUrl, onError) {
   const url = new URL(entry.file, baseUrl).href;
   let source, ready = false, failed = null;
 
+  // SETTLED EITHER WAY, never left hanging: `ready()` resolves true when the asset is decoded and
+  // false when it cannot be. A LIVE face does not need it -- `draw` returns false until the asset
+  // is there and the caller stands the default eyes in, which is the right behaviour at 60 fps. An
+  // OFFLINE RENDER cannot work that way: it steps frames as fast as it can write them, so with
+  // nothing to await, the first second of the video is a picture of the default eyes. Hence a
+  // promise, resolved from the same two handlers that already decide the question.
+  let settle;
+  const decoded = new Promise((res) => { settle = res; });
+
   if (entry.type === "image") {
     source = new Image();
-    source.onload = () => { ready = true; };
-    source.onerror = () => { failed = `cannot load ${entry.file}`; onError(entry.id, failed); };
+    source.onload = () => { ready = true; settle(true); };
+    source.onerror = () => { failed = `cannot load ${entry.file}`; settle(false); onError(entry.id, failed); };
     source.src = url;
   } else if (entry.type === "video") {
     source = document.createElement("video");
     Object.assign(source, { muted: true, loop: true, playsInline: true, autoplay: true, preload: "auto" });
-    source.oncanplay = () => { ready = true; source.play().catch(() => {}); };
-    source.onerror = () => { failed = `cannot decode ${entry.file}`; onError(entry.id, failed); };
+    source.oncanplay = () => { ready = true; settle(true); source.play().catch(() => {}); };
+    source.onerror = () => { failed = `cannot decode ${entry.file}`; settle(false); onError(entry.id, failed); };
     source.src = url;
   } else {
     throw new Error(`skin type ${entry.type} is not built yet`);
@@ -226,6 +236,17 @@ export function makeAssetSkin(entry, baseUrl, onError) {
     type: entry.type,
     spin,                               // head protocol SPIN; see spin() above
     get failed() { return failed; },
+    // Decoded, or known to be undecodable. A VIDEO skin resolves on `canplay`, so its first frame
+    // is there -- it does NOT make a video deterministic, because which frame is up on a later
+    // draw follows the wall clock, which an offline render does not control.
+    //
+    // SO A REPEATABLE RENDER USES IMAGE AND CODE SKINS. Settled (2026-10-15) with the Choreography
+    // and Tablet lanes rather than left as a caveat, because the alternative was real and was
+    // considered: seeking the video per frame (`currentTime`, then awaiting `seeked`) would make it
+    // deterministic, at the cost of making every render much slower for the one skin type that
+    // needs it. Choreography's render.py warns when a show uses a video skin, so the limit is
+    // reported where an author meets it instead of showing up as a video that will not reproduce.
+    ready: () => decoded,
     source,
     stop() { if (entry.type === "video") { source.pause(); source.removeAttribute("src"); source.load(); } },
     draw(ctx, e, t) {
