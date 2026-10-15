@@ -36,6 +36,22 @@ class KioskBridge(private val activity: Activity) {
     private val openCameras = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var started = false
 
+    // The accelerometer, read here rather than through the page's DeviceMotion: after the app restarts
+    // (every update) the WebView delivered no motion events at all until the page was reloaded
+    // (2026-10-15). Samples are kept with the sensor's own timestamp and handed over in batches.
+    private val motionBuf = ArrayDeque<FloatArray>()      // [x, y, z], m/s²
+    private val motionTs = ArrayDeque<Long>()             // each sample's SensorEvent.timestamp (elapsedRealtimeNanos)
+    private val accelListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            synchronized(motionBuf) {
+                if (motionBuf.size >= 256) { motionBuf.removeFirst(); motionTs.removeFirst() }   // nobody reading: keep the newest
+                motionBuf.addLast(floatArrayOf(e.values[0], e.values[1], e.values[2]))
+                motionTs.addLast(e.timestamp)
+            }
+        }
+        override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+    }
+
     private val lightListener = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) { lux = e.values[0]; luxAt = SystemClock.elapsedRealtime() }
         override fun onAccuracyChanged(s: Sensor?, a: Int) {}
@@ -53,6 +69,9 @@ class KioskBridge(private val activity: Activity) {
         sensors.getDefaultSensor(Sensor.TYPE_LIGHT)?.let {
             sensors.registerListener(lightListener, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
+        sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sensors.registerListener(accelListener, it, SensorManager.SENSOR_DELAY_GAME)    // ~50 Hz
+        }
         cameraManager.registerAvailabilityCallback(cameraWatch, Handler(Looper.getMainLooper()))
     }
 
@@ -60,8 +79,28 @@ class KioskBridge(private val activity: Activity) {
         if (!started) return
         started = false
         sensors.unregisterListener(lightListener)
+        sensors.unregisterListener(accelListener)
+        synchronized(motionBuf) { motionBuf.clear(); motionTs.clear() }
         cameraManager.unregisterAvailabilityCallback(cameraWatch)
         openCameras.clear()
+    }
+
+    /** The accelerometer samples since the last call, JSON `[[ax, ay, az, age_ms], ...]` (m/s², gravity
+     *  included, the tablet's own axes: x right, y up the screen, z out of it; age_ms from the sensor's
+     *  own timestamp to now). An empty list when nothing new arrived. The tablet has no gyroscope. */
+    @JavascriptInterface
+    fun motion(): String {
+        val now = SystemClock.elapsedRealtimeNanos()
+        val sb = StringBuilder("[")
+        synchronized(motionBuf) {
+            while (motionBuf.isNotEmpty()) {
+                val v = motionBuf.removeFirst(); val t = motionTs.removeFirst()
+                if (sb.length > 1) sb.append(',')
+                sb.append('[').append(v[0]).append(',').append(v[1]).append(',').append(v[2]).append(',')
+                    .append((now - t) / 1_000_000.0).append(']')
+            }
+        }
+        return sb.append(']').toString()
     }
 
     /** Ambient light: JSON `{"lux": n, "age_ms": n}`, or `null` with no light sensor or no reading yet. */

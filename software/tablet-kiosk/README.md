@@ -36,6 +36,7 @@ app on any tablet for development.
 | `isDeviceOwner()` | whether lock task and the update policy are in force |
 | `version()` | the app's version |
 | `setBrightness(v)`, `setMediaVolume(v)`, `getMediaVolume()` | the screen's brightness and the media volume, 0..1 (head protocol v5 `BRIGHT`, `VOLUME`) |
+| `motion()` | the accelerometer samples since the last call, `[[ax, ay, az, age_ms], …]` (m/s², gravity included, the tablet's axes; no gyroscope). Read by the app, not the page's DeviceMotion, which stopped after every app restart |
 | `light()` | ambient light, `{"lux": n, "age_ms": n}`, or `null` with no reading |
 | `cameras()` | each camera, `[{"id", "facing": "screen"\|"back"\|"external", "open": bool}]`; `open` is true while ANY app has it open, so the face's camera indicator follows the hardware |
 | `thermal()` | `{"status": "none"…"shutdown"\|null, "battery_c": n}`: Android's throttling level and the battery's temperature |

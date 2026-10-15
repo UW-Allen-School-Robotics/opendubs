@@ -75,6 +75,10 @@
            alt: c.altitude, alt_acc: c.altitudeAccuracy, age_ms: Math.max(0, age) });
   }, 1000);
 
+  // From kiosk 0.3.4 the app reads the accelerometer itself (OpenDubsKiosk.motion(), with the sensor's
+  // own timestamps): the page's DeviceMotion stopped after every app restart. An older app: DeviceMotion,
+  // with the watchdog below.
+  const native = typeof K.motion === "function";
   let motion = [], lastMotion = performance.now();      // samples since the last batch
   const onMotion = (e) => {
     const a = e.accelerationIncludingGravity;
@@ -82,7 +86,7 @@
     lastMotion = performance.now();
     if (motion.length < 64) motion.push({ t: e.timeStamp, ax: a.x, ay: a.y, az: a.z });
   };
-  addEventListener("devicemotion", onMotion);
+  if (!native) addEventListener("devicemotion", onMotion);
   // Found on the robot tablet (2026-10-15): after the kiosk app restarted for an update, the page got
   // no motion events at all until it was reloaded. A visible page with no motion for 10 s takes its
   // listener off and puts it back, which makes the browser start the sensor again.
@@ -104,7 +108,7 @@
     } catch (e) { return true; }
   };
   setInterval(async () => {
-    if (document.visibilityState !== "visible" || performance.now() - lastMotion < 10000) return;
+    if (native || document.visibilityState !== "visible" || performance.now() - lastMotion < 10000) return;
     if (st.motion_restarts === 0) {                       // first: restart the listener
       removeEventListener("devicemotion", onMotion);
       setTimeout(() => addEventListener("devicemotion", onMotion), 200);
@@ -117,6 +121,12 @@
     location.reload();
   }, 5000);
   setInterval(() => {
+    if (native) {
+      let batch = [];
+      try { batch = JSON.parse(K.motion()); } catch (e) { /* a bad read: the next one */ }
+      if (batch.length) send({ kind: "imu", samples: batch.map(([ax, ay, az, age]) => ({ ax, ay, az, age_ms: Math.max(0, age) })) });
+      return;
+    }
     if (!motion.length) return;
     const now = performance.now();
     send({ kind: "imu", samples: motion.map((s) => ({ ax: s.ax, ay: s.ay, az: s.az, age_ms: Math.max(0, now - s.t) })) });
@@ -220,5 +230,6 @@
            versionCode: typeof K.versionCode === "function" ? K.versionCode() : null, update });
   };
   setInterval(app, 30000); setTimeout(app, 2500);
+  st.motion_source = native ? "app" : "page";
   window.OpenDubsTabletSensors = { status: () => ({ ...st }) };
 })();
