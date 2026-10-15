@@ -115,6 +115,18 @@ check("a different seed draws something different", JSON.stringify(a.log) !== JS
   const reply = await r.apply("SKIN ring", 20);
   check("a skin that fails to load is an ERR, not a silent default", reply === "ERR skin ring: image did not load (showing default)", reply);
 }
+// The idle quote is the face's line, not the show's: not in a render unless asked for.
+{
+  const texts = async (caption) => {
+    const { ctx, log } = recorder(64, 36);
+    const r = await createRenderer({ ctx, w: 64, h: 36, seed: 1, drawArmed: null, ...(caption ? { caption } : {}) });
+    for (let t = 0; t <= 20000; t += 500) r.step(t);
+    return log.filter((e) => e[0] === "fillText").length;
+  };
+  const off = await texts(), on = await texts(true);
+  check("no idle caption in a render by default", off === 0, off);
+  check("  and caption: true draws it", on > 0, on);
+}
 // Time only runs forward, and says so.
 {
   const { ctx } = recorder(64, 36);

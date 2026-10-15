@@ -39,8 +39,10 @@ function base64(bytes) {
  * @param o.skin       a skin to start in (a show usually says SKIN itself)
  * @param o.state      the robot state the face starts in (default AUTONOMOUS; STATE lines change it)
  * @param o.drawArmed  the ARMED overlay; undefined = load skins/armed.js, null = none
+ * @param o.caption    draw the idle quote under the eyes (default false: it is the face's idle line,
+ *                     not part of a show, and would sit in every frame of a rendered one)
  */
-export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin = null, state = "AUTONOMOUS", drawArmed } = {}) {
+export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin = null, state = "AUTONOMOUS", drawArmed, caption = false } = {}) {
   // Everything random in the engine follows the seed. The render owns its page (or its test), so the
   // global is replaced as well as the engine's own seam, which keeps an engine without one seeded too.
   const rng = mulberry32(seed);
@@ -93,7 +95,7 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
       lastStep = tMs;
       if (face.state >= 0) face.stateAt = tMs;      // the robot is talking to it: never NO LINK mid-show
       face.tick(tMs, dt);
-      drawFace(ctx, w, h, tMs, { face, skins, drawArmed, bright: levels.level.bright });
+      drawFace(ctx, w, h, tMs, { face, skins, drawArmed, bright: levels.level.bright, caption });
     },
     /** The last step's pixels: {w, h, rgba} with rgba the w*h*4 bytes, base64. */
     frame() {

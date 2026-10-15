@@ -6,6 +6,7 @@
 //   w=W&h=H       the frame size, default 640x360. The face is 16:9 (the body twin's texture is
 //                 320x180), so a 16:9 size fills it; any other is letterboxed on black.
 //   library=<url> the skin library (default: the page's own, as live); skin=<name>; state=<STATE>
+//   caption=1     draw the idle quote under the eyes, as the live page does (default: not drawn)
 
 import { createRenderer } from "./render.js";
 
@@ -24,7 +25,8 @@ const ready = (async () => {
   canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
   const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
   const library = new URL(q.get("library") || (onRobot ? "/api/library/files/" : "../library/"), import.meta.url);
-  const r = await createRenderer({ ctx, w, h, seed, library, skin: q.get("skin"), state: q.get("state") || "AUTONOMOUS" });
+  const r = await createRenderer({ ctx, w, h, seed, library, skin: q.get("skin"), state: q.get("state") || "AUTONOMOUS",
+                                    caption: q.get("caption") === "1" });
   api.apply = r.apply; api.step = r.step; api.frame = r.frame;
   return { w, h, seed };
 })();
