@@ -261,6 +261,13 @@ containers. Steps marked **robot** need opendubs2 or the CAD.
 - `/tablet/illuminance`, `/tablet/mag` and `/tablet/battery` are optional.
 - The tablet has no proximity sensor and no barometer.
 - All stamps are in Thor time, through the show-audio clock offset (IMU under about 5 ms, camera under about 20 ms).
+- **Implemented by the Tablet lane** (PRs #286, #287, #288, open, 2026-10-15; merge in that order).
+  - The kiosk page sends readings to the dashboard's `/ws/tablet`. The backend stamps each on the Thor's clock (arrival, less the reading's age and half the round trip) and publishes through the local rosbridge, so `ros2 topic info` shows `rosbridge_websocket` as the publisher.
+  - Rates: fix 1 Hz, IMU ~60 Hz (batched every 100 ms), illuminance 1 Hz, battery 0.1 Hz.
+  - Each camera streams 640×480 JPEG at 10 fps, only while subscribed.
+  - `camera_info` is zeros until `/var/lib/opendubs/tablet/camera_{front,rear}.yaml` exists on the robot. That file is per-robot and never in the repo.
+  - Android's thermal status goes to `/diagnostics` as `tablet: thermal`.
+  - When `navsat_transform` is wired, set `zero_altitude`: `/tablet/fix` altitude can be NaN.
 
 **Agreed earlier (2026-10-11):** the head's front ToF returns as `sensor_msgs/Range` (INFRARED), `frame_id` `tof_front_link`, on a topic the tablet lane names, once its head-protocol item 2.1 lands. **Tablet sensor topic contract:** names, types and frames (e.g. `sensor_msgs/Imu` in a `tablet_link` frame), handed to the tablet lane to implement | A short spec the tablet lane accepts |
 | L.7 | **Stamp-at-source odometry** (hardening tracks 3/4, micro-ROS or a stamped line) is a **StamPLC firmware change**, raised through the orchestrator, never made here | Proposal sent |
