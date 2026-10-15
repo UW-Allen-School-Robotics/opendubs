@@ -89,13 +89,32 @@ function rec() {
     const worst = Math.min(...rgb.map((v) => apart(v, col)));
     ok(worst >= 60, `a different colour from ${name}, by a wide margin`, `${worst.toFixed(0)} degrees of hue apart`);
   }
-  // and not near ANY robot state, so it cannot read as "the robot is in some state"
+  // and not near ANY robot state, so it cannot read as "the robot is in some state" -- with ONE
+  // stated exception, CHARGING.
+  //
+  // THE EXCEPTION IS NOT THE TEST GIVING WAY. The maintainers chose purple for charging, matching
+  // the PRISM, and with seven state colours the hue circle has no room left: green, cyan, amber,
+  // red and two near-whites are taken, and the only gaps are the violet this sign holds and a
+  // magenta that would sit beside E_STOP's red. So charging and ARMED are the first pair on this
+  // face that CANNOT be separated by hue, and the rule armed.js set out ("different hue AND
+  // different form") becomes, for this pair only, different LIGHTNESS and different form. Both
+  // halves are asserted -- the lightness here, the form by what each one draws: ARMED is a frame
+  // inset 10 px with a countdown, charging is the outermost 8 px filled to a level, with a word.
+  // Every OTHER state must still be a wide hue apart, and that is unchanged below.
+  const lum = ([r, g, b]) => (Math.max(r, g, b) + Math.min(r, g, b)) / 2 / 255;
   let worst = 360, who = "";
   for (const [name, , col] of STATES) {
-    const d = Math.min(...rgb.map((v) => apart(v, [(col >> 16) & 255, (col >> 8) & 255, col & 255])));
+    const c = [(col >> 16) & 255, (col >> 8) & 255, col & 255];
+    if (name === "CHARGING") {
+      const gap = Math.max(...rgb.map((v) => lum(v) - lum(c)));
+      ok(gap >= 0.14, "CHARGING shares the violet range, so it is separated by LIGHTNESS instead",
+         `ARMED is ${gap.toFixed(2)} lighter`);
+      continue;
+    }
+    const d = Math.min(...rgb.map((v) => apart(v, c)));
     if (d < worst) { worst = d; who = name; }
   }
-  ok(worst >= 40, "nor near any robot state's colour", `closest is ${who}, ${worst.toFixed(0)} degrees away`);
+  ok(worst >= 40, "nor near any other robot state's colour", `closest is ${who}, ${worst.toFixed(0)} degrees away`);
 }
 
 // ---- 4. nothing travels ---------------------------------------------------------------------------

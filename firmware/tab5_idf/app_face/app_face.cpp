@@ -315,7 +315,11 @@ const St kStates[] = {
     // the level goes on the band and the eyes stay free to be attending or idle as the situation
     // warrants -- which also settles the "charging is not necessarily idle" objection without
     // having to decide it, because the face no longer has to claim either.
-    {"CHARGING",   "CHARGING",     0, 196, 168, -1,         false, false, true },
+    // PURPLE (0x6d30e0), the maintainers' pick, and the reference the PRISM's charging colour
+    // is set to rather than copied from -- see vocab.js. Was teal 0,196,168, which
+    // read as a shade of SAFE_IDLE's green across a room. Kept identical to the web face's
+    // vocab.js, so the two heads cannot disagree about what charging looks like.
+    {"CHARGING",   "CHARGING",   109,  48, 224, -1,         false, false, true },
 };
 constexpr int kNStates = sizeof(kStates) / sizeof(kStates[0]);
 
@@ -436,7 +440,6 @@ const Swatch kHalloween[] = {
     {"SAFE_IDLE",  0x8ac926},   // toxic green
     {"MANUAL",     0xd9c2e9},   // pale lavender
     {"AUTONOMOUS", 0x7b2d8e},   // purple
-    {"CHARGING",   0x2f9e44},   // deep green
 };
 
 struct Palette { const Swatch* sw; int n; };

@@ -10,7 +10,24 @@ export const STATES = [
   ["AUTONOMOUS", "AUTONOMOUS", 0x00b0eb, null,      false],
   ["DEGRADED",   "DEGRADED",   0xf3b64a, "SQUINT",  true],
   ["E_STOP",     "E-STOP",     0xff4d4d, "ALERT",   true],
-  ["CHARGING",   "CHARGING",   0x00c4a8, null,      false],
+  // PURPLE, the maintainers' pick. THIS VALUE IS THE REFERENCE for charging across the robot:
+  // the PRISM's charging colour is set to it, not the other way round, because the face is
+  // where the constraint lives -- it has to stay clear of the ARMED violet and of six other
+  // state colours, and an LED strip has no such neighbours. It was teal 0x00c4a8,
+  // which sat close enough to SAFE_IDLE's green (0x2ecc58) that charging never read as its own
+  // thing -- and the dashboard sent SAFE_IDLE while charging anyway, so the state was never
+  // shown at all. Deliberately DEEPER than the ARMED overlay's violet (198,92,255): see
+  // skins/charge.js, which also carries the gauge and the word that make the two unmistakable.
+  //
+  // DEEPER, and by a measured amount, because HUE IS NOT AVAILABLE. With seven state colours the
+  // circle is full: green, cyan, amber, red and two near-whites are taken, and the only gaps left
+  // are the violet ARMED already holds and a magenta that would sit next to E_STOP's red. So this
+  // is the first signal on the face that CANNOT be separated from another by hue, and the rule
+  // armed.js set out ("different hue AND different form") is retired in favour of what is actually
+  // true: different LIGHTNESS and different form, both asserted. 0x6d30e0 is 15 points of
+  // lightness below the ARMED violet -- a deep royal purple beside a light orchid one -- and only
+  // charging carries the perimeter gauge and the word.
+  ["CHARGING",   "CHARGING",   0x6d30e0, null,      false],
 ];
 
 // name: width x, height x, corner radius (fraction of min(w,h)), lid (0 open .. 1 shut),
@@ -48,7 +65,13 @@ export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 // by construction, and the engine refuses them anyway.
 export const THEMES = {
   plain: {},
-  halloween: { INIT: 0xe8e2d0, SAFE_IDLE: 0x8ac926, MANUAL: 0xd9c2e9, AUTONOMOUS: 0x7b2d8e, CHARGING: 0x2f9e44 },
+  // HALLOWEEN NO LONGER RECOLOURS CHARGING, and that is a choice rather than an omission. Charging
+  // is purple in every theme now, which is a rule a person can learn once; a theme that made it
+  // green again would unteach it. The theme's own AUTONOMOUS is a deep purple and therefore sits
+  // near it -- they are told apart by FORM, as ARMED is: only charging carries the perimeter gauge
+  // and the word. If that proves too close in the room, the one to move is halloween's AUTONOMOUS,
+  // not charging.
+  halloween: { INIT: 0xe8e2d0, SAFE_IDLE: 0x8ac926, MANUAL: 0xd9c2e9, AUTONOMOUS: 0x7b2d8e },
 };
 
 export const NO_LINK_COLOUR = 0x606c7c;    // slate: matches no state, and is not FAULT
