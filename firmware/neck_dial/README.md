@@ -96,6 +96,14 @@ typo or a stale packet cannot reach beyond the notch just opened.
 4. Stop **well short** of any hard stop, on the first sign of contact, strain or sound.
 5. Write the final pair with one `TILT`, and confirm `commissioned=1` and the band in `NECK`.
 
+**A `TILT` sent over the network does not take effect until somebody presses the Dial's button.**
+The reply is `OK tilt pending <min> <max>, press the button within 15s`; `NECK` then carries
+`tilt_pending=<min>,<max> in=<n>s` until it is confirmed or the window closes. A button already
+held does not count — it has to be released and pressed, or anything resting on the Dial would
+satisfy the interlock. A second `TILT` replaces the first, so during a creep the press always
+confirms the notch you just sent. **A serial `TILT` is not gated**: a cable already proves
+physical access, and asking for the button too would ask the same person the same question twice.
+
 A 1.5° deadband means the head parks about a degree inside whatever you command, so the limits
 carry that much margin on their own.
 

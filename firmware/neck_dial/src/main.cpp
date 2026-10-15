@@ -32,6 +32,7 @@
 #include <Update.h>
 #include "../neck/pantilt_core.h"
 #include "../neck/rc_frame.h"
+#include "../neck/tilt_confirm.h"
 
 namespace {
 
@@ -85,6 +86,15 @@ Preferences g_nvs;
 char g_ssid[33] = {0};
 uint32_t g_lastReport = 0;
 uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
+
+// THE TILT CONFIRM BUTTON. BtnA on the M5Dial is GPIO 42, ACTIVE LOW -- taken from M5Unified's own
+// board table (board_M5Dial reads `!gpio_in(GPIO_NUM_42)`), not from memory, because a wrong pin
+// here means the interlock can never be satisfied and commissioning becomes impossible on a board
+// with no USB cable. The M5Dial library is deliberately NOT pulled in for this: it would start the
+// display, touch and speaker, and contend for Port A's Wire with the 8Servo.
+constexpr uint8_t kBtnPin = 42;
+neck::Pending g_tiltPending;
+bool buttonDown() { return digitalRead(kBtnPin) == LOW; }
 uint32_t g_packets = 0;
 
 // The firmware identity a PING reports. Filled by the build, not typed here, so an image can always
@@ -160,9 +170,15 @@ void replyNeck(char* out, size_t n) {
     // measured to the same pair. Commissioning this neck is exactly the job that needs to be able
     // to tell "measured" from "never measured", and the reference neck already reports a band, so
     // this closes a gap rather than inventing a field.
-    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d",
+    char pend[48] = "tilt_pending=none";
+    if (g_tiltPending.waiting) {
+        snprintf(pend, sizeof(pend), "tilt_pending=%d,%d in=%lus",
+                 g_tiltPending.lo, g_tiltPending.hi,
+                 (unsigned long)neck::secondsLeft(g_tiltPending, millis()));
+    }
+    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d %s",
              g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner,
-             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0);
+             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0, pend);
 }
 
 // TILT <min> <max> -- the per-robot tilt limits, measured ON the robot and written once.
@@ -177,6 +193,15 @@ void replyNeck(char* out, size_t n) {
 // band is what the control law clamps every target to, so widening it is the one remote command
 // that can let the head reach somewhere new -- which is why it refuses rather than clamps, and why
 // the reply states what was actually stored.
+// By value, for the button path: the numbers were validated when the request was armed.
+void applyTilt2(int lo, int hi, char* out, size_t n) {
+    g_nvs.begin("opendubs", false);
+    g_nvs.putInt("tiltMin", lo); g_nvs.putInt("tiltMax", hi);
+    g_nvs.end();
+    g_lim = neck::limitsFrom(true, lo, true, hi);      // live at once: no reboot to commission
+    snprintf(out, n, "OK tilt %d %d", lo, hi);
+}
+
 bool applyTilt(const char* args, char* out, size_t n) {
     int lo = 0, hi = 0;
     if (sscanf(args, "%d %d", &lo, &hi) != 2 || lo >= hi || lo < 0 || hi > 180) {
@@ -249,12 +274,23 @@ void handle(const char* cmd, char* out, size_t n) {
     // to have heard of ToF", which it could not if this fell through to ERR unknown.
     if (!strncmp(cmd, "TOF", 3)) { snprintf(out, n, "ERR tof not fitted"); return; }
 
-    // TILT <min> <max>: commissioning, over the wire. See applyTilt().
+    // TILT <min> <max>: commissioning, over the wire -- ARMED HERE, APPLIED BY THE BUTTON.
+    //
+    // The maintainers chose this: the band is the fence every target is clamped to, and a band
+    // widened remotely followed by a GAZE is two remote commands where the first removes the limit
+    // the second would have hit. So a network TILT only ever ARMS a request; somebody at the head
+    // presses the button to apply it. The reply says so, and NECK carries the pending state,
+    // because the press happens after this reply has gone and there is nowhere else to report it.
     if (!strncmp(cmd, "TILT ", 5)) {
-        char reply[96];
-        applyTilt(cmd + 5, reply, sizeof(reply));
-        snprintf(out, n, "%s", reply);
-        line(reply);                                   // and on the serial log, for the bench
+        int lo = 0, hi = 0;
+        if (sscanf(cmd + 5, "%d %d", &lo, &hi) != 2
+            || !neck::request(g_tiltPending, lo, hi, millis(), buttonDown())) {
+            snprintf(out, n, "ERR tilt <min> <max>, 0 <= min < max <= 180");
+            return;
+        }
+        snprintf(out, n, "OK tilt pending %d %d, press the button within %lus",
+                 lo, hi, (unsigned long)(neck::kTiltConfirmMs / 1000));
+        line(out);
         return;
     }
 
@@ -298,6 +334,7 @@ void setup() {
     // (`xQueueSemaphoreTake queue.c:1709`) and the board crash-looped from its first boot. A fresh
     // board has no credentials BY DEFINITION, so that was the one path guaranteed to run first.
     WiFi.mode(WIFI_STA);
+    pinMode(kBtnPin, INPUT_PULLUP);        // the TILT confirm button; active low
     WiFi.setHostname(kHostName);
 
     if (ssid.length()) {
@@ -418,6 +455,22 @@ void loop() {
     }
 
     // A pending restart, far enough after the reply that it has certainly gone out.
+    // The TILT confirm. Polled here rather than on an interrupt: the window is 15 s and the loop
+    // runs every few ms, so an edge cannot be missed, and an ISR writing NVS would be worse.
+    switch (neck::poll(g_tiltPending, millis(), buttonDown())) {
+        case neck::Confirm::Applied: {
+            char reply[96];
+            applyTilt2(g_tiltPending.lo, g_tiltPending.hi, reply, sizeof(reply));
+            line(reply);
+            break;
+        }
+        case neck::Confirm::Expired:
+            line("tilt: pending request expired, nothing changed");
+            break;
+        case neck::Confirm::None:
+            break;
+    }
+
     if (g_restartAt && (int32_t)(millis() - g_restartAt) >= 0) { delay(50); ESP.restart(); }
 
     if (millis() - g_lastReport > kReportMs) { g_lastReport = millis(); report(); }
