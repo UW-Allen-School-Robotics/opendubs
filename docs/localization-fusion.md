@@ -20,7 +20,8 @@ ground-truth-ish *relative* movement source that survives when **global** source
 | **Pinpoint deadwheel odo** | StamPLC I²C | 2D pose + twist (x, y, θ) | smooth, high-rate, short-term | pods **retracted by design** (rough terrain / gap crossings), wheel slip, lift |
 | **RPLIDAR A1 SLAM** | `/scan` | 2D scan-match pose + map | structured indoor | open/featureless/glass, outdoors > 12 m, ~7 Hz |
 | **Visual SLAM / VIO** (future ZED/RealSense, cuVSLAM) | USB3 | 6-DOF VIO + map | textured, lit | low-texture, low-light, motion blur |
-| **Tablet GNSS** (the head tablet's receiver) | `/tablet/fix` | global position fix | outdoors, open sky | indoors, near buildings; it rides on the moving head, so its frame needs the neck's joint states |
+| **Chassis GPS** (Holybro M9N; planned, not yet fitted) | serial | global position fix (the primary, once fitted) | outdoors, open sky | indoors, near buildings |
+| **Tablet GNSS** (the head tablet's receiver) | `/tablet/fix` | global position fix (the fallback; the only GPS until the chassis one is fitted) | outdoors, open sky | indoors, near buildings; it rides on the moving head, so its frame needs the neck's joint states |
 
 ## Principle: two-tier localization (REP-105)
 

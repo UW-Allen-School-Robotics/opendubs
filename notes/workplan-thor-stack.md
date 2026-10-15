@@ -253,7 +253,11 @@ containers. Steps marked **robot** need opendubs2 or the CAD.
   - `/tablet/camera/front/{image_raw/compressed, camera_info}`, frame `tablet_front_camera_optical_frame`.
   - `/tablet/camera/rear/{image_raw/compressed, camera_info}`, frame `tablet_rear_camera_optical_frame`. The rear camera has a full, unobstructed backward view.
   - Each optical frame is a child of `tablet_{front,rear}_camera_link` with the standard optical rotation, generated from `optical: true` in `dimensions.yaml`.
-- **`/tablet/fix` (`NavSatFix`, frame `tablet_gps_link`) is first-class: it is the robot's GPS.** There is no GPS on the chassis; an earlier note here wrongly cited a mounted M9N. It feeds the global tier (`navsat_transform` + global EKF) outdoors. Because the antenna rides on the head, its frame needs the neck's joint states (L.2b).
+- **`/tablet/fix` (`NavSatFix`, frame `tablet_gps_link`) is first-class, and worth building now.**
+  - The chassis GPS (a Holybro M9N on the front LIDAR stack) is **planned, not yet fitted** (the user, 2026-10-15). Until it is fitted, `/tablet/fix` is the robot's **only** GPS.
+  - Once the M9N is fitted, it is the **primary** GPS and the tablet's GNSS the **fallback**.
+  - Either feeds the global tier (`navsat_transform` + global EKF) outdoors.
+  - The tablet's antenna rides on the head, so its frame needs the neck's joint states (L.2b). The M9N's, on the chassis, does not.
 - `/tablet/illuminance`, `/tablet/mag` and `/tablet/battery` are optional.
 - The tablet has no proximity sensor and no barometer.
 - All stamps are in Thor time, through the show-audio clock offset (IMU under about 5 ms, camera under about 20 ms).

@@ -219,8 +219,13 @@ sensors:
     fitted: true
     xyz_mm: TODO_CAD                   # housing on the rear rail (docs/build/pinpoint.md)
     rpy_deg: [0, 0, 0]                 # ASSUMED; its heading sign is checked by PPCAL DIRX/DIRY
-  # No GPS on the chassis (confirmed 2026-10-15). The robot's GNSS is the head tablet's:
-  # /tablet/fix, frame tablet_gps_link in head_assembly.galaxy_tablet.
+  gps:
+    frame: gps_link                    # Holybro M9N on the front lidar's stack (docs/build/lidar.md)
+    fitted: false                      # PLANNED, NOT YET FITTED (2026-10-15). Once fitted it is the
+                                       # primary GPS; until then the head tablet's GNSS (/tablet/fix,
+                                       # tablet_gps_link) is the only one, and the fallback after
+    xyz_mm: TODO_CAD
+    rpy_deg: [0, 0, 0]
   otos:
     frame: otos_link                   # SparkFun OTOS on the middle cross rail, 10 mm ride height
     fitted: false                      # off the bus on opendubs2
