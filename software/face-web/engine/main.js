@@ -78,6 +78,9 @@ window.faceSkins = skins;                          // read by a harness through 
 const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
 skins.loadLibrary(libraryUrl).then(() => {
   if (q.get("skin")) skins.select(q.get("skin"));
+  // The robot's idle skin may have been chosen before the library had loaded, and fallen back to the
+  // default eyes for that alone: now that it is here, choose it again (once; a show's own SKIN wins).
+  else if (skins.idle && skins.chosen === skins.idle.skin && skins.error) skins.select(skins.idle.skin);
 });
 skins.refresh = libraryRefresher(skins, libraryUrl);   // a skin added after this page loaded (protocol.js)
 let neck = null;                                   // {pan, tilt, owner} from a door, if it has a neck
