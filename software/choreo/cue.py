@@ -247,7 +247,8 @@ FACE_THEMES = ("plain", "none", "halloween")
 # skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
 # answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
 # reserved robot state (DEGRADED, E_STOP) always shows `default`.
-CODE_SKINS = ("default", "ring", "fireworks")
+CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
+              "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
 # `IDLE` is the head's own word for "the robot's idle skin / theme" (head protocol v5: every show end
 # sends SKIN IDLE and THEME IDLE), so no skin or theme may be called `idle`, and a show never names it.
 IDLE_NAME = "idle"

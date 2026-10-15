@@ -43,7 +43,8 @@ KINDS = ("song", "clip", "skin")                 # later: overlay, theme, sound
 # MP4/H.264 cannot — and should be square, 400-512 px. Skins the engine draws in CODE (`default`,
 # `ring`: cue.CODE_SKINS) are never in the index, and no library item may take one of their names.
 SKIN_TYPES = ("image", "video")
-CODE_SKIN_NAMES = ("default", "ring", "fireworks")
+CODE_SKIN_NAMES = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
+                   "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
 # A skin's `params`, all optional; any other key is a problem — a typo would otherwise do nothing.
 SKIN_PARAMS = {
     "size": "fraction of the 480 px eye (default 0.8)",

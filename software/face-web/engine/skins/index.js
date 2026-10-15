@@ -12,9 +12,15 @@
 import * as eyes from "./eyes.js";
 import * as ring from "./ring.js";
 import * as fireworks from "./fireworks.js";
+import {
+  monster_stitched, monster_vampire, monster_wolf, monster_mummy,
+  monster_zombie, monster_ghoul, monster_lab,
+} from "./monsters.js";
 import { makeAssetSkin } from "./asset.js";
 
-export const CODE_SKINS = { default: eyes, ring, fireworks };
+// ON ONE LINE, and the names in the same ORDER as the other lanes' lists: the head protocol's
+// cross-check reads this literal as TEXT, a line at a time, and compares the sequence.
+export const CODE_SKINS = { default: eyes, ring, fireworks, monster_stitched, monster_vampire, monster_wolf, monster_mummy, monster_zombie, monster_ghoul, monster_lab };
 const ASSET_TYPES = ["image", "video"];
 
 export class Skins {

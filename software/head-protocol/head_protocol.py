@@ -27,7 +27,8 @@ MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "spark
 THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.
-CODE_SKINS = ("default", "ring", "fireworks")
+CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
+              "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
 OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "none")
 TRACK_SOURCES = ("thor", "local")
 
