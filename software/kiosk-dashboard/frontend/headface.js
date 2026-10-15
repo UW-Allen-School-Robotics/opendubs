@@ -52,6 +52,7 @@
           <option value="d415">the RealSense camera (on the robot)</option>
         </select></div>
       <div class="hf-note" id="hfTrackNote"></div>
+      <div class="hf-note" id="hfTrackLive"></div>
       <div class="hf-note" id="hfNeckNote"></div>
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
@@ -147,7 +148,24 @@
       (lib.length ? `<optgroup label="library">${lib.map((n) => `<option value="${n}">${n}</option>`).join("")}</optgroup>` : "");
   }
 
+  // What the face's tracker is doing right now (the face reports it every 2 s; /api/head/follow).
+  async function loadTracker() {
+    let f = null;
+    try { f = await getJSON("/api/head/follow"); } catch (e) { /* an older robot */ }
+    const t = f && f.tracker;
+    const line = !t ? "Tracker: no report from the face yet."
+      : t.age_s > 10 ? `Tracker: no report for ${Math.round(t.age_s)} s (is the face showing?).`
+      : t.state === "running"
+        ? `Tracker: running, ${t.hz} Hz, ${t.found_pct}% of frames find someone` +
+          (t.frame ? `, camera ${t.frame[0]}×${t.frame[1]}` : "") +
+          (t.last_found_s != null ? `, last seen ${t.last_found_s} s ago` : ", nobody seen yet")
+        : `Tracker: ${t.state}.`;
+    el("hfTrackLive").textContent = line + (f && f.why ? ` Head: ${f.why}.` : "");
+  }
+  setInterval(() => { if (view.classList.contains("active")) loadTracker(); }, 3000);
+
   async function load() {
+    loadTracker();
     try { s = await getJSON("/api/head/settings"); render(); say("saved on the robot"); }
     catch (e) { say(`unavailable: ${e.message}`, "bad"); }
     loadApp();
