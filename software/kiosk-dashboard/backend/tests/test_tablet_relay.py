@@ -1,6 +1,7 @@
 """The robot tablet's sensors into ROS (tablet_relay.py): only from the kiosk, stamped on the Thor's
 clock, published through rosbridge, and never a stale position."""
 import asyncio
+import base64
 import json
 import math
 import os
@@ -54,10 +55,12 @@ def test_malformed_readings_publish_nothing():
 
 class _Recorder:
     """Stands in for the rosbridge client: records what would be published."""
-    def __init__(self):
-        self.got, self.ws = [], object()
+    def __init__(self, subscribed=()):
+        self.got, self.ws, self.subs = [], object(), set(subscribed)
     def start(self):
         pass
+    async def subscribed(self, topic):
+        return topic in self.subs
     async def publish(self, topic, msg):
         self.got.append((topic, msg))
         return True
@@ -72,6 +75,7 @@ def test_only_the_kiosk_is_heard_and_the_newest_page_wins(monkeypatch):
     with c.websocket_connect("/ws/tablet") as page:
         page.send_json({"hello": {"kiosk": True}})
         assert page.receive_json() == {"ok": True}
+        assert "camera" in page.receive_json()              # the cameras' state: all off
         page.send_json({"ping": 12.5})
         assert page.receive_json() == {"pong": 12.5}
         page.send_json({"kind": "light", "lux": 80, "age_ms": 0})
@@ -83,6 +87,7 @@ def test_only_the_kiosk_is_heard_and_the_newest_page_wins(monkeypatch):
         with c.websocket_connect("/ws/tablet") as reloaded:                          # the page reloads
             reloaded.send_json({"hello": {"kiosk": True}})
             assert reloaded.receive_json() == {"ok": True}
+            reloaded.receive_json()
             reloaded.send_json({"kind": "light", "lux": 5})
             reloaded.send_json({"ping": 2})
             reloaded.receive_json()
@@ -115,7 +120,10 @@ def _fake_rosbridge():
 
 def _client(monkeypatch, url, ros=None):
     monkeypatch.setattr(tr, "ros", ros or tr.Rosbridge(url))
-    tr.state.update(page=None, rtt_ms=None, published=0, dropped=0, last={}, thermal=None)
+    tr.state.update(page=None, rtt_ms=None, published=0, dropped=0, last={}, thermal=None,
+                    camera={c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
+                                "busy": False, "error": None, "w": None, "h": None} for c in tr.CAMERAS})
+    monkeypatch.setattr(tr, "CAMERA_POLL_S", 0.1)
     app = FastAPI()
     app.include_router(tr.router)
     return TestClient(app)
@@ -134,8 +142,11 @@ def test_readings_reach_a_real_rosbridge_socket(monkeypatch):
     with c.websocket_connect("/ws/tablet") as page:
         page.send_json({"hello": {"kiosk": True}})
         assert page.receive_json() == {"ok": True}
-        assert _wait(lambda: sum(m.get("op") == "advertise" for m in got) == 3)
-        assert {m["topic"] for m in got if m["op"] == "advertise"} == {"/tablet/illuminance", "/tablet/battery", "/tablet/fix"}
+        page.receive_json()                                  # the cameras' state
+        assert _wait(lambda: sum(m.get("op") == "advertise" for m in got) == len(tr.TOPICS))
+        assert {m["topic"] for m in got if m["op"] == "advertise"} == set(tr.TOPICS)
+        assert {"/tablet/illuminance", "/tablet/battery", "/tablet/fix",
+                "/tablet/camera/rear/image_raw/compressed"} <= set(tr.TOPICS)
         page.send_json({"ping": 12.5})
         assert page.receive_json() == {"pong": 12.5}
         page.send_json({"kind": "light", "lux": 80, "age_ms": 0})
@@ -153,8 +164,84 @@ def test_with_rosbridge_down_readings_are_dropped_not_queued(monkeypatch):
     c = _client(monkeypatch, f"ws://127.0.0.1:{port}")
     with c.websocket_connect("/ws/tablet") as page:
         page.send_json({"hello": {"kiosk": True}})
-        page.receive_json()
+        page.receive_json(); page.receive_json()
         page.send_json({"kind": "light", "lux": 80})
         page.send_json({"ping": 1})
         page.receive_json()                                  # the light reading has been handled
         assert c.get("/api/tablet/sensors").json()["dropped"] == 1
+
+
+JPEG = b"\xff\xd8\xff\xe0" + b"x" * 200 + b"\xff\xd9"
+
+
+def _frame(cam, w=640, h=480, jpeg=JPEG):
+    head = json.dumps({"cam": cam, "w": w, "h": h, "age_ms": 20}).encode()
+    return len(head).to_bytes(4, "big") + head + jpeg
+
+
+def test_a_frame_is_parsed_and_anything_else_refused():
+    hdr, jpeg = tr.parse_frame(_frame("rear"))
+    assert hdr["cam"] == "rear" and jpeg == JPEG
+    for bad in (b"", b"\x00\x00\x00\x05{}", _frame("side"), _frame("front", jpeg=b"PNG...."), b"\x00\x00\xff\xff{"):
+        assert tr.parse_frame(bad) is None, bad
+
+
+def _drain_until(page, pred, n=20):
+    for _ in range(n):
+        m = page.receive_json()
+        if pred(m):
+            return m
+    raise AssertionError("not seen")
+
+
+def test_a_camera_streams_only_while_something_subscribes(monkeypatch):
+    rec = _Recorder()
+    c = _client(monkeypatch, None, ros=rec)
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json()
+        first = page.receive_json()["camera"]
+        assert first["front"]["on"] is False and first["rear"]["on"] is False      # off until asked
+        page.send_bytes(_frame("front"))                                              # unasked: dropped
+        rec.subs.add("/tablet/camera/front/image_raw/compressed")                     # a consumer appears
+        m = _drain_until(page, lambda m: "camera" in m)
+        assert m["camera"]["front"]["on"] is True and m["camera"]["rear"]["on"] is False
+        assert m["camera"]["front"]["w"] == 640 and m["camera"]["front"]["fps"] == 10
+        page.send_bytes(_frame("front"))
+        assert _wait(lambda: len(rec.got) == 2)
+        (t1, img), (t2, info) = rec.got
+        assert t1 == "/tablet/camera/front/image_raw/compressed" and img["format"] == "jpeg"
+        assert base64.b64decode(img["data"]) == JPEG and img["header"]["frame_id"] == "tablet_front_camera_optical_frame"
+        assert t2 == "/tablet/camera/front/camera_info" and info["width"] == 640 and info["k"] == [0.0] * 9
+        assert info["header"] == img["header"]                                       # the same instant
+        rec.subs.clear()                                                              # the consumer goes
+        m = _drain_until(page, lambda m: "camera" in m)
+        assert m["camera"]["front"]["on"] is False
+        st = c.get("/api/tablet/sensors").json()["camera"]["front"]
+        assert st["frames"] == 1 and st["dropped"] == 1
+
+
+def test_a_camera_can_be_switched_on_by_hand(monkeypatch):
+    c = _client(monkeypatch, None, ros=_Recorder())
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json(); page.receive_json()
+        r = c.put("/api/tablet/camera", json={"rear": "on"})
+        assert r.status_code == 200 and r.json()["rear"] == {"mode": "on", "on": True}
+        assert _drain_until(page, lambda m: "camera" in m)["camera"]["rear"]["on"] is True
+        assert c.put("/api/tablet/camera", json={"rear": "sometimes"}).status_code == 400
+        assert c.put("/api/tablet/camera", json={"side": "on"}).status_code == 400
+
+
+def test_camera_info_carries_this_robots_calibration_when_it_has_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(tr, "CAMERA_DIR", str(tmp_path))
+    (tmp_path / "camera_front.yaml").write_text(
+        "image_width: 640\nimage_height: 480\ndistortion_model: plumb_bob\n"
+        "camera_matrix: {rows: 3, cols: 3, data: [500, 0, 320, 0, 500, 240, 0, 0, 1]}\n"
+        "distortion_coefficients: {rows: 1, cols: 5, data: [0.1, -0.2, 0, 0, 0]}\n"
+        "rectification_matrix: {rows: 3, cols: 3, data: [1, 0, 0, 0, 1, 0, 0, 0, 1]}\n"
+        "projection_matrix: {rows: 3, cols: 4, data: [500, 0, 320, 0, 0, 500, 240, 0, 0, 0, 1, 0]}\n")
+    info = tr.camera_info("front", 640, 480, {})
+    assert info["k"][0] == 500.0 and info["d"][:2] == [0.1, -0.2] and info["distortion_model"] == "plumb_bob"
+    assert tr.camera_info("front", 1280, 720, {})["k"] == [0.0] * 9      # calibrated at another size: not used
+    assert tr.camera_info("rear", 640, 480, {})["k"] == [0.0] * 9        # none kept: uncalibrated
