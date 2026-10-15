@@ -65,11 +65,13 @@ rsync -az --delete --filter 'P shows/audio/*' \
 ssh "$HOST" "mkdir -p $DEST_ROOT/face-web"
 # A checkout that never fetched it (vendor/ is git-ignored) fetches it now: pinned, and checked by
 # fetch-vendor.sh. On 2026-10-15 a deploy from such a checkout left the robot with no tracking at all.
-if [ ! -f "$SRC../face-web/vendor/mediapipe/vision_bundle.mjs" ]; then
+# Not only when missing: whenever the files are not exactly the pinned set (a checkout that fetched
+# before a file was added would otherwise mirror an incomplete folder over the robot's).
+if ! "$SRC../face-web/fetch-vendor.sh" --check; then
   echo "== fetching the face's MediaPipe files (software/face-web/fetch-vendor.sh) =="
   "$SRC../face-web/fetch-vendor.sh" || echo "== note: fetch-vendor.sh failed (npm and internet needed); tracking stays as the robot has it =="
 fi
-if [ -f "$SRC../face-web/vendor/mediapipe/vision_bundle.mjs" ]; then
+if "$SRC../face-web/fetch-vendor.sh" --check; then            # only ever the complete, pinned set
   FACE_VENDOR=(--include 'vendor/' --include 'vendor/mediapipe/***' --exclude 'vendor/*')
 else
   echo "== note: no software/face-web/vendor/mediapipe here (run fetch-vendor.sh); the robot keeps its own =="

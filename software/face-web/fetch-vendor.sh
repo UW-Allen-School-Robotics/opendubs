@@ -6,6 +6,25 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Every file pinned: a changed package or model (a re-published version, a different CDN answer) fails
+# here rather than reaching a robot. Update these deliberately, together with the versions below.
+sum256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+check_pins() {
+  [ -d vendor/mediapipe ] || return 1
+  ( cd vendor/mediapipe && sum256 -c --quiet - ) <<'PINS' >/dev/null 2>&1
+fc3e9325a460f9ca70b93d58e850532a30fd14ceb6d02c837912af3cf65ed651  VERSION
+64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff  face_landmarker.task
+55d7ab624fbb70dcc5adc4ae6d7ea9cfcb569139d3dbfbf2b1deafcb966bc0fe  vision_bundle.mjs
+e7fd9858e8e8f221d9b96eddc11f8e077f263e0b7bbd79d3cbe882b134274f8c  wasm/vision_wasm_internal.js
+6a5c64584c2ab61c763b6e204afbdbc7ce1caf7f5216187322bca8df94f646bc  wasm/vision_wasm_internal.wasm
+4b59100025bea1235a84c1038879a6cccc9f6c49f5e41144e91e74d99e780993  efficientdet_lite0.tflite
+PINS
+}
+
+# --check: is vendor/ complete and exactly as pinned? (exit 0 / 1, no network). deploy.sh asks this, so a
+# checkout that fetched before a file was added (the person model, #309) fetches again.
+if [ "${1:-}" = "--check" ]; then check_pins; exit; fi
+
 MEDIAPIPE=0.10.35     # @mediapipe/tasks-vision, Apache-2.0. NOT 1.x: 1.0.0+ POSTs usage logs to odml.pa.googleapis.com every 60 s; 0.10.35 has no such endpoint (checked by grep, below)
 MODEL_URL=https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 PERSON_MODEL_URL=https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite
@@ -26,18 +45,7 @@ curl -fsSL -o vendor/mediapipe/face_landmarker.task "$MODEL_URL"
 curl -fsSL -o vendor/mediapipe/efficientdet_lite0.tflite "$PERSON_MODEL_URL"
 echo "$MEDIAPIPE" > vendor/mediapipe/VERSION
 du -sh vendor/mediapipe
-# Every file pinned: a changed package or model (a re-published version, a different CDN answer) fails
-# here rather than reaching a robot. Update these deliberately, together with MEDIAPIPE above.
-sum256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
-if ! ( cd vendor/mediapipe && sum256 -c --quiet - ) <<'PINS'
-fc3e9325a460f9ca70b93d58e850532a30fd14ceb6d02c837912af3cf65ed651  VERSION
-64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff  face_landmarker.task
-55d7ab624fbb70dcc5adc4ae6d7ea9cfcb569139d3dbfbf2b1deafcb966bc0fe  vision_bundle.mjs
-e7fd9858e8e8f221d9b96eddc11f8e077f263e0b7bbd79d3cbe882b134274f8c  wasm/vision_wasm_internal.js
-6a5c64584c2ab61c763b6e204afbdbc7ce1caf7f5216187322bca8df94f646bc  wasm/vision_wasm_internal.wasm
-4b59100025bea1235a84c1038879a6cccc9f6c49f5e41144e91e74d99e780993  efficientdet_lite0.tflite
-PINS
-then
+if ! check_pins; then
   rm -rf vendor/mediapipe
   echo "fetch-vendor: a MediaPipe file does not match its pinned sha256; removed vendor/mediapipe" >&2
   exit 1
