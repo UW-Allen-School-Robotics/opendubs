@@ -1,0 +1,163 @@
+// THE TRACKING RETICLE, held to the job it exists for.
+//
+// It is a diagnostic, so the bar is different from the other overlays: it is not enough that it
+// looks right, it has to be TRUSTWORTHY WHEN EVERYTHING ELSE IS WRONG. That is the whole point --
+// on 2026-10-15 the neck drove itself into the corner of its envelope and lost the person, and
+// from the face it looked like "it tracked me, then stopped". The reticle is what turns that into
+// two seconds of watching. A reticle that was itself unreliable would be worse than none, because
+// it would be believed.
+//
+// So the checks are: it is drawn whenever there is a target (including for a kind nobody
+// recognises -- a diagnostic must fail VISIBLY), it is never drawn when there is not, it stays on
+// screen no matter where the target claims to be, it is legible over the colours it will sit on,
+// and it never moves on its own.
+//
+// Run: node software/face-web/tests/test_reticle.mjs   (conformance.sh runs it)
+
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const { drawReticle, RETICLE } = await import(join(here, "../engine/skins/reticle.js"));
+const { STATES } = await import(join(here, "../engine/vocab.js"));
+
+const W = 1280, H = 720;
+let failed = 0;
+function ok(cond, what, detail = "") {
+  console.log(`${cond ? "ok  " : "FAIL"}  ${what}${detail ? "   " + detail : ""}`);
+  if (!cond) failed++;
+}
+
+// Records the strokes in order, with their width, colour and the box they trace.
+function recorder() {
+  const strokes = [], log = [];
+  let lw = 1, ss = "", box = null;
+  const ctx = {
+    log, strokes,
+    save: () => log.push("save"), restore: () => log.push("restore"),
+    beginPath: () => { log.push("beginPath"); box = null; },
+    roundRect: (x, y, w, h, r) => { log.push("roundRect"); box = { x, y, w, h, r }; },
+    rect: (x, y, w, h) => { log.push("rect"); box = { x, y, w, h, r: 0 } },
+    stroke: () => { log.push("stroke"); strokes.push({ lw, ss, box }); },
+    fill: () => { log.push("fill"); },
+    fillRect: () => { log.push("fillRect"); },
+    arc: () => log.push("arc"), moveTo: () => log.push("moveTo"), lineTo: () => log.push("lineTo"),
+    closePath: () => log.push("closePath"), clip: () => log.push("clip"),
+    quadraticCurveTo: () => log.push("q"), translate: () => log.push("translate"),
+    createLinearGradient: () => ({ addColorStop() {} }),
+    createRadialGradient: () => ({ addColorStop() {} }),
+    fillText: () => log.push("fillText"),
+  };
+  Object.defineProperty(ctx, "lineWidth", { set(v) { lw = v; } });
+  Object.defineProperty(ctx, "strokeStyle", { set(v) { ss = String(v); } });
+  Object.defineProperty(ctx, "fillStyle", { set(v) { log.push("fillStyle=" + v); } });
+  return ctx;
+}
+function draw(target, t = 0) { const c = recorder(); drawReticle(c, target, t); return c; }
+
+// ---- 1. drawn when there is a target, never when there is not -----------------------------------
+for (const kind of ["motion", "face", "person"]) {
+  const c = draw({ x: 640, y: 360, kind });
+  ok(c.strokes.length === 2, `'${kind}' draws the box`, `${c.strokes.length} strokes`);
+}
+for (const [what, tgt] of [["null", null], ["undefined", undefined]]) {
+  ok(draw(tgt).log.length === 0, `draws NOTHING for ${what}`);
+}
+// A DIAGNOSTIC MUST FAIL VISIBLY. An unrecognised kind is still drawn -- a tracker reporting
+// something new, or a typo in the caller, must not make the reticle silently vanish, because the
+// absence would be read as "nothing detected", which is a different and wrong answer.
+{
+  const c = draw({ x: 640, y: 360, kind: "banana" });
+  ok(c.strokes.length === 2, "an unrecognised kind is still SHOWN, not silently dropped");
+}
+
+// ---- 2. the two colours, and they are the Tab5's ------------------------------------------------
+const colourOf = (kind) => draw({ x: 640, y: 360, kind }).strokes[1].ss;
+ok(colourOf("motion").includes("255, 176, 32"), "motion is the Tab5's amber 0xffb020", colourOf("motion"));
+ok(colourOf("face").includes("0, 229, 255"), "a face is the Tab5's cyan 0x00e5ff", colourOf("face"));
+ok(colourOf("person") === colourOf("face"), "a person reads the same as a face: both are 'somebody'");
+ok(colourOf("motion") !== colourOf("face"),
+   "motion and a face are DIFFERENT -- without this, 'the detector works' and 'motion was on your face' look alike");
+
+// ---- 3. legible over what it will actually sit on -----------------------------------------------
+// The dark stroke is the whole mitigation, so it is checked structurally: drawn FIRST (so the
+// colour lands on top of it) and WIDER (so it shows on both sides).
+for (const kind of ["motion", "face"]) {
+  const [under, over] = draw({ x: 640, y: 360, kind }).strokes;
+  ok(/rgba\(0, 0, 0/.test(under.ss), `'${kind}': a dark stroke goes down first`, under.ss);
+  ok(under.lw > over.lw, `'${kind}': and it is wider, so it shows on both sides`, `${under.lw} vs ${over.lw}`);
+  ok(JSON.stringify(under.box) === JSON.stringify(over.box), `'${kind}': both trace the same box`);
+}
+// And the reason, stated as a measurement rather than an opinion: the cyan is on top of AUTONOMOUS.
+{
+  const hue = (c) => {
+    const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    let h = 0;
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return ((h * 60) + 360) % 360;
+  };
+  const gap = (a, b) => { const d = Math.abs(hue(a) - hue(b)); return Math.min(d, 360 - d); };
+  const autonomous = STATES.find((s) => s[0] === "AUTONOMOUS")[2];
+  ok(gap(0x00e5ff, autonomous) < 20,
+     "the cyan really is nearly AUTONOMOUS's colour, which is WHY the outline exists",
+     `${gap(0x00e5ff, autonomous).toFixed(0)} degrees apart`);
+}
+
+// ---- 4. it stays on screen, wherever the target claims to be ------------------------------------
+// Clamped by its EDGES, not its centre: a box clamped by the centre still hangs off the screen,
+// which is the bug the ARMED label shipped with in #227.
+const corners = [
+  ["far off the left", { x: -900, y: 360 }], ["far off the right", { x: 3000, y: 360 }],
+  ["far above", { x: 640, y: -500 }], ["far below", { x: 640, y: 2000 }],
+  ["off the corner", { x: -50, y: -50 }],
+  ["a huge detection", { x: 640, y: 360, w: 5000, h: 5000 }],
+  ["a tiny detection", { x: 640, y: 360, w: 1, h: 1 }],
+];
+for (const [what, t] of corners) {
+  const s = draw({ ...t, kind: "face" }).strokes;
+  if (!s.length) { ok(false, `${what}: still draws something`); continue; }
+  const b = s[1].box;
+  const inside = b.x >= 0 && b.y >= 0 && b.x + b.w <= W && b.y + b.h <= H;
+  const detail = `x ${b.x.toFixed(0)}..${(b.x + b.w).toFixed(0)}  y ${b.y.toFixed(0)}..${(b.y + b.h).toFixed(0)}`;
+  ok(inside, `${what}: the whole box stays on screen`, detail);
+  // AGAINST AN ABSOLUTE, not against RETICLE.pad. Measuring the box against the very constant
+  // that positions it passes however small that constant becomes -- a mutation shrinking the pad
+  // to 2 slipped through exactly that way. 12 is the real requirement: the charge gauge owns the
+  // outermost 8 px, and a reticle sitting in it reads as a notch in the charge level.
+  const CLEAR = 12;
+  ok(b.x >= CLEAR && b.y >= CLEAR && b.x + b.w <= W - CLEAR && b.y + b.h <= H - CLEAR,
+     `${what}: and clear of the charge gauge's band at the edge`, detail);
+}
+
+// A NON-FINITE POSITION IS NOT DRAWN, and that is deliberate rather than an oversight. NaN used to
+// survive the clamp and produce a NaN box, which the canvas skips -- the reticle vanished with no
+// sign, and for a diagnostic a silent absence is read as "nothing detected", a different and wrong
+// answer. Clamping it to the centre would be worse: that invents a position. Nothing drawn is the
+// honest answer, and whether a target exists at all is the caller's to know.
+for (const [what, t] of [["NaN", { x: NaN, y: NaN }], ["a NaN in one axis", { x: 640, y: NaN }],
+                         ["Infinity", { x: Infinity, y: 360 }], ["a string", { x: "640", y: 360 }]]) {
+  ok(draw({ ...t, kind: "face" }).strokes.length === 0,
+     `${what} draws nothing rather than inventing a position`);
+}
+
+// ---- 5. hollow, sized, and still ------------------------------------------------------------------
+{
+  const c = draw({ x: 640, y: 360, kind: "face" });
+  ok(!c.log.includes("fill") && !c.log.includes("fillRect"), "it is HOLLOW: it never hides the face under it");
+  const d = draw({ x: 640, y: 360, kind: "face" }).strokes[1].box;
+  ok(d.w === RETICLE.size && d.h === RETICLE.size, "with no detection size it is the Tab5's 120", `${d.w}x${d.h}`);
+  const e = draw({ x: 640, y: 360, kind: "face", w: 300, h: 200 }).strokes[1].box;
+  ok(e.w === 300 && e.h === 200, "and it takes the detection's size when there is one", `${e.w}x${e.h}`);
+  const at = (x) => draw({ x, y: 360, kind: "face" }).strokes[1].box.x;
+  ok(at(400) < at(800), "it follows the target across the screen", `${at(400)} -> ${at(800)}`);
+}
+{
+  // STILL ON PURPOSE. The one overlay whose job is to report motion faithfully must not add any.
+  const a = JSON.stringify(draw({ x: 500, y: 300, kind: "motion" }, 0).strokes);
+  const b = JSON.stringify(draw({ x: 500, y: 300, kind: "motion" }, 2.7).strokes);
+  ok(a === b, "it does not animate: a reticle that moved on its own could not be read");
+}
+
+console.log(failed ? `\n${failed} FAILED` : "\nall reticle checks passed");
+process.exit(failed ? 1 : 0);
