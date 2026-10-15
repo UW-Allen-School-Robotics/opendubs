@@ -24,7 +24,9 @@ function levelLine(levels, which, rest) {
   return `OK ${which} ${levels.set(which === "bright" ? "bright" : "volume", Number(lv), f).toFixed(2)}`;
 }
 
-export function handle(face, audio, line, now, skins, levels) {
+// `opts.timers: false` (the offline render): no wall-clock timer of its own. ARMED's lease is then
+// the face's (face.armedState(now) lapses on the show's clock), and nothing fires between frames.
+export function handle(face, audio, line, now, skins, levels, opts = {}) {
   const [verb, ...rest] = line.trim().split(" ");
   const arg = rest.join(" ");
   switch (verb) {
@@ -103,7 +105,7 @@ export function handle(face, audio, line, now, skins, levels) {
       clearTimeout(armedLease); armedLease = null;
       if (a === "WAIT") {
         face.setArmed("wait", now);
-        armedLease = setTimeout(() => { armedLease = null; face.setArmed(null, performance.now()); }, ARMED_LEASE_MS);
+        if (opts.timers !== false) armedLease = setTimeout(() => { armedLease = null; face.setArmed(null, performance.now()); }, ARMED_LEASE_MS);
         return "OK armed wait";
       }
       if (a === "OFF") { face.setArmed(null, now); return "OK armed off"; }

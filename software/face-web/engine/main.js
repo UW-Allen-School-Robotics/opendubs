@@ -10,12 +10,14 @@
 //   state=SAFE_IDLE            start in a state (a twin with no door otherwise shows NO LINK)
 //   bg=%23334455               a background colour instead of black — a test that a skin's
 //                              transparency is real (on black, a missing alpha plane is invisible)
+//   render=1                   not this page at all: the offline render (render_page.js, via boot.js)
 // Keys (twin conveniences, never a robot path): 1-7 state, e emote, a auto, s next skin, t theme, v cut.
 
 import { Face, DESIGN_W, DESIGN_H } from "./face.js";
+import { drawFace } from "./frame.js";
 import { STATES, EMOTES } from "./vocab.js";
 import { handle, Earcons, libraryRefresher } from "./protocol.js";
-import { Skins, CODE_SKINS } from "./skins/index.js";
+import { Skins } from "./skins/index.js";
 import { Levels } from "./levels.js";
 
 const q = new URLSearchParams(location.search);
@@ -72,34 +74,11 @@ function frame(now) {
 
   const t0 = performance.now();
   const W = canvas.width, H = canvas.height;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
-  const s = Math.min(W / DESIGN_W, H / DESIGN_H);
   // A twin with a neck: show the head's turn as a shift of the whole face (simulated, and labelled).
   const turn = neck ? (neck.pan - 90) * 4 : 0;
-  ctx.setTransform(s, 0, 0, s, (W - DESIGN_W * s) / 2 - turn * s, (H - DESIGN_H * s) / 2);
-  // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
-  // every robot and every show, so it is drawn by the default eyes in the state's own colour.
-  const drawn = face.reserved() ? CODE_SKINS.default : skins.current;
-  let skinDrew = true;
-  for (const e of face.eyes()) {
-    // An asset skin still loading (or failed) draws nothing: the default eyes stand in. Never blank.
-    if (drawn.draw(ctx, e, now / 1000) === false) { CODE_SKINS.default.draw(ctx, e, now / 1000); skinDrew = false; }
-  }
-  // A `layout: full` skin is a picture across the whole face (a show's photo): the idle quote would
-  // read as a caption printed on it, so it waits. Eye skins keep it; it is the face's own line.
-  const fullFace = skinDrew && drawn !== CODE_SKINS.default &&
-                   skins.library.get(skins.chosen)?.params?.layout === "full";
-  // Nor while a show is armed: the ARMED sign owns the bottom of the face, and must read alone.
-  const armed = typeof face.armedState === "function" && face.armedState(now);
   // AirPlay playing and heard: what it is, in the quote's place.
   const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
-  const text = fullFace || armed ? null
-    : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
-  if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
-  // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
-  // inside the design-space transform, so no skin or photo can hide it (Face & HRI's skins/armed.js).
-  if (drawArmed && typeof face.armedState === "function") drawArmed(ctx, face.armedState(now), now / 1000);
+  drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song });
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
