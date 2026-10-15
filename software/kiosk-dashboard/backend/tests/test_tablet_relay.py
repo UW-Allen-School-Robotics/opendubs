@@ -142,8 +142,11 @@ def test_readings_reach_a_real_rosbridge_socket(monkeypatch):
     with c.websocket_connect("/ws/tablet") as page:
         page.send_json({"hello": {"kiosk": True}})
         assert page.receive_json() == {"ok": True}
-        assert _wait(lambda: sum(m.get("op") == "advertise" for m in got) == 3)
-        assert {m["topic"] for m in got if m["op"] == "advertise"} == {"/tablet/illuminance", "/tablet/battery", "/tablet/fix"}
+        page.receive_json()                                  # the cameras' state
+        assert _wait(lambda: sum(m.get("op") == "advertise" for m in got) == len(tr.TOPICS))
+        assert {m["topic"] for m in got if m["op"] == "advertise"} == set(tr.TOPICS)
+        assert {"/tablet/illuminance", "/tablet/battery", "/tablet/fix",
+                "/tablet/camera/rear/image_raw/compressed"} <= set(tr.TOPICS)
         page.send_json({"ping": 12.5})
         assert page.receive_json() == {"pong": 12.5}
         page.send_json({"kind": "light", "lux": 80, "age_ms": 0})
