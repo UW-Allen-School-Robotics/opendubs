@@ -188,7 +188,7 @@ function changed(key, value) {
 }
 function applySettings(s) {
   levels.configure({ brightMin: s.bright_min, volMax: s.vol_max,
-                     idle: { bright: s.bright_idle, ...(typeof s.volume_idle === "number" ? { volume: s.volume_idle } : {}) } });
+                     idle: { bright: s.bright_idle, volume: typeof s.volume_idle === "number" ? s.volume_idle : null } });
   if (!levels.touched) {                       // no show holds the levels: show the idle ones now
     levels.idle("bright", 0.5);
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);

@@ -33,13 +33,24 @@ export class Levels {
     this.touched = false;                  // a show has set something since the last idle
   }
 
-  /** The robot's settings (the Head & face page): brightMin, volMax and the idle levels. */
+  /** The robot's settings (the Head & face page): brightMin, volMax and the idle levels. An idle
+   *  volume of null means "leave the tablet's own volume alone": idle is then whatever the device
+   *  was set to just before a show first changed it, so VOLUME IDLE gives back the operator's level. */
   configure(s = {}) {
     if (typeof s.brightMin === "number") this.cfg.brightMin = Math.min(1, Math.max(0.05, s.brightMin));
     if (typeof s.volMax === "number") this.cfg.volMax = Math.min(1, Math.max(0, s.volMax));
     for (const k of ["volume", "bright"]) {
       if (s.idle && typeof s.idle[k] === "number") this.cfg.idle[k] = this.clamp(k, s.idle[k]);
     }
+    if (s.idle && "volume" in s.idle) {
+      this.followDevice = s.idle.volume === null;
+      if (this.followDevice) this._readDeviceVolume();
+    }
+  }
+
+  _readDeviceVolume() {
+    const K = this.device && typeof window !== "undefined" ? window.OpenDubsKiosk : null;
+    if (K && typeof K.getMediaVolume === "function") this.cfg.idle.volume = K.getMediaVolume();
   }
 
   clamp(which, v) {
@@ -48,6 +59,8 @@ export class Levels {
 
   /** Fade `which` ("volume" | "bright") to `v` over `fadeS` seconds. Returns the applied target. */
   set(which, v, fadeS = 0) {
+    // Following the device: the level a show is about to change is the one to come back to.
+    if (which === "volume" && this.followDevice && !this.touched) this._readDeviceVolume();
     const target = this.clamp(which, v);
     const ms = Math.min(FADE_MAX_S, Math.max(0, fadeS || 0)) * 1000;
     clearInterval(this.timer[which]); this.timer[which] = null; this.fade[which] = null;
