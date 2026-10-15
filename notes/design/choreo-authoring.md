@@ -61,6 +61,35 @@ finger geometry, not necessarily the robot's.
   refuse. (Found by the reference-image prototype: an overhead "Y" was solved at 146° with the arm
   straight.)
 
+## The lift and the arms — stiffness (found on the robot, 2026-10-15)
+
+**Observed:** the Z-axis lift is much stiffer fully up or fully down than part-way. With the lift
+raised mid-travel, a show's fast arm moves rocked the whole robot. The first fast dance show was
+re-authored without its lift cues, and ran stiff with the lift fully down.
+
+**What it means for authoring, until a check exists:** keep the lift at an end of its travel
+(fully down, or fully up) whenever the arms move fast; raise or lower it in the slow parts of a show,
+and let it reach its end before the arms speed up. The twin cannot show this: its lift is rigid at
+every height (standing rule 9).
+
+**Proposed, NOT BUILT — a validator WARNING (never a refusal) for fast arm moves while the lift may
+be mid-travel:**
+
+* The validator already knows every LIFT cue (`up` / `down` / `stop`, `secs` ≤ 8). It does not know
+  the lift's height, because the lift is relay-timed, not positioned. So it tracks a conservative
+  state per instant: **at an end** (at show start, which assumes fully down; or after an `up` or a
+  `down` that ran at least the lift's full-travel time) or **maybe mid-travel** (while the lift moves,
+  after a `stop`, or after a cue shorter than full travel).
+* While **maybe mid-travel**, an arm segment whose average speed on a shoulder joint (J1 or J2, which
+  swing the most mass) is above a fraction of its cap warns, naming the cue, the joint and the lift
+  cue that left it mid-travel.
+* Two numbers need measuring at the robot before it is built: the lift's **full-travel time** (up and
+  down separately; the twin's lift speed is not the robot's), and the shoulder **speed fraction** that
+  rocks the robot mid-travel (a first guess: half the cap, 45°/s). Until then the warning would guess,
+  so it stays a proposal.
+* A show that knows its lift starts somewhere else would need a way to say so; not proposed until a
+  show asks for it.
+
 ## Making it expressive — animation principles, inside the envelope
 
 The arms' speed caps were measured (plan 6.1); motion.py already eases every move (zero speed at
