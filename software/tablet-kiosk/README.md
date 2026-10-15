@@ -127,8 +127,9 @@ and every 10 minutes (`Updater.kt`). When the robot serves a newer build, the ap
 silently, as device owner, and comes back to the front:
 
 - build anywhere: `./gradlew assembleRelease` gives `app-release-unsigned.apk` and `kiosk-version.json`;
-- the deploy copies both to the Thor, which signs the APK with the robot's own release key (root-only, made
-  on the Thor, never in this repository) and serves it at `/api/kiosk/latest` and `/api/kiosk/apk`;
+- the deploy copies both to the Thor, whose `sign-kiosk.sh` signs the APK with the release key (kept
+  root-only on the Thor, never in this repository; its setup and backup are in that script's README) and
+  the dashboard serves it at `/api/kiosk/latest` and `/api/kiosk/apk`;
 - the app installs it only if its versionCode is higher, its sha256 is the one announced, it is this
   package, and it is signed by the app's own key or by a key rotated from it (APK Signature Scheme v3
   lineage). It never installs while a show is loaded or armed. `OpenDubsKiosk.updateStatus()` says

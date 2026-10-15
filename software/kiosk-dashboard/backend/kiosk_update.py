@@ -5,9 +5,10 @@ Updater.kt; notes/workplan-tablet.md DT-22).
                           robot serves no build
   GET /api/kiosk/apk      the signed APK
 
-The build is SIGNED ON THE THOR (the Thor lane's sign-kiosk.sh, with the robot's own release key) and
-put in OPENDUBS_KIOSK_DIR (default /var/lib/opendubs/kiosk/): opendubs-kiosk.apk and latest.json. This
-module only reads them: it never holds a key and never signs.
+The build is SIGNED ON THE THOR by the Thor lane's sign-kiosk.sh (the release key, its setup and its
+backup are described in that script's README) and put in OPENDUBS_KIOSK_DIR (default
+/var/lib/opendubs/kiosk/): opendubs-kiosk.apk and latest.json. This module only reads them: it never
+holds a key and never signs.
 
 `install_ok` is false while a show is loaded or armed (the runner has a run), so the tablet never
 restarts its app under a show; the app asks again before it installs. With no runner running at all
