@@ -77,20 +77,44 @@
 
   let motion = [], lastMotion = performance.now();      // samples since the last batch
   const onMotion = (e) => {
-    lastMotion = performance.now();
     const a = e.accelerationIncludingGravity;
-    if (a && a.x !== null && motion.length < 64) motion.push({ t: e.timeStamp, ax: a.x, ay: a.y, az: a.z });
+    if (!a || a.x === null) return;                     // an event with no data is not motion
+    lastMotion = performance.now();
+    if (motion.length < 64) motion.push({ t: e.timeStamp, ax: a.x, ay: a.y, az: a.z });
   };
   addEventListener("devicemotion", onMotion);
   // Found on the robot tablet (2026-10-15): after the kiosk app restarted for an update, the page got
   // no motion events at all until it was reloaded. A visible page with no motion for 10 s takes its
   // listener off and puts it back, which makes the browser start the sensor again.
+  // That alone did not revive it on the robot (2026-10-15, after the 0.3.2 update); a page reload
+  // did, every time. So if motion is still missing 10 s after the listener restart, the page reloads
+  // ONCE: never while a show is loaded (the runner's own state, the check the updater makes), at most
+  // once in 10 minutes, and only while it is visible.
   st.motion_restarts = 0;
-  setInterval(() => {
+  const RELOAD_KEY = "opendubs.imuReloadAt", RELOAD_GAP_MS = 10 * 60 * 1000;
+  const reloadedRecently = () => {
+    try { return Date.now() - Number(sessionStorage.getItem(RELOAD_KEY) || 0) < RELOAD_GAP_MS; } catch (e) { return true; }
+  };
+  const showLoaded = async () => {
+    try {
+      const r = await fetch("/api/choreo/palette", { cache: "no-store" });
+      if (r.status === 503) return false;                 // no runner: no show
+      if (!r.ok) return true;                             // unknown counts as a show: never reload under one
+      return !!(await r.json()).running;
+    } catch (e) { return true; }
+  };
+  setInterval(async () => {
     if (document.visibilityState !== "visible" || performance.now() - lastMotion < 10000) return;
-    removeEventListener("devicemotion", onMotion);
-    setTimeout(() => addEventListener("devicemotion", onMotion), 200);
-    st.motion_restarts++; lastMotion = performance.now();
+    if (st.motion_restarts === 0) {                       // first: restart the listener
+      removeEventListener("devicemotion", onMotion);
+      setTimeout(() => addEventListener("devicemotion", onMotion), 200);
+      st.motion_restarts++; lastMotion = performance.now();
+      return;
+    }
+    if (reloadedRecently() || await showLoaded()) return;  // then: reload, if it is safe to
+    try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch (e) { return; }
+    st.motion_reload = true;
+    location.reload();
   }, 5000);
   setInterval(() => {
     if (!motion.length) return;
