@@ -17,13 +17,17 @@ if (!c) {
   console.log(`SKIP ${startChrome.why}: the face page check did not run`);
   process.exit(0);
 }
-// The indicator's place on the canvas (the dot at design 1240,40, fitted into the window), read as a pixel.
+// The sign's place: the corridor between the brows at the top centre (Face & HRI's CAMERA_SIGN_BOX,
+// 542,26 196x68, which the plain dot sits in too), read as the brightest pixel there. Whichever look
+// draws it, something bright is there while a camera is open and nothing when none is.
 const DOT = `(() => {
   const cv = document.getElementById('face'), W = cv.width, H = cv.height, s = Math.min(W / 1280, H / 720);
-  const x = Math.round((W - 1280 * s) / 2 + 1240 * s), y = Math.round((H - 720 * s) / 2 + 48 * s);   // inside the dot, below its letter
+  const x0 = (W - 1280 * s) / 2, y0 = (H - 720 * s) / 2;
   const t = document.createElement('canvas'); t.width = W; t.height = H; const g = t.getContext('2d');
-  g.drawImage(cv, 0, 0); const d = g.getImageData(x, y, 1, 1).data;
-  return d[0] > 200 && d[1] < 120 && d[2] < 120; })()`;
+  g.drawImage(cv, 0, 0);
+  const d = g.getImageData(Math.round(x0 + 542 * s), Math.round(y0 + 26 * s), Math.round(196 * s), Math.round(68 * s)).data;
+  let max = 0; for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i] + d[i + 1] + d[i + 2]);
+  return max > 300; })()`;
 try {
   const p = await c.open("/index.html?state=SAFE_IDLE");
   await sleep(1500);

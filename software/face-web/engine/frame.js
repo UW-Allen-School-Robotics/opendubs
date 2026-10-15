@@ -61,14 +61,16 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   return { fullFace, armed };
 }
 
-/** The plain camera indicator, until a skin draws its own: a red dot at the top right of the face
- *  for each open camera, F (screen-side, the robot's front) and R (back-side, its rear). */
+/** The plain camera indicator, until Face & HRI's skins/camera.js draws its own: a red dot at the
+ *  top centre for each open camera, F (screen-side, the robot's front) and R (back-side, its rear).
+ *  Top centre because the brows own the top corners (an ALERT brow reaches above the design area);
+ *  the corridor between them is where the skin's sign sits too. */
 export function drawCameraPlain(ctx, cams, _t) {
   const on = [cams.screen && "F", cams.back && "R"].filter(Boolean);
   ctx.save();
   ctx.font = "600 16px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   on.forEach((label, i) => {
-    const x = DESIGN_W - 40 - (on.length - 1 - i) * 44, y = 40;
+    const x = DESIGN_W / 2 + (i - (on.length - 1) / 2) * 44, y = 60;
     ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = "#3a0d0d"; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fillStyle = "#ff3b30"; ctx.fill();
     ctx.fillStyle = "#fff"; ctx.fillText(label, x, y + 1);
