@@ -47,3 +47,19 @@ To try a newer upstream model without vendoring it, pass the checkout to `sim/sc
 | `sim/scene.py`, `sim/view.sh`, `sim/clearance.py`, `software/choreo/sim_preview.py` | `opendubs/opendubs.xml` + meshes, `openarm/mjcf/` + `openarm/meshes/` |
 | The dashboard's arm view (`software/kiosk-dashboard/frontend/armview.js`) | `openarm/chain.json` + `openarm/meshes/collision/`, through `frontend/assets/arm`, a symlink to `openarm/` in a checkout. `deploy.sh` copies just those files to the robot |
 | `tools/arm_chain.py` | `openarm/urdf/v1.urdf` → writes `openarm/chain.json` |
+| `opendubs/gen_urdf.py` | `opendubs/dimensions.yaml` → writes `opendubs/opendubs.urdf` (the ROS TF tree for `robot_state_publisher`) |
+
+## Regenerating the derived files
+
+`describe.py` runs every generator above, so nothing has to know them one by one:
+
+```sh
+python3 description/describe.py              # rebuild chain.json and opendubs.urdf
+python3 description/describe.py --check      # exit 1 if either is stale (CI runs this)
+python3 description/describe.py --watch      # rebuild on any change to an input (pip install watchfiles)
+python3 description/describe.py --manifest   # JSON sha256 of every input and output, for caching
+```
+
+It needs Python 3 and PyYAML, and no ROS. Exit codes are 0 for OK, 1 for stale and 2 for a missing
+input or a generator that crashed. A generator script counts as an input, so editing one changes the
+manifest.
