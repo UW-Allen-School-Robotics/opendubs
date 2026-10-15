@@ -20,6 +20,21 @@ cp "$tmp/package/LICENSE" vendor/mediapipe/ 2>/dev/null || true
 curl -fsSL -o vendor/mediapipe/face_landmarker.task "$MODEL_URL"
 echo "$MEDIAPIPE" > vendor/mediapipe/VERSION
 du -sh vendor/mediapipe
+# Every file pinned: a changed package or model (a re-published version, a different CDN answer) fails
+# here rather than reaching a robot. Update these deliberately, together with MEDIAPIPE above.
+sum256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+if ! ( cd vendor/mediapipe && sum256 -c --quiet - ) <<'PINS'
+fc3e9325a460f9ca70b93d58e850532a30fd14ceb6d02c837912af3cf65ed651  VERSION
+64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff  face_landmarker.task
+55d7ab624fbb70dcc5adc4ae6d7ea9cfcb569139d3dbfbf2b1deafcb966bc0fe  vision_bundle.mjs
+e7fd9858e8e8f221d9b96eddc11f8e077f263e0b7bbd79d3cbe882b134274f8c  wasm/vision_wasm_internal.js
+6a5c64584c2ab61c763b6e204afbdbc7ce1caf7f5216187322bca8df94f646bc  wasm/vision_wasm_internal.wasm
+PINS
+then
+  rm -rf vendor/mediapipe
+  echo "fetch-vendor: a MediaPipe file does not match its pinned sha256; removed vendor/mediapipe" >&2
+  exit 1
+fi
 # The face must not phone home. Fail loudly if a version change brings the usage logger back.
 if grep -rqs "odml.pa.googleapis.com" vendor/mediapipe; then
   echo "fetch-vendor: this MediaPipe build contains the usage-logging endpoint; pin one without it" >&2
