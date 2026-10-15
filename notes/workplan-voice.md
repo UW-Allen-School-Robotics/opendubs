@@ -112,6 +112,20 @@ near the line.
 
 ---
 
+## Where the lane stopped (2026-10-15)
+
+Paused with everything merged and nothing running: no branch is in flight, no download or local
+process is open.
+
+- **Done (desk):** 1.1 the service (#230), 1.2 the `/ws/voice` relay (#231), 1.3a Parakeet and Kokoro,
+  English only, no GPL (#265), 1.5a the local brain's desk half (#267). V-O1 to V-O5 are decided.
+- **Next, desk:** 1.4 Silero VAD in place of the energy gate; 2.4 the status endpoint, which
+  `brain_state` already feeds.
+- **Next, needs others:** 1.3b and 1.5b on the bench Thor (waits on TS-1, the `VOICE_LLM_IMAGE` pin,
+  and TS-3, bench time); 1.7 to 1.9 the face page's capture, Talk button and looks (Tablet, Face &
+  HRI; requests TL-1 to TL-8, FH-1 to FH-3).
+- **Not started:** the robot steps (1.11, 1.12) and phase 2, apart from what is listed above.
+
 ## Phase 1 — a minimal push-to-talk demo
 
 | # | step | where | done when | status |
