@@ -75,6 +75,20 @@ async def _start_airplay_relay() -> None:
 
 
 @app.on_event("startup")
+async def _start_neck_follow() -> None:
+    """The head follows the person the face sees (neck_follow.py): it moves the neck by itself."""
+    import neck_follow
+    await neck_follow.start()
+
+
+@app.get("/api/head/follow")
+def _neck_follow_status() -> dict:
+    """Why the head is or is not following right now, and what it last sent."""
+    import neck_follow
+    return neck_follow.status()
+
+
+@app.on_event("startup")
 async def _start_face_door() -> None:
     """The tablet face's door: head-protocol UDP on 127.0.0.1:4242, to the face page (face_door.py)."""
     import face_door

@@ -94,7 +94,8 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
     if (r.found) {
       m.hits++;
       const facing = Math.max(0, 1 - Math.abs(r.yaw) / 45);
-      face.look({ x: -(r.x - 0.5) * 2 * GAIN, y: (r.y - 0.5) * 2 * GAIN, conf: 0.4 + 0.6 * facing, at: now });
+      // ix, iy: where in the camera's image (0..1), for the neck (main.js → the door → neck_follow.py)
+      face.look({ x: -(r.x - 0.5) * 2 * GAIN, y: (r.y - 0.5) * 2 * GAIN, conf: 0.4 + 0.6 * facing, at: now, ix: r.x, iy: r.y });
       m.yaw = r.yaw;
     } else face.look(null);
     const el = (now - m.since) / 1000;

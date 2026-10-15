@@ -143,8 +143,10 @@ requestAnimationFrame(frame);
 
 // ---- the door ---------------------------------------------------------------------------------
 const doorUrl = q.get("door");
+let door = null;                                   // the open door, for the tracker's target below
 function connect() {
   const ws = new WebSocket(doorUrl);
+  door = ws;
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.neck) neck = msg.neck;
@@ -159,6 +161,18 @@ function connect() {
   ws.onclose = () => { stopTap(); levels.restoreIdle(); setTimeout(connect, 1000); };
 }
 if (doorUrl) connect();
+
+// ---- the head follows: where the tracker sees a person, to the robot (backend/neck_follow.py) ----
+// Up to 10 a second while someone is seen, and one "nobody" when they are lost. The robot decides
+// whether the neck moves (the setting, a show, RC); the page only says what it sees.
+let sentNobody = true;
+setInterval(() => {
+  if (!door || door.readyState !== WebSocket.OPEN || !tracking) return;
+  const t = face.target;
+  const fresh = t && typeof t.ix === "number" && performance.now() - t.at < 400;
+  if (fresh) { door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf } })); sentNobody = false; }
+  else if (!sentNobody) { door.send(JSON.stringify({ track: null })); sentNobody = true; }
+}, 100);
 
 // ---- the head's idle settings (the dashboard's Head & face page; backend/head_settings.py) ------
 // Sent by the door on connect and on every change. They are what the face does when no show is
