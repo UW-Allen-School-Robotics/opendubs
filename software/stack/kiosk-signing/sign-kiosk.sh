@@ -44,8 +44,8 @@ WANT=$(cat "$RELEASE_SHA")
 grep -qiE "^(V3\.0 Signer:|Signer #1) certificate SHA-256 digest: $WANT\$" <<<"$V" \
   || die "not signed by the release certificate $WANT"
 # Android 11+ refuses to install an APK whose uncompressed entries (resources.arsc) do not start on a
-# 4-byte boundary. apksigner aligns them as it signs, which zipalign would otherwise do; this checks the
-# result instead of trusting either tool, so no zipalign is needed on the robot.
+# 4-byte boundary. apksigner aligns them as it signs; this checks the result itself, and with
+# zipalign as well when it is installed (provisioning installs it).
 python3 -I - "$OUT" <<'PY' || die "the signed APK is not 4-byte aligned"
 import struct, sys, zipfile
 f = open(sys.argv[1], "rb")
@@ -57,6 +57,7 @@ for i in zipfile.ZipFile(f).infolist():
     if (i.header_offset + 30 + n + m) % 4:
         sys.exit("misaligned: " + i.filename)
 PY
+if command -v zipalign >/dev/null; then zipalign -c 4 "$OUT" || die "zipalign -c: the signed APK is not aligned"; fi
 SIGNED_SHA=$(openssl dgst -sha256 -r "$OUT" | cut -d' ' -f1)
 # The lineage's first signer must be the tablet's current certificate, or the update is refused.
 $APKSIGNER lineage --in "$LINEAGE" --print-certs 2>&1 \

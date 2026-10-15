@@ -14,9 +14,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 [ "$(id -u)" = 0 ] || die "run as root"
 
 echo "== OpenDubs kiosk signing =="
-if ! command -v apksigner >/dev/null || ! command -v keytool >/dev/null; then
-  echo "-- installing a headless JRE and apksigner (Ubuntu packages)"
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-upgrade openjdk-17-jre-headless apksigner >/dev/null
+if ! command -v apksigner >/dev/null || ! command -v keytool >/dev/null || ! command -v zipalign >/dev/null; then
+  echo "-- installing a headless JRE, apksigner and zipalign (Ubuntu packages)"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-upgrade openjdk-17-jre-headless apksigner zipalign >/dev/null
 fi
 
 install -d -m 0700 -o root -g root "$KS_DIR"
@@ -28,10 +28,10 @@ if [ "${1:-}" = "--import" ]; then
   ( umask 077; tar -C "$KS_DIR" -xf "$B" --no-same-owner release.p12 release.pass lineage )
   echo "-- imported the project key; delete your copy of the tar: rm '$B'"
 elif [ ! -e "$RELEASE_KS" ]; then
-  echo "-- generating a NEW release key on this robot (EC P-256, ~27 years)"
+  echo "-- generating a NEW release key on this robot (RSA 4096, ~27 years)"
   ( umask 077; openssl rand -base64 32 > "$RELEASE_PASS" )
   ( umask 077; keytool -genkeypair -keystore "$RELEASE_KS" -storetype PKCS12 \
-      -storepass:file "$RELEASE_PASS" -alias "$ALIAS" -keyalg EC -groupname secp256r1 \
+      -storepass:file "$RELEASE_PASS" -alias "$ALIAS" -keyalg RSA -keysize 4096 \
       -validity 10000 -dname "CN=OpenDubs kiosk" >/dev/null 2>&1 )
   echo "-- generated. Back it up now (README.md, 'Back up the release key')."
 fi

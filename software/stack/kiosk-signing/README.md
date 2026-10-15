@@ -7,7 +7,7 @@ not on whichever laptop happened to build the app.
 
 | script | runs | does |
 |---|---|---|
-| `provision-kiosk-signing.sh` | once per robot, as root | installs a headless Java and `apksigner` (Ubuntu packages), creates the folders, and generates a release key, or imports the project's key with `--import` |
+| `provision-kiosk-signing.sh` | once per robot, as root | installs a headless Java, `apksigner` and `zipalign` (Ubuntu packages), creates the folders, and generates an RSA 4096 release key, or imports the project's key with `--import` |
 | `rotate-kiosk-key.sh` | **once per project**, as root | proves that the release key succeeds the debug key that signed the tablet's first kiosk (below) |
 | `sign-kiosk.sh <unsigned.apk> <kiosk-version.json>` | every app release, as root (`deploy-all.sh` calls it) | signs, checks the result, and publishes it |
 | `common.sh` | sourced | paths and the pinned debug certificate |
@@ -31,14 +31,17 @@ the backup step below, which you run yourself.
 
 Android installs an update only if it is signed by the same key as the app already installed. The
 tablet's first kiosk (0.1.0) was signed by the build Mac's default Android **debug** key, fingerprint
-`e781fe8c…7777` (pinned in `common.sh`). That key is the same well-known throwaway on every Android
-developer machine and should not sign releases.
+`e781fe8c…7777` (pinned in `common.sh`). The Android SDK generates that key at random on each
+machine the first time it builds, so it is unique to the build Mac; only its password (`android`) is
+a public default. Until the rotation it is the **only** key the tablet trusts: anyone holding the file
+can sign an update the tablet will install, so keep it secret.
 
 APK Signature Scheme v3 lets an app move to a new key: the new APK carries a **lineage**, a record
 signed by the old key that names the new one as its successor. `rotate-kiosk-key.sh` makes that
 record once. `sign-kiosk.sh` then signs every build with the release key plus the lineage. The
-tablet accepts the first one as an update and, from then on, trusts only the release key. The debug
-key is not needed again.
+tablet accepts the first one as an update and, from then on, trusts only the release key: the
+lineage grants the old key no rollback capability, so a build signed by the debug key alone is
+refused. The debug key is not needed again.
 
 `sign-kiosk.sh` refuses to publish unless the signed APK:
 
@@ -132,6 +135,6 @@ Every path can be overridden, which allows a run with throwaway keys and no root
 
 ## Licences
 
-`openjdk-17-jre-headless` (GPL-2.0 with the Classpath exception) and `apksigner` (Apache-2.0) are
+`openjdk-17-jre-headless` (GPL-2.0 with the Classpath exception), `apksigner` and `zipalign` (Apache-2.0) are
 installed from Ubuntu's archive at provision time and run only on the robot. Nothing from them is
 committed here or redistributed.
