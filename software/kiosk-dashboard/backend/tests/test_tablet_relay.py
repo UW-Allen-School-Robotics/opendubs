@@ -245,3 +245,30 @@ def test_camera_info_carries_this_robots_calibration_when_it_has_one(tmp_path, m
     assert info["k"][0] == 500.0 and info["d"][:2] == [0.1, -0.2] and info["distortion_model"] == "plumb_bob"
     assert tr.camera_info("front", 1280, 720, {})["k"] == [0.0] * 9      # calibrated at another size: not used
     assert tr.camera_info("rear", 640, 480, {})["k"] == [0.0] * 9        # none kept: uncalibrated
+
+
+def test_imu_is_acceleration_only_and_says_the_rest_is_absent():
+    msgs = tr.to_messages({"kind": "imu", "samples": [{"ax": 0.1, "ay": 0.2, "az": 9.8, "age_ms": 30},
+                                                      {"ax": "x", "ay": 0, "az": 0},           # malformed: skipped
+                                                      {"ax": 0.0, "ay": 0.0, "az": 9.81, "age_ms": 10}]}, 4, now=100.0)
+    assert [t for t, _ in msgs] == ["/tablet/imu", "/tablet/imu"]
+    m = msgs[0][1]
+    assert m["header"]["frame_id"] == "tablet_imu_link" and m["linear_acceleration"]["z"] == 9.8
+    assert m["orientation_covariance"][0] == -1 and m["angular_velocity_covariance"][0] == -1   # no gyroscope
+    assert msgs[0][1]["header"]["stamp"]["nanosec"] < msgs[1][1]["header"]["stamp"]["nanosec"]   # older sample, earlier
+
+
+def _imu(ax, ay, az, t):
+    sec = int(t)
+    return {"header": {"stamp": {"sec": sec, "nanosec": int((t - sec) * 1e9)}}, "linear_acceleration": {"x": ax, "y": ay, "z": az}}
+
+
+def test_tilt_only_while_still_and_impacts_counted_once():
+    tr.state.update(tilt=None, impacts=[])
+    tr.note_motion(_imu(0.0, 9.80665 * math.sin(math.radians(10)), 9.80665 * math.cos(math.radians(10)), 1.0))
+    assert tr.state["tilt"]["pitch_deg"] == 10.0 and tr.state["tilt"]["roll_deg"] == 0.0
+    tr.note_motion(_imu(0.0, 5.0, 12.0, 1.1))                  # 1.33 g: moving, the tilt is not updated
+    assert tr.state["tilt"]["t"] == 1.0
+    for t, g in ((2.00, 2.5), (2.02, 3.4), (2.04, 2.2), (3.0, 2.1)):   # one knock of three samples, then another
+        tr.note_motion(_imu(0.0, 0.0, g * 9.80665, t))
+    assert [i["peak_g"] for i in tr.state["impacts"]] == [3.4, 2.1]

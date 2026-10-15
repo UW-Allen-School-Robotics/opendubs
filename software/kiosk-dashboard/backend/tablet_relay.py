@@ -13,6 +13,12 @@ Published through the local rosbridge, as one client (OPENDUBS_ROSBRIDGE_URL, de
   /tablet/battery       sensor_msgs/BatteryState  (percentage, charging state, the battery's temperature)
   /tablet/fix           sensor_msgs/NavSatFix     frame tablet_gps_link; NO_FIX when there is none,
                                                   never a stale or guessed position (workplan rule 7)
+  /tablet/imu           sensor_msgs/Imu           frame tablet_imu_link, ~60 Hz. ACCELERATION ONLY, gravity
+                                                  included (REP-145), in the tablet's own axes (x right,
+                                                  y up the screen, z out of it). The tablet has NO
+                                                  gyroscope: orientation and angular velocity are marked
+                                                  absent (covariance[0] = -1). A tilt and vibration check,
+                                                  never a fusion input (workplan rule 7).
   /tablet/camera/{front,rear}/image_raw/compressed   sensor_msgs/CompressedImage (JPEG)
   /tablet/camera/{front,rear}/camera_info            sensor_msgs/CameraInfo
         frame tablet_{front,rear}_camera_optical_frame. ON DEMAND: a camera streams only while
@@ -24,7 +30,8 @@ Published through the local rosbridge, as one client (OPENDUBS_ROSBRIDGE_URL, de
         zeros: uncalibrated, as the message type defines it.
 
 Android's thermal throttling level is kept here (GET /api/tablet/sensors), not published: no topic for
-it is agreed yet.
+it is agreed yet. So is the tilt and impact log: the tilt from gravity, taken only while the tablet is
+still (|a| within 5 % of 1 g), and every impact above IMPACT_G with its peak, on the Thor's clock.
 
 Stamps are the Thor's wall clock (ROS time): when the reading arrived, less its age on the tablet and
 half the page's measured round trip. The tablet's own clock is never used. With rosbridge down,
@@ -53,10 +60,16 @@ TOPICS = {
     "/tablet/illuminance": "sensor_msgs/msg/Illuminance",
     "/tablet/battery": "sensor_msgs/msg/BatteryState",
     "/tablet/fix": "sensor_msgs/msg/NavSatFix",
+    "/tablet/imu": "sensor_msgs/msg/Imu",
 }
 # sensor_msgs/BatteryState power_supply_status
 CHARGING, DISCHARGING, NOT_CHARGING, FULL = 1, 2, 3, 4
 NAN = float("nan")
+G = 9.80665
+IMPACT_G = 2.0             # an acceleration above this many g is an impact (a knock, a drop, a kerb)
+IMPACT_GAP_S = 0.5         # one impact, however many samples its peak spans
+STILL_G = 0.05             # |a| within this of 1 g: still enough to read tilt from gravity
+ABSENT = [-1.0] + [0.0] * 8
 
 CAMERAS = ("front", "rear")
 CAMERA_DIR = os.environ.get("OPENDUBS_TABLET_CAMERA_DIR") or "/var/lib/opendubs/tablet"
@@ -69,6 +82,7 @@ for _c in CAMERAS:
 state = {"page": None, "rtt_ms": None, "published": 0, "dropped": 0, "last": {}, "thermal": None,
          # per camera: mode "auto" (on while subscribed) | "on" | "off"; subscribed; on (what the page
          # was last told); frames published; busy (a frame is being published: the next one is dropped)
+         "tilt": None, "impacts": [],
          "camera": {c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
                         "busy": False, "error": None, "w": None, "h": None} for c in CAMERAS}}
 
@@ -108,6 +122,21 @@ def to_messages(r: dict, rtt_ms: float | None, now: float | None = None) -> list
             "power_supply_status": status, "power_supply_health": 0, "power_supply_technology": 2,   # Li-ion
             "present": True, "cell_voltage": [], "cell_temperature": [], "location": "tablet", "serial_number": "",
         })]
+        return out
+    if kind == "imu":
+        out = []
+        for smp in (r.get("samples") if isinstance(r.get("samples"), list) else [])[:64]:
+            if not isinstance(smp, dict):
+                continue
+            a = [_num(smp.get(k), -50 * G, 50 * G) for k in ("ax", "ay", "az")]
+            if None in a:
+                continue
+            out.append(("/tablet/imu", {
+                "header": {"stamp": stamp(_num(smp.get("age_ms"), 0, 10_000) or 0.0, rtt_ms, now), "frame_id": "tablet_imu_link"},
+                "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}, "orientation_covariance": ABSENT,
+                "angular_velocity": {"x": 0.0, "y": 0.0, "z": 0.0}, "angular_velocity_covariance": ABSENT,
+                "linear_acceleration": {"x": a[0], "y": a[1], "z": a[2]},
+                "linear_acceleration_covariance": [0.0] * 9}))                  # unknown
         return out
     if kind == "fix":
         lat, lon = _num(r.get("lat"), -90, 90), _num(r.get("lon"), -180, 180)
@@ -365,6 +394,8 @@ async def tablet_ws(socket: WebSocket) -> None:
             if m.get("kind") == "battery" and isinstance(m.get("thermal"), (str, type(None))):
                 state["thermal"] = m.get("thermal")
             for topic, msg in to_messages(m, state["rtt_ms"]):
+                if topic == "/tablet/imu":
+                    note_motion(msg)
                 state["last"][topic] = msg
                 if await ros.publish(topic, msg):
                     state["published"] += 1
@@ -379,11 +410,32 @@ async def tablet_ws(socket: WebSocket) -> None:
                 state["camera"][c]["on"] = False
 
 
+def note_motion(msg: dict) -> None:
+    """The tilt and impact log, from one IMU sample: tilt only while still, impacts above IMPACT_G."""
+    a = msg["linear_acceleration"]
+    g = math.sqrt(a["x"] ** 2 + a["y"] ** 2 + a["z"] ** 2) / G
+    t = msg["header"]["stamp"]["sec"] + msg["header"]["stamp"]["nanosec"] / 1e9
+    if abs(g - 1.0) <= STILL_G:
+        # Pitch: the screen's top edge tipped back (+) or forward; roll: its right edge down (+). From
+        # gravity alone, so meaningful only while still, which is why it is taken only then.
+        state["tilt"] = {"t": t, "pitch_deg": round(math.degrees(math.atan2(a["y"], a["z"])), 1),
+                         "roll_deg": round(math.degrees(math.atan2(a["x"], math.hypot(a["y"], a["z"]))), 1)}
+    if g >= IMPACT_G:
+        imp = state["impacts"]
+        if imp and t - imp[-1]["t"] < IMPACT_GAP_S:
+            imp[-1]["peak_g"] = max(imp[-1]["peak_g"], round(g, 2))
+        else:
+            imp.append({"t": t, "peak_g": round(g, 2)})
+            del imp[:-50]
+            log.info("tablet: impact %.1f g at %.3f", g, t)
+
+
 @router.get("/api/tablet/sensors")
 def sensors_status() -> dict:
     """What the relay last published, for the dashboard and for checking it by hand."""
     return {"page": state["page"] is not None, "rosbridge": ros.ws is not None, "rtt_ms": state["rtt_ms"],
             "published": state["published"], "dropped": state["dropped"], "thermal": state["thermal"],
+            "tilt": state["tilt"], "impacts": state["impacts"][-10:],
             "camera": {c: {k: v for k, v in d.items() if k != "busy"} for c, d in state["camera"].items()},
             "last": {t: json.loads(json.dumps(m, default=str).replace("NaN", "null")) for t, m in state["last"].items()}}
 

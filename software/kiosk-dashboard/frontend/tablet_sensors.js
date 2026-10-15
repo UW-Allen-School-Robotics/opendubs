@@ -9,6 +9,9 @@
      battery   every 10 s    battery() and thermal(): level, charging, plugged, temperature, throttling
      fix       every 1 s     the GNSS, from the WebView's geolocation. No position, or none for 5 s, is
                              sent as no fix: never a stale or guessed position.
+     imu       ~60 Hz        acceleration with gravity (DeviceMotion), in batches every 100 ms. No
+                             gyroscope on this tablet: no rotation rate, no orientation (only tilt,
+                             which the robot works out from gravity while the tablet is still).
      camera    ON DEMAND     front (screen-side) and rear (back-side), as JPEG frames, only while the
                              robot asks (something on the Thor subscribes, or someone switched it on).
                              The face shows a sign whenever a camera is open; nothing is recorded here.
@@ -71,6 +74,18 @@
     send({ kind: "fix", lat: c.latitude, lon: c.longitude, acc: c.accuracy,
            alt: c.altitude, alt_acc: c.altitudeAccuracy, age_ms: Math.max(0, age) });
   }, 1000);
+
+  let motion = [];                                     // samples since the last batch
+  addEventListener("devicemotion", (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (a && a.x !== null && motion.length < 64) motion.push({ t: e.timeStamp, ax: a.x, ay: a.y, az: a.z });
+  });
+  setInterval(() => {
+    if (!motion.length) return;
+    const now = performance.now();
+    send({ kind: "imu", samples: motion.map((s) => ({ ax: s.ax, ay: s.ay, az: s.az, age_ms: Math.max(0, now - s.t) })) });
+    motion = [];
+  }, 100);
 
   // ---- the cameras, on demand -------------------------------------------------------------------
   // One stream per camera while the robot asks for it, closed the moment it stops asking. Frames go
