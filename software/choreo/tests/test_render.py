@@ -41,12 +41,12 @@ with tempfile.TemporaryDirectory() as td:
     info = subprocess.run([render.ffmpeg(), "-i", os.path.join(td, "a.mp4")], capture_output=True, text=True).stderr
     check("the file holds H.264 video and AAC audio", "Video: h264" in info and "Audio: aac" in info, info[-400:])
     check("... 2.0 s long", "Duration: 00:00:02.0" in info, [l for l in info.splitlines() if "Duration" in l])
-    try:
-        render.render(SHOW, os.path.join(td, "c.mp4"), layout="b", limits=LIMITS, log=lambda *_: None)
-        check("a layout that needs the face track says so (until the face page's render mode lands)", False)
-    except SystemExit as e:
-        check("a layout that needs the face track says so (until the face page's render mode lands)",
-              "face" in str(e), str(e))
+    said = []
+    render.render(SHOW, os.path.join(td, "c.mp4"), fps=10, size=(320, 180), limits=LIMITS, t_from=1.0, t_to=1.5,
+                  log=said.append)
+    check("the default layout (side by side) renders the robot alone until the face track lands, and says so",
+          any("face track" in m for m in said), said)
+    check("... and the framing is computed from the span's own extents", any("framed" in m for m in said), said)
 
 print("\nthe audio mix follows the show's volume")
 t = np.linspace(0, 10, 1001)
