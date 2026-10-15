@@ -55,12 +55,10 @@ def test_malformed_readings_publish_nothing():
 
 class _Recorder:
     """Stands in for the rosbridge client: records what would be published."""
-    def __init__(self, subscribed=()):
-        self.got, self.ws, self.subs = [], object(), set(subscribed)
+    def __init__(self):
+        self.got, self.ws = [], object()
     def start(self):
         pass
-    async def subscribed(self, topic):
-        return topic in self.subs
     def sensors(self):
         """What was published, less /diagnostics (the thermal status, which also goes out on a timer)."""
         return [(t, m) for t, m in self.got if t != "/diagnostics"]
@@ -126,7 +124,8 @@ def _client(monkeypatch, url, ros=None):
     tr.state.update(page=None, rtt_ms=None, published=0, dropped=0, last={}, thermal=None,
                     camera={c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
                                 "busy": False, "error": None, "w": None, "h": None} for c in tr.CAMERAS})
-    monkeypatch.setattr(tr, "CAMERA_POLL_S", 0.1)
+    monkeypatch.setattr(tr, "CAMERA_TICK_S", 0.1)
+    tr.state["demand"] = {"at": None, "counts": None}
     app = FastAPI()
     app.include_router(tr.router)
     return TestClient(app)
@@ -206,7 +205,8 @@ def test_a_camera_streams_only_while_something_subscribes(monkeypatch):
         first = page.receive_json()["camera"]
         assert first["front"]["on"] is False and first["rear"]["on"] is False      # off until asked
         page.send_bytes(_frame("front"))                                              # unasked: dropped
-        rec.subs.add("/tablet/camera/front/image_raw/compressed")                     # a consumer appears
+        assert c.post("/api/tablet/camera/demand", json={"front": True, "rear": False,
+                                                         "counts": {"front": 1, "rear": 0}}).status_code == 200
         m = _drain_until(page, lambda m: "camera" in m)
         assert m["camera"]["front"]["on"] is True and m["camera"]["rear"]["on"] is False
         assert m["camera"]["front"]["w"] == 640 and m["camera"]["front"]["fps"] == 10
@@ -217,7 +217,7 @@ def test_a_camera_streams_only_while_something_subscribes(monkeypatch):
         assert base64.b64decode(img["data"]) == JPEG and img["header"]["frame_id"] == "tablet_front_camera_optical_frame"
         assert t2 == "/tablet/camera/front/camera_info" and info["width"] == 640 and info["k"] == [0.0] * 9
         assert info["header"] == img["header"]                                       # the same instant
-        rec.subs.clear()                                                              # the consumer goes
+        c.post("/api/tablet/camera/demand", json={"front": False, "rear": False})     # the consumer goes
         m = _drain_until(page, lambda m: "camera" in m)
         assert m["camera"]["front"]["on"] is False
         st = c.get("/api/tablet/sensors").json()["camera"]["front"]
@@ -311,3 +311,18 @@ def test_the_kiosk_app_reports_its_version_and_updater(monkeypatch):
         app = c.get("/api/tablet/sensors").json()["app"]
         assert app == {"version": "0.3.0", "versionCode": 3, "update": {"state": "current"}}
         assert rec.sensors() == []                                  # not a ROS topic
+
+
+def test_a_demand_that_is_not_renewed_turns_the_camera_off(monkeypatch):
+    """FAIL OFF: the Thor's watcher re-sends every 2 s; if it stops, the camera must not stay on."""
+    c = _client(monkeypatch, None, ros=_Recorder())
+    monkeypatch.setattr(tr, "DEMAND_STALE_S", 0.4)
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json(); page.receive_json()
+        c.post("/api/tablet/camera/demand", json={"front": False, "rear": True})
+        assert _drain_until(page, lambda m: "camera" in m)["camera"]["rear"]["on"] is True
+        m = _drain_until(page, lambda m: "camera" in m)                      # no renewal: off by itself
+        assert m["camera"]["rear"]["on"] is False
+    assert c.post("/api/tablet/camera/demand", json={"front": "yes"}).status_code == 400
+    assert c.post("/api/tablet/camera/demand", content=b"nope").status_code == 400

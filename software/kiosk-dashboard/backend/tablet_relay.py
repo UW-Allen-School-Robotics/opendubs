@@ -22,8 +22,9 @@ Published through the local rosbridge, as one client (OPENDUBS_ROSBRIDGE_URL, de
   /tablet/camera/{front,rear}/image_raw/compressed   sensor_msgs/CompressedImage (JPEG)
   /tablet/camera/{front,rear}/camera_info            sensor_msgs/CameraInfo
         frame tablet_{front,rear}_camera_optical_frame. ON DEMAND: a camera streams only while
-        something subscribes to its image (asked of rosapi every 2 s) or it is switched on by hand
-        (PUT /api/tablet/camera), and stops when neither holds. Front is the screen-side camera, the
+        something on the Thor subscribes to its image (the Thor lane's tablet_camera_demand node counts
+        the subscribers and POSTs /api/tablet/camera/demand; no word for 6 s is no demand) or it is
+        switched on by hand (PUT /api/tablet/camera), and stops when neither holds. Front is the screen-side camera, the
         way the face looks; rear is the back-side one. The face shows a sign while either is open.
         camera_info carries this robot's calibration if one is kept on the robot
         (/var/lib/opendubs/tablet/camera_{front,rear}.yaml, camera_calibration's own format), else
@@ -82,7 +83,8 @@ THERMAL_STALE_S = 10.0
 CAMERAS = ("front", "rear")
 CAMERA_DIR = os.environ.get("OPENDUBS_TABLET_CAMERA_DIR") or "/var/lib/opendubs/tablet"
 CAMERA_DEFAULT = {"w": 640, "h": 480, "fps": 10, "q": 0.7}
-CAMERA_POLL_S = 2.0
+CAMERA_TICK_S = 1.0
+DEMAND_STALE_S = 6.0       # no word from the Thor's demand watcher for this long: nobody wants a camera
 for _c in CAMERAS:
     TOPICS[f"/tablet/camera/{_c}/image_raw/compressed"] = "sensor_msgs/msg/CompressedImage"
     TOPICS[f"/tablet/camera/{_c}/camera_info"] = "sensor_msgs/msg/CameraInfo"
@@ -91,6 +93,7 @@ state = {"page": None, "rtt_ms": None, "published": 0, "dropped": 0, "last": {},
          # per camera: mode "auto" (on while subscribed) | "on" | "off"; subscribed; on (what the page
          # was last told); frames published; busy (a frame is being published: the next one is dropped)
          "app": None,                                       # the kiosk app's version and its updater's last word
+         "demand": {"at": None, "counts": None},              # the Thor's tablet_camera_demand node
          "tilt": None, "impacts": [], "thermal_at": None, "thermal_sent": None, "thermal_sent_at": 0.0,
          "camera": {c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
                         "busy": False, "error": None, "w": None, "h": None} for c in CAMERAS}}
@@ -171,8 +174,6 @@ class Rosbridge:
 
     def __init__(self, url: str = ROSBRIDGE_URL):
         self.url, self.ws, self._task = url, None, None
-        self._calls: dict[str, asyncio.Future] = {}
-        self._n = 0
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -189,45 +190,13 @@ class Rosbridge:
                         await ws.send(json.dumps({"op": "advertise", "topic": topic, "type": typ}))
                     self.ws, delay = ws, 1.0
                     log.info("tablet relay: rosbridge connected at %s", self.url)
-                    async for raw in ws:                     # service answers; nothing else is asked for
-                        try:
-                            m = json.loads(raw)
-                        except ValueError:
-                            continue
-                        f = self._calls.pop(m.get("id"), None) if m.get("op") == "service_response" else None
-                        if f is not None and not f.done():
-                            f.set_result(m.get("values") if m.get("result", True) else None)
+                    async for _ in ws:                       # nothing is asked for; keeps the link honest
+                        pass
             except Exception as e:                          # noqa: BLE001 — down: retry, quietly
                 log.debug("tablet relay: rosbridge %s", e)
             self.ws = None
-            for f in self._calls.values():
-                if not f.done():
-                    f.set_result(None)
-            self._calls.clear()
             await asyncio.sleep(delay)
             delay = min(delay * 2, 10.0)
-
-    async def call(self, service: str, args: dict, timeout: float = 2.0):
-        """A ROS service through rosbridge: its response values, or None (down, refused, too slow)."""
-        ws = self.ws
-        if ws is None:
-            return None
-        self._n += 1
-        cid = f"tablet{self._n}"
-        f = asyncio.get_running_loop().create_future()
-        self._calls[cid] = f
-        try:
-            await ws.send(json.dumps({"op": "call_service", "id": cid, "service": service, "args": args}))
-            return await asyncio.wait_for(f, timeout)
-        except Exception:                                   # noqa: BLE001
-            return None
-        finally:
-            self._calls.pop(cid, None)
-
-    async def subscribed(self, topic: str) -> bool:
-        """Whether anything subscribes to `topic` (rosapi, which rosbridge's launch starts)."""
-        v = await self.call("/rosapi/subscribers", {"topic": topic})
-        return bool(v and v.get("subscribers"))
 
     async def publish(self, topic: str, msg: dict) -> bool:
         ws = self.ws
@@ -285,14 +254,21 @@ async def tell_page_cameras(force: bool = False) -> None:
             pass
 
 
-async def _watch_subscribers() -> None:
-    """Every CAMERA_POLL_S: who wants each camera's picture. Nothing subscribed: the camera is off."""
-    while True:
+def _expire_demand() -> None:
+    """FAIL OFF: a demand not renewed within DEMAND_STALE_S (the watcher stopped, ROS is down) is none."""
+    at = state["demand"]["at"]
+    if at is None or time.monotonic() - at > DEMAND_STALE_S:
         for c in CAMERAS:
-            state["camera"][c]["subscribed"] = await ros.subscribed(f"/tablet/camera/{c}/image_raw/compressed")
+            state["camera"][c]["subscribed"] = False
+
+
+async def _watch_subscribers() -> None:
+    """Every CAMERA_TICK_S: drop a stale demand, tell the page, and keep the thermal status going."""
+    while True:
+        _expire_demand()
         await tell_page_cameras()
         await publish_thermal()                              # every 5 s, and STALE once readings stop
-        await asyncio.sleep(CAMERA_POLL_S)
+        await asyncio.sleep(CAMERA_TICK_S)
 
 
 _watcher = None
@@ -494,3 +470,23 @@ async def set_camera(request: Request) -> JSONResponse:
         state["camera"][c]["mode"] = v
     await tell_page_cameras()
     return JSONResponse({c: {"mode": d["mode"], "on": d["on"]} for c, d in state["camera"].items()})
+
+
+@router.post("/api/tablet/camera/demand")
+async def camera_demand(request: Request) -> JSONResponse:
+    """Which cameras something on the Thor subscribes to: {"front": bool, "rear": bool, "counts": {...}},
+    from the Thor lane's tablet_camera_demand node (it counts every subscriber, the CLI's too). Sent on
+    a change and every 2 s; a camera in "auto" streams while its demand is true and fresh, and stops
+    DEMAND_STALE_S after the last word, so a stopped watcher can never leave a camera on."""
+    try:
+        d = await request.json()
+    except ValueError:
+        d = None
+    if not isinstance(d, dict) or any(not isinstance(d.get(c), bool) for c in CAMERAS):
+        return JSONResponse({"error": 'send {"front": true|false, "rear": true|false}'}, status_code=400)
+    state["demand"] = {"at": time.monotonic(), "counts": d.get("counts") if isinstance(d.get("counts"), dict) else None}
+    for c in CAMERAS:
+        state["camera"][c]["subscribed"] = d[c]
+    _start_watcher()
+    await tell_page_cameras()
+    return JSONResponse({c: {"mode": state["camera"][c]["mode"], "on": state["camera"][c]["on"]} for c in CAMERAS})
