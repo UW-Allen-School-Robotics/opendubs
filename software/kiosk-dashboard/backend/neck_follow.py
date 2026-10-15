@@ -22,7 +22,11 @@ updates stop, the lease runs out, and the head stays where it is, as the protoco
 
 Every number is robot config with a safe default, so calibrating at the robot needs no code change
 (OPENDUBS_NECK_FOLLOW_* in /etc/opendubs/robot.env, read through head.py):
-  PAN_SIGN, TILT_SIGN  +1 or -1: which way a person right of / below centre turns the head
+  PAN_SIGN, TILT_SIGN  +1 or -1: which way a person right of / below centre turns the head. TILT_SIGN
+                       defaults to -1: the neck's tilt RISES with its degrees (measured at the robot
+                       2026-10-15, when its tilt band was commissioned), and the image's y grows
+                       DOWNWARD, so a person below centre must lower the tilt. PAN_SIGN is not
+                       measured yet: stand to one side and watch which way the head turns.
   HFOV_DEG, VFOV_DEG   the screen-side camera's field of view
   GAIN                 the fraction of the angle closed per update (0.1..1)
   RATE_HZ              updates per second
@@ -60,7 +64,7 @@ def _f(name: str, default: float, lo: float, hi: float) -> float:
 
 def config() -> dict:
     sign = lambda v: -1.0 if v < 0 else 1.0                              # noqa: E731
-    return {"pan_sign": sign(_f("PAN_SIGN", 1, -1, 1)), "tilt_sign": sign(_f("TILT_SIGN", 1, -1, 1)),
+    return {"pan_sign": sign(_f("PAN_SIGN", 1, -1, 1)), "tilt_sign": sign(_f("TILT_SIGN", -1, -1, 1)),
             "hfov": _f("HFOV_DEG", 60, 20, 120), "vfov": _f("VFOV_DEG", 45, 15, 100),
             "gain": _f("GAIN", 0.5, 0.1, 1), "rate": _f("RATE_HZ", 5, 1, 10),
             "pan_range": _f("PAN_RANGE", 30, 0, 30), "tilt_range": _f("TILT_RANGE", 18, 0, 18)}
