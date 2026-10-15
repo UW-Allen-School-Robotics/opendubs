@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow", "imageio-ffmpeg"]
+# dependencies = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow", "imageio-ffmpeg", "playwright"]
 # ///
 """The choreography studio: the composer, the face twin and the MuJoCo body twin, as one app.
 
@@ -457,6 +457,7 @@ def cmd_render(a) -> int:
         argv += ["--to", a.t_to]
     if a.allow_invalid:
         argv.append("--allow-invalid")
+    argv += ["--seed", a.seed]
     env = {**os.environ, "OPENDUBS_LIBRARY": str(library_dir(s))}
     return subprocess.run([str(x) for x in argv], env=env, cwd=tree / "software" / "choreo").returncode
 
@@ -481,12 +482,13 @@ def main(argv=None) -> int:
     ren = sub.add_parser("render", help="a show as a video file (offline, nothing plays)")
     ren.add_argument("show", help="a show file, or a show's name in the shows folder")
     ren.add_argument("--out", required=True)
-    ren.add_argument("--layout", choices=("a", "b", "c"), default="a")
+    ren.add_argument("--layout", choices=("a", "b", "c"), default="c")
     ren.add_argument("--fps", default="30")
-    ren.add_argument("--size", default="1920x1080")
+    ren.add_argument("--size", default="1280x720")
     ren.add_argument("--from", dest="t_from", default="0")
     ren.add_argument("--to", dest="t_to", default=None)
     ren.add_argument("--allow-invalid", action="store_true")
+    ren.add_argument("--seed", default="1", help="the face's randomness: the same seed gives the same video")
     a = ap.parse_args(argv)
     return {"render": cmd_render, "up": cmd_up, "down": cmd_down, "status": cmd_status, "open": cmd_open, "paths": cmd_paths,
             "limits": cmd_limits, "selftest": cmd_selftest}[a.cmd](a)

@@ -41,12 +41,83 @@ with tempfile.TemporaryDirectory() as td:
     info = subprocess.run([render.ffmpeg(), "-i", os.path.join(td, "a.mp4")], capture_output=True, text=True).stderr
     check("the file holds H.264 video and AAC audio", "Video: h264" in info and "Audio: aac" in info, info[-400:])
     check("... 2.0 s long", "Duration: 00:00:02.0" in info, [l for l in info.splitlines() if "Duration" in l])
-    try:
-        render.render(SHOW, os.path.join(td, "c.mp4"), layout="b", limits=LIMITS, log=lambda *_: None)
-        check("a layout that needs the face track says so (until the face page's render mode lands)", False)
-    except SystemExit as e:
-        check("a layout that needs the face track says so (until the face page's render mode lands)",
-              "face" in str(e), str(e))
+    said = []
+    render.render(SHOW, os.path.join(td, "c.mp4"), fps=10, size=(320, 180), limits=LIMITS, t_from=1.0, t_to=1.5,
+                  log=said.append)
+    check("the default layout is side by side (or the robot alone, said so, where no browser can draw the face)",
+          any("layout c" in m for m in said) or any("could not be drawn" in m for m in said), said[-2:])
+    check("... and the framing is computed from the span's own extents", any("framed" in m for m in said), said)
+
+print("\nlayouts, with a stand-in face (no browser needed)")
+
+
+class StubFace:
+    """A face source: a pattern that changes with show time and with each line the bridge sends."""
+
+    def __init__(self):
+        self.lines = []
+
+    def frame(self, lines, t):
+        self.lines += list(lines)
+        px = np.zeros((90, 160, 4), dtype=np.uint8)
+        px[..., 0] = int(t * 40) % 256
+        px[..., 1] = (len(self.lines) * 37) % 256
+        px[..., 2] = 200
+        px[..., 3] = 255
+        return px, ["OK"] * len(lines)
+
+    def close(self):
+        pass
+
+
+with tempfile.TemporaryDirectory() as td:
+    for lay in ("c", "b", "a"):
+        hs = []
+        for k in range(2):
+            stub = StubFace()
+            render.render(SHOW, os.path.join(td, f"{lay}{k}.mp4"), layout=lay, fps=10, size=(320, 180), limits=LIMITS,
+                          t_from=0.5, t_to=1.5, hashes=hs, log=lambda *_: None, face=stub)
+        check(f"layout {lay}: two renders with the same face give identical frames", hs[:10] == hs[10:] and len(hs) == 20,
+              (len(hs), sum(x != y for x, y in zip(hs[:10], hs[10:]))))
+    check("the face source is fed the live bridge's lines (the show's face state, at least once)", len(stub.lines) > 0,
+          stub.lines[:3])
+    p = render.plan("c", 1280, 720)
+    check("layout c: the robot in a tall pane on the left, the face filling the rest, centred",
+          p["robot"] == (576, 720, 0, 0) and p["face"][0] == 704 and p["face"][2] == 576
+          and p["face"][3] == (720 - p["face"][1]) // 2, p)
+    p = render.plan("b", 1280, 720)
+    check("layout b: the robot full frame, the face inset bottom-right at 30% width inside a margin",
+          p["robot"][:2] == (1280, 720) and p["face"][0] == 384 and p["face"][2] + p["face"][0] < 1280
+          and p["face"][3] + p["face"][1] < 720, p)
+    pc = render.plan("c", 320, 180)
+    img = render.compose(pc, 320, 180, np.full((180, pc["robot"][0], 3), 50, np.uint8),
+                         np.full((pc["face"][1], pc["face"][0], 3), 200, np.uint8))
+    check("compose puts the robot left and the face right", img[90, 10, 0] == 50 and img[90, 300, 0] == 200
+          and img[2, 300, 0] == 0, (img[90, 10], img[90, 300], img[2, 300]))
+
+print("\nthe real face page, when a browser is here")
+try:
+    import playwright  # noqa: F401
+    have = True
+except ImportError:
+    have = False
+if not have:
+    print("  skip  no Playwright here: the real-page check did not run")
+else:
+    with tempfile.TemporaryDirectory() as td:
+        h1, h2, said = [], [], []
+        try:
+            render.render(SHOW, os.path.join(td, "p1.mp4"), fps=10, size=(320, 180), limits=LIMITS, t_from=0.0,
+                          t_to=1.0, hashes=h1, log=said.append, seed=7)
+            render.render(SHOW, os.path.join(td, "p2.mp4"), fps=10, size=(320, 180), limits=LIMITS, t_from=0.0,
+                          t_to=1.0, hashes=h2, log=said.append, seed=7)
+        except Exception as e:  # noqa: BLE001
+            said.append(f"error {e}")
+        if any("could not be drawn" in m for m in said):
+            print("  skip  no browser for the face page here:", next(m for m in said if "could not be drawn" in m)[:120])
+        else:
+            check("the real face page, the same seed twice: identical frames, every one", h1 == h2 and len(h1) == 10,
+                  (len(h1), sum(x != y for x, y in zip(h1, h2)), said[-2:]))
 
 print("\nthe audio mix follows the show's volume")
 t = np.linspace(0, 10, 1001)

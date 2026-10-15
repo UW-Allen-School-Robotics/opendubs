@@ -36,7 +36,7 @@ EXCLUDE = ("software/choreo/tests/", "software/choreo/deploy/", "software/choreo
            "software/face-web/vendor/", "software/face-web/test/", "software/face-web/tests/",
            "software/head-protocol/tests/")
 KEEP = ("software/choreo/tests/joint_limits_fixture.yaml",)   # the composer's TEST limits, when no robot's
-DEPS = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow", "imageio-ffmpeg"]
+DEPS = ["pyyaml", "numpy", "mujoco", "glfw", "websockets", "psutil", "platformdirs", "pillow", "imageio-ffmpeg", "playwright"]
 
 PYPROJECT = """[build-system]
 requires = ["hatchling"]
