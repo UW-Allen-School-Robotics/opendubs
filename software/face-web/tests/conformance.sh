@@ -14,6 +14,7 @@ node software/face-web/tests/test_mouth.mjs          # the optional mouth; OFF m
 node software/face-web/tests/test_monsters.mjs       # the monster skins: lids, gaze, brow, and no clip left behind
 node software/face-web/tests/test_render_hooks.mjs   # offline render: no hidden clock, a seeded source, skinsReady
 node software/face-web/tests/test_armed.mjs          # the ARMED overlay, and its lease
+node software/face-web/tests/test_camera_sign.mjs    # a camera is on: shown when one is, never when none is
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades and clamps, ARMED's lease
 node software/face-web/tests/test_render.mjs        # the offline render: same seed and times, same frames
