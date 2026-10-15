@@ -53,7 +53,7 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
   // for it (Face & HRI's skins.ready(): the skin chosen NOW, true once it can draw, false if it failed
   // or timed out), so the frame after a SKIN line is the skin, every time. A video skin is ready
   // once its first frame is, but which frame it shows later follows the wall clock: not repeatable.
-  const skinReady = async () => { if (typeof skins.ready === "function") await skins.ready(); };
+  const skinReady = async () => typeof skins.ready === "function" ? (await skins.ready()) !== false : true;
   if (drawArmed === undefined) drawArmed = await import("./skins/armed.js").then((m) => m.drawArmed).catch(() => null);
 
   let t = 0, lastStep = 0;
@@ -77,7 +77,13 @@ export async function createRenderer({ ctx, w, h, seed = 1, library = null, skin
     async apply(line, tMs) {
       advance(tMs);
       const reply = await handle(face, silent, String(line), tMs, skins, levels, { timers: false });
-      if (/^\s*SKIN\b/i.test(String(line))) await skinReady();
+      // A skin that failed, or never arrived, has already fallen back to the default eyes: say so in
+      // the reply, as the live face does for a skin that will not load, or that stretch of the video
+      // reads as a show bug.
+      if (/^\s*SKIN\b/i.test(String(line)) && String(reply).startsWith("OK") && !(await skinReady())) {
+        const name = skins.chosen, why = skins.error ? skins.error.replace(`${name}: `, "") : "did not load in time";
+        return `ERR skin ${name}: ${why} (showing default)`;
+      }
       return reply;
     },
     /** Move the face to show time `tMs` and draw it. */

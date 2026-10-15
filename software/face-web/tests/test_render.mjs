@@ -111,6 +111,9 @@ check("a different seed draws something different", JSON.stringify(a.log) !== JS
   await r.apply("SKIN ring", 0);
   await r.apply("EMOTE HAPPY", 10);
   check("apply waits for a chosen skin to be ready, and only for SKIN", waited === 1, waited);
+  r.skins.ready = async () => { r.skins.fallBack("ring", "image did not load"); return false; };
+  const reply = await r.apply("SKIN ring", 20);
+  check("a skin that fails to load is an ERR, not a silent default", reply === "ERR skin ring: image did not load (showing default)", reply);
 }
 // Time only runs forward, and says so.
 {
