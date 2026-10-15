@@ -5,7 +5,7 @@ screen, awake, locked in front, with no notifications or update prompts. Why it 
 must do: [`notes/design/tablet-device.md`](../../notes/design/tablet-device.md).
 
 **It is a shell, never a UI of its own.** One screen holding a WebView of the dashboard, a
-device-owner receiver, and a six-method JavaScript bridge. Anything a user sees is the dashboard.
+device-owner receiver, and a small JavaScript bridge. Anything a user sees is the dashboard.
 
 ## What it does
 
@@ -18,6 +18,7 @@ device-owner receiver, and a six-method JavaScript bridge. Anything a user sees 
 | comes back after a reboot | it is the launcher (HOME), set as device owner |
 | comes back after an update | an update stops the app; it brings itself back to the front, locked (`UpdateReceiver`) |
 | microphone for the dashboard | granted as device owner; the page gets audio capture **only** for the dashboard's own origin |
+| cameras and location | granted as device owner; the page gets video capture (both cameras) and geolocation **only** for the robot's own origin. The face shows an indicator whenever a camera is open (`cameras()` below) |
 | music starts on cue | autoplay allowed (`mediaPlaybackRequiresUserGesture = false`) |
 | waits for the robot | if the dashboard does not answer (the tablet often starts before the Thor), a waiting page says so and retries — 2 s, backing off to 10 s; 30 s if the robot's certificate is not trusted — then loads the dashboard by itself |
 | HTTPS on an offline LAN | installs the robot's own CA itself (`ca_b64`, device owner) and trusts it (`res/xml/network_security_config.xml`); cleartext stays allowed so `http://…:8080` still works |
@@ -34,6 +35,10 @@ app on any tablet for development.
 | `screenState()` | `"on"` or `"off"` |
 | `isDeviceOwner()` | whether lock task and the update policy are in force |
 | `version()` | the app's version |
+| `setBrightness(v)`, `setMediaVolume(v)`, `getMediaVolume()` | the screen's brightness and the media volume, 0..1 (head protocol v5 `BRIGHT`, `VOLUME`) |
+| `light()` | ambient light, `{"lux": n, "age_ms": n}`, or `null` with no reading |
+| `cameras()` | each camera, `[{"id", "facing": "screen"\|"back"\|"external", "open": bool}]`; `open` is true while ANY app has it open, so the face's camera indicator follows the hardware |
+| `thermal()` | `{"status": "none"…"shutdown"\|null, "battery_c": n}`: Android's throttling level and the battery's temperature |
 | `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool, "plugged": "ac"\|"usb"\|"wireless"\|"dock"\|null}` — the dashboard shows it beside the robot's. `plugged` is whether power is connected, which a charge limit makes different from charging |
 
 ## Build
@@ -115,7 +120,7 @@ adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --ez lock true
 screen you opened, too: after an update the app brings itself back, but a screen left open behind
 it comes to the front first.
 
-**Is it still a kiosk?** `uv run --with websockets python3 kiosk_check.py --serial <serial>` checks device owner, lock task, the secure context, the bridge, the microphone grant and a wake lock — run it before and after any update. Updating the tablet's **WebView**: `notes/design/tablet-device.md`, *Updating the robot tablet's WebView*.
+**Is it still a kiosk?** `uv run --with websockets python3 kiosk_check.py --serial <serial>` checks device owner, lock task, the secure context, the bridge, the microphone, camera and location grants and a wake lock — run it before and after any update. Updating the tablet's **WebView**: `notes/design/tablet-device.md`, *Updating the robot tablet's WebView*.
 
 **Updates** keep the device owner and every setting: `adb install -r -t app-debug.apk`. To reach
 the tablet without the cable, `adb tcpip 5555` while it is on USB, then `adb connect <tablet-ip>:5555`;

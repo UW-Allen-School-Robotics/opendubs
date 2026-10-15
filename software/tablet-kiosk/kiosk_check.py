@@ -8,9 +8,11 @@ Checks, each PASS or FAIL:
   - the tablet's model, Android release, and current WebView (reported, not judged)
   - the kiosk app is device owner, in front, and in lock task
   - in the app's WebView: the page, a secure context, the bridge (and that it says device owner),
-    the microphone granted with no prompt (TB-1), and a screen wake lock
+    the microphone granted with no prompt (TB-1), both cameras granted with no prompt, location
+    granted (asked, not read), the sensor bridge methods, and a screen wake lock
 
-It changes nothing it does not put back: the microphone is opened and its track stopped at once,
+It changes nothing it does not put back: the microphone and each camera are opened and their tracks
+stopped at once (the face's camera indicator shows while they are),
 and the wake lock is released. It needs the app to be a debuggable build (its WebView then exposes
 a devtools socket), which the team's builds are.
 """
@@ -82,6 +84,21 @@ async def page_checks(serial, port):
                 try { const s = await t; const st = s.getAudioTracks()[0].readyState; s.getTracks().forEach(k => k.stop()); return st; }
                 catch (e) { return 'refused: ' + e.message; } })()""")
             check("the microphone, with no prompt", mic == "live", str(mic))
+            for facing, side in (("user", "screen-side"), ("environment", "back-side")):
+                cam = await evaluate(ws, """(async () => {
+                    if (!navigator.mediaDevices) return 'no mediaDevices';
+                    const t = Promise.race([navigator.mediaDevices.getUserMedia({video: {facingMode: {exact: '%s'}}}),
+                                            new Promise((_, rej) => setTimeout(() => rej(new Error('no answer in 5 s: a prompt?')), 5000))]);
+                    try { const s = await t; const st = s.getVideoTracks()[0].readyState; s.getTracks().forEach(k => k.stop()); return st; }
+                    catch (e) { return 'refused: ' + e.message; } })()""" % facing)
+                check(f"the {side} camera, with no prompt", cam == "live", str(cam))
+            geo = await evaluate(ws, """(async () => {
+                try { return (await navigator.permissions.query({name: 'geolocation'})).state; }
+                catch (e) { return 'unknown: ' + e.message; } })()""")
+            check("location granted", geo == "granted", str(geo))
+            if bridge:
+                sens = await evaluate(ws, "['light', 'cameras', 'thermal'].filter((m) => typeof OpenDubsKiosk[m] !== 'function').join(',')")
+                check("the sensor bridge (light, cameras, thermal)", sens == "", f"missing: {sens}" if sens else "")
             wl = await evaluate(ws, """(async () => {
                 if (!navigator.wakeLock) return 'no wakeLock';
                 try { const l = await navigator.wakeLock.request('screen'); await l.release(); return 'granted'; }

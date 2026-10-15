@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -39,6 +40,7 @@ import java.util.Date
  */
 class KioskActivity : Activity() {
     private lateinit var web: WebView
+    private lateinit var bridge: KioskBridge
     private var maintenance = false     // after `unlock`: stay out of lock task until `lock` or a restart
 
     // WAITING FOR THE ROBOT. The tablet often starts before the Thor (both come up at RUN, and the
@@ -61,6 +63,7 @@ class KioskActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false      // show music starts on cue
+            settings.setGeolocationEnabled(true)                   // the robot's GPS (granted below)
             webViewClient = object : WebViewClient() {             // stay inside the app
                 override fun onReceivedError(v: WebView, req: WebResourceRequest, err: WebResourceError) {
                     if (req.isForMainFrame) waitAndRetry(err.description?.toString() ?: "unreachable")
@@ -84,16 +87,24 @@ class KioskActivity : Activity() {
                 }
             }
             webChromeClient = object : WebChromeClient() {
-                // The microphone, and only the microphone, and only for the dashboard's own origin.
+                // The microphone and the cameras, and only for the robot's own origin (the dashboard and
+                // the face it serves). Anything else, or any other origin, is refused.
                 override fun onPermissionRequest(request: PermissionRequest) {
-                    val wanted = request.resources.filter { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
+                    val allowed = setOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE, PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                    val wanted = request.resources.filter { it in allowed }
                     if (wanted.isNotEmpty() && sameOrigin(request.origin, dashboardUrl()))
                         request.grant(wanted.toTypedArray())
                     else
                         request.deny()
                 }
+                // Location, likewise: the robot's origin only, and not remembered by the WebView (the
+                // app's own grant is what persists).
+                override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+                    callback.invoke(origin, sameOrigin(Uri.parse(origin), dashboardUrl()), false)
+                }
             }
-            addJavascriptInterface(KioskBridge(this@KioskActivity), "OpenDubsKiosk")
+            bridge = KioskBridge(this@KioskActivity)
+            addJavascriptInterface(bridge, "OpenDubsKiosk")
         }
         setContentView(web)
         handle(intent)
@@ -106,8 +117,14 @@ class KioskActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        bridge.start()
         hideSystemBars()
         enterLockTaskIfAllowed()
+    }
+
+    override fun onPause() {
+        bridge.stop()
+        super.onPause()
     }
 
     /** Loads the dashboard on first start or after a new `url`; otherwise leaves the page alone —

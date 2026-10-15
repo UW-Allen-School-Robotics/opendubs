@@ -5,6 +5,14 @@
     <!-- the dashboard's microphone (getUserMedia); granted by the app, as device owner -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- the tablet's two cameras (face tracking on the tablet; on-demand streams to the robot) and its
+         GNSS (the robot's GPS). Granted by the app as device owner, and given to the robot's own
+         origin only (KioskActivity). The face shows an indicator whenever a camera is open. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:label="@string/app_name"

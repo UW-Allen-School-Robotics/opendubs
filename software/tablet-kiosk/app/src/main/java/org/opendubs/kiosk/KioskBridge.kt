@@ -3,9 +3,19 @@ package org.opendubs.kiosk
 import android.app.Activity
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.os.BatteryManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 
@@ -15,6 +25,88 @@ import android.webkit.JavascriptInterface
  * no `OpenDubsKiosk` and falls back to the Screen Wake Lock API.
  */
 class KioskBridge(private val activity: Activity) {
+
+    // ---- sensors the WebView does not expose (workplan-tablet.md DT-4) -------------------------
+    // Started and stopped with the activity (onResume / onPause): nothing is read while the kiosk is
+    // not in front. Each reading keeps its age, so a page can tell a stale value from a live one.
+    private val sensors = activity.getSystemService(SensorManager::class.java)
+    private val cameraManager = activity.getSystemService(CameraManager::class.java)
+    @Volatile private var lux: Float = Float.NaN
+    @Volatile private var luxAt: Long = 0                  // elapsedRealtime ms of the last reading
+    private val openCameras = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private var started = false
+
+    private val lightListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) { lux = e.values[0]; luxAt = SystemClock.elapsedRealtime() }
+        override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+    }
+    // Any camera opened by anyone (this page, a stream, another app): the face's camera indicator is
+    // driven from the hardware's own state, so it cannot say "off" while a camera is in fact open.
+    private val cameraWatch = object : CameraManager.AvailabilityCallback() {
+        override fun onCameraUnavailable(id: String) { openCameras.add(id) }
+        override fun onCameraAvailable(id: String) { openCameras.remove(id) }
+    }
+
+    fun start() {
+        if (started) return
+        started = true
+        sensors.getDefaultSensor(Sensor.TYPE_LIGHT)?.let {
+            sensors.registerListener(lightListener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        cameraManager.registerAvailabilityCallback(cameraWatch, Handler(Looper.getMainLooper()))
+    }
+
+    fun stop() {
+        if (!started) return
+        started = false
+        sensors.unregisterListener(lightListener)
+        cameraManager.unregisterAvailabilityCallback(cameraWatch)
+        openCameras.clear()
+    }
+
+    /** Ambient light: JSON `{"lux": n, "age_ms": n}`, or `null` with no light sensor or no reading yet. */
+    @JavascriptInterface
+    fun light(): String {
+        if (lux.isNaN()) return "null"
+        return """{"lux": $lux, "age_ms": ${SystemClock.elapsedRealtime() - luxAt}}"""
+    }
+
+    /** The cameras, as JSON `[{"id": "0", "facing": "screen"|"back"|"external", "open": bool}]`.
+     *  Named by the tablet's own sides (workplan-tablet.md DT-5); with the tablet as the head,
+     *  screen-side is the robot's front and back-side its rear. `open` is true while ANY app has
+     *  that camera open. */
+    @JavascriptInterface
+    fun cameras(): String = cameraManager.cameraIdList.joinToString(",", "[", "]") { id ->
+        val facing = when (cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING)) {
+            CameraCharacteristics.LENS_FACING_FRONT -> "screen"
+            CameraCharacteristics.LENS_FACING_BACK -> "back"
+            else -> "external"
+        }
+        """{"id": "$id", "facing": "$facing", "open": ${id in openCameras}}"""
+    }
+
+    /** The tablet's thermal state: JSON `{"status": "none"|"light"|"moderate"|"severe"|"critical"|
+     *  "emergency"|"shutdown"|null, "battery_c": n|null}`. `status` is Android's own throttling level
+     *  (null before Android 10); `battery_c` is the battery's temperature, the one the tablet reports. */
+    @JavascriptInterface
+    fun thermal(): String {
+        val status = if (Build.VERSION.SDK_INT >= 29) {
+            when (activity.getSystemService(PowerManager::class.java).currentThermalStatus) {
+                PowerManager.THERMAL_STATUS_NONE -> "none"
+                PowerManager.THERMAL_STATUS_LIGHT -> "light"
+                PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+                PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+                PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+                PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
+                PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown"
+                else -> null
+            }
+        } else null
+        val sticky = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val tenths = sticky?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+        val batteryC = if (tenths == Int.MIN_VALUE) "null" else (tenths / 10.0).toString()
+        return """{"status": ${status?.let { "\"$it\"" } ?: "null"}, "battery_c": $batteryC}"""
+    }
 
     /** Keep the screen on (true, the default) or let it sleep normally (false). */
     @JavascriptInterface
