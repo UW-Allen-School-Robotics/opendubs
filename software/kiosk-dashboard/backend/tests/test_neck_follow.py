@@ -126,3 +126,79 @@ def test_a_person_below_centre_lowers_the_head_by_default():
     assert cfg["tilt_sign"] == -1.0
     (_, tilt), _ = nf.aim(STILL, (0.5, 0.95, 0.9), cfg)                 # a person low in the frame
     assert tilt < 90
+
+
+def _closed_loop(monkeypatch, pan_sign, person_pan=105.0, steps=40, walk=0.0):
+    """A simulated neck that goes where GAZE sends it, and a person standing at `person_pan` degrees.
+    The camera rides the head, so the person's image offset depends on where the head points (with
+    the real geometry: a person at a higher pan is right of the image's centre)."""
+    neck = {"pan": 90.0, "tilt": 90.0}
+    sent = []
+
+    def ask(host, line, timeout=0.3):
+        if line == "NECK":
+            return f"OK neck pan={neck['pan']} tilt={neck['tilt']} target=0,0 moving=0 owner=none"
+        p, t = float(line.split()[1]), float(line.split()[2])
+        neck["pan"], neck["tilt"] = p, t
+        sent.append(line)
+        return f"OK gaze {p} {t}"
+    monkeypatch.setattr(nf, "_ask", ask)
+    monkeypatch.setattr(nf, "why_not_now", lambda: None)
+    import head
+    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    nf.state.update(stopped=None, history=[], limit_since=None)
+    cfg = {**CFG, "pan_sign": pan_sign, "tilt_sign": -1.0}
+    why = None
+    for i in range(steps):
+        person = person_pan + walk * i                                   # degrees per update (5 a second)
+        ox = (person - neck["pan"]) / (cfg["hfov"] / 2)                  # where the person is in the image
+        nf.note_target({"ix": min(1, max(0, 0.5 + ox / 2)), "iy": 0.5, "conf": 0.9})
+        why = nf.step(cfg)
+        if why and why.startswith("STOPPED"):
+            break
+    return neck, why, sent
+
+
+def test_a_wrong_sign_is_caught_as_a_runaway_before_the_limit(monkeypatch):
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0)
+    assert why and why.startswith("STOPPED") and "PAN_SIGN" in why, why
+    assert neck["pan"] > 90 - CFG["pan_range"]                            # stopped before the limit
+    assert nf.step(CFG).startswith("STOPPED")                             # latched
+
+
+def test_the_right_sign_settles_on_the_person(monkeypatch):
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0)
+    assert not (why or "").startswith("STOPPED"), why
+    # It closes in until the person is inside the eyes-only band, where the eyes take over by design.
+    assert abs(neck["pan"] - 105.0) <= nf.EYE_ONLY * CFG["hfov"] / 2 + 0.01, neck
+
+
+def test_changing_the_setting_clears_a_stop(tmp_path, monkeypatch):
+    import head_settings
+    monkeypatch.setattr(head_settings, "PATH", str(tmp_path / "s.json"))
+    head_settings.save({**head_settings.DEFAULTS, "tracking": "off"})
+    nf.state["stopped"] = "STOPPED: test"
+    nf.why_not_now()
+    assert nf.state["stopped"] is None
+
+
+def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
+    sent = _sends(monkeypatch, neck="OK neck pan=119.0 tilt=90.0 target=0,0 moving=0 owner=none")
+    nf.state.update(stopped=None, history=[], limit_since=None)
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})                  # far right: the aim is the limit
+    assert nf.step(CFG) is None                                            # sent, the clock starts
+    nf.state["limit_since"] = time.monotonic() - 3
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})
+    assert nf.step(CFG).startswith("holding")
+    assert sent.count("NECK") == 2 and sum(1 for s in sent if s.startswith("GAZE")) == 1
+
+
+def test_the_neck_block_says_how_old_it_is():
+    nf.state.update(neck={"pan": 90.0, "tilt": 90.0, "moving": False, "owner": "none"}, neck_at=time.monotonic() - 4)
+    assert nf.status()["neck_age_s"] >= 4
+
+
+def test_a_brisk_walker_with_the_right_sign_is_not_mistaken_for_a_runaway(monkeypatch):
+    # 3 degrees per update at 5 Hz = 15 deg/s across the view, starting left of centre.
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0, person_pan=75.0, steps=12, walk=3.0)
+    assert not (why or "").startswith("STOPPED"), why

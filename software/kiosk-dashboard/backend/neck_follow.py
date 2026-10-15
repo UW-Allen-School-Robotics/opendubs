@@ -70,7 +70,35 @@ def config() -> dict:
             "pan_range": _f("PAN_RANGE", 30, 0, 30), "tilt_range": _f("TILT_RANGE", 18, 0, 18)}
 
 
-state = {"target": None, "target_at": 0.0, "why": "starting", "neck": None, "sent": None, "sent_count": 0}
+state = {"target": None, "target_at": 0.0, "why": "starting", "neck": None, "neck_at": 0.0, "sent": None,
+         "sent_count": 0, "history": [], "stopped": None, "limit_since": None}
+
+# ---- the safety net: a wrong sign must not run the head into its limits ---------------------------
+# The camera rides the head, so a wrong PAN_SIGN or TILT_SIGN is positive feedback: turning the wrong
+# way puts the person further off-centre, which turns it further (seen on the robot 2026-10-15: both
+# axes ran to their envelope limits and lost the person). Two guards, whatever the signs are:
+#  - RUNAWAY: over the last RUNAWAY_N updates (two steps: at this gain a wrong sign reaches the limit in
+#    three) the head was sent the same way on an axis by at least RUNAWAY_DEG in all, while the person's
+#    offset on that axis GREW by RUNAWAY_GROW (large enough that a right sign chasing a brisk walker
+#    does not trip it). Following stops
+#    and stays stopped (latched, and said on /api/head/follow) until the tracking setting is changed.
+#  - AT A LIMIT: a target pinned at the envelope's edge for LIMIT_HOLD_S is out of reach. Nothing is
+#    sent (the lease runs out, the head stays) until the aim comes off the limit.
+RUNAWAY_N, RUNAWAY_DEG, RUNAWAY_GROW = 3, 6.0, 0.30
+LIMIT_HOLD_S = 2.0
+
+
+def runaway(history) -> str | None:
+    """The axis that is running away ("pan" / "tilt"), or None. `history`: (pan, tilt, ox, oy) sent."""
+    if len(history) < RUNAWAY_N:
+        return None
+    h = history[-RUNAWAY_N:]
+    for axis, ai, oi in (("pan", 0, 2), ("tilt", 1, 3)):
+        steps = [b[ai] - a[ai] for a, b in zip(h, h[1:])]
+        one_way = all(d > 0 for d in steps) or all(d < 0 for d in steps)
+        if one_way and abs(h[-1][ai] - h[0][ai]) >= RUNAWAY_DEG and abs(h[-1][oi]) >= abs(h[0][oi]) + RUNAWAY_GROW:
+            return axis
+    return None
 
 
 def note_target(t) -> None:
@@ -134,6 +162,8 @@ def why_not_now():
     import head
     import head_settings
     if head_settings.load().get("tracking") != "tablet":
+        # Changing the setting is how an operator acknowledges a stop: it clears the latch.
+        state["stopped"], state["history"], state["limit_since"] = None, [], None
         return "tracking is not set to the tablet"
     if head.neck_host() is None:
         return "no neck is fitted"
@@ -150,17 +180,39 @@ def step(cfg: dict):
     why = why_not_now()
     if why:
         return why
+    if state["stopped"]:
+        return state["stopped"]
     t = state["target"]
     if t is None or time.monotonic() - state["target_at"] > TARGET_FRESH_S:
         return "nobody seen"
     host = head.neck_host()
     neck = parse_neck(_ask(host, "NECK") or "")
-    state["neck"] = neck
+    state["neck"], state["neck_at"] = neck, time.monotonic()
     if neck is None:
         return "the neck did not answer NECK"
     aimed, why = aim(neck, t, cfg)
     if aimed is None:
         return why
+    # Pinned at the envelope's edge: out of reach. Hold (send nothing) after LIMIT_HOLD_S.
+    # (an axis with no range, as when the head is held at centre to measure the signs, is never "at a limit")
+    at_limit = ((cfg["pan_range"] > 0 and abs(aimed[0] - CENTRE) >= cfg["pan_range"] - 0.05) or
+                (cfg["tilt_range"] > 0 and abs(aimed[1] - CENTRE) >= cfg["tilt_range"] - 0.05))
+    now = time.monotonic()
+    if at_limit:
+        state["limit_since"] = state["limit_since"] or now
+        if now - state["limit_since"] >= LIMIT_HOLD_S:
+            return f"holding: the aim has been at the envelope's limit for {LIMIT_HOLD_S:.0f} s (out of reach, or a wrong sign)"
+    else:
+        state["limit_since"] = None
+    ox, oy = (t[0] - 0.5) * 2, (t[1] - 0.5) * 2
+    state["history"] = (state["history"] + [(aimed[0], aimed[1], ox, oy)])[-RUNAWAY_N:]
+    axis = runaway(state["history"])
+    if axis:
+        state["stopped"] = (f"STOPPED: the head ran away on {axis} (it kept turning one way while the person moved "
+                            f"further off-centre): check OPENDUBS_NECK_FOLLOW_{axis.upper()}_SIGN. "
+                            "Change the tracking setting to resume.")
+        log.warning("neck follow: %s", state["stopped"])
+        return state["stopped"]
     reply = _ask(host, f"GAZE {aimed[0]} {aimed[1]} {LEASE_MS}")
     state["sent"], state["sent_count"] = {"gaze": aimed, "reply": reply}, state["sent_count"] + 1
     return None
@@ -187,6 +239,14 @@ async def start() -> None:
 
 
 def status() -> dict:
-    return {"why": state["why"], "neck": state["neck"], "sent": state["sent"], "sent_count": state["sent_count"],
+    return {"why": state["why"], "stopped": state["stopped"], "neck": state["neck"],
+            "neck_age_s": round(time.monotonic() - state["neck_at"], 1) if state["neck"] else None, "sent": state["sent"], "sent_count": state["sent_count"],
             "target": state["target"], "target_age_s": round(time.monotonic() - state["target_at"], 2) if state["target"] else None,
             "config": config()}
+
+
+def live_neck():
+    """The neck's NECK right now (not the last one read before a send). Blocking: run in an executor."""
+    import head
+    host = head.neck_host()
+    return parse_neck(_ask(host, "NECK") or "") if host else None
