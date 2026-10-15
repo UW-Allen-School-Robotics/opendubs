@@ -18,6 +18,8 @@ const LINK_STALE_MS = 5000;
 // seconds, and if it stops the sign must clear itself rather than claim for ever that the robot is
 // about to move. That is the one failure mode that matters for a sign people stand next to.
 const ARMED_LEASE_MS = 3000;
+// Three missed BATT refreshes (the dashboard sends one every 30 s). See chargeState().
+const BATT_STALE_MS = 90000;
 const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
 
 // `?mouth=1` turns the optional mouth on for testing and for the settings page's own preview. The
@@ -108,6 +110,9 @@ const NO_MOVE = { lidL: 0, lidR: 0, gx: 0, gy: 0, dy: 0, sparkle: 0, scale: 0, p
 export class Face {
   constructor() {
     this.state = -1;            // index into STATES; -1 = never heard from the robot
+    this.soc = null;            // pack state of charge, 0..100; null = the BMS did not say
+    this.battCharging = false;  // current flowing INTO the pack
+    this.battAt = -1e9;         // when BATT last arrived, for staleness
     this.stateAt = 0;
     this.emote = "NEUTRAL";
     this.pin = null;            // an EMOTE <name> pins; EMOTE AUTO releases
@@ -247,6 +252,59 @@ export class Face {
   linked(now) { return this.state >= 0 && now - this.stateAt < LINK_STALE_MS; }
   lockedEmote() { return this.state >= 0 ? STATES[this.state][3] : null; }
   free() { return this.state >= 0 && !STATES[this.state][3]; }
+  // ---- CHARGING ------------------------------------------------------------------------------
+  // The pack's state of charge, from the head protocol's BATT (agreed with the Tablet lane). The
+  // page owns where it comes from; the engine owns what may be believed and for how long.
+  //
+  // `soc` is 0..100 or null for "the BMS did not say". NULL IS A REAL ANSWER AND IS KEPT AS ONE.
+  // The Tab5's gauge shipped with `g_soc = 0.62f` and nothing ever fed it, so the band drew a
+  // confident 62% that meant nothing -- a made-up number is worse than no number, because no
+  // number is obviously no number. Nothing here ever invents a level.
+  //
+  // `charging` is whether current is flowing INTO the pack. A full pack still on the charger
+  // reports 0, because the BMS cannot tell that from unplugged; it picks the WORD ("Charging" vs
+  // "On charge"), never whether the gauge is shown.
+  setBatt(soc, charging, now = this._now) {
+    const n = typeof soc === "number" && isFinite(soc) ? soc : null;
+    this.soc = n === null ? null : Math.max(0, Math.min(100, Math.round(n)));
+    this.battCharging = Boolean(charging);
+    this.battAt = now;
+  }
+
+  // What the gauge should show, or null for "do not draw it".
+  //
+  // THE STATE DECIDES WHETHER, THE MESSAGE DECIDES WHAT. The gauge appears because the robot says
+  // it is CHARGING, not because a BATT arrived -- one authority for "what the robot is doing",
+  // which is the same rule the rest of the face follows. A BATT with no CHARGING state draws
+  // nothing, and that disagreement is better shown as nothing than as a gauge the state denies.
+  //
+  // A RESERVED STATE WINS, as everywhere else: DEGRADED and E_STOP replace the skin, and a charge
+  // gauge drawn over a fault would be the face discussing the battery while something is wrong.
+  // It cannot happen in practice -- CHARGING is itself a state, so it cannot be E_STOP too -- and
+  // it is still written down, because "cannot happen" is how it happens.
+  chargeState(now = this._now) {
+    if (this.reserved()) return null;
+    if (this.stateName() !== "CHARGING") return null;
+    // STALE, so a dead feed does not freeze a number on the face for ever. The dashboard refreshes
+    // every 30 s, so this is three missed refreshes: long enough never to flicker on a slow link,
+    // short enough that nobody reads a half-hour-old percentage as current. The GAUGE stays --
+    // the robot is still charging, the state says so -- and only the number goes.
+    const fresh = this.soc !== null && (now - this.battAt) <= BATT_STALE_MS;
+    return { soc: fresh ? this.soc : null, charging: this.battCharging };
+  }
+
+  // The line that goes where the idle quote goes. Null when there is nothing to say, so the page
+  // can slot it into the precedence it already has for a song and a quote.
+  chargeText(now = this._now) {
+    const c = this.chargeState(now);
+    if (!c) return null;
+    // "On charge" rather than "Charged" when no current is flowing: a full pack on the charger and
+    // a pack that has stopped taking current for some other reason look identical from here, and
+    // only one of those is "charged". The honest word covers both.
+    const word = c.charging ? "Charging" : "On charge";
+    return c.soc === null ? word : `${word} ${c.soc}%`;
+  }
+
   reserved() { return this.state >= 0 && STATES[this.state][4]; }
 
   stateColour() {
