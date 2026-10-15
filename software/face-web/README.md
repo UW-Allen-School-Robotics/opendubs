@@ -39,8 +39,9 @@ python3 software/head-protocol/conformance.py 127.0.0.1:4244 --neck 127.0.0.1:42
 a video (`software/choreo`). There is no frame loop, door, camera, tracking, audio, AirPlay or operator
 overlay. Time moves only when the caller moves it, so the same show, seed and times always give the
 same pixels. Parameters: `seed=N` (default 1), `w=W&h=H` (default 640×360; the face is 16:9 and any
-other shape is letterboxed on black), and optionally `skin=`, `state=` (default `AUTONOMOUS`) and
-`library=`.
+other shape is letterboxed on black), and optionally `skin=`, `state=` (default `AUTONOMOUS`),
+`library=` and `caption=1`. The idle quote under the eyes is not drawn unless `caption=1`: it is the
+face's idle line, not part of a show.
 
 ```js
 await OpenDubsRender.ready;                       // {w, h, seed}; the skin library is read once, here

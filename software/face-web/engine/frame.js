@@ -12,12 +12,13 @@ import { CODE_SKINS } from "./skins/index.js";
  * @param ctx   a 2D context
  * @param W,H   its size in pixels
  * @param now   the face's clock, ms
- * @param o     {face, skins, drawArmed, bg, turn, song, bright}
+ * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption}
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
+ *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
  * @returns     {fullFace, armed}
  */
-export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1 }) {
+export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -37,7 +38,7 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // Nor while a show is armed: the ARMED sign owns the bottom of the face, and must read alone.
   const armed = typeof face.armedState === "function" && face.armedState(now);
   // AirPlay playing and heard: what it is, in the quote's place.
-  const text = fullFace || armed ? null
+  const text = !caption || fullFace || armed ? null
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
   // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
