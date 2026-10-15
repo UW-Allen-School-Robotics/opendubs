@@ -249,6 +249,14 @@ class FakeHead:
             return f"OK armed {int(x)}"
         return f"ERR armed WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
 
+    def do_batt(self, a, _):
+        # v6: the pack's charge. Out of range is refused, never clamped: a 150 % reading is a bug
+        # upstream, and the face is where someone might notice it.
+        parts = a.split()
+        ok = (len(parts) == 2 and parts[1] in ("0", "1") and
+              (parts[0] == "-" or (parts[0].isdigit() and 0 <= int(parts[0]) <= 100)))
+        return f"OK batt {parts[0] if parts[0] == '-' else int(parts[0])} {parts[1]}" if ok else "ERR batt <0..100|-> <0|1>"
+
     def do_voice(self, a, _):
         return "voice: off (reference head)"
 

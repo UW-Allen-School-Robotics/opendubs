@@ -44,7 +44,38 @@ _MAP = {
     "AUTONOMOUS_CONTROL": ("AUTONOMOUS", (0, 150, 255),   80),   # clear CYAN (blue) — distinct from green
     "DEGRADED":           ("DEGRADED",   (240, 150, 40),  85),
     "E_STOP_LATCH":       ("E_STOP",     (255, 35, 35),   95),
+    # Not an FSM state: how a charging robot is SHOWN (present() below). Purple, breathing on the PRISM.
+    "CHARGING":           ("CHARGING",   (109, 48, 224),  70),   # the face's CHARGING purple (0x6d30e0)
 }
+
+# ---- charging: presentation only ---------------------------------------------------------------
+# robot_state folds a charging robot into SAFE_IDLE (a drive inhibit, not a state of its own), so
+# the face and the PRISM never showed it. It is SHOWN as CHARGING here, and only where the robot
+# would otherwise show SAFE_IDLE: E_STOP, DEGRADED and INIT always win. The FSM, its reasons and the
+# drive inhibit are untouched. Charging means current flowing INTO the pack (status._charger): a full
+# pack still on the charger reads as not charging.
+BREATH_PERIOD_S = 4.0
+BREATH_STEPS = 8         # brightness steps per breath: a write every 0.5 s at most (2 Hz), well under
+                         # the loop's own pace, so the StamPLC link and a state change are never held up
+BREATH_FLOOR = 0.3       # the dimmest step, as a fraction of the state's brightness: never dark
+
+
+def present(rsd) -> str | None:
+    """The state to SHOW for robot_state's rollup `rsd`: its own, or CHARGING for a charging SAFE_IDLE."""
+    if not rsd:
+        return None
+    rs = rsd.get("state")
+    if rs == "SAFE_IDLE" and (rsd.get("inputs") or {}).get("charging"):
+        return "CHARGING"
+    return rs
+
+
+def breath(bright: int, now: float) -> int:
+    """`bright`, stepped along a slow breath (BREATH_STEPS per BREATH_PERIOD_S)."""
+    import math
+    step = int((now % BREATH_PERIOD_S) / (BREATH_PERIOD_S / BREATH_STEPS))
+    level = 0.5 - 0.5 * math.cos(2 * math.pi * step / BREATH_STEPS)
+    return int(round(bright * (BREATH_FLOOR + (1 - BREATH_FLOOR) * level)))
 
 _TAB5_GLOB = os.environ.get(
     "OPENDUBS_TAB5_DEV_GLOB",
@@ -235,13 +266,16 @@ def _tab5_serial(line: str) -> None:
         _tab5_ser = None
 
 
-def _prism_target(rs: str):
+def _prism_target(rs: str, now: float = None):
     """The colour the PRISM should show in state `rs`: the state's own, or a running show's light
-    layered over it (show_light.py — a reserved state always wins). ((r, g, b), brightness) or None."""
+    layered over it (show_light.py — a reserved state always wins). ((r, g, b), brightness) or None.
+    CHARGING breathes: its brightness steps slowly (breath()); a show's light still wins over it."""
     ent = _MAP.get(rs)
     if not ent:
         return None
     _, rgb, bright = ent
+    if rs == "CHARGING":
+        bright = breath(bright, time.monotonic() if now is None else now)
     try:
         import show_light
         return show_light.winning(rs, (rgb, bright))
@@ -284,6 +318,46 @@ def _push_tab5(rs: str) -> None:
             sys.stderr.write(f"TAB5: Pushing state {rs} -> {ent[0]}\n")
             _tab5_logged_state = rs
         _tab5_write(f"STATE {ent[0]}")
+
+
+# ---- the pack's charge, for the face's gauge (head protocol: BATT <soc|-> <0|1>) --------------------
+_BATT_REFRESH_S = 30.0
+_batt_line = None                       # the BATT line last sent; face_door.py sends it as a page connects
+_batt_at = 0.0
+_batt_bad_logged = False
+
+
+def batt_line(pack: dict, charger: dict):
+    """`BATT <soc 0-100|-> <charging 0|1>` from status._pack() and status._charger()."""
+    soc = pack.get("soc") if pack.get("present") else None
+    try:
+        soc = None if soc is None else int(round(float(soc)))
+    except (TypeError, ValueError):
+        soc = None
+    if soc is not None and not 0 <= soc <= 100:
+        # A reading out of range is a bug upstream (the BMS or its parser): say "unknown", and say so,
+        # rather than clamp it into a plausible number the face would show.
+        global _batt_bad_logged
+        if not _batt_bad_logged:
+            import sys
+            sys.stderr.write(f"BATT: the BMS reports state of charge {soc} %: sent as unknown\n")
+            _batt_bad_logged = True
+        soc = None
+    return f"BATT {'-' if soc is None else soc} {1 if charger.get('charging') else 0}"
+
+
+def face_batt():
+    """The BATT line the face should have now, or None before the first."""
+    return _batt_line
+
+
+def _push_batt(status_mod, now: float) -> None:
+    """On a change (whole percent, or charging), and every _BATT_REFRESH_S."""
+    global _batt_line, _batt_at
+    line = batt_line(status_mod._pack() or {}, status_mod._charger() or {})
+    if line != _batt_line or now - _batt_at >= _BATT_REFRESH_S:
+        _batt_line, _batt_at = line, now
+        _tab5_write(line)
 
 
 _neck_seen = None                       # what the log last said: an address, False (absent), or None
@@ -356,7 +430,7 @@ def _loop() -> None:
             if conn and not prev_conn:
                 prev = prev_led = None       # ... and the WINNING colour, a show's if its lease is fresh
             prev_conn = conn
-            rs = (status_mod._robot_state() or {}).get("state")
+            rs = present(status_mod._robot_state() or {})
             now = time.monotonic()
             if rs:
                 # PRISM: the winning colour (the state's, or a show's layered over it), written ONLY
@@ -373,6 +447,7 @@ def _loop() -> None:
                 elif (now - last) >= _REFRESH_S:
                     _push_tab5(rs)           # refresh keeps the Tab5 link-alive; held port → no reboot
                     last = now
+            _push_batt(status_mod, now)
             # TURN, LIFT and PMODE (turn chevrons, lift height, CH7 mode) went to the Arduino face
             # from here. The ESP-IDF head answers them ERR unknown, so they are retired
             # (head-protocol.md §8); a face message is specified there first if wanted again.

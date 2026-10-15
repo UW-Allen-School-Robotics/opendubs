@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 5                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED (all tablet face only)
+VERSION = 6                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT (all tablet face only)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -61,6 +61,7 @@ MESSAGES = {
     "VOLUME":  (FACE, "agreed"),        # v5, tablet face only
     "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
     "ARMED":   (FACE, "agreed"),        # v5, tablet face only
+    "BATT":    (FACE, "agreed"),        # v6, tablet face only (agreed with Face & HRI, 2026-10-15)
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -81,7 +82,7 @@ KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
     "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
-                    "BRIGHT", "ARMED", "REBOOT", "OTA"},
+                    "BRIGHT", "ARMED", "BATT", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -143,5 +144,7 @@ REPLY = {
     "volume_err": re.compile(r"^ERR volume "),
     "bright_err": re.compile(r"^ERR bright "),
     "armed_err": re.compile(r"^ERR armed "),
+    "batt_ok": re.compile(r"^OK batt (-|\d{1,3}) [01]$"),
+    "batt_err": re.compile(r"^ERR batt "),
     "unknown":   re.compile(r"^ERR unknown$"),
 }
