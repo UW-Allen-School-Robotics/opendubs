@@ -61,6 +61,7 @@ MESSAGES = {
     "VOLUME":  (FACE, "agreed"),        # v5, tablet face only
     "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
     "ARMED":   (FACE, "agreed"),        # v5, tablet face only
+    "BATT":    (FACE, "new"),           # proposed 2026-10-15 for Face & HRI's charge gauge; not agreed yet
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
