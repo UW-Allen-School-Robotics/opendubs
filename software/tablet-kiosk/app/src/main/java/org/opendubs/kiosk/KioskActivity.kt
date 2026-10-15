@@ -61,11 +61,17 @@ class KioskActivity : Activity() {
         // The page stays inspectable over adb (kiosk_check.py) in a release build too: the devtools
         // socket is local to the tablet, reachable only through adb.
         WebView.setWebContentsDebuggingEnabled(true)
-        // Updates come from the robot (Updater.kt): the dashboard's own origin serves them.
-        if (Updater.current == null) Updater.current = Updater(applicationContext) {
-            val u = Uri.parse(dashboardUrl())
-            "${u.scheme}://${u.authority}"
-        }.also { it.start() }
+        // Updates come from the robot (Updater.kt): the dashboard's own origin serves them. The updater
+        // outlives this activity, so it must hold nothing of it: it reads the URL through the
+        // application. (0.3.0 captured the activity here, and with it its WebView: after the app was
+        // restarted once, an invisible face page kept running and held the camera.)
+        if (Updater.current == null) {
+            val app = applicationContext
+            Updater.current = Updater(app) {
+                val u = Uri.parse(Provision.url(app) ?: app.getString(R.string.default_url))
+                "${u.scheme}://${u.authority}"
+            }.also { it.start() }
+        }
 
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -133,6 +139,17 @@ class KioskActivity : Activity() {
     override fun onPause() {
         bridge.stop()
         super.onPause()
+    }
+
+    // An activity that goes takes its page with it: a WebView left to the garbage collector keeps its
+    // page running (timers, sockets, an open camera) until then.
+    override fun onDestroy() {
+        retry.removeCallbacksAndMessages(null)
+        web.stopLoading()
+        web.loadUrl("about:blank")
+        web.removeJavascriptInterface("OpenDubsKiosk")
+        web.destroy()
+        super.onDestroy()
     }
 
     /** Loads the dashboard on first start or after a new `url`; otherwise leaves the page alone —

@@ -151,6 +151,9 @@
     }
   }
 
+  // Leaving the page closes its streams (see main.js in the face for why).
+  addEventListener("pagehide", () => { for (const cam of Object.keys(streams)) setCamera(cam, { on: false }); });
+
   setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ ping: performance.now() })); }, 5000);
   connect();
   setTimeout(battery, 2000);

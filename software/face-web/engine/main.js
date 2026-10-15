@@ -69,6 +69,10 @@ function pollCameras() {
   window.faceCameras = cams;                        // read by a harness through devtools
 }
 setInterval(pollCameras, 500); pollCameras();
+// Leaving the page closes its cameras, rather than trusting the browser to: on the robot tablet a page
+// that lingered after its activity went (2026-10-15) kept the screen-side camera open, and the next
+// face page could not open it.
+addEventListener("pagehide", () => { for (const t of ownVideo) t.stop(); ownVideo.clear(); });
 window.faceLevels = levels;                        // read by a harness through devtools
 window.faceSkins = skins;                          // read by a harness through devtools
 const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
