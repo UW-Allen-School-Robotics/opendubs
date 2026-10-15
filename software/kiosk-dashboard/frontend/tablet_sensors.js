@@ -9,13 +9,16 @@
      battery   every 10 s    battery() and thermal(): level, charging, plugged, temperature, throttling
      fix       every 1 s     the GNSS, from the WebView's geolocation. No position, or none for 5 s, is
                              sent as no fix: never a stale or guessed position.
+     camera    ON DEMAND     front (screen-side) and rear (back-side), as JPEG frames, only while the
+                             robot asks (something on the Thor subscribes, or someone switched it on).
+                             The face shows a sign whenever a camera is open; nothing is recorded here.
 */
 (() => {
   "use strict";
   const K = window.OpenDubsKiosk;
   if (!K || window.OpenDubsTabletSensors) return;
   const URL_ = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/tablet`;
-  const st = { connected: false, rtt_ms: null, sent: 0, fix: null, error: null };
+  const st = { connected: false, rtt_ms: null, sent: 0, fix: null, error: null, camera: {} };
   let ws = null, retry = 1000;
   const send = (m) => { if (ws && ws.readyState === 1 && st.connected) { ws.send(JSON.stringify(m)); st.sent++; } };
   const json = (f) => { try { return typeof K[f] === "function" ? JSON.parse(K[f]()) : null; } catch (e) { return null; } };
@@ -27,13 +30,18 @@
       const m = JSON.parse(e.data);
       if (m.ok) { st.connected = true; ws.send(JSON.stringify({ ping: performance.now() })); }
       if (m.error) st.error = m.error;
+      if (m.camera) for (const [cam, want] of Object.entries(m.camera)) setCamera(cam, want);
       if (m.pong !== undefined) {                     // the round trip, for the robot's stamps
         const rtt = performance.now() - m.pong;
         st.rtt_ms = st.rtt_ms === null ? rtt : Math.min(rtt, 0.8 * st.rtt_ms + 0.2 * rtt);
         ws.send(JSON.stringify({ rtt_ms: st.rtt_ms }));
       }
     };
-    ws.onclose = () => { st.connected = false; setTimeout(connect, retry); retry = Math.min(retry * 2, 10000); };
+    ws.onclose = () => {
+      st.connected = false;
+      for (const cam of Object.keys(streams)) setCamera(cam, { on: false });   // no robot asking: cameras off
+      setTimeout(connect, retry); retry = Math.min(retry * 2, 10000);
+    };
   }
 
   // ---- the readings -----------------------------------------------------------------------------
@@ -63,6 +71,58 @@
     send({ kind: "fix", lat: c.latitude, lon: c.longitude, acc: c.accuracy,
            alt: c.altitude, alt_acc: c.altitudeAccuracy, age_ms: Math.max(0, age) });
   }, 1000);
+
+  // ---- the cameras, on demand -------------------------------------------------------------------
+  // One stream per camera while the robot asks for it, closed the moment it stops asking. Frames go
+  // as binary: 4 bytes of header length, the JSON header {cam, w, h, age_ms}, then the JPEG. A frame
+  // is skipped while the last one is still on its way, so a slow link lowers the rate, never queues.
+  const streams = {};                                   // cam -> {stream, video, canvas, timer}
+  async function setCamera(cam, want) {
+    const cur = streams[cam];
+    if (!want.on) {
+      if (cur) { clearInterval(cur.timer); cur.stream.getTracks().forEach((t) => t.stop()); delete streams[cam]; }
+      st.camera[cam] = "off";
+      return;
+    }
+    if (cur || !navigator.mediaDevices) return;
+    streams[cam] = { opening: true, timer: null, stream: { getTracks: () => [] } };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: {
+        facingMode: { exact: cam === "rear" ? "environment" : "user" },
+        width: { ideal: want.w }, height: { ideal: want.h }, frameRate: { ideal: want.fps } } });
+      if (!streams[cam] || !streams[cam].opening) { stream.getTracks().forEach((t) => t.stop()); return; }   // turned off meanwhile
+      const video = document.createElement("video");
+      video.muted = true; video.playsInline = true; video.srcObject = stream;
+      await video.play();
+      const canvas = document.createElement("canvas"), g = canvas.getContext("2d");
+      let inFlight = false;
+      const grab = () => {
+        if (inFlight || !ws || ws.readyState !== 1 || ws.bufferedAmount > 0 || !video.videoWidth) return;
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        const t0 = performance.now();
+        g.drawImage(video, 0, 0);
+        inFlight = true;
+        canvas.toBlob(async (blob) => {
+          try {
+            if (!blob || !ws || ws.readyState !== 1) return;
+            const head = new TextEncoder().encode(JSON.stringify({ cam, w: canvas.width, h: canvas.height,
+                                                                    age_ms: performance.now() - t0 }));
+            const out = new Uint8Array(4 + head.length + blob.size);
+            new DataView(out.buffer).setUint32(0, head.length);
+            out.set(head, 4); out.set(new Uint8Array(await blob.arrayBuffer()), 4 + head.length);
+            ws.send(out);
+          } finally { inFlight = false; }
+        }, "image/jpeg", want.q);
+      };
+      streams[cam] = { stream, video, canvas, timer: setInterval(grab, 1000 / want.fps) };
+      st.camera[cam] = "on";
+      ws && ws.readyState === 1 && ws.send(JSON.stringify({ camera_error: { [cam]: null } }));
+    } catch (e) {
+      delete streams[cam];
+      st.camera[cam] = `failed: ${e.message}`;
+      ws && ws.readyState === 1 && ws.send(JSON.stringify({ camera_error: { [cam]: e.message || String(e) } }));
+    }
+  }
 
   setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ ping: performance.now() })); }, 5000);
   connect();
