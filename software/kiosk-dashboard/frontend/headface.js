@@ -42,7 +42,7 @@
       <div class="hf-row"><label for="hfSkin">Look (skin)</label><select id="hfSkin"></select></div>
       <div class="hf-row"><label for="hfTheme">Colours (theme)</label><select id="hfTheme"><option value="plain">plain</option><option value="halloween">halloween</option></select></div>
       <div class="hf-row"><label for="hfMouth">Mouth</label><input type="checkbox" id="hfMouth">
-        <span class="hf-note">Off by default: the face reads best with eyes alone.</span></div>
+        <span class="hf-note">Off by default. Nothing drives it yet (no voice or music moves it), so it shows a still mouth.</span></div>
 
       <h2 class="mt">LOOKING AT PEOPLE</h2>
       <div class="hf-row"><label for="hfTrack">Follow people with</label>
@@ -74,6 +74,7 @@
         <button class="iobtn" id="hfPlay">PLAY</button><button class="iobtn" id="hfNext">NEXT</button><button class="iobtn" id="hfStop">STOP</button>
         <label for="hfShuffle" class="hf-note">shuffle</label><input type="checkbox" id="hfShuffle">
       </div>
+      <div class="hf-note">The ticked songs and shuffle take effect when you press PLAY.</div>
     </section>`;
 
   let s = null, saveTimer = null;

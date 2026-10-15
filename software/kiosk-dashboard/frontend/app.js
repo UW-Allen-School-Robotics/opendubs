@@ -112,17 +112,6 @@ if (pdhBtn) {
   });
 }
 
-/* ---------- VNC start/stop (MASTER STATUS page) ---------- */
-let vncRunning = null;
-const vncBtn = $("btnVnc");
-if (vncBtn) {
-  vncBtn.addEventListener("click", () => {
-    const action = vncRunning ? "stop" : "start";
-    fetch("/api/vnc/" + action, { method: "POST" }).catch(() => {});
-    $("stVnc").textContent = action === "stop" ? "stopping…" : "starting…";
-  });
-}
-
 /* ---------- Generic confirm-on-tap action button ---------- */
 // Arms on first tap, fires the POST on a second tap within `window` ms.
 function confirmButton(btn, opts) {
@@ -744,11 +733,6 @@ function renderStatus(st) {
     $("sbSw").textContent = sf.software_estop == null ? "—" : sf.software_estop ? "LATCHED" : "clear";
   }
 
-  const vnc = st.vnc || {};
-  vncRunning = !!vnc.running;
-  $("stVnc").textContent = vncRunning ? "running" : "stopped";
-  setDot("stVncDot", vncRunning ? "ok" : "");
-  if (vncBtn) { vncBtn.textContent = vncRunning ? "STOP" : "START"; vncBtn.className = "vncbtn " + (vncRunning ? "on" : "off"); }
 }
 
 /* ---------- STAMPLC: digital inputs, relays, sensors, safety ---------- */
@@ -1135,19 +1119,6 @@ function renderMast(st) {
   const sb = $("btnLidarStart"), tb = $("btnLidarStop");
   if (sb) sb.addEventListener("click", () => { callService("/lidar/enable", { data: true }); sb.textContent = "STARTING…"; setTimeout(() => (sb.textContent = "START SPIN"), 1200); });
   if (tb) tb.addEventListener("click", () => { callService("/lidar/enable", { data: false }); tb.textContent = "STOPPING…"; setTimeout(() => (tb.textContent = "STOP SPIN"), 1200); });
-
-  // Mounting-yaw calibration: ⟲/⟳ nudge each lidar ±3°, persist, force a repaint.
-  function setYaw(lid, deg) {
-    deg = Math.round(deg); deg = ((deg % 360) + 360) % 360; if (deg > 180) deg -= 360;
-    if (lid === "front") { frontYaw = deg; localStorage.setItem("ly_f2", deg); const e = $("frontYawVal"); if (e) e.textContent = deg + "°"; lastDrawnStamp = -2; }
-    else { rearYaw = deg; localStorage.setItem("ly_r2", deg); const e = $("rearYawVal"); if (e) e.textContent = deg + "°"; lastRearDrawnStamp = -2; }
-  }
-  if ($("frontYawVal")) $("frontYawVal").textContent = frontYaw + "°";   // show defaults without persisting
-  if ($("rearYawVal")) $("rearYawVal").textContent = rearYaw + "°";
-  document.querySelectorAll(".calbtn").forEach((b) => b.addEventListener("click", () => {
-    const lid = b.dataset.lid;
-    setYaw(lid, (lid === "front" ? frontYaw : rearYaw) + parseInt(b.dataset.d, 10) * 3);
-  }));
 
   rosConnect();
   requestAnimationFrame(render);

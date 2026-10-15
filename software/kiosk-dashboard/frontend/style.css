@@ -232,13 +232,9 @@ body {
 .sdot.ok { background: var(--good); }
 .sdot.warn { background: var(--warn); }
 .sdot.bad { background: var(--bad); }
-.vncbtn {
   margin-left: auto; font: 700 16px/1 inherit; letter-spacing: 1px; padding: 12px 20px;
   border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--txt); min-height: 44px;
 }
-.vncbtn.on { border-color: var(--good); color: var(--good); }
-.vncbtn.off { border-color: var(--bad); color: var(--bad); }
-.vncbtn:active { background: var(--accent-2); color: #04223f; }
 
 /* ---------- NAV view (GPS + optical flow) ---------- */
 #view-nav.navview.active { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); padding: var(--gap); }
@@ -446,8 +442,6 @@ body {
 
 /* LIDAR rotation calibration */
 .lidar-cal { display: flex; align-items: center; gap: 8px; justify-content: center; margin: 3px 0 6px; }
-.calbtn { width: 36px; height: 30px; font-size: 17px; line-height: 1; background: #141b22; border: 1px solid #2a3742; border-radius: 6px; color: #e8eef2; cursor: pointer; }
-.calbtn:active { background: #38d6f0; color: #06121a; }
 .calval { font-family: ui-monospace, "SF Mono", monospace; font-size: 13px; min-width: 46px; text-align: center; color: #cfe3ee; }
 
 /* MOVEMENT INTENT widget */
@@ -510,7 +504,7 @@ body {
   #view-lidar.lidarview.active { grid-template-rows: minmax(0, 1fr); height: calc(100dvh - 57px); }
 
   /* Touch-sized controls */
-  .sysbtn, .iobtn, .vncbtn, .mode-opt, .estopbtn, .rearmbtn { min-height: 44px; }
+  .sysbtn, .iobtn, .mode-opt, .estopbtn, .rearmbtn { min-height: 44px; }
 }
 
 
