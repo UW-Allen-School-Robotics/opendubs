@@ -103,24 +103,53 @@
   // One stream per camera while the robot asks for it, closed the moment it stops asking. Frames go
   // as binary: 4 bytes of header length, the JSON header {cam, w, h, age_ms}, then the JPEG. A frame
   // is skipped while the last one is still on its way, so a slow link lowers the rate, never queues.
-  const streams = {};                                   // cam -> {stream, video, canvas, timer}
+  //
+  // ONE CAMERA AT A TIME (the SM-X133 refuses a second). The face's tracking holds the screen-side
+  // camera: a front stream SHARES its capture (no second open), and a rear stream PAUSES tracking
+  // until it ends (the user's decision, 2026-10-15). Two streams the robot asked for cannot both
+  // run: the second is refused, with that reason.
+  const streams = {};                                   // cam -> {stream, video, canvas, timer, shared, pausedTracking}
+  const NONE = { getTracks: () => [] };
   async function setCamera(cam, want) {
     const cur = streams[cam];
+    const T = window.OpenDubsTracking;
     if (!want.on) {
-      if (cur) { clearInterval(cur.timer); cur.stream.getTracks().forEach((t) => t.stop()); delete streams[cam]; }
+      if (cur) {
+        clearInterval(cur.timer);
+        if (!cur.shared) cur.stream.getTracks().forEach((t) => t.stop());    // never stop tracking's own capture
+        delete streams[cam];
+        if (cur.pausedTracking && T) T.resume().catch(() => {});
+      }
       st.camera[cam] = "off";
       return;
     }
     if (cur || !navigator.mediaDevices) return;
-    streams[cam] = { opening: true, timer: null, stream: { getTracks: () => [] } };
+    const other = streams[cam === "rear" ? "front" : "rear"];
+    if (other) {
+      st.camera[cam] = "refused: one camera at a time";
+      ws && ws.readyState === 1 && ws.send(JSON.stringify({ camera_error: { [cam]: `the tablet opens one camera at a time, and the ${cam === "rear" ? "front" : "rear"} is streaming` } }));
+      return;
+    }
+    streams[cam] = { opening: true, timer: null, stream: NONE };
+    let pausedTracking = false;                          // this call lent tracking's camera, and gives it back
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: {
-        facingMode: { exact: cam === "rear" ? "environment" : "user" },
-        width: { ideal: want.w }, height: { ideal: want.h }, frameRate: { ideal: want.fps } } });
-      if (!streams[cam] || !streams[cam].opening) { stream.getTracks().forEach((t) => t.stop()); return; }   // turned off meanwhile
-      const video = document.createElement("video");
-      video.muted = true; video.playsInline = true; video.srcObject = stream;
-      await video.play();
+      let stream = NONE, video, shared = false;
+      if (cam === "front" && T && T.video()) {           // tracking already has the screen-side camera: share it
+        video = T.video(); shared = true;
+      } else {
+        if (cam === "rear" && T && !T.paused()) { T.pause(); pausedTracking = true; }   // lend it the camera
+        stream = await navigator.mediaDevices.getUserMedia({ video: {
+          facingMode: { exact: cam === "rear" ? "environment" : "user" },
+          width: { ideal: want.w }, height: { ideal: want.h }, frameRate: { ideal: want.fps } } });
+        if (!streams[cam] || !streams[cam].opening) {    // turned off meanwhile
+          stream.getTracks().forEach((t) => t.stop());
+          if (pausedTracking && T) T.resume().catch(() => {});
+          return;
+        }
+        video = document.createElement("video");
+        video.muted = true; video.playsInline = true; video.srcObject = stream;
+        await video.play();
+      }
       const canvas = document.createElement("canvas"), g = canvas.getContext("2d");
       let inFlight = false;
       const grab = () => {
@@ -141,10 +170,11 @@
           } finally { inFlight = false; }
         }, "image/jpeg", want.q);
       };
-      streams[cam] = { stream, video, canvas, timer: setInterval(grab, 1000 / want.fps) };
+      streams[cam] = { stream, video, canvas, shared, pausedTracking, timer: setInterval(grab, 1000 / want.fps) };
       st.camera[cam] = "on";
       ws && ws.readyState === 1 && ws.send(JSON.stringify({ camera_error: { [cam]: null } }));
     } catch (e) {
+      if (pausedTracking && T) T.resume().catch(() => {});
       delete streams[cam];
       st.camera[cam] = `failed: ${e.message}`;
       ws && ws.readyState === 1 && ws.send(JSON.stringify({ camera_error: { [cam]: e.message || String(e) } }));

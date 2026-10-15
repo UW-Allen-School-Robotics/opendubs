@@ -68,7 +68,29 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   if (q.get("trackmain") === "1") return startMain(face, stats, src, delegate);
   stats.track = "loading";
   const worker = new Worker(new URL("./track_worker.js", import.meta.url), { type: "module" });
-  const video = await (src === "sweep" ? sweepSource() : cameraSource());
+  let video = await (src === "sweep" ? sweepSource() : cameraSource());
+  // The tablet opens ONE camera at a time. The robot's own camera streams (the dashboard's
+  // tablet_sensors.js) share this capture for the screen-side camera, and PAUSE tracking to use the
+  // back-side one (the user's decision, 2026-10-15): the eyes go back to their idle gaze, and tracking
+  // resumes when the stream ends.
+  let paused = false;
+  const stopVideo = () => { const s = video && video.srcObject; if (s && s.getTracks) s.getTracks().forEach((t) => t.stop()); };
+  window.OpenDubsTracking = {
+    video: () => (paused ? null : video),               // the live screen-side capture, to share
+    paused: () => paused,
+    pause() {
+      if (paused) return;
+      paused = true; stopVideo(); face.look(null);
+      stats.track = "paused: the camera is lent to a stream";
+    },
+    async resume() {
+      if (!paused) return;
+      video = await (src === "sweep" ? sweepSource() : cameraSource());
+      paused = false; stats.track = "resumed";
+      video.requestVideoFrameCallback(onFrame);
+    },
+  };
+  addEventListener("pagehide", stopVideo);
   const m = { detectMs: [], latencyMs: [], hits: 0, frames: 0, since: performance.now(), src, delegate, worker: true };
   window.trackStats = m;
   const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
@@ -104,6 +126,7 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
       (m.yaw !== undefined ? `, yaw ${m.yaw.toFixed(0)}` : "");
   };
   const onFrame = async (now, meta) => {
+    if (paused) return;                                 // the loop stops; resume() restarts it
     if (!busy) {
       busy = true;
       const s = ++seq;
