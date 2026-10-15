@@ -143,36 +143,48 @@ def build(d):
     if fitted == "tab5_pantilt":
         tab5_head(u, d, ha[fitted])
     elif fitted == "galaxy_tablet":
-        g = ha[fitted]
-        if known(g.get("mount_xyz_mm")):
-            u.link("head_link")
-            u.joint("head_mount_joint", "fixed", "lift_platform", "head_link", g["mount_xyz_mm"])
-        else:
-            u.missing.append("head_link (galaxy_tablet: no CAD yet; no head frames emitted)")
+        tablet_head(u, d, ha[fitted])
     else:
         sys.exit(f"head_assembly.fitted = {fitted!r}: no such assembly")
     return u, fitted
 
 
-def tab5_head(u, d, asm):
-    h = d[asm["geometry"]]
+def pan_tilt(u, h, tilt_visual=None):
+    """The neck's two joints, from a `head:`-style geometry block; returns the pivot (CAD mm).
+    Joint names match the MJCF (head_pan, head_tilt) whichever head rides on them."""
     pivot = h["pan_axis_xyz_mm"]
     assert h["tilt_axis_xyz_mm"] == pivot, "pan and tilt axes no longer meet; revisit the head joints"
-    assert h["export_pose"] == "yawed_180", "head parts are no longer exported at pan=180"
-    ext = {k: placed(v, pivot[0]) for k, v in h["extents_cad_mm"].items()}
-
-    def rel_span(span):
-        return {a: [v - pivot[i] for v in span[a]] for i, a in enumerate("xyz")}
-
     lo, hi = h["pan_range_deg"]
     u.link("head_pan_link")
     u.joint("head_pan", "revolute", "lift_platform", "head_pan_link", pivot,
             axis=h["pan_axis"], limit=(rad(lo), rad(hi)))
     # Positive tilt is DOWN, as in the MJCF: about +y, +x swings toward -z.
     t = h["tilt_travel_deg"]
-    u.link("head_tilt_link", box(rel_span(ext["pt_tilt_body"]), "frame"))
+    u.link("head_tilt_link", tilt_visual)
     u.joint("head_tilt", "revolute", "head_pan_link", "head_tilt_link",
             axis=h["tilt_axis"], limit=(rad(-t["up"]), rad(t["down"])))
+    return pivot
+
+
+def tablet_head(u, d, asm):
+    """A tablet on the neck: the same joints, and only the frames that have been measured. Its
+    mounting is unmeasured, so it has no visual box: a guessed one would mislead clearance."""
+    pivot = pan_tilt(u, d[asm["geometry"]])
+    for frame, spec in (asm.get("frames") or {}).items():
+        u.fixed_sensor("head_tilt_link", frame, spec.get("xyz_mm"), spec.get("rpy_deg"), pivot,
+                       "galaxy_tablet")
+
+
+def tab5_head(u, d, asm):
+    h = d[asm["geometry"]]
+    pivot = h["pan_axis_xyz_mm"]
+    assert h["export_pose"] == "yawed_180", "head parts are no longer exported at pan=180"
+    ext = {k: placed(v, pivot[0]) for k, v in h["extents_cad_mm"].items()}
+
+    def rel_span(span):
+        return {a: [v - pivot[i] for v in span[a]] for i, a in enumerate("xyz")}
+
+    pan_tilt(u, h, box(rel_span(ext["pt_tilt_body"]), "frame"))
 
     def face(span):
         """Centre of a part's forward (+x) face, in CAD coordinates at pan = tilt = 0."""

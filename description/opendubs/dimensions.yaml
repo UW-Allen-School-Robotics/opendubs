@@ -234,7 +234,7 @@ head_assembly:
   # The head is a SWAPPABLE sub-assembly: it attaches to the lift platform at its own mount pose
   # and brings its own joints and sensor frames. Changing heads changes `fitted` and nothing
   # else. Only the fitted assembly is emitted.
-  fitted: tab5_pantilt
+  fitted: galaxy_tablet           # 2026-10-15: the Galaxy tablet replaced the Tab5 panel
   tab5_pantilt:
     # Head frame positions are CAD coordinates with pan = tilt = 0 and the lift down, the same
     # convention as head.extents_cad_mm once placed; they ride on head_tilt_link.
@@ -248,8 +248,22 @@ head_assembly:
       tof_front_link: { xyz_mm: TODO_CAD, rpy_deg: [0, 0, 0] }  # Tab5 Port A ToF; aim ASSUMED forward
       head_imu_link:  { xyz_mm: TODO_CAD, rpy_deg: [0, 0, 0] }  # BMI270 on the Tab5 board
   galaxy_tablet:
-    # PLACEHOLDER. Under consideration as the Tab5's replacement; no CAD yet. Whether it keeps
-    # the pan/tilt, and where the D415 goes, are unknown. With this fitted the URDF has no head
-    # frames at all, rather than Tab5 frames in the wrong place.
-    mount_xyz_mm: TODO_CAD
-    frames: {}
+    # Samsung Galaxy Tab A11 (SM-X133), landscape, on the pan/tilt neck that the M5Dial drives.
+    # Fitted 2026-10-15. EVERY NUMBER HERE IS A MANUFACTURER SPEC VALUE OR AN ASSUMPTION, not a
+    # measurement: confirm each at the robot (workplan-thor-stack L.3b) and replace it.
+    device:
+      model: "Samsung Galaxy Tab A11 SM-X133"
+      size_mm: [211, 125, 8]          # SPEC: width x height x depth; landscape, so y x z x x here
+      mass_g: 340                     # SPEC
+      screen_px: [1340, 800]          # SPEC
+    # Pan/tilt axes and joint ranges: ASSUMED to be the same bracket as the Tab5 head (the `head:`
+    # block), so the neck's two joints keep their names and positions. Confirm at the robot.
+    geometry: head
+    # Frame positions use the same convention as tab5_pantilt: CAD coordinates with pan = tilt = 0
+    # and the lift down, riding on head_tilt_link. Left out of the URDF until measured.
+    frames:
+      head_screen_link:   { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # screen centre, x out of the glass
+      tablet_camera_link: { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the screen-side (front) camera
+      tablet_imu_link:    { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the tablet's IMU; Android axes
+    # Not on this head: the D415 (camera_link) and the front ToF (tof_front_link) were parts of
+    # the Tab5 head. If either is remounted, it gets a frame here with a measured position.
