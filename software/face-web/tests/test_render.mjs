@@ -96,10 +96,10 @@ check("a different seed draws something different", JSON.stringify(a.log) !== JS
   if (typeof r.face.setArmed === "function") {
     await r.apply("ARMED WAIT", 0); r.step(0);
     check("ARMED WAIT shows", r.face.armedState(0) === "wait", r.face.armedState(0));
-    r.step(2500);
-    check("  inside its lease", r.face.armedState(2500) === "wait", r.face.armedState(2500));
-    r.step(4000);
-    check("  and lapses at show time, not wall time", r.face.armedState(4000) === null, r.face.armedState(4000));
+    r.step(3000);
+    check("  up to the last ms of its 3 s lease", r.face.armedState(3000) === "wait", r.face.armedState(3000));
+    r.step(3001);
+    check("  and gone 1 ms after, on show time with no timer", r.face.armedState(3001) === null, r.face.armedState(3001));
   }
 }
 // A SKIN line is answered once the skin can draw (an asset loads after it is chosen).
