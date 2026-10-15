@@ -141,8 +141,40 @@ void replyNeck(char* out, size_t n) {
                       : g_pt.owner == neck::Owner::Rc   ? "rc"
                       : g_pt.owner == neck::Owner::Touch ? "touch"
                       : g_pt.owner == neck::Owner::Track ? "track" : "none";
-    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s",
-             g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner);
+    // tilt_band AND commissioned, both of them, because the band alone cannot be checked: the
+    // FALLBACK is a legitimate-looking 80..100 and a commissioned robot could in principle be
+    // measured to the same pair. Commissioning this neck is exactly the job that needs to be able
+    // to tell "measured" from "never measured", and the reference neck already reports a band, so
+    // this closes a gap rather than inventing a field.
+    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d",
+             g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner,
+             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0);
+}
+
+// TILT <min> <max> -- the per-robot tilt limits, measured ON the robot and written once.
+//
+// ONE IMPLEMENTATION, TWO TRANSPORTS. It began as a Serial-only provisioning line, which was right
+// while the Dial was on a bench with a USB cable. It is now on the robot, powered from the 24 V bus
+// with no USB, so the only way to commission it was a cable onto a live board -- and CLAUDE.md is
+// explicit that host->device serial writes here are unverified, so that path cannot even tell a
+// refused command from a broken one. Hence the same parser, reachable over UDP as well.
+//
+// The validation is unchanged and is the safety: 0 <= min < max <= 180, nothing else accepted. The
+// band is what the control law clamps every target to, so widening it is the one remote command
+// that can let the head reach somewhere new -- which is why it refuses rather than clamps, and why
+// the reply states what was actually stored.
+bool applyTilt(const char* args, char* out, size_t n) {
+    int lo = 0, hi = 0;
+    if (sscanf(args, "%d %d", &lo, &hi) != 2 || lo >= hi || lo < 0 || hi > 180) {
+        snprintf(out, n, "ERR tilt <min> <max>, 0 <= min < max <= 180");
+        return false;
+    }
+    g_nvs.begin("opendubs", false);
+    g_nvs.putInt("tiltMin", lo); g_nvs.putInt("tiltMax", hi);
+    g_nvs.end();
+    g_lim = neck::limitsFrom(true, lo, true, hi);      // live at once: no reboot to commission
+    snprintf(out, n, "OK tilt %d %d", lo, hi);
+    return true;
 }
 
 // OTA, the same shape as the Tab5's: the head PULLS its image over HTTP from a URL we are told,
@@ -202,6 +234,15 @@ void handle(const char* cmd, char* out, size_t n) {
     // message being unknown. A caller can tell "this neck has no ToF" from "this neck is too old
     // to have heard of ToF", which it could not if this fell through to ERR unknown.
     if (!strncmp(cmd, "TOF", 3)) { snprintf(out, n, "ERR tof not fitted"); return; }
+
+    // TILT <min> <max>: commissioning, over the wire. See applyTilt().
+    if (!strncmp(cmd, "TILT ", 5)) {
+        char reply[96];
+        applyTilt(cmd + 5, reply, sizeof(reply));
+        snprintf(out, n, "%s", reply);
+        line(reply);                                   // and on the serial log, for the bench
+        return;
+    }
 
     if (!strncmp(cmd, "OTA ", 4)) {
         char reply[128];
@@ -327,18 +368,9 @@ void loop() {
         // shape as WIFI above and for the same reason -- it is a property of this machine, so it
         // belongs in its NVS and never in the repo.
         if (s.startsWith("TILT ")) {
-            int lo = 0, hi = 0;
-            if (sscanf(s.c_str() + 5, "%d %d", &lo, &hi) == 2 && lo < hi && lo >= 0 && hi <= 180) {
-                g_nvs.begin("opendubs", false);
-                g_nvs.putInt("tiltMin", lo); g_nvs.putInt("tiltMax", hi);
-                g_nvs.end();
-                g_lim = neck::limitsFrom(true, lo, true, hi);
-                char b[96];
-                snprintf(b, sizeof(b), "tilt limits: saved %d..%d to NVS", lo, hi);
-                line(b);
-            } else {
-                line("tilt: usage TILT <min> <max>, 0 <= min < max <= 180");
-            }
+            char reply[96];
+            applyTilt(s.c_str() + 5, reply, sizeof(reply));   // the same parser the UDP path uses
+            line(reply);
         }
         if (s.startsWith("WIFI ")) {
             int sp = s.indexOf(' ', 5);
