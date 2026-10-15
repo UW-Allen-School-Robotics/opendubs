@@ -8,13 +8,23 @@
 // Choreography lane's, loaded as it is).
 
 const HOLD_MS = 1500;          // how long a press must last
+const TAP_MS = 500;            // shorter than this, and not a swipe: a tap, which shows the hint
+const HINT_MS = 3000;          // how long the hint stays
 const IDLE_CLOSE_MS = 10000;   // the overlay closes itself if nobody uses it
 
 export function start({ onRobot }) {
   const op = document.getElementById("op");
   const note = document.getElementById("opNote");
   const defaultNote = note.textContent;
-  let timer = null, closeTimer = null, startXY = null;
+  let timer = null, closeTimer = null, startXY = null, downAt = 0, hintTimer = null;
+  // Only the person who built it knows to long-press the face. A short tap says how, for a moment, in
+  // small grey type at the bottom; nothing shows on its own, so a show's face is never cluttered.
+  const hint = document.getElementById("hint");
+  const showHint = () => {
+    if (!hint) return;
+    hint.classList.add("show");
+    clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.remove("show"), HINT_MS);
+  };
 
   if (onRobot) {
     const s = document.createElement("script");
@@ -33,13 +43,17 @@ export function start({ onRobot }) {
 
   addEventListener("pointerdown", (e) => {
     if (op.classList.contains("open")) return;
-    startXY = [e.clientX, e.clientY];
-    timer = setTimeout(() => { timer = null; open(); }, HOLD_MS);
+    startXY = [e.clientX, e.clientY]; downAt = performance.now();
+    timer = setTimeout(() => { timer = null; hint && hint.classList.remove("show"); open(); }, HOLD_MS);
   });
   addEventListener("pointermove", (e) => {      // a swipe is not a press
     if (startXY && Math.hypot(e.clientX - startXY[0], e.clientY - startXY[1]) > 40) cancel();
   });
-  addEventListener("pointerup", cancel);
+  addEventListener("pointerup", () => {
+    const tap = startXY && timer && performance.now() - downAt < TAP_MS;   // still a press, released early
+    cancel();
+    if (tap) showHint();
+  });
   addEventListener("pointercancel", cancel);
 
   document.getElementById("opBack").addEventListener("click", close);

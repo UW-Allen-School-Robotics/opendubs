@@ -58,9 +58,18 @@ rsync -az --delete --filter 'P shows/audio/*' \
   "$CHOREO" "$HOST:$DEST_ROOT/choreo/"
 
 # The tablet face's page (software/face-web), served by the dashboard at /face/ (backend/face_door.py).
-# Its test library and downloaded vendor files are laptop-only and never copied.
+# Its test library is laptop-only and never copied. Of its downloaded vendor files only MediaPipe goes
+# (vendor/mediapipe, ~15 MB, from fetch-vendor.sh): the face's camera tracking runs on the tablet and
+# loads it from the robot, which may have no internet. Deploying from a checkout without it leaves the
+# robot's copy alone rather than deleting it.
 ssh "$HOST" "mkdir -p $DEST_ROOT/face-web"
-rsync -az --delete --exclude 'library/' --exclude 'vendor/' --exclude 'node_modules/' \
+if [ -f "$SRC../face-web/vendor/mediapipe/vision_bundle.mjs" ]; then
+  FACE_VENDOR=(--include 'vendor/' --include 'vendor/mediapipe/***' --exclude 'vendor/*')
+else
+  echo "== note: no software/face-web/vendor/mediapipe here (run fetch-vendor.sh); the robot keeps its own =="
+  FACE_VENDOR=(--exclude 'vendor/')
+fi
+rsync -az --delete "${FACE_VENDOR[@]}" --exclude 'library/' --exclude 'node_modules/' \
   --exclude '__pycache__' --exclude '*.pyc' \
   "$SRC../face-web/" "$HOST:$DEST_ROOT/face-web/"
 

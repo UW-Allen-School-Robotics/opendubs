@@ -33,6 +33,42 @@ const levels = new Levels();                       // VOLUME / BRIGHT (head prot
 // The ARMED overlay, loaded rather than imported so the page still runs on an engine without it.
 let drawArmed = null;
 import("./skins/armed.js").then((m) => { drawArmed = m.drawArmed; }).catch(() => {});
+
+// ---- which cameras are open: the face says so whenever one is (frame.js) ----------------------
+// From the kiosk app, the hardware's own state (any app, any camera: OpenDubsKiosk.cameras()); and,
+// in any browser, this page's own live video tracks, so a laptop twin's webcam shows it too. Either
+// one open lights the indicator.
+let drawCamera = null;
+import("./skins/camera.js").then((m) => { drawCamera = m.drawCameraOn || null; }).catch(() => {});
+const cams = { screen: false, back: false };
+const ownVideo = new Set();
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (c) => {
+    const s = await gum(c);
+    for (const t of s.getVideoTracks()) { ownVideo.add(t); t.addEventListener("ended", () => ownVideo.delete(t)); }
+    return s;
+  };
+}
+function pollCameras() {
+  let screen = false, back = false;
+  for (const t of ownVideo) {
+    if (t.readyState !== "live") { ownVideo.delete(t); continue; }
+    if ((t.getSettings().facingMode || "user") === "environment") back = true; else screen = true;
+  }
+  const K = window.OpenDubsKiosk;
+  if (K && typeof K.cameras === "function") {
+    try {
+      for (const c of JSON.parse(K.cameras())) {
+        if (!c.open) continue;
+        if (c.facing === "back") back = true; else screen = true;   // screen-side, or external: shown as F
+      }
+    } catch (e) { screen = screen || ownVideo.size > 0; }
+  }
+  cams.screen = screen; cams.back = back;
+  window.faceCameras = cams;                        // read by a harness through devtools
+}
+setInterval(pollCameras, 500); pollCameras();
 window.faceLevels = levels;                        // read by a harness through devtools
 window.faceSkins = skins;                          // read by a harness through devtools
 const libraryUrl = new URL(q.get("library") || "../library/", import.meta.url);
@@ -78,7 +114,7 @@ function frame(now) {
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   // AirPlay playing and heard: what it is, in the quote's place.
   const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
-  drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song });
+  stats.cameraSign = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera }).camera;
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
