@@ -238,7 +238,14 @@ export function makeAssetSkin(entry, baseUrl, onError) {
     get failed() { return failed; },
     // Decoded, or known to be undecodable. A VIDEO skin resolves on `canplay`, so its first frame
     // is there -- it does NOT make a video deterministic, because which frame is up on a later
-    // draw follows the wall clock. A render that must repeat exactly uses image skins.
+    // draw follows the wall clock, which an offline render does not control.
+    //
+    // SO A REPEATABLE RENDER USES IMAGE AND CODE SKINS. Settled (2026-10-15) with the Choreography
+    // and Tablet lanes rather than left as a caveat, because the alternative was real and was
+    // considered: seeking the video per frame (`currentTime`, then awaiting `seeked`) would make it
+    // deterministic, at the cost of making every render much slower for the one skin type that
+    // needs it. Choreography's render.py warns when a show uses a video skin, so the limit is
+    // reported where an author meets it instead of showing up as a video that will not reproduce.
     ready: () => decoded,
     source,
     stop() { if (entry.type === "video") { source.pause(); source.removeAttribute("src"); source.load(); } },
