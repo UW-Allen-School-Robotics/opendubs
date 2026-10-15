@@ -15,6 +15,8 @@ node software/face-web/tests/test_monsters.mjs       # the monster skins: lids, 
 node software/face-web/tests/test_armed.mjs          # the ARMED overlay, and its lease
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades and clamps, ARMED's lease
+node software/face-web/tests/test_render.mjs        # the offline render: same seed and times, same frames
+node software/face-web/tests/test_render_browser.mjs # ... and the same PIXELS in a real Chrome (SKIP without one)
 python3 software/face-web/tests/test_frame_tap.py    # the body twin's picture (no ports, no page)
 
 FACE=${FACE_PORT:-14244}; NECK=${NECK_PORT:-14245}

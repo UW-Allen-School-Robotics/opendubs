@@ -9,21 +9,27 @@
 // On the tablet the kiosk app does the device part (window.OpenDubsKiosk.setBrightness /
 // setMediaVolume). Without it — a twin in a laptop browser, or the headless engine in CI — brightness
 // is shown as a dimming of the page and volume is only remembered.
+//
+// The offline render (render.js) runs the same fades on the show's clock instead of the wall clock:
+// `clock` is its time, `timers: false` means nothing advances until it calls tick(t), and
+// `device: false` means only `level` changes (the render draws the dimming into its own frame).
 
 export const DEFAULTS = { brightMin: 0.15, volMax: 1.0, idle: { volume: 0.6, bright: 1.0 } };
 export const FADE_MAX_S = 30;
 const STEP_MS = 33;
 
 export class Levels {
-  constructor(settings = {}) {
+  constructor(settings = {}, { clock = () => Date.now(), timers = true, device = true } = {}) {
+    this.clock = clock; this.timers = timers; this.device = device;
     this.cfg = { ...DEFAULTS, idle: { ...DEFAULTS.idle } };
     // Until the robot's settings say otherwise, idle is what the device is set to now: a show's
     // IDLE must not override the volume someone chose on the tablet.
-    const K = typeof window !== "undefined" ? window.OpenDubsKiosk : null;
+    const K = device && typeof window !== "undefined" ? window.OpenDubsKiosk : null;
     if (K && typeof K.getMediaVolume === "function") this.cfg.idle.volume = K.getMediaVolume();
     this.configure(settings);
     this.level = { ...this.cfg.idle };     // what is applied now
     this.timer = { volume: null, bright: null };
+    this.fade = { volume: null, bright: null };   // a fade in flight: {from, target, t0, ms}
     this.touched = false;                  // a show has set something since the last idle
   }
 
@@ -44,16 +50,24 @@ export class Levels {
   set(which, v, fadeS = 0) {
     const target = this.clamp(which, v);
     const ms = Math.min(FADE_MAX_S, Math.max(0, fadeS || 0)) * 1000;
-    clearInterval(this.timer[which]);
+    clearInterval(this.timer[which]); this.timer[which] = null; this.fade[which] = null;
     this.touched = true;
-    const from = this.level[which], t0 = Date.now();
+    const from = this.level[which];
     if (ms <= 0 || from === target) { this._write(which, target); return target; }
-    this.timer[which] = setInterval(() => {
-      const p = Math.min(1, (Date.now() - t0) / ms);
-      this._write(which, from + (target - from) * p);
-      if (p >= 1) clearInterval(this.timer[which]);
-    }, STEP_MS);
+    this.fade[which] = { from, target, t0: this.clock(), ms };
+    if (this.timers) this.timer[which] = setInterval(() => this.tick(this.clock()), STEP_MS);
     return target;
+  }
+
+  /** Advance any fade in flight to time `now` (the clock's units: ms). */
+  tick(now) {
+    for (const which of ["volume", "bright"]) {
+      const f = this.fade[which];
+      if (!f) continue;
+      const p = Math.min(1, Math.max(0, (now - f.t0) / f.ms));
+      this._write(which, f.from + (f.target - f.from) * p);
+      if (p >= 1) { clearInterval(this.timer[which]); this.timer[which] = null; this.fade[which] = null; }
+    }
   }
 
   /** Back to the idle setting. Returns the applied target. */
@@ -72,6 +86,7 @@ export class Levels {
 
   _write(which, v) {
     this.level[which] = v;
+    if (!this.device) return;
     const K = typeof window !== "undefined" ? window.OpenDubsKiosk : null;
     if (which === "bright") {
       if (K && typeof K.setBrightness === "function") K.setBrightness(v);

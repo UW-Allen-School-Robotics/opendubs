@@ -7,7 +7,7 @@ head protocol's ([`notes/design/head-protocol.md`](../../notes/design/head-proto
 
 | | |
 |---|---|
-| `index.html`, `engine/` | the face: its behaviour (`face.js`), its half of the head protocol (`protocol.js`), skins (`skins/`), tracking (`track.js`, `track_worker.js`) |
+| `index.html`, `engine/` | the face: its behaviour (`face.js`), its half of the head protocol (`protocol.js`), skins (`skins/`), tracking (`track.js`, `track_worker.js`), the offline render (`render.js`) |
 | `door_dev.py` | the laptop's door: serves the page, carries head-protocol lines over UDP to it, and runs a reference neck. 127.0.0.1 only |
 | `make_test_library.py` | a small generated test library (an image skin, a video skin with transparency) in `library/` |
 | `fetch-vendor.sh` | the third-party files (MediaPipe), pinned, into `vendor/` |
@@ -32,6 +32,27 @@ state, `e` emote, `s` next skin, `t` theme. Talk to it as the robot would:
 ```bash
 python3 software/head-protocol/conformance.py 127.0.0.1:4244 --neck 127.0.0.1:4245 --active --motion
 ```
+
+## Render a show offline
+
+`index.html?render=1` is the face as a renderer rather than a live page. It is for drawing a show into
+a video (`software/choreo`). There is no frame loop, door, camera, tracking, audio, AirPlay or operator
+overlay. Time moves only when the caller moves it, so the same show, seed and times always give the
+same pixels. Parameters: `seed=N` (default 1), `w=W&h=H` (default 640×360; the face is 16:9 and any
+other shape is letterboxed on black), and optionally `skin=`, `state=` (default `AUTONOMOUS`) and
+`library=`.
+
+```js
+await OpenDubsRender.ready;                       // {w, h, seed}; the skin library is read once, here
+await OpenDubsRender.apply("SKIN ring", 1200);    // a head-protocol line at show time t (ms) → the reply
+OpenDubsRender.step(1233.3);                      // move the face to t and draw it
+OpenDubsRender.frame();                           // {w, h, rgba: base64 of w*h*4 bytes}
+```
+
+`apply` and `step` share one clock. It only runs forward, and a step back throws. The face starts at
+t = 0 as a page does, with its eyes opening, so step through a short lead-in before a show's first frame.
+BRIGHT is drawn into the frame as a dimming, and fades and the ARMED lease run on the show's clock.
+`tests/test_render.mjs` holds this in CI, and `tests/test_render_browser.mjs` compares real pixels in Chrome.
 
 ## On a tablet
 
