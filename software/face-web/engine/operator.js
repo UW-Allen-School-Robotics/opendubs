@@ -17,9 +17,13 @@ export function start({ onRobot }) {
   let timer = null, closeTimer = null, startXY = null;
 
   if (onRobot) {
-    const s = document.createElement("script");
-    s.src = "/show_audio.js";                 // the dashboard's own copy, same origin
-    document.head.appendChild(s);
+    // The dashboard's own copies, same origin: the show-audio client, and the tablet's sensors (which
+    // send only inside the kiosk app), so both keep running while the kiosk shows the face.
+    for (const src of ["/show_audio.js", "/tablet_sensors.js"]) {
+      const s = document.createElement("script");
+      s.src = src;
+      document.head.appendChild(s);
+    }
   }
 
   const close = () => { op.classList.remove("open"); note.textContent = defaultNote; clearTimeout(closeTimer); };
