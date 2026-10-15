@@ -551,6 +551,9 @@ app.include_router(_airplay_router)
 # The robot tablet's sensors into ROS as /tablet/*: light, battery, GNSS (tablet_relay.py).
 from tablet_relay import router as _tablet_relay_router  # noqa: E402
 app.include_router(_tablet_relay_router)
+# The kiosk app's next build, signed on the Thor, which the tablet installs itself (kiosk_update.py).
+from kiosk_update import router as _kiosk_update_router  # noqa: E402
+app.include_router(_kiosk_update_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

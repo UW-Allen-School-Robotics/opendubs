@@ -58,6 +58,14 @@ class KioskActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         DeviceOwner.apply(this)
+        // The page stays inspectable over adb (kiosk_check.py) in a release build too: the devtools
+        // socket is local to the tablet, reachable only through adb.
+        WebView.setWebContentsDebuggingEnabled(true)
+        // Updates come from the robot (Updater.kt): the dashboard's own origin serves them.
+        if (Updater.current == null) Updater.current = Updater(applicationContext) {
+            val u = Uri.parse(dashboardUrl())
+            "${u.scheme}://${u.authority}"
+        }.also { it.start() }
 
         web = WebView(this).apply {
             settings.javaScriptEnabled = true

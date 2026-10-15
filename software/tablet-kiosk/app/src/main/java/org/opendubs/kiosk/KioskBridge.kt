@@ -136,6 +136,19 @@ class KioskBridge(private val activity: Activity) {
     @JavascriptInterface
     fun version(): String = BuildConfig.VERSION_NAME
 
+    /** This build's versionCode, which the robot compares with the build it serves. */
+    @JavascriptInterface
+    fun versionCode(): Int = BuildConfig.VERSION_CODE
+
+    /** The self-updater's last word, JSON: {"state": "idle"|"none"|"current"|"waiting"|"downloading"|
+     *  "refused"|"installing"|"installed"|"failed"|"error", "detail", "at", "installed", "offered"}. */
+    @JavascriptInterface
+    fun updateStatus(): String = Updater.current?.status?.toString() ?: "{\"state\": \"off\"}"
+
+    /** Check the robot for a newer build now, rather than at the next 10-minute check. */
+    @JavascriptInterface
+    fun updateNow() { Updater.current?.checkSoon() }
+
     /** This screen's brightness, 0..1, for head protocol v5's BRIGHT (the face page fades it and
      *  applies the robot's floor). It sets the WINDOW's brightness, so it holds while the kiosk is in
      *  front and needs no permission; the system setting is untouched. */

@@ -122,7 +122,24 @@ it comes to the front first.
 
 **Is it still a kiosk?** `uv run --with websockets python3 kiosk_check.py --serial <serial>` checks device owner, lock task, the secure context, the bridge, the microphone, camera and location grants and a wake lock — run it before and after any update. Updating the tablet's **WebView**: `notes/design/tablet-device.md`, *Updating the robot tablet's WebView*.
 
-**Updates** keep the device owner and every setting: `adb install -r -t app-debug.apk`. To reach
+**Updates come from the robot, over Wi-Fi** (from 0.3.0). The app checks the robot 30 s after it starts
+and every 10 minutes (`Updater.kt`). When the robot serves a newer build, the app installs it itself,
+silently, as device owner, and comes back to the front:
+
+- build anywhere: `./gradlew assembleRelease` gives `app-release-unsigned.apk` and `kiosk-version.json`;
+- the deploy copies both to the Thor, whose `sign-kiosk.sh` signs the APK with the release key (kept
+  root-only on the Thor, never in this repository; its setup and backup are in that script's README) and
+  the dashboard serves it at `/api/kiosk/latest` and `/api/kiosk/apk`;
+- the app installs it only if its versionCode is higher, its sha256 is the one announced, it is this
+  package, and it is signed by the app's own key or by a key rotated from it (APK Signature Scheme v3
+  lineage). It never installs while a show is loaded or armed. `OpenDubsKiosk.updateStatus()` says
+  what it last decided, and the Head & face page shows the installed and served versions.
+
+There is no automatic rollback (an app cannot downgrade itself): a bad build is replaced by a newer,
+fixed one. A release build is not `testOnly`, so its device owner can only be removed by a factory reset.
+
+**By cable** (a first install, or a build that broke the updater): `adb install -r app.apk` with an APK
+signed as above (`-t` as well for a debug build). It keeps the device owner and every setting. To reach
 the tablet without the cable, `adb tcpip 5555` while it is on USB, then `adb connect <tablet-ip>:5555`;
 that stays open on the network until the next reboot, so reboot it when done.
 
