@@ -118,3 +118,11 @@ def test_the_door_takes_targets_from_the_newest_page_only(monkeypatch):
             time.sleep(0.02)
         time.sleep(0.1)
         assert nf.state["target"] == (0.8, 0.4, 0.7)
+
+
+def test_a_person_below_centre_lowers_the_head_by_default():
+    """The neck's tilt rises with its degrees (measured 2026-10-15); the image's y grows downward."""
+    cfg = nf.config()
+    assert cfg["tilt_sign"] == -1.0
+    (_, tilt), _ = nf.aim(STILL, (0.5, 0.95, 0.9), cfg)                 # a person low in the frame
+    assert tilt < 90
