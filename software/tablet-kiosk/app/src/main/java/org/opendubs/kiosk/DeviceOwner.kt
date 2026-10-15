@@ -21,6 +21,18 @@ import android.util.Log
 object DeviceOwner {
     private const val TAG = "OpenDubsKiosk"
 
+    /** "Stay awake while plugged in", on or off (device owner only; a no-op otherwise). The Head &
+     *  face page's "keep the screen on" switches it with the window flag: with only the flag
+     *  cleared, a tablet on the mount's power never slept. */
+    fun setStayOn(ctx: Context, on: Boolean) {
+        val dpm = ctx.getSystemService(DevicePolicyManager::class.java)
+        if (!dpm.isDeviceOwnerApp(ctx.packageName)) return
+        val admin = ComponentName(ctx, KioskAdminReceiver::class.java)
+        val plugged = BatteryManager.BATTERY_PLUGGED_AC or BatteryManager.BATTERY_PLUGGED_USB or
+            BatteryManager.BATTERY_PLUGGED_WIRELESS
+        dpm.setGlobalSetting(admin, Settings.Global.STAY_ON_WHILE_PLUGGED_IN, (if (on) plugged else 0).toString())
+    }
+
     fun isOwner(ctx: Context): Boolean =
         ctx.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(ctx.packageName)
 
@@ -47,10 +59,9 @@ object DeviceOwner {
             dpm.setPermissionGrantState(admin, activity.packageName, p,
                 DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
 
-        // Stay awake whenever plugged in, as a second layer under FLAG_KEEP_SCREEN_ON.
-        dpm.setGlobalSetting(admin, Settings.Global.STAY_ON_WHILE_PLUGGED_IN,
-            (BatteryManager.BATTERY_PLUGGED_AC or BatteryManager.BATTERY_PLUGGED_USB or
-                BatteryManager.BATTERY_PLUGGED_WIRELESS).toString())
+        // Stay awake whenever plugged in, as a second layer under FLAG_KEEP_SCREEN_ON, unless the
+        // Head & face page said to let the screen sleep (remembered across restarts).
+        setStayOn(activity, Provision.screenOn(activity))
 
         // This app is the launcher, so a reboot comes straight back to the dashboard.
         val home = IntentFilter(Intent.ACTION_MAIN).apply {

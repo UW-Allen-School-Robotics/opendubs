@@ -68,4 +68,12 @@ object Provision {
     fun saveUrl(ctx: Context, url: String) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("url", url).apply()
     }
+
+    /** The Head & face page's "keep the screen on" (default on), remembered so a restart honours it. */
+    fun screenOn(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("screen_on", true)
+
+    fun saveScreenOn(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("screen_on", on).apply()
+    }
 }
