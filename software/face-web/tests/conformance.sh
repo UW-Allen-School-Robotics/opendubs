@@ -18,6 +18,7 @@ node software/face-web/tests/test_camera_sign.mjs    # a camera is on: shown whe
 node software/face-web/tests/test_charging.mjs       # CHARGING: the purple, the edge gauge, and no invented level
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades and clamps, ARMED's lease
+node software/face-web/tests/test_percept.mjs       # attention, ported from the Tab5: motion, person, face, arbitration
 node software/face-web/tests/test_render.mjs        # the offline render: same seed and times, same frames
 node software/face-web/tests/test_render_browser.mjs # ... and the same PIXELS in a real Chrome (SKIP without one)
 node software/face-web/tests/test_camera_indicator.mjs  # the face says so whenever a camera is open

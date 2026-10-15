@@ -176,7 +176,8 @@ setInterval(() => {
   if (!door || door.readyState !== WebSocket.OPEN) return;
   const i = stats.trackInfo;
   const st = !tracking ? { state: "off" } : !i ? { state: "loading" } : {
-    state: i.state, hz: i.hz, found_pct: i.found_pct, frame: i.frame,
+    state: i.state, hz: i.hz, found_pct: i.found_pct, frame: i.frame, kind: i.kind, confidence: i.confidence,
+    cues: i.cues, person_model: i.person_model,
     last_found_s: i.last_found_at ? +((performance.now() - i.last_found_at) / 1000).toFixed(1) : null };
   door.send(JSON.stringify({ track_status: st }));
 }, 2000);
@@ -184,7 +185,7 @@ setInterval(() => {
   if (!door || door.readyState !== WebSocket.OPEN || !tracking) return;
   const t = face.target;
   const fresh = t && typeof t.ix === "number" && performance.now() - t.at < 400;
-  if (fresh) { door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf } })); sentNobody = false; }
+  if (fresh) { door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf, kind: t.kind || "face" } })); sentNobody = false; }
   else if (!sentNobody) { door.send(JSON.stringify({ track: null })); sentNobody = true; }
 }, 100);
 

@@ -235,3 +235,15 @@ def test_the_door_takes_the_report_from_the_newest_page_only(monkeypatch):
             time.sleep(0.02)
         time.sleep(0.1)
         assert nf.state["tracker"] == {"state": "running", "hz": 9}
+
+
+def test_the_targets_kind_and_the_trackers_winner_are_kept():
+    nf.note_target({"ix": 0.7, "iy": 0.4, "conf": 0.65, "kind": "person"})
+    assert nf.status()["kind"] == "person"
+    nf.note_target({"ix": 0.7, "iy": 0.4, "conf": 0.65, "kind": "laser"})        # unknown: a face, as before
+    assert nf.status()["kind"] == "face"
+    nf.note_status({"state": "running", "kind": "motion", "confidence": 0.7, "cues": {"motion": 3, "person": 1, "x": 9},
+                    "person_model": "failed to load"})
+    t = nf.status()["tracker"]
+    assert t["kind"] == "motion" and t["confidence"] == 0.7 and t["cues"] == {"motion": 3, "person": 1}
+    assert t["person_model"] == "failed to load"

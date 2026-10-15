@@ -8,6 +8,7 @@ cd "$(dirname "$0")"
 
 MEDIAPIPE=0.10.35     # @mediapipe/tasks-vision, Apache-2.0. NOT 1.x: 1.0.0+ POSTs usage logs to odml.pa.googleapis.com every 60 s; 0.10.35 has no such endpoint (checked by grep, below)
 MODEL_URL=https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+PERSON_MODEL_URL=https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -18,6 +19,11 @@ cp "$tmp/package/vision_bundle.mjs" vendor/mediapipe/
 cp "$tmp"/package/wasm/vision_wasm_internal.* vendor/mediapipe/wasm/
 cp "$tmp/package/LICENSE" vendor/mediapipe/ 2>/dev/null || true
 curl -fsSL -o vendor/mediapipe/face_landmarker.task "$MODEL_URL"
+# The PERSON detector (engine/track_worker.js): EfficientDet-Lite0, float16, version 1 (pinned, not
+# "latest"). Google's EfficientDet (TensorFlow/AutoML, Apache-2.0), from MediaPipe's model zoo, trained
+# on COCO. MediaPipe's object-detector page states no separate model licence (its text is CC-BY-4.0 and
+# its code samples Apache-2.0), and the file carries none. Not GPL.
+curl -fsSL -o vendor/mediapipe/efficientdet_lite0.tflite "$PERSON_MODEL_URL"
 echo "$MEDIAPIPE" > vendor/mediapipe/VERSION
 du -sh vendor/mediapipe
 # Every file pinned: a changed package or model (a re-published version, a different CDN answer) fails
@@ -29,6 +35,7 @@ fc3e9325a460f9ca70b93d58e850532a30fd14ceb6d02c837912af3cf65ed651  VERSION
 55d7ab624fbb70dcc5adc4ae6d7ea9cfcb569139d3dbfbf2b1deafcb966bc0fe  vision_bundle.mjs
 e7fd9858e8e8f221d9b96eddc11f8e077f263e0b7bbd79d3cbe882b134274f8c  wasm/vision_wasm_internal.js
 6a5c64584c2ab61c763b6e204afbdbc7ce1caf7f5216187322bca8df94f646bc  wasm/vision_wasm_internal.wasm
+4b59100025bea1235a84c1038879a6cccc9f6c49f5e41144e91e74d99e780993  efficientdet_lite0.tflite
 PINS
 then
   rm -rf vendor/mediapipe
