@@ -41,8 +41,11 @@ object DeviceOwner {
         dpm.setSystemUpdatePolicy(admin, SystemUpdatePolicy.createPostponeInstallPolicy())
 
         // The dashboard's microphone without a dialog — lock task hides permission dialogs.
-        dpm.setPermissionGrantState(admin, activity.packageName, Manifest.permission.RECORD_AUDIO,
-            DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+        // And the cameras and location, for the same reason (the robot's own origin only: KioskActivity).
+        for (p in listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA,
+                         Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            dpm.setPermissionGrantState(admin, activity.packageName, p,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
 
         // Stay awake whenever plugged in, as a second layer under FLAG_KEEP_SCREEN_ON.
         dpm.setGlobalSetting(admin, Settings.Global.STAY_ON_WHILE_PLUGGED_IN,
