@@ -12,13 +12,16 @@ import { CODE_SKINS } from "./skins/index.js";
  * @param ctx   a 2D context
  * @param W,H   its size in pixels
  * @param now   the face's clock, ms
- * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption}
+ * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption, cams, drawCamera}
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
+ *              cams: {screen, back}, which of the tablet's cameras are open; drawCamera: the skin's
+ *              indicator (Face & HRI's skins/camera.js), else the plain one here
  * @returns     {fullFace, armed}
  */
-export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true }) {
+export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
+                          cams = null, drawCamera = null }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -44,6 +47,10 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // "A live show is armed" (head protocol v5 ARMED): drawn LAST, on top of the skin and the quote and
   // inside the design-space transform, so no skin or photo can hide it (Face & HRI's skins/armed.js).
   if (drawArmed && typeof face.armedState === "function") drawArmed(ctx, face.armedState(now), now / 1000);
+  // A CAMERA IS OPEN (the user's condition for using the tablet's cameras, 2026-10-15): shown whenever
+  // either camera is open, for tracking or a stream, over every skin, photo and reserved state, and
+  // never when none is. Drawn after ARMED, so nothing covers it.
+  if (cams && (cams.screen || cams.back)) (drawCamera || drawCameraPlain)(ctx, cams, now / 1000);
   // BRIGHT, in the picture itself: black over the whole frame at (1 - bright) is exactly CSS
   // brightness(bright), which is how the page shows it live without the kiosk app.
   if (bright < 1) {
@@ -52,4 +59,19 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     ctx.fillStyle = `rgba(0,0,0,${(1 - Math.max(0, bright)).toFixed(4)})`; ctx.fillRect(0, 0, W, H);
   }
   return { fullFace, armed };
+}
+
+/** The plain camera indicator, until a skin draws its own: a red dot at the top right of the face
+ *  for each open camera, F (screen-side, the robot's front) and R (back-side, its rear). */
+export function drawCameraPlain(ctx, cams, _t) {
+  const on = [cams.screen && "F", cams.back && "R"].filter(Boolean);
+  ctx.save();
+  ctx.font = "600 16px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  on.forEach((label, i) => {
+    const x = DESIGN_W - 40 - (on.length - 1 - i) * 44, y = 40;
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = "#3a0d0d"; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fillStyle = "#ff3b30"; ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(label, x, y + 1);
+  });
+  ctx.restore();
 }

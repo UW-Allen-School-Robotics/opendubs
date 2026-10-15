@@ -33,6 +33,19 @@ state, `e` emote, `s` next skin, `t` theme. Talk to it as the robot would:
 python3 software/head-protocol/conformance.py 127.0.0.1:4244 --neck 127.0.0.1:4245 --active --motion
 ```
 
+## Cameras, and the controls
+
+**A camera is open: the face says so.** Whenever either of the tablet's cameras is open (face
+tracking, or a stream to the robot), a red dot shows at the top right of the face: F for the
+screen-side camera (the robot's front), R for the back-side one (its rear). It shows over every skin
+and state, and never when no camera is open. On the robot the state comes from the kiosk app's
+`cameras()`, which is the hardware's own view (any app). In a browser it comes from the page's own
+video tracks. Tracking (`tracking: tablet` on the Head & face page) loads MediaPipe from the robot
+(`deploy.sh` copies `vendor/mediapipe`), so it needs no internet.
+
+**The controls.** A long-press anywhere opens STOP SHOW / DASHBOARD / FACE. A short tap shows
+"Hold anywhere to open controls" for 3 s. Nothing shows by itself, so a show's face stays clean.
+
 ## Render a show offline
 
 `index.html?render=1` is the face as a renderer rather than a live page. It is for drawing a show into

@@ -17,12 +17,17 @@
   #op button { min-width: 230px; min-height: 120px; border-radius: 22px; border: 0; font: inherit; color: #fff; }
   #op .stop { background: #c62828; } #op .dash { background: #1f6feb; } #op .back { background: #333; }
   #op .note { position: fixed; bottom: 40px; left: 0; right: 0; text-align: center; color: #ccc; font-size: 20px; }
+  /* How to find the controls: shown for a moment after a short tap, never on its own (operator.js). */
+  #hint { position: fixed; left: 0; right: 0; bottom: 5vh; text-align: center; pointer-events: none;
+          font: 500 22px system-ui, sans-serif; color: #9a9a9a; opacity: 0; transition: opacity .3s; }
+  #hint.show { opacity: 1; }
 </style>
 </head>
 <body>
 <canvas id="face"></canvas>
 <video id="media" playsinline preload="auto"></video>
 <div id="hud"></div>
+<div id="hint" aria-live="polite">Hold anywhere to open controls</div>
 <div id="op" role="dialog" aria-label="Operator">
   <button class="stop" id="opStop">STOP SHOW</button>
   <button class="dash" id="opDash">DASHBOARD</button>
