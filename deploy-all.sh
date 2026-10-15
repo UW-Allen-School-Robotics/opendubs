@@ -40,8 +40,25 @@ deploy_sub software/openarm         openarm   # copied only; provision with open
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
+# The tablet's kiosk app, when one has been built: signed ON THE ROBOT with the project key and served
+# at the dashboard's /api/kiosk/latest (software/stack/kiosk-signing). The unsigned APK and its
+# kiosk-version.json come from the Mac's build, which is not in git, so OPENDUBS_KIOSK_APK can point
+# at a build in another checkout. Absent: skipped quietly; not every deploy changes the app.
+KIOSK_APK="${OPENDUBS_KIOSK_APK:-$REPO/software/tablet-kiosk/app/build/outputs/apk/release/app-release-unsigned.apk}"
+KIOSK_VER="$(dirname "$KIOSK_APK")/kiosk-version.json"
+deploy_kiosk() {
+  [ -f "$KIOSK_APK" ] && [ -f "$KIOSK_VER" ] || return 0
+  echo "== signing and publishing the kiosk app on $HOST =="
+  local tmp; tmp=$(ssh "$HOST" mktemp -d)
+  rsync -az "$KIOSK_APK" "$KIOSK_VER" "$HOST:$tmp/"
+  ssh -t "$HOST" "sudo $DEST/stack/kiosk-signing/sign-kiosk.sh $tmp/$(basename "$KIOSK_APK") $tmp/kiosk-version.json" \
+    || echo "!! the kiosk app was NOT published (see above); the rest of the deploy is unaffected"
+  ssh "$HOST" rm -rf "$tmp"
+}
+
 echo "== provisioning $HOST (idempotent) =="
 ssh -t "$HOST" "sudo bash $DEST/provision-all.sh"
+deploy_kiosk
 
 # Post-deploy health readout — every opendubs unit, including the StamPLC->ROS bridge.
 SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-camera opendubs-yolo-tracker opendubs-drive-bridge"
