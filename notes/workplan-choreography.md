@@ -211,6 +211,24 @@ host. It has no network input today, by design.*
 | 5.7 | **Start modes — BUILT at the desk 2026-10-13** (approved by the Orchestrator; the face's indication agreed with the Tablet lane as head protocol v5): a run starts `deadman` (the robot's default), `countdown` (a twin's) or `now`, picked per run on the Shows page (the dashboard forwards only `start` and `countdown_s`). `deadman`: preflight on everything but the deadman, then ARMED_WAITING — nothing moves, the show audio loads, e-stop / CH5 / fault / arms still disarm it with the reason; the GO is the deadman's RISING edge after arming (held at Start: let go, press again; unknown is not a release); letting go while armed is not an abort; 300 s with no GO is REFUSED `START_TIMEOUT`. Then COUNTDOWN (default 5 s; show `start_countdown_s`, per-run override), PREPPING, the 2 s lead, RUNNING; letting go from the GO on aborts; Stop works in every state; every transition logged. The face: `ARMED WAIT` (re-sent every 1 s, held 3 s by the head), `ARMED <s>` at the GO, `ARMED OFF` at the start or any end — live runs only. Tested on the fake robot (`test_runner.py`). **Not yet on the robot**: needs the head firmware's v5 (the runner logs a head that answers ERR and carries on). | An operator can arm a show, walk to position, and start it with the deadman; a held or taped deadman can never start one. |
 | 5.8 | **Volume and brightness cues — BUILT at the desk 2026-10-13** (approved by the Orchestrator; the head's side is head protocol v5, in the Tablet lane's form): show-level `device: {volume, brightness}` and `DEVICE` cues `{do: volume\|brightness, level 0..1, fade_s ≤ 30}`; the validator warns below brightness 0.15 (the head's `bright_min`). The face bridge sends `VOLUME`/`BRIGHT <level> [fade_s]` as the playhead crosses them, the level in force on a seek, and `VOLUME IDLE` + `BRIGHT IDLE` at every show end beside `EMOTE AUTO` (and at runner start, in case a crashed run left them set); the head's reply, which carries the level it applied, is logged. Twins: the composer plays its music at the simulated volume (fades included) and previews both levels with the head's floor applied; `face_stub.py` simulates the head's clamp and replies. **Not yet on the robot**: needs the head's v5. | A show can set and fade the head's volume and brightness, and every show leaves both as the head had them. |
 
+### Paused 2026-10-15 — where the offline render stopped, and what is next
+
+- **#280** (branch `feat/show-render-face`, on main, green before its last commit `d27ace8`): the face track
+  (the face page's render mode, Tablet #277, with the engine's seed, Face & HRI #276), layouts c (default) /
+  b / a, the face on the twin's head screen, `--seed`, a video-skin warning, an `ERR` face reply logged as a
+  WARNING at once, and the reframing that missed #275's merge (camera fitted to the show's outline,
+  1280x720 default). Next: re-check CI on `d27ace8`, then merge when green (the user's standing go).
+- **The twin's head is still the Tab5's** (user catch): `render.py`'s `Robot` builds `scene.build(face_screen=True)`
+  with the robot description's fitted head; the studio's live twin passes `--head galaxy_tablet`. Next:
+  (1) find where the Tab5 look comes from (the fitted head in `description/opendubs/dimensions.yaml`, and the
+  head screen texture in `sim/scene.py`); render and live twin both on the tablet head, the screen showing only
+  the face-web face; (2) ask Thor for the Galaxy Tab A11 (SM-X133: 8.7", 1340x800, ~211 x 125 x 8 mm,
+  ~340 g, spec values to be measured at the robot) in the description; update `sim/` (mine) to use it; flag
+  where the head's size feeds the arm-head clearance (`sim/clearance.py` pairs, `ik.py`) and re-sweep every show.
+- **Then**: render `monster_mash` at the new defaults into `~/opendubs-renders/monster_mash_face_720p.mp4`
+  (muted, outside the repo); report time, size and any ERR / video-skin warnings. Tablet was asked to drop the
+  face page's idle caption in render mode (or add `caption=0`).
+
 ## Phase 6 — on the robot
 
 *The hardware session. Experiments as specified in
