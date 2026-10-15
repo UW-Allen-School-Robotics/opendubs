@@ -126,10 +126,24 @@ void report() {
 // ---- the head protocol ------------------------------------------------------------------------
 
 // `PING` -> the neck's PONG, in the shape fake_head.py models and the conformance suite matches.
-// pan/tilt report 0 and owner `none` until the servos are wired; they are not invented.
+//
+// IT USED TO REPORT pan=0.0 tilt=0.0 AND owner=none, HARD-CODED. That was honest when it was
+// written -- no servos were wired, and inventing a position would have been worse than admitting
+// to none. The servos have been fitted since, and nobody came back to this: during the tilt
+// commissioning NECK reported pan=61.2 tilt=95.4 while PING, one line later, said 0.0/0.0. A
+// field that was once "we do not know" had quietly become "we do know, and this is wrong".
 void replyPing(char* out, size_t n) {
-    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0",
-             NECK_FW_SHA);
+    if (!g_servoPresent) {
+        snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0",
+                 NECK_FW_SHA);
+        return;
+    }
+    const char* owner = g_pt.owner == neck::Owner::Gaze ? "gaze"
+                      : g_pt.owner == neck::Owner::Rc   ? "rc"
+                      : g_pt.owner == neck::Owner::Touch ? "touch"
+                      : g_pt.owner == neck::Owner::Track ? "track" : "none";
+    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=%s pan=%.1f tilt=%.1f",
+             NECK_FW_SHA, owner, g_pt.pan, g_pt.tilt);
 }
 
 // `NECK` -> the status the suite parses. With nothing fitted, the protocol's own
