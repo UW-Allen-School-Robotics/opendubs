@@ -29,8 +29,12 @@ Published through the local rosbridge, as one client (OPENDUBS_ROSBRIDGE_URL, de
         (/var/lib/opendubs/tablet/camera_{front,rear}.yaml, camera_calibration's own format), else
         zeros: uncalibrated, as the message type defines it.
 
-Android's thermal throttling level is kept here (GET /api/tablet/sensors), not published: no topic for
-it is agreed yet. So is the tilt and impact log: the tilt from gravity, taken only while the tablet is
+  /diagnostics          the tablet's thermal state, as status "tablet: thermal" (the Thor lane's spec):
+                        level OK for none/light, WARN for moderate/severe, ERROR for critical and above,
+                        STALE with no reading for 10 s; on change and every 5 s. `level` goes as a plain
+                        integer: check one with `ros2 topic echo /diagnostics --once` on the robot.
+
+The tilt and impact log is kept here (GET /api/tablet/sensors): the tilt from gravity, taken only while the tablet is
 still (|a| within 5 % of 1 g), and every impact above IMPACT_G with its peak, on the Thor's clock.
 
 Stamps are the Thor's wall clock (ROS time): when the reading arrived, less its age on the tablet and
@@ -61,6 +65,7 @@ TOPICS = {
     "/tablet/battery": "sensor_msgs/msg/BatteryState",
     "/tablet/fix": "sensor_msgs/msg/NavSatFix",
     "/tablet/imu": "sensor_msgs/msg/Imu",
+    "/diagnostics": "diagnostic_msgs/msg/DiagnosticArray",
 }
 # sensor_msgs/BatteryState power_supply_status
 CHARGING, DISCHARGING, NOT_CHARGING, FULL = 1, 2, 3, 4
@@ -70,6 +75,9 @@ IMPACT_G = 2.0             # an acceleration above this many g is an impact (a k
 IMPACT_GAP_S = 0.5         # one impact, however many samples its peak spans
 STILL_G = 0.05             # |a| within this of 1 g: still enough to read tilt from gravity
 ABSENT = [-1.0] + [0.0] * 8
+THERMAL = ("none", "light", "moderate", "severe", "critical", "emergency", "shutdown")   # Android's 0..6
+THERMAL_EVERY_S = 5.0
+THERMAL_STALE_S = 10.0
 
 CAMERAS = ("front", "rear")
 CAMERA_DIR = os.environ.get("OPENDUBS_TABLET_CAMERA_DIR") or "/var/lib/opendubs/tablet"
@@ -82,7 +90,7 @@ for _c in CAMERAS:
 state = {"page": None, "rtt_ms": None, "published": 0, "dropped": 0, "last": {}, "thermal": None,
          # per camera: mode "auto" (on while subscribed) | "on" | "off"; subscribed; on (what the page
          # was last told); frames published; busy (a frame is being published: the next one is dropped)
-         "tilt": None, "impacts": [],
+         "tilt": None, "impacts": [], "thermal_at": None, "thermal_sent": None, "thermal_sent_at": 0.0,
          "camera": {c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
                         "busy": False, "error": None, "w": None, "h": None} for c in CAMERAS}}
 
@@ -282,6 +290,7 @@ async def _watch_subscribers() -> None:
         for c in CAMERAS:
             state["camera"][c]["subscribed"] = await ros.subscribed(f"/tablet/camera/{c}/image_raw/compressed")
         await tell_page_cameras()
+        await publish_thermal()                              # every 5 s, and STALE once readings stop
         await asyncio.sleep(CAMERA_POLL_S)
 
 
@@ -393,6 +402,8 @@ async def tablet_ws(socket: WebSocket) -> None:
                 break
             if m.get("kind") == "battery" and isinstance(m.get("thermal"), (str, type(None))):
                 state["thermal"] = m.get("thermal")
+                state["thermal_at"] = time.monotonic() if m.get("thermal") else state["thermal_at"]
+                await publish_thermal()
             for topic, msg in to_messages(m, state["rtt_ms"]):
                 if topic == "/tablet/imu":
                     note_motion(msg)
@@ -408,6 +419,29 @@ async def tablet_ws(socket: WebSocket) -> None:
             state["page"] = None
             for c in CAMERAS:
                 state["camera"][c]["on"] = False
+
+
+def thermal_status(word, age_s) -> dict:
+    """The tablet's thermal state as one DiagnosticStatus (levels: 0 OK, 1 WARN, 2 ERROR, 3 STALE)."""
+    if word not in THERMAL or age_s is None or age_s > THERMAL_STALE_S:
+        level, message, value = 3, "no reading", ""
+    else:
+        n = THERMAL.index(word)
+        level, message, value = (0 if n <= 1 else 1 if n <= 3 else 2), word, str(n)
+    return {"level": level, "name": "tablet: thermal", "message": message, "hardware_id": "galaxy-tab-a11",
+            "values": [{"key": "thermal_status", "value": value}]}
+
+
+async def publish_thermal(force: bool = False) -> None:
+    """On a change of the status (or its staleness), and every THERMAL_EVERY_S."""
+    now = time.monotonic()
+    age = None if state["thermal_at"] is None else now - state["thermal_at"]
+    st = thermal_status(state["thermal"], age)
+    key = (st["level"], st["message"])
+    if not force and key == state["thermal_sent"] and now - state["thermal_sent_at"] < THERMAL_EVERY_S:
+        return
+    if await ros.publish("/diagnostics", {"header": {"stamp": stamp(0, None), "frame_id": ""}, "status": [st]}):
+        state["thermal_sent"], state["thermal_sent_at"] = key, now
 
 
 def note_motion(msg: dict) -> None:

@@ -61,6 +61,9 @@ class _Recorder:
         pass
     async def subscribed(self, topic):
         return topic in self.subs
+    def sensors(self):
+        """What was published, less /diagnostics (the thermal status, which also goes out on a timer)."""
+        return [(t, m) for t, m in self.got if t != "/diagnostics"]
     async def publish(self, topic, msg):
         self.got.append((topic, msg))
         return True
@@ -82,8 +85,8 @@ def test_only_the_kiosk_is_heard_and_the_newest_page_wins(monkeypatch):
         page.send_json({"kind": "battery", "level": 50, "charging": False, "plugged": None, "thermal": "light"})
         page.send_json({"ping": 1})
         page.receive_json()
-        assert [t for t, _ in rec.got] == ["/tablet/illuminance", "/tablet/battery"]
-        assert abs(rec.got[0][1]["header"]["stamp"]["sec"] - time.time()) < 5       # the Thor's clock
+        assert [t for t, _ in rec.sensors()] == ["/tablet/illuminance", "/tablet/battery"]
+        assert abs(rec.sensors()[0][1]["header"]["stamp"]["sec"] - time.time()) < 5       # the Thor's clock
         with c.websocket_connect("/ws/tablet") as reloaded:                          # the page reloads
             reloaded.send_json({"hello": {"kiosk": True}})
             assert reloaded.receive_json() == {"ok": True}
@@ -208,8 +211,8 @@ def test_a_camera_streams_only_while_something_subscribes(monkeypatch):
         assert m["camera"]["front"]["on"] is True and m["camera"]["rear"]["on"] is False
         assert m["camera"]["front"]["w"] == 640 and m["camera"]["front"]["fps"] == 10
         page.send_bytes(_frame("front"))
-        assert _wait(lambda: len(rec.got) == 2)
-        (t1, img), (t2, info) = rec.got
+        assert _wait(lambda: len(rec.sensors()) == 2)
+        (t1, img), (t2, info) = rec.sensors()
         assert t1 == "/tablet/camera/front/image_raw/compressed" and img["format"] == "jpeg"
         assert base64.b64decode(img["data"]) == JPEG and img["header"]["frame_id"] == "tablet_front_camera_optical_frame"
         assert t2 == "/tablet/camera/front/camera_info" and info["width"] == 640 and info["k"] == [0.0] * 9
@@ -272,3 +275,26 @@ def test_tilt_only_while_still_and_impacts_counted_once():
     for t, g in ((2.00, 2.5), (2.02, 3.4), (2.04, 2.2), (3.0, 2.1)):   # one knock of three samples, then another
         tr.note_motion(_imu(0.0, 0.0, g * 9.80665, t))
     assert [i["peak_g"] for i in tr.state["impacts"]] == [3.4, 2.1]
+
+
+def test_thermal_goes_to_diagnostics_with_the_agreed_levels():
+    assert [tr.thermal_status(w, 1)["level"] for w in tr.THERMAL] == [0, 0, 1, 1, 2, 2, 2]
+    st = tr.thermal_status("severe", 1)
+    assert st["name"] == "tablet: thermal" and st["hardware_id"] == "galaxy-tab-a11" and st["message"] == "severe"
+    assert st["values"] == [{"key": "thermal_status", "value": "3"}]
+    assert tr.thermal_status("none", 11)["level"] == 3 and tr.thermal_status(None, None)["level"] == 3   # STALE
+
+
+def test_thermal_is_published_on_change_and_not_every_reading(monkeypatch):
+    rec = _Recorder()
+    c = _client(monkeypatch, None, ros=rec)
+    tr.state.update(thermal_sent=None, thermal_sent_at=0.0, thermal_at=None)
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json(); page.receive_json()
+        for word in ("none", "none", "moderate"):
+            page.send_json({"kind": "battery", "level": 50, "charging": False, "plugged": None, "thermal": word})
+        page.send_json({"ping": 1}); page.receive_json()
+        diags = [m["status"][0] for t, m in rec.got if t == "/diagnostics"]
+        assert [d["message"] for d in diags][-2:] == ["none", "moderate"] and diags[-1]["level"] == 1
+        assert sum(d["message"] == "none" for d in diags) == 1          # the same status twice: once

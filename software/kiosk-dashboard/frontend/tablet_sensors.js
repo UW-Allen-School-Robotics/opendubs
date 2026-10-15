@@ -6,7 +6,7 @@
 
    What it sends, each reading with its age on the tablet (the robot stamps it on its own clock):
      light     every 1 s     the kiosk app's light(): lux
-     battery   every 10 s    battery() and thermal(): level, charging, plugged, temperature, throttling
+     battery   every 5 s     battery() and thermal(): level, charging, plugged, temperature, throttling
      fix       every 1 s     the GNSS, from the WebView's geolocation. No position, or none for 5 s, is
                              sent as no fix: never a stale or guessed position.
      imu       ~60 Hz        acceleration with gravity (DeviceMotion), in batches every 100 ms. No
@@ -58,7 +58,7 @@
     if (b) send({ kind: "battery", level: b.level, charging: b.charging, plugged: b.plugged,
                   battery_c: t ? t.battery_c : null, thermal: t ? t.status : null, age_ms: 0 });
   };
-  setInterval(battery, 10000);
+  setInterval(battery, 5000);
 
   let pos = null;                                     // the last position and when it was taken
   if (navigator.geolocation) {
