@@ -92,10 +92,14 @@ async def page_checks(serial, port):
                     try { const s = await t; const st = s.getVideoTracks()[0].readyState; s.getTracks().forEach(k => k.stop()); return st; }
                     catch (e) { return 'refused: ' + e.message; } })()""" % facing)
                 check(f"the {side} camera, with no prompt", cam == "live", str(cam))
-            geo = await evaluate(ws, """(async () => {
-                try { return (await navigator.permissions.query({name: 'geolocation'})).state; }
-                catch (e) { return 'unknown: ' + e.message; } })()""")
-            check("location granted", geo == "granted", str(geo))
+            # Asked for real: the app grants it on every request and tells the WebView not to remember,
+            # so the permission query says "prompt" by design. A position, or no fix in time (indoors),
+            # means granted; only PERMISSION_DENIED (code 1) is a refusal.
+            geo = await evaluate(ws, """new Promise((res) => navigator.geolocation.getCurrentPosition(
+                (p) => res('granted: a position, ' + Math.round(p.coords.accuracy) + ' m'),
+                (e) => res(e.code === 1 ? 'refused: ' + e.message : 'granted: no fix yet (' + e.message + ')'),
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }))""")
+            check("location granted", str(geo).startswith("granted"), str(geo))
             if bridge:
                 sens = await evaluate(ws, "['light', 'cameras', 'thermal'].filter((m) => typeof OpenDubsKiosk[m] !== 'function').join(',')")
                 check("the sensor bridge (light, cameras, thermal)", sens == "", f"missing: {sens}" if sens else "")
