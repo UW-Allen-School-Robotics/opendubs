@@ -12,6 +12,7 @@
 // for the camera — capture-to-result latency from requestVideoFrameCallback's capture time.
 
 import { FilesetResolver, FaceLandmarker } from "../vendor/mediapipe/vision_bundle.mjs";
+import { Attention, KIND } from "./percept/attention.js";
 
 const VENDOR = new URL("../vendor/mediapipe/", import.meta.url).href;
 const GAIN = 1.4;                       // the frame's edge is past full deflection, as an eye leads
@@ -106,11 +107,15 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   worker.onerror = (e) => { stats.track = info.state = `failed: worker: ${e.message || "error"} (${e.filename || ""}:${e.lineno || ""})`; };
   const ready = new Promise((res, rej) => { worker.onmessage = (e) => {
     if (e.data.error) { stats.track = info.state = "failed: worker: " + e.data.error.split("\n")[0]; rej(new Error(e.data.error)); }
-    else if (e.data.ready) { m.loadMs = e.data.loadMs; res(); } }; });
+    else if (e.data.ready) { m.loadMs = e.data.loadMs; m.personModel = e.data.person; m.personError = e.data.personError; res(); } }; });
   worker.postMessage({ init: true, delegate });
   await ready;
 
-  let busy = false, seq = 0;
+  // ATTENTION, as the Tab5 did it (percept/attention.js): every result's cues go to the arbiter, and the
+  // one winner (face > person > motion) is what the eyes, and through the door the neck, look at.
+  const att = new Attention();
+  m.cues = { motion: 0, person: 0, face: 0 };
+  let busy = false, seq = 0, lastPerson = { at: -1e9, h: 0 };
   const captured = new Map();
   worker.onmessage = (e) => {
     const r = e.data;
@@ -119,24 +124,51 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
     const now = performance.now();
     if (m.warmupMs === undefined) { m.warmupMs = r.detectMs; m.since = now; return; }   // the first is a warm-up
     m.frames++;
-    m.detectMs.push(r.detectMs); if (m.detectMs.length > 120) m.detectMs.shift();
+    if (r.ran) { m.detectMs.push(r.detectMs); if (m.detectMs.length > 120) m.detectMs.shift(); }
     const cap = captured.get(r.seq); captured.delete(r.seq);
     if (cap) { m.latencyMs.push(now - cap); if (m.latencyMs.length > 120) m.latencyMs.shift(); }
+    // The cues, in image coordinates -1..1 (x right, y down), the same for all three.
+    if (r.motion && r.motion.valid) { att.noteMotion(now, r.motion.nx, r.motion.ny, r.motion.strength); m.cues.motion++; }
+    if (r.person) {
+      att.notePerson(now, (r.person.x - 0.5) * 2, (r.person.y - 0.5) * 2, r.person.score);
+      lastPerson = { at: now, h: r.person.h }; m.cues.person++;
+    }
     if (r.found) {
-      m.hits++; info.last_found_at = now;
+      // Facing the robot is what a face is worth: the score falls off with head turn.
       const facing = Math.max(0, 1 - Math.abs(r.yaw) / 45);
-      // ix, iy: where in the camera's image (0..1), for the neck (main.js → the door → neck_follow.py)
-      face.look({ x: -(r.x - 0.5) * 2 * GAIN, y: (r.y - 0.5) * 2 * GAIN, conf: 0.4 + 0.6 * facing, at: now, ix: r.x, iy: r.y });
-      m.yaw = r.yaw;
-    } else face.look(null);
+      att.noteFace(now, (r.x - 0.5) * 2, (r.y - 0.5) * 2, 0.3 + 0.7 * facing);
+      m.yaw = r.yaw; m.cues.face++;
+    }
+    const g = att.tick(now);
+    if (g.kind === KIND.NONE) face.look(null);
+    else {
+      m.hits++; info.last_found_at = now;
+      // The camera looks out of the screen, so a person on its right is on the face's left (x flips).
+      // ix, iy: where in the camera's image (0..1), for the neck (main.js → the door → neck_follow.py).
+      face.look({ x: -g.nx * GAIN, y: g.ny * GAIN, conf: g.confidence, at: now, kind: g.kind,
+                  ix: (g.nx + 1) / 2, iy: (g.ny + 1) / 2 });
+    }
     const el = (now - m.since) / 1000;
     info.state = "running"; info.hz = +(m.frames / el).toFixed(1);
     info.found_pct = Math.round(100 * m.hits / Math.max(1, m.frames));
     info.frame = video && video.videoWidth ? [video.videoWidth, video.videoHeight] : null;
-    stats.track = `${src} ${delegate} worker, warm-up ${m.warmupMs.toFixed(0)} ms, ${(m.frames / el).toFixed(1)} Hz, ` +
-      `${(100 * m.hits / Math.max(1, m.frames)).toFixed(0)}% found, detect p50 ${pct(m.detectMs, 0.5).toFixed(1)} ` +
+    info.kind = g.kind; info.confidence = +g.confidence.toFixed(2);
+    info.cues = { ...m.cues };
+    if (m.personModel === false) info.person_model = m.personError || "not loaded";
+    stats.track = `${src} ${delegate} worker, warm-up ${m.warmupMs.toFixed(0)} ms, ${info.hz} Hz, ` +
+      `${info.found_pct}% tracking (${g.kind}${g.kind !== KIND.NONE ? ` ${info.confidence}` : ""}), ` +
+      `cues m${m.cues.motion}/p${m.cues.person}/f${m.cues.face}, detect p50 ${pct(m.detectMs, 0.5).toFixed(1)} ` +
       `p95 ${pct(m.detectMs, 0.95).toFixed(1)} ms, frame->result p50 ${pct(m.latencyMs, 0.5).toFixed(0)} ms` +
       (m.yaw !== undefined ? `, yaw ${m.yaw.toFixed(0)}` : "");
+  };
+  // Which detector this frame: the person detector on every other frame; the face on the rest, but
+  // only when a person is near (a big box) or none has been seen lately (someone close enough that the
+  // face fills the view). At ~15 frames a second that is ~7 detections a second, the old tracker's load.
+  const which = (n, now) => {
+    if (n % 2 === 0) return m.personModel ? "person" : "face";
+    const near = now - lastPerson.at < 1500 && lastPerson.h > 0.35;
+    const none = now - lastPerson.at > 1500;
+    return near || none ? "face" : null;
   };
   const onFrame = async (now, meta) => {
     if (paused) return;                                 // the loop stops; resume() restarts it
@@ -146,7 +178,7 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
       // From the camera's own capture time where the browser gives one, else from now.
       captured.set(s, meta && meta.captureTime ? meta.captureTime : performance.now());
       const bitmap = await createImageBitmap(video);
-      worker.postMessage({ bitmap, ts: performance.now(), seq: s }, [bitmap]);
+      worker.postMessage({ bitmap, ts: performance.now(), seq: s, run: which(s, performance.now()) }, [bitmap]);
     }
     video.requestVideoFrameCallback(onFrame);
   };

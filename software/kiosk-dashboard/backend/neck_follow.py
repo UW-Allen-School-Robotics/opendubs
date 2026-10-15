@@ -109,7 +109,14 @@ def note_status(s) -> None:
     keep = {}
     if isinstance(s.get("state"), str):
         keep["state"] = s["state"][:160]
-    for k in ("hz", "found_pct", "last_found_s"):
+    if s.get("kind") in ("none", "motion", "person", "face"):
+        keep["kind"] = s["kind"]
+    if isinstance(s.get("person_model"), str):
+        keep["person_model"] = s["person_model"][:160]
+    c = s.get("cues")
+    if isinstance(c, dict):
+        keep["cues"] = {k: int(v) for k, v in c.items() if k in ("motion", "person", "face") and isinstance(v, int)}
+    for k in ("hz", "found_pct", "last_found_s", "confidence"):
         if isinstance(s.get(k), (int, float)) and not isinstance(s.get(k), bool):
             keep[k] = s[k]
     f = s.get("frame")
@@ -129,6 +136,8 @@ def note_target(t) -> None:
         return
     if 0 <= ix <= 1 and 0 <= iy <= 1 and 0 <= conf <= 1:
         state["target"], state["target_at"] = (ix, iy, conf), time.monotonic()
+        k = t.get("kind")
+        state["kind"] = k if k in ("face", "person", "motion") else "face"
 
 
 def aim(neck: dict, target, cfg: dict):
@@ -258,7 +267,8 @@ async def start() -> None:
 def status() -> dict:
     tr = state["tracker"]
     tracker = dict(tr, age_s=round(time.monotonic() - state["tracker_at"], 1)) if tr else None
-    return {"why": state["why"], "stopped": state["stopped"], "tracker": tracker, "neck": state["neck"],
+    return {"why": state["why"], "stopped": state["stopped"], "tracker": tracker, "kind": state.get("kind"),
+            "neck": state["neck"],
             "neck_age_s": round(time.monotonic() - state["neck_at"], 1) if state["neck"] else None,
             "sent": state["sent"], "sent_count": state["sent_count"],
             "target": state["target"], "target_age_s": round(time.monotonic() - state["target_at"], 2) if state["target"] else None,

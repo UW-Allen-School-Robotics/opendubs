@@ -157,6 +157,8 @@
       : t.age_s > 10 ? `Tracker: no report for ${Math.round(t.age_s)} s (is the face showing?).`
       : t.state === "running"
         ? `Tracker: running, ${t.hz} Hz, ${t.found_pct}% of frames find someone` +
+          (t.kind && t.kind !== "none" ? `, now following ${t.kind === "motion" ? "MOTION" : t.kind === "person" ? "a PERSON" : "a FACE"} (${Math.round(100 * (t.confidence || 0))}%)` : "") +
+          (t.person_model ? ` [person detector: ${t.person_model}]` : "") +
           (t.frame ? `, camera ${t.frame[0]}×${t.frame[1]}` : "") +
           (t.last_found_s != null ? `, last seen ${t.last_found_s} s ago` : ", nobody seen yet")
         : `Tracker: ${t.state}.`;
