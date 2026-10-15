@@ -1,7 +1,7 @@
 name: ros
 
 # Tests for the Thor's ROS nodes that run without ROS: the StamPLC peer guard drive_bridge.py
-# uses before it parses [ODO] or sends DRIVE. Path-filtered to software/ros/.
+# uses before it parses [ODO] or sends DRIVE, and when the tablet camera-demand node posts. Path-filtered to software/ros/.
 
 on:
   push:
@@ -26,4 +26,5 @@ jobs:
         with:
           python-version: "3.x"
       - run: python3 software/ros/tests/test_plc_peer.py
+      - run: python3 software/ros/tests/test_tablet_camera_demand.py
       - run: python3 -m py_compile software/ros/*.py
