@@ -49,6 +49,24 @@ check("IDLE answers the idle level", say("VOLUME IDLE") === "OK volume idle 0.33
 check("malformed is an error", say("BRIGHT 0.5 fast").startsWith("ERR bright "), say("BRIGHT 0.5 fast"));
 check("no device levels: ERR unknown", handle({}, {}, "VOLUME 0.5", 0, null, null) === "ERR unknown", "");
 
+// "Leave the tablet's own volume alone" (volume_idle null): idle follows the device, so a show's end
+// gives back what the operator had set, not an old idle level.
+{
+  let device = 0.33;
+  window.OpenDubsKiosk.getMediaVolume = () => device;
+  window.OpenDubsKiosk.setMediaVolume = (v) => { device = v; writes.volume.push(v); };
+  const f = new Levels();
+  const s2 = (line) => handle({}, {}, line, 0, null, f);
+  f.configure({ idle: { volume: 0.5 } });
+  f.configure({ idle: { volume: null } });                // unticked on the Head & face page
+  device = 0.8;                                           // the operator turns the tablet up
+  s2("VOLUME 0.2");                                       // a show changes it
+  check("null idle volume: a show's end gives back the operator's level", s2("VOLUME IDLE") === "OK volume idle 0.80", s2("VOLUME IDLE"));
+  f.configure({ idle: { volume: 0.4 } });                 // ticked again: a fixed idle level
+  device = 0.9; s2("VOLUME 0.2");
+  check("a fixed idle volume still wins", s2("VOLUME IDLE") === "OK volume idle 0.40", s2("VOLUME IDLE"));
+}
+
 // ARMED, against a face that can draw it.
 const shown = [];
 const face = { setArmed: (s) => shown.push(s) };
