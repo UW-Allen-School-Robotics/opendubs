@@ -108,11 +108,14 @@ class KioskBridge(private val activity: Activity) {
         return """{"status": ${status?.let { "\"$it\"" } ?: "null"}, "battery_c": $batteryC}"""
     }
 
-    /** Keep the screen on (true, the default) or let it sleep normally (false). */
+    /** Keep the screen on (true, the default) or let it sleep normally (false): the window flag AND,
+     *  as device owner, "stay awake while plugged in", remembered so a restart honours it. */
     @JavascriptInterface
     fun keepAwake(on: Boolean) = activity.runOnUiThread {
         if (on) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Provision.screenOn(activity) != on) Provision.saveScreenOn(activity, on)
+        DeviceOwner.setStayOn(activity, on)
     }
 
     /** Turn the screen on and bring the dashboard to the front, e.g. when a show is armed. */

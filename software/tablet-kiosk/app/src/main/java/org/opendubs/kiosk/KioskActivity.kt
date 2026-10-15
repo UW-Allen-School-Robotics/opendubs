@@ -56,7 +56,7 @@ class KioskActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Provision.screenOn(this)) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         DeviceOwner.apply(this)
         // The page stays inspectable over adb (kiosk_check.py) in a release build too: the devtools
         // socket is local to the tablet, reachable only through adb.
