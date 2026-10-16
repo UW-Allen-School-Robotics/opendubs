@@ -93,7 +93,8 @@ state = {"target": None, "target_at": 0.0, "why": "starting", "neck": None, "nec
 #  - RUNAWAY: over the last RUNAWAY_N updates (two steps: at this gain a wrong sign reaches the limit in
 #    three) the head was sent the same way on an axis by at least RUNAWAY_DEG in all, while the person's
 #    offset on that axis GREW by RUNAWAY_GROW (large enough that a right sign chasing a brisk walker
-#    does not trip it). Following stops
+#    does not trip it), the person staying on ONE side of the image throughout (one crossing the view
+#    flips sides: that is the head following, not running away). Following stops
 #    and stays stopped (latched, and said on /api/head/follow) until the tracking setting is changed.
 #  - AT A LIMIT: a target pinned at the envelope's edge for LIMIT_HOLD_S is out of reach. Nothing is
 #    sent (the lease runs out, the head stays) until the aim comes off the limit.
@@ -109,7 +110,12 @@ def runaway(history) -> str | None:
     for axis, ai, oi in (("pan", 0, 2), ("tilt", 1, 3)):
         steps = [b[ai] - a[ai] for a, b in zip(h, h[1:])]
         one_way = all(d > 0 for d in steps) or all(d < 0 for d in steps)
-        if one_way and abs(h[-1][ai] - h[0][ai]) >= RUNAWAY_DEG and abs(h[-1][oi]) >= abs(h[0][oi]) + RUNAWAY_GROW:
+        # The person stayed on ONE side of the image throughout. A wrong sign always keeps them there,
+        # pushing them further out; someone walking ACROSS the view flips sides, and that is the head
+        # following correctly (2026-10-16: a person crossing left to right tripped it).
+        one_side = all(x[oi] > 0 for x in h) or all(x[oi] < 0 for x in h)
+        if (one_way and one_side and abs(h[-1][ai] - h[0][ai]) >= RUNAWAY_DEG
+                and abs(h[-1][oi]) >= abs(h[0][oi]) + RUNAWAY_GROW):
             return axis
     return None
 

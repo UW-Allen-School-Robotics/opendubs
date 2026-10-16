@@ -358,3 +358,13 @@ def test_a_page_without_sighting_times_never_moves_the_head(monkeypatch):
     assert not [s for s in sent if s.startswith("GAZE")]
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 40})
     assert nf.status()["sighting_age_s"] is not None
+
+
+def test_a_person_crossing_the_view_is_not_a_runaway():
+    """The robot, 2026-10-16: the head turned left to a person on the image's left, then right as they
+    walked across, while they stayed ahead of it. Pan went one way over the last two aims and the offset
+    grew in size, but it changed SIDE: following, not running away."""
+    h = [(119.8, 86.2, -0.40, 0.6), (112.9, 83.5, 0.38, 0.3), (102.1, 85.0, 0.80, 0.1)]
+    assert nf.runaway(h) is None
+    wrong = [(82.5, 90.0, -0.50, 0.0), (71.25, 90.0, -0.75, 0.0), (60.0, 90.0, -1.0, 0.0)]
+    assert nf.runaway(wrong) == "pan"                                     # a wrong sign stays on one side
