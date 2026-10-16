@@ -19,9 +19,10 @@ def test_a_person_off_to_the_side_turns_the_head_part_way():
 
 def test_the_rules_that_keep_the_head_still():
     assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG)[1] == "not confident enough"
-    assert nf.aim(STILL, (0.6, 0.55, 0.9), CFG)[1] == "close enough: eyes only"     # a glance: eyes only
+    assert nf.aim(STILL, (0.52, 0.51, 0.9), CFG)[1] == "close enough: eyes only"    # jitter: the eyes'
+    assert nf.aim(STILL, (0.6, 0.55, 0.9), CFG)[1] is None                         # the head centres it
     assert "held" in nf.aim({**STILL, "owner": "rc"}, (0.9, 0.5, 0.9), CFG)[1]     # a person has it
-    assert nf.aim({**STILL, "moving": True}, (0.9, 0.5, 0.9), CFG)[1] == "the neck is moving"
+    assert nf.aim({**STILL, "moving": True}, (0.9, 0.5, 0.9), CFG)[1] is None      # a turning head aims too
 
 
 def test_never_past_the_envelope():
@@ -56,8 +57,12 @@ def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,9
     monkeypatch.setattr(nf, "why_not_now", lambda: why)
     import head
     monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    nf.state.update(stopped=None, history=[], limit_since=None, used_seen_at=float("-inf"), settle_at=0.0)
+    _fresh()
     return sent
+
+
+def _fresh():
+    nf.state.update(stopped=None, limit_since=None, poses=[], hist_seen=None, sighting=None, prev_sighting=None)
 
 
 def test_one_step_sends_a_leased_gaze(monkeypatch):
@@ -73,10 +78,10 @@ def test_nothing_is_sent_when_not_allowed_or_nobody_is_seen(monkeypatch):
     assert nf.step(CFG) == "a show is loaded (wave, RUNNING)" and sent == []
     sent = _sends(monkeypatch)
     nf.note_target(None)                                                # lost: the lease runs out
-    assert nf.step(CFG) == "nobody seen" and sent == []
+    assert nf.step(CFG) == "nobody seen" and not [s for s in sent if s.startswith("GAZE")]
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
     nf.state["target_at"] = time.monotonic() - 5                        # stale
-    assert nf.step(CFG) == "nobody seen" and sent == []
+    assert nf.step(CFG) == "nobody seen" and not [s for s in sent if s.startswith("GAZE")]
     nf.note_target({"ix": 9, "iy": 0.5, "conf": 0.9, "age_ms": 0})                   # nonsense is ignored
     assert nf.state["target"][0] == 0.9
 
@@ -130,54 +135,128 @@ def test_a_person_below_centre_lowers_the_head_by_default():
     assert tilt < 90
 
 
-def _closed_loop(monkeypatch, pan_sign, person_pan=105.0, steps=40, walk=0.0):
-    """A simulated neck that goes where GAZE sends it, and a person standing at `person_pan` degrees.
-    The camera rides the head, so the person's image offset depends on where the head points (with
-    the real geometry, measured 2026-10-16: a person at a higher pan, the robot's left, is LEFT of the
-    image's centre). Five updates a second, each a new sighting, on a clock the test drives."""
-    neck = {"pan": 90.0, "tilt": 90.0}
-    sent = []
+class _Robot:
+    """A simulated robot: a neck that SLEWS at 70 deg/s to where GAZE sends it, and a tracker that
+    captures a frame every `every` s, reports it `latency` s later, and re-sends that same sighting
+    (its age growing) until the next one, as the face page does. A person stands or walks at
+    person(t) degrees of pan. The real geometry, measured 2026-10-16: a person at a higher pan, the
+    robot's left, is LEFT of the image's centre."""
 
-    def ask(host, line, timeout=0.3):
+    def __init__(self, monkeypatch, pan_sign, person, start=90.0, every=0.25, latency=0.4):
+        self.t, self.pan, self.target, self.person = 1000.0, start, start, person
+        self.every, self.latency, self.track = every, latency, [(self.t, start)]
+        self.sent, self.cfg = [], {**CFG, "pan_sign": pan_sign, "tilt_sign": -1.0, "gain": 1.0, "rate": 10.0}
+        monkeypatch.setattr(nf, "_ask", self.ask)
+        monkeypatch.setattr(nf, "why_not_now", lambda: None)
+        monkeypatch.setattr(nf, "_clock", lambda: self.t)
+        import head
+        monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+        _fresh()
+
+    def ask(self, host, line, timeout=0.3):
         if line == "NECK":
-            return f"OK neck pan={neck['pan']} tilt={neck['tilt']} target=0,0 moving=0 owner=none"
-        p, t = float(line.split()[1]), float(line.split()[2])
-        neck["pan"], neck["tilt"] = p, t
-        sent.append(line)
-        return f"OK gaze {p} {t}"
-    monkeypatch.setattr(nf, "_ask", ask)
-    monkeypatch.setattr(nf, "why_not_now", lambda: None)
-    import head
-    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(nf, "_clock", lambda: clock["t"])
-    nf.state.update(stopped=None, history=[], limit_since=None, used_seen_at=float("-inf"), settle_at=0.0)
-    cfg = {**CFG, "pan_sign": pan_sign, "tilt_sign": -1.0}
-    why = None
-    for i in range(steps):
-        clock["t"] += 0.2
-        person = person_pan + walk * i                                   # degrees per update (5 a second)
-        ox = (neck["pan"] - person) / (cfg["hfov"] / 2)                  # where the person is in the image
-        nf.note_target({"ix": min(1, max(0, 0.5 + ox / 2)), "iy": 0.5, "conf": 0.9, "age_ms": 0})
-        why = nf.step(cfg)
-        if why and why.startswith("STOPPED"):
-            break
-    return neck, why, sent
+            return f"OK neck pan={self.pan:.2f} tilt=90.0 target=0,0 moving=0 owner=none"
+        self.target = float(line.split()[1])
+        self.sent.append(self.target)
+        return "OK gaze"
+
+    def pose(self, t):
+        """Where the head truly was at `t`: it slews continuously between the steps."""
+        for (t0, p0), (t1, p1) in zip(self.track, self.track[1:]):
+            if t0 <= t <= t1:
+                return p0 + (p1 - p0) * (t - t0) / (t1 - t0)
+        return self.track[-1][1]
+
+    def run(self, seconds):
+        why, first = None, self.t
+        while self.t < first + seconds:
+            self.t = round(self.t + 0.1, 6)
+            step = max(-7.0, min(7.0, self.target - self.pan))         # 70 deg/s
+            self.pan += step
+            self.track.append((self.t, self.pan))
+            k = int((self.t - self.latency - first) // self.every)     # the newest frame reported by now
+            if k >= 0:
+                tc = first + k * self.every                             # when it was captured
+                ox = (self.pose(tc) - self.person(tc)) / (self.cfg["hfov"] / 2)
+                if abs(ox) <= 1:
+                    nf.note_target({"ix": 0.5 + ox / 2, "iy": 0.5, "conf": 0.9, "kind": "face",
+                                    "age_ms": round((self.t - tc) * 1000)})
+                else:
+                    nf.note_target(None)                                # out of the picture
+            why = nf.step(self.cfg)
+            if why and why.startswith("STOPPED"):
+                break
+        return why
+
+
+def test_the_right_sign_centres_a_person_standing_still(monkeypatch):
+    assert nf.config()["pan_sign"] == -1.0 and nf.config()["gain"] == 1.0  # the measured sign, all the way
+    r = _Robot(monkeypatch, -1.0, lambda t: 105.0)
+    why = r.run(3.0)
+    assert not (why or "").startswith("STOPPED"), why
+    assert abs(r.pan - 105.0) <= nf.EYE_ONLY * CFG["hfov"] / 2 + 0.01, r.pan
+    assert max(r.sent) <= 105.0 + 0.5                                    # it goes there; it does not overshoot
 
 
 def test_a_wrong_sign_is_caught_as_a_runaway_before_the_limit(monkeypatch):
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0)
+    r = _Robot(monkeypatch, 1.0, lambda t: 105.0)
+    why = r.run(5.0)
     assert why and why.startswith("STOPPED") and "PAN_SIGN" in why, why
-    assert neck["pan"] > 90 - CFG["pan_range"]                            # stopped before the limit
-    assert nf.step(CFG).startswith("STOPPED")                             # latched
+    assert min(r.sent) > 90 - CFG["pan_range"], r.sent                  # it never sent the limit
+    assert nf.step(r.cfg).startswith("STOPPED")                         # latched
 
 
-def test_the_right_sign_settles_on_the_person(monkeypatch):
-    assert nf.config()["pan_sign"] == -1.0                                 # the default is the measured sign
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0)
+def test_a_person_crossing_the_view_is_followed_not_stopped(monkeypatch):
+    """The robot, 2026-10-16: the user crossed the view and the old guard tripped. 20 deg/s, there and back."""
+    walk = lambda t: 75.0 + 30.0 * (1 - abs(((t - 1000.0) / 1.5) % 2 - 1))   # 75 -> 105 -> 75 ...
+    r = _Robot(monkeypatch, -1.0, walk, start=75.0)
+    why = r.run(6.0)
     assert not (why or "").startswith("STOPPED"), why
-    # It closes in until the person is inside the eyes-only band, where the eyes take over by design.
-    assert abs(neck["pan"] - 105.0) <= nf.EYE_ONLY * CFG["hfov"] / 2 + 0.01, neck
+    assert max(r.sent) > 98 and min(r.sent) < 82                        # it went with them both ways
+
+
+def test_a_brisk_walker_is_not_mistaken_for_a_runaway(monkeypatch):
+    r = _Robot(monkeypatch, -1.0, lambda t: 65.0 + 30.0 * (t - 1000.0))   # 30 deg/s, one way, 65 -> 113
+    why = r.run(1.6)
+    assert not (why or "").startswith("STOPPED"), why
+    # It went with them, behind by no more than what it cannot know: the latency, a frame, an update.
+    behind = r.person(r.t) - r.pan
+    assert 0 <= behind <= 30.0 * (r.latency + r.every + 0.1), behind
+
+
+def test_a_held_sighting_aims_at_one_bearing_and_never_accumulates(monkeypatch):
+    """Replays the robot, 2026-10-16: the page repeated one face sighting (x 0.27) for ~2 s, age growing,
+    and the old code re-aimed the offset five times a second: pan 100 -> 112 -> 120. Now that sighting is
+    a bearing, 100 + 0.46 x 30 = 113.8, and every re-send of it says the same."""
+    r = _Robot(monkeypatch, -1.0, lambda t: 113.8, start=100.0)
+    r.ask("x", "GAZE 100 90")
+    nf.note_pose(r.t, 100.0, 90.0)
+    tc = r.t
+    for _ in range(20):                                                  # 2 s at 10 Hz, one sighting
+        r.t = round(r.t + 0.1, 6)
+        r.pan += max(-7.0, min(7.0, r.target - r.pan))
+        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face", "age_ms": round((r.t - tc) * 1000)})
+        why = nf.step(r.cfg)
+    assert {round(p, 1) for p in r.sent[1:]} == {113.8}, r.sent
+    assert why == "close enough: eyes only" and nf.state["stopped"] is None
+
+
+def test_a_sighting_is_placed_by_the_pose_its_frame_was_taken_at():
+    _fresh()
+    nf.note_pose(10.0, 90.0, 90.0)
+    nf.note_pose(10.2, 104.0, 90.0)                                      # turning at 70 deg/s
+    assert nf.pose_at(10.1) == (97.0, 90.0)
+    assert nf.pose_at(10.3) == (104.0, 90.0)                             # after the last: the last
+    assert nf.pose_at(9.0) is None                                       # before any: unknown
+    nf.note_pose(30.0, 104.0, 90.0)
+    assert nf.pose_at(10.1) is None                                      # forgotten after POSE_KEEP_S
+
+
+def test_a_sighting_older_than_the_remembered_pose_is_not_used(monkeypatch):
+    sent = _sends(monkeypatch)
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 9000})
+    assert nf.step(CFG) == "the sighting is older than the head's remembered pose"
+    assert not [s for s in sent if s.startswith("GAZE")]
 
 
 def test_changing_the_setting_clears_a_stop(tmp_path, monkeypatch):
@@ -202,12 +281,6 @@ def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
 def test_the_neck_block_says_how_old_it_is():
     nf.state.update(neck={"pan": 90.0, "tilt": 90.0, "moving": False, "owner": "none"}, neck_at=time.monotonic() - 4)
     assert nf.status()["neck_age_s"] >= 4
-
-
-def test_a_brisk_walker_with_the_right_sign_is_not_mistaken_for_a_runaway(monkeypatch):
-    # 3 degrees per update at 5 Hz = 15 deg/s across the view, starting left of centre.
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0, person_pan=75.0, steps=12, walk=3.0)
-    assert not (why or "").startswith("STOPPED"), why
 
 
 def test_the_trackers_report_is_kept_cleanly_and_served():
@@ -292,61 +365,6 @@ def test_a_reserved_state_sends_nothing_and_says_why(tmp_path, monkeypatch):
     assert nf.state["stopped"] is None                                 # a reason, never a latch
 
 
-def _clocked(monkeypatch, start=500.0):
-    clock = {"t": start}
-    monkeypatch.setattr(nf, "_clock", lambda: clock["t"])
-    return clock
-
-
-def test_a_held_sighting_moves_the_head_once_not_every_update(monkeypatch):
-    """Replays the robot, 2026-10-16: the page repeated one face sighting (x 0.27) for ~2 s, its age
-    growing, and the head was re-aimed at it five times a second, 100 -> 112 -> 120."""
-    neck = {"pan": 100.0, "tilt": 90.0}
-    sent = []
-
-    def ask(host, line, timeout=0.3):
-        if line == "NECK":
-            return f"OK neck pan={neck['pan']} tilt={neck['tilt']} target=0,0 moving=0 owner=none"
-        neck["pan"], neck["tilt"] = float(line.split()[1]), float(line.split()[2])
-        sent.append(line)
-        return "OK gaze"
-    _sends(monkeypatch)
-    monkeypatch.setattr(nf, "_ask", ask)
-    clock = _clocked(monkeypatch)
-    for i in range(10):                                                   # 2 s at 5 Hz, one sighting
-        clock["t"] += 0.2
-        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face", "age_ms": 200 * i})
-        why = nf.step(CFG)
-    assert len(sent) == 1, sent
-    assert why == "waiting for a new sighting (the head has already moved for this one)"
-    assert nf.state["stopped"] is None
-
-
-def test_a_new_sighting_waits_for_the_head_to_stop(monkeypatch):
-    sent = _sends(monkeypatch)
-    clock = _clocked(monkeypatch)
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    assert nf.step(CFG) is None                                           # 12 degrees: ~0.17 s + 0.3 s
-    clock["t"] += 0.2
-    nf.note_target({"ix": 0.85, "iy": 0.5, "conf": 0.9, "age_ms": 0})     # new, but taken mid-turn
-    assert nf.step(CFG) == "waiting for a sighting taken after the head stopped turning"
-    clock["t"] += 0.4
-    nf.note_target({"ix": 0.85, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    assert nf.step(CFG) is None
-    assert sum(1 for s in sent if s.startswith("GAZE")) == 2
-
-
-def test_a_sighting_older_than_the_last_move_does_not_count(monkeypatch):
-    sent = _sends(monkeypatch)
-    clock = _clocked(monkeypatch)
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    nf.step(CFG)
-    clock["t"] += 1.0
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 900})    # arrives late: captured mid-turn
-    assert nf.step(CFG) == "waiting for a sighting taken after the head stopped turning"
-    assert sum(1 for s in sent if s.startswith("GAZE")) == 1
-
-
 def test_a_page_without_sighting_times_never_moves_the_head(monkeypatch):
     sent = _sends(monkeypatch)
     for bad in (None, -5, 99999, "0", True):
@@ -366,11 +384,12 @@ def test_a_person_moves_the_head_at_a_lower_confidence_than_motion():
     assert nf.aim(STILL, (0.9, 0.5, 0.4), CFG, "person")[1] == "not confident enough"
 
 
-def test_a_person_crossing_the_view_is_not_a_runaway():
-    """The robot, 2026-10-16: the head turned left to a person on the image's left, then right as they
-    walked across, while they stayed ahead of it. Pan went one way over the last two aims and the offset
-    grew in size, but it changed SIDE: following, not running away."""
-    h = [(119.8, 86.2, -0.40, 0.6), (112.9, 83.5, 0.38, 0.3), (102.1, 85.0, 0.80, 0.1)]
-    assert nf.runaway(h) is None
-    wrong = [(82.5, 90.0, -0.50, 0.0), (71.25, 90.0, -0.75, 0.0), (60.0, 90.0, -1.0, 0.0)]
-    assert nf.runaway(wrong) == "pan"                                     # a wrong sign stays on one side
+def test_the_runaway_signature_is_a_bearing_that_flees_the_head():
+    """(pan_at, tilt_at, pan_bearing, tilt_bearing, ox, oy) for two sightings."""
+    still_right = ((90.0, 90.0, 105.0, 90.0, -0.5, 0.0), (105.0, 90.0, 105.2, 90.0, -0.01, 0.0))
+    assert nf.runaway(*still_right) is None                              # the bearing stayed put
+    wrong = ((90.0, 90.0, 75.0, 90.0, -0.5, 0.0), (75.0, 90.0, 45.0, 90.0, -1.0, 0.0))
+    assert nf.runaway(*wrong) == "pan"                                   # it fled twice as far
+    crossing = ((112.0, 90.0, 104.0, 90.0, 0.27, 0.0), (104.0, 90.0, 88.0, 90.0, -0.53, 0.0))
+    assert nf.runaway(*crossing) is None                                 # sides flipped: following
+    assert nf.runaway(None, wrong[1]) is None
