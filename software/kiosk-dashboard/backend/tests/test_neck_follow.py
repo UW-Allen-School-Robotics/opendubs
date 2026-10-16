@@ -90,6 +90,7 @@ def test_the_settings_and_the_neck_gate_it(tmp_path, monkeypatch):
     monkeypatch.setattr(head, "neck_host", lambda env=None: None)
     assert nf.why_not_now() == "no neck is fitted"
     monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    monkeypatch.setattr(nf, "robot_state", lambda: "SAFE_IDLE")
     import kiosk_update
     monkeypatch.setattr(kiosk_update, "show_busy", lambda: "the show runner's state is unknown (500)")
     assert "unknown" in nf.why_not_now()                                # unknown counts as busy
@@ -247,3 +248,38 @@ def test_the_targets_kind_and_the_trackers_winner_are_kept():
     t = nf.status()["tracker"]
     assert t["kind"] == "motion" and t["confidence"] == 0.7 and t["cues"] == {"motion": 3, "person": 1}
     assert t["person_model"] == "failed to load"
+
+
+def test_the_head_never_follows_in_a_reserved_state_and_resumes_by_itself(tmp_path, monkeypatch):
+    import head
+    import head_settings
+    import kiosk_update
+    monkeypatch.setattr(head_settings, "PATH", str(tmp_path / "s.json"))
+    head_settings.save({**head_settings.DEFAULTS, "tracking": "tablet"})
+    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    monkeypatch.setattr(kiosk_update, "show_busy", lambda: None)
+    rs = {"now": "DEGRADED"}
+    monkeypatch.setattr(nf, "robot_state", lambda: rs["now"])
+    for reserved in ("DEGRADED", "E_STOP_LATCH"):
+        rs["now"] = reserved
+        assert f"the robot is {reserved}" in nf.why_not_now()
+    rs["now"] = None
+    assert "unknown" in nf.why_not_now()                               # unreadable counts as reserved
+
+    def broken():
+        raise RuntimeError("no StamPLC")
+    monkeypatch.setattr(nf, "robot_state", broken)
+    assert "unknown" in nf.why_not_now()
+    for fine in ("SAFE_IDLE", "MANUAL_CONTROL", "AUTONOMOUS_CONTROL", "INIT"):
+        rs["now"] = fine
+        monkeypatch.setattr(nf, "robot_state", lambda: rs["now"])
+        assert nf.why_not_now() is None                                 # not latched: it resumes
+
+
+def test_a_reserved_state_sends_nothing_and_says_why(tmp_path, monkeypatch):
+    sent = _sends(monkeypatch)
+    monkeypatch.setattr(nf, "why_not_now", lambda: "the robot is DEGRADED: the head does not follow in a reserved state")
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    assert "DEGRADED" in nf.step(nf.config())
+    assert not [l for l in sent if l.startswith("GAZE")]
+    assert nf.state["stopped"] is None                                 # a reason, never a latch

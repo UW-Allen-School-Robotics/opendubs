@@ -183,6 +183,12 @@ def _ask(host: str, line: str, timeout: float = 0.3):
         s.close()
 
 
+def robot_state():
+    """robot_state's FSM state now ("SAFE_IDLE", "DEGRADED", ...), or None if it cannot be read."""
+    import status
+    return (status._robot_state() or {}).get("state")
+
+
 def why_not_now():
     """Why the head must not follow right now (a reason), or None. Blocking: run in an executor."""
     import head
@@ -193,6 +199,18 @@ def why_not_now():
         return "tracking is not set to the tablet"
     if head.neck_host() is None:
         return "no neck is fitted"
+    # Never in a RESERVED state (DEGRADED, E_STOP): the user's decision (2026-10-16), the same rule as
+    # the reticle and a show's light. The head waits, and follows again by itself when the state clears:
+    # nothing is latched. A state that cannot be read counts as reserved.
+    import show_light
+    try:
+        rs = robot_state()
+    except Exception:                                # noqa: BLE001 — unreadable means "do not move"
+        rs = None
+    if rs is None:
+        return "the robot's state is unknown: the head waits"
+    if rs in show_light.RESERVED:
+        return f"the robot is {rs}: the head does not follow in a reserved state, and resumes when it clears"
     import kiosk_update                              # the runner's state: a show aims the head itself
     busy = kiosk_update.show_busy()                  # unknown counts as busy: a show must always win
     if busy:
