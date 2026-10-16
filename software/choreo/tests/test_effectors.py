@@ -148,6 +148,24 @@ check("a gait with no simulated speed on a trailing leash is refused", has(m, "t
 m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, dir: sideways, secs: 2 }\n", "[CRAWL]"))
 check("a crawling hand cannot sidestep", has(m, "cannot sidestep"), m)
 
+print("the real hand's sequence (export-effector -> drivers/surge_at.py)")
+import json, tempfile  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "..", "drivers"))
+import surge_at  # noqa: E402
+LH = CR.replace("surge_right", "surge_left").replace("start", "start").replace("crawler: {", "crawler: { start: [1.0, 0, 0],")
+bench = show(LH, "  - { t: 0.5, slot: CRAWL, do: walk, gait: bare_flexstroke, secs: 3 }\n"
+                 "  - { t: 8, slot: CRAWL, do: dance, pattern: ripple, secs: 3 }\n", "[CRAWL]").export(LIMITS)
+seq = E.hardware_sequence(bench, "test", 0.0, 12.0)
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+    json.dump(seq, fh)
+_, segs, total = surge_at.load_sequence(fh.name)
+os.unlink(fh.name)
+check("an exported sequence loads in the driver's player: every joint in range, no closing preset, the tested gait in it",
+      bench["valid"] and any(k == "gait" and abs(a["thumb_flex"] - 0.977) < 1e-6 for k, a, _ in segs)
+      and not any(k == "pose" for k, _, _ in segs) and 10 < total < 14, (bench["problems"], total))
+check("... and its finger dance keeps the thumb clear (the calibration's dance thumb)",
+      all(a.get("T") == 10 and a.get("X") == 0 for k, a, _ in segs if k == "joints"))
+
 print("the twin's model of the hand")
 try:
     import mujoco  # noqa: F401

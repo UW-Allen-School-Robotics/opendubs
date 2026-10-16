@@ -265,6 +265,11 @@ def crawler_state(tl: dict, t: float) -> dict:
         if tool.mirrored and name.startswith("pivot:"):           # the mirror's left pivot is the right hand's right
             name = "pivot:" + ("right" if name.endswith("left") else "left")
         cyc = _cycles(tool).get(name)
+    if not cyc and st["moving"] and not st["moving"].startswith("pivot_"):
+        g = (tool.crawl.get("gaits") or {}).get(st["moving"]) or {}
+        if g.get("sim_params"):                       # no recorded cycle: the gait's own formula
+            chans.update(effectors.gait_channels(tool, g["sim_params"], st["phase_s"]))
+            z = 0.055
     if cyc:
         rows = cyc["rows"]
         row = rows[int((st["phase_s"] % cyc["period_s"]) / cyc["period_s"] * len(rows)) % len(rows)]
@@ -274,7 +279,7 @@ def crawler_state(tl: dict, t: float) -> dict:
             roll = -roll
     elif st["pattern"] and st["pattern"] in tool.patterns:
         chans.update(effectors.pattern_channels(tool, st["pattern"], st["pattern_t"], beat_s))
-    elif (tool.crawl or {}).get("idle") in tool.patterns:           # standing: the idle pattern, on the beat
+    elif not st["moving"] and (tool.crawl or {}).get("idle") in tool.patterns:   # standing: the idle pattern, on the beat
         off = (tl.get("music") or {}).get("offset_s") or 0.0
         chans.update(effectors.pattern_channels(tool, tool.crawl["idle"], max(0.0, t - off), beat_s))
     ax, ay = effectors.base_to_world(base, cr["anchor"][0], cr["anchor"][1])

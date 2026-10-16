@@ -2290,7 +2290,7 @@ def describe(limits: dict) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["validate", "export", "describe"])
+    ap.add_argument("cmd", choices=["validate", "export", "export-effector", "describe"])
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--limits", default=DEFAULT_LIMITS,
                     help="the arm software's joint_limits.yaml (default: the path in the container)")
@@ -2298,6 +2298,9 @@ def main():
     ap.add_argument("-o", "--out", help="export: write here instead of stdout")
     ap.add_argument("--allow-invalid", action="store_true",
                     help="export: write the timeline even if the show fails (valid: false)")
+    ap.add_argument("--slot", default="CRAWL", help="export-effector: the slot whose tool to export (CRAWL)")
+    ap.add_argument("--from", dest="t_from", type=float, default=0.0, help="export-effector: start, show seconds")
+    ap.add_argument("--to", dest="t_to", type=float, default=None, help="export-effector: end, show seconds")
     ap.add_argument("--no-sweep", action="store_true",
                     help="do not require the self-collision stamp (sweep.py) the robot requires — desk work only")
     a = ap.parse_args()
@@ -2309,6 +2312,30 @@ def main():
     if not a.paths:
         sys.exit(f"{a.cmd} needs at least one show")
     paths = [q for p in a.paths for q in sorted(glob.glob(p))] or a.paths
+
+    if a.cmd == "export-effector":
+        # the show's hand cues as the real hand plays them (effectors.hardware_sequence): only from a VALID show
+        if len(paths) != 1:
+            sys.exit("export-effector takes exactly one show")
+        if a.slot != "CRAWL":
+            sys.exit("export-effector: only --slot CRAWL so far (a flange tool's driver comes later)")
+        show = load_show(paths[0])
+        show.require_sweep = not a.no_sweep
+        tl = show.export(limits, a.limits)
+        if not tl["valid"]:
+            for q in tl["problems"]:
+                print("FAIL:", q["msg"], file=sys.stderr)
+            sys.exit("refusing to export an invalid show")
+        seq = effectors.hardware_sequence(tl, f"{show.id} {a.t_from:g}-{a.t_to if a.t_to is not None else 'end'} s",
+                                          a.t_from, a.t_to)
+        text = json.dumps(seq, indent=1) + "\n"
+        if a.out:
+            with open(a.out, "w") as fh:
+                fh.write(text)
+            print(f"wrote {a.out}: {len(seq['segments'])} segments, {seq['hand']} hand", file=sys.stderr)
+        else:
+            sys.stdout.write(text)
+        sys.exit(0)
 
     if a.cmd == "export":
         if len(paths) != 1:

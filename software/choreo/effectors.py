@@ -144,9 +144,6 @@ def _mirror(src: dict, doc: dict) -> dict:
     mirror changes — the hand's side, the two pivots swapped, signed drifts negated, the heading loop's
     gain sign flipped. The geometry is mirrored by sim/hand.py."""
     out = copy.deepcopy(src)
-    out.update({k: v for k, v in doc.items() if k != "mirror_of"})
-    out["_mirrored"] = True
-    out["_mirror_of"] = src["id"]
     cr = out.get("crawl")
     if cr:
         piv = cr.get("pivots") or {}
@@ -157,6 +154,15 @@ def _mirror(src: dict, doc: dict) -> dict:
             hc = (g.get("sim_params") or {}).get("heading_ctrl")
             if hc:
                 hc["plant_sign"] = -float(hc.get("plant_sign", -1.0))
+    # then what the mirrored type says of ITSELF (measured on the real hand, say), merged in: a mapping
+    # extends the one it mirrors (a new gait joins the mirrored ones), anything else replaces it
+    def merge(a, b):
+        for k, v in b.items():
+            a[k] = merge(a[k], v) if isinstance(v, dict) and isinstance(a.get(k), dict) else copy.deepcopy(v)
+        return a
+    merge(out, {k: v for k, v in doc.items() if k != "mirror_of"})
+    out["_mirrored"] = True
+    out["_mirror_of"] = src["id"]
     return out
 
 
@@ -478,7 +484,8 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
             leg.update(targeted=to is not None, gait=gait, dir=direction, dist_m=dist, dist_range=(d_lo, d_hi), speed=(lo, hi), speed_key=key,
                        secs=secs_slow, nominal_secs=dist / nominal if nominal else secs_slow, steer=steer,
                        drift_m=float(g.get("drift_m_per_m", 0.05)) * d_hi, to=(x1, y1, h1))
-            how = (f"on a trailing leash; SIM, not hardware" if key.startswith("dragging") else "free floor; SIM, not hardware")
+            src = g.get("measured") or "SIM, not hardware"
+            how = (f"on a trailing leash; {src}" if key.startswith("dragging") else f"free floor; {src}")
             if d_lo != d_hi:
                 N.append(f"CRAWL {where}: walk {direction} for {secs_slow:g}s with the {gait} gait at {lo*100:.1f}–{hi*100:.1f} cm/s "
                          f"({how}) — it covers {d_lo*100:.0f}–{d_hi*100:.0f} cm (the twin shows {dist*100:.0f})")
@@ -584,6 +591,126 @@ def pattern_channels(tool: Tool, name: str, t: float, beat_s: float) -> dict:
         d = v - a
         out[ch] = v if abs(d) <= rate * into else a + math.copysign(rate * into, d)
     return out
+
+
+# ---- the hardware sequence: a show's hand cues in the real hand's units ----------------------------------
+# The format agreed with the Surge Hand investigation's bench player (and played by drivers/surge_at.py):
+#   {"name", "hand", "segments": [{"type": "gait", "seconds", "params"} | {"type": "joints", "deg", "ramp", "hold"}
+#                                 | {"type": "pose", "pose", "hold"} | {"type": "wait", "seconds"}]}
+# Gait params use the gait model's names (radians), plus grouping / phase / skew; the player sends them
+# as degrees. Joint degrees are HARDWARE degrees, mapped through the type's `hardware.calibration`.
+GAIT_KEYS = ("freq", "lo", "hi", "trim_index", "trim_pinky", "thumb_rot", "thumb_flex", "thumb_amp_rot",
+             "thumb_amp_flex", "thumb_phase", "phase", "skew")
+LETTER = {"index": "I", "middle": "M", "ring": "R", "pinky": "P", "thumb_flex": "T", "thumb_rot": "X"}
+
+
+def hardware_params(sim_params: dict) -> dict:
+    out = {k: v for k, v in sim_params.items() if k in GAIT_KEYS}
+    out["grouping"] = sim_params.get("gait", "pairs") if sim_params.get("gait") in ("pairs", "sides", "sync") else "pairs"
+    return out
+
+
+def gait_channels(tool: Tool, sim_params: dict, t: float) -> dict:
+    """A gait's finger and thumb channels t seconds in, from its formula (the same one the hand is driven
+    with): for the twin, when no physics-recorded cycle exists (a gait found on the real hand)."""
+    p = {"freq": 0.8, "lo": 0.15, "hi": 1.35, "trim_index": 1.0, "trim_pinky": 1.0, "thumb_rot": 0.3,
+         "thumb_flex": 0.2, "thumb_amp_rot": 0.0, "thumb_amp_flex": 0.0, "thumb_phase": 0.0, "phase": 0.5,
+         "skew": 0.5, **sim_params}
+    grouping = p.get("gait") if p.get("gait") in ("pairs", "sides", "sync") else "pairs"
+    first = {"pairs": ("index", "ring"), "sides": ("index", "middle"), "sync": ("index", "middle", "ring", "pinky")}[grouping]
+    rad = {}
+    for f in ("index", "middle", "ring", "pinky"):
+        u = (p["freq"] * t + (0.0 if f in first else p["phase"])) % 1.0
+        k = p["skew"]
+        s = 0.5 - 0.5 * math.cos(math.pi * u / k) if u < k else 0.5 + 0.5 * math.cos(math.pi * (u - k) / (1 - k))
+        trim = p["trim_index"] if f in ("index", "middle") else p["trim_pinky"]
+        rad[f] = p["lo"] + (p["hi"] - p["lo"]) * trim * s
+    st = 0.5 - 0.5 * math.cos(2 * math.pi * (p["freq"] * t + p["thumb_phase"]))
+    rad["thumb_rot"] = p["thumb_rot"] + p["thumb_amp_rot"] * st
+    rad["thumb_flex"] = p["thumb_flex"] + p["thumb_amp_flex"] * st
+    out = {}
+    for ch, r in rad.items():
+        per = next(iter(((tool.sim.get("joints") or {}).get(ch) or {"x": 1.0}).values()))
+        out[ch] = round(max(0.0, min(1.0, r / float(per))), 4)
+    return out
+
+
+def channels_deg(tool: Tool, chans: dict) -> dict:
+    """Channel values -> hardware degrees: the channel's knuckle (or thumb) joint radians x gain, clamped."""
+    cal = ((tool.doc.get("hardware") or {}).get("calibration") or {})
+    gain, lim = cal.get("gain") or {}, cal.get("limits_deg") or {}
+    out = {}
+    for ch, v in chans.items():
+        j = LETTER.get(ch)
+        joints = (tool.sim.get("joints") or {}).get(ch) or {}
+        if j is None or not joints or isinstance(v, str):
+            continue
+        rad = float(v) * float(next(iter(joints.values())))
+        d = math.degrees(rad) * float(gain.get(j, 1.0))
+        lo, hi = lim.get(j, (0.0, 180.0))
+        out[j] = round(min(hi, max(lo, d)), 1)
+    return out
+
+
+def hardware_sequence(tl: dict, name: str, t_from: float = 0.0, t_to: float | None = None) -> dict:
+    """A show's CRAWL track as the real hand plays it: walks and pivots as gait segments (their sim
+    parameters; the duration is the plan's, at mid-range speeds), finger dances as timed joint targets with
+    the thumb kept clear, and every gap filled with the type's idle pattern on the beat (never frozen)."""
+    cr = tl.get("crawler")
+    if not cr:
+        raise RegistryError("the show has no crawling hand (crawler:)")
+    tool = registry()[cr["tool"]]
+    beat_s = (tl.get("music") or {}).get("beat_s") or 0.5
+    off = (tl.get("music") or {}).get("offset_s") or 0.0
+    cal = ((tool.doc.get("hardware") or {}).get("calibration") or {})
+    thumb = dict(cal.get("dance_thumb_deg") or {})
+    t_end = tl["duration_s"] if t_to is None else min(float(t_to), tl["duration_s"])
+    segs, t, notes = [], float(t_from), []
+
+    def pattern_segments(pat, a, b, t_origin):
+        """The pattern's steps from a to b (seconds), timed from t_origin."""
+        p = tool.patterns[pat]
+        step = float(p.get("step_beats", 1)) * beat_s
+        k = int((a - t_origin) // step)
+        while True:
+            s0 = t_origin + k * step
+            if s0 >= b - 1e-6:
+                break
+            s1 = min(b, s0 + step)
+            if s1 - max(a, s0) > 0.05:
+                d = channels_deg(tool, pattern_channels(tool, pat, (s0 - t_origin) + step * 0.999, beat_s))
+                d.update(thumb)
+                ramp = min(0.15, (s1 - max(a, s0)) * 0.5)
+                segs.append({"type": "joints", "deg": d, "ramp": round(ramp, 3), "hold": round(s1 - max(a, s0) - ramp, 3)})
+            k += 1
+
+    def idle(a, b):
+        if b - a > 0.05 and (tool.crawl or {}).get("idle") in tool.patterns:
+            pattern_segments(tool.crawl["idle"], a, b, off)
+
+    for leg in cr["legs"]:
+        a, b = leg["t"], leg["t"] + (leg.get("nominal_secs") or leg["secs"])
+        if b <= t_from or a >= t_end:
+            continue
+        a, b = max(a, t_from), min(b, t_end)
+        idle(t, a)
+        if leg["do"] == "walk":
+            g = tool.crawl["gaits"][leg["gait"]]
+            segs.append({"type": "gait", "seconds": round(b - a, 2), "params": hardware_params(g["sim_params"]),
+                         "note": f"walk {leg['dir']} {leg['gait']} ({g.get('measured') or 'SIM ONLY, untested on the hand'})"})
+        elif leg["do"] == "turn":
+            pv = tool.crawl["pivots"][leg["side"]]
+            segs.append({"type": "gait", "seconds": round(b - a, 2), "params": hardware_params(pv["sim_params"]),
+                         "note": f"pivot {leg['side']} (SIM ONLY, untested on the hand)"})
+            notes.append(f"t={leg['t']:.1f}s: a pivot, simulated only")
+        elif leg["do"] == "dance":
+            pattern_segments(leg["pattern"], a, b, leg["t"])
+        else:
+            idle(a, b)
+        t = b
+    idle(t, t_end)
+    return {"name": name, "hand": tool.hand or "?", "tool": tool.id, "from_s": t_from, "to_s": t_end,
+            "made_by": "cue.py export-effector (software/choreo/effectors.py)", "notes": notes, "segments": segs}
 
 
 # ---- CLI -----------------------------------------------------------------------------------------------

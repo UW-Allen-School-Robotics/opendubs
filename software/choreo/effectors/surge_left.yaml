@@ -15,3 +15,55 @@ id: surge_left
 name: Surge hand (left)
 mirror_of: surge_right
 hand: left
+
+# THE HAND ON THE ROBOT IS THIS ONE (opendubs2, 2026-10-16). Its real-hardware facts are below; the shared
+# ones (protocol, blocked joints, error clearing, angle gain) are in surge_right.yaml's `hardware:`. The
+# sim gaits were all found on the RIGHT-hand model: mirrored here, not re-run on a left model.
+hardware:
+  protocol: "Surge 1: AT commands over RS-485, 115200 8N1"
+  blocked_joint: "a blocked joint latches AT+GJE? = 1 (contact/stall); loaded fingers latch it while walking, and it does not block motion"
+  clear_error: "AT+RCH=1 (recalibrate: ~20 s, the hand moves and returns to rest), then AT+SMC=0 (glove mode off)"
+  angle_gain: "commanded vs read angle ~1.2x (SJA 25 -> ~31, 80 -> ~96): uncalibrated"
+  closes_onto_thumb: [fist, point, peace, horns]
+  # The twin -> hardware mapping the exporter uses (cue.py export-effector): a channel's joint radians (sim:
+  # joints, the knuckle for a finger) in degrees, x gain, clamped to limits_deg. UNSCALED (gain 1) is what
+  # worked on 2026-10-16; the hand reads back ~1.2x what it was sent, so this is not yet a calibration.
+  calibration:
+    gain: {I: 1.0, M: 1.0, R: 1.0, P: 1.0, T: 1.0, X: 1.0}
+    limits_deg: {I: [0, 95], M: [0, 95], R: [0, 95], P: [0, 95], T: [0, 72], X: [0, 90]}
+    # finger dances on the real hand keep the thumb beside the palm and straight, so no finger can close
+    # onto it (a contact latches an error flag); the twin's poses that do are listed in closes_onto_thumb
+    dance_thumb_deg: {T: 10, X: 0}
+    presets_avoid: "AT+SPP=1 (power) and AT+SPP=2 (chuck) latch error flags on every joint in an empty hand"
+  # THE FIRST GAIT THAT WORKS ON THE REAL HAND (2026-10-16, the user: "that works awesome"): bare hand,
+  # nothing under the wrist, OPEN LOOP. Sent as AT+SJA degrees = the gait model's radians, UNSCALED, all 6
+  # joints at 20 Hz with AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge
+  # Hand investigation's sim/out/bare_thumb_flexstroke.json and hw/gait_stream.py.
+  tested_gaits:
+    bare_flexstroke:
+      dir: forward
+      tested: "hardware, bare hand, open loop"
+      speed_m_s: [0.10, 0.13]       # MEASURED BY EYE: ~0.5 m in 3-4 steps at 0.8 Hz (the sim said 3.1 cm/s)
+      veers: right                  # open loop, no IMU yet: heading is not corrected
+      params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.930,
+               thumb_rot: 0.557, thumb_flex: 0.977, thumb_amp_rot: 0.0, thumb_amp_flex: 0.25, thumb_phase: 0.5}
+      # knuckles 8.6-77.3 deg (index side), 8.6-72.5 deg (pinky side); thumb rotation held 31.9 deg, flex
+      # stroking 56 -> 70 deg in time with middle + pinky. The unscaled outrigger thumb (43.5 / 20.7 deg)
+      # propped the hand up; the vendor's x0.4 / x0.3 thumb scaling was tried too.
+
+# The hardware-tested gait as a gait the choreography can plan with, beside the mirrored sim gaits. Its
+# speed is MEASURED ON HARDWARE, open loop, bare hand, with its RS-485 cable trailing (so it is also the
+# `dragging` figure); its veer is real and its size unmeasured, so the drift margin is a generous estimate.
+crawl:
+  default_gait: bare_flexstroke
+  gaits:
+    bare_flexstroke:
+      dir: forward
+      measured: "MEASURED on hardware, open loop, bare hand"
+      steered: false                # the closed thumb heading loop is NOT on the real hand yet (no IMU)
+      speed_m_s: [0.10, 0.13]       # measured on hardware, open loop, bare hand (~0.5 m in 3-4 steps)
+      dragging_m_s: [0.10, 0.13]    # the same run, its cable trailing
+      veers: right                  # open loop; no trim found yet: try a lower trim_pinky or a thumb change
+      drift_m_per_m: 0.25           # ESTIMATE, until the veer is measured
+      sim_params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.930,
+                   thumb_rot: 0.557, thumb_flex: 0.977, thumb_amp_rot: 0.0, thumb_amp_flex: 0.25, thumb_phase: 0.5}
