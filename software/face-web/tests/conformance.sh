@@ -22,6 +22,7 @@ node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades an
 node software/face-web/tests/test_percept.mjs       # attention, ported from the Tab5: motion, person, face, arbitration
 node software/face-web/tests/test_render.mjs        # the offline render: same seed and times, same frames
 node software/face-web/tests/test_render_browser.mjs # ... and the same PIXELS in a real Chrome (SKIP without one)
+node software/face-web/tests/test_reticle_call.mjs     # the tracking reticle: drawn first, from the eyes' target, never on a fault face
 node software/face-web/tests/test_camera_indicator.mjs  # the face says so whenever a camera is open
 node software/face-web/tests/test_face_page_browser.mjs # ... live, with a fake camera; and the tap hint (SKIP without Chrome)
 python3 software/face-web/tests/test_frame_tap.py    # the body twin's picture (no ports, no page)

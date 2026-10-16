@@ -12,7 +12,7 @@ import { CODE_SKINS } from "./skins/index.js";
  * @param ctx   a 2D context
  * @param W,H   its size in pixels
  * @param now   the face's clock, ms
- * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption, cams, drawCamera, drawCharge}
+ * @param o     {face, skins, drawArmed, bg, turn, song, bright, caption, cams, drawCamera, drawCharge, drawReticle}
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
@@ -21,7 +21,7 @@ import { CODE_SKINS } from "./skins/index.js";
  * @returns     {fullFace, armed, camera}: camera is whether the camera sign was drawn
  */
 export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
-                          cams = null, drawCamera = null, drawCharge = null }) {
+                          cams = null, drawCamera = null, drawCharge = null, drawReticle = null }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -48,6 +48,19 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     : charge ? charge
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
+  // THE TRACKER'S RETICLE (Face & HRI's skins/reticle.js), when the Head & face page turns it on: FIRST
+  // of the overlays, under the charge gauge, ARMED and the camera sign. Its centre is the face's own
+  // target, the value that drives the eyes (clamped as the eyes clamp it), NOT the detector's box: a
+  // wrong mapping or sign then shows as a box that moves the wrong way. HIDDEN in a reserved state,
+  // and that is load-bearing: the motion amber is DEGRADED's amber, so it must never sit on that face.
+  if (drawReticle && !face.reserved()) {
+    const t = face.target;
+    const live = t && Number.isFinite(t.x) && Number.isFinite(t.y) && now - t.at < 700;   // the eyes' own freshness
+    if (live) {
+      const c = (v) => Math.max(-1, Math.min(1, v));
+      drawReticle(ctx, { x: DESIGN_W / 2 + c(t.x) * DESIGN_W / 2, y: DESIGN_H / 2 + c(t.y) * DESIGN_H / 2, kind: t.kind || "face" }, now / 1000);
+    }
+  }
   // The charge gauge round the edge (the outermost 8 px), FIRST of the overlays, under ARMED's frame
   // (which starts at 10 px) and the camera sign.
   if (drawCharge && typeof face.chargeState === "function") drawCharge(ctx, face.chargeState(now), now / 1000);

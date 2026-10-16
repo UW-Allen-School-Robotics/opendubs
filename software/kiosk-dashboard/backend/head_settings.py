@@ -36,6 +36,7 @@ DEFAULTS = {
     "bright_min": 0.15,         # no show can dim the face below this
     "vol_max": 1.0,             # no show can make it louder than this
     "face_return_min": 2,       # the kiosk goes back to the face after this long untouched; 0 = never
+    "show_reticle": False,      # draw the tracker's reticle on the face (a diagnostic; off by default)
 }
 TRACKING = ("off", "tablet", "d415")
 
@@ -44,7 +45,7 @@ def _check(key, v):
     """None if `v` is acceptable for `key`, else why not."""
     if key not in DEFAULTS:
         return f"unknown setting {key!r}"
-    if key in ("screen_on", "idle_eyes", "mouth"):
+    if key in ("screen_on", "idle_eyes", "mouth", "show_reticle"):
         return None if isinstance(v, bool) else f"{key} must be true or false"
     if key == "tracking":
         return None if v in TRACKING else f"tracking must be one of {', '.join(TRACKING)}"

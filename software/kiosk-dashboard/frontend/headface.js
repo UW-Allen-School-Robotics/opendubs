@@ -51,6 +51,8 @@
           <option value="tablet">the face's own camera</option>
           <option value="d415">the RealSense camera (on the robot)</option>
         </select></div>
+      <div class="hf-row"><label for="hfReticle">Show tracking reticle</label><input type="checkbox" id="hfReticle">
+        <span class="hf-note">A box on the face where it thinks the person is: amber for motion, cyan for a person or face. For checking the tracking; off by default.</span></div>
       <div class="hf-note" id="hfTrackNote"></div>
       <div class="hf-note" id="hfTrackLive"></div>
       <div class="hf-note" id="hfNeckNote"></div>
@@ -99,6 +101,7 @@
     el("hfReturn").value = String(s.face_return_min);
     el("hfIdle").checked = s.idle_eyes;
     el("hfMouth").checked = s.mouth;
+    el("hfReticle").checked = !!s.show_reticle;
     el("hfTheme").value = s.theme;
     el("hfTrack").value = s.tracking;
     el("hfBright").value = s.bright_idle; el("hfBrightV").textContent = pct(s.bright_idle);
@@ -221,6 +224,7 @@
   onChange("hfReturn", (e) => save({ face_return_min: Number(e.target.value) }, true));
   onChange("hfIdle", (e) => save({ idle_eyes: e.target.checked }, true));
   onChange("hfMouth", (e) => save({ mouth: e.target.checked }, true));
+  onChange("hfReticle", (e) => save({ show_reticle: e.target.checked }, true));
   onChange("hfTheme", (e) => save({ theme: e.target.value }, true));
   onChange("hfSkin", (e) => save({ skin: e.target.value }, true));
   onChange("hfTrack", async (e) => {
