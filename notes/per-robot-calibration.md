@@ -57,6 +57,13 @@ From `RCCAL SHOW`. Columns are min/centre/max.
 Note `MAST` is reversed and `DEAD` reads 200 at rest — both per-transmitter, both already safe in
 NVS rather than in source.
 
+### Neck-follow signs — in `/etc/opendubs/robot.env`
+
+| Setting | Value | How it was measured |
+|---|---|---|
+| `OPENDUBS_NECK_FOLLOW_PAN_SIGN` | **`-1`** | 2026-10-16, at the robot: a pan of 70 turns the head to the **robot's right**, and the face page does not mirror image x. The code's default of +1 turned the head away from people and pinned it at the pan limit |
+| `OPENDUBS_NECK_FOLLOW_TILT_SIGN` | `-1` | 2026-10-15, open-loop with both follow ranges at 0 so the head held centre. The code's default is also −1 |
+
 ### Also uncommitted on this robot
 
 - **The contactor auto-arm** was an on-robot-only feature and was lost to a flash. It is in the
