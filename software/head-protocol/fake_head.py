@@ -104,6 +104,7 @@ class FakeHead:
         self.clock = clock or (lambda: time.monotonic() * 1000.0)
         self.state, self.emote, self.theme, self.skin = "", "AUTO", "plain", "default"
         self.neck = Neck()
+        self.chest = None                   # v7: the chest light, OFF from boot until told
         if kind in ("tab5", "legacy-tab5"):
             self.rest_at_centre()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -256,6 +257,18 @@ class FakeHead:
         ok = (len(parts) == 2 and parts[1] in ("0", "1") and
               (parts[0] == "-" or (parts[0].isdigit() and 0 <= int(parts[0]) <= 100)))
         return f"OK batt {parts[0] if parts[0] == '-' else int(parts[0])} {parts[1]}" if ok else "ERR batt <0..100|-> <0|1>"
+
+    def do_chest(self, a, _):
+        # v7: the chest light's pulse. No lease: it holds the last value. The reply is what is applied.
+        x = a.strip().upper()
+        if x == "OFF":
+            self.chest = None
+            return "OK chest off"
+        lo, hi = hp.CHEST_US
+        if x.isdigit() and lo <= int(x) <= hi:
+            self.chest = int(x)
+            return f"OK chest {self.chest}"
+        return f"ERR chest <us {lo}-{hi}> | OFF"
 
     def do_voice(self, a, _):
         return "voice: off (reference head)"
