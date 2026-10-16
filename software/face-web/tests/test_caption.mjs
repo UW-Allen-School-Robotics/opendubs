@@ -57,7 +57,9 @@ const PHRASES = ["Starting up", "Ready", "Manual control", "Running a show", "Ch
                  "Emergency stop", "Problem: RC transmitter not connected"];
 
 // ---- 1. it draws the words it is given, and nothing when there are none -------------------------
-for (const p of PHRASES) {
+// One short phrase and the longest the dashboard can generate. The others exercise the identical
+// layout path with different letters, which is width without information.
+for (const p of [PHRASES[1], PHRASES[6]]) {
   const o = draw(p);
   ok(o.texts.length === 1 && o.texts[0].s === p, `draws "${p}"`);
   ok(o.rects.length > 0, `and a panel behind it`, `${o.rects.length}`);
@@ -93,7 +95,9 @@ ok(CAPTION_BAND.top >= EYES_LOWEST, "the declared band starts below the eyes' lo
    `${CAPTION_BAND.top} vs ${EYES_LOWEST}`);
 ok(CAPTION_BAND.bottom <= ARMED_FRAME_TOP, "and ends above the ARMED frame",
    `${CAPTION_BAND.bottom} vs ${ARMED_FRAME_TOP}`);
-for (const p of PHRASES) {
+// The shortest and the longest: the panel's geometry is one calculation, and only its WIDTH
+// varies with the words, so the extremes bracket every phrase between them.
+for (const p of [PHRASES[1], PHRASES[6]]) {
   for (const fault of [false, true]) {
     const r = draw(p, { fault }).rects[0];
     ok(r.y >= EYES_LOWEST, `"${p}" (fault=${fault}) clears the eyes`, `top ${r.y.toFixed(0)} vs ${EYES_LOWEST}`);

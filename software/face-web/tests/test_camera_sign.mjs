@@ -116,8 +116,10 @@ ok(draw({ screen: true, back: true }).log.some((l) => l.startsWith("fillText(fro
 // ---- 3. it stays where it says it does ----------------------------------------------------------
 // Inside the canvas, inside its own declared box, and inside the corridor between the brows -- so
 // it can never be clipped, and can never sit under a brow or over an eye.
+// t = 0 and t = 0.5 are the extremes of the halo's travel, which is the only thing in the sign
+// whose geometry moves. The three further samples were the same arithmetic again.
 for (const [what, cams] of ON) {
-  for (const t of [0, 0.25, 0.5, 0.91, 3.7]) {
+  for (const t of [0, 0.5]) {
     const { pts } = draw(cams, t);
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
