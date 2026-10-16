@@ -216,6 +216,7 @@ class Run:
             self.note(PASS, F, f"STATE put back to {back}")
         # v7: the chest light. The dashboard puts its own colour back within 5 s.
         self.expect(N, "CHEST 1500", "CHEST 1500", "CHEST", lambda r: r == "OK chest 1500")
+        self.expect(N, "CHEST 500 (the form sent, not \"off\")", "CHEST 500", "CHEST", lambda r: r == "OK chest 500")
         self.expect(N, "CHEST OFF", "CHEST OFF", "CHEST", lambda r: bool(hp.REPLY["chest_off"].match(r)))
         self.expect(N, "TOUCH HOLD 300", "TOUCH HOLD 300", "TOUCH",
                     lambda r: bool(hp.REPLY["touch_hold"].match(r)))
