@@ -33,6 +33,7 @@
 #include "../neck/pantilt_core.h"
 #include "../neck/rc_frame.h"
 #include "../neck/tilt_confirm.h"
+#include "../neck/chest.h"
 
 namespace {
 
@@ -50,6 +51,14 @@ constexpr uint8_t kPulseReg  = 0x60;    // + channel*2, 16-bit LE microseconds
 constexpr uint8_t kModeServo = 3;
 constexpr uint8_t kChTilt    = 0;
 constexpr uint8_t kChPan     = 1;
+// The chest light (goBILDA 3118-0808-0002) behind the chest plate. Channel 2 keeps the driven
+// channels contiguous, and the firmware only puts a channel into servo mode if it drives it.
+//
+// IT IS AN ORDINARY SERVO PULSE AND THE WIDTH IS THE COLOUR -- see neck/chest.h for the map. The
+// colour is NOT decided here: the Thor maps the robot's winning state colour (the same one the
+// PRISM shows) to a pulse and sends the pulse, so there is one map rather than two that can
+// disagree about what red is.
+constexpr uint8_t kChLight   = 2;
 constexpr bool    kPanReverse = true, kTiltReverse = true;
 
 neck::State  g_pt;
@@ -94,6 +103,10 @@ uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
 // display, touch and speaker, and contend for Port A's Wire with the 8Servo.
 constexpr uint8_t kBtnPin = 42;
 neck::Pending g_tiltPending;
+// What the light was last told. Written to the 8Servo only on a CHANGE: an SOC-like value that
+// moves rarely does not need a write every tick, and the Thor re-sends every 5 s anyway, so a
+// rebooted neck recovers without the firmware polling anything.
+uint16_t g_chestUs = neck::kChestOffUs;
 bool buttonDown() { return digitalRead(kBtnPin) == LOW; }
 uint32_t g_packets = 0;
 
@@ -127,6 +140,9 @@ void report() {
     if (g_servoPresent) {
         snprintf(b, sizeof(b), "pantilt: p%.0f t%.0f tilt[%.0f..%.0f]%s", g_pt.pan, g_pt.tilt,
                  g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? "" : " FALLBACK");
+        line(b);
+        snprintf(b, sizeof(b), "chest: ch%u pulse=%uus%s", (unsigned)kChLight, (unsigned)g_chestUs,
+                 g_chestUs == neck::kChestOffUs ? " (off)" : "");
         line(b);
     } else {
         line("pantilt: 8servo not answering at 0x25");
@@ -176,9 +192,12 @@ void replyNeck(char* out, size_t n) {
                  g_tiltPending.lo, g_tiltPending.hi,
                  (unsigned long)neck::secondsLeft(g_tiltPending, millis()));
     }
-    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d %s",
+    // chest= so a dark plate can be told apart from a light that was never told anything. Without
+    // it the only way to ask is to look at the robot, and the whole point of the part is to be
+    // read from across a room by somebody who cannot.
+    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d %s chest=%u",
              g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner,
-             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0, pend);
+             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0, pend, (unsigned)g_chestUs);
 }
 
 // TILT <min> <max> -- the per-robot tilt limits, measured ON the robot and written once.
@@ -274,6 +293,23 @@ void handle(const char* cmd, char* out, size_t n) {
     // to have heard of ToF", which it could not if this fell through to ERR unknown.
     if (!strncmp(cmd, "TOF", 3)) { snprintf(out, n, "ERR tof not fitted"); return; }
 
+    // CHEST <us> | OFF -- the chest light's pulse, which IS its colour (head protocol v7, agreed
+    // with the Tablet lane). No lease: it holds what it was last told, as the PRISM does.
+    if (!strncmp(cmd, "CHEST", 5)) {
+        // No 8Servo, no light: the unit drives it, so this is the one case the firmware CAN tell.
+        // It cannot tell whether anything is plugged into the channel, and does not pretend to.
+        if (!g_servoPresent) { snprintf(out, n, "ERR chest not fitted"); return; }
+        uint16_t us = 0;
+        if (!neck::parseChest(cmd + 5, &us)) {
+            snprintf(out, n, "ERR chest <us 500-2500> | OFF");
+            return;
+        }
+        if (us != g_chestUs) { servoPulse(kChLight, us); g_chestUs = us; }
+        if (us == neck::kChestOffUs) snprintf(out, n, "OK chest off");
+        else                         snprintf(out, n, "OK chest %u", (unsigned)us);
+        return;
+    }
+
     // TILT <min> <max>: commissioning, over the wire -- ARMED HERE, APPLIED BY THE BUTTON.
     //
     // The maintainers chose this: the band is the fence every target is clamped to, and a band
@@ -365,6 +401,13 @@ void setup() {
     // g_servoPresent stays false and the neck says so rather than pretending to a position.
     Wire.begin();
     g_servoPresent = servoWrite2(kModeReg + kChTilt, kModeServo) && servoWrite2(kModeReg + kChPan, kModeServo);
+    // The light, OFF at boot. Deliberately not the INIT colour: a chest plate that lights up
+    // before the robot knows its own state is claiming something it has not been told, and the
+    // Thor re-sends every 5 s, so the gap is short and honest rather than short and wrong.
+    if (g_servoPresent) {
+        servoWrite2(kModeReg + kChLight, kModeServo);
+        servoPulse(kChLight, neck::kChestOffUs);
+    }
     line(g_servoPresent ? "8servo: present at 0x25, channels in servo mode"
                         : "8servo: NO ANSWER at 0x25 -- neck reports no pan/tilt fitted");
 
