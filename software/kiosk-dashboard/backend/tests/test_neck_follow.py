@@ -56,27 +56,28 @@ def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,9
     monkeypatch.setattr(nf, "why_not_now", lambda: why)
     import head
     monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    nf.state.update(stopped=None, history=[], limit_since=None, used_seen_at=float("-inf"), settle_at=0.0)
     return sent
 
 
 def test_one_step_sends_a_leased_gaze(monkeypatch):
     sent = _sends(monkeypatch)
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
     assert nf.step(CFG) is None
     assert sent == ["NECK", "GAZE 102.0 90.0 600"]
 
 
 def test_nothing_is_sent_when_not_allowed_or_nobody_is_seen(monkeypatch):
     sent = _sends(monkeypatch, why="a show is loaded (wave, RUNNING)")
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
     assert nf.step(CFG) == "a show is loaded (wave, RUNNING)" and sent == []
     sent = _sends(monkeypatch)
     nf.note_target(None)                                                # lost: the lease runs out
     assert nf.step(CFG) == "nobody seen" and sent == []
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
     nf.state["target_at"] = time.monotonic() - 5                        # stale
     assert nf.step(CFG) == "nobody seen" and sent == []
-    nf.note_target({"ix": 9, "iy": 0.5, "conf": 0.9})                   # nonsense is ignored
+    nf.note_target({"ix": 9, "iy": 0.5, "conf": 0.9, "age_ms": 0})                   # nonsense is ignored
     assert nf.state["target"][0] == 0.9
 
 
@@ -132,7 +133,8 @@ def test_a_person_below_centre_lowers_the_head_by_default():
 def _closed_loop(monkeypatch, pan_sign, person_pan=105.0, steps=40, walk=0.0):
     """A simulated neck that goes where GAZE sends it, and a person standing at `person_pan` degrees.
     The camera rides the head, so the person's image offset depends on where the head points (with
-    the real geometry: a person at a higher pan is right of the image's centre)."""
+    the real geometry, measured 2026-10-16: a person at a higher pan, the robot's left, is LEFT of the
+    image's centre). Five updates a second, each a new sighting, on a clock the test drives."""
     neck = {"pan": 90.0, "tilt": 90.0}
     sent = []
 
@@ -147,13 +149,16 @@ def _closed_loop(monkeypatch, pan_sign, person_pan=105.0, steps=40, walk=0.0):
     monkeypatch.setattr(nf, "why_not_now", lambda: None)
     import head
     monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    nf.state.update(stopped=None, history=[], limit_since=None)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(nf, "_clock", lambda: clock["t"])
+    nf.state.update(stopped=None, history=[], limit_since=None, used_seen_at=float("-inf"), settle_at=0.0)
     cfg = {**CFG, "pan_sign": pan_sign, "tilt_sign": -1.0}
     why = None
     for i in range(steps):
+        clock["t"] += 0.2
         person = person_pan + walk * i                                   # degrees per update (5 a second)
-        ox = (person - neck["pan"]) / (cfg["hfov"] / 2)                  # where the person is in the image
-        nf.note_target({"ix": min(1, max(0, 0.5 + ox / 2)), "iy": 0.5, "conf": 0.9})
+        ox = (neck["pan"] - person) / (cfg["hfov"] / 2)                  # where the person is in the image
+        nf.note_target({"ix": min(1, max(0, 0.5 + ox / 2)), "iy": 0.5, "conf": 0.9, "age_ms": 0})
         why = nf.step(cfg)
         if why and why.startswith("STOPPED"):
             break
@@ -161,14 +166,15 @@ def _closed_loop(monkeypatch, pan_sign, person_pan=105.0, steps=40, walk=0.0):
 
 
 def test_a_wrong_sign_is_caught_as_a_runaway_before_the_limit(monkeypatch):
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0)
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0)
     assert why and why.startswith("STOPPED") and "PAN_SIGN" in why, why
     assert neck["pan"] > 90 - CFG["pan_range"]                            # stopped before the limit
     assert nf.step(CFG).startswith("STOPPED")                             # latched
 
 
 def test_the_right_sign_settles_on_the_person(monkeypatch):
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0)
+    assert nf.config()["pan_sign"] == -1.0                                 # the default is the measured sign
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0)
     assert not (why or "").startswith("STOPPED"), why
     # It closes in until the person is inside the eyes-only band, where the eyes take over by design.
     assert abs(neck["pan"] - 105.0) <= nf.EYE_ONLY * CFG["hfov"] / 2 + 0.01, neck
@@ -185,11 +191,10 @@ def test_changing_the_setting_clears_a_stop(tmp_path, monkeypatch):
 
 def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
     sent = _sends(monkeypatch, neck="OK neck pan=119.0 tilt=90.0 target=0,0 moving=0 owner=none")
-    nf.state.update(stopped=None, history=[], limit_since=None)
-    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})                  # far right: the aim is the limit
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9, "age_ms": 0})                  # far right: the aim is the limit
     assert nf.step(CFG) is None                                            # sent, the clock starts
     nf.state["limit_since"] = time.monotonic() - 3
-    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9, "age_ms": 0})
     assert nf.step(CFG).startswith("holding")
     assert sent.count("NECK") == 2 and sum(1 for s in sent if s.startswith("GAZE")) == 1
 
@@ -201,8 +206,10 @@ def test_the_neck_block_says_how_old_it_is():
 
 def test_a_brisk_walker_with_the_right_sign_is_not_mistaken_for_a_runaway(monkeypatch):
     # 3 degrees per update at 5 Hz = 15 deg/s across the view, starting left of centre.
-    neck, why, sent = _closed_loop(monkeypatch, pan_sign=1.0, person_pan=75.0, steps=12, walk=3.0)
+    neck, why, sent = _closed_loop(monkeypatch, pan_sign=-1.0, person_pan=75.0, steps=12, walk=3.0)
     assert not (why or "").startswith("STOPPED"), why
+
+
 def test_the_trackers_report_is_kept_cleanly_and_served():
     nf.note_status({"state": "running", "hz": 10.4, "found_pct": 3, "frame": [640, 480], "last_found_s": 2.5,
                     "junk": "x" * 999, "hz2": True})
@@ -283,3 +290,71 @@ def test_a_reserved_state_sends_nothing_and_says_why(tmp_path, monkeypatch):
     assert "DEGRADED" in nf.step(nf.config())
     assert not [l for l in sent if l.startswith("GAZE")]
     assert nf.state["stopped"] is None                                 # a reason, never a latch
+
+
+def _clocked(monkeypatch, start=500.0):
+    clock = {"t": start}
+    monkeypatch.setattr(nf, "_clock", lambda: clock["t"])
+    return clock
+
+
+def test_a_held_sighting_moves_the_head_once_not_every_update(monkeypatch):
+    """Replays the robot, 2026-10-16: the page repeated one face sighting (x 0.27) for ~2 s, its age
+    growing, and the head was re-aimed at it five times a second, 100 -> 112 -> 120."""
+    neck = {"pan": 100.0, "tilt": 90.0}
+    sent = []
+
+    def ask(host, line, timeout=0.3):
+        if line == "NECK":
+            return f"OK neck pan={neck['pan']} tilt={neck['tilt']} target=0,0 moving=0 owner=none"
+        neck["pan"], neck["tilt"] = float(line.split()[1]), float(line.split()[2])
+        sent.append(line)
+        return "OK gaze"
+    _sends(monkeypatch)
+    monkeypatch.setattr(nf, "_ask", ask)
+    clock = _clocked(monkeypatch)
+    for i in range(10):                                                   # 2 s at 5 Hz, one sighting
+        clock["t"] += 0.2
+        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face", "age_ms": 200 * i})
+        why = nf.step(CFG)
+    assert len(sent) == 1, sent
+    assert why == "waiting for a new sighting (the head has already moved for this one)"
+    assert nf.state["stopped"] is None
+
+
+def test_a_new_sighting_waits_for_the_head_to_stop(monkeypatch):
+    sent = _sends(monkeypatch)
+    clock = _clocked(monkeypatch)
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
+    assert nf.step(CFG) is None                                           # 12 degrees: ~0.17 s + 0.3 s
+    clock["t"] += 0.2
+    nf.note_target({"ix": 0.85, "iy": 0.5, "conf": 0.9, "age_ms": 0})     # new, but taken mid-turn
+    assert nf.step(CFG) == "waiting for a sighting taken after the head stopped turning"
+    clock["t"] += 0.4
+    nf.note_target({"ix": 0.85, "iy": 0.5, "conf": 0.9, "age_ms": 0})
+    assert nf.step(CFG) is None
+    assert sum(1 for s in sent if s.startswith("GAZE")) == 2
+
+
+def test_a_sighting_older_than_the_last_move_does_not_count(monkeypatch):
+    sent = _sends(monkeypatch)
+    clock = _clocked(monkeypatch)
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
+    nf.step(CFG)
+    clock["t"] += 1.0
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 900})    # arrives late: captured mid-turn
+    assert nf.step(CFG) == "waiting for a sighting taken after the head stopped turning"
+    assert sum(1 for s in sent if s.startswith("GAZE")) == 1
+
+
+def test_a_page_without_sighting_times_never_moves_the_head(monkeypatch):
+    sent = _sends(monkeypatch)
+    for bad in (None, -5, 99999, "0", True):
+        t = {"ix": 0.9, "iy": 0.5, "conf": 0.9}
+        if bad is not None:
+            t["age_ms"] = bad
+        nf.note_target(t)
+        assert "reload" in nf.step(CFG)
+    assert not [s for s in sent if s.startswith("GAZE")]
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 40})
+    assert nf.status()["sighting_age_s"] is not None

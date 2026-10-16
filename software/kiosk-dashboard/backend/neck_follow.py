@@ -22,11 +22,14 @@ updates stop, the lease runs out, and the head stays where it is, as the protoco
 
 Every number is robot config with a safe default, so calibrating at the robot needs no code change
 (OPENDUBS_NECK_FOLLOW_* in /etc/opendubs/robot.env, read through head.py):
-  PAN_SIGN, TILT_SIGN  +1 or -1: which way a person right of / below centre turns the head. TILT_SIGN
-                       defaults to -1: the neck's tilt RISES with its degrees (measured at the robot
-                       2026-10-15, when its tilt band was commissioned), and the image's y grows
-                       DOWNWARD, so a person below centre must lower the tilt. PAN_SIGN is not
-                       measured yet: stand to one side and watch which way the head turns.
+  PAN_SIGN, TILT_SIGN  +1 or -1: which way a person right of / below centre turns the head. Both
+                       default to -1, MEASURED at the robot. TILT: the neck's tilt RISES with its degrees
+                       (2026-10-15, when its tilt band was commissioned) and the image's y grows
+                       DOWNWARD, so a person below centre must lower the tilt. PAN: the neck's pan FALLS
+                       toward the robot's right (watched, 2026-10-16), and the screen-side camera looks
+                       out along the robot's gaze with its frames unmirrored, so a person right of the
+                       image's centre is on the robot's right and must lower the pan. Seen closing the
+                       loop on a person the same day.
   HFOV_DEG, VFOV_DEG   the screen-side camera's field of view
   GAIN                 the fraction of the angle closed per update (0.1..1)
   RATE_HZ              updates per second
@@ -51,6 +54,15 @@ TARGET_FRESH_S = 0.5
 CONF_MIN = 0.6           # the neck core's kHeadConfidence
 EYE_ONLY = 0.25          # the neck core's kEyeOnly: below this offset the head never moves
 NECK_PORT = 4242
+# ONE AIM PER SIGHTING. An image offset is only true of the head pose the frame was captured at, and the
+# face page repeats a cue's LAST position for its dwell (percept/attention.js, up to ~2 s) after the
+# detector last saw it. Re-aiming at that held position on every update turns the head again and again
+# by an offset it has already corrected (2026-10-16: pan 100 -> 112 -> 120 on one sighting of a face,
+# until the runaway guard stopped it). So the head moves on a NEW sighting only (the page sends each
+# position's age_ms), and only on one captured after the head has stopped from its last move.
+SLEW_DPS = 70.0          # the head's slew rate (head protocol §4)
+SETTLE_S = 0.3           # and then this long, for the camera and the frame in flight
+_clock = time.monotonic
 
 
 def _f(name: str, default: float, lo: float, hi: float) -> float:
@@ -64,7 +76,7 @@ def _f(name: str, default: float, lo: float, hi: float) -> float:
 
 def config() -> dict:
     sign = lambda v: -1.0 if v < 0 else 1.0                              # noqa: E731
-    return {"pan_sign": sign(_f("PAN_SIGN", 1, -1, 1)), "tilt_sign": sign(_f("TILT_SIGN", -1, -1, 1)),
+    return {"pan_sign": sign(_f("PAN_SIGN", -1, -1, 1)), "tilt_sign": sign(_f("TILT_SIGN", -1, -1, 1)),
             "hfov": _f("HFOV_DEG", 60, 20, 120), "vfov": _f("VFOV_DEG", 45, 15, 100),
             "gain": _f("GAIN", 0.5, 0.1, 1), "rate": _f("RATE_HZ", 5, 1, 10),
             "pan_range": _f("PAN_RANGE", 30, 0, 30), "tilt_range": _f("TILT_RANGE", 18, 0, 18)}
@@ -72,7 +84,7 @@ def config() -> dict:
 
 state = {"target": None, "target_at": 0.0, "why": "starting", "neck": None, "neck_at": 0.0, "sent": None,
          "sent_count": 0, "history": [], "stopped": None, "limit_since": None,
-         "tracker": None, "tracker_at": 0.0}
+         "tracker": None, "tracker_at": 0.0, "seen_at": None, "used_seen_at": float("-inf"), "settle_at": 0.0}
 
 # ---- the safety net: a wrong sign must not run the head into its limits ---------------------------
 # The camera rides the head, so a wrong PAN_SIGN or TILT_SIGN is positive feedback: turning the wrong
@@ -126,7 +138,8 @@ def note_status(s) -> None:
 
 
 def note_target(t) -> None:
-    """From the face page: {"ix", "iy", "conf"} (image coords 0..1), or None when it sees nobody."""
+    """From the face page: {"ix", "iy", "conf", "kind", "age_ms"} (image coords 0..1; age_ms: how long ago
+    the frame behind it was captured), or None when it sees nobody."""
     if not isinstance(t, dict):
         state["target"] = None
         return
@@ -135,7 +148,11 @@ def note_target(t) -> None:
     except (KeyError, TypeError, ValueError):
         return
     if 0 <= ix <= 1 and 0 <= iy <= 1 and 0 <= conf <= 1:
-        state["target"], state["target_at"] = (ix, iy, conf), time.monotonic()
+        now = _clock()
+        state["target"], state["target_at"] = (ix, iy, conf), now
+        age = t.get("age_ms")
+        ok = isinstance(age, (int, float)) and not isinstance(age, bool) and 0 <= age <= 10000
+        state["seen_at"] = now - age / 1000 if ok else None
         k = t.get("kind")
         state["kind"] = k if k in ("face", "person", "motion") else "face"
 
@@ -227,11 +244,11 @@ def step(cfg: dict):
     if state["stopped"]:
         return state["stopped"]
     t = state["target"]
-    if t is None or time.monotonic() - state["target_at"] > TARGET_FRESH_S:
+    if t is None or _clock() - state["target_at"] > TARGET_FRESH_S:
         return "nobody seen"
     host = head.neck_host()
     neck = parse_neck(_ask(host, "NECK") or "")
-    state["neck"], state["neck_at"] = neck, time.monotonic()
+    state["neck"], state["neck_at"] = neck, _clock()
     if neck is None:
         return "the neck did not answer NECK"
     aimed, why = aim(neck, t, cfg)
@@ -241,13 +258,20 @@ def step(cfg: dict):
     # (an axis with no range, as when the head is held at centre to measure the signs, is never "at a limit")
     at_limit = ((cfg["pan_range"] > 0 and abs(aimed[0] - CENTRE) >= cfg["pan_range"] - 0.05) or
                 (cfg["tilt_range"] > 0 and abs(aimed[1] - CENTRE) >= cfg["tilt_range"] - 0.05))
-    now = time.monotonic()
+    now = _clock()
     if at_limit:
         state["limit_since"] = state["limit_since"] or now
         if now - state["limit_since"] >= LIMIT_HOLD_S:
             return f"holding: the aim has been at the envelope's limit for {LIMIT_HOLD_S:.0f} s (out of reach, or a wrong sign)"
     else:
         state["limit_since"] = None
+    seen = state["seen_at"]
+    if seen is None:
+        return "the face page sends no sighting time: reload it (the head moves once per sighting)"
+    if seen <= state["used_seen_at"] + 1e-3:
+        return "waiting for a new sighting (the head has already moved for this one)"
+    if seen < state["settle_at"]:
+        return "waiting for a sighting taken after the head stopped turning"
     ox, oy = (t[0] - 0.5) * 2, (t[1] - 0.5) * 2
     state["history"] = (state["history"] + [(aimed[0], aimed[1], ox, oy)])[-RUNAWAY_N:]
     axis = runaway(state["history"])
@@ -259,6 +283,8 @@ def step(cfg: dict):
         return state["stopped"]
     reply = _ask(host, f"GAZE {aimed[0]} {aimed[1]} {LEASE_MS}")
     state["sent"], state["sent_count"] = {"gaze": aimed, "reply": reply}, state["sent_count"] + 1
+    move = max(abs(aimed[0] - neck["pan"]), abs(aimed[1] - neck["tilt"]))
+    state["used_seen_at"], state["settle_at"] = seen, _clock() + move / SLEW_DPS + SETTLE_S
     return None
 
 
@@ -287,9 +313,10 @@ def status() -> dict:
     tracker = dict(tr, age_s=round(time.monotonic() - state["tracker_at"], 1)) if tr else None
     return {"why": state["why"], "stopped": state["stopped"], "tracker": tracker, "kind": state.get("kind"),
             "neck": state["neck"],
-            "neck_age_s": round(time.monotonic() - state["neck_at"], 1) if state["neck"] else None,
+            "neck_age_s": round(_clock() - state["neck_at"], 1) if state["neck"] else None,
             "sent": state["sent"], "sent_count": state["sent_count"],
-            "target": state["target"], "target_age_s": round(time.monotonic() - state["target_at"], 2) if state["target"] else None,
+            "target": state["target"], "target_age_s": round(_clock() - state["target_at"], 2) if state["target"] else None,
+            "sighting_age_s": round(_clock() - state["seen_at"], 2) if state["target"] and state["seen_at"] is not None else None,
             "config": config()}
 
 

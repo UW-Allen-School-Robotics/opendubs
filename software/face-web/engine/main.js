@@ -187,7 +187,13 @@ setInterval(() => {
   if (!door || door.readyState !== WebSocket.OPEN || !tracking) return;
   const t = face.target;
   const fresh = t && typeof t.ix === "number" && performance.now() - t.at < 400;
-  if (fresh) { door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf, kind: t.kind || "face" } })); sentNobody = false; }
+  if (fresh) {
+    // age_ms: how long ago the frame behind this position was captured. A held cue repeats its old
+    // position with a growing age, and the neck aims only at a NEW sighting (neck_follow.py).
+    const age = typeof t.seen === "number" && t.seen > 0 ? Math.max(0, Math.round(performance.now() - t.seen)) : undefined;
+    door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf, kind: t.kind || "face", age_ms: age } }));
+    sentNobody = false;
+  }
   else if (!sentNobody) { door.send(JSON.stringify({ track: null })); sentNobody = true; }
 }, 100);
 
