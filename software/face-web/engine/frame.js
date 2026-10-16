@@ -16,12 +16,15 @@ import { CODE_SKINS } from "./skins/index.js";
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
+ *              words: the robot's state in plain words (head protocol CAPTION), drawn by drawCaption
+ *              (Face & HRI's skins/caption.js); in its place, the line under the eyes
  *              cams: {screen, back}, which of the tablet's cameras are open; drawCamera: the skin's
  *              indicator (Face & HRI's skins/camera.js), else the plain one here
  * @returns     {fullFace, armed, camera}: camera is whether the camera sign was drawn
  */
 export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
-                          cams = null, drawCamera = null, drawCharge = null, drawReticle = null }) {
+                          cams = null, drawCamera = null, drawCharge = null, drawReticle = null,
+                          words = null, drawCaption = null }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -44,10 +47,16 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // doing comes before a song or the idle quote. Below ARMED, which owns the bottom while it shows.
   const charge = typeof face.chargeText === "function" ? face.chargeText(now) : null;
   // AirPlay playing and heard: what it is, in the quote's place.
-  const text = !caption || fullFace || armed ? null
+  // The state in plain words (CAPTION) is for whoever cannot read the colours, so it comes first and shows
+  // over any skin and with ARMED (its band ends above ARMED's frame). With Face & HRI's panel it is drawn
+  // below; without it, it takes this line. When the dashboard sends none, the charge line says charging.
+  const panel = words && drawCaption;
+  const text = words && !panel ? words
+    : !caption || fullFace || armed || panel ? null
     : charge ? charge
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
+  if (panel) drawCaption(ctx, words, { fault: face.reserved() });
   // THE TRACKER'S RETICLE (Face & HRI's skins/reticle.js), when the Head & face page turns it on: FIRST
   // of the overlays, under the charge gauge, ARMED and the camera sign. Its centre is the face's own
   // target, the value that drives the eyes (clamped as the eyes clamp it), NOT the detector's box: a

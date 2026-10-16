@@ -105,6 +105,7 @@ class FakeHead:
         self.state, self.emote, self.theme, self.skin = "", "AUTO", "plain", "default"
         self.neck = Neck()
         self.chest = None                   # v7: the chest light, OFF from boot until told
+        self.caption = None                 # v8: the state in plain words
         if kind in ("tab5", "legacy-tab5"):
             self.rest_at_centre()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -269,6 +270,17 @@ class FakeHead:
             self.chest = int(x)
             return f"OK chest {self.chest}"
         return f"ERR chest <us {lo}-{hi}> | OFF"
+
+    def do_caption(self, a, _):
+        # v8: the robot's state in plain words. The rest of the line; too long is refused, never cut.
+        t = a.strip()
+        if t == "OFF":
+            self.caption = None
+            return "OK caption off"
+        if not t or len(t) > hp.CAPTION_MAX:
+            return f"ERR caption <text, at most {hp.CAPTION_MAX} characters> | OFF"
+        self.caption = t
+        return "OK caption"
 
     def do_voice(self, a, _):
         return "voice: off (reference head)"
