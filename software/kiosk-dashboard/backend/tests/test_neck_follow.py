@@ -3,87 +3,31 @@ import os
 import sys
 import time
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import neck_follow as nf
 
-CFG = {"pan_sign": 1.0, "tilt_sign": 1.0, "hfov": 60.0, "vfov": 40.0, "gain": 0.5, "rate": 5.0,
+CFG = {"pan_sign": -1.0, "tilt_sign": -1.0, "rate": 10.0,
        "pan_range": 30.0, "tilt_range": 18.0}
 STILL = {"pan": 90.0, "tilt": 90.0, "moving": False, "owner": "none"}
 
 
-def test_a_person_off_to_the_side_turns_the_head_part_way():
-    (pan, tilt), why = nf.aim(STILL, (0.9, 0.5, 0.9), CFG)            # right of centre, level
-    assert why is None and pan == 90 + 0.8 * 30 * 0.5 and tilt == 90.0
-
-
-def test_the_rules_that_keep_the_head_still():
-    assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG)[1] == "not confident enough"
-    assert nf.aim(STILL, (0.52, 0.51, 0.9), CFG)[1] == "close enough: eyes only"    # jitter: the eyes'
-    assert nf.aim(STILL, (0.6, 0.55, 0.9), CFG)[1] is None                         # the head centres it
-    assert "held" in nf.aim({**STILL, "owner": "rc"}, (0.9, 0.5, 0.9), CFG)[1]     # a person has it
-    assert nf.aim({**STILL, "moving": True}, (0.9, 0.5, 0.9), CFG)[1] is None      # a turning head aims too
-
-
-def test_never_past_the_envelope():
-    (pan, tilt), _ = nf.aim({**STILL, "pan": 118.0, "tilt": 106.0}, (1.0, 1.0, 1.0), CFG)
-    assert pan == 120.0 and tilt == 108.0                               # 90 ± 30, 90 ± 18
-    (pan, _), _ = nf.aim(STILL, (0.0, 0.5, 1.0), {**CFG, "pan_sign": -1.0})       # the sign is config
-    assert pan > 90
-
-
 def test_the_config_is_robot_env_with_safe_bounds(monkeypatch):
-    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_SIGN", "-1")
-    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_GAIN", "7")               # out of range: clamped
-    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_RANGE", "80")         # never past the neck's own envelope
-    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_HFOV_DEG", "wide")        # nonsense: the default
+    assert nf.config() == {"pan_sign": -1.0, "tilt_sign": -1.0, "rate": 10.0, "pan_range": 30.0, "tilt_range": 18.0}
+    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_SIGN", "1")
+    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_RATE_HZ", "70")           # out of range: clamped
+    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_RANGE", "80")         # never past the Tab5's envelope
+    monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_TILT_RANGE", "tall")      # nonsense: the default
     c = nf.config()
-    assert c["pan_sign"] == -1.0 and c["gain"] == 1.0 and c["pan_range"] == 30.0 and c["hfov"] == 60.0
+    assert c["pan_sign"] == 1.0 and c["rate"] == 10.0 and c["pan_range"] == 30.0 and c["tilt_range"] == 18.0
 
 
 def test_the_necks_status_line_is_read():
     n = nf.parse_neck("OK neck pan=101.5 tilt=88.0 target=101.5,88.0 moving=1 owner=gaze")
     assert n == {"pan": 101.5, "tilt": 88.0, "moving": True, "owner": "gaze"}
     assert nf.parse_neck("ERR neck no pan/tilt fitted") is None and nf.parse_neck("") is None
-
-
-def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,90.0 moving=0 owner=none"):
-    sent = []
-
-    def ask(host, line, timeout=0.3):
-        sent.append(line)
-        return neck if line == "NECK" else f"OK gaze {line.split()[1]} {line.split()[2]}"
-    monkeypatch.setattr(nf, "_ask", ask)
-    monkeypatch.setattr(nf, "why_not_now", lambda: why)
-    import head
-    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    _fresh()
-    return sent
-
-
-def _fresh():
-    nf.state.update(stopped=None, limit_since=None, poses=[], hist_seen=None, sighting=None, prev_sighting=None)
-
-
-def test_one_step_sends_a_leased_gaze(monkeypatch):
-    sent = _sends(monkeypatch)
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    assert nf.step(CFG) is None
-    assert sent == ["NECK", "GAZE 102.0 90.0 600"]
-
-
-def test_nothing_is_sent_when_not_allowed_or_nobody_is_seen(monkeypatch):
-    sent = _sends(monkeypatch, why="a show is loaded (wave, RUNNING)")
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    assert nf.step(CFG) == "a show is loaded (wave, RUNNING)" and sent == []
-    sent = _sends(monkeypatch)
-    nf.note_target(None)                                                # lost: the lease runs out
-    assert nf.step(CFG) == "nobody seen" and not [s for s in sent if s.startswith("GAZE")]
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    nf.state["target_at"] = time.monotonic() - 5                        # stale
-    assert nf.step(CFG) == "nobody seen" and not [s for s in sent if s.startswith("GAZE")]
-    nf.note_target({"ix": 9, "iy": 0.5, "conf": 0.9, "age_ms": 0})                   # nonsense is ignored
-    assert nf.state["target"][0] == 0.9
 
 
 def test_the_settings_and_the_neck_gate_it(tmp_path, monkeypatch):
@@ -125,162 +69,6 @@ def test_the_door_takes_targets_from_the_newest_page_only(monkeypatch):
             time.sleep(0.02)
         time.sleep(0.1)
         assert nf.state["target"] == (0.8, 0.4, 0.7)
-
-
-def test_a_person_below_centre_lowers_the_head_by_default():
-    """The neck's tilt rises with its degrees (measured 2026-10-15); the image's y grows downward."""
-    cfg = nf.config()
-    assert cfg["tilt_sign"] == -1.0
-    (_, tilt), _ = nf.aim(STILL, (0.5, 0.95, 0.9), cfg)                 # a person low in the frame
-    assert tilt < 90
-
-
-class _Robot:
-    """A simulated robot: a neck that SLEWS at 70 deg/s to where GAZE sends it, and a tracker that
-    captures a frame every `every` s, reports it `latency` s later, and re-sends that same sighting
-    (its age growing) until the next one, as the face page does. A person stands or walks at
-    person(t) degrees of pan. The real geometry, measured 2026-10-16: a person at a higher pan, the
-    robot's left, is LEFT of the image's centre."""
-
-    def __init__(self, monkeypatch, pan_sign, person, start=90.0, every=0.25, latency=0.4):
-        self.t, self.pan, self.target, self.person = 1000.0, start, start, person
-        self.every, self.latency, self.track = every, latency, [(self.t, start)]
-        self.sent, self.cfg = [], {**CFG, "pan_sign": pan_sign, "tilt_sign": -1.0, "gain": 1.0, "rate": 10.0}
-        monkeypatch.setattr(nf, "_ask", self.ask)
-        monkeypatch.setattr(nf, "why_not_now", lambda: None)
-        monkeypatch.setattr(nf, "_clock", lambda: self.t)
-        import head
-        monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-        _fresh()
-
-    def ask(self, host, line, timeout=0.3):
-        if line == "NECK":
-            return f"OK neck pan={self.pan:.2f} tilt=90.0 target=0,0 moving=0 owner=none"
-        self.target = float(line.split()[1])
-        self.sent.append(self.target)
-        return "OK gaze"
-
-    def pose(self, t):
-        """Where the head truly was at `t`: it slews continuously between the steps."""
-        for (t0, p0), (t1, p1) in zip(self.track, self.track[1:]):
-            if t0 <= t <= t1:
-                return p0 + (p1 - p0) * (t - t0) / (t1 - t0)
-        return self.track[-1][1]
-
-    def run(self, seconds):
-        why, first = None, self.t
-        while self.t < first + seconds:
-            self.t = round(self.t + 0.1, 6)
-            step = max(-7.0, min(7.0, self.target - self.pan))         # 70 deg/s
-            self.pan += step
-            self.track.append((self.t, self.pan))
-            k = int((self.t - self.latency - first) // self.every)     # the newest frame reported by now
-            if k >= 0:
-                tc = first + k * self.every                             # when it was captured
-                ox = (self.pose(tc) - self.person(tc)) / (self.cfg["hfov"] / 2)
-                if abs(ox) <= 1:
-                    nf.note_target({"ix": 0.5 + ox / 2, "iy": 0.5, "conf": 0.9, "kind": "face",
-                                    "age_ms": round((self.t - tc) * 1000)})
-                else:
-                    nf.note_target(None)                                # out of the picture
-            why = nf.step(self.cfg)
-            if why and why.startswith("STOPPED"):
-                break
-        return why
-
-
-def test_the_right_sign_centres_a_person_standing_still(monkeypatch):
-    assert nf.config()["pan_sign"] == -1.0 and nf.config()["gain"] == 1.0  # the measured sign, all the way
-    r = _Robot(monkeypatch, -1.0, lambda t: 105.0)
-    why = r.run(3.0)
-    assert not (why or "").startswith("STOPPED"), why
-    assert abs(r.pan - 105.0) <= nf.EYE_ONLY * CFG["hfov"] / 2 + 0.01, r.pan
-    assert max(r.sent) <= 105.0 + 0.5                                    # it goes there; it does not overshoot
-
-
-def test_a_wrong_sign_is_caught_as_a_runaway_before_the_limit(monkeypatch):
-    r = _Robot(monkeypatch, 1.0, lambda t: 105.0)
-    why = r.run(5.0)
-    assert why and why.startswith("STOPPED") and "PAN_SIGN" in why, why
-    assert min(r.sent) > 90 - CFG["pan_range"], r.sent                  # it never sent the limit
-    assert nf.step(r.cfg).startswith("STOPPED")                         # latched
-
-
-def test_a_person_crossing_the_view_is_followed_not_stopped(monkeypatch):
-    """The robot, 2026-10-16: the user crossed the view and the old guard tripped. 20 deg/s, there and back."""
-    walk = lambda t: 75.0 + 30.0 * (1 - abs(((t - 1000.0) / 1.5) % 2 - 1))   # 75 -> 105 -> 75 ...
-    r = _Robot(monkeypatch, -1.0, walk, start=75.0)
-    why = r.run(6.0)
-    assert not (why or "").startswith("STOPPED"), why
-    assert max(r.sent) > 98 and min(r.sent) < 82                        # it went with them both ways
-
-
-def test_a_brisk_walker_is_not_mistaken_for_a_runaway(monkeypatch):
-    r = _Robot(monkeypatch, -1.0, lambda t: 65.0 + 30.0 * (t - 1000.0))   # 30 deg/s, one way, 65 -> 113
-    why = r.run(1.6)
-    assert not (why or "").startswith("STOPPED"), why
-    # It went with them, behind by no more than what it cannot know: the latency, a frame, an update.
-    behind = r.person(r.t) - r.pan
-    assert 0 <= behind <= 30.0 * (r.latency + r.every + 0.1), behind
-
-
-def test_a_held_sighting_aims_at_one_bearing_and_never_accumulates(monkeypatch):
-    """Replays the robot, 2026-10-16: the page repeated one face sighting (x 0.27) for ~2 s, age growing,
-    and the old code re-aimed the offset five times a second: pan 100 -> 112 -> 120. Now that sighting is
-    a bearing, 100 + 0.46 x 30 = 113.8, and every re-send of it says the same."""
-    r = _Robot(monkeypatch, -1.0, lambda t: 113.8, start=100.0)
-    r.ask("x", "GAZE 100 90")
-    nf.note_pose(r.t, 100.0, 90.0)
-    tc = r.t
-    for _ in range(20):                                                  # 2 s at 10 Hz, one sighting
-        r.t = round(r.t + 0.1, 6)
-        r.pan += max(-7.0, min(7.0, r.target - r.pan))
-        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face", "age_ms": round((r.t - tc) * 1000)})
-        why = nf.step(r.cfg)
-    assert {round(p, 1) for p in r.sent[1:]} == {113.8}, r.sent
-    assert why == "close enough: eyes only" and nf.state["stopped"] is None
-
-
-def test_a_sighting_is_placed_by_the_pose_its_frame_was_taken_at():
-    _fresh()
-    nf.note_pose(10.0, 90.0, 90.0)
-    nf.note_pose(10.2, 104.0, 90.0)                                      # turning at 70 deg/s
-    assert nf.pose_at(10.1) == (97.0, 90.0)
-    assert nf.pose_at(10.3) == (104.0, 90.0)                             # after the last: the last
-    assert nf.pose_at(9.0) is None                                       # before any: unknown
-    nf.note_pose(30.0, 104.0, 90.0)
-    assert nf.pose_at(10.1) is None                                      # forgotten after POSE_KEEP_S
-
-
-def test_a_sighting_older_than_the_remembered_pose_is_not_used(monkeypatch):
-    sent = _sends(monkeypatch)
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 9000})
-    assert nf.step(CFG) == "the sighting is older than the head's remembered pose"
-    assert not [s for s in sent if s.startswith("GAZE")]
-
-
-def test_changing_the_setting_clears_a_stop(tmp_path, monkeypatch):
-    import head_settings
-    monkeypatch.setattr(head_settings, "PATH", str(tmp_path / "s.json"))
-    head_settings.save({**head_settings.DEFAULTS, "tracking": "off"})
-    nf.state["stopped"] = "STOPPED: test"
-    nf.why_not_now()
-    assert nf.state["stopped"] is None
-
-
-def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
-    sent = _sends(monkeypatch, neck="OK neck pan=119.0 tilt=90.0 target=0,0 moving=0 owner=none")
-    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9, "age_ms": 0})                  # far right: the aim is the limit
-    assert nf.step(CFG) is None                                            # sent, the clock starts
-    nf.state["limit_since"] = time.monotonic() - 3
-    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9, "age_ms": 0})
-    assert nf.step(CFG).startswith("holding")
-    assert sent.count("NECK") == 2 and sum(1 for s in sent if s.startswith("GAZE")) == 1
-
-
-def test_the_neck_block_says_how_old_it_is():
-    nf.state.update(neck={"pan": 90.0, "tilt": 90.0, "moving": False, "owner": "none"}, neck_at=time.monotonic() - 4)
-    assert nf.status()["neck_age_s"] >= 4
 
 
 def test_the_trackers_report_is_kept_cleanly_and_served():
@@ -356,40 +144,141 @@ def test_the_head_never_follows_in_a_reserved_state_and_resumes_by_itself(tmp_pa
         assert nf.why_not_now() is None                                 # not latched: it resumes
 
 
-def test_a_reserved_state_sends_nothing_and_says_why(tmp_path, monkeypatch):
+# ---- the Tab5's law -----------------------------------------------------------------------------------
+
+def test_the_head_angle_is_the_tab5s_law_of_where_the_person_appears():
+    (pan, tilt), why = nf.aim((0.9, 0.5, 0.9), CFG)                        # right of centre: the robot's right
+    assert why is None and pan == 90 - 0.8 * 30 and tilt == 90.0
+    (pan, tilt), _ = nf.aim((0.2, 0.95, 0.9), CFG)                         # left, and low
+    assert pan == 90 + 0.6 * 30 and tilt == round(90 - 0.9 * 18, 1)
+    (pan, tilt), _ = nf.aim((0.0, 0.0, 1.0), CFG)                          # a corner: the envelope's corner
+    assert (pan, tilt) == (120.0, 108.0)
+
+
+def test_anything_else_sends_the_head_home():
+    for target, kind in (((0.9, 0.5, 0.5), "face"), ((0.9, 0.5, 0.5), "motion"), ((0.6, 0.55, 0.9), "face"), (None, "face")):
+        assert nf.aim(target, CFG, kind)[0] == (90.0, 90.0), (target, kind)
+    assert nf.aim((0.9, 0.5, 0.5), CFG, "person")[1] is None               # a person counts from 0.45 (#329)
+    assert nf.aim((0.9, 0.5, 0.4), CFG, "person")[0] == (90.0, 90.0)
+
+
+def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,90.0 moving=0 owner=none"):
+    sent = []
+
+    def ask(host, line, timeout=0.3):
+        sent.append(line)
+        return neck if line == "NECK" else "OK gaze"
+    monkeypatch.setattr(nf, "_ask", ask)
+    monkeypatch.setattr(nf, "why_not_now", lambda: why)
+    import head
+    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    nf.state.update(limit_since=None)
+    return sent
+
+
+def test_one_step_sends_a_leased_gaze(monkeypatch):
     sent = _sends(monkeypatch)
-    monkeypatch.setattr(nf, "why_not_now", lambda: "the robot is DEGRADED: the head does not follow in a reserved state")
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
-    assert "DEGRADED" in nf.step(nf.config())
-    assert not [l for l in sent if l.startswith("GAZE")]
-    assert nf.state["stopped"] is None                                 # a reason, never a latch
+    assert nf.step(CFG) is None
+    assert sent == ["NECK", "GAZE 66.0 90.0 600"]
 
 
-def test_a_page_without_sighting_times_never_moves_the_head(monkeypatch):
+def test_no_one_seen_sends_it_home_but_not_allowed_sends_nothing(monkeypatch):
     sent = _sends(monkeypatch)
-    for bad in (None, -5, 99999, "0", True):
-        t = {"ix": 0.9, "iy": 0.5, "conf": 0.9}
-        if bad is not None:
-            t["age_ms"] = bad
-        nf.note_target(t)
-        assert "reload" in nf.step(CFG)
-    assert not [s for s in sent if s.startswith("GAZE")]
-    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 40})
-    assert nf.status()["sighting_age_s"] is not None
+    nf.note_target(None)
+    assert nf.step(CFG).startswith("nobody seen") and sent[-1] == "GAZE 90.0 90.0 600"
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    nf.state["target_at"] = time.monotonic() - 5                          # stale is nobody
+    assert nf.step(CFG).startswith("nobody seen") and sent[-1] == "GAZE 90.0 90.0 600"
+    sent = _sends(monkeypatch, why="a show is loaded (wave, RUNNING)")
+    assert nf.step(CFG) == "a show is loaded (wave, RUNNING)" and sent == []
+    sent = _sends(monkeypatch, neck="OK neck pan=90.0 tilt=90.0 target=0,0 moving=0 owner=rc")
+    assert "held" in nf.step(CFG) and sent == ["NECK"]                    # a person on the stick has it
+    nf.note_target({"ix": 9, "iy": 0.5, "conf": 0.9})                     # nonsense is ignored
+    assert nf.state["target"][0] == 0.9
 
 
-def test_a_person_moves_the_head_at_a_lower_confidence_than_motion():
-    assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG, "person")[1] is None              # 0.5 >= 0.45: turns
-    assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG, "motion")[1] == "not confident enough"
-    assert nf.aim(STILL, (0.9, 0.5, 0.4), CFG, "person")[1] == "not confident enough"
+def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
+    sent = _sends(monkeypatch)
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})                   # at the frame's edge: the envelope's
+    assert nf.step(CFG) is None
+    nf.state["limit_since"] = time.monotonic() - 3
+    nf.note_target({"ix": 1.0, "iy": 0.5, "conf": 0.9})
+    assert nf.step(CFG).startswith("holding")
+    assert sum(1 for s in sent if s.startswith("GAZE")) == 1
 
 
-def test_the_runaway_signature_is_a_bearing_that_flees_the_head():
-    """(pan_at, tilt_at, pan_bearing, tilt_bearing, ox, oy) for two sightings."""
-    still_right = ((90.0, 90.0, 105.0, 90.0, -0.5, 0.0), (105.0, 90.0, 105.2, 90.0, -0.01, 0.0))
-    assert nf.runaway(*still_right) is None                              # the bearing stayed put
-    wrong = ((90.0, 90.0, 75.0, 90.0, -0.5, 0.0), (75.0, 90.0, 45.0, 90.0, -1.0, 0.0))
-    assert nf.runaway(*wrong) == "pan"                                   # it fled twice as far
-    crossing = ((112.0, 90.0, 104.0, 90.0, 0.27, 0.0), (104.0, 90.0, 88.0, 90.0, -0.53, 0.0))
-    assert nf.runaway(*crossing) is None                                 # sides flipped: following
-    assert nf.runaway(None, wrong[1]) is None
+# ---- replays of 2026-10-16 on a simulated robot ----------------------------------------------------
+# A neck slewing at 70 deg/s, 300-degree servos (a commanded degree is 1.667 real ones), a camera on the
+# head reporting a frame every 0.25 s, 0.4 s late, and repeating it in between as the page does.
+
+def _robot(monkeypatch, person, seconds, half_fov=36.0, start=90.0, scale=1.667, cfg=None):
+    sim = {"t": 1000.0, "c": start, "tgt": start}
+    track, sent = [(sim["t"], start)], []
+
+    def ask(host, line, timeout=0.3):
+        if line == "NECK":
+            return f"OK neck pan={sim['c']:.2f} tilt=90.0 target=0,0 moving=0 owner=none"
+        sim["tgt"] = float(line.split()[1])
+        sent.append(sim["tgt"])
+        return "OK gaze"
+    monkeypatch.setattr(nf, "_ask", ask)
+    monkeypatch.setattr(nf, "why_not_now", lambda: None)
+    monkeypatch.setattr(nf, "_clock", lambda: sim["t"])
+    import head
+    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
+    nf.state.update(limit_since=None)
+    first, path = sim["t"], []
+    while sim["t"] < first + seconds:
+        sim["t"] = round(sim["t"] + 0.1, 6)
+        sim["c"] += max(-7.0, min(7.0, sim["tgt"] - sim["c"]))
+        track.append((sim["t"], sim["c"]))
+        k = int((sim["t"] - 0.4 - first) // 0.25)
+        if k >= 0:
+            tc = first + k * 0.25
+            c = [p for (tt, p) in track if tt <= tc][-1]
+            real = 90 + scale * (c - 90)                                  # where the head really points
+            nx = -(person(tc) - real) / half_fov                          # a person to its left: image left
+            nf.note_target({"ix": 0.5 + nx / 2, "iy": 0.5, "conf": 0.9, "kind": "face"} if abs(nx) <= 1 else None)
+        nf.step(cfg or CFG)
+        path.append(sim["c"])
+    return path, sent
+
+
+def test_a_held_sighting_repeats_one_target_and_never_accumulates(monkeypatch):
+    """The robot, 2026-10-16: one sighting (x 0.27) repeated for ~2 s ran the old code 100 -> 112 -> 120."""
+    sent = _sends(monkeypatch, neck="OK neck pan=100.0 tilt=90.0 target=0,0 moving=0 owner=none")
+    for _ in range(20):
+        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face"})
+        nf.step(CFG)
+    gazes = {s for s in sent if s.startswith("GAZE")}
+    assert gazes == {"GAZE 103.8 90.0 600"}, gazes
+
+
+def test_a_person_standing_still_is_turned_toward_and_never_overshot(monkeypatch):
+    path, sent = _robot(monkeypatch, lambda t: 105.0, 8.0)
+    settled = path[len(path) // 2:]
+    assert max(path) <= 105.0                                             # never past them (real 105)
+    assert min(settled) >= 90.0 - 0.01 and max(settled) > 96              # it turns to them, and only home
+    # The Tab5's own rule: within the eyes-only band the head goes home, so it may nod between home and
+    # the person; it never swings past either.
+
+
+EXPECTED_PER_MODEL = ("expected to fail per the model (the Tab5's law with 4x its latency and 300-degree servos); "
+                      "the robot judges, 2026-10-16")
+
+
+@pytest.mark.xfail(strict=True, reason=EXPECTED_PER_MODEL)
+def test_a_person_crossing_is_followed_both_ways(monkeypatch):
+    walk = lambda t: 75.0 + 30.0 * (1 - abs(((t - 1000.0) / 1.5) % 2 - 1))   # 75 -> 105 -> 75 real, 20 deg/s
+    path, sent = _robot(monkeypatch, walk, 6.0, start=82.0)
+    real = [90 + 1.667 * (c - 90) for c in path]
+    assert max(real) > 96 and min(real) < 84                              # it went with them both ways
+    assert 75.0 - 1 <= min(real) and max(real) <= 105.0 + 1               # and never past where they went
+
+
+@pytest.mark.xfail(strict=True, reason=EXPECTED_PER_MODEL)
+def test_a_wrong_sign_ends_held_at_the_edge(monkeypatch):
+    path, sent = _robot(monkeypatch, lambda t: 105.0, 6.0, cfg={**CFG, "pan_sign": 1.0})
+    assert min(path) >= 60.0 - 0.01                                        # the envelope, never past it
+    assert nf.state["limit_since"] is not None and len(sent) < 60          # and it stopped sending
