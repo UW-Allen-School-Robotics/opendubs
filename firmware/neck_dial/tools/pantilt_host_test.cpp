@@ -325,9 +325,20 @@ int main()
         uint16_t us = 0;
         ok(parseChest("1500", &us) && us == 1500, "a plain pulse is taken");
         ok(parseChest("  1500  ", &us) && us == 1500, "with spaces around it");
-        ok(parseChest("OFF", &us) && us == kChestOffUs, "OFF is the DEFINED off pulse, not silence");
-        ok(parseChest("off", &us) && us == kChestOffUs, "and it is case-insensitive");
-        ok(parseChest("500", &us) && us == 500, "the bottom of the range is accepted");
+        bool off = true;
+        ok(parseChest("OFF", &us, &off) && us == kChestOffUs && off,
+           "OFF is the DEFINED off pulse, not silence");
+        ok(parseChest("off", &us, &off) && us == kChestOffUs && off, "and it is case-insensitive");
+        // THE FORM, NOT THE VALUE. `CHEST 500` applies the same pulse as `CHEST OFF`, and the
+        // protocol says the reply states what was applied -- so a caller that sent a number must
+        // read back a number, or the backend has to special-case a reply it did not ask for.
+        ok(parseChest("500", &us, &off) && us == 500 && !off,
+           "an explicit 500 is NOT reported as OFF, though the pulse is identical");
+        // Newline-terminated, as the Thor sends. The UDP path strips \r\n before parsing, so this
+        // is belt and braces -- but it is the kind of thing that is cheap now and expensive at the
+        // robot, and the transport could change.
+        ok(parseChest("1500\n", &us) && us == 1500, "a trailing newline is tolerated");
+        ok(parseChest("OFF\r\n", &us, &off) && off, "and a CRLF after OFF");
         ok(parseChest("2500", &us) && us == 2500, "and the top");
 
         // REFUSED, NOT CLAMPED. A caller asking for 3000 has a bug; showing it white would hide it.

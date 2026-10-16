@@ -36,9 +36,14 @@ constexpr uint16_t kChestOffUs = 500;      // a DEFINED off; see above
 /**
  * Parse a CHEST argument: a pulse in microseconds, or `OFF`.
  *
+ * `off` (optional) says WHICH FORM was used, not what the pulse happens to be. `CHEST OFF` and
+ * `CHEST 500` apply the identical pulse, and the protocol says the reply states what was applied
+ * -- so the reply has to echo the caller's own form back, or a backend that sends 500 and reads
+ * back "off" has to special-case a reply it did not ask for.
+ *
  * Returns false and touches nothing for anything else -- an empty argument, a word that is not
  * OFF, trailing rubbish after a number, or a value outside the light's range.
  */
-bool parseChest(const char* args, uint16_t* us);
+bool parseChest(const char* args, uint16_t* us, bool* off = nullptr);
 
 }  // namespace neck

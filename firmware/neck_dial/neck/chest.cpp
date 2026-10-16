@@ -13,13 +13,18 @@ bool onlySpace(const char* p) { p = skipSpace(p); return *p == '\0' || *p == '\r
 
 }  // namespace
 
-bool parseChest(const char* args, uint16_t* us)
+bool parseChest(const char* args, uint16_t* us, bool* off)
 {
     if (!args || !us) return false;
+    if (off) *off = false;
     const char* p = skipSpace(args);
     if (*p == '\0') return false;
 
-    if (!strncasecmp(p, "OFF", 3) && onlySpace(p + 3)) { *us = kChestOffUs; return true; }
+    if (!strncasecmp(p, "OFF", 3) && onlySpace(p + 3)) {
+        *us = kChestOffUs;
+        if (off) *off = true;
+        return true;
+    }
 
     // strtol, not atoi or sscanf: it is the only one that says WHERE it stopped, which is how
     // "1500x" and "1500 2000" are refused rather than silently read as 1500. A light showing the

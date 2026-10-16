@@ -300,13 +300,16 @@ void handle(const char* cmd, char* out, size_t n) {
         // It cannot tell whether anything is plugged into the channel, and does not pretend to.
         if (!g_servoPresent) { snprintf(out, n, "ERR chest not fitted"); return; }
         uint16_t us = 0;
-        if (!neck::parseChest(cmd + 5, &us)) {
+        bool off = false;
+        if (!neck::parseChest(cmd + 5, &us, &off)) {
             snprintf(out, n, "ERR chest <us 500-2500> | OFF");
             return;
         }
         if (us != g_chestUs) { servoPulse(kChLight, us); g_chestUs = us; }
-        if (us == neck::kChestOffUs) snprintf(out, n, "OK chest off");
-        else                         snprintf(out, n, "OK chest %u", (unsigned)us);
+        // The reply echoes the CALLER'S FORM, not the pulse's meaning: `CHEST 500` and `CHEST OFF`
+        // apply the same pulse, and a backend that sent a number should not read back a word.
+        if (off) snprintf(out, n, "OK chest off");
+        else     snprintf(out, n, "OK chest %u", (unsigned)us);
         return;
     }
 
