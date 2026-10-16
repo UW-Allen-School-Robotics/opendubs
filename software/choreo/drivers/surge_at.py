@@ -323,8 +323,9 @@ def play(path: str, port: str | None, dry_run=False, long=False, allow_presets=F
             elif kind == "pose":
                 d.send(f"AT+SPP={a}")
                 d.last = {}
-                sleep_until(end)
+                sleep_until(end - 0.3)                        # re-read inside the segment, not after it
                 cur = {j: v for j in JOINTS if (v := d.angle(j, 0.04)) is not None}   # it moved itself
+                sleep_until(end)
             else:
                 sleep_until(end)
         late = time.time() - (t0 + plan[-1][1])
