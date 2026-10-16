@@ -120,6 +120,14 @@ function frame(blob) {
   check("  a cue noted without one is seen when noted", a.motion.seen === 1800, a.motion.seen);
   check("nobody seen has no sighting", new Attention().tick(0).seen === 0, "a sighting");
 }
+{
+  // On the robot a person standing still scored ~0.5 and never reached the head's floor (0.45 for a person).
+  const a = new Attention();
+  a.notePerson(0, 0.3, -0.2, 0.5);
+  a.notePerson(400, 0.31, -0.2, 0.5);                   // linked: the next run of the person detector
+  const g = a.tick(400);
+  check("a person standing still is believed enough for the head after two hits", g.kind === KIND.PERSON && g.confidence >= 0.45, g.confidence);
+}
 
 console.log(`\n${pass} PASS, ${fail} FAIL`);
 process.exit(fail ? 1 : 0);
