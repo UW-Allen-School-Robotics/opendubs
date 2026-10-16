@@ -7,39 +7,47 @@ on a digital twin, and sends it to the robot.
 
 This page takes you from installing the composer to running a show live, in seven steps.
 
-<!-- screenshot: ../assets/composer/composer-01-overview.png — the whole composer, its areas labelled -->
+<figure markdown="span">
+  ![The composer, with its areas numbered](../assets/composer/composer-01-overview.png)
+  <figcaption>1 the show being edited, and the file menu · 2 play and the playhead clock · 3 the lanes, one per part of the robot · 4 the bar and beat ruler over the song · 5 what every part is doing at the playhead · 6 the selected cue · 7 the validator · 8 save, and the verdict on the whole show</figcaption>
+</figure>
 
 ## :octicons-download-24: 1. Install
 
 The composer runs on your own computer. It works on macOS and Linux; Windows is untested. You need
 [uv](https://docs.astral.sh/uv/), which fetches everything else the first time it runs.
 
-From a copy of the repository, run `software/choreo/studio-up.sh`. It opens three things, all on
-your computer only: the composer at `http://127.0.0.1:8091/`, a preview of the robot's face in the
-browser, and a 3D preview of the whole robot in its own window. `software/choreo/studio-down.sh`
-stops them.
+From a copy of the repository, run `software/choreo/studio-up.sh`. It starts the composer and
+prints its address (usually `http://127.0.0.1:8091/`). It also opens a preview of the robot's face
+in your browser, and a 3D preview of the whole robot in its own window. Everything runs on your
+computer only. `software/choreo/studio-down.sh` stops it all.
 
 ## :octicons-unmute-24: 2. Bring the music
 
-Press **♫ music**. Drop in an audio file, or pick a song from the library and press **use**. A song
-added to the library records where it came from and its licence.
+Press **♫ music** and pick a song from the library, or add one: drop an audio file on the page. A
+song added to the library must record where it came from and its licence.
 
-Then set the tempo, so cues can sit on beats and bars. Type the **BPM** and the time of beat 1, or
-play the song and press **tap** on each beat, then **use**. To set the first downbeat, stop the
-playhead on it and press **beat 1 ⇤**. Cues placed on the beat grid follow the tempo if you change
-it later.
+Then set the tempo, so cues can sit on beats and bars. Play the song and press **tap** on four or
+more beats, then **use** to write the tempo into the show; or type it in the **♫ music** dialog. To
+set the first downbeat, stop the playhead on it and press **beat 1 ⇤**. Cues placed on the beat
+grid follow the tempo if you change it later.
 
-<!-- screenshot: ../assets/composer/composer-02-music.png — ♫ music, tap / use, beat 1 ⇤, the ruler grid -->
+<figure markdown="span">
+  ![The composer toolbar with the music and tempo controls numbered](../assets/composer/composer-02-music.png)
+  <figcaption>1 ♫ music: choose or add a song · 2 tap, then use · 3 beat 1 ⇤ · 4 snap: what dragged cues snap to · 5 click: a metronome · 6 the grid the show is written on, bar.beat</figcaption>
+</figure>
 
 ## :octicons-cpu-24: 3. Know the robot
 
 A show is checked against a real robot's arm limits. Copy them from the robot once with
-`opendubs-studio limits --from-robot <robot>`. Until you do, the composer shows **TEST LIMITS**, and
-its checks use test values.
+`uv run software/choreo/studio/studio.py limits --from-robot <robot>`; if that fails, ask whoever
+runs the robot for its arm limits file. Until then the composer shows **TEST LIMITS**, and its
+checks use test values.
 
 Each lane in the composer is one part of the robot: the two arms and grippers, the head, the lift,
 sound, face and lights. A cue for a part the robot cannot play yet is still valid, and the
-composer says so in a note.
+composer says so in a note. Shows that drive the base are the exception: the composer accepts
+them, but the robot refuses to run them.
 
 ## :octicons-pencil-24: 4. Write the show
 
@@ -55,22 +63,40 @@ There are three ways to write a show, and you can mix them.
   (`notes/design/choreo-format-v1.md` in the repository). Open it in the composer to check and
   adjust it.
 
-<!-- screenshot: ../assets/composer/composer-03-cues.png — a lane's +, a placed cue, the Cue panel -->
-<!-- screenshot: ../assets/composer/composer-04-notes.png — the NOTES lane, its + and ⧉ -->
+<figure markdown="span">
+  ![A cue added to a lane and open in the Cue panel](../assets/composer/composer-03-cues.png)
+  <figcaption>1 + adds a cue to this lane at the playhead · 2 the new cue: drag it to move it · 3 its fields; every edit is re-checked</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The NOTES lane with a note and its buttons numbered](../assets/composer/composer-04-notes.png)
+  <figcaption>1 the NOTES lane · 2 + adds a note at the playhead · 3 ⧉ copies the open notes as a prompt (save first) · 4 a note over a stretch of the show; the agent replies on it</figcaption>
+</figure>
 
 ## :octicons-checklist-24: 5. Check it
 
 The composer re-checks the show after every change. The status chip reads **valid**,
-**valid · N warnings** or **N problems**, and the **Validator** panel lists each one: arm limits,
-speed caps, and the clearance between the shoulders and the head.
+**valid · N warnings**, **N problems** or **does not parse**, and the **Validator** panel lists
+each one: arm limits, speed caps, and the clearance between the shoulders and the head.
 
 The two previews follow the playhead: the face in the browser, the whole robot in the 3D window.
-Press **▶︎** to play the music and the preview together. To share a preview as a video, render it
-with `opendubs-studio render <show> --out show.mp4`.
+Press **▶︎**, or the space bar, to play the music and the preview together. To share a preview
+as a video, render it with `uv run software/choreo/studio/studio.py render <show> --out show.mp4`.
 
-<!-- screenshot: ../assets/composer/composer-05-validate.png — the status chip and the Validator panel -->
-<!-- screenshot: ../assets/composer/composer-06-twin.png — the 3D twin and the face twin at the playhead -->
-<!-- screenshot: ../assets/composer/composer-07-render.png — the render command and a frame of its output -->
+<figure markdown="span">
+  ![The validator showing a problem](../assets/composer/composer-05-validate.png)
+  <figcaption>1 the verdict on the whole show · 2 each problem names its cue and what to change; tap it to select the cue</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The 3D twin of the robot and the face twin at the playhead](../assets/composer/composer-06-twin.png)
+  <figcaption>1 the 3D twin: the robot as the show moves it · 2 the face twin, driven by the same show</figcaption>
+</figure>
+
+<figure markdown="span">
+  ![The render command and a frame of the video it makes](../assets/composer/composer-07-render.png)
+  <figcaption>1 the render command · 2 the robot, framed to the whole show · 3 the face beside it</figcaption>
+</figure>
 
 ## :octicons-comment-24: 6. Correct it
 
@@ -82,14 +108,20 @@ Earlier versions of the show are kept: **history** brings one back.
 
 ## :octicons-play-24: 7. Run it live
 
-Send the show to the robot with `python3 software/choreo/show_sync.py push <robot> <show>.yaml`. The
-push refuses a show that does not pass its checks, or that uses music the robot does not have.
+Send the show to the robot with `python3 software/choreo/show_sync.py push <robot> <show>.yaml`.
+Add `--dry-run` to see what would happen without sending anything. The push refuses a show that
+does not pass its checks, or that plays music or sounds the robot's library does not have; music
+must come from the show library, not a file beside the show.
 
-On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. A run
-first arms. It then starts when you press the deadman, or after a countdown, chosen with **Start**.
-Letting go of the deadman stops the show, and the arms hold where they are.
+On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. **Start**
+sets how a run begins: **wait for the deadman** arms the run, then counts down when you press the
+deadman; **count down now** needs the deadman already held; **now** starts at once. Once started, letting go of the
+deadman stops the show, and the arms hold where they are.
 
-<!-- screenshot: ../assets/composer/composer-08-shows.png — the dashboard's Shows page -->
+<figure markdown="span">
+  ![The push command and the dashboard's Shows page](../assets/composer/composer-08-shows.png)
+  <figcaption>1 push the show to the robot · 2 each show on the robot, as a button; its icons show what it uses · 3 how a run starts · 4 STOP, and park both arms</figcaption>
+</figure>
 
 !!! note "Planned"
     Not in the composer yet: analysing a song for its beats and sections; listing what each
