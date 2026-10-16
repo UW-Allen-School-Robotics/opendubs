@@ -123,7 +123,7 @@ position and direction on the mount are not yet measured. The neck carries no ra
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| [M5Stack Dial (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. The robot's is the original Dial (K130), now discontinued; M5Stack's replacement is the Dial v1.1 (K130-V11), which the neck firmware has not been tested on. |
+| [M5Stack Dial v1.1 (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The neck's own, at I2C 0x25 on the M5Dial neck controller's Port A: channel 0 tilt, channel 1 pan. Separate from the StamPLC's in the electronics bay. |
 
 **Chest indicator light**

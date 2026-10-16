@@ -38,7 +38,7 @@ part used in two places is listed once, with the quantities added.
 | [REV Mini Power Module (24 V logic bus)](https://www.revrobotics.com/rev-11-1956/) | `REV-11-1956` | 1 | [Electronics Bay](build/electronics-bay.md) | 6 fused branch circuits — feeds Thor / StamPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside) |
 | [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | [Electronics Bay](build/electronics-bay.md) | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 2 | [Electronics Bay](build/electronics-bay.md), [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The StamPLC's: PWM to the four drive ESCs, at I2C 0x25 behind the PaHub. The neck has its own (Pan/Tilt HMI). |
-| [M5Stack Dial (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. The robot's is the original Dial (K130), now discontinued; M5Stack's replacement is the Dial v1.1 (K130-V11), which the neck firmware has not been tested on. |
+| [M5Stack Dial v1.1 (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. |
 | [goBILDA RGB Indicator Light (PWM Controlled)](https://www.servocity.com/rgb-indicator-light-pwm-controlled/) | `3118-0808-0002` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Lights the chest badge from behind in the robot's state colour; the PWM pulse width sets the colour. Fixed with M4 screws through its own holes. |
 | 6 x 2 mm disc magnet (N52 or similar) | — | 8 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Four pairs, poles attracting: they hold the face on, so it lifts off to reach the screws. |
 | [ODrive Regen Clamp](https://shop.odriverobotics.com/products/odrive-regeneration-clamp) | — | 1 | [Electronics Bay](build/electronics-bay.md) | Absorbs braking regen; the resistor lead requires SOLDERING |
@@ -145,7 +145,7 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 | REV Mini Power Module (24 V logic bus) | 1 | $38.00 | $38.00 | [revrobotics.com](https://www.revrobotics.com/rev-11-1956/), 2026-10-09 |
 | goBILDA 2x80A ESC | 2 | $159.99 | $319.98 | [servocity.com](https://www.servocity.com/2x80a-motor-controller/), 2026-10-09 |
 | M5 8Servo unit | 2 | $6.95 | $13.90 | [shop.m5stack.com](https://shop.m5stack.com/products/8-channel-servo-driver-unit-stm32f030), 2026-10-09 |
-| M5Stack Dial (ESP32-S3) | 1 | $34.90 | $34.90 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-dial-v1-1), 2026-10-16 |
+| M5Stack Dial v1.1 (ESP32-S3) | 1 | $34.90 | $34.90 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-dial-v1-1), 2026-10-16 |
 | goBILDA RGB Indicator Light (PWM Controlled) | 1 | $24.99 | $24.99 | [servocity.com](https://www.servocity.com/rgb-indicator-light-pwm-controlled/), 2026-10-16 |
 | M4 x 20 mm socket-head cap screw (ISO 4762) | 4 | — | — | no price yet |
 | M4 heat-set insert | 4 | — | — | no price yet |
