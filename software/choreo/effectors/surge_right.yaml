@@ -50,6 +50,20 @@ patterns:
   drum:     {step_beats: 0.5, base: stand, steps: [{thumb_flex: 0.75}, {thumb_flex: 0.25}]}
   # the index finger taps the floor ON each beat (a cue that starts on a beat): down on the beat, up on the "and"
   tap_index: {step_beats: 0.5, base: stand, steps: [{index: 0.6}, {index: 0.25}]}
+# FIRST FACTS FROM THE REAL HAND (the Surge Hand investigation, on opendubs2, 2026-10-16; its hardware log).
+# They do not change the twin; they gate any driver (output) and any finger dance on the real hand.
+hardware:
+  protocol: "Surge 1: AT commands over RS-485, 115200 8N1"
+  blocked_joint: >-
+    a joint that is BLOCKED latches an error flag (AT+GJE? reads 1) and stays flagged: in an empty hand
+    the power grip blocks the thumb and the chuck blocks the index. A finger dance must not close fingers
+    onto the thumb: use joint targets (AT+SJA) or poses where nothing meets.
+  clear_error: "AT+RCH=1 (recalibrate: ~20 s, the hand moves and returns to rest), then AT+SMC=0 (glove mode off)"
+  angle_gain: >-
+    commanded vs read angle is ~1.2x (SJA 25 -> reads ~31, 80 -> ~96): the twin's channel -> joint mapping
+    needs a measured calibration table before any real finger dance or gait
+  # poses here that close fingers onto an opposed thumb: twin only until checked on the hand
+  closes_onto_thumb: [fist, point, peace, horns]
 sim:
   model: surge                       # sim/hand.py; the primitive below when $OPENDUBS_SURGE_DIR is unset
   urdf: surge_v13_hand_right_pybullet.urdf
