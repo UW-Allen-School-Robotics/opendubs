@@ -21,6 +21,18 @@ const ARMED_LEASE_MS = 3000;
 // Three missed BATT refreshes (the dashboard sends one every 30 s). See chargeState().
 const BATT_STALE_MS = 90000;
 const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
+// HOW LONG A REPORTED TARGET IS BELIEVED. The trackers report at 5 Hz or better, so this is
+// several missed reports: long enough never to flicker, short enough that the face does not keep
+// staring at where somebody used to be.
+//
+// ONE CONSTANT, USED BY BOTH THE EYES AND THE RETICLE, which is the whole reason it is named. It
+// was a bare 700 in the gaze path and I gave the reticle its own 500 -- so the box would have
+// vanished while the eyes were still following, and the diagnostic would have disagreed with the
+// thing it is there to explain. That is worse than no diagnostic.
+const TARGET_FRESH_MS = 700;
+// How far from the design edge the reticle's CENTRE may travel. skins/reticle.js clamps the box
+// itself; this keeps the centre somewhere sensible before it ever gets there.
+const RETICLE_MARGIN = 90;
 
 // `?mouth=1` turns the optional mouth on for testing and for the settings page's own preview. The
 // PREFERENCE lives on the robot and the page calls setMouth(); this is only a way to see it without
@@ -128,7 +140,7 @@ export class Face {
     this.blinking = false; this.blinkEnd = 0;
     this.nextBlink = 0; this.nextSaccade = 0; this.nextEmote = 0;
     this.quote = -1; this.nextQuote = 0;
-    this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at}
+    this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at, kind?}
     this.woke = false;
     this.nextAvert = 0; this.avertUntil = 0;   // the gaze break; see tick()
     this.microX = 0; this.microY = 0; this.nextMicro = 0;
@@ -171,7 +183,48 @@ export class Face {
     this.theme = n; this.applyColour();
     return true;
   }
-  look(target) { this.target = target; }      // from a tracker; null to let the eyes wander
+  // From a tracker; null to let the eyes wander. `kind` ("motion" | "face" | "person") is
+  // optional, carried only so the reticle can say WHICH cue this is -- the engine's own behaviour
+  // has never depended on it and still does not.
+  look(target) { this.target = target; }
+
+  // WHERE THE FACE THINKS THE TARGET IS, in design coordinates, for the tracking reticle.
+  //
+  // THE POINT OF THIS LIVING HERE rather than in the page: it is derived from THE GAZE THAT DRIVES
+  // THE EYES, after every transform the gaze goes through, so the reticle shows what the face
+  // actually believes. A reticle computed in the page from the detector's box would sit happily on
+  // the person all through a runaway -- in a runaway the detector is right and the MAPPING is
+  // wrong, which is exactly the failure it is meant to expose. Putting it here makes that property
+  // structural instead of something a caller has to remember.
+  //
+  // Null when there is nobody: the reticle is a diagnostic, and a box drawn over an empty room
+  // would be a lie of the kind that makes a diagnostic worse than none.
+  reticleTarget(now = this._now) {
+    const t = this.target;
+    if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.y)) return null;
+    if (typeof t.at === "number" && !(now - t.at < TARGET_FRESH_MS)) return null;
+    // THE TARGET, NOT THE GAZE, and the difference is the whole design. I had this the other way
+    // round until the maintainers said what they actually wanted from it: "the eyes SEEM to be
+    // tracking but I have no idea what you're seeing or even when you're looking." Where the eyes
+    // POINT is already on screen -- they are the largest thing on the face. What is invisible is
+    // what the robot has DETECTED. So the box marks the detection and you judge the eyes against
+    // it; a box derived from the gaze would only ever agree with the eyes and could never
+    // contradict them, which makes it decoration.
+    //
+    // It is still not the detector's rectangle: this is `t.x`/`t.y` as the ENGINE holds them, the
+    // same numbers the gaze path consumes, so the box and the eyes are fed from one value. During
+    // a gaze break the two separate on purpose -- the box stays on the person while the eyes look
+    // away -- and that is correct: the face still knows where you are, it is choosing not to
+    // stare. A test pins that, so nobody "fixes" it later.
+    const gx = Math.max(-1, Math.min(1, t.x));
+    const gy = Math.max(-1, Math.min(1, t.y));
+    return {
+      x: DESIGN_W / 2 + gx * (DESIGN_W / 2 - RETICLE_MARGIN),
+      y: DESIGN_H / 2 + gy * (DESIGN_H / 2 - RETICLE_MARGIN),
+      kind: t.kind === "face" || t.kind === "person" ? t.kind : "motion",
+      conf: typeof t.conf === "number" ? t.conf : 0,
+    };
+  }
 
   // ---- the optional mouth -----------------------------------------------------------------------
   // The page owns the preference and the audio; the engine owns the drawing. ONE BOOLEAN AND ONE
@@ -362,7 +415,7 @@ export class Face {
 
     // Where to look: a confident person beats wandering; confidence sets how far the eyes commit.
     const t = this.target;
-    if (t && now - t.at < 700) {
+    if (t && now - t.at < TARGET_FRESH_MS) {
       const amp = GAZE_AMP_FLOOR + (1 - GAZE_AMP_FLOOR) * Math.max(0, Math.min(1, t.conf));
       const tx = Math.max(-1, Math.min(1, t.x)) * amp, ty = Math.max(-1, Math.min(1, t.y)) * amp * GAZE_V;
 
