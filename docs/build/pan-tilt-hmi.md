@@ -34,26 +34,26 @@ power, and it talks to the robot over the network rather than through the StamPL
 ## Architecture
 
 ```
-Tab5 (ESP32-P4)  ── Grove I²C ── PaHub ─┬─ 8Servo ── pan servo
-                                        │           tilt servo
-                                        └─ VL53L0X rangefinder
+M5Dial neck controller (ESP32-S3) ── Port A, I²C ── 8Servo (0x25) ─┬─ ch 0: tilt servo
+                                                                    └─ ch 1: pan servo
 ```
 
-The Tab5 runs the face, drives the servos and reads the sensors. Everything in this
-module sits on **one power domain** fed from the drive bus, and the only link to the
-rest of the robot is wireless — so there is no logic/drive ground crossing here, and
-none of the isolation the base needs applies.
+The neck controller, an M5Stack **M5Dial**, drives the pan and tilt servos through **its own
+8Servo unit** at I²C address `0x25` on its Port A. This is a second 8Servo, separate from the
+StamPLC's in the [Electronics Bay](electronics-bay.md), which drives the wheel ESCs. The neck
+takes the head's commands over the network and holds its per-robot tilt limits itself. No
+rangefinder is fitted to the neck.
 
 !!! danger "Servo current must not come from the Grove cable"
     With nothing on the 8Servo's terminal block, its servo rail is fed from the Grove
-    5 V — which is the Tab5's USB rail. **Running servos that way destroyed a Tab5's
-    peripheral 5 V output during bring-up.**
+    5 V — the controller's own 5 V rail. **Servo current drawn that way can destroy the
+    controller's 5 V output.**
 
     Feed the 8Servo's terminal block instead, on the **HV** pin (9–24 V) rather than
     the 5 V pin. With HV present the unit's internal FETs isolate its servo rail from
-    the Grove supply and its onboard buck powers the servos, while the Tab5 supplies
+    the Grove supply and its onboard buck powers the servos, while the controller supplies
     only a few mA of logic. Feeding the 5 V pin leaves those FETs conducting and
-    back-feeds your supply into the Tab5.
+    back-feeds your supply into the controller.
 
 ## Commissioning — values discovered per robot
 
@@ -123,7 +123,11 @@ keep working. The sensor driver itself is not yet written.
     Edit the CSV (rows tagged `module = pan-tilt-hmi`), then run `tools/bom.py --inject`.
 
 <!-- BOM-AUTO:build:pan-tilt-hmi -->
-_(no parts for module 'pan-tilt-hmi')_
+**Neck controller**
+
+| Part | SKU | Qty | Notes |
+|---|---|---:|---|
+| [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The neck's own, at I2C 0x25 on the M5Dial neck controller's Port A: channel 0 tilt, channel 1 pan. Separate from the StamPLC's in the electronics bay. |
 <!-- /BOM-AUTO:build:pan-tilt-hmi -->
 
 ## Tools
