@@ -142,8 +142,11 @@ class Robot:
         self.scene = scene
         self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth, width)
         self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, height)
-        self.model.vis.headlight.ambient[:] = [0.55] * 3     # the lighting of sim/scene.py --render
-        self.model.vis.headlight.diffuse[:] = [0.8] * 3
+        # a softer light than sim/scene.py --render (0.55 / 0.8 flattened white parts to a cartoon glare):
+        # less ambient, so surfaces keep their shading
+        self.model.vis.headlight.ambient[:] = [0.25] * 3
+        self.model.vis.headlight.diffuse[:] = [0.6] * 3
+        self.model.vis.headlight.specular[:] = [0.3] * 3
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, height, width)
         self.size = (width, height)

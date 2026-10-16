@@ -104,6 +104,9 @@ def _surge_spec(tool, hand_dir: str):
     for m in spec.meshes:              # in full: a scene that attaches the hand has its own meshdir
         if not os.path.isabs(m.file):
             m.file = os.path.join(hand_dir, m.file)
+    for g in spec.geoms:               # the vendor gives no colour (pure white): the arm's light grey instead
+        if not g.material and list(g.rgba) == [1, 1, 1, 1]:
+            g.rgba = [0.8, 0.8, 0.8, 1]
     total = sum(b.mass for b in spec.bodies if b.name != "world")
     k = float(tool.sim.get("mass_kg", 0.54)) / total if total > 0 else 1.0
     for b in spec.bodies:

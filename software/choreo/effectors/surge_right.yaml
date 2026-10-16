@@ -48,6 +48,8 @@ patterns:
   wave:     {step_beats: 1, base: stand, steps: [{index: 0.1, middle: 0.1, ring: 0.1, pinky: 0.1}, {index: 0.8, middle: 0.8, ring: 0.8, pinky: 0.8}]}
   beckon:   {step_beats: 1, base: stand, steps: [{index: 0.05, middle: 1, ring: 1, pinky: 1}, {index: 0.95}]}
   drum:     {step_beats: 0.5, base: stand, steps: [{thumb_flex: 0.75}, {thumb_flex: 0.25}]}
+  # the index finger taps the floor ON each beat (a cue that starts on a beat): down on the beat, up on the "and"
+  tap_index: {step_beats: 0.5, base: stand, steps: [{index: 0.6}, {index: 0.25}]}
 sim:
   model: surge                       # sim/hand.py; the primitive below when $OPENDUBS_SURGE_DIR is unset
   urdf: surge_v13_hand_right_pybullet.urdf
