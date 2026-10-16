@@ -103,6 +103,26 @@ Two margins the backend should keep, because of where the thresholds sit:
 The light is on the neck, which is on the e-stop branch: **it goes dark on a real e-stop**, by
 design, the same as the head. Red therefore mostly indicates a software-latched fault.
 
+### Verifying the colour map, when the light is fitted
+
+The table above is goBILDA's, not a measurement, and the named points are **names**: "indigo" is
+quoted anywhere from 265° to 280° depending who is asked, and at 1800 µs a 15° error moves the
+pulse by about 75 µs. Do not settle it by looking at it and saying "that looks purple" — that
+judgement moves with the room lights, the plate's diffuser and the person.
+
+Measure it instead, about ten minutes:
+
+1. Fix the camera: manual exposure, manual white balance, no auto anything. A phone in pro mode is
+   fine. Frame the lit lens, same position throughout.
+2. Step `CHEST 1100` to `CHEST 1900` in 50 µs, one photo at each, plus `CHEST 500` and
+   `CHEST 2500` for the two ends.
+3. Sample the pixel hue at the centre of the lens in each frame and tabulate (pulse → hue).
+4. Send the table to the Tablet lane: it replaces `state_out.CHEST_HUES` directly, and moves
+   `CHEST_LIT_US` if the real off and white edges are not at 1100 and 1900.
+
+Fixed exposure and white balance are the whole trick — auto white balance will "correct" the very
+colour being measured, and report the light as neutral whatever it is doing.
+
 > **BEFORE IT IS PLUGGED IN:** put a meter on the 8Servo's servo header. M5's spec gives the rail
 > as `DC 5V@3A` across all eight channels, and the light wants **5–15 V** — inside the range but at
 > the very bottom, so it may be dim and any droop puts it out of spec. The 3 A is shared with both
