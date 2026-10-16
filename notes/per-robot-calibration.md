@@ -102,7 +102,10 @@ on request (`NECK` answers `tilt_band` and `commissioned`). How to read, set and
 ## Settings file — `/etc/opendubs/robot.env`
 
 Per-robot settings the robot's services load at start (`EnvironmentFile=`): the robot's name, the
-face and neck hosts, and any per-robot override. Deploys only **read** it, never write it, and
+face and neck hosts, and any per-robot override. That includes the neck-follow signs
+(`OPENDUBS_NECK_FOLLOW_PAN_SIGN`, `OPENDUBS_NECK_FOLLOW_TILT_SIGN`), which depend on how the head and
+neck are mounted and are measured at each robot, open-loop with the head held still. The code's
+defaults are not a measurement. Deploys only **read** it, never write it, and
 `tools/deploy-audit.py` does not compare it, so a change to it never shows as drift. A temporary line
 added for a measurement therefore stays, and is re-applied by every restart, until it is removed by
 hand. Edits go through the Thor stack lane, with a dated backup beside the file.
