@@ -14,6 +14,14 @@ recipe that matches your task.
   both pass — CI runs them and fails the build otherwise.
 - **Write for an outside replicator:** define jargon, state prerequisites, don't assume
   UW-specific context. Match the existing voice.
+- **A test must earn its place.** Add a test or check only if it would catch a plausible failure
+  that would otherwise reach the robot or a person, more cheaply than asking the human one
+  question. If a person can simply look ("what colour is it?", "did the head turn?"), ask them;
+  don't build a rig, a photo procedure or a simulation for it. Keep the gates that prevent damage
+  or unsafe motion (voltage and pin order before plugging in, arms idle before a dashboard restart,
+  the deploy guard), and keep regression tests for bugs that actually happened. Don't add tests
+  that only restate the code, proof matrices wider than what the change could break, or at-robot
+  checks of things that already worked. Every check slows CI and deploys; that cost is real.
 - **Ask the human** before pushing, before anything destructive, or before big restructuring.
   Secrets never go in the repo (`.env` / keys belong in the git-ignored `ops/`).
 - **Never push to `main`. Branch, then open a PR — every time.** `main` requires a pull request,
