@@ -178,6 +178,17 @@ carry that much margin on their own.
 measurement is a provisional number. A procedure abandoned halfway leaves the robot claiming to be
 commissioned on a throwaway band.
 
+## The degrees are not degrees
+
+The pan and tilt servos are **300°** servos, and `degToUs()` maps `0..180` to the full
+`500..2500 µs` — so **one commanded degree is 1.667 real degrees**, on both axes. Every number in
+this file, in the protocol and in every show is in commanded units.
+
+Nothing misbehaves, because everything is consistently in the same unit. But the slew limit reads
+70 °/s and is **117 °/s**, the autonomous envelopes are ±50 and ±30 rather than ±30 and ±18, and
+pan's `0..180` bounds sweep the servo's **entire 300°** on an axis that has never been
+commissioned. See **[DEGREES.md](DEGREES.md)** — a decision for the maintainers, with a migration.
+
 ## The control law
 
 `neck/pantilt_core.{h,cpp}` is pure compute — no I2C, no NVS, no Arduino — so the identical
