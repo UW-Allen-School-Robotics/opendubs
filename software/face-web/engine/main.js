@@ -38,7 +38,8 @@ import("./skins/armed.js").then((m) => { drawArmed = m.drawArmed; }).catch(() =>
 // From the kiosk app, the hardware's own state (any app, any camera: OpenDubsKiosk.cameras()); and,
 // in any browser, this page's own live video tracks, so a laptop twin's webcam shows it too. Either
 // one open lights the indicator.
-let drawCamera = null, drawCharge = null;
+let drawCamera = null, drawCharge = null, drawReticle = null, showReticle = false;
+import("./skins/reticle.js").then((m) => { drawReticle = m.drawReticle || null; }).catch(() => {});
 import("./skins/charge.js").then((m) => { drawCharge = m.drawCharge || null; }).catch(() => {});
 import("./skins/camera.js").then((m) => { drawCamera = m.drawCameraOn || null; }).catch(() => {});
 const cams = { screen: false, back: false };
@@ -122,7 +123,8 @@ function frame(now) {
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   // AirPlay playing and heard: what it is, in the quote's place.
   const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
-  stats.cameraSign = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge }).camera;
+  stats.cameraSign = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
+                                   drawReticle: showReticle ? drawReticle : null }).camera;
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
@@ -209,6 +211,7 @@ function applySettings(s) {
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
   }
   skins.idle = { skin: s.skin || "default", theme: s.theme || "plain" };   // for SKIN IDLE / THEME IDLE
+  showReticle = s.show_reticle === true;       // the tracker's reticle: live, no reload
   if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen) skins.select(s.skin);
   if (changed("theme", s.theme) && s.theme && s.theme !== face.theme) face.setTheme(s.theme);
   if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
