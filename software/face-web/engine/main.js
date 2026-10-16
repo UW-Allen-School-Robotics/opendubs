@@ -234,6 +234,32 @@ function applySettings(s) {
   }
 }
 
+// ---- picking up a deploy by itself ---------------------------------------------------------------
+// The kiosk has no reload control, and turning tracking on only adds a module to the page already
+// running, so a deployed fix to this page sat unused until something reloaded it (2026-10-16). Every
+// 15 s the page asks the dashboard which version of its files it serves (face_door.py), and reloads
+// when that changes. Never while a show is armed or running (a reload would cut it); it tries again.
+(function followDeploys() {
+  let seen = null;
+  async function busy() {
+    if (typeof face.armedState === "function" && face.armedState(performance.now())) return true;
+    try {
+      const p = await (await fetch("/api/choreo/palette", { cache: "no-store" })).json();
+      return !!p.running;
+    } catch (e) { return false; }   // no runner: no show can be running
+  }
+  async function check() {
+    try {
+      const r = await fetch("/api/face/version", { cache: "no-store" });
+      const v = r.ok ? (await r.json()).version : null;          // not served by a dashboard: nothing to follow
+      if (v && seen === null) seen = v;
+      else if (v && v !== seen && !(await busy())) { location.reload(); return; }
+    } catch (e) { /* the dashboard is restarting during the deploy: try again next round */ }
+    setTimeout(check, 15000);
+  }
+  check();
+})();
+
 // ---- the body twin's picture (door_dev.py with OPENDUBS_FACE_FRAMES; the robot's door never asks) -
 // The MuJoCo body twin shows this face on its head by copying it, never by drawing its own (a second
 // drawing would drift). Asked for by the door: the face's design area, without the simulated turn
