@@ -34,7 +34,7 @@ grid follow the tempo if you change it later.
 
 <figure markdown="span">
   ![The composer toolbar with the music and tempo controls numbered](../assets/composer/composer-02-music.png)
-  <figcaption>1 ♫ music: choose or add a song · 2 tap, then use · 3 beat 1 ⇤ · 4 snap: what dragged cues snap to · 5 click: a metronome · 6 the grid the show is written on, bar.beat</figcaption>
+  <figcaption>1 ♫ music: choose or add a song, or type the tempo · 2 tap, then use · 3 beat 1 ⇤ · 4 snap and click: what dragged cues snap to, and a metronome · 5 the grid the show is written on, bar.beat</figcaption>
 </figure>
 
 ## :octicons-cpu-24: 3. Know the robot
@@ -115,7 +115,8 @@ must come from the show library, not a file beside the show.
 
 On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. **Start**
 sets how a run begins: **wait for the deadman** arms the run, then counts down when you press the
-deadman; **count down now** needs the deadman already held; **now** starts at once. Once started, letting go of the
+deadman; **count down now** needs the deadman already held; **now** starts at once. On the
+robot the default is to wait for the deadman. Once started, letting go of the
 deadman stops the show, and the arms hold where they are.
 
 <figure markdown="span">
