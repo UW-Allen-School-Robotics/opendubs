@@ -63,6 +63,7 @@ MESSAGES = {
     "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
     "ARMED":   (FACE, "agreed"),        # v5, tablet face only
     "BATT":    (FACE, "agreed"),        # v6, tablet face only (agreed with Face & HRI, 2026-10-15)
+    "CAPTION": (FACE, "new"),           # the state in plain words: proposed to Face & HRI 2026-10-16
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),

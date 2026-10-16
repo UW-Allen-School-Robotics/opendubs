@@ -109,6 +109,9 @@ async def face_ws(socket: WebSocket):
         batt = state_out.face_batt()                # and the pack's charge, for the gauge
         if batt:
             await socket.send_text(json.dumps({"id": 0, "line": batt}))
+        cap = state_out.face_caption()              # and the state in plain words (state_words.py)
+        if cap:
+            await socket.send_text(json.dumps({"id": 0, "line": cap}))
     except Exception as e:                          # noqa: BLE001
         log.warning("face page: state not sent: %s", e)
     log.info("face page connected (%d showing)", len(pages))

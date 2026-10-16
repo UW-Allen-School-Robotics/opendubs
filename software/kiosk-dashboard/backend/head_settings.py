@@ -37,6 +37,7 @@ DEFAULTS = {
     "vol_max": 1.0,             # no show can make it louder than this
     "face_return_min": 2,       # the kiosk goes back to the face after this long untouched; 0 = never
     "show_reticle": False,      # draw the tracker's reticle on the face (a diagnostic; off by default)
+    "state_words": "hide_auto_manual",   # the state in plain words: always | hide_auto_manual | off (state_words.py)
 }
 TRACKING = ("off", "tablet", "d415")
 
@@ -49,6 +50,9 @@ def _check(key, v):
         return None if isinstance(v, bool) else f"{key} must be true or false"
     if key == "tracking":
         return None if v in TRACKING else f"tracking must be one of {', '.join(TRACKING)}"
+    if key == "state_words":
+        import state_words
+        return None if v in state_words.MODES else f"state_words must be one of {', '.join(state_words.MODES)}"
     if key in ("skin", "theme"):
         return None if isinstance(v, str) and 0 < len(v) <= 64 else f"{key} must be a name"
     if key == "volume_idle" and v is None:
