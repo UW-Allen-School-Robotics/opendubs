@@ -52,6 +52,10 @@ CENTRE = 90.0
 LEASE_MS = 600
 TARGET_FRESH_S = 0.5
 CONF_MIN = 0.6           # the neck core's kHeadConfidence
+# Per kind (2026-10-15, with the user at the robot): a PERSON is a detector's box, believed at ~0.5 when
+# someone stands still, so the head never turned at 0.6. Motion and face keep the neck core's 0.6.
+# The runaway and limit guards (below) stay the backstop whatever this lets through.
+CONF_MIN_BY_KIND = {"person": 0.45, "motion": CONF_MIN, "face": CONF_MIN}
 EYE_ONLY = 0.25          # the neck core's kEyeOnly: below this offset the head never moves
 NECK_PORT = 4242
 # ONE AIM PER SIGHTING. An image offset is only true of the head pose the frame was captured at, and the
@@ -157,10 +161,10 @@ def note_target(t) -> None:
         state["kind"] = k if k in ("face", "person", "motion") else "face"
 
 
-def aim(neck: dict, target, cfg: dict):
+def aim(neck: dict, target, cfg: dict, kind: str = "face"):
     """The (pan, tilt) to send, or (None, why not). Pure: the rules in the module's docstring."""
     ix, iy, conf = target
-    if conf < CONF_MIN:
+    if conf < CONF_MIN_BY_KIND.get(kind, CONF_MIN):
         return None, "not confident enough"
     ox, oy = (ix - 0.5) * 2, (iy - 0.5) * 2                               # -1..1, image right / down
     if max(abs(ox), abs(oy)) <= EYE_ONLY:
@@ -251,7 +255,7 @@ def step(cfg: dict):
     state["neck"], state["neck_at"] = neck, _clock()
     if neck is None:
         return "the neck did not answer NECK"
-    aimed, why = aim(neck, t, cfg)
+    aimed, why = aim(neck, t, cfg, state.get("kind") or "face")
     if aimed is None:
         return why
     # Pinned at the envelope's edge: out of reach. Hold (send nothing) after LIMIT_HOLD_S.

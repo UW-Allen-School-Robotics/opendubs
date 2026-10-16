@@ -358,3 +358,9 @@ def test_a_page_without_sighting_times_never_moves_the_head(monkeypatch):
     assert not [s for s in sent if s.startswith("GAZE")]
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9, "age_ms": 40})
     assert nf.status()["sighting_age_s"] is not None
+
+
+def test_a_person_moves_the_head_at_a_lower_confidence_than_motion():
+    assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG, "person")[1] is None              # 0.5 >= 0.45: turns
+    assert nf.aim(STILL, (0.9, 0.5, 0.5), CFG, "motion")[1] == "not confident enough"
+    assert nf.aim(STILL, (0.9, 0.5, 0.4), CFG, "person")[1] == "not confident enough"

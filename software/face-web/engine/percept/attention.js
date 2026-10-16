@@ -16,8 +16,14 @@
 export const KIND = { NONE: "none", MOTION: "motion", PERSON: "person", FACE: "face" };
 
 const SCORE_FLOOR = 0.30, SCORE_FULL = 0.90, REPS_FULL = 3;
-const FACE = { base: 0.15, score: 0.55, reps: 0.30, dwellMin: 500, dwellMax: 2400 };
-const PERSON = { base: 0.12, score: 0.50, reps: 0.28, dwellMin: 450, dwellMax: 2000 };
+const FACE = { base: 0.15, score: 0.55, reps: 0.30, dwellMin: 500, dwellMax: 2400,
+               scoreFloor: SCORE_FLOOR, scoreFull: SCORE_FULL, repsFull: REPS_FULL };
+// PERSON, retuned on the robot (2026-10-15): EfficientDet scores a person standing in front of the robot
+// around 0.4-0.6, not a face model's 0.9, and it runs on every other frame (~2.5 a second), so the
+// face's "three linked hits, 0.3..0.9" left a person who stood still at ~0.5 and the head never turned.
+// Its own score range, and full belief after two linked hits.
+const PERSON = { base: 0.12, score: 0.50, reps: 0.28, dwellMin: 450, dwellMax: 2000,
+                 scoreFloor: 0.25, scoreFull: 0.70, repsFull: 2 };
 const LINK_MS = 700, LINK_DIST = 0.25;          // two hits are the same person: close in time and space
 const MOTION_STR_FLOOR = 0.06, MOTION_STR_FULL = 0.40, MOTION_CONF_CAP = 0.70;
 const MOTION_DWELL_MIN = 350, MOTION_DWELL_MAX = 1200;
@@ -27,7 +33,7 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const ramp = (v, lo, hi) => (hi - lo < 1e-6 ? (v >= hi ? 1 : 0) : clamp01((v - lo) / (hi - lo)));
 
 export function detectorConfidence(c, k) {
-  return clamp01(k.base + k.score * ramp(c.quality, SCORE_FLOOR, SCORE_FULL) + k.reps * clamp01((c.reps - 1) / (REPS_FULL - 1)));
+  return clamp01(k.base + k.score * ramp(c.quality, k.scoreFloor, k.scoreFull) + k.reps * clamp01((c.reps - 1) / (k.repsFull - 1)));
 }
 export function motionConfidence(c) { return clamp01(ramp(c.quality, MOTION_STR_FLOOR, MOTION_STR_FULL) * MOTION_CONF_CAP); }
 
