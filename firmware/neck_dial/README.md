@@ -28,7 +28,8 @@ PY
 ```
 
 `PING` · `NECK` · `GAZE <pan> <tilt> [lease_ms]` / `GAZE OFF` · `TILT <min> <max>` ·
-`OTA <url>` · `REBOOT` · `TOF` (refused: not fitted). Anything else answers `ERR unknown`.
+`CHEST <us>` / `CHEST OFF` · `OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
+Anything else answers `ERR unknown`.
 
 **`NECK` and `PING` report the COMMANDED angle. There is no encoder.** A servo that is unplugged,
 stalled or wired to the wrong channel reports exactly the same numbers as one that is working —
@@ -71,6 +72,72 @@ kill %1
 A virgin or bricked board needs USB and `tools/flash.py` (app-only at `0x10000`; a merged image at
 `0x0` erases the NVS and takes the Wi-Fi credentials with it). Flashing over USB is CLAUDE.md's
 rote M5Stack procedure; do not improvise around it.
+
+## The chest light
+
+A goBILDA RGB Indicator Light (`3118-0808-0002`) behind the chest plate, on **8Servo channel 2**.
+It takes an ordinary servo pulse and **the pulse width is the colour**, published by goBILDA
+(Product Insight #4):
+
+| µs | 500 | 1100 | 1200 | 1300 | 1400 | 1500 | 1600 | 1700 | 1800 | 1900 | 2500 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| | off | red | orange | yellow | sage | green | azure | blue | indigo | violet | white |
+
+Smooth gradient between. **Below 1100 is off; above 1900 is solid white.** There is no brightness
+channel — hue only — so nothing on this part can dim, fade or breathe.
+
+`CHEST OFF` sends **500 µs**, a defined off, rather than stopping the pulses: silence leaves the
+light in a state nobody has characterised, and an off that might not be off is not off.
+
+**The colour is not decided here.** The Thor maps the robot's winning state colour — the same one
+the PRISM shows — to a pulse and sends the pulse, so there is one map, in the backend, next to the
+PRISM table, instead of two that can disagree about what red is.
+
+Two margins the backend should keep, because of where the thresholds sit:
+
+- **Red is 1100 and below 1100 is off**, so the most safety-critical colour is one step above
+  darkness. Any rounding down turns a fault into an unlit plate, which reads as "powered down".
+  Map it to about **1130**.
+- **Violet is 1900 and above 1900 is white**, so charging's purple should be about **1880**.
+
+The light is on the neck, which is on the e-stop branch: **it goes dark on a real e-stop**, by
+design, the same as the head. Red therefore mostly indicates a software-latched fault.
+
+### Verifying the colour map, when the light is fitted
+
+The table above is goBILDA's, not a measurement, and the named points are **names**: "indigo" is
+quoted anywhere from 265° to 280° depending who is asked, and at 1800 µs a 15° error moves the
+pulse by about 75 µs. Do not settle it by looking at it and saying "that looks purple" — that
+judgement moves with the room lights, the plate's diffuser and the person.
+
+Measure it instead, about ten minutes:
+
+1. Fix the camera: manual exposure, manual white balance, no auto anything. A phone in pro mode is
+   fine. Frame the lit lens, same position throughout.
+2. Step `CHEST 1100` to `CHEST 1900` in 50 µs, one photo at each, plus `CHEST 500` and
+   `CHEST 2500` for the two ends.
+3. Sample the pixel hue at the centre of the lens in each frame and tabulate (pulse → hue).
+4. Send the table to the Tablet lane: it replaces `state_out.CHEST_HUES` directly, and moves
+   `CHEST_LIT_US` if the real off and white edges are not at 1100 and 1900.
+
+Fixed exposure and white balance are the whole trick — auto white balance will "correct" the very
+colour being measured, and report the light as neutral whatever it is doing.
+
+**The cable** is goBILDA's included TJC8 ↔ JST PH, 300 mm: JST PH at the light, which exits the
+back of the plate through a ø14 hole (the side TJC8 ports are boxed in by the pocket), and TJC8 at
+the 8Servo's channel 2 header.
+
+> **BEFORE IT IS PLUGGED IN — two checks, both on the bench, both cheap:**
+>
+> **1. The rail voltage.** Put a meter on the 8Servo's servo header. M5's spec gives the rail as
+> `DC 5V@3A` across all eight channels, and the light wants **5–15 V** — inside the range but at
+> the very bottom, so it may be dim and any droop puts it out of spec. The 3 A is shared with both
+> pan/tilt servos. Nobody has measured it on this robot.
+>
+> **2. The pin order.** Confirm signal, V+ and ground land where the light expects them, rather
+> than assuming the two connectors agree because the cable came in the box. A servo header carries
+> power, so a reversed run does not fail quietly — and the cable is an adapter between two
+> different connector families, which is exactly where an assumed convention goes wrong.
 
 ## Commissioning the tilt range
 

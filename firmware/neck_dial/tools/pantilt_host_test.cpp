@@ -16,6 +16,7 @@
 #include <cmath>
 #include "../neck/pantilt_core.h"
 #include "../neck/tilt_confirm.h"
+#include "../neck/chest.h"
 #include "../neck/rc_frame.h"
 #include <cstring>
 
@@ -315,6 +316,47 @@ int main()
         request(p, 71, 150, nearWrap, false);
         ok(poll(p, nearWrap + 100, false) == Confirm::None, "a request made just before the clock wraps does not expire early");
         ok(poll(p, nearWrap + 200, true) == Confirm::Applied, "and can still be confirmed across the wrap");
+    }
+
+    // ---- 12. the chest light's argument ----------------------------------------------------------
+    // The pulse IS the colour, so a sloppy parse shows the wrong one. This part exists to report
+    // the robot's state; a light that says green during a fault is worse than a dark plate.
+    {
+        uint16_t us = 0;
+        ok(parseChest("1500", &us) && us == 1500, "a plain pulse is taken");
+        ok(parseChest("  1500  ", &us) && us == 1500, "with spaces around it");
+        bool off = true;
+        ok(parseChest("OFF", &us, &off) && us == kChestOffUs && off,
+           "OFF is the DEFINED off pulse, not silence");
+        ok(parseChest("off", &us, &off) && us == kChestOffUs && off, "and it is case-insensitive");
+        // THE FORM, NOT THE VALUE. `CHEST 500` applies the same pulse as `CHEST OFF`, and the
+        // protocol says the reply states what was applied -- so a caller that sent a number must
+        // read back a number, or the backend has to special-case a reply it did not ask for.
+        ok(parseChest("500", &us, &off) && us == 500 && !off,
+           "an explicit 500 is NOT reported as OFF, though the pulse is identical");
+        // Newline-terminated, as the Thor sends. The UDP path strips \r\n before parsing, so this
+        // is belt and braces -- but it is the kind of thing that is cheap now and expensive at the
+        // robot, and the transport could change.
+        ok(parseChest("1500\n", &us) && us == 1500, "a trailing newline is tolerated");
+        ok(parseChest("OFF\r\n", &us, &off) && off, "and a CRLF after OFF");
+        ok(parseChest("2500", &us) && us == 2500, "and the top");
+
+        // REFUSED, NOT CLAMPED. A caller asking for 3000 has a bug; showing it white would hide it.
+        us = 4242;
+        ok(!parseChest("499", &us), "below the range is refused");
+        ok(!parseChest("2501", &us), "above it too");
+        ok(!parseChest("-1", &us), "and a negative");
+        ok(us == 4242, "a refusal leaves the caller's value untouched");
+
+        // The ones a sloppy parser gets wrong. atoi("1500x") is 1500, and sscanf stops happily at
+        // the first token -- both would accept a typo and light the wrong colour.
+        ok(!parseChest("1500x", &us), "trailing rubbish after a number is refused");
+        ok(!parseChest("1500 2000", &us), "a second value is refused rather than half-read");
+        ok(!parseChest("OFFISH", &us), "a word that merely starts with OFF is refused");
+        ok(!parseChest("", &us), "an empty argument is refused");
+        ok(!parseChest("   ", &us), "and whitespace alone");
+        ok(!parseChest("red", &us), "a colour NAME is refused: the wire carries pulses, not names");
+        ok(!parseChest(nullptr, &us), "and a null argument does not crash");
     }
 
     printf(failed ? "\n%d FAILED\n" : "\nall pantilt checks passed\n", failed);
