@@ -185,18 +185,36 @@ def shots_composer(page, out: str, want, meta: dict) -> None:
         {"n": 8, "box": union(box(page, "#save"), box(page, "#status")), "label": "save (Ctrl/Cmd-S), and the validator's verdict on the whole show"},
     ], "the whole composer")
 
-    bar = box(page, "#bar")
-    music = [box(page, "#snap"), box(page, "#metro"), box(page, "#tap"), box(page, "#tapUse"),
-             box(page, "#beatOne"), box(page, "#musicBtn")]
-    shot("composer-02-music", clip_around(union(bar, box(page, "#ruler"), box(page, "#music")), 6), [
-        {"n": 1, "box": box(page, "#musicBtn"), "label": "♫ music: choose a song from the library or add one (or drop an audio file on the page)"},
-        {"n": 2, "box": union(box(page, "#tap"), box(page, "#tapBpm"), box(page, "#tapUse")), "label": "tap along: four or more taps estimate the tempo; use writes it into the show"},
-        {"n": 3, "box": box(page, "#beatOne"), "label": "beat 1 ⇤: beat 1 falls at the playhead (music.offset_s)"},
-        {"n": 4, "box": box(page, "#snap"), "label": "snap: dragged cues snap to bar, beat, ½ or ¼ beat"},
-        {"n": 5, "box": box(page, "#metro"), "label": "click: a metronome on every beat"},
-        {"n": 6, "box": box(page, "#ruler"), "label": "the grid the show is written on: bar.beat"},
-    ], "music, tempo and the grid")
-    del music
+    # music: the toolbar's tempo controls, over the first bars of the ruler and the waveform (~900 px wide,
+    # so the callouts read at the docs page's width)
+    if not want or "02" in want:
+        from PIL import Image
+        tools = union(box(page, "#zoomOut"), box(page, "#musicBtn"))
+        a = clip_around(tools, 8)
+        grid = union(box(page, "#ruler"), box(page, "#music"))
+        b = {"x": 0, "y": grid[1] - 4, "width": 900, "height": grid[3] + 8}
+        pa, pb = os.path.join(out, "_a.png"), os.path.join(out, "_b.png")
+        page.screenshot(path=pa, clip=a)
+        page.screenshot(path=pb, clip=b)
+        ma = [{"n": 1, "box": box(page, "#musicBtn"), "label": "♫ music: choose a song from the library or add one (or drop an audio file on the page); the tempo can be typed here too"},
+              {"n": 2, "box": union(box(page, "#tap"), box(page, "#tapBpm"), box(page, "#tapUse")), "label": "tap along: four or more taps estimate the tempo; use writes it into the show"},
+              {"n": 3, "box": box(page, "#beatOne"), "label": "beat 1 ⇤: beat 1 falls at the playhead (music.offset_s)"},
+              {"n": 4, "box": union(box(page, "#snap"), box(page, "#metro")), "label": "snap: dragged cues snap to bar, beat, ½ or ¼ beat; click: a metronome on every beat"}]
+        rb = box(page, "#ruler")
+        mb = [{"n": 5, "box": (rb[0], rb[1], 900 - rb[0] - 8, rb[3]), "label": "the grid the show is written on: bar.beat, at the show's tempo"}]
+        annotate(pa, ma, (a["x"], a["y"]))
+        annotate(pb, mb, (b["x"], b["y"]))
+        ia, ib = Image.open(pa), Image.open(pb)
+        im = Image.new("RGB", (900, ia.height + 8 + ib.height), (7, 10, 15))
+        im.paste(ia, (900 - ia.width if ia.width < 900 else 0, 0))
+        im.paste(ib, (0, ia.height + 8))
+        path = os.path.join(out, "composer-02-music.png")
+        im.save(path)
+        os.remove(pa)
+        os.remove(pb)
+        meta["composer-02-music"] = {"shows": "music, tempo and the grid",
+                                     "callouts": {str(m["n"]): m["label"] for m in ma + mb}}
+        print("doc_shots: wrote", path)
 
     # a cue placed: the HEAD lane's + adds one at the playhead, and the inspector shows it
     at(6.0)

@@ -15,12 +15,11 @@
  "composer-02-music": {
   "shows": "music, tempo and the grid",
   "callouts": {
-   "1": "♫ music: choose a song from the library or add one (or drop an audio file on the page)",
+   "1": "♫ music: choose a song from the library or add one (or drop an audio file on the page); the tempo can be typed here too",
    "2": "tap along: four or more taps estimate the tempo; use writes it into the show",
    "3": "beat 1 ⇤: beat 1 falls at the playhead (music.offset_s)",
-   "4": "snap: dragged cues snap to bar, beat, ½ or ¼ beat",
-   "5": "click: a metronome on every beat",
-   "6": "the grid the show is written on: bar.beat"
+   "4": "snap: dragged cues snap to bar, beat, ½ or ¼ beat; click: a metronome on every beat",
+   "5": "the grid the show is written on: bar.beat, at the show's tempo"
   }
  },
  "composer-03-cues": {
