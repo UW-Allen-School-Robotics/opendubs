@@ -634,3 +634,53 @@ position**:
 
 It changes `SLOTS` and, when it runs on the robot, the authority model's treatment of the base and
 the runner — both still ahead (plan 5 and 6.6).
+
+## 13. Tools, and a crawling hand — built 2026-10-16, TWIN ONLY
+
+**The tool registry** (`software/choreo/effectors/`, one YAML per tool type; `effectors.py list`). A
+type declares its **channels** (a 0..1 range, or a set of named states, each with how long a full
+stroke takes), **named poses**, finger-dance **patterns**, where it can be fitted (**mounts**: `left`
+and `right` are the arm flanges, `base` is a floor-level dock on the chassis), what it can do there
+(**modes**: `equipped`, `crawl`), its **twin model** (a vendor model loaded from outside the repo, or
+a primitive built from the same channels), and its **driver** (`output`; `null` = none yet, twin
+only). A type may be another one **mirrored** (`mirror_of`): `surge_left` is `surge_right` reflected
+through the hand's own sagittal plane, and a test proves every body and geom lands at its reflection.
+Types today: `openarm_gripper` (the default, with a driver), `surge_right` / `surge_left`, and
+`suction_cup` / `pneumatic_gripper` (registry and primitive twin only, to show the seams).
+
+**What is fitted** is per robot and lives on it: `$OPENDUBS_TOOLS`, else `/etc/opendubs/tools.yaml`
+(`effectors.py template`, `effectors.py check`). No file means today's robot: grippers on both arms.
+
+**In a show:**
+
+```yaml
+tools: { right: surge_right, base: { type: surge_right, mode: crawl } }   # absent: today's grippers
+crawler: { tether: { anchor: base_front, length_m: 1.8 }, area: { x: [0.45, 1.8], y: [-0.7, 0.7] } }
+cues:
+  - { t: 2, slot: GRIP_R, pose: horns }                 # any tool: open / do, or pose, or set
+  - { t: 3, slot: GRIP_R, set: { thumb_rot: 0.2 } }
+  - { t: 1, slot: CRAWL, do: walk, secs: 13 }           # out (the dock is in front of the chassis)
+  - { t: 31, slot: CRAWL, do: dance, pattern: ripple, beats: 8 }
+  - { t: 40, slot: CRAWL, do: walk, dir: back, to: dock }
+```
+
+| rule | value | kind |
+|---|---|---|
+| GRIP on a tool | `open:` / `do:` through the type's `open_map` (a valve: 0 or 1 only); `pose:`; `set:` channels in range; exactly one | registry |
+| tool speed | a target the channels cannot reach before the next cue **warns** (it arrives late), never refuses | registry `full_stroke_s` |
+| fitted | validated against a robot's fitted tools, a show that needs a different tool is refused | per robot |
+| CRAWL walk | `dir: forward\|back` (no sidestep); one of `secs`, `dist_m`, `to: dock\|[x, y]`; a `to:` must lie on the hand's line (it walks straight: pivot first); `heading_deg` ramps at ≤ the gait's `steer_deg_s` | sim |
+| CRAWL turn | `by_deg`, a **pivot on the spot** (+ = the hand's left), at the slowest simulated rate | sim |
+| CRAWL dance | a finger pattern while standing; a step the fingers cannot finish at the tempo warns | registry |
+| timing | every leg is held on the timeline for its **slowest** simulated speed; the next CRAWL cue may not start before | sim |
+| leash | from its anchor on the base (moving with a DANCE), the hand stays within `length_m` − 0.15 m slack | declaration |
+| footprint, area | the hand (its radius plus the path's uncertainty: sim drift and the faster-than-nominal case) keeps 3 cm from the chassis and stays inside `area` | declaration + estimate |
+| dock | the hand leaves and docks only with the base at its start pose, and must end the show docked | — |
+| robot | valid, but **twin only**: the runner refuses a CRAWL show, or one that needs a tool with no driver (`SHOW_TOOL_TWIN_ONLY`) | — |
+
+**Every crawl speed is from simulation, not hardware** (the YAML says where each came from). On a
+trailing leash the hand is slower: simulated for the forward gait (3.5–4.7 cm/s), and scaled from it for
+the back-up gait and the pivots (labelled so). The composer's CRAWL lane shows each leg; its floor plan
+shows the chassis, the leash's reach, the declared area, the predicted path with its uncertainty, the
+hand at the playhead, and every leg's distance and time at the sim speeds. The render draws the hand on
+that path, playing a gait cycle recorded from the physics model (`effectors/<type>.gaits.json`).

@@ -458,6 +458,20 @@ USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRI
              ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
 
 
+def twin_only_tools(tl: dict) -> str | None:
+    """Why a show cannot run on this robot because of its tools (effectors.py), or None: a crawling hand
+    (CRAWL), or a tool type with no driver. Today's grippers, and shows that name no tools, pass."""
+    if (tl.get("tracks") or {}).get("CRAWL") or tl.get("crawler"):
+        return "uses a crawling hand (CRAWL), which runs only in the twin: it has no driver yet"
+    import effectors
+    reg = effectors.registry()
+    for mount, fit in sorted((tl.get("tools") or {}).items()):
+        tool = reg.get(fit.get("type"))
+        if tool is None or tool.output is None:
+            return f"needs {fit.get('type')} at {mount}, which has no driver yet — it runs only in the twin"
+    return None
+
+
 def _grips_calibrated() -> bool:
     """Whether this robot has a gripper calibration the runner can use (grippers.py)."""
     try:
@@ -924,6 +938,10 @@ class Runner:
             # after a drive assumes the base moved — so the whole show is refused, not the drives skipped
             return self._end(REFUSED, "SHOW_DRIVE_TWIN_ONLY",
                              "this show uses DRIVE, which runs only in the twin until odometry is trusted")
+        why = twin_only_tools(tl)
+        if why:
+            # a crawling hand, or a tool with no driver (effectors.py): nothing on the robot can play it
+            return self._end(REFUSED, "SHOW_TOOL_TWIN_ONLY", why)
         if tl.get("dance") is not None:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
@@ -1345,6 +1363,8 @@ class Palette:
                 # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
                 tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
                                                               "is trusted"}] + list(tl["problems"]))
+            if twin_only_tools(tl):
+                tl = dict(tl, valid=False, problems=[{"msg": twin_only_tools(tl)}] + list(tl["problems"]))
             if show.id in seen:
                 # two shows, one id: the operator's pick would be ambiguous, so this one is refused
                 tl = dict(tl, valid=False, problems=[{"msg": f"its id {show.id!r} is also the {seen[show.id]} "

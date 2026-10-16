@@ -1,0 +1,17 @@
+# The Surge hand, left-handed: the right hand MIRRORED, because the vendor ships a right-hand URDF only.
+#
+# HOW IT IS MIRRORED (effectors.py, sim/hand.py): reflected through the hand's own sagittal plane (its
+# y = 0 plane, the one the fingers curl in). Every mesh is scaled by -1 in y; every body position, joint
+# anchor and inertia is reflected (y -> -y); every joint axis is reflected and then negated, so a positive
+# channel still flexes the finger the same way. The proof is a test: over random channel values, every
+# body of the left hand sits exactly at the right hand's position reflected (tests/test_effectors.py).
+# If the vendor's own left URDF is on disk (the SDK's Surge_Left, not read yet), name it under `sim.urdf`
+# here and it is used instead of the mirror.
+#
+# What mirroring does to the CRAWL numbers (all SIM, NOT HARDWARE, and none re-run on a left model): the
+# thumb is on the other side, so the left and right pivots swap, a sideways drift changes sign, and the
+# heading loop's thumb gain flips sign (the Surge Hand lane's inference). The magnitudes are carried over.
+id: surge_left
+name: Surge hand (left)
+mirror_of: surge_right
+hand: left

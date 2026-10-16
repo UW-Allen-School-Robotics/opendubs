@@ -220,7 +220,128 @@ def sample(tl: dict, t: float) -> dict:
         "grip_right": grip_open(tr.get("GRIP_R", []), t),
         "head_pan": pan, "head_tilt": tilt,
         "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))),
+        # a crawling hand, and tools other than today's gripper, only in a show that has them (effectors.py)
+        **({"crawler": crawler_state(tl, t)} if tl.get("crawler") else {}),
+        **({"tools": tool_channels(tl, t)} if tl.get("tools") else {}),
     }
+
+
+# ---- the crawling hand (twin only) ---------------------------------------------------------------------
+FLOOR_Z = -0.094               # description/opendubs/dimensions.yaml: datum.floor_z_mm
+HAND_CENTRE_M = 0.09           # wrist (the palm's origin) to the hand's centre, along its heading
+_CYCLES: dict = {}
+
+
+def _cycles(tool) -> dict:
+    """The tool's recorded gait cycles (effectors/<type>.gaits.json, from the gait model), or {}."""
+    import effectors
+    key = tool.doc.get("_mirror_of") or tool.id
+    if key not in _CYCLES:
+        p = os.path.join(effectors.REG_DIR, f"{key}.gaits.json")
+        _CYCLES[key] = json.load(open(p)).get("cycles", {}) if os.path.isfile(p) else {}
+    return _CYCLES[key]
+
+
+def crawler_state(tl: dict, t: float) -> dict:
+    """The hand at show time t: on the validated path (nominal sim speeds), its body moving as the recorded
+    gait cycle moves it, its fingers from the cycle, a finger dance, or its stance; docked, it rides the
+    base. Also where the leash's anchor is. Twin only."""
+    import math
+    import effectors
+    cr = tl["crawler"]
+    tool = effectors.registry()[cr["tool"]]
+    beat_s = (tl.get("music") or {}).get("beat_s") or 0.5
+    legs = [dict(leg, **{"from": tuple(leg["from"]), "to": tuple(leg["to"])}) for leg in cr["legs"]]
+    st = effectors.state_at(legs, tuple(cr["dock"]), t)
+    tr = tl["tracks"]
+    base = base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))
+    x, y, h = st["x"], st["y"], st["heading"]
+    if st["docked"]:                                   # in its dock on the chassis: it moves with the base
+        x, y = effectors.base_to_world(base, cr["dock"][0], cr["dock"][1])
+        h = cr["dock"][2] + base[2]
+    chans = tool.rest()
+    z, roll, pitch = 0.05, 0.0, 0.0
+    cyc = None
+    if st["moving"]:
+        name = ("gait:" + st["moving"]) if not st["moving"].startswith("pivot_") else "pivot:" + st["moving"][6:]
+        if tool.mirrored and name.startswith("pivot:"):           # the mirror's left pivot is the right hand's right
+            name = "pivot:" + ("right" if name.endswith("left") else "left")
+        cyc = _cycles(tool).get(name)
+    if cyc:
+        rows = cyc["rows"]
+        row = rows[int((st["phase_s"] % cyc["period_s"]) / cyc["period_s"] * len(rows)) % len(rows)]
+        z, roll, pitch = row[0], row[1], row[2]
+        chans.update(dict(zip(cyc["fields"][3:], row[3:])))
+        if tool.mirrored:
+            roll = -roll
+    elif st["pattern"] and st["pattern"] in tool.patterns:
+        chans.update(effectors.pattern_channels(tool, st["pattern"], st["pattern_t"], beat_s))
+    ax, ay = effectors.base_to_world(base, cr["anchor"][0], cr["anchor"][1])
+    hr = math.radians(h)
+    return {"tool": tool.id, "x": round(x, 4), "y": round(y, 4), "heading": round(h, 2), "z": z, "roll": roll, "pitch": pitch,
+            "wrist": (round(x - HAND_CENTRE_M * math.cos(hr), 4), round(y - HAND_CENTRE_M * math.sin(hr), 4)),
+            "channels": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in chans.items()},
+            "anchor": (round(ax, 4), round(ay, 4), round(FLOOR_Z + cr["anchor"][2], 4)),
+            "length_m": cr["length_m"], "docked": st["docked"], "moving": st["moving"], "pattern": st["pattern"]}
+
+
+def tool_channels(tl: dict, t: float) -> dict:
+    """{side: {"tool", "channels"}} for each flange tool other than today's gripper, at show time t: each
+    GRIP cue's channel targets, approached at the channels' own speed from where they were."""
+    import effectors
+    reg, out = effectors.registry(), {}
+    for slot, side in (("GRIP_L", "left"), ("GRIP_R", "right")):
+        fit = (tl.get("tools") or {}).get(side)
+        if not fit or fit.get("type") == "openarm_gripper" or fit.get("mode") != "equipped":
+            continue
+        tool = reg[fit["type"]]
+        cur = tool.rest()
+        evs = [e for e in tl["tracks"].get(slot, []) if "channels" in e and e["t"] <= t]
+        for i, e in enumerate(evs):                    # toward each target until the next cue (or now)
+            cur = _slew_channels(tool, cur, e["channels"], (evs[i + 1]["t"] if i + 1 < len(evs) else t) - e["t"])
+        out[side] = {"tool": tool.id, "channels": cur}
+    return out
+
+
+def _slew_channels(tool, cur: dict, target: dict, dt: float) -> dict:
+    out = dict(cur)
+    for ch, v in target.items():
+        a = out.get(ch, v)
+        if isinstance(v, str) or isinstance(a, str):
+            out[ch] = v if dt >= tool.stroke_s(ch) else a
+            continue
+        step = max(0.0, dt) / tool.stroke_s(ch)
+        out[ch] = v if abs(v - a) <= step else a + (step if v > a else -step)
+    return out
+
+
+def apply_tools(model, data, smp: dict) -> None:
+    """Pose the flange tools' channels (after the robot's pose)."""
+    import mujoco
+    import effectors
+    import hand
+    for side, st in (smp.get("tools") or {}).items():
+        hand.channel_qpos(model, effectors.registry()[st["tool"]], st["channels"], data, f"oa_{hand.PREFIX}{side}_")
+    mujoco.mj_forward(model, data)
+
+
+def apply_crawler(model, data, smp: dict) -> None:
+    """Pose the crawling hand and draw its leash (after the robot's pose, before rendering)."""
+    import math
+    import mujoco
+    import effectors
+    import hand
+    c = smp.get("crawler")
+    if not c:
+        return
+    wx, wy = c["wrist"]
+    hand.place_crawler(model, data, wx, wy, c["heading"], FLOOR_Z + c["z"], c["roll"], c["pitch"])
+    hand.channel_qpos(model, effectors.registry()[c["tool"]], c["channels"], data)
+    mujoco.mj_forward(model, data)
+    hr = math.radians(c["heading"])
+    back = (wx - 0.075 * math.cos(hr), wy - 0.075 * math.sin(hr), FLOOR_Z + c["z"] - 0.01)   # the puck's leash ring
+    hand.leash_update(model, data, c["anchor"], back, c["length_m"], FLOOR_Z)
+    mujoco.mj_forward(model, data)
 
 
 def frames(tl: dict, fps: float):

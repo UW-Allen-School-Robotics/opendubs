@@ -50,6 +50,7 @@ jobs:
       - run: python3 software/choreo/tests/test_hand_box.py   # hand_tcp against the arm controllers' workspace box
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
+      - run: python3 software/choreo/tests/test_effectors.py   # the tool registry, tools on the arms, the crawling hand (twin only)
       - run: python3 software/choreo/tests/test_ik.py
       - run: python3 software/choreo/tests/test_sweep.py   # the self-collision sweep and its robot gate
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
