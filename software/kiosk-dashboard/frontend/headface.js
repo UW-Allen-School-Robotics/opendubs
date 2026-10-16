@@ -43,6 +43,13 @@
       <div class="hf-row"><label for="hfTheme">Colours (theme)</label><select id="hfTheme"><option value="plain">plain</option><option value="halloween">halloween</option></select></div>
       <div class="hf-row"><label for="hfMouth">Mouth</label><input type="checkbox" id="hfMouth">
         <span class="hf-note">Off by default. Nothing drives it yet (no voice or music moves it), so it shows a still mouth.</span></div>
+      <div class="hf-row"><label for="hfWords">Say the robot's state in words</label>
+        <select id="hfWords">
+          <option value="always">always</option>
+          <option value="hide_auto_manual">except while driven or running a show</option>
+          <option value="off">off</option>
+        </select>
+        <span class="hf-note">A line on the face for people who don't know the colours: "Ready", "Charging 95%", "Problem: lift not responding", "Emergency stop". A problem or an emergency stop is always said unless this is off.</span></div>
 
       <h2 class="mt">LOOKING AT PEOPLE</h2>
       <div class="hf-row"><label for="hfTrack">Follow people with</label>
@@ -102,6 +109,7 @@
     el("hfIdle").checked = s.idle_eyes;
     el("hfMouth").checked = s.mouth;
     el("hfReticle").checked = !!s.show_reticle;
+    el("hfWords").value = s.state_words || "hide_auto_manual";
     el("hfTheme").value = s.theme;
     el("hfTrack").value = s.tracking;
     el("hfBright").value = s.bright_idle; el("hfBrightV").textContent = pct(s.bright_idle);
@@ -225,6 +233,7 @@
   onChange("hfIdle", (e) => save({ idle_eyes: e.target.checked }, true));
   onChange("hfMouth", (e) => save({ mouth: e.target.checked }, true));
   onChange("hfReticle", (e) => save({ show_reticle: e.target.checked }, true));
+  onChange("hfWords", (e) => save({ state_words: e.target.value }, true));
   onChange("hfTheme", (e) => save({ theme: e.target.value }, true));
   onChange("hfSkin", (e) => save({ skin: e.target.value }, true));
   onChange("hfTrack", async (e) => {

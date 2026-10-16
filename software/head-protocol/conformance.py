@@ -135,6 +135,8 @@ class Run:
                     lambda r: r == "ERR unknown theme")
         self.expect(F, "CUE <unknown name>", "CUE no_such_cue", "CUE",
                     lambda r: r == "ERR unknown cue")
+        self.expect(F, "CAPTION <too long> is refused, never cut", "CAPTION " + "x" * (hp.CAPTION_MAX + 1), "CAPTION",
+                    lambda r: bool(hp.REPLY["caption_err"].match(r)))
         self.expect(N, "GAZE <malformed>", "GAZE nowhere", "GAZE",
                     lambda r: bool(hp.REPLY["gaze_err"].match(r)))
         self.expect(N, "TRACK <unknown source>", "TRACK nobody 90 90", "TRACK",
@@ -206,6 +208,11 @@ class Run:
         self.expect(F, "BATT - 0 (no BMS reading)", "BATT - 0", "BATT", lambda r: r == "OK batt - 0")
         self.expect(F, "BATT <out of range> is refused", "BATT 150 1", "BATT", lambda r: bool(hp.REPLY["batt_err"].match(r)))
         self.expect(F, "BATT <malformed>", "BATT full", "BATT", lambda r: bool(hp.REPLY["batt_err"].match(r)))
+        # v8: the state in plain words. The dashboard renews it with every STATE, so none is put back.
+        self.expect(F, "CAPTION Ready", "CAPTION Ready", "CAPTION", lambda r: r == "OK caption")
+        self.expect(F, "CAPTION Problem: lift not responding", "CAPTION Problem: lift not responding", "CAPTION",
+                    lambda r: r == "OK caption")
+        self.expect(F, "CAPTION OFF", "CAPTION OFF", "CAPTION", lambda r: r == "OK caption off")
         self.expect(F, "VOLUME IDLE (put back)", "VOLUME IDLE", "VOLUME",
                     lambda r: bool(hp.REPLY["volume_ok"].match(r)) and " idle " in r)
         self.expect(F, "BRIGHT IDLE (put back)", "BRIGHT IDLE", "BRIGHT",
