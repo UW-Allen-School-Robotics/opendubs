@@ -123,10 +123,21 @@ Measure it instead, about ten minutes:
 Fixed exposure and white balance are the whole trick — auto white balance will "correct" the very
 colour being measured, and report the light as neutral whatever it is doing.
 
-> **BEFORE IT IS PLUGGED IN:** put a meter on the 8Servo's servo header. M5's spec gives the rail
-> as `DC 5V@3A` across all eight channels, and the light wants **5–15 V** — inside the range but at
+**The cable** is goBILDA's included TJC8 ↔ JST PH, 300 mm: JST PH at the light, which exits the
+back of the plate through a ø14 hole (the side TJC8 ports are boxed in by the pocket), and TJC8 at
+the 8Servo's channel 2 header.
+
+> **BEFORE IT IS PLUGGED IN — two checks, both on the bench, both cheap:**
+>
+> **1. The rail voltage.** Put a meter on the 8Servo's servo header. M5's spec gives the rail as
+> `DC 5V@3A` across all eight channels, and the light wants **5–15 V** — inside the range but at
 > the very bottom, so it may be dim and any droop puts it out of spec. The 3 A is shared with both
 > pan/tilt servos. Nobody has measured it on this robot.
+>
+> **2. The pin order.** Confirm signal, V+ and ground land where the light expects them, rather
+> than assuming the two connectors agree because the cable came in the box. A servo header carries
+> power, so a reversed run does not fail quietly — and the cable is an adapter between two
+> different connector families, which is exactly where an assumed convention goes wrong.
 
 ## Commissioning the tilt range
 
