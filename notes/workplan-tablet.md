@@ -31,6 +31,29 @@ someone's hands.
 
 ---
 
+## Where things stand — 2026-10-16
+
+At the robot with the user, tracking taken from "pins at the limit" to following.
+
+- **The pan sign was wrong, and is −1.** The servo was watched (pan 70 = the robot's right) and the
+  camera's frames are unmirrored, so a person right of the image's centre is on the robot's right and
+  needs LOWER pan. Seen closing the loop on the user. Now the code default (#333); the robot also
+  sets it in `robot.env`. Tilt −1 stands. Last night's pin was this sign, not the servo.
+- **A held sighting ran the head away** (#333). The page repeats a cue's last position for its dwell;
+  re-aiming that offset turned the head again and again. Fixed for good by aiming at an **absolute
+  bearing from the head's pose when the frame was captured** (#336): a re-sent sighting gives the same
+  bearing, every sighting is used, 10 updates a second, gain 1, eyes-only band 0.08.
+- **Runaway guard** rebuilt for bearings: a wrong sign makes the computed bearing flee the head at twice
+  its turn; a person crossing the view flips sides and never trips it (#336, after a false trip).
+- **No following in a reserved state** (DEGRADED, E_STOP), the user's decision (#332).
+- **The reticle was hidden because the robot was DEGRADED** (RC off), by design. Seen once SAFE_IDLE.
+- **A deploy left the face page on old code**: tracking ON imports a module into the running page; only
+  OFF reloads it. The page now reloads itself after a deploy (#338). Until then: tracking off → on.
+- New: the **chest light** mirrors the PRISM (CHEST, v7, #322), and the **state in plain words** on the
+  face (CAPTION, v8, #337, with Face & HRI's #334).
+
+**Next at the robot:** the tracking re-run on the bearing code, with the user in front and the reticle on.
+
 ## Where things stand — 2026-10-15 (evening)
 
 **On the robot (opendubs2), working:** the kiosk app updates itself over Wi-Fi from the robot (0.3.0
@@ -41,21 +64,11 @@ on demand). The face shows CAMERA ON, the charging gauge (BATT, protocol v6) and
 page asks, the tracking reticle. The tracker is the Tab5's attention model (motion, person, face).
 The head follows through `neck_follow`, behind its runaway and limit guards.
 
-**Parked for the next robot session:**
-- **The head pinned at the pan limit after the last deploy.** With the user in front, `neck_follow`
-  drove pan to 60 and tilt to ~104, and the limit guard held it there. The target, called a FACE at
-  confidence 1.0, stayed at image x ≈ 0.25 while the head was commanded ~30°; a real person would
-  have crossed the frame. So either the pan servo did not physically turn (NECK reports the commanded
-  angle; there is no encoder, and the servo was dead earlier the same day), or something moving with
-  the camera (a reflection, something on the robot, a fixed poster or screen) was being tracked.
-  **The signs are measured and correct: PAN +1, TILT −1. Do not flip them.** They were measured
-  open-loop with the head held at centre, which does not depend on the pan servo. The suspect is the
-  PAN SERVO (dead earlier the same day; tonight's signature matches), or something moving with the
-  camera. **First check next session: a large commanded pan (e.g. GAZE 70 then 110) with someone
-  watching the head.** Tracking is OFF until then.
-- **Person confidence retune**, ready on branch `tracking/person-confidence` (no PR yet). The person
-  cue's own score range and full belief after two linked hits, and `neck_follow`'s floor for a person
-  0.45 (motion and face 0.6). Open it after the user has seen the reticle sit on them.
+**Parked for the next robot session:** both items below were settled on 2026-10-16; see that day.
+- *The head pinned at the pan limit.* This note said the signs were measured and correct, PAN +1.
+  **That was wrong**: +1 was the code's default, and `neck_follow`'s own docstring still said the pan
+  sign was not measured. Written on another lane's word without checking the code.
+- *Person confidence retune*: merged as #329.
 
 ## Where things stand — 2026-10-14
 
