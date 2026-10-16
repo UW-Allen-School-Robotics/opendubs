@@ -38,7 +38,8 @@ controller, which lives **inside** the bay.
 
 Also in the bay: the **goBILDA drive ESCs**, the **ODrive Regen Clamp**, the **M5Stack PaHub**,
 the **ENVIII** sensor (mounted **under the regen clamp's resistor** as its thermal probe), and
-the **8Servo**.
+the **8Servo** that drives the ESCs. (The head's neck has a second 8Servo of its own — see
+[Pan/Tilt HMI](pan-tilt-hmi.md).)
 
 !!! note "This bay owns the Pinpoint level-shift"
     The 3.3 V ↔ 5 V step-down for the [Pinpoint odometry](pinpoint.md) I2C lives **here**, not
@@ -94,7 +95,7 @@ The bay's bus + wiring layout — pan/zoom the live board:
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
 | [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
-| [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | PWM source to the ESCs; I2C 0x25 (same as Core BOM) |
+| [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The StamPLC's: PWM to the four drive ESCs, at I2C 0x25 behind the PaHub. The neck has its own (Pan/Tilt HMI). |
 
 **Regen & protection**
 

@@ -36,7 +36,7 @@ part used in two places is listed once, with the quantities added.
 | [4-Bar Odometry Pack — Pinpoint computer + 2 dead-wheel pods](https://www.servocity.com/4-bar-odometry-pack-2-pods-1-pinpoint-computer/) | `3203-3110-0002` | 1 | [Pinpoint Odometry](build/pinpoint.md) | Pinpoint (IMU + odometry) + 2 pods; I2C at 3.3 V — the step-down lives in the electronics bay, NOT this module. Same pack on the Core BOM. |
 | [REV Mini Power Module (24 V logic bus)](https://www.revrobotics.com/rev-11-1956/) | `REV-11-1956` | 1 | [Electronics Bay](build/electronics-bay.md) | 6 fused branch circuits — feeds Thor / StamPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside) |
 | [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | [Electronics Bay](build/electronics-bay.md) | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
-| [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | [Electronics Bay](build/electronics-bay.md) | PWM source to the ESCs; I2C 0x25 (same as Core BOM) |
+| [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 2 | [Electronics Bay](build/electronics-bay.md), [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The StamPLC's: PWM to the four drive ESCs, at I2C 0x25 behind the PaHub. The neck has its own (Pan/Tilt HMI). |
 | [ODrive Regen Clamp](https://shop.odriverobotics.com/products/odrive-regeneration-clamp) | — | 1 | [Electronics Bay](build/electronics-bay.md) | Absorbs braking regen; the resistor lead requires SOLDERING |
 | [M5Stack PaHub (I2C hub)](https://docs.m5stack.com/en/unit/pahub) | — | 1 | [Electronics Bay](build/electronics-bay.md) | I2C hub for the M5 bus |
 | [M5 ENV III sensor](https://docs.m5stack.com/en/unit/env-iii) | — | 1 | [Electronics Bay](build/electronics-bay.md) | Thermal probe under the regen clamp resistor |
@@ -87,8 +87,8 @@ Prices read 2026-10-09, in US dollars, before tax and shipping. Each line is pri
 
 | | Total (USD) | Lines without a price |
 |---|---:|---:|
-| **One robot, all parts** | **$15,439.59** | 6 |
-| One robot, without the Thor and the arms | $4,540.59 | 6 |
+| **One robot, all parts** | **$15,446.54** | 6 |
+| One robot, without the Thor and the arms | $4,547.54 | 6 |
 | Tools, bought once | $188.53 | 4 |
 
 *Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface); 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
@@ -141,7 +141,7 @@ Prices read 2026-10-09, in US dollars, before tax and shipping. Each line is pri
 | Riv-nut tool (manual) | 1 | $43.99 | $43.99 | [amazon.com](https://www.amazon.com/dp/B0CBKFV533), 2026-10-09 |
 | REV Mini Power Module (24 V logic bus) | 1 | $38.00 | $38.00 | [revrobotics.com](https://www.revrobotics.com/rev-11-1956/), 2026-10-09 |
 | goBILDA 2x80A ESC | 2 | $159.99 | $319.98 | [servocity.com](https://www.servocity.com/2x80a-motor-controller/), 2026-10-09 |
-| M5 8Servo unit | 1 | $6.95 | $6.95 | [shop.m5stack.com](https://shop.m5stack.com/products/8-channel-servo-driver-unit-stm32f030), 2026-10-09 |
+| M5 8Servo unit | 2 | $6.95 | $13.90 | [shop.m5stack.com](https://shop.m5stack.com/products/8-channel-servo-driver-unit-stm32f030), 2026-10-09 |
 | ODrive Regen Clamp | 1 | $89.00 | $89.00 | [shop.odriverobotics.com](https://shop.odriverobotics.com/products/odrive-regeneration-clamp), 2026-10-09 |
 | M5Stack PaHub (I2C hub) | 1 | $5.95 | $5.95 | [shop.m5stack.com](https://shop.m5stack.com/products/i2c-hub-1-to-6-expansion-unit-v2-1-with-dip-switch-pca9548a), 2026-10-09 |
 | M5 ENV III sensor | 1 | $6.95 | $6.95 | [shop.m5stack.com](https://shop.m5stack.com/products/env-iii-unit-with-temperature-humidity-air-pressure-sensor-sht30-qmp6988), 2026-10-09 |
