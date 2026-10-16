@@ -138,13 +138,19 @@ plus transparent PLA.
 `P` dict. Frame: X right as you face the chest, Y up, Z out of the chest; the origin is the centre of the
 flat area, on the chest piece's front face.
 
-    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --logo <husky_trace.dxf> --light <3118-0808-0002.step> --out cad/out
-    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --logo <husky_trace.dxf> --out cad/out --2d      # logo layers only, seconds
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --light <3118-0808-0002.step> --out cad/out
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --out cad/out          # without the vendor reference body
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --out cad/out --2d     # logo layers only, seconds
     ~/.venvs/mujoco/bin/python cad/render_check.py --parts cad/out
 
-- **Inputs, both kept outside git.** The logo trace was made from the team's original with the
-  `raster-to-vector` skill (step 1). The vendor STEP is optional; it's used for the assembly and the
-  interference check. Every dimension the parts take from it is copied into `P` and `LIGHT_COVER`.
+- **Inputs:**
+  - **`cad/husky_trace.dxf`, the logo trace, in the repo (team).** With it, the CAD regenerates from the
+    repo alone. Provenance: traced with the `raster-to-vector` skill from the team's own logo image (step
+    1), cropped to the husky and gear with no text. Command: `vectorize.py <crop> --palette
+    2e1060,c8a867,e3e3e3,f8d070 --backing ffffff --min-width 3 --epsilon 1.0`. Pixel units, y up, one layer
+    per colour. SHA-256 `e721221c…54d2`. The source image itself stays outside git.
+  - **The vendor STEP stays outside git.** It is optional: it's used for the assembly and the interference
+    check against the light. Every dimension the parts take from it is copied into `P` and `LIGHT_COVER`.
 - **Outputs** go in `cad/out/` (git-ignored here):
   - one STEP + STL per part, in its print orientation;
   - `parts.json`;

@@ -1,9 +1,9 @@
 """OpenDubs chest plate: parametric CAD (CadQuery). Design log: ../chest-plate.md.
 
-    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --logo <husky_trace.dxf> [--light <3118-0808-0002.step>] --out cad/out
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py [--light <3118-0808-0002.step>] --out cad/out
 
-`--logo` is the raster-to-vector trace of the logo (layers C1 white backing, C2 purple, C3 gold, C4 eye),
-in pixels. `--light` is goBILDA's STEP model of the light: optional, and used only as a reference body in
+`--logo` defaults to cad/husky_trace.dxf, the raster-to-vector trace of the logo (layers C1 white backing,
+C2 purple, C3 gold, C4 eye), in pixels. `--light` is goBILDA's STEP model of the light: optional, and used only as a reference body in
 the assembly and in the interference check. The dimensions the parts need from it are copied into `P`
 and `LIGHT_COVER` below.
 
@@ -429,7 +429,7 @@ def face_dxf(R, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--logo", required=True)
+    ap.add_argument("--logo", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "husky_trace.dxf"))
     ap.add_argument("--light", default=None)
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out"))
     ap.add_argument("--2d", dest="only2d", action="store_true", help="logo_check.png and face_layers.dxf only")
