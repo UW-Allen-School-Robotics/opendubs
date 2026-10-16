@@ -64,6 +64,25 @@ hardware:
     needs a measured calibration table before any real finger dance or gait
   # poses here that close fingers onto an opposed thumb: twin only until checked on the hand
   closes_onto_thumb: [fist, point, peace, horns]
+  # THE FIRST GAIT THAT WORKS ON THE REAL HAND (2026-10-16, the user: "that works awesome"): bare hand,
+  # nothing under the wrist, OPEN LOOP. Not yet a `crawl.gaits` entry: its speed and drift on the floor are
+  # unmeasured, and the validator plans only with measured or simulated speeds. Parameters as the gait
+  # model takes them (radians); sent to the hand as AT+SJA degrees, UNSCALED, all 6 joints at 20 Hz with
+  # AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge Hand investigation's
+  # sim/out/bare_thumb_flexstroke.json and hw/gait_stream.py.
+  tested_gaits:
+    bare_flexstroke:
+      dir: forward
+      tested: "hardware, bare hand, open loop; speed and drift unmeasured"
+      params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.930,
+               thumb_rot: 0.557, thumb_flex: 0.977, thumb_amp_rot: 0.0, thumb_amp_flex: 0.25, thumb_phase: 0.5}
+      # knuckles 8.6-77.3 deg (index side), 8.6-72.5 deg (pinky side); thumb rotation held 31.9 deg, flex
+      # stroking 56 -> 70 deg in time with middle + pinky
+      notes: >-
+        the thumb unscaled (outrigger: 43.5 / 20.7 deg) propped the hand up; the vendor's x0.4 / x0.3 thumb
+        scaling was tried too. Loaded fingers latch contact flags (GJE 1) that do not block motion.
+  # Every gait under crawl.gaits and crawl.pivots below (outrigger, flat, back, both pivots) is SIM ONLY:
+  # none has run on the real hand.
 sim:
   model: surge                       # sim/hand.py; the primitive below when $OPENDUBS_SURGE_DIR is unset
   urdf: surge_v13_hand_right_pybullet.urdf
