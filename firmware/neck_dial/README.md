@@ -31,6 +31,20 @@ PY
 `CHEST <us>` / `CHEST OFF` · `OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
 Anything else answers `ERR unknown`.
 
+### Which way is which
+
+Measured on the robot with somebody watching the head, because nothing in the firmware records it
+and guessing is the easiest way to drive into a stop:
+
+| | increasing degrees | decreasing degrees |
+|---|---|---|
+| **pan** | the robot's **left** | the robot's **right** |
+| **tilt** | **up** | **down** |
+
+Centre is 90 on both. Pan was measured twice, on separate days and from opposite directions —
+`GAZE 130` read as the robot's left, `GAZE 70` as its right — which is worth knowing because the
+pan axis has a history of reporting motion it was not performing (below).
+
 **`NECK` and `PING` report the COMMANDED angle. There is no encoder.** A servo that is unplugged,
 stalled or wired to the wrong channel reports exactly the same numbers as one that is working —
 this cost an afternoon on 2026-10-15, when the pan axis was not driving at all and every log said
