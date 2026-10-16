@@ -51,9 +51,10 @@ class SurgeAT:
         self.last = {}
 
     # ---- the port ---------------------------------------------------------------------------------------
-    def open(self, port: str, baud: int = 115200) -> dict:
-        """Open the port, put the hand in its working state (feedback on, glove mode off) and return its
-        state: {"angles": {j: deg}, "errors": {j: code}}."""
+    def open(self, port: str, baud: int = 115200, startup: bool = True) -> dict:
+        """Open the port and return the hand's state: {"angles": {j: deg}, "errors": {j: code}}. With
+        `startup` (to drive it) the hand is first put in its working state: feedback on, glove mode off;
+        without, nothing is sent but queries (`state`)."""
         import termios
         fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
         a = termios.tcgetattr(fd)
@@ -66,8 +67,9 @@ class SurgeAT:
         termios.tcsetattr(fd, termios.TCSANOW, a)
         termios.tcflush(fd, termios.TCIOFLUSH)
         self.fd = fd
-        self.at("AT+SEF=1")
-        self.at("AT+SMC=0")
+        if startup:
+            self.at("AT+SEF=1")
+            self.at("AT+SMC=0")
         return self.state()
 
     def _read_for(self, seconds: float) -> str:
@@ -140,9 +142,14 @@ class SurgeAT:
         self.at("AT+SMC=0")
         return self.errors()
 
-    def close(self) -> None:
-        """Every exit: the open pose, feedback back on, the port closed. Safe to call twice."""
+    def close(self, home: bool = True) -> None:
+        """Every exit: the open pose, feedback back on, the port closed. Safe to call twice. `home=False`
+        only for a port opened read-only (`state`), which never moved the hand."""
         if self.fd is None:
+            return
+        if not home:
+            os.close(self.fd)
+            self.fd = None
             return
         try:
             self.home()
@@ -263,44 +270,68 @@ def play(path: str, port: str | None, dry_run=False, long=False, allow_presets=F
         log(f"surge: NOTE latched error flags {bad}: on loaded fingers they do not block motion; "
             "`surge_at.py clear` recalibrates to clear them (the hand moves)")
     sent = 0
+    # AN ABSOLUTE SCHEDULE: every segment starts at its planned time from t0 and ends at its deadline, so
+    # nothing accumulates (timing each one from the end of the last ran 4.6 s late over 22 s on the hand)
+    plan, at = [], 0.0
+    for kind, a, b in segs:
+        dur = (BLEND_S + b) if kind == "gait" else (b[0] + b[1]) if kind == "joints" else b
+        plan.append((at, at + dur))
+        at += dur
 
-    def stream(fn, seconds):
+    def stream(fn, t_start, t_until):
+        """Targets fn(seconds since t_start) at RATE_HZ ticks on the absolute clock, until t_until."""
         nonlocal sent
-        t0, k = time.time(), 0
+        k = 0
         while True:
-            t = time.time() - t0
-            if t > seconds:
+            now = time.time()
+            if now >= t_until:
                 return
-            sent += d.apply(t, fn(t))
+            sent += d.apply(now - t_start, fn(now - t_start))
             k += 1
-            time.sleep(max(0.0, t0 + k / RATE_HZ - time.time()))
+            nxt = t_start + k / RATE_HZ
+            while nxt <= time.time():                 # behind: skip ticks, never bunch them
+                k += 1
+                nxt = t_start + k / RATE_HZ
+            time.sleep(max(0.0, min(nxt, t_until) - time.time()))
 
+    def sleep_until(t_abs):
+        time.sleep(max(0.0, t_abs - time.time()))
+
+    worst = 0.0
     try:
         d.start_stream()
         cur = {j: v for j, v in st["angles"].items() if v is not None}
-        for i, (kind, a, b) in enumerate(segs):
-            t_seg = time.time()
+        t0 = time.time()
+        for i, ((kind, a, b), (s0, s1)) in enumerate(zip(segs, plan)):
+            start, end = t0 + s0, t0 + s1
+            sleep_until(start)
+            worst = max(worst, time.time() - start)
             if kind == "gait":
                 g0 = gait_targets(a, 0.0)
-                s0 = {j: cur.get(j, g0[j]) for j in g0}
-                stream(lambda t: {j: s0[j] + (g0[j] - s0[j]) * min(1.0, t / BLEND_S) for j in g0}, BLEND_S)
-                stream(lambda t: gait_targets(a, t), b)
+                from_ = {j: cur.get(j, g0[j]) for j in g0}
+                stream(lambda t: {j: from_[j] + (g0[j] - from_[j]) * min(1.0, t / BLEND_S) for j in g0}, start, start + BLEND_S)
+                stream(lambda t: gait_targets(a, t), start + BLEND_S, end)
                 cur.update(gait_targets(a, b))
             elif kind == "joints":
-                ramp, hold = b
-                s0 = {j: cur.get(j, v) for j, v in a.items()}
-                stream(lambda t: {j: s0[j] + (a[j] - s0[j]) * min(1.0, t / max(ramp, 1e-3)) for j in a}, max(ramp, 0.05))
+                ramp, _ = b
+                from_ = {j: cur.get(j, v) for j, v in a.items()}
+                stream(lambda t: {j: from_[j] + (a[j] - from_[j]) * min(1.0, t / max(ramp, 1e-3)) for j in a},
+                       start, min(end, start + max(ramp, 0.05)))
+                sent += d.apply(time.time() - t0, a)          # the target itself, even when running late
                 cur.update(a)
-                time.sleep(hold)
+                sleep_until(end)
             elif kind == "pose":
                 d.send(f"AT+SPP={a}")
                 d.last = {}
-                time.sleep(b)
+                sleep_until(end)
+                cur = {j: v for j in JOINTS if (v := d.angle(j, 0.04)) is not None}   # it moved itself
             else:
-                time.sleep(b)
-            log(f"surge: segment {i:2d} {kind:6s} done in {time.time() - t_seg:4.1f} s")
+                sleep_until(end)
+        late = time.time() - (t0 + plan[-1][1])
     finally:
         d.close()
+    log(f"surge: {len(segs)} segments in {plan[-1][1]:.1f} s planned; finished {late:+.2f} s against plan, "
+        f"worst segment start {worst * 1000:.0f} ms late")
     log(f"surge: sent {sent} joint commands; the hand is open and feedback is back on")
     return 0
 
@@ -321,14 +352,14 @@ def main(argv=None) -> int:
     if not a.port:
         ap.error("--port is required")
     d = SurgeAT()
-    st = d.open(a.port)
+    st = d.open(a.port, startup=a.cmd == "clear")      # `state` only queries: it sends no settings
     try:
         if a.cmd == "clear":
             print("errors after:", d.clear_errors())
         else:
             print(st)
     finally:
-        d.close()
+        d.close(home=a.cmd == "clear")
     return 0
 
 
