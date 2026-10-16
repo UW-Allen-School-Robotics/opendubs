@@ -89,3 +89,20 @@ The two OpenArm grippers were zeroed in different physical states, so the contro
 **`/etc/opendubs/grippers.yaml` on the Thor** (or `$OPENDUBS_GRIPPER_CAL`), measured there, and is
 deliberately **not** recorded in this file or anywhere in the repository. Measure and check it with
 `software/choreo/grippers.py` (`template`, then `check`) — choreography plan item 6.2.
+
+## Neck tilt band — on the device only, by design
+
+The neck's tilt limits are set when the neck is commissioned on each robot, and they depend on how the
+head is mounted. They live in the **neck controller's own NVS** (the M5Dial: namespace `opendubs`,
+keys `tiltMin` / `tiltMax`), survive a firmware flash, and are deliberately **not** recorded in this
+file or anywhere in the repository, so the number exists in exactly one place. The neck reports them
+on request (`NECK` answers `tilt_band` and `commissioned`). How to read, set and commission them is in
+`firmware/neck_dial/README.md`.
+
+## Settings file — `/etc/opendubs/robot.env`
+
+Per-robot settings the robot's services load at start (`EnvironmentFile=`): the robot's name, the
+face and neck hosts, and any per-robot override. Deploys only **read** it, never write it, and
+`tools/deploy-audit.py` does not compare it, so a change to it never shows as drift. A temporary line
+added for a measurement therefore stays, and is re-applied by every restart, until it is removed by
+hand. Edits go through the Thor stack lane, with a dated backup beside the file.
