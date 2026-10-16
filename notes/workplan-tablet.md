@@ -31,6 +31,30 @@ someone's hands.
 
 ---
 
+## Where things stand — 2026-10-15 (evening)
+
+**On the robot (opendubs2), working:** the kiosk app updates itself over Wi-Fi from the robot (0.3.0
+was the last cable install; 0.3.1–0.3.4 installed themselves). Builds are signed on the Thor with the
+project key (a v3 lineage from the old debug key). The tablet's sensors reach ROS as `/tablet/*`
+(light, battery, GNSS, IMU from the app's own accelerometer, thermal on `/diagnostics`, both cameras
+on demand). The face shows CAMERA ON, the charging gauge (BATT, protocol v6) and, when the Head & face
+page asks, the tracking reticle. The tracker is the Tab5's attention model (motion, person, face).
+The head follows through `neck_follow`, behind its runaway and limit guards.
+
+**Parked for the next robot session:**
+- **The head pinned at the pan limit after the last deploy.** With the user in front, `neck_follow`
+  drove pan to 60 and tilt to ~104, and the limit guard held it there. The target, called a FACE at
+  confidence 1.0, stayed at image x ≈ 0.25 while the head was commanded ~30°; a real person would
+  have crossed the frame. So either the pan servo did not physically turn (NECK reports the commanded
+  angle; there is no encoder, and the servo was dead earlier the same day), or something moving with
+  the camera (a reflection, something on the robot, a fixed poster or screen) was being tracked. One
+  look at the head while it is commanded tells them apart. The pan sign was measured open-loop with
+  the head held at centre, so it should stand; re-check it once pan is known to drive. Tracking is
+  OFF until then.
+- **Person confidence retune**, ready on branch `tracking/person-confidence` (no PR yet). The person
+  cue's own score range and full belief after two linked hits, and `neck_follow`'s floor for a person
+  0.45 (motion and face 0.6). Open it after the user has seen the reticle sit on them.
+
 ## Where things stand — 2026-10-14
 
 **Decided by the user (2026-10-12–14).** The robot tablet is the ONE device for the face, the
