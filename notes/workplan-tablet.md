@@ -33,26 +33,33 @@ someone's hands.
 
 ## Where things stand — 2026-10-16
 
-At the robot with the user, tracking taken from "pins at the limit" to following.
+**Head tracking is the Tab5's law, re-applied (#343), and the user called it "much better".** That is
+the design; start from it.
 
-- **The pan sign was wrong, and is −1.** The servo was watched (pan 70 = the robot's right) and the
-  camera's frames are unmirrored, so a person right of the image's centre is on the robot's right and
-  needs LOWER pan. Seen closing the loop on the user. Now the code default (#333); the robot also
-  sets it in `robot.env`. Tilt −1 stands. Last night's pin was this sign, not the servo.
-- **A held sighting ran the head away** (#333). The page repeats a cue's last position for its dwell;
-  re-aiming that offset turned the head again and again. Fixed for good by aiming at an **absolute
-  bearing from the head's pose when the frame was captured** (#336): a re-sent sighting gives the same
-  bearing, every sighting is used, 10 updates a second, gain 1, eyes-only band 0.08.
-- **Runaway guard** rebuilt for bearings: a wrong sign makes the computed bearing flee the head at twice
-  its turn; a person crossing the view flips sides and never trips it (#336, after a false trip).
-- **No following in a reserved state** (DEGRADED, E_STOP), the user's decision (#332).
-- **The reticle was hidden because the robot was DEGRADED** (RC off), by design. Seen once SAFE_IDLE.
-- **A deploy left the face page on old code**: tracking ON imports a module into the running page; only
-  OFF reloads it. The page now reloads itself after a deploy (#338). Until then: tracking off → on.
-- New: the **chest light** mirrors the PRISM (CHEST, v7, #322), and the **state in plain words** on the
-  face (CAPTION, v8, #337, with Face & HRI's #334).
+- **The law** (`neck_follow.py`, from `firmware/tab5_idf/app_face/pantilt.cpp`; the Dial's
+  `pantilt_core` carries the same): for a confident target (0.6; a person 0.45, #329) further off
+  centre than 0.25, pan = 90 − nx·30, tilt = 90 − ny·18, else centre; sent as GAZE at 10 Hz, the
+  neck slewing at 70 °/s. The head's angle is a fixed function of where the person appears, so a
+  late or repeated sighting only repeats the target. Refuses in a reserved state (DEGRADED, E_STOP:
+  #332, the user's decision) and holds at the envelope's edge.
+- **Pan sign −1, measured** with the servo watched (pan 70 = the robot's right) and the tablet's frames
+  unmirrored; the code default since #333, also in `robot.env`. Tilt −1. (The Tab5's own nx had the
+  opposite pan sense.) Last night's note calling +1 "measured" was wrong: it was the default.
+- **The servos are 300°**: the firmware maps 0–180 to 500–2500 µs, so a commanded degree is ~1.67 real
+  ones. Every GAZE angle, the 30/18 ranges and the tilt commissioning are in COMMANDED degrees.
+- **Tried and removed, and why.** One aim per new sighting after the head stopped (#333): calm but about
+  one move a second. An absolute bearing from the head's pose at capture, at full gain (#336): fast, but
+  it swung, because the ×1.67 servo scale was not in its numbers. Both integrate, so a scale or latency
+  error compounds; the Tab5's law does not. If it ever needs more than it does, #336's bearing with the
+  scale corrected is the next step, not a new design.
+- **The reticle** is hidden in reserved states, by design. **A deploy reloads the face page by itself**
+  (#338; turning tracking on never did). **The state in plain words** shows on the face (CAPTION, v8,
+  #337 with Face & HRI's #334); **the chest light** mirrors the PRISM (CHEST, v7, #322).
+- Settings persist: `tracking` and `show_reticle` are saved on the robot and re-sent to the face page as
+  it connects, so a dashboard or app restart resumes them.
 
-**Next at the robot:** the tracking re-run on the bearing code, with the user in front and the reticle on.
+**Open:** reaching the dashboard by a long-press on the face stopped working on the tablet (being
+investigated; the page's long-press passes in desktop Chrome).
 
 ## Where things stand — 2026-10-15 (evening)
 
