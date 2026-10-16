@@ -33,6 +33,37 @@ import origin_guard
 log = logging.getLogger("face_door")
 router = APIRouter()
 
+# The face page's own files, as served at /face/ (app.py mounts the same directory).
+FACE_DIR = os.environ.get("OPENDUBS_FACE_WEB_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "face-web")
+_FACE_PARTS = ("index.html", "engine", "vendor")      # what the page runs; not its tests, tools or skin library
+
+
+def face_version(root: str = None) -> str:
+    """Changes whenever a deploy changes a file the face page runs: names, sizes and mtimes, so it is
+    cheap (the vendored models are stat'ed, never read). The page polls it and reloads itself (main.js),
+    because turning tracking on only adds a module to the page already running: on 2026-10-16 a deployed
+    fix sat unused until the page happened to reload."""
+    import hashlib
+    root = root or FACE_DIR
+    h = hashlib.sha1()
+    for part in _FACE_PARTS:
+        top = os.path.join(root, part)
+        paths = [top] if os.path.isfile(top) else sorted(
+            os.path.join(d, f) for d, _, fs in os.walk(top) for f in fs if "__pycache__" not in d)
+        for path in paths:
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            h.update(f"{os.path.relpath(path, root)}:{st.st_size}:{st.st_mtime_ns}\n".encode())
+    return h.hexdigest()[:12]
+
+
+@router.get("/api/face/version")
+def get_face_version() -> dict:
+    return {"version": face_version()}
+
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("OPENDUBS_FACE_DOOR_PORT", "4242"))
 REPLY_TIMEOUT_S = 0.4
