@@ -8,7 +8,7 @@ ask of it, and where a crawling hand goes.
 
 A TOOL TYPE is one YAML file in effectors/: its channels (each a 0..1 range or a set of named states, with
 how long a full stroke takes), named poses, finger-dance patterns, where it can be fitted (`mounts`:
-left / right are the arm flanges, base is a floor-level dock on the chassis), what it can do there
+left / right are the arm flanges, base is the floor, on a leash tied to the chassis), what it can do there
 (`modes`: equipped, crawl), its twin model, and its driver (`output`; null = none yet, twin only).
 A type may be another one MIRRORED (`mirror_of`): the left Surge hand is the right one reflected.
 
@@ -48,7 +48,7 @@ robot: <name>
 checked: <YYYY-MM-DD>
 left: openarm_gripper       # the left arm's flange
 right: openarm_gripper      # the right arm's flange
-# base: surge_right         # a tool parked at the chassis's floor dock (a crawling hand), if any
+# base: surge_right         # a crawling hand on the floor, on a leash tied to the chassis, if any
 """
 
 
@@ -262,7 +262,7 @@ def show_tools(doc_tools) -> tuple[dict, list[str]]:
     reg, out, p = registry(), {m: {"type": t, "mode": "equipped"} for m, t in DEFAULT_FITTED.items()}, []
     for m, v in doc_tools.items():
         if m not in MOUNTS:
-            p.append(f"tools: unknown mount {m!r} (left, right: the arm flanges; base: the chassis dock)")
+            p.append(f"tools: unknown mount {m!r} (left, right: the arm flanges; base: the floor, leashed to the chassis)")
             continue
         if v is None:
             out.pop(m, None)
@@ -281,10 +281,10 @@ def show_tools(doc_tools) -> tuple[dict, list[str]]:
         if mode not in tool.modes:
             p.append(f"tools: {tool.id} has no {mode!r} mode (it has {', '.join(tool.modes)})")
         if mode == "crawl" and m != "base":
-            p.append(f"tools: a crawling tool starts from the base dock, not the {m} flange — the arm cannot "
+            p.append(f"tools: a crawling tool lives on the floor (base), not on the {m} flange — the arm cannot "
                      "set a hand on the floor (the tool point bottoms out ~0.65 m up)")
         if mode == "equipped" and m == "base":
-            p.append("tools: the base dock holds a tool that crawls (mode: crawl); equipped tools go on a flange")
+            p.append("tools: the base mount is for a tool that crawls (mode: crawl); equipped tools go on a flange")
         out[m] = {"type": tool.id, "mode": mode}
     return out, p
 
@@ -308,12 +308,13 @@ def fitted_mismatch(need: dict, fitted: dict) -> list[str]:
 CHASSIS_X = (-0.032, 0.612)
 CHASSIS_Y = (-0.3245, 0.3245)
 BASE_TURN_X = (0.12 + 0.528) / 2.0     # the base turns about its wheels' centre (sim_preview.apply_base)
-FOOTPRINT_MARGIN_M = 0.03
+KEEP_OFF_M = 0.25                      # default clear floor between the hand's edge and the chassis
 LEASH_SLACK_M = 0.15                   # a leash is never asked to go taut: the hand stalls, it cannot pull
-DOCK_TOL_M, DOCK_TOL_DEG = 0.08, 15.0
-CRAWLER_KEYS = {"dock", "tether", "area", "leash"}
+CRAWLER_KEYS = {"start", "tether", "area", "keep_off_m"}
 CRAWL_DOS = ("walk", "turn", "pause", "dance")
-DEFAULT_DOCK = (CHASSIS_X[1] + 0.20, 0.0, 0.0)   # in front of the chassis (7 cm clear of the hand), facing forward
+# Where the hand stands when the show starts: on the floor, well clear of the chassis, facing away from
+# it. It is NOT attached to the base: a DANCE moves the leash's anchor, never the hand.
+DEFAULT_START = (CHASSIS_X[1] + 0.55, 0.0, 0.0)
 DEFAULT_ANCHOR = (CHASSIS_X[1], 0.0, 0.10)       # the front face of the chassis, 100 mm above the floor
 
 
@@ -345,13 +346,17 @@ def crawler_config(doc_crawler, tool: Tool) -> tuple[dict, list[str]]:
     p = []
     d = doc_crawler if isinstance(doc_crawler, dict) else {}
     if doc_crawler is not None and not isinstance(doc_crawler, dict):
-        p.append("crawler: must be a mapping (dock, tether, area)")
+        p.append("crawler: must be a mapping (start, tether, area, keep_off_m)")
     for k in sorted(set(d) - CRAWLER_KEYS, key=str):
         p.append(f"crawler: unknown key {k!r} ({', '.join(sorted(CRAWLER_KEYS - {'leash'}))})")
-    dock = d.get("dock", list(DEFAULT_DOCK))
-    if not (isinstance(dock, list) and len(dock) == 3 and all(isinstance(v, (int, float)) for v in dock)):
-        p.append("crawler: dock must be [x m, y m, heading deg] in the robot's starting frame")
-        dock = list(DEFAULT_DOCK)
+    start = d.get("start", list(DEFAULT_START))
+    if not (isinstance(start, list) and len(start) == 3 and all(isinstance(v, (int, float)) for v in start)):
+        p.append("crawler: start must be [x m, y m, heading deg] on the floor, in the robot's starting frame")
+        start = list(DEFAULT_START)
+    keep = d.get("keep_off_m", KEEP_OFF_M)
+    if not (isinstance(keep, (int, float)) and 0.03 <= keep <= 2.0):
+        p.append("crawler: keep_off_m must be 0.03..2 m — the clear floor between the hand and the chassis")
+        keep = KEEP_OFF_M
     teth = d.get("tether") or {}
     anchor = teth.get("anchor", "base_front")
     if anchor != "base_front":
@@ -372,12 +377,13 @@ def crawler_config(doc_crawler, tool: Tool) -> tuple[dict, list[str]]:
     else:
         p.append("crawler: declare the floor area the hand may use — area: {x: [min, max], y: [min, max]} (m); "
                  "a human clears it before the show")
-    gap = footprint_gap((0.0, 0.0, 0.0), dock[0], dock[1])
+    gap = footprint_gap((0.0, 0.0, 0.0), start[0], start[1])
     r = float(tool.crawl.get("hand_radius_m", 0.13)) if tool.crawl else 0.13
-    if gap < r - 0.02:
-        p.append(f"crawler: the dock is {gap:.2f} m from the chassis — the hand ({r:g} m) would be inside it")
-    return {"dock": tuple(float(v) for v in dock), "anchor": DEFAULT_ANCHOR, "length_m": float(length),
-            "trailing": True, "area": box, "hand_r": r}, p
+    if gap - r < keep:
+        p.append(f"crawler: the hand starts {max(0.0, gap - r) * 100:.0f} cm from the chassis — keep_off_m asks for "
+                 f"{keep * 100:.0f} cm")
+    return {"start": tuple(float(v) for v in start), "anchor": DEFAULT_ANCHOR, "length_m": float(length),
+            "trailing": True, "area": box, "hand_r": r, "keep_off_m": float(keep)}, p
 
 
 def _gait(tool: Tool, name: str):
@@ -409,7 +415,7 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
     its SLOWEST-case duration (what it occupies on the timeline), its nominal speed, and where the hand
     ends. Positions are the hand's centre on the floor, (x, y) m and heading deg, in the robot's starting
     frame. Returns {legs, problems, notices}."""
-    x, y, h = cfg["dock"]
+    x, y, h = cfg["start"]
     legs, P, N = [], [], []
     trailing = cfg["trailing"]
     for e in events:
@@ -433,17 +439,17 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
             to = c.get("to")
             heading_to = c.get("heading_deg")
             if to is not None:
-                tx, ty = (cfg["dock"][0], cfg["dock"][1]) if to == "dock" else (float(to[0]), float(to[1]))
+                tx, ty = (cfg["start"][0], cfg["start"][1]) if to == "start" else (float(to[0]), float(to[1]))
                 dx, dy = tx - x, ty - y
                 along = sgn * (dx * math.cos(math.radians(h)) + dy * math.sin(math.radians(h)))
                 across = -dx * math.sin(math.radians(h)) + dy * math.cos(math.radians(h))
                 if along < -0.01:
-                    P.append((e, f"{where}: {to if to == 'dock' else 'the target'} is behind a {direction} walk — "
+                    P.append((e, f"{where}: {'the start' if to == 'start' else 'the target'} is behind a {direction} walk — "
                                   f"walk {'back' if direction == 'forward' else 'forward'}, or pivot first"))
                     continue
                 if abs(across) > 0.05:
                     bearing = math.degrees(math.atan2(dy, dx)) if direction == "forward" else math.degrees(math.atan2(-dy, -dx))
-                    P.append((e, f"{where}: {'the dock' if to == 'dock' else 'the target'} is {abs(across)*100:.0f} cm off the "
+                    P.append((e, f"{where}: {'the start' if to == 'start' else 'the target'} is {abs(across)*100:.0f} cm off the "
                                   f"hand's line (it faces {h:.0f}°, the target bears {bearing:.0f}°) — turn "
                                   f"{_wrap(bearing - h):+.0f}° first; a crawling hand walks straight"))
                     continue
@@ -469,7 +475,7 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
                                   f"{g['steer_deg_s']:g}°/s (sim) — this walk lasts {secs_slow:.0f}s; pivot instead"))
             # nominal path: heading ramps at steer rate (if asked) over the walk
             x1, y1, h1 = _integrate_walk(x, y, h, sgn * dist, steer)
-            leg.update(docks=to == "dock", targeted=to is not None, gait=gait, dir=direction, dist_m=dist, dist_range=(d_lo, d_hi), speed=(lo, hi), speed_key=key,
+            leg.update(targeted=to is not None, gait=gait, dir=direction, dist_m=dist, dist_range=(d_lo, d_hi), speed=(lo, hi), speed_key=key,
                        secs=secs_slow, nominal_secs=dist / nominal if nominal else secs_slow, steer=steer,
                        drift_m=float(g.get("drift_m_per_m", 0.05)) * d_hi, to=(x1, y1, h1))
             how = (f"on a trailing leash; SIM, not hardware" if key.startswith("dragging") else "free floor; SIM, not hardware")
@@ -515,16 +521,14 @@ def _integrate_walk(x, y, h, signed_dist, steer, n=None):
     return x, y, _wrap(h + steer)
 
 
-def state_at(legs: list, dock: tuple, t: float, tool: Tool | None = None, beat_s: float | None = None) -> dict:
+def state_at(legs: list, start: tuple, t: float) -> dict:
     """Where the hand is and what it is doing at show time t, on the NOMINAL path (mid-range sim speeds):
     {x, y, heading, moving: None|gait|pivot_left|pivot_right, phase_s, pattern, pattern_t}."""
-    x, y, h = dock
-    st = {"x": x, "y": y, "heading": h, "moving": None, "phase_s": 0.0, "pattern": None, "pattern_t": 0.0,
-          "docked": True}
+    x, y, h = start
+    st = {"x": x, "y": y, "heading": h, "moving": None, "phase_s": 0.0, "pattern": None, "pattern_t": 0.0}
     for leg in legs:
         if t < leg["t"]:
             break
-        st["docked"] = bool(leg.get("docks")) and t >= leg["t"] + leg["nominal_secs"]
         dt = t - leg["t"]
         x0, y0, h0 = leg["from"]
         do = leg["do"]
@@ -558,8 +562,12 @@ def pattern_channels(tool: Tool, name: str, t: float, beat_s: float) -> dict:
     vals.update(tool.poses.get(pat.get("base"), {}))
     step_s = float(pat.get("step_beats", 1)) * beat_s
     steps = pat["steps"]
-    k = int(t // step_s) if step_s > 0 else 0
     prev = dict(vals)
+    if step_s > 0 and t >= len(steps) * step_s:   # past the first cycle: start from a whole cycle's end
+        for st in steps:
+            prev.update(st)
+        t = t % (len(steps) * step_s)
+    k = int(t // step_s) if step_s > 0 else 0
     # every step applied in turn up to the current one: a step names only what it changes
     for i in range(k):
         prev.update(steps[i % len(steps)])

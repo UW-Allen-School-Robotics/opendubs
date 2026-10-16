@@ -74,7 +74,8 @@ crawl:
     The back-up gait, both pivots and the walking-turn limit: the Choreography lane, with that crawl.py
     unmodified (2026-10-16).
   hand_radius_m: 0.13               # palm centre to fingertip, plus the puck: the footprint check's radius
-  stance: stand                     # the pose a docked, paused or dancing hand holds
+  stance: stand                     # the pose a paused or dancing hand holds
+  idle: tap_index                   # what a standing hand does when no cue says otherwise: it never freezes
   # A hand trailing a leash over the floor is slower. SIMULATED for the outrigger gait only (1.8 m leash,
   # 50 g/m: 3.7 cm/s with the puck, 4.7 with the old roller). Every other `dragging` figure is that
   # gait's free speed x 0.5-0.6 (the measured factor, 3.7 / ~6.9 = 0.53, widened): SCALED, NOT SIMULATED.

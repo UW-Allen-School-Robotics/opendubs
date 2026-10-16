@@ -244,21 +244,19 @@ def _cycles(tool) -> dict:
 
 def crawler_state(tl: dict, t: float) -> dict:
     """The hand at show time t: on the validated path (nominal sim speeds), its body moving as the recorded
-    gait cycle moves it, its fingers from the cycle, a finger dance, or its stance; docked, it rides the
-    base. Also where the leash's anchor is. Twin only."""
+    gait cycle moves it, its fingers from the cycle, or a finger dance; standing with nothing to do, its
+    idle pattern on the beat (it never freezes). Not attached to the base: a DANCE moves the leash's
+    anchor, never the hand. Also where that anchor is. Twin only."""
     import math
     import effectors
     cr = tl["crawler"]
     tool = effectors.registry()[cr["tool"]]
     beat_s = (tl.get("music") or {}).get("beat_s") or 0.5
     legs = [dict(leg, **{"from": tuple(leg["from"]), "to": tuple(leg["to"])}) for leg in cr["legs"]]
-    st = effectors.state_at(legs, tuple(cr["dock"]), t)
+    st = effectors.state_at(legs, tuple(cr["start"]), t)
     tr = tl["tracks"]
     base = base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))
     x, y, h = st["x"], st["y"], st["heading"]
-    if st["docked"]:                                   # in its dock on the chassis: it moves with the base
-        x, y = effectors.base_to_world(base, cr["dock"][0], cr["dock"][1])
-        h = cr["dock"][2] + base[2]
     chans = tool.rest()
     z, roll, pitch = 0.05, 0.0, 0.0
     cyc = None
@@ -276,13 +274,16 @@ def crawler_state(tl: dict, t: float) -> dict:
             roll = -roll
     elif st["pattern"] and st["pattern"] in tool.patterns:
         chans.update(effectors.pattern_channels(tool, st["pattern"], st["pattern_t"], beat_s))
+    elif (tool.crawl or {}).get("idle") in tool.patterns:           # standing: the idle pattern, on the beat
+        off = (tl.get("music") or {}).get("offset_s") or 0.0
+        chans.update(effectors.pattern_channels(tool, tool.crawl["idle"], max(0.0, t - off), beat_s))
     ax, ay = effectors.base_to_world(base, cr["anchor"][0], cr["anchor"][1])
     hr = math.radians(h)
     return {"tool": tool.id, "x": round(x, 4), "y": round(y, 4), "heading": round(h, 2), "z": z, "roll": roll, "pitch": pitch,
             "wrist": (round(x - HAND_CENTRE_M * math.cos(hr), 4), round(y - HAND_CENTRE_M * math.sin(hr), 4)),
             "channels": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in chans.items()},
             "anchor": (round(ax, 4), round(ay, 4), round(FLOOR_Z + cr["anchor"][2], 4)),
-            "length_m": cr["length_m"], "docked": st["docked"], "moving": st["moving"], "pattern": st["pattern"]}
+            "length_m": cr["length_m"], "moving": st["moving"], "pattern": st["pattern"]}
 
 
 def tool_channels(tl: dict, t: float) -> dict:

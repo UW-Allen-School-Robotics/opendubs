@@ -96,14 +96,14 @@ s.fitted_tools = E.DEFAULT_FITTED
 check("validated against a robot that has grippers fitted, the Surge show is refused",
       has([p.msg for p in s.analyse(LIMITS)["problems"]], "needs surge_right at right"))
 check("a crawl mode on a flange is refused",
-      has(problems(show("tools: { right: { type: surge_right, mode: crawl } }\n", "  - { t: 1, slot: GRIP_R, do: open }\n")), "the base dock"))
+      has(problems(show("tools: { right: { type: surge_right, mode: crawl } }\n", "  - { t: 1, slot: GRIP_R, do: open }\n")), "lives on the floor"))
 
 print("the crawling hand")
 CR = ("tools: { base: { type: surge_right, mode: crawl } }\n"
-      "crawler: { tether: { anchor: base_front, length_m: 1.8 }, area: { x: [0.45, 1.8], y: [-0.7, 0.7] } }\n")
+      "crawler: { tether: { anchor: base_front, length_m: 1.8 }, area: { x: [0.75, 2.6], y: [-0.7, 0.7] } }\n")
 good = ("  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n"
         "  - { t: 20, slot: CRAWL, do: dance, pattern: wave, beats: 8 }\n"
-        "  - { t: 30, slot: CRAWL, do: walk, dir: back, to: dock }\n")
+        "  - { t: 30, slot: CRAWL, do: walk, dir: back, to: start }\n")
 s = show(CR, good, "[CRAWL]")
 tl = s.export(LIMITS)
 check("a walk out, a finger dance and a walk home validate", tl["valid"], tl["problems"])
@@ -116,21 +116,26 @@ check("the timing is said in words (distance and time at the sim speed)",
       any("walk forward for 10s" in n and "cm/s" in n for n in tl["notices"]))
 back = tl["crawler"]["legs"][2]
 check("the walk home is held for its slowest case", abs(back["secs"] - back["dist_m"] / back["speed"][0]) < 1e-6, back)
-check("the hand is not docked while out, and docked again at the end",
-      not P.crawler_state(tl, 15.0)["docked"] and P.crawler_state(tl, back["t"] + back["secs"] + 1)["docked"])
+st0, st1 = P.crawler_state(tl, 0.0), P.crawler_state(tl, 15.0)
+check("the hand starts on the floor, well clear of the chassis, and stays where its path puts it",
+      st0["x"] > 1.0 and st1["x"] > st0["x"], (st0["x"], st1["x"]))
+check("standing with no cue, it plays its idle pattern (never frozen): the index moves between frames",
+      P.crawler_state(tl, 0.30)["channels"]["index"] != P.crawler_state(tl, 0.55)["channels"]["index"])
 check("the twin's sample carries the crawler, and a show without one has no such key",
       "crawler" in P.sample(tl, 5.0) and "crawler" not in P.sample(old.export(LIMITS), 5.0))
-m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n  - { t: 5, slot: CRAWL, do: walk, dir: back, to: dock }\n", "[CRAWL]"))
+m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n  - { t: 5, slot: CRAWL, do: walk, dir: back, to: start }\n", "[CRAWL]"))
 check("a leg that starts before the last can finish (at the slowest speed) is refused", has(m, "still busy"), m)
-m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n", "[CRAWL]"))
-check("a hand left out at the end is refused", has(m, "must end docked"), m)
+m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, dir: back, dist_m: 0.4 }\n", "[CRAWL]"))
+check("backing in too near the chassis is refused (keep_off_m)", has(m, "keep_off_m"), m)
+m = problems(show(CR.replace("crawler: {", "crawler: { start: [0.8, 0, 0],"), "  - { t: 1, slot: CRAWL, do: pause, secs: 1 }\n", "[CRAWL]"))
+check("a start too near the chassis is refused", has(m, "starts"), m)
 m = problems(show(CR.replace("length_m: 1.8", "length_m: 0.5"), good, "[CRAWL]"))
 check("a leash too short for the walk is refused", has(m, "leash"), m)
-m = problems(show(CR.replace("x: [0.45, 1.8]", "x: [0.45, 0.9]"), good, "[CRAWL]"))
+m = problems(show(CR.replace("x: [0.75, 2.6]", "x: [0.75, 1.3]"), good, "[CRAWL]"))
 check("leaving the declared floor area is refused", has(m, "floor area"), m)
 m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n  - { t: 20, slot: CRAWL, do: turn, by_deg: 90 }\n"
-                      "  - { t: 80, slot: CRAWL, do: walk, dir: back, to: dock }\n", "[CRAWL]"))
-check("a walk to the dock off the hand's line is refused (turn first; it walks straight)", has(m, "off the hand's line"), m)
+                      "  - { t: 80, slot: CRAWL, do: walk, dir: back, to: start }\n", "[CRAWL]"))
+check("a walk to a point off the hand's line is refused (turn first; it walks straight)", has(m, "off the hand's line"), m)
 pl = show(CR, "  - { t: 1, slot: CRAWL, do: turn, by_deg: 30 }\n", "[CRAWL]").export(LIMITS)
 leg = pl["crawler"]["legs"][0]
 check("a turn is a pivot at the slowest simulated rate", leg["do"] == "turn" and abs(leg["secs"] - 30 / leg["rate"][0]) < 1e-6, leg)
@@ -138,7 +143,7 @@ m = problems(show("", "  - { t: 1, slot: CRAWL, do: pause, secs: 2 }\n", "[CRAWL
 check("CRAWL with no crawler fitted is refused", has(m, "fits none"), m)
 m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: dance, pattern: moonwalk, secs: 2 }\n", "[CRAWL]"))
 check("an unknown finger dance is refused", has(m, "no finger dance"), m)
-m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10, gait: flat }\n  - { t: 30, slot: CRAWL, do: walk, dir: back, to: dock }\n", "[CRAWL]"))
+m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, secs: 10, gait: flat }\n", "[CRAWL]"))
 check("a gait with no simulated speed on a trailing leash is refused", has(m, "trailing leash"), m)
 m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, dir: sideways, secs: 2 }\n", "[CRAWL]"))
 check("a crawling hand cannot sidestep", has(m, "cannot sidestep"), m)

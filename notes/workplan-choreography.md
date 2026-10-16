@@ -236,9 +236,11 @@ host. It has no network input today, by design.*
   mean "the tool on that side", and every show written before still validates and exports byte for byte
   (proven over every show in the repo and the local shows, against the test and the robot's limits, plus
   render frame hashes).
-- **CRAWL**: a hand docked at the chassis walks out, pivots, stands, finger-dances and walks home on a
-  leash anchored to the base; validated against its floor area, the leash, the footprint and its timing
-  at the slowest simulated speed (format spec 13). Twin only: the runner refuses it.
+- **CRAWL**: a hand on the floor in front of the robot, on a leash anchored to the base, walks, backs up,
+  pivots and finger-dances, and taps the beat between cues; validated against its floor area, the slack
+  leash, a clear distance from the chassis and its timing at the slowest simulated speed (format spec 13).
+  Not attached to the base, and no "getting back" requirement (the user's call, 2026-10-16). Twin only:
+  the runner refuses it.
 - **The Surge hand** (sim, not hardware): the vendor URDF from `$OPENDUBS_SURGE_DIR`, never committed;
   the left hand mirrored and proven; gaits from the Surge Hand investigation, plus a back-up gait and
   both pivots found here (sim: −3.8 cm/s; +3.0–3.8 and −9.0–11.8 °/s), and the walking-turn limit (a

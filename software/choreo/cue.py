@@ -1516,14 +1516,14 @@ class Show:
                 p.append(f"{where}: walk dir must be forward or back (a crawling hand cannot sidestep)")
             how = [k for k in ("secs", "dist_m", "to") if k in c]
             if len(how) != 1:
-                p.append(f"{where}: a walk needs exactly one of secs, dist_m, to: dock|[x, y]")
+                p.append(f"{where}: a walk needs exactly one of secs, dist_m, to: start|[x, y]")
             if "secs" in c and not (_num(c["secs"]) and 0.5 <= c["secs"] <= 120):
                 p.append(f"{where}: walk secs {c['secs']!r} must be 0.5..120")
             if "dist_m" in c and not (_num(c["dist_m"]) and 0.01 <= c["dist_m"] <= 5):
                 p.append(f"{where}: walk dist_m {c['dist_m']!r} must be 0.01..5")
             to = c.get("to")
-            if to is not None and to != "dock" and not (isinstance(to, list) and len(to) == 2 and all(_num(v) for v in to)):
-                p.append(f"{where}: walk to: must be dock or [x m, y m] in the robot's starting frame")
+            if to is not None and to != "start" and not (isinstance(to, list) and len(to) == 2 and all(_num(v) for v in to)):
+                p.append(f"{where}: walk to: must be start or [x m, y m] in the robot's starting frame")
             if "heading_deg" in c and not _num(c["heading_deg"]):
                 p.append(f"{where}: walk heading_deg must be a number")
         elif do == "turn":
@@ -1542,8 +1542,8 @@ class Show:
 
     def _check_crawler(self, crawl_events, events, music, notices) -> list:
         """The crawl as a whole: a crawler fitted, the declared floor area, the leash, the robot's footprint,
-        every leg finished before the next starts (at the SLOWEST simulated speed), and the hand home by the
-        end. [(sentence, cue ref, is_problem)]."""
+        every leg finished before the next starts (at the SLOWEST simulated speed), and the hand kept
+        clear of the chassis (keep_off_m) with the leash slack throughout. [(sentence, cue ref, is_problem)]."""
         out = []
         self._crawl = None
         fit = self._tool_map.get("base")
@@ -1608,7 +1608,7 @@ class Show:
                 # a walk TO a place ends there: what came before no longer says where the hand is
                 margin_acc = grow if legs[li].get("targeted") else margin_acc + grow
                 li += 1
-            st = effectors.state_at(legs, cfg["dock"], tt)
+            st = effectors.state_at(legs, cfg["start"], tt)
             cur = margin_acc
             if li < len(legs) and legs[li]["t"] <= tt:
                 lg = legs[li]
@@ -1621,7 +1621,7 @@ class Show:
             gap = effectors.footprint_gap(base, st["x"], st["y"]) - r - cur
             if reach > worst["leash"][1]:
                 worst["leash"] = (tt, reach)
-            if gap < worst["foot"][1] and not st["docked"]:
+            if gap < worst["foot"][1]:
                 worst["foot"] = (tt, gap)
             if cfg["area"]:
                 (x0, x1), (y0, y1) = cfg["area"]
@@ -1630,38 +1630,22 @@ class Show:
                     worst["area"] = (tt, over)
             samples.append([_r(tt, 2), _r(st["x"], 3), _r(st["y"], 3), _r(st["heading"], 1), _r(cur, 3)])
             tt += 0.25
-        # the dock is on the chassis: the hand leaves it and comes home with the base where the show started it
-        docked = True
-        for leg in legs:
-            checks = (((leg["t"], "leaves the dock"),) if docked and leg["do"] in ("walk", "turn") else ()) \
-                + (((leg["t"] + leg["secs"], "docks"),) if leg.get("docks") else ())
-            docked = bool(leg.get("docks")) if leg["do"] in ("walk", "turn") else docked
-            for when, what in checks:
-                bx, by, byaw = sim_preview.base_pose(dance, when, drive)
-                if math.hypot(bx, by) > 0.01 or abs(byaw) > 1.0:
-                    out.append((f"{leg['where']}: the hand {what} at t={when:.1f}s while the base is {math.hypot(bx, by) * 100:.0f} cm "
-                                f"and {byaw:+.0f}° from where it started (DANCE / DRIVE) — the dock moves with the base",
-                                ref(by_where[leg["where"]]), True))
         lim = cfg["length_m"] - effectors.LEASH_SLACK_M
         if worst["leash"][0] is not None and worst["leash"][1] > lim:
             out.append((f"the hand may reach {worst['leash'][1]:.2f} m from the leash's anchor at t={worst['leash'][0]:.1f}s "
                         f"— the {cfg['length_m']:g} m leash leaves {lim:.2f} m with {effectors.LEASH_SLACK_M:g} m slack "
                         "(a taut leash stalls the hand)", (None, None, None), True))
-        if worst["foot"][0] is not None and worst["foot"][1] < effectors.FOOTPRINT_MARGIN_M:
+        keep = cfg["keep_off_m"]
+        if worst["foot"][0] is not None and worst["foot"][1] < keep:
             out.append((f"the hand may come within {max(0.0, worst['foot'][1]) * 100:.0f} cm of the chassis at "
-                        f"t={worst['foot'][0]:.1f}s (it needs {effectors.FOOTPRINT_MARGIN_M * 100:.0f} cm, beyond its own "
-                        f"{r:g} m and the path's uncertainty)", (None, None, None), True))
+                        f"t={worst['foot'][0]:.1f}s — keep_off_m asks for {keep * 100:.0f} cm of clear floor (beyond the "
+                        f"hand's own {r:g} m and the path's uncertainty)", (None, None, None), True))
         if worst["area"][0] is not None and worst["area"][1] > 0:
             out.append((f"the hand may leave the declared floor area by {worst['area'][1] * 100:.0f} cm at "
                         f"t={worst['area'][0]:.1f}s (its own {r:g} m and the path's uncertainty included)",
                         (None, None, None), True))
-        ex, ey, eh = plan["end"]
-        dx, dy, _ = cfg["dock"]
-        if crawl_events and (math.hypot(ex - dx, ey - dy) > effectors.DOCK_TOL_M or abs(effectors._wrap(eh - cfg["dock"][2])) > effectors.DOCK_TOL_DEG):
-            out.append((f"the hand ends the show {math.hypot(ex - dx, ey - dy) * 100:.0f} cm and "
-                        f"{effectors._wrap(eh - cfg['dock'][2]):+.0f}° from its dock — it must end docked "
-                        "(walk to: dock, facing the way it started)", (None, None, None), True))
-        self._crawl = {"tool": tool.id, "dock": list(cfg["dock"]), "anchor": list(cfg["anchor"]),
+        self._crawl = {"tool": tool.id, "start": list(cfg["start"]), "anchor": list(cfg["anchor"]),
+                       "keep_off_m": keep,
                        "length_m": cfg["length_m"], "slack_m": effectors.LEASH_SLACK_M,
                        "area": [list(a) for a in cfg["area"]] if cfg["area"] else None, "hand_r": r,
                        "provenance": "SIM, NOT HARDWARE — " + " ".join(str(tool.crawl.get("provenance", "")).split()),
@@ -2286,7 +2270,7 @@ def describe(limits: dict) -> str:
     w("GRIP on another tool (tools: { left|right: <type> }): open / do as above through the tool's open_map, "
       "or pose: <named pose>, or set: { channel: value } (effectors.py list)")
     w("CRAWL (twin only; tools: { base: { type, mode: crawl } } and crawler: { tether, area }): do walk "
-      "(dir forward|back; secs | dist_m | to: dock|[x, y]; gait; heading_deg), turn (by_deg: a pivot), pause (secs), "
+      "(dir forward|back; secs | dist_m | to: start|[x, y]; gait; heading_deg), turn (by_deg: a pivot), pause (secs), "
       "dance (pattern; secs | beats); speeds from simulation, each leg held for its slowest case")
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, 1] "
       f"(default 1 = the autonomy ceiling); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
