@@ -4,13 +4,13 @@
     Tilt is characterised and working; pan needs a servo configuration change first. The
     structure, interfaces and commissioning procedure are recorded here; the assembly steps,
     photos, CAD and parts list are not yet. The complete build today is the
-    [lower frame](lower-frame.md), steps 1–13. The working notes live in
-    [`firmware/tab5_pantilt/README.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/tab5_pantilt/README.md).
+    [lower frame](lower-frame.md), steps 1–13. The neck controller's notes live in
+    [`firmware/neck_dial/README.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/neck_dial/README.md).
 
 !!! info "At a glance"
     | | |
     |---|---|
-    | **You'll build** | The robot's head: a touchscreen face on a pan/tilt mount, with a rangefinder and a camera |
+    | **You'll build** | The robot's head: a tablet face on a pan/tilt mount, moved by its own neck controller |
     | **Time** | *TODO* |
     | **Difficulty** | Intermediate (servo commissioning, one servo needs reconfiguring before use) |
     | **Prerequisites** | A Z-axis to carry it — [Scissor Lift](scissor-lift.md) or a mast |
@@ -19,14 +19,13 @@
 
 ## What this is
 
-An M5Stack Tab5 (ESP32-P4) is the **face**: a touchscreen that shows robot state and
-serves as the local HMI. It sits on a two-axis pan/tilt mount so the head can point,
-with a time-of-flight rangefinder and the Tab5's own camera behind it.
+A Samsung Galaxy Tab A11 tablet is the **face**. On its mount it shows the robot's face and
+state and plays its sound; lifted off, the same tablet is the operator's dashboard. The mount
+is a two-axis pan/tilt, moved by an M5Dial neck controller, so the head can point.
 
-The pan/tilt exists to *point something*. If the only thing pointed is a face, you have
-an expressive head; put the camera behind it and the head becomes a gaze platform — the
-ToF gives range, the camera gives bearing, and together the head can track a subject
-rather than just emote at one.
+The pan/tilt exists to *point something*. If the only thing pointed is a face, you have an
+expressive head. With the tablet's own camera looking out from the face, the head becomes a
+gaze platform that can turn toward a subject rather than just emote at one.
 
 Unlike the base, this module is a **payload**: it has its own controller and its own
 power, and it talks to the robot over the network rather than through the StamPLC.
@@ -107,11 +106,8 @@ source constants.*
 
 ## Camera
 
-The Tab5 carries an SC2356 2 MP MIPI-CSI camera. It is **not** reachable from the
-Arduino framework — CSI support for the ESP32-P4 is still an open upstream request.
-Reaching it needs a dual-framework build (`framework = arduino, espidf`), which has
-been proven to compile with the camera driver available while Arduino and M5Unified
-keep working. The sensor driver itself is not yet written.
+The head's camera is the tablet's own screen-side camera, looking out from the face. Its
+position and direction on the mount are not yet measured. The neck carries no rangefinder.
 
 ## CAD & 3D model
 
@@ -127,6 +123,7 @@ keep working. The sensor driver itself is not yet written.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
+| [M5Stack Dial (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. The robot's is the original Dial (K130), now discontinued; M5Stack's replacement is the Dial v1.1 (K130-V11), which the neck firmware has not been tested on. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The neck's own, at I2C 0x25 on the M5Dial neck controller's Port A: channel 0 tilt, channel 1 pan. Separate from the StamPLC's in the electronics bay. |
 
 **Chest indicator light**
@@ -149,8 +146,8 @@ You will also want either the **goBILDA 3102 dual-mode servo programmer** or an
 
 ## Assembly
 
-*TODO: mount construction, servo horn indexing, Tab5 mounting, ToF aim, cable routing
-and the service loop for the umbilical.*
+*TODO: mount construction, servo horn indexing, tablet mounting, cable routing and the
+service loop for the umbilical.*
 
 ## Verify — done when…
 
@@ -160,4 +157,4 @@ and the service loop for the umbilical.*
 - [ ] Home position looks right by eye on both axes.
 - [ ] Axis directions confirmed — increasing pulse moves the way the code expects.
 - [ ] Pan sweeps its full working range without straining the umbilical.
-- [ ] ToF reports plausible distance; face renders and the touchscreen responds.
+- [ ] The neck answers on the network, and the face shows on the tablet.
