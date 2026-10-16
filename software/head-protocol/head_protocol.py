@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 6                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT (all tablet face only)
+VERSION = 7                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT (all tablet face only); v7 CHEST (neck)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -41,6 +41,7 @@ LEASE = {"gaze": (600, 1000), "track": (600, 1000), "touch": (600, 1000), "park"
          "rc": (600, 600)}
 SLEW_DPS = 70.0
 TOUCH_RATE_MAX_DPS = 45.0
+CHEST_US = (500, 2500)         # v7: the chest light's servo pulse range
 
 # ---- which half answers what (§1) --------------------------------------------------------------
 FACE, NECK, DEVICE, TWIN = "face", "neck", "device", "twin"
@@ -71,6 +72,7 @@ MESSAGES = {
     "PARK":    (NECK, "agreed"),
     "TOF":     (NECK, "shipping"),
     "I2CSCAN": (NECK, "shipping"),
+    "CHEST":   (NECK, "agreed"),        # v7, the chest light on the neck (agreed with Face & HRI, 2026-10-16)
     "REBOOT":  (DEVICE, "shipping"),
     "OTA":     (DEVICE, "shipping"),
 }
@@ -83,7 +85,7 @@ KINDS = {
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
     "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
                     "BRIGHT", "ARMED", "BATT", "REBOOT", "OTA"},
-    "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "TOF", "I2CSCAN", "REBOOT", "OTA"},
+    "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "CHEST", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
 TRACK_LOCAL_REFUSED = {"tab5"}
@@ -146,5 +148,8 @@ REPLY = {
     "armed_err": re.compile(r"^ERR armed "),
     "batt_ok": re.compile(r"^OK batt (-|\d{1,3}) [01]$"),
     "batt_err": re.compile(r"^ERR batt "),
+    "chest_ok": re.compile(r"^OK chest \d{3,4}$"),
+    "chest_off": re.compile(r"^OK chest off$"),
+    "chest_err": re.compile(r"^ERR chest "),
     "unknown":   re.compile(r"^ERR unknown$"),
 }

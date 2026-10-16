@@ -7,7 +7,8 @@ READ-ONLY BY DEFAULT, and safe on a robot: PING, NECK, TOF, I2CSCAN, the retired
 malformed or unknown-name forms of the rest. Nothing it sends changes the face or moves the head.
 
   --active        also STATE, EMOTE, THEME, CUE (changes what the face shows; the state found
-                  first is put back) and TOUCH HOLD (takes the head without moving it)
+                  first is put back), CHEST (the chest light; the dashboard restores it) and
+                  TOUCH HOLD (takes the head without moving it)
   --motion        also GAZE, TRACK, TOUCH RATE and PARK: short leases near centre, then the
                   SAMPLED checks — the head's angle read every 100 ms while a lease is renewed and
                   after it expires: it gets there, at its slew rate, and stays put. MOVES THE HEAD.
@@ -142,6 +143,8 @@ class Run:
                     lambda r: bool(hp.REPLY["touch_err"].match(r)))
         self.expect(N, "PARK <malformed>", "PARK NOPE", "PARK",
                     lambda r: bool(hp.REPLY["park_err"].match(r)))
+        self.expect(N, "CHEST <out of range>", "CHEST 3000", "CHEST",
+                    lambda r: bool(hp.REPLY["chest_err"].match(r)))
         self.expect(N, "NECK", "NECK", "NECK", self._neck_ok)
         self.expect(N, "TOF", "TOF", "TOF", lambda r: bool(r) and not r.startswith("ERR unknown"))
         self.expect(N, "I2CSCAN", "I2CSCAN", "I2CSCAN", lambda r: bool(r) and not r.startswith("ERR unknown"))
@@ -211,6 +214,9 @@ class Run:
         if back in hp.STATES:
             self.ask(F, f"STATE {back}")
             self.note(PASS, F, f"STATE put back to {back}")
+        # v7: the chest light. The dashboard puts its own colour back within 5 s.
+        self.expect(N, "CHEST 1500", "CHEST 1500", "CHEST", lambda r: r == "OK chest 1500")
+        self.expect(N, "CHEST OFF", "CHEST OFF", "CHEST", lambda r: bool(hp.REPLY["chest_off"].match(r)))
         self.expect(N, "TOUCH HOLD 300", "TOUCH HOLD 300", "TOUCH",
                     lambda r: bool(hp.REPLY["touch_hold"].match(r)))
         self.expect(N, "TOUCH OFF", "TOUCH OFF", "TOUCH", lambda r: bool(hp.REPLY["touch_off"].match(r)))

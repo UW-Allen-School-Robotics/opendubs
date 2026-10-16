@@ -4,6 +4,7 @@ dashboard:
 
   - goBILDA PRISM: a solid color via the StamPLC's I2C LED_COLOR command (ch0).
   - Tab5 face:     a "STATE <NAME>" line, over UDP to the Tab5 and over its USB CDC serial.
+  - chest light:   the PRISM's colour as a servo pulse, "CHEST <us>", to the NECK (a separate neck only).
 
 The Tab5 has been wireless since the ESP-Hosted work, and the serial glob has been matching
 nothing ever since — so the face has had no state feed at all and simply showed whatever it
@@ -360,6 +361,104 @@ def _push_batt(status_mod, now: float) -> None:
         _tab5_write(line)
 
 
+# ---- the chest light (head protocol v7: CHEST <us> | CHEST OFF, a NECK message) ----------------------
+# A goBILDA RGB Indicator Light behind the chest plate, on the neck's 8Servo. A servo pulse
+# (500–2500 µs) sets its HUE; nothing sets its brightness. It shows what the PRISM shows: the same
+# winning colour (_prism_target: the state's, charging purple, or a show's lease over it), as the
+# pulse whose hue is nearest on the light's chart. It cannot dim, so charging is SOLID purple there.
+#
+# The chart is goBILDA's published one (Product Insight #4), not yet checked on the fitted light:
+# below 1100 off; 1100 red, 1200 orange, 1300 yellow, 1400 sage, 1500 green, 1600 azure, 1700 blue,
+# 1800 indigo, 1900 violet, a smooth gradient between; above 1900 white. The hues of the named points
+# are a reading of those names, which is where a correction from the fitted light would go.
+CHEST_HUES = ((1100, 0), (1200, 30), (1300, 60), (1400, 90), (1500, 120),
+              (1600, 210), (1700, 240), (1800, 265), (1900, 285))      # (pulse µs, hue °)
+# Coloured pulses stay inside this: red sits one step above OFF and violet one below white, and an
+# E_STOP that rounds down to a dark chest would read as "powered down", not "emergency stop".
+CHEST_LIT_US = (1130, 1880)
+CHEST_WHITE_US = 2500
+CHEST_WHITE_SAT = 0.25        # a colour paler than this has no hue to show: white (INIT, MANUAL)
+CHEST_OFF_BRIGHT = 5          # a colour this dim (0–100), or black, is CHEST OFF: a show's blackout
+_CHEST_REFRESH_S = 5.0        # the neck holds the last value in RAM: a rebooted neck has it back within this
+_chest_line = None
+_chest_at = 0.0
+_chest_addr = None
+_neck_q: "queue.Queue[str]" = queue.Queue(maxsize=8)
+_neck_sock = None
+
+
+def chest_line(colour):
+    """`CHEST <us>` for a PRISM colour ((r, g, b), brightness), `CHEST OFF`, or None for no colour."""
+    import colorsys
+    if colour is None:
+        return None
+    (r, g, b), bright = colour
+    if bright < CHEST_OFF_BRIGHT or max(r, g, b) == 0:
+        return "CHEST OFF"
+    h, sat, _ = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    if sat < CHEST_WHITE_SAT:
+        return f"CHEST {CHEST_WHITE_US}"
+    hue = h * 360
+    top = CHEST_HUES[-1][1]
+    if hue > top:                           # magenta: the light has none, so the nearer end
+        hue = 0 if hue >= (top + 360) / 2 else top
+    us = CHEST_HUES[-1][0]
+    for (u0, h0), (u1, h1) in zip(CHEST_HUES, CHEST_HUES[1:]):
+        if hue <= h1:
+            us = u0 + (u1 - u0) * (hue - h0) / (h1 - h0)
+            break
+    lo, hi = CHEST_LIT_US
+    return f"CHEST {int(round(min(max(us, lo), hi)))}"
+
+
+def _neck_write(line: str) -> None:
+    """Queue a line for the NECK; never blocks. A full queue drops its oldest line, which is stale."""
+    try:
+        _neck_q.put_nowait(line)
+    except queue.Full:
+        try:
+            _neck_q.get_nowait()
+            _neck_q.put_nowait(line)
+        except (queue.Empty, queue.Full):
+            pass
+
+
+def _neck_tx() -> None:
+    """The only thread that sends the neck a line, so an absent neck (a 5 s lookup) holds up nothing
+    else. Best effort and silent, like the face's: the chest light is an indicator."""
+    global _neck_sock
+    import socket
+    while True:
+        try:
+            line = _neck_q.get(timeout=1.0)
+            addr = _neck.resolve()
+            if addr is None:
+                continue
+            if _neck_sock is None:
+                _neck_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            _neck_sock.sendto((line + "\n").encode(), (addr, _TAB5_UDP_PORT))
+        except queue.Empty:
+            pass
+        except Exception:
+            time.sleep(0.2)
+
+
+def _push_chest(colour, now: float) -> None:
+    """On a change of the mapped pulse, when the neck (re)appears, and every _CHEST_REFRESH_S.
+    Nothing at all with no separate neck: none fitted, or the Tab5, which is both halves and has no
+    chest light."""
+    global _chest_line, _chest_at, _chest_addr
+    if _neck is None or _neck is _face:
+        return
+    line = chest_line(colour)
+    if line is None:
+        return
+    addr = _neck.addr                       # the cached answer only: this loop never waits on a lookup
+    if line != _chest_line or addr != _chest_addr or now - _chest_at >= _CHEST_REFRESH_S:
+        _chest_line, _chest_at, _chest_addr = line, now, addr
+        _neck_write(line)
+
+
 _neck_seen = None                       # what the log last said: an address, False (absent), or None
 
 
@@ -440,6 +539,7 @@ def _loop() -> None:
                 if want is not None and want != prev_led:
                     _push_prism_colour(want)
                     prev_led = want
+                _push_chest(want, now)       # the chest light shows the same colour, on the neck
                 if rs != prev:
                     _push_tab5(rs)
                     prev = rs
@@ -469,5 +569,7 @@ def start() -> None:
     threading.Thread(target=_tab5_sender, name="tab5_tx", daemon=True).start()
     # The neck's introduction: its own thread, so a neck that cannot be found never delays the face.
     threading.Thread(target=_neck_sender, name="neck_intro", daemon=True).start()
+    if _neck is not None and _neck is not _face:   # the chest light's line: a separate neck only
+        threading.Thread(target=_neck_tx, name="neck_tx", daemon=True).start()
     # No receive side. The Arduino head sent its lift buttons here on UDP 5006; the ESP-IDF head
     # sends `MAST CMD` straight to the StamPLC (head-protocol.md §7), so nothing listens on 5006.
