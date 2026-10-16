@@ -128,6 +128,17 @@ keep working. The sensor driver itself is not yet written.
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The neck's own, at I2C 0x25 on the M5Dial neck controller's Port A: channel 0 tilt, channel 1 pan. Separate from the StamPLC's in the electronics bay. |
+
+**Chest indicator light**
+
+| Part | SKU | Qty | Notes |
+|---|---|---:|---|
+| [goBILDA RGB Indicator Light (PWM Controlled)](https://www.servocity.com/rgb-indicator-light-pwm-controlled/) | `3118-0808-0002` | 1 | Lights the chest badge from behind in the robot's state colour; the PWM pulse width sets the colour. Fixed with M4 screws through its own holes. |
+| 3D-printed chest plate set (face, gear, diffuser, centre mask, light box) | — | 1 | About 59 g of PLA in black, purple, gold, transparent and white; files and print settings in hardware/chest-plate/. |
+| M4 x 20 mm socket-head cap screw (ISO 4762) | — | 4 | Through the light box floor and the light into the inserts; snug only. Socket heads, not button heads: the light's cover leaves exactly 7 mm for a head. |
+| M4 heat-set insert | — | 4 | In the chest piece; about 5.6 mm hole x 8.1 mm long. Check yours against the CAD parameters. |
+| 6 x 2 mm disc magnet (N52 or similar) | — | 8 | Four pairs, poles attracting: they hold the face on, so it lifts off to reach the screws. |
+| CA glue | — | 1 | Fixes the magnets and the gear, and tacks the diffuser to the face. |
 <!-- /BOM-AUTO:build:pan-tilt-hmi -->
 
 ## Tools
