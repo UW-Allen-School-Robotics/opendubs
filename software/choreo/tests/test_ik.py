@@ -95,8 +95,10 @@ else:
     up = os.path.join(tmp, "up.yaml")
     with open(up, "w") as fh:
         fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
-                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.2, 1.66] }\n'
-                 '  - { t: 4.0, slot: ARM_R, reach: [0.45, -0.2, 1.65] }\n')
+                 # out to the sides (y +-0.25): with the tablet head (2026-10-16) +-0.2 meets its
+                 # clearance before the box, and this check is about the box
+                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.66] }\n'
+                 '  - { t: 4.0, slot: ARM_R, reach: [0.45, -0.25, 1.65] }\n')
     p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
     tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
     sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
