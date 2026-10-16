@@ -35,6 +35,13 @@ hardware:
     # onto it (a contact latches an error flag); the twin's poses that do are listed in closes_onto_thumb
     dance_thumb_deg: {T: 10, X: 0}
     presets_avoid: "AT+SPP=1 (power) and AT+SPP=2 (chuck) latch error flags on every joint in an empty hand"
+  # The first bench run of a show sequence (2026-10-16; the user: "read well ... the biggest note here is
+  # that with this gait the hand moves fast"):
+  #  * finger taps and ripples ON THE FLOOR may creep the hand forward (a loaded fingertip that flexes pulls,
+  #    like a small gait stroke): hard to see, unmeasured. The validator still treats a dance as standing
+  #    still. To stay in place, untested ideas: smaller flex, taps higher in the range, alternate sides;
+  #  * the bare gait is FAST for real (~10-13 cm/s): budget floor per walk second. To slow it, lower freq
+  #    or shorten the stroke (hi, trims). Untested; the sim speed is 3-4x low and no guide.
   # THE FIRST GAIT THAT WORKS ON THE REAL HAND (2026-10-16, the user: "that works awesome"): bare hand,
   # nothing under the wrist, OPEN LOOP. Sent as AT+SJA degrees = the gait model's radians, UNSCALED, all 6
   # joints at 20 Hz with AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge
