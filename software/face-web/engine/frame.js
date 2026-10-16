@@ -56,7 +56,6 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     : charge ? charge
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
-  if (panel) drawCaption(ctx, words, { fault: face.reserved() });
   // THE TRACKER'S RETICLE (Face & HRI's skins/reticle.js), when the Head & face page turns it on: FIRST
   // of the overlays, under the charge gauge, ARMED and the camera sign. Its centre is the face's own
   // target, the value that drives the eyes (clamped as the eyes clamp it), NOT the detector's box: a
@@ -70,6 +69,10 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
       drawReticle(ctx, { x: DESIGN_W / 2 + c(t.x) * DESIGN_W / 2, y: DESIGN_H / 2 + c(t.y) * DESIGN_H / 2, kind: t.kind || "face" }, now / 1000);
     }
   }
+  // The words' panel, AFTER the reticle: a robot looking down puts the reticle's lower edge on the caption
+  // band, and the words are for someone already struggling to read the face (Face & HRI). It overlaps
+  // none of the gauge, ARMED's frame or the camera sign, which follow.
+  if (panel) drawCaption(ctx, words, { fault: face.reserved() });
   // The charge gauge round the edge (the outermost 8 px), FIRST of the overlays, under ARMED's frame
   // (which starts at 10 px) and the camera sign.
   if (drawCharge && typeof face.chargeState === "function") drawCharge(ctx, face.chargeState(now), now / 1000);

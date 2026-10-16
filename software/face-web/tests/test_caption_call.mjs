@@ -21,19 +21,23 @@ check("OFF clears it", say("CAPTION OFF", 4000) === "OK caption off" && captionN
 check("empty is refused", say("CAPTION", 5000).startsWith("ERR caption"), say("CAPTION", 5000));
 
 const ctx = new Proxy({}, { get: (_, k) => (k === "measureText" ? () => ({ width: 1 }) : () => {}), set: () => true });
-function run({ words = "Ready", reserved = false, panel = true, armed = null } = {}) {
+function run({ words = "Ready", reserved = false, panel = true, armed = null, target = null } = {}) {
   const drawn = [], texts = [];
   const c = new Proxy(ctx, { get: (t, k) => (k === "fillText" ? (s) => texts.push(s) : t[k]), set: () => true });
   const face = { reserved: () => reserved, eyes: () => [], armedState: () => armed, quoteText: () => "a quote",
-                 chargeText: () => "On charge", chargeState: () => ({}), target: null };
+                 chargeText: () => "On charge", chargeState: () => ({}), target };
   const skins = { current: { draw: () => true }, library: new Map(), chosen: "default" };
-  drawFace(c, 1280, 720, 1000, { face, skins, words,
-    drawCaption: panel ? (_, w, o) => drawn.push([w, o.fault]) : null, drawArmed: () => {} });
-  return { drawn, texts };
+  const order = [];
+  drawFace(c, 1280, 720, 1000, { face, skins, words, drawReticle: () => order.push("reticle"),
+    drawCaption: panel ? (_, w, o) => { drawn.push([w, o.fault]); order.push("caption"); } : null,
+    drawArmed: () => order.push("armed") });
+  return { drawn, texts, order };
 }
 let r = run();
 check("the words are drawn by the caption panel", r.drawn.length === 1 && r.drawn[0][0] === "Ready" && r.drawn[0][1] === false, JSON.stringify(r.drawn));
 check("  and win over the quote and the charge line", !r.texts.includes("a quote") && !r.texts.includes("On charge"), r.texts.join("|"));
+const looking = run({ armed: "wait", target: { x: 0, y: 0.9, at: 950, kind: "person" } }).order.join();
+check("over the reticle, under ARMED", looking === "reticle,caption,armed", looking);
 check("in a fault, the louder tier", run({ words: "Emergency stop", reserved: true }).drawn[0][1] === true, "quiet");
 check("with ARMED up, still said", run({ armed: "wait" }).drawn.length === 1, "hidden");
 r = run({ panel: false });
