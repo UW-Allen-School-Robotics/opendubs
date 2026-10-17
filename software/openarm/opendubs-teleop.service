@@ -9,8 +9,9 @@
 Description=OpenDubs WebXR arm teleop bridge
 # The arms must already be up: this does not start the stack, and it hard-fails within ~30 s if
 # the gripper action servers are absent. `openarm-up activate` is the prerequisite, by hand.
-After=network-online.target docker.service
-Wants=network-online.target
+# network.target, not network-online.target: the bridge serves the robot's LAN and talks to the
+# stack over loopback, so it must not wait at boot for a Wi-Fi uplink that may never come.
+After=network.target docker.service
 
 [Service]
 Type=simple
