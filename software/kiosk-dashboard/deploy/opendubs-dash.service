@@ -1,7 +1,8 @@
 [Unit]
 Description=OpenDubs Kiosk Dashboard backend (FastAPI)
-After=network-online.target
-Wants=network-online.target
+# network.target, not network-online.target: it needs only a LAN address, and on a network with no
+# internet "online" can wait or never come. A start before the address exists fails and restarts.
+After=network.target
 
 [Service]
 Type=simple
