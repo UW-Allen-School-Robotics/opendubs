@@ -1,6 +1,9 @@
 [Unit]
 Description=OpenDubs show runner — the routine palette behind the Shows page (drives the arms and the twins)
-After=network-online.target opendubs-dash.service
+# network.target, not network-online: the runner needs only this machine (the dashboard on localhost)
+# and the robot's own LAN (the arms over DDS), never the internet, and must start with no uplink
+# (offline readiness, 2026-10-17)
+After=network.target opendubs-dash.service
 Wants=opendubs-dash.service
 
 [Service]
