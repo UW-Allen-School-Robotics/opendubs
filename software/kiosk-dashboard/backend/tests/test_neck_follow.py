@@ -215,3 +215,23 @@ def test_a_held_sighting_repeats_one_target_and_never_accumulates(monkeypatch):
         nf.step(CFG)
     gazes = {s for s in sent if s.startswith("GAZE")}
     assert gazes == {"GAZE 103.8 90.0 600"}, gazes
+
+
+def test_an_absent_neck_is_not_looked_up_every_update_but_is_found_again(monkeypatch):
+    """Offline readiness: an absent neck's mDNS lookup takes ~5 s; at 10 Hz it starved the loop. And a
+    neck that comes back (or moves address) must be found again without a restart."""
+    calls, answer, clock = [], {"addr": None}, {"t": 100.0}
+
+    def lookup(host):
+        calls.append(host)
+        if answer["addr"] is None:
+            raise OSError("not found")
+        return answer["addr"]
+    monkeypatch.setattr(nf.socket, "gethostbyname", lookup)
+    monkeypatch.setattr(nf.time, "monotonic", lambda: clock["t"])
+    nf._resolved.clear()
+    for _ in range(20):
+        assert nf._resolve("opendubs-neck.local") is None
+    assert len(calls) == 1
+    answer["addr"], clock["t"] = "10.42.2.12", clock["t"] + nf._RESOLVE_RETRY_S
+    assert nf._resolve("opendubs-neck.local") == "10.42.2.12" and len(calls) == 2
