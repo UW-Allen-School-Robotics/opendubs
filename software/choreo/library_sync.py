@@ -216,8 +216,14 @@ class Target:
         self.root = host[len("local:"):] if self.local and root == REMOTE_ROOT else root
         self.python = sys.executable if self.local and python == REMOTE_PYTHON else python
 
+    # A robot that is off or out of reach must say so quickly, not after the OS's TCP timeout (75 s or more
+    # per call, and a push makes several): give up connecting after SSH_CONNECT_S, and drop a link that
+    # stops answering for ~15 s. show_sync.py goes through here too.
+    SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5",
+                "-o", "ServerAliveCountMax=3"]
+
     def run(self, cmd: str, stdin=None) -> subprocess.CompletedProcess:
-        argv = ["sh", "-c", cmd] if self.local else ["ssh", "-o", "BatchMode=yes", self.host, cmd]
+        argv = ["sh", "-c", cmd] if self.local else ["ssh", *self.SSH_OPTS, self.host, cmd]
         return subprocess.run(argv, input=stdin, capture_output=True)
 
     def tool(self, op: str, *args, stdin=None) -> dict:
