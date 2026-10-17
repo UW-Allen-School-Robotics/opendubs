@@ -13,8 +13,11 @@
 # LGPL libraries; the robot pulls it from Docker Hub by the digest in software/stack/versions.env,
 # which is not distribution. Shipping it would oblige us to supply their source.
 Description=OpenDubs AirPlay-compatible receiver (shairport-sync), audio to the face tablet
-After=network-online.target docker.service avahi-daemon.service
-Wants=network-online.target
+# network.target, not network-online.target: the robot runs with no internet, and waiting for
+# "online" there only delays the start (NetworkManager waits for the site Wi-Fi to fail first).
+# airplay-run.sh waits for the one thing it needs, an IPv4 address on avahi's interface, and
+# exits for a retry until it has one.
+After=network.target docker.service avahi-daemon.service
 Requires=docker.service avahi-daemon.service
 StartLimitIntervalSec=0
 

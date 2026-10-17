@@ -35,7 +35,9 @@ sed "s|@ADDRESS@|$ADDR|" /etc/opendubs/airplay/shairport-sync.conf > "$CONF"
 echo "receiver '$NAME' on $IFACE $ADDR"
 
 docker rm -f opendubs-airplay >/dev/null 2>&1 || true
-exec docker run --rm --name opendubs-airplay \
+# --pull never: the image comes only from provisioning (provision-airplay.sh). At start a missing
+# image is a clear error at once, rather than a registry pull that hangs on DNS with no internet.
+exec docker run --rm --pull never --name opendubs-airplay \
   --net host --cap-add SYS_NICE --security-opt apparmor=unconfined \
   -e ENABLE_AVAHI=0 \
   -v /run/dbus:/run/dbus \
