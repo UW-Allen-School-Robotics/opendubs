@@ -1,7 +1,8 @@
 [Unit]
 Description=OpenDubs StamPLC Ethernet heartbeat (feeds the firmware link watchdog)
-After=network-online.target
-Wants=network-online.target
+# network.target, not network-online.target: it needs only a LAN address, and on a network with no
+# internet "online" can wait or never come. A start before the address exists fails and restarts.
+After=network.target
 
 [Service]
 ExecStart=/usr/bin/python3 /opt/opendubs/kiosk-dashboard/stamplc_hb.py
