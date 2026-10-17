@@ -31,18 +31,18 @@ PERSON_MODEL_URL=https://storage.googleapis.com/mediapipe-models/object_detector
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-( cd "$tmp" && npm pack --silent "@mediapipe/tasks-vision@$MEDIAPIPE" >/dev/null && tar xzf ./*.tgz )
+( cd "$tmp" && npm pack --silent --fetch-timeout=20000 --fetch-retries=1 "@mediapipe/tasks-vision@$MEDIAPIPE" >/dev/null && tar xzf ./*.tgz )
 
 mkdir -p vendor/mediapipe/wasm
 cp "$tmp/package/vision_bundle.mjs" vendor/mediapipe/
 cp "$tmp"/package/wasm/vision_wasm_internal.* vendor/mediapipe/wasm/
 cp "$tmp/package/LICENSE" vendor/mediapipe/ 2>/dev/null || true
-curl -fsSL -o vendor/mediapipe/face_landmarker.task "$MODEL_URL"
+curl -fsSL --connect-timeout 10 --max-time 300 -o vendor/mediapipe/face_landmarker.task "$MODEL_URL"
 # The PERSON detector (engine/track_worker.js): EfficientDet-Lite0, float16, version 1 (pinned, not
 # "latest"). Google's EfficientDet (TensorFlow/AutoML, Apache-2.0), from MediaPipe's model zoo, trained
 # on COCO. MediaPipe's object-detector page states no separate model licence (its text is CC-BY-4.0 and
 # its code samples Apache-2.0), and the file carries none. Not GPL.
-curl -fsSL -o vendor/mediapipe/efficientdet_lite0.tflite "$PERSON_MODEL_URL"
+curl -fsSL --connect-timeout 10 --max-time 300 -o vendor/mediapipe/efficientdet_lite0.tflite "$PERSON_MODEL_URL"
 echo "$MEDIAPIPE" > vendor/mediapipe/VERSION
 du -sh vendor/mediapipe
 if ! check_pins; then

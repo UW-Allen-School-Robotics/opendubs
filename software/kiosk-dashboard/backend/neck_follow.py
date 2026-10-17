@@ -147,11 +147,34 @@ def parse_neck(reply: str):
         return None
 
 
+_RESOLVE_OK_S, _RESOLVE_RETRY_S = 30.0, 10.0
+_resolved: dict = {}                    # host -> (address or None, when it was looked up)
+
+
+def _resolve(host: str):
+    """The neck's address, or None. Looked up by name (mDNS) at most every 30 s while it answers, and
+    not again for 10 s after a failure: a lookup of an absent neck takes ~5 s, and at 10 updates a
+    second that starved the loop. Never needs the internet: .local is answered on the robot's network."""
+    addr, at = _resolved.get(host, (None, float("-inf")))
+    now = time.monotonic()
+    if now - at < (_RESOLVE_OK_S if addr else _RESOLVE_RETRY_S):
+        return addr
+    try:
+        addr = socket.gethostbyname(host)
+    except OSError:
+        addr = None
+    _resolved[host] = (addr, now)
+    return addr
+
+
 def _ask(host: str, line: str, timeout: float = 0.3):
+    addr = _resolve(host)
+    if addr is None:
+        return None
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(timeout)
     try:
-        s.sendto(line.encode(), (socket.gethostbyname(host), NECK_PORT))
+        s.sendto(line.encode(), (addr, NECK_PORT))
         return s.recvfrom(512)[0].decode(errors="replace").strip()
     except OSError:
         return None

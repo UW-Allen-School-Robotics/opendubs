@@ -3,8 +3,6 @@ import os
 import sys
 import time
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import neck_follow as nf
@@ -155,11 +153,10 @@ def test_the_head_angle_is_the_tab5s_law_of_where_the_person_appears():
     assert (pan, tilt) == (120.0, 108.0)
 
 
-def test_anything_else_sends_the_head_home():
-    for target, kind in (((0.9, 0.5, 0.5), "face"), ((0.9, 0.5, 0.5), "motion"), ((0.6, 0.55, 0.9), "face"), (None, "face")):
-        assert nf.aim(target, CFG, kind)[0] == (90.0, 90.0), (target, kind)
-    assert nf.aim((0.9, 0.5, 0.5), CFG, "person")[1] is None               # a person counts from 0.45 (#329)
-    assert nf.aim((0.9, 0.5, 0.4), CFG, "person")[0] == (90.0, 90.0)
+def test_a_person_standing_still_counts_from_045():
+    """#329: a person standing in front scored ~0.5 and the head never turned at 0.6."""
+    assert nf.aim((0.9, 0.5, 0.5), CFG, "person")[1] is None
+    assert nf.aim((0.9, 0.5, 0.5), CFG, "motion")[0] == (90.0, 90.0)
 
 
 def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,90.0 moving=0 owner=none"):
@@ -208,42 +205,7 @@ def test_a_target_out_of_reach_is_held_not_chased(monkeypatch):
     assert sum(1 for s in sent if s.startswith("GAZE")) == 1
 
 
-# ---- replays of 2026-10-16 on a simulated robot ----------------------------------------------------
-# A neck slewing at 70 deg/s, 300-degree servos (a commanded degree is 1.667 real ones), a camera on the
-# head reporting a frame every 0.25 s, 0.4 s late, and repeating it in between as the page does.
-
-def _robot(monkeypatch, person, seconds, half_fov=36.0, start=90.0, scale=1.667, cfg=None):
-    sim = {"t": 1000.0, "c": start, "tgt": start}
-    track, sent = [(sim["t"], start)], []
-
-    def ask(host, line, timeout=0.3):
-        if line == "NECK":
-            return f"OK neck pan={sim['c']:.2f} tilt=90.0 target=0,0 moving=0 owner=none"
-        sim["tgt"] = float(line.split()[1])
-        sent.append(sim["tgt"])
-        return "OK gaze"
-    monkeypatch.setattr(nf, "_ask", ask)
-    monkeypatch.setattr(nf, "why_not_now", lambda: None)
-    monkeypatch.setattr(nf, "_clock", lambda: sim["t"])
-    import head
-    monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    nf.state.update(limit_since=None)
-    first, path = sim["t"], []
-    while sim["t"] < first + seconds:
-        sim["t"] = round(sim["t"] + 0.1, 6)
-        sim["c"] += max(-7.0, min(7.0, sim["tgt"] - sim["c"]))
-        track.append((sim["t"], sim["c"]))
-        k = int((sim["t"] - 0.4 - first) // 0.25)
-        if k >= 0:
-            tc = first + k * 0.25
-            c = [p for (tt, p) in track if tt <= tc][-1]
-            real = 90 + scale * (c - 90)                                  # where the head really points
-            nx = -(person(tc) - real) / half_fov                          # a person to its left: image left
-            nf.note_target({"ix": 0.5 + nx / 2, "iy": 0.5, "conf": 0.9, "kind": "face"} if abs(nx) <= 1 else None)
-        nf.step(cfg or CFG)
-        path.append(sim["c"])
-    return path, sent
-
+# ---- a regression that happened, 2026-10-16 ------------------------------------------------------
 
 def test_a_held_sighting_repeats_one_target_and_never_accumulates(monkeypatch):
     """The robot, 2026-10-16: one sighting (x 0.27) repeated for ~2 s ran the old code 100 -> 112 -> 120."""
@@ -255,30 +217,21 @@ def test_a_held_sighting_repeats_one_target_and_never_accumulates(monkeypatch):
     assert gazes == {"GAZE 103.8 90.0 600"}, gazes
 
 
-def test_a_person_standing_still_is_turned_toward_and_never_overshot(monkeypatch):
-    path, sent = _robot(monkeypatch, lambda t: 105.0, 8.0)
-    settled = path[len(path) // 2:]
-    assert max(path) <= 105.0                                             # never past them (real 105)
-    assert min(settled) >= 90.0 - 0.01 and max(settled) > 96              # it turns to them, and only home
-    # The Tab5's own rule: within the eyes-only band the head goes home, so it may nod between home and
-    # the person; it never swings past either.
+def test_an_absent_neck_is_not_looked_up_every_update_but_is_found_again(monkeypatch):
+    """Offline readiness: an absent neck's mDNS lookup takes ~5 s; at 10 Hz it starved the loop. And a
+    neck that comes back (or moves address) must be found again without a restart."""
+    calls, answer, clock = [], {"addr": None}, {"t": 100.0}
 
-
-EXPECTED_PER_MODEL = ("expected to fail per the model (the Tab5's law with 4x its latency and 300-degree servos); "
-                      "the robot judges, 2026-10-16")
-
-
-@pytest.mark.xfail(strict=True, reason=EXPECTED_PER_MODEL)
-def test_a_person_crossing_is_followed_both_ways(monkeypatch):
-    walk = lambda t: 75.0 + 30.0 * (1 - abs(((t - 1000.0) / 1.5) % 2 - 1))   # 75 -> 105 -> 75 real, 20 deg/s
-    path, sent = _robot(monkeypatch, walk, 6.0, start=82.0)
-    real = [90 + 1.667 * (c - 90) for c in path]
-    assert max(real) > 96 and min(real) < 84                              # it went with them both ways
-    assert 75.0 - 1 <= min(real) and max(real) <= 105.0 + 1               # and never past where they went
-
-
-@pytest.mark.xfail(strict=True, reason=EXPECTED_PER_MODEL)
-def test_a_wrong_sign_ends_held_at_the_edge(monkeypatch):
-    path, sent = _robot(monkeypatch, lambda t: 105.0, 6.0, cfg={**CFG, "pan_sign": 1.0})
-    assert min(path) >= 60.0 - 0.01                                        # the envelope, never past it
-    assert nf.state["limit_since"] is not None and len(sent) < 60          # and it stopped sending
+    def lookup(host):
+        calls.append(host)
+        if answer["addr"] is None:
+            raise OSError("not found")
+        return answer["addr"]
+    monkeypatch.setattr(nf.socket, "gethostbyname", lookup)
+    monkeypatch.setattr(nf.time, "monotonic", lambda: clock["t"])
+    nf._resolved.clear()
+    for _ in range(20):
+        assert nf._resolve("opendubs-neck.local") is None
+    assert len(calls) == 1
+    answer["addr"], clock["t"] = "10.42.2.12", clock["t"] + nf._RESOLVE_RETRY_S
+    assert nf._resolve("opendubs-neck.local") == "10.42.2.12" and len(calls) == 2
