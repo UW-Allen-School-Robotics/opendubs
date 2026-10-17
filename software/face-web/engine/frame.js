@@ -32,8 +32,11 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
   // every robot and every show, so it is drawn by the default eyes in the state's own colour.
   const drawn = face.reserved() ? CODE_SKINS.default : skins.current;
-  let skinDrew = true;
+  let skinDrew = true, eyesOk = true;
   for (const e of face.eyes()) {
+    // Drawable at all: an eye whose geometry is not a finite, visible size draws nothing, and the face
+    // goes black under its overlays (seen on the tablet, 2026-10-17). main.js reloads on it.
+    if (!(Number.isFinite(e.cx) && Number.isFinite(e.cy) && e.w > 1 && e.h > 1)) eyesOk = false;
     // An asset skin still loading (or failed) draws nothing: the default eyes stand in. Never blank.
     if (drawn.draw(ctx, e, now / 1000) === false) { CODE_SKINS.default.draw(ctx, e, now / 1000); skinDrew = false; }
   }
@@ -91,7 +94,7 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = `rgba(0,0,0,${(1 - Math.max(0, bright)).toFixed(4)})`; ctx.fillRect(0, 0, W, H);
   }
-  return { fullFace, armed, camera };
+  return { fullFace, armed, camera, eyesOk };
 }
 
 /** The plain camera indicator, until Face & HRI's skins/camera.js draws its own: a red dot at the

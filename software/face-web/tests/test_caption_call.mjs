@@ -45,5 +45,15 @@ check("without the panel, the words take the line under the eyes", r.texts.inclu
 r = run({ words: null });
 check("no words: the charge line as before", r.drawn.length === 0 && r.texts.includes("On charge"), r.texts.join("|"));
 
+// The blank-face watchdog's input (main.js): true for drawable eyes, false for broken geometry, so a
+// healthy face never reloads and a black one (2026-10-17) does.
+{
+  const skins = { current: { draw: () => true }, library: new Map(), chosen: "default" };
+  const eye = { cx: 400, cy: 300, w: 200, h: 240, radius: 40, lid: 0 };
+  const ok = (e) => drawFace(ctx, 1280, 720, 1000, { face: { reserved: () => false, eyes: () => e, quoteText: () => null }, skins }).eyesOk;
+  check("frame health: drawable eyes are ok", ok([eye, eye]) === true, "not ok");
+  check("  NaN or zero-size eyes are not", ok([{ ...eye, cx: NaN }, eye]) === false && ok([{ ...eye, w: 0 }, eye]) === false, "ok");
+}
+
 console.log(`\n${pass} PASS, ${fail} FAIL`);
 process.exit(fail ? 1 : 0);
