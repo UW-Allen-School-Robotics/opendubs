@@ -48,6 +48,9 @@ try:
     import yaml
 except ImportError:
     sys.exit("needs pyyaml: pip install pyyaml")
+# LibYAML's parser when PyYAML has it: the same documents, several times faster. Every palette listing
+# re-reads every show, and the pure-Python parser made that slower than the dashboard waits for.
+_SHOW_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import library  # noqa: E402  the show library's index (plan 4.6), beside this file
@@ -1792,7 +1795,7 @@ def load_limits(path: str) -> dict:
 
 def load_show(path: str) -> Show:
     with open(path) as fh:
-        doc = yaml.safe_load(fh)
+        doc = yaml.load(fh, Loader=_SHOW_LOADER)
     if not isinstance(doc, dict):
         raise ShowError(f"{path}: not a mapping")
     return Show(doc, path)
@@ -1800,7 +1803,7 @@ def load_show(path: str) -> Show:
 
 def show_from_text(text: str, path: str = "") -> Show:
     """For editors: a show from unsaved text. `path` locates relative files (the audio)."""
-    doc = yaml.safe_load(text)
+    doc = yaml.load(text, Loader=_SHOW_LOADER)
     if not isinstance(doc, dict):
         raise ShowError("not a mapping")
     return Show(doc, path)
