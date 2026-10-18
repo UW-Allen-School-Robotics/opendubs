@@ -112,6 +112,9 @@ window.faceStats = stats;                           // read by a harness through
 
 // ---- the frame --------------------------------------------------------------------------------
 let last = performance.now();
+const health = { drawnAt: performance.now(), eyesOk: true, lost: false };
+canvas.addEventListener("contextlost", () => { health.lost = true; });
+
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   frames.push(now - last); last = now;
@@ -124,8 +127,10 @@ function frame(now) {
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   // AirPlay playing and heard: what it is, in the quote's place.
   const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
-  stats.cameraSign = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
-                                   drawReticle: showReticle ? drawReticle : null, words: captionNow(now), drawCaption }).camera;
+  const drew = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
+                                   drawReticle: showReticle ? drawReticle : null, words: captionNow(now), drawCaption });
+  stats.cameraSign = drew.camera;
+  health.drawnAt = now; health.eyesOk = drew.eyesOk;
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
@@ -258,6 +263,36 @@ function applySettings(s) {
     setTimeout(check, 15000);
   }
   check();
+})();
+
+// ---- a face that has gone blank reloads itself ---------------------------------------------------
+// On 2026-10-17 the tablet's face went BLACK under its overlays (the camera sign still drew) after
+// running for a while, with the page otherwise alive, and a reload is what clears it. Every 2 s: the
+// eyes not drawable, the canvas's context lost, or no frame drawn for 5 s while the page is visible.
+// Three bad checks in a row (6 s) and the page says why to the dashboard (it logs it: the next one
+// names its cause) and reloads, never while a show is armed or running. At most once a minute.
+(function watchFace() {
+  let bad = 0;
+  const why = () => {
+    if (health.lost) return "the canvas context was lost";
+    if (document.visibilityState === "visible" && performance.now() - health.drawnAt > 5000) return "no frame drawn for 5 s";
+    if (!health.eyesOk) return "the eyes are not drawable (geometry not finite, or no size)";
+    return null;
+  };
+  setInterval(async () => {
+    const r = why();
+    bad = r ? bad + 1 : 0;
+    if (bad < 3) return;
+    let showOn = typeof face.armedState === "function" && !!face.armedState(performance.now());
+    try { showOn = showOn || !!(await (await fetch("/api/choreo/palette", { cache: "no-store" })).json()).running; } catch (e) {}
+    if (showOn) return;
+    let last = 0;
+    try { last = +sessionStorage.getItem("face-reloaded-at") || 0; } catch (e) {}
+    if (Date.now() - last < 60000) return;
+    try { sessionStorage.setItem("face-reloaded-at", String(Date.now())); } catch (e) {}
+    try { if (door && door.readyState === WebSocket.OPEN) door.send(JSON.stringify({ face_health: r })); } catch (e) {}
+    setTimeout(() => location.reload(), 200);
+  }, 2000);
 })();
 
 // ---- the body twin's picture (door_dev.py with OPENDUBS_FACE_FRAMES; the robot's door never asks) -

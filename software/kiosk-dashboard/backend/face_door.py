@@ -157,6 +157,9 @@ async def face_ws(socket: WebSocket):
                 msg = json.loads(m["text"])
             except ValueError:
                 continue
+            if "face_health" in msg:                 # the face found itself blank and is reloading (main.js)
+                log.warning("face page reloading itself: %s", str(msg["face_health"])[:200])
+                continue
             if "track_status" in msg:                # what the face's tracker is doing (neck_follow.py)
                 if pages and list(pages)[-1] is socket:
                     import neck_follow
