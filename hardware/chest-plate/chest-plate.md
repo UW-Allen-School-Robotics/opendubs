@@ -138,8 +138,8 @@ plus transparent PLA.
 `P` dict. Frame: X right as you face the chest, Y up, Z out of the chest; the origin is the centre of the
 flat area, on the chest piece's front face.
 
-    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --light <3118-0808-0002.step> --out cad/out
-    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --out cad/out          # without the vendor reference body
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --out cad/out          # from the repo alone
+    ~/.venvs/cad/bin/python cad/chest_plate_cad.py --light <3118-0808-0002.step> --out cad/out   # + check against the real light
     ~/.venvs/cad/bin/python cad/chest_plate_cad.py --out cad/out --2d     # logo layers only, seconds
     ~/.venvs/mujoco/bin/python cad/render_check.py --parts cad/out
 
@@ -149,12 +149,16 @@ flat area, on the chest piece's front face.
     1), cropped to the husky and gear with no text. Command: `vectorize.py <crop> --palette
     2e1060,c8a867,e3e3e3,f8d070 --backing ffffff --min-width 3 --epsilon 1.0`. Pixel units, y up, one layer
     per colour. SHA-256 `e721221c…54d2`. The source image itself stays outside git.
-  - **The vendor STEP stays outside git.** It is optional: it's used for the assembly and the interference
-    check against the light. Every dimension the parts take from it is copied into `P` and `LIGHT_COVER`.
+  - **The vendor STEP stays outside git, and it's optional.** With `--light`, the interference check and
+    the render use the real light. Every dimension the parts take from it is copied into `P` and
+    `LIGHT_COVER`.
 - **Outputs** go in `cad/out/` (git-ignored here):
   - one STEP + STL per part, in its print orientation;
   - `parts.json`;
-  - `chest_plate_assembly.step` (~60 MB with the vendor model in it);
+  - `chest_plate_assembly.step`, **~6 MB**. The light appears in it as a light-weight **envelope** built
+    from `P`: the case, the cover's outline tapered 0.5 mm above the floor, and its four holes. The full
+    vendor model is opt-in with `--light-in-assembly`: it adds ~50 MB of B-spline surfaces and was the
+    reason the first assembly (60.7 MB) loaded slowly in Fusion;
   - **`chest_cutout.step`, the body to subtract from the red chest piece in Fusion**;
   - `face_layers.dxf` (the 2D face layers in mm, for the later acrylic version);
   - `logo_check.png` and `assembly.png`.
@@ -193,11 +197,13 @@ All of this is in `chest_cutout.step`.
 | **Face held by 4 pairs of 6 × 2 mm magnets** in the corners: one in a 1.6 mm pocket in the face's back (standing 0.4 proud, which locates it), one 0.4 mm deep in a boss in the box | Front-serviceable without visible fixings. The script checks they stay clear of the windows and the gear. |
 | **M4 socket head cap screws (ISO 4762, head ø7.0)**, not button heads | The light's cover has notches round its holes that leave exactly ø7 for a head. A ø7.6 button head would hit the cover. |
 | The box floor rests on the **light's ears at z 3.5**, not 3.4 | Measured in the STEP; the first pass overlapped 0.1 mm |
+| **Rounded squares, circles and holes are built with true arcs**, not polygons; the logo's outlines are simplified to 0.03 mm | Lighter STEP files that load faster in Fusion. The box went from 2.1 to 0.28 MB (547 → 79 faces), the face from 4.5 to 2.9 MB, the diffuser from 2.4 to 1.35 MB, and the assembly from 60.7 to 6 MB. The volumes agree within 0.1 %. What's left in the face and the diffuser is the logo itself: one flat side face per segment of the trace. |
 
 ### Checks (every run)
 
-- **Interference:** none unintended. Intended: each ø7.0 screw head touches the cover's notch (0.14 mm³),
-  which is the vendor's own clearance for that head.
+- **Interference:** none unintended, both against the vendor model (`--light`) and against the envelope.
+  Intended, with the vendor model: each ø7.0 screw head touches the cover's notch (0.14 mm³), which is the
+  vendor's own clearance for that head.
 - **Glow inside the diffuser:** 0 mm² outside. **Magnets clear of glow and gear:** 0 / 0 mm².
 - **Envelope:** the face is 75.0 × 75.0 mm, the limit. The box and its pocket are 73 / 73.6 mm, so the
   face overlaps the chest's flat area by 0.7 mm all round and hides the pocket's edge.
