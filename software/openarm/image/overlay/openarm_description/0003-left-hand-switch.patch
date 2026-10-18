@@ -1,0 +1,45 @@
+diff --git a/assets/robot/openarm_v1.0/urdf/ros2_control/openarm.bimanual.ros2_control.xacro b/assets/robot/openarm_v1.0/urdf/ros2_control/openarm.bimanual.ros2_control.xacro
+index 999b443..28e25d9 100644
+--- a/assets/robot/openarm_v1.0/urdf/ros2_control/openarm.bimanual.ros2_control.xacro
++++ b/assets/robot/openarm_v1.0/urdf/ros2_control/openarm.bimanual.ros2_control.xacro
+@@ -27,6 +27,13 @@ limitations under the License.
+              right_arm_prefix:=^|right_
+              can_fd:=^|true">
+ 
++    <!-- OpenDubs: the left arm runs without its gripper when OPENARM_LEFT_HAND=false (a per-robot
++         switch in /etc/opendubs/openarm-arms.conf, passed to the launch by openarm-up), for a robot
++         whose left gripper is out of service. The right arm always follows `hand`. -->
++    <xacro:property name="left_hand_env" value="$(optenv OPENARM_LEFT_HAND true)"/>
++    <xacro:property name="left_hand"
++        value="${'true' if (str(hand).lower() == 'true' and str(left_hand_env).lower() != 'false') else 'false'}"/>
++
+     <!-- Left Arm Hardware Interface -->
+     <ros2_control name="openarm_left_hardware_interface" type="system">
+         <hardware>
+@@ -40,7 +47,7 @@ limitations under the License.
+             <plugin>openarm_hardware/OpenArmHW</plugin>
+             <param name="can_interface">${left_can_interface}</param>
+             <param name="arm_prefix">${left_arm_prefix}</param>
+-            <param name="hand">${hand}</param>
++            <param name="hand">${left_hand}</param>
+             <param name="can_fd">${can_fd}</param>
+             <param name="ee_type">${ee_type}</param>
+             <param name="kp1">${control_gains['joint1']['kp']}</param>
+@@ -57,7 +64,7 @@ limitations under the License.
+             <param name="kd5">${control_gains['joint5']['kd']}</param>
+             <param name="kd6">${control_gains['joint6']['kd']}</param>
+             <param name="kd7">${control_gains['joint7']['kd']}</param>
+-            <xacro:if value="${hand}">
++            <xacro:if value="${left_hand}">
+               <param name="kp_hand">${control_gains['hand']['kp']}</param>
+               <param name="kd_hand">${control_gains['hand']['kd']}</param>
+             </xacro:if>
+@@ -92,7 +99,7 @@ limitations under the License.
+       <xacro:configure_joint joint_name="openarm_${left_arm_prefix}joint6" initial_position="0.0"/>
+       <xacro:configure_joint joint_name="openarm_${left_arm_prefix}joint7" initial_position="0.0"/>
+ 
+-      <xacro:if value="${hand}">
++      <xacro:if value="${left_hand}">
+         <xacro:configure_joint joint_name="openarm_${left_arm_prefix}finger_joint1" initial_position="0.0" />
+       </xacro:if>
+     </ros2_control>

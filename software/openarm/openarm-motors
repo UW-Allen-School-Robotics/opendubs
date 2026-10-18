@@ -12,6 +12,8 @@ DISABLE ([0xFF]*7 + 0xFD). It never enables, moves, writes parameters, or sets z
 Protocol from enactic/openarm_can: send ids 1-8 (7 joints + gripper), replies on 0x10+id,
 CAN-FD with bit-rate switch, 8-byte payload.
 """
+import os
+import re
 import socket
 import struct
 import sys
@@ -24,6 +26,27 @@ STATUS = {0x0: "DISABLED", 0x1: "ENABLED", 0x8: "OVERVOLTAGE", 0x9: "UNDERVOLTAG
           0xA: "OVERCURRENT", 0xB: "MOS_OVERHEAT", 0xC: "COIL_OVERHEAT",
           0xD: "COMMUNICATION_LOST", 0xE: "OVERLOAD"}
 P_MAX = 12.5
+ARMS_CONF = os.environ.get("OPENARM_ARMS_CONF", "/etc/opendubs/openarm-arms.conf")
+
+
+def left_hand():
+    """False when this robot runs its left arm without the gripper (OPENARM_LEFT_HAND=false in
+    ARMS_CONF, the file openarm-up reads). Then arm_left's id 8 is left out: not queried, not
+    listed, not counted, so a healthy robot reads missing=0."""
+    v = os.environ.get("OPENARM_LEFT_HAND")
+    try:
+        with open(ARMS_CONF) as fh:
+            for line in fh:
+                m = re.match(r"\s*OPENARM_LEFT_HAND\s*=\s*\"?(\w+)", line)
+                if m:
+                    v = m.group(1)
+    except OSError:
+        pass
+    return (v or "true").lower() != "false"
+
+
+def ids_for(iface):
+    return range(1, 8) if iface == "arm_left" and not left_hand() else range(1, 9)
 
 
 def frame(can_id, data):
@@ -98,10 +121,10 @@ def rows_for():
         try:
             s = open_bus(iface)
         except OSError as e:
-            out += [(iface, mid, None, f"no bus: {e.strerror}") for mid in range(1, 9)]
+            out += [(iface, mid, None, f"no bus: {e.strerror}") for mid in ids_for(iface)]
             continue
         drain(s)
-        for mid in range(1, 9):
+        for mid in ids_for(iface):
             out.append((iface, mid, read(s, mid), None))
         s.close()
     return out
