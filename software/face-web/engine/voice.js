@@ -39,6 +39,10 @@ const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 const WAKE_KEYWORDS = "▁HE Y ▁DU B S :2.0 #0.10 @HEY_DUBS";
 const PRE_ROLL_FRAMES = 75;                         // 1.5 s of 20 ms frames
 const WAKE_QUIET_MS = 1000;                         // no wake this long after a reply has played
+// Push-to-talk clipped both ends of what people say (the Voice lane, 2026-10-19): the word spoken as the
+// finger lands, and the last syllable, since people let go on it. So a press sends the last 300 ms the
+// microphone heard (when it was already open), and a release keeps sending 400 ms before `release`.
+const TALK_PRE_FRAMES = 15, TALK_TAIL_MS = 400;
 
 // Capture: low-pass at 7 kHz BEFORE resampling to 16 kHz (decimating without it folds ESC whine onto
 // the vowels), then 20 ms Int16 frames. From tools/voice-bench/audio_lab.html.
@@ -107,7 +111,7 @@ export function start({ face }) {
     ws.onclose = () => {
       st.ws = null; st.ready = false;
       if (!st.fail) st.fail = "the voice link dropped; reconnecting";
-      release(); closeMic(); stopPlayback();
+      release(); clearTimeout(st.tailTimer); st.pressed = false; closeMic(); stopPlayback();
       setTimeout(connect, BACKOFF_MS[Math.min(st.tries++, BACKOFF_MS.length - 1)]);
     };
   };
@@ -176,10 +180,10 @@ export function start({ face }) {
     st.ws.send(b); st.sentAt = performance.now();
   };
   function onFrame(frame) {
-    if (st.holding && st.pressed) { sendFrame(frame); return; }
+    if (st.pressed) { sendFrame(frame); return; }      // a Talk turn, its 400 ms tail included
     if (st.waking) { sendFrame(frame); return; }
+    st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();   // local only, until a turn
     if (!st.wake) return;
-    st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();
     if (st.kwsReady && !suppressed()) st.kws.postMessage({ frame });   // a copy: the ring buffer keeps its own
   }
   const closeMic = () => {
@@ -201,7 +205,7 @@ export function start({ face }) {
     const line = typeof st.wake.keywords === "string" && st.wake.keywords.includes("@") ? st.wake.keywords : WAKE_KEYWORDS;
     st.kws.postMessage({ keywords: line });
   }
-  const suppressed = () => st.convo !== "idle" || st.holding || st.waking || st.play.size > 0 ||
+  const suppressed = () => st.convo !== "idle" || st.holding || st.pressed || st.waking || st.play.size > 0 ||
                             performance.now() < st.quietUntil || !st.on;
   function onWake() {
     const at = Date.now(), ok = !suppressed() && !!st.ws && st.ws.readyState === WebSocket.OPEN;
@@ -226,19 +230,27 @@ export function start({ face }) {
   // ---- Talk ----------------------------------------------------------------------------------------
   const press = async () => {
     if (talk.disabled || st.holding) return;
+    finishRelease();                                 // a press inside the last turn's tail ends that turn first
     st.holding = true; st.seq = 0; render();
     try { await openMic(); } catch (e) { st.holding = false; st.fail = `the microphone: ${e.message}`; render(); return; }
     if (!st.holding) return;                         // released while the microphone was opening
     send({ type: "press" }); st.pressed = true;
+    const pre = st.buf.slice(-TALK_PRE_FRAMES); st.buf = [];
+    for (const f of pre) sendFrame(f);               // what was said as the finger landed
     touch();
     clearTimeout(st.holdTimer); st.holdTimer = setTimeout(release, st.maxMs);
   };
   function release() {
     clearTimeout(st.holdTimer);
     if (!st.holding) return;
-    st.holding = false;
-    if (st.pressed) { st.pressed = false; send({ type: "release" }); }   // only after a press it saw
-    touch(); render();
+    st.holding = false; render();
+    if (!st.pressed) return;                         // only after a press the service saw
+    clearTimeout(st.tailTimer); st.tailTimer = setTimeout(finishRelease, TALK_TAIL_MS);
+  }
+  function finishRelease() {
+    clearTimeout(st.tailTimer);
+    if (!st.pressed) return;
+    st.pressed = false; send({ type: "release" }); touch(); render();
   }
   // The button keeps its touches: the face's long-press (operator.js) never sees them.
   for (const ev of ["pointerdown", "pointerup", "pointercancel", "pointermove"]) {
