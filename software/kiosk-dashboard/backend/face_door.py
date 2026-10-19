@@ -79,12 +79,32 @@ async def post_wake_hit(request: Request) -> dict:
     return {"ok": True}
 
 
+voice_health: dict = {}
+
+
+@router.post("/api/head/voice_health")
+async def post_voice_health(request: Request) -> dict:
+    """The face page's listening health, every 2 s (engine/voice.js): numbers only, never audio."""
+    try:
+        m = json.loads((await request.body())[:4000] or b"{}")
+    except ValueError:
+        return {"ok": False}
+    if isinstance(m, dict):
+        import time
+        voice_health.clear(); voice_health.update(m, received_age_s=None, _rx=time.time())
+    return {"ok": True}
+
+
 @router.get("/api/head/wake_hits")
 def get_wake_hits() -> dict:
     import time
     hour = time.time() * 1000 - 3600 * 1000
     recent = [h for h in wake_hits if h[0] >= hour]
-    return {"total": len(wake_hits), "accepted": sum(1 for h in wake_hits if h[1]),
+    health = dict(voice_health)
+    if health:
+        health["received_age_s"] = round(time.time() - health.pop("_rx"), 1)
+    return {"listening": health or None,
+            "total": len(wake_hits), "accepted": sum(1 for h in wake_hits if h[1]),
             "last_hour": len(recent), "last_hour_accepted": sum(1 for h in recent if h[1]),
             "recent": [{"at": h[0], "accepted": h[1]} for h in wake_hits[-20:]]}
 
