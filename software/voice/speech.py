@@ -88,6 +88,24 @@ def _need(paths: list[str], what: str) -> None:
                                  f"`python3 software/voice/fetch_models.py --dest {models_dir()}`")
 
 
+HF_CACHE_VARS = ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE")
+TTS_GPU_FRACTION = 0.05     # of the Thor's GPU memory, about 6 GB; Kokoro needs well under 1 GB
+
+
+def point_hf_cache(hub: str) -> None:
+    """Every Hugging Face cache variable at `hub`, offline. Must run before transformers is imported."""
+    for k in HF_CACHE_VARS:
+        os.environ[k] = hub
+    os.environ["HF_HUB_OFFLINE"] = "1"                # never fetch at run time
+
+
+def cap_gpu_memory() -> None:
+    """Keep the voice's GPU use bounded, beside vLLM's own share: PyTorch's caching allocator can
+    otherwise grow over a long session. VOICE_TTS_GPU_FRACTION overrides the default."""
+    import torch
+    torch.cuda.set_per_process_memory_fraction(float(os.environ.get("VOICE_TTS_GPU_FRACTION", TTS_GPU_FRACTION)))
+
+
 def pcm_to_float(pcm: bytes) -> list[float]:
     """s16le PCM -> floats in [-1, 1), as sherpa-onnx takes them."""
     return [x / 32768.0 for x in audio.samples(pcm)]
@@ -163,8 +181,10 @@ class KokoroTTS:
             config, weights = os.path.join(d, "config.json"), os.path.join(d, "kokoro-v1_0.pth")
             g2p = os.path.join(root, "hf", "hub", "models--PeterReid--graphemes_to_phonemes_en_us")
             _need([config, weights, self.voice, g2p], "VOICE_TTS=kokoro")
-            os.environ.setdefault("HF_HUB_CACHE", os.path.join(root, "hf", "hub"))
-            os.environ.setdefault("HF_HUB_OFFLINE", "1")       # never fetch at run time
+            # The pinned weights, and only them: set every cache variable, not a default. A base
+            # image may set TRANSFORMERS_CACHE or HUGGINGFACE_HUB_CACHE (the vLLM base does), and
+            # transformers prefers those over HF_HUB_CACHE; misaki would then miss its fallback model.
+            point_hf_cache(os.path.join(root, "hf", "hub"))
             import no_espeak
             no_espeak.install()
             try:
@@ -173,8 +193,14 @@ class KokoroTTS:
                 raise BackendUnavailable(f"VOICE_TTS=kokoro needs kokoro and misaki "
                                          f"(image/requirements-speech*.txt): {e}") from None
             device = os.environ.get("VOICE_TTS_DEVICE", "cpu")
+            if device.startswith("cuda"):
+                cap_gpu_memory()
             model = KModel(repo_id=self.REPO, config=config, model=weights).to(device).eval()
             pipeline = KPipeline(lang_code=self.lang, repo_id=self.REPO, model=model, device=device)
+            self.pipeline, self.spoken = pipeline, []
+            # The first synthesis is about ten times slower than the rest (kernel set-up, measured
+            # 1.5 s against 0.1 s on the Thor's GPU): pay it now, not on the first visitor's reply.
+            self._synth("Hello.")
         self.pipeline = pipeline
         self.spoken: list[str] = []
 

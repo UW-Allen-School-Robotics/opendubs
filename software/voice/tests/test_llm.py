@@ -258,12 +258,30 @@ class BuildSh(unittest.TestCase):
     def build(self, *args):
         return subprocess.run(["bash", BUILD, *args, "--dry-run"], capture_output=True, text=True)
 
-    def test_a_checkout_is_tagged_by_its_inputs(self):
-        r = self.build()
-        self.assertEqual(r.returncode, 0, r.stderr)
+    def test_a_checkout_is_tagged_by_its_inputs_including_the_base(self):
         import re
-        self.assertRegex(r.stdout, r"-t opendubs-voice:[0-9a-f]{12}-[0-9a-f]{8} ")
-        self.assertRegex(r.stdout, r"BASE_IMAGE=ros:jazzy-ros-base@sha256:[0-9a-f]{64}")
+        r = self.build()                                   # the GPU variant, FROM the vLLM image
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = re.search(r"BASE_IMAGE=(\S+)@sha256:([0-9a-f]{64})", r.stdout)
+        self.assertIn("vllm", m.group(1))
+        self.assertIn("VARIANT=gpu", r.stdout)
+        self.assertIn("TTS_DEVICE=cuda", r.stdout)
+        tag = re.search(r"-t opendubs-voice:([0-9a-f]{12})-([0-9a-f]{8})-([0-9a-f]{8}) ", r.stdout)
+        self.assertIsNotNone(tag, r.stdout)
+        self.assertEqual(tag.group(3), m.group(2)[:8])      # a new base pin means a new tag
+        c = self.build("--cpu")
+        self.assertIn("BASE_IMAGE=ros:jazzy-ros-base@sha256:", c.stdout)
+        self.assertIn("VARIANT=cpu", c.stdout)
+        ctag = re.search(r"-t opendubs-voice:(\S+) ", c.stdout).group(1)
+        self.assertNotEqual(ctag, "-".join(tag.groups()))   # the two variants never share a tag
+
+    def test_run_adds_the_nvidia_runtime_only_for_the_gpu_variant(self):
+        with open(os.path.join(HERE, "..", "image", "run.sh")) as f:
+            src = f.read()
+        self.assertIn('opendubs.voice.variant', src)
+        self.assertIn('[ "$VARIANT" = gpu ] && RUNTIME=(--runtime nvidia)', src)
+        self.assertIn('"${RUNTIME[@]}"', src)
+        self.assertNotIn("/opt/voice/venv/bin/python", src)   # one wrapper path for both variants
 
     def test_a_prepared_context(self):
         with tempfile.TemporaryDirectory() as d:

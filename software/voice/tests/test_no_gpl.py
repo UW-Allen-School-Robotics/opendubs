@@ -98,7 +98,7 @@ class Requirements(unittest.TestCase):
 
     def test_everything_is_pinned(self):
         for name in ("requirements.txt", "requirements-speech.txt", "requirements-speech-nodeps.txt",
-                     "requirements-torch-cpu.txt"):
+                     "requirements-torch-cpu.txt", "requirements-speech-gpu.txt"):
             for ln in self.lines(name):
                 if ln.startswith("--index-url"):
                     continue
@@ -116,7 +116,11 @@ class Requirements(unittest.TestCase):
     def test_the_image_runs_the_guard_last(self):
         with open(os.path.join(IMAGE, "Dockerfile.voice")) as f:
             df = f.read()
-        self.assertIn("--no-deps -r /opt/voice/requirements-speech-nodeps.txt", df)
+        with open(os.path.join(IMAGE, "install-python.sh")) as f:
+            inst = f.read()
+        self.assertIn('--no-deps -r "$R/requirements-speech-nodeps.txt"', inst)
+        self.assertIn("pip uninstall -y docutils pycountry", inst)   # the vLLM base's two flagged packages
+        self.assertIn("install-python.sh", df)
         runs = [ln for ln in df.splitlines() if ln.startswith("RUN ")]
         self.assertIn("check_no_gpl.py", runs[-2] + runs[-1])           # after every install
         self.assertNotRegex(df, r"(COPY|ADD) .*(\.pth|\.onnx|\.safetensors|models/)",
@@ -128,7 +132,7 @@ class Requirements(unittest.TestCase):
         with open(os.path.join(IMAGE, "Dockerfile.voice")) as f:
             df = f.read()
         made = re.search(r"useradd .* (\S+)\n", df).group(1)
-        self.assertEqual(re.search(r"^USER (\S+)$", df, re.M).group(1), made)
+        self.assertEqual(re.findall(r"^USER (\S+)$", df, re.M)[-1], made)   # the last USER is the one that runs
         self.assertNotIn(made, {"root", "voice", "audio", "video", "plugdev", "users", "nogroup"})
 
 

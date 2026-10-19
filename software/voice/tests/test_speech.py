@@ -162,6 +162,22 @@ class Parakeet(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["kw"]["provider"], "cpu")
 
 
+class Cache(unittest.TestCase):
+    def test_every_cache_variable_points_at_the_pinned_weights(self):
+        """The vLLM base sets TRANSFORMERS_CACHE and HUGGINGFACE_HUB_CACHE; a default would leave
+        them, and misaki would miss its fallback model (found on the robot)."""
+        saved = {k: os.environ.get(k) for k in speech.HF_CACHE_VARS + ("HF_HUB_OFFLINE",)}
+        os.environ["TRANSFORMERS_CACHE"] = "/data/models/huggingface"
+        try:
+            speech.point_hf_cache("/models/hf/hub")
+            for k in speech.HF_CACHE_VARS:
+                self.assertEqual(os.environ[k], "/models/hf/hub", k)
+            self.assertEqual(os.environ["HF_HUB_OFFLINE"], "1")
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
 class Choice(unittest.TestCase):
     def test_names(self):
         with self.assertRaises(ValueError):
