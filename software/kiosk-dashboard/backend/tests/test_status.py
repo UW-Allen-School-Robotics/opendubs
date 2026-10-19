@@ -110,7 +110,10 @@ def test_robot_state_wires_required_not_fresh_lift_to_degraded_fault(monkeypatch
     sup.ready = True   # boot grace window already passed — I1's gate lets this fault through
     monkeypatch.setattr(status, "supervisor", sup)
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    # Silent for longer than LIFT_SILENT_S, with the link fresh all that time.
+    t = status.time.monotonic() - 2 * status.LIFT_SILENT_S
+    monkeypatch.setattr(status, "_lift_watch", {"link_since": t, "silent_since": t})
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
@@ -128,7 +131,7 @@ def test_robot_state_boot_grace_suppresses_not_fresh_lift_fault(monkeypatch):
     assert sup.ready is False
     monkeypatch.setattr(status, "supervisor", sup)
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
@@ -138,9 +141,10 @@ def test_robot_state_boot_grace_suppresses_not_fresh_lift_fault(monkeypatch):
 
 
 def test_robot_state_wires_lift_fault_active_to_mast_without_degrading(monkeypatch):
+    monkeypatch.setattr(status, "_lift_watch", {"link_since": None, "silent_since": None})
     monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": True, "height_mm": 100.0, "inhibit": False,
         "motion": "STOP", "fault": "STUCK", "fault_active": True,
     })
@@ -159,9 +163,35 @@ def test_stale_link_does_not_raise_a_lift_fault(monkeypatch):
     snap = _benign_snapshot()
     snap["fresh"] = False                      # the StamPLC link itself is stale
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: snap)
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
     out = status._robot_state()
     assert "lift module not responding" not in out["reason"]
+
+
+def test_a_boot_link_blip_does_not_latch_lift_not_responding():
+    """opendubs2, 2026-10-19: STALE TELEMETRY for 7 s at boot; the link came back before the first
+    [DRIVE] line, the lift read "not fresh" for that moment, and DEGRADED latched with a healthy lift
+    until a hand clear. A blip must not latch; a lift really silent 2 s raises it and clears itself."""
+    import status
+    from supervisor import LIFT_SILENT, Supervisor
+    sup, w = Supervisor(), {"link_since": None, "silent_since": None}
+    sup.ready = True
+
+    def tick(t, link, lift):
+        raw = [LIFT_SILENT] if status.lift_not_responding(link, lift, t, w) else []
+        return sup.step(raw_estop_sources=[], raw_faults=raw, fresh=link, control_ok=True, uptime=100 + t)["faults"]
+
+    for i in range(70):                                   # the link stale for 7 s
+        assert tick(i * 0.1, False, False) == []
+    assert tick(7.0, True, False) == []                   # fresh again, no [DRIVE] yet
+    assert tick(7.15, True, True) == []                   # the first [DRIVE]: the lift is there
+    for i in range(30):
+        assert tick(7.2 + i * 0.1, True, True) == []      # nothing latched
+
+    for i in range(25):                                   # now really silent, the link fresh
+        faults = tick(20 + i * 0.1, True, False)
+    assert faults == [LIFT_SILENT]
+    assert tick(23.0, True, True) == []                   # it answers: cleared by itself

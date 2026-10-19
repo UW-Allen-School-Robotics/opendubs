@@ -18,7 +18,7 @@ import psutil
 import battery_history
 import robot_state
 import stamplc
-from supervisor import supervisor
+from supervisor import LIFT_SILENT, supervisor
 
 _BOOT = time.monotonic()
 
@@ -233,15 +233,16 @@ def _drive():
 REQUIRED_MODULES = {"lift": True}
 
 
-def _lift():
-    """The Z-axis as a module: height, motion, inhibit and its own fault.
+def _lift(s=None):
+    """The Z-axis as a module: height, motion, inhibit and its own fault. `s`: a StamPLC snapshot
+    already taken, so a caller judging link and lift together reads them from the same moment.
 
     `fresh` needs BOTH the StamPLC link and the module's own liveness — the same combination
     `_rc_link()` uses. A stale module is not trusted even if it last reported a fault code,
     which is why `fault_active` is gated on freshness: a cached fault from a module that has
     gone quiet is not evidence of a present fault.
     """
-    s = stamplc.reader.snapshot()
+    s = stamplc.reader.snapshot() if s is None else s
     lift = s.get("lift") or {}
     fresh = bool(s.get("fresh")) and bool(lift.get("live"))
     fault = lift.get("fault")
@@ -337,6 +338,28 @@ def _can_arms():
     return {"left": dict(nc), "right": dict(nc)}
 
 
+# "Lift module not responding" waits LIFT_SILENT_S. The lift's liveness comes only from the [DRIVE] line
+# (every 100 ms), so with the link fresh a silent lift is either a real fault or a transient: the link
+# fresh again before the first [DRIVE] arrives. On 2026-10-19 such a blip at boot (STALE TELEMETRY for
+# 7 s) latched DEGRADED with a healthy lift until someone cleared it by hand. Raised only after the lift
+# has been silent that long while the link has been continuously fresh at least as long.
+LIFT_SILENT_S = 2.0
+_lift_watch = {"link_since": None, "silent_since": None}
+
+
+def lift_not_responding(link_fresh: bool, lift_fresh: bool, now: float, w=None) -> bool:
+    w = _lift_watch if w is None else w
+    if not link_fresh:
+        w["link_since"] = w["silent_since"] = None          # a stale link says nothing about the lift
+        return False
+    w["link_since"] = w["link_since"] if w["link_since"] is not None else now
+    if lift_fresh:
+        w["silent_since"] = None
+        return False
+    w["silent_since"] = w["silent_since"] if w["silent_since"] is not None else now
+    return now - w["silent_since"] >= LIFT_SILENT_S and now - w["link_since"] >= LIFT_SILENT_S
+
+
 def _robot_state():
     """Derive the robot-level FSM (docs/state-machines.md) from live telemetry:
     safety latch, RC authority/deadman, link health, and (non-bench) faults."""
@@ -366,16 +389,16 @@ def _robot_state():
 
     # The Z-axis is NOT independent of the StamPLC: it owns the ToF, the relays and the pinch
     # guard, and reports all three. So a lift fault is a real input to the FSM.
-    lift = _lift()
+    lift = _lift(s)                     # the SAME snapshot as the link below: never two moments
     mast_fault = lift["fault_active"]
     # A required module that has gone quiet degrades the robot — but ONLY when the StamPLC link
     # itself is healthy. If the link is stale the module cannot report by definition, and calling
     # that a lift fault both mis-attributes it and latches DEGRADED every time the StamPLC
     # reboots — which is every OTA flash. Observed on the robot doing exactly that.
     link_fresh = bool(s.get("fresh"))
-    if (REQUIRED_MODULES.get("lift") and link_fresh and not lift["fresh"]
-            and supervisor.ready):
-        raw_faults.append("lift module not responding")
+    if (REQUIRED_MODULES.get("lift") and supervisor.ready
+            and lift_not_responding(link_fresh, lift["fresh"], time.monotonic())):
+        raw_faults.append(LIFT_SILENT)
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.

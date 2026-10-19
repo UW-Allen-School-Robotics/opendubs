@@ -32,6 +32,10 @@ _log = logging.getLogger(__name__)
 
 READY_TIMEOUT_S = 30.0          # no ready-checks within this → TELEMETRY NOT READY fault
 FATAL_FAULTS = {"CONTACTOR WELDED", "PDH hardware"}   # non-clearable from the UI
+# A fault that reports its own recovery clears itself when its condition goes; every other one latches
+# until an operator clears it. The lift answering again is that report (status.py, 2026-10-19).
+LIFT_SILENT = "lift module not responding"
+SELF_CLEARING = {LIFT_SILENT}
 # E-stop sources tracked live rather than latched — see step() for the reasoning.
 LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON"}
 
@@ -137,6 +141,7 @@ class Supervisor:
         for f in raw_faults:
             if f not in self.fault_latched:
                 self.fault_latched.append(f)
+        self.fault_latched = [f for f in self.fault_latched if f not in SELF_CLEARING or f in raw_faults]
         if self._clear_fault_req:
             self._clear_fault_req = False
             if not self.fault_latched:
