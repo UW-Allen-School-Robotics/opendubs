@@ -12,7 +12,8 @@ Entries marked `optional` (the local language models, 8 to 17 GB each) are fetch
 with --only: a robot gets one only once its gates have passed (notes/workplan-voice.md, 1.5).
 
 Everything comes from models.lock.json: each repository at a full commit hash, each file with its
-size and either its SHA-256 (large files) or its git blob id (small files). A file that does not
+size and either its SHA-256 (large files) or its git blob id (small files). An entry with a `base_url`
+instead of a repository (a release asset, such as Silero VAD's) must give a SHA-256 for every file. A file that does not
 match is deleted and the run fails. Nothing is fetched from a branch, so a model cannot change
 underneath a robot. --check verifies what is already there and downloads nothing.
 
@@ -138,7 +139,10 @@ def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False,
             if check_only:
                 raise Mismatch(f"{path}: missing (run fetch_models.py without --check)")
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            url = f"{BASE_URL}/{m['repo']}/resolve/{m['revision']}/{spec['path']}"
+            if m.get("base_url"):        # a release asset elsewhere: pinned by its sha256 alone
+                url = f"{m['base_url']}/{spec['path']}"
+            else:
+                url = f"{BASE_URL}/{m['repo']}/resolve/{m['revision']}/{spec['path']}"
             log(f"fetch {m['name']}: {spec['path']} ({spec['size'] / 1e6:.1f} MB)")
             # A fixed partial-file name, so a run that was interrupted resumes where it stopped.
             part = os.path.join(os.path.dirname(path), f".part-{os.path.basename(path)}")

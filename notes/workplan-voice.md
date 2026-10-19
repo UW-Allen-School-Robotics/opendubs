@@ -55,6 +55,39 @@ The model is still configuration, not code: the service takes its name from `VOI
 `image/run-llm.sh` takes it as an argument with its tool-call parser (`VOICE_LLM_TOOL_PARSER`), so
 the L-3 fallback is a configuration change.
 
+### Brought forward 2026-10-19: the wake word, "hey dubs" (the project team)
+
+Phase 3.1 comes forward, ahead of the Kokoro latency work, and step 1.4 (Silero VAD) becomes
+required for it. Talk stays, as the fallback and for a noisy room. The design, agreed with the
+Tablet lane:
+
+- **Detection on the tablet.** The face page runs sherpa-onnx keyword spotting (its WebAssembly
+  build) on the model `sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01` (Apache-2.0, 3.3 M
+  parameters), with one keyword, `▁HE Y ▁DU B S :1.5 #0.20 @HEY_DUBS`. The page keeps the last
+  1.5 s of mic frames in memory. **No audio leaves the tablet before the keyword fires.**
+- **The wire** (`wire.py`): on a hit the page sends `wake {keyword, pre_roll_ms}`, then the buffered
+  frames, then live frames, all in the uplink format Talk uses. There is no `release`.
+- **The end of the turn is the service's**, by Silero VAD (`vad.py`): it waits up to 4 s for speech
+  to begin after the keyword's tail (0.35 s of grace), then ends the utterance after 0.8 s of
+  silence. Talk's utterance cap still applies.
+- **Verified on the Thor** (`wakeword.py`), at no extra cost: Parakeet transcribes the turn anyway,
+  and the turn goes on only if the transcript begins with "hey dubs". The phrase is stripped before
+  the language model sees the question. Otherwise, or when nothing follows the phrase, the turn
+  ends **silently** with status `not_addressed`: a false wake never makes the robot speak. On the
+  desk a spotter fired on "hey doves"; on the robot Parakeet wrote it "Hey doves." and the check
+  refused it.
+- **Paused while the robot is in a turn**: the page does not listen for the keyword during listen,
+  think and speak, nor for 1.0 s after it sends `played`, so the robot cannot wake itself. The
+  service ignores a `wake` that arrives outside idle. **Off whenever `voice.on` is false**, which
+  includes every show (V-D4).
+- **Indicators** (the team's choice): a hollow white ring while the page is listening locally for
+  the keyword; the red REC dot, as for Talk, only while frames are being sent.
+- **Gate V-7**: a local hit counter on the page, over about an hour of the robot's normal use with
+  show music; fewer than 0.5 accepted false wakes an hour. "Accepted" means the Thor's check passed,
+  so the robot spoke.
+- **The switch**: `OPENDUBS_VOICE_WAKE` (default on); the service's `ready` carries `wake` only when
+  it is on, and the page shows the ring only then.
+
 **How V-O4's "no GPL" is held** (`software/voice/`, see its `NOTICE.md`): kokoro and misaki are
 installed with `--no-deps`, without misaki's `[en]` extra (phonemizer-fork, espeakng-loader);
 misaki is pinned to a commit of its main branch, because the 0.9.4 release has no fallback for
@@ -105,7 +138,7 @@ near the line.
 | **L-3** | bench Thor | perception frame time with an LLM turn beside it | a perception stand-in, with and without L-1's best case at concurrency 1 and 2 | perception p99 ≤ 10 % worse | the light model, or the CPU fallback (note §2.3) | 1.5, 1.12 |
 | **L-4** | bench Thor | Parakeet and Kokoro latency, alone and under L-3's load, CPU first; and Kokoro's pronunciation without espeak-ng | 1, 3 and 8 s clips; a 12-word sentence; a list of awkward words | STT ≤ 200 ms for a 3 s clip; TTS first chunk ≤ 200 ms; awkward words intelligible | the GPU (`build.sh --gpu`); then Riva (plan B). **Not** kokoro-onnx: it requires phonemizer (GPL) | 1.3b, V-O4 |
 | **C-1** | robot's uplink | Claude TTFS and cost per turn from the robot's own network | `tools/voice-bench/claude_bench.py` with the robot's key | first text p90 ≤ 1.2 s | `auto` mode not offered on that robot | 2.1, V-O2 |
-| **V-7** | robot | wake-word CPU cost and false accepts with show music | sherpa-onnx in the face page | < 0.5 false accepts per hour | no wake word | 3.1 only |
+| **V-7** | robot | wake-word CPU cost on the tablet, and accepted false wakes in normal use with show music | the page's local hit counter and the service's `not_addressed` log, over about an hour | < 0.5 accepted false wakes per hour | a higher keyword threshold; then Talk only | 3.1 (brought forward) |
 
 **The phase 1 pass line** (note §3.6): release to first audio **p90 ≤ 1.2 s on the robot**, at
 120 W, with perception running, and perception p99 frame time **no more than 10 % worse**.
@@ -120,7 +153,7 @@ near the line.
 | 1.2 | **The `/ws/voice` relay** in the dashboard: origin guard, frame cap, `VOICE_SERVICE_DOWN` | desk | its tests pass in `dashboard.yml` | merged, #231 |
 | 1.3a | **Parakeet and Kokoro backends, English only, no GPL** (V-O4): `speech.py` on sherpa-onnx and kokoro/misaki, `no_espeak.py`, `check_no_gpl.py` in the build and in CI, pinned packages, pinned weights fetched at provision time, `NOTICE.md` | desk | unit tests with fakes; CI's `speech-deps` job installs the pinned packages as the image does, finds no GPL, and runs Kokoro's English pipeline with no espeak-ng | PR (this change) |
 | 1.3b | **The real weights on the bench Thor**: `fetch_models.py`, then both backends on the CPU first; the GPU image (`build.sh --gpu`) only if L-4 needs it. Check pronunciation without espeak-ng on a set of awkward words (names, numbers, acronyms) | bench Thor | L-4 passes | waits on the bench Thor (TS-3) |
-| 1.4 | **Silero VAD** replaces the energy gate in `audio.py`, tuned on recordings of the robot's own room (motors, ESCs, lift, show music) | desk, then bench Thor | no clip of room noise is sent to STT; no real utterance is rejected, on a recorded set | — |
+| 1.4 | **Silero VAD**, required by the wake word: `vad.py` ends a wake turn on it (sherpa-onnx's `VoiceActivityDetector`, model pinned in `models.lock.json`); then tuned on recordings of the robot's own room (motors, ESCs, lift, show music). Talk turns keep the energy gate in `audio.py` until the tuning is done | desk, then robot | a wake turn ends within 1 s of the visitor stopping; no clip of room noise is sent to STT; no real utterance is rejected, on a recorded set | desk half: PR (this change); tuning waits on recordings |
 | 1.5a | **The local brain, desk half**: Qwen3-30B-A3B (Red Hat AI's 4-bit W4A16 build, 16.7 GB, so it fits the ≤ 24 GiB share) and the 4B fallback pinned in `models.lock.json`; one serving profile (`llm_profile.py`) read by `image/run-llm.sh` and the service; vLLM serving the pinned local copy offline; a readiness check that refuses a server serving another model; a warm-up request at start (one reported first run was about 20× slower than warm, the note §3.4); history kept within the 8k context | desk | its tests pass in CI | PR #267 |
 | 1.5b | **The local brain on the bench Thor**: fetch the weights, `run-llm.sh qwen3-30b-a3b-w4a16`, then gates L-1 and L-3 (or L-3 sends it to `qwen3-4b`) | bench Thor | L-1 and L-3 pass; the memory share is recorded | waits on the image pin (TS-1) and bench time (TS-3) |
 | 1.6 | **Images built and pinned**: `opendubs-voice` and `opendubs-llm` built on the bench Thor, pushed by digest, run from `run.sh` / `run-llm.sh` | bench Thor | both start from pinned digests; `run.sh` refuses a loose `voice.env` | needs the Thor lane (TS-1) |
@@ -147,7 +180,7 @@ near the line.
 
 ## Phase 3 — optional, each its own team decision
 
-- 3.1 Wake word, detected on the tablet (sherpa-onnx) and verified on the Thor (gate V-7).
+- 3.1 ~~Wake word~~ brought forward, 2026-10-19: see "Phase 3.1 — the wake word" below.
 - 3.2 Full-duplex voice barge-in, only if V-2 passes.
 - 3.3 Pipecat for hands-free turn-taking.
 - 3.4 TensorRT Edge-LLM for a shorter TTFS.
@@ -155,6 +188,16 @@ near the line.
 - 3.6 A voice glance (turning the eyes toward the speaker), if V-8 finds two usable microphones.
 
 **Not in this plan:** routines by voice, or any other motion (V-D3).
+
+## Phase 3.1 — the wake word, "hey dubs" (brought forward)
+
+| # | step | where | done when | status |
+|---|---|---|---|---|
+| W.1 | **The service side**: `wake` in `wire.py`, wake turns in `conversation.py`, `vad.py` (1.4's desk half), `wakeword.py`, Silero's weights in `models.lock.json`, `OPENDUBS_VOICE_WAKE` | desk | `tests/test_wake.py` passes in CI | PR (this change) |
+| W.2 | **Silero's weights on the robot**: `fetch_models.py` (its default set now includes `silero-vad`), before the first deploy of W.1, or `run.sh --check` refuses the models directory | robot | `vad/silero_vad.onnx` present and its hash checked | after W.1 merges |
+| W.3 | **The page side** (TL-9 to TL-11): keyword spotting, the pre-roll buffer, `wake`, suppression, the ring | desk (the Tablet lane's) | the Tablet lane's tests | **Tablet lane** |
+| W.4 | **Desk end to end**: a recorded "hey dubs, what is your name?" played into the page answers; "hey doves" stays silent | desk | both, five times each | after W.3 |
+| W.5 | **Gate V-7** on the robot | robot | V-7 passes | after W.4 |
 
 ---
 
@@ -173,6 +216,9 @@ These are written here and sent through the orchestrator. Each owning lane decid
 | **TL-5** | **`CONVO` in the head protocol**, as proposed in the note §6.4: `CONVO LISTEN\|THINK\|SPEAK [lease_ms]` and `CONVO IDLE`, replying `OK convo <state>`. The service sends a 3000 ms lease, renewed every second while not idle, so a dead service relaxes the face within 3 s. It never changes `EMOTE`'s pin or `STATE`, and reserved states keep their look. `PING` adds `convo=` and `mic=`. Add it to `head-protocol.md`, `head_protocol.py`, the conformance suite and `fake_head.py`. Until it ships, the service keeps `CONVO` off and the page learns the state from `/ws/voice` `state` messages. | A new head message is agreed with the Tablet lane before either side ships it (CLAUDE.md) |
 | **TL-6** | **Operator controls** in `operate.js` (phase 2): voice on/off, the "listen" control for staged dialogue, mic state, and the current conversation's transcript (not persisted). | 2.7 |
 | **TL-7** | **The mic grant for an in-app face origin.** If the face moves into the app's assets (`appassets.androidplatform.net`, DT-9), `KioskActivity.kt`'s `onPermissionRequest` must grant `RESOURCE_AUDIO_CAPTURE` to that origin too, or the mic goes silent. | the note §5.7 |
+| **TL-9** | **Keyword spotting in the face page.** sherpa-onnx's WebAssembly KWS, fetched by `fetch-vendor.sh` with its hash, on the model and keyword line above. It runs on the same 16 kHz frames TL-1 makes, only while `ready.wake` is present, `voice.on` is true and the state is idle, and not for 1.0 s after `played`. A ring buffer holds the last 1.5 s of frames. Nothing is sent before a hit. | `wire.py` `wake`; the decision above |
+| **TL-10** | **The wake turn.** On a hit: send `wake {keyword: "hey dubs", pre_roll_ms}`, then the buffered frames (`seq` from 0) and live frames until the service leaves `listen`. No `release`. A turn status `not_addressed` is silent: no sound and no "didn't catch that" look. | `wire.py` |
+| **TL-11** | **The listening ring**: a hollow white ring in the system strip while the page listens locally for the keyword, beside the REC dot (TL-4), which still lights from the track only while frames are sent. Not skinnable, like the REC dot. Also the local hit counter for V-7, readable from the page. | the team's choice of indicators; V-7 |
 | **TL-8** | **Robot time for V-1 to V-6, V-8 and V-9** on the tablet, with a person present for V-2 and V-5. Log `AcousticEchoCanceler.isAvailable()` from the kiosk app for V-4. | Phase 0 |
 
 ### Face & HRI
@@ -209,7 +255,8 @@ These are written here and sent through the orchestrator. Each owning lane decid
 
 | stub | where | replaced by |
 |---|---|---|
-| energy-based speech gate (peak vs floor) | `software/voice/audio.py` | Silero VAD (1.4) |
+| energy-based speech gate (peak vs floor) for Talk turns, and `vad.EnergyVAD` where Silero's weights are missing | `software/voice/audio.py`, `vad.py` | Silero VAD tuned on the room (1.4) |
+| the wake word's timings (4 s, 0.35 s, 0.8 s) are estimates | `vad.py` | tuned at W.4 and V-7 |
 | fake STT and TTS | `speech.py` | the image's default is now Parakeet and Kokoro (1.3a); the fakes stay for tests and desk demos |
 | Kokoro on random stand-in weights in CI | `tests/smoke_speech_deps.py` | the real weights on the bench Thor (1.3b) |
 | British English refused | `speech.py` | pin misaki's `en_gb` fallback in `models.lock.json`, if wanted |

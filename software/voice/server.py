@@ -12,6 +12,7 @@ Configuration, all from the environment (on a robot: /etc/opendubs/voice.env, ro
 
   OPENDUBS_VOICE_PORT     8093
   OPENDUBS_VOICE          1; 0 keeps voice off without stopping the service
+  OPENDUBS_VOICE_WAKE     1; 0 refuses wake turns ("hey dubs"), leaving Talk only
   OPENDUBS_DASHBOARD_URL  http://127.0.0.1:8080   the show interlock and robot_status read it
   OPENDUBS_FACE_DOOR_PORT 4242                    the face door, UDP on loopback
   OPENDUBS_VOICE_CONVO    0; 1 sends CONVO lines to the face (only once the Tablet lane ships it)
@@ -64,7 +65,8 @@ def build(gate: Gate | None = None) -> Voice:
     stt = speech.make_stt(os.environ.get("VOICE_STT", "fake"))
     tts = speech.make_tts(os.environ.get("VOICE_TTS", "fake"))
     brain = brains.make_router()
-    return Voice(stt, tts, brain, FaceDoor(), gate or Gate(), persona())
+    return Voice(stt, tts, brain, FaceDoor(), gate or Gate(), persona(),
+                 wake=os.environ.get("OPENDUBS_VOICE_WAKE", "1") != "0")
 
 
 class _Link:
