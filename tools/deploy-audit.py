@@ -46,6 +46,7 @@ MAP = [
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
     ("software/stack",                          "/opt/opendubs/stack",                          SYNC),
     ("software/face-web",                       "/opt/opendubs/face-web",                       SYNC),  # deploy.sh, /face/
+    ("software/voice",                          "/opt/opendubs/voice",                          SYNC),  # deploy-all.sh; run by stack/voice
     ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
 
