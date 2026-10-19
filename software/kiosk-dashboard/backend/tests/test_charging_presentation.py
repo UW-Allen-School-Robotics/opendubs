@@ -104,3 +104,12 @@ def test_a_face_page_gets_the_charge_as_it_connects(monkeypatch):
         assert "settings" in page.receive_json()
         assert page.receive_json()["line"] == "STATE CHARGING"
         assert page.receive_json()["line"] == "BATT 64 1"
+
+
+def test_a_lost_prism_write_is_written_again():
+    """2026-10-19: a PRISM write lost at boot was never retried, and the strip stayed white (INIT)."""
+    white, green = ((200, 210, 225), 55), ((30, 210, 70), 70)
+    assert so.prism_due(green, white, 100.0, 100.3)                       # a change: at once
+    assert not so.prism_due(white, white, 100.0, 100.3)                   # the same: not every pass
+    assert so.prism_due(white, white, 100.0, 100.0 + so._PRISM_REFRESH_S)  # but again after the refresh
+    assert not so.prism_due(None, white, 0.0, 100.0)

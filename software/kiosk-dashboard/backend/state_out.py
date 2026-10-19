@@ -547,12 +547,25 @@ def _introduce_peers() -> None:
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
 
 
+# The PRISM is re-written this often even when its colour has not changed. A write can be lost (at boot,
+# while the ESCs arm on the shared I2C bus, the StamPLC answered one FAILED), and without a refresh a lost
+# write stayed lost: on 2026-10-19 the strip showed INIT's white through DEGRADED and every RC mode until
+# the next state change. One write per 5 s, against the breath's 2 a second, costs the bus nothing.
+_PRISM_REFRESH_S = 5.0
+
+
+def prism_due(want, prev, prev_at: float, now: float) -> bool:
+    """Whether to write the PRISM now: a new colour, or the same one not written for _PRISM_REFRESH_S."""
+    return want is not None and (want != prev or now - prev_at >= _PRISM_REFRESH_S)
+
+
 def _loop() -> None:
     import status as status_mod
     import stamplc
 
     prev = None
-    prev_led = None                  # the colour last written to the PRISM: written again only on a change
+    prev_led = None                  # the colour last written to the PRISM, and when (prism_due)
+    led_at = 0.0
     last = 0.0
     prev_conn = False
     while True:
@@ -568,13 +581,13 @@ def _loop() -> None:
             rs = present(rsd)
             now = time.monotonic()
             if rs:
-                # PRISM: the winning colour (the state's, or a show's layered over it), written ONLY
-                # when it changes — at most once per pass of this 0.3 s loop. The strip shares the
-                # StamPLC's I2C with the drive ESCs, so nothing writes it faster than this.
+                # PRISM: the winning colour (the state's, or a show's layered over it), written when it
+                # changes and every _PRISM_REFRESH_S — at most once per pass of this 0.3 s loop. The strip
+                # shares the StamPLC's I2C with the drive ESCs, so nothing writes it faster than this.
                 want = _prism_target(rs)
-                if want is not None and want != prev_led:
+                if prism_due(want, prev_led, led_at, now):
                     _push_prism_colour(want)
-                    prev_led = want
+                    prev_led, led_at = want, now
                 _push_chest(want, now)       # the chest light shows the same colour, on the neck
                 pushed = False
                 if rs != prev:
