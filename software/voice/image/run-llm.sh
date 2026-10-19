@@ -28,6 +28,9 @@
 # --dry-run prints the docker command and starts nothing; it skips the weights check, docker and the
 # port check, so it can run on a desk (the tests use it).
 #
+# The container carries labels (opendubs.llm.profile, .share, .image), so a deploy can tell whether
+# the running copy already matches and leave it alone.
+#
 # Listens on 127.0.0.1:8000 only.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -77,6 +80,7 @@ CMD=(docker run -d --name "$NAME"
   -e HF_HUB_OFFLINE=1
   -v "$MODELS/$LLM_DEST:/model:ro"
   --log-opt max-size=10m --log-opt max-file=3
+  --label "opendubs.llm.profile=$PROFILE" --label "opendubs.llm.share=$SHARE" --label "opendubs.llm.image=$IMAGE"
   "$IMAGE"
   vllm serve /model --served-model-name "$LLM_SERVED_NAME" --host 127.0.0.1 --port "$PORT"
     --gpu-memory-utilization "$SHARE" --max-model-len "$LLM_MAX_MODEL_LEN"
@@ -91,13 +95,14 @@ python3 -I "$VOICE/fetch_models.py" --dest "$MODELS" --only "$PROFILE" --check \
   || die "the weights for $PROFILE are missing or do not match models.lock.json. Fetch them with:
   sudo python3 -I $VOICE/fetch_models.py --dest $MODELS --only $PROFILE"
 
-if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$PORT\$"; then
-  die "port $PORT is already in use; not sharing it (set VOICE_LLM_PORT)"
-fi
-
 if docker inspect "$NAME" >/dev/null 2>&1; then
   [ "$REPLACE" = 1 ] || die "a '$NAME' container already exists; pass --replace to remove it"
   docker rm -f "$NAME" >/dev/null
+fi
+
+# After any --replace removal: a port still in use now belongs to something else.
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$PORT\$"; then
+  die "port $PORT is already in use; not sharing it (set VOICE_LLM_PORT)"
 fi
 
 "${CMD[@]}"
