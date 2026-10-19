@@ -57,6 +57,19 @@ CONF_MIN = 0.6           # the Tab5's kHeadConfidence
 CONF_MIN_BY_KIND = {"person": 0.45, "motion": CONF_MIN, "face": CONF_MIN}
 EYE_ONLY = 0.25          # the Tab5's kEyeOnly: an offset this small is the eyes', and the head goes home
 LIMIT_HOLD_S = 2.0
+# A QUIET NECK (the user's call, 2026-10-19: the servos' noise is the main reason voice mishears and the
+# wake word is missed, and the spotter listens exactly while the head tracks). The law above says where
+# to look; this says when and how fast to go there, erring toward a still head over tight tracking:
+#   - HOLD, sending nothing, when the person is near the middle of the picture or not confidently seen;
+#     home (centre) only after nobody has been seen for NOBODY_HOME_S. The Tab5's "go home inside the
+#     band" made the head nod between centre and the person; it no longer does.
+#   - MOVE only when the target is at least MIN_MOVE_PAN / MIN_MOVE_TILT from where the head points.
+#   - then SLOWLY, QUIET_DPS, in small steps at RATE_HZ (the neck's own slew is 70 °/s and GAZE carries no
+#     speed), and stop sending once there: the lease lapses and the neck holds.
+#   - and not at all while voice is listening (someone_talking()).
+QUIET_DPS = 25.0
+MIN_MOVE_PAN, MIN_MOVE_TILT = 6.0, 4.0
+NOBODY_HOME_S = 3.0
 NECK_PORT = 4242
 _clock = time.monotonic
 
@@ -73,12 +86,13 @@ def _f(name: str, default: float, lo: float, hi: float) -> float:
 def config() -> dict:
     sign = lambda v: -1.0 if v < 0 else 1.0                              # noqa: E731
     return {"pan_sign": sign(_f("PAN_SIGN", -1, -1, 1)), "tilt_sign": sign(_f("TILT_SIGN", -1, -1, 1)),
-            "rate": _f("RATE_HZ", 10, 1, 10),
+            "rate": _f("RATE_HZ", 20, 1, 20),
             "pan_range": _f("PAN_RANGE", 30, 0, 30), "tilt_range": _f("TILT_RANGE", 18, 0, 18)}
 
 
 state = {"target": None, "target_at": 0.0, "kind": None, "why": "starting", "neck": None, "neck_at": 0.0,
-         "sent": None, "sent_count": 0, "limit_since": None, "tracker": None, "tracker_at": 0.0}
+         "sent": None, "sent_count": 0, "limit_since": None, "tracker": None, "tracker_at": 0.0,
+         "cmd": None, "moving": False, "nobody_since": None}
 
 
 def note_status(s) -> None:
@@ -248,18 +262,41 @@ def step(cfg: dict):
     if t is not None and _clock() - state["target_at"] > TARGET_FRESH_S:
         t = None
     aimed, why = aim(t, cfg, state.get("kind") or "face")
+    now = _clock()
+    if why is not None and not state["moving"]:
+        if t is not None:                            # not confident, or near the middle: the eyes take it
+            state["nobody_since"] = None
+            return why.split(":")[0] + ": holding still"
+        state["nobody_since"] = state["nobody_since"] or now
+        if now - state["nobody_since"] < NOBODY_HOME_S:
+            return "nobody seen: holding still"
+    elif t is not None:
+        state["nobody_since"] = None
+    # Where the head points: what this last sent, unless someone else (RC, a show) has moved it since.
+    here = (neck["pan"], neck["tilt"])
+    if state["cmd"] is None or neck["owner"] not in ("gaze", "none"):
+        state["cmd"] = here
+    cmd = state["cmd"]
+    if not state["moving"]:
+        if abs(aimed[0] - cmd[0]) < MIN_MOVE_PAN and abs(aimed[1] - cmd[1]) < MIN_MOVE_TILT:
+            return "close enough: holding still"
+        state["moving"] = True
     # Pinned at the envelope's edge: out of reach. Hold (send nothing) after LIMIT_HOLD_S.
     at_limit = ((cfg["pan_range"] > 0 and abs(aimed[0] - CENTRE) >= cfg["pan_range"] - 0.05) or
                 (cfg["tilt_range"] > 0 and abs(aimed[1] - CENTRE) >= cfg["tilt_range"] - 0.05))
-    now = _clock()
     if at_limit:
         state["limit_since"] = state["limit_since"] or now
         if now - state["limit_since"] >= LIMIT_HOLD_S:
+            state["moving"] = False
             return f"holding: the target has been at the envelope's edge for {LIMIT_HOLD_S:.0f} s (out of reach)"
     else:
         state["limit_since"] = None
-    reply = _ask(host, f"GAZE {aimed[0]} {aimed[1]} {LEASE_MS}")
-    state["sent"], state["sent_count"] = {"gaze": aimed, "reply": reply}, state["sent_count"] + 1
+    step_deg = QUIET_DPS / cfg["rate"]
+    nxt = tuple(round(c + max(-step_deg, min(step_deg, a - c)), 2) for c, a in zip(cmd, aimed))
+    reply = _ask(host, f"GAZE {nxt[0]} {nxt[1]} {LEASE_MS}")
+    state["cmd"] = nxt
+    state["moving"] = nxt != tuple(aimed)            # there: stop sending, the neck holds
+    state["sent"], state["sent_count"] = {"gaze": nxt, "reply": reply}, state["sent_count"] + 1
     return why
 
 
