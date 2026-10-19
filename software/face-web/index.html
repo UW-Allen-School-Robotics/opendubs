@@ -33,6 +33,10 @@
   #rec { position: fixed; top: 16px; right: 16px; z-index: 6; width: 18px; height: 18px; border-radius: 50%;
          background: #e0242d; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
   #rec.on { display: block; }
+  /* Listening for the wake word, nothing sent (engine/voice.js): a hollow white ring where REC would be. */
+  #ear { position: fixed; top: 16px; right: 16px; z-index: 6; width: 14px; height: 14px; border-radius: 50%;
+         border: 3px solid #e8eaed; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
+  #ear.on { display: block; }
 </style>
 </head>
 <body>
@@ -44,7 +48,8 @@
   <button id="talk" disabled>Hold to talk</button>
   <div id="talkNote" aria-live="polite"></div>
 </div>
-<div id="rec" title="The microphone is open"></div>
+<div id="rec" title="Audio is being sent to the robot"></div>
+<div id="ear" title="Listening for &quot;hey dubs&quot; on the tablet; nothing is sent"></div>
 <div id="op" role="dialog" aria-label="Operator">
   <button class="stop" id="opStop">STOP SHOW</button>
   <button class="dash" id="opDash">DASHBOARD</button>

@@ -26,7 +26,7 @@ import json
 import logging
 import os
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
 import origin_guard
 
@@ -58,6 +58,35 @@ def face_version(root: str = None) -> str:
                 continue
             h.update(f"{os.path.relpath(path, root)}:{st.st_size}:{st.st_mtime_ns}\n".encode())
     return h.hexdigest()[:12]
+
+
+# Wake-word hits, counted on the tablet (engine/voice.js) and kept here for the operator: when, and whether
+# it was taken to the voice service. Never audio. For gate V-7 (notes/workplan-voice.md): an hour of normal
+# use with nobody saying the phrase, against the service's `not_addressed` count.
+wake_hits: list = []
+
+
+@router.post("/api/head/wake_hit")
+async def post_wake_hit(request: Request) -> dict:
+    try:
+        m = json.loads((await request.body())[:200] or b"{}")
+        at, ok = float(m.get("at")), bool(m.get("accepted"))
+    except (ValueError, TypeError, AttributeError):
+        return {"ok": False}
+    wake_hits.append((at, ok))
+    del wake_hits[:-1000]
+    log.info("wake word heard on the face%s", "" if ok else " (not taken: busy or just spoken)")
+    return {"ok": True}
+
+
+@router.get("/api/head/wake_hits")
+def get_wake_hits() -> dict:
+    import time
+    hour = time.time() * 1000 - 3600 * 1000
+    recent = [h for h in wake_hits if h[0] >= hour]
+    return {"total": len(wake_hits), "accepted": sum(1 for h in wake_hits if h[1]),
+            "last_hour": len(recent), "last_hour_accepted": sum(1 for h in recent if h[1]),
+            "recent": [{"at": h[0], "accepted": h[1]} for h in wake_hits[-20:]]}
 
 
 @router.get("/api/face/version")
