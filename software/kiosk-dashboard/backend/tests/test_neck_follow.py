@@ -13,13 +13,13 @@ STILL = {"pan": 90.0, "tilt": 90.0, "moving": False, "owner": "none"}
 
 
 def test_the_config_is_robot_env_with_safe_bounds(monkeypatch):
-    assert nf.config() == {"pan_sign": -1.0, "tilt_sign": -1.0, "rate": 10.0, "pan_range": 30.0, "tilt_range": 18.0}
+    assert nf.config() == {"pan_sign": -1.0, "tilt_sign": -1.0, "rate": 20.0, "pan_range": 30.0, "tilt_range": 18.0}
     monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_SIGN", "1")
     monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_RATE_HZ", "70")           # out of range: clamped
     monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_PAN_RANGE", "80")         # never past the Tab5's envelope
     monkeypatch.setenv("OPENDUBS_NECK_FOLLOW_TILT_RANGE", "tall")      # nonsense: the default
     c = nf.config()
-    assert c["pan_sign"] == 1.0 and c["rate"] == 10.0 and c["pan_range"] == 30.0 and c["tilt_range"] == 18.0
+    assert c["pan_sign"] == 1.0 and c["rate"] == 20.0 and c["pan_range"] == 30.0 and c["tilt_range"] == 18.0
 
 
 def test_the_necks_status_line_is_read():
@@ -169,7 +169,7 @@ def _sends(monkeypatch, why=None, neck="OK neck pan=90.0 tilt=90.0 target=90.0,9
     monkeypatch.setattr(nf, "why_not_now", lambda: why)
     import head
     monkeypatch.setattr(head, "neck_host", lambda env=None: "neck.local")
-    nf.state.update(limit_since=None)
+    nf.state.update(limit_since=None, cmd=None, moving=False, nobody_since=None)
     return sent
 
 
@@ -177,16 +177,19 @@ def test_one_step_sends_a_leased_gaze(monkeypatch):
     sent = _sends(monkeypatch)
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
     assert nf.step(CFG) is None
-    assert sent == ["NECK", "GAZE 66.0 90.0 600"]
+    assert sent == ["NECK", "GAZE 87.5 90.0 600"]        # toward 66, one quiet step (25 °/s at 10 Hz)
 
 
 def test_no_one_seen_sends_it_home_but_not_allowed_sends_nothing(monkeypatch):
-    sent = _sends(monkeypatch)
+    sent = _sends(monkeypatch, neck="OK neck pan=110.0 tilt=90.0 target=0,0 moving=0 owner=none")
+    clock = {"t": 100.0}
+    monkeypatch.setattr(nf, "_clock", lambda: clock["t"])
     nf.note_target(None)
-    assert nf.step(CFG).startswith("nobody seen") and sent[-1] == "GAZE 90.0 90.0 600"
+    assert nf.step(CFG) == "nobody seen: holding still" and sent == ["NECK"]      # it waits first
+    clock["t"] += nf.NOBODY_HOME_S
+    assert nf.step(CFG).startswith("nobody seen") and sent[-1] == "GAZE 107.5 90.0 600"   # then home, slowly
     nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
-    nf.state["target_at"] = time.monotonic() - 5                          # stale is nobody
-    assert nf.step(CFG).startswith("nobody seen") and sent[-1] == "GAZE 90.0 90.0 600"
+    clock["t"] += 5                                                       # stale is nobody
     sent = _sends(monkeypatch, why="a show is loaded (wave, RUNNING)")
     assert nf.step(CFG) == "a show is loaded (wave, RUNNING)" and sent == []
     sent = _sends(monkeypatch, neck="OK neck pan=90.0 tilt=90.0 target=0,0 moving=0 owner=rc")
@@ -211,10 +214,25 @@ def test_a_held_sighting_repeats_one_target_and_never_accumulates(monkeypatch):
     """The robot, 2026-10-16: one sighting (x 0.27) repeated for ~2 s ran the old code 100 -> 112 -> 120."""
     sent = _sends(monkeypatch, neck="OK neck pan=100.0 tilt=90.0 target=0,0 moving=0 owner=none")
     for _ in range(20):
-        nf.note_target({"ix": 0.27, "iy": 0.5, "conf": 0.68, "kind": "face"})
+        nf.note_target({"ix": 0.1, "iy": 0.5, "conf": 0.68, "kind": "face"})       # the law: pan 114
         nf.step(CFG)
-    gazes = {s for s in sent if s.startswith("GAZE")}
-    assert gazes == {"GAZE 103.8 90.0 600"}, gazes
+    gazes = [float(s.split()[1]) for s in sent if s.startswith("GAZE")]
+    assert gazes == sorted(gazes) and gazes[-1] == 114.0 and len(gazes) <= 6, gazes   # there, then silent
+
+
+def test_a_quiet_neck_sits_still_unless_the_person_really_moves(monkeypatch):
+    """The user's call, 2026-10-19: servo noise is why voice mishears. No nodding home when the person is
+    near the middle, no corrections under the minimum move, and nothing at all once there."""
+    sent = _sends(monkeypatch)
+    for ix in (0.55, 0.45, 0.6):                                         # near the middle: the eyes take it
+        nf.note_target({"ix": ix, "iy": 0.5, "conf": 0.9})
+        assert nf.step(CFG).endswith("holding still")
+    nf.note_target({"ix": 0.5, "iy": 0.5, "conf": 0.3})                  # not confident: hold, don't go home
+    assert nf.step(CFG).endswith("holding still")
+    nf.state["cmd"] = (80.0, 90.0)
+    nf.note_target({"ix": 0.675, "iy": 0.5, "conf": 0.9})                # law: 79.5, half a degree away
+    assert nf.step(CFG) == "close enough: holding still"
+    assert not [s for s in sent if s.startswith("GAZE")]
 
 
 def test_an_absent_neck_is_not_looked_up_every_update_but_is_found_again(monkeypatch):
