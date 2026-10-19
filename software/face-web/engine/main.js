@@ -347,6 +347,8 @@ if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. 
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
 import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
+// Talking to the robot (voice.js): only where there is a robot to talk to, or a desk door that asks for it.
+if (onRobot || q.get("voice") === "1") import("./voice.js").then((m) => m.start({ face })).catch(() => {});
 import("./airplay.js").then((m) => m.start({ onRobot })).catch(() => {});   // AirPlay, live (on the robot)
 if (q.get("track") === "1") tracking = true;
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
