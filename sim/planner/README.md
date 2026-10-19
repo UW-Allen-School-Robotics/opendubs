@@ -72,38 +72,42 @@ if traj:
 
 ---
 
-## 3. How to Plug In Your Own Motion Planner
+## 3. Modular Backend Architecture & cuRobo Support
 
-You can swap out the default CBiRRT backend for your own motion planner (custom RRT, optimization-based, or cuRobo) by implementing the `MotionPlannerBackend` protocol:
+The motion planning stack is built on a modular `MotionPlannerBackend` protocol with a global backend registry (`sim.planner.register_backend`).
+
+### Switching Backends at Runtime:
 
 ```python
-import numpy as np
-from sim.planner import OpenArmPlanner, MotionPlannerBackend
+from sim.planner import OpenArmPlanner, get_available_backends
 
-class MyCustomPlanner(MotionPlannerBackend):
-    def __init__(self, collision_checker):
-        self.collision_checker = collision_checker
+print(get_available_backends())
+# {'cbirrt': {'name': 'cbirrt', 'available': True}, 'curobo': {'name': 'curobo', 'available': False}}
 
-    def plan(self, q_start: np.ndarray, q_goal: np.ndarray, timeout: float = 5.0) -> list[np.ndarray] | None:
-        """Return list of joint waypoints [q0, q1, ..., qN], or None if planning failed."""
-        # 1. Your custom planning algorithm here:
-        waypoints = [q_start, (q_start + q_goal) / 2.0, q_goal]
+# Switch via backend name or instance:
+planner = OpenArmPlanner(arm="left", backend="cbirrt")
 
-        # 2. Check collision validity:
-        for q in waypoints:
-            if not self.collision_checker.is_valid(q):
-                return None
-                
-        return waypoints
-
-# Use your custom planner:
-planner = OpenArmPlanner(arm="left")
-planner.set_backend(MyCustomPlanner(planner.collision_checker))
-
-traj = planner.plan_to_joint_goal(q_start, q_goal)
+# When cuRobo is installed with CUDA:
+# planner.set_backend("curobo")
 ```
 
-See [`example_custom_planner.py`](example_custom_planner.py) for a runnable demonstration.
+Or pass `--backend` in the CLI and Web Studio:
+```bash
+# Run CLI with a specific backend:
+./sim/planner/run_planner.py --arm left --preset reach_forward --backend cbirrt
+
+# Launch Web UI with cuRobo (when installed):
+./sim/planner/ui/server.py --backend curobo
+```
+
+### How cuRobo Integrates:
+1. `sim/planner/curobo_backend.py` implements the `MotionPlannerBackend` protocol.
+2. It auto-detects PyTorch and CUDA availability via `CuRoboBackend.is_available()`.
+3. When cuRobo is installed, it computes collision-free trajectories directly on GPU tensors and returns pre-timed `PlannedTrajectory` objects without needing CPU retiming.
+4. If native Cartesian reach is called, `plan_cartesian` optimizes trajectory and end-effector pose jointly on GPU.
+5. In the Web UI, the **BACKEND** dropdown in the top header dynamically reflects all registered backends and allows switching between them live!
+
+See [`example_custom_planner.py`](example_custom_planner.py) for a runnable demonstration of writing your own planner backend.
 
 ---
 

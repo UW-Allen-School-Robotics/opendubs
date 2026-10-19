@@ -24,8 +24,12 @@ import toppra.constraint as constraint
 import openarm_left_ik
 import openarm_right_ik
 
-from .base import MotionPlannerBackend, PlannedTrajectory
+from .base import MotionPlannerBackend, PlannedTrajectory, create_backend, get_available_backends
 from .cbirrt_backend import CBiRRTBackend
+try:
+    from . import curobo_backend  # Registers cuRobo backend if available
+except Exception:
+    pass
 
 
 class MuJoCoRobotModel:
@@ -130,7 +134,7 @@ class OpenArmPlanner:
         min_clearance_mm: float = 15.0,
         v_max: float = 2.0,      # rad/s joint velocity limit
         a_max: float = 4.0,      # rad/s^2 joint acceleration limit
-        backend: MotionPlannerBackend | None = None,
+        backend: MotionPlannerBackend | str | None = None,
     ):
         if arm not in ("left", "right"):
             raise ValueError(f"Arm must be 'left' or 'right', got {arm!r}")
@@ -156,19 +160,35 @@ class OpenArmPlanner:
         self.ik_module = ik_mod
         self.ik_solver = SSIKWrapper(ik_mod)
 
-        # 4. Set planning backend (default to CBiRRT)
-        if backend is not None:
+        # 4. Set planning backend (defaults to CBiRRT, modular for cuRobo/custom)
+        if isinstance(backend, str):
+            self.backend = create_backend(
+                backend,
+                robot_model=self.robot_model,
+                collision_checker=self.collision_checker,
+                ik_solver=self.ik_solver,
+            )
+        elif backend is not None:
             self.backend = backend
         else:
-            self.backend = CBiRRTBackend(
+            self.backend = create_backend(
+                "cbirrt",
                 robot_model=self.robot_model,
                 collision_checker=self.collision_checker,
                 ik_solver=self.ik_solver,
             )
 
-    def set_backend(self, backend: MotionPlannerBackend) -> None:
-        """Swap the motion planning backend (e.g. your custom planner or cuRobo)."""
-        self.backend = backend
+    def set_backend(self, backend: MotionPlannerBackend | str) -> None:
+        """Swap the motion planning backend (e.g. 'cbirrt', 'curobo', or custom backend instance)."""
+        if isinstance(backend, str):
+            self.backend = create_backend(
+                backend,
+                robot_model=self.robot_model,
+                collision_checker=self.collision_checker,
+                ik_solver=self.ik_solver,
+            )
+        else:
+            self.backend = backend
 
     def solve_ik(self, T_target: np.ndarray, q_seed: np.ndarray | None = None) -> list[np.ndarray]:
         """Solve IK for a 4x4 target in the arm base (link0) frame, sorted nearest to seed."""
@@ -190,14 +210,22 @@ class OpenArmPlanner:
             raise ValueError(f"Goal configuration is in collision: {q_goal}")
 
         t0 = time.perf_counter()
-        raw_path = self.backend.plan(q_start, q_goal, timeout=timeout)
+        raw_result = self.backend.plan(q_start, q_goal, timeout=timeout)
         plan_time = time.perf_counter() - t0
 
-        if raw_path is None or len(raw_path) == 0:
+        if raw_result is None or len(raw_result) == 0:
             return None
 
-        # Retime with TOPP-RA
-        traj = self._retime_path(raw_path, plan_time=plan_time)
+        # If backend already returns a complete PlannedTrajectory (e.g. cuRobo)
+        if isinstance(raw_result, PlannedTrajectory):
+            raw_result.arm = self.arm
+            raw_result.joint_names = self.joint_names
+            if "plan_time_ms" not in raw_result.metadata:
+                raw_result.metadata["plan_time_ms"] = plan_time * 1000.0
+            return raw_result
+
+        # Otherwise retime raw geometric waypoints with TOPP-RA
+        traj = self._retime_path(raw_result, plan_time=plan_time)
         return traj
 
     def plan_to_cartesian_pose(
@@ -206,7 +234,19 @@ class OpenArmPlanner:
         T_target_link0: np.ndarray,
         timeout: float = 5.0,
     ) -> PlannedTrajectory | None:
-        """v0: Plan to a static 4x4 Cartesian target pose expressed in openarm_<side>_link0."""
+        """Plan to a static 4x4 Cartesian target pose expressed in openarm_<side>_link0."""
+        # 1. Native Cartesian trajectory planning if supported by backend (e.g. cuRobo)
+        if hasattr(self.backend, "plan_cartesian") and callable(getattr(self.backend, "plan_cartesian")):
+            try:
+                traj = self.backend.plan_cartesian(q_start, T_target_link0, timeout=timeout)
+                if traj is not None:
+                    traj.arm = self.arm
+                    traj.joint_names = self.joint_names
+                    return traj
+            except Exception as e:
+                print(f"[OpenArmPlanner] Native Cartesian planning failed ({e}), falling back to SSIK IK...")
+
+        # 2. Analytical SSIK IK solving + joint goal planning fallback
         t_ik0 = time.perf_counter()
         candidates = self.solve_ik(T_target_link0, q_seed=q_start)
         t_ik = time.perf_counter() - t_ik0

@@ -1,6 +1,13 @@
 """OpenArm Simulation Motion Planning module."""
-from .base import MotionPlannerBackend, PlannedTrajectory
+from .base import (
+    MotionPlannerBackend,
+    PlannedTrajectory,
+    create_backend,
+    get_available_backends,
+    register_backend,
+)
 from .cbirrt_backend import CBiRRTBackend
+from .curobo_backend import CuRoboBackend
 from .planner import OpenArmPlanner
 
 __all__ = [
@@ -8,4 +15,8 @@ __all__ = [
     "MotionPlannerBackend",
     "PlannedTrajectory",
     "CBiRRTBackend",
+    "CuRoboBackend",
+    "create_backend",
+    "get_available_backends",
+    "register_backend",
 ]

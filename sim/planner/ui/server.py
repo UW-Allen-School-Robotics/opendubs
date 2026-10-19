@@ -31,7 +31,7 @@ for p in (REPO, SIM_DIR, IK_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from sim.planner import OpenArmPlanner
+from sim.planner import OpenArmPlanner, get_available_backends
 import clearance
 import openarm_left_ik
 import openarm_right_ik
@@ -63,16 +63,23 @@ DEFAULT_HALLOWEEN_SEQUENCE = [
 class PlannerService:
     """Manages thread-safe planner instances and kinematics for both arms."""
 
-    def __init__(self):
+    def __init__(self, default_backend: str = "cbirrt"):
         self.lock = threading.Lock()
+        self.active_backend = default_backend
         self._planners = {}
+
+    def set_backend(self, backend: str) -> None:
+        with self.lock:
+            self.active_backend = backend
+            for arm, planner in self._planners.items():
+                planner.set_backend(backend)
 
     def get_planner(self, arm: str) -> OpenArmPlanner:
         if arm not in self._planners:
             with self.lock:
                 if arm not in self._planners:
-                    print(f"[PlannerService] Initializing {arm} arm planner...")
-                    self._planners[arm] = OpenArmPlanner(arm=arm)
+                    print(f"[PlannerService] Initializing {arm} arm planner with {self.active_backend}...")
+                    self._planners[arm] = OpenArmPlanner(arm=arm, backend=self.active_backend)
         return self._planners[arm]
 
     def check_collision(self, arm: str, joints_deg: list[float]) -> dict:
@@ -239,7 +246,13 @@ class StudioHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         url = self.path.split("?")[0]
         if url == "/api/status":
-            return self._send_json({"status": "ready", "arms": ["left", "right"], "version": "1.0"})
+            return self._send_json({
+                "status": "ready",
+                "arms": ["left", "right"],
+                "active_backend": SERVICE.active_backend,
+                "available_backends": get_available_backends(),
+                "version": "1.0",
+            })
         if url == "/api/presets":
             return self._send_json(PRESETS_DEG)
         if url == "/api/keyframes":
@@ -298,6 +311,14 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 json.dump(keyframes, f, indent=2)
             return self._send_json({"success": True, "count": len(keyframes)})
 
+        if url == "/api/backend":
+            new_backend = req.get("backend", "cbirrt")
+            try:
+                SERVICE.set_backend(new_backend)
+                return self._send_json({"success": True, "active_backend": SERVICE.active_backend})
+            except Exception as e:
+                return self._send_json({"success": False, "error": str(e)}, status=400)
+
         if url == "/api/export_show":
             keyframes = req.get("keyframes", [])
             show_yaml = generate_show_yaml(keyframes)
@@ -337,7 +358,10 @@ def main():
     parser = argparse.ArgumentParser(description="OpenArm Motion Planner Studio Web Server")
     parser.add_argument("--port", type=int, default=8092, help="Port to listen on (default: 8092)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
+    parser.add_argument("--backend", default="cbirrt", help="Default motion planning backend (e.g. 'cbirrt', 'curobo') (default: cbirrt)")
     args = parser.parse_args()
+
+    SERVICE.set_backend(args.backend)
 
     # Pre-warm left planner in background so UI starts instantly
     threading.Thread(target=lambda: SERVICE.get_planner("left"), daemon=True).start()

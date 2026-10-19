@@ -36,12 +36,13 @@ def main():
     parser.add_argument("--start", choices=list(PRESETS.keys()), default="zero", help="Start pose preset (default: zero)")
     parser.add_argument("--view", action="store_true", help="Open MuJoCo 3D interactive viewer to watch playback")
     parser.add_argument("--speed", type=float, default=1.0, help="Playback speed multiplier for 3D viewer (default: 1.0)")
+    parser.add_argument("--backend", default="cbirrt", help="Motion planner backend (e.g. 'cbirrt', 'curobo') (default: cbirrt)")
     parser.add_argument("--timeout", type=float, default=5.0, help="Planning timeout in seconds (default: 5.0)")
     args = parser.parse_args()
 
     print(f"=== OpenArm Motion Planning (Sim) ===")
-    print(f"Arm: {args.arm.upper()}")
-    planner = OpenArmPlanner(arm=args.arm)
+    print(f"Arm: {args.arm.upper()} | Backend: {args.backend}")
+    planner = OpenArmPlanner(arm=args.arm, backend=args.backend)
 
     q_start = PRESETS[args.start]
     print(f"Start configuration ({args.start}): {np.round(np.degrees(q_start), 1)} deg")

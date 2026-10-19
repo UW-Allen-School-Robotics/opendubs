@@ -62,12 +62,55 @@ class StudioApp {
 
     this._createJointSliders();
     this._bindEvents();
+    await this._loadBackendStatus();
     await this._loadKeyframes();
     this._syncUIFromState();
     this._checkCollisionAndFK();
 
     // Start render/playback animation loop
     requestAnimationFrame((t) => this._playbackLoop(t));
+  }
+
+  async _loadBackendStatus() {
+    try {
+      const resp = await fetch("/api/status");
+      const data = await resp.json();
+      const selector = document.getElementById("backend-selector");
+      if (!selector) return;
+      selector.innerHTML = "";
+
+      const backends = data.available_backends || {};
+      for (const [key, info] of Object.entries(backends)) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = `${info.name.toUpperCase()} ${info.available ? "" : "(not installed)"}`;
+        opt.disabled = !info.available;
+        opt.selected = key === data.active_backend;
+        selector.appendChild(opt);
+      }
+
+      selector.onchange = async () => {
+        const chosen = selector.value;
+        const res = await fetch("/api/backend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ backend: chosen }),
+        });
+        const resData = await res.json();
+        if (resData.success) {
+          document.getElementById("plan-perf-info").textContent = `Planner: ${chosen.toUpperCase()}`;
+        } else {
+          alert(`Failed to switch backend: ${resData.error}`);
+          this._loadBackendStatus();
+        }
+      };
+
+      if (data.active_backend) {
+        document.getElementById("plan-perf-info").textContent = `Planner: ${data.active_backend.toUpperCase()} + SSIK`;
+      }
+    } catch (err) {
+      console.warn("Failed to load backends:", err);
+    }
   }
 
   _getJointName(idx) {

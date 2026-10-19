@@ -4,11 +4,11 @@ from __future__ import annotations
 import numpy as np
 from sscbirrt import CBiRRT, CBiRRTConfig
 
-from .base import MotionPlannerBackend
+from .base import MotionPlannerBackend, register_backend
 
 
 class CBiRRTBackend(MotionPlannerBackend):
-    """Wraps PRL's sscbirrt CBiRRT planner."""
+    """Wraps Personal Robotics Lab's sscbirrt CBiRRT planner."""
 
     def __init__(
         self,
@@ -25,6 +25,10 @@ class CBiRRTBackend(MotionPlannerBackend):
         self.step_size = step_size
         self.max_iterations = max_iterations
         self.smoothing_iterations = smoothing_iterations
+
+    @property
+    def name(self) -> str:
+        return "cbirrt"
 
     def plan(
         self,
@@ -45,3 +49,12 @@ class CBiRRTBackend(MotionPlannerBackend):
             config=cfg,
         )
         return planner.plan(start=q_start, goal=q_goal)
+
+
+# Auto-register CBiRRT backend
+register_backend(
+    name="cbirrt",
+    factory=CBiRRTBackend,
+    description="PRL CBiRRT sampling-based path planner (CPU)",
+    is_available_fn=lambda: True,
+)
