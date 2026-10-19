@@ -82,9 +82,11 @@ Tablet lane:
   includes every show (V-D4).
 - **Indicators** (the team's choice): a hollow white ring while the page is listening locally for
   the keyword; the red REC dot, as for Talk, only while frames are being sent.
-- **Gate V-7**: a local hit counter on the page, over about an hour of the robot's normal use with
-  show music; fewer than 0.5 accepted false wakes an hour. "Accepted" means the Thor's check passed,
-  so the robot spoke.
+- **Gate V-7**: about an hour of the robot's normal use with show music, in which nobody says the
+  phrase; fewer than 0.5 accepted false wakes an hour. An accepted false wake is a wake turn with
+  status `ok` (the Thor's check passed, so the robot spoke). Also reported: the Thor's catches (wake
+  turns ending `not_addressed`), and the spotter's hits the page suppressed and never sent
+  (`/api/head/wake_hits`: `total` − `accepted`).
 - **The switch**: `OPENDUBS_VOICE_WAKE` (default on); the service's `ready` carries `wake` only when
   it is on, and the page shows the ring only then.
 
