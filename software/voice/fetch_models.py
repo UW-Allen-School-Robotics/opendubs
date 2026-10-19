@@ -30,7 +30,8 @@ import json
 import os
 import shutil
 import sys
-import tempfile
+import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,13 +79,53 @@ def model_dir(dest: str, m: dict) -> str:
     return os.path.join(dest, m["dest"])
 
 
-def http_get(url: str, out_path: str) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "opendubs-fetch-models"})
-    with urllib.request.urlopen(req, timeout=60) as r, open(out_path, "wb") as f:
-        shutil.copyfileobj(r, f, CHUNK)
+RETRIES = 6
+RETRY_WAIT_S = (2, 5, 10, 20, 30, 60)
 
 
-def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False, log=print) -> int:
+def http_get(url: str, out_path: str, offset: int = 0) -> None:
+    """Append the bytes of `url` from `offset` to `out_path`. A connection that ends early is not an
+    error here: fetch() sees the short file and resumes it with a Range request."""
+    headers = {"User-Agent": "opendubs-fetch-models"}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        if offset and r.status != 206:
+            raise OSError(f"server ignored the resume request (HTTP {r.status})")
+        with open(out_path, "ab" if offset else "wb") as f:
+            shutil.copyfileobj(r, f, CHUNK)
+
+
+def download(url: str, part: str, spec: dict, get=http_get, sleep=time.sleep, log=print) -> None:
+    """Download into `part`, resuming after a dropped connection, until it has the pinned size.
+    Large files come from a CDN whose connections can end early (seen on the robot: a 5 GB shard cut
+    at 1.66 GB); each attempt asks for the full URL again, so an expired redirect is renewed."""
+    for attempt in range(RETRIES + 1):
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        if have > spec["size"]:
+            os.unlink(part)                               # longer than pinned: start over
+            have = 0
+        if have == spec["size"]:
+            return
+        try:
+            get(url, part, have)
+        except (urllib.error.URLError, OSError) as e:
+            if attempt == RETRIES:
+                raise Mismatch(f"{part}: download failed after {RETRIES + 1} attempts: {e}") from None
+            log(f"  retrying after: {e}")
+        else:
+            if os.path.getsize(part) == spec["size"]:
+                return
+            if attempt == RETRIES:
+                break
+            log(f"  connection ended at {os.path.getsize(part) / 1e6:.0f} of {spec['size'] / 1e6:.0f} MB; resuming")
+        sleep(RETRY_WAIT_S[min(attempt, len(RETRY_WAIT_S) - 1)])
+    raise Mismatch(f"{part}: {os.path.getsize(part)} bytes after {RETRIES + 1} attempts, expected {spec['size']}")
+
+
+def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False, log=print,
+          sleep=time.sleep) -> int:
     """Download and verify; returns the number of files fetched. Raises Mismatch on any bad file."""
     fetched = 0
     for m in models:
@@ -99,15 +140,16 @@ def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False,
             os.makedirs(os.path.dirname(path), exist_ok=True)
             url = f"{BASE_URL}/{m['repo']}/resolve/{m['revision']}/{spec['path']}"
             log(f"fetch {m['name']}: {spec['path']} ({spec['size'] / 1e6:.1f} MB)")
-            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".part-")
-            os.close(fd)
+            # A fixed partial-file name, so a run that was interrupted resumes where it stopped.
+            part = os.path.join(os.path.dirname(path), f".part-{os.path.basename(path)}")
+            download(url, part, spec, get=get, sleep=sleep, log=log)
             try:
-                get(url, tmp)
-                verify(tmp, spec)
-                os.replace(tmp, path)
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
+                verify(part, spec)
+            except Mismatch:
+                os.unlink(part)                           # never keep, or resume, bytes that do not match
+                raise
+            os.replace(part, path)
+            os.chmod(path, 0o644)       # readable by the voice container's non-root user
             fetched += 1
         if m.get("hf_cache"):
             refs = os.path.join(os.path.dirname(os.path.dirname(root)), "refs")

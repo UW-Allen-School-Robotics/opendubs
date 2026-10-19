@@ -7,6 +7,7 @@ that does not match. A fake downloader; no network.
 import hashlib
 import os
 import re
+import shutil
 import tempfile
 import unittest
 
@@ -54,11 +55,14 @@ class Fetch(unittest.TestCase):
                                              spec_for("sub/small.json", self.files["small.json"], False)]}
         self.urls = []
 
-    def get(self, url, out):
+    def get(self, url, out, offset=0):
         self.urls.append(url)
         name = url.rsplit("/", 1)[1]
-        with open(out, "wb") as f:
-            f.write(self.files["big.bin" if name == "big.bin" else "small.json"])
+        with open(out, "ab" if offset else "wb") as f:
+            f.write(self.files["big.bin" if name == "big.bin" else "small.json"][offset:])
+
+    def fetch(self, models=None, **kw):
+        return fm.fetch(self.dest, models or [self.model], log=lambda *a: None, sleep=lambda s: None, **kw)
 
     def test_fetches_and_verifies_from_the_pinned_revision(self):
         n = fm.fetch(self.dest, [self.model], get=self.get, log=lambda *a: None)
@@ -67,19 +71,57 @@ class Fetch(unittest.TestCase):
                                      f"https://huggingface.co/org/name/resolve/{'a' * 40}/sub/small.json"])
         with open(os.path.join(self.dest, "m", "sub", "small.json"), "rb") as f:
             self.assertEqual(f.read(), self.files["small.json"])
+        for name in ("big.bin", "sub/small.json"):       # readable by the non-root voice container
+            self.assertEqual(os.stat(os.path.join(self.dest, "m", name)).st_mode & 0o777, 0o644)
         self.assertTrue(os.path.exists(os.path.join(self.dest, "NOTICE.md")))   # credits travel with the weights
         # a second run fetches nothing, and --check passes
         self.assertEqual(fm.fetch(self.dest, [self.model], get=self.get, log=lambda *a: None), 0)
         fm.fetch(self.dest, [self.model], check_only=True)
 
     def test_a_tampered_download_is_refused_and_not_kept(self):
-        def bad(url, out):
+        def bad(url, out, offset=0):
             with open(out, "wb") as f:
                 f.write(b"\x02" * 5000)                  # right size, wrong bytes
         with self.assertRaises(fm.Mismatch):
-            fm.fetch(self.dest, [self.model], get=bad, log=lambda *a: None)
+            self.fetch(get=bad)
         left = [f for _, _, fs in os.walk(self.dest) for f in fs]
         self.assertEqual(left, [])
+
+    def test_a_dropped_connection_is_resumed(self):
+        """As seen on the robot: the CDN ended a 5 GB shard's connection at 1.66 GB."""
+        offsets = []
+        data = self.files["big.bin"]
+
+        def flaky(url, out, offset=0):
+            if not url.endswith("big.bin"):
+                return self.get(url, out, offset)
+            offsets.append(offset)
+            end = 2000 if offset == 0 else len(data)       # the first connection ends early
+            with open(out, "ab" if offset else "wb") as f:
+                f.write(data[offset:end])
+        self.assertEqual(self.fetch(get=flaky), 2)
+        self.assertEqual(offsets, [0, 2000])
+        with open(os.path.join(self.dest, "m", "big.bin"), "rb") as f:
+            self.assertEqual(f.read(), data)
+
+    def test_errors_are_retried_then_given_up(self):
+        calls = []
+
+        def down_then_up(url, out, offset=0):
+            calls.append(offset)
+            if len(calls) < 3:
+                raise OSError("connection reset")
+            return self.get(url, out, offset)
+        self.fetch(get=down_then_up)
+        self.assertGreaterEqual(len(calls), 3)
+
+        def always_short(url, out, offset=0):
+            with open(out, "ab") as f:
+                f.write(b"")                              # never makes progress
+        shutil.rmtree(self.dest)
+        os.makedirs(self.dest)
+        with self.assertRaises(fm.Mismatch):
+            self.fetch(get=always_short)
 
     def test_a_tampered_file_on_disk_is_refused(self):
         fm.fetch(self.dest, [self.model], get=self.get, log=lambda *a: None)
