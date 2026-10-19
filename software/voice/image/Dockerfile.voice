@@ -46,8 +46,10 @@ COPY software/voice/image/check_no_gpl.py /opt/voice/check_no_gpl.py
 # The gate: refuse the image if any GPL package, espeak-ng library or espeak-ng data is in it.
 RUN /opt/voice/venv/bin/python -I /opt/voice/check_no_gpl.py
 
-RUN useradd --system --uid 10093 --home-dir /nonexistent --shell /usr/sbin/nologin voice
-USER voice
+# Not "voice": Ubuntu already has a system group of that name (gid 22, the audio-device group), and
+# useradd's own-group default collides with it ("group voice exists"; found on the first robot build).
+RUN useradd --system --uid 10093 --home-dir /nonexistent --shell /usr/sbin/nologin opendubs-voice
+USER opendubs-voice
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OPENDUBS_VOICE_PORT=8093 \
     OPENDUBS_VOICE_MODELS=/models HF_HUB_CACHE=/models/hf/hub HF_HUB_OFFLINE=1 \
     XDG_CACHE_HOME=/tmp VOICE_STT=parakeet VOICE_TTS=kokoro

@@ -122,6 +122,15 @@ class Requirements(unittest.TestCase):
         self.assertNotRegex(df, r"(COPY|ADD) .*(\.pth|\.onnx|\.safetensors|models/)",
                             "weights must not be copied into the image")
 
+    def test_the_image_user_is_its_own(self):
+        """The service runs as a non-root user that useradd can create in the Ubuntu base: not a name
+        Ubuntu already uses for a group ("voice" is gid 22 there, which broke the first robot build)."""
+        with open(os.path.join(IMAGE, "Dockerfile.voice")) as f:
+            df = f.read()
+        made = re.search(r"useradd .* (\S+)\n", df).group(1)
+        self.assertEqual(re.search(r"^USER (\S+)$", df, re.M).group(1), made)
+        self.assertNotIn(made, {"root", "voice", "audio", "video", "plugdev", "users", "nogroup"})
+
 
 if __name__ == "__main__":
     unittest.main()
