@@ -152,10 +152,20 @@ def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False,
             os.chmod(path, 0o644)       # readable by the voice container's non-root user
             fetched += 1
         if m.get("hf_cache"):
-            refs = os.path.join(os.path.dirname(os.path.dirname(root)), "refs")
-            os.makedirs(refs, exist_ok=True)
-            with open(os.path.join(refs, "main"), "w") as f:
-                f.write(m["revision"])
+            ref = os.path.join(os.path.dirname(os.path.dirname(root)), "refs", "main")
+            try:
+                with open(ref) as f:
+                    current = f.read().strip()
+            except FileNotFoundError:
+                current = None
+            if current != m["revision"]:
+                # --check never writes: run.sh calls it with the weights mounted read-only.
+                if check_only:
+                    raise Mismatch(f"{ref}: {current or 'missing'}, expected {m['revision']} "
+                                   "(run fetch_models.py without --check)")
+                os.makedirs(os.path.dirname(ref), exist_ok=True)
+                with open(ref, "w") as f:
+                    f.write(m["revision"])
     if not check_only and os.path.exists(NOTICE):
         shutil.copyfile(NOTICE, os.path.join(dest, "NOTICE.md"))     # the credits travel with the weights
     return fetched

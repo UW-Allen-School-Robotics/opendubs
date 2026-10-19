@@ -135,6 +135,39 @@ class Fetch(unittest.TestCase):
             fm.fetch(self.dest, [self.model], get=self.get, check_only=True)
         self.assertEqual(self.urls, [])
 
+    def test_check_never_writes(self):
+        """run.sh runs --check with the weights mounted read-only; a write there is an error even
+        when the file is already right (found on the robot: refs/main, Errno 30)."""
+        m = dict(self.model, hf_cache=True)
+        fm.fetch(self.dest, [m], get=self.get, log=lambda *a: None)
+        modes = []
+        for dirpath, dirnames, filenames in os.walk(self.dest):       # make the whole tree read-only
+            for n in dirnames + filenames:
+                p = os.path.join(dirpath, n)
+                modes.append((p, os.stat(p).st_mode))
+                os.chmod(p, 0o555 if os.path.isdir(p) else 0o444)
+        os.chmod(self.dest, 0o555)
+        try:
+            fm.fetch(self.dest, [m], check_only=True)                 # must not raise
+        finally:
+            os.chmod(self.dest, 0o755)
+            for p, mode in reversed(modes):
+                os.chmod(p, mode)
+
+    def test_check_refuses_a_missing_or_wrong_ref(self):
+        m = dict(self.model, hf_cache=True)
+        fm.fetch(self.dest, [m], get=self.get, log=lambda *a: None)
+        ref = os.path.join(self.dest, "hf", "hub", "models--org--name", "refs", "main")
+        with open(ref, "w") as f:
+            f.write("b" * 40)
+        with self.assertRaises(fm.Mismatch):
+            fm.fetch(self.dest, [m], check_only=True)
+        os.unlink(ref)
+        with self.assertRaises(fm.Mismatch):
+            fm.fetch(self.dest, [m], check_only=True)
+        fm.fetch(self.dest, [m], get=self.get, log=lambda *a: None)    # a real fetch repairs it
+        fm.fetch(self.dest, [m], check_only=True)
+
     def test_hf_cache_layout(self):
         m = dict(self.model, hf_cache=True)
         fm.fetch(self.dest, [m], get=self.get, log=lambda *a: None)
