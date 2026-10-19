@@ -29,6 +29,13 @@ class Phrase(unittest.TestCase):
             "Hay Dubs! Tell me a joke.": "Tell me a joke.",
             "Heydubs, hi": "hi",
             "Hey Dub's, hello": "hello",
+            "Hey Dubbs, what is your name?": "what is your name?",
+            "Hey, Doubs.": "",
+            "Hey Debs, hello": "hello",
+            "hey dubz": "",
+            # the pre-roll holds the end of what came before, often an earlier try
+            "Dubs. Hey dubs, what time is it?": "what time is it?",
+            "Okay, so hey dubs, are you there?": "are you there?",
         }
         for t, rest in cases.items():
             self.assertEqual(wakeword.strip(t), rest, t)
@@ -36,7 +43,8 @@ class Phrase(unittest.TestCase):
     def test_refuses_near_misses(self):
         """Seen on the robot: the near-miss clips transcribed as these."""
         for t in ("Hey doves.", "Hey Dad.", "Hey, does it work?", "Hey dogs, what is your name?",
-                  "Hey Tom. Can you hear me?", "Hey dumb.", "dubs hey", "What is your name?", "", "Hey"):
+                  "Hey Tom. Can you hear me?", "dubs hey", "What is your name?", "", "Hey",
+                  "I told you we could go there and then hey dubs"):     # too far in: not a wake
             self.assertIsNone(wakeword.strip(t), t)
 
 
