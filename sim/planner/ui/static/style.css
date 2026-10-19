@@ -1,17 +1,18 @@
 :root {
-  --bg-dark: #0a0e14;
-  --bg-panel: #111722;
-  --bg-card: #182232;
-  --bg-hover: #223044;
-  --border-color: #243347;
-  --text-main: #e2ecf7;
-  --text-muted: #7e93ab;
-  --accent-toxic: #39ff14;
-  --accent-purple: #bc13fe;
-  --accent-cyan: #00e5ff;
-  --accent-amber: #ffaa00;
-  --accent-red: #ff3b30;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --bg-dark: #0b0f17;
+  --bg-panel: #111827;
+  --bg-card: #1f2937;
+  --bg-hover: #374151;
+  --border-color: #374151;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent-primary: #0284c7;
+  --accent-primary-hover: #0369a1;
+  --accent-cyan: #38bdf8;
+  --accent-green: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-red: #ef4444;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 }
 
@@ -62,14 +63,15 @@ header {
 }
 
 .badge {
-  font-size: 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-weight: 700;
-  background: rgba(188, 19, 254, 0.2);
-  color: var(--accent-purple);
-  border: 1px solid rgba(188, 19, 254, 0.4);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  background: rgba(2, 132, 199, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(2, 132, 199, 0.35);
 }
 
 .header-controls {
@@ -230,10 +232,10 @@ canvas#arm-canvas {
 }
 
 .btn-plan {
-  background: linear-gradient(135deg, #bc13fe 0%, #39ff14 100%);
-  color: #000;
-  font-weight: 700;
-  border: none;
+  background: var(--accent-primary);
+  color: #ffffff;
+  font-weight: 600;
+  border: 1px solid var(--accent-primary-hover);
   border-radius: 6px;
   padding: 8px 16px;
   font-size: 13px;
@@ -241,16 +243,21 @@ canvas#arm-canvas {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: opacity 0.2s, transform 0.1s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 
 .btn-plan:hover {
-  opacity: 0.92;
-  transform: translateY(-1px);
+  background: var(--accent-primary-hover);
+  border-color: #075985;
 }
 
 .btn-plan:active {
-  transform: translateY(0);
+  background: #0c4a6e;
+}
+
+.btn-plan:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .timeline-slider-row {
@@ -263,9 +270,9 @@ canvas#arm-canvas {
 .timeline-slider-row input[type="range"] {
   flex: 1;
   height: 6px;
-  background: var(--border-color);
+  background: #374151;
   border-radius: 3px;
-  accent-color: var(--accent-toxic);
+  accent-color: var(--accent-primary);
   cursor: pointer;
 }
 
@@ -408,20 +415,20 @@ select:focus, input:focus {
 }
 
 .clearance-badge.safe {
-  background: rgba(57, 255, 20, 0.12);
-  border: 1px solid rgba(57, 255, 20, 0.35);
-  color: var(--accent-toxic);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--accent-green);
 }
 
 .clearance-badge.warn {
-  background: rgba(255, 170, 0, 0.12);
-  border: 1px solid rgba(255, 170, 0, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
   color: var(--accent-amber);
 }
 
 .clearance-badge.danger {
-  background: rgba(255, 59, 48, 0.15);
-  border: 1px solid rgba(255, 59, 48, 0.45);
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.45);
   color: var(--accent-red);
 }
 
@@ -447,13 +454,13 @@ select:focus, input:focus {
 }
 
 .keyframe-card:hover {
-  border-color: var(--accent-purple);
+  border-color: var(--accent-primary);
   background: var(--bg-hover);
 }
 
 .keyframe-card.active {
-  border-color: var(--accent-toxic);
-  box-shadow: 0 0 8px rgba(57, 255, 20, 0.15);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.3);
 }
 
 .kf-header {
@@ -503,9 +510,9 @@ select:focus, input:focus {
 }
 
 .btn-accent {
-  background: rgba(188, 19, 254, 0.2);
-  border: 1px solid var(--accent-purple);
-  color: #fff;
+  background: rgba(2, 132, 199, 0.15);
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-cyan);
   padding: 7px 12px;
   border-radius: 4px;
   font-size: 12px;
@@ -515,10 +522,12 @@ select:focus, input:focus {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  transition: all 0.15s;
 }
 
 .btn-accent:hover {
-  background: rgba(188, 19, 254, 0.35);
+  background: rgba(2, 132, 199, 0.28);
+  color: #ffffff;
 }
 
 /* Modal */

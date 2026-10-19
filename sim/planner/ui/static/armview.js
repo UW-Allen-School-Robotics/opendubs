@@ -69,17 +69,17 @@ export class PlannerStudioView {
       metalness: 0.25,
     });
     this.matCollision = new THREE.MeshStandardMaterial({
-      color: 0xff3b30,
+      color: 0xef4444,
       roughness: 0.3,
       metalness: 0.1,
-      emissive: 0x770505,
+      emissive: 0x550a0a,
     });
     this.matGhost = new THREE.MeshStandardMaterial({
-      color: 0x39ff14,
-      roughness: 0.3,
+      color: 0x38bdf8,
+      roughness: 0.35,
       metalness: 0.1,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.40,
       depthWrite: false,
     });
 
@@ -229,22 +229,22 @@ export class PlannerStudioView {
     const points = eePositions.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({
-      color: 0x39ff14,
+      color: 0x0284c7,
       linewidth: 3,
     });
     this.trajLine = new THREE.Line(geometry, material);
     this.scene.add(this.trajLine);
 
-    // Start marker (Teal sphere)
+    // Start marker (Slate blue sphere)
     const startGeo = new THREE.SphereGeometry(0.015, 16, 16);
-    const startMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+    const startMat = new THREE.MeshBasicMaterial({ color: 0x64748b });
     const startMesh = new THREE.Mesh(startGeo, startMat);
     startMesh.position.copy(points[0]);
     this.trajMarkers.add(startMesh);
 
-    // Goal marker (Neon green sphere)
+    // Goal marker (Sky blue sphere)
     const goalGeo = new THREE.SphereGeometry(0.018, 16, 16);
-    const goalMat = new THREE.MeshBasicMaterial({ color: 0x39ff14 });
+    const goalMat = new THREE.MeshBasicMaterial({ color: 0x0284c7 });
     const goalMesh = new THREE.Mesh(goalGeo, goalMat);
     goalMesh.position.copy(points[points.length - 1]);
     this.trajMarkers.add(goalMesh);

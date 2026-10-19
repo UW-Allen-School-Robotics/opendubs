@@ -345,7 +345,7 @@ def main():
     server = HTTPServer((args.host, args.port), StudioHandler)
     url = f"http://{args.host}:{args.port}"
     print(f"========================================================")
-    print(f" 🎃 OpenArm Motion Planner Studio")
+    print(f" OpenArm Motion Planner Studio")
     print(f" Server running at: {url}")
     print(f" Static root: {STATIC_DIR}")
     print(f" Press Ctrl+C to stop.")

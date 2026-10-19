@@ -260,17 +260,17 @@ class StudioApp {
       badge.classList.remove("safe", "warn", "danger");
       if (colData.collision) {
         badge.classList.add("danger");
-        statusText.textContent = "🔴 Collision Detected";
+        statusText.textContent = "Collision Detected";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
         this.view.setCollisionState(true);
       } else if (colData.min_clearance_mm < 30.0) {
         badge.classList.add("warn");
-        statusText.textContent = "🟡 Close Clearance";
+        statusText.textContent = "Close Clearance";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
         this.view.setCollisionState(false);
       } else {
         badge.classList.add("safe");
-        statusText.textContent = "🟢 Safe (MuJoCo)";
+        statusText.textContent = "Safe (MuJoCo)";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
         this.view.setCollisionState(false);
       }
@@ -332,7 +332,7 @@ class StudioApp {
     } catch (err) {
       alert(`IK Error: ${err}`);
     } finally {
-      btn.textContent = "⚡ Solve IK (SSIK Analytical)";
+      btn.textContent = "Solve IK (SSIK Analytical)";
       btn.disabled = false;
     }
   }
@@ -343,8 +343,8 @@ class StudioApp {
     const perfInfo = document.getElementById("plan-perf-info");
 
     btn.disabled = true;
-    btn.innerHTML = `<span>⏳ Planning (CBiRRT)...</span>`;
-    statusInfo.textContent = "Solving CBiRRT path & TOPP-RA retiming...";
+    btn.innerHTML = `<span>Planning (CBiRRT)...</span>`;
+    statusInfo.textContent = "Solving CBiRRT path and TOPP-RA retiming...";
 
     try {
       const resp = await fetch("/api/plan", {
@@ -362,7 +362,7 @@ class StudioApp {
       const data = await resp.json();
 
       if (!data.success) {
-        statusInfo.textContent = `❌ Plan Failed: ${data.error}`;
+        statusInfo.textContent = `Plan Failed: ${data.error}`;
         perfInfo.textContent = "Try adjusting start or goal pose.";
         alert(`Motion planning failed:\n${data.error}`);
         return;
@@ -373,7 +373,7 @@ class StudioApp {
       this.isPlaying = true;
 
       // Update UI readouts
-      statusInfo.textContent = `✅ Trajectory Ready (${data.duration.toFixed(2)}s)`;
+      statusInfo.textContent = `Trajectory Ready (${data.duration.toFixed(2)}s)`;
       perfInfo.textContent = `Planned in ${data.planning_time_ms.toFixed(0)} ms | ${data.waypoints} waypoints | Safe (${data.min_clearance_mm.toFixed(1)} mm)`;
 
       const scrubber = document.getElementById("timeline-scrubber");
@@ -389,7 +389,7 @@ class StudioApp {
       alert(`Planning error: ${err}`);
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `<span>⚡ Plan Trajectory</span>`;
+      btn.innerHTML = `<span>Plan Trajectory</span>`;
     }
   }
 
@@ -401,8 +401,8 @@ class StudioApp {
 
   _updatePlayButton() {
     const btn = document.getElementById("btn-play-pause");
-    btn.textContent = this.isPlaying ? "⏸ Pause" : "▶ Play";
-    btn.style.borderColor = this.isPlaying ? "var(--accent-toxic)" : "var(--border-color)";
+    btn.textContent = this.isPlaying ? "Pause" : "Play";
+    btn.style.borderColor = this.isPlaying ? "var(--accent-primary)" : "var(--border-color)";
   }
 
   _playbackLoop(timestamp) {
@@ -558,7 +558,7 @@ class StudioApp {
 
     const btn = document.getElementById("btn-plan-show-sequence");
     btn.disabled = true;
-    btn.innerHTML = `<span>⏳ Planning Full Sequence...</span>`;
+    btn.innerHTML = `<span>Planning Full Sequence...</span>`;
 
     const allTimes = [];
     const allPositions = [];
@@ -617,7 +617,7 @@ class StudioApp {
       scrubber.max = cumulativeDuration;
       scrubber.value = 0;
 
-      document.getElementById("plan-status-info").textContent = `🎃 Full Show Routine Planned (${cumulativeDuration.toFixed(2)}s)`;
+      document.getElementById("plan-status-info").textContent = `Full Sequence Planned (${cumulativeDuration.toFixed(2)}s)`;
       document.getElementById("plan-perf-info").textContent = `${this.keyframes.length} keyframes | ${allPositions.length} waypoints`;
 
       this.view.setTrajectoryPath(allEePositions);
@@ -625,7 +625,7 @@ class StudioApp {
       alert(`Sequence planning error:\n${err.message}`);
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `<span>🎃 Plan Full Show Sequence</span>`;
+      btn.innerHTML = `<span>Plan Full Sequence</span>`;
     }
   }
 
@@ -655,8 +655,8 @@ class StudioApp {
     const textarea = document.getElementById("yaml-output-text");
     navigator.clipboard.writeText(textarea.value).then(() => {
       const btn = document.getElementById("btn-copy-yaml");
-      btn.textContent = "Copied! ✓";
-      setTimeout(() => (btn.textContent = "📋 Copy to Clipboard"), 2000);
+      btn.textContent = "Copied to Clipboard";
+      setTimeout(() => (btn.textContent = "Copy to Clipboard"), 2000);
     });
   }
 

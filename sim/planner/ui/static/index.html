@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpenArm Motion Planner Studio & Halloween Show Designer</title>
+  <title>OpenArm Motion Planner Studio</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <!-- Header -->
   <header>
     <div class="logo-area">
-      <h1>🎃 OpenArm Motion Planner Studio</h1>
+      <h1>OpenArm Motion Planner Studio</h1>
       <span class="badge">OpenDubs V1.0</span>
     </div>
     <div class="header-controls">
@@ -51,19 +51,19 @@
               <option value="high_reach">High Reach</option>
               <option value="wave_ready">Wave Ready</option>
             </optgroup>
-            <optgroup label="🎃 Halloween Demo Poses">
-              <option value="zombie_reach">🧟 Zombie Reach</option>
-              <option value="spooky_arms_up">👻 Spooky Arms Up</option>
-              <option value="pumpkin_offer">🎃 Pumpkin Offer</option>
-              <option value="spooky_wave">👋 Spooky Wave</option>
-              <option value="cauldron_stir">🥣 Cauldron Stir</option>
+            <optgroup label="Show Demonstration Poses">
+              <option value="zombie_reach">Forward Reach (High)</option>
+              <option value="spooky_arms_up">Raised Overhead</option>
+              <option value="pumpkin_offer">Forward Offering</option>
+              <option value="spooky_wave">Side Wave</option>
+              <option value="cauldron_stir">Circular Stir</option>
             </optgroup>
           </select>
         </div>
 
         <!-- Clearance & Collision Status -->
         <div id="clearance-badge" class="clearance-badge safe">
-          <span id="clearance-status-text">🟢 Safe (MuJoCo)</span>
+          <span id="clearance-status-text">Safe (MuJoCo)</span>
           <span id="clearance-distance-text" style="font-family:var(--font-mono);">-- mm</span>
         </div>
 
@@ -83,7 +83,7 @@
             <input type="number" id="ee-y" step="0.01" placeholder="Y" title="EE Y (m)">
             <input type="number" id="ee-z" step="0.01" placeholder="Z" title="EE Z (m)">
           </div>
-          <button id="btn-solve-ik" class="btn-secondary" style="width:100%;">⚡ Solve IK (SSIK Analytical)</button>
+          <button id="btn-solve-ik" class="btn-secondary" style="width:100%;">Solve IK (SSIK Analytical)</button>
         </div>
 
         <!-- Pose Transfer Actions -->
@@ -113,11 +113,11 @@
             <span>Start / Current Pose</span>
           </div>
           <div class="legend-item">
-            <div class="legend-dot" style="background:#39ff14;"></div>
+            <div class="legend-dot" style="background:#38bdf8;"></div>
             <span>Goal Target (Ghost)</span>
           </div>
           <div class="legend-item">
-            <div class="legend-dot" style="background:#00e5ff;"></div>
+            <div class="legend-dot" style="background:#0284c7;"></div>
             <span>Trajectory Path</span>
           </div>
         </div>
@@ -129,12 +129,12 @@
       <div class="bottom-bar">
         <div class="timeline-controls">
           <button id="btn-plan-motion" class="btn-plan">
-            <span>⚡ Plan Trajectory</span>
+            <span>Plan Trajectory</span>
           </button>
 
           <div class="playback-btns">
-            <button id="btn-play-pause" class="icon-btn" title="Play / Pause">▶ Play</button>
-            <button id="btn-loop-toggle" class="icon-btn" title="Toggle Loop">🔁</button>
+            <button id="btn-play-pause" class="icon-btn" title="Play / Pause">Play</button>
+            <button id="btn-loop-toggle" class="icon-btn" title="Toggle Loop">Loop</button>
             <select id="playback-speed-select" style="padding: 4px 6px;">
               <option value="0.5">0.5x</option>
               <option value="1.0" selected>1.0x</option>
@@ -158,27 +158,27 @@
     <!-- Right Panel: Show & Keyframe Choreographer -->
     <div class="panel right">
       <div class="panel-header">
-        <span>Halloween Choreographer</span>
-        <span class="badge" style="background:rgba(57,255,20,0.15); color:var(--accent-toxic); border-color:rgba(57,255,20,0.3);">SHOW DEMO</span>
+        <span>Show Sequence Choreographer</span>
+        <span class="badge">CHOREO</span>
       </div>
       <div class="panel-body">
         <p style="font-size:12px; color:var(--text-muted);">
-          Build, reorder, and export arm sequences for the Halloween show.
+          Build, reorder, and export arm motion sequences for robot show routines.
         </p>
 
         <!-- Add Current Keyframe Controls -->
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px;">
-          <label>Add Pose to Show</label>
+          <label>Add Pose to Sequence</label>
           <div style="display:flex; gap:6px;">
-            <input type="text" id="kf-name-input" placeholder="Pose Name (e.g. Spooky Lunge)" style="flex:1;">
+            <input type="text" id="kf-name-input" placeholder="Pose Name (e.g. Forward Reach)" style="flex:1;">
             <input type="number" id="kf-time-input" placeholder="Time (s)" step="0.5" min="0" value="4.0" style="width:75px;" title="Target timestamp in show (seconds)">
           </div>
-          <button id="btn-add-keyframe" class="btn-accent" style="width:100%;">➕ Add Current Target Pose</button>
+          <button id="btn-add-keyframe" class="btn-accent" style="width:100%;">Add Current Target Pose</button>
         </div>
 
         <!-- Keyframe Sequence List -->
         <div class="form-group">
-          <label>Show Routine Keyframes</label>
+          <label>Sequence Keyframes</label>
           <div id="keyframe-list" class="keyframe-list">
             <!-- Rendered by app.js -->
           </div>
@@ -187,10 +187,10 @@
         <!-- Show Planning & Export Buttons -->
         <div style="display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--border-color); padding-top:10px;">
           <button id="btn-plan-show-sequence" class="btn-plan" style="justify-content:center; width:100%;">
-            <span>🎃 Plan Full Show Sequence</span>
+            <span>Plan Full Sequence</span>
           </button>
           <button id="btn-export-show-yaml" class="btn-secondary" style="width:100%;">
-            <span>📜 Export to Choreo YAML</span>
+            <span>Export to Choreo YAML</span>
           </button>
         </div>
       </div>
@@ -201,15 +201,15 @@
   <div id="yaml-modal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 style="font-size:14px; font-weight:600;">🎃 Exported Halloween Show YAML</h3>
+        <h3 style="font-size:14px; font-weight:600;">Exported Show YAML</h3>
         <button id="btn-close-modal" class="icon-btn" style="border:none; font-size:16px;">✕</button>
       </div>
       <div class="modal-body">
         <textarea id="yaml-output-text" readonly></textarea>
       </div>
       <div class="modal-footer">
-        <button id="btn-copy-yaml" class="btn-secondary">📋 Copy to Clipboard</button>
-        <button id="btn-download-yaml" class="btn-accent">💾 Download YAML</button>
+        <button id="btn-copy-yaml" class="btn-secondary">Copy to Clipboard</button>
+        <button id="btn-download-yaml" class="btn-accent">Download YAML</button>
       </div>
     </div>
   </div>
