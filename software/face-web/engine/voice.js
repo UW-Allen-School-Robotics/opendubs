@@ -30,9 +30,13 @@ const DOWN_RATE = 24000;                            // wire.DOWN_RATE
 const JITTER_S = 0.12;                              // the playback's jitter buffer
 const MIC_IDLE_MS = 20000;                          // no turn for this long: the microphone closes
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
-// The keyword, as the model's own tokens (sherpa-onnx text2token with its bpe.model), boost 1.5,
-// threshold 0.20: the Voice lane's line, tried on the desk with the real model.
-const WAKE_KEYWORDS = "▁HE Y ▁DU B S :1.5 #0.20 @HEY_DUBS";
+// The keyword, as the model's own tokens (sherpa-onnx text2token with its bpe.model), boost 2.0,
+// threshold 0.10: tuned for RECALL (2026-10-19). On the robot the first line (1.5, 0.20) fired once in 40
+// minutes; the Thor's transcript check drops a false hit silently, so a false hit costs only a few
+// seconds of uplink. On the desk this line caught 12 of 12 clean "hey dubs" in six voices with no false
+// hit on near misses or other speech (the old one 11 of 12). The service may send its own line in
+// `ready.wake.keywords`, so it can be tuned without changing this page.
+const WAKE_KEYWORDS = "▁HE Y ▁DU B S :2.0 #0.10 @HEY_DUBS";
 const PRE_ROLL_FRAMES = 75;                         // 1.5 s of 20 ms frames
 const WAKE_QUIET_MS = 1000;                         // no wake this long after a reply has played
 
@@ -194,7 +198,8 @@ export function start({ face }) {
       if (e.data.error) { st.wakeError = e.data.error; return; }
       if (e.data.hit) onWake();
     };
-    st.kws.postMessage({ keywords: WAKE_KEYWORDS });
+    const line = typeof st.wake.keywords === "string" && st.wake.keywords.includes("@") ? st.wake.keywords : WAKE_KEYWORDS;
+    st.kws.postMessage({ keywords: line });
   }
   const suppressed = () => st.convo !== "idle" || st.holding || st.waking || st.play.size > 0 ||
                             performance.now() < st.quietUntil || !st.on;
