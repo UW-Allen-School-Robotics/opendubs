@@ -216,12 +216,27 @@ def why_not_now():
     return None
 
 
+def someone_talking() -> bool:
+    """True while the voice service is listening to someone (voice_proxy.listening(): the latest relayed
+    `state` is "listen"). The head then HOLDS STILL: its servos' noise was getting into the microphone,
+    and holding its gaze on whoever is speaking reads better (the user's idea, 2026-10-19). It moves
+    again on think, speak or idle. Absent or broken, it says no: the head follows as before."""
+    try:
+        import voice_proxy
+        f = getattr(voice_proxy, "listening", None)
+        return bool(f and f())
+    except Exception:                                # noqa: BLE001 — never let voice stop the head for good
+        return False
+
+
 def step(cfg: dict):
     """One update. Blocking (UDP, the runner): run in an executor. Returns why, or None when following."""
     import head
     why = why_not_now()
     if why:
         return why
+    if someone_talking():                            # no GAZE at all: the lease lapses and the neck holds
+        return "holding still: someone is talking to the robot"
     host = head.neck_host()
     neck = parse_neck(_ask(host, "NECK") or "")
     state["neck"], state["neck_at"] = neck, _clock()
