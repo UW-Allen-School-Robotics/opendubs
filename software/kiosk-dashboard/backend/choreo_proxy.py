@@ -31,6 +31,9 @@ from fastapi.responses import JSONResponse
 
 RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
 TIMEOUT_S = 2.0
+# The routine list validates every show on each request: allow it longer, so a busy robot answers
+# late instead of not at all (and the page does not re-ask while the runner is still working).
+LIST_TIMEOUT_S = 15.0
 
 # Only the four routes below are forwarded. Nothing else on the runner is reachable this way — in
 # particular not its fake-robot switches (/api/sim/*), which exist for twin testing only.
@@ -42,12 +45,12 @@ import show_audio  # noqa: E402
 router.routes.extend(show_audio.router.routes)
 
 
-def _call(method: str, path: str, body: dict | None = None) -> tuple[int, object]:
+def _call(method: str, path: str, body: dict | None = None, timeout: float = TIMEOUT_S) -> tuple[int, object]:
     data = (json.dumps(body).encode() if body else b"") if method == "POST" else None
     req = urllib.request.Request(f"{RUNNER_URL}/api/{path}", method=method, data=data,
                                  headers={"Content-Type": "application/json"} if data else {})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b"null")
     except urllib.error.HTTPError as e:          # the runner's own refusal: pass it on, with its words
         try:
@@ -58,14 +61,14 @@ def _call(method: str, path: str, body: dict | None = None) -> tuple[int, object
         return 503, {"error": "the show runner is not running", "runner": RUNNER_URL}
 
 
-async def _forward(method: str, path: str, body: dict | None = None) -> JSONResponse:
-    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path, body)
+async def _forward(method: str, path: str, body: dict | None = None, timeout: float = TIMEOUT_S) -> JSONResponse:
+    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path, body, timeout)
     return JSONResponse(body, status_code=code)
 
 
 @router.get("/api/choreo/routines")
 async def routines():
-    return await _forward("GET", "routines")
+    return await _forward("GET", "routines", timeout=LIST_TIMEOUT_S)
 
 
 @router.get("/api/choreo/palette")
