@@ -58,6 +58,20 @@ def level(pcm: bytes, rate: int) -> tuple[float, float]:
     return lv[-1], lv[len(lv) // 10]
 
 
+def shape(pcm: bytes, rate: int) -> dict:
+    """What a clip looked like, without its words: levels, and where speech starts and ends in it.
+    onset_ms near 0 means the speaker had already begun when capture started (a clipped start);
+    tail_ms near 0 means speech ran to the very end (a clipped end, released too early)."""
+    lv = frame_levels(pcm, rate)
+    peak, floor = level(pcm, rate)
+    loud = [i for i, x in enumerate(lv) if x >= PEAK_MIN_DBFS and x - floor >= PEAK_OVER_FLOOR_DB]
+    s = samples(pcm)
+    return {"peak_db": round(peak, 1), "floor_db": round(floor, 1),
+            "onset_ms": loud[0] * 20 if loud else None,
+            "tail_ms": (len(lv) - 1 - loud[-1]) * 20 if loud else None,
+            "clipped": sum(1 for x in s if x >= 32700 or x <= -32700)}
+
+
 def duration_ms(pcm: bytes, rate: int) -> float:
     return len(pcm) / 2 / rate * 1000
 

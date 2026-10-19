@@ -278,5 +278,40 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(link.of("error")[-1]["code"], "VOICE_BAD_FRAME")
 
 
+class Recording(unittest.IsolatedAsyncioTestCase):
+    async def test_the_log_has_the_clips_shape_and_no_words(self):
+        """Clipping and level are read from the log without any words in it (speech_clip has 240 ms
+        of room before the voice and 240 ms after)."""
+        v = make_voice(llm=FakeLLM(["Hello."]))
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        rec = json.loads(next(l for l in logs.output if '"status"' in l).split("turn ", 1)[1])
+        self.assertAlmostEqual(rec["audio"]["onset_ms"], 240, delta=40)
+        self.assertAlmostEqual(rec["audio"]["tail_ms"], 240, delta=40)
+        self.assertEqual(rec["words"], 3)
+        self.assertNotIn("transcript", rec)
+        self.assertIsNone(v.record_dir)              # nothing is written unless a session asks for it
+
+    async def test_a_recording_session_keeps_each_turns_uplink(self):
+        import os
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"OPENDUBS_VOICE_RECORD_DIR": d}):
+            v = make_voice(llm=FakeLLM(["Hello."]))
+            link, page = await connect(v)
+            clip = speech_clip()
+            await say(v, page, clip)
+            await settle(v)
+            names = sorted(os.listdir(d))
+            self.assertEqual([n.rsplit(".", 1)[1] for n in names], ["json", "s16le"])
+            with open(os.path.join(d, names[1]), "rb") as f:
+                self.assertEqual(f.read(), clip)
+            with open(os.path.join(d, names[0])) as f:
+                note = json.load(f)
+            self.assertEqual((note["heard"], note["status"], note["rate"]), ("what are you", "ok", 16000))
+
+
 if __name__ == "__main__":
     unittest.main()
