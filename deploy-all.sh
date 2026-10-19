@@ -55,7 +55,12 @@ KIOSK_VER="$(dirname "$KIOSK_APK")/kiosk-version.json"
 deploy_voice() {
   ssh "$HOST" "grep -qs '^OPENDUBS_VOICE_DEPLOY=1' /etc/opendubs/robot.env" || return 0
   local tag tmp=""
-  tag="opendubs-voice:$(git -C "$REPO" rev-parse --short=12 HEAD:software/voice)-$(git -C "$REPO" rev-parse --short=8 HEAD:software/head-protocol/head_protocol.py)"
+  # The third part is the image the voice image is built FROM (its GPU variant: VOICE_LLM_IMAGE), so a
+  # bump of that pin rebuilds it too. The same formula as build.sh's from a checkout.
+  local base
+  base=$(git -C "$REPO" show HEAD:software/stack/versions.env | sed -n 's/^VOICE_LLM_IMAGE=.*@sha256://p' | tail -1 | cut -c1-8)
+  [ ${#base} = 8 ] || { echo "!! VOICE_LLM_IMAGE is not pinned by digest in versions.env; voice skipped"; return 0; }
+  tag="opendubs-voice:$(git -C "$REPO" rev-parse --short=12 HEAD:software/voice)-$(git -C "$REPO" rev-parse --short=8 HEAD:software/head-protocol/head_protocol.py)-$base"
   if ! ssh "$HOST" "sudo docker image inspect $tag >/dev/null 2>&1"; then
     tmp=$(ssh "$HOST" mktemp -d)
     git -C "$REPO" archive HEAD software/voice software/head-protocol/head_protocol.py | ssh "$HOST" "tar -x -C $tmp"

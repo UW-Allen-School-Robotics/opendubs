@@ -52,6 +52,13 @@ such as reading the published extrinsics, are handed to the dashboard's lane rat
   (`ISAAC_ROS_BASE_IMAGE`). CPU-only modules build on the pinned plain ROS image
   (`ROS_BASE_IMAGE`, `ros:jazzy-ros-base` by digest) and run unchanged on 7.1, 7.2 and Orin. The
   `openarm` image is the first of these (arms PR #107).
+- **T-1, exception (2026-10-19, agreed between the Thor stack and Voice lanes; for the user's
+  review):** the GPU voice image builds FROM `VOICE_LLM_IMAGE`, the pinned NVIDIA vLLM image the local
+  model already runs, not from `ISAAC_ROS_BASE_IMAGE`, which is not pinned yet. It shares one CUDA
+  stack and its layers with `opendubs-llm`. Consequences: the voice image is Thor-only (an Orin uses
+  `build.sh --cpu`), it carries NVIDIA's CUDA libraries so it is built on each robot and never pushed
+  or shipped, and its tag includes the base digest so a bump of that pin rebuilds it. Switching to
+  the Isaac ROS base later is a one-line change in the voice lane's `build.sh`.
 - **T-2:** option (b). Every ROS node runs in a container; the dashboard stays on the host for now.
   Migrate one unit at a time (3.3).
 
