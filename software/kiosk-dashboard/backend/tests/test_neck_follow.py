@@ -235,3 +235,16 @@ def test_an_absent_neck_is_not_looked_up_every_update_but_is_found_again(monkeyp
     assert len(calls) == 1
     answer["addr"], clock["t"] = "10.42.2.12", clock["t"] + nf._RESOLVE_RETRY_S
     assert nf._resolve("opendubs-neck.local") == "10.42.2.12" and len(calls) == 2
+
+
+def test_the_head_holds_still_while_someone_is_talking(monkeypatch):
+    """The user's idea, 2026-10-19: the neck's servos must not move while the voice service listens."""
+    import types
+    sent = _sends(monkeypatch)
+    talking = {"now": True}
+    monkeypatch.setitem(sys.modules, "voice_proxy", types.SimpleNamespace(listening=lambda: talking["now"]))
+    nf.note_target({"ix": 0.9, "iy": 0.5, "conf": 0.9})
+    assert nf.step(CFG) == "holding still: someone is talking to the robot"
+    assert sent == []                                                   # not even a NECK read
+    talking["now"] = False
+    assert nf.step(CFG) is None and sent[-1].startswith("GAZE")         # moves again once it stops listening
