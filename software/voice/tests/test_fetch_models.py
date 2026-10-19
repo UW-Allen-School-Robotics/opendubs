@@ -31,10 +31,14 @@ class Manifest(unittest.TestCase):
     def test_everything_is_pinned(self):
         models = fm.load_lock()
         self.assertEqual({m["name"] for m in models},
-                         {"parakeet", "kokoro", "g2p-fallback", "qwen3-30b-a3b-w4a16", "qwen3-4b"})
+                         {"parakeet", "kokoro", "g2p-fallback", "silero-vad", "qwen3-30b-a3b-w4a16", "qwen3-4b"})
         for m in models:
-            self.assertRegex(m["revision"], HEX40, m["name"])
-            self.assertIn(m["license"], {"CC-BY-4.0", "Apache-2.0"}, m["name"])
+            if m.get("base_url"):                    # a release asset: every file pinned by sha256
+                self.assertTrue(m["base_url"].startswith("https://"), m["name"])
+                self.assertTrue(all("sha256" in f for f in m["files"]), m["name"])
+            else:
+                self.assertRegex(m["revision"], HEX40, m["name"])
+            self.assertIn(m["license"], {"CC-BY-4.0", "Apache-2.0", "MIT"}, m["name"])
             for f in m["files"]:
                 self.assertGreater(f["size"], 0)
                 self.assertNotIn("..", f["path"])
@@ -175,6 +179,12 @@ class Fetch(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(base, "snapshots", "a" * 40, "big.bin")))
         with open(os.path.join(base, "refs", "main")) as f:
             self.assertEqual(f.read(), "a" * 40)
+
+    def test_a_release_asset_is_fetched_from_its_base_url(self):
+        m = {"name": "v", "base_url": "https://example.org/rel", "license": "MIT", "dest": "vad",
+             "files": [spec_for("big.bin", self.files["big.bin"], True)]}
+        fm.fetch(self.dest, [m], get=self.get, log=lambda *a: None)
+        self.assertEqual(self.urls, ["https://example.org/rel/big.bin"])
 
     def test_cli_rejects_an_unknown_model(self):
         self.assertEqual(fm.main(["--dest", self.dest, "--only", "piper"]), 2)

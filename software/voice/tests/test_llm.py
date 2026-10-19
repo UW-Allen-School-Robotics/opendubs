@@ -81,7 +81,7 @@ class Profile(unittest.TestCase):
             fetch_models.main(["--dest", tempfile.mkdtemp(), "--only", "qwen3-4b"])
         finally:
             fetch_models.fetch = real
-        self.assertEqual(seen[0], ["parakeet", "kokoro", "g2p-fallback"])
+        self.assertEqual(seen[0], ["parakeet", "kokoro", "g2p-fallback", "silero-vad"])
         self.assertEqual(seen[1], ["qwen3-4b"])
 
 

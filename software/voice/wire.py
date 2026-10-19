@@ -17,12 +17,18 @@ TEXT FRAMES carry control, one JSON object each, with a "type":
 
   page -> service   hello     {protocol, up: {rate, format, channels}}   first message, once
                     press     {}            Talk pressed: start an utterance (or cut the reply)
+                    wake      {keyword, pre_roll_ms}   the tablet spotted the wake word: start an
+                                            utterance. The frames that follow begin with the
+                                            buffered audio around the keyword; pre_roll_ms of it
+                                            came before the moment of detection. No `release`: the
+                                            service ends the utterance (vad.py). Only if `ready`
+                                            advertised `wake`.
                     release   {}            Talk released: the utterance is complete
                     barge_in  {}            stop the reply, without starting a new utterance
                     played    {turn}        the page finished playing that turn's audio
                     bye       {}
 
-  service -> page   ready     {protocol, up, down, voice: {on, why}, max_utterance_s}
+  service -> page   ready     {protocol, up, down, voice: {on, why}, max_utterance_s, wake?: {keyword}}
                     voice     {on, why}     voice became available or unavailable (a show, ...)
                     state     {turn, convo: idle|listen|think|speak}
                     heard     {turn, transcript}
@@ -55,7 +61,8 @@ HEADER = struct.Struct("<II")
 MAX_UP_PCM_BYTES = 8 * UP_FRAME_SAMPLES * 2
 MAX_CONTROL_BYTES = 4096
 
-PAGE_TYPES = frozenset({"hello", "press", "release", "barge_in", "played", "bye"})
+PAGE_TYPES = frozenset({"hello", "press", "wake", "release", "barge_in", "played", "bye"})
+MAX_PRE_ROLL_MS = 3000
 SERVICE_TYPES = frozenset({"ready", "voice", "state", "heard", "turn", "tts_end", "stop",
                            "conversation_end", "error"})
 CONVO_STATES = ("idle", "listen", "think", "speak")
@@ -68,6 +75,8 @@ TURN_STATUSES = frozenset({
     "timeout",         # the brain took too long; an apology was spoken
     "offline",         # no brain could answer
     "cut",             # barge-in, a show starting, or the page leaving
+    "not_addressed",   # a wake turn that was not one: no wake phrase in the transcript, or nothing
+                       # said after it. SILENT: nothing is spoken, and the page resumes listening
 })
 
 
@@ -128,8 +137,19 @@ def control(kind: str, **fields) -> str:
     return json.dumps({"type": kind, **fields}, separators=(",", ":"))
 
 
-def ready(voice_on: bool, why: str | None, max_utterance_s: float) -> str:
+def check_wake(msg: dict) -> str | None:
+    """None if a `wake` message is well formed; otherwise why not."""
+    pre = msg.get("pre_roll_ms", 0)
+    if not isinstance(pre, (int, float)) or isinstance(pre, bool) or not 0 <= pre <= MAX_PRE_ROLL_MS:
+        return f"pre_roll_ms must be a number from 0 to {MAX_PRE_ROLL_MS}"
+    if not isinstance(msg.get("keyword", ""), str):
+        return "keyword must be a string"
+    return None
+
+
+def ready(voice_on: bool, why: str | None, max_utterance_s: float, wake: dict | None = None) -> str:
+    extra = {"wake": wake} if wake else {}
     return control("ready", protocol=PROTOCOL,
                    up={"rate": UP_RATE, "format": FORMAT, "channels": 1, "frame_ms": UP_FRAME_MS},
                    down={"rate": DOWN_RATE, "format": FORMAT, "channels": 1, "chunk_ms": DOWN_CHUNK_MS},
-                   voice={"on": voice_on, "why": why}, max_utterance_s=max_utterance_s)
+                   voice={"on": voice_on, "why": why}, max_utterance_s=max_utterance_s, **extra)

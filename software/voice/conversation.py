@@ -35,6 +35,8 @@ import time
 import audio
 import brains
 import safe_tools
+import vad
+import wakeword
 import wire
 from sentences import Splitter
 
@@ -94,7 +96,8 @@ class Voice:
     def __init__(self, stt, tts, brain, face, gate, persona: str, *,
                  robot_status=None, clock=time.monotonic,
                  max_utterance_s=MAX_UTTERANCE_S, convo_idle_s=CONVO_IDLE_S, slow_s=SLOW_S,
-                 give_up_s=GIVE_UP_S, turn_cap_s=TURN_CAP_S, played_grace_s=PLAYED_GRACE_S):
+                 give_up_s=GIVE_UP_S, turn_cap_s=TURN_CAP_S, played_grace_s=PLAYED_GRACE_S,
+                 wake: bool = False, make_vad=vad.make_vad):
         self.stt, self.tts, self.brain, self.face, self.gate = stt, tts, brain, face, gate
         self.persona = persona
         dash = getattr(gate, "url", "http://127.0.0.1:8080").split("/api/")[0]
@@ -121,6 +124,10 @@ class Voice:
         self._played = asyncio.Event()
         self._end_after_turn = False
         self._mark = 0
+        self.wake_enabled = wake               # the tablet may start turns with "hey dubs" (wakeword.py)
+        self.make_vad = make_vad
+        self._source = "talk"                  # how the turn in hand began: "talk" or "wake"
+        self._endpointer = None                # vad.Endpointer, for a wake turn
         self.brain_state = "unknown"              # server.warm_brain: warming | ready | unavailable
         gate.listeners.append(self.on_gate)
 
@@ -151,13 +158,16 @@ class Voice:
                 await p.text(wire.control("error", code="VOICE_BAD_HELLO", message=why))
                 return
             p.hello = True
-            await p.text(wire.ready(self.gate.on, self.gate.why, self.max_utterance_s))
+            await p.text(wire.ready(self.gate.on, self.gate.why, self.max_utterance_s,
+                                    wake={"keyword": wakeword.PHRASE} if self.wake_enabled else None))
             return
         if not p.hello:
             await p.text(wire.control("error", code="VOICE_NO_HELLO", message="send hello first"))
             return
         if kind == "press":
             await self.press(p)
+        elif kind == "wake":
+            await self.wake(p, msg)
         elif kind == "release":
             await self.release(p)
         elif kind == "barge_in":
@@ -182,6 +192,14 @@ class Voice:
             self._lost += seq - self._expect_seq
         self._expect_seq = max(self._expect_seq, seq + 1)
         self._buf += pcm
+        if self._endpointer is not None:
+            ended = self._endpointer.feed(pcm)
+            if ended == "no_speech":
+                await self._not_addressed(p, "nothing was said after the wake word")
+                return
+            if ended == "end":
+                await self.release(p)
+                return
         if len(self._buf) >= self.max_utterance_s * wire.UP_RATE * 2:
             await self.release(p)
 
@@ -193,7 +211,23 @@ class Voice:
             await self._cut(why or "voice is off")
 
     # ---- a turn ---------------------------------------------------------------------------------
-    async def press(self, p: Page) -> None:
+    async def wake(self, p: Page, msg: dict) -> None:
+        """The tablet heard "hey dubs". Like a press, except the service ends the utterance, and a
+        wake never cuts a reply: the page does not listen while the robot speaks, so a wake then is
+        the robot hearing itself."""
+        if not self.wake_enabled:
+            await p.text(wire.control("error", code="VOICE_NO_WAKE",
+                                      message="this service does not take wake turns; use Talk"))
+            return
+        why = wire.check_wake(msg)
+        if why:
+            await p.text(wire.control("error", code="VOICE_BAD_MESSAGE", message=why))
+            return
+        if self.state != "idle":
+            return
+        await self.press(p, source="wake", pre_roll_ms=msg.get("pre_roll_ms", 0))
+
+    async def press(self, p: Page, source: str = "talk", pre_roll_ms: float = 0) -> None:
         if not self.gate.on:
             await p.text(wire.control("turn", turn=None, status="off", why=self.gate.why))
             return
@@ -213,6 +247,8 @@ class Voice:
         self._buf = bytearray()
         self._expect_seq = self._lost = 0
         self._t_press = self.clock()
+        self._source = source
+        self._endpointer = vad.Endpointer(self.make_vad(), pre_roll_ms) if source == "wake" else None
         await self._set_state("listen")
         self._cap = asyncio.create_task(self._cap_timer(p, self.turn))
 
@@ -227,18 +263,46 @@ class Voice:
         self._cancel(self._cap)
         clip = bytes(self._buf)
         self._buf = bytearray()
+        self._endpointer = None
         self._played.clear()
         self._mark = len(self.history)            # this turn's entries start here
         await self._set_state("think")
-        self._task = asyncio.create_task(self._run_turn(p, self.turn, clip))
+        self._task = asyncio.create_task(self._run_turn(p, self.turn, clip, self._source))
 
-    async def _run_turn(self, p: Page, turn: int, clip: bytes) -> None:
+    async def _not_addressed(self, p: Page, why: str, turn: int | None = None, ms: dict | None = None) -> None:
+        """End a wake turn that was not one, SILENTLY: nothing spoken, nothing kept in the history."""
+        self._cancel(self._cap)
+        self._buf = bytearray()
+        self._endpointer = None
+        turn = self.turn if turn is None else turn
+        await p.text(wire.control("turn", turn=turn, status="not_addressed", source="wake", why=why,
+                                  transcript="", reply="", ms=ms or {}))
+        log.info("turn %d not addressed: %s", turn, why)
+        await self._set_state("idle")
+
+    async def _run_turn(self, p: Page, turn: int, clip: bytes, source: str = "talk") -> None:
         t_release = self.clock()
         ms = {"utterance": round(audio.duration_ms(clip, wire.UP_RATE))}
-        out = {"status": "ok", "transcript": "", "reply": ""}
+        out = {"status": "ok", "transcript": "", "reply": "", "source": source}
         speaker = Speaker(self, p, turn)
         try:
-            if not audio.has_speech(clip, wire.UP_RATE):
+            if source == "wake":
+                # A wake turn proceeds only if Parakeet heard the wake phrase at its start; the rest
+                # is the question. Anything else ends silently: a false wake never speaks.
+                rest = None
+                if audio.has_speech(clip, wire.UP_RATE):
+                    tr = await self.stt.transcribe(clip)
+                    ms["stt"] = round((self.clock() - t_release) * 1000)
+                    rest = wakeword.strip(tr.text)
+                if not rest:
+                    speaker.cancel()
+                    await self._not_addressed(p, "no wake phrase in the transcript" if rest is None
+                                              else "only the wake phrase was said", turn, ms)
+                    return
+                out["transcript"] = rest
+                await p.text(wire.control("heard", turn=turn, transcript=rest))
+                await self._answer(out, speaker, t_release, ms)
+            elif not audio.has_speech(clip, wire.UP_RATE):
                 out["status"] = "unintelligible"
                 speaker.say(SAY_AGAIN)
             else:
@@ -376,6 +440,7 @@ class Voice:
         """Stop the turn in flight now. The page drops queued audio on `stop`."""
         turn, owner = self.turn, self.owner
         self._cancel(self._cap)
+        self._endpointer = None
         task, self._task = self._task, None
         if task and not task.done():
             task.cancel()
@@ -427,7 +492,7 @@ class Voice:
             t.cancel()
 
     def _log(self, turn, out, ms, p: Page) -> None:
-        rec = {"turn": turn, "status": out["status"], "ms": ms, "lost_frames": self._lost,
+        rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
                "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", "")}
         if self.log_text:
             rec.update(transcript=out["transcript"], reply=out["reply"])
