@@ -119,3 +119,44 @@ def test_the_service_leaving_closes_the_page(monkeypatch):
         svc.q.put_nowait(None)                    # the service ends the stream
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
+
+
+def _wait(cond):
+    import time
+    for _ in range(100):
+        if cond():
+            return True
+        time.sleep(0.01)
+    return cond()
+
+
+def test_listening_follows_the_relayed_state_and_ends_with_the_socket(monkeypatch):
+    """The neck holds still while someone speaks; a lost socket must never leave it held."""
+    with _client(monkeypatch) as c:
+        with c.websocket_connect("/ws/voice") as ws:
+            ws.receive_text()
+            svc = FakeService.instances[0]
+            assert not voice_proxy.listening()
+            svc.q.put_nowait('{"type":"state","turn":1,"convo":"listen"}')
+            ws.receive_text()
+            assert _wait(voice_proxy.listening)
+            svc.q.put_nowait('{"type":"state","turn":1,"convo":"think"}')
+            ws.receive_text()
+            assert _wait(lambda: not voice_proxy.listening())
+            svc.q.put_nowait('{"type":"state","turn":2,"convo":"listen"}')
+            ws.receive_text()
+            assert _wait(voice_proxy.listening)
+        assert _wait(lambda: not voice_proxy.listening())      # the page left mid-utterance
+
+
+def test_a_stale_listen_stops_counting(monkeypatch):
+    with _client(monkeypatch) as c, c.websocket_connect("/ws/voice") as ws:
+        ws.receive_text()
+        svc = FakeService.instances[0]
+        svc.q.put_nowait('{"type":"state","turn":1,"convo":"listen"}')
+        ws.receive_text()
+        assert _wait(voice_proxy.listening)
+        real = voice_proxy.time.monotonic
+        monkeypatch.setattr(voice_proxy.time, "monotonic",
+                            lambda: real() + voice_proxy.DEFAULT_MAX_UTTERANCE_S + voice_proxy.LISTEN_SLACK_S + 1)
+        assert not voice_proxy.listening()

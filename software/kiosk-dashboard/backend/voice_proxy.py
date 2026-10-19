@@ -20,6 +20,12 @@ What this route adds, and only this:
 When either side goes, the other is closed, so a page that leaves always ends its turn in the
 service, and the service's own rules (one conversation, voice off during shows) apply.
 
+**`listening()`**, for the rest of the dashboard: true while the service's latest `state` on any
+relayed socket is `listen`, that is while someone is speaking to the robot. The neck holds still
+then (neck_follow): servo noise hurts speech recognition, and a held gaze reads better. It can never
+freeze anything: a socket that closes, from either side, stops counting, and a `listen` older than
+the service's utterance cap plus LISTEN_SLACK_S counts as over.
+
 Owned by the Voice lane (CLAUDE.md "Lanes"); app.py includes the router.
 """
 from __future__ import annotations
@@ -27,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 
 from fastapi import APIRouter, WebSocket
 
@@ -36,6 +43,33 @@ router = APIRouter()
 
 VOICE_URL = os.environ.get("OPENDUBS_VOICE_URL", "ws://127.0.0.1:8093")
 MAX_FRAME = 64 * 1024
+LISTEN_SLACK_S = 2.0
+DEFAULT_MAX_UTTERANCE_S = 15.0          # until the service's `ready` says otherwise
+
+_listen: dict[int, tuple[float, float]] = {}   # relayed socket -> (when `listen` began, its cap in s)
+
+
+def listening() -> bool:
+    """True while someone is speaking to the robot through a relayed socket (see the docstring)."""
+    now = time.monotonic()
+    return any(now - since <= cap + LISTEN_SLACK_S for since, cap in list(_listen.values()))
+
+
+def _watch(key: int, msg: str, cap: list) -> None:
+    """Note a service control frame that bears on listening(); everything else passes unread."""
+    if '"state"' not in msg and '"ready"' not in msg:
+        return
+    try:
+        m = json.loads(msg)
+    except ValueError:
+        return
+    if m.get("type") == "ready" and isinstance(m.get("max_utterance_s"), (int, float)):
+        cap[0] = float(m["max_utterance_s"])
+    elif m.get("type") == "state":
+        if m.get("convo") == "listen":
+            _listen.setdefault(key, (time.monotonic(), cap[0]))
+        else:
+            _listen.pop(key, None)
 
 
 async def _connect(url: str):
@@ -57,6 +91,8 @@ async def voice_relay(socket: WebSocket) -> None:
         await socket.close(code=1013)
         return
 
+    key, cap = id(socket), [DEFAULT_MAX_UTTERANCE_S]
+
     async def to_page():
         """The service's frames to the page; when the service ends the stream, close the page."""
         try:
@@ -64,9 +100,11 @@ async def voice_relay(socket: WebSocket) -> None:
                 if isinstance(msg, bytes):
                     await socket.send_bytes(msg)
                 else:
+                    _watch(key, msg, cap)
                     await socket.send_text(msg)
         except Exception:
             pass
+        _listen.pop(key, None)                        # the service went: nobody is being listened to
         try:
             await socket.close()
         except Exception:
@@ -88,6 +126,7 @@ async def voice_relay(socket: WebSocket) -> None:
     except Exception:        # the page went (WebSocketDisconnect), or the service did: the pump closes the page
         pass
     finally:
+        _listen.pop(key, None)                        # the page went
         pump.cancel()
         try:
             await up.close()
