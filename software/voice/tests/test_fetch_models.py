@@ -67,6 +67,8 @@ class Fetch(unittest.TestCase):
                                      f"https://huggingface.co/org/name/resolve/{'a' * 40}/sub/small.json"])
         with open(os.path.join(self.dest, "m", "sub", "small.json"), "rb") as f:
             self.assertEqual(f.read(), self.files["small.json"])
+        for name in ("big.bin", "sub/small.json"):       # readable by the non-root voice container
+            self.assertEqual(os.stat(os.path.join(self.dest, "m", name)).st_mode & 0o777, 0o644)
         self.assertTrue(os.path.exists(os.path.join(self.dest, "NOTICE.md")))   # credits travel with the weights
         # a second run fetches nothing, and --check passes
         self.assertEqual(fm.fetch(self.dest, [self.model], get=self.get, log=lambda *a: None), 0)

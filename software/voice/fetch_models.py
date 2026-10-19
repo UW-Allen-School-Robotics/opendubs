@@ -105,6 +105,7 @@ def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False,
                 get(url, tmp)
                 verify(tmp, spec)
                 os.replace(tmp, path)
+                os.chmod(path, 0o644)   # mkstemp made it 0600; the voice container reads as a non-root user
             finally:
                 if os.path.exists(tmp):
                     os.unlink(tmp)
