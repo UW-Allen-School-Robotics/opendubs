@@ -29,6 +29,10 @@ class MyCustomInterpolationPlanner(MotionPlannerBackend):
         self.collision_checker = collision_checker
         self.steps = steps
 
+    @property
+    def name(self) -> str:
+        return "custom_linear_interp"
+
     def plan(
         self,
         q_start: np.ndarray,
