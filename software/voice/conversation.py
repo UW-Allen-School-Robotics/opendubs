@@ -21,7 +21,13 @@ Rules carried from the head voice plan and the voice note:
   answered `off`.
 - **Nothing is kept.** No audio is stored. The conversation history lives in memory and is cleared
   when the conversation ends (a goodbye, CONVO_IDLE_S of quiet, or the page leaving). Transcripts
-  are not logged unless OPENDUBS_VOICE_LOG_TEXT=1 (desk debugging only).
+  are not logged unless OPENDUBS_VOICE_LOG_TEXT=1 (desk debugging only). Each turn's log line
+  carries the clip's shape (levels, where speech starts and ends, `audio.shape`), never its words.
+- **A recording session is opt-in, per robot, and temporary.** OPENDUBS_VOICE_RECORD_DIR, set in
+  voice.env only for a test session the speakers agreed to, writes each turn's uplink (raw s16le,
+  16 kHz) and what was heard and said beside it, at most RECORD_MAX_TURNS turns. run.sh gives the
+  container only a tmpfs /tmp, so a recording lives in memory and is gone when the container
+  restarts; copy it out with `docker exec opendubs-voice tar c -C <dir> .`.
 """
 from __future__ import annotations
 
@@ -49,6 +55,7 @@ GIVE_UP_S = 10.0          # still nothing: apologise and drop the turn
 TURN_CAP_S = 30.0         # a brain that starts and then stalls is cut here
 PLAYED_GRACE_S = 2.0      # after the audio's length, idle even if the page never says `played`
 MAX_ROUNDS = 3            # model rounds per turn (a tool result, then the rest of the answer)
+RECORD_MAX_TURNS = 200   # a recording session's cap: 15 s turns, ~100 MB of tmpfs at most
 MAX_HISTORY_TURNS = 6     # questions kept in a conversation; the local brain's context is 8,192 tokens
 
 SAY_AGAIN = "Sorry, could you say that again?"
@@ -107,6 +114,8 @@ class Voice:
         self.slow_s, self.give_up_s, self.turn_cap_s = slow_s, give_up_s, turn_cap_s
         self.played_grace_s = played_grace_s
         self.log_text = os.environ.get("OPENDUBS_VOICE_LOG_TEXT") == "1"
+        self.record_dir = os.environ.get("OPENDUBS_VOICE_RECORD_DIR") or None
+        self._recorded = 0
 
         self.pages: dict[int, Page] = {}
         self.owner: Page | None = None
@@ -195,6 +204,9 @@ class Voice:
         if self._endpointer is not None:
             ended = self._endpointer.feed(pcm)
             if ended == "no_speech":
+                clip = bytes(self._buf)
+                self._record(self.turn, clip, {"status": "not_addressed", "source": "wake"}, "",
+                             audio.shape(clip, wire.UP_RATE), {})
                 await self._not_addressed(p, "nothing was said after the wake word")
                 return
             if ended == "end":
@@ -284,6 +296,8 @@ class Voice:
         t_release = self.clock()
         ms = {"utterance": round(audio.duration_ms(clip, wire.UP_RATE))}
         out = {"status": "ok", "transcript": "", "reply": "", "source": source}
+        shape = audio.shape(clip, wire.UP_RATE)
+        heard = ""                                    # what Parakeet wrote, before the wake phrase is stripped
         speaker = Speaker(self, p, turn)
         try:
             if source == "wake":
@@ -293,9 +307,11 @@ class Voice:
                 if audio.has_speech(clip, wire.UP_RATE):
                     tr = await self.stt.transcribe(clip)
                     ms["stt"] = round((self.clock() - t_release) * 1000)
+                    heard = tr.text
                     rest = wakeword.strip(tr.text)
                 if not rest:
                     speaker.cancel()
+                    self._record(turn, clip, {**out, "status": "not_addressed"}, heard, shape, ms)
                     await self._not_addressed(p, "no wake phrase in the transcript" if rest is None
                                               else "only the wake phrase was said", turn, ms)
                     return
@@ -308,6 +324,7 @@ class Voice:
             else:
                 tr = await self.stt.transcribe(clip)
                 ms["stt"] = round((self.clock() - t_release) * 1000)
+                heard = tr.text
                 out["transcript"] = tr.text.strip()
                 if not out["transcript"]:
                     out["status"] = "unintelligible"
@@ -321,7 +338,8 @@ class Voice:
             ms["turn"] = round((self.clock() - t_release) * 1000)
             await p.text(wire.control("tts_end", turn=turn, audio_ms=round(audio_ms)))
             await p.text(wire.control("turn", turn=turn, **out, ms=ms))
-            self._log(turn, out, ms, p)
+            self._log(turn, out, ms, p, shape)
+            self._record(turn, clip, out, heard, shape, ms)
             if audio_ms > 0:
                 try:
                     await asyncio.wait_for(self._played.wait(), audio_ms / 1000 + self.played_grace_s)
@@ -486,14 +504,32 @@ class Voice:
     def _drop_turn(self) -> None:
         del self.history[self._mark:]
 
+    def _record(self, turn, clip: bytes, out: dict, heard: str, shape: dict, ms: dict) -> None:
+        """A recording session only (OPENDUBS_VOICE_RECORD_DIR): the turn's uplink and a note of it."""
+        if not self.record_dir or self._recorded >= RECORD_MAX_TURNS:
+            return
+        try:
+            os.makedirs(self.record_dir, exist_ok=True)
+            base = os.path.join(self.record_dir, f"{time.strftime('%H%M%S')}-{turn:04d}-{out.get('source', 'talk')}")
+            with open(base + ".s16le", "wb") as f:
+                f.write(clip)
+            with open(base + ".json", "w") as f:
+                json.dump({"turn": turn, "status": out["status"], "source": out.get("source", "talk"),
+                           "rate": wire.UP_RATE, "heard": heard, "reply": out.get("reply", ""),
+                           "audio": shape, "ms": ms}, f)
+            self._recorded += 1
+        except OSError as e:
+            log.warning("recording turn %s failed: %s", turn, e)
+
     @staticmethod
     def _cancel(t: asyncio.Task | None) -> None:
         if t and not t.done() and t is not asyncio.current_task():
             t.cancel()
 
-    def _log(self, turn, out, ms, p: Page) -> None:
+    def _log(self, turn, out, ms, p: Page, shape: dict | None = None) -> None:
         rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
-               "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", "")}
+               "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", ""),
+               "audio": shape or {}, "words": len(out["transcript"].split())}
         if self.log_text:
             rec.update(transcript=out["transcript"], reply=out["reply"])
         log.info("turn %s", json.dumps(rec))
