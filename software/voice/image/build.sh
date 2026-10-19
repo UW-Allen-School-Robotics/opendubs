@@ -1,37 +1,46 @@
 #!/bin/bash
 # build.sh — build the opendubs-voice image from pinned inputs. Plan: notes/workplan-voice.md 1.6.
 #
-#   build.sh          the CPU image, FROM ROS_BASE_IMAGE: Parakeet and Kokoro on the CPU, CPU
-#                     PyTorch; the local language model runs in its own container (run-llm.sh)
-#   build.sh --gpu    FROM ISAAC_ROS_BASE_IMAGE, PyTorch from that base, if gate L-4 needs the GPU.
-#                     Refuses until the Thor stack lane has pinned that base.
+#   build.sh          the GPU variant (default): FROM VOICE_LLM_IMAGE, the pinned vLLM image, whose
+#                     CUDA PyTorch runs Kokoro on the Thor's GPU. Thor only (sbsa, CUDA 13)
+#   build.sh --cpu    FROM ROS_BASE_IMAGE with CPU PyTorch; runs on any JetPack line or Orin, but
+#                     Kokoro on the CPU misses gate L-4 (1 to 2 s a sentence)
 #   build.sh --context DIR --tag opendubs-voice:NAME
 #                     build from a prepared directory with the repository's layout (the deploy, on
-#                     a robot with no .git). NAME should be the same tree-hash tag a checkout gets:
-#                       $(git rev-parse --short=12 HEAD:software/voice)-$(git rev-parse --short=8 HEAD:software/head-protocol/head_protocol.py)
+#                     a robot with no .git). NAME must be the same tag a checkout gets (below)
 #   --dry-run         print the docker build command and stop
+#
+# THE TAG names exactly what the image is built from, so a change to any input, and only that,
+# rebuilds it:
+#   opendubs-voice:<software/voice tree, 12>-<head_protocol.py blob, 8>-<base digest, 8>
+#     voice tree   git rev-parse --short=12 HEAD:software/voice
+#     protocol     git rev-parse --short=8 HEAD:software/head-protocol/head_protocol.py
+#     base         the first 8 hex of the base image's sha256 digest: VOICE_LLM_IMAGE by default,
+#                  ROS_BASE_IMAGE with --cpu (so the two variants never share a tag)
+#
+# NEVER PUSH THE IMAGE. The GPU variant contains NVIDIA's CUDA libraries from the vLLM base, under
+# NVIDIA's terms: it is built on each robot and never pushed to a registry, bundled or shipped.
 #
 # Either way the image's last step is check_no_gpl.py, and it contains no model weights.
 #
 # REFUSES when the base in software/stack/versions.env is empty or tag-only (no @sha256:). There is
 # no fallback to :latest: an image that cannot be rebuilt identically is not deployable.
 # From a checkout it builds the COMMITTED tree only (git archive of HEAD), so an uncommitted edit
-# cannot reach an image, and tags it with the hashes of its inputs (the software/voice tree and
-# head_protocol.py), so an unrelated commit never forces a multi-GB rebuild.
+# cannot reach an image.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
 MANIFEST=${OPENDUBS_VERSIONS:-$ROOT/software/stack/versions.env}
 die() { echo "build.sh: $*" >&2; exit 1; }
 
-KEY=ROS_BASE_IMAGE; TORCH=cpu; CONTEXT=""; TAG=""; DRY=0
+KEY=VOICE_LLM_IMAGE; VARIANT=gpu; TTS_DEVICE=cuda; CONTEXT=""; TAG=""; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --gpu)     KEY=ISAAC_ROS_BASE_IMAGE; TORCH=base ;;
+    --cpu)     KEY=ROS_BASE_IMAGE; VARIANT=cpu; TTS_DEVICE=cpu ;;
     --context) CONTEXT=${2:?--context needs a directory}; shift ;;
     --tag)     TAG=${2:?--tag needs a name}; shift ;;
     --dry-run) DRY=1 ;;
-    *)         die "usage: build.sh [--gpu] [--context DIR --tag opendubs-voice:NAME] [--dry-run]" ;;
+    *)         die "usage: build.sh [--cpu] [--context DIR --tag opendubs-voice:NAME] [--dry-run]" ;;
   esac
   shift
 done
@@ -55,7 +64,8 @@ else
   # copies. An unrelated commit leaves both hashes, and so the image, unchanged.
   VOICE=$(git -C "$ROOT" rev-parse --short=12 HEAD:software/voice)
   PROTO=$(git -C "$ROOT" rev-parse --short=8 HEAD:software/head-protocol/head_protocol.py)
-  TAG=opendubs-voice:$VOICE-$PROTO
+  BASE8=${BASE##*@sha256:}; BASE8=${BASE8:0:8}
+  TAG=opendubs-voice:$VOICE-$PROTO-$BASE8
   if [ -n "$(git -C "$ROOT" status --porcelain -- software/voice software/head-protocol)" ]; then
     echo "build.sh: note: uncommitted changes under software/voice or software/head-protocol are NOT in this image" >&2
   fi
@@ -63,10 +73,9 @@ else
   trap 'rm -rf "$CTX"' EXIT
   git -C "$ROOT" archive HEAD software/voice software/head-protocol/head_protocol.py | tar -x -C "$CTX"
 fi
-[ "$KEY" = ISAAC_ROS_BASE_IMAGE ] && TAG=$TAG-gpu
 [[ "$TAG" =~ ^opendubs-voice:[A-Za-z0-9_.-]+$ ]] || die "tag must look like opendubs-voice:NAME, not '$TAG'"
 
-CMD=(docker build --build-arg "BASE_IMAGE=$BASE" --build-arg "TORCH=$TORCH"
+CMD=(docker build --build-arg "BASE_IMAGE=$BASE" --build-arg "VARIANT=$VARIANT" --build-arg "TTS_DEVICE=$TTS_DEVICE"
      -f "$CTX/software/voice/image/Dockerfile.voice" -t "$TAG" "$CTX")
 if [ "$DRY" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo

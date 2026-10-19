@@ -17,7 +17,8 @@
 # container unless every pinned file is there and verifies (fetch_models.py --check, run in the
 # image itself), so a robot never boots into a voice that cannot speak.
 #
-# Hardened: read-only root filesystem, no capabilities, no new privileges, a non-root user.
+# Hardened: read-only root filesystem, no capabilities, no new privileges, a non-root user. The GPU
+# variant (label opendubs.voice.variant=gpu) also gets --runtime nvidia, and nothing else.
 set -euo pipefail
 die() { echo "run.sh: $*" >&2; exit 1; }
 NAME=opendubs-voice
@@ -45,10 +46,15 @@ if [ -e "$ENVFILE" ]; then
 fi
 
 [ -d "$MODELS" ] || die "no model directory $MODELS. Fetch the pinned weights first:
-  sudo mkdir -p $MODELS && docker run --rm --user 0 -v $MODELS:/models $IMAGE /opt/voice/venv/bin/python -I /opt/voice/app/fetch_models.py --dest /models"
+  sudo mkdir -p $MODELS && docker run --rm --user 0 -v $MODELS:/models $IMAGE /opt/voice/python -I /opt/voice/app/fetch_models.py --dest /models"
 docker run --rm --network none -v "$MODELS:/models:ro" "$IMAGE" \
-  /opt/voice/venv/bin/python -I /opt/voice/app/fetch_models.py --dest /models --check \
+  /opt/voice/python -I /opt/voice/app/fetch_models.py --dest /models --check \
   || die "the weights in $MODELS do not match models.lock.json (see above); re-run fetch_models.py"
+
+# The GPU variant (build.sh's default) needs the NVIDIA runtime; the image says which it is.
+RUNTIME=()
+VARIANT=$(docker image inspect -f '{{index .Config.Labels "opendubs.voice.variant"}}' "$IMAGE" 2>/dev/null || true)
+[ "$VARIANT" = gpu ] && RUNTIME=(--runtime nvidia)
 
 if docker inspect "$NAME" >/dev/null 2>&1; then
   [ "$REPLACE" = 1 ] || die "a '$NAME' container already exists; pass --replace to remove it"
@@ -56,6 +62,7 @@ if docker inspect "$NAME" >/dev/null 2>&1; then
 fi
 
 docker run -d --name "$NAME" \
+  "${RUNTIME[@]}" \
   --network host \
   --restart unless-stopped \
   --read-only --tmpfs /tmp \
@@ -64,4 +71,4 @@ docker run -d --name "$NAME" \
   --log-opt max-size=10m --log-opt max-file=3 \
   "${ENVARGS[@]}" \
   "$IMAGE"
-echo "run.sh: $NAME started from $IMAGE"
+echo "run.sh: $NAME started from $IMAGE (${VARIANT:-cpu} variant)"

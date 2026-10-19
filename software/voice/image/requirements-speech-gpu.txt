@@ -1,0 +1,15 @@
+# Speech for the GPU variant, which builds FROM the vLLM image: that base already has CUDA PyTorch,
+# transformers, numpy, huggingface-hub, tokenizers and safetensors, and install-python.sh keeps them
+# exactly as they are (a constraints file from the base). Only what the voice adds is listed here.
+# ENGLISH ONLY, NO GPL: the same rule as requirements-speech.txt; kokoro and misaki come from
+# requirements-speech-nodeps.txt with --no-deps.
+
+sherpa-onnx==1.13.8
+loguru==0.7.3
+attrs==26.1.0
+addict==2.4.0
+regex==2026.9.29
+spacy==3.8.16
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# LGPL-2.1, reviewed and allowed (check_no_gpl.py ALLOWED_LGPL)
+num2words==0.5.14

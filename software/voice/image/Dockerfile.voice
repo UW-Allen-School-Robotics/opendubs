@@ -5,11 +5,17 @@
 # Do not build this directly. build.sh reads the base from software/stack/versions.env (pinned by
 # digest, never a tag) and passes it in. The build context is the repository root.
 #
-# Speech runs on the CPU first: Parakeet (int8 ONNX, sherpa-onnx) and Kokoro (CPU PyTorch). So the
-# image builds FROM the pinned plain ROS base (ROS_BASE_IMAGE), as every CPU-only module does (Thor
-# stack plan, T-1 wording, 2026-10-09), and runs unchanged on JetPack 7.1, 7.2 and Orin. If gate L-4
-# shows the GPU is needed, `build.sh --gpu` builds FROM the Isaac ROS base with TORCH=base, taking
-# CUDA PyTorch from that base instead of the CPU wheel.
+# Two variants (install-python.sh), chosen by build.sh:
+#   gpu (default)  FROM the pinned vLLM image (VOICE_LLM_IMAGE): CUDA PyTorch for the Thor, layers
+#                  shared with opendubs-llm. Kokoro on the GPU: about 0.1 s a sentence, against 1 to
+#                  2 s on the CPU, which missed gate L-4 (measured on opendubs2, 2026-10-19). Thor
+#                  only (sbsa, CUDA 13). A departure from T-1's Isaac ROS base, accepted by the Thor
+#                  stack lane while that base is unpinned.
+#   cpu (--cpu)    FROM the pinned plain ROS base (ROS_BASE_IMAGE): CPU PyTorch; runs on any line.
+#
+# NEVER PUSH THIS IMAGE. The gpu variant contains NVIDIA's CUDA libraries from the vLLM base, under
+# NVIDIA's terms, like the vLLM image itself: it is built on each robot and never pushed to a
+# registry, bundled or shipped.
 #
 # ENGLISH ONLY, NO GPL (the project team, 2026-10-14). kokoro and misaki are installed with
 # --no-deps so misaki's [en] extra (phonemizer, espeak-ng) never comes in, and the LAST step runs
@@ -26,17 +32,11 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3-venv \
- && rm -rf /var/lib/apt/lists/*
-
-ARG TORCH=cpu
-COPY software/voice/image/requirements*.txt /opt/voice/
-RUN python3 -m venv $([ "$TORCH" = base ] && echo --system-site-packages) /opt/voice/venv \
- && if [ "$TORCH" = cpu ]; then /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements-torch-cpu.txt; fi \
- && /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements-speech.txt \
- && /opt/voice/venv/bin/pip install --no-cache-dir --no-deps -r /opt/voice/requirements-speech-nodeps.txt \
- && /opt/voice/venv/bin/pip install --no-cache-dir -r /opt/voice/requirements.txt
+ARG VARIANT=cpu
+ARG TTS_DEVICE=cpu
+USER root
+COPY software/voice/image/requirements*.txt software/voice/image/install-python.sh /opt/voice/
+RUN sh /opt/voice/install-python.sh "$VARIANT"
 
 # The protocol's vocabularies, which safe_tools reads so the allowlist cannot drift from the face.
 COPY software/head-protocol/head_protocol.py /opt/voice/app/head_protocol.py
@@ -44,13 +44,18 @@ COPY software/voice/*.py software/voice/persona.txt software/voice/models.lock.j
 COPY software/voice/image/check_no_gpl.py /opt/voice/check_no_gpl.py
 
 # The gate: refuse the image if any GPL package, espeak-ng library or espeak-ng data is in it.
-RUN /opt/voice/venv/bin/python -I /opt/voice/check_no_gpl.py
+RUN /opt/voice/python -I /opt/voice/check_no_gpl.py
 
 # Not "voice": Ubuntu already has a system group of that name (gid 22, the audio-device group), and
 # useradd's own-group default collides with it ("group voice exists"; found on the first robot build).
 RUN useradd --system --uid 10093 --home-dir /nonexistent --shell /usr/sbin/nologin opendubs-voice
 USER opendubs-voice
+LABEL opendubs.voice.variant=$VARIANT
+# Every cache variable a base may set points at the mounted, pinned weights or a tmpfs: the vLLM base
+# sets TRANSFORMERS_CACHE and HUGGINGFACE_HUB_CACHE, which transformers prefers over HF_HUB_CACHE.
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OPENDUBS_VOICE_PORT=8093 \
-    OPENDUBS_VOICE_MODELS=/models HF_HUB_CACHE=/models/hf/hub HF_HUB_OFFLINE=1 \
-    XDG_CACHE_HOME=/tmp VOICE_STT=parakeet VOICE_TTS=kokoro
-CMD ["/opt/voice/venv/bin/python", "/opt/voice/app/server.py"]
+    OPENDUBS_VOICE_MODELS=/models HF_HUB_OFFLINE=1 \
+    HF_HUB_CACHE=/models/hf/hub HUGGINGFACE_HUB_CACHE=/models/hf/hub TRANSFORMERS_CACHE=/models/hf/hub \
+    HF_HOME=/tmp/hf TORCH_HOME=/tmp/torch XDG_CACHE_HOME=/tmp \
+    VOICE_STT=parakeet VOICE_TTS=kokoro VOICE_TTS_DEVICE=$TTS_DEVICE
+CMD ["/opt/voice/python", "/opt/voice/app/server.py"]
