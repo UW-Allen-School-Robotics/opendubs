@@ -62,37 +62,60 @@ side needs three steps: the certificate and `www-ssl`, the `netmon` group and us
 - Every 5 s it reads §1 and probes from the Thor itself: ping the router, ping the uplink gateway,
   resolve a name, fetch an HTTPS URL, and do a captive-portal check (an HTTP request that should
   answer 204; a redirect or a page means a portal).
-- It writes **`/run/opendubs/network.json`** atomically (write, then rename). Readers need no
-  credentials and no network access of their own.
-- It appends uplink events to **`/var/lib/opendubs/network/events.jsonl`**: association, loss,
-  change of AP, DHCP change and probe failures, capped at a few thousand lines. This is the history
-  the router loses on reboot.
+- It writes **`/run/opendubs-network/network.json`** atomically (write, then rename). Readers need
+  no credentials and no network access of their own.
+- It appends uplink events to **`/var/lib/opendubs-network/events.jsonl`**: the uplink lost,
+  reassociated (including a change of access point, which catches a drop shorter than a poll),
+  back, or switched between wired and Wi-Fi, and the internet lost or back. The file is capped at
+  5000 lines. This is the history the router loses on reboot.
 - It never writes to the router. If the router is unreachable, it says so in the file and keeps
   probing.
+- **Built:** [`tools/network/netmon.py`](../../tools/network/netmon.py) and
+  `opendubs-netmon.service` (2026-10-20). The router is read every 5 s; the internet probes run
+  every 15 s.
 
 ## 4. The contract for the dashboard (for the Tablet lane)
 
-**Proposal:** the dashboard's `status.collect_slow()` adds **`status.net.uplink`**, read from
-`/run/opendubs/network.json`. The `status` block is already pushed to the page about once a second
-and already has `net.wired` and `net.wifi` for the Thor's own links. If the file is missing or
-older than 15 s, the field says `"state": "UNKNOWN"`. There is no new endpoint and no router
-access from the dashboard.
+The dashboard's `status.collect_slow()` reads `/run/opendubs-network/network.json` and adds:
+- **`status.net.uplink`**: the file's `uplink` object, plus `age_s` (now − the file's `ts`);
+- **`status.net.robot_wifi`**: the file's `robot_wifi` list.
+
+If the file is missing, or `age_s` is over 15, the uplink is `{"state": "UNKNOWN", "say": "No
+network data"}`. The `status` block already reaches the page about once a second, next to
+`net.wired` and `net.wifi` for the Thor's own links. There is no new endpoint, and the dashboard
+never talks to the router.
+
+**What the page shows (D-1, the user's request):** the uplink's `state` as a coloured badge, the
+`say` line, and `signal_dbm`. The tablet's own link strength comes from finding the tablet's own
+IP address (the request's client address) in `robot_wifi`.
+
+A real example is [`tools/network/sample-network.json`](../../tools/network/sample-network.json),
+built from 2026-10-19's readings. The fields:
 
 ```jsonc
-"uplink": {
-  "state": "WEAK",                  // GOOD | WEAK | BUSY | CAPTIVE | DOWN | NO_ROUTER | UNKNOWN
-  "say": "Uplink weak: −81 dBm on UW MPSK", // one operator-readable line; the page shows it as is
-  "via": "wifi",                    // wifi | wired | none
-  "network": "UW MPSK",             // the SSID, or "wired"
-  "signal_dbm": -81, "snr_db": 25, "ccq_pct": 87,
-  "rate_mbps": 43,                  // the router's own throughput estimate (p-throughput)
-  "down_mbps": 31.2, "up_mbps": 1.1,// measured over the last poll
-  "since_s": 6120,                  // time since this association (or since the wired link came up)
-  "drops_24h": 2,                   // uplink losses in the last 24 h, from the poller's history
-  "internet": true,                 // the HTTPS probe passed
-  "latency_ms": 12,                 // ping to the uplink gateway
-  "clients": 5,                     // devices on the robot's own Wi-Fi
-  "age_s": 2.1                      // age of the poller's file
+{
+ "ts": 1760900005.0,                 // when the poller wrote it (Unix seconds, the Thor's clock)
+ "router": {"ok": true, "uptime_s": 11410, "cpu_pct": 6, "version": "7.20.7 (long-term)"},
+ "uplink": {
+  "state": "WEAK",                   // GOOD | WEAK | BUSY | CAPTIVE | DOWN | NO_ROUTER (UNKNOWN: added by the reader)
+  "say": "Uplink weak: -83 dBm on UW MPSK", // one operator line; show it as is
+  "via": "wifi",                     // wifi | wired | none
+  "network": "UW MPSK",              // the SSID, "wired", or null if unknown
+  "ap": "AC:23:16:ED:A5:91",         // the campus access point, while on Wi-Fi
+  "associated": true,
+  "signal_dbm": -83, "snr_db": 25, "ccq_pct": null,   // null on a wired uplink, or when not reported
+  "rate_mbps": 52.0,                 // the radio's receive rate (PHY); real throughput is ~50–65 % of it
+  "down_mbps": 4.8, "up_mbps": 0.64, // measured since the last poll; null on the first
+  "since_s": 6216,                   // time since this association
+  "address": "10.19.194.172/15", "gateway": "10.18.0.1",
+  "clients": 2,                      // devices on the robot's own Wi-Fi
+  "drops_24h": 2,                    // uplink losses and reassociations in the last 24 h
+  "internet": true, "captive": false,// from the probes
+  "latency_ms": 11.8                 // ping to the uplink gateway; null if it doesn't answer ping
+ },
+ "robot_wifi": [                     // strongest first
+  {"name": "Galaxy-Tab-A11", "ip": "10.42.2.13", "signal_dbm": -48, "ccq_pct": 83, "connected_s": 11328}
+ ]
 }
 ```
 
@@ -103,11 +126,11 @@ access from the dashboard.
 | `NO_ROUTER` | The Thor can't reach the router | Check the router's power and the Thor's cable |
 | `DOWN` | No association or wired link, no uplink address, or the HTTPS probe has failed 3 times in a row | Read the `say` line; move the robot or plug in |
 | `CAPTIVE` | The captive-portal probe gets a redirect or a page | Open any page from a device on the robot Wi-Fi and accept the portal |
-| `BUSY` | Downstream traffic above 80 % of `rate_mbps` for 10 s, or queue drops climbing | Expect slow cloud features; something is downloading |
+| `BUSY` | Downstream traffic above half of `rate_mbps` (the radio's PHY rate) for two polls in a row, about 10 s. On 2026-10-19 a full link ran at 31 of 52 Mbit/s | Expect slow cloud features; something is downloading |
 | `WEAK` | Signal below −75 dBm, or SNR below 20 dB | Expect drops; move the robot if it matters |
 | `GOOD` | Otherwise | — |
 
-The thresholds are a first guess and are tuned on the robot. The page needs only `state` and
+The thresholds are a first guess, to be tuned on the robot (`netmon.py` has them at the top). The page needs only `state` and
 `say`; the numbers are for a details view if the Tablet lane wants one.
 
 ## 5. The diagnostic: `netdiag`
@@ -130,7 +153,7 @@ would fill the link, and it never writes to the router.
 
 ## 6. Where it lives
 
-The Network lane's path **`tools/network/`** (CLAUDE.md "Lanes"), holding the poller, `netdiag`, the systemd unit,
+The Network lane's path **`tools/network/`** (CLAUDE.md "Lanes"), holding the poller, `netdiag`, `netjoin`, the systemd unit,
 and tests for the state rules only. Installing the unit and the env file's directory goes through
 the Thor lane's deploy scripts (`deploy-all.sh`, `provision-all.sh`). The dashboard change in §4
 is the Tablet lane's: about ten lines in `status.py` and a line on the page.

@@ -1,7 +1,7 @@
 # Work plan — network: the robot router, its Wi-Fi and its campus uplink
 
-**DRAFT, 2026-10-19, written by the Network lane. Not yet agreed.** Once it is, it becomes the plan
-of record and finished items are struck through with a date, as in
+**Written by the Network lane, 2026-10-19; the user's decisions of 2026-10-20 are recorded at the
+end.** Items not yet decided stay drafts. Finished items are struck through with a date, as in
 [`workplan-tablet.md`](workplan-tablet.md). Only the Network lane edits this file (CLAUDE.md
 "Lanes", rule 3); findings from other lanes come as messages.
 
@@ -180,8 +180,8 @@ from the Thor only, with a dedicated read-only account whose password lives in
 | # | Item | Effort | Needs |
 |---|---|---|---|
 | A-1 | Router side: a self-signed certificate and `www-ssl`, a `netmon` group (`read`, `rest-api` only) and user limited to the Thor's address | 15 min | The user's word, someone at the robot; done with H-2/H-4 |
-| A-2 | `opendubs-netmon` poller in `tools/network/`: reads the router every 5 s, probes from the Thor, writes `/run/opendubs/network.json`, and keeps the uplink history the router loses on reboot | A day | Install hook in the Thor lane's deploy scripts |
-| A-3 | `netdiag`: one command on the Thor that names the first failing layer | Half a day, after A-2 | — |
+| A-2 | `opendubs-netmon` poller in `tools/network/`: reads the router every 5 s, probes from the Thor, writes `/run/opendubs-network/network.json`, and keeps the uplink history the router loses on reboot. **Built 2026-10-20**, not yet deployed | A day | Install hook in the Thor lane's deploy scripts |
+| A-3 | `netdiag`: one command on the Thor that names the first failing layer. **Built 2026-10-20** | Half a day, after A-2 | — |
 | A-4 | The dashboard's `status.net.uplink` field and a one-line display, built from the contract in the design note §4 | Tablet lane | Relayed by the orchestrator |
 
 ## J — joining other networks (taking the robot off campus)
@@ -195,7 +195,7 @@ robot's Wi-Fi must stay 2.4 GHz for its ESP32 devices. So a hotspot must be set 
 |---|---|---|---|
 | J-1 | Turn the uplink into saved networks with a priority order (the station's connect list; the interface SSID left empty), starting with UW MPSK and the team's hotspot | 15 min at the robot | None: the LAN side is untouched |
 | J-2 | Make a cable win: `ether1` route distance 1, `wlan2` distance 2, with gateway checking | 5 min | None |
-| J-3 | `netjoin` in `tools/network/`: add, list, prefer, disable, remove and scan saved networks from the Thor. The operator types the router admin password each time; no write credential is stored on the robot | A day | None (it touches only its own tagged entries) |
+| J-3 | `netjoin` in `tools/network/`: add, list, prefer, disable, remove and scan saved networks from the Thor. The operator types the router admin password each time; no write credential is stored on the robot. **Built 2026-10-20**; first use at the robot | A day | None (it touches only its own tagged entries) |
 | J-4 | Bring a 5 GHz hotspot setting and a short cable in the travel kit; record each venue's registration needs in the venue's entry comment | — | — |
 
 ## E — eduroam, and UW's rule on onboard access points
@@ -214,15 +214,86 @@ points without a UW-IT exemption** (KB0034266), and the robot's router is one.
 
 ---
 
-## Decisions for the user
+## Decisions
 
-| # | Decision | Recommendation |
+Taken by the user on 2026-10-20 unless marked otherwise. "At the robot" means the next session with
+the user's word and a person there (lane rule 1). Nothing is applied from a desk.
+
+| # | Decision | Outcome |
 |---|---|---|
-| D-1 | Which uplink path to pursue | U-1 (reposition) now; then U-3 at a dock, or U-4 for roaming |
-| D-2 | When to do the at-robot sitting for U-5/U-6 and H-0/H-1/H-5/H-6 (~25 min, no lockout risk, the tablet drops for seconds) | The next time someone is at the robot with nothing moving |
-| D-3 | ~~Keep a sanitized router export in the repository?~~ **Decided 2026-10-19: yes**, under `notes/design/network-*` (CLAUDE.md "Lanes") | Taken with H-0; checked for secrets before every commit |
-| D-4 | H-2: WebFig over HTTPS, or SSH and Winbox only | HTTPS, since WebFig is in use |
-| D-5 | H-3: keep `admin`, or a named account | Keep `admin`, restricted to the LAN; a named account adds little for one shared admin |
-| D-6 | Whether to pursue the UW-IT exemption and eduroam path (E-1, E-2) now, before the robot travels | Yes: the exemption covers the robot on campus today, and one ticket asks both questions |
-| D-7 | E-3: move the robot AP to 20 MHz on a fixed channel 1, 6 or 11 | Yes, in the D-2 sitting |
-| D-8 | Build order for `tools/network/`: the poller and `netdiag` (A-2, A-3) first, then `netjoin` (J-3) | Yes: the diagnostic pays off on campus today; `netjoin` only when travel is planned |
+| D-1 | Which uplink path to pursue | **No coverage test now.** Instead, **an uplink Wi-Fi strength indication on the tablet and dashboard**: the poller (A-2) plus the Tablet lane's `status.net.uplink` (A-4) |
+| D-2 | What to do at the robot | **H-0 backup: yes. H-1 (telnet, FTP, plain API off): yes. H-5 time sync: discuss first** (below). **H-6 WPS: not needed**, left as is. **U-5/U-6 queueing: declined** as too risky |
+| D-3 | Sanitized router export in the repo | **Yes** (2026-10-19), under `notes/design/network-*` |
+| D-4 | WebFig over HTTPS, or off | **Keep the page as it is** (HTTP). H-2 is dropped |
+| D-5 | Restrict where `admin` can log in from | **Not agreed: needs more exploration.** Explored below |
+| D-6 | UW-IT exemption and eduroam (E-1, E-2) | **Parked on the punch list** (`punch-list.md` §4 E) |
+| D-7 | Robot AP to 20 MHz on channel 1, 6 or 11 (E-3) | **Yes**, at the robot |
+| D-8 | Build order for `tools/network/` | **The logical order, all of it now**: the REST client and poller, `netdiag`, then `netjoin`. Not waiting for travel |
+
+### Next at-robot session (the Network lane's list)
+
+Each step still needs the user's word on the day.
+
+1. **H-0**: a binary backup and an `/export`, both kept off the robot and out of the repository.
+   A sanitized copy of the export goes in `notes/design/` after checking it for secrets.
+2. **H-1**: turn off telnet, FTP and the plain API.
+3. **E-3**: set the robot AP to 20 MHz on a fixed channel 1, 6 or 11. Pick the quietest from a scan.
+4. **A-1**: create the read-only `netmon` account the poller needs for D-1
+   ([`design/network-router-api.md`](design/network-router-api.md) §2).
+   - It is the only route to the uplink's signal; nothing else on the robot can see it.
+   - The router change has no lockout risk: `admin` is not touched.
+   - The user types the account's password into `/etc/opendubs/network.env`.
+   - Options: REST over the HTTP page that D-4 keeps, or `www-ssl` turned on alongside it. HTTPS
+     is recommended, since the read password would otherwise cross the robot Wi-Fi in clear. The
+     page stays either way.
+5. **J-1 and J-2**, using `netjoin init` and `netjoin wired-first`: turn the uplink into a saved,
+   ordered list of networks, and make a cable win over Wi-Fi. No LAN-side change.
+
+### D-5 explored: restricting where `admin` can log in from
+
+**What it does.** RouterOS refuses a login for that user from any address outside the account's
+allowed list, on every service.
+
+**What it would add, here:**
+- **Against the campus side: nothing new.** The firewall already drops every management
+  connection that doesn't come from the robot's LAN.
+- **Against devices on the robot's own Wi-Fi: nothing, if the list is the whole LAN
+  (10.42.2.0/24).** Students, guests and their laptops are on that subnet.
+- **Real protection needs a list of specific hosts**: the Thor (10.42.2.10, already a fixed
+  lease) and named admin machines.
+  - The Mac now gets a dynamic address on a private (randomized) Wi-Fi MAC, so it would need a
+    fixed lease.
+  - Any other laptop would be refused and would have to go through the Thor (`ssh -J`).
+- **The bigger exposure is elsewhere.** The admin password crosses the robot Wi-Fi in clear on
+  every login to the HTTP admin page, which D-4 keeps. A restriction doesn't change that.
+
+**How it could lock everyone out, and the ways back:**
+
+| Failure | Way back |
+|---|---|
+| A typo, noticed in the same session | Safe Mode undoes the change when the session drops |
+| A host list that's wrong the next day (the admin laptop got a new address) | Log in from the Thor, if it's on the list |
+| Nothing on the list works | MAC-Winbox from a laptop on the robot LAN. **Unverified** whether RouterOS applies the address check to MAC-layer logins too |
+| Nothing works | The reset button returns the router to defaults: the robot has no uplink until the H-0 backup is restored (about 10 min with a laptop on the LAN) |
+
+**Revised recommendation: don't do it now.** It adds little while the robot Wi-Fi is open to the
+team and the admin page stays on HTTP. Revisit it with the parked security discussion, where
+"who may administer the robot" is the real question. H-1 (closing the plaintext services) is the
+useful step and has been agreed.
+
+### H-5 time sync, for discussion
+
+- **What it is.** The router sets its clock from internet time servers while the uplink is up.
+  The campus DHCP may hand out a time server, and the router already accepts one
+  (`use-peer-ntp=yes`). `pool.ntp.org` is the fallback.
+- **What it fixes.** The router's clock is about 18 h off, because it has no battery clock and
+  starts from a fixed date at every boot. Its log, its last-login times and the times of uplink
+  drops are unreadable. The poller keeps its own history on the Thor's clock, so the dashboard
+  doesn't depend on this.
+- **What it doesn't fix.** Offline, the router still has no source of time. The Thor's own clock
+  problem offline (its RTC reads 1970) is the Thor lane's, and a router with no time can't solve
+  it.
+- **Risk.** No lockout risk. The router's log times jump forward once when it first syncs.
+- **An option to decide with it:** the router could also serve time to the robot's devices (the
+  ESP32s, the tablet, the Thor), so that they agree with each other whenever the robot is online.
+  That touches how the Thor keeps time, so it's agreed with the Thor lane first.

@@ -72,8 +72,11 @@ and connect-list entry, tagged with the comment `netjoin`. Other subcommands:
 
 - It only ever touches entries tagged `netjoin`, plus the one-time empty-SSID change on `wlan2`.
   It never touches the bridge, `wlan1`, DHCP or the firewall.
-- After a change it waits up to 60 s for the new uplink to work, then reports the result. If the
-  new network fails, the previous entries are still there, so the robot falls back on its own.
+- With `--now` it rejoins at once and waits up to 60 s for the new network, then reports the
+  result. The other saved networks stay in the list. One caution: with a wrong passphrase, the
+  router keeps retrying that network while it's in range, so `netjoin disable` it to fall back.
+- **Built:** [`tools/network/netjoin.py`](../../tools/network/netjoin.py) (2026-10-20). It has
+  been tested against a stand-in router, not yet against the real one.
 - Warning: **`scan` interrupts the uplink while it runs**, because the radio leaves its network to
   scan. The command says so and asks before scanning.
 
