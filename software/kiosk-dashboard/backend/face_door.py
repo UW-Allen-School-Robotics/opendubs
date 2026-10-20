@@ -102,7 +102,7 @@ async def post_voice_health(request: Request) -> dict:
 # that arrived and in how long, the microphone), never anywhere else; whoever armed it deletes both once
 # replayed. Arming lives in memory, so a dashboard restart disarms it.
 #   curl -X POST localhost:8080/api/head/capture/arm -d '{"seconds": 90}'
-capture = {"until": 0.0, "last": None, "processing": "on", "device": "default", "gain_max_db": 24}
+capture = {"until": 0.0, "last": None, "processing": "on", "device": "Speakerphone", "gain_max_db": 24}
 
 
 @router.get("/api/head/capture")
@@ -124,11 +124,13 @@ async def _field(request: Request, name: str):
         return None
 
 
-# Which of the tablet's microphones the face opens, for an A/B: "default", or the start of a device id
-# (or a label) from the report's mic.inputs, e.g. "6626305d" for "Speakerphone". From the Thor only, in
-# memory (a dashboard restart goes back to default). An id the tablet does not list falls back to the
+# Which of the tablet's microphones the face opens: by label or the start of a device id, from the
+# report's mic.inputs. "Speakerphone" BY DEFAULT, matched by label because device ids are per origin and
+# can change (2026-10-20: the robot's tablet lists only an unlabelled "default" and "Speakerphone"; the
+# project team chose the speakerphone input). "default" for the A/B. From the Thor only, in memory (a
+# dashboard restart goes back to Speakerphone). One the tablet does not list falls back to the browser's
 # default, and the report says so (mic.device_error).
-#   curl -X POST localhost:8080/api/head/mic_device -d '{"device": "6626305d"}'
+#   curl -X POST localhost:8080/api/head/mic_device -d '{"device": "default"}'
 @router.post("/api/head/mic_device")
 async def set_mic_device(request: Request) -> dict:
     if not _from_thor(request):
