@@ -596,6 +596,9 @@ app.include_router(_tablet_relay_router)
 # The kiosk app's next build, signed on the Thor, which the tablet installs itself (kiosk_update.py).
 from kiosk_update import router as _kiosk_update_router  # noqa: E402
 app.include_router(_kiosk_update_router)
+# What the voice may say about the robot: what the dashboard shows, in its words (spoken_status.py).
+from spoken_status import router as _spoken_router  # noqa: E402
+app.include_router(_spoken_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
