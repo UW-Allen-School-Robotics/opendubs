@@ -20,7 +20,7 @@ def test_refuse_body_keeps_the_sentence_and_adds_the_code():
 
 def test_rearm_guard_names_every_blocker_with_its_code():
     s = supervisor_mod.Supervisor()
-    ok, blockers = s.estop_rearm_guard(button_pressed=True, stale=True, welded=True, authority="RC")
+    ok, blockers = s.estop_rearm_guard(button_pressed=True, stale=True, welded=True, ch5="MANUAL")
     assert not ok
     assert [c for c, _ in blockers] == ["ESTOP_BUTTON", "LINK_STAMPLC_LOST",
                                         "CONTACTOR_WELDED", "ESTOP_REARM_CH5"]
@@ -29,14 +29,14 @@ def test_rearm_guard_names_every_blocker_with_its_code():
 def test_rearm_guard_passes_clean():
     s = supervisor_mod.Supervisor()
     assert s.estop_rearm_guard(button_pressed=False, stale=False, welded=False,
-                               authority="OFF") == (True, [])
+                               ch5="OFF") == (True, [])
 
 
 def test_try_estop_clear_keeps_sentences_and_adds_codes_in_step(monkeypatch):
     # The tablet reads `blockers` as sentences; `codes` must run beside it, in the same order.
     monkeypatch.setattr(status, "_safety", lambda: {
         "estop_button": False, "stale": False, "welded": False})
-    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: {"rc": {"mode": "MANUAL"}})
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: {"rc": {"live": True, "mode": "MANUAL", "raw": [1000] * 4 + [1000] + [200] * 11}})
     monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
     out = status.try_estop_clear()
     assert out == {"ok": False, "blockers": ["CH5 not OFF"], "codes": ["ESTOP_REARM_CH5"]}
@@ -45,9 +45,25 @@ def test_try_estop_clear_keeps_sentences_and_adds_codes_in_step(monkeypatch):
 def test_try_estop_clear_unreachable_board_is_a_coded_refusal(monkeypatch):
     monkeypatch.setattr(status, "_safety", lambda: {
         "estop_button": False, "stale": False, "welded": False})
-    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: {"rc": {"mode": "OFF"}})
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: {"rc": {"live": True, "mode": "OFF", "raw": [1000] * 4 + [200] + [200] * 11}})
     monkeypatch.setattr(status.stamplc.reader, "send", lambda cmd: False)
     monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
     out = status.try_estop_clear()
     assert out["ok"] is False and out["codes"] == ["LINK_STAMPLC_LOST"]
     assert len(out["blockers"]) == len(out["codes"])
+
+
+def test_rearm_while_the_board_is_latched_reads_ch5_itself(monkeypatch):
+    """A board-held latch makes [RC] say mode=ESTOP, which hid CH5: a re-arm went through with CH5 in
+    AUTO. The raw switch decides, and an unknown one (no RC frames) refuses."""
+    monkeypatch.setattr(status, "_safety", lambda: {
+        "estop_button": False, "stale": False, "welded": False})
+    monkeypatch.setattr(status.stamplc.reader, "send", lambda cmd: True)
+    rc = {"live": True, "mode": "ESTOP", "raw": [1000] * 16}
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: {"rc": rc})
+    for ch5, ok in ((1800, False), (200, True)):
+        rc["raw"][4] = ch5
+        monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
+        assert status.try_estop_clear()["ok"] is ok, ch5
+    rc["live"] = False                                             # no RC frames
+    assert status.try_estop_clear()["codes"] == ["ESTOP_REARM_CH5"]

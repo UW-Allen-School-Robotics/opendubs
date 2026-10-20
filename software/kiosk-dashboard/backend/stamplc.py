@@ -441,6 +441,7 @@ class StampReader:
                 self._d["rc"] = {
                     "live": kv.get("live") == "1", "mode": kv.get("mode"),
                     "dead": kv.get("dead") == "1",
+                    "fs": kv.get("fs") == "1", "rng": kv.get("rng") == "1",
                     "spd": float(kv["spd"]) if "spd" in kv else None,
                     "pmode": kv.get("pmode"), "pmarm": kv.get("pmarm") == "1",
                     "fr": inum("fr"), "rot": inum("rot"),

@@ -64,7 +64,7 @@ class Supervisor:
         self.estop_latched = False
         self.estop_sources_held = []
 
-    def estop_rearm_guard(self, *, button_pressed, stale, welded, authority):
+    def estop_rearm_guard(self, *, button_pressed, stale, welded, ch5):
         """Guard for software e-stop re-arm (review R4/§5.4). SOFTWARE is being
         cleared by the action itself, so it is NOT a blocker; the *physical* and
         verification conditions are. Returns (ok, [(code, sentence)]); each code names its
@@ -77,8 +77,14 @@ class Supervisor:
                              "STALE TELEMETRY (safety state unknown)"))
         if welded:
             blockers.append(("CONTACTOR_WELDED", "CONTACTOR WELDED"))             # @fault CONTACTOR_WELDED
-        if authority not in (None, "OFF"):
-            blockers.append(("ESTOP_REARM_CH5", "CH5 not OFF"))                   # @fault ESTOP_REARM_CH5
+        # Positively OFF, or no re-arm. An unknown CH5 (no trustworthy RC frames) fails CLOSED: it
+        # used to pass as authority None, and a board-held latch reports mode=ESTOP, which is None
+        # too, so a re-arm went through with CH5 in AUTO.
+        if ch5 is None:
+            blockers.append(("ESTOP_REARM_CH5",                                   # @fault ESTOP_REARM_CH5
+                             "CH5 position unknown (no RC frames) — transmitter on, CH5 at OFF"))
+        elif ch5 != "OFF":
+            blockers.append(("ESTOP_REARM_CH5", "CH5 not OFF"))
         return (not blockers), blockers
 
     # ---- event log --------------------------------------------------------
