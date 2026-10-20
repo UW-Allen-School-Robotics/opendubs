@@ -102,14 +102,56 @@ async def post_voice_health(request: Request) -> dict:
 # that arrived and in how long, the microphone), never anywhere else; whoever armed it deletes both once
 # replayed. Arming lives in memory, so a dashboard restart disarms it.
 #   curl -X POST localhost:8080/api/head/capture/arm -d '{"seconds": 90}'
-capture = {"until": 0.0, "last": None, "processing": "on"}
+capture = {"until": 0.0, "last": None, "processing": "on", "device": "default", "gain_max_db": 24}
 
 
 @router.get("/api/head/capture")
 def get_capture() -> dict:
     import time
     return {"armed": time.time() < capture["until"], "last": capture["last"],
-            "mic_processing": capture["processing"]}
+            "mic_processing": capture["processing"], "mic_device": capture["device"],
+            "spotter_gain_max_db": capture["gain_max_db"]}
+
+
+def _from_thor(request: Request) -> bool:
+    return bool(request.client) and request.client.host in ("127.0.0.1", "::1")
+
+
+async def _field(request: Request, name: str):
+    try:
+        return json.loads((await request.body()) or b"{}").get(name)
+    except (ValueError, AttributeError):
+        return None
+
+
+# Which of the tablet's microphones the face opens, for an A/B: "default", or the start of a device id
+# (or a label) from the report's mic.inputs, e.g. "6626305d" for "Speakerphone". From the Thor only, in
+# memory (a dashboard restart goes back to default). An id the tablet does not list falls back to the
+# default, and the report says so (mic.device_error).
+#   curl -X POST localhost:8080/api/head/mic_device -d '{"device": "6626305d"}'
+@router.post("/api/head/mic_device")
+async def set_mic_device(request: Request) -> dict:
+    if not _from_thor(request):
+        return {"ok": False, "error": "switch it from the Thor itself (localhost)"}
+    want = await _field(request, "device")
+    if not isinstance(want, str) or not 0 < len(want) <= 64:
+        return {"ok": False, "error": 'device must be "default", a device id prefix, or a label'}
+    capture["device"] = want
+    return {"ok": True, "device": want}
+
+
+# The most the wake word's gain stage may raise a quiet voice (kws_worker.js), in dB: 24 by default,
+# 12 to 40. From the Thor only, in memory.
+#   curl -X POST localhost:8080/api/head/spotter_gain -d '{"max_db": 36}'
+@router.post("/api/head/spotter_gain")
+async def set_spotter_gain(request: Request) -> dict:
+    if not _from_thor(request):
+        return {"ok": False, "error": "switch it from the Thor itself (localhost)"}
+    want = await _field(request, "max_db")
+    if isinstance(want, bool) or not isinstance(want, (int, float)) or not 12 <= want <= 40:
+        return {"ok": False, "error": "max_db must be a number from 12 to 40"}
+    capture["gain_max_db"] = float(want)
+    return {"ok": True, "max_db": float(want)}
 
 
 # The microphone's platform processing (echo cancellation, noise suppression, AGC) for an A/B: "on" (the
