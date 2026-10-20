@@ -1,7 +1,7 @@
 /* OpenArm Motion Planner Studio & Halloween Show Designer
  * Main Application Logic
  */
-import { PlannerStudioView } from "./armview.js?v=2.1";
+import { PlannerStudioView } from "./armview.js?v=2.2";
 
 function logClient(level, message, stack = "") {
   try {
@@ -328,6 +328,19 @@ class StudioApp {
       if (readout) readout.textContent = `${currentQ[i].toFixed(1)}°`;
     }
     this._updateArmPosesInView();
+    if (this.view && this.view.getTcpWorldPosition) {
+      const tcpPos = this.view.getTcpWorldPosition(this.arm, this.targetMode === "goal");
+      if (tcpPos) {
+        const ex = document.getElementById("ee-x");
+        const ey = document.getElementById("ee-y");
+        const ez = document.getElementById("ee-z");
+        if (ex && ey && ez) {
+          ex.value = tcpPos.x.toFixed(3);
+          ey.value = tcpPos.y.toFixed(3);
+          ez.value = tcpPos.z.toFixed(3);
+        }
+      }
+    }
   }
 
   _updateArmPosesInView() {
@@ -384,18 +397,27 @@ class StudioApp {
         if (this.view && this.view.setCollisionState) this.view.setCollisionState(false);
       }
 
-      // 2. Forward Kinematics for End-Effector XYZ readout
-      const fkResp = await fetch("/api/fk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: jsonReq({ arm: this.arm, joints: currentQ }),
-      });
-      const fkData = await fkResp.json();
-      if (fkData.position) {
-        const [x, y, z] = fkData.position;
-        document.getElementById("ee-x").value = x.toFixed(3);
-        document.getElementById("ee-y").value = y.toFixed(3);
-        document.getElementById("ee-z").value = z.toFixed(3);
+      // 2. Forward Kinematics for End-Effector XYZ readout from 3D visualizer
+      if (this.view && this.view.getTcpWorldPosition) {
+        const tcpPos = this.view.getTcpWorldPosition(this.arm, this.targetMode === "goal");
+        if (tcpPos) {
+          document.getElementById("ee-x").value = tcpPos.x.toFixed(3);
+          document.getElementById("ee-y").value = tcpPos.y.toFixed(3);
+          document.getElementById("ee-z").value = tcpPos.z.toFixed(3);
+        }
+      } else {
+        const fkResp = await fetch("/api/fk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: jsonReq({ arm: this.arm, joints: currentQ }),
+        });
+        const fkData = await fkResp.json();
+        if (fkData.position) {
+          const [x, y, z] = fkData.position;
+          document.getElementById("ee-x").value = x.toFixed(3);
+          document.getElementById("ee-y").value = y.toFixed(3);
+          document.getElementById("ee-z").value = z.toFixed(3);
+        }
       }
     } catch (err) {
       console.warn("Collision/FK check error:", err);
@@ -491,8 +513,10 @@ class StudioApp {
       scrubber.max = data.duration;
       scrubber.value = 0;
 
-      // Render 3D trajectory ribbon in scene
-      if (this.view && this.view.setTrajectoryPath) this.view.setTrajectoryPath(data.ee_positions);
+      // Render 3D trajectory ribbon in scene aligned exactly to robot TCP
+      if (this.view && this.view.setTrajectoryPath) {
+        this.view.setTrajectoryPath(this.arm, data.positions_rad);
+      }
       this._updatePlayButton();
     } catch (err) {
       statusInfo.textContent = `Planning error: ${err}`;
@@ -734,7 +758,9 @@ class StudioApp {
       document.getElementById("plan-status-info").textContent = `Full Sequence Planned (${cumulativeDuration.toFixed(2)}s)`;
       document.getElementById("plan-perf-info").textContent = `${this.keyframes.length} keyframes | ${allPositions.length} waypoints`;
 
-      if (this.view && this.view.setTrajectoryPath) this.view.setTrajectoryPath(allEePositions);
+      if (this.view && this.view.setTrajectoryPath) {
+        this.view.setTrajectoryPath(this.arm, allPositions);
+      }
     } catch (err) {
       alert(`Sequence planning error:\n${err.message}`);
     } finally {

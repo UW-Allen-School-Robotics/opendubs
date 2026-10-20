@@ -230,7 +230,72 @@ export class PlannerStudioView {
     this.render();
   }
 
-  setTrajectoryPath(eePositions) {
+  _computeTcpPath(arm, trajectoryPositionsRad) {
+    if (!this.ready || !trajectoryPositionsRad || trajectoryPositionsRad.length === 0) return [];
+
+    const tcpLink = this.ghostArm.links[`openarm_${arm}_hand_tcp`];
+    if (!tcpLink) return [];
+
+    // Save current ghost arm joint angles
+    const saved = {};
+    for (const [name, j] of Object.entries(this.ghostArm.joints)) {
+      saved[name] = j.value;
+    }
+
+    const jointPrefix = `openarm_${arm}_joint`;
+    const points = [];
+
+    // Downsample waypoints if very dense (smooth ribbon)
+    const step = Math.max(1, Math.floor(trajectoryPositionsRad.length / 120));
+    for (let k = 0; k < trajectoryPositionsRad.length; k += step) {
+      const q = trajectoryPositionsRad[k];
+      for (let i = 0; i < 7; i++) {
+        const jName = `${jointPrefix}${i + 1}`;
+        const j = this.ghostArm.joints[jName];
+        if (j) j.node.quaternion.setFromAxisAngle(j.axis, q[i]);
+      }
+      this.root.updateMatrixWorld(true);
+      const pos = new THREE.Vector3();
+      tcpLink.getWorldPosition(pos);
+      points.push(pos);
+    }
+
+    // Always append the final goal configuration waypoint
+    if ((trajectoryPositionsRad.length - 1) % step !== 0) {
+      const qLast = trajectoryPositionsRad[trajectoryPositionsRad.length - 1];
+      for (let i = 0; i < 7; i++) {
+        const jName = `${jointPrefix}${i + 1}`;
+        const j = this.ghostArm.joints[jName];
+        if (j) j.node.quaternion.setFromAxisAngle(j.axis, qLast[i]);
+      }
+      this.root.updateMatrixWorld(true);
+      const pos = new THREE.Vector3();
+      tcpLink.getWorldPosition(pos);
+      points.push(pos);
+    }
+
+    // Restore ghost arm joint angles
+    for (const [name, val] of Object.entries(saved)) {
+      const j = this.ghostArm.joints[name];
+      if (j) j.node.quaternion.setFromAxisAngle(j.axis, val);
+    }
+    this.root.updateMatrixWorld(true);
+
+    return points;
+  }
+
+  getTcpWorldPosition(arm, isGoal = true) {
+    if (!this.ready) return null;
+    const armObj = isGoal ? this.ghostArm : this.solidArm;
+    const tcpLink = armObj.links[`openarm_${arm}_hand_tcp`];
+    if (!tcpLink) return null;
+    this.root.updateMatrixWorld(true);
+    const pos = new THREE.Vector3();
+    tcpLink.getWorldPosition(pos);
+    return pos;
+  }
+
+  setTrajectoryPath(armOrPositions, maybePositions) {
     // Remove existing trajectory path
     if (this.trajLine) {
       this.scene.remove(this.trajLine);
@@ -245,13 +310,25 @@ export class PlannerStudioView {
       if (c.material) c.material.dispose();
     }
 
-    if (!eePositions || eePositions.length < 2) {
+    let points = [];
+    if (typeof armOrPositions === "string" && Array.isArray(maybePositions)) {
+      points = this._computeTcpPath(armOrPositions, maybePositions);
+    } else if (Array.isArray(armOrPositions) && armOrPositions.length > 0) {
+      if (Array.isArray(armOrPositions[0]) && armOrPositions[0].length === 7) {
+        // Array of joint angle vectors, defaults to left arm
+        points = this._computeTcpPath("left", armOrPositions);
+      } else if (Array.isArray(armOrPositions[0]) && armOrPositions[0].length === 3) {
+        // Fallback for direct [x, y, z] vectors
+        points = armOrPositions.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+      }
+    }
+
+    if (!points || points.length < 2) {
       this.render();
       return;
     }
 
     // Render path ribbon
-    const points = eePositions.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({
       color: 0x38bdf8,
@@ -260,7 +337,7 @@ export class PlannerStudioView {
     this.trajLine = new THREE.Line(geometry, material);
     this.scene.add(this.trajLine);
 
-    // Goal marker sphere
+    // Goal marker sphere centered directly at the goal TCP
     const goalGeom = new THREE.SphereGeometry(0.02, 16, 16);
     const goalMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
     const goalMesh = new THREE.Mesh(goalGeom, goalMat);
