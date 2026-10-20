@@ -1,4 +1,4 @@
-# Work plan — voice: talking with the robot, by "hey dubs" or by Talk
+# Work plan — voice: talking with the robot, by "Hey OpenDubs" or by Talk
 
 **Plan of record, rewritten 2026-10-20 to what runs on the robot today.** Written by the Voice lane;
 only the Voice lane edits this file (CLAUDE.md "Lanes", rule 3), and findings from other lanes come
@@ -28,7 +28,7 @@ the first word is not lost.
 
 ## What runs on opendubs2 today
 
-A visitor says **"hey dubs, what's your name?"**, or holds **Talk** and asks. The robot answers out
+A visitor says **"Hey OpenDubs, what's your name?"**, or holds **Talk** and asks. The robot answers out
 loud from the tablet's speaker, with its face, in about a second, without the internet.
 
 | part | what it is | where | PR |
@@ -40,7 +40,7 @@ loud from the tablet's speaker, with its face, in about a second, without the in
 | the brain | **Qwen3-30B-A3B-Instruct-2507** (Red Hat AI's W4A16 build) on vLLM, `opendubs-llm`, at a GPU memory share of **0.20**, local only | Thor | #267, #362, #366 |
 | TTS | **Kokoro-82M on the GPU**, English only, no espeak-ng: first audio p90 844 ms after release in gate L-4 | Thor | #370 |
 | end of a wake turn | Silero VAD: up to 4 s to begin, ends after 0.8 s of silence | Thor | #372 |
-| the wake word | "hey dubs", spotted on the tablet, checked on the Thor (below) | both | #372, #373, #378, #379, #383, #400 |
+| the wake phrase | "Hey OpenDubs", spotted on the tablet, checked on the Thor (below) | both | #372, #373, #378, #379, #383, #400, #413, #416, #424 |
 | Talk's edges | 300 ms of pre-roll on a press and a 400 ms tail after release, so the first and last words arrive | tablet | #380 |
 | a quiet neck | the head holds still while someone speaks, and moves slowly otherwise: servo noise hurt recognition | Thor | #375, #382 |
 | the turn log | latencies, status and the clip's shape (levels, where speech starts and ends), never words | Thor | #376 |
@@ -55,36 +55,43 @@ robot from `voice.env`).
 
 ---
 
-## The wake word, "hey dubs"
+## The wake phrase, "Hey OpenDubs"
 
 Brought forward on 2026-10-19 by the project team, ahead of latency work; it is part of phase 1.
-**Talk stays** as the fallback, and for a noisy room.
+**Talk stays** as the fallback, and for a noisy room. The phrase was "hey dubs" until 2026-10-20;
+the team lengthened it to **"Hey OpenDubs"**, spoken "hey open dubs" (#424, and the Tablet lane's
+page change), because about six phonemes was too short to spot at a normal distance.
 
 - **Spotted on the tablet.** The face page runs sherpa-onnx KWS, built for the browser from pinned
   sources (`software/face-web/kws/build-kws.sh`), on `sherpa-onnx-kws-zipformer-gigaspeech-3.3M`
-  (Apache-2.0). The keyword line is `▁HE Y ▁DU B S :5.0 #0.01 @HEY_DUBS` (#400): the tokens are the
-  model's own BPE encoding of "HEY DUBS", checked against its `bpe.model`. The page keeps the last
-  1.5 s of audio in memory, and **no audio leaves the tablet before the keyword fires.**
-- **Tuned for recall, because the Thor checks.** At the earlier lines (`:1.5 #0.20`, then `:2.0
-  #0.10`) the spotter never fired on the robot. At `:5.0 #0.01` it caught 3 of 3 isolated "hey
-  dubs" and 0 of 4 near-miss sentences on the desk. A false hit costs a few seconds of uplink and
-  ends in silence.
-- **A self-test on every page load** (#400) feeds a known "hey dubs" clip into a second spotter and
-  reports hit or miss in `/api/head/wake_hits`, beside the page's listening health (#383: audio
-  rate, levels, frames into the spotter, and why it is suppressed, as numbers only).
+  (Apache-2.0). The tokens are the model's own BPE encoding of the words "HEY OPEN DUBS", from
+  `sherpa_onnx.text2token` against its `bpe.model`: `▁HE Y ▁O P EN ▁DU B S`. The boost and
+  threshold are the Tablet lane's, from its grid. The page keeps the last 1.5 s of audio in memory,
+  and **no audio leaves the tablet before the phrase fires.**
+- **What the robot tests found** (2026-10-19 and 20):
+  - the strict lines (`#0.20`, `#0.10`) never fired, so the line was tuned for recall (`:5.0 #0.01`, #400), since the Thor checks every hit;
+  - the spotter is level-sensitive, so it gets its own gain stage, which the uplink does not (#413);
+  - each reconnect added another microphone stream, so the spotter, Talk and the uplink all got two streams interleaved (#416), which explained the misheard Talk turns too;
+  - with that fixed, "hey dubs" still fired only close to the face. Turning the tablet's echo cancellation, noise suppression and AGC off did not help, which is why the phrase was lengthened.
+- **A self-test on every page load** (#400) feeds a known clip of the phrase into a second spotter
+  and reports hit or miss in `/api/head/wake_hits`, beside the page's listening health (#383, #418:
+  audio rate, levels by band, frames into the spotter, why it is suppressed; numbers only).
 - **The wire** (`wire.py`): on a hit the page sends `wake {keyword, pre_roll_ms}`, then the buffered
   and live frames. There is no `release`; the service ends the utterance by VAD.
-- **Checked on the Thor** (`wakeword.py`, #378): Parakeet transcribes the turn anyway. The turn goes
-  on only if "hey dubs" appears within its first six words. "Dubs" matches within one spelling edit
-  (Dubbs, Doubs, Debs, Dubz, "Heydubs"), while "doves", "dogs", "does" and "Dad" are refused. The
-  phrase is removed before the model sees the question. Anything else ends **silently**, with turn
-  status `not_addressed`: a false wake never makes the robot speak.
+- **Checked on the Thor** (`wakeword.py`, #378, #424): Parakeet transcribes the turn anyway, and the
+  turn goes on only if the phrase appears within its first six words. "Hey open dubs", "hey
+  opendubs", "open dubs" with the "hey" lost, and run-together forms are accepted, each word within
+  one spelling edit. "Hey dubs" is accepted here only, because Parakeet sometimes drops the middle
+  word; the page does not spot it, so it costs no false wakes. Near misses ("hey doves", "open the
+  door", "hey, open the window") are refused. The phrase is removed before the model sees the
+  question; anything else ends **silently** (`not_addressed`).
 - **Paused** while a turn is in progress, for 1.0 s after a reply has played, and whenever voice is
   off, which includes every show.
 - **Indicators**: a hollow white ring while the page listens locally; the red REC dot only while
   audio is being sent.
 - **Switches**: `OPENDUBS_VOICE_WAKE` (default on); `OPENDUBS_VOICE_WAKE_KEYWORDS` retunes the
-  spotter from the robot without a page change (#399, open).
+  spotter from the robot without a page change (#399, open). The turn log's `uplink_x` (#417)
+  flags a page sending more than one stream.
 
 **Gate V-7** (still to run): about an hour of the robot's normal use with show music, nobody saying
 the phrase; fewer than 0.5 accepted false wakes an hour. An accepted false wake is a wake turn that
@@ -93,7 +100,7 @@ ends `ok`. Also reported: the Thor's catches (`not_addressed`) and the hits the 
 
 ---
 
-## What the robot says (#402, open)
+## What the robot says (#402)
 
 Recognition quality comes before new features (the project team, 2026-10-19). Visitors heard
 "I don't understand" too often, and once "Let me show you a little move", with an emoji.
@@ -117,7 +124,7 @@ Recognition quality comes before new features (the project team, 2026-10-19). Vi
 | V-D3 | **Motion is never commanded by a language model. Routines by voice stay off.** The voice service has no motion tool. Changing this needs a new team decision (see "Pending" below). |
 | V-D4 | **Voice is off during shows.** |
 | V-D5 | **API keys live only in `/etc/opendubs/voice.env`**, root-owned, mode 0600. Never in the repository, an image, or the browser. |
-| V-O1 | **Talk and "hey dubs"** start a turn (the wake word brought forward on 2026-10-19). |
+| V-O1 | **Talk and the wake phrase "Hey OpenDubs"** start a turn (the wake word brought forward on 2026-10-19; lengthened from "hey dubs" on 2026-10-20). |
 | V-O2 | **The on-robot model by default.** The Claude API stays opt-in per robot (`VOICE_BRAIN=auto`), not offered until gate C-1. |
 | V-O3 | **Qwen3-30B-A3B-Instruct-2507** on vLLM; Qwen3-4B-Instruct-2507 is the fallback if gate L-3 fails. Both Apache-2.0. |
 | V-O4 | **STT Parakeet-TDT-0.6B-v2** (CC BY 4.0) via sherpa-onnx; **TTS Kokoro-82M** (Apache-2.0). **English only, and no GPL component ships**; another Kokoro language would mean shipping espeak-ng (GPL), a separate explicit decision. |
@@ -195,6 +202,36 @@ Kept, not scheduled.
 | 3.x | full-duplex barge-in (after V-2), captions on the face, a voice glance toward the speaker |
 
 ---
+
+## Later: a microphone array on the Thor (sketch, not decided)
+
+The project team may order a ReSpeaker XVF3800, a USB microphone array with its own voice
+processing (echo cancellation, beamforming, noise suppression, direction of arrival, per its
+vendor), for the Thor. The tablet's microphone is a single mic behind call-mode processing, at arm's
+length from the neck. If the array comes, the wake phrase and Talk would use it like this:
+
+- **Capture moves to the Thor.** The array appears as a USB audio device; `opendubs-voice` reads it
+  (ALSA, the device passed into the container) at 16 kHz. The tablet keeps the face, the speaker and
+  the Talk button, and sends no audio at all.
+- **Wake on the Thor.** The same sherpa-onnx KWS runs natively in the service on the array's audio,
+  with a larger English model if one fits, then the same Parakeet check and Silero endpointing. The
+  `wake` message becomes the service's own event; the page only shows it.
+- **Talk** stays a button on the face: `press` and `release` as now, with the audio taken from the
+  array instead of the page. A wire change in `wire.py` (the page declares it sends no audio).
+- **The privacy rule changes wording, not substance.** "No audio leaves the tablet before the
+  phrase" becomes "no audio leaves the array's buffer before the phrase, and none leaves the robot".
+  It is the user's decision to make.
+- **The indicators** can no longer come from the page's own mic track. The REC dot and the ring are
+  driven by the service's state, and the page shows them; agreed with the Tablet and Face & HRI
+  lanes.
+- **Echo**: the robot's voice still plays from the tablet, so the array's echo canceller has no
+  reference unless playback moves to a speaker on the array's output. Half-duplex covers it until
+  then. Where the speaker lives is a separate decision.
+- **Placement** matters more than any setting: away from the neck servos and the drive, facing
+  where visitors stand. Its direction of arrival could later turn the eyes toward the speaker
+  (3.6).
+- **Steps**, when it arrives: the device read on the bench Thor; KWS in the service on its audio;
+  the wire change with the Tablet lane; the indicators; V-7 again on the robot.
 
 ## Requests to other lanes
 
