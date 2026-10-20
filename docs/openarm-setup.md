@@ -17,8 +17,12 @@ stops the arms.
 - A Thor set up per [Thor setup](thor-setup.md) (JetPack 7, kernel `6.8.12-tegra`), with internet
   access for the first provisioning run.
 - Two OpenArm arms. Each arm has 8 DAMIAO motors (7 joints plus the gripper) on its own CAN-FD bus.
-- A **PEAK PCAN-USB Pro FD** adapter (USB ID `0c72:0011`), with one channel per arm, plugged into
-  the Thor's USB.
+- A dual-channel USB CAN-FD adapter, one channel per arm, plugged into the Thor's USB. This robot
+  uses a [Pibiger SavvyCAN-FD-X2](https://www.amazon.com/dp/B0CGPRPZN8). It presents itself as a
+  PEAK-compatible device and is driven by the Linux `peak_usb` driver, so everything below applies
+  to it unchanged. The udev rule and provisioning match it by USB ID `0c72:0011`, PEAK's ID; that
+  this is the ID the adapter reports is *to confirm* with `lsusb` (the interface names appearing
+  at all suggests it is).
 - The arm software: [openarm_robot-code](https://github.com/EricJGoossen/openarm_robot-code), a
   fork of [personalrobotics/robot-code](https://github.com/personalrobotics/robot-code). It provides
   the ROS 2 impedance controller (package `openarm_impedance_controller`) and a dev-container
@@ -287,7 +291,9 @@ To work inside the container: `sudo docker exec -it openarm bash`, then
 
 ## Troubleshooting
 
-- **`arm_left` / `arm_right` missing.** Check `lsusb -d 0c72:0011` (is the adapter plugged in?) and
+- **`arm_left` / `arm_right` missing.** Check `lsusb -d 0c72:0011` (is the adapter plugged in and
+  reporting the ID the udev rule matches? If `lsusb` shows it under another ID, the rule needs that
+  ID) and
   `modinfo -n peak_usb` (is the driver installed?). After a kernel update, run
   `dkms status peak_usb`. If the build failed against the new kernel, re-run
   `provision-openarm.sh`, which fetches driver source matching the new version.
