@@ -112,14 +112,15 @@ async def palette():
     return await _forward("GET", "palette")
 
 
-RUN_KEYS = ("start", "countdown_s")     # how a run starts; the runner checks the values
+RUN_KEYS = ("start", "countdown_s", "skip")     # how a run starts; the runner checks the values
 
 
 @router.post("/api/choreo/run/{rid}")
 async def run(rid: str, request: Request):
     """On a robot whose runner has the arms, the real arms follow every run (plan 5.6); the runner's
     preflight gates it on CH5 AUTO, the held deadman and the arms being active. The body may say how
-    the run starts ({start: deadman|countdown|now, countdown_s}); only those keys are passed on."""
+    the run starts ({start: deadman|countdown|now, countdown_s}), and `skip`: the parts the operator
+    approved running without (a can_skip variant, offered by a NEEDS_APPROVAL refusal); only those keys are passed on."""
     if not rid.replace("-", "").replace("_", "").isalnum():
         return JSONResponse({"error": "not a routine id"}, status_code=400)
     try:
@@ -160,7 +161,7 @@ def operator_mast_seq() -> int:
         return _mast_operator["seq"]
 
 
-def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None) -> dict:
+def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None, effectors=None) -> dict:
     """The runner's fields from the dashboard's robot-state rollup (`rs`), safety (`saf`) and RC
     link (`rc`). Pure, so the mapping is tested without a robot. None means UNKNOWN."""
     inp = rs.get("inputs") or {}
@@ -180,6 +181,10 @@ def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None) -> dict:
         "motion_power": saf.get("motion_enabled") if saf.get("fresh") else None,
         "arms": arms,
         "tab5": tab5,
+        # Per part (cue.EFFECTORS names): the Arms lane's openarm.effector_status(), when this
+        # dashboard has it. With it the runner checks each part a show needs and offers a can_skip
+        # variant; without it, the all-or-nothing `arms` above decides, as before.
+        **({"effectors": effectors} if isinstance(effectors, dict) else {}),
         "arm_pose": {"ARM_L": {}, "ARM_R": {}},    # not measured yet: live output (5.6) must
         "mast_operator_seq": operator_mast_seq(),
     }
@@ -200,7 +205,7 @@ def arms_from_summary(text: str, err) -> str | None:
     return "active" if n["enabled"] > 0 and clean else "inactive"
 
 
-_probe = {"arms": (None, 0.0), "tab5": (None, 0.0)}
+_probe = {"arms": (None, 0.0), "tab5": (None, 0.0), "effectors": (None, 0.0)}
 _probe_lock = threading.Lock()
 
 
@@ -212,6 +217,12 @@ def _probe_now():
     import state_out
     m = openarm._motor_summary()
     arms = arms_from_summary(m.get("text") or "", m.get("error"))
+    effectors = None
+    if hasattr(openarm, "effector_status"):          # the Arms lane's per-part status (#403 section 6)
+        try:
+            effectors = openarm.effector_status()
+        except Exception:  # noqa: BLE001  unknown parts are left to the all-or-nothing arms field
+            effectors = None
     tab5 = False
     addr = state_out._tab5_resolve()
     if addr:
@@ -232,7 +243,7 @@ def _probe_now():
             s.close()
     now = time.monotonic()
     with _probe_lock:
-        _probe["arms"], _probe["tab5"] = (arms, now), (tab5, now)
+        _probe["arms"], _probe["tab5"], _probe["effectors"] = (arms, now), (tab5, now), (effectors, now)
 
 
 def _probed(key):
@@ -244,7 +255,7 @@ def _probed(key):
 def _robot_now() -> dict:
     import status
     return robot_view(status._robot_state(), status._safety(), status._rc_link(),
-                      _probed("arms"), _probed("tab5"))
+                      _probed("arms"), _probed("tab5"), _probed("effectors"))
 
 
 @router.get("/api/choreo/robot")

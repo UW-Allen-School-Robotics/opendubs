@@ -72,9 +72,14 @@
     el("showsStop").disabled = !running;
     el("showsPark").disabled = !!running;   // the runner owns the arms while a routine runs
     const last = status && status.last;
+    const without = (parts) => (parts && parts.length ? ` <span class="bad">without ${esc(parts.join(", ").replace(/_/g, " "))}</span>` : "");
+    // A part the show needs is unavailable, but the show can do without it: the operator approves
+    // the variant here, and only here (the runner never plays one on its own).
+    const offer = !running && last && last.status === "REFUSED" && (last.offer || []).length
+      ? ` <button class="sysbtn shows-skip" data-id="${esc(last.id)}" data-skip="${esc(JSON.stringify(last.offer))}">RUN WITHOUT ${esc(last.offer.join(", ").replace(/_/g, " ").toUpperCase())}</button>` : "";
     el("showsStatus").innerHTML = running
-      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${status.live ? ' <b class="bad">LIVE</b>' : ""} ${startHTML(status)}`
-      : last ? `Last: <b>${esc(labelOf(last.id))}</b> — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc(last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>`
+      ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${without(status.skipped)}${status.live ? ' <b class="bad">LIVE</b>' : ""} ${startHTML(status)}`
+      : last ? `Last: <b>${esc(labelOf(last.id))}</b>${without(last.skipped)} — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc(last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>${offer}`
       : "Pick a routine.";
     /* Rebuild the buttons only when something about them changed: rebuilding every poll would
        replace a button under a finger mid-tap, and the tap would be lost. */
@@ -123,17 +128,26 @@
     render();
   }
 
-  el("showsList").addEventListener("click", async (e) => {
-    const b = e.target.closest(".shows-btn"); if (!b || b.disabled) return;
+  async function runRoutine(id, skip) {
     const body = {}, start = el("showsStart").value, cd = el("showsCountdown").value.trim();
     if (start) body.start = start;
     if (cd !== "") body.countdown_s = Number(cd);
+    if (skip) body.skip = skip;
     try {
-      await getJSON(`/api/choreo/run/${encodeURIComponent(b.dataset.id)}`, {
+      await getJSON(`/api/choreo/run/${encodeURIComponent(id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     }
     catch (err) { el("showsStatus").innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
     refresh(false);
+  }
+  el("showsList").addEventListener("click", (e) => {
+    const b = e.target.closest(".shows-btn"); if (!b || b.disabled) return;
+    runRoutine(b.dataset.id);
+  });
+  el("showsStatus").addEventListener("click", (e) => {
+    const b = e.target.closest(".shows-skip"); if (!b) return;
+    b.disabled = true;
+    runRoutine(b.dataset.id, JSON.parse(b.dataset.skip));
   });
   el("showsAudioClaim").addEventListener("click", () => {
     if (window.OpenDubsShowAudio) window.OpenDubsShowAudio.claim();
