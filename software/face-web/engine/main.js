@@ -112,11 +112,23 @@ window.faceStats = stats;                           // read by a harness through
 
 // ---- the frame --------------------------------------------------------------------------------
 let last = performance.now();
-const health = { drawnAt: performance.now(), eyesOk: true, lost: false };
+const health = { drawnAt: performance.now(), eyesOk: true, lost: false, fullFace: false, frames: 0,
+                 errors: 0, lastError: null, refits: 0 };
 let lastAlive = 0;
 canvas.addEventListener("contextlost", () => { health.lost = true; });
 
 function frame(now) {
+  // Scheduled first, so nothing below can end the loop; a frame that throws is counted and reported.
+  requestAnimationFrame(frame);
+  // A canvas whose size no longer matches the page (laid out at 0 x 0 before the view had a size, say)
+  // draws nowhere. Refit it here rather than trusting a resize event to arrive.
+  const dpr = window.devicePixelRatio || 1;
+  if (innerWidth && (canvas.width !== Math.round(innerWidth * dpr) || canvas.height !== Math.round(innerHeight * dpr))) {
+    fit(); health.refits++;
+  }
+  try { drawFrame(now); } catch (e) { health.errors++; health.lastError = String(e && e.message || e).slice(0, 160); }
+}
+function drawFrame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   frames.push(now - last); last = now;
   if (frames.length > 240) frames.shift();
@@ -131,7 +143,7 @@ function frame(now) {
   const drew = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
                                    drawReticle: showReticle ? drawReticle : null, words: captionNow(now), drawCaption });
   stats.cameraSign = drew.camera;
-  health.drawnAt = now; health.eyesOk = drew.eyesOk;
+  health.drawnAt = now; health.eyesOk = drew.eyesOk; health.fullFace = drew.fullFace; health.frames++;
   // The kiosk app's watchdog (KioskActivity): a robot page that stops checking in is reloaded. From the
   // frame loop, so a page whose drawing has stopped stops checking in too.
   if (now - lastAlive > 5000) { lastAlive = now; try { window.OpenDubsKiosk?.alive?.(); } catch (e) {} }
@@ -153,7 +165,6 @@ function frame(now) {
       (stats.track ? `  track ${stats.track}` : "") +
       (stats.video ? `  video ${stats.video.w}x${stats.video.h} dropped ${stats.video.dropped}/${stats.video.total}${stats.video.showing ? " (showing)" : ""}` : "");
   }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
@@ -282,21 +293,79 @@ function applySettings(s) {
 
 // ---- a face that has gone blank reloads itself ---------------------------------------------------
 // On 2026-10-17 the tablet's face went BLACK under its overlays (the camera sign still drew) after
-// running for a while, with the page otherwise alive, and a reload is what clears it. Every 2 s: the
-// eyes not drawable, the canvas's context lost, or no frame drawn for 5 s while the page is visible.
-// Three bad checks in a row (6 s) and the page says why to the dashboard (it logs it: the next one
-// names its cause) and reloads, never while a show is armed or running. At most once a minute.
+// running for a while, with the page otherwise alive, and a reload is what clears it. On 2026-10-20 it
+// went black again after a tablet restart, with the frame loop, the voice and the kiosk heartbeat all
+// alive, and this watchdog said nothing: it checked the eyes' GEOMETRY, which was fine, never the
+// PIXELS. So it now reads them back: where the eyes should be lit, is anything there?
+// Every 2 s: the canvas's context lost, no frame drawn for 5 s while the page is visible, the eyes not
+// drawable, or the eyes' pixels all background. Three bad checks in a row (6 s) and the page says why to
+// the dashboard and reloads, never while a show is armed or running. At most once a minute.
+// The same 2 s sends the face's render health to the dashboard (/api/head/face_health): numbers only.
+const bgRgb = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 1;
+  const x = c.getContext("2d"); x.fillStyle = BG; x.fillRect(0, 0, 1, 1);
+  return x.getImageData(0, 0, 1, 1).data;
+})();
+// Read through a small canvas of its own: getImageData on the face's own context, every 2 s, can make the
+// browser move that canvas off the GPU for good (its read-frequently heuristic).
+const probe = document.createElement("canvas"); probe.width = probe.height = 48;
+const pctx = probe.getContext("2d", { willReadFrequently: true });
+// "ok" (an eye is lit), "blank" (every eye that should be lit is background), "skip" (nothing to judge:
+// a hidden page, a full-face picture, eyes shut or dark on purpose), or "error: ...".
+function eyePixels() {
+  if (document.visibilityState !== "visible") return "skip";
+  const W = canvas.width, H = canvas.height;
+  if (!W || !H) return "blank";
+  if (health.fullFace || !health.eyesOk) return "skip";
+  try {
+    const s = Math.min(W / DESIGN_W, H / DESIGN_H);
+    const turn = neck ? (neck.pan - 90) * 4 : 0;
+    const ox = (W - DESIGN_W * s) / 2 - turn * s, oy = (H - DESIGN_H * s) / 2;
+    let judged = 0;
+    for (const e of face.eyes()) {
+      if (Math.max(...e.rgb) < 40 || e.lid > 0.85) continue;          // dark or shut on purpose
+      const x0 = Math.max(0, Math.floor(ox + (e.cx - e.w / 2) * s)), y0 = Math.max(0, Math.floor(oy + (e.cy - e.h / 2) * s));
+      const x1 = Math.min(W, Math.ceil(ox + (e.cx + e.w / 2) * s)), y1 = Math.min(H, Math.ceil(oy + (e.cy + e.h / 2) * s));
+      if (x1 - x0 < 2 || y1 - y0 < 2) continue;
+      judged++;
+      pctx.imageSmoothingEnabled = false;                              // samples, not a blur
+      pctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, 0, 0, 48, 48);
+      const px = pctx.getImageData(0, 0, 48, 48).data;
+      for (let i = 0; i < px.length; i += 4) {
+        if (Math.abs(px[i] - bgRgb[0]) + Math.abs(px[i + 1] - bgRgb[1]) + Math.abs(px[i + 2] - bgRgb[2]) > 30) return "ok";
+      }
+    }
+    return judged ? "blank" : "skip";
+  } catch (e) { return "error: " + String(e && e.message || e).slice(0, 120); }
+}
 (function watchFace() {
-  let bad = 0;
+  let bad = 0, pixels = "skip", lastFrames = 0;
   const why = () => {
     if (health.lost) return "the canvas context was lost";
     if (document.visibilityState === "visible" && performance.now() - health.drawnAt > 5000) return "no frame drawn for 5 s";
     if (!health.eyesOk) return "the eyes are not drawable (geometry not finite, or no size)";
+    if (pixels === "blank") return "the eyes' pixels are all background";
     return null;
   };
+  let lastReload = null;
+  try { lastReload = JSON.parse(sessionStorage.getItem("face-reloaded-why") || "null"); } catch (e) {}
   setInterval(async () => {
+    pixels = eyePixels();
     const r = why();
     bad = r ? bad + 1 : 0;
+    if (onRobot) {
+      const attrs = typeof ctx.getContextAttributes === "function" ? ctx.getContextAttributes() : {};
+      const report = {
+        at: Date.now(), fps: (health.frames - lastFrames) / 2,
+        frame_age_ms: Math.round(performance.now() - health.drawnAt), context_lost: health.lost,
+        pixels, eyes_ok: health.eyesOk, bad: r, bad_checks: bad, visible: document.visibilityState,
+        canvas: { w: canvas.width, h: canvas.height, css_w: innerWidth, css_h: innerHeight,
+                  dpr: window.devicePixelRatio || 1, desynchronized: attrs.desynchronized ?? null },
+        refits: health.refits, errors: health.errors, last_error: health.lastError, last_reload: lastReload,
+      };
+      try { navigator.sendBeacon && navigator.sendBeacon("/api/head/face_health", JSON.stringify(report)); } catch (e) {}
+    }
+    lastFrames = health.frames;
     if (bad < 3) return;
     let showOn = typeof face.armedState === "function" && !!face.armedState(performance.now());
     try { showOn = showOn || !!(await (await fetch("/api/choreo/palette", { cache: "no-store" })).json()).running; } catch (e) {}
@@ -304,7 +373,10 @@ function applySettings(s) {
     let last = 0;
     try { last = +sessionStorage.getItem("face-reloaded-at") || 0; } catch (e) {}
     if (Date.now() - last < 60000) return;
-    try { sessionStorage.setItem("face-reloaded-at", String(Date.now())); } catch (e) {}
+    try {
+      sessionStorage.setItem("face-reloaded-at", String(Date.now()));
+      sessionStorage.setItem("face-reloaded-why", JSON.stringify({ why: r, at: Date.now() }));
+    } catch (e) {}
     try { if (door && door.readyState === WebSocket.OPEN) door.send(JSON.stringify({ face_health: r })); } catch (e) {}
     setTimeout(() => location.reload(), 200);
   }, 2000);

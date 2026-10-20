@@ -140,6 +140,37 @@ async def post_capture_clip(request: Request) -> dict:
     return {"ok": True}
 
 
+face_render: dict = {}
+
+
+@router.post("/api/head/face_health")
+async def post_face_health(request: Request) -> dict:
+    """The face page's render health, every 2 s (engine/main.js): fps, the last frame's age, the
+    canvas, whether the eyes' pixels are lit. Numbers only."""
+    try:
+        m = json.loads((await request.body())[:4000] or b"{}")
+    except ValueError:
+        return {"ok": False}
+    if isinstance(m, dict):
+        import time
+        face_render.clear(); face_render.update(m, _rx=time.time())
+    return {"ok": True}
+
+
+def _aged(d: dict) -> dict | None:
+    import time
+    if not d:
+        return None
+    out = dict(d)
+    out["received_age_s"] = round(time.time() - out.pop("_rx"), 1)
+    return out
+
+
+@router.get("/api/head/face_health")
+def get_face_health() -> dict:
+    return {"face": _aged(face_render)}
+
+
 @router.get("/api/head/wake_hits")
 def get_wake_hits() -> dict:
     import time
@@ -148,7 +179,7 @@ def get_wake_hits() -> dict:
     health = dict(voice_health)
     if health:
         health["received_age_s"] = round(time.time() - health.pop("_rx"), 1)
-    return {"listening": health or None,
+    return {"listening": health or None, "face": _aged(face_render),
             "total": len(wake_hits), "accepted": sum(1 for h in wake_hits if h[1]),
             "last_hour": len(recent), "last_hour_accepted": sum(1 for h in recent if h[1]),
             "recent": [{"at": h[0], "accepted": h[1]} for h in wake_hits[-20:]]}
