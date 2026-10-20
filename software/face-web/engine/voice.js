@@ -12,8 +12,9 @@
 //   - Hidden while a show is running (the service says so) and while the operator's controls are open;
 //     greyed, with a short reason, while the service is down, the socket is closed, or voice is off.
 //
-// THE WAKE WORD, "hey dubs" (the user's decision, 2026-10-19: the face moves with tracking, so nobody
-// can press a button on it). Agreed with the Voice lane, which owns the wire:
+// THE WAKE PHRASE, "Hey OpenDubs", spoken "hey open dubs" (the user's decision, 2026-10-20; it was "hey
+// dubs" from 2026-10-19: the face moves with tracking, so nobody can press a button on it). Agreed with
+// the Voice lane, which owns the wire:
 //   - While voice is on and the service offers it (`ready.wake`), the microphone stays open and a
 //     keyword spotter in a Worker (kws_worker.js) listens ON THE TABLET. Nothing leaves the tablet: the
 //     last 1.5 s of frames sit in a local ring buffer.
@@ -30,15 +31,19 @@ const DOWN_RATE = 24000;                            // wire.DOWN_RATE
 const JITTER_S = 0.12;                              // the playback's jitter buffer
 const MIC_IDLE_MS = 20000;                          // no turn for this long: the microphone closes
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
-// The keyword, as the model's own tokens (sherpa-onnx text2token with its bpe.model), boost 5.0,
-// threshold 0.01: tuned for RECALL. The robot heard 0 wakes from several clear "hey dubs" with the
-// earlier line (2.0, 0.10; 2026-10-20). Run through this worker on the desk, that line missed "hey dubs"
-// said ON ITS OWN in all 5 voices tried (3 macOS, 2 Kokoro) and fired only when more speech followed;
-// this one caught all 5, and nothing in 4 near-miss sentences ("hey bob…", "hey there, thumbs up…").
-// The Thor's transcript check drops a false hit silently (not_addressed), so a loose line costs little.
+// The phrase as the model's own tokens ("HEY OPEN DUBS" through sherpa-onnx text2token and its bpe.model;
+// sentencepiece agrees, and all eight are in tokens.txt), boost and threshold from the desk grid below,
+// tuned for RECALL: the Thor's transcript check drops a false hit silently (not_addressed), so a loose
+// line costs little. The short "hey dubs" is deliberately NOT a line: the page must not fire on it (the
+// Thor still accepts a transcript reading "hey dubs", for when the recogniser drops "open").
+// Desk grid (2026-10-20), this worker with its gain stage, synthetic "hey open dubs" from 5 voices (3
+// macOS, 2 Kokoro) at -6/-24/-36 dBFS peak, clean and under -60 dBFS RMS pink noise; 28 near misses
+// ("open the door", "hey, open the window", "hey dubs", "hey, open the door please", "they opened the
+// tubs yesterday", "hey bob…", at two levels, clean and noisy): boost 4.0, threshold 0.02 caught 29 of 30
+// with no false hit, the same as 5.0/0.01; 5.0/0.03 caught 27, 5.0/0.05 24. So the stricter of the two.
 // The service may send its own line in `ready.wake.keywords`, so it can be tuned without this page.
-const WAKE_KEYWORDS = "▁HE Y ▁DU B S :5.0 #0.01 @HEY_DUBS";
-// The self-test: a known "hey dubs" (wake-selftest.wav, 16 kHz mono, made with Kokoro-82M, Apache-2.0)
+const WAKE_KEYWORDS = "▁HE Y ▁O P EN ▁DU B S :4.0 #0.02 @HEY_OPENDUBS";
+// The self-test: a known "hey open dubs" (wake-selftest.wav, 16 kHz mono, made with Kokoro-82M, Apache-2.0)
 // fed straight into a second spotter once per page load, bypassing the microphone. Its verdict in the
 // health report splits "the spotter or its line is broken on this device" from "the room or the mic".
 const SELFTEST_WAV = new URL("./wake-selftest.wav", import.meta.url);
