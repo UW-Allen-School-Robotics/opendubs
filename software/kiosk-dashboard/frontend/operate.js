@@ -247,6 +247,7 @@
     const latched = !!(inp.estopped || (inp.estop_sources && inp.estop_sources.length));
     document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
     if (inp.estop_sources && inp.estop_sources.length) n.push({ sev: "bad", txt: "E-STOP · " + inp.estop_sources.join(" + ") });
+    if (rs.recovery) n.push({ sev: "bad", txt: rs.recovery });     // what to do about it (the registry's words)
     if (inp.link === false) n.push({ sev: "bad", txt: "RC LINK LOST" });
     if (lastSoc != null) { if (lastSoc < 15) n.push({ sev: "bad", txt: "PACK " + lastSoc + "% — RETURN" });
       else if (lastSoc < 25) n.push({ sev: "warn", txt: "PACK " + lastSoc + "% — low" }); }

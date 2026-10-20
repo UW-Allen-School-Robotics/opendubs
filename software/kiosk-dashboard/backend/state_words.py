@@ -57,6 +57,33 @@ def problem(rsd: dict) -> str:
     return "Problem: " + GENERIC
 
 
+# How to get out of an e-stop, by what caused it: the troubleshooting registry's words (ESTOP_SOFTWARE,
+# ESTOP_BUTTON, ESTOP_REARM_CH5 in docs/reference/registry/safety.yaml, #430), for the dashboard, and a
+# caption within the protocol's 60 characters for the face. A stale controller link has no recovery an
+# operator can do from here, so it keeps the plain words.
+RECOVERY = {
+    "SOFTWARE": ("To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.",
+                 "E-stop: switch CH5 to OFF, then re-arm on the dashboard"),
+    "STAMPLC": ("To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.",
+                "E-stop: switch CH5 to OFF, then re-arm on the dashboard"),
+    "BUTTON": ("An e-stop button is pressed: twist it to release. Then switch CH5 (mode) to OFF and "
+               "re-arm from the dashboard.",
+               "E-stop button pressed: release it, CH5 OFF, re-arm"),
+}
+
+
+def recovery(rsd: dict) -> tuple[str, str] | None:
+    """(dashboard sentence, caption) for an E_STOP_LATCH, or None. A pressed button comes first: it has
+    to be released before a re-arm can do anything. A stale link: None."""
+    sources = (rsd.get("inputs") or {}).get("estop_sources") or []
+    if rsd.get("state") != "E_STOP_LATCH" or "STALE TELEMETRY" in sources:
+        return None
+    for s in ("BUTTON", "SOFTWARE", "STAMPLC"):
+        if s in sources:
+            return RECOVERY[s]
+    return None
+
+
 def caption(shown: str | None, rsd: dict, soc, mode: str = DEFAULT_MODE) -> str | None:
     """The words for `shown` (state_out.present()), or None for none.
 
@@ -69,6 +96,10 @@ def caption(shown: str | None, rsd: dict, soc, mode: str = DEFAULT_MODE) -> str 
         return None
     if shown == "DEGRADED":
         return problem(rsd or {})
+    if shown == "E_STOP_LATCH":
+        r = recovery(rsd or {})
+        if r:
+            return r[1]
     if shown == "CHARGING":
         try:
             pct = int(round(float(soc)))

@@ -455,6 +455,10 @@ def _robot_state():
     if sup["note"]:
         out["reason"] = out["reason"] + " · " + sup["note"]
     out["estop_events"] = supervisor.recent_events()
+    # What to do about an e-stop, in the registry's words (state_words.RECOVERY): the dashboard shows it.
+    import state_words
+    r = state_words.recovery(out)
+    out["recovery"] = r[0] if r else None
     out["latched"] = {"estop": supervisor.estop_latched,
                       "faults": list(supervisor.fault_latched),
                       "ready": supervisor.ready}

@@ -25,7 +25,7 @@ def test_every_state_has_its_words():
     assert _say(booting=True) == "Starting up"
     assert _say(authority="RC_MANUAL", deadman=True) == "Manual control"
     assert _say(authority="AUTONOMOUS") == "Running a show"
-    assert _say(estop_sources=["BUTTON"]) == "Emergency stop"
+    assert _say(estop_sources=["STALE TELEMETRY"]) == "Emergency stop"   # nothing to do from here
     assert _say(charging=True, soc=94.6) == "Charging 95%"
     assert _say(charging=True, soc=None) == "Charging"                 # no BMS reading: no number
 
@@ -53,7 +53,7 @@ def test_by_default_not_while_driven_or_running_but_a_problem_is_always_said():
     assert _say(d, authority="RC_MANUAL", deadman=True) is None
     assert _say(d, authority="AUTONOMOUS") is None
     assert _say(d) == "Ready"
-    assert _say(d, estop_sources=["BUTTON"]) == "Emergency stop"
+    assert _say(d, estop_sources=["BUTTON"]) == "E-stop button pressed: release it, CH5 OFF, re-arm"
     assert _say(d, authority=None, link=False).startswith("Problem: ")
     assert _say(d, charging=True, soc=50) == "Charging 50%"
 
@@ -118,3 +118,14 @@ def test_a_face_page_gets_the_words_as_it_connects(monkeypatch):
         assert "settings" in page.receive_json()
         assert page.receive_json()["line"] == "STATE SAFE_IDLE"
         assert page.receive_json()["line"] == "CAPTION Ready"
+
+
+def test_an_estop_says_how_to_get_out_of_it():
+    """The registry's recovery (#430), on the face and the dashboard, by what caused the e-stop."""
+    assert _say(estop_sources=["SOFTWARE"]) == "E-stop: switch CH5 to OFF, then re-arm on the dashboard"
+    assert _say(estop_sources=["STAMPLC"]) == "E-stop: switch CH5 to OFF, then re-arm on the dashboard"
+    assert _say(estop_sources=["SOFTWARE", "BUTTON"]).startswith("E-stop button pressed")   # release first
+    for r in sw.RECOVERY.values():
+        assert len(r[1]) <= sw.MAX_LEN
+    assert sw.recovery(_rs(estop_sources=["SOFTWARE"]))[0] == (
+        "To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.")
