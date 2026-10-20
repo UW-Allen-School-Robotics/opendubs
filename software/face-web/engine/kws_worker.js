@@ -54,7 +54,9 @@ try {
 // RMS) is not raised at all: lifting a quiet room into loud hiss before the word cost a hit on the desk
 // (the Voice lane's point). The gain glides (about 10 ms) rather than jumping, and a sample is clamped
 // to full scale in the rare case a glide overshoots.
-const TARGET = 0.5, GAIN_MAX = 16, RELEASE = Math.exp(-1 / (16000 * 1.5)), GATE = 0.00178, GLIDE = 0.006;
+// GAIN_MAX can be raised from the Thor for an A/B (face_door.py /api/head/spotter_gain, sent as gainMaxDb).
+let GAIN_MAX = 16;
+const TARGET = 0.5, RELEASE = Math.exp(-1 / (16000 * 1.5)), GATE = 0.00178, GLIDE = 0.006;
 let env = 0, gain = 1;
 function feed(frame) {
   const f = new Float32Array(frame.length);
@@ -83,6 +85,7 @@ function feed(frame) {
 onmessage = (e) => {
   const m = e.data;
   if (typeof m.keywords === "string") { keywords = m.keywords; start(); return; }
+  if (typeof m.gainMaxDb === "number" && m.gainMaxDb >= 12 && m.gainMaxDb <= 40) { GAIN_MAX = 10 ** (m.gainMaxDb / 20); return; }
   if (m.reset) { if (kws && stream) { stream.free(); stream = kws.createStream(); } return; }
   if (m.frame) { if (kws) feed(m.frame); else if (queue.length < 50) queue.push(m.frame); }
 };

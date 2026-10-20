@@ -172,9 +172,17 @@ export function start({ face }) {
       const ctx = await audioCtx();
       // The platform's voice processing, ON unless the Thor has switched it off for an A/B (face_door.py
       // /api/head/mic_processing): the track Talk and the spotter share.
-      const proc = !st.procOff;
-      st.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: proc, noiseSuppression: proc,
-                                                                      autoGainControl: proc, channelCount: 1 } });
+      // And which microphone: the default unless the Thor has chosen one (/api/head/mic_device), by the
+      // start of its device id or its label; one the tablet does not list falls back to the default.
+      const proc = !st.procOff, audio = { echoCancellation: proc, noiseSuppression: proc, autoGainControl: proc, channelCount: 1 };
+      st.micDeviceError = null;
+      if (st.micWant && st.micWant !== "default") {
+        const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
+        const pick = ins.find((d) => d.deviceId.startsWith(st.micWant)) || ins.find((d) => d.label === st.micWant);
+        if (pick) audio.deviceId = { exact: pick.deviceId };
+        else st.micDeviceError = `no input "${st.micWant}" on this tablet; using the default`;
+      }
+      st.stream = await navigator.mediaDevices.getUserMedia({ audio });
       if (!workletAdded) {
         await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
         workletAdded = true;
@@ -240,7 +248,13 @@ export function start({ face }) {
       const armed = !!cap.armed;
       // The A/B: a change of processing reopens the microphone (keepMic opens it again within 250 ms).
       const off = cap.mic_processing === "off";
-      if (off !== !!st.procOff) { st.procOff = off; if (st.stream && !st.holding && !st.waking) closeMic(); }
+      const dev = typeof cap.mic_device === "string" ? cap.mic_device : "default";
+      if (off !== !!st.procOff || dev !== (st.micWant || "default")) {
+        st.procOff = off; st.micWant = dev;
+        if (st.stream && !st.holding && !st.waking) closeMic();
+      }
+      const g = +cap.spotter_gain_max_db;
+      if (g && g !== st.gainMaxDb && st.kws) { st.gainMaxDb = g; st.kws.postMessage({ gainMaxDb: g }); }
       if (armed && !st.cap) st.cap = { frames: [], t0: performance.now(), suppressed: suppressed() };
       if (!armed) st.cap = null;
     } catch (e) { st.cap = null; }
@@ -298,6 +312,7 @@ export function start({ face }) {
       const t = st.stream && st.stream.getAudioTracks()[0], set = t ? t.getSettings() : {};
       const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
       st.mic = { label: t ? t.label : null, device: (set.deviceId || "").slice(0, 8) || null,
+                 asked: st.micWant || "default", device_error: st.micDeviceError || null,
                  inputs: ins.map((d) => ({ label: d.label, device: (d.deviceId || "").slice(0, 8) })) };
     } catch (e) { st.mic = { error: String(e && e.message || e).slice(0, 120) }; }
   }
@@ -328,7 +343,11 @@ export function start({ face }) {
     w.onmessage = (e) => {
       if (st.kws !== w) return;
       if (e.data.stats) { st.kwsStats = e.data.stats; return; }
-      if (e.data.ready) { clearTimeout(st.kwsTimer); st.kwsReady = true; st.wakeError = null; selfTest(line); return; }
+      if (e.data.ready) {
+        clearTimeout(st.kwsTimer); st.kwsReady = true; st.wakeError = null;
+        if (st.gainMaxDb) w.postMessage({ gainMaxDb: st.gainMaxDb });          // a restarted spotter keeps it
+        selfTest(line); return;
+      }
       if (e.data.error) { retry(String(e.data.error)); return; }
       if (e.data.hit) onWake();
     };
@@ -415,6 +434,7 @@ export function start({ face }) {
                    ns: set.noiseSuppression ?? null, agc: set.autoGainControl ?? null } : null,
       frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
       mic: st.mic || null, mic_opened: st.nodes || 0, stale_frames: st.stale || 0,
+      spotter_gain_max_db: st.gainMaxDb || 24,
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
       bands_db: bandReport(), mic_processing: st.procOff ? "off" : "on",
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
