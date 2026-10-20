@@ -181,6 +181,16 @@ def main():
 
     print(f"\n{a.robot}:  {len(same)} identical, {len(drift)} DRIFTED, "
           f"{len(review)} per-robot, {len(missing)} not deployed\n")
+    # What the last deploy-all.sh carried (its /opt/opendubs/DEPLOYED), so a branch on the robot is
+    # never mistaken for main. "identical" above is against THIS checkout, whatever it is.
+    marker = subprocess.run(["ssh", a.robot, "cat /opt/opendubs/DEPLOYED 2>/dev/null"],
+                            capture_output=True, text=True).stdout
+    last = dict(l.split("=", 1) for l in marker.splitlines() if "=" in l)
+    if last.get("source"):
+        flag = "" if last["source"].startswith("main @") else "  <-- NOT main"
+        print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")
+    else:
+        print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
     if drift:
         print("  DRIFTED — repo and robot disagree, and they should not:")
         for rel, _ in drift:
