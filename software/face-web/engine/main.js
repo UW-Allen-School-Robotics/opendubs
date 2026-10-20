@@ -113,6 +113,7 @@ window.faceStats = stats;                           // read by a harness through
 // ---- the frame --------------------------------------------------------------------------------
 let last = performance.now();
 const health = { drawnAt: performance.now(), eyesOk: true, lost: false };
+let lastAlive = 0;
 canvas.addEventListener("contextlost", () => { health.lost = true; });
 
 function frame(now) {
@@ -131,6 +132,9 @@ function frame(now) {
                                    drawReticle: showReticle ? drawReticle : null, words: captionNow(now), drawCaption });
   stats.cameraSign = drew.camera;
   health.drawnAt = now; health.eyesOk = drew.eyesOk;
+  // The kiosk app's watchdog (KioskActivity): a robot page that stops checking in is reloaded. From the
+  // frame loop, so a page whose drawing has stopped stops checking in too.
+  if (now - lastAlive > 5000) { lastAlive = now; try { window.OpenDubsKiosk?.alive?.(); } catch (e) {} }
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
