@@ -44,6 +44,7 @@ import safe_tools
 import vad
 import wakeword
 import wire
+import spoken
 from sentences import Splitter
 
 log = logging.getLogger("voice.turn")
@@ -133,6 +134,7 @@ class Voice:
         self._played = asyncio.Event()
         self._end_after_turn = False
         self._mark = 0
+        self._motion_dropped = 0               # offers of motion removed from the last reply (spoken.py)
         self.wake_enabled = wake               # the tablet may start turns with "hey dubs" (wakeword.py)
         self.make_vad = make_vad
         self._source = "talk"                  # how the turn in hand began: "talk" or "wake"
@@ -298,6 +300,7 @@ class Voice:
         out = {"status": "ok", "transcript": "", "reply": "", "source": source}
         shape = audio.shape(clip, wire.UP_RATE)
         heard = ""                                    # what Parakeet wrote, before the wake phrase is stripped
+        self._motion_dropped = 0
         speaker = Speaker(self, p, turn)
         try:
             if source == "wake":
@@ -400,6 +403,7 @@ class Voice:
 
     async def _think(self, out: dict, speaker: "Speaker", t_release: float, ms: dict) -> None:
         reply = []
+        gate = spoken.Gate()                   # no emoji, no offer of motion, whatever the model wrote
         for _round in range(MAX_ROUNDS):
             split, text, calls, effects = Splitter(), [], [], []
             stop = "end_turn"
@@ -407,17 +411,21 @@ class Voice:
                 if isinstance(ev, brains.TextDelta):
                     if "first_text" not in ms:
                         ms["first_text"] = round((self.clock() - t_release) * 1000)
-                    text.append(ev.text)
                     for s in split.feed(ev.text):
-                        speaker.say(s, from_brain=True)
+                        if (s := gate.pass_(s)):
+                            text.append(s)
+                            speaker.say(s, from_brain=True)
                 elif isinstance(ev, brains.ToolCall):
                     calls.append(ev)
                     effects.append(asyncio.create_task(self._tool(ev)))
                 elif isinstance(ev, brains.Done):
                     stop = ev.stop_reason
             for s in split.flush():
-                speaker.say(s, from_brain=True)
-            said = "".join(text).strip()
+                if (s := gate.pass_(s)):
+                    text.append(s)
+                    speaker.say(s, from_brain=True)
+            said = " ".join(text).strip()          # what was spoken, which is what the history keeps
+            self._motion_dropped = gate.dropped    # logged, not sent
             if stop == "refusal":
                 out["status"] = "declined"
                 speaker.say(DECLINE)
@@ -529,7 +537,8 @@ class Voice:
     def _log(self, turn, out, ms, p: Page, shape: dict | None = None) -> None:
         rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
                "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", ""),
-               "audio": shape or {}, "words": len(out["transcript"].split())}
+               "audio": shape or {}, "words": len(out["transcript"].split()),
+               "motion_dropped": self._motion_dropped}
         if self.log_text:
             rec.update(transcript=out["transcript"], reply=out["reply"])
         log.info("turn %s", json.dumps(rec))
