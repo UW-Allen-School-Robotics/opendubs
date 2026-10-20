@@ -68,16 +68,15 @@ Check in this order:
 
 ### The drive contactor is open {#contactor-open}
 
-`CONTACTOR_OPEN` · Warning · seen on the dashboard, the head, the status lights
+`CONTACTOR_OPEN` · Warning · seen on the dashboard, the status lights
 
-The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, which can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
+The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. The arms can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
 
 **What to do**
 
 1. If the dashboard reports an e-stop, deal with that first — the entries below say how for each source.
 2. After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
 3. At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber.
-4. You cannot re-arm from the head: it is off while the contactor is open. Use the dashboard.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [E-stop system](../e-stop.md)
 
@@ -99,13 +98,13 @@ A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor di
 
 `ESTOP_SOFTWARE` · Fault · seen on the dashboard
 
-Someone pressed **E-STOP** on the dashboard or on the head, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.
+Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.
 
 **What to do**
 
 1. Make sure it is safe for the robot to move again.
 2. Set CH5 to `OFF`.
-3. Hold **RE-ARM** on the dashboard. The head cannot re-arm: it is powered behind the contactor, so it is off until the dashboard has re-armed.
+3. Hold **RE-ARM** on the dashboard.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot)
 
@@ -140,7 +139,7 @@ The dashboard has stopped hearing from the [StamPLC](glossary.md#stamplc), the c
 
 ### No RC link {#rc-no-link}
 
-`RC_NO_LINK` · Fault · seen on the dashboard, the head
+`RC_NO_LINK` · Fault · seen on the dashboard
 
 The receiver on the robot is hearing nothing from the transmitter. Without a link nothing moves, whatever the switches show.
 
@@ -154,7 +153,7 @@ The receiver on the robot is hearing nothing from the transmitter. Without a lin
 
 ### The RC receiver is in failsafe {#rc-failsafe}
 
-`RC_FAILSAFE` · Fault · seen on the dashboard, the head
+`RC_FAILSAFE` · Fault · seen on the dashboard
 
 The receiver has lost the transmitter's signal and is reporting [failsafe](glossary.md#failsafe) instead of live stick positions. The robot treats this as no command.
 
@@ -167,7 +166,7 @@ The receiver has lost the transmitter's signal and is reporting [failsafe](gloss
 
 ### CH5 is at OFF {#rc-authority-off}
 
-`RC_AUTHORITY_OFF` · Expected behaviour · seen on the dashboard, the head, the transmitter
+`RC_AUTHORITY_OFF` · Expected behaviour · seen on the dashboard, the transmitter
 
 [CH5](glossary.md#ch5) is the authority switch. At `OFF` nobody may command motion — not the sticks and not the computer. The dashboard shows this as **STANDBY**.
 
@@ -279,14 +278,6 @@ Something asked the dashboard to change the robot's state — clear an e-stop, m
 1. Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
 2. If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
 
-## The head is dark or offline {#head-dark}
-
-The head is the robot's face and front control panel. Check the contactor before anything else: an open contactor turns the head off, and that looks exactly like a network fault.
-
-Check in this order:
-
-1. [The drive contactor is open](#contactor-open)
-
 ## The lift won't move {#lift-wont-move}
 
 The lift answers to the same safety gate as the drive, plus its own pinch guard near the bottom of its travel.
@@ -306,14 +297,14 @@ Check in this order:
 
 ### The lift stopped near the bottom {#lift-pinch-hold}
 
-`LIFT_PINCH_HOLD` · Expected behaviour · seen on the head, the robot itself
+`LIFT_PINCH_HOLD` · Expected behaviour · seen on the dashboard, the robot itself
 
-The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom, where the closing gap can trap a hand. The head shows an amber **Z-AXIS HELD** banner and two short tones sound. Nothing is latched and nothing needs clearing.
+The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom, where the closing gap can trap a hand. The dashboard's Z-axis readout shows **PINCH HOLD**. Nothing is latched and nothing needs clearing.
 
 **What to do**
 
 1. Release the stick, and keep it released for about half a second.
-2. Command down again. The banner turns green and reads **LOWERING**.
+2. Command down again.
 
 **See also:** [Operating the robot](../operating.md#z-axis-pinch-protection) · [Scissor Lift Module](../build/scissor-lift.md)
 
