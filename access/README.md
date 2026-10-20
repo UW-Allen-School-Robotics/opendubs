@@ -3,44 +3,41 @@
 Who can log into which robot, and with what privileges.
 
 `tools/access.py` creates, updates and removes the robots' personal SSH accounts from one
-manifest. **The manifest names real people, so it is not in this repository.** It lives in the
-git-ignored `ops/access/` of the checkout you run the tool from:
+manifest. **The manifest names real people, so it is not in this repository.** The roster is the
+private repository `UW-Allen-School-Robotics/opendubs-access`. Clone it into the git-ignored
+`ops/access/` of the checkout you run the tool from:
+
+```bash
+gh repo clone UW-Allen-School-Robotics/opendubs-access ops/access
+```
+
+which gives
 
 ```
 ops/access/manifest.ini     # the roster: one section per person
 ops/access/<account>.pub    # each person's public key(s), named in their section
 ```
 
-[`manifest.example.ini`](manifest.example.ini) shows the format with role handles. Copy it to
-`ops/access/manifest.ini` to start. To keep the roster somewhere else, set `OPENDUBS_ACCESS_DIR`
-to that directory.
+Only the maintainers can read that repository. Anyone who can write to it can grant root on every
+managed robot. Its history is the audit trail: who was added or removed, by whom, and when.
+[`manifest.example.ini`](manifest.example.ini) shows the format with role handles. To keep the
+roster somewhere else, set `OPENDUBS_ACCESS_DIR` to that directory.
 
-The roster is outside git, so git history is no longer its audit trail. Keep it under the
-maintainers' own version control or backup. Anyone who can write to it can grant root on every
-managed robot.
+## Adding or removing someone
 
-## Adding someone
-
-1. Ask them for their **public** key — the file ending `.pub`. If they don't have one:
-   `ssh-keygen -t ed25519`, and they should set a passphrase. The private key never leaves their
-   machine.
-2. Save it as `ops/access/<account>.pub`.
-3. Add a section to `ops/access/manifest.ini` — group, robots, and an expiry. **The section name
-   is the Unix account**, so choose it once: renaming a section later deletes that account and its
-   home directory and creates a new one.
-4. Apply it:
+Follow the procedure in the `opendubs-access` README: change the roster there, commit, and push.
+Then pull it into `ops/access/` and apply it from this repo:
 
 ```bash
+git -C ops/access pull
 python3 tools/access.py --check              # validate the manifest, no robot needed
 python3 tools/access.py --diff  opendubs2    # what would change
 python3 tools/access.py --apply opendubs2    # do it
 ```
 
-## Removing someone
-
-Delete their section (and their `.pub`) and re-apply. The tool removes accounts that
-are no longer listed, so revocation is a deletion rather than something to remember
-to do on each robot.
+**The section name is the Unix account**, so choose it once: renaming a section later deletes that
+account and its home directory and creates a new one. The tool removes accounts that are no longer
+listed, so revocation is a deletion rather than something to remember to do on each robot.
 
 ## Expiry
 
