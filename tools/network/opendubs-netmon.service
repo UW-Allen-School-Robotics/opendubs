@@ -7,8 +7,7 @@
 # network.env.example. Installed by the Thor lane's deploy scripts (tools/network/README.md).
 [Unit]
 Description=OpenDubs network monitor (robot router health -> /run/opendubs-network/network.json)
-After=network-online.target
-Wants=network-online.target
+After=network.target
 ConditionPathExists=/etc/opendubs/network.env
 
 [Service]
