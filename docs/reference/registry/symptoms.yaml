@@ -26,8 +26,8 @@ symptoms:
   - id: head-dark
     title: The head is dark or offline
     intro: >
-      The head is the robot's face and front control panel. Check the contactor before anything
-      else: an open contactor turns the head off, and that looks exactly like a network fault.
+      The head is the tablet on the robot's neck, running on its own battery, and the M5Dial that
+      moves the neck.
 
   - id: lift-wont-move
     title: The lift won't move

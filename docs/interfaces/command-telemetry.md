@@ -7,7 +7,7 @@ lift commands, they pass the **StamPLC arm + failsafe gate**, and telemetry stre
 Swapping control sources never changes the robot's safety behavior — only who's holding the
 (virtual) stick.
 
-**Two paths do not pass that gate today** — the arms and the Tab5. See
+**Two paths do not pass that gate today** — the arms and the head. See
 [what the gate does not cover](#what-the-gate-does-not-cover) below, which is a gap rather than
 a design choice.
 
@@ -34,19 +34,19 @@ flowchart TB
   THOR -->|"drive, lift"| AUTH
   AUTH --> DRIVE["Drive"]
   AUTH --> LIFT["Lift"]
-  AUTH -->|"pan and tilt forwarded"| TAB5
+  AUTH -->|"pan and tilt forwarded"| NECK
   ST --> LIGHT["Lights"]
 
-  THOR ==>|"ungated"| TAB5["Tab5 — front panel"]
+  THOR ==>|"ungated"| NECK["Neck controller — M5Dial"]
+  THOR ==>|"ungated"| TABLET["Head tablet"]
   THOR ==>|"ungated"| ARMCTL["Arm controllers"]
   ARMCTL --> CAN["CAN bus"]
   CAN --> ARMS["Arms and grippers"]
 
-  TAB5 --> FACE["Face"]
-  TAB5 --> HEAD["Head servos"]
-  TAB5 --> SOUND["Sound"]
+  NECK --> HEAD["Head servos"]
+  TABLET --> FACE["Face"]
+  TABLET --> SOUND["Sound"]
 
-  ST -.-> TAB5
   ST -.-> THOR
   ST -.-> DB
 ```
@@ -55,18 +55,18 @@ Solid is a command, thick is a command that does not pass the authority gate, da
 
 Three controllers share the robot. The **StamPLC** (an ESP32-S3 industrial controller) owns the
 RC receiver, the robot state, drive mixing, the lift relays, the lights and the e-stop
-contactor. The **Tab5** (an ESP32-P4 panel) is the front control panel and the
-human–robot interface, and it drives the pan/tilt system: the face screen, the head servos and
-the speaker. The **onboard computer** runs ROS 2, forms and sends the arms' CAN
+contactor. The **M5Dial neck controller** drives the head's pan and tilt servos, and the head's
+**tablet** shows the face and plays sound, from pages and audio the onboard computer serves. The
+**onboard computer** runs ROS 2, forms and sends the arms' CAN
 traffic, and hosts a listener that accepts commands from any source.
 
 Three things follow from the drawing:
 
 - **Releasing the deadman stops actuators, not software.** The computer keeps listening and
   keeps sending; the StamPLC stops acting on what arrives.
-- **State is an output**, broadcast from the StamPLC to the Tab5, the computer and the
+- **State is an output**, broadcast from the StamPLC to the computer and the
   dashboard. The face and the lights follow state rather than being commanded per device.
-- **The Tab5 drives the head servos.** The StamPLC forwards pan and tilt from the
+- **The neck controller drives the head servos.** The StamPLC forwards pan and tilt from the
   sticks; the computer can also send them directly.
 
 ## Control sources — all speak the same contract
@@ -96,7 +96,7 @@ supported — both are just UIs over this one contract.
 
 ## What the gate does not cover
 
-**Every driven element is on the drive bus**, including the arms and the front-panel head — the
+**The drive, the lift and the arms are on the drive bus** — the
 60&nbsp;A step-down sits behind the contactor and feeds the power distribution hub, the drive ESCs
 and the arms (see [Power architecture](../power-architecture.md)). So an e-stop de-energizes all of
 them. Stopping all driven motion with the e-stop is foundational and is not configurable.

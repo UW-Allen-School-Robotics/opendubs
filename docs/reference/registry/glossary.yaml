@@ -65,7 +65,7 @@ terms:
 
   - term: Drive bus
     means: >
-      The 24 V supply for everything that moves — the drive motors, the lift — and for the head.
+      The 24 V supply for everything that moves — the drive motors, the lift, the arms.
       It sits behind the [contactor](#contactor), so an e-stop removes it. Compare the
       [logic bus](#logic-bus).
     see: [power-architecture.md]
@@ -74,8 +74,8 @@ terms:
     aka: [emergency stop]
     means: >
       Anything that opens the drive [contactor](#contactor). The red buttons on the robot do it in
-      hardware, independent of all software. A **software e-stop** — from the dashboard or the
-      head — has the controller open it, and [latches](#latch) until an operator re-arms.
+      hardware, independent of all software. A **software e-stop**, from the dashboard, has the
+      controller open it, and [latches](#latch) until an operator re-arms.
     see: [e-stop.md, operating.md#stopping-the-robot]
 
   - term: Edge controller
@@ -101,9 +101,9 @@ terms:
   - term: Head
     aka: [the head]
     means: >
-      The robot's face and front control panel: a touchscreen on the front of the robot with its
-      own **E-STOP** button. It is powered from the drive bus, so it turns off whenever the
-      contactor opens.
+      The robot's face: an Android tablet on a pan/tilt neck. The tablet shows the face, plays
+      sound and runs on its own battery; lifted off the mount, it is the operator's dashboard. An
+      M5Dial neck controller moves the neck. The head has no e-stop of its own.
     see: [system-overview.md]
 
   - term: Latch

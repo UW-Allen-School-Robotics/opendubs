@@ -8,7 +8,7 @@
 | **Prerequisites** | [Electronics Bay](electronics-bay.md), [Power Bay](power-bay.md) |
 
 !!! note "Stub — assembly steps coming"
-    Mount the **Thor AGX** compute and route/land the USB devices (lidars, StamPLC, Tab5). USB
+    Mount the **Thor AGX** compute and route/land the USB devices (lidars, StamPLC). USB
     layout matters — see the hard-won hub/port lessons in [Thor setup](../thor-setup.md).
 
 !!! warning "USB layout is not an afterthought"

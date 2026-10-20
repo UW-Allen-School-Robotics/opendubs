@@ -17,8 +17,8 @@ converging on the StamPLC and Thor, and exposed to a payload through the standar
 - **Open in Figma:** [OpenDubs board — bus map](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=21-995) — the live board also includes the **payload-connected** system bus map (the poster above shows the core version). Clicking the diagram loads the full interactive board.
 
 - Primary robot brain: **NVIDIA Thor AGX Dev Kit**
-- Edge controllers: **StamPLC** on the mobile base, **Tab5** on the head — introduced under
-  *Responsibility split* below. Each payload may bring its own as well
+- Edge controllers: **StamPLC** on the mobile base, and an **M5Dial** neck controller for the
+  head — introduced under *Responsibility split* below. Each payload may bring its own as well
 - Mobile base: 4 motors + 2 dual-channel ESCs, optimised for **mecanum** drive and switchable to
   **4WD traction** drive in software
 - Z-axis: the interchangeable payload that raises and lowers the arms — a **scissor lift**
@@ -53,15 +53,15 @@ source of the ESC and motor commands, and the publisher of hardware telemetry.
 - Fast safety fallback behaviours
 - Hardware telemetry publishing
 
-### Tab5 — the head
+### The head — a tablet on an M5Dial neck
 
-The second edge controller. It is the robot's front control panel and its human–robot
-interface, and it drives the pan/tilt system.
+The head is two devices.
 
-- Front panel — the face display and the on-screen controller UI
-- Pan/tilt head servos over I²C, commanded by the RC, the on-screen d-pad, or the Thor's tracker
-- Z-axis height sensing (ToF) and the operator prompts that go with it
-- Sound
+- **The tablet** — an Android tablet on the neck's mount, running the face page the dashboard
+  serves. It is the display, speaker, microphone and cameras, and, lifted off its mount, the
+  operator's dashboard. It runs on its own battery.
+- **The M5Dial neck controller** — the second edge controller. It drives the pan and tilt servos
+  through its own 8Servo, from the RC sticks (forwarded by the StamPLC) or from the Thor.
 
 ## Subsystems
 
