@@ -181,13 +181,16 @@ class Brains(unittest.IsolatedAsyncioTestCase):
 
     async def test_robot_status_reads_and_reports_truthfully(self):
         llm = FakeLLM([[ToolCall("t1", "robot_status", {})], "You are not stopped."])
-        v = make_voice(llm=llm, robot_status=lambda: {"estop": True, "ch5": None, "fault": None, "arms": None})
+        import time
+        v = make_voice(llm=llm, robot_status=lambda: {"ts": time.time(), "state": {"words": "Emergency stop"},
+                                                      "faults": [], "battery": {"percent": None}})
         link, page = await connect(v)
         await say(v, page, speech_clip())
         await settle(v)
         content = v.history[2]["results"][0]["content"]
-        self.assertIn("pressed, so you are stopped", content)
-        self.assertIn("transmitter mode: unknown", content)
+        self.assertIn("state: Emergency stop", content)
+        self.assertIn("battery: unknown", content)
+        self.assertIn("I can't tell right now", content)
 
     async def test_end_conversation(self):
         llm = FakeLLM([[ToolCall("t1", "end_conversation", {}), "Goodbye!"]] + ["ok"])

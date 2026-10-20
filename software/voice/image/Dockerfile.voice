@@ -40,7 +40,7 @@ RUN sh /opt/voice/install-python.sh "$VARIANT"
 
 # The protocol's vocabularies, which safe_tools reads so the allowlist cannot drift from the face.
 COPY software/head-protocol/head_protocol.py /opt/voice/app/head_protocol.py
-COPY software/voice/*.py software/voice/persona.txt software/voice/models.lock.json software/voice/NOTICE.md /opt/voice/app/
+COPY software/voice/*.py software/voice/*.json software/voice/persona.txt software/voice/NOTICE.md /opt/voice/app/
 COPY software/voice/image/check_no_gpl.py /opt/voice/check_no_gpl.py
 
 # The gate: refuse the image if any GPL package, espeak-ng library or espeak-ng data is in it.

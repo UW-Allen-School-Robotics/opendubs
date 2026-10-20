@@ -44,6 +44,7 @@ import safe_tools
 import vad
 import wakeword
 import wire
+import robot_facts
 import spoken
 from sentences import Splitter
 
@@ -95,8 +96,9 @@ class Page:
 
 
 def _robot_status(dashboard: str) -> dict | None:
+    """The dashboard's status snapshot for voice (robot_facts.py), or None if it cannot be read."""
     from gate import http_get_json
-    code, body = http_get_json(dashboard.rstrip("/") + "/api/choreo/robot")
+    code, body = http_get_json(dashboard.rstrip("/") + robot_facts.STATUS_PATH)
     return body if code == 200 else None
 
 
@@ -458,7 +460,7 @@ class Voice:
             return {"id": call.id, "content": act.result_hint or "done", "is_error": False}
         if act.http:
             robot = await asyncio.get_running_loop().run_in_executor(None, self.robot_status)
-            return {"id": call.id, "content": safe_tools.status_summary(robot), "is_error": False}
+            return {"id": call.id, "content": robot_facts.summary(robot), "is_error": False}
         if act.end_conversation:
             self._end_after_turn = True
             return {"id": call.id, "content": act.result_hint, "is_error": False}
