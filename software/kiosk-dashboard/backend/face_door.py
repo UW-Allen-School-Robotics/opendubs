@@ -97,9 +97,10 @@ async def post_voice_health(request: Request) -> dict:
 
 # ---- one clip of what the spotter hears, on purpose only ----------------------------------------
 # OFF unless armed FROM THE THOR ITSELF (curl on localhost), for at most 2 minutes, for ONE clip: the
-# exact 16 kHz frames the page fed its keyword spotter around one utterance. Written to /tmp on the Thor
-# (mode 600), never anywhere else; whoever armed it deletes it once it has been replayed. Arming lives
-# in memory, so a dashboard restart disarms it. For finding why the wake word misses on a device.
+# page's 16 kHz microphone frames (the keyword spotter's input) for 6 s from the moment it sees the arm,
+# so cue the person as you arm it. Written to /tmp on the Thor (mode 600) with a .json beside it (frames
+# that arrived and in how long, the microphone), never anywhere else; whoever armed it deletes both once
+# replayed. Arming lives in memory, so a dashboard restart disarms it.
 #   curl -X POST localhost:8080/api/head/capture/arm -d '{"seconds": 90}'
 capture = {"until": 0.0, "last": None}
 
@@ -136,6 +137,14 @@ async def post_capture_clip(request: Request) -> dict:
     with os.fdopen(fd, "wb") as f, wave.open(f, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm[: len(pcm) & ~1])
     capture["last"] = {"path": path, "seconds": round(len(pcm) / 32000, 2), "at": time.time()}
+    meta = request.headers.get("x-capture-meta", "")[:1000]
+    try:
+        meta_obj = json.loads(meta) if meta else {}
+    except ValueError:
+        meta_obj = {"unparsed": meta}
+    fd = os.open(path[:-4] + ".json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(meta_obj, f)
     log.warning("wake capture written: %s (%.1f s)", path, len(pcm) / 32000)
     return {"ok": True}
 
