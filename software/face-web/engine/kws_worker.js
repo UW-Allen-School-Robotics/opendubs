@@ -34,13 +34,16 @@ const start = () => {
   } catch (e) { postMessage({ error: String(e && e.message || e) }); }
 };
 
+// voice.js names its try (?try=N): a retry asks for the files afresh, never a copy cut short in a cache.
+const TRY = new URLSearchParams(self.location.search).get("try");
+const fresh = (p) => (TRY && TRY !== "1" ? `${p}?try=${TRY}` : p);
 self.Module = {
-  locateFile: (p) => "../vendor/kws/" + p,
+  locateFile: (p) => fresh("../vendor/kws/" + p),
   onRuntimeInitialized: () => { runtime = true; start(); },
   print: () => {}, printErr: () => {},
 };
 try {
-  importScripts("../vendor/kws/sherpa-onnx-kws.js", "../vendor/kws/sherpa-onnx-wasm-kws-main.js");
+  importScripts(fresh("../vendor/kws/sherpa-onnx-kws.js"), fresh("../vendor/kws/sherpa-onnx-wasm-kws-main.js"));
 } catch (e) { postMessage({ error: "the wake-word files are missing (kws/build-kws.sh): " + (e && e.message || e) }); }
 
 // A gain stage in front of the spotter. It is LEVEL-sensitive: on the desk "hey dubs" peaking at -6 dBFS

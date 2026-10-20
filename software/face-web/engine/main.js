@@ -249,7 +249,7 @@ function applySettings(s) {
 // 15 s the page asks the dashboard which version of its files it serves (face_door.py), and reloads
 // when that changes. Never while a show is armed or running (a reload would cut it); it tries again.
 (function followDeploys() {
-  let seen = null;
+  let seen = null;                                   // "version boot" as first seen
   async function busy() {
     if (typeof face.armedState === "function" && face.armedState(performance.now())) return true;
     try {
@@ -260,18 +260,22 @@ function applySettings(s) {
   // A deploy copies the face's files and THEN restarts the dashboard, so a change is seen while the old
   // process is about to stop. A reload then lost its scripts in the gap and left a page with no voice and
   // no door (2026-10-19). Reload only once the new version holds 5 s later and the page's code answers.
+  // The gap can outlast those 5 s (2026-10-20: the page reloaded into the old process, which stopped while
+  // the wake word's model was downloading), so the dashboard's own process counts too: a restart is a
+  // change, and the page reloads again once the new process holds. Two reloads in a deploy, the last clean.
+  const key = (j) => (j && j.version ? `${j.version} ${j.boot || ""}` : null);
   async function settled(v) {
     await new Promise((r) => setTimeout(r, 5000));
     try {
-      const again = await (await fetch("/api/face/version", { cache: "no-store" })).json();
+      const again = key(await (await fetch("/api/face/version", { cache: "no-store" })).json());
       const code = await fetch("engine/main.js", { method: "HEAD", cache: "no-store" });
-      return again.version === v && code.ok;
+      return again === v && code.ok;
     } catch (e) { return false; }                    // still restarting: the next round tries again
   }
   async function check() {
     try {
       const r = await fetch("/api/face/version", { cache: "no-store" });
-      const v = r.ok ? (await r.json()).version : null;          // not served by a dashboard: nothing to follow
+      const v = r.ok ? key(await r.json()) : null;               // not served by a dashboard: nothing to follow
       if (v && seen === null) seen = v;
       else if (v && v !== seen && !(await busy()) && (await settled(v))) { location.reload(); return; }
     } catch (e) { /* the dashboard is restarting during the deploy: try again next round */ }
