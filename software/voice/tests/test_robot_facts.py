@@ -55,6 +55,16 @@ class LeftOut(unittest.TestCase):
 
 
 class Honest(unittest.TestCase):
+    def test_the_dashboards_own_shape(self):
+        """As /api/status/spoken sends it (#433): caption words, a routine id, the arms mostly null."""
+        said = rf.summary(snap(state={"name": "CHARGING", "words": "Charging 82%"},
+                               show={"running": True, "name": "herb_oreo_v2"}, arms={"left": None, "right": None},
+                               faults=[{"words": "lift not responding", "code": "LIFT_NOT_RESPONDING"}],
+                               network={"uplink": "no router"}), now=NOW, help={})
+        for part in ("state: Charging 82%", "running the show herb oreo v2", "left arm: unknown",
+                     "fault: lift not responding", "network uplink: no router"):
+            self.assertIn(part, said)
+
     def test_live_data_is_said(self):
         said = rf.summary(snap(), now=NOW, help={})
         for part in ("state: Ready", "battery: 82 percent", "charging: not charging", "left arm: holding",

@@ -49,7 +49,8 @@ _SECRETS = [
     re.compile(r"\b(?:sn|s/n|no|id)\s*[:#=.]?\s*[\w-]*\d[\w-]*", re.I),          # part numbers and IDs
 ]
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")                                      # [text](link) -> text
-_MARKS = re.compile(r"[*_`#>|]+")
+_MARKS = re.compile(r"[*`#>|]+")
+_UNDERSCORE = re.compile(r"_+")                                                  # "herb_oreo" -> "herb oreo"
 
 
 def scrub(text) -> str | None:
@@ -59,7 +60,7 @@ def scrub(text) -> str | None:
     s = _LINK.sub(r"\1", text)
     for pat in _SECRETS:
         s = pat.sub(" ", s)
-    s = _MARKS.sub("", s)
+    s = _UNDERSCORE.sub(" ", _MARKS.sub("", s))
     s = re.sub(r"\s+", " ", s).strip(" ,;:-")
     if not s or not any(ch.isalpha() for ch in s):
         return None
@@ -84,7 +85,7 @@ def _help_text(entry: dict) -> str | None:
         s = _LINK.sub(r"\1", t)
         for pat in _SECRETS:
             s = pat.sub(" ", s)
-        return re.sub(r"\s+", " ", _MARKS.sub("", s)).strip() or None
+        return re.sub(r"\s+", " ", _UNDERSCORE.sub(" ", _MARKS.sub("", s))).strip() or None
     means = plain(entry.get("means"))
     do = [d for d in (plain(x) for x in entry.get("do") or []) if d]
     if not means and not do:
