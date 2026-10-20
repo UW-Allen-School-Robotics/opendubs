@@ -12,7 +12,7 @@ Configuration, all from the environment (on a robot: /etc/opendubs/voice.env, ro
 
   OPENDUBS_VOICE_PORT     8093
   OPENDUBS_VOICE          1; 0 keeps voice off without stopping the service
-  OPENDUBS_VOICE_WAKE     1; 0 refuses wake turns ("hey dubs"), leaving Talk only
+  OPENDUBS_VOICE_WAKE     1; 0 refuses wake turns ("Hey OpenDubs"), leaving Talk only
   OPENDUBS_DASHBOARD_URL  http://127.0.0.1:8080   the show interlock and robot_status read it
   OPENDUBS_FACE_DOOR_PORT 4242                    the face door, UDP on loopback
   OPENDUBS_VOICE_CONVO    0; 1 sends CONVO lines to the face (only once the Tablet lane ships it)

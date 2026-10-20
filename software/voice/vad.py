@@ -24,7 +24,7 @@ import os
 import audio
 import wire
 
-START_TIMEOUT_S = 4.0     # [E] long enough to take a breath after "hey dubs"
+START_TIMEOUT_S = 4.0     # [E] long enough to take a breath after "Hey OpenDubs"
 GRACE_S = 0.35            # after the wake point: Silero's speech flag outlasts a word by ~0.25 s, so
                           # the tail of "dubs" itself must not count as the question starting
 END_SILENCE_S = 0.8       # [E] Pipecat's default is 0.2 s plus a turn model; we have no turn model yet
