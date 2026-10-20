@@ -176,9 +176,17 @@ export function start({ face }) {
         await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
         workletAdded = true;
       }
-      st.node = new AudioWorkletNode(ctx, "opendubs-cap");
-      ctx.createMediaStreamSource(st.stream).connect(st.node);
-      st.node.port.onmessage = (e) => onFrame(e.data);
+      // Each opening has its own source and node, and closeMic() unhooks both. On 2026-10-20 it unhooked
+      // only the node's OUTPUT: the old source kept feeding the old node, whose frames kept arriving, so
+      // every reconnect of the voice link (each deploy) added another stream of frames. The spotter, Talk
+      // and the capture got them interleaved: 100 frames/s after one reconnect, 150 after two, and audio
+      // nothing could understand. A frame from a node that is no longer current is dropped as well.
+      const node = st.node = new AudioWorkletNode(ctx, "opendubs-cap");
+      st.src = ctx.createMediaStreamSource(st.stream);
+      st.src.connect(node);
+      st.nodes = (st.nodes || 0) + 1;
+      node.port.onmessage = (e) => { if (st.node === node) onFrame(e.data); else st.stale = (st.stale || 0) + 1; };
+      describeMic();
     } finally { st.opening = false; }
   };
   // Every 20 ms frame: out to the service only during a turn (Talk held, or after a wake); otherwise
@@ -198,40 +206,51 @@ export function start({ face }) {
     if (st.waking) { sendFrame(frame); return; }
     st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();   // local only, until a turn
     if (!st.wake) return;
-    if (st.kwsReady && !suppressed()) {
-      st.kws.postMessage({ frame }); st.meter.posted++;   // a copy: the ring buffer keeps its own
-      if (st.cap) captureFrame(frame);
-    }
+    if (st.cap) captureFrame(frame);
+    if (st.kwsReady && !suppressed()) { st.kws.postMessage({ frame }); st.meter.posted++; }   // a copy: the ring buffer keeps its own
   }
-  // One clip of exactly what the spotter was fed, only while the Thor has armed it (face_door.py
-  // /api/head/capture): from the first frame louder than -36 dBFS, 2.5 s before it and 2.5 s after, posted
-  // once to the Thor's /tmp. Never kept here, never sent anywhere else.
-  const CAP_FRAMES = 250, CAP_AFTER = 125, CAP_LOUD = 520;
+  // One clip of the microphone path's frames (the spotter's input, whether or not it was listening at
+  // that moment), only while the Thor has armed it (face_door.py /api/head/capture): a FIXED window of
+  // CAP_MS of wall time from the moment the page sees it armed, with no level trigger, so the person is
+  // cued at the arm. (The first version started on the first frame over -36 dBFS: on 2026-10-20 it fired
+  // at once on something else and, with frames doubled, closed after 1.3 s.) Sent once to the Thor's
+  // /tmp with how many frames arrived in how long; never kept here, never sent anywhere else.
+  const CAP_MS = 6000;
   function captureFrame(frame) {
     const c = st.cap;
-    c.ring.push(frame); if (c.trig < 0 && c.ring.length > CAP_FRAMES / 2) c.ring.shift();
-    if (c.trig < 0) {
-      let pk = 0; for (let i = 0; i < frame.length; i++) pk = Math.max(pk, Math.abs(frame[i]));
-      if (pk > CAP_LOUD) c.trig = c.ring.length;
-      return;
-    }
-    if (++c.after < CAP_AFTER) return;
-    const pcm = new Int16Array(c.ring.length * frame.length);
-    c.ring.forEach((f, i) => pcm.set(f, i * frame.length));
+    c.frames.push(frame);
+    const ms = performance.now() - c.t0;
+    if (ms < CAP_MS) return;
+    const pcm = new Int16Array(c.frames.length * frame.length);
+    c.frames.forEach((f, i) => pcm.set(f, i * frame.length));
     st.cap = null; st.capSent = (st.capSent || 0) + 1;
-    fetch("/api/head/capture/clip", { method: "POST", body: pcm.buffer }).catch(() => {});
+    const meta = { frames: c.frames.length, ms: Math.round(ms), ctx_rate: st.ctx ? st.ctx.sampleRate : null, mic: st.mic || null,
+                   suppressed_at_start: c.suppressed, mic_opened: st.nodes || 0 };
+    fetch("/api/head/capture/clip", { method: "POST", body: pcm.buffer,
+                                      headers: { "X-Capture-Meta": JSON.stringify(meta).slice(0, 1000) } }).catch(() => {});
   }
   setInterval(async () => {
     if (!st.kwsReady) return;
     try {
       const armed = !!(await (await fetch("/api/head/capture", { cache: "no-store" })).json()).armed;
-      if (armed && !st.cap) st.cap = { ring: [], trig: -1, after: 0 };
+      if (armed && !st.cap) st.cap = { frames: [], t0: performance.now(), suppressed: suppressed() };
       if (!armed) st.cap = null;
     } catch (e) { st.cap = null; }
   }, 2000);
+  // Which microphone the page was given, and what else there is: for "why is it so quiet?" from the Thor.
+  // Labels and Chrome's per-origin device ids (shortened) only.
+  async function describeMic() {
+    try {
+      const t = st.stream && st.stream.getAudioTracks()[0], set = t ? t.getSettings() : {};
+      const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
+      st.mic = { label: t ? t.label : null, device: (set.deviceId || "").slice(0, 8) || null,
+                 inputs: ins.map((d) => ({ label: d.label, device: (d.deviceId || "").slice(0, 8) })) };
+    } catch (e) { st.mic = { error: String(e && e.message || e).slice(0, 120) }; }
+  }
   const closeMic = () => {
     clearTimeout(st.idleTimer); st.idleTimer = null; st.buf = []; endWake();
-    if (st.node) { try { st.node.disconnect(); } catch (e) {} st.node = null; }
+    if (st.src) { try { st.src.disconnect(); } catch (e) {} st.src = null; }
+    if (st.node) { try { st.node.port.onmessage = null; st.node.disconnect(); } catch (e) {} st.node = null; }
     if (st.stream) { st.stream.getTracks().forEach((t) => t.stop()); st.stream = null; }
     watchRec();
   };
@@ -341,10 +360,11 @@ export function start({ face }) {
                    channels: set.channelCount ?? null, ec: set.echoCancellation ?? null,
                    ns: set.noiseSuppression ?? null, agc: set.autoGainControl ?? null } : null,
       frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
+      mic: st.mic || null, mic_opened: st.nodes || 0, stale_frames: st.stale || 0,
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
       spotter_tries: st.kwsTries || 0, spotter_retried: st.kwsRetryWhy || null,
-      spotter_per_s: st.kwsStats, hits: st.hits.length, capture: st.cap ? (st.cap.trig < 0 ? "armed" : "recording") : null,
+      spotter_per_s: st.kwsStats, hits: st.hits.length, capture: st.cap ? "recording" : null,
       captures_sent: st.capSent || 0,
       spotter_selftest: st.selftest || null, keywords: st.wake && typeof st.wake.keywords === "string" &&
         st.wake.keywords.includes("@") ? "from the service" : "page default",
