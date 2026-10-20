@@ -37,7 +37,7 @@ FATAL_FAULTS = {"CONTACTOR WELDED", "PDH hardware"}   # non-clearable from the U
 LIFT_SILENT = "lift module not responding"
 SELF_CLEARING = {LIFT_SILENT}
 # E-stop sources tracked live rather than latched — see step() for the reasoning.
-LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON"}
+LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON", "STAMPLC"}
 
 
 class Supervisor:
@@ -119,6 +119,9 @@ class Supervisor:
         #                   indicator that disagrees with the machine is worse than none.
         #   STALE TELEMETRY fail-safe while the link is dead; auto-recovers, else every
         #                   USB blip would demand a manual re-arm (review R2).
+        #   STAMPLC         the StamPLC's own latch, which the board holds itself until the
+        #                   guarded re-arm (RELAY 0 1) clears it; latching it here too would
+        #                   only let the display disagree with the board.
         #
         # LATCHING — SOFTWARE, and anything new that lacks a physical act behind it.
         # There the guarded clear is the only acknowledgement that exists.

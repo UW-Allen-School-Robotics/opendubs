@@ -315,6 +315,13 @@ def _safety():
     sources = []
     if sw:
         sources.append("SOFTWARE")
+    # The StamPLC's own latch (BtnC held, OTA, REBOOT, or an ESTOP command) makes its [RC] line say
+    # mode=ESTOP. Unread, that mode maps to no authority and the robot read "RC link lost" in amber
+    # with the contactor open. Our own e-stop sets it too, so it is named only when SOFTWARE is not
+    # (which also covers a dashboard restart, where the in-memory software flag is gone).
+    plc_latch = fresh and (s.get("rc") or {}).get("mode") == "ESTOP"
+    if plc_latch and not sw:
+        sources.append("STAMPLC")
     if btn:
         sources.append("BUTTON")
     # Fail-safe (review R2): a STALE StamPLC link freezes the entire safety-sensing
