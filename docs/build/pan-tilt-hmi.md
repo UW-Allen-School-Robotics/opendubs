@@ -125,6 +125,7 @@ position and direction on the mount are not yet measured. The neck carries no ra
 |---|---|---:|---|
 | [M5Stack Dial v1.1 (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 1 | The neck's own, at I2C 0x25 on the M5Dial neck controller's Port A: channel 0 tilt, channel 1 pan. Separate from the StamPLC's in the electronics bay. |
+| [goBILDA 2000 Series Dual Mode Servo (25-2, Torque)](https://www.servocity.com/2000-series-dual-mode-servo-25-2/) | `2000-0025-0002` | 2 | Pan and tilt, on the neck 8Servo's channels 1 and 0. Dual-mode: confirm each is in positional mode before fitting (see Commissioning). |
 
 **Chest indicator light**
 

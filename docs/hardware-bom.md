@@ -39,6 +39,7 @@ part used in two places is listed once, with the quantities added.
 | [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | [Electronics Bay](build/electronics-bay.md) | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 2 | [Electronics Bay](build/electronics-bay.md), [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The StamPLC's: PWM to the four drive ESCs, at I2C 0x25 behind the PaHub. The neck has its own (Pan/Tilt HMI). |
 | [M5Stack Dial v1.1 (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. |
+| [goBILDA 2000 Series Dual Mode Servo (25-2, Torque)](https://www.servocity.com/2000-series-dual-mode-servo-25-2/) | `2000-0025-0002` | 2 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Pan and tilt, on the neck 8Servo's channels 1 and 0. Dual-mode: confirm each is in positional mode before fitting (see Commissioning). |
 | [goBILDA RGB Indicator Light (PWM Controlled)](https://www.servocity.com/rgb-indicator-light-pwm-controlled/) | `3118-0808-0002` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Lights the chest badge from behind in the robot's state colour; the PWM pulse width sets the colour. Fixed with M4 screws through its own holes. |
 | 6 x 2 mm disc magnet (N52 or similar) | — | 8 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Four pairs, poles attracting: they hold the face on, so it lifts off to reach the screws. |
 | [ODrive Regen Clamp](https://shop.odriverobotics.com/products/odrive-regeneration-clamp) | — | 1 | [Electronics Bay](build/electronics-bay.md) | Absorbs braking regen; the resistor lead requires SOLDERING |
@@ -91,8 +92,8 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 
 | | Total (USD) | Lines without a price |
 |---|---:|---:|
-| **One robot, all parts** | **$14,569.43** | 10 |
-| One robot, without the Thor and the arms | $3,670.43 | 10 |
+| **One robot, all parts** | **$14,643.41** | 10 |
+| One robot, without the Thor and the arms | $3,744.41 | 10 |
 | Tools, bought once | $188.53 | 4 |
 
 *Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (the head and the operator's tablet); M4 x 20 mm socket-head cap screw (ISO 4762); M4 heat-set insert; 6 x 2 mm disc magnet (N52 or similar); CA glue; 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
@@ -146,6 +147,7 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 | goBILDA 2x80A ESC | 2 | $159.99 | $319.98 | [servocity.com](https://www.servocity.com/2x80a-motor-controller/), 2026-10-09 |
 | M5 8Servo unit | 2 | $6.95 | $13.90 | [shop.m5stack.com](https://shop.m5stack.com/products/8-channel-servo-driver-unit-stm32f030), 2026-10-09 |
 | M5Stack Dial v1.1 (ESP32-S3) | 1 | $34.90 | $34.90 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-dial-v1-1), 2026-10-16 |
+| goBILDA 2000 Series Dual Mode Servo (25-2, Torque) | 2 | $36.99 | $73.98 | [servocity.com](https://www.servocity.com/2000-series-dual-mode-servo-25-2/), 2026-10-20 |
 | goBILDA RGB Indicator Light (PWM Controlled) | 1 | $24.99 | $24.99 | [servocity.com](https://www.servocity.com/rgb-indicator-light-pwm-controlled/), 2026-10-16 |
 | M4 x 20 mm socket-head cap screw (ISO 4762) | 4 | — | — | no price yet |
 | M4 heat-set insert | 4 | — | — | no price yet |
