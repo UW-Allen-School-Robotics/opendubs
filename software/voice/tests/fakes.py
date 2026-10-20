@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import os
 import sys
@@ -103,8 +104,8 @@ class BrokenBrain:
 def make_voice(*, llm=None, stt=None, tts=None, face=None, gate=None, **kw) -> Voice:
     return Voice(stt or FakeSTT("what are you"), tts or FakeTTS(), llm or FakeLLM(),
                  face or FakeFace(), gate or FakeGate(), "You are a test robot.",
-                 robot_status=kw.pop("robot_status", lambda: {"estop": False, "ch5": "MANUAL",
-                                                              "fault": None, "arms": "inactive"}),
+                 robot_status=kw.pop("robot_status", lambda: {"ts": time.time(), "state": {"words": "Ready"},
+                                                              "faults": [], "battery": {"percent": 80, "charging": False}}),
                  **kw)
 
 
