@@ -170,8 +170,11 @@ export function start({ face }) {
     st.opening = true;
     try {
       const ctx = await audioCtx();
-      st.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true,
-                                                                      autoGainControl: true, channelCount: 1 } });
+      // The platform's voice processing, ON unless the Thor has switched it off for an A/B (face_door.py
+      // /api/head/mic_processing): the track Talk and the spotter share.
+      const proc = !st.procOff;
+      st.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: proc, noiseSuppression: proc,
+                                                                      autoGainControl: proc, channelCount: 1 } });
       if (!workletAdded) {
         await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
         workletAdded = true;
@@ -202,6 +205,7 @@ export function start({ face }) {
     const mt = st.meter; mt.frames++;
     for (let i = 0; i < frame.length; i++) { const v = frame[i]; mt.sq += v * v; if (v > mt.peak) mt.peak = v; else if (-v > mt.peak) mt.peak = -v; }
     mt.n += frame.length;
+    bands(frame);
     if (st.pressed) { sendFrame(frame); return; }      // a Talk turn, its 400 ms tail included
     if (st.waking) { sendFrame(frame); return; }
     st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();   // local only, until a turn
@@ -215,7 +219,7 @@ export function start({ face }) {
   // cued at the arm. (The first version started on the first frame over -36 dBFS: on 2026-10-20 it fired
   // at once on something else and, with frames doubled, closed after 1.3 s.) Sent once to the Thor's
   // /tmp with how many frames arrived in how long; never kept here, never sent anywhere else.
-  const CAP_MS = 6000;
+  const CAP_MS = 5000;
   function captureFrame(frame) {
     const c = st.cap;
     c.frames.push(frame);
@@ -232,11 +236,61 @@ export function start({ face }) {
   setInterval(async () => {
     if (!st.kwsReady) return;
     try {
-      const armed = !!(await (await fetch("/api/head/capture", { cache: "no-store" })).json()).armed;
+      const cap = await (await fetch("/api/head/capture", { cache: "no-store" })).json();
+      const armed = !!cap.armed;
+      // The A/B: a change of processing reopens the microphone (keepMic opens it again within 250 ms).
+      const off = cap.mic_processing === "off";
+      if (off !== !!st.procOff) { st.procOff = off; if (st.stream && !st.holding && !st.waking) closeMic(); }
       if (armed && !st.cap) st.cap = { frames: [], t0: performance.now(), suppressed: suppressed() };
       if (!armed) st.cap = null;
     } catch (e) { st.cap = null; }
   }, 2000);
+  // Where the energy is, without recording anything: per 2 s, the mean level in a few bands from 512-point
+  // spectra of the microphone frames. Below 300 Hz, 300 Hz-3 kHz (where a voice's words are), 3-8 kHz, and
+  // two narrow bands round the steady tones in the one capture (0.84 and 1.5 kHz), plus the strongest bin.
+  // dB relative to a full-scale sine, so the bands compare with each other, not with dBFS RMS exactly.
+  const N = 512, HANN = Float32Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const BANDS = { below_300: [0, 300], speech_300_3k: [300, 3000], high_3k_8k: [3000, 8000],
+                  tone_840: [790, 890], tone_1500: [1450, 1550] };
+  const spec = { buf: new Float32Array(N), n: 0, sums: null, frames: 0, peak: new Float64Array(N / 2) };
+  function fft(re, im) {                                     // in place, radix 2
+    for (let i = 1, j = 0; i < N; i++) { let b = N >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= N; len <<= 1) {
+      const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < N; i += len) { let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) { const p = i + k, q = p + len / 2;
+          const tr = re[q] * cr - im[q] * ci, ti = re[q] * ci + im[q] * cr;
+          re[q] = re[p] - tr; im[q] = im[p] - ti; re[p] += tr; im[p] += ti;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } } }
+  }
+  function bands(frame) {
+    for (let i = 0; i < frame.length; i++) {
+      spec.buf[spec.n++] = frame[i] / 32768;
+      if (spec.n < N) continue;
+      spec.n = 0;
+      const re = Float64Array.from(spec.buf, (v, k) => v * HANN[k]), im = new Float64Array(N);
+      fft(re, im);
+      spec.sums = spec.sums || Object.fromEntries(Object.keys(BANDS).map((k) => [k, 0]));
+      for (let b = 1; b < N / 2; b++) {
+        // Hann: a full-scale sine's peak bin is N/4, and its energy spreads over 1.5 bins' worth (ENBW),
+        // so a tone of peak A reads 20 log10 A dB in its band.
+        const pw = (re[b] * re[b] + im[b] * im[b]) / (N * N / 16 * 1.5), hz = b * 16000 / N;
+        spec.peak[b] += pw;
+        for (const [k, [lo, hi]] of Object.entries(BANDS)) if (hz >= lo && hz < hi) spec.sums[k] += pw;
+      }
+      spec.frames++;
+    }
+  }
+  function bandReport() {
+    if (!spec.frames) return null;
+    const out = {};
+    for (const [k, v] of Object.entries(spec.sums)) out[k] = v > 0 ? Math.round(10 * Math.log10(v / spec.frames) * 10) / 10 : null;
+    let best = 1; for (let b = 2; b < N / 2; b++) if (spec.peak[b] > spec.peak[best]) best = b;
+    out.strongest_hz = Math.round(best * 16000 / N);
+    spec.sums = null; spec.frames = 0; spec.peak.fill(0);
+    return out;
+  }
   // Which microphone the page was given, and what else there is: for "why is it so quiet?" from the Thor.
   // Labels and Chrome's per-origin device ids (shortened) only.
   async function describeMic() {
@@ -362,6 +416,7 @@ export function start({ face }) {
       frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
       mic: st.mic || null, mic_opened: st.nodes || 0, stale_frames: st.stale || 0,
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
+      bands_db: bandReport(), mic_processing: st.procOff ? "off" : "on",
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
       spotter_tries: st.kwsTries || 0, spotter_retried: st.kwsRetryWhy || null,
       spotter_per_s: st.kwsStats, hits: st.hits.length, capture: st.cap ? "recording" : null,

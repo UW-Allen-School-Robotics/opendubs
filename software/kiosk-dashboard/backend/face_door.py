@@ -97,18 +97,37 @@ async def post_voice_health(request: Request) -> dict:
 
 # ---- one clip of what the spotter hears, on purpose only ----------------------------------------
 # OFF unless armed FROM THE THOR ITSELF (curl on localhost), for at most 2 minutes, for ONE clip: the
-# page's 16 kHz microphone frames (the keyword spotter's input) for 6 s from the moment it sees the arm,
+# page's 16 kHz microphone frames (the keyword spotter's input) for 5 s from the moment it sees the arm,
 # so cue the person as you arm it. Written to /tmp on the Thor (mode 600) with a .json beside it (frames
 # that arrived and in how long, the microphone), never anywhere else; whoever armed it deletes both once
 # replayed. Arming lives in memory, so a dashboard restart disarms it.
 #   curl -X POST localhost:8080/api/head/capture/arm -d '{"seconds": 90}'
-capture = {"until": 0.0, "last": None}
+capture = {"until": 0.0, "last": None, "processing": "on"}
 
 
 @router.get("/api/head/capture")
 def get_capture() -> dict:
     import time
-    return {"armed": time.time() < capture["until"], "last": capture["last"]}
+    return {"armed": time.time() < capture["until"], "last": capture["last"],
+            "mic_processing": capture["processing"]}
+
+
+# The microphone's platform processing (echo cancellation, noise suppression, AGC) for an A/B: "on" (the
+# default) or "off", switched FROM THE THOR ITSELF, in memory (a dashboard restart puts it back on). The
+# face reopens its microphone within a couple of seconds; its health report says which it has.
+#   curl -X POST localhost:8080/api/head/mic_processing -d '{"processing": "off"}'
+@router.post("/api/head/mic_processing")
+async def set_mic_processing(request: Request) -> dict:
+    if not request.client or request.client.host not in ("127.0.0.1", "::1"):
+        return {"ok": False, "error": "switch it from the Thor itself (localhost)"}
+    try:
+        want = json.loads((await request.body()) or b"{}").get("processing")
+    except (ValueError, AttributeError):
+        want = None
+    if want not in ("on", "off"):
+        return {"ok": False, "error": 'processing must be "on" or "off"'}
+    capture["processing"] = want
+    return {"ok": True, "processing": want}
 
 
 @router.post("/api/head/capture/arm")
