@@ -43,9 +43,29 @@ try {
   importScripts("../vendor/kws/sherpa-onnx-kws.js", "../vendor/kws/sherpa-onnx-wasm-kws-main.js");
 } catch (e) { postMessage({ error: "the wake-word files are missing (kws/build-kws.sh): " + (e && e.message || e) }); }
 
+// A gain stage in front of the spotter. It is LEVEL-sensitive: on the desk "hey dubs" peaking at -6 dBFS
+// hit 3 of 3 voices, at -24 dBFS 2 of 3, at -30 dBFS none; and on the robot (2026-10-20) speech reached
+// the page at about -24 dBFS peak, -54 dBFS RMS, with the tablet's own AGC on. So speech peaks are
+// brought to about -6 dBFS: an envelope follows a peak at once and lets go over 1.5 s, and the gain is
+// what puts that envelope at TARGET, at most +24 dB, never below 1. A frame quieter than GATE (-55 dBFS
+// RMS) is not raised at all: lifting a quiet room into loud hiss before the word cost a hit on the desk
+// (the Voice lane's point). The gain glides (about 10 ms) rather than jumping, and a sample is clamped
+// to full scale in the rare case a glide overshoots.
+const TARGET = 0.5, GAIN_MAX = 16, RELEASE = Math.exp(-1 / (16000 * 1.5)), GATE = 0.00178, GLIDE = 0.006;
+let env = 0, gain = 1;
 function feed(frame) {
   const f = new Float32Array(frame.length);
-  for (let i = 0; i < frame.length; i++) f[i] = frame[i] / 32768;
+  let sq = 0;
+  for (let i = 0; i < frame.length; i++) sq += (frame[i] / 32768) ** 2;
+  const quiet = Math.sqrt(sq / frame.length) < GATE;
+  for (let i = 0; i < frame.length; i++) {
+    const x = frame[i] / 32768, a = Math.abs(x);
+    env = a > env ? a : env * RELEASE;
+    const want = quiet ? 1 : Math.max(1, Math.min(GAIN_MAX, TARGET / Math.max(env, 1e-9)));
+    gain = want < gain ? Math.max(1, Math.min(gain, TARGET / Math.max(a, 1e-9), want + (gain - want) * (1 - GLIDE * 4)))
+                       : gain + (want - gain) * GLIDE;
+    f[i] = Math.max(-1, Math.min(1, x * gain));
+  }
   stream.acceptWaveform(16000, f); fed++;
   while (kws.isReady(stream)) {
     kws.decode(stream); decoded++;
