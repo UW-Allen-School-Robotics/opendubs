@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -141,6 +142,105 @@ def _motor_summary():
     with _lock:
         _motors.update({"at": now, "text": text, "error": err})
         return dict(_motors)
+
+
+_status = {"at": 0.0, "text": "", "error": None}
+ARMS_CONF = "/etc/opendubs/openarm-arms.conf"          # per robot: a part out of service (#357)
+DEGRADED_RUN = "/run/opendubs/arm-degraded.json"       # per session: operator-approved (arm-degraded-mode.md)
+_STATUS_LINE = re.compile(r"^\s+id (\d) \((?:joint \d|gripper)\)\s+(.*)$")
+
+
+def _motor_status():
+    """`openarm-motors status`, cached like the summary: the same one read-only query per motor."""
+    now = time.time()
+    with _lock:
+        if now - _status["at"] < _MOTOR_TTL:
+            return dict(_status)
+    try:
+        r = _run([OPENARM_MOTORS, "status"], 20)
+        text, err = r.stdout, None if r.returncode == 0 else (r.stderr.strip() or "failed")
+    except Exception as e:                           # noqa: BLE001
+        text, err = "", f"{type(e).__name__}: {e}"
+    with _lock:
+        _status.update({"at": now, "text": text, "error": err})
+        return dict(_status)
+
+
+def _excluded_grippers():
+    """{"left"|"right": {"by", "at"}} for a gripper left out: by the robot's config, or approved
+    by the operator for this session."""
+    out = {}
+    try:
+        with open(ARMS_CONF) as fh:
+            for line in fh:
+                m = re.match(r"\s*OPENARM_LEFT_HAND\s*=\s*\"?(\w+)", line)
+                if m and m.group(1).lower() == "false":
+                    out["left"] = {"by": "robot config", "at": None}
+    except OSError:
+        pass
+    try:
+        with open(DEGRADED_RUN) as fh:
+            for e in json.load(fh).get("excluded", []):
+                if e.get("part") == "gripper" and e.get("arm") in ("left", "right"):
+                    out[e["arm"]] = {"by": e.get("by", "operator"), "at": e.get("at")}
+    except (OSError, ValueError, AttributeError):
+        pass
+    return out
+
+
+def effector_status():
+    """Per part, for the show runner's preflight (agreed with Choreography, arm-degraded-mode.md §6):
+    {"arm_left": {"state": "ok"|"down", "why", "pose_deg"}, "grip_left": {"state", "why",
+    "excluded"}, ...}. An arm is ok when its seven joint motors are ENABLED with no fault; pose_deg
+    is in signed controller degrees, read even from a limp arm. A gripper is ok when its motor is
+    ENABLED and it isn't excluded. None if the motors can't be read at all."""
+    s = _motor_status()
+    if s["error"] or not s["text"]:
+        return None
+    rows = {"left": {}, "right": {}}
+    arm = None
+    for line in s["text"].splitlines():
+        if line.startswith("arm_"):
+            arm = line.strip()[4:]
+            continue
+        m = _STATUS_LINE.match(line)
+        if arm in rows and m:
+            words = m.group(2).split()
+            pos = re.search(r"pos\s+([+-][\d.]+) deg", m.group(2))
+            st = words[0] if words and words[0].isupper() else m.group(2).strip()   # ENABLED, … or "no reply"
+            rows[arm][int(m.group(1))] = (st, float(pos.group(1)) if pos else None)
+    excluded = _excluded_grippers()
+    out = {}
+    for side, ids in rows.items():
+        problems = []
+        for j in range(1, 8):
+            st, _ = ids.get(j, ("no reply", None))
+            if st != "ENABLED":
+                problems.append(f"J{j} {st}")
+        real = [p for p in problems if not p.endswith("DISABLED")]     # a silent or faulted joint
+        if not problems:
+            why = None
+        elif not real:
+            why = "not activated"
+        else:
+            why = "; ".join(real) + ("; not activated" if len(real) < len(problems) else "")
+        pose = [ids.get(j, (None, None))[1] for j in range(1, 8)]
+        out[f"arm_{side}"] = {"state": "down" if problems else "ok", "why": why,
+                              "pose_deg": pose if all(v is not None for v in pose) else None}
+        if side in excluded:
+            out[f"grip_{side}"] = {"state": "down", "excluded": excluded[side],
+                                   "why": f"left out ({excluded[side]['by']}): its motor (id 8) is out of service"}
+            continue
+        st, _ = ids.get(8, ("no reply", None))
+        if st == "ENABLED":
+            g = {"state": "ok", "why": None}
+        elif st == "DISABLED":
+            g = {"state": "down", "why": "not activated"}
+        else:
+            g = {"state": "down", "why": f"gripper (motor 8) {st}"}
+        g["excluded"] = None
+        out[f"grip_{side}"] = g
+    return out
 
 
 def teleop(verb):
