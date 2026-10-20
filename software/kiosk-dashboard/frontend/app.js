@@ -24,6 +24,10 @@ function setView(name) {
    The kiosk tablet has no reload control, so the page asks the dashboard every 15 s which version
    of the page files it serves, and reloads when that changes. It waits while a show runs (a reload
    would cut the show's audio) and while someone is touching the screen; the view survives it. */
+/* The kiosk app's watchdog (KioskActivity, 0.3.5): a robot page that stops checking in is reloaded, so a
+   page stranded by a load that failed half way (the dashboard restarting) recovers by itself. */
+setInterval(() => { try { window.OpenDubsKiosk && window.OpenDubsKiosk.alive && window.OpenDubsKiosk.alive(); } catch (e) {} }, 5000);
+
 (function followDeploys() {
   let seen = null, touched = 0;
   document.addEventListener("pointerdown", () => { touched = Date.now(); }, true);
