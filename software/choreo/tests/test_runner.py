@@ -784,6 +784,16 @@ check("an UNKNOWN deadman is not a release: unknown -> held is no GO", end[1] ==
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(1.0, {"deadman": True}), (1.5, {"deadman": False})])
 check("letting go during the countdown aborts (DEADMAN)", end[:2] == ("ABORTED", "DEADMAN") and not r.sent, end)
+# The dashboard asks the arms only on demand, at preflight, and forgets the answer after its
+# PROBE_MAX_AGE_S (10 s, choreo_proxy.py): an operator slower than that to press must not be
+# disarmed because the answer aged out (it read "the arms are None" until 2026-10-20)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(12.0, {"arms": None, "tab5": None}), (15.0, {"deadman": True})])
+check("armed past the dashboard's 10 s probe age: the preflight's answer stands, and the press is the GO",
+      end[0] == "COMPLETED", end)
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
+                                  changes=[(4.0, {"arms": "inactive"}), (15.0, {"deadman": True})])
+check("... but an arms answer that SAYS inactive still disarms it", end[:2] == ("ABORTED", "ARMS"), end)
 
 face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
