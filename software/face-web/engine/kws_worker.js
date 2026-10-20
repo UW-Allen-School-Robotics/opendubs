@@ -8,7 +8,9 @@
 //   worker -> page  {ready: true} | {error} | {hit: "HEY_DUBS"}
 
 /* global importScripts, createKws */
-let kws = null, stream = null, keywords = null, runtime = false;
+let kws = null, stream = null, keywords = null, runtime = false, fed = 0, decoded = 0;
+// For the page's health report: frames it was given and decodes it ran, per second. Numbers only.
+setInterval(() => { postMessage({ stats: { fed, decoded, ready: !!kws } }); fed = decoded = 0; }, 1000);
 const queue = [];
 
 const start = () => {
@@ -44,9 +46,9 @@ try {
 function feed(frame) {
   const f = new Float32Array(frame.length);
   for (let i = 0; i < frame.length; i++) f[i] = frame[i] / 32768;
-  stream.acceptWaveform(16000, f);
+  stream.acceptWaveform(16000, f); fed++;
   while (kws.isReady(stream)) {
-    kws.decode(stream);
+    kws.decode(stream); decoded++;
     const r = kws.getResult(stream);
     if (r.keyword && r.keyword.length) {
       kws.reset(stream);                       // straight after a hit, as sherpa-onnx's own demo does

@@ -72,7 +72,8 @@ export function start({ face }) {
                ctx: null, stream: null, node: null, holding: false, pressed: false, seq: 0, maxMs: 15000, holdTimer: null,
                idleTimer: null, convo: "idle", cut: new Set(), play: new Map(), tNext: 0, analyser: null, fail: null,
                wake: null, kws: null, kwsReady: false, buf: [], waking: false, wakeTimer: null, quietUntil: 0,
-               sentAt: -1e9, opening: false, hits: [] };
+               sentAt: -1e9, opening: false, hits: [], kwsStats: null,
+               meter: { frames: 0, posted: 0, sq: 0, n: 0, peak: 0 } };
   window.OpenDubsVoice = st;                        // for the HUD and a desk check
 
   // ---- the strip ---------------------------------------------------------------------------------
@@ -180,11 +181,14 @@ export function start({ face }) {
     st.ws.send(b); st.sentAt = performance.now();
   };
   function onFrame(frame) {
+    const mt = st.meter; mt.frames++;
+    for (let i = 0; i < frame.length; i++) { const v = frame[i]; mt.sq += v * v; if (v > mt.peak) mt.peak = v; else if (-v > mt.peak) mt.peak = -v; }
+    mt.n += frame.length;
     if (st.pressed) { sendFrame(frame); return; }      // a Talk turn, its 400 ms tail included
     if (st.waking) { sendFrame(frame); return; }
     st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();   // local only, until a turn
     if (!st.wake) return;
-    if (st.kwsReady && !suppressed()) st.kws.postMessage({ frame });   // a copy: the ring buffer keeps its own
+    if (st.kwsReady && !suppressed()) { st.kws.postMessage({ frame }); st.meter.posted++; }   // a copy: the ring buffer keeps its own
   }
   const closeMic = () => {
     clearTimeout(st.idleTimer); st.idleTimer = null; st.buf = []; endWake();
@@ -198,6 +202,7 @@ export function start({ face }) {
     if (st.kws) return;
     st.kws = new Worker(new URL("./kws_worker.js", import.meta.url));
     st.kws.onmessage = (e) => {
+      if (e.data.stats) { st.kwsStats = e.data.stats; return; }
       if (e.data.ready) { st.kwsReady = true; return; }
       if (e.data.error) { st.wakeError = e.data.error; return; }
       if (e.data.hit) onWake();
@@ -226,6 +231,40 @@ export function start({ face }) {
     st.waking = false;
     if (st.kws) st.kws.postMessage({ reset: true });
   }
+
+  // ---- the listening health report: numbers only, never audio --------------------------------------
+  // Every 2 s, what the wake word's path is really doing on this device, for /api/head/wake_hits: the
+  // audio context, the microphone track's own settings, frames per second through the worklet and into
+  // the spotter, the input level, and the spotter's state. Read with nobody at the bench (2026-10-19:
+  // the spotter never fired on the robot though the desk said it should).
+  const dbfs = (x) => (x > 0 ? Math.round(20 * Math.log10(x / 32768) * 10) / 10 : null);
+  setInterval(() => {
+    // A playback entry with nothing playing, 2 s past its scheduled end, is stale (a stray chunk after its
+    // turn drained, say). Left alone it would keep the spotter suppressed for good, with no error.
+    if (st.ctx) for (const [turn, pl] of [...st.play]) {
+      if (!pl.srcs.size && st.ctx.currentTime > pl.end + 2) { st.play.delete(turn); st.staleDropped = (st.staleDropped || 0) + 1; }
+    }
+    if (!st.wake && !st.stream) return;
+    const mt = st.meter, t = st.stream && st.stream.getAudioTracks()[0], set = t ? t.getSettings() : {};
+    const report = {
+      at: Date.now(), wake_offered: !!st.wake, convo: st.convo, suppressed: suppressed(),
+      // each term of suppressed(), so a stuck one shows in one read (the Voice lane's suggestion)
+      why_suppressed: { convo: st.convo, playing: st.play.size, holding: st.holding, pressed: st.pressed,
+                        waking: st.waking, on: st.on, quiet_ms: Math.max(0, Math.round(st.quietUntil - performance.now())),
+                        stale_dropped: st.staleDropped || 0 },
+      ctx: st.ctx ? st.ctx.state : null, ctx_rate: st.ctx ? st.ctx.sampleRate : null,
+      track: t ? { state: t.readyState, enabled: t.enabled, muted: t.muted, rate: set.sampleRate ?? null,
+                   channels: set.channelCount ?? null, ec: set.echoCancellation ?? null,
+                   ns: set.noiseSuppression ?? null, agc: set.autoGainControl ?? null } : null,
+      frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
+      rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
+      spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
+      spotter_per_s: st.kwsStats, hits: st.hits.length,
+    };
+    st.meter = { frames: 0, posted: 0, sq: 0, n: 0, peak: 0 };
+    st.health = report;
+    try { navigator.sendBeacon && navigator.sendBeacon("/api/head/voice_health", JSON.stringify(report)); } catch (e) {}
+  }, 2000);
 
   // ---- Talk ----------------------------------------------------------------------------------------
   const press = async () => {
