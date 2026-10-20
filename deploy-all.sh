@@ -37,6 +37,9 @@ OPENDUBS_SKIP_PROVISION=1 "$REPO/software/kiosk-dashboard/deploy/deploy.sh" "$HO
 deploy_sub software/ros             ros
 deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
 deploy_sub software/voice           voice     # the voice service's scripts; built and run below, on robots that opt in
+# The network lane's router health monitor and diagnostics (tools/network/README.md); its unit is
+# installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
+[ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
@@ -87,7 +90,7 @@ deploy_kiosk
 deploy_voice
 
 # Post-deploy health readout — every opendubs unit, including the StamPLC->ROS bridge.
-SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-yolo-tracker opendubs-drive-bridge opendubs-tablet-camera-demand"
+SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-yolo-tracker opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-netmon"
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 
