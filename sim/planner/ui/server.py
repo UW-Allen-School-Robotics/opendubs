@@ -350,6 +350,15 @@ class StudioHandler(SimpleHTTPRequestHandler):
             res = SERVICE.run_benchmark(arm=arm, trials=trials, backends=backends)
             return self._send_json(res)
 
+        if url == "/api/client_log":
+            level = req.get("level", "info")
+            msg = req.get("message", "")
+            stack = req.get("stack", "")
+            print(f"[CLIENT {level.upper()}] {msg}", flush=True)
+            if stack:
+                print(f"  Stack: {stack}", flush=True)
+            return self._send_json({"ok": True})
+
         self.send_error(404, "Endpoint not found")
 
 

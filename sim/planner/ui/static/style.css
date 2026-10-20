@@ -218,6 +218,22 @@ canvas#arm-canvas {
   border-radius: 50%;
 }
 
+.webgl-fallback-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 440px;
+  width: 90%;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  padding: 16px 18px;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+}
+
 /* Timeline & Planning Bottom Bar */
 .bottom-bar {
   background-color: var(--bg-panel);

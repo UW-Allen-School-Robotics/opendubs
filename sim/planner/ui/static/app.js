@@ -1,7 +1,26 @@
 /* OpenArm Motion Planner Studio & Halloween Show Designer
  * Main Application Logic
  */
-import { PlannerStudioView } from "./armview.js";
+import { PlannerStudioView } from "./armview.js?v=2.1";
+
+function logClient(level, message, stack = "") {
+  try {
+    fetch("/api/client_log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level, message, stack }),
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+window.onerror = function (msg, url, lineNo, colNo, error) {
+  logClient("error", `${msg} (${url}:${lineNo}:${colNo})`, error ? error.stack : "");
+};
+
+window.onunhandledrejection = function (event) {
+  const reason = event.reason;
+  logClient("unhandled_rejection", String(reason && reason.message ? reason.message : reason), reason ? reason.stack : "");
+};
 
 // Joint limits in degrees for OpenArm V1
 const JOINT_LIMITS_DEG = [
@@ -68,18 +87,47 @@ class StudioApp {
     this._checkCollisionAndFK();
 
     // 3. Initialize 3D view gracefully without blocking buttons or UI
+    const canvas = document.getElementById("arm-canvas");
     try {
-      const canvas = document.getElementById("arm-canvas");
-      if (canvas) {
-        this.view = await new PlannerStudioView(canvas).load();
-        this._updateArmPosesInView();
-        requestAnimationFrame((t) => this._playbackLoop(t));
-      }
+      if (!canvas) throw new Error("Canvas element #arm-canvas not found in DOM");
+      logClient("info", `Initializing 3D view on canvas (${canvas.clientWidth}x${canvas.clientHeight})...`);
+      this.view = await new PlannerStudioView(canvas).load();
+      logClient("info", "3D WebGL PlannerStudioView loaded successfully.");
+      this._updateArmPosesInView();
+      requestAnimationFrame((t) => this._playbackLoop(t));
     } catch (err) {
+      logClient("error", `3D visualizer init failed: ${err.message || err}`, err.stack || "");
       console.warn("3D WebGL initialization error (controls remain active):", err);
-      const perf = document.getElementById("plan-perf-info");
-      if (perf) perf.textContent = "3D View unavailable (WebGL disabled); planner controls fully active.";
+      this._showWebGLErrorBanner(err);
     }
+  }
+
+  _showWebGLErrorBanner(err) {
+    const container = document.getElementById("canvas-container");
+    if (!container) return;
+    const existing = container.querySelector(".webgl-fallback-card");
+    if (existing) existing.remove();
+
+    const banner = document.createElement("div");
+    banner.className = "webgl-fallback-card";
+    banner.innerHTML = `
+      <div style="font-weight: 600; font-size: 13px; color: #f87171; margin-bottom: 6px;">
+        3D Robot Viewport Notice (WebGL)
+      </div>
+      <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 8px;">
+        Hardware WebGL acceleration is currently disabled or unavailable in this browser session.
+        <span style="color:#94a3b8; font-size:11px;">(${err.message || err})</span>
+      </div>
+      <div style="font-size: 11px; color: #94a3b8; background: rgba(0,0,0,0.35); padding: 8px 10px; border-radius: 4px; margin-bottom: 8px; line-height: 1.4;">
+        <strong>To enable 3D robot rendering:</strong><br>
+        • Chrome/Brave: <code>chrome://settings/system</code> &rarr; toggle <em>"Use graphics acceleration when available"</em> & restart browser.<br>
+        • In Chrome, check <code>chrome://gpu</code> to confirm WebGL status.
+      </div>
+      <div style="font-size: 11px; color: var(--accent-cyan);">
+        All motion planning tools (cuRobo, CBiRRT, 7-DOF jogging, SSIK inverse kinematics, MuJoCo collision checking, and show sequence generation) remain 100% active and functional.
+      </div>
+    `;
+    container.appendChild(banner);
   }
 
   async _loadBackendStatus() {

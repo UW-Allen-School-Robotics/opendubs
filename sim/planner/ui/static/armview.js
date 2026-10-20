@@ -20,26 +20,39 @@ export class PlannerStudioView {
     this.canvas = canvas;
     this.ready = false;
 
-    // Scene setup with dark slate background
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0f18);
-    this.scene.up.set(0, 0, 1); // Z-up frame
-
-    // Renderer
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: false,
-      powerPreference: "high-performance",
-    });
+    // Resilient WebGL renderer initialization
+    let renderer = null;
+    let lastErr = null;
+    const configs = [
+      { antialias: true, alpha: true },
+      { antialias: false, alpha: true },
+      { antialias: false, alpha: false },
+    ];
+    for (const cfg of configs) {
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas, ...cfg });
+        if (renderer && renderer.getContext()) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!renderer || !renderer.getContext()) {
+      throw (lastErr || new Error("WebGL context could not be created. Ensure hardware acceleration is enabled."));
+    }
+    this.renderer = renderer;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    // Scene setup with subtle dark slate background
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x0f172a); // Slate-900
+    this.scene.up.set(0, 0, 1); // Z-up frame
 
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
-    // Floor grid
-    const grid = new THREE.GridHelper(1.6, 32, 0x334155, 0x1e293b);
-    grid.rotation.x = Math.PI / 2; // Lie on XY plane (Z=0)
+    // Floor grid (on XY plane, Z=0)
+    const grid = new THREE.GridHelper(1.6, 24, 0x38bdf8, 0x334155);
+    grid.rotation.x = Math.PI / 2;
     grid.position.z = 0.0;
     this.scene.add(grid);
 
@@ -47,27 +60,27 @@ export class PlannerStudioView {
     const axes = new THREE.AxesHelper(0.2);
     this.scene.add(axes);
 
-    // Lighting
-    this.scene.add(new THREE.HemisphereLight(0xe2e8f0, 0x1e293b, 1.3));
-    const key = new THREE.DirectionalLight(0xffffff, 1.7);
+    // Lighting (diffuse hemisphere + multiple directional lights)
+    this.scene.add(new THREE.HemisphereLight(0xe2e8f0, 0x1e293b, 1.4));
+    const key = new THREE.DirectionalLight(0xffffff, 1.8);
     key.position.set(2.5, -2.0, 3.0);
     this.scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0x94a3b8, 0.9);
+    const fill = new THREE.DirectionalLight(0x94a3b8, 1.0);
     fill.position.set(-2.5, 2.5, 2.0);
     this.scene.add(fill);
 
-    const back = new THREE.DirectionalLight(0x64748b, 0.5);
+    const back = new THREE.DirectionalLight(0x64748b, 0.6);
     back.position.set(0.0, 3.0, -1.0);
     this.scene.add(back);
 
     // Camera setup (Perspective with orbit controls)
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.05, 20.0);
     this.orbit = {
-      target: new THREE.Vector3(0.0, 0.0, 0.75), // Centered around shoulder height
-      radius: 1.6,
+      target: new THREE.Vector3(0.0, 0.0, 0.65), // Centered around shoulder height
+      radius: 1.5,
       theta: 0.75, // azimuth
-      phi: 1.15,   // polar angle from +Z
+      phi: 1.20,   // polar angle from +Z
     };
 
     // Trajectory visualization
@@ -75,24 +88,18 @@ export class PlannerStudioView {
     this.trajMarkers = new THREE.Group();
     this.scene.add(this.trajMarkers);
 
-    // Double-sided materials so mirrored left arm links are never culled
-    this.matSolid = new THREE.MeshStandardMaterial({
-      color: 0x94a3b8,
-      roughness: 0.40,
-      metalness: 0.30,
+    // Double-sided Lambert materials (clean diffuse, no PBR/HDR dependency, reliable on all GPUs)
+    this.matSolid = new THREE.MeshLambertMaterial({
+      color: 0x9fb4c9,
       side: THREE.DoubleSide,
     });
-    this.matCollision = new THREE.MeshStandardMaterial({
+    this.matCollision = new THREE.MeshLambertMaterial({
       color: 0xef4444,
-      roughness: 0.30,
-      metalness: 0.10,
-      emissive: 0x7f1d1d,
+      emissive: 0x5a1010,
       side: THREE.DoubleSide,
     });
-    this.matGhost = new THREE.MeshStandardMaterial({
+    this.matGhost = new THREE.MeshLambertMaterial({
       color: 0x38bdf8,
-      roughness: 0.35,
-      metalness: 0.10,
       transparent: true,
       opacity: 0.42,
       depthWrite: false,
@@ -104,6 +111,7 @@ export class PlannerStudioView {
     this.root.add(this.solidArm.root);
     this.root.add(this.ghostArm.root);
 
+    this._updateCamera();
     this._setupInteraction();
   }
 
