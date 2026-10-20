@@ -53,5 +53,12 @@ symptoms:
       A sound sent to the robot plays on its own speaker. It is refused while a show has the
       speaker, and when no speaker is connected; the entries below say which.
 
+  - id: voice-quiet
+    title: The robot won't listen or talk
+    intro: >
+      The robot's voice runs on its computer and listens through the head tablet's microphone.
+      When it cannot listen, the face greys out or hides its Talk button rather than inviting
+      speech nobody will hear.
+
   - id: power-warning
     title: A power or temperature warning

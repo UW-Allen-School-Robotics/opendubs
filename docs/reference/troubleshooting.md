@@ -75,7 +75,7 @@ The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowe
 **What to do**
 
 1. If the dashboard reports an e-stop, deal with that first — the entries below say how for each source.
-2. After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
+2. After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.
 3. At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [E-stop system](../e-stop.md)
@@ -89,7 +89,7 @@ A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor di
 **What to do**
 
 1. Find the pressed button — there are two on the rear of the robot, left and right, plus any e-stop a payload has added — and twist it to release.
-2. Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does not re-close the contactor by itself.
+2. To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold **RE-ARM**). Releasing the button does not re-close the contactor by itself.
 3. If no button is pressed and this persists, the e-stop circuit is open somewhere else. Check the payload e-stop jumpers and the e-stop wiring.
 
 **See also:** [E-stop system](../e-stop.md) · [Operating the robot](../operating.md#stopping-the-robot)
@@ -98,13 +98,14 @@ A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor di
 
 `ESTOP_SOFTWARE` · Fault · seen on the dashboard
 
+E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
 Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.
 
 **What to do**
 
 1. Make sure it is safe for the robot to move again.
-2. Set CH5 to `OFF`.
-3. Hold **RE-ARM** on the dashboard.
+2. Switch CH5 (mode) to `OFF`.
+3. Re-arm from the dashboard: hold **RE-ARM**.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot)
 
@@ -257,13 +258,14 @@ Check in this order:
 
 `ESTOP_REARM_CH5` · Refused action · seen on the dashboard
 
+To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
 Re-arming closes the contactor, and the dashboard will not do that while the transmitter grants [authority](glossary.md#authority) — the robot could move the instant drive power returned. This is the most common refusal.
 
 **What to do**
 
-1. Set CH5 to `OFF`.
-2. Hold **RE-ARM** again.
-3. Set CH5 back to `MANUAL` when you are ready to drive.
+1. Switch CH5 (mode) to `OFF`.
+2. Re-arm from the dashboard: hold **RE-ARM** again.
+3. Switch CH5 back to `MANUAL` when you are ready to drive.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [Control authority and modes](../control-authority.md)
 
@@ -758,6 +760,60 @@ The robot plays shows, ambient music and sounds sent from a phone through one de
 
 1. Check that the head's tablet is on and showing the dashboard or the face.
 2. On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+
+## The robot won't listen or talk {#voice-quiet}
+
+The robot's voice runs on its computer and listens through the head tablet's microphone. When it cannot listen, the face greys out or hides its Talk button rather than inviting speech nobody will hear.
+
+Check in this order:
+
+1. [Voice is off while a show runs](#voice-off-show)
+2. [The voice service is not running](#voice-service-down)
+3. [The tablet's microphone cannot be opened](#voice-mic-unavailable)
+4. [The voice's cloud model cannot be reached](#voice-brain-offline)
+
+### Voice is off while a show runs {#voice-off-show}
+
+`VOICE_OFF_SHOW` · Expected behaviour · seen on the head
+
+A show has the robot's speaker, so the voice is off until it ends: the face hides its Talk button, and a reply already under way is cut off.
+
+**What to do**
+
+1. Wait for the show to end, or stop it.
+
+### The voice service is not running {#voice-service-down}
+
+`VOICE_SERVICE_DOWN` · Fault · seen on the head
+
+The voice service on the robot's computer is not running, so nothing can hear or answer. The face greys out Talk and says the voice service is not running.
+
+**What to do**
+
+1. Restart the robot; the voice service starts with it.
+2. If it still reports this after a restart, the voice service needs a look from whoever maintains the robot's software.
+
+### The tablet's microphone cannot be opened {#voice-mic-unavailable}
+
+`VOICE_MIC_UNAVAILABLE` · Fault · seen on the head, the dashboard
+
+The face page could not open the head tablet's microphone, so the voice cannot listen. The face greys out Talk.
+
+**What to do**
+
+1. Make sure no other app on the tablet is using the microphone.
+2. Reload the face page, or restart the tablet.
+
+### The voice's cloud model cannot be reached {#voice-brain-offline}
+
+`VOICE_BRAIN_OFFLINE` · Warning · seen on the dashboard
+
+The voice is set to use a cloud language model and cannot reach it, usually because the robot has lost its internet connection. In automatic mode it answers with its on-robot model instead, perhaps more slowly; set to the cloud model only, it says it cannot think right now.
+
+**What to do**
+
+1. Check the robot's internet connection.
+2. To keep talking without internet, use the on-robot model.
 
 ## A power or temperature warning {#power-warning}
 

@@ -55,7 +55,8 @@ CALL = re.compile(r"\b(?:refuse|helpLink|setHelp|openHelp)\(")
 QUOTED = re.compile(r"""["']([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)["']""")
 ANNOTATION = re.compile(r"@fault\s+([A-Z][A-Z0-9_]*)")
 
-PREFIXES = ("ESTOP", "CONTACTOR", "RC", "DRIVE", "LINK", "POWER", "LIFT", "HEAD", "ARM", "SHOW")
+PREFIXES = ("ESTOP", "CONTACTOR", "RC", "DRIVE", "LINK", "POWER", "LIFT", "HEAD", "ARM", "SHOW",
+            "VOICE")
 CODE_RE = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 KINDS = {"refusal": "Refused action", "fault": "Fault", "warning": "Warning",
@@ -150,6 +151,9 @@ def validate(symptoms, entries, terms):
                 errs.append(f"{where}: missing {k}")
         if not isinstance(e.get("do"), list) or not e["do"]:
             errs.append(f"{where}: 'do' must be a non-empty list of steps")
+        elif not all(isinstance(d, str) for d in e["do"]):
+            # An unquoted step with ": " in it parses as a mapping and renders as a Python dict.
+            errs.append(f"{where}: every 'do' step must be text — quote a step that contains ': '")
         for s in _as_list(e.get("symptom")):
             if s not in sym_ids:
                 errs.append(f"{where}: unknown symptom '{s}' (see symptoms.yaml)")

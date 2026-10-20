@@ -38,7 +38,7 @@ entries:
         each source.
       - >
         After any e-stop the contactor stays open until an operator re-arms: set
-        [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
+        [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.
       - >
         At power-on the robot closes the contactor by itself a few seconds after boot, but only
         with CH5 at `OFF`. While it waits, the status lights strobe amber.
@@ -60,7 +60,8 @@ entries:
         Find the pressed button — there are two on the rear of the robot, left and right, plus any
         e-stop a payload has added — and twist it to release.
       - >
-        Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does
+        To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold
+        **RE-ARM**). Releasing the button does
         not re-close the contactor by itself.
       - >
         If no button is pressed and this persists, the e-stop circuit is open somewhere else.
@@ -74,12 +75,15 @@ entries:
     kind: fault
     seen_on: [dashboard]
     means: >
-      Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an
-      operator re-arms, and nothing clears it on its own.
+      E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
+
+      Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A
+      software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms,
+      and nothing clears it on its own.
     do:
       - Make sure it is safe for the robot to move again.
-      - Set CH5 to `OFF`.
-      - Hold **RE-ARM** on the dashboard.
+      - Switch CH5 (mode) to `OFF`.
+      - "Re-arm from the dashboard: hold **RE-ARM**."
     see: [operating.md#stopping-the-robot]
 
   - code: ESTOP_REARM_CH5
@@ -89,13 +93,15 @@ entries:
     kind: refusal
     seen_on: [dashboard]
     means: >
+      To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
+
       Re-arming closes the contactor, and the dashboard will not do that while the transmitter
       grants [authority](glossary.md#authority) — the robot could move the instant drive power
       returned. This is the most common refusal.
     do:
-      - Set CH5 to `OFF`.
-      - Hold **RE-ARM** again.
-      - Set CH5 back to `MANUAL` when you are ready to drive.
+      - Switch CH5 (mode) to `OFF`.
+      - "Re-arm from the dashboard: hold **RE-ARM** again."
+      - Switch CH5 back to `MANUAL` when you are ready to drive.
     see: [operating.md#stopping-the-robot, control-authority.md]
 
   - code: CONTACTOR_WELDED

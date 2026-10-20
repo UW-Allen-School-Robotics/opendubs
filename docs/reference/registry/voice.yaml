@@ -1,0 +1,58 @@
+# Troubleshooting entries: the robot's voice.
+# Owned by the Voice lane. Schema and usage: tools/faults.py. After editing, run
+#   tools/faults.py --inject
+# Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
+
+entries:
+  - code: VOICE_OFF_SHOW
+    title: Voice is off while a show runs
+    symptom: voice-quiet
+    rank: 10
+    kind: expected
+    seen_on: [head]
+    means: >
+      A show has the robot's speaker, so the voice is off until it ends: the face hides its Talk
+      button, and a reply already under way is cut off.
+    do:
+      - Wait for the show to end, or stop it.
+
+  - code: VOICE_SERVICE_DOWN
+    title: The voice service is not running
+    symptom: voice-quiet
+    rank: 20
+    kind: fault
+    seen_on: [head]
+    means: >
+      The voice service on the robot's computer is not running, so nothing can hear or answer.
+      The face greys out Talk and says the voice service is not running.
+    do:
+      - Restart the robot; the voice service starts with it.
+      - If it still reports this after a restart, the voice service needs a look from whoever
+        maintains the robot's software.
+
+  - code: VOICE_MIC_UNAVAILABLE
+    title: The tablet's microphone cannot be opened
+    symptom: voice-quiet
+    rank: 30
+    kind: fault
+    seen_on: [head, dashboard]
+    means: >
+      The face page could not open the head tablet's microphone, so the voice cannot listen. The
+      face greys out Talk.
+    do:
+      - Make sure no other app on the tablet is using the microphone.
+      - Reload the face page, or restart the tablet.
+
+  - code: VOICE_BRAIN_OFFLINE
+    title: The voice's cloud model cannot be reached
+    symptom: voice-quiet
+    rank: 40
+    kind: warning
+    seen_on: [dashboard]
+    means: >
+      The voice is set to use a cloud language model and cannot reach it, usually because the
+      robot has lost its internet connection. In automatic mode it answers with its on-robot model
+      instead, perhaps more slowly; set to the cloud model only, it says it cannot think right now.
+    do:
+      - Check the robot's internet connection.
+      - To keep talking without internet, use the on-robot model.
