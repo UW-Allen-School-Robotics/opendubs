@@ -172,8 +172,8 @@ export function start({ face }) {
       const ctx = await audioCtx();
       // Noise suppression OFF (2026-10-20). The spotter's exact input, captured once on the robot, held no
       // speech Whisper could find: steady tones near 1.5 kHz and 0.84 kHz, almost nothing below 300 Hz, at
-      // a healthy level. Talk turns misheard too. Android's suppressor can keep a stationary tone while
-      // gating the voice; both models cope with plain room noise better. Echo cancellation stays: we
+      // a healthy level. Talk turns misheard too. A HYPOTHESIS, not established: the suppressor keeps a
+      // stationary tone while gating the voice. Turning it off is the cheapest test. Echo cancellation stays: we
       // listen only while not speaking, but the tablet's own reply must not wake it.
       st.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false,
                                                                       autoGainControl: true, channelCount: 1 } });
