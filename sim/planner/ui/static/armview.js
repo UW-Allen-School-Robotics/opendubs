@@ -230,11 +230,18 @@ export class PlannerStudioView {
     this.render();
   }
 
+  _getTipWorldPosition(armObj, arm) {
+    const link7 = armObj.links[`openarm_${arm}_link7`];
+    if (!link7) return new THREE.Vector3();
+    // 0.186m along link7's Z axis reaches the physical fingertip grasp center
+    // (matches the OpenDubs impedance controller TCP in software/choreo/tcp.py)
+    const pos = new THREE.Vector3(0, 0, 0.186);
+    link7.localToWorld(pos);
+    return pos;
+  }
+
   _computeTcpPath(arm, trajectoryPositionsRad) {
     if (!this.ready || !trajectoryPositionsRad || trajectoryPositionsRad.length === 0) return [];
-
-    const tcpLink = this.ghostArm.links[`openarm_${arm}_hand_tcp`];
-    if (!tcpLink) return [];
 
     // Save current ghost arm joint angles
     const saved = {};
@@ -255,9 +262,7 @@ export class PlannerStudioView {
         if (j) j.node.quaternion.setFromAxisAngle(j.axis, q[i]);
       }
       this.root.updateMatrixWorld(true);
-      const pos = new THREE.Vector3();
-      tcpLink.getWorldPosition(pos);
-      points.push(pos);
+      points.push(this._getTipWorldPosition(this.ghostArm, arm));
     }
 
     // Always append the final goal configuration waypoint
@@ -269,9 +274,7 @@ export class PlannerStudioView {
         if (j) j.node.quaternion.setFromAxisAngle(j.axis, qLast[i]);
       }
       this.root.updateMatrixWorld(true);
-      const pos = new THREE.Vector3();
-      tcpLink.getWorldPosition(pos);
-      points.push(pos);
+      points.push(this._getTipWorldPosition(this.ghostArm, arm));
     }
 
     // Restore ghost arm joint angles
@@ -287,12 +290,8 @@ export class PlannerStudioView {
   getTcpWorldPosition(arm, isGoal = true) {
     if (!this.ready) return null;
     const armObj = isGoal ? this.ghostArm : this.solidArm;
-    const tcpLink = armObj.links[`openarm_${arm}_hand_tcp`];
-    if (!tcpLink) return null;
     this.root.updateMatrixWorld(true);
-    const pos = new THREE.Vector3();
-    tcpLink.getWorldPosition(pos);
-    return pos;
+    return this._getTipWorldPosition(armObj, arm);
   }
 
   setTrajectoryPath(armOrPositions, maybePositions) {

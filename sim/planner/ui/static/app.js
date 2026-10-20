@@ -1,7 +1,7 @@
 /* OpenArm Motion Planner Studio & Halloween Show Designer
  * Main Application Logic
  */
-import { PlannerStudioView } from "./armview.js?v=2.3";
+import { PlannerStudioView } from "./armview.js?v=2.4";
 
 function logClient(level, message, stack = "") {
   try {
