@@ -213,3 +213,14 @@ def test_the_stage_pis_own_leads_reach_the_runner_beside_the_casts():
         assert seen == [{"stage_audio_lead_s": 0.2, "stage_video_lead_s": 0.05}]
     finally:
         srv.shutdown()
+
+
+def test_arms_field_from_the_per_part_status():
+    # one motor read per probe: the old all-or-nothing field comes from effector_status() when it answers
+    ok = {"arm_left": {"state": "ok"}, "arm_right": {"state": "ok"},
+          "grip_left": {"state": "ok"}, "grip_right": {"state": "ok"}}
+    assert choreo_proxy.arms_from_effectors(ok) == "active"
+    excluded = dict(ok, grip_left={"state": "down", "excluded": {"by": "operator", "at": "14:02"}})
+    assert choreo_proxy.arms_from_effectors(excluded) == "active"       # as the summary counts it
+    assert choreo_proxy.arms_from_effectors(dict(ok, arm_right={"state": "down", "why": "J5 no reply"})) == "inactive"
+    assert choreo_proxy.arms_from_effectors(dict(ok, grip_right={"state": "down", "excluded": None})) == "inactive"

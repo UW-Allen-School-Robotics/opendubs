@@ -205,6 +205,15 @@ def arms_from_summary(text: str, err) -> str | None:
     return "active" if n["enabled"] > 0 and clean else "inactive"
 
 
+def arms_from_effectors(eff: dict) -> str:
+    """The all-or-nothing `arms` field from the per-part status, for a runner that predates it:
+    "active" when every arm is ok and every gripper is ok or deliberately excluded (the summary
+    stops counting an excluded gripper as missing, too)."""
+    ok = all((eff.get(f"arm_{s}") or {}).get("state") == "ok" for s in ("left", "right")) and all(
+        (g := eff.get(f"grip_{s}") or {}).get("state") == "ok" or g.get("excluded") for s in ("left", "right"))
+    return "active" if ok else "inactive"
+
+
 _probe = {"arms": (None, 0.0), "tab5": (None, 0.0), "effectors": (None, 0.0)}
 _probe_lock = threading.Lock()
 
@@ -215,14 +224,17 @@ def _probe_now():
     head is asked with PING, which only reports."""
     import openarm
     import state_out
-    m = openarm._motor_summary()
-    arms = arms_from_summary(m.get("text") or "", m.get("error"))
     effectors = None
     if hasattr(openarm, "effector_status"):          # the Arms lane's per-part status (#403 section 6)
         try:
             effectors = openarm.effector_status()
         except Exception:  # noqa: BLE001  unknown parts are left to the all-or-nothing arms field
             effectors = None
+    if isinstance(effectors, dict):
+        arms = arms_from_effectors(effectors)       # one motor read per probe, not two
+    else:                                           # None: the motors could not be read that way
+        m = openarm._motor_summary()
+        arms = arms_from_summary(m.get("text") or "", m.get("error"))
     tab5 = False
     addr = state_out._tab5_resolve()
     if addr:
