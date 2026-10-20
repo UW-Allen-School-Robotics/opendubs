@@ -315,6 +315,13 @@ def _safety():
     sources = []
     if sw:
         sources.append("SOFTWARE")
+    # The StamPLC's own latch (BtnC held, OTA, REBOOT, or an ESTOP command) makes its [RC] line say
+    # mode=ESTOP. Unread, that mode maps to no authority and the robot read "RC link lost" in amber
+    # with the contactor open. Our own e-stop sets it too, so it is named only when SOFTWARE is not
+    # (which also covers a dashboard restart, where the in-memory software flag is gone).
+    plc_latch = fresh and (s.get("rc") or {}).get("mode") == "ESTOP"
+    if plc_latch and not sw:
+        sources.append("STAMPLC")
     if btn:
         sources.append("BUTTON")
     # Fail-safe (review R2): a STALE StamPLC link freezes the entire safety-sensing
@@ -454,16 +461,28 @@ def _robot_state():
     return out
 
 
+def ch5_position(rc: dict) -> str | None:
+    """OFF | MANUAL | AUTO from the raw CH5 value, with the StamPLC's own thresholds
+    (rc_serial_probe computeRcMode: <600 OFF, <1400 MANUAL, else AUTO), or None when the link is not
+    trustworthy (not live, failsafe, a stick out of range, no frame). Read from the raw channel, not
+    `mode`: a board-held e-stop makes `mode` say ESTOP and hides the switch. CH5 is index 4, the
+    firmware's default RC map (rc_config.cpp FN_AUTH)."""
+    raw = rc.get("raw") or []
+    if not rc.get("live") or rc.get("fs") or rc.get("rng") or len(raw) < 5:
+        return None
+    m = raw[4]
+    return "OFF" if m < 600 else "MANUAL" if m < 1400 else "AUTO"
+
+
 def try_estop_clear() -> dict:
     """Guarded software e-stop re-arm (review R3/R4). Refuses while the button is
     still pressed, telemetry is stale, the contactor is welded, or CH5 isn't OFF —
     THEN clears the software latch + re-energizes relay 0. Returns the outcome."""
     saf = _safety()
     rc = stamplc.reader.snapshot().get("rc") or {}
-    authority = MODE_TO_AUTHORITY.get(rc.get("mode"))
     ok, blockers = supervisor.estop_rearm_guard(
         button_pressed=bool(saf["estop_button"]), stale=saf["stale"],
-        welded=saf["welded"], authority=authority)
+        welded=saf["welded"], ch5=ch5_position(rc))
     if not ok:
         # `blockers` stays a list of sentences (the tablet reads it); `codes` runs beside it.
         return {"ok": False, "blockers": [t for _, t in blockers], "codes": [c for c, _ in blockers]}

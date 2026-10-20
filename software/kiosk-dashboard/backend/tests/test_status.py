@@ -215,3 +215,36 @@ def test_router_report_is_unknown_when_missing_or_stale(tmp_path):
     assert fresh["robot_wifi"] == data["robot_wifi"]
     stale = status._router_report(str(p), now=data["ts"] + 16)
     assert stale == {"uplink": {"state": "UNKNOWN", "say": "No network data"}, "robot_wifi": []}
+
+
+def _plc_latched_snapshot():
+    snap = _benign_snapshot()
+    snap["rc"] = {"live": True, "mode": "ESTOP", "dead": False}   # the board's own latch
+    snap["di"] = [1, 0, 0, 0, 0, 0, 0, 0]                          # the button chain is closed
+    snap["relay"] = [0, 0, 0, 0]                                   # contactor open
+    return snap
+
+
+def test_a_stamplc_latch_is_an_estop_not_rc_link_lost(monkeypatch):
+    """A StamPLC-local latch (BtnC held, OTA, REBOOT) made [RC] say mode=ESTOP, which mapped to no
+    authority: the robot read amber DEGRADED "RC link lost" with its contactor open."""
+    sup = supervisor_mod.Supervisor()
+    sup.ready = True
+    monkeypatch.setattr(status, "supervisor", sup)
+    monkeypatch.setattr(status, "_software_estop", False)
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", _plc_latched_snapshot)
+    out = status._robot_state()
+    assert out["state"] == "E_STOP_LATCH" and "STAMPLC" in out["reason"]
+
+
+def test_after_a_dashboard_restart_the_boards_latch_still_shows(monkeypatch):
+    """The software e-stop flag lives in memory. Our own E-STOP also latches the board, so after a
+    dashboard restart (a fresh supervisor, the flag gone) the board's latch is what must show; while
+    the flag is still set the board's latch is ours and is not named twice."""
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", _plc_latched_snapshot)
+    monkeypatch.setattr(status, "_software_estop", True)
+    assert status._safety()["sources"] == ["SOFTWARE"]
+    monkeypatch.setattr(status, "_software_estop", False)          # the restart
+    monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
+    out = status._robot_state()
+    assert out["state"] == "E_STOP_LATCH" and "RC link lost" not in out["reason"]

@@ -37,7 +37,7 @@ FATAL_FAULTS = {"CONTACTOR WELDED", "PDH hardware"}   # non-clearable from the U
 LIFT_SILENT = "lift module not responding"
 SELF_CLEARING = {LIFT_SILENT}
 # E-stop sources tracked live rather than latched — see step() for the reasoning.
-LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON"}
+LIVE_ESTOP_SOURCES = {"STALE TELEMETRY", "BUTTON", "STAMPLC"}
 
 
 class Supervisor:
@@ -64,7 +64,7 @@ class Supervisor:
         self.estop_latched = False
         self.estop_sources_held = []
 
-    def estop_rearm_guard(self, *, button_pressed, stale, welded, authority):
+    def estop_rearm_guard(self, *, button_pressed, stale, welded, ch5):
         """Guard for software e-stop re-arm (review R4/§5.4). SOFTWARE is being
         cleared by the action itself, so it is NOT a blocker; the *physical* and
         verification conditions are. Returns (ok, [(code, sentence)]); each code names its
@@ -77,8 +77,14 @@ class Supervisor:
                              "STALE TELEMETRY (safety state unknown)"))
         if welded:
             blockers.append(("CONTACTOR_WELDED", "CONTACTOR WELDED"))             # @fault CONTACTOR_WELDED
-        if authority not in (None, "OFF"):
-            blockers.append(("ESTOP_REARM_CH5", "CH5 not OFF"))                   # @fault ESTOP_REARM_CH5
+        # Positively OFF, or no re-arm. An unknown CH5 (no trustworthy RC frames) fails CLOSED: it
+        # used to pass as authority None, and a board-held latch reports mode=ESTOP, which is None
+        # too, so a re-arm went through with CH5 in AUTO.
+        if ch5 is None:
+            blockers.append(("ESTOP_REARM_CH5",                                   # @fault ESTOP_REARM_CH5
+                             "CH5 position unknown (no RC frames) — transmitter on, CH5 at OFF"))
+        elif ch5 != "OFF":
+            blockers.append(("ESTOP_REARM_CH5", "CH5 not OFF"))
         return (not blockers), blockers
 
     # ---- event log --------------------------------------------------------
@@ -119,6 +125,9 @@ class Supervisor:
         #                   indicator that disagrees with the machine is worse than none.
         #   STALE TELEMETRY fail-safe while the link is dead; auto-recovers, else every
         #                   USB blip would demand a manual re-arm (review R2).
+        #   STAMPLC         the StamPLC's own latch, which the board holds itself until the
+        #                   guarded re-arm (RELAY 0 1) clears it; latching it here too would
+        #                   only let the display disagree with the board.
         #
         # LATCHING — SOFTWARE, and anything new that lacks a physical act behind it.
         # There the guarded clear is the only acknowledgement that exists.
