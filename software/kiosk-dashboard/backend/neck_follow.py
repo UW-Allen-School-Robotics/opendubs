@@ -230,6 +230,38 @@ def why_not_now():
     return None
 
 
+# A TOUCH ON THE TABLET STOPS THE HEAD AT ONCE (the user, 2026-10-20; tablet plan DT-12): a hand on the
+# face, or on the dashboard the tablet is showing, must not have the head turning under it. The page
+# says so on every touch (POST /api/head/touch, face_door.py); this sends GAZE OFF to the neck straight
+# away, so it stops where it is rather than finishing its current move, and sends no GAZE until
+# TOUCH_HOLD_S after the last touch. The neck's own TOUCH HOLD (head protocol) would also outrank RC and
+# a show's GAZE; the neck firmware answers it ERR unknown today, so until it does, this holds tracking.
+TOUCH_HOLD_S = 4.0
+_touch = {"at": None, "off_at": 0.0}
+
+
+def touched() -> None:
+    import threading
+    now = _clock()
+    _touch["at"] = now
+    state["moving"], state["cmd"] = False, None
+    if now - _touch["off_at"] < 0.3:                 # a finger moving sends many; the neck needs one
+        return
+    _touch["off_at"] = now
+
+    def _off():
+        try:
+            import head
+            _ask(head.neck_host(), "GAZE OFF", 0.2)
+        except Exception:                            # noqa: BLE001 — the hold below still stops tracking
+            pass
+    threading.Thread(target=_off, daemon=True).start()
+
+
+def being_touched() -> bool:
+    return _touch["at"] is not None and _clock() - _touch["at"] < TOUCH_HOLD_S
+
+
 def someone_talking() -> bool:
     """True while the voice service is listening to someone (voice_proxy.listening(): the latest relayed
     `state` is "listen"). The head then HOLDS STILL: its servos' noise was getting into the microphone,
@@ -249,6 +281,8 @@ def step(cfg: dict):
     why = why_not_now()
     if why:
         return why
+    if being_touched():                              # touched: GAZE OFF was sent, and nothing more
+        return "holding still: the tablet is being touched"
     if someone_talking():                            # no GAZE at all: the lease lapses and the neck holds
         return "holding still: someone is talking to the robot"
     host = head.neck_host()

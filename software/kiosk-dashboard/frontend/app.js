@@ -212,6 +212,24 @@ const estopCode = (source) => {
   return ESTOP_SOURCE_CODE[first] || null;
 };
 
+/* ---------- a touch stops the head ---------- */
+// Any touch on the robot's tablet stops the head at once (backend neck_follow.touched): the moment a
+// finger lands, and again every second it stays down. Only from the tablet itself (the kiosk app's
+// bridge), never from a laptop that has the dashboard open.
+(function touchHoldsHead() {
+  if (!window.OpenDubsKiosk) return;
+  let last = 0, down = 0, downAt = 0, timer = null;
+  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
+  addEventListener("pointerdown", () => {
+    down++; downAt = performance.now(); if (downAt - last > 250) say();
+    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
+    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  }, { capture: true, passive: true });
+  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  addEventListener("pointerup", up, { capture: true, passive: true });
+  addEventListener("pointercancel", up, { capture: true, passive: true });
+})();
+
 /* ---------- E-STOP / re-arm (STAMPLC + safety) ---------- */
 // E-STOP is the safe direction → single tap fires immediately (no arming delay).
 const estopBtn = $("btnEstop");

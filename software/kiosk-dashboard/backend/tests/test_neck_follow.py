@@ -266,3 +266,25 @@ def test_the_head_holds_still_while_someone_is_talking(monkeypatch):
     assert sent == []                                                   # not even a NECK read
     talking["now"] = False
     assert nf.step(CFG) is None and sent[-1].startswith("GAZE")         # moves again once it stops listening
+
+
+def test_a_touch_on_the_tablet_stops_the_head_at_once(monkeypatch):
+    """The user, 2026-10-20: any touch stops the head. GAZE OFF goes to the neck straight away, and no
+    GAZE follows until TOUCH_HOLD_S after the last touch."""
+    import threading
+    sent = []
+    monkeypatch.setattr(nf, "_ask", lambda host, line, timeout=0.3: sent.append(line) or "OK")
+    monkeypatch.setattr(nf, "why_not_now", lambda: None)
+    monkeypatch.setattr(nf, "someone_talking", lambda: False)
+    t = [100.0]
+    monkeypatch.setattr(nf, "_clock", lambda: t[0])
+    monkeypatch.setattr(nf, "_touch", {"at": None, "off_at": 0.0})
+    nf.touched()
+    for th in threading.enumerate():
+        if th is not threading.current_thread() and th.daemon:
+            th.join(1)
+    assert sent == ["GAZE OFF"]
+    assert "touched" in nf.step(nf.config())
+    assert sent == ["GAZE OFF"]                                  # nothing more while held
+    t[0] += nf.TOUCH_HOLD_S + 0.1
+    assert not nf.being_touched()
