@@ -916,6 +916,10 @@ check("armed past the dashboard's 10 s probe age: the preflight's answer stands,
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(4.0, {"arms": "inactive"}), (15.0, {"deadman": True})])
 check("... but an arms answer that SAYS inactive still disarms it", end[:2] == ("ABORTED", "ARMS"), end)
+OK_PARTS = {p: {"state": "ok"} for p in ("arm_left", "arm_right", "grip_left", "grip_right")}
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, effectors=OK_PARTS),
+                                  changes=[(12.0, {"effectors": None}), (15.0, {"deadman": True})])
+check("... the per-part answer (effectors) ages out the same way, and stands the same way", end[0] == "COMPLETED", end)
 
 face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
