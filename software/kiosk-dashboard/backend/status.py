@@ -131,29 +131,28 @@ def _net():
 
 
 # The router's view of the network, written by opendubs-netmon (the Network lane's poller) —
-# notes/design/network-router-api.md §4. The dashboard never talks to the router itself.
-NETWORK_JSON = os.environ.get("OPENDUBS_NETWORK_JSON", "/run/opendubs/network.json")
+# notes/design/network-router-api.md §4, sample tools/network/sample-network.json. The dashboard
+# never talks to the router itself.
+NETWORK_JSON = os.environ.get("OPENDUBS_NETWORK_JSON", "/run/opendubs-network/network.json")
 NETWORK_STALE_S = 15.0
+_NO_NETWORK = {"uplink": {"state": "UNKNOWN", "say": "No network data"}, "robot_wifi": []}
 
 
 def _router_report(path: str = NETWORK_JSON, now: float | None = None) -> dict:
-    """{"uplink": {...}, "robot_wifi": [...]}. A missing, unreadable or stale file is UNKNOWN,
-    never the last thing it said: an old GOOD must not be shown as a live one."""
+    """{"uplink": {...}, "robot_wifi": [...]}. A missing, unreadable or stale file (by its own
+    `ts`) is UNKNOWN, never the last thing it said: an old GOOD must not be shown as a live one."""
     now = time.time() if now is None else now
     try:
-        age = now - os.stat(path).st_mtime
         with open(path) as f:
             data = json.load(f)
-    except (OSError, ValueError):
-        return {"uplink": {"state": "UNKNOWN", "say": "No report from the router poller",
-                           "age_s": None}, "robot_wifi": []}
-    if age > NETWORK_STALE_S or not isinstance(data, dict):
-        return {"uplink": {"state": "UNKNOWN", "age_s": round(age, 1),
-                           "say": f"The router poller last reported {age:.0f} s ago"},
-                "robot_wifi": []}
-    uplink = data.get("uplink") if isinstance(data.get("uplink"), dict) else {}
+        age = now - float(data["ts"])
+        uplink = dict(data["uplink"])
+    except (OSError, ValueError, TypeError, KeyError):
+        return {**_NO_NETWORK, "uplink": dict(_NO_NETWORK["uplink"])}
+    if not 0 <= age <= NETWORK_STALE_S:
+        return {**_NO_NETWORK, "uplink": dict(_NO_NETWORK["uplink"])}
     clients = data.get("robot_wifi") if isinstance(data.get("robot_wifi"), list) else []
-    return {"uplink": {"state": "UNKNOWN", **uplink, "age_s": round(age, 1)},
+    return {"uplink": {**uplink, "age_s": round(age, 1)},
             "robot_wifi": [c for c in clients if isinstance(c, dict)]}
 
 
