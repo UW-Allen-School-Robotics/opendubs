@@ -9,6 +9,7 @@ from .base import (
 from .cbirrt_backend import CBiRRTBackend
 from .curobo_backend import CuRoboBackend
 from .planner import OpenArmPlanner
+from .benchmark import run_benchmark
 
 __all__ = [
     "OpenArmPlanner",
@@ -19,4 +20,5 @@ __all__ = [
     "create_backend",
     "get_available_backends",
     "register_backend",
+    "run_benchmark",
 ]

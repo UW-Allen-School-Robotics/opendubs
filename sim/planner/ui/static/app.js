@@ -231,6 +231,12 @@ class StudioApp {
     document.getElementById("btn-close-modal").onclick = () => this._closeYamlModal();
     document.getElementById("btn-copy-yaml").onclick = () => this._copyYamlToClipboard();
     document.getElementById("btn-download-yaml").onclick = () => this._downloadYaml();
+
+    // Benchmark modal buttons
+    document.getElementById("btn-open-benchmark").onclick = () => this._openBenchmarkModal();
+    document.getElementById("btn-close-benchmark").onclick = () => this._closeBenchmarkModal();
+    document.getElementById("btn-close-benchmark-footer").onclick = () => this._closeBenchmarkModal();
+    document.getElementById("btn-run-benchmark-now").onclick = () => this._runBenchmark();
   }
 
   _setArm(arm) {
@@ -385,9 +391,10 @@ class StudioApp {
     const statusInfo = document.getElementById("plan-status-info");
     const perfInfo = document.getElementById("plan-perf-info");
 
+    const activeBackend = document.getElementById("backend-selector")?.value || "planner";
     btn.disabled = true;
-    btn.innerHTML = `<span>Planning (CBiRRT)...</span>`;
-    statusInfo.textContent = "Solving CBiRRT path and TOPP-RA retiming...";
+    btn.innerHTML = `<span>Planning (${activeBackend.toUpperCase()})...</span>`;
+    statusInfo.textContent = `Solving trajectory with ${activeBackend.toUpperCase()}...`;
 
     try {
       const resp = await fetch("/api/plan", {
@@ -712,6 +719,140 @@ class StudioApp {
     a.download = "halloween_arm_routine.yaml";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async _openBenchmarkModal() {
+    const modal = document.getElementById("benchmark-modal");
+    if (!modal) return;
+    modal.style.display = "flex";
+    if (!this._hasBenchmarkData) {
+      try {
+        const resp = await fetch("/api/benchmark");
+        const data = await resp.json();
+        this._renderBenchmarkResults(data);
+      } catch (e) {
+        console.warn("Could not fetch initial benchmark:", e);
+      }
+    }
+  }
+
+  _closeBenchmarkModal() {
+    const modal = document.getElementById("benchmark-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async _runBenchmark() {
+    const btn = document.getElementById("btn-run-benchmark-now");
+    const status = document.getElementById("benchmark-running-status");
+    const trialsSelect = document.getElementById("benchmark-trials-select");
+    const trials = parseInt(trialsSelect?.value || "2", 10);
+
+    btn.disabled = true;
+    btn.textContent = "Running...";
+    if (status) status.style.display = "inline";
+
+    try {
+      const resp = await fetch("/api/benchmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({
+          arm: this.arm,
+          trials: trials,
+        }),
+      });
+      const data = await resp.json();
+      this._renderBenchmarkResults(data);
+    } catch (err) {
+      alert(`Benchmark error: ${err}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Run Benchmark";
+      if (status) status.style.display = "none";
+    }
+  }
+
+  _renderBenchmarkResults(data) {
+    if (!data || !data.overall) return;
+    this._hasBenchmarkData = true;
+
+    const cb = data.overall.cbirrt;
+    const cu = data.overall.curobo;
+    const comp = data.comparison || {};
+
+    if (cb) {
+      const el = document.getElementById("bench-stat-cbirrt");
+      if (el) el.textContent = `${cb.latency_mean_ms.toFixed(1)} ms`;
+    }
+    if (cu) {
+      const el = document.getElementById("bench-stat-curobo");
+      if (el) el.textContent = `${cu.latency_mean_ms.toFixed(1)} ms`;
+    }
+    if (comp.speedup_factor) {
+      const elSpeed = document.getElementById("bench-stat-speedup");
+      if (elSpeed) elSpeed.textContent = `${comp.speedup_factor.toFixed(1)}x`;
+      const elFaster = document.getElementById("bench-stat-faster");
+      if (elFaster) elFaster.textContent = `${comp.summary_text || "Faster"}`;
+    }
+
+    const tbody = document.getElementById("benchmark-table-body");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    // Overall summary row
+    const trSummary = document.createElement("tr");
+    trSummary.style.fontWeight = "bold";
+    trSummary.style.background = "rgba(2, 132, 199, 0.12)";
+    const speedStr = comp.speedup_factor ? `${comp.speedup_factor.toFixed(1)}x faster` : "--";
+    trSummary.innerHTML = `
+      <td><strong>Overall Mean Latency</strong></td>
+      <td>${cb ? `${cb.latency_mean_ms.toFixed(1)} ms` : "N/A"}</td>
+      <td>${cu ? `${cu.latency_mean_ms.toFixed(1)} ms` : "N/A"}</td>
+      <td style="color:var(--accent-cyan);">${speedStr}</td>
+    `;
+    tbody.appendChild(trSummary);
+
+    // Metrics rows
+    const addMetricRow = (label, cbVal, cuVal, note = "") => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(label)}</td>
+        <td>${cbVal}</td>
+        <td>${cuVal}</td>
+        <td style="color:var(--text-muted); font-size:11px;">${note}</td>
+      `;
+      tbody.appendChild(tr);
+    };
+
+    if (cb && cu) {
+      addMetricRow("Success Rate", `${cb.success_rate_pct.toFixed(0)}% (${cb.total_successes}/${cb.total_attempts})`, `${cu.success_rate_pct.toFixed(0)}% (${cu.total_successes}/${cu.total_attempts})`, "Both verified");
+      addMetricRow("Trajectory Duration", `${cb.duration_mean_s.toFixed(2)} s`, `${cu.duration_mean_s.toFixed(2)} s`, "Smooth TOPP-RA");
+      addMetricRow("Trajectory Waypoints", `${cb.waypoints_mean.toFixed(0)} pts`, `${cu.waypoints_mean.toFixed(0)} pts`, "Dense path");
+      addMetricRow("Min Collision Clearance", `${cb.min_clearance_mm.toFixed(1)} mm`, `${cu.min_clearance_mm.toFixed(1)} mm`, "MuJoCo verified");
+    }
+
+    // Individual motion scenarios
+    const cbMotions = data.motions?.cbirrt || [];
+    const cuMotions = data.motions?.curobo || [];
+    if (cbMotions.length > 0) {
+      const trHeader = document.createElement("tr");
+      trHeader.style.background = "var(--bg-card)";
+      trHeader.innerHTML = `<td colspan="4" style="font-weight:600; color:var(--text-muted); font-size:11px; padding:6px 10px;">INDIVIDUAL MOTION SCENARIOS</td>`;
+      tbody.appendChild(trHeader);
+
+      for (let i = 0; i < cbMotions.length; i++) {
+        const mCb = cbMotions[i];
+        const mCu = cuMotions[i];
+        const mSpeed = (mCb && mCu && mCu.latency_mean_ms > 0) ? (mCb.latency_mean_ms / mCu.latency_mean_ms).toFixed(1) + "x" : "--";
+        const trM = document.createElement("tr");
+        trM.innerHTML = `
+          <td>${escapeHtml(mCb.motion)}</td>
+          <td>${mCb.latency_mean_ms.toFixed(1)} ms</td>
+          <td>${mCu ? `${mCu.latency_mean_ms.toFixed(1)} ms` : "N/A"}</td>
+          <td style="color:var(--accent-cyan);">${mSpeed}</td>
+        `;
+        tbody.appendChild(trM);
+      }
+    }
   }
 }
 

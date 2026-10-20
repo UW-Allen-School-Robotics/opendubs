@@ -18,6 +18,7 @@ class CBiRRTBackend(MotionPlannerBackend):
         step_size: float = 0.05,
         max_iterations: int = 2000,
         smoothing_iterations: int = 50,
+        **kwargs,
     ):
         self.robot_model = robot_model
         self.collision_checker = collision_checker

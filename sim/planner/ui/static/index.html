@@ -18,6 +18,7 @@
         <label style="font-size:10px; color:var(--text-muted); letter-spacing:0.5px;">BACKEND</label>
         <select id="backend-selector" style="padding:4px 8px; font-size:11px; font-family:var(--font-mono);"></select>
       </div>
+      <button id="btn-open-benchmark" class="btn-secondary" style="font-size:11px; padding:4px 10px;">Benchmark</button>
       <div class="toggle-group" id="arm-selector">
         <button id="btn-arm-left" class="active">Left Arm</button>
         <button id="btn-arm-right">Right Arm</button>
@@ -214,6 +215,71 @@
       <div class="modal-footer">
         <button id="btn-copy-yaml" class="btn-secondary">Copy to Clipboard</button>
         <button id="btn-download-yaml" class="btn-accent">Download YAML</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Planner Benchmark Modal -->
+  <div id="benchmark-modal" class="modal-backdrop">
+    <div class="modal-content wide">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 style="font-size:14px; font-weight:600;">Motion Planner Benchmark</h3>
+          <span class="badge">SIMULATION</span>
+        </div>
+        <button id="btn-close-benchmark" class="icon-btn" style="border:none; font-size:16px;">✕</button>
+      </div>
+      <div class="benchmark-body">
+        <!-- Stat Cards -->
+        <div class="benchmark-card-row">
+          <div class="stat-card">
+            <div class="stat-label">CBiRRT Latency</div>
+            <div class="stat-value" id="bench-stat-cbirrt">-- ms</div>
+            <div class="stat-sub">CPU RRT + SSIK</div>
+          </div>
+          <div class="stat-card highlight">
+            <div class="stat-label">cuRobo Latency</div>
+            <div class="stat-value" id="bench-stat-curobo">-- ms</div>
+            <div class="stat-sub">GPU CUDA Batched</div>
+          </div>
+          <div class="stat-card highlight">
+            <div class="stat-label">Speedup Factor</div>
+            <div class="stat-value" id="bench-stat-speedup">--x</div>
+            <div class="stat-sub" id="bench-stat-faster">Faster</div>
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+          <table class="benchmark-table">
+            <thead>
+              <tr>
+                <th>Metric / Motion</th>
+                <th style="width: 140px;">CBiRRT</th>
+                <th style="width: 140px;">cuRobo</th>
+                <th style="width: 120px;">Speedup</th>
+              </tr>
+            </thead>
+            <tbody id="benchmark-table-body">
+              <tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No benchmark data loaded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <label style="font-size:11px; color:var(--text-muted);">Trials / Motion:</label>
+          <select id="benchmark-trials-select" style="padding:4px 6px; font-size:11px;">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="5">5</option>
+          </select>
+          <span id="benchmark-running-status" style="font-size:11px; color:var(--accent-cyan); display:none;">Running simulation benchmark...</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="btn-run-benchmark-now" class="btn-accent">Run Benchmark</button>
+          <button id="btn-close-benchmark-footer" class="btn-secondary">Close</button>
+        </div>
       </div>
     </div>
   </div>

@@ -140,7 +140,20 @@ def test_modular_backends():
     assert_true("cbirrt" in backends, "CBiRRT backend registered")
     assert_true(backends["cbirrt"]["available"] is True, "CBiRRT backend reports available=True")
     assert_true("curobo" in backends, "cuRobo backend registered in registry")
-    assert_true(backends["curobo"]["available"] is False, "cuRobo backend reports available=False (graceful fallback when not installed)")
+
+    # If cuRobo is available in environment, test real GPU trajectory generation
+    if backends["curobo"]["available"]:
+        print("  [INFO] cuRobo is AVAILABLE (CUDA GPU detected)")
+        curobo_planner = OpenArmPlanner(arm="left", backend="curobo")
+        assert_true(curobo_planner.backend.name == "curobo", "Planner initialized with cuRobo backend")
+        q_start = np.zeros(7)
+        q_goal = np.radians([0.0, -30.0, 0.0, 60.0, 0.0, 15.0, 0.0])
+        cu_traj = curobo_planner.plan_to_joint_goal(q_start, q_goal)
+        assert_true(cu_traj is not None, f"cuRobo planned valid trajectory in {cu_traj.metadata.get('plan_time_ms', 0):.1f} ms")
+        assert_true(cu_traj.min_clearance_mm >= 15.0, f"cuRobo trajectory satisfies collision clearance ({cu_traj.min_clearance_mm:.1f} mm)")
+    else:
+        print("  [INFO] cuRobo is not installed in current environment; verifying graceful fallback")
+        assert_true(backends["curobo"]["available"] is False, "cuRobo backend reports available=False (graceful fallback)")
 
     # Instantiating CBiRRT by string
     planner = OpenArmPlanner(arm="left", backend="cbirrt")
@@ -162,6 +175,20 @@ def test_studio_rest_api():
     test_section("5. Studio HTTP Server & REST API Endpoints")
 
     base_url = "http://127.0.0.1:8092"
+
+    # Start server in a background thread if not running
+    import threading
+    from sim.planner.ui.server import HTTPServer, StudioHandler, SERVICE
+
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/status", timeout=0.5):
+            pass
+    except Exception:
+        SERVICE.set_backend("cbirrt")
+        server = HTTPServer(("127.0.0.1", 8092), StudioHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        time.sleep(1.0)
 
     def get(path: str) -> dict:
         req = urllib.request.Request(f"{base_url}{path}")
@@ -215,6 +242,10 @@ def test_studio_rest_api():
     with urllib.request.urlopen(req_show, timeout=5) as resp:
         show_yaml = resp.read().decode()
     assert_true("slot: ARM_L" in show_yaml and "joints: {" in show_yaml, "/api/export_show matches choreo YAML format")
+
+    # /api/benchmark
+    bench = post("/api/benchmark", {"arm": "left", "trials": 1, "backends": ["cbirrt"]})
+    assert_true("overall" in bench and "cbirrt" in bench["overall"], "/api/benchmark returned performance metrics")
 
 
 def main():

@@ -167,6 +167,7 @@ class OpenArmPlanner:
                 robot_model=self.robot_model,
                 collision_checker=self.collision_checker,
                 ik_solver=self.ik_solver,
+                arm=self.arm,
             )
         elif backend is not None:
             self.backend = backend
@@ -176,6 +177,7 @@ class OpenArmPlanner:
                 robot_model=self.robot_model,
                 collision_checker=self.collision_checker,
                 ik_solver=self.ik_solver,
+                arm=self.arm,
             )
 
     def set_backend(self, backend: MotionPlannerBackend | str) -> None:
@@ -186,6 +188,7 @@ class OpenArmPlanner:
                 robot_model=self.robot_model,
                 collision_checker=self.collision_checker,
                 ik_solver=self.ik_solver,
+                arm=self.arm,
             )
         else:
             self.backend = backend
@@ -213,7 +216,7 @@ class OpenArmPlanner:
         raw_result = self.backend.plan(q_start, q_goal, timeout=timeout)
         plan_time = time.perf_counter() - t0
 
-        if raw_result is None or len(raw_result) == 0:
+        if raw_result is None:
             return None
 
         # If backend already returns a complete PlannedTrajectory (e.g. cuRobo)
@@ -223,6 +226,9 @@ class OpenArmPlanner:
             if "plan_time_ms" not in raw_result.metadata:
                 raw_result.metadata["plan_time_ms"] = plan_time * 1000.0
             return raw_result
+
+        if len(raw_result) == 0:
+            return None
 
         # Otherwise retime raw geometric waypoints with TOPP-RA
         traj = self._retime_path(raw_result, plan_time=plan_time)

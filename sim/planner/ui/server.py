@@ -32,6 +32,7 @@ for p in (REPO, SIM_DIR, IK_DIR):
         sys.path.insert(0, p)
 
 from sim.planner import OpenArmPlanner, get_available_backends
+from sim.planner.benchmark import run_benchmark
 import clearance
 import openarm_left_ik
 import openarm_right_ik
@@ -67,6 +68,13 @@ class PlannerService:
         self.lock = threading.Lock()
         self.active_backend = default_backend
         self._planners = {}
+        self.cached_benchmark: dict | None = None
+
+    def run_benchmark(self, arm: str = "left", trials: int = 2, backends: list[str] | None = None) -> dict:
+        with self.lock:
+            res = run_benchmark(backends=backends, arm=arm, trials=trials, verbose=False)
+            self.cached_benchmark = res
+            return res
 
     def set_backend(self, backend: str) -> None:
         with self.lock:
@@ -263,6 +271,11 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     pass
             return self._send_json(DEFAULT_HALLOWEEN_SEQUENCE)
+        if url == "/api/benchmark":
+            if SERVICE.cached_benchmark is not None:
+                return self._send_json(SERVICE.cached_benchmark)
+            res = SERVICE.run_benchmark(arm="left", trials=2)
+            return self._send_json(res)
 
         return super().do_GET()
 
@@ -323,6 +336,13 @@ class StudioHandler(SimpleHTTPRequestHandler):
             keyframes = req.get("keyframes", [])
             show_yaml = generate_show_yaml(keyframes)
             return self._send_text(show_yaml, content_type="text/yaml")
+
+        if url == "/api/benchmark":
+            arm = req.get("arm", "left")
+            trials = int(req.get("trials", 2))
+            backends = req.get("backends", None)
+            res = SERVICE.run_benchmark(arm=arm, trials=trials, backends=backends)
+            return self._send_json(res)
 
         self.send_error(404, "Endpoint not found")
 

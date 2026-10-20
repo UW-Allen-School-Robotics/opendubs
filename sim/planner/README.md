@@ -132,3 +132,22 @@ Then open in your browser:
 - **Interactive Trajectory Player:** Scrub through time, play back at $0.5\times / 1.0\times / 2.0\times$ speed, and view the 3D end-effector ribbon.
 - **Halloween Show Choreographer:** Build an ordered sequence of keyframes, click **Plan Full Show Sequence** to generate collision-free transitions between all poses, and export directly to `software/choreo/shows/halloween.yaml` format!
 
+---
+
+## 5. Performance Benchmarking Tool (`benchmark.py`)
+
+To measure and compare planning latency, duration, waypoint count, clearance, and success rates between CBiRRT and cuRobo in simulation:
+
+```bash
+# Run benchmark comparing CBiRRT vs cuRobo (default 5 trials per motion scenario):
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/benchmark.py --trials 5
+
+# Benchmark right arm:
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/benchmark.py --arm right --trials 3
+
+# Export results to JSON:
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/benchmark.py --json-out benchmark_results.json
+```
+
+In the Web Studio UI, click the **Benchmark** button in the header toolbar to trigger or view the benchmark comparison modal directly in the browser!
+

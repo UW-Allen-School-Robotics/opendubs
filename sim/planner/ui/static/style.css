@@ -590,3 +590,88 @@ select:focus, input:focus {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Benchmark Styles */
+.modal-content.wide {
+  width: 740px;
+  max-width: 95vw;
+}
+
+.benchmark-body {
+  font-family: var(--font-sans);
+  background: var(--bg-panel);
+  color: var(--text-main);
+  padding: 16px 20px;
+}
+
+.benchmark-card-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.stat-card .stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stat-card .stat-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.stat-card .stat-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.stat-card.highlight {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(2, 132, 199, 0.08);
+}
+
+.stat-card.highlight .stat-value {
+  color: var(--accent-cyan);
+}
+
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.benchmark-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border-bottom: 2px solid var(--border-color);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.benchmark-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  color: #e2e8f0;
+}
+
+.benchmark-table tr:hover td {
+  background: var(--bg-hover);
+}
+
