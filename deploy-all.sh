@@ -11,7 +11,23 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 DEST=/opt/opendubs
 EXC=(--exclude '__pycache__' --exclude '*.pyc' --exclude '.pio' --exclude '.git' --exclude '.venv')
 
+# What this deploy carries, said plainly at the start and the end and recorded on the robot in
+# $DEST/DEPLOYED (tools/deploy-audit.py prints it). The robot runs what is on main (CLAUDE.md rule 5),
+# so a branch or a dirty checkout is called out: rsync ships the WORKING TREE, not the commit.
+SRC_SHA=$(git -C "$REPO" rev-parse --short=12 HEAD)
+SRC_BRANCH=$(git -C "$REPO" symbolic-ref -q --short HEAD || echo detached)
+MAIN_SHA=$(git -C "$REPO" rev-parse --short=12 origin/main 2>/dev/null || echo unknown)
+if [ "$SRC_SHA" = "$MAIN_SHA" ]; then
+  SOURCE="main @ $SRC_SHA"
+elif git -C "$REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+  SOURCE="an OLDER main commit @ $SRC_SHA (main is $MAIN_SHA)"
+else
+  SOURCE="branch $SRC_BRANCH @ $SRC_SHA, NOT main (main is $MAIN_SHA)"
+fi
+[ -z "$(git -C "$REPO" status --porcelain --untracked-files=no)" ] || SOURCE="$SOURCE, WITH UNCOMMITTED CHANGES"
+
 echo "== deploying repo -> $HOST:$DEST =="
+echo "== source: $SOURCE =="
 ssh -t "$HOST" "sudo mkdir -p $DEST && sudo chown -R \$(id -un):\$(id -gn) $DEST"
 
 # The repo is grouped (firmware/ software/) but the Thor's /opt/opendubs layout stays FLAT — every
@@ -94,4 +110,7 @@ SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove op
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 
+printf 'source=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\n' "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" "$MAIN_SHA" \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" | ssh "$HOST" "cat > $DEST/DEPLOYED"
+echo "== deployed from $SOURCE =="
 echo "== deployed. Reboot the Thor to (re)launch kiosk + ROS:  ssh $HOST sudo reboot =="
