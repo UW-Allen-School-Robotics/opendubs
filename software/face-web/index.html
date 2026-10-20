@@ -56,6 +56,7 @@
   <button class="back" id="opBack">FACE</button>
   <div class="note" id="opNote">The RC deadman and the e-stop stop everything, always.</div>
 </div>
-<script type="module" src="engine/boot.js"></script>
+<!-- boot.js itself failing to load (the dashboard restarting) would leave a dead page: reload instead. -->
+<script type="module" src="engine/boot.js" onerror="setTimeout(function () { location.reload(); }, 3000)"></script>
 </body>
 </html>
