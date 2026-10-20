@@ -56,6 +56,7 @@ SLOW_S = 6.0              # no reply yet: "give me a moment"
 GIVE_UP_S = 10.0          # still nothing: apologise and drop the turn
 TURN_CAP_S = 30.0         # a brain that starts and then stalls is cut here
 PLAYED_GRACE_S = 2.0      # after the audio's length, idle even if the page never says `played`
+STATUS_WAIT_S = 0.4        # the dashboard answers in about 5 ms; slower than this is unreadable
 MAX_ROUNDS = 3            # model rounds per turn (a tool result, then the rest of the answer)
 RECORD_MAX_TURNS = 200   # a recording session's cap: 15 s turns, ~100 MB of tmpfs at most
 MAX_HISTORY_TURNS = 6     # questions kept in a conversation; the local brain's context is 8,192 tokens
@@ -130,6 +131,7 @@ class Voice:
         self._expect_seq = 0
         self._lost = 0
         self._page_ms: list = []
+        self._tools: list = []
         self._t_press = 0.0
         self._task: asyncio.Task | None = None       # the pipeline of the turn in think/speak
         self._cap: asyncio.Task | None = None        # the utterance cap timer
@@ -305,6 +307,7 @@ class Voice:
         out = {"status": "ok", "transcript": "", "reply": "", "source": source}
         shape = audio.shape(clip, wire.UP_RATE)
         heard = ""                                    # what Parakeet wrote, before the wake phrase is stripped
+        self._tools = []                              # this turn's tool calls: name, ok, ms
         self._motion_dropped = 0
         speaker = Speaker(self, p, turn)
         try:
@@ -376,7 +379,8 @@ class Voice:
         self._trim_history()
         self._mark = len(self.history)
         self.history.append({"role": "user", "text": out["transcript"]})
-        think = asyncio.create_task(self._think(out, speaker, t_release, ms))
+        system = await self._system(ms)
+        think = asyncio.create_task(self._think(out, speaker, t_release, ms, system))
         try:
             done, _ = await asyncio.wait({think}, timeout=self.slow_s)
             if not done and not speaker.brain_spoke:
@@ -406,13 +410,30 @@ class Voice:
                 think.cancel()
                 await asyncio.gather(think, return_exceptions=True)
 
-    async def _think(self, out: dict, speaker: "Speaker", t_release: float, ms: dict) -> None:
+    async def _system(self, ms: dict) -> str:
+        """The persona with the robot's live status appended, read from the dashboard for THIS
+        question. On the robot the model answered "I can't tell right now" without ever calling
+        robot_status, so the facts are given, not left for the model to fetch. A dashboard slower
+        than STATUS_WAIT_S counts as unreadable: the visitor is not kept waiting for it."""
+        t0 = self.clock()
+        try:
+            snap = await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(None, self.robot_status),
+                                          STATUS_WAIT_S)
+        except Exception:                       # a timeout, or a reader that failed: unknown, never a guess
+            snap = None
+        ms["status"] = round((self.clock() - t0) * 1000)
+        return (self.persona.rstrip() + "\n\nYour live status, read from your dashboard for this question: "
+                + robot_facts.summary(snap))
+
+    async def _think(self, out: dict, speaker: "Speaker", t_release: float, ms: dict,
+                     system: str | None = None) -> None:
+        system = system or self.persona
         reply = []
         gate = spoken.Gate()                   # no emoji, no offer of motion, whatever the model wrote
         for _round in range(MAX_ROUNDS):
             split, text, calls, effects = Splitter(), [], [], []
             stop = "end_turn"
-            async for ev in self.brain.stream(self.history, self.persona):
+            async for ev in self.brain.stream(self.history, system):
                 if isinstance(ev, brains.TextDelta):
                     if "first_text" not in ms:
                         ms["first_text"] = round((self.clock() - t_release) * 1000)
@@ -450,6 +471,14 @@ class Voice:
         out["reply"] = " ".join(r for r in reply if r)
 
     async def _tool(self, call: brains.ToolCall) -> dict:
+        """Run one tool call; the turn log keeps its name, outcome and time, never its words."""
+        t0 = self.clock()
+        r = await self._run_tool(call)
+        self._tools.append({"name": call.name if isinstance(call.name, str) else "?",
+                            "ok": not r.get("is_error"), "ms": round((self.clock() - t0) * 1000)})
+        return r
+
+    async def _run_tool(self, call: brains.ToolCall) -> dict:
         act = safe_tools.plan(call.name, call.args, self.limiter, now=self.clock())
         if act.refused:
             return {"id": call.id, "content": act.refused, "is_error": True}
@@ -543,7 +572,7 @@ class Voice:
         rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
                "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", ""),
                "audio": shape or {}, "words": len(out["transcript"].split()),
-               "motion_dropped": self._motion_dropped,
+               "motion_dropped": self._motion_dropped, "tools": list(self._tools),
                "uplink_x": None if (x := audio.uplink_rate(self._page_ms)) is None else round(x, 2)}
         if x is not None and x > 1.3:
             log.warning("turn %s: audio arrived %.1fx faster than real time; the page is sending more "

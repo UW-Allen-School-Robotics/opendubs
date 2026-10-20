@@ -26,11 +26,12 @@ import time
 
 STATUS_PATH = "/api/status/spoken"
 STALE_S = 5.0                       # older than this, the snapshot is not live
+AHEAD_S = 1.0                       # the dashboard rounds ts to 0.1 s, so a live one can be just ahead
 MAX_WORDS_LEN = 60                  # the dashboard's own caption limit (state_words.MAX_LEN)
-CANT_TELL = "I can't tell right now"
+CANT_TELL = "can't tell right now"
 HELP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fault_help.json")
 
-RULES = (f"Answer only from these facts. For anything marked unknown, say \"{CANT_TELL}\". Never "
+RULES = ("Answer from these facts. Only for a fact marked unknown, say you can't tell right now. Never "
          "give a number that is not here. Never offer to fix or change anything: your operator does "
          "that from the dashboard.")
 
@@ -113,7 +114,7 @@ def facts(snapshot, now: float | None = None) -> dict | None:
     if not isinstance(snapshot, dict):
         return None
     ts = snapshot.get("ts")
-    if not isinstance(ts, (int, float)) or isinstance(ts, bool) or not 0 <= now - ts <= STALE_S:
+    if not isinstance(ts, (int, float)) or isinstance(ts, bool) or not -AHEAD_S <= now - ts <= STALE_S:
         return None
     d = lambda k: snapshot.get(k) if isinstance(snapshot.get(k), dict) else {}
     state, bat, arms, show, net = d("state"), d("battery"), d("arms"), d("show"), d("network")
@@ -145,8 +146,8 @@ def summary(snapshot, now: float | None = None, help: dict | None = None) -> str
     """The tool result the model gets: the facts, then the rules for using them."""
     f = facts(snapshot, now)
     if f is None:
-        return (f"Your status cannot be read right now, so for any question about yourself say "
-                f"\"{CANT_TELL}\". " + RULES)
+        return ("Your status cannot be read right now, so for any question about yourself say you "
+                "can't tell right now. " + RULES)
     help = load_help() if help is None else help
     parts = []
     for k in ("state", "battery", "charging", "left arm", "right arm", "show", "network uplink",

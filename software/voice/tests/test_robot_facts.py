@@ -71,6 +71,12 @@ class Honest(unittest.TestCase):
                      "no show running", "network uplink: good", "uptime: 3 hours 5 minutes", "faults: none"):
             self.assertIn(part, said)
 
+    def test_a_live_snapshot_just_ahead_of_the_clock_is_live(self):
+        """It happened: the dashboard rounds ts to 0.1 s, so a live snapshot was often a few ms in
+        the future, was refused as invalid, and the robot said it could not tell its battery."""
+        said = rf.summary(snap(ts=NOW + 0.05), now=NOW, help={})
+        self.assertIn("battery: 82 percent", said)
+
     def test_a_stale_or_missing_snapshot_says_it_cannot_tell(self):
         for s in (snap(ts=NOW - 60), snap(ts=NOW + 30), snap(ts=None), None, "error", {}):
             said = rf.summary(s, now=NOW, help={})

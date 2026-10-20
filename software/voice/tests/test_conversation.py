@@ -190,7 +190,7 @@ class Brains(unittest.IsolatedAsyncioTestCase):
         content = v.history[2]["results"][0]["content"]
         self.assertIn("state: Emergency stop", content)
         self.assertIn("battery: unknown", content)
-        self.assertIn("I can't tell right now", content)
+        self.assertIn("can't tell right now", content)
 
     async def test_end_conversation(self):
         llm = FakeLLM([[ToolCall("t1", "end_conversation", {}), "Goodbye!"]] + ["ok"])
@@ -333,6 +333,49 @@ class Uplink(unittest.IsolatedAsyncioTestCase):
             rec = json.loads(next(l for l in logs.output if '"uplink_x"' in l).split("turn ", 1)[1])
             self.assertAlmostEqual(rec["uplink_x"], expect, delta=0.05)
             self.assertEqual(any("faster than real time" in l for l in logs.output), per_tick == 2)
+
+
+class LiveStatus(unittest.IsolatedAsyncioTestCase):
+    async def test_the_question_comes_with_the_robots_live_status(self):
+        """It happened: the model answered "I can't tell right now" about its battery without calling
+        robot_status. So every question carries the dashboard's facts, read for it."""
+        llm = FakeLLM(["I have 80 percent."])
+        v = make_voice(llm=llm)
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        self.assertIn("battery: 80 percent", llm.systems[0])
+        self.assertTrue(llm.systems[0].startswith("You are a test robot."))
+        rec = json.loads(next(l for l in logs.output if '"tools"' in l).split("turn ", 1)[1])
+        self.assertIn("status", rec["ms"])
+
+    async def test_a_slow_or_broken_dashboard_never_holds_the_turn(self):
+        import time as _t
+        for reader in (lambda: _t.sleep(2) or {"ts": _t.time(), "battery": {"percent": 50}},
+                       lambda: (_ for _ in ()).throw(OSError("down"))):
+            llm = FakeLLM(["Hello."])
+            v = make_voice(llm=llm, robot_status=reader)
+            link, page = await connect(v)
+            t0 = _t.monotonic()
+            await say(v, page, speech_clip())
+            await settle(v)
+            self.assertLess(_t.monotonic() - t0, 1.5)
+            self.assertIn("cannot be read right now", llm.systems[0])
+            self.assertNotIn("50 percent", llm.systems[0])
+
+    async def test_each_tool_call_is_logged_without_words(self):
+        llm = FakeLLM([[ToolCall("t1", "robot_status", {}), ToolCall("t2", "set_expression", {"expression": "nope"})],
+                       "Fine."])
+        v = make_voice(llm=llm)
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        rec = json.loads(next(l for l in logs.output if '"tools"' in l).split("turn ", 1)[1])
+        self.assertEqual(sorted((t["name"], t["ok"]) for t in rec["tools"]),     # they run concurrently
+                         [("robot_status", True), ("set_expression", False)])
+        self.assertTrue(all(isinstance(t["ms"], int) for t in rec["tools"]))
 
 
 if __name__ == "__main__":
