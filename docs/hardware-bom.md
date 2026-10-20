@@ -30,7 +30,8 @@ part used in two places is listed once, with the quantities added.
 | [OpenArm bimanual arm set (two 7-DOF arms with grippers)](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic) | — | 1 | — | Left and right, from OpenArm's certified seller. Each arm has its own CAN-FD bus. The robot uses the follower set; leader arms are a separate set. |
 | [Pibiger USB to dual-channel CAN FD converter](https://www.amazon.com/dp/B0CGPRPZN8) | `SavvyCAN-FD-X2` | 1 | — | Two CAN-FD channels, one per arm: up to 12 Mbit/s, isolated from USB to 2.5 kV. |
 | [MikroTik hAP ac3 router](https://mikrotik.com/product/hap_ac3) | — | 1 | — | The robot's own network: the computer, the StamPLC, the head and the tablet. |
-| [RealSense D415 depth camera](https://www.realsenseai.com/products/stereo-depth-camera-d415/) | — | 1 | — | Depth camera; the face tracker uses it. |
+| [RealSense D415 depth camera](https://www.realsenseai.com/products/stereo-depth-camera-d415/) | — | 1 | — | Optional. A depth camera for the head; the face tracker uses it. The Orbbec Femto Bolt is an alternative. |
+| [Orbbec Femto Bolt depth camera](https://store.orbbec.com/products/femto-bolt) | `100100433` | 1 | — | Optional. A time-of-flight depth camera; an alternative to the RealSense D415. |
 | [SparkFun Optical Tracking Odometry Sensor (OTOS)](https://www.sparkfun.com/sparkfun-optical-tracking-odometry-sensor-paa5160e1-qwiic.html) | — | 1 | [OTOS Module](build/otos.md) | PAA5160E1, Qwiic; 3.3 V — needs level-shifting to the 5 V M5 I2C bus |
 | [Adafruit logic level converter](https://www.adafruit.com/product/5637) | `Adafruit 5637` | 2 | [OTOS Module](build/otos.md), [Electronics Bay](build/electronics-bay.md) | Shifts OTOS 3.3 V I2C up to the 5 V M5 bus |
 | [4-Bar Odometry Pack — Pinpoint computer + 2 dead-wheel pods](https://www.servocity.com/4-bar-odometry-pack-2-pods-1-pinpoint-computer/) | `3203-3110-0002` | 1 | [Pinpoint Odometry](build/pinpoint.md) | Pinpoint (IMU + odometry) + 2 pods; I2C at 3.3 V — the step-down lives in the electronics bay, NOT this module. Same pack on the Core BOM. |
@@ -89,8 +90,8 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 
 | | Total (USD) | Lines without a price |
 |---|---:|---:|
-| **One robot, all parts** | **$14,859.53** | 10 |
-| One robot, without the Thor and the arms | $3,960.53 | 10 |
+| **One robot, all parts** | **$14,534.53** | 10 |
+| One robot, without the Thor and the arms | $3,635.53 | 10 |
 | Tools, bought once | $188.53 | 4 |
 
 *Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface); M4 x 20 mm socket-head cap screw (ISO 4762); M4 heat-set insert; 6 x 2 mm disc magnet (N52 or similar); CA glue; 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
@@ -111,7 +112,6 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 | OpenArm bimanual arm set (two 7-DOF arms with grippers) | 1 | $5,400.00 | $5,400.00 | [shop.wowrobo.com](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic), 2026-10-09 |
 | Pibiger USB to dual-channel CAN FD converter | 1 | $139.00 | $139.00 | [amazon.com](https://www.amazon.com/dp/B0CGPRPZN8), 2026-10-20 |
 | MikroTik hAP ac3 router | 1 | $109.00 | $109.00 | [mikrotik.com](https://mikrotik.com/product/hap_ac3), 2026-10-09 |
-| RealSense D415 depth camera | 1 | $325.00 | $325.00 | [store.realsenseai.com](https://store.realsenseai.com/buy-realsense-depth-camera-d415.html), 2026-10-09 |
 | U-channel, 25-hole, 624 mm | 2 | $28.99 | $57.98 | [gobilda.com](https://www.gobilda.com/1120-series-u-channel-25-hole-624mm-length/), 2026-10-09 |
 | U-channel, 17-hole, 432 mm | 3 | $20.99 | $62.97 | [gobilda.com](https://www.gobilda.com/1120-series-u-channel-17-hole-432mm-length/), 2026-10-09 |
 | Quad block mount | 10 | $6.99 | $69.90 | [gobilda.com](https://www.gobilda.com/1201-series-quad-block-pattern-mount-43-2/), 2026-10-09 |
