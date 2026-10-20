@@ -28,7 +28,10 @@ TEXT FRAMES carry control, one JSON object each, with a "type":
                     played    {turn}        the page finished playing that turn's audio
                     bye       {}
 
-  service -> page   ready     {protocol, up, down, voice: {on, why}, max_utterance_s, wake?: {keyword}}
+  service -> page   ready     {protocol, up, down, voice: {on, why}, max_utterance_s, wake?: {keyword, keywords?}}
+                                            wake.keywords, when present, is the spotter's keyword line in
+                                            sherpa-onnx's format ("▁HE Y ▁DU B S :2.0 #0.10 @HEY_DUBS"),
+                                            set per robot so the spotter is tuned without a page change
                     voice     {on, why}     voice became available or unavailable (a show, ...)
                     state     {turn, convo: idle|listen|think|speak}
                     heard     {turn, transcript}

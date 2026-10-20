@@ -134,6 +134,17 @@ class WakeTurns(unittest.IsolatedAsyncioTestCase):
         await page2.link.voice.on_text(page2, json.dumps({"type": "wake", "pre_roll_ms": 0}))
         self.assertEqual(link2.of("error")[-1]["code"], "VOICE_NO_WAKE")
 
+    async def test_the_spotter_line_is_tuned_per_robot(self):
+        import os
+        from unittest import mock
+        line = "▁HE Y ▁DU B S :3.0 #0.05 @HEY_DUBS"
+        with mock.patch.dict(os.environ, {"OPENDUBS_VOICE_WAKE_KEYWORDS": line}):
+            link, _ = await connect(self.voice("x"))
+        self.assertEqual(link.of("ready")[0]["wake"], {"keyword": "hey dubs", "keywords": line})
+        with mock.patch.dict(os.environ, {"OPENDUBS_VOICE_WAKE_KEYWORDS": "HEY DUBS"}):   # no @name: the page's own
+            link, _ = await connect(self.voice("x"))
+        self.assertEqual(link.of("ready")[0]["wake"], {"keyword": "hey dubs"})
+
     async def test_a_wake_turn_ends_by_itself_and_answers_the_question(self):
         v = self.voice("Hey dubs, what is your name?")
         link, page = await connect(v)

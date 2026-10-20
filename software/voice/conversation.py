@@ -134,6 +134,11 @@ class Voice:
         self._end_after_turn = False
         self._mark = 0
         self.wake_enabled = wake               # the tablet may start turns with "hey dubs" (wakeword.py)
+        line = os.environ.get("OPENDUBS_VOICE_WAKE_KEYWORDS", "").strip()
+        if line and ("@" not in line or "\n" in line or len(line) > 300):
+            log.warning("OPENDUBS_VOICE_WAKE_KEYWORDS ignored: not one keyword line with an @name")
+            line = ""
+        self.wake_keywords = line               # the spotter's keyword line, tuned per robot; "" = the page's own
         self.make_vad = make_vad
         self._source = "talk"                  # how the turn in hand began: "talk" or "wake"
         self._endpointer = None                # vad.Endpointer, for a wake turn
@@ -168,7 +173,7 @@ class Voice:
                 return
             p.hello = True
             await p.text(wire.ready(self.gate.on, self.gate.why, self.max_utterance_s,
-                                    wake={"keyword": wakeword.PHRASE} if self.wake_enabled else None))
+                                    wake=self._wake_offer() if self.wake_enabled else None))
             return
         if not p.hello:
             await p.text(wire.control("error", code="VOICE_NO_HELLO", message="send hello first"))
@@ -223,6 +228,9 @@ class Voice:
             await self._cut(why or "voice is off")
 
     # ---- a turn ---------------------------------------------------------------------------------
+    def _wake_offer(self) -> dict:
+        return {"keyword": wakeword.PHRASE, **({"keywords": self.wake_keywords} if self.wake_keywords else {})}
+
     async def wake(self, p: Page, msg: dict) -> None:
         """The tablet heard "hey dubs". Like a press, except the service ends the utterance, and a
         wake never cuts a reply: the page does not listen while the robot speaks, so a wake then is
