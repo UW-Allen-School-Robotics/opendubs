@@ -121,11 +121,10 @@
  "CONTACTOR_OPEN": {
   "do": [
    "If the dashboard reports an e-stop, deal with that first — the entries below say how for each source.",
-   "After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.",
-   "At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber.",
-   "You cannot re-arm from the head: it is off while the contactor is open. Use the dashboard."
+   "After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.",
+   "At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber."
   ],
-  "means": "The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, which can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.",
+  "means": "The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. The arms can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.",
   "title": "The drive contactor is open"
  },
  "CONTACTOR_WELDED": {
@@ -141,7 +140,7 @@
  "ESTOP_BUTTON": {
   "do": [
    "Find the pressed button — there are two on the rear of the robot, left and right, plus any e-stop a payload has added — and twist it to release.",
-   "Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does not re-close the contactor by itself.",
+   "To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold **RE-ARM**). Releasing the button does not re-close the contactor by itself.",
    "If no button is pressed and this persists, the e-stop circuit is open somewhere else. Check the payload e-stop jumpers and the e-stop wiring."
   ],
   "means": "A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor directly, in hardware, whatever the software is doing. The controller senses the e-stop circuit separately, so a circuit that is open for any other reason reads the same: a payload's own e-stop wired in series, or a broken conductor in the e-stop wiring.",
@@ -150,10 +149,10 @@
  "ESTOP_SOFTWARE": {
   "do": [
    "Make sure it is safe for the robot to move again.",
-   "Set CH5 to `OFF`.",
-   "Hold **RE-ARM** on the dashboard. The head cannot re-arm: it is powered behind the contactor, so it is off until the dashboard has re-armed."
+   "Switch CH5 (mode) to `OFF`.",
+   "Re-arm from the dashboard: hold **RE-ARM**."
   ],
-  "means": "Someone pressed **E-STOP** on the dashboard or on the head, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.",
+  "means": "E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard. Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.",
   "title": "A software e-stop is latched"
  },
  "LIFT_NOT_RESPONDING": {
@@ -248,5 +247,29 @@
   ],
   "means": "The receiver on the robot is hearing nothing from the transmitter. Without a link nothing moves, whatever the switches show.",
   "title": "No RC link"
+ },
+ "VOICE_BRAIN_OFFLINE": {
+  "do": [
+   "Wait a few minutes after switching the robot on, then try again.",
+   "If it keeps saying it can't think, restart the robot."
+  ],
+  "means": "The language model on the robot's computer is not answering, so the robot says it can't think right now. It takes a few minutes to load after the robot is switched on. A robot set to use a cloud model also shows this when it loses its internet connection.",
+  "title": "The voice's language model is not answering"
+ },
+ "VOICE_MIC_UNAVAILABLE": {
+  "do": [
+   "Make sure no other app on the tablet is using the microphone.",
+   "Reload the face page, or restart the tablet."
+  ],
+  "means": "The face page could not open the head tablet's microphone, so the voice cannot listen. The face greys out Talk.",
+  "title": "The tablet's microphone cannot be opened"
+ },
+ "VOICE_SERVICE_DOWN": {
+  "do": [
+   "Restart the robot; the voice service starts with it.",
+   "If it still reports this after a restart, the voice service needs a look from whoever maintains the robot's software."
+  ],
+  "means": "The voice service on the robot's computer is not running, so nothing can hear or answer. The face greys out Talk and says the voice service is not running.",
+  "title": "The voice service is not running"
  }
 }
