@@ -194,8 +194,37 @@ export function start({ face }) {
     if (st.waking) { sendFrame(frame); return; }
     st.buf.push(frame); if (st.buf.length > PRE_ROLL_FRAMES) st.buf.shift();   // local only, until a turn
     if (!st.wake) return;
-    if (st.kwsReady && !suppressed()) { st.kws.postMessage({ frame }); st.meter.posted++; }   // a copy: the ring buffer keeps its own
+    if (st.kwsReady && !suppressed()) {
+      st.kws.postMessage({ frame }); st.meter.posted++;   // a copy: the ring buffer keeps its own
+      if (st.cap) captureFrame(frame);
+    }
   }
+  // One clip of exactly what the spotter was fed, only while the Thor has armed it (face_door.py
+  // /api/head/capture): from the first frame louder than -36 dBFS, 2.5 s before it and 2.5 s after, posted
+  // once to the Thor's /tmp. Never kept here, never sent anywhere else.
+  const CAP_FRAMES = 250, CAP_AFTER = 125, CAP_LOUD = 520;
+  function captureFrame(frame) {
+    const c = st.cap;
+    c.ring.push(frame); if (c.trig < 0 && c.ring.length > CAP_FRAMES / 2) c.ring.shift();
+    if (c.trig < 0) {
+      let pk = 0; for (let i = 0; i < frame.length; i++) pk = Math.max(pk, Math.abs(frame[i]));
+      if (pk > CAP_LOUD) c.trig = c.ring.length;
+      return;
+    }
+    if (++c.after < CAP_AFTER) return;
+    const pcm = new Int16Array(c.ring.length * frame.length);
+    c.ring.forEach((f, i) => pcm.set(f, i * frame.length));
+    st.cap = null; st.capSent = (st.capSent || 0) + 1;
+    fetch("/api/head/capture/clip", { method: "POST", body: pcm.buffer }).catch(() => {});
+  }
+  setInterval(async () => {
+    if (!st.kwsReady) return;
+    try {
+      const armed = !!(await (await fetch("/api/head/capture", { cache: "no-store" })).json()).armed;
+      if (armed && !st.cap) st.cap = { ring: [], trig: -1, after: 0 };
+      if (!armed) st.cap = null;
+    } catch (e) { st.cap = null; }
+  }, 2000);
   const closeMic = () => {
     clearTimeout(st.idleTimer); st.idleTimer = null; st.buf = []; endWake();
     if (st.node) { try { st.node.disconnect(); } catch (e) {} st.node = null; }
@@ -298,7 +327,8 @@ export function start({ face }) {
       frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
-      spotter_per_s: st.kwsStats, hits: st.hits.length,
+      spotter_per_s: st.kwsStats, hits: st.hits.length, capture: st.cap ? (st.cap.trig < 0 ? "armed" : "recording") : null,
+      captures_sent: st.capSent || 0,
       spotter_selftest: st.selftest || null, keywords: st.wake && typeof st.wake.keywords === "string" &&
         st.wake.keywords.includes("@") ? "from the service" : "page default",
     };

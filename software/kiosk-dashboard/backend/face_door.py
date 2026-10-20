@@ -95,6 +95,51 @@ async def post_voice_health(request: Request) -> dict:
     return {"ok": True}
 
 
+# ---- one clip of what the spotter hears, on purpose only ----------------------------------------
+# OFF unless armed FROM THE THOR ITSELF (curl on localhost), for at most 2 minutes, for ONE clip: the
+# exact 16 kHz frames the page fed its keyword spotter around one utterance. Written to /tmp on the Thor
+# (mode 600), never anywhere else; whoever armed it deletes it once it has been replayed. Arming lives
+# in memory, so a dashboard restart disarms it. For finding why the wake word misses on a device.
+#   curl -X POST localhost:8080/api/head/capture/arm -d '{"seconds": 90}'
+capture = {"until": 0.0, "last": None}
+
+
+@router.get("/api/head/capture")
+def get_capture() -> dict:
+    import time
+    return {"armed": time.time() < capture["until"], "last": capture["last"]}
+
+
+@router.post("/api/head/capture/arm")
+async def arm_capture(request: Request) -> dict:
+    import time
+    if not request.client or request.client.host not in ("127.0.0.1", "::1"):
+        return {"ok": False, "error": "arm it from the Thor itself (localhost)"}
+    try:
+        secs = float(json.loads((await request.body()) or b"{}").get("seconds", 90))
+    except (ValueError, AttributeError):
+        secs = 90
+    capture["until"] = time.time() + max(5.0, min(120.0, secs))
+    return {"ok": True, "armed_s": round(capture["until"] - time.time())}
+
+
+@router.post("/api/head/capture/clip")
+async def post_capture_clip(request: Request) -> dict:
+    import time
+    import wave
+    if time.time() >= capture["until"]:
+        return {"ok": False, "error": "not armed"}
+    capture["until"] = 0.0                                   # one clip per arming
+    pcm = (await request.body())[:16000 * 2 * 8]             # 16 kHz s16le mono, 8 s at most
+    path = f"/tmp/opendubs-wake-capture-{int(time.time())}.wav"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f, wave.open(f, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm[: len(pcm) & ~1])
+    capture["last"] = {"path": path, "seconds": round(len(pcm) / 32000, 2), "at": time.time()}
+    log.warning("wake capture written: %s (%.1f s)", path, len(pcm) / 32000)
+    return {"ok": True}
+
+
 @router.get("/api/head/wake_hits")
 def get_wake_hits() -> dict:
     import time
