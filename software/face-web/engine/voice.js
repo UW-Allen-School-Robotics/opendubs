@@ -45,6 +45,10 @@ const SELFTEST_WAV = new URL("./wake-selftest.wav", import.meta.url);
 // A spotter not ready this long after it started is started again, with its files fetched afresh: on
 // 2026-10-20 a deploy restarted the dashboard while the tablet was downloading the model, and the spotter
 // sat at "loading" for 8 minutes with nothing to say why. After the last try it reports an error.
+// The microphone the page opens unless the Thor says otherwise (face_door.py /api/head/mic_device): the
+// tablet's "Speakerphone" input, matched by LABEL (device ids are per origin and can change). A tablet
+// without one uses the browser's default.
+const MIC_DEFAULT = "Speakerphone";
 const SPOTTER_READY_MS = 60000, SPOTTER_TRIES = 4, SPOTTER_RETRY_MS = 5000;
 const SELFTEST_READY_MS = 30000, SELFTEST_HIT_MS = 10000;   // loading the model, then decoding the clip
 const PRE_ROLL_FRAMES = 75;                         // 1.5 s of 20 ms frames
@@ -176,11 +180,12 @@ export function start({ face }) {
       // start of its device id or its label; one the tablet does not list falls back to the default.
       const proc = !st.procOff, audio = { echoCancellation: proc, noiseSuppression: proc, autoGainControl: proc, channelCount: 1 };
       st.micDeviceError = null;
-      if (st.micWant && st.micWant !== "default") {
+      const want = st.micWant || MIC_DEFAULT;
+      if (want !== "default") {
         const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
-        const pick = ins.find((d) => d.deviceId.startsWith(st.micWant)) || ins.find((d) => d.label === st.micWant);
+        const pick = ins.find((d) => d.label === want) || ins.find((d) => d.deviceId && d.deviceId.startsWith(want));
         if (pick) audio.deviceId = { exact: pick.deviceId };
-        else st.micDeviceError = `no input "${st.micWant}" on this tablet; using the default`;
+        else st.micDeviceError = `no input "${want}" on this tablet; using the default`;
       }
       st.stream = await navigator.mediaDevices.getUserMedia({ audio });
       if (!workletAdded) {
@@ -248,8 +253,8 @@ export function start({ face }) {
       const armed = !!cap.armed;
       // The A/B: a change of processing reopens the microphone (keepMic opens it again within 250 ms).
       const off = cap.mic_processing === "off";
-      const dev = typeof cap.mic_device === "string" ? cap.mic_device : "default";
-      if (off !== !!st.procOff || dev !== (st.micWant || "default")) {
+      const dev = typeof cap.mic_device === "string" ? cap.mic_device : MIC_DEFAULT;
+      if (off !== !!st.procOff || dev !== (st.micWant || MIC_DEFAULT)) {
         st.procOff = off; st.micWant = dev;
         if (st.stream && !st.holding && !st.waking) closeMic();
       }
@@ -312,7 +317,7 @@ export function start({ face }) {
       const t = st.stream && st.stream.getAudioTracks()[0], set = t ? t.getSettings() : {};
       const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
       st.mic = { label: t ? t.label : null, device: (set.deviceId || "").slice(0, 8) || null,
-                 asked: st.micWant || "default", device_error: st.micDeviceError || null,
+                 asked: st.micWant || MIC_DEFAULT, device_error: st.micDeviceError || null,
                  inputs: ins.map((d) => ({ label: d.label, device: (d.deviceId || "").slice(0, 8) })) };
     } catch (e) { st.mic = { error: String(e && e.message || e).slice(0, 120) }; }
   }
