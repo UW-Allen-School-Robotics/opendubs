@@ -303,6 +303,10 @@ def armed_monitor(requires: dict, st: dict):
     return None
 
 
+# The robot-state fields the dashboard fills only when asked (choreo_proxy._probe_now), not by its poll
+PROBED_FIELDS = ("arms", "tab5")
+
+
 def signed_pose(p) -> list:
     """An arm pose as 7 signed degrees (the controller's sense): from a list, a {joint: deg} dict, or
     nothing (zero)."""
@@ -885,6 +889,12 @@ class Runner:
         """ARMED_WAITING. Returns None on the GO (the deadman's rising edge after arming), else the
         run's end: an operator stop, a disarm (e-stop, CH5, a fault, the arms) or the timeout."""
         requires = show.requires or {}
+        # The dashboard asks the arms and the head only ON DEMAND (refresh, at preflight: the arm read
+        # uses the arms' CAN bus) and forgets the answer after its PROBE_MAX_AGE_S (10 s). Past that
+        # the polled state says None, which is "not asked lately", not "down": the preflight's answer
+        # stands for the wait. An answer that SAYS otherwise still disarms, and after the GO a
+        # down arm ends the show by its rejected goal (ARM_GOAL_*).
+        probed = {k: st.get(k) for k in PROBED_FIELDS}
         self.deadline = ("ARMED", self.clock() + ARM_TIMEOUT_S)
         prev = st.get("deadman")
         self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
@@ -898,6 +908,9 @@ class Runner:
             if self.stop_requested:
                 return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator while armed")
             self._state = st = self.robot.read()
+            for k, v in probed.items():
+                if st.get(k) is None:
+                    st[k] = v
             end = armed_monitor(requires, st)
             if end:
                 return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
