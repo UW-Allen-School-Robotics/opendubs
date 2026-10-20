@@ -370,6 +370,10 @@ PROBED_FIELDS = ("arms", "tab5", "effectors")
 # is not "ok" is unavailable. The show's `can_skip:` parts may be left out, but only on the
 # operator's approval: the run is refused with NEEDS_APPROVAL and an offer, and the Shows page runs
 # it again with `skip`. A skipped arm is assumed at rest, where the variant was swept.
+# Every joint, rolls included. A limp arm's ROLL joints (3, 5, 7) have no gravity moment and stay
+# where they were left (Arms lane: right J5 +15.8° on a hanging arm, 2026-10-12), but in the twin a
+# hanging arm with its rolls turned 30° puts its fingers into the body, so they are not waived: the
+# refusal names the joint, and a limp arm is turned back by hand.
 SKIPPED_ARM_TOL_DEG = 10.0
 
 
@@ -412,10 +416,11 @@ def skipped_arms_at_rest(skip, measured: dict, eff=None) -> list:
         e = (eff or {}).get(part) if isinstance((eff or {}).get(part), dict) else {}
         pose = e.get("pose_deg") if isinstance(e.get("pose_deg"), list) else (measured or {}).get(slot)
         if part in skip and pose is not None:
-            off = max(abs(v) for v in signed_pose(pose))
-            if off > SKIPPED_ARM_TOL_DEG:
-                out.append(("PRECONDITION_FAILED", f"{cue.EFFECTORS[slot]} is skipped but {off:.0f}° from rest — "
-                                                    "the run without it was checked with it at rest; move it there"))
+            far = [(j, v) for j, v in enumerate(signed_pose(pose), 1) if abs(v) > SKIPPED_ARM_TOL_DEG]
+            if far:
+                out.append(("PRECONDITION_FAILED", f"{part} is skipped but not at rest ("
+                            + ", ".join(f"J{j} {v:+.0f}°" for j, v in far) + ") — the run without it was "
+                            "checked with it at rest; move it there (a limp arm turns by hand)"))
     return out
 
 

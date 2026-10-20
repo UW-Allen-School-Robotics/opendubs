@@ -427,7 +427,8 @@ clearance: { min_mm: 41.0, …, variants: { grip_left: { min_mm: 40.2, …, chec
 
 `sweep.py stamp` sweeps each single part, and with three or fewer moving `can_skip` parts every
 combination. A skipped part is assumed where the twin leaves an unused one, and the variant is swept
-that way: an arm at rest (the preflight refuses a skipped arm reported more than 10° from it), the head
+that way: an arm at rest (the preflight refuses a skipped arm with any joint more than 10° from it, naming the
+joint; a limp arm's roll joints do not settle by themselves, and are turned back by hand), the head
 centred, the lift down, a gripper as the twin draws it. A skipped arm is also left out of the
 start-pose move. An arm with any silent joint is `down` (Arms lane: a silent joint goes limp, so it is
 never run around); a show runs without it only by skipping the whole arm.
