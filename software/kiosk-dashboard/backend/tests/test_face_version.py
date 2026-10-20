@@ -56,7 +56,8 @@ def test_served_to_the_page(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(face_door.router)
     r = TestClient(app).get("/api/face/version")
-    assert r.status_code == 200 and r.json() == {"version": face_door.face_version(str(tmp_path))}
+    assert r.status_code == 200 and r.json() == {"version": face_door.face_version(str(tmp_path)),
+                                                 "boot": face_door.BOOT}
 
 
 def test_the_real_face_web_is_found():

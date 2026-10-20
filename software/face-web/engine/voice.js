@@ -42,6 +42,10 @@ const WAKE_KEYWORDS = "▁HE Y ▁DU B S :5.0 #0.01 @HEY_DUBS";
 // fed straight into a second spotter once per page load, bypassing the microphone. Its verdict in the
 // health report splits "the spotter or its line is broken on this device" from "the room or the mic".
 const SELFTEST_WAV = new URL("./wake-selftest.wav", import.meta.url);
+// A spotter not ready this long after it started is started again, with its files fetched afresh: on
+// 2026-10-20 a deploy restarted the dashboard while the tablet was downloading the model, and the spotter
+// sat at "loading" for 8 minutes with nothing to say why. After the last try it reports an error.
+const SPOTTER_READY_MS = 60000, SPOTTER_TRIES = 4, SPOTTER_RETRY_MS = 5000;
 const SELFTEST_READY_MS = 30000, SELFTEST_HIT_MS = 10000;   // loading the model, then decoding the clip
 const PRE_ROLL_FRAMES = 75;                         // 1.5 s of 20 ms frames
 const WAKE_QUIET_MS = 1000;                         // no wake this long after a reply has played
@@ -235,19 +239,31 @@ export function start({ face }) {
   // ---- the wake word ------------------------------------------------------------------------------
   function startSpotter() {
     if (st.kws) return;
-    st.kws = new Worker(new URL("./kws_worker.js", import.meta.url));
-    st.kws.onmessage = (e) => {
+    const attempt = st.kwsTries = (st.kwsTries || 0) + 1;
+    // The try number rides on the URL, so a retry never reuses a file the browser kept from a cut transfer.
+    const w = st.kws = new Worker(new URL(`./kws_worker.js?try=${attempt}`, import.meta.url));
+    const line = typeof st.wake.keywords === "string" && st.wake.keywords.includes("@") ? st.wake.keywords : WAKE_KEYWORDS;
+    const retry = (why) => {
+      clearTimeout(st.kwsTimer);
+      if (st.kws !== w) return;
+      w.terminate(); st.kws = null; st.kwsStats = null;
+      st.kwsRetryWhy = `try ${attempt}: ${why}`.slice(0, 160);
+      if (attempt < SPOTTER_TRIES) setTimeout(() => { if (st.wake) startSpotter(); }, SPOTTER_RETRY_MS);
+      else st.wakeError = `not ready after ${attempt} tries (${why})`;
+    };
+    st.kwsTimer = setTimeout(() => retry(`not ready after ${SPOTTER_READY_MS / 1000} s`), SPOTTER_READY_MS);
+    w.onmessage = (e) => {
+      if (st.kws !== w) return;
       if (e.data.stats) { st.kwsStats = e.data.stats; return; }
-      if (e.data.ready) { st.kwsReady = true; return; }
-      if (e.data.error) { st.wakeError = e.data.error; return; }
+      if (e.data.ready) { clearTimeout(st.kwsTimer); st.kwsReady = true; st.wakeError = null; selfTest(line); return; }
+      if (e.data.error) { retry(String(e.data.error)); return; }
       if (e.data.hit) onWake();
     };
-    const line = typeof st.wake.keywords === "string" && st.wake.keywords.includes("@") ? st.wake.keywords : WAKE_KEYWORDS;
-    st.kws.postMessage({ keywords: line });
-    selfTest(line);
+    w.postMessage({ keywords: line });
   }
   // A second worker, so the test can neither wake the robot nor disturb the live spotter's state. It
-  // reports "hit", "miss", or "error: …", and is gone once it has answered.
+  // reports "hit", "miss", or "error: …", and is gone once it has answered. It starts once the live
+  // spotter is ready, so its files come from the cache rather than a second download beside the first.
   async function selfTest(line) {
     if (st.selftest) return;
     st.selftest = "running";
@@ -263,7 +279,7 @@ export function start({ face }) {
       const sil = new Int16Array(16000);                       // 1 s of silence on each side, then 1 s more
       const clip = new Int16Array(sil.length * 3 + pcm.length);
       clip.set(pcm, sil.length);
-      w = new Worker(new URL("./kws_worker.js", import.meta.url));
+      w = new Worker(new URL(`./kws_worker.js?try=${st.kwsTries || 1}`, import.meta.url));   // the files that loaded
       let timer = setTimeout(() => done("error: the test spotter never got ready"), SELFTEST_READY_MS);
       w.onmessage = (e) => {
         const m = e.data;
@@ -327,6 +343,7 @@ export function start({ face }) {
       frames_per_s: mt.frames / 2, to_spotter_per_s: mt.posted / 2,
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
+      spotter_tries: st.kwsTries || 0, spotter_retried: st.kwsRetryWhy || null,
       spotter_per_s: st.kwsStats, hits: st.hits.length, capture: st.cap ? (st.cap.trig < 0 ? "armed" : "recording") : null,
       captures_sent: st.capSent || 0,
       spotter_selftest: st.selftest || null, keywords: st.wake && typeof st.wake.keywords === "string" &&

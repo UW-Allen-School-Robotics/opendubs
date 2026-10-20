@@ -185,9 +185,15 @@ def get_wake_hits() -> dict:
             "recent": [{"at": h[0], "accepted": h[1]} for h in wake_hits[-20:]]}
 
 
+# Which dashboard process is answering. A deploy copies the face's files and only later restarts the
+# dashboard, and that gap can outlast the page's 5 s settle: on 2026-10-20 the page reloaded into the old
+# process, which then stopped mid-download. The page also reloads when this changes and holds (main.js).
+BOOT = f"{os.getpid()}-{int(__import__('time').time())}"
+
+
 @router.get("/api/face/version")
 def get_face_version() -> dict:
-    return {"version": face_version()}
+    return {"version": face_version(), "boot": BOOT}
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("OPENDUBS_FACE_DOOR_PORT", "4242"))
