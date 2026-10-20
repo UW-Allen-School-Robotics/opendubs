@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Reconcile OpenDubs fleet SSH access from the access manifest.
 
-The manifest names real people, so it is NOT in the repo. It lives in the git-ignored
-ops/access/manifest.ini of the checkout you run this from, with the public keys beside it
-(or in the directory OPENDUBS_ACCESS_DIR names). access/manifest.example.ini shows the
-format. See access/README.md.
+The manifest names real people, so it is NOT in this repo. The roster is the private repo
+UW-Allen-School-Robotics/opendubs-access, cloned into the git-ignored ops/access/ of the
+checkout you run this from (or into the directory OPENDUBS_ACCESS_DIR names).
+access/manifest.example.ini shows the format. See access/README.md.
 
 Human-in-the-loop by design: you run --apply, nothing runs on a schedule. The
 manifest shape is deliberately the same one a pull-based agent would want, so
@@ -81,9 +81,9 @@ class Person:
 def load():
     if not MANIFEST.exists():
         sys.exit(f"no manifest at {MANIFEST}\n"
-                 "The roster is kept out of the repo, in the git-ignored ops/access/ of the checkout\n"
-                 "you run this from (or set OPENDUBS_ACCESS_DIR). access/manifest.example.ini shows\n"
-                 "the format; access/README.md says how to set it up.")
+                 "The roster is the private repo opendubs-access; clone it into ops/access/:\n"
+                 "  gh repo clone UW-Allen-School-Robotics/opendubs-access ops/access\n"
+                 "(or set OPENDUBS_ACCESS_DIR). See access/README.md.")
     cfg = configparser.ConfigParser()
     cfg.read(MANIFEST, encoding="utf-8")
     if "fleet" not in cfg:
