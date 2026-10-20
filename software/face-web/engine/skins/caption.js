@@ -1,8 +1,13 @@
 // THE CAPTION: what the robot is doing, in words, for somebody who does not know the colour code.
 //
-// "Ready", "Manual control", "Running a show", "Charging 95%", "Problem: lift not responding",
-// "Emergency stop". The text comes from the dashboard (head protocol `CAPTION`), because only the
-// dashboard knows a fault's real reason or the pack's percentage. This file owns how it LOOKS.
+// Lines like "Ready", "Charging 95%" or "Problem: lift not responding". The text comes from the
+// dashboard over the head protocol's `CAPTION`, because only the dashboard knows a fault's real
+// reason or the pack's percentage. This file owns how it LOOKS and nothing about what it says.
+//
+// THE WORDS THEMSELVES LIVE IN software/kiosk-dashboard/backend/state_words.py, and are not copied
+// here. This comment used to list them, and went stale the moment that lane renamed one -- a
+// second copy of somebody else's string table earns nothing and rots quietly. The examples above
+// are illustrations of the SHAPE; read that file for the set.
 //
 // IT IS ALWAYS WHITE, NEVER THE STATE'S COLOUR, and that is the single most important decision
 // here. The caption exists FOR THE PERSON WHO CANNOT READ THE COLOUR -- that is its whole purpose.
