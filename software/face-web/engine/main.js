@@ -253,12 +253,23 @@ function applySettings(s) {
       return !!p.running;
     } catch (e) { return false; }   // no runner: no show can be running
   }
+  // A deploy copies the face's files and THEN restarts the dashboard, so a change is seen while the old
+  // process is about to stop. A reload then lost its scripts in the gap and left a page with no voice and
+  // no door (2026-10-19). Reload only once the new version holds 5 s later and the page's code answers.
+  async function settled(v) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const again = await (await fetch("/api/face/version", { cache: "no-store" })).json();
+      const code = await fetch("engine/main.js", { method: "HEAD", cache: "no-store" });
+      return again.version === v && code.ok;
+    } catch (e) { return false; }                    // still restarting: the next round tries again
+  }
   async function check() {
     try {
       const r = await fetch("/api/face/version", { cache: "no-store" });
       const v = r.ok ? (await r.json()).version : null;          // not served by a dashboard: nothing to follow
       if (v && seen === null) seen = v;
-      else if (v && v !== seen && !(await busy())) { location.reload(); return; }
+      else if (v && v !== seen && !(await busy()) && (await settled(v))) { location.reload(); return; }
     } catch (e) { /* the dashboard is restarting during the deploy: try again next round */ }
     setTimeout(check, 15000);
   }
@@ -348,7 +359,12 @@ if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performanc
 
 import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
 // Talking to the robot (voice.js): only where there is a robot to talk to, or a desk door that asks for it.
-if (onRobot || q.get("voice") === "1") import("./voice.js").then((m) => m.start({ face })).catch(() => {});
+// Retried, not dropped: a failed import (the dashboard restarting as the page loaded) left the face deaf
+// for good (2026-10-19). After a minute of failures, the page reloads.
+const importRetry = (path, tries = 12) => import(path).catch((e) =>
+  tries > 1 ? new Promise((r) => setTimeout(r, 5000)).then(() => importRetry(`${path}?retry=${tries}`, tries - 1))
+            : (setTimeout(() => location.reload(), 1000), Promise.reject(e)));
+if (onRobot || q.get("voice") === "1") importRetry("./voice.js").then((m) => m.start({ face })).catch(() => {});
 import("./airplay.js").then((m) => m.start({ onRobot })).catch(() => {});   // AirPlay, live (on the robot)
 if (q.get("track") === "1") tracking = true;
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
