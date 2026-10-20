@@ -50,6 +50,12 @@ MAP = [
     ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
 
+# Repo paths a deploy deliberately leaves on the dev machine, so their absence on the robot is not
+# reported. Keep this in step with the excludes in the deploy scripts that ship each tree.
+NOT_SHIPPED = (
+    "software/face-web/kws/",   # the wake-word build script; deploy.sh ships only its output, vendor/kws
+)
+
 # Never compared: build output, caches, editor droppings, and the ad-hoc backups we leave
 # behind on the robot mid-debug (main.cpp.pre-mast, platformio.ini.bak, ...).
 SKIP_SUFFIX = (".pyc", ".bin", ".elf", ".o")
@@ -108,6 +114,8 @@ def build_pairs():
             pairs[rel] = (remote, kind)
             continue
         for f in files:
+            if f.startswith(NOT_SHIPPED):
+                continue
             sub = f[len(rel) + 1:]
             pairs[f] = (f"{remote}/{sub}", kind)
     for rel, remote, kind in MAP:
