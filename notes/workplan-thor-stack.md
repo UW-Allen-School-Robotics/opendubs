@@ -160,7 +160,7 @@ recreates them.
 | Docker engine | present: the `openarm` container runs, and avahi once published `docker0` | **not in repo**; source and version unknown | `docker --version; apt-cache policy docker-ce docker.io` |
 | NVIDIA container runtime | unknown. The `openarm` run line passes no `--runtime nvidia` or `--gpus`, so the arms may never have needed it | **not in repo** | `dpkg -l \| grep nvidia-container; cat /etc/docker/daemon.json` |
 | Host ROS | apt Jazzy: `ros-base`, `rplidar-ros`, `rosbridge-suite`, `foxglove-bridge`, `diagnostic-msgs` | `provision-ros.sh` | `dpkg -l 'ros-jazzy-*' \| wc -l` (portability audit counted 212) |
-| Host ROS from source | Astra driver in `~/orbbec_ws` of the account `opendubs-camera.service` runs as | `astra-jazzy-build.sh` (manual) | `ls ~/orbbec_ws/install` |
+| Host ROS from source | none since 2026-10-20 (the Astra driver's `~/orbbec_ws` is left in its account, unused) | `notes/history/astra-camera/` (history only) | — |
 | Host Python | `/opt/opendubs/venv` with **`ultralytics` + `torch` from plain pip**, and `/opt/opendubs/piovenv` | `provision.sh`, `provision-firmware.sh` | `venv/bin/python -c 'import torch;print(torch.__version__, torch.cuda.is_available())'`. **Expect `False`**: generic aarch64 wheels are CPU-only, and `yolo_tracker.py` silently falls back to the CPU |
 | systemd units | 9 ROS units, plus dash, stamplc-hb, yolo-tracker, runner and teleop | the provisioners; the teleop unit by hand | `systemctl list-units 'opendubs-*'` |
 | Containers | `openarm` (`openarm-ros2:<host>`, made by `docker commit`, `--privileged --network=host`, `--restart unless-stopped`) | `openarm-setup.md` (manual) | `docker ps -a; docker images` |
@@ -193,7 +193,7 @@ Read-only audit before the deploy of `877454b`.
 - `opendubs-xorg-fix` is still enabled.
 - An `opendubs-mavros` drop-in directory is left over.
 - `/etc/opendubs-fastdds-udp-only.xml` is absent; the teleop unit is not installed either.
-- `opendubs-camera` launches the Astra driver while a D415 is fitted.
+- ~~`opendubs-camera` launches the Astra driver while a D415 is fitted.~~ **Retired 2026-10-20:** the Astra is off the robot; `provision-ros.sh` stops, disables and removes the unit, and the driver's Jazzy port is kept in `notes/history/astra-camera/`.
 
 **Drift.**
 - 22 files differed from the repo. **All 22 were exact older repo versions**, checked against git history, so the deploy overwrote no robot-side edits.
