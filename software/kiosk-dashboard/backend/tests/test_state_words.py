@@ -24,7 +24,7 @@ def test_every_state_has_its_words():
     assert _say() == "Ready"
     assert _say(booting=True) == "Starting up"
     assert _say(authority="RC_MANUAL", deadman=True) == "Manual control"
-    assert _say(authority="AUTONOMOUS") == "Running a show"
+    assert _say(authority="AUTONOMOUS") == "Automatic mode"
     assert _say(estop_sources=["STALE TELEMETRY"]) == "Emergency stop"   # nothing to do from here
     assert _say(charging=True, soc=94.6) == "Charging 95%"
     assert _say(charging=True, soc=None) == "Charging"                 # no BMS reading: no number

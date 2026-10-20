@@ -20,7 +20,9 @@ WORDS = {
     "INIT": "Starting up",
     "SAFE_IDLE": "Ready",
     "MANUAL_CONTROL": "Manual control",
-    "AUTONOMOUS_CONTROL": "Running a show",
+    # CH5 in AUTO: the robot may act on its own, which is not the same as a show running (the voice,
+    # reading this beside the show runner's own answer, was handed both at once on 2026-10-20).
+    "AUTONOMOUS_CONTROL": "Automatic mode",
     "CHARGING": "Charging",
     "E_STOP_LATCH": "Emergency stop",
 }
