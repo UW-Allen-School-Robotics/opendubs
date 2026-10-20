@@ -770,13 +770,13 @@ Check in this order:
 1. [Voice is off while a show runs](#voice-off-show)
 2. [The voice service is not running](#voice-service-down)
 3. [The tablet's microphone cannot be opened](#voice-mic-unavailable)
-4. [The voice's cloud model cannot be reached](#voice-brain-offline)
+4. [The voice's language model is not answering](#voice-brain-offline)
 
 ### Voice is off while a show runs {#voice-off-show}
 
 `VOICE_OFF_SHOW` · Expected behaviour · seen on the head
 
-A show has the robot's speaker, so the voice is off until it ends: the face hides its Talk button, and a reply already under way is cut off.
+Voice is turned off while a show runs, by design, so nobody is answered in the middle of a performance: the face hides its Talk button, it stops listening for "Hey OpenDubs", and a reply already under way is cut off.
 
 **What to do**
 
@@ -804,16 +804,16 @@ The face page could not open the head tablet's microphone, so the voice cannot l
 1. Make sure no other app on the tablet is using the microphone.
 2. Reload the face page, or restart the tablet.
 
-### The voice's cloud model cannot be reached {#voice-brain-offline}
+### The voice's language model is not answering {#voice-brain-offline}
 
 `VOICE_BRAIN_OFFLINE` · Warning · seen on the dashboard
 
-The voice is set to use a cloud language model and cannot reach it, usually because the robot has lost its internet connection. In automatic mode it answers with its on-robot model instead, perhaps more slowly; set to the cloud model only, it says it cannot think right now.
+The language model on the robot's computer is not answering, so the robot says it can't think right now. It takes a few minutes to load after the robot is switched on. A robot set to use a cloud model also shows this when it loses its internet connection.
 
 **What to do**
 
-1. Check the robot's internet connection.
-2. To keep talking without internet, use the on-robot model.
+1. Wait a few minutes after switching the robot on, then try again.
+2. If it keeps saying it can't think, restart the robot.
 
 ## A power or temperature warning {#power-warning}
 
