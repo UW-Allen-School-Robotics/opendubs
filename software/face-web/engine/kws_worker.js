@@ -5,7 +5,7 @@
 //   page -> worker  {keywords}               once, first: the keyword lines (voice.js holds them)
 //                   {frame: Int16Array}      20 ms of 16 kHz mono
 //                   {reset: true}            forget what it was hearing (after a turn, a pause)
-//   worker -> page  {ready: true} | {error} | {hit: "HEY_DUBS"}
+//   worker -> page  {ready: true} | {error} | {hit: "HEY_OPENDUBS"}
 
 /* global importScripts, createKws */
 let kws = null, stream = null, keywords = null, runtime = false, fed = 0, decoded = 0;
