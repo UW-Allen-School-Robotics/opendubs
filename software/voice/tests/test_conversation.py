@@ -313,5 +313,24 @@ class Recording(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((note["heard"], note["status"], note["rate"]), ("what are you", "ok", 16000))
 
 
+class Uplink(unittest.IsolatedAsyncioTestCase):
+    async def test_two_interleaved_streams_are_flagged(self):
+        """It happened: a reconnect left the old mic source feeding, so the page sent two streams
+        interleaved, about 100 frames a second, and recognition heard whine instead of a visitor."""
+        for per_tick, expect in ((1, 1.0), (2, 2.0)):
+            v = make_voice(llm=FakeLLM(["Hello."]))
+            link, page = await connect(v)
+            await v.on_text(page, '{"type":"press"}')
+            clip, step = speech_clip(3000), wire.UP_FRAME_SAMPLES * 2
+            for i, off in enumerate(range(0, len(clip), step)):
+                await v.on_bytes(page, wire.pack_up(i, (i // per_tick) * 20, clip[off:off + step]))
+            with self.assertLogs("voice", "INFO") as logs:
+                await v.on_text(page, '{"type":"release"}')
+                await settle(v)
+            rec = json.loads(next(l for l in logs.output if '"uplink_x"' in l).split("turn ", 1)[1])
+            self.assertAlmostEqual(rec["uplink_x"], expect, delta=0.05)
+            self.assertEqual(any("faster than real time" in l for l in logs.output), per_tick == 2)
+
+
 if __name__ == "__main__":
     unittest.main()
