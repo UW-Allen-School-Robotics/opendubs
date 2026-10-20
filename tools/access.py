@@ -41,7 +41,7 @@ PROTECTED = {"root", "emmar", "opendubs", "nobody", "daemon", "sync", "ubuntu"}
 # Services an operator may cycle. Enumerated rather than wildcarded: a sudoers
 # wildcard on a command argument is a well-known way to hand out more than you meant.
 OPERATOR_UNITS = [
-    "opendubs-dash", "opendubs-rplidar", "opendubs-camera",
+    "opendubs-dash", "opendubs-rplidar",
     "opendubs-rosbridge", "opendubs-foxglove", "opendubs-telemetry-log",
 ]
 
