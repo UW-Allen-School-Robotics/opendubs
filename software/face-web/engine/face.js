@@ -21,6 +21,13 @@ const ARMED_LEASE_MS = 3000;
 // Three missed BATT refreshes (the dashboard sends one every 30 s). See chargeState().
 const BATT_STALE_MS = 90000;
 const GAZE_AMP_FLOOR = 0.35, GAZE_V = 0.55;
+// The spoken-turn states the voice page reports. `idle` is the absence of the others.
+const CONVO = ["idle", "listen", "think", "speak"];
+// A BACKSTOP, not a lease: states hold until changed, and this only stops a dropped socket leaving
+// the robot visibly thinking for ever. Long on purpose -- a slow model is not a fault.
+const CONVO_BACKSTOP_MS = 60000;
+// "Didn't catch that": long enough to read as a wince, short enough not to become an expression.
+const REACT_MS = 700;
 // HOW LONG A REPORTED TARGET IS BELIEVED. The trackers report at 5 Hz or better, so this is
 // several missed reports: long enough never to flicker, short enough that the face does not keep
 // staring at where somebody used to be.
@@ -141,6 +148,9 @@ export class Face {
     this.nextBlink = 0; this.nextSaccade = 0; this.nextEmote = 0;
     this.quote = -1; this.nextQuote = 0;
     this.target = null;         // a person to look at: {x, y (-1..1), conf (0..1), at, kind?}
+    this.convo = "idle";        // the spoken turn: idle | listen | think | speak (setConvo)
+    this.convoAt = 0;           // when it last changed; 0 = idle, and the backstop's reference
+    this.reactAt = 0;           // a "didn't catch that" wince, if one is running
     this.woke = false;
     this.nextAvert = 0; this.avertUntil = 0;   // the gaze break; see tick()
     this.microX = 0; this.microY = 0; this.nextMicro = 0;
@@ -241,7 +251,16 @@ export class Face {
   talk(ms = 1500, now = this._now) { this.talkUntil = now + Math.max(0, ms); }
 
   stepMouth(now, dt) {
-    if (!this.mouth) { this.mouthLevel = 0; return; }
+    // THE ENVELOPE IS COMPUTED WHETHER OR NOT THE MOUTH IS DRAWN. It used to return early with the
+    // mouth off, which was right when the level had only one consumer. It now has two: with the
+    // mouth enabled it opens the mouth, and with the mouth OFF the same number drives the brows
+    // and the nod while the robot speaks (see convo()). A face with no mouth should still look
+    // like it is talking, and the honest source for that is the audio actually playing -- not a
+    // second rhythm invented beside it, which would drift out of step with the words.
+    //
+    // Nothing is drawn as a result: eyes() still reports `mouth: null` unless it is enabled, so a
+    // face with the mouth off looks exactly as it did except for the speaking movement.
+    if (!this.mouth && !this.convoAt) { this.mouthLevel = 0; return; }
     // A manual talk makes its own envelope: two overlapping rates, so it does not read as a pulse.
     let want = this.mouthFeed;
     if (now < this.talkUntil) {
@@ -305,6 +324,80 @@ export class Face {
   linked(now) { return this.state >= 0 && now - this.stateAt < LINK_STALE_MS; }
   lockedEmote() { return this.state >= 0 ? STATES[this.state][3] : null; }
   free() { return this.state >= 0 && !STATES[this.state][3]; }
+  // ---- THE CONVERSATION ------------------------------------------------------------------------
+  // What the robot is doing in a spoken turn: `idle`, `listen`, `think` or `speak`, from the voice
+  // page. The page owns when; this owns what it looks like.
+  //
+  // IT IS NOT A SECOND GAZE SOURCE, and that is the design. The eyes already attend to a person the
+  // tracker found. A voice gives us NO DIRECTION -- there is no direction-of-arrival here -- so a
+  // "listening" look that pointed the eyes somewhere new would be inventing a speaker's position.
+  // What LISTEN does instead is hold the attention the face already has: it stops the idle
+  // wandering and the gaze break, and opens the lids a little. Attention, not a new heading.
+  setConvo(state, now = this._now) {
+    const s = String(state || "idle").toLowerCase();
+    this.convo = CONVO.includes(s) ? s : "idle";
+    this.convoAt = this.convo === "idle" ? 0 : now;
+  }
+
+  // A brief reaction to a turn that did not land -- the face for "say that again". Short, and it
+  // does not change the conversation state: the page decides what happens next.
+  convoReact(status, now = this._now) {
+    if (status === "ok") return;
+    this.reactAt = now;
+  }
+
+  // What the conversation is doing right now, or null. A RESERVED STATE WINS OUTRIGHT: DEGRADED and
+  // E_STOP replace the skin and pin the emote, and a face mid-"thinking" while something is wrong
+  // would be discussing the weather during a fire.
+  //
+  // The BACKSTOP is not the mechanism. States arrive on change and hold, as the PRISM's colour
+  // does; this only stops a dropped socket leaving the robot visibly thinking for ever. It is
+  // deliberately long, because a real pause for a slow model is a normal thing and cutting it short
+  // would make the face lie in the other direction.
+  convoState(now = this._now) {
+    if (this.reserved() || !this.convoAt) return null;
+    if (now - this.convoAt > CONVO_BACKSTOP_MS) return null;
+    return this.convo;
+  }
+
+  // The conversation's contribution to the eyes, as an additive channel beside a MOVE's. Additive
+  // so it composes with the emote, the tracker and a show's gestures instead of fighting them.
+  convoOut(now = this._now) {
+    const out = { gy: 0, dy: 0, brow: 0, lid: 0, squint: 0 };
+    const c = this.convoState(now);
+
+    // "Didn't catch that": a short squint, and it outlasts nothing. Allowed during any convo state
+    // and on its own, because the turn it answers has already ended.
+    if (!this.reserved() && this.reactAt) {
+      const age = now - this.reactAt;
+      if (age < REACT_MS) {
+        const u = age / REACT_MS;                      // in and out, so it reads as a wince
+        out.squint = Math.sin(u * Math.PI) * 0.5;
+      } else { this.reactAt = 0; }
+    }
+
+    if (c === "listen") {
+      // Open a touch, brows a touch up. Small: a face that widens its eyes every time somebody
+      // speaks reads as alarm rather than attention.
+      out.lid = -0.06; out.brow = 0.18;
+    } else if (c === "think") {
+      // HONEST, which was the brief. The robot is NOT looking at you while it thinks, so it looks
+      // up and away and its lids come down a little -- the posture people read as working on it,
+      // and the opposite of the attentive one. A face that held eye contact while a model ran
+      // would be claiming to listen to a person it has stopped listening to.
+      out.gy = -0.30; out.brow = -0.12; out.lid = 0.10;
+    } else if (c === "speak") {
+      // FROM THE AUDIO ACTUALLY PLAYING, the same envelope the mouth uses. With the mouth enabled
+      // the mouth carries it and this stays small; with the mouth off this is the whole of it --
+      // the brows lift and the eyes nod on the syllables, which is what makes a mouthless face
+      // look like it is speaking rather than staring while sound comes out.
+      const e = this.mouthLevel;
+      out.brow = 0.35 * e;
+      out.dy = 0.022 * e;                              // a nod, in body-heights, as a MOVE's dy is
+    }
+    return out;
+  }
+
   // ---- CHARGING ------------------------------------------------------------------------------
   // The pack's state of charge, from the head protocol's BATT (agreed with the Tablet lane). The
   // page owns where it comes from; the engine owns what may be believed and for how long.
@@ -425,7 +518,12 @@ export class Face {
       // and NEVER avert: `nextSaccade = now + 600` was rewritten on every frame a confident target
       // was present, so the robot held a person's gaze for as long as they stood there. That is the
       // one failure a person actually notices.
-      if (!this.nextAvert) this.nextAvert = now + 2600 + rnd(1600);
+      // LISTENING SUPPRESSES THE GAZE BREAK. The break exists so the robot does not stare at a
+      // person indefinitely -- right while idle, wrong mid-sentence: looking away from somebody who
+      // is talking to you reads as losing interest, which is the one thing a listening face must
+      // not do. It resumes the moment the turn does.
+      if (this.convoState(now) === "listen") { this.nextAvert = now + 2600 + rnd(1600); }
+      else if (!this.nextAvert) this.nextAvert = now + 2600 + rnd(1600);
       if (now >= this.avertUntil && now >= this.nextAvert) {
         // Away, briefly, and somewhere plausible rather than randomly: down and to one side is what
         // people do, and it reads as thought rather than distraction.
@@ -439,8 +537,12 @@ export class Face {
       }
       this.nextSaccade = now + 600;
     } else if (now >= this.nextSaccade) {
-      this.saccade(now);
-      this.nextAvert = 0;                      // nobody to avert from
+      // The idle wander waits out a spoken turn: eyes drifting off while somebody is mid-sentence,
+      // or while the robot is answering, reads as not paying attention. With no target to hold,
+      // LISTEN simply keeps them still rather than pointing them anywhere it cannot know.
+      const c = this.convoState(now);
+      if (c === "listen" || c === "speak") this.nextSaccade = now + 400;
+      else { this.saccade(now); this.nextAvert = 0; }   // nobody to avert from
     }
 
     // ---- MICROSACCADES -----------------------------------------------------------------------
@@ -479,27 +581,31 @@ export class Face {
   // What a skin draws, per eye.
   eyes() {
     const m = this.mvOut;
+    const cv = this.convoOut(this._now);
     const c = this.col.map((v) => Math.round(Math.max(0, Math.min(255, v.value))));
     const colour = `rgb(${c[0]},${c[1]},${c[2]})`;
     const dim = `rgb(${c.map((v) => Math.round(v * 0.35)).join(",")})`;
     return [0, 1].map((i) => ({
       side: i === 0 ? "left" : "right",
-      cx: SLOT[i], cy: EYE_Y + m.dy * this.bodyH.value,
+      cx: SLOT[i], cy: EYE_Y + (m.dy + cv.dy) * this.bodyH.value,
       // `scale` widens the eye the emote already shaped, and the corner radius goes with it, or a
       // widened eye reads as a squarer one rather than a bigger one.
       w: this.bodyW.value * (1 + (i === 0 ? -this.asym.value : this.asym.value)) * (1 + m.scale),
       h: this.bodyH.value * (1 + m.scale), radius: this.radius.value * (1 + m.scale),
       // A move adds to the lid rather than replacing it, so a wink during SLEEPY still shuts from
       // an already-low lid instead of snapping the eye open to wink it.
-      lid: clamp01(this.lid.value + (i === 0 ? m.lidL : m.lidR)),
+      // The conversation's lid offset and the wince ride on top of the emote's and a MOVE's, so a
+      // blink, a SQUINT and a listening face compose instead of replacing one another.
+      lid: clamp01(this.lid.value + (i === 0 ? m.lidL : m.lidR) + cv.lid + cv.squint * 0.30),
       lidLower: this.lidLower.value, lidCurve: this.lidCurve.value,
-      browRaise: this.browRaise.value, browAngle: this.browAngle.value,
+      browRaise: Math.max(-1, Math.min(1, this.browRaise.value + cv.brow - cv.squint * 0.5)),
+      browAngle: this.browAngle.value + cv.squint * 6,
       // Likewise the gaze: a move nudges where the eyes already are. Clamped, so a look during a
       // saccade to the same side cannot leave the eye's range.
       // `pull` draws the gaze toward centre before the offset, so `to_camera` lands on the viewer
       // from wherever the eyes were, while every other move still just nudges.
       gazeX: clamp01((this.gazeX.value * (1 - m.pull) + m.gx + this.microX + 1) / 2) * 2 - 1,
-      gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + this.microY + 1) / 2) * 2 - 1,
+      gazeY: clamp01((this.gazeY.value * (1 - m.pull) + m.gy + cv.gy + this.microY + 1) / 2) * 2 - 1,
       sparkle: m.sparkle,       // 0..1, THE ONE FIELD A SKIN MAY IGNORE (face-engine.md A)
       // NULL unless the mouth is on, so a skin's `if (e.mouth)` is false on exactly the faces that
       // have always had no mouth -- "off changes nothing" is then structural rather than a promise.

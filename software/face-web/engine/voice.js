@@ -137,10 +137,19 @@ export function start({ face }) {
       case "voice": st.on = !!m.on; st.why = m.why; if (!st.on) { release(); stopPlayback(); } break;
       case "state":
         st.convo = m.convo || "idle"; touch();
+        // The face's conversation looks (Face & HRI's face.js). The page owns WHEN; the engine owns
+        // what it looks like, so this stays one line and no appearance is decided here.
+        if (typeof face.setConvo === "function") face.setConvo(st.convo);
         if (st.waking && st.convo !== "listen") endWake();   // the service ended the utterance (its VAD)
         break;
       case "turn":                                    // not_addressed: a false wake, ended silently
-        touch(); if (st.waking && m.status !== "ok") endWake(); break;
+        touch(); if (st.waking && m.status !== "ok") endWake();
+        // A turn that did not land gets a brief "didn't catch that" on the face, so the spoken
+        // "say that again" has an expression to go with it. A false wake (not_addressed) ends
+        // silently by design, and the engine makes the same judgement: it reacts to any status
+        // that is not ok, and the page does not decide which deserve a face.
+        if (typeof face.convoReact === "function") face.convoReact(m.status);
+        break;
       case "heard": touch(); break;
       case "tts_end": drained(m.turn); break;
       case "stop": cutTurn(m.turn); break;
