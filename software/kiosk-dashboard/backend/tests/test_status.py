@@ -195,3 +195,19 @@ def test_a_boot_link_blip_does_not_latch_lift_not_responding():
         faults = tick(20 + i * 0.1, True, False)
     assert faults == [LIFT_SILENT]
     assert tick(23.0, True, True) == []                   # it answers: cleared by itself
+
+
+def test_router_report_is_unknown_when_missing_or_stale(tmp_path):
+    """The contract (network-router-api.md §4): a missing or >15 s old network.json is UNKNOWN —
+    a poller that died must not leave its last GOOD on the operator's screen."""
+    import json
+    import os
+    p = tmp_path / "network.json"
+    assert status._router_report(str(p))["uplink"]["state"] == "UNKNOWN"
+    p.write_text(json.dumps({"uplink": {"state": "GOOD", "signal_dbm": -60},
+                             "robot_wifi": [{"name": "tablet", "ip": "10.42.2.20", "signal_dbm": -55}]}))
+    t = os.stat(p).st_mtime
+    fresh = status._router_report(str(p), now=t + 2)
+    assert fresh["uplink"]["state"] == "GOOD" and fresh["robot_wifi"][0]["ip"] == "10.42.2.20"
+    stale = status._router_report(str(p), now=t + 16)
+    assert stale["uplink"]["state"] == "UNKNOWN" and stale["robot_wifi"] == []
