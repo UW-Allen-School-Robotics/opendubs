@@ -10,6 +10,15 @@ set -euo pipefail
 ROOT=/opt/opendubs
 
 echo "############ OpenDubs provision-all ############"
+# A persistent system journal, so `journalctl -b -1` shows the previous boot after a hang or a
+# power cut (software/stack/journald/). Restarting journald keeps the current boot's entries.
+if ! cmp -s "$ROOT/stack/journald/50-opendubs-persistent.conf" /etc/systemd/journald.conf.d/50-opendubs-persistent.conf; then
+  echo "== persistent journal =="
+  install -d -m 0755 /etc/systemd/journald.conf.d
+  install -m 0644 "$ROOT/stack/journald/50-opendubs-persistent.conf" /etc/systemd/journald.conf.d/
+  systemctl restart systemd-journald
+  journalctl --flush
+fi
 bash "$ROOT/kiosk-dashboard/deploy/provision.sh"
 bash "$ROOT/ros/provision-ros.sh"
 bash "$ROOT/rc_serial_probe/provision-firmware.sh"
