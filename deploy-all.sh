@@ -33,6 +33,32 @@ deploy_sub() {  # $1=repo path  $2=flat dest
 # The dashboard deploys through its own script: it builds the offline docs, copies the arm view's
 # model as real files (a plain rsync would carry a symlink that dangles in this flat layout and
 # delete docs-site/), and ships the show runner. Provisioning runs once, below, via provision-all.sh.
+# The face page's wake-word spotter is built, not committed (software/face-web/vendor/kws). A checkout
+# without this exact build gets the pinned copy from the repository's GitHub release (versions.env):
+# downloaded to a scratch folder, checked against its sha256, unpacked into the git-ignored vendor/kws
+# and checked again with build-kws.sh --check. On any failure it says so and deploy.sh leaves the
+# robot's own copy in place. Needs gh signed in to this repository.
+ensure_kws() {
+  local kws="$REPO/software/face-web/kws/build-kws.sh" tag sha tmp
+  [ -x "$kws" ] || return 0
+  "$kws" --check && return 0
+  tag=$(sed -n 's/^KWS_RELEASE_TAG=//p' "$REPO/software/stack/versions.env" | tail -1)
+  sha=$(sed -n 's/^KWS_ARTIFACT_SHA256=//p' "$REPO/software/stack/versions.env" | tail -1)
+  [ -n "$tag" ] && [ ${#sha} = 64 ] || { echo "!! no wake-word artifact pinned in versions.env"; return 0; }
+  echo "== fetching the wake-word spotter ($tag) =="
+  tmp=$(mktemp -d)
+  if gh release download "$tag" --repo UW-Allen-School-Robotics/opendubs --pattern vendor-kws.tar.gz --dir "$tmp" \
+     && echo "$sha  $tmp/vendor-kws.tar.gz" | shasum -a 256 -c - >/dev/null; then
+    rm -rf "$REPO/software/face-web/vendor/kws"
+    mkdir -p "$REPO/software/face-web/vendor/kws"
+    tar -xzf "$tmp/vendor-kws.tar.gz" -C "$REPO/software/face-web/vendor/kws"
+    "$kws" --check || echo "!! the fetched wake-word spotter does not match build-kws.sh; the robot keeps its own"
+  else
+    echo "!! could not fetch or verify the wake-word spotter; the robot keeps its own"
+  fi
+  rm -rf "$tmp"
+}
+ensure_kws
 OPENDUBS_SKIP_PROVISION=1 "$REPO/software/kiosk-dashboard/deploy/deploy.sh" "$HOST"
 deploy_sub software/ros             ros
 deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
