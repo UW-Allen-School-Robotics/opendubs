@@ -171,12 +171,58 @@ No network-side change is needed for this traffic.
 
 ---
 
+## A — reading the router: a diagnostic and a dashboard status block
+
+Design: [`design/network-router-api.md`](design/network-router-api.md). Read-only REST over HTTPS,
+from the Thor only, with a dedicated read-only account whose password lives in
+`/etc/opendubs/network.env` (root, 0600) and never in the repository.
+
+| # | Item | Effort | Needs |
+|---|---|---|---|
+| A-1 | Router side: a self-signed certificate and `www-ssl`, a `netmon` group (`read`, `rest-api` only) and user limited to the Thor's address | 15 min | The user's word, someone at the robot; done with H-2/H-4 |
+| A-2 | `opendubs-netmon` poller in `tools/network/`: reads the router every 5 s, probes from the Thor, writes `/run/opendubs/network.json`, and keeps the uplink history the router loses on reboot | A day | Install hook in the Thor lane's deploy scripts |
+| A-3 | `netdiag`: one command on the Thor that names the first failing layer | Half a day, after A-2 | — |
+| A-4 | The dashboard's `status.net.uplink` field and a one-line display, built from the contract in the design note §4 | Tablet lane | Relayed by the orchestrator |
+
+## J — joining other networks (taking the robot off campus)
+
+Design: [`design/network-uplinks.md`](design/network-uplinks.md) §1–3. The robot's own Wi-Fi and
+10.42.2.0/24 never change; only the WAN side does. **The uplink radio is 5 GHz only**, because the
+robot's Wi-Fi must stay 2.4 GHz for its ESP32 devices. So a hotspot must be set to 5 GHz, and a
+2.4 GHz-only venue needs a cable.
+
+| # | Item | Effort | Lockout risk |
+|---|---|---|---|
+| J-1 | Turn the uplink into saved networks with a priority order (the station's connect list; the interface SSID left empty), starting with UW MPSK and the team's hotspot | 15 min at the robot | None: the LAN side is untouched |
+| J-2 | Make a cable win: `ether1` route distance 1, `wlan2` distance 2, with gateway checking | 5 min | None |
+| J-3 | `netjoin` in `tools/network/`: add, list, prefer, disable, remove and scan saved networks from the Thor. The operator types the router admin password each time; no write credential is stored on the robot | A day | None (it touches only its own tagged entries) |
+| J-4 | Bring a 5 GHz hotspot setting and a short cable in the travel kit; record each venue's registration needs in the venue's entry comment | — | — |
+
+## E — eduroam, and UW's rule on onboard access points
+
+Design: [`design/network-uplinks.md`](design/network-uplinks.md) §4, cited to UW's own pages.
+UW eduroam is **EAP-TLS with a device certificate**, which suits this router. No UW page says a
+non-person account can get one. More pressing: **UW policy prohibits departmental or DIY access
+points without a UW-IT exemption** (KB0034266), and the robot's router is one.
+
+| # | Item | Who |
+|---|---|---|
+| E-1 | A departmental shared NetID, owned by faculty or staff; move the robot's UW MPSK registration under it | The user, with the department's IT |
+| E-2 | One UW-IT ticket: a research exemption for the robot's onboard AP, and whether the shared NetID can get Eduroam Radius Access and a device certificate (or the "eduroam managed server solution") | The user. This lane sends nothing |
+| E-3 | Meet the coexistence guideline now: the robot AP to 20 MHz on channel 1, 6 or 11 (today 20/40 MHz, automatic channel) | This lane, with the user's word at the robot; 2 min, clients drop for seconds |
+| E-4 | Bench test once a certificate exists: EAP-TLS association on the spare field router, never on opendubs2 | This lane |
+
+---
+
 ## Decisions for the user
 
 | # | Decision | Recommendation |
 |---|---|---|
 | D-1 | Which uplink path to pursue | U-1 (reposition) now; then U-3 at a dock, or U-4 for roaming |
 | D-2 | When to do the at-robot sitting for U-5/U-6 and H-0/H-1/H-5/H-6 (~25 min, no lockout risk, the tablet drops for seconds) | The next time someone is at the robot with nothing moving |
-| D-3 | **Keep a sanitized router export in the repository?** CLAUDE.md says config that changes runtime behaviour belongs in the repo; this lane's brief says the config lives on the router. RouterOS 7's `/export` hides passwords and keys by default, and that would be checked before every commit | Yes: a sanitized export at `notes/design/network-router.rsc`, refreshed after each change, so "what changed on the router?" has an answer |
+| D-3 | ~~Keep a sanitized router export in the repository?~~ **Decided 2026-10-19: yes**, under `notes/design/network-*` (CLAUDE.md "Lanes") | Taken with H-0; checked for secrets before every commit |
 | D-4 | H-2: WebFig over HTTPS, or SSH and Winbox only | HTTPS, since WebFig is in use |
 | D-5 | H-3: keep `admin`, or a named account | Keep `admin`, restricted to the LAN; a named account adds little for one shared admin |
+| D-6 | Whether to pursue the UW-IT exemption and eduroam path (E-1, E-2) now, before the robot travels | Yes: the exemption covers the robot on campus today, and one ticket asks both questions |
+| D-7 | E-3: move the robot AP to 20 MHz on a fixed channel 1, 6 or 11 | Yes, in the D-2 sitting |
+| D-8 | Build order for `tools/network/`: the poller and `netdiag` (A-2, A-3) first, then `netjoin` (J-3) | Yes: the diagnostic pays off on campus today; `netjoin` only when travel is planned |
