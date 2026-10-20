@@ -195,3 +195,23 @@ def test_a_boot_link_blip_does_not_latch_lift_not_responding():
         faults = tick(20 + i * 0.1, True, False)
     assert faults == [LIFT_SILENT]
     assert tick(23.0, True, True) == []                   # it answers: cleared by itself
+
+
+def test_router_report_is_unknown_when_missing_or_stale(tmp_path):
+    """The contract (network-router-api.md §4): a missing or >15 s old network.json is UNKNOWN —
+    a poller that died must not leave its last state on the operator's screen."""
+    import json
+    sample = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
+                          "tools", "network", "sample-network.json")
+    p = tmp_path / "network.json"
+    assert status._router_report(str(p))["uplink"]["state"] == "UNKNOWN"
+    data = {"ts": 1000.0, "uplink": {"state": "WEAK", "say": "Uplink weak", "signal_dbm": -83},
+            "robot_wifi": [{"name": "tab", "ip": "10.42.2.13", "signal_dbm": -48, "ccq_pct": 83}]}
+    if os.path.exists(sample):                 # the Network lane's sample, when it is on main
+        data = json.load(open(sample))
+    p.write_text(json.dumps(data))
+    fresh = status._router_report(str(p), now=data["ts"] + 2)
+    assert fresh["uplink"]["state"] == data["uplink"]["state"] and fresh["uplink"]["age_s"] == 2
+    assert fresh["robot_wifi"] == data["robot_wifi"]
+    stale = status._router_report(str(p), now=data["ts"] + 16)
+    assert stale == {"uplink": {"state": "UNKNOWN", "say": "No network data"}, "robot_wifi": []}

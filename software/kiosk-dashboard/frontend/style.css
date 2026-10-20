@@ -228,6 +228,9 @@ body {
 }
 .slabel { font-size: 14px; letter-spacing: 1px; color: var(--dim); font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .sval { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 700; color: var(--txt); font-variant-numeric: tabular-nums; }
+.sval.long { font-size: 17px; line-height: 1.25; }
+.ssub { font-size: 14px; color: var(--dim); font-weight: 700; }
+.ssub:empty { display: none; }
 .sdot { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: 0 0 auto; }
 .sdot.ok { background: var(--good); }
 .sdot.warn { background: var(--warn); }

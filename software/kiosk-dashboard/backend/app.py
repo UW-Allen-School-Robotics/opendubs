@@ -476,6 +476,8 @@ async def ws(socket: WebSocket) -> None:
     SLOW_EVERY = HZ   # ~1 Hz: subprocess status (net/vnc) + system metrics
     tick = 0
     slow = {}
+    # Which robot-Wi-Fi client this page is, so it can find its own signal in net.robot_wifi.
+    peer = socket.client.host if socket.client else None
     loop = asyncio.get_event_loop()
     try:
         while True:
@@ -493,7 +495,7 @@ async def ws(socket: WebSocket) -> None:
                 STATE["ai_tracking"] = await loop.run_in_executor(None, _tracker_active)
             if tick % FAST_EVERY == 0:
                 # cheap (reader snapshots only) → safe to run inline at 10 Hz.
-                payload["status"] = {**status_mod.collect_fast(), **slow}
+                payload["status"] = {**status_mod.collect_fast(), **slow, "client_ip": peer}
             await socket.send_text(json.dumps(payload))
             tick += 1
             await asyncio.sleep(1.0 / HZ)

@@ -621,6 +621,23 @@ function renderOdo(o) {
   set("odoErr", (o.fail ?? "—") + " / " + (o.crc_bad ?? "—"));
 }
 
+// The robot's internet uplink and this tablet's own Wi-Fi, from the router poller
+// (status.net.uplink / net.robot_wifi; notes/design/network-router-api.md §4).
+const UPLINK_DOT = { GOOD: "ok", WEAK: "warn", BUSY: "warn", CAPTIVE: "warn", DOWN: "bad", NO_ROUTER: "bad" };
+const dbm = (v) => (v < 0 ? "\u2212" + -v : v) + " dBm";
+function renderUplink(net, me) {
+  if (!$("stUplink")) return;
+  const u = net.uplink || {};
+  $("stUplink").textContent = u.say || u.state || "—";
+  // The signal in the label, unless the say line already gives it.
+  $("stUplinkDbm").textContent = u.signal_dbm == null || /dBm/.test(u.say || "") ? "" : "· " + dbm(u.signal_dbm);
+  setDot("stUplinkDot", UPLINK_DOT[u.state]);
+  const mine = (net.robot_wifi || []).find((c) => me && c.ip === me);
+  $("stTabletWifi").textContent = mine && mine.signal_dbm != null
+    ? "this tablet " + dbm(mine.signal_dbm) + (mine.ccq_pct == null ? "" : " · CCQ " + mine.ccq_pct + "%")
+    : "";
+}
+
 function renderStatus(st) {
   try { renderOdo(st && st.odo); } catch (e) {}
   const w = (st.net && st.net.wired) || {};
@@ -630,6 +647,8 @@ function renderStatus(st) {
 
   $("stWifi").textContent = wf.ssid ? `${wf.ssid}${wf.ip ? " · " + wf.ip : ""}` : "not connected";
   setDot("stWifiDot", wf.ssid && wf.ip ? "ok" : wf.ssid ? "warn" : "bad");
+
+  renderUplink(st.net || {}, st.client_ip);
 
   const rl = st.rc_link || {};
   $("stMav").textContent = rl.link ? ("RC " + (rl.mode || "linked")) : "no RC link";
