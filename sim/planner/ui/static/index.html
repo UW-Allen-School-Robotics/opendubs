@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenArm Motion Planner Studio</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=2.0" />
 </head>
 <body>
   <!-- Header -->
@@ -84,9 +84,9 @@
         <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 10px;">
           <label>End-Effector Cartesian (m) & SSIK</label>
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;">
-            <input type="number" id="ee-x" step="0.01" placeholder="X" title="EE X (m)">
-            <input type="number" id="ee-y" step="0.01" placeholder="Y" title="EE Y (m)">
-            <input type="number" id="ee-z" step="0.01" placeholder="Z" title="EE Z (m)">
+            <input type="number" id="ee-x" step="0.01" value="0.28" placeholder="X" title="EE X (m)">
+            <input type="number" id="ee-y" step="0.01" value="0.25" placeholder="Y" title="EE Y (m)">
+            <input type="number" id="ee-z" step="0.01" value="0.30" placeholder="Z" title="EE Z (m)">
           </div>
           <button id="btn-solve-ik" class="btn-secondary" style="width:100%;">Solve IK (SSIK Analytical)</button>
         </div>
@@ -284,6 +284,6 @@
     </div>
   </div>
 
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/app.js?v=2.0"></script>
 </body>
 </html>

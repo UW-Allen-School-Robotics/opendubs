@@ -1,5 +1,6 @@
-/* OpenArm 3D Visualizer with Dual-Arm, Ghost Target, and Trajectory Ribbon.
- * Tailored for OpenArm Motion Planner Studio.
+/* OpenArm 3D Visualizer for Motion Planner Studio
+ * Dual-Arm (Solid + Ghost Target), Trajectory Ribbon, and Orbit Controls.
+ * Built on OpenArm URDF kinematics with automatic frame bounding.
  */
 import * as THREE from "/vendor/three.module.min.js";
 import { STLLoader } from "/vendor/STLLoader.js";
@@ -19,68 +20,83 @@ export class PlannerStudioView {
     this.canvas = canvas;
     this.ready = false;
 
+    // Scene setup with dark slate background
     this.scene = new THREE.Scene();
-    this.scene.up.set(0, 0, 1); // Z-up like ROS / MuJoCo
+    this.scene.background = new THREE.Color(0x0a0f18);
+    this.scene.up.set(0, 0, 1); // Z-up frame
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // Renderer
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: false,
+      powerPreference: "high-performance",
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
-    // Grid floor for spatial orientation
-    const grid = new THREE.GridHelper(1.2, 24, 0x3d4f66, 0x1a2430);
+    // Floor grid
+    const grid = new THREE.GridHelper(1.6, 32, 0x334155, 0x1e293b);
     grid.rotation.x = Math.PI / 2; // Lie on XY plane (Z=0)
-    grid.position.z = -0.001;
+    grid.position.z = 0.0;
     this.scene.add(grid);
 
-    // Subtle coordinate axes at base origin
-    const axes = new THREE.AxesHelper(0.15);
+    // Coordinate axes indicator at origin
+    const axes = new THREE.AxesHelper(0.2);
     this.scene.add(axes);
 
     // Lighting
-    this.scene.add(new THREE.HemisphereLight(0xdde8f5, 0x121720, 1.4));
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
-    key.position.set(2.0, -1.8, 2.5);
+    this.scene.add(new THREE.HemisphereLight(0xe2e8f0, 0x1e293b, 1.3));
+    const key = new THREE.DirectionalLight(0xffffff, 1.7);
+    key.position.set(2.5, -2.0, 3.0);
     this.scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0x7090b0, 0.8);
-    fill.position.set(-2.0, 2.0, 1.5);
+    const fill = new THREE.DirectionalLight(0x94a3b8, 0.9);
+    fill.position.set(-2.5, 2.5, 2.0);
     this.scene.add(fill);
 
+    const back = new THREE.DirectionalLight(0x64748b, 0.5);
+    back.position.set(0.0, 3.0, -1.0);
+    this.scene.add(back);
+
     // Camera setup (Perspective with orbit controls)
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.05, 10.0);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.05, 20.0);
     this.orbit = {
-      target: new THREE.Vector3(0.08, 0.0, 0.35),
-      radius: 1.35,
-      theta: 0.65, // azimuth
-      phi: 1.15,   // polar (from Z up)
+      target: new THREE.Vector3(0.0, 0.0, 0.75), // Centered around shoulder height
+      radius: 1.6,
+      theta: 0.75, // azimuth
+      phi: 1.15,   // polar angle from +Z
     };
 
-    // Trajectory visualization line & markers
+    // Trajectory visualization
     this.trajLine = null;
     this.trajMarkers = new THREE.Group();
     this.scene.add(this.trajMarkers);
 
-    // Materials
+    // Double-sided materials so mirrored left arm links are never culled
     this.matSolid = new THREE.MeshStandardMaterial({
-      color: 0x98aabf,
-      roughness: 0.45,
-      metalness: 0.25,
+      color: 0x94a3b8,
+      roughness: 0.40,
+      metalness: 0.30,
+      side: THREE.DoubleSide,
     });
     this.matCollision = new THREE.MeshStandardMaterial({
       color: 0xef4444,
-      roughness: 0.3,
-      metalness: 0.1,
-      emissive: 0x550a0a,
+      roughness: 0.30,
+      metalness: 0.10,
+      emissive: 0x7f1d1d,
+      side: THREE.DoubleSide,
     });
     this.matGhost = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
       roughness: 0.35,
-      metalness: 0.1,
+      metalness: 0.10,
       transparent: true,
-      opacity: 0.40,
+      opacity: 0.42,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
 
     this.solidArm = { joints: {}, links: {}, root: new THREE.Group() };
@@ -96,7 +112,7 @@ export class PlannerStudioView {
     this.chain = await resp.json();
     const loader = new STLLoader();
 
-    // Cache STL geometries so we only download each once
+    // Cache STL geometries so we download each file only once
     const geomCache = {};
     const meshesToLoad = Object.entries(this.chain.links).filter(([, v]) => v.mesh);
     await Promise.all(
@@ -121,7 +137,8 @@ export class PlannerStudioView {
     this._buildArmTree(this.ghostArm, this.matGhost, geomCache);
 
     this.ready = true;
-    this._updateCamera();
+    this.frame();
+    this.resize();
     this.render();
     return this;
   }
@@ -220,32 +237,25 @@ export class PlannerStudioView {
       if (c.material) c.material.dispose();
     }
 
-    if (!eePositions || eePositions.length === 0) {
+    if (!eePositions || eePositions.length < 2) {
       this.render();
       return;
     }
 
-    // Create glowing trajectory line
+    // Render path ribbon
     const points = eePositions.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({
-      color: 0x0284c7,
+      color: 0x38bdf8,
       linewidth: 3,
     });
     this.trajLine = new THREE.Line(geometry, material);
     this.scene.add(this.trajLine);
 
-    // Start marker (Slate blue sphere)
-    const startGeo = new THREE.SphereGeometry(0.015, 16, 16);
-    const startMat = new THREE.MeshBasicMaterial({ color: 0x64748b });
-    const startMesh = new THREE.Mesh(startGeo, startMat);
-    startMesh.position.copy(points[0]);
-    this.trajMarkers.add(startMesh);
-
-    // Goal marker (Sky blue sphere)
-    const goalGeo = new THREE.SphereGeometry(0.018, 16, 16);
-    const goalMat = new THREE.MeshBasicMaterial({ color: 0x0284c7 });
-    const goalMesh = new THREE.Mesh(goalGeo, goalMat);
+    // Goal marker sphere
+    const goalGeom = new THREE.SphereGeometry(0.02, 16, 16);
+    const goalMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    const goalMesh = new THREE.Mesh(goalGeom, goalMat);
     goalMesh.position.copy(points[points.length - 1]);
     this.trajMarkers.add(goalMesh);
 
@@ -254,10 +264,10 @@ export class PlannerStudioView {
 
   setView(viewName) {
     const views = {
-      iso: { theta: 0.65, phi: 1.15, radius: 1.35 },
-      front: { theta: 0.0, phi: 1.57, radius: 1.3 },
-      side: { theta: -Math.PI / 2, phi: 1.57, radius: 1.3 },
-      top: { theta: 0.0, phi: 0.05, radius: 1.3 },
+      iso: { theta: 0.75, phi: 1.15, radius: 1.6 },
+      front: { theta: 0.0, phi: 1.57, radius: 1.5 },
+      side: { theta: -Math.PI / 2, phi: 1.57, radius: 1.5 },
+      top: { theta: 0.0, phi: 0.05, radius: 1.7 },
     };
     const v = views[viewName] || views.iso;
     this.orbit.theta = v.theta;
@@ -267,12 +277,22 @@ export class PlannerStudioView {
     this.render();
   }
 
+  frame() {
+    if (!this.ready) return;
+    this.root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(this.solidArm.root);
+    if (!box.isEmpty()) {
+      const c = box.getCenter(new THREE.Vector3());
+      this.orbit.target.copy(c);
+      const span = box.getSize(new THREE.Vector3()).length();
+      this.orbit.radius = Math.max(1.3, span * 1.25);
+    }
+    this._updateCamera();
+  }
+
   _updateCamera() {
     const { theta, phi, radius, target } = this.orbit;
     // Spherical coordinates with Z-up:
-    // x = r * sin(phi) * cos(theta)
-    // y = r * sin(phi) * sin(theta)
-    // z = r * cos(phi)
     const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
     const y = target.y + radius * Math.sin(phi) * Math.sin(theta);
     const z = target.z + radius * Math.cos(phi);
@@ -311,7 +331,6 @@ export class PlannerStudioView {
         this._updateCamera();
         this.render();
       } else if (isPanning) {
-        // Pan in camera plane
         const forward = new THREE.Vector3().subVectors(this.orbit.target, this.camera.position).normalize();
         const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 0, 1)).normalize();
         const up = new THREE.Vector3().crossVectors(right, forward).normalize();
@@ -334,20 +353,28 @@ export class PlannerStudioView {
     this.canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
       const zoom = e.deltaY > 0 ? 1.08 : 0.92;
-      this.orbit.radius = Math.max(0.3, Math.min(4.0, this.orbit.radius * zoom));
+      this.orbit.radius = Math.max(0.4, Math.min(5.0, this.orbit.radius * zoom));
       this._updateCamera();
       this.render();
     }, { passive: false });
 
+    // Automatic container resize observer
+    if (typeof ResizeObserver !== "undefined" && this.canvas.parentElement) {
+      new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
+    }
     window.addEventListener("resize", () => this.resize());
   }
 
   resize() {
-    const w = this.canvas.clientWidth || 640;
-    const h = this.canvas.clientHeight || 480;
+    const parent = this.canvas.parentElement;
+    const w = parent ? parent.clientWidth : (this.canvas.clientWidth || 800);
+    const h = parent ? parent.clientHeight : (this.canvas.clientHeight || 600);
+    if (w <= 0 || h <= 0) return;
+
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h, true);
+    this._updateCamera();
     this.render();
   }
 

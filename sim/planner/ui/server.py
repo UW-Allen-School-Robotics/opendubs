@@ -14,7 +14,7 @@ import os
 import sys
 import threading
 import time
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -226,6 +226,12 @@ class StudioHandler(SimpleHTTPRequestHandler):
             return os.path.join(ARM_ASSETS_DIR, rel)
         return os.path.join(STATIC_DIR, path.lstrip("/"))
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def _send_json(self, data: dict | list, status: int = 200):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
@@ -386,7 +392,7 @@ def main():
     # Pre-warm left planner in background so UI starts instantly
     threading.Thread(target=lambda: SERVICE.get_planner("left"), daemon=True).start()
 
-    server = HTTPServer((args.host, args.port), StudioHandler)
+    server = ThreadingHTTPServer((args.host, args.port), StudioHandler)
     url = f"http://{args.host}:{args.port}"
     print(f"========================================================")
     print(f" OpenArm Motion Planner Studio")

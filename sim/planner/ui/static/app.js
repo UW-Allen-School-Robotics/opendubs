@@ -57,18 +57,29 @@ class StudioApp {
   }
 
   async init() {
-    const canvas = document.getElementById("arm-canvas");
-    this.view = await new PlannerStudioView(canvas).load();
-
+    // 1. Build sliders and bind events FIRST so all buttons work immediately
     this._createJointSliders();
     this._bindEvents();
-    await this._loadBackendStatus();
-    await this._loadKeyframes();
     this._syncUIFromState();
+
+    // 2. Fetch backend status and keyframes in parallel
+    this._loadBackendStatus();
+    this._loadKeyframes();
     this._checkCollisionAndFK();
 
-    // Start render/playback animation loop
-    requestAnimationFrame((t) => this._playbackLoop(t));
+    // 3. Initialize 3D view gracefully without blocking buttons or UI
+    try {
+      const canvas = document.getElementById("arm-canvas");
+      if (canvas) {
+        this.view = await new PlannerStudioView(canvas).load();
+        this._updateArmPosesInView();
+        requestAnimationFrame((t) => this._playbackLoop(t));
+      }
+    } catch (err) {
+      console.warn("3D WebGL initialization error (controls remain active):", err);
+      const perf = document.getElementById("plan-perf-info");
+      if (perf) perf.textContent = "3D View unavailable (WebGL disabled); planner controls fully active.";
+    }
   }
 
   async _loadBackendStatus() {
@@ -179,7 +190,7 @@ class StudioApp {
       btn.onclick = () => {
         document.querySelectorAll(".view-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        this.view.setView(btn.dataset.view);
+        if (this.view && this.view.setView) this.view.setView(btn.dataset.view);
       };
     });
 
@@ -272,6 +283,7 @@ class StudioApp {
   }
 
   _updateArmPosesInView() {
+    if (!this.view || !this.view.ready) return;
     const solidAngles = {};
     const ghostAngles = {};
 
@@ -311,17 +323,17 @@ class StudioApp {
         badge.classList.add("danger");
         statusText.textContent = "Collision Detected";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
-        this.view.setCollisionState(true);
+        if (this.view && this.view.setCollisionState) this.view.setCollisionState(true);
       } else if (colData.min_clearance_mm < 30.0) {
         badge.classList.add("warn");
         statusText.textContent = "Close Clearance";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
-        this.view.setCollisionState(false);
+        if (this.view && this.view.setCollisionState) this.view.setCollisionState(false);
       } else {
         badge.classList.add("safe");
         statusText.textContent = "Safe (MuJoCo)";
         distText.textContent = `${colData.min_clearance_mm.toFixed(1)} mm`;
-        this.view.setCollisionState(false);
+        if (this.view && this.view.setCollisionState) this.view.setCollisionState(false);
       }
 
       // 2. Forward Kinematics for End-Effector XYZ readout
@@ -432,7 +444,7 @@ class StudioApp {
       scrubber.value = 0;
 
       // Render 3D trajectory ribbon in scene
-      this.view.setTrajectoryPath(data.ee_positions);
+      if (this.view && this.view.setTrajectoryPath) this.view.setTrajectoryPath(data.ee_positions);
       this._updatePlayButton();
     } catch (err) {
       statusInfo.textContent = `Planning error: ${err}`;
@@ -472,8 +484,12 @@ class StudioApp {
         }
       }
       const scrubber = document.getElementById("timeline-scrubber");
-      scrubber.value = this.currentTime;
+      if (scrubber) scrubber.value = this.currentTime;
       this._applyTrajectoryAtTime(this.currentTime);
+    }
+
+    if (this.view && this.view.ready) {
+      this.view.render();
     }
 
     requestAnimationFrame((t) => this._playbackLoop(t));
@@ -503,7 +519,7 @@ class StudioApp {
     for (let i = 0; i < 7; i++) {
       solidAngles[this._getJointName(i)] = (qInterp[i] * Math.PI) / 180.0;
     }
-    this.view.setSolidJoints(solidAngles);
+    if (this.view && this.view.setSolidJoints) this.view.setSolidJoints(solidAngles);
 
     // Update readout
     document.getElementById("timeline-readout").textContent = `${t.toFixed(2)}s / ${traj.duration.toFixed(2)}s`;
@@ -670,7 +686,7 @@ class StudioApp {
       document.getElementById("plan-status-info").textContent = `Full Sequence Planned (${cumulativeDuration.toFixed(2)}s)`;
       document.getElementById("plan-perf-info").textContent = `${this.keyframes.length} keyframes | ${allPositions.length} waypoints`;
 
-      this.view.setTrajectoryPath(allEePositions);
+      if (this.view && this.view.setTrajectoryPath) this.view.setTrajectoryPath(allEePositions);
     } catch (err) {
       alert(`Sequence planning error:\n${err.message}`);
     } finally {
@@ -870,5 +886,6 @@ function escapeHtml(str) {
 
 window.addEventListener("DOMContentLoaded", () => {
   const app = new StudioApp();
+  window.app = app;
   app.init();
 });
