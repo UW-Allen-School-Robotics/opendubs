@@ -30,13 +30,19 @@ const DOWN_RATE = 24000;                            // wire.DOWN_RATE
 const JITTER_S = 0.12;                              // the playback's jitter buffer
 const MIC_IDLE_MS = 20000;                          // no turn for this long: the microphone closes
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
-// The keyword, as the model's own tokens (sherpa-onnx text2token with its bpe.model), boost 2.0,
-// threshold 0.10: tuned for RECALL (2026-10-19). On the robot the first line (1.5, 0.20) fired once in 40
-// minutes; the Thor's transcript check drops a false hit silently, so a false hit costs only a few
-// seconds of uplink. On the desk this line caught 12 of 12 clean "hey dubs" in six voices with no false
-// hit on near misses or other speech (the old one 11 of 12). The service may send its own line in
-// `ready.wake.keywords`, so it can be tuned without changing this page.
-const WAKE_KEYWORDS = "▁HE Y ▁DU B S :2.0 #0.10 @HEY_DUBS";
+// The keyword, as the model's own tokens (sherpa-onnx text2token with its bpe.model), boost 5.0,
+// threshold 0.01: tuned for RECALL. The robot heard 0 wakes from several clear "hey dubs" with the
+// earlier line (2.0, 0.10; 2026-10-20). Run through this worker on the desk, that line missed "hey dubs"
+// said ON ITS OWN in all 5 voices tried (3 macOS, 2 Kokoro) and fired only when more speech followed;
+// this one caught all 5, and nothing in 4 near-miss sentences ("hey bob…", "hey there, thumbs up…").
+// The Thor's transcript check drops a false hit silently (not_addressed), so a loose line costs little.
+// The service may send its own line in `ready.wake.keywords`, so it can be tuned without this page.
+const WAKE_KEYWORDS = "▁HE Y ▁DU B S :5.0 #0.01 @HEY_DUBS";
+// The self-test: a known "hey dubs" (wake-selftest.wav, 16 kHz mono, made with Kokoro-82M, Apache-2.0)
+// fed straight into a second spotter once per page load, bypassing the microphone. Its verdict in the
+// health report splits "the spotter or its line is broken on this device" from "the room or the mic".
+const SELFTEST_WAV = new URL("./wake-selftest.wav", import.meta.url);
+const SELFTEST_READY_MS = 30000, SELFTEST_HIT_MS = 10000;   // loading the model, then decoding the clip
 const PRE_ROLL_FRAMES = 75;                         // 1.5 s of 20 ms frames
 const WAKE_QUIET_MS = 1000;                         // no wake this long after a reply has played
 // Push-to-talk clipped both ends of what people say (the Voice lane, 2026-10-19): the word spoken as the
@@ -209,6 +215,39 @@ export function start({ face }) {
     };
     const line = typeof st.wake.keywords === "string" && st.wake.keywords.includes("@") ? st.wake.keywords : WAKE_KEYWORDS;
     st.kws.postMessage({ keywords: line });
+    selfTest(line);
+  }
+  // A second worker, so the test can neither wake the robot nor disturb the live spotter's state. It
+  // reports "hit", "miss", or "error: …", and is gone once it has answered.
+  async function selfTest(line) {
+    if (st.selftest) return;
+    st.selftest = "running";
+    let w = null;
+    const done = (v) => { st.selftest = v; if (w) w.terminate(); w = null; };
+    try {
+      const buf = await (await fetch(SELFTEST_WAV)).arrayBuffer();
+      const v = new DataView(buf);
+      let at = 12;                                             // the RIFF chunks, to "data"
+      while (at + 8 <= buf.byteLength && v.getUint32(at, false) !== 0x64617461) at += 8 + v.getUint32(at + 4, true);
+      if (at + 8 > buf.byteLength) return done("error: no data chunk in the test clip");
+      const pcm = new Int16Array(buf.slice(at + 8, at + 8 + (v.getUint32(at + 4, true) & ~1)));
+      const sil = new Int16Array(16000);                       // 1 s of silence on each side, then 1 s more
+      const clip = new Int16Array(sil.length * 3 + pcm.length);
+      clip.set(pcm, sil.length);
+      w = new Worker(new URL("./kws_worker.js", import.meta.url));
+      let timer = setTimeout(() => done("error: the test spotter never got ready"), SELFTEST_READY_MS);
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.error) { clearTimeout(timer); done("error: " + String(m.error).slice(0, 120)); }
+        else if (m.hit) { clearTimeout(timer); done("hit"); }
+        else if (m.ready && st.selftest === "running") {
+          st.selftest = "fed";
+          for (let i = 0; i + 320 <= clip.length; i += 320) w.postMessage({ frame: clip.slice(i, i + 320) });
+          clearTimeout(timer); timer = setTimeout(() => done("miss"), SELFTEST_HIT_MS);
+        }
+      };
+      w.postMessage({ keywords: line });
+    } catch (e) { done("error: " + String(e && e.message || e).slice(0, 120)); }
   }
   const suppressed = () => st.convo !== "idle" || st.holding || st.pressed || st.waking || st.play.size > 0 ||
                             performance.now() < st.quietUntil || !st.on;
@@ -260,6 +299,8 @@ export function start({ face }) {
       rms_dbfs: mt.n ? dbfs(Math.sqrt(mt.sq / mt.n)) : null, peak_dbfs: dbfs(mt.peak),
       spotter: st.kwsReady ? "ready" : st.wakeError ? "error: " + String(st.wakeError).slice(0, 160) : st.kws ? "loading" : "off",
       spotter_per_s: st.kwsStats, hits: st.hits.length,
+      spotter_selftest: st.selftest || null, keywords: st.wake && typeof st.wake.keywords === "string" &&
+        st.wake.keywords.includes("@") ? "from the service" : "page default",
     };
     st.meter = { frames: 0, posted: 0, sq: 0, n: 0, peak: 0 };
     st.health = report;
