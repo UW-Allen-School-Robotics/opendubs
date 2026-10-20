@@ -145,9 +145,10 @@ export function start({ face }) {
       case "turn":                                    // not_addressed: a false wake, ended silently
         touch(); if (st.waking && m.status !== "ok") endWake();
         // A turn that did not land gets a brief "didn't catch that" on the face, so the spoken
-        // "say that again" has an expression to go with it. A false wake (not_addressed) ends
-        // silently by design, and the engine makes the same judgement: it reacts to any status
-        // that is not ok, and the page does not decide which deserve a face.
+        // "say that again" has an expression to go with it. The ENGINE decides which statuses
+        // deserve one -- `not_addressed` and `cut` are silent by the wire contract, and a false
+        // wake must not make the face twitch -- so every status is passed and none is filtered
+        // here, which keeps that judgement in one place instead of two.
         if (typeof face.convoReact === "function") face.convoReact(m.status);
         break;
       case "heard": touch(); break;
@@ -466,6 +467,10 @@ export function start({ face }) {
     try { await openMic(); } catch (e) { st.holding = false; st.fail = `the microphone: ${e.message}`; render(); return; }
     if (!st.holding) return;                         // released while the microphone was opening
     send({ type: "press" }); st.pressed = true;
+    // THE FACE ANSWERS THE FINGER, not the round trip: a press is unambiguously listening, and
+    // waiting for the service's `state` would leave the face blank for the latency. Only from
+    // idle, so it cannot interrupt a turn already in flight.
+    if (st.convo === "idle" && typeof face.setConvo === "function") face.setConvo("listen");
     const pre = st.buf.slice(-TALK_PRE_FRAMES); st.buf = [];
     for (const f of pre) sendFrame(f);               // what was said as the finger landed
     touch();
@@ -482,6 +487,9 @@ export function start({ face }) {
     clearTimeout(st.tailTimer);
     if (!st.pressed) return;
     st.pressed = false; send({ type: "release" }); touch(); render();
+    // Back to the SERVICE'S word rather than to idle: if it has moved the turn on, the face follows
+    // it, and if it never answered at all the face returns to idle instead of sticking on listen.
+    if (typeof face.setConvo === "function") face.setConvo(st.convo);
   }
   // The button keeps its touches: the face's long-press (operator.js) never sees them.
   for (const ev of ["pointerdown", "pointerup", "pointercancel", "pointermove"]) {

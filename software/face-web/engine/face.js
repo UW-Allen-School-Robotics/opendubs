@@ -26,6 +26,9 @@ const CONVO = ["idle", "listen", "think", "speak"];
 // A BACKSTOP, not a lease: states hold until changed, and this only stops a dropped socket leaving
 // the robot visibly thinking for ever. Long on purpose -- a slow model is not a fault.
 const CONVO_BACKSTOP_MS = 60000;
+// Turn outcomes that get NO reaction: either nothing went wrong, or the design says stay quiet.
+// See convoReact() for why each one is here.
+const NO_REACTION = ["ok", "not_addressed", "cut", "declined"];
 // "Didn't catch that": long enough to read as a wince, short enough not to become an expression.
 const REACT_MS = 700;
 // HOW LONG A REPORTED TARGET IS BELIEVED. The trackers report at 5 Hz or better, so this is
@@ -341,8 +344,24 @@ export class Face {
 
   // A brief reaction to a turn that did not land -- the face for "say that again". Short, and it
   // does not change the conversation state: the page decides what happens next.
+  //
+  // THE SILENT STATUSES GET NO FACE, and that is the correction that matters here. The wire
+  // contract (software/voice/wire.py) makes `not_addressed` SILENT by design: a wake that turned
+  // out not to be one ends with nothing shown, which is what lets the wake threshold be tuned for
+  // recall. A face that winced at every false wake would make the robot visibly twitch at
+  // background noise, and a loose threshold would stop being cheap. `cut` is the same -- barge-in,
+  // a show starting, or the page leaving are not failures to understand.
+  //
+  // `declined` gets no face either, and that one is this lane's judgement rather than the
+  // contract's: the model understood perfectly and chose to refuse, and a canned decline is
+  // spoken. A wince means "that did not land", so showing one would have the face say something
+  // untrue about the robot's own state -- the same error as a hard-coded position or an invented
+  // battery level, in a different place.
+  //
+  // What is left is every status where the robot could not answer: unintelligible, busy, off,
+  // timeout, offline.
   convoReact(status, now = this._now) {
-    if (status === "ok") return;
+    if (NO_REACTION.includes(String(status))) return;
     this.reactAt = now;
   }
 
