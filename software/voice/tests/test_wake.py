@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The wake word, "hey dubs": the transcript check, the end-of-utterance detector on fake audio, and
+"""The wake phrase, "Hey OpenDubs": the transcript check, the end-of-utterance detector on fake audio, and
 whole wake turns, including the silent ones a false wake must give.
 
     python3 software/voice/tests/test_wake.py
@@ -22,6 +22,14 @@ class Phrase(unittest.TestCase):
     def test_accepts_how_parakeet_writes_it(self):
         """Transcripts seen on the robot, and near spellings."""
         cases = {
+            "Hey OpenDubs.": "",
+            "Hey, open dubs, what is your name?": "what is your name?",
+            "Hey Open Dubbs can you hear me?": "can you hear me?",
+            "hey opendubs, hi": "hi",
+            "Open dubs, what time is it?": "what time is it?",      # the "hey" lost
+            "Heyopendubs hello": "hello",
+            "Dubs. Hey OpenDubs, are you there?": "are you there?",
+            # "hey dubs" stays accepted here: Parakeet sometimes drops the middle word
             "Hey Dubs.": "",
             "Hey dubs, what is your name?": "what is your name?",
             "Hey dubs can you hear me?": "can you hear me?",
@@ -44,7 +52,8 @@ class Phrase(unittest.TestCase):
         """Seen on the robot: the near-miss clips transcribed as these."""
         for t in ("Hey doves.", "Hey Dad.", "Hey, does it work?", "Hey dogs, what is your name?",
                   "Hey Tom. Can you hear me?", "dubs hey", "What is your name?", "", "Hey",
-                  "I told you we could go there and then hey dubs"):     # too far in: not a wake
+                  "I told you we could go there and then hey dubs",       # too far in: not a wake
+                  "Open the door.", "Hey, open the window.", "Hey open doves", "Hey, opened it."):
             self.assertIsNone(wakeword.strip(t), t)
 
 
@@ -106,7 +115,7 @@ class Endpointing(unittest.TestCase):
 
 
 async def wake(v, page, pcm, pre_roll_ms=600):
-    await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey dubs", "pre_roll_ms": pre_roll_ms}))
+    await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey opendubs", "pre_roll_ms": pre_roll_ms}))
     for i, f in enumerate(frames(pcm)):
         await v.on_bytes(page, wire.pack_up(i, i * 20, f))
         if v.state != "listen":
@@ -128,7 +137,7 @@ class WakeTurns(unittest.IsolatedAsyncioTestCase):
 
     async def test_ready_advertises_wake_only_when_enabled(self):
         link, _ = await connect(self.voice("x"))
-        self.assertEqual(link.of("ready")[0]["wake"], {"keyword": "hey dubs"})
+        self.assertEqual(link.of("ready")[0]["wake"], {"keyword": "hey opendubs"})
         link2, page2 = await connect(make_voice())
         self.assertNotIn("wake", link2.of("ready")[0])
         await page2.link.voice.on_text(page2, json.dumps({"type": "wake", "pre_roll_ms": 0}))
@@ -179,14 +188,14 @@ class WakeTurns(unittest.IsolatedAsyncioTestCase):
         await wake(v, page, utterance())
         await asyncio.sleep(0.05)
         self.assertEqual(v.state, "think")
-        await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey dubs", "pre_roll_ms": 0}))
+        await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey opendubs", "pre_roll_ms": 0}))
         self.assertEqual(v.state, "think")                   # ignored: the robot hearing itself
         self.assertEqual(link.of("stop"), [])
 
     async def test_wake_is_off_during_a_show(self):
         v = self.voice("Hey dubs, hello", gate=FakeGate(False, "a show is running (wave)"))
         link, page = await connect(v)
-        await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey dubs", "pre_roll_ms": 0}))
+        await v.on_text(page, json.dumps({"type": "wake", "keyword": "hey opendubs", "pre_roll_ms": 0}))
         self.assertEqual(link.of("turn")[-1]["status"], "off")
         self.assertEqual(v.state, "idle")
 

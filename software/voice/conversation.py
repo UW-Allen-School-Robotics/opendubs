@@ -136,7 +136,7 @@ class Voice:
         self._end_after_turn = False
         self._mark = 0
         self._motion_dropped = 0               # offers of motion removed from the last reply (spoken.py)
-        self.wake_enabled = wake               # the tablet may start turns with "hey dubs" (wakeword.py)
+        self.wake_enabled = wake               # the tablet may start turns with "Hey OpenDubs" (wakeword.py)
         self.make_vad = make_vad
         self._source = "talk"                  # how the turn in hand began: "talk" or "wake"
         self._endpointer = None                # vad.Endpointer, for a wake turn
@@ -228,7 +228,7 @@ class Voice:
 
     # ---- a turn ---------------------------------------------------------------------------------
     async def wake(self, p: Page, msg: dict) -> None:
-        """The tablet heard "hey dubs". Like a press, except the service ends the utterance, and a
+        """The tablet heard "Hey OpenDubs". Like a press, except the service ends the utterance, and a
         wake never cuts a reply: the page does not listen while the robot speaks, so a wake then is
         the robot hearing itself."""
         if not self.wake_enabled:
