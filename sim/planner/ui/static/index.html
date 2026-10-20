@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenArm Motion Planner Studio</title>
-  <link rel="stylesheet" href="/static/style.css?v=2.2" />
+  <link rel="stylesheet" href="/static/style.css?v=2.3" />
 </head>
 <body>
   <!-- Header -->
@@ -183,7 +183,10 @@
 
         <!-- Keyframe Sequence List -->
         <div class="form-group">
-          <label>Sequence Keyframes</label>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Sequence Keyframes</label>
+            <button id="btn-mirror-sequence" class="icon-btn" style="font-size:10px; padding:2px 8px;" title="Mirror all keyframe poses to the other arm">Mirror Sequence</button>
+          </div>
           <div id="keyframe-list" class="keyframe-list">
             <!-- Rendered by app.js -->
           </div>
@@ -284,6 +287,6 @@
     </div>
   </div>
 
-  <script type="module" src="/static/app.js?v=2.2"></script>
+  <script type="module" src="/static/app.js?v=2.3"></script>
 </body>
 </html>

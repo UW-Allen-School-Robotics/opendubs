@@ -52,13 +52,34 @@ PRESETS_DEG = {
     "cauldron_stir": [0.0, -35.0, 15.0, 55.0, 30.0, 10.0, 0.0],
 }
 
-DEFAULT_HALLOWEEN_SEQUENCE = [
-    {"name": "Rest / Stow", "arm": "left", "time_s": 0.0, "joints_deg": PRESETS_DEG["stow"]},
-    {"name": "Zombie Reach", "arm": "left", "time_s": 4.0, "joints_deg": PRESETS_DEG["zombie_reach"]},
-    {"name": "Spooky Arms Up", "arm": "left", "time_s": 8.0, "joints_deg": PRESETS_DEG["spooky_arms_up"]},
-    {"name": "Pumpkin Offer", "arm": "left", "time_s": 12.0, "joints_deg": PRESETS_DEG["pumpkin_offer"]},
-    {"name": "Return to Rest", "arm": "left", "time_s": 16.0, "joints_deg": PRESETS_DEG["stow"]},
-]
+def get_preset_deg(preset_name: str, arm: str = "left") -> list[float]:
+    base = PRESETS_DEG.get(preset_name, [0.0] * 7)
+    if arm == "right":
+        # OpenArm V1 kinematics: J1, J2, J3 are mirrored between left and right arms
+        return [-base[0], -base[1], -base[2], base[3], base[4], base[5], base[6]]
+    return list(base)
+
+
+def get_default_sequence(arm: str = "left") -> list[dict]:
+    seq = [
+        {"name": "Rest / Stow", "time_s": 0.0, "preset": "stow"},
+        {"name": "Zombie Reach", "time_s": 4.0, "preset": "zombie_reach"},
+        {"name": "Spooky Arms Up", "time_s": 8.0, "preset": "spooky_arms_up"},
+        {"name": "Pumpkin Offer", "time_s": 12.0, "preset": "pumpkin_offer"},
+        {"name": "Return to Rest", "time_s": 16.0, "preset": "stow"},
+    ]
+    return [
+        {
+            "name": item["name"],
+            "arm": arm,
+            "time_s": item["time_s"],
+            "joints_deg": get_preset_deg(item["preset"], arm),
+        }
+        for item in seq
+    ]
+
+
+DEFAULT_HALLOWEEN_SEQUENCE = get_default_sequence("left")
 
 
 class PlannerService:
@@ -124,8 +145,9 @@ class PlannerService:
     def solve_ik(self, arm: str, pos_m: list[float], q_seed_deg: list[float] | None = None) -> dict:
         planner = self.get_planner(arm)
         ik_mod = openarm_left_ik if arm == "left" else openarm_right_ik
-        # Orientation matching forward reach
-        T_target = ik_mod.fk(np.radians(PRESETS_DEG["reach_forward"]))
+        # Orientation matching forward reach in the appropriate arm frame
+        ref_preset = get_preset_deg("reach_forward", arm)
+        T_target = ik_mod.fk(np.radians(ref_preset))
         T_target[:3, 3] = pos_m
 
         q_seed = np.radians(q_seed_deg) if q_seed_deg is not None else np.zeros(7)
@@ -267,8 +289,15 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 "available_backends": get_available_backends(),
                 "version": "1.0",
             })
+        query_arm = "left"
+        if "?" in self.path:
+            for part in self.path.split("?", 1)[1].split("&"):
+                if part.startswith("arm="):
+                    query_arm = part.split("=")[1]
+
         if url == "/api/presets":
-            return self._send_json(PRESETS_DEG)
+            out = {k: get_preset_deg(k, query_arm) for k in PRESETS_DEG}
+            return self._send_json(out)
         if url == "/api/keyframes":
             if os.path.exists(SAVED_KEYFRAMES_PATH):
                 try:
@@ -276,7 +305,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                         return self._send_json(json.load(f))
                 except Exception:
                     pass
-            return self._send_json(DEFAULT_HALLOWEEN_SEQUENCE)
+            return self._send_json(get_default_sequence(query_arm))
         if url == "/api/benchmark":
             if SERVICE.cached_benchmark is not None:
                 return self._send_json(SERVICE.cached_benchmark)

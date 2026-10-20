@@ -1,7 +1,7 @@
 /* OpenArm Motion Planner Studio & Halloween Show Designer
  * Main Application Logic
  */
-import { PlannerStudioView } from "./armview.js?v=2.2";
+import { PlannerStudioView } from "./armview.js?v=2.3";
 
 function logClient(level, message, stack = "") {
   try {
@@ -290,6 +290,14 @@ class StudioApp {
     document.getElementById("btn-close-modal").onclick = () => this._closeYamlModal();
     document.getElementById("btn-copy-yaml").onclick = () => this._copyYamlToClipboard();
     document.getElementById("btn-download-yaml").onclick = () => this._downloadYaml();
+    document.getElementById("btn-mirror-sequence").onclick = () => {
+      const otherArm = this.arm === "left" ? "right" : "left";
+      this.keyframes.forEach((kf) => {
+        kf.arm = otherArm;
+        kf.joints_deg = [-kf.joints_deg[0], -kf.joints_deg[1], -kf.joints_deg[2], kf.joints_deg[3], kf.joints_deg[4], kf.joints_deg[5], kf.joints_deg[6]];
+      });
+      this._setArm(otherArm);
+    };
 
     // Benchmark modal buttons
     document.getElementById("btn-open-benchmark").onclick = () => this._openBenchmarkModal();
@@ -310,6 +318,20 @@ class StudioApp {
     this._syncUIFromState();
     this._updateArmPosesInView();
     this._checkCollisionAndFK();
+
+    // Auto-mirror keyframe sequence poses to match the selected arm (flip J1, J2, J3)
+    let mirrored = 0;
+    this.keyframes.forEach((kf) => {
+      if (kf.arm !== arm) {
+        kf.arm = arm;
+        kf.joints_deg = [-kf.joints_deg[0], -kf.joints_deg[1], -kf.joints_deg[2], kf.joints_deg[3], kf.joints_deg[4], kf.joints_deg[5], kf.joints_deg[6]];
+        mirrored++;
+      }
+    });
+    if (mirrored > 0) {
+      this._renderKeyframeList();
+      this._saveKeyframes();
+    }
   }
 
   _setTargetMode(mode) {
@@ -586,10 +608,11 @@ class StudioApp {
       qInterp = positions[idx].map((p0, i) => p0 + alpha * (positions[idx + 1][i] - p0));
     }
 
-    // Update solid arm pose in 3D view
+    // Update solid arm pose in 3D view using the arm the trajectory was planned for
+    const trajArm = (this.trajectory && this.trajectory.arm) || this.arm;
     const solidAngles = {};
     for (let i = 0; i < 7; i++) {
-      solidAngles[this._getJointName(i)] = (qInterp[i] * Math.PI) / 180.0;
+      solidAngles[`openarm_${trajArm}_joint${i + 1}`] = (qInterp[i] * Math.PI) / 180.0;
     }
     if (this.view && this.view.setSolidJoints) this.view.setSolidJoints(solidAngles);
 
@@ -737,6 +760,7 @@ class StudioApp {
 
       this.trajectory = {
         success: true,
+        arm: this.arm,
         duration: cumulativeDuration,
         times: allTimes,
         positions_deg: allPositions,
@@ -759,7 +783,8 @@ class StudioApp {
       document.getElementById("plan-perf-info").textContent = `${this.keyframes.length} keyframes | ${allPositions.length} waypoints`;
 
       if (this.view && this.view.setTrajectoryPath) {
-        this.view.setTrajectoryPath(this.arm, allPositions);
+        const rads = allPositions.map((q) => q.map((v) => (v * Math.PI) / 180.0));
+        this.view.setTrajectoryPath(this.arm, rads);
       }
     } catch (err) {
       alert(`Sequence planning error:\n${err.message}`);
