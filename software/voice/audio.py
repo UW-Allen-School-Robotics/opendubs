@@ -72,6 +72,18 @@ def shape(pcm: bytes, rate: int) -> dict:
             "clipped": sum(1 for x in s if x >= 32700 or x <= -32700)}
 
 
+def uplink_rate(page_ms: list, frame_ms: int = 20, skip: int = 80, need: int = 50) -> float | None:
+    """How fast audio arrived against the page's own clock: 1.0 is real time. Computed after the first
+    `skip` frames, which may be a pre-roll sent in a burst, and only when `need` more follow. Near 2.0
+    means the page is sending two streams interleaved (it happened: a reconnect left the old mic
+    source feeding, and recognition heard whine instead of the visitor)."""
+    live = page_ms[skip:]
+    if len(live) < need:
+        return None
+    span = (live[-1] - live[0]) % 2**32
+    return (len(live) - 1) * frame_ms / span if span > 0 else None
+
+
 def duration_ms(pcm: bytes, rate: int) -> float:
     return len(pcm) / 2 / rate * 1000
 

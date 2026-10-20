@@ -127,6 +127,7 @@ class Voice:
         self._buf = bytearray()
         self._expect_seq = 0
         self._lost = 0
+        self._page_ms: list = []
         self._t_press = 0.0
         self._task: asyncio.Task | None = None       # the pipeline of the turn in think/speak
         self._cap: asyncio.Task | None = None        # the utterance cap timer
@@ -195,13 +196,14 @@ class Voice:
             p.dropped += 1
             return
         try:
-            seq, _page_ms, pcm = wire.parse_up(data)
+            seq, page_ms, pcm = wire.parse_up(data)
         except wire.WireError as e:
             await p.text(wire.control("error", code="VOICE_BAD_FRAME", message=str(e)))
             return
         if seq > self._expect_seq:
             self._lost += seq - self._expect_seq
         self._expect_seq = max(self._expect_seq, seq + 1)
+        self._page_ms.append(page_ms)
         self._buf += pcm
         if self._endpointer is not None:
             ended = self._endpointer.feed(pcm)
@@ -260,6 +262,7 @@ class Voice:
         self.turn += 1
         self._buf = bytearray()
         self._expect_seq = self._lost = 0
+        self._page_ms = []                     # each frame's page clock, for audio.uplink_rate
         self._t_press = self.clock()
         self._source = source
         self._endpointer = vad.Endpointer(self.make_vad(), pre_roll_ms) if source == "wake" else None
@@ -538,7 +541,11 @@ class Voice:
         rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
                "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", ""),
                "audio": shape or {}, "words": len(out["transcript"].split()),
-               "motion_dropped": self._motion_dropped}
+               "motion_dropped": self._motion_dropped,
+               "uplink_x": None if (x := audio.uplink_rate(self._page_ms)) is None else round(x, 2)}
+        if x is not None and x > 1.3:
+            log.warning("turn %s: audio arrived %.1fx faster than real time; the page is sending more "
+                        "than one stream", turn, x)
         if self.log_text:
             rec.update(transcript=out["transcript"], reply=out["reply"])
         log.info("turn %s", json.dumps(rec))
