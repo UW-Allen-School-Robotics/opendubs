@@ -82,7 +82,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Stow / Rest (LEFT)",
@@ -96,7 +97,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     }
   ],
   "right": [

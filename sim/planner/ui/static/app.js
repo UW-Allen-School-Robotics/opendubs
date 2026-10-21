@@ -667,17 +667,23 @@ class StudioApp {
     }
     if (this.view && this.view.setSolidJoints) this.view.setSolidJoints(solidAngles);
 
-    // Update gripper pose at timestamp t based on sequence keyframes
-    if (this.keyframes && this.keyframes.length > 0) {
+    // Update gripper pose at timestamp t based on trajectory gripper events
+    if (this.trajectory && this.trajectory.gripperEvents && this.trajectory.gripperEvents.length > 0) {
+      let activeEv = this.trajectory.gripperEvents[0];
+      for (const ev of this.trajectory.gripperEvents) {
+        if (t >= ev.time - 0.05) {
+          activeEv = ev;
+        }
+      }
+      this._setGripper(activeEv.fraction, false, trajArm);
+    } else if (this.keyframes && this.keyframes.length > 0) {
       let gripFraction = this.gripperState[trajArm] ?? 1.0;
       for (const kf of this.keyframes) {
         if (kf.arm === trajArm && kf.time_s <= t + 1e-4 && kf.gripper) {
           gripFraction = kf.gripper === "close" ? 0.0 : 1.0;
         }
       }
-      if (this.view && this.view.setGripper) {
-        this.view.setGripper(trajArm, gripFraction);
-      }
+      this._setGripper(gripFraction, false, trajArm);
     }
 
     // Update readout
@@ -700,18 +706,20 @@ class StudioApp {
       .catch(() => {});
   }
 
-  _setGripper(fraction, sendToBackend = false) {
+  _setGripper(fraction, sendToBackend = false, arm = this.arm) {
     fraction = Math.max(0, Math.min(1, fraction));
-    this.gripperState[this.arm] = fraction;
-    this._updateGripperUI();
+    this.gripperState[arm] = fraction;
+    if (arm === this.arm) {
+      this._updateGripperUI();
+    }
     if (this.view && this.view.setGripper) {
-      this.view.setGripper(this.arm, fraction);
+      this.view.setGripper(arm, fraction);
     }
     if (sendToBackend) {
       fetch("/api/gripper", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: jsonReq({ arm: this.arm, action: fraction }),
+        body: jsonReq({ arm: arm, action: fraction }),
       }).catch((e) => console.warn("Gripper command failed:", e));
     }
   }
@@ -804,6 +812,8 @@ class StudioApp {
         gripBtn.onclick = (e) => {
           e.stopPropagation();
           kf.gripper = kf.gripper === "close" ? "open" : "close";
+          const newFraction = kf.gripper === "close" ? 0.0 : 1.0;
+          this._setGripper(newFraction, true, kf.arm);
           this._renderKeyframeList();
           this._saveKeyframes();
         };
@@ -815,7 +825,7 @@ class StudioApp {
         this.qGoal = [...kf.joints_deg];
         if (kf.gripper) {
           const frac = kf.gripper === "close" ? 0.0 : 1.0;
-          this._setGripper(frac, false);
+          this._setGripper(frac, true, kf.arm);
         }
         this._setTargetMode("goal");
         this._syncUIFromState();
@@ -876,7 +886,17 @@ class StudioApp {
     const allTimes = [];
     const allPositions = [];
     const allEePositions = [];
+    const gripperEvents = [];
     let cumulativeDuration = 0.0;
+
+    // Record initial keyframe gripper event at t = 0.0
+    const kf0Frac = this.keyframes[0].gripper === "close" ? 0.0 : 1.0;
+    gripperEvents.push({
+      time: 0.0,
+      fraction: kf0Frac,
+      action: kf0Frac === 0.0 ? "close" : "open",
+      arm: this.keyframes[0].arm,
+    });
 
     try {
       for (let i = 0; i < this.keyframes.length - 1; i++) {
@@ -908,6 +928,15 @@ class StudioApp {
           allEePositions.push(seg.ee_positions[j]);
         }
         cumulativeDuration += seg.duration;
+
+        // Record destination keyframe gripper event at cumulativeDuration
+        const kfBFrac = kfB.gripper === "close" ? 0.0 : 1.0;
+        gripperEvents.push({
+          time: cumulativeDuration,
+          fraction: kfBFrac,
+          action: kfBFrac === 0.0 ? "close" : "open",
+          arm: kfB.arm,
+        });
       }
 
       const rads = allPositions.map((q) => q.map((v) => (v * Math.PI) / 180.0));
@@ -919,6 +948,7 @@ class StudioApp {
         positions_deg: allPositions,
         positions_rad: rads,
         ee_positions: allEePositions,
+        gripperEvents: gripperEvents,
         waypoints: allPositions.length,
         min_clearance_mm: 35.0,
         planning_time_ms: 0,
@@ -940,6 +970,9 @@ class StudioApp {
         const rads = allPositions.map((q) => q.map((v) => (v * Math.PI) / 180.0));
         this.view.setTrajectoryPath(this.arm, rads);
       }
+
+      // Apply initial pose and gripper at t=0
+      this._applyTrajectoryAtTime(0.0);
     } catch (err) {
       alert(`Sequence planning error:\n${err.message}`);
     } finally {
