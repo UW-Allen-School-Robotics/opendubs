@@ -124,15 +124,20 @@ Then open in your browser:
 **`http://localhost:8092`**
 
 ### Hosting on the Robot (Thor / `10.42.2.10`):
-On the physical robot, **port 8092 is already occupied** by `opendubs-runner` (the kiosk choreography cue runner).
-To host the Motion Planner Studio directly on the Thor, use port **`8095`**:
+On the physical robot, **port 8092 is occupied** by `opendubs-runner` (the kiosk choreography cue runner).
+The Motion Planner Studio is installed as a shared system service at `/opt/opendubs-planner` and runs on port **`8095`**:
 ```bash
-# On the Thor:
-source /home/andrew/venv_planner/bin/activate
-python3 sim/planner/ui/server.py --host 0.0.0.0 --port 8095
+# Service status:
+sudo systemctl status opendubs-planner.service
+
+# Restart if needed:
+sudo systemctl restart opendubs-planner.service
 ```
-Access it from any laptop or tablet on the robot's Wi-Fi at:
+Access it directly from any browser on the robot's Wi-Fi at:
 **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`).
+
+> [!NOTE]
+> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving all team members (`andrew`, `archit`, `shamika`, `daphne`, `eric`, `tobi`, `raj`) full collaborative access without touching `/opt/opendubs/`.
 
 ### Web Studio Features:
 - **Interactive 3D Arm Visualizer:** Real OpenArm V1 mesh geometry in WebGL with orbit camera (ISO, Front, Side, Top, free orbit).

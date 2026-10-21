@@ -166,13 +166,18 @@ Navigate to: **`http://localhost:8092`**
 
 ### Hosting on the Physical Robot (Thor / `10.42.2.10`):
 Port `8092` on the Thor host is already reserved for the kiosk cue runner (`opendubs-runner`).
-To host the studio on-board the Thor, bind to port **`8095`**:
+The Motion Planner Studio is installed as a shared systemd service at `/opt/opendubs-planner` and runs on port **`8095`**:
 ```bash
-# On the Thor host (e.g. via ssh andrew@10.42.2.10):
-source /home/andrew/venv_planner/bin/activate
-python3 sim/planner/ui/server.py --host 0.0.0.0 --port 8095
+# Service status:
+sudo systemctl status opendubs-planner.service
+
+# Restart if needed:
+sudo systemctl restart opendubs-planner.service
 ```
-Then navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from any device on the robot's Wi-Fi network.
+Navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from any device on the robot's Wi-Fi network.
+
+> [!NOTE]
+> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving all team members (`andrew`, `archit`, `shamika`, `daphne`, `eric`, `tobi`, `raj`) full collaborative access without touching `/opt/opendubs/`.
 
 ### UI Features:
 - **Live Backend Dropdown:** Switch dynamically between CBiRRT and cuRobo in the top header.
