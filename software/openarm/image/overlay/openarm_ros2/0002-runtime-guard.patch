@@ -1,0 +1,448 @@
+diff --git a/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp b/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp
+index 3f3a54e..5d32313 100644
+--- a/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp
++++ b/openarm_hardware/include/openarm_hardware/openarm_simple_hardware.hpp
+@@ -25,6 +25,7 @@
+ #include "hardware_interface/hardware_info.hpp"
+ #include "hardware_interface/system_interface.hpp"
+ #include "hardware_interface/types/hardware_interface_return_values.hpp"
++#include "openarm_hardware/runtime_guard.hpp"
+ #include "openarm_hardware/visibility_control.h"
+ #include "rclcpp/macros.hpp"
+ #include "rclcpp_lifecycle/state.hpp"
+@@ -66,6 +67,13 @@ class OpenArmHW : public hardware_interface::SystemInterface {
+   hardware_interface::CallbackReturn on_deactivate(
+       const rclcpp_lifecycle::State& previous_state) override;
+ 
++  // Which joints a controller drives. A joint no controller claims holds its measured pose
++  // (runtime_guard.hpp), instead of replaying whatever was last written to its command.
++  TEMPLATES__ROS2_CONTROL__VISIBILITY_PUBLIC
++  hardware_interface::return_type perform_command_mode_switch(
++      const std::vector<std::string>& start_interfaces,
++      const std::vector<std::string>& stop_interfaces) override;
++
+   TEMPLATES__ROS2_CONTROL__VISIBILITY_PUBLIC
+   hardware_interface::return_type read(const rclcpp::Time& time,
+                                        const rclcpp::Duration& period) override;
+@@ -155,6 +163,23 @@ class OpenArmHW : public hardware_interface::SystemInterface {
+   // configured gains. Damping is full throughout.
+   void hold_with_stiffness_ramp(const std::vector<double>& hold);
+   bool parse_config(const hardware_interface::HardwareInfo& info);
++
++  // The runtime guard (runtime_guard.hpp). A passive socket of its own on the arm's bus counts each
++  // motor's replies; the guard latches the first silent, disabled or faulted motor, and the arm then
++  // holds hold_q_ until it is activated again. hold_q_ is also what a joint no controller claims
++  // holds. Per joint, in joint units: the arm joints, then the gripper joint when there is one.
++  void guard_open();
++  void guard_close();
++  void guard_poll();
++  int guard_sock_ = -1;
++  std::vector<uint32_t> guard_recv_ids_;
++  std::vector<uint8_t> guard_motor_ids_;
++  std::vector<runtime_guard::Obs> guard_obs_;
++  runtime_guard::Guard guard_{ARM_DOF + 1};
++  bool guard_reported_ = false;
++  std::chrono::steady_clock::time_point guard_last_report_{};
++  std::vector<double> hold_q_;
++  std::vector<bool> claimed_;
+   void generate_joint_names();
+ 
+   // Gripper mapping functions
+diff --git a/openarm_hardware/include/openarm_hardware/runtime_guard.hpp b/openarm_hardware/include/openarm_hardware/runtime_guard.hpp
+new file mode 100644
+index 0000000..a36bc3e
+--- /dev/null
++++ b/openarm_hardware/include/openarm_hardware/runtime_guard.hpp
+@@ -0,0 +1,126 @@
++// While the arm is active: hold it if a motor goes quiet, drops out of ENABLED, or reports a fault.
++//
++// Upstream checks nothing after activation. A motor that stops answering keeps its last reading in
++// openarm_can, which keeps no timestamp, so its joint looks healthy forever while it is unpowered or
++// cut off. The driver counts each motor's reply frames on a passive socket of its own and feeds the
++// result here, once per read() cycle. The first problem latches: the whole arm then holds the pose it
++// was measured at, ignoring the controller, until the hardware is activated again. Holding, not
++// disabling: a deactivated arm goes limp, and a held one stays where it was.
++//
++// Pure, so it can be tested without a robot (test/test_runtime_guard.cpp).
++#pragma once
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace openarm_hardware {
++namespace runtime_guard {
++
++// A motor that misses this many read() cycles in a row is silent. At the 400 Hz controller rate
++// that is 0.1 s; a DAMIAO motor answers every command, so a healthy one never misses more than one.
++constexpr int kSilentCycles = 40;
++
++// DAMIAO status nibble (openarm_can's MotorError): 0 disabled, 1 enabled, 0x8 and up a fault.
++constexpr uint8_t kStatusDisabled = 0x0;
++constexpr uint8_t kFaultThreshold = 0x8;
++
++// One motor, one cycle: whether a reply frame arrived since the last cycle, and the status nibble
++// of its latest reply.
++struct Obs {
++  bool replied;
++  uint8_t status;
++};
++
++// One reply frame on a motor's receive ID. A status frame is [status<<4 | id, pos_hi, pos_lo, ...]; a
++// register reply is [id_lo, id_hi, 0x33|0x55, reg, value x4]. Both prove the motor is alive, but
++// only a status frame carries the status nibble. Byte 2 alone does NOT tell them apart: in a status
++// frame it is the position's low byte (#210, where a held motor read as missing). A status frame
++// matching all three register-reply bytes would be DISABLED at about -710 degrees: out of reach.
++struct Reply {
++  bool alive;
++  bool has_status;
++  uint8_t status;
++};
++
++inline Reply parse_reply(uint8_t motor_id, const uint8_t* d, std::size_t len) {
++  if (len < 8) return {false, false, 0};
++  if (d[0] == motor_id && d[1] == 0 && (d[2] == 0x33 || d[2] == 0x55)) return {true, false, 0};
++  return {true, true, static_cast<uint8_t>(d[0] >> 4)};
++}
++
++enum class Reason { None, Silent, Disabled, Fault };
++
++struct Verdict {
++  bool hold = false;
++  std::size_t motor = 0;  // index in the arm's motor list (joints 0..6, the gripper 7)
++  Reason reason = Reason::None;
++  uint8_t status = 0;
++  std::string text;
++};
++
++class Guard {
++ public:
++  explicit Guard(std::size_t motors, int silent_cycles = kSilentCycles)
++      : missed_(motors, 0), silent_cycles_(silent_cycles) {}
++
++  // At activation: forget the last latch and start counting from now.
++  void reset() {
++    std::fill(missed_.begin(), missed_.end(), 0);
++    verdict_ = Verdict{};
++  }
++
++  // One read() cycle. Returns the latched verdict: once hold is true it stays true until reset().
++  const Verdict& observe(const std::vector<Obs>& obs) {
++    if (verdict_.hold) return verdict_;
++    for (std::size_t i = 0; i < missed_.size() && i < obs.size(); ++i) {
++      if (obs[i].replied) {
++        missed_[i] = 0;
++        if (obs[i].status >= kFaultThreshold) return latch(i, Reason::Fault, obs[i].status);
++        if (obs[i].status == kStatusDisabled) return latch(i, Reason::Disabled, obs[i].status);
++      } else if (++missed_[i] >= silent_cycles_) {
++        return latch(i, Reason::Silent, 0);
++      }
++    }
++    return verdict_;
++  }
++
++  const Verdict& verdict() const { return verdict_; }
++
++ private:
++  const Verdict& latch(std::size_t i, Reason r, uint8_t status) {
++    verdict_.hold = true;
++    verdict_.motor = i;
++    verdict_.reason = r;
++    verdict_.status = status;
++    const std::string who = "motor " + std::to_string(i + 1);
++    switch (r) {
++      case Reason::Silent:
++        verdict_.text = who + " stopped answering (" + std::to_string(missed_[i]) + " cycles)";
++        break;
++      case Reason::Disabled:
++        verdict_.text = who + " reports DISABLED (power lost, or a reset)";
++        break;
++      case Reason::Fault:
++        verdict_.text = who + " reports fault 0x" + hex(status);
++        break;
++      case Reason::None:
++        break;
++    }
++    return verdict_;
++  }
++
++  static std::string hex(uint8_t v) {
++    const char* d = "0123456789ABCDEF";
++    return std::string(1, d[v >> 4 & 0xF]) + d[v & 0xF];
++  }
++
++  std::vector<int> missed_;
++  int silent_cycles_;
++  Verdict verdict_;
++};
++
++}  // namespace runtime_guard
++}  // namespace openarm_hardware
+diff --git a/openarm_hardware/src/openarm_simple_hardware.cpp b/openarm_hardware/src/openarm_simple_hardware.cpp
+index 3ca988c..9bbf5f4 100644
+--- a/openarm_hardware/src/openarm_simple_hardware.cpp
++++ b/openarm_hardware/src/openarm_simple_hardware.cpp
+@@ -14,6 +14,16 @@
+ 
+ #include "openarm_hardware/openarm_simple_hardware.hpp"
+ 
++#include <fcntl.h>
++#include <linux/can.h>
++#include <linux/can/raw.h>
++#include <net/if.h>
++#include <sys/ioctl.h>
++#include <sys/socket.h>
++#include <unistd.h>
++
++#include <cstring>
++
+ #include "openarm_hardware/activation_hold.hpp"
+ 
+ #include <algorithm>
+@@ -256,6 +266,12 @@ hardware_interface::CallbackReturn OpenArmHW::on_activate(
+     pos_commands_[ARM_DOF] = motor_radians_to_joint(hold[ARM_DOF]);
+   }
+ 
++  hold_q_ = pos_commands_;
++  claimed_.assign(joint_names_.size(), false);
++  guard_ = runtime_guard::Guard(joint_names_.size());
++  guard_reported_ = false;
++  guard_open();
++
+   std::vector<double> after;
+   read_measured(after, tmos, error);
+   const double moved = ah::max_abs_diff(hold, after);
+@@ -320,6 +336,7 @@ void OpenArmHW::hold_with_stiffness_ramp(const std::vector<double>& hold) {
+ hardware_interface::CallbackReturn OpenArmHW::on_deactivate(
+     const rclcpp_lifecycle::State& /*previous_state*/) {
+   RCLCPP_INFO(rclcpp::get_logger("OpenArmHW"), "Deactivating OpenArm V10...");
++  guard_close();
+ 
+   // Disable all motors (like full_arm.cpp exit)
+   for (int i = 0; i < 3; ++i) {
+@@ -361,22 +378,73 @@ hardware_interface::return_type OpenArmHW::read(
+     }
+   }
+ 
++  if (guard_sock_ >= 0) {
++    guard_poll();
++    const auto& v = guard_.observe(guard_obs_);
++    const auto now = std::chrono::steady_clock::now();
++    if (v.hold && !guard_reported_) {
++      hold_q_ = pos_states_;  // where it is now; a silent motor's is its last reading
++      guard_reported_ = true;
++      guard_last_report_ = now;
++      RCLCPP_ERROR(rclcpp::get_logger("OpenArmHW"),
++                   "%s: %s. Holding the arm where it is, ignoring the controller, until it is "
++                   "activated again.", can_interface_.c_str(), v.text.c_str());
++    } else if (v.hold && now - guard_last_report_ > std::chrono::seconds(5)) {
++      guard_last_report_ = now;
++      RCLCPP_ERROR(rclcpp::get_logger("OpenArmHW"), "%s: still holding: %s. Activate to resume.",
++                   can_interface_.c_str(), v.text.c_str());
++    }
++  }
++
++  return hardware_interface::return_type::OK;
++}
++
++hardware_interface::return_type OpenArmHW::perform_command_mode_switch(
++    const std::vector<std::string>& start_interfaces,
++    const std::vector<std::string>& stop_interfaces) {
++  auto names = [](const std::vector<std::string>& v, const std::string& joint) {
++    return std::find(v.begin(), v.end(), joint + "/" + hardware_interface::HW_IF_POSITION) != v.end();
++  };
++  if (claimed_.size() != joint_names_.size()) claimed_.assign(joint_names_.size(), false);
++  if (hold_q_.size() != joint_names_.size()) hold_q_ = pos_states_;
++  for (size_t i = 0; i < joint_names_.size(); ++i) {
++    if (names(stop_interfaces, joint_names_[i])) {
++      claimed_[i] = false;
++      hold_q_[i] = pos_states_[i];  // released: hold where it is
++    }
++    if (names(start_interfaces, joint_names_[i])) {
++      claimed_[i] = true;
++      // A controller takes over: its first write may come a cycle later, so the command it inherits
++      // is the measured pose at rest, never a setpoint left from before.
++      pos_commands_[i] = pos_states_[i];
++      vel_commands_[i] = 0.0;
++      tau_commands_[i] = 0.0;
++    }
++  }
+   return hardware_interface::return_type::OK;
+ }
+ 
+ hardware_interface::return_type OpenArmHW::write(
+     const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) {
+   // Control arm motors with MIT control
++  const bool held = guard_.verdict().hold;
++  auto holds = [&](size_t i) { return held || i >= claimed_.size() || !claimed_[i]; };
+   std::vector<openarm::damiao_motor::MITParam> arm_params;
+   for (size_t i = 0; i < ARM_DOF; ++i) {
+-    arm_params.push_back(
+-        {kp_[i], kd_[i], pos_commands_[i], vel_commands_[i], tau_commands_[i]});
++    if (holds(i) && i < hold_q_.size()) {
++      arm_params.push_back({kp_[i], kd_[i], hold_q_[i], 0.0, 0.0});
++    } else {
++      arm_params.push_back(
++          {kp_[i], kd_[i], pos_commands_[i], vel_commands_[i], tau_commands_[i]});
++    }
+   }
+   openarm_->get_arm().mit_control_all(arm_params);
+   // Control gripper if enabled
+   if (hand_ && joint_names_.size() > ARM_DOF) {
+     // TODO the true mappings are unimplemented.
+-    double motor_command = joint_to_motor_radians(pos_commands_[ARM_DOF]);
++    const double target = (holds(ARM_DOF) && ARM_DOF < hold_q_.size()) ? hold_q_[ARM_DOF]
++                                                                       : pos_commands_[ARM_DOF];
++    double motor_command = joint_to_motor_radians(target);
+     openarm_->get_gripper().mit_control_all(
+         {{gripper_kp_, gripper_kd_, motor_command, 0.0, 0.0}});
+   }
+@@ -488,6 +556,71 @@ double OpenArmHW::motor_radians_to_joint(double motor_radians) {
+ //           GRIPPER_MOTOR_1_RADIANS);  // Scale from 0 to -1.0472 to 0-0.044
+ // }
+ 
++void OpenArmHW::guard_open() {
++  guard_close();
++  const auto log = rclcpp::get_logger("OpenArmHW");
++  guard_recv_ids_ = DEFAULT_RECV_CAN_IDS;
++  guard_motor_ids_.clear();
++  for (auto id : DEFAULT_SEND_CAN_IDS) guard_motor_ids_.push_back(static_cast<uint8_t>(id));
++  if (hand_) {
++    guard_recv_ids_.push_back(DEFAULT_GRIPPER_RECV_CAN_ID);
++    guard_motor_ids_.push_back(static_cast<uint8_t>(DEFAULT_GRIPPER_SEND_CAN_ID));
++  }
++  guard_obs_.assign(guard_recv_ids_.size(), {true, 0x1});
++
++  // Read-only: this socket never sends. SocketCAN gives every socket a copy of every frame, so it
++  // sees the replies openarm_can reads, without touching openarm_can.
++  const int s = ::socket(PF_CAN, SOCK_RAW, CAN_RAW);
++  if (s < 0) {
++    RCLCPP_WARN(log, "%s: runtime guard OFF, no socket: %s", can_interface_.c_str(), std::strerror(errno));
++    return;
++  }
++  const int on = 1;
++  if (can_fd_) ::setsockopt(s, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &on, sizeof(on));
++  std::vector<can_filter> filters;
++  for (auto id : guard_recv_ids_) filters.push_back({id, CAN_SFF_MASK});
++  ::setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, filters.data(),
++               static_cast<socklen_t>(filters.size() * sizeof(can_filter)));
++  ifreq ifr{};
++  std::strncpy(ifr.ifr_name, can_interface_.c_str(), IFNAMSIZ - 1);
++  sockaddr_can addr{};
++  addr.can_family = AF_CAN;
++  if (::ioctl(s, SIOCGIFINDEX, &ifr) < 0 ||
++      (addr.can_ifindex = ifr.ifr_ifindex,
++       ::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)) {
++    RCLCPP_WARN(log, "%s: runtime guard OFF, cannot bind: %s", can_interface_.c_str(), std::strerror(errno));
++    ::close(s);
++    return;
++  }
++  ::fcntl(s, F_SETFL, ::fcntl(s, F_GETFL) | O_NONBLOCK);
++  guard_sock_ = s;
++}
++
++void OpenArmHW::guard_close() {
++  if (guard_sock_ >= 0) ::close(guard_sock_);
++  guard_sock_ = -1;
++}
++
++// Everything that arrived since the last cycle, without blocking. Bounded, so a flooded bus cannot
++// stall the control loop.
++void OpenArmHW::guard_poll() {
++  for (auto& o : guard_obs_) o.replied = false;
++  canfd_frame f{};
++  for (int n = 0; n < 256; ++n) {
++    const ssize_t got = ::read(guard_sock_, &f, sizeof(f));
++    if (got != static_cast<ssize_t>(CAN_MTU) && got != static_cast<ssize_t>(CANFD_MTU)) break;
++    if (f.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG | CAN_EFF_FLAG)) continue;
++    const uint32_t id = f.can_id & CAN_SFF_MASK;
++    for (size_t i = 0; i < guard_recv_ids_.size(); ++i) {
++      if (guard_recv_ids_[i] != id) continue;
++      const auto r = runtime_guard::parse_reply(guard_motor_ids_[i], f.data, f.len);
++      if (r.alive) guard_obs_[i].replied = true;
++      if (r.has_status) guard_obs_[i].status = r.status;
++      break;
++    }
++  }
++}
++
+ }  // namespace openarm_hardware
+ 
+ #include "pluginlib/class_list_macros.hpp"
+diff --git a/openarm_hardware/test/test_runtime_guard.cpp b/openarm_hardware/test/test_runtime_guard.cpp
+new file mode 100644
+index 0000000..91789f0
+--- /dev/null
++++ b/openarm_hardware/test/test_runtime_guard.cpp
+@@ -0,0 +1,69 @@
++// The runtime guard's decisions, without a robot:
++//   g++ -std=c++17 -I include test/test_runtime_guard.cpp -o /tmp/t && /tmp/t
++#include <cstdio>
++#include <vector>
++
++#include "openarm_hardware/runtime_guard.hpp"
++
++namespace rg = openarm_hardware::runtime_guard;
++
++static int fails = 0;
++static void expect(bool cond, const char* what) {
++  std::printf("  %s  %s\n", cond ? "ok  " : "FAIL", what);
++  fails += !cond;
++}
++
++static std::vector<rg::Obs> all(bool replied, uint8_t status = 0x1) {
++  return std::vector<rg::Obs>(8, {replied, status});
++}
++
++int main() {
++  {  // a healthy arm, with the odd missed cycle a busy bus produces, never holds
++    rg::Guard g(8);
++    bool held = false;
++    for (int c = 0; c < 2000; ++c) held |= g.observe(all(c % 7 != 0)).hold;
++    expect(!held, "an occasional missed reply does not hold the arm");
++  }
++  {  // 2026-10-17: the left gripper (motor 8) went silent while motors 1-7 answered
++    rg::Guard g(8);
++    auto obs = all(true);
++    obs[7].replied = false;
++    for (int c = 0; c < rg::kSilentCycles - 1; ++c) g.observe(obs);
++    expect(!g.verdict().hold, "silent for one cycle short of the limit: not yet");
++    const auto& v = g.observe(obs);
++    expect(v.hold && v.reason == rg::Reason::Silent && v.motor == 7, "silent at the limit: holds, naming motor 8");
++  }
++  {  // power lost and restored under an active arm: the motors come back DISABLED
++    rg::Guard g(8);
++    auto obs = all(true);
++    obs[2].status = 0x0;
++    const auto& v = g.observe(obs);
++    expect(v.hold && v.reason == rg::Reason::Disabled && v.motor == 2, "a motor reporting DISABLED holds the arm");
++  }
++  {  // a fault code (overcurrent, 0xA)
++    rg::Guard g(8);
++    auto obs = all(true);
++    obs[4].status = 0xA;
++    const auto& v = g.observe(obs);
++    expect(v.hold && v.reason == rg::Reason::Fault && v.status == 0xA, "a fault code holds the arm, with the code");
++  }
++  {  // the hold is latched: replies coming back do not release it; only re-activation does
++    rg::Guard g(8);
++    auto obs = all(true);
++    obs[0].status = 0xA;
++    g.observe(obs);
++    expect(g.observe(all(true)).hold, "the hold stays after the motor recovers");
++    g.reset();
++    expect(!g.observe(all(true)).hold, "re-activation clears it");
++  }
++  {  // #210: a held motor whose position's low byte is 0x33 is a status frame, not a register reply
++    const uint8_t held[8] = {0x11, 0x80, 0x33, 0x7f, 0xe7, 0xfd, 0x19, 0x17};  // right J1, 2026-10-12
++    const auto r = rg::parse_reply(1, held, 8);
++    expect(r.alive && r.has_status && r.status == 0x1, "position low byte 0x33 is still a status frame (ENABLED)");
++    const uint8_t reg[8] = {0x01, 0x00, 0x33, 0x0a, 0x00, 0x00, 0x00, 0x00};
++    const auto q = rg::parse_reply(1, reg, 8);
++    expect(q.alive && !q.has_status, "a register reply proves the motor alive, without a status");
++  }
++  std::printf(fails ? "%d FAILED\n" : "all passed\n", fails);
++  return fails ? 1 : 0;
++}

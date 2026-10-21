@@ -112,6 +112,9 @@ compared with the backup:
 - **`openarm` differs, by design:** the lock pins the org copy's newer `opendubs` (the teleop status
   report and the SSIK 8.1.0 modules), which the robot has not been moved to yet.
 - **`openarm_ros2` differs by exactly the A1 patch,** which the robot runs since that evening.
+  A second overlay, `0002-runtime-guard.patch` (layer 1 of [`arm-safety-layers.md`](arm-safety-layers.md)), is
+  built and unit-tested but **not yet on the robot**: it holds the arm when a motor goes silent, drops
+  out of ENABLED or faults while active, and holds any joint no controller drives.
 - **`openarm_impedance_control` differs by one robot-only file,** below.
 
 What the capture found, and what was done about each:
