@@ -75,6 +75,9 @@ chmod +x "$ROSDIR"/*.sh
 for svc in $SERVICES; do
   install -m0644 "$ROSDIR/$svc.service" "/etc/systemd/system/$svc.service"
 done
+# The UDP-only DDS lines were first placed by hand as a drop-in on opendubs2; the units carry them now.
+rm -f /etc/systemd/system/opendubs-scan-watchdog.service.d/udp-only.conf \
+      /etc/systemd/system/opendubs-scan-watchdog-rear.service.d/udp-only.conf
 systemctl daemon-reload
 
 # Which LIDAR units are pinned? An unpinned one is installed and enabled but NOT started, so a
