@@ -731,6 +731,36 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-joint-data-missing)
 
+## A show won't start, or stops {#show-wont-start}
+
+Check in this order:
+
+1. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+2. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+
+### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
+
+`SHOW_VIDEO_NOT_READY` · Refused action · seen on the dashboard
+
+This show plays video on the projector and says it must not run without it. The output it uses (casting over Wi-Fi, or the HDMI cable) wasn't ready, so the show was refused before anything moved. The sentence after the code says why, in the words the projector card on the Shows page uses. A show that doesn't insist on its video runs without it instead, saying so.
+
+**What to do**
+
+1. Look at the projector card on the Shows page; it shows each output and what is missing.
+2. For casting, check the projector is on, awake and joined to the robot's Wi-Fi.
+3. For HDMI, check the cable and that the projector is on and set to its HDMI input.
+4. Or choose the other output (or off) on the projector card, then start the show again.
+
+### The projector output couldn't be changed because a show is playing {#show-video-busy}
+
+`SHOW_VIDEO_BUSY` · Refused action · seen on the dashboard
+
+The video output (casting, HDMI or off) was changed while a show was running. A running show's videos are already on their output, so the change was refused rather than switching mid-show.
+
+**What to do**
+
+1. Change the output before starting the show, or stop the show first.
+
 ## The robot won't play a sound {#no-sound}
 
 A sound sent to the robot plays on its own speaker. It is refused while a show has the speaker, and when no speaker is connected; the entries below say which.

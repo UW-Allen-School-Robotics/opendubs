@@ -66,6 +66,7 @@ jobs:
       - run: python3 software/choreo/tests/test_library_perms.py   # an index other users can read; unreadable is said
       - run: python3 software/choreo/tests/test_show_sync.py   # the robot's own shows folder, a fake robot
       - run: python3 software/choreo/tests/test_show_outputs.py   # the lift and the light on live runs, a fake dashboard
+      - run: python3 software/choreo/tests/test_video.py   # projector video: byte ranges, the schedule, preflight, VIDEO cues
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/tests/test_studio.py   # the studio launcher and its wheel's contents

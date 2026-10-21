@@ -65,7 +65,7 @@ def _run(t: LS.Target, cmd: str, stdin=None):
 
 
 def library_ids(show, tl: dict) -> list:
-    """The library items a show plays: its song and every skin the face does not draw in code."""
+    """The library items a show plays: its song, every skin the face does not draw in code, and its videos."""
     ids = []
     music = tl.get("music") or {}
     if music.get("song"):
@@ -74,6 +74,10 @@ def library_ids(show, tl: dict) -> list:
         c = e.get("cue") or {}
         if c.get("do") == "skin" and c.get("name") and c["name"] not in cue.CODE_SKINS and c["name"] not in ids:
             ids.append(c["name"])
+    for e in (tl.get("tracks") or {}).get("VIDEO", []):        # projector videos (kind `video`)
+        v = (e.get("cue") or {}).get("video")
+        if v and v not in ids:
+            ids.append(v)
     return ids
 
 
