@@ -50,8 +50,9 @@ def forbidden(msg_type: str) -> bool:
 
 
 def heartbeat(now: float) -> dict:
-    """The stage page's frame for "nobody there"."""
-    return {"v": 1, "t": now, "frame": "skeleton_camera", "people": []}
+    """The empty frame sent when the feed is silent. "stale" (the adapter's own frames say "live") lets
+    the page tell a silent feed from a live one with nobody in front of the camera."""
+    return {"v": 1, "t": now, "frame": "skeleton_camera", "people": [], "status": "stale"}
 
 
 class Slot:
@@ -80,11 +81,14 @@ def due_heartbeat(now: float, last_message: float, last_sent: float, every: floa
 
 
 def load_adapter(path: str = CHOREO):
-    """The choreography lane's adapter, and the message class its MSG_TYPE names."""
+    """The choreography lane's adapter, and the message class its MSG_TYPE names. MSG_TYPE = None means
+    "not configured yet" and returns (feed, None, None); any other unusable type stops the relay."""
     if path not in sys.path:
         sys.path.insert(0, path)
     feed = importlib.import_module("skeleton_feed")
     msg_type = getattr(feed, "MSG_TYPE", "")
+    if msg_type is None:
+        return feed, None, None
     if not msg_type or forbidden(msg_type):
         raise SystemExit(f"skeleton_relay: refusing message type {msg_type!r}: only skeleton points may pass")
     pkg, _msg, name = msg_type.split("/")
@@ -100,6 +104,12 @@ def main():
     from rclpy.qos import qos_profile_sensor_data
 
     feed, msg_type, cls = load_adapter()
+    if msg_type is None:
+        # The adapter ships unconfigured until the tracker's message type is known. Idle rather than
+        # exit, so systemd does not restart it every few seconds; the next deploy restarts the unit.
+        print("skeleton_relay: the adapter's MSG_TYPE is None (not configured yet); idle", flush=True)
+        while True:
+            time.sleep(3600)
     topic = os.environ.get("OPENDUBS_SKELETON_TOPIC") or getattr(feed, "DEFAULT_TOPIC", "")
     if not topic:
         raise SystemExit("skeleton_relay: no topic (set OPENDUBS_SKELETON_TOPIC)")

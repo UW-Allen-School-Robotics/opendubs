@@ -203,7 +203,9 @@ dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
 - **Only skeleton points pass.** The relay subscribes to exactly the adapter's `MSG_TYPE` and refuses
   to start if that is an image, depth or point-cloud type. Nothing is recorded.
 - **Newest frame only.** A slow socket drops older frames rather than queueing them. An empty frame
-  goes out after 1 s with no message, so the page can tell "nobody there" from a stopped feed.
+  goes out after 1 s with no message, marked `"status": "stale"`, so the page can tell "nobody there"
+  from a stopped feed.
+- While the adapter's `MSG_TYPE` is `None` (the tracker's type not known yet) it idles and says so once.
 - It idles until the adapter is deployed (`ConditionPathExists`), runs on UDP-only DDS, and reconnects
   across dashboard restarts.
 

@@ -29,6 +29,17 @@ class PrivacyTest(unittest.TestCase):
             sys.modules.pop("skeleton_feed", None)
 
 
+class UnconfiguredTest(unittest.TestCase):
+    def test_msg_type_none_means_idle_not_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "skeleton_feed.py").write_text("MSG_TYPE = None\n")
+            sys.modules.pop("skeleton_feed", None)
+            feed, msg_type, cls = sr.load_adapter(d)
+            self.assertIsNone(msg_type)
+            self.assertIsNone(cls)
+            sys.modules.pop("skeleton_feed", None)
+
+
 class SlotTest(unittest.TestCase):
     def test_a_newer_frame_replaces_an_unsent_one(self):
         s = sr.Slot()
@@ -44,7 +55,7 @@ class HeartbeatTest(unittest.TestCase):
         self.assertFalse(sr.due_heartbeat(now=10.0, last_message=9.5, last_sent=8.0))   # the feed is live
         self.assertFalse(sr.due_heartbeat(now=10.0, last_message=8.0, last_sent=9.5))   # just sent one
         hb = sr.heartbeat(12.5)
-        self.assertEqual(hb, {"v": 1, "t": 12.5, "frame": "skeleton_camera", "people": []})
+        self.assertEqual(hb, {"v": 1, "t": 12.5, "frame": "skeleton_camera", "people": [], "status": "stale"})
 
 
 if __name__ == "__main__":
