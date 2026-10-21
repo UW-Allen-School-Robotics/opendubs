@@ -67,6 +67,7 @@ jobs:
       - run: python3 software/choreo/tests/test_show_sync.py   # the robot's own shows folder, a fake robot
       - run: python3 software/choreo/tests/test_show_outputs.py   # the lift and the light on live runs, a fake dashboard
       - run: python3 software/choreo/tests/test_video.py   # projector video: byte ranges, the schedule, preflight, VIDEO cues
+      - run: python3 software/choreo/tests/test_skeleton_feed.py   # the live skeleton adapter: canonical joints, the Thor's clock, stdlib only
       - run: python3 software/choreo/tests/test_projection.py   # the twin's projection screen: picture by show time, decoded once
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
