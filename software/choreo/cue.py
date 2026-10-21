@@ -366,7 +366,8 @@ TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clip
 # part is assumed where the twin leaves an unused one: an arm at rest (zero), the head centred, the
 # lift down, a gripper as the sim draws it.
 EFFECTORS = {"ARM_L": "arm_left", "ARM_R": "arm_right", "GRIP_L": "grip_left", "GRIP_R": "grip_right",
-             "LIFT": "lift", "LIGHT": "light", "HEAD": "neck"}
+             "LIFT": "lift", "LIGHT": "light", "HEAD": "neck",
+             "CRAWL": "floor_hand"}         # the crawling hand on the floor (hand_output.py)
 
 
 def variant_key(skip) -> str:
@@ -403,8 +404,9 @@ NOT_EXECUTABLE = {
     "VIDEO": "VIDEO plays on the robot only where the runner has a video output (--video cast,hdmi) and "
              "the projector is ready; otherwise the show runs without it, saying so (a show may say "
              "video: {required: true} to be refused instead)",
-    "CRAWL": "CRAWL runs only in the twin: the crawling hand has no driver yet (its tool type's output is "
-             "none), and its speeds are from simulation, not hardware — the runner REFUSES this show on the robot",
+    "CRAWL": "CRAWL plays on the robot only with a floor hand fitted and connected (the runner's --hand), a "
+             "type with a driver, and moves that have run on the real hand; otherwise the runner refuses the "
+             "show — or, with floor_hand in can_skip:, offers it without the hand on the operator's approval",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",

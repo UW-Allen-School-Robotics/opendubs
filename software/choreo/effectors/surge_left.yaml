@@ -15,6 +15,9 @@ id: surge_left
 name: Surge hand (left)
 mirror_of: surge_right
 hand: left
+# THE DRIVER (drivers/surge_at.py), through the runner's floor-hand output (hand_output.py, --hand PORT):
+# a live run plays only the moves this hand has run (hardware: tested_gaits, tested_patterns).
+output: surge_at
 
 # THE HAND ON THE ROBOT IS THIS ONE (opendubs2, 2026-10-16). Its real-hardware facts are below; the shared
 # ones (protocol, blocked joints, error clearing, angle gain) are in surge_right.yaml's `hardware:`. The
@@ -46,6 +49,9 @@ hardware:
   # nothing under the wrist, OPEN LOOP. Sent as AT+SJA degrees = the gait model's radians, UNSCALED, all 6
   # joints at 20 Hz with AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge
   # Hand investigation's sim/out/bare_thumb_flexstroke.json and hw/gait_stream.py.
+  # The finger dances that have run on the real hand: the bench run of hand_bench (2026-10-16): the idle
+  # beat tap, ripple and wave, the thumb kept beside the palm. A live run plays only these and tested_gaits.
+  tested_patterns: [tap_index, ripple, wave]
   tested_gaits:
     bare_flexstroke:
       dir: forward

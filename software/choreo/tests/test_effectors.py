@@ -107,8 +107,11 @@ good = ("  - { t: 1, slot: CRAWL, do: walk, secs: 10 }\n"
 s = show(CR, good, "[CRAWL]")
 tl = s.export(LIMITS)
 check("a walk out, a finger dance and a walk home validate", tl["valid"], tl["problems"])
-check("it is twin only: noted, and the runner refuses it",
-      any("CRAWL runs only in the twin" in n for n in tl["notices"]) and runner.twin_only_tools(tl))
+import hand_output  # noqa: E402
+check("on the robot it needs a floor hand: noted, and this hand type (no driver) is unavailable — refused, or "
+      "skipped on approval with can_skip (test_floor_hand.py)",
+      any("CRAWL plays on the robot only" in n for n in tl["notices"]) and not runner.twin_only_tools(tl)
+      and "no driver" in (hand_output.availability(tl, None)["why"] or ""))
 check("the export carries the plan, with sim speeds and a sampled path",
       tl["crawler"]["legs"][0]["speed_key"] == "dragging_m_s" and len(tl["crawler"]["path"]) > 100
       and "SIM, NOT HARDWARE" in tl["crawler"]["provenance"])

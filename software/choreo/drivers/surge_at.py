@@ -7,8 +7,9 @@ Standard library only, so it runs on the Thor with nothing installed.
     python3 surge_at.py play seq.json --port P          # play a hardware sequence (cue.py export-effector)
     python3 surge_at.py play seq.json --dry-run         # check it and print what it would do; no port
 
-THE INTERFACE the runner's output will call (not wired into the runner yet; a bench player uses it now):
+THE INTERFACE the runner's floor-hand output calls (hand_output.py), and the bench player too:
     d = SurgeAT(); d.open(port); d.start_stream(); d.apply(t, {"I": deg, …}); d.home(); d.close()
+and ShowPlayer(sequence).targets(show_t): a sequence's joints at a moment of the show.
 
 THE PROTOCOL, as found on the robot's hand (the Surge Hand investigation, 2026-10-16):
   * a command is text ending "\\n\\r"; replies echo it with "=" (`AT+GJA?I` -> `AT+GJA=13.1`);
@@ -240,6 +241,65 @@ def load_sequence(path: str, allow_presets=False) -> tuple:
     if not segs:
         raise SystemExit(f"surge: {path}: no segments")
     return seq, segs, total
+
+
+class ShowPlayer:
+    """A hardware sequence (effectors.hardware_sequence) played ON THE SHOW'S CLOCK: each segment starts at
+    its own show time (`t`), so nothing accumulates however late a tick runs. `targets(show_t)` gives the
+    joints to send at that moment, or None before the first segment and after the last; the runner's
+    floor-hand output (hand_output.py) calls it at RATE_HZ. A gait blends in from wherever the hand was over
+    its first BLEND_S (inside the segment, not added to it); a joint target ramps, then holds. Closing
+    presets are refused, as by the bench player."""
+
+    def __init__(self, seq: dict):
+        self.segs = []
+        for i, sg in enumerate(seq.get("segments") or []):
+            if "t" not in sg:
+                raise ValueError(f"segment {i} has no show time `t` (re-export it with cue.py export-effector)")
+            kind, t0 = sg.get("type"), float(sg["t"])
+            if kind == "gait":
+                g = {**GAIT_DEFAULTS, **(sg.get("params") or {})}
+                if g["grouping"] not in GROUPS or not 0.05 <= g["skew"] <= 0.95 or not 0.1 <= g["freq"] <= 2.0:
+                    raise ValueError(f"segment {i}: grouping, skew or freq out of range")
+                self.segs.append((t0, t0 + float(sg["seconds"]), "gait", g))
+            elif kind == "joints":
+                deg = {k: float(v) for k, v in (sg.get("deg") or {}).items()}
+                bad = [k for k, v in deg.items() if k not in LIMITS or not LIMITS[k][0] <= v <= LIMITS[k][1]]
+                if bad:
+                    raise ValueError(f"segment {i}: {', '.join(bad)} outside its limits")
+                ramp, hold = float(sg.get("ramp", 0.5)), float(sg.get("hold", 0.0))
+                self.segs.append((t0, t0 + ramp + hold, "joints", (deg, ramp)))
+            elif kind == "wait":
+                self.segs.append((t0, t0 + float(sg["seconds"]), "wait", None))
+            else:
+                raise ValueError(f"segment {i}: {kind!r} is not played on the show's clock (gait, joints, wait)")
+        self.segs.sort(key=lambda x: x[0])
+        self.cur, self._i, self._from = {}, None, {}
+
+    def end_s(self) -> float:
+        return self.segs[-1][1] if self.segs else 0.0
+
+    def targets(self, show_t: float) -> dict | None:
+        i = next((k for k, s in enumerate(self.segs) if s[0] <= show_t < s[1]), None)
+        if i is None:
+            return None
+        t0, t1, kind, a = self.segs[i]
+        if i != self._i:                                   # a new segment: blend from where the hand is
+            self._i, self._from = i, dict(self.cur)
+        u = show_t - t0
+        if kind == "gait":
+            blend = min(BLEND_S, (t1 - t0) / 2)
+            g = gait_targets(a, max(0.0, u - blend))
+            out = g if u >= blend else {j: self._from.get(j, g[j]) + (g[j] - self._from.get(j, g[j])) * u / blend
+                                        for j in g}
+        elif kind == "joints":
+            deg, ramp = a
+            k = min(1.0, u / max(ramp, 1e-3))
+            out = {j: self._from.get(j, v) + (v - self._from.get(j, v)) * k for j, v in deg.items()}
+        else:
+            return {}
+        self.cur.update(out)
+        return out
 
 
 def play(path: str, port: str | None, dry_run=False, long=False, allow_presets=False, log=print) -> int:

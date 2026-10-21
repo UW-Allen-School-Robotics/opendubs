@@ -681,7 +681,8 @@ def hardware_sequence(tl: dict, name: str, t_from: float = 0.0, t_to: float | No
                 d = channels_deg(tool, pattern_channels(tool, pat, (s0 - t_origin) + step * 0.999, beat_s))
                 d.update(thumb)
                 ramp = min(0.15, (s1 - max(a, s0)) * 0.5)
-                segs.append({"type": "joints", "deg": d, "ramp": round(ramp, 3), "hold": round(s1 - max(a, s0) - ramp, 3)})
+                segs.append({"type": "joints", "t": round(max(a, s0), 3), "deg": d, "ramp": round(ramp, 3),
+                             "hold": round(s1 - max(a, s0) - ramp, 3)})
             k += 1
 
     def idle(a, b):
@@ -696,12 +697,12 @@ def hardware_sequence(tl: dict, name: str, t_from: float = 0.0, t_to: float | No
         idle(t, a)
         if leg["do"] == "walk":
             g = tool.crawl["gaits"][leg["gait"]]
-            segs.append({"type": "gait", "seconds": round(b - a, 2), "params": hardware_params(g["sim_params"]),
-                         "note": f"walk {leg['dir']} {leg['gait']} ({g.get('measured') or 'SIM ONLY, untested on the hand'})"})
+            segs.append({"type": "gait", "t": round(a, 3), "seconds": round(b - a, 2),
+                         "params": hardware_params(g["sim_params"]), "note": f"walk {leg['dir']} {leg['gait']} ({g.get('measured') or 'SIM ONLY, untested on the hand'})"})
         elif leg["do"] == "turn":
             pv = tool.crawl["pivots"][leg["side"]]
-            segs.append({"type": "gait", "seconds": round(b - a, 2), "params": hardware_params(pv["sim_params"]),
-                         "note": f"pivot {leg['side']} (SIM ONLY, untested on the hand)"})
+            segs.append({"type": "gait", "t": round(a, 3), "seconds": round(b - a, 2),
+                         "params": hardware_params(pv["sim_params"]), "note": f"pivot {leg['side']} (SIM ONLY, untested on the hand)"})
             notes.append(f"t={leg['t']:.1f}s: a pivot, simulated only")
         elif leg["do"] == "dance":
             pattern_segments(leg["pattern"], a, b, leg["t"])
@@ -711,6 +712,29 @@ def hardware_sequence(tl: dict, name: str, t_from: float = 0.0, t_to: float | No
     idle(t, t_end)
     return {"name": name, "hand": tool.hand or "?", "tool": tool.id, "from_s": t_from, "to_s": t_end,
             "made_by": "cue.py export-effector (software/choreo/effectors.py)", "notes": notes, "segments": segs}
+
+
+def hand_untested(tl: dict) -> list[str]:
+    """The crawl moves in this export that have never run on the REAL hand (the type's `hardware:`
+    tested_gaits and tested_patterns): a live run plays only moves that have. [] when every one has, or
+    the show has no crawling hand."""
+    cr = tl.get("crawler")
+    if not cr:
+        return []
+    tool = registry()[cr["tool"]]
+    hw = tool.doc.get("hardware") or {}
+    gaits, pats = set(hw.get("tested_gaits") or {}), set(hw.get("tested_patterns") or ())
+    idle = (tool.crawl or {}).get("idle")
+    out = [] if not idle or idle in pats else [f"its idle pattern {idle}"]
+    for leg in cr["legs"]:
+        at = f"at {leg['t']:.1f} s"
+        if leg["do"] == "walk" and leg.get("gait") not in gaits:
+            out.append(f"a {leg.get('dir', 'forward')} walk ({leg.get('gait')}) {at}")
+        elif leg["do"] == "turn":
+            out.append(f"a pivot {at}")
+        elif leg["do"] == "dance" and leg.get("pattern") not in pats:
+            out.append(f"the {leg.get('pattern')} dance {at}")
+    return out
 
 
 # ---- CLI -----------------------------------------------------------------------------------------------
