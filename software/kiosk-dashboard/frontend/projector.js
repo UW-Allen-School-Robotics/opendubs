@@ -22,6 +22,7 @@
     .pj-play { font-variant-numeric: tabular-nums; }
     .pj-card .pj-bad { color: var(--bad); }
     .pj-row .pj-v { flex: 1 1 260px; min-width: 0; }
+    .pj-val { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
     .pj-row { flex-wrap: nowrap; } .pj-row.pj-wrap { flex-wrap: wrap; }`;
   const style = document.createElement("style"); style.textContent = CSS; document.head.appendChild(style);
 
@@ -35,6 +36,18 @@
       <select id="pjOut"><option value="">each show's own</option><option value="cast">the projector (cast)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
       <span class="pj-note" id="pjDefault"></span></div>
     <div class="pj-note pj-bad" id="pjNote" hidden></div>
+    <div class="pj-row pj-wrap"><span class="pj-k">Music</span><span class="pj-v" id="pjMusic">—</span></div>
+    <div class="pj-row pj-wrap"><span class="pj-k">Audio lead</span>
+      <button class="iobtn" data-lead="audio_lead_s" data-d="-0.025">−25 ms</button>
+      <span class="pj-val" id="pjAudioLead">—</span>
+      <button class="iobtn" data-lead="audio_lead_s" data-d="0.025">+25 ms</button>
+      <span class="pj-note">Set by ear: run a show, listen whether the arms land on the beat, nudge, run again. Used from the next run.</span></div>
+    <div class="pj-row pj-wrap"><span class="pj-k">Video lead</span>
+      <button class="iobtn" data-lead="video_lead_s" data-d="-0.025">−25 ms</button>
+      <span class="pj-val" id="pjVideoLead">—</span>
+      <button class="iobtn" data-lead="video_lead_s" data-d="0.025">+25 ms</button></div>
+    <div class="pj-row pj-wrap"><label class="pj-k" for="pjMusicAs">Music sent as</label>
+      <select id="pjMusicAs"><option value="audio">audio</option><option value="video">video</option></select></div>
     <div class="pj-row pj-wrap pj-play" id="pjPlaying" hidden></div>
     <div class="pj-note" id="pjWhy"></div>`;
   view.appendChild(card);
@@ -42,7 +55,7 @@
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const dot = (id, cls) => { $(id).className = "sdot " + (cls || ""); };
   const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  let busy = false;
+  let busy = false, settings = null;
 
   function output(o, kind) {
     if (!o) return ["", "—"];
@@ -69,6 +82,18 @@
     const want = v.override || "";
     if (!busy && $("pjOut").value !== want) $("pjOut").value = want;
     $("pjDefault").textContent = !v.override && v.default ? `now: ${v.default} (the robot's default)` : "";
+    // Show audio (choreo-audio.md): where the music is, and the leads the next run will use.
+    const mu = v.music || {};
+    $("pjMusic").textContent = mu.on === "projector" ? "playing on the projector"
+      : mu.on === "tablet" ? "playing on the tablet" + (mu.why ? ` — ${mu.why}` : "")
+      : "no show running";
+    settings = v.settings || null;
+    const ms = (x) => (typeof x === "number" ? `${Math.round(x * 1000)} ms` : "—");
+    $("pjAudioLead").textContent = ms(settings && settings.audio_lead_s);
+    $("pjVideoLead").textContent = ms(settings && settings.video_lead_s);
+    if (!busy && settings && settings.music_as && $("pjMusicAs").value !== settings.music_as) $("pjMusicAs").value = settings.music_as;
+    for (const b of card.querySelectorAll("[data-lead]")) b.disabled = !settings;
+    $("pjMusicAs").disabled = !settings;
     // A show running WITHOUT its video says why (choreo-video.md §6 `note`).
     $("pjNote").hidden = !v.note; $("pjNote").textContent = v.note || "";
     const sel = outs[v.selected];
@@ -110,6 +135,28 @@
     } catch (err) { $("pjWhy").textContent = `Not changed: ${err.message}`; }
     finally { busy = false; poll(); }
   });
+
+  // The show-audio settings, stored on the robot and used from the next run.
+  async function saveSettings(change) {
+    busy = true;
+    try {
+      const r = await fetch("/api/choreo/video/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                          body: JSON.stringify(change) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $("pjWhy").textContent = `Not saved: ${j.error || j.detail || `HTTP ${r.status}`}`; if (j.code) $("pjWhy").appendChild(helpLink(j.code)); }
+      else { $("pjWhy").textContent = ""; if (j.outputs) render(j); }
+    } catch (err) { $("pjWhy").textContent = `Not saved: ${err.message}`; }
+    finally { busy = false; }
+  }
+  for (const b of card.querySelectorAll("[data-lead]")) {
+    b.addEventListener("click", () => {
+      const key = b.dataset.lead, cur = settings && settings[key];
+      if (typeof cur !== "number") return;
+      const next = Math.round(Math.min(3, Math.max(0, cur + Number(b.dataset.d))) * 1000) / 1000;
+      saveSettings({ [key]: next });
+    });
+  }
+  $("pjMusicAs").addEventListener("change", (e) => saveSettings({ music_as: e.target.value }));
 
   setInterval(poll, POLL_MS);
   poll();
