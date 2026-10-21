@@ -50,6 +50,7 @@ re-sending a stale command would defeat it.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -63,6 +64,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformBroadcaster, TransformListener
 
 import people_guard
@@ -139,6 +141,9 @@ class DriveBridge(Node):
                                      qos_profile_sensor_data)
         self.get_logger().info(f"people guard: {self._reach:.2f} m from the outline, on "
                                + ", ".join(self._scans))
+        # Its state for the dance tracker's /dance/status: clear | stopped | blind, 5 Hz.
+        self._guard_pub = self.create_publisher(String, "/people_guard/state", 10)
+        self.create_timer(0.2, self._report_guard)
 
         threading.Thread(target=self._rx_loop, name="plc-rx", daemon=True).start()
         self.get_logger().info(
@@ -171,6 +176,18 @@ class DriveBridge(Node):
         tx, ty, yaw = self._mounts[frame]
         pts = people_guard.scan_points(msg.ranges, msg.angle_min, msg.angle_increment, tx, ty, yaw)
         self._scans[topic] = (self.get_clock().now().nanoseconds / 1e9, pts)
+
+    def _report_guard(self) -> None:
+        now = self.get_clock().now().nanoseconds / 1e9
+        stale = [t for t, (stamp, _p) in sorted(self._scans.items())
+                 if stamp is None or now - stamp > people_guard.STALE_S]
+        if stale:
+            state, why = "blind", f"{', '.join(stale)} not current"
+        elif self._refusing == "near":
+            state, why = "stopped", "something close in the direction of travel"
+        else:
+            state, why = "clear", None
+        self._guard_pub.publish(String(data=json.dumps({"state": state, "why": why})))
 
     def _send_cmd(self) -> None:
         if self._cmd is None or self._peer is None:
