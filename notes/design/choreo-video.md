@@ -188,8 +188,8 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 | piece | lane |
 |---|---|
 | the format, `video_out.py`, the runner, the dashboard routes, `provision-runner.sh` (pychromecast) | Choreography (this PR) |
-| the desktop off (multi-user target, no display manager — gdm holds the display, so mpv cannot), on a go | Thor stack |
-| `apt install mpv`, the `opendubs-video-hdmi` unit, kiosk in `video`/`render` — in `provision-runner.sh` once the desktop is off | Choreography |
+| the desktop off (multi-user target, no display manager — gdm holds the display, so mpv cannot), on a go; then `apt install mpv`, the `opendubs-video-hdmi` unit, kiosk in `video`/`render`, tested at the robot with the projector plugged in | Thor stack |
+| `--video cast,hdmi` on the runner's unit, once the Thor lane says the HDMI player is live | Choreography |
 | the projector card (`frontend/projector.js`, #441) | Tablet and head interface |
 | the projector's DHCP reservation, Wi-Fi checks | Network |
 | §5 audio, and turning video into an effector after #406 | the user |
