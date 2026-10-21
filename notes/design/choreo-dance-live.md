@@ -20,7 +20,7 @@ guard and the speed measurement are the Thor lane's (drive_bridge: #471 the guar
 | `/dance/origin` | `std_msgs/Empty` | runner | once per run, at the show's t0, the base at rest: the tracker latches the current `/odom` pose as the show's origin (`origin_seq` +1) |
 | `/dance/target` | `nav_msgs/Odometry` | runner | 20 Hz while a move plays and for 1.5 s after it (the home target, zero twist, so the tracker closes the residual). `frame_id` `dance_origin`, `child_frame_id` `base_link`; pose = the intended base pose in the origin frame (x forward, y left, yaw); twist = the intended BODY velocity (m/s, rad/s) as feed-forward. Freshness by receipt time: older than 250 ms means stop |
 | `/dance/stop` | `std_msgs/Empty` | runner | on every end but a completion (operator stop, abort, e-stop): stop at once, drop the stream |
-| `/dance/status` | `std_msgs/String` (JSON, ~5 Hz) | tracker | `{"ready", "why", "origin_seq", "mode": idle\|tracking\|settling\|holding, "guard": clear\|stopped\|blind, "err_m", "err_deg"}` |
+| `/dance/status` | `std_msgs/String` (JSON, ~5 Hz) | tracker | `{"ready", "why", "origin", "origin_seq", "mode": idle\|tracking\|settling\|holding, "guard": clear\|stopped\|blind, "err_m", "err_deg"}`; `ready` covers `/odom` and the guard only, `origin` whether one is latched |
 
 The tracker:
 
@@ -29,8 +29,6 @@ The tracker:
 - when a LIDAR scan is over 0.5 s old it is `blind` and refuses to move;
 - refuses a target that arrives before any origin.
 
-Before a run latches its origin, the tracker reports `ready: false, why: "no origin"`. The runner treats
-that as ready to start a run.
 
 ## The runner (`base_output.py`, `--base ros`)
 

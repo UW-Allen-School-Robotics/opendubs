@@ -13,10 +13,10 @@ THE INTERFACE (agreed with the Thor lane; its tracker closes the loop on /odom a
                                         twist = the intended BODY velocity ("base_link"), as feed-forward.
                                         A stream older than 250 ms means stop; every move ends at home
   /dance/stop    std_msgs/Empty         on every end that is not a completion: stop now, not in 250 ms
-  /dance/status  std_msgs/String JSON   from the tracker, ~5 Hz: {"ready", "why", "origin_seq", "mode":
-                                        idle|tracking|settling|holding, "guard": clear|stopped|blind,
-                                        "err_m", "err_deg"}. Before a run's origin is latched it says
-                                        ready=false, why "no origin": that is the state a run starts from.
+  /dance/status  std_msgs/String JSON   from the tracker, ~5 Hz: {"ready", "why", "origin", "origin_seq",
+                                        "mode": idle|tracking|settling|holding, "guard": clear|stopped|blind,
+                                        "err_m", "err_deg"}. `ready` covers /odom and the guard only; whether
+                                        an origin is latched is `origin` (a run latches its own at t0).
                                         "holding": the error passed 0.3 m or 20 deg, so the base stopped
                                         where it is (never chases); "blind": a LIDAR scan is over 0.5 s
                                         old, so it refuses to move
@@ -38,7 +38,6 @@ import cue
 RATE_HZ = 20.0
 SETTLE_S = 1.5          # after each move, the home target held so the tracker can close the residual
 STATUS_MAX_AGE_S = 1.0  # a tracker status older than this is no tracker
-NO_ORIGIN = "no origin"  # the tracker's `why` before a run's origin is latched: ready to start one
 
 
 def dance_command(events: list, t: float) -> dict | None:
@@ -140,7 +139,7 @@ class BaseOutput:
             return {"ready": False, "why": f"the base tracker could not be asked: {type(e).__name__}: {e}"}
         if st is None:
             return {"ready": False, "why": "the base tracker is not running (no /dance/status)"}
-        if not st.get("ready") and st.get("why") != NO_ORIGIN:   # no origin yet: the run latches it at t0
+        if not st.get("ready"):
             return {"ready": False, "why": f"the base tracker is not ready: {st.get('why') or 'no reason given'}"}
         return {"ready": True, "why": None}
 

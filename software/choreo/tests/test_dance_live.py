@@ -85,8 +85,8 @@ rd = lambda st: B.BaseOutput(FakeLink(st)).readiness()  # noqa: E731
 check("no status: not running, saying so", "not running" in rd(False)["why"], rd(False))
 check("not ready: its own reason", rd({"ready": False, "why": "odom stale"})["why"].endswith("odom stale"))
 check("ready", rd({"ready": True})["ready"])
-check("ready=false only because no origin is latched yet is READY to start a run (the run latches it at t0)",
-      rd({"ready": False, "why": "no origin", "guard": "clear"})["ready"])
+check("no origin latched yet does not matter: the run latches its own at t0 (`origin` is not `ready`)",
+      rd({"ready": True, "origin": False, "guard": "clear"})["ready"])
 check("a blind guard is not ready", not rd({"ready": False, "why": "scan /scan_front 0.8 s old", "guard": "blind"})["ready"])
 
 print("\ndance on the base: a live run")
