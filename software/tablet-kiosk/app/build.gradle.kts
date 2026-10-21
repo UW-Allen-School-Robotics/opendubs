@@ -10,8 +10,8 @@ android {
         applicationId = "org.opendubs.kiosk"
         minSdk = 28          // lock task features (setLockTaskFeatures) arrived in Android 9
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.5"
+        versionCode = 9
+        versionName = "0.4.0"
     }
 
     buildTypes {

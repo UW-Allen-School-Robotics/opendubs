@@ -93,7 +93,8 @@ class KioskActivity : Activity() {
         // outlives this activity, so it must hold nothing of it: it reads the URL through the
         // application. (0.3.0 captured the activity here, and with it its WebView: after the app was
         // restarted once, an invisible face page kept running and held the camera.)
-        if (Updater.current == null) {
+        // Not on a display (Provision.isDisplay): it is no device owner, so an update would prompt on screen.
+        if (Updater.current == null && !Provision.isDisplay(this)) {
             val app = applicationContext
             Updater.current = Updater(app) {
                 val u = Uri.parse(Provision.url(app) ?: app.getString(R.string.default_url))
@@ -165,7 +166,7 @@ class KioskActivity : Activity() {
         resumed = true
         lastAlive = SystemClock.elapsedRealtime()               // a page paused in the background gets a fresh start
         retry.removeCallbacks(watchdog); retry.postDelayed(watchdog, 5_000L)
-        bridge.start()
+        if (!Provision.isDisplay(this)) bridge.start()         // a display has no sensors to report
         hideSystemBars()
         enterLockTaskIfAllowed()
     }
@@ -235,7 +236,7 @@ class KioskActivity : Activity() {
 
     private fun enterLockTaskIfAllowed() {
         val am = getSystemService(ActivityManager::class.java)
-        if (!maintenance && DeviceOwner.isOwner(this) &&
+        if (!maintenance && !Provision.isDisplay(this) && DeviceOwner.isOwner(this) &&
             am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE)
             runCatching { startLockTask() }
     }
