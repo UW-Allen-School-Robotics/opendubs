@@ -1417,7 +1417,7 @@ class StudioApp {
 
       if (data.is_executing) {
         nextPollMs = 100; // Fast polling for smooth progress during execution
-        this._wasExecuting = true;
+        this._hasSeenExecuting = true;
 
         if (progressCont) progressCont.style.display = "block";
         if (progressBar) {
@@ -1429,7 +1429,7 @@ class StudioApp {
           progressLabel.textContent = `Running on ${data.arm.toUpperCase()} (${data.current_time_s.toFixed(1)}s / ${data.total_time_s.toFixed(1)}s)`;
           progressLabel.style.color = "var(--text)";
         }
-        if (btnExec) {
+        if (btnExec && !this._isAwaitingExecutionStart) {
           btnExec.disabled = true;
           btnExec.textContent = `Executing (${data.progress_pct.toFixed(0)}%)...`;
         }
@@ -1449,8 +1449,11 @@ class StudioApp {
         if (data.sim_gripper_state && typeof data.sim_gripper_state[activeArm] === "number") {
           this._setGripper(data.sim_gripper_state[activeArm], false, activeArm);
         }
-      } else if (this._wasExecuting || data.status === "succeeded") {
-        // Transitioned to completed
+      } else if (this._hasSeenExecuting && (data.goal_id === this._activeExecutionGoalId || !this._activeExecutionGoalId)) {
+        // Transitioned from active execution to finished state
+        this._hasSeenExecuting = false;
+        this._activeExecutionGoalId = null;
+
         if (data.status === "succeeded") {
           if (progressBar) {
             progressBar.style.width = "100%";
@@ -1496,7 +1499,6 @@ class StudioApp {
           btnExec.disabled = false;
           btnExec.textContent = "Confirm & Execute";
         }
-        this._wasExecuting = false;
       }
     } catch (_) {}
 
@@ -1512,6 +1514,31 @@ class StudioApp {
 
     const modal = document.getElementById("hardware-modal");
     modal.style.display = "flex";
+
+    // Reset progress container on modal open so previous runs don't show stale 100%
+    const progressCont = document.getElementById("hw-live-progress-container");
+    if (progressCont) progressCont.style.display = "none";
+    const progressBar = document.getElementById("hw-progress-bar");
+    if (progressBar) {
+      progressBar.style.width = "0%";
+      progressBar.style.background = "linear-gradient(90deg, #38bdf8, #22c55e)";
+    }
+    const progressPct = document.getElementById("hw-progress-pct");
+    if (progressPct) progressPct.textContent = "0%";
+    const progressLabel = document.getElementById("hw-progress-label");
+    if (progressLabel) {
+      progressLabel.textContent = "Preparing execution...";
+      progressLabel.style.color = "var(--text)";
+    }
+    const btnExec = document.getElementById("btn-hw-confirm-exec");
+    if (btnExec) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Confirm & Execute";
+    }
+
+    this._hasSeenExecuting = false;
+    this._activeExecutionGoalId = null;
+    this._isAwaitingExecutionStart = false;
 
     // Select mode
     const radios = document.getElementsByName("hw-exec-mode");
@@ -1559,13 +1586,13 @@ class StudioApp {
         summary.style.background = "rgba(34,197,94,0.1)";
         summary.style.borderColor = "rgba(34,197,94,0.3)";
         summary.style.color = "#86efac";
-        document.getElementById("btn-hw-confirm-exec").disabled = false;
+        if (btnExec) btnExec.disabled = false;
       } else {
         summary.textContent = "Safety Check FAILED! Trajectory violates physical hardware safety limits.";
         summary.style.background = "rgba(239,68,68,0.1)";
         summary.style.borderColor = "rgba(239,68,68,0.3)";
         summary.style.color = "#fca5a5";
-        document.getElementById("btn-hw-confirm-exec").disabled = true;
+        if (btnExec) btnExec.disabled = true;
 
         probBox.style.display = "block";
         (data.problems || []).forEach((p) => {
@@ -1592,12 +1619,30 @@ class StudioApp {
     }
 
     const btnExec = document.getElementById("btn-hw-confirm-exec");
-    btnExec.disabled = true;
-    btnExec.textContent = "Starting...";
+    if (btnExec) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Starting...";
+    }
 
     const progressCont = document.getElementById("hw-live-progress-container");
+    const progressBar = document.getElementById("hw-progress-bar");
+    const progressPct = document.getElementById("hw-progress-pct");
+    const progressLabel = document.getElementById("hw-progress-label");
+
     if (progressCont) progressCont.style.display = "block";
-    this._wasExecuting = true;
+    if (progressBar) {
+      progressBar.style.width = "0%";
+      progressBar.style.background = "linear-gradient(90deg, #38bdf8, #22c55e)";
+    }
+    if (progressPct) progressPct.textContent = "0%";
+    if (progressLabel) {
+      progressLabel.textContent = "Starting execution...";
+      progressLabel.style.color = "var(--text)";
+    }
+
+    this._hasSeenExecuting = false;
+    this._activeExecutionGoalId = null;
+    this._isAwaitingExecutionStart = true;
 
     try {
       const resp = await fetch("/api/hardware/execute", {
@@ -1618,17 +1663,27 @@ class StudioApp {
       const data = await resp.json();
       if (!data.success) {
         alert(`Hardware execution refused:\n${data.error}`);
-        this._wasExecuting = false;
-        btnExec.disabled = false;
-        btnExec.textContent = "Confirm & Execute";
+        this._isAwaitingExecutionStart = false;
+        if (btnExec) {
+          btnExec.disabled = false;
+          btnExec.textContent = "Confirm & Execute";
+        }
       } else {
+        this._activeExecutionGoalId = data.goal_id;
+        this._isAwaitingExecutionStart = false;
+        if (btnExec) {
+          btnExec.disabled = true;
+          btnExec.textContent = "Executing...";
+        }
         document.getElementById("plan-status-info").textContent = `Robot Execution Active [${mode.toUpperCase()}]`;
       }
     } catch (err) {
       alert(`Hardware execution error: ${err}`);
-      this._wasExecuting = false;
-      btnExec.disabled = false;
-      btnExec.textContent = "Confirm & Execute";
+      this._isAwaitingExecutionStart = false;
+      if (btnExec) {
+        btnExec.disabled = false;
+        btnExec.textContent = "Confirm & Execute";
+      }
     }
   }
 
