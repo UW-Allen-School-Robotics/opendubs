@@ -52,6 +52,10 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  # Material's bundled icons as inline monochrome SVG (:octicons-play-24: and the like).
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.superfences:
       # Mermaid. Material ships the renderer; this fence stops superfences from treating the
       # block as source and highlighting it instead of drawing it.
@@ -70,6 +74,8 @@ nav:
   - System overview: system-overview.md
   - Operating the robot: operating.md
   - Playing sound: playing-sound.md
+  - Composer:
+      - Quickstart: composer/quickstart.md
   - Troubleshooting: reference/troubleshooting.md
   - Educators: educators.md
   - Design & Interfaces:
