@@ -599,6 +599,10 @@ app.include_router(_kiosk_update_router)
 # What the voice may say about the robot: what the dashboard shows, in its words (spoken_status.py).
 from spoken_status import router as _spoken_router  # noqa: E402
 app.include_router(_spoken_router)
+# The stage page's live skeletons (stage.py, Choreography's): the relay's frames in (localhost only), the
+# projector's page out. The page itself is static: frontend/stage/.
+from stage import router as _stage_router  # noqa: E402
+app.include_router(_stage_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
