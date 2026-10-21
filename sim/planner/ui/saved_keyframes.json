@@ -12,7 +12,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Cue 15 (ARM_L)",
@@ -26,7 +27,8 @@
         0,
         15,
         15
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Cue 17 (ARM_L)",
@@ -114,7 +116,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Cue 11 (ARM_R)",
@@ -128,7 +131,8 @@
         0,
         15,
         15
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Cue 12 (ARM_R)",
@@ -184,7 +188,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     },
     {
       "name": "Stow / Rest (RIGHT)",
@@ -198,7 +203,8 @@
         0,
         15,
         0
-      ]
+      ],
+      "gripper": "close"
     }
   ]
 }
