@@ -352,6 +352,8 @@ async def start() -> None:
     global _task
     if _task is None or _task.done():
         _task = asyncio.get_running_loop().create_task(run())
+    import neck_state                                # the neck's angles into ROS (/head/joint_states)
+    await neck_state.start()
 
 
 def status() -> dict:
