@@ -158,6 +158,7 @@ def _dance_pose(events: list, t: float) -> tuple:
             continue
         amp = float(c.get("amp", 1.0))
         v = cue.AUTO_MAX_UNIT * amp * cue.BASE_M_PER_S_FULL
+        vs = cue.AUTO_MAX_UNIT * amp * cue.BASE_M_PER_S_STRAFE
         w = cue.AUTO_MAX_UNIT * amp * cue.BASE_RAD_PER_S_FULL
         x = y = yaw = 0.0
         left = t - e["start"]
@@ -165,8 +166,8 @@ def _dance_pose(events: list, t: float) -> tuple:
             dt = min(frac * secs, left)
             if dt <= 0:
                 break
-            x += (fwd * math.cos(yaw) - strafe * math.sin(yaw)) * v * dt
-            y += (fwd * math.sin(yaw) + strafe * math.cos(yaw)) * v * dt
+            x += (fwd * v * math.cos(yaw) - strafe * vs * math.sin(yaw)) * dt
+            y += (fwd * v * math.sin(yaw) + strafe * vs * math.cos(yaw)) * dt
             yaw += rot * w * dt
             left -= dt
         return x, y, math.degrees(yaw)

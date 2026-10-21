@@ -36,10 +36,13 @@ EnvironmentFile=-/etc/opendubs/robot.env
 # in robot.env). `stage` hands the show's timing to the stage page (/stage/, choreo-stage.md), which
 # plays the video itself and draws the live skeletons over it. Add `hdmi` once opendubs-video-hdmi (mpv
 # on the HDMI out) is provisioned. A projector that isn't there never stops a show unless it requires it.
+# THE BASE (base_output.py, notes/design/choreo-dance-live.md): `--base ros` sends a live run's DANCE moves
+# to the Thor's base tracker (/dance/*), which follows them on /odom and stops for people (the LIDARs).
+# No tracker running: shows run without their dance steps, saying so. CH5 AUTO and the deadman still gate it.
 Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
-ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --gaze auto --earcons off --lift dashboard --light dashboard --video cast,stage --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --gaze auto --earcons off --lift dashboard --light dashboard --video cast,stage --base ros --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
 LogsDirectory=opendubs-runner
 # The projector's per-robot settings (projector.json: the audio and video offsets set by ear, how it
 # takes music) and the cast cache live here, on the robot, never in the repo (choreo-audio.md)

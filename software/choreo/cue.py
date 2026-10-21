@@ -96,7 +96,8 @@ DEVICE_BRIGHT_LOW = 0.15
 # CEILING (kAutoMaxUnit = 0.35 of full command, firmware/rc_serial_probe main.cpp), which CH8
 # scales further in a human's hand. Every move returns the base to where it started BY
 # CONSTRUCTION (every axis integrates to zero; the validator re-checks it), so only open-loop
-# drift can accumulate. Validated now; executes ONLY in the twin until the robot test (plan 6.6).
+# drift can accumulate. On a live run the runner sends each move to the Thor's base tracker, which
+# closes the loop on /odom (base_output.py, notes/design/choreo-dance-live.md); elsewhere, the twin.
 DANCE_MOVES = {
     "sway":    [(0.25, 0, +1, 0), (0.5, 0, -1, 0), (0.25, 0, +1, 0)],            # side to side
     "rock":    [(0.25, +1, 0, 0), (0.5, -1, 0, 0), (0.25, +1, 0, 0)],            # forward and back
@@ -110,10 +111,12 @@ DANCE_DEFAULT_SECS = 2.0
 DANCE_TOTAL_MAX_S = 30.0         # SANITY: the whole show's open-loop base time
 FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
 # PLACEHOLDERS, from the simulator, NOT measured on the robot: base speed at full command
-# (WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py) and the matching
-# mecanum turn rate. Used only to ESTIMATE how far a move strays, for a warning against the
-# declared floor radius. The firmware's kAutoMaxUnit is real; these speeds are not.
+# (WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py), strafing (a mecanum base
+# usually strafes slower than it drives; the same until measured) and the matching turn rate. They
+# size a move's excursion against the declared floor radius, and on a live run they are the speeds
+# the base tracker is asked to follow. To be replaced by the Thor lane's /odom measurement.
 BASE_M_PER_S_FULL = 0.70
+BASE_M_PER_S_STRAFE = BASE_M_PER_S_FULL
 BASE_RAD_PER_S_FULL = 1.40
 AUTO_MAX_UNIT = 0.35
 DRIVE_V_MAX = AUTO_MAX_UNIT * BASE_M_PER_S_FULL                  # m/s, PLACEHOLDER-based
@@ -161,10 +164,10 @@ def dance_net(move: str) -> tuple:
 
 def dance_excursion_m(move: str, secs: float, amp: float = 1.0) -> float:
     """Farthest the base strays from where the move started, at the PLACEHOLDER speeds."""
-    v = AUTO_MAX_UNIT * amp * BASE_M_PER_S_FULL
+    v, vs = AUTO_MAX_UNIT * amp * BASE_M_PER_S_FULL, AUTO_MAX_UNIT * amp * BASE_M_PER_S_STRAFE
     x = y = far = 0.0
     for frac, fwd, strafe, _rot in DANCE_MOVES[move]:
-        x, y = x + fwd * v * frac * secs, y + strafe * v * frac * secs
+        x, y = x + fwd * v * frac * secs, y + strafe * vs * frac * secs
         far = max(far, math.hypot(x, y))
     return far
 
@@ -396,8 +399,11 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 NOT_EXECUTABLE = {
     "DRIVE": "DRIVE runs only in the twin until odometry is trusted — the runner REFUSES this show on "
              "the robot (format 12); the distances shown use placeholder base speeds",
-    "DANCE": "DANCE is valid but runs only in the twin until the robot floor test (workplan "
-             "6.6): open loop, and the distances shown use placeholder base speeds",
+    "DANCE": "DANCE moves the real base on a live run, through the Thor's base tracker (closed loop on "
+             "/odom, a people guard on the LIDARs; without a ready tracker the show runs without its base "
+             "moves). STAGE IT: keep the declared floor radius clear of glass railings and glass walls (the "
+             "LIDARs see through glass), and on a polished floor run a short out-and-back first (the "
+             "odometry pods may skip)",
     "LIGHT": "LIGHT plays on the robot only where the runner is armed for it (--light dashboard): "
              "layered over the state colour by the dashboard, a reserved state always winning, and "
              "colour changes closer than ~0.33 s merged (the strip shares the drive ESCs' I2C)",
@@ -924,6 +930,9 @@ class Show:
                           f"{FLOOR_RADIUS_SANITY_M} — the clear radius a human confirms before it runs"))
             else:
                 floor_r = float(r)
+            if isinstance(dance_doc, dict) and "required" in dance_doc and not isinstance(dance_doc["required"], bool):
+                P(Problem("dance: required must be true or false (true: refuse the show when the base "
+                          "tracker is not ready, rather than run it without its base moves)"))
         dance_total = 0.0
         drive_cues = []
         # where the head is and where it is going, as the firmware would slew it from centre
@@ -2121,7 +2130,8 @@ class Show:
             "markers": [{"t": _r(m["t"]), "name": m["name"], "src": m["src"]}
                         for m in a["markers"]],
             "tracks": tracks,
-            "dance": ({"floor_radius_m": self.doc["dance"].get("floor_radius_m")}
+            "dance": ({"floor_radius_m": self.doc["dance"].get("floor_radius_m"),
+                       "required": self.doc["dance"].get("required") is True}
                       if isinstance(self.doc.get("dance"), dict) else None),
             # the head's volume and brightness at show time 0 (format §1); DEVICE cues change them
             "device": ({k: float(v) for k, v in self.doc["device"].items() if k in ("volume", "brightness")}
