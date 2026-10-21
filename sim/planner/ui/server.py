@@ -309,7 +309,11 @@ class StudioHandler(SimpleHTTPRequestHandler):
             if os.path.exists(SAVED_KEYFRAMES_PATH):
                 try:
                     with open(SAVED_KEYFRAMES_PATH, "r") as f:
-                        return self._send_json(json.load(f))
+                        data = json.load(f)
+                        if isinstance(data, dict) and query_arm in data:
+                            return self._send_json(data[query_arm])
+                        elif isinstance(data, list) and data and data[0].get("arm") == query_arm:
+                            return self._send_json(data)
                 except Exception:
                     pass
             return self._send_json(get_default_sequence(query_arm))
@@ -360,11 +364,22 @@ class StudioHandler(SimpleHTTPRequestHandler):
             return self._send_json(res)
 
         if url == "/api/keyframes":
-            # Save keyframes list
+            # Save keyframes list per arm
             keyframes = req.get("keyframes", [])
+            arm = req.get("arm", "left")
+            data = {}
+            if os.path.exists(SAVED_KEYFRAMES_PATH):
+                try:
+                    with open(SAVED_KEYFRAMES_PATH, "r") as f:
+                        loaded = json.load(f)
+                        if isinstance(loaded, dict):
+                            data = loaded
+                except Exception:
+                    pass
+            data[arm] = keyframes
             with open(SAVED_KEYFRAMES_PATH, "w") as f:
-                json.dump(keyframes, f, indent=2)
-            return self._send_json({"success": True, "count": len(keyframes)})
+                json.dump(data, f, indent=2)
+            return self._send_json({"success": True, "arm": arm, "count": len(keyframes)})
 
         if url == "/api/backend":
             new_backend = req.get("backend", "cbirrt")

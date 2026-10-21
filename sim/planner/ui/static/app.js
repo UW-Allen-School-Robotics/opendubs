@@ -316,7 +316,7 @@ class StudioApp {
     document.getElementById("btn-hw-confirm-exec").onclick = () => this._executeOnHardware();
   }
 
-  _setArm(arm) {
+  async _setArm(arm) {
     if (this.arm === arm) return;
     this.arm = arm;
     document.getElementById("btn-arm-left").classList.toggle("active", arm === "left");
@@ -329,19 +329,8 @@ class StudioApp {
     this._updateArmPosesInView();
     this._checkCollisionAndFK();
 
-    // Auto-mirror keyframe sequence poses to match the selected arm (flip J1, J2, J3)
-    let mirrored = 0;
-    this.keyframes.forEach((kf) => {
-      if (kf.arm !== arm) {
-        kf.arm = arm;
-        kf.joints_deg = [-kf.joints_deg[0], -kf.joints_deg[1], -kf.joints_deg[2], kf.joints_deg[3], kf.joints_deg[4], kf.joints_deg[5], kf.joints_deg[6]];
-        mirrored++;
-      }
-    });
-    if (mirrored > 0) {
-      this._renderKeyframeList();
-      this._saveKeyframes();
-    }
+    // Load keyframes for the newly selected arm
+    await this._loadKeyframes();
   }
 
   _setTargetMode(mode) {
@@ -633,7 +622,7 @@ class StudioApp {
   /* Keyframe Choreographer */
   async _loadKeyframes() {
     try {
-      const resp = await fetch("/api/keyframes");
+      const resp = await fetch(`/api/keyframes?arm=${this.arm}`);
       this.keyframes = await resp.json();
       this._renderKeyframeList();
     } catch (err) {
@@ -646,7 +635,7 @@ class StudioApp {
       await fetch("/api/keyframes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: jsonReq({ keyframes: this.keyframes }),
+        body: jsonReq({ arm: this.arm, keyframes: this.keyframes }),
       });
     } catch (err) {
       console.warn("Failed to save keyframes:", err);
@@ -768,12 +757,14 @@ class StudioApp {
         cumulativeDuration += seg.duration;
       }
 
+      const rads = allPositions.map((q) => q.map((v) => (v * Math.PI) / 180.0));
       this.trajectory = {
         success: true,
         arm: this.arm,
         duration: cumulativeDuration,
         times: allTimes,
         positions_deg: allPositions,
+        positions_rad: rads,
         ee_positions: allEePositions,
         waypoints: allPositions.length,
         min_clearance_mm: 35.0,

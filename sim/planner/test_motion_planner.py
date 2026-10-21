@@ -182,7 +182,7 @@ def test_studio_rest_api():
     from sim.planner.ui.server import HTTPServer, StudioHandler, SERVICE
 
     try:
-        with urllib.request.urlopen(f"{base_url}/api/status", timeout=0.5):
+        with urllib.request.urlopen(f"{base_url}/api/status", timeout=2.0):
             pass
     except Exception:
         SERVICE.set_backend("cbirrt")
@@ -328,11 +328,17 @@ def test_hardware_bridge_and_hitl():
     assert_true(active_stat.get("is_executing") or active_stat.get("status") in ("executing", "succeeded"),
                 f"Execution in progress or finished (status: {active_stat.get('status')}, progress: {active_stat.get('progress_pct')}%)")
 
-    # Wait for completion
-    while HARDWARE_BRIDGE.is_executing:
+    # Wait for completion via HTTP status
+    final_status = None
+    for _ in range(60):
+        with urllib.request.urlopen(f"{base_url}/api/hardware/status", timeout=5) as resp:
+            active_stat = json.loads(resp.read().decode())
+        final_status = active_stat.get("status")
+        if not active_stat.get("is_executing") and final_status in ("succeeded", "idle"):
+            break
         time.sleep(0.1)
-    
-    assert_true(HARDWARE_BRIDGE.status == "succeeded", "HITL trajectory execution finished with status 'succeeded'")
+
+    assert_true(final_status == "succeeded", f"HITL trajectory execution finished with status '{final_status}'")
 
     # 6. E-Stop / Stop API verification
     req_stop = urllib.request.Request(
