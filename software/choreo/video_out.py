@@ -549,7 +549,7 @@ class StageShow:
         self.beat = ({"offset_s": float(m.get("offset_s") or 0.0), "bpm": float(m["bpm"])} if m.get("bpm") else None)
         self.failed = self.lost = None
         self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
-        self._end_status = None
+        self._end_status, self._loaded = None, False
 
     def _send(self, msg):
         try:
@@ -571,6 +571,7 @@ class StageShow:
         videos = [{"t": it["t"], "end_t": it["end_t"], "url": self.out.url(it["path"]), "from_s": it["from_s"],
                    "end": it.get("end", "black"), "id": it["id"]} for it in self.items]
         self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat})
+        self._loaded = True                                 # the pages load the video themselves
         while self._clock is None and not self._stop.is_set():
             self._stop.wait(0.02)
         if self._clock is not None and not self._stop.is_set():
@@ -589,6 +590,10 @@ class StageShow:
 
     def prepare(self):
         pass
+
+    def ready(self) -> bool:
+        """The pages have been told the show (or telling them failed)."""
+        return self._loaded
 
     def tick(self, show_t):
         pass
@@ -670,6 +675,11 @@ class ShowVideo:
             it = self.items[0]
             self._safe("load", self.out.load, it["path"], it["from_s"])
             self.loaded = 0
+
+    def ready(self) -> bool:
+        """The first video is loaded (paused), or loading failed: either way an armed run need not wait
+        for it any longer before it takes the GO."""
+        return not self.items or self.loaded is not None or bool(self.failed)
 
     def tick(self, show_t: float):
         if self.failed or self.i >= len(self.items):

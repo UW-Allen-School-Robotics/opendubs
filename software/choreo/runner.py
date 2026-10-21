@@ -84,7 +84,8 @@ AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio de
 # check at that instant ran every show silently). So the load is ALWAYS sent — the dashboard keeps it
 # for the next device to claim — and only a device still absent this long into PREPPING means silence.
 AUDIO_HOLDER_GRACE_S = 3.0
-# An ARMED run waits here for the show audio, BEFORE it takes the GO (found at the robot 2026-10-16:
+# An ARMED run waits here for the show audio — the tablet's, and the projector's music and video (a
+# cast load, the stage pages told the show), which load while it is armed — BEFORE it takes the GO (found at the robot 2026-10-16:
 # starting from the tablet swaps it to the face page, so the device holding show audio reconnects a few
 # seconds AFTER the run is armed, and the music then needs longer still to load; waiting after the GO
 # made the operator hold the deadman through 15-22 s of nothing, and a brief slip ended two runs).
@@ -681,6 +682,15 @@ class Runner:
             return False
         return bool(st.get("ready")) and st.get("load") in (None, load_id)
 
+    def _media_late(self, load_id, media) -> list:
+        """What an armed run is still waiting for: the tablet's show audio, and each projector or stage
+        output that has not loaded yet."""
+        late = [] if not self.audio_live or self._audio_ready(load_id) else ["the tablet's show audio"]
+        return late + [f"the {sv.state().get('output')} output" for sv in media if not sv.ready()]
+
+    def _media_ready(self, load_id, media) -> bool:
+        return not self._media_late(load_id, media)
+
     def _video_preflight(self, show, tl) -> list:
         """The show's videos, each on its output. An output that is not ready is a warning and the show
         runs without that video (as audio, DEC-7) — or a refusal, VIDEO_NOT_READY, for a show that says
@@ -868,6 +878,10 @@ class Runner:
                                              "that claims it (a tablet changing page as the run starts)")
             if self._audio({"op": "load", "id": load_id, "items": items}):
                 self.audio_live = True
+        # The projector's videos and music, and the stage pages, load now too (paused, on their own
+        # threads), so an armed run's GO waits for them as well as for the tablet
+        for sv in self.videos + self.music:
+            sv.begin()
 
         # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
         if self.start == "deadman" and (stop := self._wait_for_go(show, st, load_id)):
@@ -893,8 +907,6 @@ class Runner:
 
         # PREPPING: travel to the start pose, slowly enough to need no warning — while the
         # show-audio device finishes loading
-        for sv in self.videos + self.music:       # the projector loads (paused) while the arms travel
-            sv.begin()
         secs, targets = prep_moves(tl, measured)
         if self.live and secs > 0:
             for slot in targets:
@@ -1078,10 +1090,11 @@ class Runner:
         probed = {k: st.get(k) for k in PROBED_FIELDS}
         self.deadline = ("ARMED", self.clock() + ARM_TIMEOUT_S)
         prev = st.get("deadman")
-        audio_until = self.clock() + AUDIO_ARMED_WAIT_S if self.audio_live else None
+        media = self.videos + self.music
+        audio_until = self.clock() + AUDIO_ARMED_WAIT_S if (self.audio_live or media) else None
         self.audio_waiting = audio_until is not None
         self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
-                  note=("getting the show audio ready — then press the deadman" if self.audio_waiting else
+                  note=("getting the show's audio and video ready — then press the deadman" if self.audio_waiting else
                         "the deadman is held: let go of it, then press it to start" if prev is True
                         else "press the deadman to start"))
         early = False
@@ -1099,12 +1112,13 @@ class Runner:
             end = armed_monitor(requires, st)
             if end:
                 return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
-            if self.audio_waiting and (self._audio_ready(load_id) or self.clock() >= audio_until):
+            if self.audio_waiting and (self._media_ready(load_id, media) or self.clock() >= audio_until):
                 self.audio_waiting = False
-                ready = self._audio_ready(load_id)
-                self._log("audio_note", note="the show audio is ready" if ready else
-                          f"the show audio is not ready after {AUDIO_ARMED_WAIT_S:g} s — it gets "
-                          f"{AUDIO_AFTER_GO_S:g} s more after the GO, then the show runs silently")
+                late = self._media_late(load_id, media)
+                self._log("audio_note", note="the show audio is ready" if not late else
+                          f"not ready after {AUDIO_ARMED_WAIT_S:g} s: {', '.join(late)} — the tablet gets "
+                          f"{AUDIO_AFTER_GO_S:g} s more after the GO, then runs silently; the projector "
+                          "catches up on the show's clock")
                 self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
                           note=("let go of the deadman, then press it to start" if prev is True
                                 else "press the deadman to start"))
