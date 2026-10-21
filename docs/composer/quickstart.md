@@ -32,9 +32,14 @@ more beats, then **use** to write the tempo into the show; or type it in the **�
 set the first downbeat, stop the playhead on it and press **beat 1 ⇤**. Cues placed on the beat
 grid follow the tempo if you change it later.
 
+Each sound plays as **dialogue** or **music**, set by **plays as** in the **♫ music** dialog, or in a
+sound cue's fields. Dialogue always plays from the tablet. Music plays from a projector's speaker
+when the show has a projector ready, and from the tablet otherwise. A track with any speech in it
+is dialogue.
+
 <figure markdown="span">
   ![The composer toolbar with the music and tempo controls numbered](../assets/composer/composer-02-music.png)
-  <figcaption>1 ♫ music: choose or add a song, or type the tempo · 2 tap, then use · 3 beat 1 ⇤ · 4 snap and click: what dragged cues snap to, and a metronome · 5 the grid the show is written on, bar.beat</figcaption>
+  <figcaption>1 ♫ music: choose or add a song, or type the tempo · 2 tap, then use · 3 beat 1 ⇤ · 4 snap and click: what dragged cues snap to, and a metronome · 5 the grid the show is written on, bar.beat · 6 plays as: dialogue or music</figcaption>
 </figure>
 
 ## :octicons-cpu-24: 3. Know the robot
