@@ -148,6 +148,18 @@ What it took to get there, since each cost a run:
   there is no `track` over both arms: the pose stage would have to bind to each arm's task space, which the spec cannot say. That is the next
   gafro piece for a bimanual controller; until then one arm is under `track` and the other is held by whatever holds an uncontrolled arm
   (on hardware the driver's hold with gravity feedforward; the simulator lets it fall).
+- **Park** (`--park`) is the same move to the stow file's pose (`/etc/opendubs/openarm-stow.conf`, the file `openarm-up park` reads), refused when unset,
+  ending under `engage` because `track` cannot start at a singular stow. Tested in simulation for the right arm: at stow within 0.009 rad. The
+  file's degrees are read as the model's joint angles, which holds where the driver's direction and zero are the identity.
+- **The gripper cannot be run in the simulator on this model.** RI's MuJoCo backend takes a non-joint-transmission actuator (a tendon over the
+  fingers) as a gripper; the OpenArm model has two independent finger-joint actuators, so `get_gripper_names()` is empty. The driver has the
+  gripper (ids 0x08 / 0x18, closure 0 to 1) and its per-robot calibration (`gripper_open_position`, `gripper_closed_position`, no default), now
+  in `hardware.example.yaml` with `use_gripper: false`; the calibration is found on the robot. A coupled finger tendon in `openarm_assets` is
+  what the simulator needs.
+- **CI** (`.github/workflows/arms-gafro.yml`) runs `tools/arm_gafro_model.py --check` against `openarm_assets` pinned to a commit; `check.py` needs the
+  published gafro, a C++ build, and is run by hand. Installing `openarm_assets` from git exposed a packaging bug (the vendored URDF, which
+  `build_openarm` reads for its rated limits, was not in the package data); fixed in `openarm_assets`' `pyproject.toml`, and the pin has to be
+  a commit that has it.
 - The settle check is 0.05 rad: friction stalls a wrist 0.02 rad short in one direction, and `track` anchors where the arm is.
 
 ## Next

@@ -12,6 +12,11 @@ ends and do not count). The speed is a joint speed, and the move takes as long a
 Then `track` takes over with the hand and the posture both anchored where the arm is, so the handover is a hold: nothing is commanded
 that was not already the state. One arm per call, or both: the other arm of a one-arm call is not touched, and both arms end under `engage` (see `engage()`).
 
+`--park` is the way back: the same move to the stow pose of `/etc/opendubs/openarm-stow.conf` (the file `openarm-up park` reads, degrees,
+`LEFT_STOW=` / `RIGHT_STOW=`), ending under `engage` holding the pose and not under `track`, which cannot start at a singular stow. The numbers
+are taken as the model's joint angles, which is what they are where the driver's direction and zero are the identity (opendubs2 stows at
+zero); for a robot whose are not, the file is in the motors' terms and needs converting first.
+
 This is the sequence, not the authority: it does not ask a permit of anything. The arm service calls it once an arm is permitted to move.
 It runs against the simulator as written; against hardware only the `RobotInterface` configuration changes.
 """
@@ -118,13 +123,57 @@ def build(name: str, controllers: dict, system, side: str, configuration: np.nda
     return controller
 
 
+STOW_CONF = os.environ.get("OPENARM_STOW_CONF", "/etc/opendubs/openarm-stow.conf")
+
+
+def stow_pose(side: str, path: str | None = None) -> np.ndarray | None:
+    """One arm's stow pose in radians from the per-robot file (`LEFT_STOW=0,-20,0,95,0,15,0`, degrees), or None if the file or the line is not there."""
+    try:
+        with open(path or STOW_CONF) as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return None
+
+    value = None
+    for line in lines:
+        key, _, rest = line.partition("=")
+        if key.strip().upper() == f"{side.upper()}_STOW" and rest.strip():
+            value = rest.strip()
+    if value is None:
+        return None
+
+    degrees = [float(part) for part in value.replace(" ", "").split(",")]
+    if len(degrees) != 7:
+        raise EngageRefused(f"{side}: the stow pose has {len(degrees)} angles, an arm has 7")
+    return np.radians(degrees)
+
+
+def park(robot, side: str, model_path: str, conf: str | None = None, speed: float = JOINT_SPEED, controllers: dict | None = None, log=print):
+    """Bring `side` ("left", "right" or "both") to its configured stow pose and leave `engage` holding it, ready to be de-energized.
+
+    Unset is refused and not guessed, as `openarm-up park` does: a wrong pose drives the arm into the head.
+    """
+    system = robot.get_system()
+    target_all = np.asarray(robot.get_state().get_position(), dtype=float).copy()
+
+    for name in ("left", "right") if side == "both" else (side,):
+        pose = stow_pose(name, conf)
+        if pose is None:
+            raise EngageRefused(f"{name}: no stow pose configured in {conf or STOW_CONF} (a line `{name.upper()}_STOW=<7 angles in degrees>`); it is "
+                                "deliberately unset and not guessed, since a wrong pose drives the arm into the head")
+        target_all[np.asarray(system.get_task_space(name).get_joint_indices())] = pose
+
+    return engage(robot, side, model_path, "stow", speed, controllers, log, target_all=target_all, then="hold")
+
+
 def engage(robot, side: str, model_path: str, keyframe: str = "ready", speed: float = JOINT_SPEED, controllers: dict | None = None,
-           log=print, target_all: np.ndarray | None = None):
+           log=print, target_all: np.ndarray | None = None, then: str = "track"):
     """Bring `side` ("left", "right" or "both") to the keyframe. One arm is left under `track`, holding it, and its sources are returned,
     (reference, posture). Both arms are left under `engage`, holding the pose (None is returned): a RobotInterface runs one controller and a
     stage binds to one task space, so there is no `track` over both until gafro can bind a stage to a task space of its own.
 
-    `target_all` is a whole-system configuration to go to instead of the keyframe's.
+    `target_all` is a whole-system configuration to go to instead of the keyframe's. `then` is "track" (the handover) or "hold" (stay under
+    `engage`, for a pose `track` cannot start at, such as stow).
 
     Raises EngageRefused, with the arm held by whatever was running, for a target outside the joint ranges or a line through a collision.
     """
@@ -190,8 +239,8 @@ def engage(robot, side: str, model_path: str, keyframe: str = "ready", speed: fl
     if error.max() > SETTLE_TOLERANCE:
         raise EngageRefused(f"the arm stopped {error.max():.3f} rad short of {keyframe} (joint {int(error.argmax()) + 1}); `engage` is still holding")
 
-    if both:
-        log(f"engaged both: at {keyframe} within {error.max():.3f} rad, held by `engage`")
+    if both or then == "hold":
+        log(f"engaged {side}: at {keyframe} within {error.max():.3f} rad, held by `engage`")
         return None
 
     # The handover: hand and posture both anchored where the arm is, so `track` is handed a hold and commands nothing new.
@@ -222,6 +271,8 @@ def main() -> int:
     parser.add_argument("--model", required=True, help="the robot's gafro model (description/openarm/gafro/openarm_bimanual.xml)")
     parser.add_argument("--side", choices=("left", "right", "both"), required=True)
     parser.add_argument("--keyframe", default="ready")
+    parser.add_argument("--park", action="store_true", help="go to the stow pose of the stow file instead, and hold it under `engage`")
+    parser.add_argument("--stow-conf", default=None, help=f"the per-robot stow file (default {STOW_CONF})")
     parser.add_argument("--speed", type=float, default=JOINT_SPEED, help="the largest joint's peak-average speed, rad/s")
     parser.add_argument("--backend", default="mujoco", choices=("mujoco", "hardware"))
     parser.add_argument("--hardware-config", default="", help="hardware.yaml, for --backend hardware")
@@ -233,7 +284,10 @@ def main() -> int:
     robot = ri.RobotInterface(ri.Configuration(args.model, args.backend, args.hardware_config))
     robot.initialize()
     try:
-        engage(robot, args.side, args.model, args.keyframe, args.speed)
+        if args.park:
+            park(robot, args.side, args.model, args.stow_conf, args.speed)
+        else:
+            engage(robot, args.side, args.model, args.keyframe, args.speed)
         time.sleep(1.0)
     except EngageRefused as refused:
         print(f"refused: {refused}")
