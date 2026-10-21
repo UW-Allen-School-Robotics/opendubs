@@ -1,0 +1,50 @@
+# The arms' hardware config for gafro_robot_interface: one `openarm` driver (github.com/personalrobotics/openarm-driver) per control
+# group of the arm model (github.com/personalrobotics/openarm_assets, generated/openarm_bimanual_decorated.xml).
+#
+# This is a TEMPLATE. The robot's own copy lives on the robot (/etc/opendubs/, like openarm-stow.conf) and is never overwritten by a
+# deploy: what is per robot -- the CAN interface names, each motor's direction and zero, the gripper's calibration -- is found on that
+# robot, and the numbers here are starting values that have not been run on an arm.
+#
+# Radians, N m, seconds. Everything the driver is given and gives is in the joint's terms (the model's), not the motor's.
+
+left_arm:
+  driver: openarm
+  bus: can
+  can_interface: arm_left          # the udev names, software/openarm/70-openarm-can.rules
+  can_fd: true
+  rate: 250
+
+  # The arm holds, and applies nothing, unless the arm service has granted a short permit and keeps renewing it
+  # (openarm_driver.grant_permit): if the service stops for any reason, the arm holds on its own.
+  require_permit: true
+  auto_reengage: false             # an arm that heals itself after an e-stop is a decision (DEC-28, Q10), not a default
+
+  # What is true of this robot and not of the arm: the head. Contact with it is at J2 = 182 deg with the elbow folded, measured; a show
+  # leaves 25 deg (software/choreo/cue.py), so the arm is not driven past 157 deg. Left joints 1 to 3 are mirrored (sim/scene.py), so
+  # the outward cap is a lower limit on the left and an upper one on the right. Joint 2 only; the rest are the model's.
+  lower_limits: [-.inf, -2.7401669, -.inf, -.inf, -.inf, -.inf, -.inf]
+  upper_limits: [.inf, .inf, .inf, .inf, .inf, .inf, .inf]
+  joint_limit_margin: 0.0
+
+  # Found by moving the arm, one robot at a time. The identity is only the assumption.
+  direction: [1, 1, 1, 1, 1, 1, 1]
+  zero_offset: [0, 0, 0, 0, 0, 0, 0]
+
+  verify_motors: true              # each in MIT mode with the ranges the frames assume, before it is enabled
+  realtime_priority: 0             # 1 to 99 asks for SCHED_FIFO (CAP_SYS_NICE); diagnostics say if it was not granted
+
+right_arm:
+  driver: openarm
+  bus: can
+  can_interface: arm_right
+  can_fd: true
+  rate: 250
+  require_permit: true
+  auto_reengage: false
+  lower_limits: [-.inf, -.inf, -.inf, -.inf, -.inf, -.inf, -.inf]
+  upper_limits: [.inf, 2.7401669, .inf, .inf, .inf, .inf, .inf]
+  joint_limit_margin: 0.0
+  direction: [1, 1, 1, 1, 1, 1, 1]
+  zero_offset: [0, 0, 0, 0, 0, 0, 0]
+  verify_motors: true
+  realtime_priority: 0
