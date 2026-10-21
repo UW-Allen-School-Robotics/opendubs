@@ -196,3 +196,30 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 | the projector card (`frontend/projector.js`, #441) | Tablet and head interface |
 | the projector's DHCP reservation, Wi-Fi checks | Network |
 | §5 audio, and turning video into an effector after #406 | the user |
+
+## 10. The twin's projection screen (2026-10-21)
+
+The show's video, seen in the MuJoCo twin, in step with the twin and the face — so a show with video
+can be authored and reviewed without the projector.
+
+- **Where:** a wall BEHIND the robot (the user's choice), so the audience sees the robot in front of the
+  image. Fixed to the world, not the base: it stays put while the robot dances. No floor option and no
+  per-show placement yet.
+- **What:** an emissive 16:9 textured plane, built the way the face screen is (`sim/scene.py`
+  `_add_projection`), built hidden and shown only for a show with a VIDEO track (`set_projection_visible`).
+- **Timing:** the picture is chosen by the SHOW'S CLOCK — the same one that poses the twin and drives the
+  face — from the export's VIDEO track (`software/choreo/projection.py` `at`): `from_s` into the file plus
+  the time since its cue, black or its last frame (`end: hold`) after, black before; the next VIDEO cue
+  or a `stop` cuts it. The twin shows the show's INTENDED timing: no cast latency is modelled — the real
+  projector's delay is the video lead, set by ear at the robot (`choreo-audio.md`).
+- **Frames:** each library video is decoded once, at 640×360 and 15 fps, letterboxed to 16:9, into a cache
+  of JPEG frames (`~/.cache/opendubs/projection/`; a 3-minute video is tens of MB, where raw frames would be
+  gigabytes), in the background so the viewer never stalls; a frame is uploaded only when the picture
+  changes. ffmpeg decodes (PATH, or imageio-ffmpeg); without it, or for a video not in this machine's
+  library, the screen stays black and a note says why.
+- **Both twins:** the live viewer (`twin_view.py`, following the composer or the runner) and the offline
+  renders (`render.py`, which also frames the camera to include the screen).
+- **Placeholders, in one place** (`sim/scene.py`, the PROJ_ block): image width 2.0 m (16:9), 1.2 m behind
+  the robot's start, lower edge 0.35 m up, centred. Put the Nebula P1i's real throw and image size there
+  once it is set up.
+- The music keeps playing in the composer as before; nothing here plays sound.
