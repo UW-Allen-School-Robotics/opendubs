@@ -1398,6 +1398,9 @@ class StudioApp {
         } else if (rec === "docker") {
           badgeText.textContent = "Docker Container Active";
           badgeText.style.color = "#38bdf8";
+        } else if (rec === "remote_ssh") {
+          badgeText.textContent = `Remote Thor Connected (${data.environment.remote_thor_host || "10.42.2.10"})`;
+          badgeText.style.color = "#4ade80";
         } else {
           badgeText.textContent = "HITL Simulation Available";
           badgeText.style.color = "#38bdf8";
@@ -1405,7 +1408,7 @@ class StudioApp {
       }
 
       if (envText && data.environment) {
-        envText.textContent = `Env: ROS 2=${data.environment.ros2_rclpy_available}, Docker=${data.environment.docker_running}, Recommended=${data.environment.recommended_mode.toUpperCase()}`;
+        envText.textContent = `Env: Remote Thor=${data.environment.remote_thor_available} (${data.environment.remote_thor_host}), Docker=${data.environment.docker_running}, Recommended=${data.environment.recommended_mode.toUpperCase()}`;
       }
 
       const progressCont = document.getElementById("hw-live-progress-container");

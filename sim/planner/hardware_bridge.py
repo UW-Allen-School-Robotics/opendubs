@@ -248,6 +248,19 @@ class HardwareBridge:
         except Exception:
             pass
 
+        # Check remote Thor via SSH
+        remote_thor_available = False
+        thor_host = os.environ.get("OPENDUBS_THOR_HOST", "andrew@10.42.2.10")
+        try:
+            r = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, "sudo docker ps --filter name=openarm --format {{.Names}}"],
+                capture_output=True, text=True, timeout=3.0
+            )
+            if "openarm" in r.stdout:
+                remote_thor_available = True
+        except Exception:
+            pass
+
         # Check rclpy and control_msgs
         ros2_rclpy = False
         ros2_control_msgs = False
@@ -264,14 +277,23 @@ class HardwareBridge:
             os.path.join(REPO, "software", "openarm", "openarm-up")
         )
 
+        recommended = (
+            "ros2" if (ros2_rclpy and ros2_control_msgs)
+            else ("docker" if docker_running
+            else ("remote_ssh" if remote_thor_available
+            else "hitl"))
+        )
+
         return {
             "hitl_available": True,
             "docker_available": docker_available,
             "docker_running": docker_running,
+            "remote_thor_available": remote_thor_available,
+            "remote_thor_host": thor_host,
             "ros2_rclpy_available": ros2_rclpy,
             "ros2_control_msgs_available": ros2_control_msgs,
             "openarm_up_present": openarm_up_present,
-            "recommended_mode": "ros2" if (ros2_rclpy and ros2_control_msgs) else ("docker" if docker_running else "hitl"),
+            "recommended_mode": recommended,
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -340,6 +362,17 @@ class HardwareBridge:
                 subprocess.Popen(cmd, shell=True)
             except Exception as e:
                 return {"success": False, "error": f"Docker gripper command error: {e}"}
+        elif chosen_mode == "remote_ssh":
+            thor_host = env.get("remote_thor_host", "andrew@10.42.2.10")
+            cmd = (
+                f"ssh -o BatchMode=yes -o ConnectTimeout=3 {thor_host} \"sudo docker exec openarm bash -c 'source /opt/ros/jazzy/setup.bash && "
+                f"ros2 action send_goal /{arm}_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "
+                f"\\\"{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}\\\" '\""
+            )
+            try:
+                subprocess.Popen(cmd, shell=True)
+            except Exception as e:
+                return {"success": False, "error": f"Remote gripper command error: {e}"}
         elif chosen_mode == "ros2" and env.get("ros2_rclpy_available"):
             cmd = (
                 f"ros2 action send_goal /{arm}_gripper_controller/gripper_cmd "
@@ -373,6 +406,9 @@ class HardwareBridge:
             openarm_up = "/usr/local/bin/openarm-up"
             if os.path.exists(openarm_up) and arm:
                 subprocess.run(["sudo", "-n", openarm_up, "hold", arm], capture_output=True, timeout=3.0)
+            else:
+                thor_host = os.environ.get("OPENDUBS_THOR_HOST", "andrew@10.42.2.10")
+                subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, f"sudo /usr/local/bin/openarm-up hold {arm}"], capture_output=True, timeout=3.0)
         except Exception:
             pass
 
@@ -435,6 +471,9 @@ class HardwareBridge:
             try:
                 if mode == "hitl":
                     self._run_hitl(arm, times, positions, gripper_events, progress_cb)
+                elif mode == "remote_ssh":
+                    thor_host = env.get("remote_thor_host", "andrew@10.42.2.10")
+                    self._run_remote_ssh_action(arm, times, positions, thor_host, progress_cb)
                 elif mode == "ros2":
                     self._run_ros2_action(arm, times, positions, velocities, progress_cb)
                 elif mode == "docker":
@@ -665,6 +704,78 @@ class HardwareBridge:
         out, err = proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(f"Docker action execution failed: {err or out}")
+        if "Goal accepted" not in out:
+            raise RuntimeError(f"Controller did not accept goal: {out}")
+
+    def _run_remote_ssh_action(
+        self,
+        arm: str,
+        times: List[float],
+        positions: List[List[float]],
+        thor_host: str,
+        progress_cb: Optional[Callable[[float, float], None]],
+    ):
+        """Execute on physical robot through remote SSH to Thor into openarm docker container."""
+        names = [f"openarm_{arm}_joint{j}" for j in range(1, 8)]
+        names_str = ", ".join(f"'{n}'" for n in names)
+
+        # Build trajectory points string
+        points_str_list = []
+        for t, pos in zip(times, positions):
+            sec = int(t)
+            nanosec = int(round((t - sec) * 1e9))
+            pos_str = ", ".join(f"{float(p):.5f}" for p in pos)
+            points_str_list.append(
+                f"{{positions: [{pos_str}], time_from_start: {{sec: {sec}, nanosec: {nanosec}}}}}"
+            )
+        pts_str = ", ".join(points_str_list)
+
+        goal_yaml = f"{{trajectory: {{joint_names: [{names_str}], points: [{pts_str}]}}}}"
+        total_time = int(times[-1]) + 10
+
+        inner_cmd = (
+            f"source /opt/ros/jazzy/setup.bash && "
+            f"timeout {total_time} ros2 action send_goal /{arm}_controller/follow_joint_trajectory "
+            f"control_msgs/action/FollowJointTrajectory \"{goal_yaml}\""
+        )
+        cmd = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            thor_host,
+            f"sudo docker exec openarm bash -c '{inner_cmd}'"
+        ]
+
+        with self.lock:
+            self.status = "executing"
+
+        t_total = float(times[-1])
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        t_start = time.perf_counter()
+
+        while proc.poll() is None:
+            if self._cancel_requested.is_set():
+                proc.terminate()
+                # Run hold on Thor
+                subprocess.run(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, f"sudo /usr/local/bin/openarm-up hold {arm}"],
+                    capture_output=True, timeout=3.0
+                )
+                with self.lock:
+                    self.status = "cancelled"
+                return
+
+            t_elapsed = time.perf_counter() - t_start
+            with self.lock:
+                self.current_time_s = min(t_elapsed, t_total)
+                self.progress_pct = min(100.0, (t_elapsed / max(0.001, t_total)) * 100.0)
+
+            if progress_cb:
+                progress_cb(self.current_time_s, self.progress_pct)
+
+            time.sleep(0.05)
+
+        out, err = proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Remote action execution failed: {err or out}")
         if "Goal accepted" not in out:
             raise RuntimeError(f"Controller did not accept goal: {out}")
 
