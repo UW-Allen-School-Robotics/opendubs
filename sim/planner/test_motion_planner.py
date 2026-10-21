@@ -172,24 +172,48 @@ def test_modular_backends():
     assert_true(custom_traj is not None, f"Custom backend generated valid trajectory ({custom_traj.duration:.2f} s)")
 
 
-def test_studio_rest_api():
-    test_section("5. Studio HTTP Server & REST API Endpoints")
+GLOBAL_STUDIO_URL = None
 
-    base_url = "http://127.0.0.1:8092"
 
-    # Start server in a background thread if not running
+def get_studio_url() -> str:
+    global GLOBAL_STUDIO_URL
+    if GLOBAL_STUDIO_URL is not None:
+        return GLOBAL_STUDIO_URL
+
     import threading
     from sim.planner.ui.server import HTTPServer, StudioHandler, SERVICE
 
-    try:
-        with urllib.request.urlopen(f"{base_url}/api/status", timeout=2.0):
+    for candidate_port in [8092, 8095]:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{candidate_port}/api/status", timeout=1.0) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("status") == "ready":
+                    GLOBAL_STUDIO_URL = f"http://127.0.0.1:{candidate_port}"
+                    return GLOBAL_STUDIO_URL
+        except Exception:
             pass
-    except Exception:
-        SERVICE.set_backend("cbirrt")
-        server = HTTPServer(("127.0.0.1", 8092), StudioHandler)
+
+    SERVICE.set_backend("cbirrt")
+    server = None
+    for port in [8095, 8092, 0]:
+        try:
+            server = HTTPServer(("127.0.0.1", port), StudioHandler)
+            actual_port = server.server_address[1]
+            GLOBAL_STUDIO_URL = f"http://127.0.0.1:{actual_port}"
+            break
+        except OSError:
+            continue
+    if server is not None:
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
-        time.sleep(1.0)
+        time.sleep(0.5)
+
+    return GLOBAL_STUDIO_URL or "http://127.0.0.1:8092"
+
+
+def test_studio_rest_api():
+    test_section("5. Studio HTTP Server & REST API Endpoints")
+    base_url = get_studio_url()
 
     def get(path: str) -> dict:
         req = urllib.request.Request(f"{base_url}{path}")
@@ -279,7 +303,7 @@ def test_hardware_bridge_and_hitl():
     assert_true(safety_fail.speed_trip_ok is False, "Speed trip flag marked False on excessive speed")
 
     # 3. REST API /api/hardware/status
-    base_url = "http://127.0.0.1:8092"
+    base_url = get_studio_url()
     req_status = urllib.request.Request(f"{base_url}/api/hardware/status")
     with urllib.request.urlopen(req_status, timeout=5) as resp:
         hw_status = json.loads(resp.read().decode())
@@ -356,7 +380,7 @@ def test_choreo_import_export():
     print("▶ 7. Choreo Library, Import/Export, and Persistence Manager")
     print("=" * 65)
 
-    base_url = "http://127.0.0.1:8092"
+    base_url = get_studio_url()
 
     # 1. Test /api/choreo/library
     with urllib.request.urlopen(f"{base_url}/api/choreo/library", timeout=5) as resp:
@@ -426,7 +450,7 @@ def test_gripper_control():
     print("▶ 8. Gripper Controls, Action Dispatches, and Show Cues")
     print("=" * 65)
 
-    base_url = "http://127.0.0.1:8092"
+    base_url = get_studio_url()
 
     # 1. Test GET /api/gripper
     with urllib.request.urlopen(f"{base_url}/api/gripper?arm=left", timeout=5) as resp:
