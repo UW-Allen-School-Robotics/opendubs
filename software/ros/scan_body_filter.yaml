@@ -1,0 +1,19 @@
+# Removes the robot's own returns from the front scan before SLAM sees them: anything inside the
+# chassis box plus 10 cm, in base_link. Chassis span from description/opendubs/dimensions.yaml
+# (datum x -32..612, y +/-324.5) less base_link (324, 0): x -0.356..0.288, y +/-0.3245.
+# Without it the front unit's returns at 0.18-0.28 m from the robot itself are mapped as walls
+# that move with the robot.
+scan_body_filter:
+  ros__parameters:
+    filter1:
+      name: robot_body
+      type: laser_filters/LaserScanBoxFilter
+      params:
+        box_frame: base_link
+        min_x: -0.456
+        max_x: 0.388
+        min_y: -0.4245
+        max_y: 0.4245
+        min_z: -0.5
+        max_z: 2.0
+        invert: false

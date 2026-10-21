@@ -10,7 +10,8 @@ ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
-opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay"
+opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
+opendubs-robot-state-publisher opendubs-slam"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
 # which has been removed from the robot (notes/history/astra-camera/).
@@ -57,6 +58,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
 # deploy must not stop the rest of ROS provisioning over a package only the relay needs.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websockets >/dev/null \
   || echo "  !! python3-websockets not installed (offline?): the skeleton relay cannot start until it is"
+# SLAM (opendubs-slam, off unless /etc/opendubs/slam.enabled) and the robot's frames. Their own line and
+# allowed to fail, for the same reason.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
+  "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" "ros-${ROS_DISTRO}-laser-filters" >/dev/null \
+  || echo "  !! slam_toolbox / laser_filters not installed (offline?): opendubs-slam cannot start until they are"
 
 # --- sudoers (scan watchdog → restart rplidar) ------------------------------
 install -m0440 "$ROSDIR/opendubs-ros-sudoers" /etc/sudoers.d/opendubs-ros
