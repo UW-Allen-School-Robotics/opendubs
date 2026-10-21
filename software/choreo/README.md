@@ -1,5 +1,9 @@
 # Choreography
 
+**New here? Start with the [Composer Quickstart](../../docs/composer/quickstart.md).** From a checkout,
+`software/choreo/studio-up.sh` starts the composer at http://127.0.0.1:8091/, with the face and robot twins
+beside it. Write a show to the music, check it, watch it in the twins, then push it to the robot.
+
 > **Numbering.** Item numbers such as (1.5) or (5.4), and "workplan proposal n", cite the plan as it stood when this was written, now kept as [`../../notes/design/choreo-prior-art.md`](../../notes/design/choreo-prior-art.md). The current plan of record is [`../../notes/workplan-choreography.md`](../../notes/workplan-choreography.md).
 
 A show is **data**, not code: a cue sheet listing what happens to which part of the robot, at

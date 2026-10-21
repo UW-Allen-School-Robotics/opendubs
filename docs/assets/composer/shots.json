@@ -1,0 +1,74 @@
+{
+ "composer-01-overview": {
+  "shows": "the whole composer",
+  "callouts": {
+   "1": "the show being edited (show picker); file: new, copy, rename, delete",
+   "2": "play / pause (space) and the playhead clock",
+   "3": "the lanes: NOTES, CLIPS, then one per part of the robot (ARM_L … DEVICE)",
+   "4": "the bar/beat ruler and the song's waveform",
+   "5": "At the playhead: what every part is doing now",
+   "6": "Cue: the selected cue's fields",
+   "7": "the validator: problems, warnings and notes",
+   "8": "save (Ctrl/Cmd-S), and the validator's verdict on the whole show"
+  }
+ },
+ "composer-02-music": {
+  "shows": "music, tempo, the grid, and how the track plays",
+  "callouts": {
+   "1": "♫ music: choose a song from the library or add one (or drop an audio file on the page); the tempo can be typed here too",
+   "2": "tap along: four or more taps estimate the tempo; use writes it into the show",
+   "3": "beat 1 ⇤: beat 1 falls at the playhead (music.offset_s)",
+   "4": "snap: dragged cues snap to bar, beat, ½ or ¼ beat; click: a metronome on every beat",
+   "5": "the grid the show is written on: bar.beat, at the show's tempo",
+   "6": "plays as: dialogue always plays from the tablet; music plays from the projector's speaker when a projector is ready (the tablet otherwise)"
+  }
+ },
+ "composer-03-cues": {
+  "shows": "placing and editing cues",
+  "callouts": {
+   "1": "+ adds a cue to this lane at the playhead",
+   "2": "the new cue: drag to move it (it snaps to the grid)",
+   "3": "its fields, edited here; the validator re-checks every edit"
+  }
+ },
+ "composer-04-notes": {
+  "shows": "notes for an agent",
+  "callouts": {
+   "1": "the NOTES lane: requests for whoever edits next, often an agent",
+   "2": "+ adds a note at the playhead",
+   "3": "⧉ copies the open notes as a prompt for an agent (save first: the agent reads the file)",
+   "4": "a note over a span of time (and some parts); the agent replies on it"
+  }
+ },
+ "composer-05-validate": {
+  "shows": "the validator, with a problem",
+  "callouts": {
+   "1": "the verdict on the whole show: valid, valid with warnings, or N problems",
+   "2": "each problem names its cue and what to change (tap it to select the cue); warnings and notes follow"
+  }
+ },
+ "composer-06-twin": {
+  "shows": "the twin at the playhead",
+  "callouts": {
+   "1": "the MuJoCo twin: the robot as the show moves it (arms, head, lift, base)",
+   "2": "the face twin: the head's face, driven by the same show"
+  }
+ },
+ "composer-07-render": {
+  "shows": "rendering a show to video",
+  "callouts": {
+   "1": "the render command (the studio's; render.py underneath)",
+   "2": "the robot twin, framed to the whole show",
+   "3": "the face, beside it (and on the robot's head)"
+  }
+ },
+ "composer-08-shows": {
+  "shows": "putting a show on the robot, and running it from the dashboard",
+  "callouts": {
+   "1": "push the show to the robot (checked here first; --dry-run shows what would happen)",
+   "2": "every show on the robot that validates, as a button; icons show what it uses",
+   "3": "how a run starts: wait for the deadman, count down, or now",
+   "4": "STOP, and park both arms"
+  }
+ }
+}
