@@ -5,24 +5,23 @@ name: robot-description
 # one-tree-rooted-at-base_link assertion; tools/arm_chain.py: chain.json from the vendored v1.urdf).
 # A hand edit to a derived file, or a source change without a re-run, fails here. Pure Python + PyYAML.
 
+# CI minutes are metered (the user, 2026-10-21): no run on draft PRs or on the push to main, which the PR
+# already ran. Mark a PR ready (`gh pr ready <n>`) to run it; workflow_dispatch runs it by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "description/**"
-      - "tools/arm_chain.py"
-      - ".github/workflows/robot-description.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "description/**"
       - "tools/arm_chain.py"
       - ".github/workflows/robot-description.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   check:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
