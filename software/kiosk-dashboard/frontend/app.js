@@ -206,6 +206,7 @@ const ESTOP_SOURCE_CODE = {
   "SOFTWARE": "ESTOP_SOFTWARE",            // @fault ESTOP_SOFTWARE
   "BUTTON": "ESTOP_BUTTON",                // @fault ESTOP_BUTTON
   "STALE TELEMETRY": "LINK_STAMPLC_LOST",  // @fault LINK_STAMPLC_LOST
+  "STAMPLC": "ESTOP_SOFTWARE",             // the StamPLC's own latch: re-armed the same way
 };
 const estopCode = (source) => {
   const first = (source || "").split(" + ")[0];
@@ -530,7 +531,8 @@ function renderRobotState(rs) {
   if (!rs) return;
   const st = $("rsState");
   if (st) { st.textContent = rs.label || "—"; st.style.color = STATE_COLORS[rs.color] || "var(--txt)"; }
-  if ($("rsReason")) $("rsReason").textContent = rs.reason || "";
+  // An e-stop says how to get out of it (status.py `recovery`, the registry's words).
+  if ($("rsReason")) $("rsReason").textContent = (rs.reason || "") + (rs.recovery ? " — " + rs.recovery : "");
   if ($("rsLed")) $("rsLed").textContent = rs.color ? `${rs.color} · ${rs.anim}` : "—";
 
   const inp = rs.inputs || {};
