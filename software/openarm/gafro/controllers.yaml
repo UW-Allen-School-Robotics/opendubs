@@ -40,6 +40,25 @@ controllers:
         law: {pd: {natural_frequency: 4, damping_ratio: 1.0, max_speed: 0.5}}
         output: acceleration
 
+  # Joint-space move: the arm follows a posture reference through joint space, under gravity from the model. This is how the arm gets
+  # from where it is (stow, or wherever it was frozen) to the ready pose before `track` takes over: `track` itself would have the
+  # singular-value guard swing a straight stow arm. The reference is a time-parameterized straight line in joint space (engage.py), so
+  # the path is the one that was checked for self-contact; `max_speed` only bounds how far the arm may run ahead of it. The stiffness is what
+  # the wrist needs: the model's joint friction (0.1 N m) beats a posture PD at 20 rad/s on a wrist joint (inertia of a few thousandths), which
+  # stalls 0.07 rad short, and at 6 rad/s 0.75 rad short. A starting value; the real arm's friction is not this model's.
+  engage:
+    inputs: {posture: joints}
+    type: torque
+    gravity: 9.81
+    regularization: 0.05
+    limits: {joint_torque: model}
+    stages:
+      - name: posture
+        input: joints
+        objective: {posture: {target: posture}}
+        law: {pd: {natural_frequency: 40, damping_ratio: 1.0, max_speed: 0.6}}
+        output: acceleration
+
   # Hand-guiding (FREE, DEC-11): no stiffness, so the arm goes where it is pushed, gravity from the model so it does not fall, and joint
   # damping so it does not run away. In simulation from the ready pose it floats: 5.6 mm and 0.011 rad of creep in 4 s, against the arm falling
   # 554 mm with gravity 0. The pose and the posture are not tracked, so there is no `reference`; `posture` is only the target the (zero)

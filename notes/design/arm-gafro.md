@@ -104,10 +104,51 @@ An earlier `track` run from the model's default pose looked like drift (9 mm, 0.
 
 **`go_to_keyframe` does not return.** From a displaced pose it brings the arm to within 0.057 rad of the ready keyframe and never finishes: RI's
 position servo has no gravity feedforward, so it settles a few hundredths of a radian short, outside its stopping tolerance. The real arm's
-position mode would sag the same way (the driver sends no feedforward torque in position mode). Two ways round it, neither done: gravity
-feedforward in the driver's position and hold frames, from the bound model (which also removes the hold's sag on the real arm), or engaging
-by `track` with the ready pose as its reference and posture target. A joint-space torque controller with gravity was tried and moved the arm
+position mode would sag the same way unless the driver feeds gravity forward, which it now does (hold, position and velocity frames, from the bound
+model; `openarm-driver`, uncommitted when this was written, tested on a fake bus whose load is the model's own torque: the hold sags 0.006 rad
+against 0.1 to 0.4 rad without). In the simulation the position servo is MuJoCo's own actuator, not the driver, so `go_to_keyframe` there needs the model's gravity compensation
+(`openarm_assets.assembly --gravcomp`): with it the move back to ready returns in 0.8 s within 0.01 rad, without it it never returns (0.13 to
+0.27 rad short). That model cannot be the default: the torque controllers cancel gravity themselves, so on a weightless model `track` holds
+nothing (0.75 rad of joint wander, 9.5 mm of hand). The committed model stays without gravity compensation, which is what the real arm is; use
+the compensated one only for position-mode moves in the simulation. A joint-space torque controller with gravity was tried and moved the arm
 at about 0.02 rad/s; it is not in the config, and why was not found.
+
+**Impedance cannot hold station.** A wrench-output stage ignores gravity (the same drift with `gravity: 0`), and an acceleration posture stage
+below it only acts in its null space: 0.33 rad of joint wander and 44 mm of hand sag in 4 s. With the posture stage above it the arm holds
+(0.004 rad) but cannot move, because a full-joint posture stage takes every degree of freedom. So `track` (all acceleration stages) is the
+controller; impedance needs a gravity term on wrench-output stages in gafro's control spec.
+
+## Engage: stow to ready to `track`
+
+`software/openarm/gafro/engage.py`, one arm per call. It reads the measured pose, refuses a target outside the joint limits, checks the straight
+joint-space line to the model's `ready` keyframe against the collision geometry, runs the `engage` controller (a posture stage in joint space,
+gravity from the model, the same torque path as `track`) along a minimum-jerk reference at 0.3 rad/s of the largest joint (11 s from stow), then starts
+`track` anchored where the arm is, so the handover commands nothing new. It asks no permit of anything: the arm service calls it once an arm is
+allowed to move.
+
+In simulation, from stow, both arms: at `ready` within 0.003 and 0.005 rad, then 0.0 mm and 0.0001 rad of drift under `track` for 3 s. The line
+stow to ready keeps every pair of parts as far apart as it is at its closer end (the closest, finger to wrist at 6 mm and link 1 to link 3 at 17 mm,
+are the same at both ends). The refusal fires: 4 of 300 random single-arm targets were refused, for example the hand 17 mm from the torso. The rule is
+relative, so a start or target already in contact is not flagged; the target here is `ready`, which is checked.
+
+What it took to get there, since each cost a run:
+
+- **The stiffness.** A posture PD at 6 rad/s stalls the wrist joints 0.75 rad short and at 20 rad/s 0.07 rad short: the model's joint friction
+  (0.1 N m) is more than the torque a PD asks of a joint with an inertia of a few thousandths. 40 rad/s reaches `ready`. That is the model's friction;
+  the real arm's is not measured, and 40 on a wrist with the real loop's latency is the first thing to watch. An integral term is the other way.
+- **`JointReferenceChunk(start, period, knots)`: the second argument is the spacing of the knots, not the length of the chunk.** With the duration
+  there, 41 knots take 41 times as long, and the arm crawled; this is also why the earlier joint-space torque controller "moved at about 0.02 rad/s".
+- **A simulator started at stow does not move.** A model whose first keyframe is the zero pose holds the right arm rigid under both `engage` and
+  `track` (plain MuJoCo with the same torque moves it, and the same model moves when the arm is first brought to stow by a position move). Not
+  understood; the sequence is tested by placing the arm at stow with `go_to_joint_position`, which is also how a real arm gets there.
+- **Both arms at once** (`--side both`): a `RobotInterface` runs one controller, and a second `control()` replaces the first (the right arm was
+  dropped when the left was started), so both arms need one controller over both. A stage binds to one task space, so `openarm_assets` now
+  declares a `bimanual` task space (both chains, both groups, 14 joints) and `engage` runs over it. In simulation, ready to stow and back with
+  the same call: within 0.001 rad of ready, held under `engage` (0.0045 rad of settling in 3 s). It ends under `engage` and not `track`, because
+  there is no `track` over both arms: the pose stage would have to bind to each arm's task space, which the spec cannot say. That is the next
+  gafro piece for a bimanual controller; until then one arm is under `track` and the other is held by whatever holds an uncontrolled arm
+  (on hardware the driver's hold with gravity feedforward; the simulator lets it fall).
+- The settle check is 0.05 rad: friction stalls a wrist 0.02 rad short in one direction, and `track` anchors where the arm is.
 
 ## Next
 
