@@ -25,7 +25,8 @@ The old controller was one safety layer doing several jobs. Driving torque direc
 | **Driver** | torque, velocity, position and slew clamps; trips on speed, torque, tracking and temperature; hold on a stale command, a fault, silence or a disabled motor; motion-free engage; the motors checked before they are enabled; a **permit** with an expiry | `openarm-driver` | yes; simulated bus only |
 | **Model** | joint ranges, rated torque and velocity, the gains | `openarm_assets` | yes |
 | **Controller** | model limits (`joint_torque: model`), tool speed, gravity, the stages | `controllers.yaml` | builds; the model-limit bound waits on gafro#51 |
-| **This robot** | the head cap on J2, CAN names, per-robot direction and zero | `hardware.example.yaml` | template |
+| **This robot** | the head cap on J2 | the model, `description/openarm/gafro/` (`tools/arm_gafro_model.py`) | yes |
+| | CAN names, per-robot direction and zero | `hardware.example.yaml` | template |
 | **Authority** | CH5, `[AUTH]`, leases, presence, the keeper, the tablet | an arm service | **not built** |
 
 The driver's permit is the hook for the authority layer: with `require_permit` the arm holds unless the service has granted a short
@@ -40,6 +41,11 @@ at the lowest software layer. The driver does not know who grants it or why.
   the torque loop. Until one is chosen the e-stop is the answer.
 - **The first run on an arm.** Activation is built to be motion-free (it reads the pose, enables, and ramps the stiffness up from a
   fraction), but how the motors behave when enabled is the A1 check again, on this driver. Do it supported and with a person present.
+- **The cap is in the model, not only the driver.** The driver clamps position targets, and does not limit torque by position, so on the
+  torque path the cap has to be in what the controllers read: gafro's joint-limit guard takes each joint's own limits from the model.
+  The limits cannot be set on a loaded model from Python (`System.set_joint_limits` changes the system's arrays, which the driver reads,
+  but not the joints', which the guard reads), so the model is generated with joint 2 narrowed. That the guard then reacts is by
+  reading its source; nothing has run the controller near the cap.
 - **No workspace box, no head in a collision model.** gafro's spec has neither; see the README beside the config.
 - **Every default** (gains, trips, slews, the permit's use) is a starting value.
 
