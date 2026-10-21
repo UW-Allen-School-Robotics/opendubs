@@ -351,6 +351,76 @@ def test_hardware_bridge_and_hitl():
     assert_true(stop_res.get("success") is True, "/api/hardware/stop returned success")
 
 
+def test_choreo_import_export():
+    print("\n" + "=" * 65)
+    print("▶ 7. Choreo Library, Import/Export, and Persistence Manager")
+    print("=" * 65)
+
+    base_url = "http://127.0.0.1:8092"
+
+    # 1. Test /api/choreo/library
+    with urllib.request.urlopen(f"{base_url}/api/choreo/library", timeout=5) as resp:
+        lib_data = json.loads(resp.read().decode())
+    assert_true(lib_data.get("success") is True, "/api/choreo/library returned success")
+    choreos = lib_data.get("choreos", [])
+    assert_true(len(choreos) > 0, f"Discovered {len(choreos)} choreos in library")
+    has_halloween = any("halloween.yaml" in c.get("filename", "") for c in choreos)
+    assert_true(has_halloween, "halloween.yaml found in choreo library")
+
+    # 2. Test /api/choreo/load for builtin:halloween.yaml (Left arm)
+    with urllib.request.urlopen(f"{base_url}/api/choreo/load?id=builtin:halloween.yaml&arm=left", timeout=5) as resp:
+        load_data = json.loads(resp.read().decode())
+    assert_true(load_data.get("success") is True, "Loaded builtin:halloween.yaml successfully")
+    kfs = load_data.get("keyframes", [])
+    assert_true(len(kfs) >= 2, f"Loaded {len(kfs)} keyframes for left arm")
+    assert_true(all(kf["arm"] == "left" for kf in kfs), "All keyframes scoped to left arm")
+
+    # 3. Test /api/choreo/import with raw YAML content
+    test_yaml = """
+id: unit_test_routine
+cues:
+  - { t: 1.0, slot: ARM_L, joints: { 1: 15, 2: -20, 4: 60 } }
+  - { t: 4.5, slot: ARM_L, joints: { 1: -25, 4: 75 } }
+"""
+    req_import_yaml = urllib.request.Request(
+        f"{base_url}/api/choreo/import",
+        data=json.dumps({"content": test_yaml, "arm": "left"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_import_yaml, timeout=5) as resp:
+        import_res = json.loads(resp.read().decode())
+    assert_true(import_res.get("success") is True, "Imported YAML choreo successfully")
+    assert_true(len(import_res.get("keyframes", [])) == 2, "Parsed exactly 2 keyframes from YAML")
+
+    # 4. Test /api/choreo/save to user library
+    test_kfs = import_res["keyframes"]
+    req_save = urllib.request.Request(
+        f"{base_url}/api/choreo/save",
+        data=json.dumps({"name": "ci_test_routine", "format": "yaml", "keyframes": test_kfs}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_save, timeout=5) as resp:
+        save_res = json.loads(resp.read().decode())
+    assert_true(save_res.get("success") is True, "Saved user routine to sim/planner/saved_choreos/")
+    saved_fname = save_res["filename"]
+
+    # 5. Test loading saved user choreo
+    with urllib.request.urlopen(f"{base_url}/api/choreo/load?id=user:{saved_fname}&arm=left", timeout=5) as resp:
+        user_load = json.loads(resp.read().decode())
+    assert_true(user_load.get("success") is True, "Loaded user saved choreo successfully")
+    assert_true(len(user_load.get("keyframes", [])) == 2, "User saved choreo contains 2 keyframes")
+
+    # 6. Test cleanup / deletion of user choreo
+    req_del = urllib.request.Request(
+        f"{base_url}/api/choreo/delete",
+        data=json.dumps({"name": saved_fname}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_del, timeout=5) as resp:
+        del_res = json.loads(resp.read().decode())
+    assert_true(del_res.get("success") is True, "Deleted temporary test choreo")
+
+
 def main():
     print("=" * 65)
     print(" 🤖 OpenArm Motion Planner Complete Test Suite")
@@ -362,6 +432,7 @@ def main():
     test_modular_backends()
     test_studio_rest_api()
     test_hardware_bridge_and_hitl()
+    test_choreo_import_export()
 
     print("\n" + "=" * 65)
     print(" 🎉 ALL TESTS PASSED! Motion planner & studio verified 100% operational.")
@@ -370,3 +441,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

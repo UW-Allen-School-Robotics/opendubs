@@ -35,6 +35,13 @@ for p in (REPO, SIM_DIR, IK_DIR):
 from sim.planner import OpenArmPlanner, get_available_backends
 from sim.planner.benchmark import run_benchmark
 from sim.planner.hardware_bridge import HARDWARE_BRIDGE, validate_trajectory_safety
+from sim.planner.choreo_io import (
+    list_available_choreos,
+    parse_choreo_content,
+    save_user_choreo,
+    delete_user_choreo,
+    load_choreo_by_path_or_id,
+)
 import clearance
 import openarm_left_ik
 import openarm_right_ik
@@ -323,6 +330,28 @@ class StudioHandler(SimpleHTTPRequestHandler):
             res = SERVICE.run_benchmark(arm="left", trials=2)
             return self._send_json(res)
 
+        if url == "/api/choreo/library":
+            items = list_available_choreos()
+            return self._send_json({"success": True, "choreos": items})
+
+        if url == "/api/choreo/load":
+            query_id = None
+            query_arm = None
+            if "?" in self.path:
+                for part in self.path.split("?", 1)[1].split("&"):
+                    if part.startswith("id="):
+                        from urllib.parse import unquote
+                        query_id = unquote(part.split("=", 1)[1])
+                    elif part.startswith("arm="):
+                        query_arm = part.split("=", 1)[1]
+            if not query_id:
+                return self._send_json({"success": False, "error": "Missing choreo id"}, status=400)
+            try:
+                kfs = load_choreo_by_path_or_id(query_id, target_arm=query_arm)
+                return self._send_json({"success": True, "id": query_id, "keyframes": kfs, "count": len(kfs)})
+            except Exception as e:
+                return self._send_json({"success": False, "error": str(e)}, status=400)
+
         return super().do_GET()
 
     def do_POST(self):
@@ -430,6 +459,36 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if url == "/api/hardware/stop":
             res = HARDWARE_BRIDGE.stop()
             return self._send_json(res)
+
+        if url == "/api/choreo/import":
+            content = req.get("content", "")
+            choreo_id = req.get("id", "")
+            target_arm = req.get("arm", None)
+            try:
+                if choreo_id:
+                    kfs = load_choreo_by_path_or_id(choreo_id, target_arm=target_arm)
+                elif content:
+                    kfs = parse_choreo_content(content, target_arm=target_arm)
+                else:
+                    return self._send_json({"success": False, "error": "No content or choreo id provided"}, status=400)
+                return self._send_json({"success": True, "keyframes": kfs, "count": len(kfs)})
+            except Exception as e:
+                return self._send_json({"success": False, "error": str(e)}, status=400)
+
+        if url == "/api/choreo/save":
+            name = req.get("name", "custom_choreo")
+            format_type = req.get("format", "yaml")
+            keyframes = req.get("keyframes", [])
+            try:
+                res = save_user_choreo(name, keyframes, format_type=format_type)
+                return self._send_json(res)
+            except Exception as e:
+                return self._send_json({"success": False, "error": str(e)}, status=400)
+
+        if url == "/api/choreo/delete":
+            name = req.get("name", "")
+            deleted = delete_user_choreo(name)
+            return self._send_json({"success": deleted})
 
         self.send_error(404, "Endpoint not found")
 

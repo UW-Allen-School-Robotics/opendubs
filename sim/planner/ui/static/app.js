@@ -300,6 +300,33 @@ class StudioApp {
       this._setArm(otherArm);
     };
 
+    // Import & Save choreo buttons
+    const bindClick = (id, fn) => {
+      const el = document.getElementById(id);
+      if (el) el.onclick = fn;
+    };
+    bindClick("btn-import-choreo", () => this._openImportModal());
+    bindClick("btn-import-choreo-main", () => this._openImportModal());
+    bindClick("btn-close-import-modal", () => this._closeImportModal());
+    bindClick("btn-import-cancel", () => this._closeImportModal());
+    bindClick("btn-import-load-library", () => this._importFromLibrary());
+    bindClick("btn-import-paste-submit", () => this._importFromText());
+
+    const fileInput = document.getElementById("import-file-input");
+    if (fileInput) {
+      fileInput.onchange = (e) => {
+        if (e.target.files && e.target.files[0]) {
+          this._importFromFile(e.target.files[0]);
+        }
+      };
+    }
+
+    bindClick("btn-save-choreo", () => this._openSaveModal());
+    bindClick("btn-save-choreo-main", () => this._openSaveModal());
+    bindClick("btn-close-save-modal", () => this._closeSaveModal());
+    bindClick("btn-save-cancel", () => this._closeSaveModal());
+    bindClick("btn-save-confirm", () => this._saveNamedChoreo());
+
     // Benchmark modal buttons
     document.getElementById("btn-open-benchmark").onclick = () => this._openBenchmarkModal();
     document.getElementById("btn-close-benchmark").onclick = () => this._closeBenchmarkModal();
@@ -835,6 +862,231 @@ class StudioApp {
     a.download = "halloween_arm_routine.yaml";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /* Choreo Library, Import, and Persistence */
+  async _openImportModal() {
+    const modal = document.getElementById("import-modal");
+    if (!modal) return;
+    modal.style.display = "flex";
+
+    // Populate library select
+    const sel = document.getElementById("import-library-select");
+    sel.innerHTML = `<option value="">Loading choreos...</option>`;
+
+    try {
+      const resp = await fetch("/api/choreo/library");
+      const data = await resp.json();
+      if (data.success && Array.isArray(data.choreos)) {
+        sel.innerHTML = "";
+        const builtins = data.choreos.filter((c) => c.type === "builtin");
+        const users = data.choreos.filter((c) => c.type === "user");
+
+        if (users.length > 0) {
+          const grp = document.createElement("optgroup");
+          grp.label = "User Saved Routines";
+          users.forEach((c) => {
+            const opt = document.createElement("option");
+            opt.value = c.id;
+            opt.textContent = `★ ${c.name}`;
+            grp.appendChild(opt);
+          });
+          sel.appendChild(grp);
+        }
+
+        if (builtins.length > 0) {
+          const grp = document.createElement("optgroup");
+          grp.label = "Built-in Shows (software/choreo/shows/)";
+          builtins.forEach((c) => {
+            const opt = document.createElement("option");
+            opt.value = c.id;
+            opt.textContent = c.name;
+            grp.appendChild(opt);
+          });
+          sel.appendChild(grp);
+        }
+      } else {
+        sel.innerHTML = `<option value="">No choreos found</option>`;
+      }
+    } catch (e) {
+      sel.innerHTML = `<option value="">Failed to load library</option>`;
+      console.warn("Could not fetch choreo library:", e);
+    }
+  }
+
+  _closeImportModal() {
+    const modal = document.getElementById("import-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async _importFromLibrary() {
+    const sel = document.getElementById("import-library-select");
+    const id = sel ? sel.value : "";
+    if (!id) {
+      alert("Please select a choreography to import.");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/api/choreo/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({ id: id, arm: this.arm }),
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        throw new Error(data.error || "Import failed");
+      }
+      this._applyImportedKeyframes(data.keyframes, `Library show (${id})`);
+      this._closeImportModal();
+    } catch (err) {
+      alert(`Import error: ${err.message}`);
+    }
+  }
+
+  async _importFromFile(file) {
+    if (!file) return;
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const content = e.target.result;
+        try {
+          const resp = await fetch("/api/choreo/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: jsonReq({ content: content, arm: this.arm }),
+          });
+          const data = await resp.json();
+          if (!data.success) {
+            throw new Error(data.error || "Import failed");
+          }
+          this._applyImportedKeyframes(data.keyframes, file.name);
+          this._closeImportModal();
+        } catch (err) {
+          alert(`Import error: ${err.message}`);
+        }
+      };
+      reader.readAsText(file);
+    } catch (e) {
+      alert(`Failed to read file: ${e.message}`);
+    }
+  }
+
+  async _importFromText() {
+    const textarea = document.getElementById("import-paste-text");
+    const content = textarea ? textarea.value.trim() : "";
+    if (!content) {
+      alert("Please paste YAML or JSON content first.");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/api/choreo/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({ content: content, arm: this.arm }),
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        throw new Error(data.error || "Import failed");
+      }
+      this._applyImportedKeyframes(data.keyframes, "Pasted Content");
+      this._closeImportModal();
+      if (textarea) textarea.value = "";
+    } catch (err) {
+      alert(`Import error: ${err.message}`);
+    }
+  }
+
+  _applyImportedKeyframes(keyframes, sourceName = "") {
+    if (!Array.isArray(keyframes) || keyframes.length === 0) {
+      alert("No arm keyframes found in this choreography.");
+      return;
+    }
+
+    this.keyframes = keyframes;
+    this._renderKeyframeList();
+    this._saveKeyframes();
+
+    // If keyframes has at least one pose, load the first pose as the current goal
+    if (this.keyframes.length > 0) {
+      const first = this.keyframes[0];
+      this._setArm(first.arm);
+      this.qGoal = [...first.joints_deg];
+      this._syncUIFromState();
+      this._updateArmPosesInView();
+      this._checkCollisionAndFK();
+    }
+
+    const toastMsg = `Imported ${keyframes.length} keyframes from ${sourceName}`;
+    const planInfo = document.getElementById("plan-status-info");
+    if (planInfo) planInfo.textContent = toastMsg;
+  }
+
+  _openSaveModal() {
+    const modal = document.getElementById("save-modal");
+    if (!modal) return;
+    const nameInput = document.getElementById("save-choreo-name");
+    if (nameInput) {
+      nameInput.value = `choreo_${this.arm}_${new Date().toISOString().slice(5, 10).replace("-", "_")}`;
+    }
+    const statusMsg = document.getElementById("save-status-msg");
+    if (statusMsg) statusMsg.style.display = "none";
+    modal.style.display = "flex";
+  }
+
+  _closeSaveModal() {
+    const modal = document.getElementById("save-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async _saveNamedChoreo() {
+    const nameInput = document.getElementById("save-choreo-name");
+    const name = nameInput ? nameInput.value.trim() : "";
+    if (!name) {
+      alert("Please provide a name for the choreography.");
+      return;
+    }
+
+    let format = "yaml";
+    const formatRadio = document.querySelector('input[name="save-choreo-format"]:checked');
+    if (formatRadio) format = formatRadio.value;
+
+    const btn = document.getElementById("btn-save-confirm");
+    if (btn) btn.disabled = true;
+
+    try {
+      const resp = await fetch("/api/choreo/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({
+          name: name,
+          format: format,
+          keyframes: this.keyframes,
+        }),
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        throw new Error(data.error || "Save failed");
+      }
+
+      const statusMsg = document.getElementById("save-status-msg");
+      if (statusMsg) {
+        statusMsg.style.display = "block";
+        statusMsg.style.background = "rgba(34, 197, 94, 0.15)";
+        statusMsg.style.color = "#86efac";
+        statusMsg.style.border = "1px solid rgba(34, 197, 94, 0.3)";
+        statusMsg.textContent = `Saved successfully as ${data.filename}!`;
+      }
+
+      setTimeout(() => {
+        this._closeSaveModal();
+        if (btn) btn.disabled = false;
+      }, 1000);
+    } catch (err) {
+      alert(`Save error: ${err.message}`);
+      if (btn) btn.disabled = false;
+    }
   }
 
   async _openBenchmarkModal() {

@@ -197,7 +197,11 @@
         <div class="form-group">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <label style="margin:0;">Sequence Keyframes</label>
-            <button id="btn-mirror-sequence" class="icon-btn" style="font-size:10px; padding:2px 8px;" title="Mirror all keyframe poses to the other arm">Mirror Sequence</button>
+            <div style="display:flex; gap:4px;">
+              <button id="btn-import-choreo" class="icon-btn" style="font-size:10px; padding:2px 8px;" title="Import choreo from file, text, or built-in library">Import</button>
+              <button id="btn-save-choreo" class="icon-btn" style="font-size:10px; padding:2px 8px;" title="Save current sequence to Choreo library">Save</button>
+              <button id="btn-mirror-sequence" class="icon-btn" style="font-size:10px; padding:2px 8px;" title="Mirror all keyframe poses to the other arm">Mirror</button>
+            </div>
           </div>
           <div id="keyframe-list" class="keyframe-list">
             <!-- Rendered by app.js -->
@@ -209,6 +213,14 @@
           <button id="btn-plan-show-sequence" class="btn-plan" style="justify-content:center; width:100%;">
             <span>Plan Full Sequence</span>
           </button>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+            <button id="btn-import-choreo-main" class="btn-secondary" style="justify-content:center;">
+              <span>Import Choreo</span>
+            </button>
+            <button id="btn-save-choreo-main" class="btn-secondary" style="justify-content:center;">
+              <span>Save Choreo</span>
+            </button>
+          </div>
           <button id="btn-export-show-yaml" class="btn-secondary" style="width:100%;">
             <span>Export to Choreo YAML</span>
           </button>
@@ -230,6 +242,89 @@
       <div class="modal-footer">
         <button id="btn-copy-yaml" class="btn-secondary">Copy to Clipboard</button>
         <button id="btn-download-yaml" class="btn-accent">Download YAML</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Choreo Modal -->
+  <div id="import-modal" class="modal-backdrop">
+    <div class="modal-content" style="width: 620px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 style="font-size:14px; font-weight:600;">Import Choreography</h3>
+          <span class="badge">YAML / JSON</span>
+        </div>
+        <button id="btn-close-import-modal" class="icon-btn" style="border:none; font-size:16px;">✕</button>
+      </div>
+      <div class="modal-body" style="background:var(--bg-panel); font-family:var(--font-sans); display:flex; flex-direction:column; gap:14px; padding:18px;">
+        <!-- Option A: From Built-in / Saved Library -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+          <label style="font-weight:600; font-size:12px; margin-bottom:6px; display:block;">Option 1: Choose from Choreo Library</label>
+          <div style="display:flex; gap:8px;">
+            <select id="import-library-select" style="flex:1; padding:6px 10px; font-size:12px; background:var(--bg-dark); border:1px solid var(--border-color); border-radius:4px; color:var(--text-main);">
+              <option value="">Loading library...</option>
+            </select>
+            <button id="btn-import-load-library" class="btn-accent" style="padding:6px 14px; font-size:12px;">Load Show</button>
+          </div>
+          <p style="font-size:11px; color:var(--text-muted); margin:4px 0 0 0;">
+            Loads saved routines or repo shows from <code>software/choreo/shows/</code> (e.g. <code>hello.yaml</code>, <code>halloween.yaml</code>).
+          </p>
+        </div>
+
+        <!-- Option B: Upload File -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+          <label style="font-weight:600; font-size:12px; margin-bottom:6px; display:block;">Option 2: Upload File (.yaml, .yml, .json)</label>
+          <input type="file" id="import-file-input" accept=".yaml,.yml,.json" style="font-size:12px; color:var(--text-main); width:100%;">
+        </div>
+
+        <!-- Option C: Paste Content -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+          <label style="font-weight:600; font-size:12px; margin-bottom:6px; display:block;">Option 3: Paste YAML or JSON</label>
+          <textarea id="import-paste-text" placeholder="Paste OpenDubs choreo YAML cues or JSON keyframes here..." style="width:100%; height:110px; font-family:var(--font-mono); font-size:11px; background:var(--bg-dark); border:1px solid var(--border-color); border-radius:4px; color:#9cdcfe; padding:8px; box-sizing:border-box;"></textarea>
+          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+            <button id="btn-import-paste-submit" class="btn-accent" style="padding:6px 14px; font-size:12px;">Import from Text</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-import-cancel" class="btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Choreo Modal -->
+  <div id="save-modal" class="modal-backdrop">
+    <div class="modal-content" style="width: 500px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 style="font-size:14px; font-weight:600;">Save Choreography</h3>
+          <span class="badge">LIBRARY</span>
+        </div>
+        <button id="btn-close-save-modal" class="icon-btn" style="border:none; font-size:16px;">✕</button>
+      </div>
+      <div class="modal-body" style="background:var(--bg-panel); font-family:var(--font-sans); display:flex; flex-direction:column; gap:14px; padding:18px;">
+        <div>
+          <label style="font-weight:600; font-size:12px; margin-bottom:6px; display:block;">Routine Name</label>
+          <input type="text" id="save-choreo-name" placeholder="e.g. spooky_cauldron_dance" style="width:100%; padding:8px 10px; font-size:12px; background:var(--bg-dark); border:1px solid var(--border-color); border-radius:4px; color:var(--text-main); box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-weight:600; font-size:12px; margin-bottom:6px; display:block;">File Format</label>
+          <div style="display:flex; gap:16px; font-size:12px;">
+            <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <input type="radio" name="save-choreo-format" value="yaml" checked>
+              <span>YAML Show (Standard OpenDubs Choreo)</span>
+            </label>
+            <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <input type="radio" name="save-choreo-format" value="json">
+              <span>JSON (Studio Keyframes)</span>
+            </label>
+          </div>
+        </div>
+        <div id="save-status-msg" style="font-size:12px; display:none; padding:8px 12px; border-radius:4px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-confirm" class="btn-accent" style="padding:6px 16px;">Save Routine</button>
+        <button id="btn-save-cancel" class="btn-secondary">Cancel</button>
       </div>
     </div>
   </div>
