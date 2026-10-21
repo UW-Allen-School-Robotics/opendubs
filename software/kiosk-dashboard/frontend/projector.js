@@ -31,9 +31,10 @@
   card.innerHTML = `
     <h2>PROJECTOR <span id="pjBadge" class="badge dimbadge">—</span></h2>
     <div class="pj-row"><span class="pj-k">Cast</span><span class="sdot" id="pjCastDot"></span><span class="pj-v" id="pjCast">—</span></div>
+    <div class="pj-row" id="pjStageRow" hidden><span class="pj-k">Stage page</span><span class="sdot" id="pjStageDot"></span><span class="pj-v" id="pjStage">—</span></div>
     <div class="pj-row"><span class="pj-k">HDMI</span><span class="sdot" id="pjHdmiDot"></span><span class="pj-v" id="pjHdmi">—</span></div>
     <div class="pj-row pj-wrap"><label class="pj-k" for="pjOut">Show video on</label>
-      <select id="pjOut"><option value="">each show's own</option><option value="cast">the projector (cast)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
+      <select id="pjOut"><option value="">each show's own</option><option value="cast">the projector (cast)</option><option value="stage">the stage page (the projector's app)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
       <span class="pj-note" id="pjDefault"></span></div>
     <div class="pj-note pj-bad" id="pjNote" hidden></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Music</span><span class="pj-v" id="pjMusic">—</span></div>
@@ -64,6 +65,10 @@
       const name = o.name ? esc(o.name) : "a receiver";
       return o.ready ? ["ok", `${name}, ready`] : ["warn", `${name}, not ready` + (o.why ? ` — ${esc(o.why)}` : "")];
     }
+    if (kind === "stage") {                      // ready: at least one /stage/ page is connected (#454)
+      if (o.ready) return ["ok", `${o.pages || 1} page${(o.pages || 1) > 1 ? "s" : ""} open, ready`];
+      return ["warn", "not open" + (o.why ? ` — ${esc(o.why)}` : "")];
+    }
     if (!o.present) return ["bad", "no display" + (o.why ? ` — ${esc(o.why)}` : "")];
     return o.ready ? ["ok", "ready"] : ["warn", "not ready" + (o.why ? ` — ${esc(o.why)}` : "")];
   }
@@ -73,7 +78,9 @@
               : typeof v.age_s === "number" ? v.age_s : 0;
     const stale = age > STALE_S;
     const outs = v.outputs || {};
-    for (const [kind, id] of [["cast", "pjCast"], ["hdmi", "pjHdmi"]]) {
+    $("pjStageRow").hidden = !outs.stage;          // a runner without the stage output (before #454)
+    for (const [kind, id] of [["cast", "pjCast"], ["stage", "pjStage"], ["hdmi", "pjHdmi"]]) {
+      if (kind === "stage" && !outs.stage) continue;
       const [cls, txt] = stale ? ["", `not checked for ${Math.round(age)} s`] : output(outs[kind], kind);
       $(id).innerHTML = txt; dot(id + "Dot", cls);
     }
