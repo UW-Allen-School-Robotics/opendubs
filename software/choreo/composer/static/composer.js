@@ -658,6 +658,120 @@ function renderPreview() {
     }
   }
   $("preview").innerHTML = `<div class="pv">${out.join("")}</div>`;
+  update3DRobot();
+}
+
+/* ---------- 3D visual robot preview (WebGL, dual-arm URDF kinematics) ---------- */
+const R3D = {
+  view: null,
+  loading: false,
+  visible: false,
+  floating: false,
+};
+
+async function toggle3DRobot() {
+  if (R3D.visible) {
+    R3D.visible = false;
+    $("robot3dPane").hidden = true;
+    $("robot3dBtn").classList.remove("active");
+    $("bottom").classList.remove("has-robot3d");
+    return;
+  }
+
+  R3D.visible = true;
+  $("robot3dPane").hidden = false;
+  $("robot3dBtn").classList.add("active");
+  if (!R3D.floating) $("bottom").classList.add("has-robot3d");
+
+  if (!R3D.view && !R3D.loading) {
+    R3D.loading = true;
+    $("robot3dStatus").textContent = "Loading 3D...";
+    try {
+      const { Robot3DView } = await import("./armview.js");
+      const canvas = $("robot3dCanvas");
+      R3D.view = await new Robot3DView(canvas).load();
+      $("robot3dStatus").textContent = "Ready";
+
+      // Bind view preset buttons
+      document.querySelectorAll(".robot3d-vbtn").forEach((btn) => {
+        btn.onclick = () => {
+          document.querySelectorAll(".robot3d-vbtn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          if (btn.dataset.view === "reset") {
+            R3D.view.frame();
+          } else {
+            R3D.view.setView(btn.dataset.view);
+          }
+        };
+      });
+    } catch (err) {
+      console.warn("Failed to load 3D Robot view:", err);
+      $("robot3dStatus").textContent = "WebGL Error";
+      toast("3D visualizer error: " + (err.message || err), 4000);
+      R3D.visible = false;
+      $("robot3dPane").hidden = true;
+      $("robot3dBtn").classList.remove("active");
+      $("bottom").classList.remove("has-robot3d");
+      return;
+    } finally {
+      R3D.loading = false;
+    }
+  }
+
+  if (R3D.view) {
+    R3D.view.resize();
+    update3DRobot();
+  }
+}
+
+function update3DRobot() {
+  if (!R3D.view || !R3D.visible || !R3D.view.ready) return;
+  const T = tl();
+  if (!T) return;
+  const t = S.t;
+
+  // 1. Dual-arm pose at playhead timestamp t
+  let leftPose = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  let rightPose = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  if (T.tracks.ARM_L) {
+    leftPose = armAt(T.tracks.ARM_L, t).pose;
+  }
+  if (T.tracks.ARM_R) {
+    rightPose = armAt(T.tracks.ARM_R, t).pose;
+  }
+
+  // 2. Grippers (1.0 = open, 0.0 = close)
+  let gripLeft = 1.0, gripRight = 1.0;
+  if (T.tracks.GRIP_L) {
+    const e = lastAt(T.tracks.GRIP_L, t);
+    gripLeft = e ? (e.cue.do === "close" ? 0.0 : e.cue.open ?? 1.0) : 1.0;
+  }
+  if (T.tracks.GRIP_R) {
+    const e = lastAt(T.tracks.GRIP_R, t);
+    gripRight = e ? (e.cue.do === "close" ? 0.0 : e.cue.open ?? 1.0) : 1.0;
+  }
+
+  R3D.view.setDualArmChoreoPose({
+    left: leftPose,
+    right: rightPose,
+    gripLeft: gripLeft,
+    gripRight: gripRight,
+  });
+
+  // 3. Ghost cue pose: if an ARM cue is selected on timeline, ghost arm displays target pose
+  const i = S.selected, a = (S.data && S.data.authored) || [];
+  if (i !== null && a[i] && (a[i].slot === "ARM_L" || a[i].slot === "ARM_R")) {
+    const c = a[i];
+    for (const v of Object.values(T.tracks)) {
+      for (const e of v) {
+        if (e.src && e.src.index === i && e.pose) {
+          R3D.view.setGhostCuePose(c.slot, e.pose);
+          return;
+        }
+      }
+    }
+  }
+  R3D.view.setGhostVisible(false);
 }
 
 /* ---------- validator output ---------- */
@@ -863,6 +977,7 @@ function renderInspector() {
       }
     };
   }
+  update3DRobot();
 }
 function deleteSelected() {
   if (S.selected === null) return;
@@ -1477,6 +1592,16 @@ function bind() {
   bindMusic();
   $("historyBtn").onclick = openHistory;
   $("filesBtn").onclick = openFiles;
+  if ($("robot3dBtn")) $("robot3dBtn").onclick = toggle3DRobot;
+  if ($("robot3dClose")) $("robot3dClose").onclick = toggle3DRobot;
+  if ($("robot3dFloat")) $("robot3dFloat").onclick = () => {
+    R3D.floating = !R3D.floating;
+    $("robot3dPane").classList.toggle("floating", R3D.floating);
+    $("bottom").classList.toggle("has-robot3d", R3D.visible && !R3D.floating);
+    $("robot3dFloat").textContent = R3D.floating ? "⤓" : "⛶";
+    $("robot3dFloat").title = R3D.floating ? "Dock back into bottom bar" : "Detach to floating window";
+    if (R3D.view) R3D.view.resize();
+  };
   $("textClose").onclick = () => $("textDlg").close();
   $("diskReview").onclick = reviewDisk; $("diskLoad").onclick = loadDisk; $("diskKeep").onclick = keepMine;
   setInterval(watchDisk, 2000);
