@@ -1,0 +1,40 @@
+# The arms on gafro — config
+
+The arm layer that runs the OpenArm through [gafro_robot_interface](https://github.com/personalrobotics/gafro-robot-interface) and
+its own CAN driver, with no ROS. The design, the layering and what is and is not verified are in
+[`notes/design/arm-gafro.md`](../../../notes/design/arm-gafro.md). This folder is the **config** of that layer:
+
+| File | What |
+|---|---|
+| `hardware.example.yaml` | the RI hardware config: one `openarm` driver per control group. A **template** — the robot's own copy lives on the robot and is never overwritten by a deploy |
+| `controllers.yaml` | the controllers, in gafro's control spec: what each does and what it is driven with |
+| `check.py` | builds every controller for both arms against the real model and checks the head cap against the choreography's |
+
+```sh
+PYTHONPATH=<openarm_assets>/src ~/coding/lab/venv/bin/python software/openarm/gafro/check.py
+```
+
+It needs the published gafro and `openarm_assets`. It builds the controllers and does not run them; it touches no arm and no simulator.
+
+## What lives where
+
+The test for where a setting goes is whose fact it is.
+
+| What | Whose | Where |
+|---|---|---|
+| Joint ranges, torque and velocity limits, position and velocity gains | the arm's | the model, `openarm_assets` |
+| Motor-level protections: torque, velocity, position and slew clamps, trips, hold on a stale command, permit | any OpenArm's | the driver, `openarm-driver` |
+| The head cap on joint 2, CAN names, per-robot direction and zero | this robot's | `hardware.example.yaml` |
+| Controller stages, gains, speeds | the task's | `controllers.yaml` |
+| CH5, `[AUTH]`, leases, presence, the keeper, the tablet | this robot's | the arm service (not built) |
+
+## Not done
+
+- **The arm service**, which grants the driver's permit and runs the authority layer.
+- **A workspace box and the head in the collision model.** gafro's control spec has no position box; the choreography's rule that J2
+  stays under 135 deg while the elbow is extended (the 1.2 m box) is not enforced here. The 157 deg cap in `hardware.example.yaml`
+  is the backstop for the head contact only.
+- **`limits: {joint_torque: model}` does not bind yet.** gafro reads a joint's torque limit from the model, and until the change that
+  derives it from the actuators (ga-robotics-research/gafro-research#51) is published, the OpenArm's joints report none. The
+  controllers build and run; the bound is not applied.
+- **Every number here is a starting value** that has not been run on an arm.
