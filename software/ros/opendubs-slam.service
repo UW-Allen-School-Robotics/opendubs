@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenDubs SLAM (slam_toolbox mapping on the front scan; /map and map->odom)
+Description=OpenDubs SLAM (slam_toolbox on the front scan: localizes on the site map, else maps)
 After=network.target opendubs-robot-state-publisher.service opendubs-drive-bridge.service opendubs-rplidar.service
 # Off until a robot opts in: sudo touch /etc/opendubs/slam.enabled && sudo systemctl start opendubs-slam
 ConditionPathExists=/etc/opendubs/slam.enabled
