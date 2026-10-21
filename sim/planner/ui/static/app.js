@@ -1407,29 +1407,100 @@ class StudioApp {
         envText.textContent = `Env: ROS 2=${data.environment.ros2_rclpy_available}, Docker=${data.environment.docker_running}, Recommended=${data.environment.recommended_mode.toUpperCase()}`;
       }
 
-      // If active execution in progress
+      const progressCont = document.getElementById("hw-live-progress-container");
+      const progressBar = document.getElementById("hw-progress-bar");
+      const progressPct = document.getElementById("hw-progress-pct");
+      const progressLabel = document.getElementById("hw-progress-label");
+      const btnExec = document.getElementById("btn-hw-confirm-exec");
+
+      let nextPollMs = 800;
+
       if (data.is_executing) {
-        const progressCont = document.getElementById("hw-live-progress-container");
-        const progressBar = document.getElementById("hw-progress-bar");
-        const progressPct = document.getElementById("hw-progress-pct");
-        const progressLabel = document.getElementById("hw-progress-label");
+        nextPollMs = 100; // Fast polling for smooth progress during execution
+        this._wasExecuting = true;
 
         if (progressCont) progressCont.style.display = "block";
-        if (progressBar) progressBar.style.width = `${data.progress_pct}%`;
+        if (progressBar) {
+          progressBar.style.width = `${data.progress_pct}%`;
+          progressBar.style.background = "linear-gradient(90deg, #38bdf8, #22c55e)";
+        }
         if (progressPct) progressPct.textContent = `${data.progress_pct.toFixed(0)}%`;
-        if (progressLabel) progressLabel.textContent = `Running on ${data.arm.toUpperCase()} (${data.current_time_s.toFixed(1)}s / ${data.total_time_s.toFixed(1)}s)`;
+        if (progressLabel) {
+          progressLabel.textContent = `Running on ${data.arm.toUpperCase()} (${data.current_time_s.toFixed(1)}s / ${data.total_time_s.toFixed(1)}s)`;
+          progressLabel.style.color = "var(--text)";
+        }
+        if (btnExec) {
+          btnExec.disabled = true;
+          btnExec.textContent = `Executing (${data.progress_pct.toFixed(0)}%)...`;
+        }
 
-        // In HITL mode, reflect simulated arm angles in 3D scene
-        if (data.sim_joint_states && data.sim_joint_states[this.arm]) {
-          const simDeg = data.sim_joint_states[this.arm];
+        // In HITL mode, reflect simulated arm angles in 3D scene (convert degrees to radians)
+        const activeArm = data.arm || this.arm;
+        if (data.sim_joint_states && data.sim_joint_states[activeArm]) {
+          const simDeg = data.sim_joint_states[activeArm];
+          const solidAngles = {};
+          for (let i = 0; i < 7; i++) {
+            solidAngles[`openarm_${activeArm}_joint${i + 1}`] = (simDeg[i] * Math.PI) / 180.0;
+          }
           if (this.view && this.view.setSolidJoints) {
-            this.view.setSolidJoints(simDeg);
+            this.view.setSolidJoints(solidAngles);
           }
         }
+        if (data.sim_gripper_state && typeof data.sim_gripper_state[activeArm] === "number") {
+          this._setGripper(data.sim_gripper_state[activeArm], false, activeArm);
+        }
+      } else if (this._wasExecuting || data.status === "succeeded") {
+        // Transitioned to completed
+        if (data.status === "succeeded") {
+          if (progressBar) {
+            progressBar.style.width = "100%";
+            progressBar.style.background = "#22c55e";
+          }
+          if (progressPct) progressPct.textContent = "100%";
+          if (progressLabel) {
+            progressLabel.textContent = `✓ Execution Succeeded (${data.total_time_s.toFixed(1)}s)`;
+            progressLabel.style.color = "#4ade80";
+          }
+          document.getElementById("plan-status-info").textContent = `Robot Execution Succeeded [${(data.status || "HITL").toUpperCase()}]`;
+
+          // Ensure final joint positions and gripper state are shown in 3D view
+          const activeArm = data.arm || this.arm;
+          if (data.sim_joint_states && data.sim_joint_states[activeArm]) {
+            const simDeg = data.sim_joint_states[activeArm];
+            const solidAngles = {};
+            for (let i = 0; i < 7; i++) {
+              solidAngles[`openarm_${activeArm}_joint${i + 1}`] = (simDeg[i] * Math.PI) / 180.0;
+            }
+            if (this.view && this.view.setSolidJoints) {
+              this.view.setSolidJoints(solidAngles);
+            }
+          }
+          if (data.sim_gripper_state && typeof data.sim_gripper_state[activeArm] === "number") {
+            this._setGripper(data.sim_gripper_state[activeArm], false, activeArm);
+          }
+        } else if (data.status === "cancelled") {
+          if (progressLabel) {
+            progressLabel.textContent = "🛑 Execution Cancelled by Emergency Hold";
+            progressLabel.style.color = "#fbbf24";
+          }
+          document.getElementById("plan-status-info").textContent = "Robot Execution Cancelled";
+        } else if (data.status === "failed") {
+          if (progressLabel) {
+            progressLabel.textContent = `✗ Execution Failed: ${data.last_error || "Unknown error"}`;
+            progressLabel.style.color = "#f87171";
+          }
+          document.getElementById("plan-status-info").textContent = "Robot Execution Failed";
+        }
+
+        if (btnExec) {
+          btnExec.disabled = false;
+          btnExec.textContent = "Confirm & Execute";
+        }
+        this._wasExecuting = false;
       }
     } catch (_) {}
 
-    setTimeout(() => this._pollHardwareStatus(), 800);
+    setTimeout(() => this._pollHardwareStatus(), nextPollMs);
   }
 
   async _openHardwareModal(autoSelect = false, preferredMode = "hitl") {
@@ -1526,6 +1597,7 @@ class StudioApp {
 
     const progressCont = document.getElementById("hw-live-progress-container");
     if (progressCont) progressCont.style.display = "block";
+    this._wasExecuting = true;
 
     try {
       const resp = await fetch("/api/hardware/execute", {
@@ -1539,18 +1611,22 @@ class StudioApp {
             positions_rad: this.trajectory.positions_rad,
             velocities_rad_s: this.trajectory.velocities_rad_s,
             min_clearance_mm: this.trajectory.min_clearance_mm,
+            gripper_events: this.trajectory.gripperEvents || [],
           },
         }),
       });
       const data = await resp.json();
       if (!data.success) {
         alert(`Hardware execution refused:\n${data.error}`);
+        this._wasExecuting = false;
+        btnExec.disabled = false;
+        btnExec.textContent = "Confirm & Execute";
       } else {
         document.getElementById("plan-status-info").textContent = `Robot Execution Active [${mode.toUpperCase()}]`;
       }
     } catch (err) {
       alert(`Hardware execution error: ${err}`);
-    } finally {
+      this._wasExecuting = false;
       btnExec.disabled = false;
       btnExec.textContent = "Confirm & Execute";
     }

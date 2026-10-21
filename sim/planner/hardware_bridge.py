@@ -428,17 +428,19 @@ class HardwareBridge:
             self.active_goal_id = f"goal_{int(time.time() * 1000)}"
             self._cancel_requested.clear()
 
+        gripper_events = trajectory.get("gripper_events") or trajectory.get("gripperEvents") or []
+
         # Run execution asynchronously in background thread
         def runner():
             try:
                 if mode == "hitl":
-                    self._run_hitl(arm, times, positions, progress_cb)
+                    self._run_hitl(arm, times, positions, gripper_events, progress_cb)
                 elif mode == "ros2":
                     self._run_ros2_action(arm, times, positions, velocities, progress_cb)
                 elif mode == "docker":
                     self._run_docker_action(arm, times, positions, progress_cb)
                 else:
-                    self._run_hitl(arm, times, positions, progress_cb)
+                    self._run_hitl(arm, times, positions, gripper_events, progress_cb)
             except Exception as e:
                 with self.lock:
                     self.status = "failed"
@@ -448,6 +450,8 @@ class HardwareBridge:
                 with self.lock:
                     if self.status not in ("failed", "cancelled"):
                         self.status = "succeeded"
+                        self.progress_pct = 100.0
+                        self.current_time_s = self.total_time_s
                     self.is_executing = False
 
         self._exec_thread = threading.Thread(target=runner, daemon=True)
@@ -466,6 +470,7 @@ class HardwareBridge:
         arm: str,
         times: List[float],
         positions: List[List[float]],
+        gripper_events: Optional[List[Dict[str, Any]]] = None,
         progress_cb: Optional[Callable[[float, float], None]] = None,
     ):
         """Hardware-in-the-Loop simulation playback."""
@@ -495,6 +500,14 @@ class HardwareBridge:
                 self.progress_pct = min(100.0, (t_elapsed / max(0.001, t_total)) * 100.0)
                 self._sim_joint_states[arm] = cur_pos_deg
 
+                if gripper_events:
+                    g_frac = None
+                    for ev in gripper_events:
+                        if t_elapsed >= float(ev.get("time", 0.0)) - 0.05:
+                            g_frac = float(ev.get("fraction", 1.0))
+                    if g_frac is not None:
+                        self._sim_gripper_state[arm] = g_frac
+
             if progress_cb:
                 progress_cb(self.current_time_s, self.progress_pct)
 
@@ -507,6 +520,8 @@ class HardwareBridge:
             self.progress_pct = 100.0
             self.current_time_s = t_total
             self._sim_joint_states[arm] = np.degrees(positions[-1]).tolist()
+            if gripper_events:
+                self._sim_gripper_state[arm] = float(gripper_events[-1].get("fraction", 1.0))
             self.status = "succeeded"
 
     def _run_ros2_action(
