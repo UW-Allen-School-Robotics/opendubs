@@ -1383,6 +1383,7 @@ class StudioApp {
   }
 
   async _pollHardwareStatus() {
+    let nextPollMs = 800;
     try {
       const resp = await fetch("/api/hardware/status");
       const data = await resp.json();
@@ -1412,8 +1413,6 @@ class StudioApp {
       const progressPct = document.getElementById("hw-progress-pct");
       const progressLabel = document.getElementById("hw-progress-label");
       const btnExec = document.getElementById("btn-hw-confirm-exec");
-
-      let nextPollMs = 800;
 
       if (data.is_executing) {
         nextPollMs = 100; // Fast polling for smooth progress during execution
