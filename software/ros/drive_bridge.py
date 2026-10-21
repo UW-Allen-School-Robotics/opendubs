@@ -32,6 +32,15 @@ at roughly a third of that, and not at all unless someone is holding the switch.
 weak or absent under AUTO, that is this, and the StamPLC logs it on entry:
 `[SAFE] AUTO engaged: cap=0.35 x CH8 knob, deadman REQUIRED`.
 
+## The people guard
+
+Before each `DRIVE` the bridge asks `people_guard.py` whether anything is within `guard_reach_m`
+(0.5 m) of the robot's outline on the side it is moving toward, from both LIDARs (`/scan`,
+`/scan_rear`) with the robot's own returns removed. If so, it sends zero instead. It **fails
+closed**: a scan older than 0.5 s refuses every non-zero command. That keeps software motion (a
+show's DANCE moves, later a planner) off the people standing near it. It is not the safety system,
+which is the firmware gate above. It sees nothing above or below the LIDARs' plane, and no glass.
+
 ## Staleness is the stop
 
 `DRIVE` carries a heartbeat: the firmware neutralises the drive if commands stop arriving
@@ -52,8 +61,11 @@ from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from tf2_ros import TransformBroadcaster
+from rclpy.time import Time
+from sensor_msgs.msg import LaserScan
+from tf2_ros import Buffer, TransformBroadcaster, TransformListener
 
+import people_guard
 from plc_peer import MOVED, ADOPTED, REFUSED_OWN, REFUSED_PIN, PeerGuard
 
 PLC_PORT = int(os.environ.get("OPENDUBS_STAMPLC_UDP_PORT", "5005"))
@@ -112,6 +124,22 @@ class DriveBridge(Node):
         self._cmd_timeout_ns = 500_000_000      # 0.5 s: twice the firmware's own 250 ms
         self.create_timer(0.05, self._send_cmd)  # 20 Hz
 
+        # The people guard (see the module docstring): both LIDARs, in base_link.
+        self.declare_parameter("guard_reach_m", people_guard.REACH_M)
+        self.declare_parameter("guard_scans", ["/scan", "/scan_rear"])
+        self._reach = float(self.get_parameter("guard_reach_m").value)
+        self._scans: dict[str, tuple[float | None, list]] = {
+            t: (None, []) for t in self.get_parameter("guard_scans").value}
+        self._mounts: dict[str, tuple[float, float, float]] = {}
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        self._refusing = ""
+        for topic in self._scans:
+            self.create_subscription(LaserScan, topic, lambda m, t=topic: self._on_scan(t, m),
+                                     qos_profile_sensor_data)
+        self.get_logger().info(f"people guard: {self._reach:.2f} m from the outline, on "
+                               + ", ".join(self._scans))
+
         threading.Thread(target=self._rx_loop, name="plc-rx", daemon=True).start()
         self.get_logger().info(
             f"listening for [ODO] on UDP {PLC_PORT}; DRIVE goes to "
@@ -130,6 +158,20 @@ class DriveBridge(Node):
                      unit(msg.linear.y, self.max_lin))
         self._cmd_ns = self.get_clock().now().nanoseconds
 
+    def _on_scan(self, topic: str, msg: LaserScan) -> None:
+        frame = msg.header.frame_id
+        if frame not in self._mounts:
+            try:
+                t = self._tf_buffer.lookup_transform(self.base_frame, frame, Time()).transform
+            except Exception:                        # robot_state_publisher not up yet: stay blind
+                return
+            q = (t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w)
+            self._mounts[frame] = (t.translation.x, t.translation.y, math.atan2(
+                2.0 * (q[3] * q[2] + q[0] * q[1]), 1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2])))
+        tx, ty, yaw = self._mounts[frame]
+        pts = people_guard.scan_points(msg.ranges, msg.angle_min, msg.angle_increment, tx, ty, yaw)
+        self._scans[topic] = (self.get_clock().now().nanoseconds / 1e9, pts)
+
     def _send_cmd(self) -> None:
         if self._cmd is None or self._peer is None:
             return
@@ -140,6 +182,17 @@ class DriveBridge(Node):
             self.get_logger().warn("/cmd_vel went stale — letting the firmware heartbeat lapse")
             return
         fwd, rot, str_ = self._cmd
+        ok, why = people_guard.verdict(self._scans, self.get_clock().now().nanoseconds / 1e9,
+                                       fwd, str_, rot, reach=self._reach)
+        if not ok:
+            fwd = rot = str_ = 0.0
+            kind = "blind" if "not current" in why else "near"
+            if kind != self._refusing:               # log each change, not every 50 ms
+                self.get_logger().warn(f"people guard: holding the base still, {why}")
+            self._refusing = kind
+        elif self._refusing:
+            self.get_logger().info("people guard: clear, moving again")
+            self._refusing = ""
         try:
             self._sock.sendto(f"DRIVE {fwd:.3f} {rot:.3f} {str_:.3f}\n".encode(), self._peer)
         except OSError as e:

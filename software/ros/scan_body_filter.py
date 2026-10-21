@@ -6,7 +6,10 @@ walls that travel with the robot, so this node subscribes to /scan, replaces eve
 inside the chassis box (plus a margin, in base_link) with +inf, and publishes /scan_filtered.
 
 The box is the chassis span from description/opendubs/dimensions.yaml (datum x -32..612,
-y +/-324.5) less base_link (324, 0), plus 10 cm: x -0.456..0.388, y +/-0.4245 m. The LIDAR's
+y +/-324.5) less base_link (324, 0), plus 10 cm: x -0.456..0.388, y +/-0.4245 m, EXCEPT at the
+back, where it runs to 10 cm behind the rear LIDAR (laser_rear, x -0.524): that unit and its mount
+stand out behind the chassis, and the rear unit sees its own mount 6 cm away (measured 2026-10-21).
+So x -0.624..0.388. The LIDAR's
 mounting comes from TF (robot_state_publisher), looked up once: it is a fixed joint.
 
 laser_filters' box filter does the same job, but its Jazzy build at the time needed a newer
@@ -17,7 +20,7 @@ diagnostic_updater than the robot's, and provisioning never upgrades installed R
 import math
 import os
 
-BOX = (-0.456, 0.388, -0.4245, 0.4245)   # min_x, max_x, min_y, max_y in base_link, metres
+BOX = (-0.624, 0.388, -0.4245, 0.4245)   # min_x, max_x, min_y, max_y in base_link, metres
 
 
 def yaw_of(q) -> float:
