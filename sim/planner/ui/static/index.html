@@ -80,6 +80,18 @@
           </div>
         </div>
 
+        <!-- Gripper Control -->
+        <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="margin:0;">Gripper Control</label>
+            <span id="gripper-status-badge" style="font-size:11px; font-family:var(--font-mono); color:var(--accent-cyan); font-weight:600;">OPEN (100%)</span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="range" id="gripper-slider" min="0" max="100" value="100" step="1" style="flex:1;" title="Slide to open/close gripper (0% closed - 100% open)">
+            <button id="btn-gripper-toggle" class="btn-secondary" style="padding:4px 10px; font-size:11px; min-width:60px;">Close</button>
+          </div>
+        </div>
+
         <!-- Cartesian EE Position Jogger -->
         <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 10px;">
           <label>End-Effector Cartesian (m) & SSIK</label>
@@ -189,6 +201,11 @@
           <div style="display:flex; gap:6px;">
             <input type="text" id="kf-name-input" placeholder="Pose Name (e.g. Forward Reach)" style="flex:1;">
             <input type="number" id="kf-time-input" placeholder="Time (s)" step="0.5" min="0" value="4.0" style="width:75px;" title="Target timestamp in show (seconds)">
+            <select id="kf-gripper-action" style="padding:4px 6px; font-size:11px; background:var(--bg-dark); border:1px solid var(--border-color); border-radius:4px; color:var(--text-main);" title="Gripper action at this keyframe">
+              <option value="keep">Grip: Keep</option>
+              <option value="open">Grip: Open</option>
+              <option value="close">Grip: Close</option>
+            </select>
           </div>
           <button id="btn-add-keyframe" class="btn-accent" style="width:100%;">Add Current Target Pose</button>
         </div>

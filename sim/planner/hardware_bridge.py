@@ -229,6 +229,10 @@ class HardwareBridge:
             "left": [0.0, -20.0, 0.0, 95.0, 0.0, 15.0, 0.0],
             "right": [0.0, 20.0, 0.0, 95.0, 0.0, 15.0, 0.0],
         }
+        self._sim_gripper_state: Dict[str, float] = {
+            "left": 1.0,  # 1.0 = open, 0.0 = closed
+            "right": 1.0,
+        }
 
     def detect_environment(self) -> Dict[str, Any]:
         """Detect what execution transports are available on the host system."""
@@ -283,7 +287,78 @@ class HardwareBridge:
                 "goal_id": self.active_goal_id,
                 "last_error": self.last_error,
                 "sim_joint_states": self._sim_joint_states,
+                "sim_gripper_state": self._sim_gripper_state,
             }
+
+    def command_gripper(
+        self,
+        arm: str,
+        action: str | float | int,
+        mode: str = "auto",
+    ) -> Dict[str, Any]:
+        """Command the specified arm gripper to open or close."""
+        arm = arm.lower()
+        if arm not in ("left", "right"):
+            return {"success": False, "error": f"Invalid arm: {arm}"}
+
+        # Normalize action to 0.0 (closed) .. 1.0 (open)
+        if isinstance(action, str):
+            act_lower = action.strip().lower()
+            if act_lower in ("open", "opened", "release"):
+                fraction = 1.0
+            elif act_lower in ("close", "closed", "grip", "grasp"):
+                fraction = 0.0
+            else:
+                try:
+                    fraction = float(action)
+                except ValueError:
+                    fraction = 1.0
+        else:
+            fraction = float(action)
+
+        fraction = max(0.0, min(1.0, fraction))
+        # Stroke travel: 0.044 m (44 mm)
+        pos_m = round(fraction * 0.044, 4)
+
+        env = self.detect_environment()
+        chosen_mode = mode
+        if chosen_mode == "auto":
+            chosen_mode = env["recommended_mode"]
+
+        with self.lock:
+            self._sim_gripper_state[arm] = fraction
+
+        # If live hardware or docker
+        if chosen_mode == "docker" and env.get("docker_running"):
+            cmd = (
+                f"docker exec openarm bash -c 'ros2 action send_goal "
+                f"/{arm}_gripper_controller/gripper_cmd "
+                f"control_msgs/action/GripperCommand "
+                f"\"{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}\"'"
+            )
+            try:
+                subprocess.Popen(cmd, shell=True)
+            except Exception as e:
+                return {"success": False, "error": f"Docker gripper command error: {e}"}
+        elif chosen_mode == "ros2" and env.get("ros2_rclpy_available"):
+            cmd = (
+                f"ros2 action send_goal /{arm}_gripper_controller/gripper_cmd "
+                f"control_msgs/action/GripperCommand "
+                f"'{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}'"
+            )
+            try:
+                subprocess.Popen(cmd, shell=True)
+            except Exception as e:
+                return {"success": False, "error": f"ROS 2 gripper command error: {e}"}
+
+        return {
+            "success": True,
+            "arm": arm,
+            "action": "open" if fraction >= 0.5 else "close",
+            "open_fraction": fraction,
+            "position_m": pos_m,
+            "mode": chosen_mode,
+        }
 
     def stop(self) -> Dict[str, Any]:
         """Emergency Stop / Hold: cancel ongoing trajectory execution."""

@@ -421,6 +421,60 @@ cues:
     assert_true(del_res.get("success") is True, "Deleted temporary test choreo")
 
 
+def test_gripper_control():
+    print("\n" + "=" * 65)
+    print("▶ 8. Gripper Controls, Action Dispatches, and Show Cues")
+    print("=" * 65)
+
+    base_url = "http://127.0.0.1:8092"
+
+    # 1. Test GET /api/gripper
+    with urllib.request.urlopen(f"{base_url}/api/gripper?arm=left", timeout=5) as resp:
+        grip_data = json.loads(resp.read().decode())
+    assert_true("open_fraction" in grip_data, "GET /api/gripper returned open_fraction")
+    assert_true("position_m" in grip_data, "GET /api/gripper returned position_m")
+
+    # 2. Test POST /api/gripper close
+    req_close = urllib.request.Request(
+        f"{base_url}/api/gripper",
+        data=json.dumps({"arm": "left", "action": "close", "mode": "hitl"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_close, timeout=5) as resp:
+        close_res = json.loads(resp.read().decode())
+    assert_true(close_res.get("success") is True, "POST /api/gripper close succeeded")
+    assert_true(close_res.get("open_fraction") == 0.0, "Gripper open_fraction marked 0.0 (closed)")
+    assert_true(close_res.get("position_m") == 0.0, "Gripper position marked 0.0 m")
+
+    # 3. Test POST /api/gripper open
+    req_open = urllib.request.Request(
+        f"{base_url}/api/gripper",
+        data=json.dumps({"arm": "left", "action": "open", "mode": "hitl"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_open, timeout=5) as resp:
+        open_res = json.loads(resp.read().decode())
+    assert_true(open_res.get("success") is True, "POST /api/gripper open succeeded")
+    assert_true(open_res.get("open_fraction") == 1.0, "Gripper open_fraction marked 1.0 (open)")
+    assert_true(open_res.get("position_m") == 0.044, "Gripper position marked 0.044 m (44mm stroke)")
+
+    # 4. Test Export Show with GRIP cues
+    test_kfs = [
+        {"name": "Wave 1", "arm": "left", "time_s": 1.0, "joints_deg": [0, -20, 0, 95, 0, 15, 0], "gripper": "open"},
+        {"name": "Grip 1", "arm": "left", "time_s": 3.0, "joints_deg": [0, -20, 0, 95, 0, 15, 0], "gripper": "close"},
+    ]
+    req_export = urllib.request.Request(
+        f"{base_url}/api/export_show",
+        data=json.dumps({"keyframes": test_kfs}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_export, timeout=5) as resp:
+        yaml_text = resp.read().decode()
+    assert_true("slot: GRIP_L, do: open" in yaml_text, "YAML contains GRIP_L open cue")
+    assert_true("slot: GRIP_L, do: close" in yaml_text, "YAML contains GRIP_L close cue")
+    assert_true("GRIP_L" in yaml_text and "GRIP_R" in yaml_text, "YAML declares GRIP slots")
+
+
 def main():
     print("=" * 65)
     print(" 🤖 OpenArm Motion Planner Complete Test Suite")
@@ -433,6 +487,7 @@ def main():
     test_studio_rest_api()
     test_hardware_bridge_and_hitl()
     test_choreo_import_export()
+    test_gripper_control()
 
     print("\n" + "=" * 65)
     print(" 🎉 ALL TESTS PASSED! Motion planner & studio verified 100% operational.")

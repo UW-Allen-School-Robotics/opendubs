@@ -124,6 +124,34 @@ def parse_choreo_content(content: str, target_arm: Optional[str] = None) -> List
         if not isinstance(c, dict):
             continue
         slot = str(c.get("slot", "")).upper()
+        if slot in ("GRIP_L", "GRIP_R"):
+            cue_arm = "left" if slot == "GRIP_L" else "right"
+            t = float(c.get("t", 0.0))
+            action = c.get("do")
+            if not action and "open" in c:
+                action = "open" if float(c["open"]) >= 0.5 else "close"
+            elif not action and "pos" in c:
+                action = "open" if float(c["pos"]) > 0.01 else "close"
+            if not action:
+                action = "open"
+            
+            # Associate with existing keyframe near this timestamp, or create a keyframe
+            matched = False
+            for kf in keyframes:
+                if kf["arm"] == cue_arm and abs(kf["time_s"] - t) < 0.3:
+                    kf["gripper"] = action
+                    matched = True
+                    break
+            if not matched:
+                keyframes.append({
+                    "name": f"Gripper {action.title()} ({cue_arm.upper()})",
+                    "arm": cue_arm,
+                    "time_s": round(t, 2),
+                    "joints_deg": list(arm_state[cue_arm]),
+                    "gripper": action,
+                })
+            continue
+
         if slot not in ("ARM_L", "ARM_R"):
             continue
 
@@ -223,12 +251,15 @@ def _normalize_keyframes_list(items: List[Any], target_arm: Optional[str] = None
             while len(joints) < 7:
                 joints.append(0.0)
 
-        out.append({
+        kf_dict = {
             "name": name,
             "arm": arm,
             "time_s": round(t, 2),
             "joints_deg": joints,
-        })
+        }
+        if "gripper" in it and it["gripper"]:
+            kf_dict["gripper"] = str(it["gripper"]).lower()
+        out.append(kf_dict)
     out.sort(key=lambda x: x["time_s"])
     if target_arm:
         target_arm = target_arm.lower()
@@ -240,12 +271,15 @@ def _normalize_keyframes_list(items: List[Any], target_arm: Optional[str] = None
             mirrored = []
             for kf in other:
                 j = kf["joints_deg"]
-                mirrored.append({
+                m_kf = {
                     "name": f"{kf['name']} (Mirrored)",
                     "arm": target_arm,
                     "time_s": kf["time_s"],
                     "joints_deg": [-j[0], -j[1], -j[2], j[3], j[4], j[5], j[6]],
-                })
+                }
+                if "gripper" in kf:
+                    m_kf["gripper"] = kf["gripper"]
+                mirrored.append(m_kf)
             return mirrored
     return out
 
@@ -272,7 +306,7 @@ def save_user_choreo(name: str, keyframes: List[Dict[str, Any]], format_type: st
             f"# OpenDubs Choreo: {clean_name}",
             f"id: {os.path.splitext(clean_name)[0]}",
             f"name: {os.path.splitext(clean_name)[0].replace('_', ' ').title()}",
-            "slots: [ARM_L, ARM_R, LIGHT, SOUND, FACE]",
+            "slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, LIGHT, SOUND, FACE]",
             "requires:",
             "  arms: active",
             "cues:",
@@ -288,6 +322,9 @@ def save_user_choreo(name: str, keyframes: List[Dict[str, Any]], format_type: st
                 lines.append(f"  # {comment}")
             j_str = ", ".join(f"{k}: {v}" for k, v in j_map.items())
             lines.append(f"  - {{ t: {t:.1f}, slot: {slot}, joints: {{ {j_str} }} }}")
+            grip = kf.get("gripper")
+            if grip in ("open", "close"):
+                lines.append(f"  - {{ t: {t:.1f}, slot: GRIP_{arm[0]}, do: {grip} }}")
         
         with open(dest, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")

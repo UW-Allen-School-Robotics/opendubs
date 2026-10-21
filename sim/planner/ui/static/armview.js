@@ -180,6 +180,7 @@ export class PlannerStudioView {
             lower: j.lower,
             upper: j.upper,
             value: 0,
+            type: j.type,
           };
         } else {
           node.add(armObj.links[j.child]);
@@ -204,9 +205,25 @@ export class PlannerStudioView {
       const j = armObj.joints[name];
       if (!j || !Number.isFinite(q)) continue;
       j.value = q;
-      j.node.quaternion.setFromAxisAngle(j.axis, q);
+      if (j.type === "prismatic") {
+        j.node.position.copy(j.axis).multiplyScalar(q);
+      } else {
+        j.node.quaternion.setFromAxisAngle(j.axis, q);
+      }
     }
     this.render();
+  }
+
+  setGripper(arm, openFraction) {
+    const fraction = Math.max(0, Math.min(1, Number(openFraction) || 0));
+    // Finger joint stroke: 0.044 m (44 mm)
+    const displacement = fraction * 0.044;
+    const angles = {
+      [`openarm_${arm}_finger_joint1`]: displacement,
+      [`openarm_${arm}_finger_joint2`]: displacement,
+    };
+    this.setJoints(this.solidArm, angles);
+    this.setJoints(this.ghostArm, angles);
   }
 
   setSolidJoints(angles) {

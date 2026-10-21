@@ -73,6 +73,7 @@ class StudioApp {
 
     this.keyframes = [];
     this.collisionDebounceTimer = null;
+    this.gripperState = { left: 1.0, right: 1.0 }; // 1.0 = open, 0.0 = closed
   }
 
   async init() {
@@ -80,10 +81,12 @@ class StudioApp {
     this._createJointSliders();
     this._bindEvents();
     this._syncUIFromState();
+    this._updateGripperUI();
 
     // 2. Fetch backend status and keyframes in parallel
     this._loadBackendStatus();
     this._loadKeyframes();
+    this._fetchGripperStatus();
     this._checkCollisionAndFK();
     this._pollHardwareStatus();
 
@@ -95,6 +98,9 @@ class StudioApp {
       this.view = await new PlannerStudioView(canvas).load();
       logClient("info", "3D WebGL PlannerStudioView loaded successfully.");
       this._updateArmPosesInView();
+      if (this.view.setGripper) {
+        this.view.setGripper(this.arm, this.gripperState[this.arm]);
+      }
       requestAnimationFrame((t) => this._playbackLoop(t));
     } catch (err) {
       logClient("error", `3D visualizer init failed: ${err.message || err}`, err.stack || "");
@@ -333,6 +339,21 @@ class StudioApp {
     document.getElementById("btn-close-benchmark-footer").onclick = () => this._closeBenchmarkModal();
     document.getElementById("btn-run-benchmark-now").onclick = () => this._runBenchmark();
 
+    // Gripper controls
+    const gripSlider = document.getElementById("gripper-slider");
+    if (gripSlider) {
+      gripSlider.addEventListener("input", (e) => {
+        this._setGripper(parseFloat(e.target.value) / 100.0, false);
+      });
+      gripSlider.addEventListener("change", (e) => {
+        this._setGripper(parseFloat(e.target.value) / 100.0, true);
+      });
+    }
+    const gripToggle = document.getElementById("btn-gripper-toggle");
+    if (gripToggle) {
+      gripToggle.onclick = () => this._toggleGripper();
+    }
+
     // Hardware & HITL execution buttons
     document.getElementById("btn-preflight-safety").onclick = () => this._openHardwareModal(false);
     document.getElementById("btn-hitl-dryrun").onclick = () => this._openHardwareModal(true, "hitl");
@@ -354,6 +375,10 @@ class StudioApp {
     this.qGoal = [...presets.zombie_reach];
     this._syncUIFromState();
     this._updateArmPosesInView();
+    this._updateGripperUI();
+    if (this.view && this.view.setGripper) {
+      this.view.setGripper(arm, this.gripperState[arm] ?? 1.0);
+    }
     this._checkCollisionAndFK();
 
     // Load keyframes for the newly selected arm
@@ -642,8 +667,85 @@ class StudioApp {
     }
     if (this.view && this.view.setSolidJoints) this.view.setSolidJoints(solidAngles);
 
+    // Update gripper pose at timestamp t based on sequence keyframes
+    if (this.keyframes && this.keyframes.length > 0) {
+      let gripFraction = this.gripperState[trajArm] ?? 1.0;
+      for (const kf of this.keyframes) {
+        if (kf.arm === trajArm && kf.time_s <= t + 1e-4 && kf.gripper) {
+          gripFraction = kf.gripper === "close" ? 0.0 : 1.0;
+        }
+      }
+      if (this.view && this.view.setGripper) {
+        this.view.setGripper(trajArm, gripFraction);
+      }
+    }
+
     // Update readout
     document.getElementById("timeline-readout").textContent = `${t.toFixed(2)}s / ${traj.duration.toFixed(2)}s`;
+  }
+
+  /* Gripper Handlers */
+  _fetchGripperStatus() {
+    fetch(`/api/gripper?arm=${this.arm}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && typeof data.open_fraction === "number") {
+          this.gripperState[this.arm] = data.open_fraction;
+          this._updateGripperUI();
+          if (this.view && this.view.setGripper) {
+            this.view.setGripper(this.arm, data.open_fraction);
+          }
+        }
+      })
+      .catch(() => {});
+  }
+
+  _setGripper(fraction, sendToBackend = false) {
+    fraction = Math.max(0, Math.min(1, fraction));
+    this.gripperState[this.arm] = fraction;
+    this._updateGripperUI();
+    if (this.view && this.view.setGripper) {
+      this.view.setGripper(this.arm, fraction);
+    }
+    if (sendToBackend) {
+      fetch("/api/gripper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({ arm: this.arm, action: fraction }),
+      }).catch((e) => console.warn("Gripper command failed:", e));
+    }
+  }
+
+  _toggleGripper() {
+    const current = this.gripperState[this.arm] ?? 1.0;
+    const target = current >= 0.5 ? 0.0 : 1.0;
+    this._setGripper(target, true);
+  }
+
+  _updateGripperUI() {
+    const fraction = this.gripperState[this.arm] ?? 1.0;
+    const slider = document.getElementById("gripper-slider");
+    if (slider) slider.value = Math.round(fraction * 100);
+
+    const badge = document.getElementById("gripper-status-badge");
+    if (badge) {
+      const pct = Math.round(fraction * 100);
+      if (fraction >= 0.95) {
+        badge.textContent = `OPEN (${pct}%)`;
+        badge.style.color = "var(--accent-cyan)";
+      } else if (fraction <= 0.05) {
+        badge.textContent = `CLOSED (${pct}%)`;
+        badge.style.color = "#f87171";
+      } else {
+        badge.textContent = `GRIP (${pct}%)`;
+        badge.style.color = "#fbbf24";
+      }
+    }
+
+    const toggleBtn = document.getElementById("btn-gripper-toggle");
+    if (toggleBtn) {
+      toggleBtn.textContent = fraction >= 0.5 ? "Close" : "Open";
+    }
   }
 
   /* Keyframe Choreographer */
@@ -677,6 +779,9 @@ class StudioApp {
       const card = document.createElement("div");
       card.className = "keyframe-card";
       const jStr = kf.joints_deg.map((v) => Math.round(v)).join(", ");
+      const isClosed = kf.gripper === "close";
+      const gripBadgeText = isClosed ? "✊ GRIP CLOSED" : "🖐️ GRIP OPEN";
+      const gripColor = isClosed ? "#f87171" : "#38bdf8";
 
       card.innerHTML = `
         <div class="kf-header">
@@ -685,6 +790,7 @@ class StudioApp {
         </div>
         <div class="kf-details">
           <span>${kf.arm.toUpperCase()} ARM</span>
+          <span class="badge" style="cursor:pointer; font-size:10px; color:${gripColor}; border-color:${gripColor}44;" data-act="toggle-grip" title="Click to toggle gripper action at this keyframe">${gripBadgeText}</span>
           <span style="font-family:var(--font-mono); font-size:10px;">[${jStr}]°</span>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:4px;">
@@ -693,10 +799,24 @@ class StudioApp {
         </div>
       `;
 
+      const gripBtn = card.querySelector('[data-act="toggle-grip"]');
+      if (gripBtn) {
+        gripBtn.onclick = (e) => {
+          e.stopPropagation();
+          kf.gripper = kf.gripper === "close" ? "open" : "close";
+          this._renderKeyframeList();
+          this._saveKeyframes();
+        };
+      }
+
       card.querySelector('[data-act="load"]').onclick = (e) => {
         e.stopPropagation();
         this._setArm(kf.arm);
         this.qGoal = [...kf.joints_deg];
+        if (kf.gripper) {
+          const frac = kf.gripper === "close" ? 0.0 : 1.0;
+          this._setGripper(frac, false);
+        }
         this._setTargetMode("goal");
         this._syncUIFromState();
         this._checkCollisionAndFK();
@@ -716,15 +836,21 @@ class StudioApp {
   _addKeyframe() {
     const nameInput = document.getElementById("kf-name-input");
     const timeInput = document.getElementById("kf-time-input");
+    const gripSelect = document.getElementById("kf-gripper-action");
 
     const name = nameInput.value.trim() || `Pose ${this.keyframes.length + 1}`;
     const time_s = parseFloat(timeInput.value) || (this.keyframes.length ? this.keyframes[this.keyframes.length - 1].time_s + 4.0 : 0.0);
+    let gripAction = gripSelect ? gripSelect.value : "keep";
+    if (gripAction === "keep") {
+      gripAction = (this.gripperState[this.arm] ?? 1.0) >= 0.5 ? "open" : "close";
+    }
 
     const kf = {
       name,
       arm: this.arm,
       time_s,
       joints_deg: [...this.qGoal],
+      gripper: gripAction,
     };
 
     this.keyframes.push(kf);
