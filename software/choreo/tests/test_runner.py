@@ -740,13 +740,14 @@ class ArmedFace:
         self.said.append(what)
 
 
-def run_start(start, robot=None, changes=(), stop_in=None, countdown_s=None, show="hello.yaml", face=None, arms=None):
+def run_start(start, robot=None, changes=(), stop_in=None, countdown_s=None, show="hello.yaml", face=None, arms=None,
+              audio=None):
     robot = robot or R.FakeRobotState()
     sc = Script(robot, changes, stop_in)
     log = io.StringIO()
     r = R.Runner(os.path.join(SHOWS, show) if not os.path.isabs(show) else show, LIMITS, robot, log=log,
                  clock=sc.clock, sleep=sc.sleep, start_lead=0.5, start=start, countdown_s=countdown_s,
-                 face=face, arms=arms, live=arms is not None)
+                 face=face, arms=arms, live=arms is not None, **({"audio": audio} if audio else {}))
     sc.r = r
     end = r.run()
     lines = [json.loads(x) for x in log.getvalue().splitlines()]
@@ -766,6 +767,87 @@ check("... the countdown is 5 s by default, and nothing is sent before the GO",
 check("... the face says ARMED WAIT (re-sent each second), the seconds at the GO, OFF as it starts",
       face.said[0] == "WAIT" and face.said.count("WAIT") >= 3 and face.said[-2:] == ["5", "OFF"]
       and face.said.count("OFF") == 1, face.said)
+
+class ReadyAt(R.NullAudio):
+    """A show-audio device that is ready only from `at` seconds into the run (the tablet's face page
+    reconnecting and loading the song after a start from the tablet)."""
+
+    def __init__(self, sc, at):
+        super().__init__(holder="tablet", ready=False)
+        self.sc, self.at = sc, at
+
+    def state(self):
+        self.is_ready = self.sc.now >= 1000.0 + self.at
+        return super().state()
+
+
+au = ReadyAt(None, 4.0)
+robot = R.FakeRobotState(deadman=False)
+r, end, lines, st, sc = None, None, None, None, None
+_sc = Script(robot, [(1.0, {"deadman": True}), (2.0, {"deadman": False}), (6.0, {"deadman": True})])
+au.sc = _sc
+log = io.StringIO()
+r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=_sc.clock, sleep=_sc.sleep, start_lead=0.5, start="deadman",
+             audio=au)
+_sc.r = r
+end = r.run()
+lines = [json.loads(x) for x in log.getvalue().splitlines()]
+go_at = next((i for i, x in enumerate(lines) if x["kind"] == "go"), None)
+ready_at = next((i for i, x in enumerate(lines) if x["kind"] == "audio_note" and "ready" in x["note"]), None)
+check("armed, a run waits for the show audio before it takes the GO: a press before it is ready is not a GO, "
+      "and the operator never holds through the audio wait (found at the robot 2026-10-16)",
+      end[0] == "COMPLETED" and ready_at is not None and go_at is not None and ready_at < go_at
+      and any(x["kind"] == "deadman" and "not a GO" in x.get("note", "") for x in lines[:go_at])
+      and [c["op"] for c in au.calls] == ["load", "start", "stop"], (end, au.calls, lines[go_at - 3:go_at + 1] if go_at else lines[-5:]))
+
+class SlowMedia:
+    """A projector or stage output (video_out.ShowVideo / StageShow) whose first load lands `at`
+    seconds into the run."""
+
+    def __init__(self, sc, at, output):
+        self.sc, self.at, self.output, self.calls = sc, at, output, []
+
+    def begin(self):
+        self.calls.append("begin")
+
+    def ready(self):
+        return self.sc.now >= 1000.0 + self.at
+
+    def go(self, clock):
+        self.calls.append("go")
+
+    def end(self, status):
+        self.calls.append("end")
+
+    def state(self):
+        return {"output": self.output}
+
+
+for output in ("cast", "stage"):
+    au = ReadyAt(None, 1.0)                       # the tablet is ready early; the projector is not
+    robot = R.FakeRobotState(deadman=False)
+    _sc = Script(robot, [(2.0, {"deadman": True}), (3.0, {"deadman": False}), (7.0, {"deadman": True})])
+    au.sc = _sc
+    media = SlowMedia(_sc, 5.0, output)
+    log = io.StringIO()
+    r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=_sc.clock, sleep=_sc.sleep, start_lead=0.5,
+                 start="deadman", audio=au)
+    pre = r._video_preflight
+
+    def with_media(show, tl, r=r, pre=pre, media=media):
+        out = pre(show, tl)
+        r.music.append(media)                     # music held for the projector, or the stage pages
+        return out
+    r._video_preflight = with_media
+    _sc.r = r
+    end = r.run()
+    lines = [json.loads(x) for x in log.getvalue().splitlines()]
+    go_at = next((i for i, x in enumerate(lines) if x["kind"] == "go"), None)
+    early = [x for x in lines[:go_at or len(lines)] if x["kind"] == "deadman" and "not a GO" in x.get("note", "")]
+    check(f"... and for the {output} output too: it loads while armed, and a press before it has loaded is "
+          "not a GO", end[0] == "COMPLETED" and go_at is not None and early and media.calls[:2] == ["begin", "go"],
+          (end, media.calls, [x for x in lines if x["kind"] in ("go", "deadman", "audio_note")]))
+
 
 r, end, lines, st, sc = run_start("deadman", changes=[(2.0, {"deadman": False}), (4.0, {"deadman": True})])
 seen = [x["held"] if x["kind"] == "deadman" else "GO" for x in lines if x["kind"] in ("deadman", "go")]
