@@ -20,19 +20,22 @@
                      border: 1px solid var(--line, #444); border-radius: 6px; }
     .pj-note { color: var(--dim); font-size: 13px; }
     .pj-play { font-variant-numeric: tabular-nums; }
-    .pj-card .pj-bad { color: var(--bad); }`;
+    .pj-card .pj-bad { color: var(--bad); }
+    .pj-row .pj-v { flex: 1 1 260px; min-width: 0; }
+    .pj-row { flex-wrap: nowrap; } .pj-row.pj-wrap { flex-wrap: wrap; }`;
   const style = document.createElement("style"); style.textContent = CSS; document.head.appendChild(style);
 
   const card = document.createElement("section");
   card.className = "card pj-card";
   card.innerHTML = `
     <h2>PROJECTOR <span id="pjBadge" class="badge dimbadge">—</span></h2>
-    <div class="pj-row"><span class="pj-k">Cast</span><span class="sdot" id="pjCastDot"></span><span id="pjCast">—</span></div>
-    <div class="pj-row"><span class="pj-k">HDMI</span><span class="sdot" id="pjHdmiDot"></span><span id="pjHdmi">—</span></div>
-    <div class="pj-row"><label class="pj-k" for="pjOut">Show video on</label>
-      <select id="pjOut"><option value="cast">the projector (cast)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
+    <div class="pj-row"><span class="pj-k">Cast</span><span class="sdot" id="pjCastDot"></span><span class="pj-v" id="pjCast">—</span></div>
+    <div class="pj-row"><span class="pj-k">HDMI</span><span class="sdot" id="pjHdmiDot"></span><span class="pj-v" id="pjHdmi">—</span></div>
+    <div class="pj-row pj-wrap"><label class="pj-k" for="pjOut">Show video on</label>
+      <select id="pjOut"><option value="">each show's own</option><option value="cast">the projector (cast)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
       <span class="pj-note" id="pjDefault"></span></div>
-    <div class="pj-row pj-play" id="pjPlaying" hidden></div>
+    <div class="pj-note pj-bad" id="pjNote" hidden></div>
+    <div class="pj-row pj-wrap pj-play" id="pjPlaying" hidden></div>
     <div class="pj-note" id="pjWhy"></div>`;
   view.appendChild(card);
   const $ = (id) => document.getElementById(id);
@@ -61,8 +64,13 @@
       const [cls, txt] = stale ? ["", `not checked for ${Math.round(age)} s`] : output(outs[kind], kind);
       $(id).innerHTML = txt; dot(id + "Dot", cls);
     }
-    if (!busy && v.selected && $("pjOut").value !== v.selected) $("pjOut").value = v.selected;
-    $("pjDefault").textContent = v.default ? `default: ${v.default}` : "";
+    // The control shows the operator's override, or "each show's own" when there is none
+    // (`selected` is then the robot's default, named beside it).
+    const want = v.override || "";
+    if (!busy && $("pjOut").value !== want) $("pjOut").value = want;
+    $("pjDefault").textContent = !v.override && v.default ? `now: ${v.default} (the robot's default)` : "";
+    // A show running WITHOUT its video says why (choreo-video.md §6 `note`).
+    $("pjNote").hidden = !v.note; $("pjNote").textContent = v.note || "";
     const sel = outs[v.selected];
     const ready = !stale && v.selected !== "off" && sel && sel.ready;
     $("pjBadge").textContent = stale ? "NOT CHECKED" : v.selected === "off" ? "OFF" : ready ? "READY" : "NOT READY";
@@ -95,7 +103,7 @@
     busy = true;
     try {
       const r = await fetch("/api/choreo/video/output", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                        body: JSON.stringify({ output: e.target.value }) });
+                                                        body: JSON.stringify({ output: e.target.value || null }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { $("pjWhy").textContent = `Not changed: ${j.error || j.detail || `HTTP ${r.status}`}`; if (j.code) $("pjWhy").appendChild(helpLink(j.code)); }
       else { $("pjWhy").textContent = ""; if (j.outputs) render(j); }
