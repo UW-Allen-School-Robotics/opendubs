@@ -10,7 +10,7 @@ ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
-opendubs-drive-bridge opendubs-tablet-camera-demand"
+opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
 # which has been removed from the robot (notes/history/astra-camera/).
@@ -53,6 +53,10 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-rosbridge-suite" \
   "ros-${ROS_DISTRO}-foxglove-bridge" \
   "ros-${ROS_DISTRO}-diagnostic-msgs"
+# The skeleton relay's WebSocket client to the dashboard. Its own line, and allowed to fail: an offline
+# deploy must not stop the rest of ROS provisioning over a package only the relay needs.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websockets >/dev/null \
+  || echo "  !! python3-websockets not installed (offline?): the skeleton relay cannot start until it is"
 
 # --- sudoers (scan watchdog → restart rplidar) ------------------------------
 install -m0440 "$ROSDIR/opendubs-ros-sudoers" /etc/sudoers.d/opendubs-ros
