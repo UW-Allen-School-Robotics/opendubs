@@ -110,7 +110,10 @@ def test_robot_state_wires_required_not_fresh_lift_to_degraded_fault(monkeypatch
     sup.ready = True   # boot grace window already passed — I1's gate lets this fault through
     monkeypatch.setattr(status, "supervisor", sup)
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    # Silent for longer than LIFT_SILENT_S, with the link fresh all that time.
+    t = status.time.monotonic() - 2 * status.LIFT_SILENT_S
+    monkeypatch.setattr(status, "_lift_watch", {"link_since": t, "silent_since": t})
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
@@ -128,7 +131,7 @@ def test_robot_state_boot_grace_suppresses_not_fresh_lift_fault(monkeypatch):
     assert sup.ready is False
     monkeypatch.setattr(status, "supervisor", sup)
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
@@ -138,9 +141,10 @@ def test_robot_state_boot_grace_suppresses_not_fresh_lift_fault(monkeypatch):
 
 
 def test_robot_state_wires_lift_fault_active_to_mast_without_degrading(monkeypatch):
+    monkeypatch.setattr(status, "_lift_watch", {"link_since": None, "silent_since": None})
     monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: _benign_snapshot())
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": True, "height_mm": 100.0, "inhibit": False,
         "motion": "STOP", "fault": "STUCK", "fault_active": True,
     })
@@ -159,9 +163,88 @@ def test_stale_link_does_not_raise_a_lift_fault(monkeypatch):
     snap = _benign_snapshot()
     snap["fresh"] = False                      # the StamPLC link itself is stale
     monkeypatch.setattr(status.stamplc.reader, "snapshot", lambda: snap)
-    monkeypatch.setattr(status, "_lift", lambda: {
+    monkeypatch.setattr(status, "_lift", lambda s=None: {
         "fresh": False, "height_mm": None, "inhibit": None,
         "motion": None, "fault": None, "fault_active": False,
     })
     out = status._robot_state()
     assert "lift module not responding" not in out["reason"]
+
+
+def test_a_boot_link_blip_does_not_latch_lift_not_responding():
+    """opendubs2, 2026-10-19: STALE TELEMETRY for 7 s at boot; the link came back before the first
+    [DRIVE] line, the lift read "not fresh" for that moment, and DEGRADED latched with a healthy lift
+    until a hand clear. A blip must not latch; a lift really silent 2 s raises it and clears itself."""
+    import status
+    from supervisor import LIFT_SILENT, Supervisor
+    sup, w = Supervisor(), {"link_since": None, "silent_since": None}
+    sup.ready = True
+
+    def tick(t, link, lift):
+        raw = [LIFT_SILENT] if status.lift_not_responding(link, lift, t, w) else []
+        return sup.step(raw_estop_sources=[], raw_faults=raw, fresh=link, control_ok=True, uptime=100 + t)["faults"]
+
+    for i in range(70):                                   # the link stale for 7 s
+        assert tick(i * 0.1, False, False) == []
+    assert tick(7.0, True, False) == []                   # fresh again, no [DRIVE] yet
+    assert tick(7.15, True, True) == []                   # the first [DRIVE]: the lift is there
+    for i in range(30):
+        assert tick(7.2 + i * 0.1, True, True) == []      # nothing latched
+
+    for i in range(25):                                   # now really silent, the link fresh
+        faults = tick(20 + i * 0.1, True, False)
+    assert faults == [LIFT_SILENT]
+    assert tick(23.0, True, True) == []                   # it answers: cleared by itself
+
+
+def test_router_report_is_unknown_when_missing_or_stale(tmp_path):
+    """The contract (network-router-api.md §4): a missing or >15 s old network.json is UNKNOWN —
+    a poller that died must not leave its last state on the operator's screen."""
+    import json
+    sample = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
+                          "tools", "network", "sample-network.json")
+    p = tmp_path / "network.json"
+    assert status._router_report(str(p))["uplink"]["state"] == "UNKNOWN"
+    data = {"ts": 1000.0, "uplink": {"state": "WEAK", "say": "Uplink weak", "signal_dbm": -83},
+            "robot_wifi": [{"name": "tab", "ip": "10.42.2.13", "signal_dbm": -48, "ccq_pct": 83}]}
+    if os.path.exists(sample):                 # the Network lane's sample, when it is on main
+        data = json.load(open(sample))
+    p.write_text(json.dumps(data))
+    fresh = status._router_report(str(p), now=data["ts"] + 2)
+    assert fresh["uplink"]["state"] == data["uplink"]["state"] and fresh["uplink"]["age_s"] == 2
+    assert fresh["robot_wifi"] == data["robot_wifi"]
+    stale = status._router_report(str(p), now=data["ts"] + 16)
+    assert stale == {"uplink": {"state": "UNKNOWN", "say": "No network data"}, "robot_wifi": []}
+
+
+def _plc_latched_snapshot():
+    snap = _benign_snapshot()
+    snap["rc"] = {"live": True, "mode": "ESTOP", "dead": False}   # the board's own latch
+    snap["di"] = [1, 0, 0, 0, 0, 0, 0, 0]                          # the button chain is closed
+    snap["relay"] = [0, 0, 0, 0]                                   # contactor open
+    return snap
+
+
+def test_a_stamplc_latch_is_an_estop_not_rc_link_lost(monkeypatch):
+    """A StamPLC-local latch (BtnC held, OTA, REBOOT) made [RC] say mode=ESTOP, which mapped to no
+    authority: the robot read amber DEGRADED "RC link lost" with its contactor open."""
+    sup = supervisor_mod.Supervisor()
+    sup.ready = True
+    monkeypatch.setattr(status, "supervisor", sup)
+    monkeypatch.setattr(status, "_software_estop", False)
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", _plc_latched_snapshot)
+    out = status._robot_state()
+    assert out["state"] == "E_STOP_LATCH" and "STAMPLC" in out["reason"]
+
+
+def test_after_a_dashboard_restart_the_boards_latch_still_shows(monkeypatch):
+    """The software e-stop flag lives in memory. Our own E-STOP also latches the board, so after a
+    dashboard restart (a fresh supervisor, the flag gone) the board's latch is what must show; while
+    the flag is still set the board's latch is ours and is not named twice."""
+    monkeypatch.setattr(status.stamplc.reader, "snapshot", _plc_latched_snapshot)
+    monkeypatch.setattr(status, "_software_estop", True)
+    assert status._safety()["sources"] == ["SOFTWARE"]
+    monkeypatch.setattr(status, "_software_estop", False)          # the restart
+    monkeypatch.setattr(status, "supervisor", supervisor_mod.Supervisor())
+    out = status._robot_state()
+    assert out["state"] == "E_STOP_LATCH" and "RC link lost" not in out["reason"]

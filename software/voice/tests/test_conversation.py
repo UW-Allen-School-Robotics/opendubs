@@ -181,13 +181,16 @@ class Brains(unittest.IsolatedAsyncioTestCase):
 
     async def test_robot_status_reads_and_reports_truthfully(self):
         llm = FakeLLM([[ToolCall("t1", "robot_status", {})], "You are not stopped."])
-        v = make_voice(llm=llm, robot_status=lambda: {"estop": True, "ch5": None, "fault": None, "arms": None})
+        import time
+        v = make_voice(llm=llm, robot_status=lambda: {"ts": time.time(), "state": {"words": "Emergency stop"},
+                                                      "faults": [], "battery": {"percent": None}})
         link, page = await connect(v)
         await say(v, page, speech_clip())
         await settle(v)
         content = v.history[2]["results"][0]["content"]
-        self.assertIn("pressed, so you are stopped", content)
-        self.assertIn("transmitter mode: unknown", content)
+        self.assertIn("state: Emergency stop", content)
+        self.assertIn("battery: unknown", content)
+        self.assertIn("can't tell right now", content)
 
     async def test_end_conversation(self):
         llm = FakeLLM([[ToolCall("t1", "end_conversation", {}), "Goodbye!"]] + ["ok"])
@@ -276,6 +279,103 @@ class Protocol(unittest.IsolatedAsyncioTestCase):
         await v.on_text(page, '{"type":"press"}')
         await v.on_bytes(page, b"\x01\x02")
         self.assertEqual(link.of("error")[-1]["code"], "VOICE_BAD_FRAME")
+
+
+class Recording(unittest.IsolatedAsyncioTestCase):
+    async def test_the_log_has_the_clips_shape_and_no_words(self):
+        """Clipping and level are read from the log without any words in it (speech_clip has 240 ms
+        of room before the voice and 240 ms after)."""
+        v = make_voice(llm=FakeLLM(["Hello."]))
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        rec = json.loads(next(l for l in logs.output if '"status"' in l).split("turn ", 1)[1])
+        self.assertAlmostEqual(rec["audio"]["onset_ms"], 240, delta=40)
+        self.assertAlmostEqual(rec["audio"]["tail_ms"], 240, delta=40)
+        self.assertEqual(rec["words"], 3)
+        self.assertNotIn("transcript", rec)
+        self.assertIsNone(v.record_dir)              # nothing is written unless a session asks for it
+
+    async def test_a_recording_session_keeps_each_turns_uplink(self):
+        import os
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"OPENDUBS_VOICE_RECORD_DIR": d}):
+            v = make_voice(llm=FakeLLM(["Hello."]))
+            link, page = await connect(v)
+            clip = speech_clip()
+            await say(v, page, clip)
+            await settle(v)
+            names = sorted(os.listdir(d))
+            self.assertEqual([n.rsplit(".", 1)[1] for n in names], ["json", "s16le"])
+            with open(os.path.join(d, names[1]), "rb") as f:
+                self.assertEqual(f.read(), clip)
+            with open(os.path.join(d, names[0])) as f:
+                note = json.load(f)
+            self.assertEqual((note["heard"], note["status"], note["rate"]), ("what are you", "ok", 16000))
+
+
+class Uplink(unittest.IsolatedAsyncioTestCase):
+    async def test_two_interleaved_streams_are_flagged(self):
+        """It happened: a reconnect left the old mic source feeding, so the page sent two streams
+        interleaved, about 100 frames a second, and recognition heard whine instead of a visitor."""
+        for per_tick, expect in ((1, 1.0), (2, 2.0)):
+            v = make_voice(llm=FakeLLM(["Hello."]))
+            link, page = await connect(v)
+            await v.on_text(page, '{"type":"press"}')
+            clip, step = speech_clip(3000), wire.UP_FRAME_SAMPLES * 2
+            for i, off in enumerate(range(0, len(clip), step)):
+                await v.on_bytes(page, wire.pack_up(i, (i // per_tick) * 20, clip[off:off + step]))
+            with self.assertLogs("voice", "INFO") as logs:
+                await v.on_text(page, '{"type":"release"}')
+                await settle(v)
+            rec = json.loads(next(l for l in logs.output if '"uplink_x"' in l).split("turn ", 1)[1])
+            self.assertAlmostEqual(rec["uplink_x"], expect, delta=0.05)
+            self.assertEqual(any("faster than real time" in l for l in logs.output), per_tick == 2)
+
+
+class LiveStatus(unittest.IsolatedAsyncioTestCase):
+    async def test_the_question_comes_with_the_robots_live_status(self):
+        """It happened: the model answered "I can't tell right now" about its battery without calling
+        robot_status. So every question carries the dashboard's facts, read for it."""
+        llm = FakeLLM(["I have 80 percent."])
+        v = make_voice(llm=llm)
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        self.assertIn("battery: 80 percent", llm.systems[0])
+        self.assertTrue(llm.systems[0].startswith("You are a test robot."))
+        rec = json.loads(next(l for l in logs.output if '"tools"' in l).split("turn ", 1)[1])
+        self.assertIn("status", rec["ms"])
+
+    async def test_a_slow_or_broken_dashboard_never_holds_the_turn(self):
+        import time as _t
+        for reader in (lambda: _t.sleep(2) or {"ts": _t.time(), "battery": {"percent": 50}},
+                       lambda: (_ for _ in ()).throw(OSError("down"))):
+            llm = FakeLLM(["Hello."])
+            v = make_voice(llm=llm, robot_status=reader)
+            link, page = await connect(v)
+            t0 = _t.monotonic()
+            await say(v, page, speech_clip())
+            await settle(v)
+            self.assertLess(_t.monotonic() - t0, 1.5)
+            self.assertIn("cannot be read right now", llm.systems[0])
+            self.assertNotIn("50 percent", llm.systems[0])
+
+    async def test_each_tool_call_is_logged_without_words(self):
+        llm = FakeLLM([[ToolCall("t1", "robot_status", {}), ToolCall("t2", "set_expression", {"expression": "nope"})],
+                       "Fine."])
+        v = make_voice(llm=llm)
+        link, page = await connect(v)
+        with self.assertLogs("voice", "INFO") as logs:
+            await say(v, page, speech_clip())
+            await settle(v)
+        rec = json.loads(next(l for l in logs.output if '"tools"' in l).split("turn ", 1)[1])
+        self.assertEqual(sorted((t["name"], t["ok"]) for t in rec["tools"]),     # they run concurrently
+                         [("robot_status", True), ("set_expression", False)])
+        self.assertTrue(all(isinstance(t["ms"], int) for t in rec["tools"]))
 
 
 if __name__ == "__main__":

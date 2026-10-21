@@ -68,16 +68,15 @@ Check in this order:
 
 ### The drive contactor is open {#contactor-open}
 
-`CONTACTOR_OPEN` · Warning · seen on the dashboard, the head, the status lights
+`CONTACTOR_OPEN` · Warning · seen on the dashboard, the status lights
 
-The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered from the drive bus and turns off, and the arms, which can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
+The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. The arms can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.
 
 **What to do**
 
 1. If the dashboard reports an e-stop, deal with that first — the entries below say how for each source.
-2. After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
+2. After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.
 3. At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber.
-4. You cannot re-arm from the head: it is off while the contactor is open. Use the dashboard.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [E-stop system](../e-stop.md)
 
@@ -90,7 +89,7 @@ A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor di
 **What to do**
 
 1. Find the pressed button — there are two on the rear of the robot, left and right, plus any e-stop a payload has added — and twist it to release.
-2. Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does not re-close the contactor by itself.
+2. To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold **RE-ARM**). Releasing the button does not re-close the contactor by itself.
 3. If no button is pressed and this persists, the e-stop circuit is open somewhere else. Check the payload e-stop jumpers and the e-stop wiring.
 
 **See also:** [E-stop system](../e-stop.md) · [Operating the robot](../operating.md#stopping-the-robot)
@@ -99,13 +98,14 @@ A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor di
 
 `ESTOP_SOFTWARE` · Fault · seen on the dashboard
 
-Someone pressed **E-STOP** on the dashboard or on the head, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.
+E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
+Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.
 
 **What to do**
 
 1. Make sure it is safe for the robot to move again.
-2. Set CH5 to `OFF`.
-3. Hold **RE-ARM** on the dashboard. The head cannot re-arm: it is powered behind the contactor, so it is off until the dashboard has re-armed.
+2. Switch CH5 (mode) to `OFF`.
+3. Re-arm from the dashboard: hold **RE-ARM**.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot)
 
@@ -140,7 +140,7 @@ The dashboard has stopped hearing from the [StamPLC](glossary.md#stamplc), the c
 
 ### No RC link {#rc-no-link}
 
-`RC_NO_LINK` · Fault · seen on the dashboard, the head
+`RC_NO_LINK` · Fault · seen on the dashboard
 
 The receiver on the robot is hearing nothing from the transmitter. Without a link nothing moves, whatever the switches show.
 
@@ -154,7 +154,7 @@ The receiver on the robot is hearing nothing from the transmitter. Without a lin
 
 ### The RC receiver is in failsafe {#rc-failsafe}
 
-`RC_FAILSAFE` · Fault · seen on the dashboard, the head
+`RC_FAILSAFE` · Fault · seen on the dashboard
 
 The receiver has lost the transmitter's signal and is reporting [failsafe](glossary.md#failsafe) instead of live stick positions. The robot treats this as no command.
 
@@ -167,7 +167,7 @@ The receiver has lost the transmitter's signal and is reporting [failsafe](gloss
 
 ### CH5 is at OFF {#rc-authority-off}
 
-`RC_AUTHORITY_OFF` · Expected behaviour · seen on the dashboard, the head, the transmitter
+`RC_AUTHORITY_OFF` · Expected behaviour · seen on the dashboard, the transmitter
 
 [CH5](glossary.md#ch5) is the authority switch. At `OFF` nobody may command motion — not the sticks and not the computer. The dashboard shows this as **STANDBY**.
 
@@ -258,13 +258,14 @@ Check in this order:
 
 `ESTOP_REARM_CH5` · Refused action · seen on the dashboard
 
+To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
 Re-arming closes the contactor, and the dashboard will not do that while the transmitter grants [authority](glossary.md#authority) — the robot could move the instant drive power returned. This is the most common refusal.
 
 **What to do**
 
-1. Set CH5 to `OFF`.
-2. Hold **RE-ARM** again.
-3. Set CH5 back to `MANUAL` when you are ready to drive.
+1. Switch CH5 (mode) to `OFF`.
+2. Re-arm from the dashboard: hold **RE-ARM** again.
+3. Switch CH5 back to `MANUAL` when you are ready to drive.
 
 **See also:** [Operating the robot](../operating.md#stopping-the-robot) · [Control authority and modes](../control-authority.md)
 
@@ -278,14 +279,6 @@ Something asked the dashboard to change the robot's state — clear an e-stop, m
 
 1. Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
 2. If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
-
-## The head is dark or offline {#head-dark}
-
-The head is the robot's face and front control panel. Check the contactor before anything else: an open contactor turns the head off, and that looks exactly like a network fault.
-
-Check in this order:
-
-1. [The drive contactor is open](#contactor-open)
 
 ## The lift won't move {#lift-wont-move}
 
@@ -306,14 +299,14 @@ Check in this order:
 
 ### The lift stopped near the bottom {#lift-pinch-hold}
 
-`LIFT_PINCH_HOLD` · Expected behaviour · seen on the head, the robot itself
+`LIFT_PINCH_HOLD` · Expected behaviour · seen on the dashboard, the robot itself
 
-The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom, where the closing gap can trap a hand. The head shows an amber **Z-AXIS HELD** banner and two short tones sound. Nothing is latched and nothing needs clearing.
+The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom, where the closing gap can trap a hand. The dashboard's Z-axis readout shows **PINCH HOLD**. Nothing is latched and nothing needs clearing.
 
 **What to do**
 
 1. Release the stick, and keep it released for about half a second.
-2. Command down again. The banner turns green and reads **LOWERING**.
+2. Command down again.
 
 **See also:** [Operating the robot](../operating.md#z-axis-pinch-protection) · [Scissor Lift Module](../build/scissor-lift.md)
 
@@ -738,6 +731,36 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-joint-data-missing)
 
+## A show won't start, or stops {#show-wont-start}
+
+Check in this order:
+
+1. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+2. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+
+### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
+
+`SHOW_VIDEO_NOT_READY` · Refused action · seen on the dashboard
+
+This show plays video on the projector and says it must not run without it. The output it uses (casting over Wi-Fi, or the HDMI cable) wasn't ready, so the show was refused before anything moved. The sentence after the code says why, in the words the projector card on the Shows page uses. A show that doesn't insist on its video runs without it instead, saying so.
+
+**What to do**
+
+1. Look at the projector card on the Shows page; it shows each output and what is missing.
+2. For casting, check the projector is on, awake and joined to the robot's Wi-Fi.
+3. For HDMI, check the cable and that the projector is on and set to its HDMI input.
+4. Or choose the other output (or off) on the projector card, then start the show again.
+
+### The projector output couldn't be changed because a show is playing {#show-video-busy}
+
+`SHOW_VIDEO_BUSY` · Refused action · seen on the dashboard
+
+The video output (casting, HDMI or off) was changed while a show was running. A running show's videos are already on their output, so the change was refused rather than switching mid-show.
+
+**What to do**
+
+1. Change the output before starting the show, or stop the show first.
+
 ## The robot won't play a sound {#no-sound}
 
 A sound sent to the robot plays on its own speaker. It is refused while a show has the speaker, and when no speaker is connected; the entries below say which.
@@ -767,6 +790,60 @@ The robot plays shows, ambient music and sounds sent from a phone through one de
 
 1. Check that the head's tablet is on and showing the dashboard or the face.
 2. On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+
+## The robot won't listen or talk {#voice-quiet}
+
+The robot's voice runs on its computer and listens through the head tablet's microphone. When it cannot listen, the face greys out or hides its Talk button rather than inviting speech nobody will hear.
+
+Check in this order:
+
+1. [Voice is off while a show runs](#voice-off-show)
+2. [The voice service is not running](#voice-service-down)
+3. [The tablet's microphone cannot be opened](#voice-mic-unavailable)
+4. [The voice's language model is not answering](#voice-brain-offline)
+
+### Voice is off while a show runs {#voice-off-show}
+
+`VOICE_OFF_SHOW` · Expected behaviour · seen on the head
+
+Voice is turned off while a show runs, by design, so nobody is answered in the middle of a performance: the face hides its Talk button, it stops listening for "Hey OpenDubs", and a reply already under way is cut off.
+
+**What to do**
+
+1. Wait for the show to end, or stop it.
+
+### The voice service is not running {#voice-service-down}
+
+`VOICE_SERVICE_DOWN` · Fault · seen on the head
+
+The voice service on the robot's computer is not running, so nothing can hear or answer. The face greys out Talk and says the voice service is not running.
+
+**What to do**
+
+1. Restart the robot; the voice service starts with it.
+2. If it still reports this after a restart, the voice service needs a look from whoever maintains the robot's software.
+
+### The tablet's microphone cannot be opened {#voice-mic-unavailable}
+
+`VOICE_MIC_UNAVAILABLE` · Fault · seen on the head, the dashboard
+
+The face page could not open the head tablet's microphone, so the voice cannot listen. The face greys out Talk.
+
+**What to do**
+
+1. Make sure no other app on the tablet is using the microphone.
+2. Reload the face page, or restart the tablet.
+
+### The voice's language model is not answering {#voice-brain-offline}
+
+`VOICE_BRAIN_OFFLINE` · Warning · seen on the dashboard
+
+The language model on the robot's computer is not answering, so the robot says it can't think right now. It takes a few minutes to load after the robot is switched on. A robot set to use a cloud model also shows this when it loses its internet connection.
+
+**What to do**
+
+1. Wait a few minutes after switching the robot on, then try again.
+2. If it keeps saying it can't think, restart the robot.
 
 ## A power or temperature warning {#power-warning}
 

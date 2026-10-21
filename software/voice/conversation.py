@@ -21,7 +21,13 @@ Rules carried from the head voice plan and the voice note:
   answered `off`.
 - **Nothing is kept.** No audio is stored. The conversation history lives in memory and is cleared
   when the conversation ends (a goodbye, CONVO_IDLE_S of quiet, or the page leaving). Transcripts
-  are not logged unless OPENDUBS_VOICE_LOG_TEXT=1 (desk debugging only).
+  are not logged unless OPENDUBS_VOICE_LOG_TEXT=1 (desk debugging only). Each turn's log line
+  carries the clip's shape (levels, where speech starts and ends, `audio.shape`), never its words.
+- **A recording session is opt-in, per robot, and temporary.** OPENDUBS_VOICE_RECORD_DIR, set in
+  voice.env only for a test session the speakers agreed to, writes each turn's uplink (raw s16le,
+  16 kHz) and what was heard and said beside it, at most RECORD_MAX_TURNS turns. run.sh gives the
+  container only a tmpfs /tmp, so a recording lives in memory and is gone when the container
+  restarts; copy it out with `docker exec opendubs-voice tar c -C <dir> .`.
 """
 from __future__ import annotations
 
@@ -35,7 +41,11 @@ import time
 import audio
 import brains
 import safe_tools
+import vad
+import wakeword
 import wire
+import robot_facts
+import spoken
 from sentences import Splitter
 
 log = logging.getLogger("voice.turn")
@@ -46,7 +56,9 @@ SLOW_S = 6.0              # no reply yet: "give me a moment"
 GIVE_UP_S = 10.0          # still nothing: apologise and drop the turn
 TURN_CAP_S = 30.0         # a brain that starts and then stalls is cut here
 PLAYED_GRACE_S = 2.0      # after the audio's length, idle even if the page never says `played`
+STATUS_WAIT_S = 0.4        # the dashboard answers in about 5 ms; slower than this is unreadable
 MAX_ROUNDS = 3            # model rounds per turn (a tool result, then the rest of the answer)
+RECORD_MAX_TURNS = 200   # a recording session's cap: 15 s turns, ~100 MB of tmpfs at most
 MAX_HISTORY_TURNS = 6     # questions kept in a conversation; the local brain's context is 8,192 tokens
 
 SAY_AGAIN = "Sorry, could you say that again?"
@@ -85,8 +97,9 @@ class Page:
 
 
 def _robot_status(dashboard: str) -> dict | None:
+    """The dashboard's status snapshot for voice (robot_facts.py), or None if it cannot be read."""
     from gate import http_get_json
-    code, body = http_get_json(dashboard.rstrip("/") + "/api/choreo/robot")
+    code, body = http_get_json(dashboard.rstrip("/") + robot_facts.STATUS_PATH)
     return body if code == 200 else None
 
 
@@ -94,7 +107,8 @@ class Voice:
     def __init__(self, stt, tts, brain, face, gate, persona: str, *,
                  robot_status=None, clock=time.monotonic,
                  max_utterance_s=MAX_UTTERANCE_S, convo_idle_s=CONVO_IDLE_S, slow_s=SLOW_S,
-                 give_up_s=GIVE_UP_S, turn_cap_s=TURN_CAP_S, played_grace_s=PLAYED_GRACE_S):
+                 give_up_s=GIVE_UP_S, turn_cap_s=TURN_CAP_S, played_grace_s=PLAYED_GRACE_S,
+                 wake: bool = False, make_vad=vad.make_vad):
         self.stt, self.tts, self.brain, self.face, self.gate = stt, tts, brain, face, gate
         self.persona = persona
         dash = getattr(gate, "url", "http://127.0.0.1:8080").split("/api/")[0]
@@ -104,6 +118,8 @@ class Voice:
         self.slow_s, self.give_up_s, self.turn_cap_s = slow_s, give_up_s, turn_cap_s
         self.played_grace_s = played_grace_s
         self.log_text = os.environ.get("OPENDUBS_VOICE_LOG_TEXT") == "1"
+        self.record_dir = os.environ.get("OPENDUBS_VOICE_RECORD_DIR") or None
+        self._recorded = 0
 
         self.pages: dict[int, Page] = {}
         self.owner: Page | None = None
@@ -114,6 +130,8 @@ class Voice:
         self._buf = bytearray()
         self._expect_seq = 0
         self._lost = 0
+        self._page_ms: list = []
+        self._tools: list = []
         self._t_press = 0.0
         self._task: asyncio.Task | None = None       # the pipeline of the turn in think/speak
         self._cap: asyncio.Task | None = None        # the utterance cap timer
@@ -121,6 +139,11 @@ class Voice:
         self._played = asyncio.Event()
         self._end_after_turn = False
         self._mark = 0
+        self._motion_dropped = 0               # offers of motion removed from the last reply (spoken.py)
+        self.wake_enabled = wake               # the tablet may start turns with "Hey OpenDubs" (wakeword.py)
+        self.make_vad = make_vad
+        self._source = "talk"                  # how the turn in hand began: "talk" or "wake"
+        self._endpointer = None                # vad.Endpointer, for a wake turn
         self.brain_state = "unknown"              # server.warm_brain: warming | ready | unavailable
         gate.listeners.append(self.on_gate)
 
@@ -151,13 +174,16 @@ class Voice:
                 await p.text(wire.control("error", code="VOICE_BAD_HELLO", message=why))
                 return
             p.hello = True
-            await p.text(wire.ready(self.gate.on, self.gate.why, self.max_utterance_s))
+            await p.text(wire.ready(self.gate.on, self.gate.why, self.max_utterance_s,
+                                    wake={"keyword": wakeword.PHRASE} if self.wake_enabled else None))
             return
         if not p.hello:
             await p.text(wire.control("error", code="VOICE_NO_HELLO", message="send hello first"))
             return
         if kind == "press":
             await self.press(p)
+        elif kind == "wake":
+            await self.wake(p, msg)
         elif kind == "release":
             await self.release(p)
         elif kind == "barge_in":
@@ -174,14 +200,26 @@ class Voice:
             p.dropped += 1
             return
         try:
-            seq, _page_ms, pcm = wire.parse_up(data)
+            seq, page_ms, pcm = wire.parse_up(data)
         except wire.WireError as e:
             await p.text(wire.control("error", code="VOICE_BAD_FRAME", message=str(e)))
             return
         if seq > self._expect_seq:
             self._lost += seq - self._expect_seq
         self._expect_seq = max(self._expect_seq, seq + 1)
+        self._page_ms.append(page_ms)
         self._buf += pcm
+        if self._endpointer is not None:
+            ended = self._endpointer.feed(pcm)
+            if ended == "no_speech":
+                clip = bytes(self._buf)
+                self._record(self.turn, clip, {"status": "not_addressed", "source": "wake"}, "",
+                             audio.shape(clip, wire.UP_RATE), {})
+                await self._not_addressed(p, "nothing was said after the wake word")
+                return
+            if ended == "end":
+                await self.release(p)
+                return
         if len(self._buf) >= self.max_utterance_s * wire.UP_RATE * 2:
             await self.release(p)
 
@@ -193,7 +231,23 @@ class Voice:
             await self._cut(why or "voice is off")
 
     # ---- a turn ---------------------------------------------------------------------------------
-    async def press(self, p: Page) -> None:
+    async def wake(self, p: Page, msg: dict) -> None:
+        """The tablet heard "Hey OpenDubs". Like a press, except the service ends the utterance, and a
+        wake never cuts a reply: the page does not listen while the robot speaks, so a wake then is
+        the robot hearing itself."""
+        if not self.wake_enabled:
+            await p.text(wire.control("error", code="VOICE_NO_WAKE",
+                                      message="this service does not take wake turns; use Talk"))
+            return
+        why = wire.check_wake(msg)
+        if why:
+            await p.text(wire.control("error", code="VOICE_BAD_MESSAGE", message=why))
+            return
+        if self.state != "idle":
+            return
+        await self.press(p, source="wake", pre_roll_ms=msg.get("pre_roll_ms", 0))
+
+    async def press(self, p: Page, source: str = "talk", pre_roll_ms: float = 0) -> None:
         if not self.gate.on:
             await p.text(wire.control("turn", turn=None, status="off", why=self.gate.why))
             return
@@ -212,7 +266,10 @@ class Voice:
         self.turn += 1
         self._buf = bytearray()
         self._expect_seq = self._lost = 0
+        self._page_ms = []                     # each frame's page clock, for audio.uplink_rate
         self._t_press = self.clock()
+        self._source = source
+        self._endpointer = vad.Endpointer(self.make_vad(), pre_roll_ms) if source == "wake" else None
         await self._set_state("listen")
         self._cap = asyncio.create_task(self._cap_timer(p, self.turn))
 
@@ -227,23 +284,58 @@ class Voice:
         self._cancel(self._cap)
         clip = bytes(self._buf)
         self._buf = bytearray()
+        self._endpointer = None
         self._played.clear()
         self._mark = len(self.history)            # this turn's entries start here
         await self._set_state("think")
-        self._task = asyncio.create_task(self._run_turn(p, self.turn, clip))
+        self._task = asyncio.create_task(self._run_turn(p, self.turn, clip, self._source))
 
-    async def _run_turn(self, p: Page, turn: int, clip: bytes) -> None:
+    async def _not_addressed(self, p: Page, why: str, turn: int | None = None, ms: dict | None = None) -> None:
+        """End a wake turn that was not one, SILENTLY: nothing spoken, nothing kept in the history."""
+        self._cancel(self._cap)
+        self._buf = bytearray()
+        self._endpointer = None
+        turn = self.turn if turn is None else turn
+        await p.text(wire.control("turn", turn=turn, status="not_addressed", source="wake", why=why,
+                                  transcript="", reply="", ms=ms or {}))
+        log.info("turn %d not addressed: %s", turn, why)
+        await self._set_state("idle")
+
+    async def _run_turn(self, p: Page, turn: int, clip: bytes, source: str = "talk") -> None:
         t_release = self.clock()
         ms = {"utterance": round(audio.duration_ms(clip, wire.UP_RATE))}
-        out = {"status": "ok", "transcript": "", "reply": ""}
+        out = {"status": "ok", "transcript": "", "reply": "", "source": source}
+        shape = audio.shape(clip, wire.UP_RATE)
+        heard = ""                                    # what Parakeet wrote, before the wake phrase is stripped
+        self._tools = []                              # this turn's tool calls: name, ok, ms
+        self._motion_dropped = 0
         speaker = Speaker(self, p, turn)
         try:
-            if not audio.has_speech(clip, wire.UP_RATE):
+            if source == "wake":
+                # A wake turn proceeds only if Parakeet heard the wake phrase at its start; the rest
+                # is the question. Anything else ends silently: a false wake never speaks.
+                rest = None
+                if audio.has_speech(clip, wire.UP_RATE):
+                    tr = await self.stt.transcribe(clip)
+                    ms["stt"] = round((self.clock() - t_release) * 1000)
+                    heard = tr.text
+                    rest = wakeword.strip(tr.text)
+                if not rest:
+                    speaker.cancel()
+                    self._record(turn, clip, {**out, "status": "not_addressed"}, heard, shape, ms)
+                    await self._not_addressed(p, "no wake phrase in the transcript" if rest is None
+                                              else "only the wake phrase was said", turn, ms)
+                    return
+                out["transcript"] = rest
+                await p.text(wire.control("heard", turn=turn, transcript=rest))
+                await self._answer(out, speaker, t_release, ms)
+            elif not audio.has_speech(clip, wire.UP_RATE):
                 out["status"] = "unintelligible"
                 speaker.say(SAY_AGAIN)
             else:
                 tr = await self.stt.transcribe(clip)
                 ms["stt"] = round((self.clock() - t_release) * 1000)
+                heard = tr.text
                 out["transcript"] = tr.text.strip()
                 if not out["transcript"]:
                     out["status"] = "unintelligible"
@@ -257,7 +349,8 @@ class Voice:
             ms["turn"] = round((self.clock() - t_release) * 1000)
             await p.text(wire.control("tts_end", turn=turn, audio_ms=round(audio_ms)))
             await p.text(wire.control("turn", turn=turn, **out, ms=ms))
-            self._log(turn, out, ms, p)
+            self._log(turn, out, ms, p, shape)
+            self._record(turn, clip, out, heard, shape, ms)
             if audio_ms > 0:
                 try:
                     await asyncio.wait_for(self._played.wait(), audio_ms / 1000 + self.played_grace_s)
@@ -286,7 +379,8 @@ class Voice:
         self._trim_history()
         self._mark = len(self.history)
         self.history.append({"role": "user", "text": out["transcript"]})
-        think = asyncio.create_task(self._think(out, speaker, t_release, ms))
+        system = await self._system(ms)
+        think = asyncio.create_task(self._think(out, speaker, t_release, ms, system))
         try:
             done, _ = await asyncio.wait({think}, timeout=self.slow_s)
             if not done and not speaker.brain_spoke:
@@ -316,26 +410,48 @@ class Voice:
                 think.cancel()
                 await asyncio.gather(think, return_exceptions=True)
 
-    async def _think(self, out: dict, speaker: "Speaker", t_release: float, ms: dict) -> None:
+    async def _system(self, ms: dict) -> str:
+        """The persona with the robot's live status appended, read from the dashboard for THIS
+        question. On the robot the model answered "I can't tell right now" without ever calling
+        robot_status, so the facts are given, not left for the model to fetch. A dashboard slower
+        than STATUS_WAIT_S counts as unreadable: the visitor is not kept waiting for it."""
+        t0 = self.clock()
+        try:
+            snap = await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(None, self.robot_status),
+                                          STATUS_WAIT_S)
+        except Exception:                       # a timeout, or a reader that failed: unknown, never a guess
+            snap = None
+        ms["status"] = round((self.clock() - t0) * 1000)
+        return (self.persona.rstrip() + "\n\nYour live status, read from your dashboard for this question: "
+                + robot_facts.summary(snap))
+
+    async def _think(self, out: dict, speaker: "Speaker", t_release: float, ms: dict,
+                     system: str | None = None) -> None:
+        system = system or self.persona
         reply = []
+        gate = spoken.Gate()                   # no emoji, no offer of motion, whatever the model wrote
         for _round in range(MAX_ROUNDS):
             split, text, calls, effects = Splitter(), [], [], []
             stop = "end_turn"
-            async for ev in self.brain.stream(self.history, self.persona):
+            async for ev in self.brain.stream(self.history, system):
                 if isinstance(ev, brains.TextDelta):
                     if "first_text" not in ms:
                         ms["first_text"] = round((self.clock() - t_release) * 1000)
-                    text.append(ev.text)
                     for s in split.feed(ev.text):
-                        speaker.say(s, from_brain=True)
+                        if (s := gate.pass_(s)):
+                            text.append(s)
+                            speaker.say(s, from_brain=True)
                 elif isinstance(ev, brains.ToolCall):
                     calls.append(ev)
                     effects.append(asyncio.create_task(self._tool(ev)))
                 elif isinstance(ev, brains.Done):
                     stop = ev.stop_reason
             for s in split.flush():
-                speaker.say(s, from_brain=True)
-            said = "".join(text).strip()
+                if (s := gate.pass_(s)):
+                    text.append(s)
+                    speaker.say(s, from_brain=True)
+            said = " ".join(text).strip()          # what was spoken, which is what the history keeps
+            self._motion_dropped = gate.dropped    # logged, not sent
             if stop == "refusal":
                 out["status"] = "declined"
                 speaker.say(DECLINE)
@@ -355,6 +471,14 @@ class Voice:
         out["reply"] = " ".join(r for r in reply if r)
 
     async def _tool(self, call: brains.ToolCall) -> dict:
+        """Run one tool call; the turn log keeps its name, outcome and time, never its words."""
+        t0 = self.clock()
+        r = await self._run_tool(call)
+        self._tools.append({"name": call.name if isinstance(call.name, str) else "?",
+                            "ok": not r.get("is_error"), "ms": round((self.clock() - t0) * 1000)})
+        return r
+
+    async def _run_tool(self, call: brains.ToolCall) -> dict:
         act = safe_tools.plan(call.name, call.args, self.limiter, now=self.clock())
         if act.refused:
             return {"id": call.id, "content": act.refused, "is_error": True}
@@ -365,7 +489,7 @@ class Voice:
             return {"id": call.id, "content": act.result_hint or "done", "is_error": False}
         if act.http:
             robot = await asyncio.get_running_loop().run_in_executor(None, self.robot_status)
-            return {"id": call.id, "content": safe_tools.status_summary(robot), "is_error": False}
+            return {"id": call.id, "content": robot_facts.summary(robot), "is_error": False}
         if act.end_conversation:
             self._end_after_turn = True
             return {"id": call.id, "content": act.result_hint, "is_error": False}
@@ -376,6 +500,7 @@ class Voice:
         """Stop the turn in flight now. The page drops queued audio on `stop`."""
         turn, owner = self.turn, self.owner
         self._cancel(self._cap)
+        self._endpointer = None
         task, self._task = self._task, None
         if task and not task.done():
             task.cancel()
@@ -421,14 +546,37 @@ class Voice:
     def _drop_turn(self) -> None:
         del self.history[self._mark:]
 
+    def _record(self, turn, clip: bytes, out: dict, heard: str, shape: dict, ms: dict) -> None:
+        """A recording session only (OPENDUBS_VOICE_RECORD_DIR): the turn's uplink and a note of it."""
+        if not self.record_dir or self._recorded >= RECORD_MAX_TURNS:
+            return
+        try:
+            os.makedirs(self.record_dir, exist_ok=True)
+            base = os.path.join(self.record_dir, f"{time.strftime('%H%M%S')}-{turn:04d}-{out.get('source', 'talk')}")
+            with open(base + ".s16le", "wb") as f:
+                f.write(clip)
+            with open(base + ".json", "w") as f:
+                json.dump({"turn": turn, "status": out["status"], "source": out.get("source", "talk"),
+                           "rate": wire.UP_RATE, "heard": heard, "reply": out.get("reply", ""),
+                           "audio": shape, "ms": ms}, f)
+            self._recorded += 1
+        except OSError as e:
+            log.warning("recording turn %s failed: %s", turn, e)
+
     @staticmethod
     def _cancel(t: asyncio.Task | None) -> None:
         if t and not t.done() and t is not asyncio.current_task():
             t.cancel()
 
-    def _log(self, turn, out, ms, p: Page) -> None:
-        rec = {"turn": turn, "status": out["status"], "ms": ms, "lost_frames": self._lost,
-               "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", "")}
+    def _log(self, turn, out, ms, p: Page, shape: dict | None = None) -> None:
+        rec = {"turn": turn, "status": out["status"], "source": out.get("source", "talk"), "ms": ms, "lost_frames": self._lost,
+               "dropped_frames": p.dropped, "brain": getattr(self.brain, "last_served_by", ""),
+               "audio": shape or {}, "words": len(out["transcript"].split()),
+               "motion_dropped": self._motion_dropped, "tools": list(self._tools),
+               "uplink_x": None if (x := audio.uplink_rate(self._page_ms)) is None else round(x, 2)}
+        if x is not None and x > 1.3:
+            log.warning("turn %s: audio arrived %.1fx faster than real time; the page is sending more "
+                        "than one stream", turn, x)
         if self.log_text:
             rec.update(transcript=out["transcript"], reply=out["reply"])
         log.info("turn %s", json.dumps(rec))

@@ -2,7 +2,8 @@
 
 Local changes to `EricJGoossen/openarm`, which lives at `/openarm_ws/src/openarm` **inside the
 `openarm` container** and is not ours. They are kept here so a container rebuild does not silently
-lose them, the same way the Astra driver's Jazzy ports are carried in `ros/astra-jazzy-build.sh`.
+lose them, the same way the retired Astra camera's Jazzy driver ports were carried (now in
+`notes/history/astra-camera/astra-jazzy-build.sh`).
 
 ## Why these are scripts, not `.patch` files
 

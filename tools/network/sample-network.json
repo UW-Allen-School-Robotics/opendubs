@@ -1,0 +1,47 @@
+{
+ "ts": 1760900005.0,
+ "router": {
+  "ok": true,
+  "uptime_s": 11410,
+  "cpu_pct": 6,
+  "version": "7.20.7 (long-term)"
+ },
+ "uplink": {
+  "via": "wifi",
+  "network": "UW MPSK",
+  "ap": "AC:23:16:ED:A5:91",
+  "associated": true,
+  "signal_dbm": -83,
+  "snr_db": 25,
+  "ccq_pct": null,
+  "rate_mbps": 52.0,
+  "down_mbps": 4.8,
+  "up_mbps": 0.64,
+  "since_s": 6216,
+  "address": "10.19.194.172/15",
+  "gateway": "10.18.0.1",
+  "clients": 2,
+  "state": "WEAK",
+  "say": "Uplink weak: -83 dBm on UW MPSK",
+  "drops_24h": 2,
+  "internet": true,
+  "captive": false,
+  "latency_ms": 11.8
+ },
+ "robot_wifi": [
+  {
+   "name": "esp32s3-977DF0",
+   "ip": "10.42.2.16",
+   "signal_dbm": -39,
+   "ccq_pct": 88,
+   "connected_s": 8908
+  },
+  {
+   "name": "Galaxy-Tab-A11",
+   "ip": "10.42.2.13",
+   "signal_dbm": -48,
+   "ccq_pct": 83,
+   "connected_s": 11328
+  }
+ ]
+}

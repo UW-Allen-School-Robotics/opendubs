@@ -73,21 +73,27 @@ those sessions don't collide in git and so each area's expertise stays in one pl
    the orchestrator as a short question with your recommended answer, carry on with whatever does
    not depend on it, or end the turn with the question in plain text. Something that needs the
    user's own word, or a hardware step that needs someone present, is asked in plain text.
+8. **One PR per problem, not one per attempt.** While a problem is being worked out, especially
+   at the robot, keep pushing commits to the same branch and PR instead of opening a new one for
+   each fix. The Thor stack lane may deploy that branch for testing (rule 5 still applies: merge it
+   or revert it the same day). Bundle small related fixes into one PR unless one is urgent.
+   Branches are deleted automatically when their PR merges.
 
 | Lane | Owns | Workplan |
 |---|---|---|
 | **Arms** | `software/openarm/`, `software/teleop/`; dashboard `frontend/teleop.js`, `frontend/armview.js`, `backend/openarm.py`; `notes/design/arm-*.md`, `notes/design/pinch-guard-consent.md`; `docs/openarm-setup.md`; `docs/reference/registry/arms.yaml` | `notes/workplan-arms.md` |
 | **Choreography** | `software/choreo/`; `sim/` (the twin scene and the clearance sweep); dashboard `frontend/choreo.js`, `frontend/show_audio.js`, `backend/choreo_proxy.py`, `backend/show_audio.py`; `notes/design/choreo-*.md`; `docs/reference/registry/shows.yaml`; `.github/workflows/choreo.yml` | `notes/workplan-choreography.md` |
-| **Face & HRI** (and the Tab5 firmware) | How the face looks and behaves on any head: the eyes, gaze behaviour, expressions, skins and the edge ring, in `software/face-web/engine/face.js`, `engine/anim.js`, `engine/vocab.js`, `engine/skins/`; `notes/design/face-*.md` (except `face-engine.md`), `notes/design/hri-interaction-design.md`; `firmware/tab5_*/`, `notes/design/tab5-*.md` | `notes/workplan-tab5-audio.md` (paused; `workplan-tab5-idf.md` is closed) |
-| **Tablet and head interface** | `software/tablet-kiosk/`; `software/face-web/` except the files Face & HRI owns (the page, the protocol door, camera tracking, the tests, `.github/workflows/face-web.yml`), `notes/design/face-engine.md`; dashboard `frontend/operate.js` and the backend's head routing, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
+| **Face & HRI** (and the retired Tab5 firmware) | How the face looks and behaves on any head: the eyes, gaze behaviour, expressions, skins and the edge ring, in `software/face-web/engine/face.js`, `engine/anim.js`, `engine/vocab.js`, `engine/skins/`; `notes/design/face-*.md` (except `face-engine.md`), `notes/design/hri-interaction-design.md`; `firmware/tab5_*/`, `notes/design/tab5-*.md` | `notes/workplan-tab5-audio.md` (paused; `workplan-tab5-idf.md` is closed) |
+| **Tablet and head interface** | `software/tablet-kiosk/`; `software/face-web/` except the files Face & HRI owns (the page, the protocol door, camera tracking, the tests, `.github/workflows/face-web.yml`), `notes/design/face-engine.md`; dashboard `frontend/operate.js` and the backend's head routing, the robot-state rollup `backend/status.py` and `backend/supervisor.py`, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
 | **Thor stack and localization** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; the robot description and TF tree (sensor frames, LIDAR extrinsics), the odometry and IMU pipeline into `/odom`, and the NVIDIA / Isaac ROS stack; `docs/thor-setup.md`, `docs/portability-audit.md`, `docs/localization-fusion.md`, `docs/naming-frames.md`, `notes/design/lidar-frames-and-fusion.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
 | **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`, `.github/workflows/faults.yml`; the root `README.md`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
 | **Voice** (speech in and out, wake word, the on-robot and cloud language model) | `software/voice/` (the voice service), `tools/voice-bench/`; dashboard `backend/voice_proxy.py` (the `/ws/voice` relay); `notes/design/voice-*.md`. Mic capture in the face page, the face's listening, speaking and recording indicators, and any new head message are agreed with the Tablet and Face & HRI lanes and edited by them. The voice service may only reach the face and robot status, never motion | `notes/workplan-voice.md` |
+| **Network** (the robot's router, its Wi-Fi and its uplink) | The robot router's configuration (it lives on the router; a sanitized export may be kept in `notes/design/network-*`); `notes/design/network-*.md`; `tools/network/`. The router is changed only with the user's word and a person at the robot. Dashboard network status is specified here and built by the Tablet lane | `notes/workplan-network.md` |
 | **Hygiene** (audits the whole repo) | the root `.gitignore`; `LICENSE-*`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`; `tools/hygiene/`, `.github/workflows/hygiene.yml`; `notes/hygiene-findings.md` | `notes/hygiene-findings.md` |
 | **Hat PCB** (parked) | `hardware/hat/` | — |
 
 **The head's protocol** (the messages the Thor and the dashboard send the head) is owned by the
-Tablet lane. The Face & HRI lane implements it in the Tab5 firmware. A new head message is agreed with the
+Tablet lane. The Face & HRI lane implements the face's side of it. A new head message is agreed with the
 Tablet lane before either side ships it.
 
 **Shared paths:** dashboard `frontend/app.js`, `frontend/index.html`, `frontend/style.css`,
@@ -115,8 +121,7 @@ readings for the localization lane, asks the orchestrator for it.
 |---|---|---|
 | **StamPLC** (ESP32-S3) | `sudo firmware/rc_serial_probe/ota-from-thor.sh` — on the Thor, **no IP** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. **Do not go hunting for the board's address** — the script finds it (argument → `$OPENDUBS_STAMP_IP` → the dashboard's learned peer → `opendubs-stamplc.local`) and refuses one belonging to the Thor itself. `sudo` because PlatformIO must write `.pio/` under `/opt/opendubs`, which the deploying user owns. |
 | StamPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
-| **Tab5 face** (ESP32-P4, ESP-IDF) | Build the shipping image where ESP-IDF and the demo tree are: `OPENDUBS_DEMO=<demo tree> firmware/tab5_idf/ota-from-thor.sh --build`; copy the printed `.bin` to the Thor; then **on the Thor** `firmware/tab5_idf/ota-from-thor.sh <image.bin> [host]` | **THE TAB5 IS POWERED FROM THE E-STOP PROTECTED DRIVE BRANCH.** With the contactor open it has no power — it is off, not offline. So flash the StamPLC **first**, clear the e-stop, and only then the head; and when the head looks like a network fault, check the contactor before anything else. Run the script **on the Thor** — a laptop on the same subnet may not reach the head. `espota` has never worked here (listener behind the ESP-Hosted co-processor, fails silently). The script passes only when the head's `PING` reports the new image's hash running and VALID; a failed health check rolls back by itself. The Arduino firmware's `firmware/tab5_face/ota-from-thor.sh` is **retired** and refuses to run: it would install the Arduino image over the ESP-IDF head. |
-| Tab5, first flash or recovery | USB from a Mac: `firmware/tab5_idf/FLASHING-THE-ROBOT.md` | Only for a head that will not take an OTA. Writes four regions and never `nvs`, where the per-robot values live. |
+| Tab5 face (ESP32-P4) | **Retired, no longer on the robot.** The face is the web page on the head's Galaxy tablet (`software/face-web`), updated by the normal deploy. | `firmware/tab5_idf/` keeps its own flashing notes (`ota-from-thor.sh`, `FLASHING-THE-ROBOT.md`) for a Tab5 on a desk. |
 | **Neck** (M5Dial, ESP32-S3) | OTA only: build `firmware/neck_dial/build.sh image`, copy `firmware.bin` to the Thor, serve it over HTTP there, then send `OTA <url>` to **UDP 4242**. Full recipe in `firmware/neck_dial/README.md`. **A `TILT` over UDP waits for a press of the Dial's button** (15 s) before it takes effect; serial `TILT` is not gated. | **IT HAS NO USB CABLE** — it is on the 24 V bus, so there is no serial console to fall back on. The board PULLS the image; there is no push listener. Use `firmware.bin`, the app image, not `firmware.factory.bin`. **The head snaps to centre on boot**, not slewed, so warn whoever is standing there. `PING` reports the build's sha. |
 | Neck, first flash or recovery | USB and `firmware/neck_dial/tools/flash.py` | Only for a virgin or bricked board. App-only at `0x10000`: a merged image at `0x0` erases `nvs` and takes the Wi-Fi credentials and the tilt limits with it. |
 
@@ -135,15 +140,12 @@ Two debugging rules from the same incident. **Run-then-freeze means accumulation
 leak, fragmentation — where an over-budget frame fails immediately; they are different searches.
 And **change one variable at a time**, or a failure cannot be attributed to either.
 
-## The Tab5 head: ESP-IDF and LVGL — read its notes first
+## The head: a Galaxy tablet on an M5Dial neck
 
-The head runs `firmware/tab5_idf` — ESP-IDF 5.5.5 with LVGL, built on M5Stack's own factory
-firmware (`firmware/tab5_idf/README.md`). Before changing how it draws, read
-`notes/design/tab5-platform.md` (the SoC's Pixel Processing Accelerator, 2D-DMA, JPEG codec and DSI
-framebuffer, and what the audio subsystem can really do) and `notes/design/tab5-face-architecture.md`.
-`firmware/tab5_idf/AUDIT.md` holds the invariants a change must keep (no LVGL call off the render
-task, every per-frame write change-guarded). Design iteration belongs in the desktop build
-(`build.sh desktop`), which is also the face twin the choreography tools drive.
+The robot's face is the web page in `software/face-web`, shown by the kiosk app on the head's
+Galaxy tablet and served by the dashboard; the M5Dial neck pans and tilts it. The Tab5 head and its
+ESP-IDF firmware (`firmware/tab5_idf`) are **retired**: nothing on the robot runs them. Their notes
+(`notes/design/tab5-*.md`, `firmware/tab5_idf/AUDIT.md`) stay as a record, not as instructions.
 
 ## Bench work on an M5Stack board over USB — the rote procedure
 

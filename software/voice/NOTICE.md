@@ -67,6 +67,13 @@ This is a record, not legal advice.
   `e9c59cdcca9d73f24adeda09660af904a79f509f`). The 4B is Qwen's own BF16 release (pinned at commit
   `cdbee75f17c01a7cc42f958dc650907174af0554`), with its LICENSE fetched beside it.
 
+### Silero VAD, voice activity detection
+
+- **By** the Silero team: <https://github.com/snakers4/silero-vad>. The file used is `silero_vad.onnx`
+  as published by the k2-fsa project in sherpa-onnx's `asr-models` release, pinned by its SHA-256.
+- **Licence:** MIT, <https://github.com/snakers4/silero-vad/blob/master/LICENSE>.
+- **Used for:** deciding when a wake-word turn has ended (`vad.py`).
+
 ## Libraries (installed in the image, pinned in `image/requirements-*.txt`)
 
 | library | used for | licence |

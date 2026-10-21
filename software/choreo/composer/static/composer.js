@@ -637,7 +637,7 @@ function renderPreview() {
     } else if (slot === "SOUND") {
       const e = lastAt(evs, t);
       const on = e && t < e.end;
-      row(slot, e ? `${on ? "♪ " : ""}${e.cue.sound || e.cue.do}${e.output ? ` <span class="dim">on the ${e.output}</span>` : ""}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
+      row(slot, e ? `${on ? "♪ " : ""}${e.cue.sound || e.cue.do}${e.output ? ` <span class="dim">on the ${e.output}${e.role === "music" ? " · music (the projector when ready)" : ""}</span>` : ""}${on ? "" : ' <span class="dim">(done)</span>'}` : '<span class="dim">—</span>');
     } else if (slot === "LIGHT") {
       const e = lastAt(evs, t);
       row(slot, e && e.cue.do === "color" ? `<span class="swatch" style="background:rgb(${e.cue.rgb.join(",")});opacity:${(e.cue.br ?? 100) / 100}"></span> ${e.cue.rgb.join(", ")} @ ${e.cue.br ?? 100}%` : '<span class="dim">state colour (no show colour)</span>');
@@ -714,6 +714,9 @@ function renderInspector() {
       ${!c.clip && !S.clip ? '<button data-makeclip="1" title="Turn this cue into a clip (shift-click to select more first)">make a clip…</button>' : ""}
       ${(c.slot === "ARM_L" || c.slot === "ARM_R") && c.joints && !S.clip ? '<button id="iSoonest" title="Move this keyframe to the soonest time the arm can legally reach it after its previous keyframe — earlier or later than now. The reason is shown.">⇤ soonest</button>' : ""}
     </div>
+    ${c.slot === "SOUND" ? `<div class="row2"><label title="Dialogue always plays from the tablet; music from the projector's speaker when a projector is ready. Unmarked is dialogue.">plays as
+      <select id="iRole"><option value="dialogue" ${c.role !== "music" ? "selected" : ""}>dialogue — always the tablet</option>
+      <option value="music" ${c.role === "music" ? "selected" : ""}>music — the projector, when one is ready</option></select></label></div>` : ""}
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
   $("iApply").onclick = () => {
@@ -732,6 +735,11 @@ function renderInspector() {
     edit([{ op: "set", index: i, cue: ordered }], "applied");
   };
   $("iDelete").onclick = () => deleteSelected();
+  if ($("iRole")) $("iRole").onchange = () => {
+    const cue = { ...c };
+    if ($("iRole").value === "music") cue.role = "music"; else delete cue.role;    /* unmarked is dialogue */
+    edit([{ op: "set", index: i, cue }], $("iRole").value === "music" ? "this sound is MUSIC" : "this sound is DIALOGUE");
+  };
   if ($("iSoonest")) $("iSoonest").onclick = async () => {
     try {
       const r = await api("api/earliest", { path: S.path, text: S.text, slot: c.slot, joints: c.joints, index: i });
@@ -928,6 +936,7 @@ function renderMusicDlg() {
     `<option value="${esc(x.id)}" ${m && m.song === x.id ? "selected" : ""}>${esc(x.id)} (${fmtDur(x.duration_s)})</option>`).join("");
   $("songRemove").disabled = !(m && (m.song || m.file));
   $("mBpm").value = m ? m.bpm : ""; $("mOff").value = m ? m.offset_s : "";
+  $("mRole").value = (m && m.role) || "dialogue"; $("mRole").disabled = !(m && (m.song || m.file));
   /* the server knows only SAVED shows; the show open here may name a song before it is saved */
   const usedBy = (x) => (m && m.song === x.id && !x.used_by.includes(S.path) ? [S.path + " (open here)"] : []).concat(x.used_by);
   $("songList").innerHTML = S.songs.length ? S.songs.map((x) => ({ ...x, used_by: usedBy(x) })).map((x) => `
@@ -1012,6 +1021,11 @@ function bindMusic() {
     const bpm = Number($("mBpm").value), off = Number($("mOff").value);
     if (!Number.isFinite(bpm) || !Number.isFinite(off) || off < 0) { toast("BPM and beat 1 must be numbers (beat 1 ≥ 0)"); return; }
     edit([{ op: "music", key: "bpm", value: bpm }, { op: "music", key: "offset_s", value: off }], `tempo ${bpm} BPM, beat 1 at ${off} s`).then(renderMusicDlg);
+  };
+  $("mRole").onchange = () => {
+    const r = $("mRole").value;
+    edit([{ op: "music", key: "role", value: r }], r === "music" ? "the show's track is MUSIC: the projector's speaker when one is ready"
+      : "the show's track is DIALOGUE: always the tablet").then(renderMusicDlg);
   };
   $("songFile").onchange = (e) => e.target.files[0] && setUpload(e.target.files[0]);
   $("songAdd").onclick = addSong;

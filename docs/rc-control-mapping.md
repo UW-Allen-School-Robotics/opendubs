@@ -50,8 +50,8 @@ rotate still work, so the robot can be repositioned tank-style while the head is
 
 The deadman still gates everything: nothing moves unless CH6 is held, in any mode.
 
-Only the RC **stick** is gated by CH7. The dashboard and the Tab5's own buttons are separate
-operator interfaces with their own hold-to-move, and they keep working whatever the switch
+Only the RC **stick** is gated by CH7. The dashboard's head controls are a separate
+operator interface with their own hold-to-move, and they keep working whatever the switch
 is doing — a touchscreen button that silently did nothing because of a switch position on
 the transmitter would be its own kind of bug.
 

@@ -1,0 +1,28 @@
+# The robot network's health for the dashboard and netdiag (tools/network/netmon.py).
+# Reads the router read-only every 5 s and writes /run/opendubs-network/network.json, plus the
+# uplink event history in /var/lib/opendubs-network/events.jsonl.
+#
+# /etc/opendubs/network.env (root, 0600) holds the read-only router account; systemd reads it as
+# root and the service itself runs as a throwaway user. Never commit that file: the template is
+# network.env.example. Installed by the Thor lane's deploy scripts (tools/network/README.md).
+[Unit]
+Description=OpenDubs network monitor (robot router health -> /run/opendubs-network/network.json)
+After=network.target
+ConditionPathExists=/etc/opendubs/network.env
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/opendubs/network.env
+ExecStart=/usr/bin/python3 /opt/opendubs/network/netmon.py
+DynamicUser=yes
+RuntimeDirectory=opendubs-network
+RuntimeDirectoryMode=0755
+StateDirectory=opendubs-network
+# The gateway ping needs a raw socket.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

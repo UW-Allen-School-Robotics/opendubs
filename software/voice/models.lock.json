@@ -43,6 +43,16 @@
       ]
     },
     {
+      "name": "silero-vad",
+      "what": "voice activity detection: Silero VAD, which ends a wake-word turn (vad.py)",
+      "base_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models",
+      "license": "MIT",
+      "dest": "vad",
+      "files": [
+        {"path": "silero_vad.onnx", "size": 643854, "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"}
+      ]
+    },
+    {
       "name": "qwen3-30b-a3b-w4a16",
       "what": "the local brain (V-O3): Qwen3-30B-A3B-Instruct-2507, 4-bit weights (W4A16, GPTQ, group 128) by Red Hat AI, so it fits the <= 24 GiB share; the FP8 build is 31 GB",
       "repo": "RedHatAI/Qwen3-30B-A3B-Instruct-2507-quantized.w4a16",

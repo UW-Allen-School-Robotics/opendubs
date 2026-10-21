@@ -55,7 +55,20 @@ OPENARM_RMW="${OPENARM_RMW:-rmw_fastrtps_cpp}"
 # Forcing UDPv4 costs little at joint-state message sizes. The durable alternative is to recreate
 # the container with --ipc=host, which keeps the faster SHM path; this way needs no recreation.
 FASTDDS_PROFILE=/etc/opendubs-fastdds-udp-only.xml
-DOCKER_ENV=(-e "RMW_IMPLEMENTATION=$OPENARM_RMW")
+# Per-robot arm configuration (NOT under /opt/opendubs, which deploys overwrite). One switch
+# today: OPENARM_LEFT_HAND=false runs the left arm without its gripper -- motor id 8 on arm_left
+# is neither commanded nor expected -- for a robot whose left gripper is out of service. The arm
+# model reads it from the launch's environment; openarm-motors reads the same file.
+ARMS_CONF=${OPENARM_ARMS_CONF:-/etc/opendubs/openarm-arms.conf}
+if [ -r "$ARMS_CONF" ]; then
+  v=$(sed -n 's/^[[:space:]]*OPENARM_LEFT_HAND[[:space:]]*=[[:space:]]*//p' "$ARMS_CONF" | tail -1 | tr -d ' "')
+  [ -n "$v" ] && OPENARM_LEFT_HAND=$v
+fi
+OPENARM_LEFT_HAND=${OPENARM_LEFT_HAND:-true}
+# How many motors an arm has: its 7 joints, plus its gripper unless that is switched off.
+arm_nmotors() { if [ "$1" = left ] && [ "$OPENARM_LEFT_HAND" = false ]; then echo 7; else echo 8; fi; }
+has_gripper() { [ "$(arm_nmotors "$1")" = 8 ]; }
+DOCKER_ENV=(-e "RMW_IMPLEMENTATION=$OPENARM_RMW" -e "OPENARM_LEFT_HAND=$OPENARM_LEFT_HAND")
 if [ "$OPENARM_RMW" = rmw_fastrtps_cpp ]; then
   DOCKER_ENV+=(-e "FASTDDS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE"
                -e "FASTRTPS_DEFAULT_PROFILES_FILE=$FASTDDS_PROFILE")
@@ -252,7 +265,7 @@ activate_one() {
   if [ "$st" = active ]; then
     local r_en r_dis r_nr r_flt r_desc c
     read -r r_en r_dis r_nr r_flt r_desc <<<"$(arm_motor_counts "$arm")"
-    if [ "${r_en:-0}" -eq 0 ] && [ "${r_dis:-0}" -eq 8 ] && [ "${r_nr:-0}" -eq 0 ] && [ "${r_flt:-0}" -eq 0 ]; then
+    if [ "${r_en:-0}" -eq 0 ] && [ "${r_dis:-0}" -eq "$(arm_nmotors "$arm")" ] && [ "${r_nr:-0}" -eq 0 ] && [ "${r_flt:-0}" -eq 0 ]; then
       echo "== $arm: power was lost and restored (motors disabled under an active arm) -- resetting this arm"
       for c in "${arm}_gripper_controller" "${arm}_controller"; do
         [ "$(controller_state "$c")" = active ] || continue
@@ -275,15 +288,15 @@ activate_one() {
   # last, and a single immediate read raced it: 2026-10-02 saw "only 7/8 ENABLED" with id 8
   # reporting `no reply`, which read as a wiring fault, while a read seconds later showed it
   # ENABLED and healthy. Poll instead of sampling once.
-  local en=0 i
+  local en=0 i n; n=$(arm_nmotors "$arm")
   for i in $(seq 1 10); do
     en=$($MOTORS status | awk -v b="arm_$arm" '/^arm_/{cur=$1} cur==b && /ENABLED/{n++} END{print n+0}')
-    [ "$en" -eq 8 ] && break
+    [ "$en" -eq "$n" ] && break
     sleep 1
   done
   # Not 8/8: say what the motors ARE doing, and what to do about it -- the dashboard shows this
   # message to the operator, so it must name the fix, not just the failure.
-  if [ "$en" -ne 8 ]; then
+  if [ "$en" -ne "$n" ]; then
     local c_en c_dis c_nr c_flt c_desc
     read -r c_en c_dis c_nr c_flt c_desc <<<"$(arm_motor_counts "$arm")"
     if [ "${c_flt:-0}" -gt 0 ]; then
@@ -292,7 +305,7 @@ activate_one() {
   To fix: press and release the e-stop to power-cycle the arms, then press ACTIVATE again
   (shell: openarm-up activate $arm)."
     elif [ "${c_nr:-0}" -gt 0 ]; then
-      die "$arm: $c_nr of 8 motors do not answer on CAN. Not starting its controller.
+      die "$arm: $c_nr of $n motors do not answer on CAN. Not starting its controller.
   They are unpowered, or the CAN wiring is broken at or before the first silent one (the gripper is
   last in the chain).
   To fix: check the e-stop is released and the contactor closed, then press ACTIVATE again. If they
@@ -303,12 +316,12 @@ activate_one() {
   disabled, and the arm stack does not notice.
   To fix: $(tablet_reset "$arm")   (shell: openarm-up down, then openarm-up activate $arm)."
     else
-      die "$arm: the hardware went active but only $c_en/8 motors enabled ($c_dis stayed DISABLED).
+      die "$arm: the hardware went active but only $c_en/$n motors enabled ($c_dis stayed DISABLED).
   To fix: $(tablet_reset "$arm"). If it happens again, press and release the e-stop
   first to power-cycle the arms, then press ACTIVATE again."
     fi
   fi
-  echo "  $arm: 8/8 motors ENABLED"
+  echo "  $arm: $n/$n motors ENABLED"
   local cs
   if ! ensure_controller "${arm}_controller"; then
     cs=$(controller_state "${arm}_controller")
@@ -324,7 +337,9 @@ activate_one() {
   # A WARNING rather than fatal, because an arm is perfectly usable without its gripper and some
   # configurations may not declare one. But it says what it costs, so the teleop's timeout is
   # never the first time anyone hears about it.
-  if ensure_controller "${arm}_gripper_controller"; then
+  if ! has_gripper "$arm"; then
+    echo "  ${arm}_gripper_controller: not started -- this arm runs without its gripper ($ARMS_CONF)"
+  elif ensure_controller "${arm}_gripper_controller"; then
     echo "  ${arm}_gripper_controller: active"
   else
     cs=$(controller_state "${arm}_gripper_controller")

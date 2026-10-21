@@ -53,7 +53,7 @@ function draw(text, opts = {}, ctxOpts = {}) {
   return out;
 }
 
-const PHRASES = ["Starting up", "Ready", "Manual control", "Running a show", "Charging 95%",
+const PHRASES = ["Starting up", "Ready", "Manual control", "Automatic mode", "Charging 95%",
                  "Emergency stop", "Problem: RC transmitter not connected"];
 
 // ---- 1. it draws the words it is given, and nothing when there are none -------------------------

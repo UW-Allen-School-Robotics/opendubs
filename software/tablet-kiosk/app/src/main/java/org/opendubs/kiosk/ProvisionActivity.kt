@@ -29,6 +29,10 @@ class ProvisionActivity : Activity() {
         val i = intent
         val url = i.getStringExtra("url")
         url?.let { Provision.saveUrl(this, it) }
+        // The device's role, remembered: "tablet" (the default, the robot's face and dashboard) or
+        // "display" (a screen that only shows a page, e.g. the projector's stage: Provision.isDisplay).
+        val role = i.getStringExtra("role")
+        role?.let { Provision.saveRole(this, it) }
         // Clear before install, so `ca_clear` + `ca_b64` in one start replaces the CA.
         if (i.getBooleanExtra("ca_clear", false)) DeviceOwner.clearCas(this)
         i.getStringExtra("ca_b64")?.let { DeviceOwner.installCa(this, it) }
@@ -36,7 +40,7 @@ class ProvisionActivity : Activity() {
             reload = url != null,
             unlock = i.getBooleanExtra("unlock", false),
             lock = i.getBooleanExtra("lock", false))
-        Log.i(TAG, "provisioning: url=${url ?: "(unchanged)"} ca_clear=${i.getBooleanExtra("ca_clear", false)} " +
+        Log.i(TAG, "provisioning: url=${url ?: "(unchanged)"} role=${role ?: "(unchanged)"} ca_clear=${i.getBooleanExtra("ca_clear", false)} " +
             "ca_b64=${i.hasExtra("ca_b64")} unlock=${Provision.pending?.unlock} lock=${Provision.pending?.lock}")
         startActivity(Intent(this, KioskActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
@@ -56,7 +60,7 @@ object Provision {
     fun take(): Request? = pending.also { pending = null }
 
     /** The extras KioskActivity used to accept, so it can say where they go now. */
-    val EXTRAS = setOf("url", "ca_b64", "ca_clear", "unlock", "lock")
+    val EXTRAS = setOf("url", "role", "ca_b64", "ca_clear", "unlock", "lock")
 
     // The file KioskActivity.getPreferences() wrote before this split, so a tablet keeps the
     // address it was given across the update.
@@ -67,6 +71,23 @@ object Provision {
 
     fun saveUrl(ctx: Context, url: String) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("url", url).apply()
+    }
+
+    /**
+     * A DISPLAY only shows a page: the projector's Google TV showing the stage page (2026-10-21). It
+     * cannot be a device owner (a set-up TV has an account), so what a tablet does as one would only
+     * get in the way: the self-updater would put an install prompt on screen mid-show (adb installs
+     * its updates instead), the sensor bridge has nothing to report, and there is no lock task. The
+     * page, keep-awake, autoplay and the heartbeat watchdog are the same as the tablet's.
+     */
+    fun isDisplay(ctx: Context): Boolean = role(ctx) == "display"
+
+    fun role(ctx: Context): String =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("role", "tablet") ?: "tablet"
+
+    fun saveRole(ctx: Context, role: String) {
+        val r = if (role == "display") "display" else "tablet"
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("role", r).apply()
     }
 
     /** The Head & face page's "keep the screen on" (default on), remembered so a restart honours it. */

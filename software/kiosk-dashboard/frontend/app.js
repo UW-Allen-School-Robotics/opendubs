@@ -24,6 +24,10 @@ function setView(name) {
    The kiosk tablet has no reload control, so the page asks the dashboard every 15 s which version
    of the page files it serves, and reloads when that changes. It waits while a show runs (a reload
    would cut the show's audio) and while someone is touching the screen; the view survives it. */
+/* The kiosk app's watchdog (KioskActivity, 0.3.5): a robot page that stops checking in is reloaded, so a
+   page stranded by a load that failed half way (the dashboard restarting) recovers by itself. */
+setInterval(() => { try { window.OpenDubsKiosk && window.OpenDubsKiosk.alive && window.OpenDubsKiosk.alive(); } catch (e) {} }, 5000);
+
 (function followDeploys() {
   let seen = null, touched = 0;
   document.addEventListener("pointerdown", () => { touched = Date.now(); }, true);
@@ -202,11 +206,30 @@ const ESTOP_SOURCE_CODE = {
   "SOFTWARE": "ESTOP_SOFTWARE",            // @fault ESTOP_SOFTWARE
   "BUTTON": "ESTOP_BUTTON",                // @fault ESTOP_BUTTON
   "STALE TELEMETRY": "LINK_STAMPLC_LOST",  // @fault LINK_STAMPLC_LOST
+  "STAMPLC": "ESTOP_SOFTWARE",             // the StamPLC's own latch: re-armed the same way
 };
 const estopCode = (source) => {
   const first = (source || "").split(" + ")[0];
   return ESTOP_SOURCE_CODE[first] || null;
 };
+
+/* ---------- a touch stops the head ---------- */
+// Any touch on the robot's tablet stops the head at once (backend neck_follow.touched): the moment a
+// finger lands, and again every second it stays down. Only from the tablet itself (the kiosk app's
+// bridge), never from a laptop that has the dashboard open.
+(function touchHoldsHead() {
+  if (!window.OpenDubsKiosk) return;
+  let last = 0, down = 0, downAt = 0, timer = null;
+  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
+  addEventListener("pointerdown", () => {
+    down++; downAt = performance.now(); if (downAt - last > 250) say();
+    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
+    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  }, { capture: true, passive: true });
+  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  addEventListener("pointerup", up, { capture: true, passive: true });
+  addEventListener("pointercancel", up, { capture: true, passive: true });
+})();
 
 /* ---------- E-STOP / re-arm (STAMPLC + safety) ---------- */
 // E-STOP is the safe direction → single tap fires immediately (no arming delay).
@@ -526,7 +549,8 @@ function renderRobotState(rs) {
   if (!rs) return;
   const st = $("rsState");
   if (st) { st.textContent = rs.label || "—"; st.style.color = STATE_COLORS[rs.color] || "var(--txt)"; }
-  if ($("rsReason")) $("rsReason").textContent = rs.reason || "";
+  // An e-stop says how to get out of it (status.py `recovery`, the registry's words).
+  if ($("rsReason")) $("rsReason").textContent = (rs.reason || "") + (rs.recovery ? " — " + rs.recovery : "");
   if ($("rsLed")) $("rsLed").textContent = rs.color ? `${rs.color} · ${rs.anim}` : "—";
 
   const inp = rs.inputs || {};
@@ -621,6 +645,23 @@ function renderOdo(o) {
   set("odoErr", (o.fail ?? "—") + " / " + (o.crc_bad ?? "—"));
 }
 
+// The robot's internet uplink and this tablet's own Wi-Fi, from the router poller
+// (status.net.uplink / net.robot_wifi; notes/design/network-router-api.md §4).
+const UPLINK_DOT = { GOOD: "ok", WEAK: "warn", BUSY: "warn", CAPTIVE: "warn", DOWN: "bad", NO_ROUTER: "bad" };
+const dbm = (v) => (v < 0 ? "\u2212" + -v : v) + " dBm";
+function renderUplink(net, me) {
+  if (!$("stUplink")) return;
+  const u = net.uplink || {};
+  $("stUplink").textContent = u.say || u.state || "—";
+  // The signal in the label, unless the say line already gives it.
+  $("stUplinkDbm").textContent = u.signal_dbm == null || /dBm/.test(u.say || "") ? "" : "· " + dbm(u.signal_dbm);
+  setDot("stUplinkDot", UPLINK_DOT[u.state]);
+  const mine = (net.robot_wifi || []).find((c) => me && c.ip === me);
+  $("stTabletWifi").textContent = mine && mine.signal_dbm != null
+    ? "this tablet " + dbm(mine.signal_dbm) + (mine.ccq_pct == null ? "" : " · CCQ " + mine.ccq_pct + "%")
+    : "";
+}
+
 function renderStatus(st) {
   try { renderOdo(st && st.odo); } catch (e) {}
   const w = (st.net && st.net.wired) || {};
@@ -630,6 +671,8 @@ function renderStatus(st) {
 
   $("stWifi").textContent = wf.ssid ? `${wf.ssid}${wf.ip ? " · " + wf.ip : ""}` : "not connected";
   setDot("stWifiDot", wf.ssid && wf.ip ? "ok" : wf.ssid ? "warn" : "bad");
+
+  renderUplink(st.net || {}, st.client_ip);
 
   const rl = st.rc_link || {};
   $("stMav").textContent = rl.link ? ("RC " + (rl.mode || "linked")) : "no RC link";

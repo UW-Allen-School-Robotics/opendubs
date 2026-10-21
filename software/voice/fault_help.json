@@ -1,0 +1,275 @@
+{
+ "ARM_CAME_UP_ACTIVE": {
+  "do": [
+   "Restore `hardware_components_initial_state` to `inactive` in the arm controller configuration."
+  ],
+  "means": "The arm software's configuration energizes arms on launch. Activation moves an arm, so it must always be a deliberate step, and `openarm-up` stops the stack instead.",
+  "title": "An arm came up active by itself"
+ },
+ "ARM_CAN_NOT_READY": {
+  "do": [
+   "Once the contactor is closed and the CAN connectors are seated, restart both links, `sudo systemctl restart openarm-can@arm_left openarm-can@arm_right` on the robot's computer, check `openarm-up status` shows both `ERROR-ACTIVE`, then activate.",
+   "Otherwise, check that the CAN adapter is plugged in and its driver is installed.",
+   "Check that each link reports `ERROR-ACTIVE`; restart a link that does not."
+  ],
+  "means": "The arms' two CAN interfaces are missing or down, so the arm stack cannot reach the motors and starts nothing. A link can be left in bus-off after an e-stop, even one already cleared -- the arms are powered from the drive bus, behind the contactor -- or by a loose CAN connector, and a bus-off link does not recover by itself when power or the connection returns. (Both were seen together on 2026-10-09; on 2026-10-08 an e-stop cleared without one.)",
+  "title": "The arms' CAN links are not ready"
+ },
+ "ARM_CONTROLLER_INACTIVE": {
+  "do": [
+   "Press **DE-ENERGIZE**, then **ACTIVATE**.",
+   "If it repeats, `openarm-up logs` on the robot's computer says why."
+  ],
+  "means": "The arm energized, but its controller is inactive or not loaded, so it cannot be commanded.",
+  "title": "An arm's controller would not start"
+ },
+ "ARM_GRIPPER_CONTROLLER_INACTIVE": {
+  "do": [
+   "Press **DE-ENERGIZE**, then **ACTIVATE** that arm again."
+  ],
+  "means": "The arm works, but its gripper controller is not running. The teleop bridge needs both grippers' controllers and exits about 30 s after START without them.",
+  "title": "An arm's gripper controller would not start"
+ },
+ "ARM_MOTORS_DISABLED": {
+  "do": [
+   "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."
+  ],
+  "means": "The arms lost power and got it back, and the motors restarted disabled under an arm the stack still marks active — a case the automatic reset did not cover.",
+  "title": "The arm's motors answer but are disabled"
+ },
+ "ARM_MOTORS_SILENT": {
+  "do": [
+   "Check that the e-stop is released and the drive contactor is closed — the arms are on the drive bus.",
+   "Press ACTIVATE again.",
+   "If they still do not answer, `openarm-motors status` on the robot's computer lists the silent motors."
+  ],
+  "means": "Those motors are unpowered, or the CAN wiring is broken at or before the first silent one. The gripper is last in each arm's chain.",
+  "title": "Some arm motors do not answer"
+ },
+ "ARM_MOTOR_FAULT": {
+  "do": [
+   "Press and release the e-stop to power-cycle the arms. Once the contactor is closed again, restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE."
+  ],
+  "means": "A motor reports a fault such as over-voltage. A motor's fault latches until the motor loses power.",
+  "title": "An arm motor reports a fault"
+ },
+ "ARM_OP_TIMEOUT": {
+  "do": [
+   "Run `openarm-up status` on the robot's computer before pressing anything else."
+  ],
+  "means": "The action did not finish within its time limit. It may have partly completed.",
+  "title": "An arm action timed out"
+ },
+ "ARM_PARTIAL_ENABLE": {
+  "do": [
+   "Press **DE-ENERGIZE**, tap again to confirm, then **ACTIVATE**.",
+   "If it happens again, power-cycle the arms with the e-stop first."
+  ],
+  "means": "The arm's hardware went active, but not all eight of its motors enabled.",
+  "title": "Only some of an arm's motors enabled"
+ },
+ "ARM_RESET_FAILED": {
+  "do": [
+   "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."
+  ],
+  "means": "ACTIVATE tried to reset the arm after a power loss, and the arm did not go inactive.",
+  "title": "The arm could not be reset after a power loss"
+ },
+ "ARM_SERVICE_FAILED": {
+  "do": [
+   "Check `systemctl status opendubs-teleop` and `journalctl -u opendubs-teleop` on the robot's computer."
+  ],
+  "means": "The dashboard could not start or stop the teleop bridge's service.",
+  "title": "Teleop would not start or stop"
+ },
+ "ARM_STACK_DEAD": {
+  "do": [
+   "Press **DE-ENERGIZE**, which clears a dead stack, then **ACTIVATE**.",
+   "If DE-ENERGIZE refuses because motors are still energized with no controller, follow the options it prints: the motors hold their last command until something disables them."
+  ],
+  "means": "The arm software crashed but did not fully exit, so nothing answers it.",
+  "title": "The arm stack is dead"
+ },
+ "ARM_STACK_START_FAILED": {
+  "do": [
+   "On the robot's computer, run `openarm-up status` and `openarm-up logs` to see which."
+  ],
+  "means": "The arm software could not start: its container is missing or would not start, or it launched and exited, or the arms did not report inactive within 30 s.",
+  "title": "The arm stack did not start"
+ },
+ "ARM_SUDO_DENIED": {
+  "do": [
+   "Install the dashboard's sudoers rule from `software/kiosk-dashboard/deploy/opendubs-sudoers`."
+  ],
+  "means": "The arm buttons run `openarm-up` and the teleop service through sudo, and the dashboard's sudoers rule is missing, so every press reports *sudo: a password is required*.",
+  "title": "The dashboard is not allowed to run the arm commands"
+ },
+ "ARM_TELEOP_CERT_NOT_ACCEPTED": {
+  "do": [
+   "In the Quest Browser, open the pose channel's address once and accept the warning, then reload the teleop page."
+  ],
+  "means": "The headset has not accepted the teleop certificate on the pose channel's port. The browser warns only for the page, so a refused pose channel fails silently: the teleop bridge's log never reports *first pose data received*.",
+  "title": "The teleop page loads but nothing reaches the robot"
+ },
+ "ARM_TELEOP_GRIPPER_TIMEOUT": {
+  "do": [
+   "Press **ACTIVATE** for both arms, which starts their gripper controllers, then **START** again."
+  ],
+  "means": "An arm's gripper controller is not running, and the teleop bridge needs both. Its log ends with *Timed out waiting for left gripper action server*.",
+  "title": "Teleop exits about 30 s after START"
+ },
+ "CONTACTOR_OPEN": {
+  "do": [
+   "If the dashboard reports an e-stop, deal with that first — the entries below say how for each source.",
+   "After any e-stop the contactor stays open until an operator re-arms: set [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.",
+   "At power-on the robot closes the contactor by itself a few seconds after boot, but only with CH5 at `OFF`. While it waits, the status lights strobe amber."
+  ],
+  "means": "The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no wheel, lift, arm or other drive-bus load can move. The arms can leave their CAN links needing a restart once power is back. The computer, the controller and the router stay on — they run from the logic bus, which the contactor does not switch.",
+  "title": "The drive contactor is open"
+ },
+ "CONTACTOR_WELDED": {
+  "do": [
+   "Do not drive the robot.",
+   "Turn the **BATTERY** switch off. With the contactor welded, that is the way to remove drive power.",
+   "Check the auxiliary-contact wiring first; if it is sound, replace the contactor.",
+   "This fault cannot be cleared from the dashboard. After the repair, restart the robot."
+  ],
+  "means": "The contactor's auxiliary contact reports its main contacts closed when they were commanded open. The e-stop works by opening this contactor, so **treat the robot as having no working e-stop** until this is resolved. A fault in the auxiliary-contact wiring reports the same thing.",
+  "title": "The contactor is welded shut"
+ },
+ "ESTOP_BUTTON": {
+  "do": [
+   "Find the pressed button — there are two on the rear of the robot, left and right, plus any e-stop a payload has added — and twist it to release.",
+   "To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold **RE-ARM**). Releasing the button does not re-close the contactor by itself.",
+   "If no button is pressed and this persists, the e-stop circuit is open somewhere else. Check the payload e-stop jumpers and the e-stop wiring."
+  ],
+  "means": "A physical [e-stop](glossary.md#e-stop) is pressed, which opens the contactor directly, in hardware, whatever the software is doing. The controller senses the e-stop circuit separately, so a circuit that is open for any other reason reads the same: a payload's own e-stop wired in series, or a broken conductor in the e-stop wiring.",
+  "title": "An emergency stop button is pressed"
+ },
+ "ESTOP_SOFTWARE": {
+  "do": [
+   "Make sure it is safe for the robot to move again.",
+   "Switch CH5 (mode) to `OFF`.",
+   "Re-arm from the dashboard: hold **RE-ARM**."
+  ],
+  "means": "E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard. Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.",
+  "title": "A software e-stop is latched"
+ },
+ "LIFT_NOT_RESPONDING": {
+  "do": [
+   "Do not move the lift until it reports again; the pinch guard's state is unknown.",
+   "The fault stays shown after the report returns. Restarting the robot clears it."
+  ],
+  "means": "The StamPLC link is healthy, but its report of the lift — height, motion and the pinch guard's state — has stopped, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
+  "title": "The lift is not reporting"
+ },
+ "LINK_DASHBOARD_UNREACHABLE": {
+  "do": [
+   "Give the computer time to finish booting.",
+   "Check that the tablet is on the robot's network.",
+   "Check that **RUN** is on — the computer and the router run from the logic bus."
+  ],
+  "means": "The tablet cannot reach the dashboard, which the robot's computer serves. The computer is the slowest part of the robot to start, so the dashboard is the last thing to appear after power-on.",
+  "title": "The dashboard won't load"
+ },
+ "LINK_NOT_READY": {
+  "do": [
+   "Work through *No link to the StamPLC*.",
+   "Work through *No RC link*.",
+   "It clears by itself once both are present."
+  ],
+  "means": "The dashboard declares the robot ready only once it has both fresh StamPLC telemetry and a live RC link. If it has not had both within 30 seconds of starting, it raises **TELEMETRY NOT READY** rather than declaring the robot ready.",
+  "title": "Not ready after 30 seconds"
+ },
+ "LINK_STAMPLC_LOST": {
+  "do": [
+   "Check that **RUN** is on and the StamPLC's screen is lit.",
+   "If its firmware was just updated or it was restarted, wait — the link returns by itself once it is back up.",
+   "Check the network cable between the StamPLC and the computer, and the router."
+  ],
+  "means": "The dashboard has stopped hearing from the [StamPLC](glossary.md#stamplc), the controller that owns the e-stop, the RC receiver, the drive and the lift. With its telemetry stale the dashboard cannot know the safety state, so it shows the robot as e-stopped (source **STALE TELEMETRY**), refuses to re-arm, and does not send lift or relay commands. The e-stop buttons and the transmitter act on the StamPLC directly and do not depend on this link.",
+  "title": "No link to the StamPLC"
+ },
+ "POWER_BATTERY_LOW": {
+  "do": [
+   "Bring the robot back and charge it."
+  ],
+  "means": "The pack's state of charge, as its [BMS](glossary.md#bms) reports it, is low. When it is very low the dashboard says **RETURN**.",
+  "title": "The battery is low"
+ },
+ "POWER_CHARGING_PACK_OFF": {
+  "do": [
+   "Turn **BATTERY** on whenever the charger is connected."
+  ],
+  "means": "The **BATTERY** switch is off while the charger is connected. The charger's output then reaches the logic bus with no pack in the circuit, and a charger cannot hold its voltage against that load, so the electronics brown out and restart over and over.",
+  "title": "The electronics cycle on and off while charging"
+ },
+ "POWER_OVERTEMP": {
+  "do": [
+   "Stop and let the robot cool.",
+   "Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.",
+   "The fault stays shown after the temperature falls. Restarting the robot clears it."
+  ],
+  "means": "One of the robot's internal temperature sensors reads 70 °C or more, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
+  "title": "Part of the robot is over temperature"
+ },
+ "POWER_PDH_BROWNOUT": {
+  "do": [
+   "Check the pack's charge on the dashboard.",
+   "Check that the hub's input connections are tight.",
+   "The fault stays shown after the voltage recovers. Restarting the robot clears it."
+  ],
+  "means": "Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh)); a robot built with a fuse block never shows it. The hub saw its input voltage dip too low, and the dashboard marks the robot DEGRADED.",
+  "title": "The power distribution hub reported a brownout"
+ },
+ "POWER_PDH_FAULT": {
+  "do": [
+   "Stop the robot and turn the **BATTERY** switch off.",
+   "Inspect the hub, and replace it with a fuse block.",
+   "This fault cannot be cleared from the dashboard. After the repair, restart the robot."
+  ],
+  "means": "Only on a robot built with the REV PDH. The hub reports an internal hardware fault. The PDH is designed for 12 V systems and here runs on the 24 V drive bus, which is why new builds use a fuse block instead.",
+  "title": "The power distribution hub reported a hardware fault"
+ },
+ "RC_FAILSAFE": {
+  "do": [
+   "Check that the transmitter is on, charged and within range.",
+   "If it persists with the transmitter close by, check the receiver and its cable to the StamPLC."
+  ],
+  "means": "The receiver has lost the transmitter's signal and is reporting [failsafe](glossary.md#failsafe) instead of live stick positions. The robot treats this as no command.",
+  "title": "The RC receiver is in failsafe"
+ },
+ "RC_NO_LINK": {
+  "do": [
+   "Turn the transmitter on, and check its battery.",
+   "Move closer to the robot.",
+   "If the transmitter is on and close, check the receiver and its cable to the StamPLC."
+  ],
+  "means": "The receiver on the robot is hearing nothing from the transmitter. Without a link nothing moves, whatever the switches show.",
+  "title": "No RC link"
+ },
+ "VOICE_BRAIN_OFFLINE": {
+  "do": [
+   "Wait a few minutes after switching the robot on, then try again.",
+   "If it keeps saying it can't think, restart the robot."
+  ],
+  "means": "The language model on the robot's computer is not answering, so the robot says it can't think right now. It takes a few minutes to load after the robot is switched on. A robot set to use a cloud model also shows this when it loses its internet connection.",
+  "title": "The voice's language model is not answering"
+ },
+ "VOICE_MIC_UNAVAILABLE": {
+  "do": [
+   "Make sure no other app on the tablet is using the microphone.",
+   "Reload the face page, or restart the tablet."
+  ],
+  "means": "The face page could not open the head tablet's microphone, so the voice cannot listen. The face greys out Talk.",
+  "title": "The tablet's microphone cannot be opened"
+ },
+ "VOICE_SERVICE_DOWN": {
+  "do": [
+   "Restart the robot; the voice service starts with it.",
+   "If it still reports this after a restart, the voice service needs a look from whoever maintains the robot's software."
+  ],
+  "means": "The voice service on the robot's computer is not running, so nothing can hear or answer. The face greys out Talk and says the voice service is not running.",
+  "title": "The voice service is not running"
+ }
+}

@@ -504,6 +504,8 @@ charger regulates against the logic bus instead of the pack — is documented in
 - [TODO][BLOCKED] RPLIDAR ROS node (`/dev/ttyUSB0` now present); rosbridge + foxglove bring-up.
 - [TODO][HW] **Localization/fusion (ROS on Thor)**: EKF (e.g. robot_localization) fusing Pinpoint(ODO+IMU) + GPS+IMU + visual odom + others → published pose/tilt the dashboard subscribes to. Sensors + calibration are a bench task.
 
+- [TODO][DEC] **UW-IT exemption for the robot's onboard Wi-Fi, and eduroam without a personal NetID** (parked 2026-10-20). UW policy prohibits departmental access points without an exemption. The path (a departmental shared NetID, then one UW-IT ticket) is in `notes/design/network-uplinks.md` §4.5. The Network lane owns it.
+
 ### F. Payload buildout (DEFERRED)
 - [TODO] CAN payload protocol spec (command/telemetry frames + identity/discovery).
 - [TODO] M5 payload controller (mast: PWM+encoder+limits; scissor: relay-toggle state machine + feedback).

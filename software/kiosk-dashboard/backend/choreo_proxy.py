@@ -31,9 +31,13 @@ from fastapi.responses import JSONResponse
 
 RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
 TIMEOUT_S = 2.0
+# The routine list validates every show on each request: allow it longer, so a busy robot answers
+# late instead of not at all (and the page does not re-ask while the runner is still working).
+LIST_TIMEOUT_S = 15.0
 
-# Only the four routes below are forwarded. Nothing else on the runner is reachable this way — in
-# particular not its fake-robot switches (/api/sim/*), which exist for twin testing only.
+# Only the routes below are forwarded (the routines, a run, stop, and the projector's status and
+# output). Nothing else on the runner is reachable this way — in particular not its fake-robot
+# switches (/api/sim/*), which exist for twin testing only.
 router = APIRouter()
 
 # Show audio (plan 4.2) lives in its own module; its routes ride on this router so app.py needs no
@@ -42,12 +46,12 @@ import show_audio  # noqa: E402
 router.routes.extend(show_audio.router.routes)
 
 
-def _call(method: str, path: str, body: dict | None = None) -> tuple[int, object]:
+def _call(method: str, path: str, body: dict | None = None, timeout: float = TIMEOUT_S) -> tuple[int, object]:
     data = (json.dumps(body).encode() if body else b"") if method == "POST" else None
     req = urllib.request.Request(f"{RUNNER_URL}/api/{path}", method=method, data=data,
                                  headers={"Content-Type": "application/json"} if data else {})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b"null")
     except urllib.error.HTTPError as e:          # the runner's own refusal: pass it on, with its words
         try:
@@ -58,14 +62,49 @@ def _call(method: str, path: str, body: dict | None = None) -> tuple[int, object
         return 503, {"error": "the show runner is not running", "runner": RUNNER_URL}
 
 
-async def _forward(method: str, path: str, body: dict | None = None) -> JSONResponse:
-    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path, body)
+async def _forward(method: str, path: str, body: dict | None = None, timeout: float = TIMEOUT_S) -> JSONResponse:
+    code, body = await asyncio.get_running_loop().run_in_executor(None, _call, method, path, body, timeout)
     return JSONResponse(body, status_code=code)
 
 
 @router.get("/api/choreo/routines")
 async def routines():
-    return await _forward("GET", "routines")
+    return await _forward("GET", "routines", timeout=LIST_TIMEOUT_S)
+
+
+@router.get("/api/choreo/video")
+async def video():
+    """The projector (notes/design/choreo-video.md): each output found / ready and why, the output
+    selected, and the video playing with its sync error. The Shows page's projector card reads it."""
+    return await _forward("GET", "video")
+
+
+@router.post("/api/choreo/video/output")
+async def video_output(request: Request):
+    """The operator's play-time choice of video output: {output: cast|hdmi|off|null}. Returns the
+    whole GET body; refused while a show plays (SHOW_VIDEO_BUSY)."""
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON: {output}"}, status_code=400)
+    if not isinstance(raw, dict) or "output" not in raw:
+        return JSONResponse({"error": "the body must be {output: cast|hdmi|off|null}"}, status_code=400)
+    return await _forward("POST", "video/output", {"output": raw["output"]})
+
+
+@router.post("/api/choreo/video/settings")
+async def video_settings(request: Request):
+    """The projector's offsets and how it takes music ({audio_lead_s, video_lead_s, music_as}; any of
+    them), set at the robot by ear and stored there (notes/design/choreo-audio.md). Returns the whole
+    GET body."""
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON"}, status_code=400)
+    keys = ("audio_lead_s", "video_lead_s", "music_as")
+    if not isinstance(raw, dict) or not any(k in raw for k in keys):
+        return JSONResponse({"error": f"the body must set one of {', '.join(keys)}"}, status_code=400)
+    return await _forward("POST", "video/settings", {k: raw[k] for k in keys if k in raw})
 
 
 @router.get("/api/choreo/palette")

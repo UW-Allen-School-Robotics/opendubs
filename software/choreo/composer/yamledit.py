@@ -204,7 +204,7 @@ def _add_cue(text, seq, cue):
 def _set_music(text, key, value):
     """Set one field of the music block, or remove it with value None (song and file only: the
     tempo grid stays when a show's music is taken out, so bars and beats keep their meaning)."""
-    if key not in ("bpm", "offset_s", "beats_per_bar", "file", "song"):
+    if key not in ("bpm", "offset_s", "beats_per_bar", "file", "song", "role"):
         raise EditError(f"music: has no field {key!r}")
     if value is None:
         if key not in ("file", "song"):

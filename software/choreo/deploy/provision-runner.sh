@@ -22,6 +22,12 @@ echo "-- installing the show runner ($UNIT)"
 if [ -d /opt/ros/jazzy ] && ! dpkg -s ros-jazzy-control-msgs >/dev/null 2>&1; then
   apt-get install -y -qq ros-jazzy-control-msgs || echo "   WARNING: control_msgs not installed — live arm output will be unavailable"
 fi
+# Projector video by casting (video_out.py, notes/design/choreo-video.md): the Cast protocol client,
+# for the system Python the runner runs under. Without it the runner still runs, and the projector
+# card says this robot can't cast yet.
+if ! python3 -c 'import pychromecast' >/dev/null 2>&1; then
+  apt-get install -y -qq --no-upgrade python3-pychromecast || echo "   WARNING: python3-pychromecast not installed — no casting to the projector"
+fi
 install -m 0644 "$APP/deploy/$UNIT" "/etc/systemd/system/$UNIT"
 # The runner talks to the arm container over ROS 2 from the HOST, as the kiosk user. FastDDS's default
 # transports include shared memory, which does not cross users: the runner's node sees NO topics. The
