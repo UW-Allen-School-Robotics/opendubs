@@ -5,24 +5,24 @@ name: voice
 # `speech-deps`: the real pinned speech packages (below). The safety boundary tests
 # (test_safe_tools.py) read the head protocol's vocabularies, so a protocol change runs this too.
 
+# CI minutes are metered (the project team, 2026-10-21): no run on a draft PR or on the push to
+# main after a merge. A PR runs this once it is marked ready (`gh pr ready`); workflow_dispatch runs
+# it by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/voice/**"
-      - "software/head-protocol/head_protocol.py"
-      - ".github/workflows/voice.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/voice/**"
       - "software/head-protocol/head_protocol.py"
       - ".github/workflows/voice.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +50,7 @@ jobs:
   # English pipeline with no espeak-ng (smoke_speech_deps.py). Downloads PyTorch's CPU wheel, the
   # 3 MB pronunciation fallback and a 2 KB config from their pinned commits; never the big weights.
   speech-deps:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
