@@ -85,6 +85,7 @@ class StudioApp {
     this._loadBackendStatus();
     this._loadKeyframes();
     this._checkCollisionAndFK();
+    this._pollHardwareStatus();
 
     // 3. Initialize 3D view gracefully without blocking buttons or UI
     const canvas = document.getElementById("arm-canvas");
@@ -304,6 +305,15 @@ class StudioApp {
     document.getElementById("btn-close-benchmark").onclick = () => this._closeBenchmarkModal();
     document.getElementById("btn-close-benchmark-footer").onclick = () => this._closeBenchmarkModal();
     document.getElementById("btn-run-benchmark-now").onclick = () => this._runBenchmark();
+
+    // Hardware & HITL execution buttons
+    document.getElementById("btn-preflight-safety").onclick = () => this._openHardwareModal(false);
+    document.getElementById("btn-hitl-dryrun").onclick = () => this._openHardwareModal(true, "hitl");
+    document.getElementById("btn-execute-robot").onclick = () => this._openHardwareModal(true, "auto");
+    document.getElementById("btn-hardware-stop").onclick = () => this._emergencyHold();
+    document.getElementById("btn-close-hardware-modal").onclick = () => this._closeHardwareModal();
+    document.getElementById("btn-hw-modal-cancel").onclick = () => this._closeHardwareModal();
+    document.getElementById("btn-hw-confirm-exec").onclick = () => this._executeOnHardware();
   }
 
   _setArm(arm) {
@@ -967,6 +977,195 @@ class StudioApp {
         `;
         tbody.appendChild(trM);
       }
+    }
+  }
+
+  async _pollHardwareStatus() {
+    try {
+      const resp = await fetch("/api/hardware/status");
+      const data = await resp.json();
+      const badgeText = document.getElementById("hw-mode-text");
+      const envText = document.getElementById("hw-modal-env-status");
+
+      if (badgeText && data.environment) {
+        const rec = data.environment.recommended_mode || "hitl";
+        if (rec === "ros2") {
+          badgeText.textContent = "ROS 2 Connected (Thor)";
+          badgeText.style.color = "#4ade80";
+        } else if (rec === "docker") {
+          badgeText.textContent = "Docker Container Active";
+          badgeText.style.color = "#38bdf8";
+        } else {
+          badgeText.textContent = "HITL Simulation Available";
+          badgeText.style.color = "#38bdf8";
+        }
+      }
+
+      if (envText && data.environment) {
+        envText.textContent = `Env: ROS 2=${data.environment.ros2_rclpy_available}, Docker=${data.environment.docker_running}, Recommended=${data.environment.recommended_mode.toUpperCase()}`;
+      }
+
+      // If active execution in progress
+      if (data.is_executing) {
+        const progressCont = document.getElementById("hw-live-progress-container");
+        const progressBar = document.getElementById("hw-progress-bar");
+        const progressPct = document.getElementById("hw-progress-pct");
+        const progressLabel = document.getElementById("hw-progress-label");
+
+        if (progressCont) progressCont.style.display = "block";
+        if (progressBar) progressBar.style.width = `${data.progress_pct}%`;
+        if (progressPct) progressPct.textContent = `${data.progress_pct.toFixed(0)}%`;
+        if (progressLabel) progressLabel.textContent = `Running on ${data.arm.toUpperCase()} (${data.current_time_s.toFixed(1)}s / ${data.total_time_s.toFixed(1)}s)`;
+
+        // In HITL mode, reflect simulated arm angles in 3D scene
+        if (data.sim_joint_states && data.sim_joint_states[this.arm]) {
+          const simDeg = data.sim_joint_states[this.arm];
+          if (this.view && this.view.setSolidJoints) {
+            this.view.setSolidJoints(simDeg);
+          }
+        }
+      }
+    } catch (_) {}
+
+    setTimeout(() => this._pollHardwareStatus(), 800);
+  }
+
+  async _openHardwareModal(autoSelect = false, preferredMode = "hitl") {
+    // If no trajectory is planned yet, notify user to plan first
+    if (!this.trajectory || !this.trajectory.positions_rad || this.trajectory.positions_rad.length === 0) {
+      alert("Please plan a trajectory first using 'Plan Trajectory' or 'Plan Show Sequence'.");
+      return;
+    }
+
+    const modal = document.getElementById("hardware-modal");
+    modal.style.display = "flex";
+
+    // Select mode
+    const radios = document.getElementsByName("hw-exec-mode");
+    for (const r of radios) {
+      if (r.value === preferredMode) r.checked = true;
+    }
+
+    // Run Preflight Check
+    const summary = document.getElementById("hw-modal-summary");
+    const probBox = document.getElementById("hw-problems-box");
+    const probList = document.getElementById("hw-problems-list");
+    summary.textContent = "Validating trajectory against hardware limits (HAND_BOX, TRIP_DEG_S, clearances)...";
+    summary.style.background = "rgba(56,189,248,0.1)";
+    summary.style.borderColor = "rgba(56,189,248,0.3)";
+    summary.style.color = "#7dd3fc";
+    probBox.style.display = "none";
+    probList.innerHTML = "";
+
+    try {
+      const resp = await fetch("/api/hardware/preflight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({
+          arm: this.arm,
+          times: this.trajectory.times,
+          positions_rad: this.trajectory.positions_rad,
+          velocities_rad_s: this.trajectory.velocities_rad_s,
+          min_clearance_mm: this.trajectory.min_clearance_mm || 15.0,
+        }),
+      });
+      const data = await resp.json();
+
+      document.getElementById("hw-stat-clearance").textContent = `${data.min_clearance_mm} mm`;
+      document.getElementById("hw-stat-handbox").textContent = data.hand_box_ok ? "PASS" : "FAIL";
+      document.getElementById("hw-stat-handbox").style.color = data.hand_box_ok ? "#4ade80" : "#f87171";
+
+      document.getElementById("hw-stat-speed").textContent = data.speed_trip_ok ? "PASS" : "FAIL";
+      document.getElementById("hw-stat-speed").style.color = data.speed_trip_ok ? "#4ade80" : "#f87171";
+
+      document.getElementById("hw-stat-limits").textContent = data.joint_limits_ok ? "PASS" : "FAIL";
+      document.getElementById("hw-stat-limits").style.color = data.joint_limits_ok ? "#4ade80" : "#f87171";
+
+      if (data.ok) {
+        summary.textContent = `All safety checks PASSED. Trajectory duration: ${this.trajectory.duration.toFixed(2)}s, TCP height z: ${data.tcp_min_z_m}..${data.tcp_max_z_m} m. Safe for execution.`;
+        summary.style.background = "rgba(34,197,94,0.1)";
+        summary.style.borderColor = "rgba(34,197,94,0.3)";
+        summary.style.color = "#86efac";
+        document.getElementById("btn-hw-confirm-exec").disabled = false;
+      } else {
+        summary.textContent = "Safety Check FAILED! Trajectory violates physical hardware safety limits.";
+        summary.style.background = "rgba(239,68,68,0.1)";
+        summary.style.borderColor = "rgba(239,68,68,0.3)";
+        summary.style.color = "#fca5a5";
+        document.getElementById("btn-hw-confirm-exec").disabled = true;
+
+        probBox.style.display = "block";
+        (data.problems || []).forEach((p) => {
+          const li = document.createElement("li");
+          li.textContent = p;
+          probList.appendChild(li);
+        });
+      }
+    } catch (err) {
+      summary.textContent = `Preflight error: ${err}`;
+    }
+  }
+
+  _closeHardwareModal() {
+    document.getElementById("hardware-modal").style.display = "none";
+  }
+
+  async _executeOnHardware() {
+    if (!this.trajectory) return;
+    const radios = document.getElementsByName("hw-exec-mode");
+    let mode = "hitl";
+    for (const r of radios) {
+      if (r.checked) mode = r.value;
+    }
+
+    const btnExec = document.getElementById("btn-hw-confirm-exec");
+    btnExec.disabled = true;
+    btnExec.textContent = "Starting...";
+
+    const progressCont = document.getElementById("hw-live-progress-container");
+    if (progressCont) progressCont.style.display = "block";
+
+    try {
+      const resp = await fetch("/api/hardware/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({
+          arm: this.arm,
+          mode: mode,
+          trajectory: {
+            times: this.trajectory.times,
+            positions_rad: this.trajectory.positions_rad,
+            velocities_rad_s: this.trajectory.velocities_rad_s,
+            min_clearance_mm: this.trajectory.min_clearance_mm,
+          },
+        }),
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        alert(`Hardware execution refused:\n${data.error}`);
+      } else {
+        document.getElementById("plan-status-info").textContent = `Robot Execution Active [${mode.toUpperCase()}]`;
+      }
+    } catch (err) {
+      alert(`Hardware execution error: ${err}`);
+    } finally {
+      btnExec.disabled = false;
+      btnExec.textContent = "Confirm & Execute";
+    }
+  }
+
+  async _emergencyHold() {
+    try {
+      const resp = await fetch("/api/hardware/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonReq({}),
+      });
+      const data = await resp.json();
+      alert(`EMERGENCY HOLD: ${data.message || "Arm stopped."}`);
+      document.getElementById("plan-status-info").textContent = "EMERGENCY HOLD ACTIVATED. Robot halted.";
+    } catch (err) {
+      alert(`Hold error: ${err}`);
     }
   }
 }

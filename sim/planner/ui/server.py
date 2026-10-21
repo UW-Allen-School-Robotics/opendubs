@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+HTTPServer = ThreadingHTTPServer
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +34,7 @@ for p in (REPO, SIM_DIR, IK_DIR):
 
 from sim.planner import OpenArmPlanner, get_available_backends
 from sim.planner.benchmark import run_benchmark
+from sim.planner.hardware_bridge import HARDWARE_BRIDGE, validate_trajectory_safety
 import clearance
 import openarm_left_ik
 import openarm_right_ik
@@ -289,6 +291,11 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 "available_backends": get_available_backends(),
                 "version": "1.0",
             })
+        if url == "/api/hardware/status":
+            env = HARDWARE_BRIDGE.detect_environment()
+            stat = HARDWARE_BRIDGE.get_status()
+            stat["environment"] = env
+            return self._send_json(stat)
         query_arm = "left"
         if "?" in self.path:
             for part in self.path.split("?", 1)[1].split("&"):
@@ -387,6 +394,27 @@ class StudioHandler(SimpleHTTPRequestHandler):
             if stack:
                 print(f"  Stack: {stack}", flush=True)
             return self._send_json({"ok": True})
+
+        if url == "/api/hardware/preflight":
+            arm = req.get("arm", "left")
+            times = req.get("times", [])
+            positions = req.get("positions_rad", [])
+            velocities = req.get("velocities_rad_s", None)
+            min_clearance = float(req.get("min_clearance_mm", 15.0))
+            res = validate_trajectory_safety(arm, times, positions, velocities, min_clearance)
+            return self._send_json(res.to_dict())
+
+        if url == "/api/hardware/execute":
+            arm = req.get("arm", "left")
+            trajectory = req.get("trajectory", {})
+            mode = req.get("mode", "auto")
+            res = HARDWARE_BRIDGE.execute_trajectory(arm, trajectory, mode=mode)
+            status_code = 200 if res.get("success") else 400
+            return self._send_json(res, status=status_code)
+
+        if url == "/api/hardware/stop":
+            res = HARDWARE_BRIDGE.stop()
+            return self._send_json(res)
 
         self.send_error(404, "Endpoint not found")
 

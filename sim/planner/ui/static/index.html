@@ -153,6 +153,18 @@
           </div>
         </div>
 
+        <!-- Hardware & HITL Controls -->
+        <div class="hardware-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Robot Execution:</div>
+          <button id="btn-preflight-safety" class="btn-sm" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:var(--text); padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer;" title="Run safety validation without moving the robot">🛡️ Preflight Check</button>
+          <button id="btn-hitl-dryrun" class="btn-sm" style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer;" title="Run Hardware-in-the-Loop simulated execution">🔄 HITL Dry Run</button>
+          <button id="btn-execute-robot" class="btn-sm" style="background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4); color:#4ade80; padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer;" title="Execute trajectory on physical robot">🚀 Execute on Robot</button>
+          <button id="btn-hardware-stop" class="btn-sm" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer;" title="Emergency Stop / Hold robot in place">🛑 EMERGENCY HOLD</button>
+          <div id="hw-status-badge" style="margin-left:auto; font-size:11px; font-family:var(--font-mono); color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:3px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.08);">
+            Hardware: <span id="hw-mode-text" style="color:#38bdf8;">HITL Available</span>
+          </div>
+        </div>
+
         <div class="status-row">
           <span id="plan-status-info">Ready to plan collision-free trajectory.</span>
           <span id="plan-perf-info" style="font-family:var(--font-mono);">CBiRRT + SSIK + TOPP-RA</span>
@@ -287,6 +299,82 @@
     </div>
   </div>
 
-  <script type="module" src="/static/app.js?v=2.4"></script>
+  <!-- Hardware Preflight & Execution Modal -->
+  <div id="hardware-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal-card" style="max-width: 620px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size: 16px;">🛡️ Physical Robot Preflight & Safety Report</span>
+        </div>
+        <button id="btn-close-hardware-modal" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="gap: 14px;">
+        <div id="hw-modal-summary" style="padding:10px 14px; border-radius:6px; font-size:12px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); color:#86efac;">
+          All safety checks passed. Trajectory is validated for physical execution.
+        </div>
+
+        <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
+          <div class="stat-card">
+            <div class="stat-label">Min Clearance</div>
+            <div class="stat-value" id="hw-stat-clearance">-- mm</div>
+            <div class="stat-sub">&gt;= 15.0 mm required</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">HAND_BOX TCP</div>
+            <div class="stat-value" id="hw-stat-handbox">PASS</div>
+            <div class="stat-sub">link7 + 186mm</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Speed Trip Caps</div>
+            <div class="stat-value" id="hw-stat-speed">PASS</div>
+            <div class="stat-sub">TRIP_DEG_S checked</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Joint Limits</div>
+            <div class="stat-value" id="hw-stat-limits">PASS</div>
+            <div class="stat-sub">7 DOF bounded</div>
+          </div>
+        </div>
+
+        <div id="hw-problems-box" style="display:none; padding:10px 14px; border-radius:6px; font-size:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5;">
+          <strong>Safety Violations Detected:</strong>
+          <ul id="hw-problems-list" style="margin:6px 0 0 16px; padding:0;"></ul>
+        </div>
+
+        <div style="background:rgba(0,0,0,0.25); border:1px solid var(--border-color); border-radius:6px; padding:10px 14px; font-size:12px;">
+          <div style="font-weight:600; margin-bottom:6px;">Target Execution Mode:</div>
+          <div style="display:flex; gap:16px;">
+            <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <input type="radio" name="hw-exec-mode" value="hitl" checked>
+              <span>HITL Simulation (Dry-Run Loopback)</span>
+            </label>
+            <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <input type="radio" name="hw-exec-mode" value="auto">
+              <span id="hw-label-live">Live Physical Robot (Auto / ROS 2)</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="hw-live-progress-container" style="display:none;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+            <span id="hw-progress-label">Executing trajectory...</span>
+            <span id="hw-progress-pct" style="font-family:var(--font-mono);">0%</span>
+          </div>
+          <div style="height:8px; width:100%; background:rgba(255,255,255,0.1); border-radius:4px; overflow:hidden;">
+            <div id="hw-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #38bdf8, #22c55e); transition:width 0.1s linear;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <span id="hw-modal-env-status" style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">Environment: Detecting...</span>
+        <div style="display:flex; gap:8px;">
+          <button id="btn-hw-confirm-exec" class="btn-accent" style="background:#22c55e;">Confirm & Execute</button>
+          <button id="btn-hw-modal-cancel" class="btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/static/app.js?v=2.5"></script>
 </body>
 </html>

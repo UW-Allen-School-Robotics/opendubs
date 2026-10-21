@@ -34,6 +34,7 @@ from sim.planner import (
     create_backend,
     get_available_backends,
 )
+from sim.planner.hardware_bridge import HARDWARE_BRIDGE, validate_trajectory_safety
 import openarm_left_ik
 import openarm_right_ik
 import clearance
@@ -248,6 +249,102 @@ def test_studio_rest_api():
     assert_true("overall" in bench and "cbirrt" in bench["overall"], "/api/benchmark returned performance metrics")
 
 
+def test_hardware_bridge_and_hitl():
+    test_section("6. Hardware Safety Preflight, HITL Loopback & Hardware APIs")
+
+    planner = OpenArmPlanner(arm="left", v_max=1.2, a_max=2.5)
+    q_start = np.radians([0.0, -20.0, 0.0, 95.0, 0.0, 15.0, 0.0])
+    q_goal = np.radians([0.0, -30.0, 0.0, 60.0, 0.0, 15.0, 0.0])
+
+    traj = planner.plan_to_joint_goal(q_start, q_goal)
+    assert_true(traj is not None, "Generated baseline trajectory for hardware validation")
+
+    # 1. Direct Preflight Validation (Safe Trajectory)
+    safety_pass = validate_trajectory_safety(
+        arm="left",
+        times=traj.times.tolist(),
+        positions_rad=traj.positions,
+        velocities_rad_s=traj.velocities,
+        min_clearance_mm=traj.min_clearance_mm,
+    )
+    assert_true(safety_pass.ok is True, "Preflight safety validation PASSED for safe trajectory")
+    assert_true(safety_pass.hand_box_ok is True, f"Fingertip TCP inside HAND_BOX (z: {safety_pass.tcp_min_z_m:.3f}..{safety_pass.tcp_max_z_m:.3f} m)")
+    assert_true(safety_pass.speed_trip_ok is True, "Joint speeds well below hardware trip caps (TRIP_DEG_S)")
+
+    # 2. Preflight Safety Failure Injection (Excessive Velocity Trip)
+    bad_times = [0.0, 0.01]  # 30 degrees in 10 ms = 3000 deg/s! Exceeds any motor trip
+    bad_pos = np.array([q_start, q_goal])
+    safety_fail = validate_trajectory_safety("left", bad_times, bad_pos)
+    assert_true(safety_fail.ok is False, "Safety validator caught velocity trip violation")
+    assert_true(safety_fail.speed_trip_ok is False, "Speed trip flag marked False on excessive speed")
+
+    # 3. REST API /api/hardware/status
+    base_url = "http://127.0.0.1:8092"
+    req_status = urllib.request.Request(f"{base_url}/api/hardware/status")
+    with urllib.request.urlopen(req_status, timeout=5) as resp:
+        hw_status = json.loads(resp.read().decode())
+    assert_true("environment" in hw_status, "/api/hardware/status returned environment detection")
+    assert_true(hw_status.get("environment", {}).get("hitl_available") is True, "HITL simulation available")
+
+    # 4. REST API /api/hardware/preflight
+    req_pref = urllib.request.Request(
+        f"{base_url}/api/hardware/preflight",
+        data=json.dumps({
+            "arm": "left",
+            "times": traj.times.tolist(),
+            "positions_rad": traj.positions.tolist(),
+            "velocities_rad_s": traj.velocities.tolist(),
+            "min_clearance_mm": traj.min_clearance_mm,
+        }).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_pref, timeout=5) as resp:
+        pref_res = json.loads(resp.read().decode())
+    assert_true(pref_res.get("ok") is True, "/api/hardware/preflight passed trajectory verification")
+
+    # 5. REST API /api/hardware/execute (HITL mode)
+    req_exec = urllib.request.Request(
+        f"{base_url}/api/hardware/execute",
+        data=json.dumps({
+            "arm": "left",
+            "mode": "hitl",
+            "trajectory": {
+                "times": traj.times.tolist(),
+                "positions_rad": traj.positions.tolist(),
+                "velocities_rad_s": traj.velocities.tolist(),
+                "min_clearance_mm": traj.min_clearance_mm,
+            },
+        }).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_exec, timeout=5) as resp:
+        exec_res = json.loads(resp.read().decode())
+    assert_true(exec_res.get("success") is True, f"/api/hardware/execute started HITL goal: {exec_res.get('goal_id')}")
+
+    # Wait for execution completion
+    time.sleep(0.5)
+    with urllib.request.urlopen(f"{base_url}/api/hardware/status", timeout=5) as resp:
+        active_stat = json.loads(resp.read().decode())
+    assert_true(active_stat.get("is_executing") or active_stat.get("status") in ("executing", "succeeded"),
+                f"Execution in progress or finished (status: {active_stat.get('status')}, progress: {active_stat.get('progress_pct')}%)")
+
+    # Wait for completion
+    while HARDWARE_BRIDGE.is_executing:
+        time.sleep(0.1)
+    
+    assert_true(HARDWARE_BRIDGE.status == "succeeded", "HITL trajectory execution finished with status 'succeeded'")
+
+    # 6. E-Stop / Stop API verification
+    req_stop = urllib.request.Request(
+        f"{base_url}/api/hardware/stop",
+        data=json.dumps({}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req_stop, timeout=5) as resp:
+        stop_res = json.loads(resp.read().decode())
+    assert_true(stop_res.get("success") is True, "/api/hardware/stop returned success")
+
+
 def main():
     print("=" * 65)
     print(" 🤖 OpenArm Motion Planner Complete Test Suite")
@@ -258,6 +355,7 @@ def main():
     test_cbirrt_planning()
     test_modular_backends()
     test_studio_rest_api()
+    test_hardware_bridge_and_hitl()
 
     print("\n" + "=" * 65)
     print(" 🎉 ALL TESTS PASSED! Motion planner & studio verified 100% operational.")

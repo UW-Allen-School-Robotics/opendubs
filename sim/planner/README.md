@@ -151,3 +151,47 @@ To measure and compare planning latency, duration, waypoint count, clearance, an
 
 In the Web Studio UI, click the **Benchmark** button in the header toolbar to trigger or view the benchmark comparison modal directly in the browser!
 
+---
+
+## 6. Physical Robot Hardware Connection & HITL Testing
+
+The motion planner includes a dedicated **Hardware Bridge & Safety Preflight Layer** (`sim/planner/hardware_bridge.py`) that connects the simulation and studio planner to the physical OpenArm robot on the OpenDubs platform.
+
+### Hardware Safety Protocol:
+Every trajectory is subjected to strict preflight validation before any command is sent:
+1. **Fingertip Workspace Guard (`HAND_BOX`):**
+   Computes forward kinematics of the controller's exact Tool Center Point ($\text{link7} + 186\text{ mm}$ grasp center) across all trajectory waypoints. Rejects any motion that leaves the controller's bounding box ($x, y \in [-0.8, 0.8]\text{ m}, z \in [0.0, 1.3]\text{ m}$ less $20\text{ mm}$ margin), matching `software/choreo/tcp.py`.
+2. **Velocity Trip Protection (`TRIP_DEG_S`):**
+   Verifies joint velocities against motor trip limits (`J1,J2: 960°/s`, `J3,J4: 312°/s`, `J5-J7: 1200°/s`) to guarantee the physical motor drivers will never trip or freeze mid-motion.
+3. **Collision & Clearance Guard:**
+   Ensures continuous MuJoCo collision clearance $\ge 15.0\text{ mm}$ across the entire path.
+
+### Execution Transports & Modes:
+- **`hitl` (Hardware-in-the-Loop Simulation):** Runs a 50 Hz closed-loop simulated execution with real-time progress and visualizes the moving arm live in the 3D studio. Perfect for offline development without physical hardware.
+- **`ros2` (Direct Action Client):** Directly commands the active ROS 2 action servers (`/{arm}_controller/follow_joint_trajectory`) over `control_msgs/action/FollowJointTrajectory`.
+- **`docker` (Container Exec Bridge):** Dispatches trajectory goals directly into the `openarm` container via `openarm-up` / ROS 2 CLI.
+- **`Emergency Hold (E-Stop)`:** Sends immediate goal cancellation and issues `openarm-up hold <arm>` to freeze the arm in place safely without dropping.
+
+### Running from the CLI:
+```bash
+# Validate and test trajectory in HITL loopback:
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --hitl
+
+# Execute on physical robot hardware:
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --live
+```
+
+### Running from the Web Studio:
+- In the bottom toolbar, use:
+  - **🛡️ Preflight Check**: Opens the safety report modal with clearance, TCP bounding box, and velocity checks without moving the arm.
+  - **🔄 HITL Dry Run**: Runs hardware-in-the-loop simulation with live progress bar and 3D visualizer feedback.
+  - **🚀 Execute on Robot**: Prompts for confirmation and commands the physical robot hardware.
+  - **🛑 EMERGENCY HOLD**: Immediately halts any active hardware or HITL motion.
+
+### Complete Verification Test Suite:
+Run the complete end-to-end verification suite across all 6 test sections:
+```bash
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/test_motion_planner.py
+```
+*(Tests SSIK kinematics, MuJoCo collision checking, CBiRRT planning, cuRobo CUDA adapter, Studio REST APIs, and the Hardware Bridge + HITL loopback).*
+
