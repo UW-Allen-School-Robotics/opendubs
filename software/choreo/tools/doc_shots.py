@@ -185,8 +185,9 @@ def shots_composer(page, out: str, want, meta: dict) -> None:
         {"n": 8, "box": union(box(page, "#save"), box(page, "#status")), "label": "save (Ctrl/Cmd-S), and the validator's verdict on the whole show"},
     ], "the whole composer")
 
-    # music: the toolbar's tempo controls, over the first bars of the ruler and the waveform (~900 px wide,
-    # so the callouts read at the docs page's width)
+    # music: the toolbar's tempo controls, over the first bars of the ruler and the waveform, then the
+    # Music dialog's song, tempo and "plays as" rows (~900 px wide, so the callouts read at the docs
+    # page's width)
     if not want or "02" in want:
         from PIL import Image
         tools = union(box(page, "#zoomOut"), box(page, "#musicBtn"))
@@ -204,16 +205,30 @@ def shots_composer(page, out: str, want, meta: dict) -> None:
         mb = [{"n": 5, "box": (rb[0], rb[1], 900 - rb[0] - 8, rb[3]), "label": "the grid the show is written on: bar.beat, at the show's tempo"}]
         annotate(pa, ma, (a["x"], a["y"]))
         annotate(pb, mb, (b["x"], b["y"]))
-        ia, ib = Image.open(pa), Image.open(pb)
-        im = Image.new("RGB", (900, ia.height + 8 + ib.height), (7, 10, 15))
+        # the Music dialog (♫): its first section — the song, the tempo, and how the track plays
+        page.click("#musicBtn")
+        page.wait_for_selector("#musicDlg[open]")
+        page.wait_for_timeout(300)
+        rows = union(box(page, "#musicDlg .drawerHead"), box(page, "#mRole"))
+        c = clip_around(rows, 10)
+        c["width"] = min(c["width"], 900)
+        pc = os.path.join(out, "_c.png")
+        page.screenshot(path=pc, clip=c)
+        mc = [{"n": 6, "box": box(page, "#mRole"), "label": "plays as: dialogue always plays from the tablet; music "
+               "plays from the projector's speaker when a projector is ready (the tablet otherwise)"}]
+        annotate(pc, mc, (c["x"], c["y"]))
+        page.click("#musicClose")
+        ia, ib, ic = Image.open(pa), Image.open(pb), Image.open(pc)
+        im = Image.new("RGB", (900, ia.height + 8 + ib.height + 8 + ic.height), (7, 10, 15))
         im.paste(ia, (900 - ia.width if ia.width < 900 else 0, 0))
         im.paste(ib, (0, ia.height + 8))
+        im.paste(ic, (0, ia.height + 8 + ib.height + 8))
         path = os.path.join(out, "composer-02-music.png")
         im.save(path)
-        os.remove(pa)
-        os.remove(pb)
-        meta["composer-02-music"] = {"shows": "music, tempo and the grid",
-                                     "callouts": {str(m["n"]): m["label"] for m in ma + mb}}
+        for x in (pa, pb, pc):
+            os.remove(x)
+        meta["composer-02-music"] = {"shows": "music, tempo, the grid, and how the track plays",
+                                     "callouts": {str(m["n"]): m["label"] for m in ma + mb + mc}}
         print("doc_shots: wrote", path)
 
     # a cue placed: the HEAD lane's + adds one at the playhead, and the inspector shows it
