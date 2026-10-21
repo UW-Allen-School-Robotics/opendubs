@@ -15,9 +15,16 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- It also runs on Android TV / Google TV as a display (the projector's stage page; Provision
+         role "display"): none of the tablet's hardware is required there. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <application
         android:label="@string/app_name"
+        android:banner="@drawable/banner"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
@@ -33,6 +40,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- a tile on the Google TV home screen, so the remote can open it as a fallback -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

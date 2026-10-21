@@ -150,6 +150,44 @@ Remove the device owner (debug builds only):
 adb shell dpm remove-active-admin org.opendubs.kiosk/.KioskAdminReceiver
 ```
 
+## Set up a display (the projector)
+
+The same app runs on **Android TV / Google TV** as a **display**: a screen that only shows one page,
+such as the projector's stage page (`/stage/`, the Choreography lane's). A set-up TV has an account, so
+the app cannot be its device owner; in the `display` role it therefore leaves out what needs one: **no
+self-updater** (it would put an install prompt on screen mid-show; update it with `adb install`), **no
+sensor bridge** and **no lock task**. Keep-awake, autoplay with sound, the waiting page and the heartbeat
+watchdog are the same as on the tablet. The page must call `window.OpenDubsKiosk.alive()` every few
+seconds, or the watchdog reloads it. It also has a tile on the Google TV home screen, so the remote can
+open it as a fallback.
+
+**Unverified on the projector itself** (the checks are done with someone at it): that wireless debugging
+survives a reboot and a Wi-Fi change, and whether the projector's own power saving still switches it off.
+
+One time, with the remote, on the projector: **Settings › System › About › Android TV OS build**, press
+OK seven times (developer options); then **Developer options › Wireless debugging** on, and **Pair device
+with pairing code**. On the robot's computer, with the code and the addresses the screen shows:
+
+```bash
+adb pair <projector-ip>:<pairing-port>
+```
+
+Then, from the robot's computer, with the port Wireless debugging shows (it changes when it is turned on):
+
+```bash
+adb connect <projector-ip>:<port>
+```
+
+```bash
+adb install -r app-release.apk
+```
+
+```bash
+adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --es role display --es url http://<thor>:8080/stage/
+```
+
+`ProvisionActivity` remembers both and opens the page; after that the app opens on it by itself.
+
 ## Status
 
 Builds (Android Gradle plugin 9.4.1, Gradle 9.8.1, compile and target SDK 36, min SDK 28). **Runs on
