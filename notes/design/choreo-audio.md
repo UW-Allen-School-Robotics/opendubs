@@ -49,6 +49,23 @@ At preflight, after the video outputs are asked (#443):
 The music is loaded on the tablet **too, held**: fetched and decoded, not played. That is what makes the
 fallback instant.
 
+## A video that carries the show's song (2026-10-21, for Thriller)
+
+A show's music can travel INSIDE its projector video, so picture and music come from one file and
+every visual hit lands exactly on its beat. A library video says so: `song: <id>` (`library.py add …
+--kind video --song thriller`), its soundtrack being that song from the video's start. When a show casts
+such a video in step with its own music (the VIDEO cue's `t` equal to its `from_s`, the song starting at
+show time 0):
+
+- the projector plays the music (the video's own soundtrack — music, by the rule above), whatever the
+  music block's role, and the tablet loads the show's song **held**, as the silent fallback;
+- the video is started by the projector's **audio** offset, not its video offset: the beat is what has to
+  land with the arms;
+- if the video drops out, the tablet takes the music over from the same point (`unhold`), as for music
+  sent alone.
+
+Otherwise a show that casts its own video keeps its music on the tablet, as before.
+
 ## Sync: on the beat with the arms
 
 - The projector starts the music **early by its measured audio delay**, then holds it to the show's

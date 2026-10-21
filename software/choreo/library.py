@@ -586,6 +586,8 @@ def main() -> int:
     a.add_argument("--width", type=int)
     a.add_argument("--height", type=int)
     a.add_argument("--fps", type=float)
+    a.add_argument("--song", help="a video: the library song it carries as its soundtrack, from its start "
+                                  "(the projector then plays the show's music; choreo-audio.md)")
     args = ap.parse_args()
     if args.cmd == "check":
         p = check()
@@ -617,7 +619,8 @@ def main() -> int:
         params = dict(x.split("=", 1) for x in args.param if "=" in x) or None
         e = add(args.path, args.id, args.kind, args.source, args.licence, type=args.type, params=params,
                 inputs=[x for x in (args.inputs or "").split(",") if x],
-                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps)
+                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps,
+                song=args.song)
     except ValueError as err:
         print(f"refused: {err}")
         return 1
