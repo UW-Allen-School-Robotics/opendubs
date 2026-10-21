@@ -35,8 +35,9 @@ TIMEOUT_S = 2.0
 # late instead of not at all (and the page does not re-ask while the runner is still working).
 LIST_TIMEOUT_S = 15.0
 
-# Only the four routes below are forwarded. Nothing else on the runner is reachable this way — in
-# particular not its fake-robot switches (/api/sim/*), which exist for twin testing only.
+# Only the routes below are forwarded (the routines, a run, stop, and the projector's status and
+# output). Nothing else on the runner is reachable this way — in particular not its fake-robot
+# switches (/api/sim/*), which exist for twin testing only.
 router = APIRouter()
 
 # Show audio (plan 4.2) lives in its own module; its routes ride on this router so app.py needs no
@@ -69,6 +70,26 @@ async def _forward(method: str, path: str, body: dict | None = None, timeout: fl
 @router.get("/api/choreo/routines")
 async def routines():
     return await _forward("GET", "routines", timeout=LIST_TIMEOUT_S)
+
+
+@router.get("/api/choreo/video")
+async def video():
+    """The projector (notes/design/choreo-video.md): each output found / ready and why, the output
+    selected, and the video playing with its sync error. The Shows page's projector card reads it."""
+    return await _forward("GET", "video")
+
+
+@router.post("/api/choreo/video/output")
+async def video_output(request: Request):
+    """The operator's play-time choice of video output: {output: cast|hdmi|off|null}. Returns the
+    whole GET body; refused while a show plays (SHOW_VIDEO_BUSY)."""
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON: {output}"}, status_code=400)
+    if not isinstance(raw, dict) or "output" not in raw:
+        return JSONResponse({"error": "the body must be {output: cast|hdmi|off|null}"}, status_code=400)
+    return await _forward("POST", "video/output", {"output": raw["output"]})
 
 
 @router.get("/api/choreo/palette")
