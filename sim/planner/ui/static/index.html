@@ -472,6 +472,40 @@
           </div>
         </div>
 
+        <!-- RC Controller Authority & Deadman Safety Guard -->
+        <div id="hw-deadman-guard-box" style="background:rgba(15,23,42,0.6); border:1px solid var(--border-color); border-radius:6px; padding:12px 14px; font-size:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-weight:600; display:flex; align-items:center; gap:6px;">
+              <span id="hw-safety-indicator-dot" style="width:8px; height:8px; border-radius:50%; background:#ef4444; display:inline-block;"></span>
+              RC Controller Deadman Guard (CH6)
+            </span>
+            <span id="hw-safety-overall-badge" style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; background:rgba(239,68,68,0.2); color:#f87171; text-transform:uppercase;">LOCKED</span>
+          </div>
+          
+          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:8px; font-size:11px;">
+            <div style="background:var(--bg-card); padding:6px 8px; border-radius:4px; border:1px solid var(--border-color);">
+              <div style="color:var(--text-muted); font-size:10px;">CH6 Deadman</div>
+              <div id="hw-saf-deadman" style="font-weight:600; color:#f87171;">RELEASED</div>
+            </div>
+            <div style="background:var(--bg-card); padding:6px 8px; border-radius:4px; border:1px solid var(--border-color);">
+              <div style="color:var(--text-muted); font-size:10px;">CH5 Authority</div>
+              <div id="hw-saf-ch5" style="font-weight:600; color:#94a3b8;">--</div>
+            </div>
+            <div style="background:var(--bg-card); padding:6px 8px; border-radius:4px; border:1px solid var(--border-color);">
+              <div style="color:var(--text-muted); font-size:10px;">Motion Power</div>
+              <div id="hw-saf-power" style="font-weight:600; color:#94a3b8;">--</div>
+            </div>
+            <div style="background:var(--bg-card); padding:6px 8px; border-radius:4px; border:1px solid var(--border-color);">
+              <div style="color:var(--text-muted); font-size:10px;">E-Stop</div>
+              <div id="hw-saf-estop" style="font-weight:600; color:#94a3b8;">--</div>
+            </div>
+          </div>
+
+          <div id="hw-saf-notice" style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+            Physical robot motion strictly requires <strong>CH6 Deadman</strong> switch held down on the RC controller. Releasing CH6 at any point will instantly halt trajectory execution.
+          </div>
+        </div>
+
         <div id="hw-live-progress-container" style="display:none;">
           <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
             <span id="hw-progress-label">Executing trajectory...</span>

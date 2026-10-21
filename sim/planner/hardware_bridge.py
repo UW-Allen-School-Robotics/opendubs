@@ -35,6 +35,7 @@ for p in (REPO, SIM_DIR, CHOREO_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import urllib.request
 import tcp
 from cue import TRIP_DEG_S
 
@@ -48,6 +49,46 @@ DEFAULT_JOINT_LIMITS_DEG = {
     6: (-90.0, 90.0),
     7: (-180.0, 180.0),
 }
+
+
+def get_robot_safety_state(thor_host: str = "127.0.0.1", timeout: float = 0.5) -> Dict[str, Any]:
+    """Query live robot safety telemetry (deadman, estop, ch5 authority) from kiosk-dashboard."""
+    candidates = [
+        f"http://{thor_host}:8080/api/choreo/robot",
+        "http://127.0.0.1:8080/api/choreo/robot",
+        "http://10.42.2.10:8080/api/choreo/robot",
+    ]
+    seen_urls = set()
+    for url in candidates:
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "OpenArmPlanner/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    return {
+                        "ok": True,
+                        "deadman": bool(data.get("deadman")),
+                        "ch5": data.get("ch5"),
+                        "estop": bool(data.get("estop")),
+                        "motion_power": bool(data.get("motion_power")),
+                        "fault": data.get("fault"),
+                        "arms": data.get("arms"),
+                        "source": url,
+                    }
+        except Exception:
+            continue
+    return {
+        "ok": False,
+        "deadman": None,
+        "ch5": None,
+        "estop": None,
+        "motion_power": None,
+        "fault": "Could not connect to robot safety API (10.42.2.10:8080 / 127.0.0.1:8080)",
+        "source": None,
+    }
 
 
 @dataclass
@@ -233,6 +274,17 @@ class HardwareBridge:
             "left": 1.0,  # 1.0 = open, 0.0 = closed
             "right": 1.0,
         }
+        self._cached_safety: Optional[Dict[str, Any]] = None
+        self._cached_safety_time: float = 0.0
+
+    def get_robot_safety(self) -> Dict[str, Any]:
+        """Fetch cached robot safety status (refreshed every 0.25s)."""
+        now = time.monotonic()
+        if self._cached_safety is not None and (now - self._cached_safety_time < 0.25):
+            return self._cached_safety
+        self._cached_safety = get_robot_safety_state()
+        self._cached_safety_time = now
+        return self._cached_safety
 
     def detect_environment(self) -> Dict[str, Any]:
         """Detect what execution transports are available on the host system."""
@@ -299,7 +351,7 @@ class HardwareBridge:
     def get_status(self) -> Dict[str, Any]:
         """Return real-time execution status."""
         with self.lock:
-            return {
+            status_dict = {
                 "status": self.status,
                 "is_executing": self.is_executing,
                 "arm": self.active_arm,
@@ -311,6 +363,8 @@ class HardwareBridge:
                 "sim_joint_states": self._sim_joint_states,
                 "sim_gripper_state": self._sim_gripper_state,
             }
+        status_dict["robot_safety"] = self.get_robot_safety()
+        return status_dict
 
     def command_gripper(
         self,
@@ -346,6 +400,15 @@ class HardwareBridge:
         chosen_mode = mode
         if chosen_mode == "auto":
             chosen_mode = env["recommended_mode"]
+
+        # Gate physical gripper execution on robot safety & deadman
+        if chosen_mode != "hitl":
+            safety = get_robot_safety_state(timeout=0.8)
+            if safety.get("ok"):
+                if not safety.get("deadman"):
+                    return {"success": False, "error": "Gripper command refused: RC Deadman (CH6) is not held."}
+                if safety.get("estop"):
+                    return {"success": False, "error": "Gripper command refused: E-Stop is engaged on the robot."}
 
         with self.lock:
             self._sim_gripper_state[arm] = fraction
@@ -450,6 +513,40 @@ class HardwareBridge:
         env = self.detect_environment()
         if mode == "auto":
             mode = env["recommended_mode"]
+
+        # Enforce Robot Safety & Deadman for live hardware execution
+        if mode != "hitl":
+            robot_safety = get_robot_safety_state(timeout=1.0)
+            if not robot_safety.get("ok"):
+                return {
+                    "success": False,
+                    "error": f"Robot Safety Offline: Cannot verify RC Deadman link ({robot_safety.get('fault')}). Ensure opendubs-dash is running.",
+                    "robot_safety": robot_safety,
+                }
+            if robot_safety.get("estop"):
+                return {
+                    "success": False,
+                    "error": "Hardware Execution Refused: E-STOP is active on the robot.",
+                    "robot_safety": robot_safety,
+                }
+            if not robot_safety.get("motion_power"):
+                return {
+                    "success": False,
+                    "error": "Hardware Execution Refused: Motion power is disabled (contactor open / 24V bus de-energized).",
+                    "robot_safety": robot_safety,
+                }
+            if not robot_safety.get("deadman"):
+                return {
+                    "success": False,
+                    "error": "Hardware Execution Refused: DEADMAN (RC CH6) is RELEASED. The deadman switch on the RC controller must be actively held to permit physical arm motion.",
+                    "robot_safety": robot_safety,
+                }
+            if robot_safety.get("ch5") in ("STANDBY", "OFF"):
+                return {
+                    "success": False,
+                    "error": f"Hardware Execution Refused: RC authority switch CH5 is in {robot_safety.get('ch5')}. Switch CH5 to AUTO with the deadman held.",
+                    "robot_safety": robot_safety,
+                }
 
         with self.lock:
             if self.is_executing:
@@ -616,8 +713,30 @@ class HardwareBridge:
         result_fut = goal_handle.get_result_async()
         t_total = float(times[-1])
         t_start = time.perf_counter()
+        last_saf_poll = 0.0
 
         while not result_fut.done():
+            now = time.monotonic()
+            if now - last_saf_poll >= 0.08:
+                last_saf_poll = now
+                saf = get_robot_safety_state(timeout=0.2)
+                if saf.get("ok"):
+                    if not saf.get("deadman"):
+                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
+                        self._cancel_requested.set()
+                    elif saf.get("estop"):
+                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
+                        self._cancel_requested.set()
+                    elif not saf.get("motion_power"):
+                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
+                        self._cancel_requested.set()
+
             if self._cancel_requested.is_set():
                 goal_handle.cancel_goal_async()
                 rclpy.spin_until_future_complete(node, goal_handle.cancel_goal_async(), timeout_sec=2.0)
@@ -678,8 +797,30 @@ class HardwareBridge:
         t_total = float(times[-1])
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         t_start = time.perf_counter()
+        last_saf_poll = 0.0
 
         while proc.poll() is None:
+            now = time.perf_counter()
+            if now - last_saf_poll >= 0.08:
+                last_saf_poll = now
+                saf = get_robot_safety_state(timeout=0.2)
+                if saf.get("ok"):
+                    if not saf.get("deadman"):
+                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
+                        self._cancel_requested.set()
+                    elif saf.get("estop"):
+                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
+                        self._cancel_requested.set()
+                    elif not saf.get("motion_power"):
+                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
+                        self._cancel_requested.set()
+
             if self._cancel_requested.is_set():
                 proc.terminate()
                 # Run hold
@@ -750,8 +891,30 @@ class HardwareBridge:
         t_total = float(times[-1])
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         t_start = time.perf_counter()
+        last_saf_poll = 0.0
 
         while proc.poll() is None:
+            now = time.perf_counter()
+            if now - last_saf_poll >= 0.08:
+                last_saf_poll = now
+                saf = get_robot_safety_state(thor_host=thor_host, timeout=0.2)
+                if saf.get("ok"):
+                    if not saf.get("deadman"):
+                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
+                        self._cancel_requested.set()
+                    elif saf.get("estop"):
+                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
+                        self._cancel_requested.set()
+                    elif not saf.get("motion_power"):
+                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
+                        with self.lock:
+                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
+                        self._cancel_requested.set()
+
             if self._cancel_requested.is_set():
                 proc.terminate()
                 # Run hold on Thor

@@ -355,6 +355,11 @@ class StudioApp {
     document.getElementById("btn-close-hardware-modal").onclick = () => this._closeHardwareModal();
     document.getElementById("btn-hw-modal-cancel").onclick = () => this._closeHardwareModal();
     document.getElementById("btn-hw-confirm-exec").onclick = () => this._executeOnHardware();
+
+    const hwRadios = document.getElementsByName("hw-exec-mode");
+    for (const r of hwRadios) {
+      r.addEventListener("change", () => this._updateExecutionButtonState());
+    }
   }
 
   async _setArm(arm) {
@@ -1465,9 +1470,65 @@ class StudioApp {
       const progressLabel = document.getElementById("hw-progress-label");
       const btnExec = document.getElementById("btn-hw-confirm-exec");
 
+      // Update Live RC Controller Authority & Deadman Safety Guard card
+      if (data.robot_safety) {
+        this._lastRobotSafety = data.robot_safety;
+        const saf = data.robot_safety;
+        const dot = document.getElementById("hw-safety-indicator-dot");
+        const badge = document.getElementById("hw-safety-overall-badge");
+        const elDeadman = document.getElementById("hw-saf-deadman");
+        const elCh5 = document.getElementById("hw-saf-ch5");
+        const elPower = document.getElementById("hw-saf-power");
+        const elEstop = document.getElementById("hw-saf-estop");
+
+        if (saf.ok) {
+          if (elDeadman) {
+            elDeadman.textContent = saf.deadman ? "HELD (Active)" : "RELEASED";
+            elDeadman.style.color = saf.deadman ? "#4ade80" : "#f87171";
+          }
+          if (elCh5) {
+            elCh5.textContent = saf.ch5 || "--";
+            elCh5.style.color = (saf.ch5 === "AUTO" || saf.ch5 === "MANUAL") ? "#4ade80" : "#f59e0b";
+          }
+          if (elPower) {
+            elPower.textContent = saf.motion_power ? "ENERGIZED" : "OFF";
+            elPower.style.color = saf.motion_power ? "#4ade80" : "#f87171";
+          }
+          if (elEstop) {
+            elEstop.textContent = saf.estop ? "ENGAGED" : "CLEAR";
+            elEstop.style.color = saf.estop ? "#f87171" : "#4ade80";
+          }
+
+          const isSafeToMove = saf.deadman && !saf.estop && saf.motion_power && (saf.ch5 === "AUTO" || saf.ch5 === "MANUAL");
+          if (dot) dot.style.background = isSafeToMove ? "#22c55e" : "#ef4444";
+          if (badge) {
+            badge.textContent = isSafeToMove ? "ARMED" : "SAFETY LOCKED";
+            badge.style.background = isSafeToMove ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)";
+            badge.style.color = isSafeToMove ? "#86efac" : "#f87171";
+          }
+        } else {
+          if (dot) dot.style.background = "#f59e0b";
+          if (badge) {
+            badge.textContent = "DISCONNECTED";
+            badge.style.background = "rgba(245,158,11,0.2)";
+            badge.style.color = "#fcd34d";
+          }
+          if (elDeadman) { elDeadman.textContent = "OFFLINE"; elDeadman.style.color = "#94a3b8"; }
+          if (elCh5) { elCh5.textContent = "--"; elCh5.style.color = "#94a3b8"; }
+          if (elPower) { elPower.textContent = "--"; elPower.style.color = "#94a3b8"; }
+          if (elEstop) { elEstop.textContent = "--"; elEstop.style.color = "#94a3b8"; }
+        }
+      }
+
+      const modal = document.getElementById("hardware-modal");
+      if (modal && modal.style.display !== "none") {
+        this._updateExecutionButtonState();
+      }
+
       if (data.is_executing) {
         nextPollMs = 100; // Fast polling for smooth progress during execution
         this._hasSeenExecuting = true;
+        this._isExecutingOnHardware = true;
 
         if (progressCont) progressCont.style.display = "block";
         if (progressBar) {
@@ -1503,6 +1564,7 @@ class StudioApp {
         // Transitioned from active execution to finished state
         this._hasSeenExecuting = false;
         this._activeExecutionGoalId = null;
+        this._isExecutingOnHardware = false;
 
         if (data.status === "succeeded") {
           if (progressBar) {
@@ -1533,10 +1595,11 @@ class StudioApp {
           }
         } else if (data.status === "cancelled") {
           if (progressLabel) {
-            progressLabel.textContent = "🛑 Execution Cancelled by Emergency Hold";
+            const reason = data.last_error ? ` [${data.last_error}]` : "";
+            progressLabel.textContent = `🛑 Execution Halted${reason}`;
             progressLabel.style.color = "#fbbf24";
           }
-          document.getElementById("plan-status-info").textContent = "Robot Execution Cancelled";
+          document.getElementById("plan-status-info").textContent = data.last_error || "Robot Execution Cancelled";
         } else if (data.status === "failed") {
           if (progressLabel) {
             progressLabel.textContent = `✗ Execution Failed: ${data.last_error || "Unknown error"}`;
@@ -1545,14 +1608,89 @@ class StudioApp {
           document.getElementById("plan-status-info").textContent = "Robot Execution Failed";
         }
 
-        if (btnExec) {
-          btnExec.disabled = false;
-          btnExec.textContent = "Confirm & Execute";
-        }
+        this._updateExecutionButtonState();
       }
     } catch (_) {}
 
     setTimeout(() => this._pollHardwareStatus(), nextPollMs);
+  }
+
+  _updateExecutionButtonState() {
+    const btnExec = document.getElementById("btn-hw-confirm-exec");
+    if (!btnExec) return;
+
+    if (this._isExecutingOnHardware || this._isAwaitingExecutionStart) {
+      return;
+    }
+
+    if (!this._preflightPassed) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Preflight Check Pending";
+      btnExec.style.background = "var(--bg-card)";
+      btnExec.style.color = "var(--text-muted)";
+      return;
+    }
+
+    const radios = document.getElementsByName("hw-exec-mode");
+    let mode = "hitl";
+    for (const r of radios) {
+      if (r.checked) mode = r.value;
+    }
+
+    if (mode === "hitl") {
+      btnExec.disabled = false;
+      btnExec.textContent = "Confirm & Execute (HITL Dry-Run)";
+      btnExec.style.background = "#22c55e";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    // Live mode strictly requires Deadman & safety authority
+    const saf = this._lastRobotSafety;
+    if (!saf || !saf.ok) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Telemetry Offline (Cannot Verify Deadman)";
+      btnExec.style.background = "#64748b";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    if (saf.estop) {
+      btnExec.disabled = true;
+      btnExec.textContent = "E-Stop Engaged (Clear First)";
+      btnExec.style.background = "#ef4444";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    if (!saf.motion_power) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Motion Power Contactor Open";
+      btnExec.style.background = "#f59e0b";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    if (!saf.deadman) {
+      btnExec.disabled = true;
+      btnExec.textContent = "Hold RC Deadman (CH6) to Enable";
+      btnExec.style.background = "#ef4444";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    if (saf.ch5 === "STANDBY" || saf.ch5 === "OFF") {
+      btnExec.disabled = true;
+      btnExec.textContent = "Switch CH5 to AUTO / MANUAL";
+      btnExec.style.background = "#f59e0b";
+      btnExec.style.color = "#ffffff";
+      return;
+    }
+
+    btnExec.disabled = false;
+    btnExec.textContent = "Execute on Live Hardware (CH6 Held)";
+    btnExec.style.background = "#22c55e";
+    btnExec.style.color = "#ffffff";
   }
 
   async _openHardwareModal(autoSelect = false, preferredMode = "hitl") {
@@ -1564,6 +1702,9 @@ class StudioApp {
 
     const modal = document.getElementById("hardware-modal");
     modal.style.display = "flex";
+
+    this._preflightPassed = false;
+    this._isExecutingOnHardware = false;
 
     // Reset progress container on modal open so previous runs don't show stale 100%
     const progressCont = document.getElementById("hw-live-progress-container");
@@ -1580,11 +1721,6 @@ class StudioApp {
       progressLabel.textContent = "Preparing execution...";
       progressLabel.style.color = "var(--text)";
     }
-    const btnExec = document.getElementById("btn-hw-confirm-exec");
-    if (btnExec) {
-      btnExec.disabled = true;
-      btnExec.textContent = "Confirm & Execute";
-    }
 
     this._hasSeenExecuting = false;
     this._activeExecutionGoalId = null;
@@ -1595,6 +1731,7 @@ class StudioApp {
     for (const r of radios) {
       if (r.value === preferredMode) r.checked = true;
     }
+    this._updateExecutionButtonState();
 
     // Run Preflight Check
     const summary = document.getElementById("hw-modal-summary");
@@ -1636,13 +1773,13 @@ class StudioApp {
         summary.style.background = "rgba(34,197,94,0.1)";
         summary.style.borderColor = "rgba(34,197,94,0.3)";
         summary.style.color = "#86efac";
-        if (btnExec) btnExec.disabled = false;
+        this._preflightPassed = true;
       } else {
         summary.textContent = "Safety Check FAILED! Trajectory violates physical hardware safety limits.";
         summary.style.background = "rgba(239,68,68,0.1)";
         summary.style.borderColor = "rgba(239,68,68,0.3)";
         summary.style.color = "#fca5a5";
-        if (btnExec) btnExec.disabled = true;
+        this._preflightPassed = false;
 
         probBox.style.display = "block";
         (data.problems || []).forEach((p) => {
@@ -1651,8 +1788,11 @@ class StudioApp {
           probList.appendChild(li);
         });
       }
+      this._updateExecutionButtonState();
     } catch (err) {
       summary.textContent = `Preflight error: ${err}`;
+      this._preflightPassed = false;
+      this._updateExecutionButtonState();
     }
   }
 
@@ -1693,6 +1833,7 @@ class StudioApp {
     this._hasSeenExecuting = false;
     this._activeExecutionGoalId = null;
     this._isAwaitingExecutionStart = true;
+    this._isExecutingOnHardware = true;
 
     try {
       const resp = await fetch("/api/hardware/execute", {
@@ -1714,10 +1855,8 @@ class StudioApp {
       if (!data.success) {
         alert(`Hardware execution refused:\n${data.error}`);
         this._isAwaitingExecutionStart = false;
-        if (btnExec) {
-          btnExec.disabled = false;
-          btnExec.textContent = "Confirm & Execute";
-        }
+        this._isExecutingOnHardware = false;
+        this._updateExecutionButtonState();
       } else {
         this._activeExecutionGoalId = data.goal_id;
         this._isAwaitingExecutionStart = false;
@@ -1730,9 +1869,10 @@ class StudioApp {
     } catch (err) {
       alert(`Hardware execution error: ${err}`);
       this._isAwaitingExecutionStart = false;
-      if (btnExec) {
-        btnExec.disabled = false;
-        btnExec.textContent = "Confirm & Execute";
+      this._isExecutingOnHardware = false;
+      this._updateExecutionButtonState();
+    }
+  }
       }
     }
   }
