@@ -26,7 +26,7 @@ fi
 # for the system Python the runner runs under. Without it the runner still runs, and the projector
 # card says this robot can't cast yet.
 if ! python3 -c 'import pychromecast' >/dev/null 2>&1; then
-  apt-get install -y -qq python3-pychromecast || echo "   WARNING: python3-pychromecast not installed — no casting to the projector"
+  apt-get install -y -qq --no-upgrade python3-pychromecast || echo "   WARNING: python3-pychromecast not installed — no casting to the projector"
 fi
 install -m 0644 "$APP/deploy/$UNIT" "/etc/systemd/system/$UNIT"
 # The runner talks to the arm container over ROS 2 from the HOST, as the kiosk user. FastDDS's default

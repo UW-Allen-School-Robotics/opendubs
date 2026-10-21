@@ -10,12 +10,13 @@
                                                            # each second — to SEE and HEAR the real lag
 
   CAST  — the projector's built-in Chromecast plays a file the Thor serves over HTTP (MediaServer, a
-          byte-range server on OPENDUBS_VIDEO_PORT, 8093). Discovery is mDNS (_googlecast._tcp), or a
-          fixed address (OPENDUBS_CAST_HOST) where multicast does not cross the network. Control is the
-          Cast protocol (pychromecast, Default Media Receiver). The receiver keeps its OWN clock, so the
-          show starts it early by its measured start latency (OPENDUBS_CAST_LEAD_S) and corrects drift
-          with seeks when the error passes CAST_TOL_S — never more often than SEEK_MIN_GAP_S, because a
-          Cast seek re-buffers and is itself a visible stutter.
+          byte-range server on OPENDUBS_VIDEO_PORT, 8094 — 8093 is the voice service). Discovery is
+          mDNS (_googlecast._tcp), or a fixed address (OPENDUBS_CAST_HOST) where multicast does not
+          cross the network. Control is the Cast protocol (pychromecast, Default Media Receiver). The
+          receiver keeps its OWN clock, so the show starts it early by its measured start latency
+          (OPENDUBS_CAST_LEAD_S) and corrects drift with seeks when the error passes CAST_TOL_S —
+          never more often than SEEK_MIN_GAP_S, because a Cast seek re-buffers and is itself a visible
+          stutter.
   HDMI  — mpv, full screen on the Thor's HDMI out, a long-running service (opendubs-video-hdmi) the
           runner drives over mpv's JSON IPC socket (OPENDUBS_MPV_SOCKET). It runs on the Thor's clock,
           so it starts on the show's time and is held to it by small speed changes (HDMI_TOL_S), with
@@ -39,7 +40,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 OUTPUTS = ("cast", "hdmi", "off")
-SERVE_PORT = int(os.environ.get("OPENDUBS_VIDEO_PORT") or 8093)
+SERVE_PORT = int(os.environ.get("OPENDUBS_VIDEO_PORT") or 8094)   # 8093 is opendubs-voice
 # Cast: a seek re-buffers (a visible hitch of ~0.3-1 s), so the tolerance is loose and seeks are rare
 CAST_TOL_S = 0.25
 SEEK_MIN_GAP_S = 8.0
@@ -71,6 +72,32 @@ def sync_action(err_s: float, since_seek_s: float, tol_s: float, min_gap_s: floa
     """Whether a playing video should be seeked back onto the show's time: its error is past the
     tolerance, and the last seek has had time to settle (a seek also re-buffers)."""
     return abs(err_s) > tol_s and since_seek_s >= min_gap_s
+
+
+def bind_address(spec: str | None = None) -> str:
+    """Where the file server listens: OPENDUBS_VIDEO_BIND as an address or an interface name, else the
+    robot-LAN interface avahi is limited to (allow-interfaces, as the AirPlay receiver reads it), else
+    every interface. Read at start, never written down: the Thor's LAN address is a DHCP lease."""
+    spec = (spec if spec is not None else os.environ.get("OPENDUBS_VIDEO_BIND") or "").strip()
+    if not spec:
+        try:
+            for line in open("/etc/avahi/avahi-daemon.conf"):
+                m = re.match(r"\s*allow-interfaces\s*=\s*([^,\s#]+)", line)
+                if m:
+                    spec = m.group(1)
+                    break
+        except OSError:
+            pass
+    if not spec or re.match(r"^\d+\.\d+\.\d+\.\d+$", spec):
+        return spec
+    import subprocess
+    try:                                       # an interface name: its first IPv4 address
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show", "dev", spec], capture_output=True,
+                             text=True, timeout=3).stdout
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", out)
+        return m.group(1) if m else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def local_ip_toward(host: str) -> str:

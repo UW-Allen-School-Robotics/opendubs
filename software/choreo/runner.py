@@ -1369,7 +1369,7 @@ def main() -> int:
                     help="dashboard: a live run lays its colour over the state light (show_light.py)")
     pp.add_argument("--video", default="",
                     help="the projector outputs this runner drives: cast, hdmi or cast,hdmi (video_out.py; "
-                         "per robot: OPENDUBS_CAST_NAME / OPENDUBS_CAST_HOST, OPENDUBS_VIDEO_PORT, "
+                         "per robot: OPENDUBS_CAST_NAME / OPENDUBS_CAST_HOST, OPENDUBS_VIDEO_PORT (8094), OPENDUBS_VIDEO_BIND, "
                          "OPENDUBS_MPV_SOCKET, OPENDUBS_VIDEO_OUTPUT)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
                     help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
@@ -1430,8 +1430,7 @@ def main() -> int:
         if wanted - {"cast", "hdmi"}:
             ap.error(f"--video: {', '.join(sorted(wanted - {'cast', 'hdmi'}))} is not cast or hdmi")
         if "cast" in wanted:
-            video["cast"] = video_out.CastOutput(server=video_out.MediaServer(
-                bind=os.environ.get("OPENDUBS_VIDEO_BIND") or ""))
+            video["cast"] = video_out.CastOutput(server=video_out.MediaServer(bind=video_out.bind_address()))
         if "hdmi" in wanted:
             video["hdmi"] = video_out.HdmiOutput()
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,

@@ -45,8 +45,10 @@ cues:
   works without mDNS: `OPENDUBS_CAST_HOST` in `/etc/opendubs/robot.env`. With several Cast devices
   around, `OPENDUBS_CAST_NAME` names this robot's projector.
 - **Serving:** the runner serves only the files a run registers (no directory, no other path) from a
-  byte-range HTTP server on `OPENDUBS_VIDEO_PORT` (8093), bound to `OPENDUBS_VIDEO_BIND` (set it to the
-  robot-LAN address in robot.env; by default all interfaces). Cast receivers fetch and seek with Range
+  byte-range HTTP server on `OPENDUBS_VIDEO_PORT` (**8094**; 8093 is the voice service), bound at start to
+  the robot-LAN interface's address — the interface avahi is limited to (`allow-interfaces`, as the
+  AirPlay receiver reads it), or `OPENDUBS_VIDEO_BIND` (an address or an interface name) in robot.env;
+  never a written-down address, since the Thor's LAN address is a DHCP lease. Cast receivers fetch and seek with Range
   requests. The URL's host is the Thor's own address toward the projector.
 - **Control:** pychromecast, the Default Media Receiver: `load` (BUFFERED, paused at `from_s`) while the
   arms travel to their start pose, `play`, `seek`, `stop`, and a black still for `end: black`.
@@ -91,8 +93,14 @@ cues:
   Restart=always
   ```
 
-  plus `apt install mpv`, and `--video cast,hdmi` on the runner's ExecStart once it is there. Whether
-  DRM output from a service drives the Thor's HDMI port (JetPack 7) is the Thor lane's first check.
+  plus `apt install mpv` and the kiosk user in `video`/`render`, and `--video cast,hdmi` on the runner's
+  ExecStart once it is there.
+- **The blocker (Thor lane, 2026-10-20):** the Thor's GNOME desktop still runs (gdm, gnome-shell),
+  though nothing uses it — the tablet is the only UI — and gdm holds the display, so mpv from a service
+  cannot take it. The fix is host config (the multi-user target, no display manager); it changes boot
+  behaviour, so it waits for a go. Whether nvidia-drm on JetPack 7 then takes `--vo=drm` (or
+  `gpu-context=drm`) is unverified, and can only be tried with the projector plugged in: with nothing on
+  the HDMI port there is no connected connector to draw on.
 
 ## 4. Choosing the output, and what happens when it isn't ready
 
@@ -156,7 +164,7 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 - mDNS crosses: the AP and the Thor's wired port are one bridge, no client isolation, multicast left as
   multicast. (Bridge IGMP snooping unread; it would forward 224.0.0.x anyway.)
 - No router firewall between the Thor and the projector (bridged, not routed). The Thor's own firewall,
-  if any, must allow inbound 8093 from the LAN (Thor lane).
+  if any, must allow inbound 8094 from the LAN (Thor lane: nothing in the repo configures one).
 - 2.4 GHz carries one 8–10 Mbit/s stream comfortably (the AP gives ~25–35 Mbit/s real); aim for the
   projector's signal at −65 dBm or better. Cast buffers, so a dip need not stall it.
 
@@ -180,7 +188,8 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 | piece | lane |
 |---|---|
 | the format, `video_out.py`, the runner, the dashboard routes, `provision-runner.sh` (pychromecast) | Choreography (this PR) |
-| `opendubs-video-hdmi` (mpv) unit, `apt install mpv`, DRM access, the Thor firewall for 8093, `OPENDUBS_VIDEO_BIND` in robot.env | Thor stack |
+| the desktop off (multi-user target, no display manager — gdm holds the display, so mpv cannot), on a go | Thor stack |
+| `apt install mpv`, the `opendubs-video-hdmi` unit, kiosk in `video`/`render` — in `provision-runner.sh` once the desktop is off | Choreography |
 | the projector card (`frontend/projector.js`, #441) | Tablet and head interface |
 | the projector's DHCP reservation, Wi-Fi checks | Network |
 | §5 audio, and turning video into an effector after #406 | the user |
