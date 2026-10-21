@@ -92,7 +92,13 @@ Starting values, one run each, simulation only:
 | controller | hold, 4 s | +80 mm in z over 1.5 s |
 |---|---|---|
 | `track` (operational space, gravity through the model) | hand 0.1 mm, joints at most 0.001 rad | 80.9 mm, 0.9 mm from the goal |
-| `impedance` (J^T w) | **not rerun from the ready pose.** From the near-singular start it held to 1 mm and moved 18 mm of 80 in 3.5 s, too soft or too slow as configured; why was not investigated | |
+| `freedrive` (no stiffness, gravity, joint damping) | the arm floats: hand 5.6 mm, joints 0.011 rad of creep; with gravity 0 it falls 554 mm | (no reference to move) |
+
+**The first `impedance` controller was removed.** It was a task-space spring-damper with J^T w output, and its `gravity: 9.81` did nothing: from the
+ready pose the hold sagged 43.9 mm at gravity 0, 9.81 and 19.62 alike, and with four times the stiffness the hand sagged 12.5 mm but the
+joints still wandered 0.64 rad, because an impedance controller has no null-space stage. It claimed a gravity compensation it did not have. A
+compliant tracking controller would need that designed (gravity through an acceleration stage, a posture stage); `track` is operational-space,
+as decided, and `freedrive` covers the zero-stiffness case.
 
 An earlier `track` run from the model's default pose looked like drift (9 mm, 0.78 rad); that was the guard leaving a near-singular start, above.
 
