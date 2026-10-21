@@ -58,18 +58,50 @@ inside the torque loop, on a controller manager that already shows missed cycles
 second ties the arm to ROS 2 and needs a C++ plugin. The third was chosen for loop quality and no ROS. It excludes the ROS stack from
 the bus, since only one process can own the CAN interface, so the two cannot run together.
 
+## Stow and ready
+
+**Stow is not where a controller starts.** Stow is the zero pose, with the elbow straight: exactly singular (smallest Jacobian singular
+value 0.000, against the guard's floor of 0.06). The model's own `ready` keyframe (J4 = 0.3, chosen only to stay off the joint's limit) is
+barely better (0.027). A controller engaged from either has the guard swing the arm: J3 and J5 counter-rotate by about 0.75 rad while the hand
+barely moves (9 mm), which is the guard doing its job, not a gain problem.
+
+So the arm has a **ready pose**, separate from stow, which is where it is engaged and homed to. Right arm, model joint order (the left is the
+mirror, joints 1 to 3 negated, per `sim/scene.py`): `[0.00, 0.70, -0.50, 1.80, -1.00, -0.10, -0.55]`. Elbow bent 103 deg, the hand at
+(0.37, -0.19, 0.50) in front of the chest, the tool pointing forward.
+
+| measure | value | against |
+|---|---|---|
+| smallest singular value | 0.128 | the guard's floor, 0.06 (2.1x) |
+| smallest joint margin | 0.57 rad | the guard's margin, 0.35 |
+| J2 margin to the head cap | 117 deg | |
+| clearance to the head, at lift 0, 137 and 275 mm | 78 mm | a show leaves 30 mm; the twin is 6 deg optimistic (DEC-12) |
+| between the arms | 188 mm | |
+
+It was **picked** by sampling, with ssik through `self_motion_charts.bridge` (the OpenArm's ssik twin agrees with gafro's FK to 3e-15), the
+self-motion manifold of 108 candidate hand poses in front of the chest and scoring every posture on it, then checking the best against the head
+and each other in this robot's scene. `tools/arm_ready_pose.py pick` repeats that and `verify` checks the chosen pose (it rejects the arm's own
+`ready`); `tools/arm_gafro_model.py` writes it into the model as the `ready` keyframe, and `check.py` checks the keyframe is that pose.
+
+RI's MuJoCo backend starts in the model's first keyframe, so the simulated arm now begins in the ready pose.
+
 ## Simulation, 2026-10-21
 
-The two controllers run closed loop in RI's MuJoCo backend with the public gafro (the right arm, from where it stands; the reference is a
-pose). Starting values, one run each, simulation only:
+The controllers run closed loop in RI's MuJoCo backend with the public gafro (the right arm, from the ready pose, the reference a pose).
+Starting values, one run each, simulation only:
 
-| controller | hold, 2 s | +80 mm in z over 1.5 s |
+| controller | hold, 4 s | +80 mm in z over 1.5 s |
 |---|---|---|
-| `free` (operational space, gravity through the model) | hand 8 mm, but a joint moved up to 0.41 rad in the nullspace | 80.0 mm, 0.5 mm from the goal |
-| `impedance` (J^T w) | hand 1 mm | **18 mm of 80 in 3.5 s: too soft or too slow as configured** |
+| `track` (operational space, gravity through the model) | hand 0.1 mm, joints at most 0.001 rad | 80.9 mm, 0.9 mm from the goal |
+| `impedance` (J^T w) | **not rerun from the ready pose.** From the near-singular start it held to 1 mm and moved 18 mm of 80 in 3.5 s, too soft or too slow as configured; why was not investigated | |
 
-`free` tracks; its posture stage lets the redundant joints drift while the hand holds. The `impedance` gains (400 N/m, 40 N s/m) do not
-move the arm as asked, and why was not investigated. Both need tuning on an arm; these runs say the config works, not that it is right.
+An earlier `track` run from the model's default pose looked like drift (9 mm, 0.78 rad); that was the guard leaving a near-singular start, above.
+
+**`go_to_keyframe` does not return.** From a displaced pose it brings the arm to within 0.057 rad of the ready keyframe and never finishes: RI's
+position servo has no gravity feedforward, so it settles a few hundredths of a radian short, outside its stopping tolerance. The real arm's
+position mode would sag the same way (the driver sends no feedforward torque in position mode). Two ways round it, neither done: gravity
+feedforward in the driver's position and hold frames, from the bound model (which also removes the hold's sag on the real arm), or engaging
+by `track` with the ready pose as its reference and posture target. A joint-space torque controller with gravity was tried and moved the arm
+at about 0.02 rad/s; it is not in the config, and why was not found.
 
 ## Next
 
