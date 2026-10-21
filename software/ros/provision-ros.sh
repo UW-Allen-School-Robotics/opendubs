@@ -61,8 +61,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websocket
 # SLAM (opendubs-slam, off unless /etc/opendubs/slam.enabled) and the robot's frames. Their own line and
 # allowed to fail, for the same reason.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
-  "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" "ros-${ROS_DISTRO}-laser-filters" >/dev/null \
-  || echo "  !! slam_toolbox / laser_filters not installed (offline?): opendubs-slam cannot start until they are"
+  "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
+  || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
 
 # --- sudoers (scan watchdog → restart rplidar) ------------------------------
 install -m0440 "$ROSDIR/opendubs-ros-sudoers" /etc/sudoers.d/opendubs-ros

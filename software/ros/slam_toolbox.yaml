@@ -6,7 +6,7 @@ slam_toolbox:
     odom_frame: odom              # drive_bridge publishes odom -> base_link from the Pinpoint
     map_frame: map
     base_frame: base_link         # slam_toolbox's default is base_footprint
-    scan_topic: /scan_filtered    # /scan less the robot's own returns (scan_body_filter.yaml)
+    scan_topic: /scan_filtered    # /scan less the robot's own returns (scan_body_filter.py)
     mode: mapping
     resolution: 0.05
     max_laser_range: 8.0          # the A1's useful indoor range, not its 12 m best case
