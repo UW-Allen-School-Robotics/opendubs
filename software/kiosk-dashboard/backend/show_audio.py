@@ -49,17 +49,18 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import mimetypes
 import os
 import time
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 SHOWS_DIR = os.environ.get("OPENDUBS_CHOREO_SHOWS", "/opt/opendubs/choreo/shows")
 MEDIA_SUBDIRS = ("audio", "sounds")
-# The show library (software/choreo/library.py): only its songs are served, under media/library/.
+# The show library (software/choreo/library.py): only its songs and videos are served, under media/library/.
 LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
-LIBRARY_MEDIA_SUBDIRS = ("songs",)
+LIBRARY_MEDIA_SUBDIRS = ("songs", "videos")   # videos: the stage page plays the show's (stage.py)
 OPS = ("load", "start", "stop", "cut", "unhold")   # unhold: the projector dropped out — the tablet takes its held music
 AMBIENT_OPS = ("play", "stop", "volume", "next", "play_file", "stop_play")
 PLAY_URL_PREFIX = "/api/play/files/"      # the Tablet lane's store, same origin
@@ -405,7 +406,7 @@ async def audio_command(request: Request):
 
 def media_path(rel: str) -> str | None:
     """A show's audio file, or None: only under the shows directory's audio/ or sounds/, or the
-    library's songs/ (as `library/songs/...`)."""
+    library's songs/ and videos/ (as `library/songs/...`)."""
     if rel.startswith("library/"):
         root = os.path.realpath(LIBRARY_DIR)
         full = os.path.realpath(os.path.join(root, rel[len("library/"):]))
@@ -419,9 +420,34 @@ def media_path(rel: str) -> str | None:
     return full if os.path.isfile(full) else None
 
 
+def _byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """One `bytes=a-b` / `bytes=a-` / `bytes=-n` range as (start, end inclusive), or None."""
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    a, _, b = header[6:].strip().partition("-")
+    try:
+        if a == "":
+            start, end = max(0, size - int(b)), size - 1
+        else:
+            start, end = int(a), (min(int(b), size - 1) if b else size - 1)
+    except ValueError:
+        return None
+    return (start, end) if 0 <= start <= end < size else None
+
+
 @router.get("/api/choreo/media/{rel:path}")
-async def media(rel: str):
+async def media(rel: str, request: Request):
     p = media_path(rel)
     if p is None:
         return JSONResponse({"error": "no such show audio file"}, status_code=404)
-    return FileResponse(p)
+    # A <video> on the stage page seeks by byte ranges (a late join, a resync). Answered here, because
+    # the FileResponse of the Starlette that fastapi 0.115.0 allows ignores Range and sends it all.
+    rng = _byte_range(request.headers.get("range"), os.path.getsize(p))
+    if rng is None:
+        return FileResponse(p, headers={"Accept-Ranges": "bytes"})
+    start, end = rng
+    with open(p, "rb") as fh:
+        fh.seek(start)
+        body = fh.read(end - start + 1)
+    return Response(body, status_code=206, media_type=mimetypes.guess_type(p)[0] or "application/octet-stream",
+                    headers={"Content-Range": f"bytes {start}-{end}/{os.path.getsize(p)}", "Accept-Ranges": "bytes"})

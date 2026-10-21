@@ -49,17 +49,45 @@ depth camera → tracker (ROS 2 topic) → relay (#451): adapt(msg, received_mon
 
 ## The page
 
-- Full-screen canvas, optionally over a video (`?video=`, the show's stage cut: bed + hits + song, no
-  skeleton baked in — library `them-bones-stage`). `?hud=1` shows the feed, the frame rate and the latency.
+- Full-screen canvas over the show's video when a show is running (below), else over `?video=` for a
+  test (the show's stage cut: bed + hits + song, no skeleton baked in — library `them-bones-stage`).
+  `?hud=1` shows the feed, the show, the video's error, the frame rate and the latency.
 - **The person:** the most confident, nearest one; joints under 0.3 confidence left out; **mirrored** (they
   see themselves as in a mirror); scaled to fit the screen's height; placed where they stand (the camera's
   centre at the screen's centre), kept on the screen.
 - **The hand-over:** a person in a fresh frame (< 0.5 s old) fades in over ~0.4 s while the dancer fades
   out; 1.5 s after they leave, the dancer fades back.
 - **The dancer** (the fallback figure, and Them Bones' base layer): the same cartoon skeleton on the beat
-  (`?bpm=`). The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
+  — the running show's beat grid, else `?bpm=`. The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
 - **The kiosk:** `window.OpenDubsKiosk?.alive?.()` every 5 s from the draw loop, so a page that stops
   drawing stops checking in and the app reloads it; it reconnects its WebSocket itself, with back-off.
+
+## The show's timing — the only thing the page needs from the Thor
+
+The page has **no per-device logic**: the projector's app, a small computer on HDMI and any browser load
+the same `/stage/` and get the same behaviour, because everything a page needs comes from the Thor over
+its one WebSocket:
+
+- **The runner's `stage` video output** (`video_out.StageOutput`, `--video cast,stage` on the robot) hands
+  the dashboard the show's timing, nothing else: `POST /api/stage/show` (localhost only)
+  - `{"op": "load", "id", "videos": [{"t", "end_t", "url", "from_s", "end": "black"|"hold", "id"}],
+    "beat": {"offset_s", "bpm"} | null}` while the arms travel to their start pose;
+  - `{"op": "start", "id", "t0_mono"}` when the show starts: its t0 on the **Thor's monotonic clock**;
+  - `{"op": "stop", "id", "cut"}` on every end (`cut`: an e-stop).
+
+  Times are show seconds; `url` is the library file as the dashboard serves it
+  (`/api/choreo/media/library/videos/…`, byte ranges, same origin as the page).
+- **The dashboard** (`stage.py`) keeps that state and sends it as `{"type": "show", …}` to every page,
+  and to a page that joins later (a reload, a second screen), which then starts in the right place.
+- **The page** maps its clock to the Thor's (the ping/pong above), so show time is
+  `now_on_the_Thor − t0_mono`; it plays the video at `from_s + (show time − t)`, seeks when it is more
+  than 150 ms out, and inside that nudges the playback rate by up to ±3 %. Between videos it is black,
+  or holds the last frame for `end: hold`. It plays with sound (the video carries the song, as on the
+  cast path), falling back to muted if the device refuses autoplay with sound.
+- **Ready** means at least one page is connected (`GET /api/stage` `pages`): none, and a show runs
+  without its video, saying "no stage page is open" — or is refused, SHOW_VIDEO_NOT_READY, if it requires
+  video. Every page gone for ~4 s mid-show is **lost**: logged, and if the video carried the music the
+  tablet takes it over, as on the cast path. Never an abort.
 
 ## Latency
 
@@ -84,7 +112,4 @@ To try in this order at the projector (a Nebula P1i, Google TV):
 
 ## Not yet
 
-- The video under the skeletons following the SHOW's clock (the runner starting it, like show audio):
-  the page takes `?video=` for the first test; the runner's "stage" output comes next, on the user's
-  choice of route.
 - The camera's mount and TF frame (Thor lane, once the user gives the mount).

@@ -5,8 +5,14 @@
    when they leave. Skeleton points only, from /ws/skeleton (the dashboard relays the Thor's feed); no
    camera image ever reaches this page.
 
-   Query: ?video=<url> plays a video under the skeletons (looped, muted unless &sound=1); ?bpm=99.4 the
-   fallback dancer's tempo; ?hud=1 shows the feed, the frame rate and the measured latency.
+   THE SHOW'S TIMING comes from the Thor, over the same WebSocket (the dashboard's stage.py, from the show
+   runner): the videos and when, the beat grid, start (the Thor's monotonic t0) and stop. The page plays the
+   video on the show's clock (kept to it as show audio keeps the music) and dances on the show's beat. It
+   needs nothing else, so it is the same page in the projector's app, on a small computer by the projector,
+   or in any browser. The video carries the song: the projector plays the music.
+
+   Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
+   &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency.
    The kiosk app on the projector reloads a page that stops checking in: alive() is called from the
    draw loop every 5 s, so a page whose drawing stops also stops checking in. */
 "use strict";
@@ -15,6 +21,8 @@
   const cv = document.getElementById("stage"), g = cv.getContext("2d");
   const hud = document.getElementById("hud"), video = document.getElementById("video");
   const BPM = Number(q.get("bpm")) || 99.4, BEAT_MS = 60000 / BPM;
+  let show = null;                                  // the show's timing, from the Thor
+  const SEEK_S = 0.15, NUDGE = 0.03;                // past 150 ms: seek; inside: a small rate change
   const BONE = "#eeecde", DARK = "#0e121c";
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
@@ -32,6 +40,7 @@
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if ("pong" in m) return onPong(m);
+      if (m.type === "show") { show = m; showChanged(); return; }
       if (m.v === 1) { m.arrived = performance.now(); latest = m; }
     };
     ws.onclose = () => { setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 8000); };
@@ -50,6 +59,45 @@
   }
   setInterval(burst, 10000);                       // keep the clock fresh
   connect();
+
+  /* ---- the show's video, on the show's clock ------------------------------------------------------ */
+  const manual = !!q.get("video");
+  function showChanged() {
+    if (!show || show.state === "stopped") {
+      if (!manual) { video.pause(); video.hidden = true; video.removeAttribute("src"); }
+      return;
+    }
+    const first = (show.videos || [])[0];
+    if (first && !manual && video.dataset.url !== first.url) {      // load the first while it is still "loaded"
+      video.dataset.url = first.url; video.src = first.url; video.loop = false; video.preload = "auto";
+    }
+  }
+  function showTime(now) {                          // seconds into the show, on the Thor's clock
+    return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
+  }
+  function keepVideo(now) {
+    const st = showTime(now);
+    if (st == null || manual) return null;
+    const it = (show.videos || []).find((v) => v.t <= st && st < v.end_t);
+    if (!it) {                                       // between videos, or after: black (or the last frame held)
+      const last = (show.videos || []).filter((v) => v.end_t <= st).pop();
+      if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
+      return st;
+    }
+    if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = it.url; }
+    const want = it.from_s + (st - it.t);
+    video.hidden = false;
+    if (video.paused) {
+      video.currentTime = want; video.muted = false;
+      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
+      return st;
+    }
+    const err = video.currentTime - want;
+    if (Math.abs(err) > SEEK_S) { video.currentTime = want; video.playbackRate = 1; keepVideo.seeks = (keepVideo.seeks || 0) + 1; }
+    else video.playbackRate = 1 - Math.max(-NUDGE, Math.min(NUDGE, err * 0.5));
+    keepVideo.err = err;
+    return st;
+  }
 
   /* ---- the cartoon skeleton (skeleton_art.py, in canvas) ------------------------------------------- */
   const BONES = [["l_shoulder", "l_elbow"], ["l_elbow", "l_wrist"], ["r_shoulder", "r_elbow"], ["r_elbow", "r_wrist"],
@@ -103,8 +151,8 @@
     const x1 = o[0] + l1 * Math.sin(a1 * r), y1 = o[1] - l1 * Math.cos(a1 * r);
     return [[x1, y1], [x1 + l2 * Math.sin((a1 + a2) * r), y1 - l2 * Math.cos((a1 + a2) * r)]];
   }
-  function dancer(ms) {
-    const b = ms / BEAT_MS, ph = b % 1, beat = Math.floor(b) % 4, bounce = Math.abs(Math.sin(Math.PI * ph));
+  function dancer(ms, beatMs) {
+    const b = ms / (beatMs || BEAT_MS), ph = b % 1, beat = Math.floor(b) % 4, bounce = Math.abs(Math.sin(Math.PI * ph));
     const swing = beat % 2 === 0 ? 55 : -55;
     const px = 0.05 * Math.sin(Math.PI * b / 2), py = 0.98 - 0.05 * bounce;
     const neck = [px, py + 0.47], head = [neck[0] + 0.02 * Math.sin(Math.PI * b), neck[1] + 0.17];
@@ -149,6 +197,7 @@
   let liveAlpha = 0, lastSeen = -1e9, lastAlive = 0, frames = 0, fpsAt = performance.now(), fps = 0;
   function draw(now) {
     const W = cv.width = innerWidth * devicePixelRatio, H = cv.height = innerHeight * devicePixelRatio;
+    const st = keepVideo(now);                     // first: the show's video kept to the show's clock
     if (video.hidden) {                            // no video: a dark light table
       const grd = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * 0.9);
       grd.addColorStop(0, "#0c2a44"); grd.addColorStop(1, "#04070f");
@@ -160,7 +209,8 @@
     const target = now - lastSeen < 1500 ? 1 : 0;  // hand back 1.5 s after the person leaves
     liveAlpha += (target - liveAlpha) * Math.min(1, (now - (draw.prev || now)) / 400);
     draw.prev = now;
-    const [DP, ds] = place(dancer(now), W, H, false, false);
+    const beat = show && show.beat && st != null ? show.beat : null;
+    const [DP, ds] = place(beat ? dancer((st - beat.offset_s) * 1000, 60000 / beat.bpm) : dancer(now), W, H, false, false);
     skeleton(DP, ds, 1 - liveAlpha);
     if (who) { const [LP, ls] = place(who.joints, W, H, true, true); skeleton(LP, ls, liveAlpha); draw.last = [LP, ls]; }
     else if (draw.last && liveAlpha > 0.01) skeleton(draw.last[0], draw.last[1], liveAlpha);
@@ -174,7 +224,9 @@
     if (now - lastAlive > 5000) { lastAlive = now; try { window.OpenDubsKiosk?.alive?.(); } catch (e) { /* not in the kiosk */ } }
     if (q.get("hud")) {
       const s = [...lat].sort((a, b) => a - b), p = (k) => (s.length ? Math.round(s[Math.floor(k * (s.length - 1))]) : "–");
-      hud.textContent = `feed ${latest ? latest.status || "live" : "none"} · ${latest ? (now - latest.arrived).toFixed(0) + " ms old" : ""}\n`
+      hud.textContent = `show ${show ? show.state : "none"}${st != null ? " · " + st.toFixed(1) + " s" : ""}`
+        + `${keepVideo.err != null ? " · video " + (keepVideo.err * 1000).toFixed(0) + " ms, seeks " + (keepVideo.seeks || 0) : ""}\n`
+        + `feed ${latest ? latest.status || "live" : "none"} · ${latest ? (now - latest.arrived).toFixed(0) + " ms old" : ""}\n`
         + `person ${who ? "yes" : "no"} · ${fps.toFixed(0)} fps · clock ±${clock ? clock.err.toFixed(1) : "?"} ms\n`
         + `latency capture→paint p50 ${p(0.5)} p95 ${p(0.95)} ms (n ${s.length})`;
     }
