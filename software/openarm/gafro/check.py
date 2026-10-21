@@ -89,6 +89,49 @@ def head_cap_in_model(system, hardware: dict) -> list[str]:
     return problems
 
 
+def guard_reacts_to_cap(model: str, controllers: dict) -> list[str]:
+    """The `free` controller's joint-limit guard sees the cap: at the same state, the torque on joint 2 near the cap differs from the one
+    the arm's own, uncapped model gives, and far from it is the same."""
+    import gafro as g
+    from gafro import control
+    from gafro.control import spec
+    from gafro.robot import JointDomain
+    from openarm_assets import get_generated_model_path
+
+    cap = math.radians(__import__("cue").SHOULDER_HEAD_CONTACT_DEG - __import__("cue").SHOULDER_MARGIN_DEG)
+    description = controllers["free"]
+
+    def torque_on_j2(path: str, j2: float) -> float:
+        system = g.SystemSerialization.load(path)
+        task_space = system.get_task_space("right")
+        domain = JointDomain.from_task_space(system, task_space)
+        q = np.asarray(system.get_default_configuration(), dtype=float)
+        index = np.asarray(task_space.get_joint_indices())
+        q[index] = np.array([0.2, j2, 0.1, 1.2, 0.0, 0.3, 0.0])
+        pose = task_space.compute_ee_motor(q[index])
+        controller, _ = spec.build(
+            description, {"reference": "pose", "posture": "joints"},
+            dict(system=system, task_space=task_space, task_space_name="right", domain=domain, configuration=q, reference=pose,
+                 reference_source=control.MotorReferenceSource(pose, horizon=0.02),
+                 posture_source=control.JointReferenceSource(q.copy(), horizon=0.02), posture_initial=q.copy()), "free")
+        state = control.SystemState(system.get_dof())
+        state.set_position(q)
+        state.set_velocity(np.zeros(system.get_dof()))
+        state.set_torque(np.zeros(system.get_dof()))
+        return float(controller.step(state, 0.002)[1])
+
+    arm = str(get_generated_model_path("bimanual"))
+    far, near = 1.0, cap - 0.1
+    problems = []
+    if abs(torque_on_j2(model, far) - torque_on_j2(arm, far)) > 1e-6:
+        problems.append("far from the cap the capped and the arm's own model give different joint 2 torques")
+    difference = torque_on_j2(model, near) - torque_on_j2(arm, near)
+    print(f"  guard: 0.1 rad from the cap the joint 2 torque is {difference:+.2f} N m from what the uncapped model gives")
+    if difference > -1.0:  # the right arm's cap is an upper bound: the guard pushes the joint back down
+        problems.append(f"0.1 rad from the cap the guard changes the joint 2 torque by {difference:+.2f} N m: it does not see the cap")
+    return problems
+
+
 def groups_exist(system, hardware: dict) -> list[str]:
     known = {group.get_name() for group in system.get_control_groups()}
     return [f"hardware group '{name}' is not a control group of the model ({sorted(known)})" for name in hardware if name not in known]
@@ -107,7 +150,7 @@ def main() -> int:
     hardware = yaml.safe_load(open(os.path.join(HERE, "hardware.example.yaml")))
 
     print(f"model: {args.model}")
-    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers)
+    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers) + guard_reacts_to_cap(args.model, controllers)
 
     for problem in problems:
         print(f"PROBLEM: {problem}")

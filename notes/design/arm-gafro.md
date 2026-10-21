@@ -44,8 +44,9 @@ at the lowest software layer. The driver does not know who grants it or why.
 - **The cap is in the model, not only the driver.** The driver clamps position targets, and does not limit torque by position, so on the
   torque path the cap has to be in what the controllers read: gafro's joint-limit guard takes each joint's own limits from the model.
   The limits cannot be set on a loaded model from Python (`System.set_joint_limits` changes the system's arrays, which the driver reads,
-  but not the joints', which the guard reads), so the model is generated with joint 2 narrowed. That the guard then reacts is by
-  reading its source; nothing has run the controller near the cap.
+  but not the joints', which the guard reads), so the model is generated with joint 2 narrowed. That the guard then reacts is checked
+  at the controller (`check.py`: 0.1 rad from the cap the joint 2 torque differs by -7 N m from the arm's own model, 0 far from it); a
+  closed-loop run near the cap has not been done.
 - **No workspace box, no head in a collision model.** gafro's spec has neither; see the README beside the config.
 - **Every default** (gains, trips, slews, the permit's use) is a starting value.
 
@@ -56,6 +57,19 @@ Three ways to send torque were weighed: gafro as a ROS 2 client of the existing 
 inside the torque loop, on a controller manager that already shows missed cycles at 400 Hz without realtime scheduling (item 2.5). The
 second ties the arm to ROS 2 and needs a C++ plugin. The third was chosen for loop quality and no ROS. It excludes the ROS stack from
 the bus, since only one process can own the CAN interface, so the two cannot run together.
+
+## Simulation, 2026-10-21
+
+The two controllers run closed loop in RI's MuJoCo backend with the public gafro (the right arm, from where it stands; the reference is a
+pose). Starting values, one run each, simulation only:
+
+| controller | hold, 2 s | +80 mm in z over 1.5 s |
+|---|---|---|
+| `free` (operational space, gravity through the model) | hand 8 mm, but a joint moved up to 0.41 rad in the nullspace | 80.0 mm, 0.5 mm from the goal |
+| `impedance` (J^T w) | hand 1 mm | **18 mm of 80 in 3.5 s: too soft or too slow as configured** |
+
+`free` tracks; its posture stage lets the redundant joints drift while the hand holds. The `impedance` gains (400 N/m, 40 N s/m) do not
+move the arm as asked, and why was not investigated. Both need tuning on an arm; these runs say the config works, not that it is right.
 
 ## Next
 
