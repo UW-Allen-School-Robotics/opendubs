@@ -183,12 +183,22 @@ In the Web Studio UI, click the **Benchmark** button in the header toolbar to tr
 The motion planner includes a dedicated **Hardware Bridge & Safety Preflight Layer** (`sim/planner/hardware_bridge.py`) that connects the simulation and studio planner to the physical OpenArm robot on the OpenDubs platform.
 
 ### Hardware Safety Protocol:
-Every trajectory is subjected to strict preflight validation before any command is sent:
-1. **Fingertip Workspace Guard (`HAND_BOX`):**
+Every trajectory is subjected to strict preflight validation and live runtime gating before and during physical execution:
+1. **RC Deadman Switch (CH6) & Mode Authority Enforcement:**
+   - Physical arm motion strictly follows the OpenDubs platform safety protocol.
+   - Telemetry is queried in real-time from `opendubs-dash.service` (`GET http://127.0.0.1:8080/api/choreo/robot`).
+   - **Pre-execution Gate:** Refuses physical trajectory dispatch unless:
+     - `deadman == True` (RC controller switch CH6 is actively held down)
+     - `estop == False` (emergency stop button is released)
+     - `motion_power == True` (safety contactors are closed and energized)
+     - `ch5 in ("AUTO", "MANUAL")` (not in STANDBY or OFF)
+   - **Mid-Trajectory Safety Watchdog (80 ms cycle):** If the RC Deadman (CH6) is released or E-Stop is triggered mid-motion, the watchdog immediately cancels the ROS 2 goal handle and executes an emergency hold (`/usr/local/bin/openarm-up hold <arm>`) to freeze the arm in place safely.
+   - *Note: HITL Simulation mode (`--hitl`) bypasses the RC deadman requirement, allowing offline testing and dry-runs without a physical controller.*
+2. **Fingertip Workspace Guard (`HAND_BOX`):**
    Computes forward kinematics of the controller's exact Tool Center Point ($\text{link7} + 186\text{ mm}$ grasp center) across all trajectory waypoints. Rejects any motion that leaves the controller's bounding box ($x, y \in [-0.8, 0.8]\text{ m}, z \in [0.0, 1.3]\text{ m}$ less $20\text{ mm}$ margin), matching `software/choreo/tcp.py`.
-2. **Velocity Trip Protection (`TRIP_DEG_S`):**
+3. **Velocity Trip Protection (`TRIP_DEG_S`):**
    Verifies joint velocities against motor trip limits (`J1,J2: 960°/s`, `J3,J4: 312°/s`, `J5-J7: 1200°/s`) to guarantee the physical motor drivers will never trip or freeze mid-motion.
-3. **Collision & Clearance Guard:**
+4. **Collision & Clearance Guard:**
    Ensures continuous MuJoCo collision clearance $\ge 15.0\text{ mm}$ across the entire path.
 
 ### Execution Transports & Architecture:
@@ -201,19 +211,41 @@ Every trajectory is subjected to strict preflight validation before any command 
 ### Running from the CLI:
 ```bash
 # Validate and test trajectory in HITL loopback:
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --hitl
+python3 -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --hitl
 
-# Execute on physical robot hardware:
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --live
+# Execute on physical robot hardware (requires RC Deadman CH6 held):
+python3 -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --live
 ```
 
 ---
 
-## 7. Complete Verification Test Suite
+## 7. Hosting on Robot Hardware (Thor)
+
+The OpenArm Planner Studio is hosted directly on Thor as a systemd service, making it accessible to anyone on the robot's local Wi-Fi network:
+
+- **Web Studio URL:** `http://10.42.2.10:8095`
+- **Shared Repository Path:** `/opt/opendubs-planner` (owned by group `opendubs-users`)
+- **Systemd Service:** `opendubs-planner.service`
+
+### Updating Code on Thor:
+```bash
+# Push latest commits directly from your development machine to Thor:
+git push andrew@10.42.2.10:/opt/opendubs-planner feat/arm-motion-planner-ui
+
+# Restart the planner studio service:
+ssh andrew@10.42.2.10 "sudo systemctl restart opendubs-planner.service"
+
+# View live service logs:
+ssh andrew@10.42.2.10 "journalctl -u opendubs-planner.service -f"
+```
+
+---
+
+## 8. Complete Verification Test Suite
 
 Run the complete end-to-end verification suite across all 8 test sections:
 ```bash
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/test_motion_planner.py
+python3 sim/planner/test_motion_planner.py
 ```
 
 ### Covered Test Sections:
