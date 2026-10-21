@@ -210,6 +210,15 @@ async def post_capture_clip(request: Request) -> dict:
     return {"ok": True}
 
 
+# A touch anywhere on the robot's tablet, face or dashboard: the head stops at once (neck_follow.touched).
+# Holding still is the safe direction, so any page may say it; the pages send it only from the tablet.
+@router.post("/api/head/touch")
+async def post_touch() -> dict:
+    import neck_follow
+    neck_follow.touched()
+    return {"ok": True}
+
+
 face_render: dict = {}
 
 

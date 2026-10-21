@@ -295,6 +295,24 @@ function applySettings(s) {
   check();
 })();
 
+// ---- a touch stops the head --------------------------------------------------------------------
+// Any touch on the robot's tablet stops the head at once (backend neck_follow.touched): the moment a
+// finger lands, and again every second it stays down. Only from the tablet itself (the kiosk app's
+// bridge), never from a laptop that has this page open.
+(function touchHoldsHead() {
+  if (!window.OpenDubsKiosk) return;
+  let last = 0, down = 0, downAt = 0, timer = null;
+  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
+  addEventListener("pointerdown", () => {
+    down++; downAt = performance.now(); if (downAt - last > 250) say();
+    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
+    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  }, { capture: true, passive: true });
+  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  addEventListener("pointerup", up, { capture: true, passive: true });
+  addEventListener("pointercancel", up, { capture: true, passive: true });
+})();
+
 // ---- a face that has gone blank reloads itself ---------------------------------------------------
 // On 2026-10-17 the tablet's face went BLACK under its overlays (the camera sign still drew) after
 // running for a while, with the page otherwise alive, and a reload is what clears it. On 2026-10-20 it
