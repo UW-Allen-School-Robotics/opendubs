@@ -130,11 +130,12 @@ Same shape as `bom.py`:
      point — a regex over every capitalised string would drown in false positives.
 - It **warns**, not fails, on a registry entry no source uses, unless the entry is `derived: true`.
 
-**CI.** The docs workflow only fires on `docs/**`, and check 3 must also run when someone edits the
-dashboard. A small separate workflow — paths `docs/reference/**`, `tools/faults.py`,
-`software/kiosk-dashboard/**`, `software/choreo/**`, `software/openarm/**` — runs only
-`faults.py --check` (seconds, no MkDocs build). The docs workflow adds `faults.py --check` beside
-`bom.py --check` for page staleness.
+**CI.** Check 3 must run whenever someone edits the dashboard or firmware, not only the docs, so
+`faults.py --check` is a step ("Troubleshooting codes are registered") in the required Hygiene
+checks job, which runs on every pull request once it is out of draft (#463). Because that job is
+required, a code the registry lacks blocks the merge. The docs workflow also runs
+`faults.py --check`, beside `bom.py --check`, for page staleness. A separate registry workflow
+used to repeat the check; it cost a billed job per run and was dropped (#344).
 
 ### 4. The wire contract
 
