@@ -111,26 +111,46 @@ See [`example_custom_planner.py`](example_custom_planner.py) for a runnable demo
 
 ---
 
-## 4. Web Motion Planner Studio & Halloween Show Designer
+## 4. Web Motion Planner Studio & Sequence Choreographer
 
-A lightweight, zero-dependency Web UI is available to jog arm poses, inspect 3D collision clearances in real time, plan collision-free motions with CBiRRT, preview trajectories with an interactive scrubber, and choreograph/export show routines for the Halloween demo:
+A lightweight, zero-dependency Web UI is available to jog arm poses, inspect 3D collision clearances in real time, plan collision-free motions with CBiRRT or cuRobo, preview trajectories with an interactive scrubber, and choreograph/export show routines:
 
 ```bash
-# Launch the Motion Planner Studio
-./sim/planner/ui/server.py --port 8092
+# Launch the Motion Planner Studio (Local Workstation / Laptop)
+/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/ui/server.py --port 8092
 ```
 
 Then open in your browser:
-**`http://127.0.0.1:8092`**
+**`http://localhost:8092`**
 
-### Features:
+### Hosting on the Robot (Thor / `10.42.2.10`):
+On the physical robot, **port 8092 is already occupied** by `opendubs-runner` (the kiosk choreography cue runner).
+To host the Motion Planner Studio directly on the Thor, use port **`8095`**:
+```bash
+# On the Thor:
+source /home/andrew/venv_planner/bin/activate
+python3 sim/planner/ui/server.py --host 0.0.0.0 --port 8095
+```
+Access it from any laptop or tablet on the robot's Wi-Fi at:
+**`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`).
+
+### Web Studio Features:
 - **Interactive 3D Arm Visualizer:** Real OpenArm V1 mesh geometry in WebGL with orbit camera (ISO, Front, Side, Top, free orbit).
 - **Dual-Pose Overlay:** Displays the solid starting pose and translucent ghost target pose simultaneously.
 - **Real-Time Clearance & Collision Guard:** Live MuJoCo clearance calculation down to the millimeter with red collision alerts.
 - **Cartesian Jogging & SSIK:** Enter or jog end-effector $(X, Y, Z)$ coordinates and solve analytical IK in $\sim 0.2\text{ ms}$.
 - **Presets:** Quick selection of standard poses (`stow`, `zero`, `reach_forward`) and Halloween poses (`zombie_reach`, `spooky_arms_up`, `pumpkin_offer`, `spooky_wave`, `cauldron_stir`).
 - **Interactive Trajectory Player:** Scrub through time, play back at $0.5\times / 1.0\times / 2.0\times$ speed, and view the 3D end-effector ribbon.
-- **Halloween Show Choreographer:** Build an ordered sequence of keyframes, click **Plan Full Show Sequence** to generate collision-free transitions between all poses, and export directly to `software/choreo/shows/halloween.yaml` format!
+- **Sequence Choreographer with Gripper Actions:**
+  - Build an ordered sequence of keyframe poses.
+  - Set individual keyframe gripper states (**Open** / **Closed**).
+  - Click **Plan Full Sequence** to synthesize collision-free paths with automatic gripper action transitions.
+  - Export sequences directly to `software/choreo/shows/` YAML format.
+- **Live Hardware Controls:**
+  - **🛡️ Preflight Check**: Validates clearance, velocity limits, and TCP bounding box before any physical motion.
+  - **🔄 HITL Dry Run**: Runs closed-loop 50 Hz simulated execution with live progress bar and 3D visualizer feedback.
+  - **🚀 Execute on Robot**: Sends validated trajectories to the physical OpenArm controller.
+  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory and commands the controller to hold in place.
 
 ---
 
@@ -166,9 +186,10 @@ Every trajectory is subjected to strict preflight validation before any command 
 3. **Collision & Clearance Guard:**
    Ensures continuous MuJoCo collision clearance $\ge 15.0\text{ mm}$ across the entire path.
 
-### Execution Transports & Modes:
-- **`hitl` (Hardware-in-the-Loop Simulation):** Runs a 50 Hz closed-loop simulated execution with real-time progress and visualizes the moving arm live in the 3D studio. Perfect for offline development without physical hardware.
-- **`ros2` (Direct Action Client):** Directly commands the active ROS 2 action servers (`/{arm}_controller/follow_joint_trajectory`) over `control_msgs/action/FollowJointTrajectory`.
+### Execution Transports & Architecture:
+- **`hitl` (Hardware-in-the-Loop Simulation):** Runs a 50 Hz closed-loop simulated execution with real-time progress and visualizes the moving arm live in the 3D studio.
+- **`remote_ssh` (Remote Thor Transport):** When running off-board on a development laptop, automatically detects the robot at `andrew@10.42.2.10` and dispatches trajectory action goals directly into the `openarm` ROS 2 container over passwordless SSH.
+- **`ros2` (Direct Action Client):** Directly commands the active ROS 2 action servers (`/{arm}_controller/follow_joint_trajectory` and `/{arm}_gripper_controller/gripper_cmd`).
 - **`docker` (Container Exec Bridge):** Dispatches trajectory goals directly into the `openarm` container via `openarm-up` / ROS 2 CLI.
 - **`Emergency Hold (E-Stop)`:** Sends immediate goal cancellation and issues `openarm-up hold <arm>` to freeze the arm in place safely without dropping.
 
@@ -181,17 +202,22 @@ Every trajectory is subjected to strict preflight validation before any command 
 /home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --live
 ```
 
-### Running from the Web Studio:
-- In the bottom toolbar, use:
-  - **🛡️ Preflight Check**: Opens the safety report modal with clearance, TCP bounding box, and velocity checks without moving the arm.
-  - **🔄 HITL Dry Run**: Runs hardware-in-the-loop simulation with live progress bar and 3D visualizer feedback.
-  - **🚀 Execute on Robot**: Prompts for confirmation and commands the physical robot hardware.
-  - **🛑 EMERGENCY HOLD**: Immediately halts any active hardware or HITL motion.
+---
 
-### Complete Verification Test Suite:
-Run the complete end-to-end verification suite across all 6 test sections:
+## 7. Complete Verification Test Suite
+
+Run the complete end-to-end verification suite across all 8 test sections:
 ```bash
 /home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/test_motion_planner.py
 ```
-*(Tests SSIK kinematics, MuJoCo collision checking, CBiRRT planning, cuRobo CUDA adapter, Studio REST APIs, and the Hardware Bridge + HITL loopback).*
+
+### Covered Test Sections:
+1. `SSIK Analytical Kinematics & FK Consistency` (reconstruction error: 0.0000 mm)
+2. `MuJoCo Collision Checking & Clearance Guard` (stow safe: 39.9 mm, head contact caught)
+3. `CBiRRT Motion Planning & TOPP-RA Retiming` (spline limits, velocity bounds)
+4. `Modular Backend Registry & cuRobo Adapter` (GPU CUDA trajectory, custom backend swap)
+5. `Studio HTTP Server & REST API Endpoints` (`/api/status`, `/api/presets`, `/api/ik`, `/api/plan`, `/api/benchmark`, `/api/export_show`, `/api/hardware/execute`)
+6. `Hardware Bridge Safety Preflight & HITL Loopback` (bounds, velocities, 50 Hz progress)
+7. `Choreography Sequence Planning & Gripper Lifecycle` (multi-keyframe transitions + gripper open/close)
+8. `Remote Hardware Bridge Transport & Preflight Validation` (SSH transport detection, safety validation)
 

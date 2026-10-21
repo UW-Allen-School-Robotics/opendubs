@@ -152,15 +152,27 @@ Key takeaways:
 
 ---
 
-## 5. Web Motion Planner Studio
+## 5. Web Motion Planner Studio & Sequence Choreographer
 
 The web-based visual studio allows interactive jogging, live clearance checking, trajectory preview,
-and choreographing show routines for demonstrations.
+choreographing show routines with gripper actions, and hardware execution / HITL dry-runs.
 
+### Starting the Web Studio:
 ```bash
+# On Local Dev Laptop:
 /home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/ui/server.py --port 8092
 ```
-Navigate to: **`http://127.0.0.1:8092`**
+Navigate to: **`http://localhost:8092`**
+
+### Hosting on the Physical Robot (Thor / `10.42.2.10`):
+Port `8092` on the Thor host is already reserved for the kiosk cue runner (`opendubs-runner`).
+To host the studio on-board the Thor, bind to port **`8095`**:
+```bash
+# On the Thor host (e.g. via ssh andrew@10.42.2.10):
+source /home/andrew/venv_planner/bin/activate
+python3 sim/planner/ui/server.py --host 0.0.0.0 --port 8095
+```
+Then navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from any device on the robot's Wi-Fi network.
 
 ### UI Features:
 - **Live Backend Dropdown:** Switch dynamically between CBiRRT and cuRobo in the top header.
@@ -168,25 +180,33 @@ Navigate to: **`http://127.0.0.1:8092`**
 - **Dual-Pose 3D Overlay:** Solid mesh displays starting pose; translucent ghost displays target pose.
 - **Millimetric Clearance Guard:** Live contact calculation with collision warnings.
 - **SSIK Analytical Jogger:** Cartesian $(X, Y, Z)$ target positioning with inverse kinematics solved in $< 0.2\text{ ms}$.
-- **Choreography Routine Exporter:** Build multi-step motion sequences and export directly to `software/choreo/shows/halloween.yaml`.
+- **Sequence Choreographer with Gripper Actions:** Build multi-step motion sequences with per-keyframe **Grip Open** / **Grip Closed** states, synthesize full collision-free transitions, and export directly to `software/choreo/shows/` YAML.
+- **Hardware Preflight & Execution:**
+  - **🛡️ Preflight Check**: Validates clearance, velocity limits, and TCP bounding box before any physical motion.
+  - **🔄 HITL Dry Run**: Runs closed-loop 50 Hz simulated execution with live progress bar and 3D visualizer feedback.
+  - **🚀 Execute on Robot**: Sends validated trajectories to the physical OpenArm controller over direct ROS 2 or remote SSH transport (`andrew@10.42.2.10`).
+  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory and commands the controller to hold in place.
 
 ---
 
 ## 6. Verification Test Suite
 
 All components are covered by an automated test suite verifying kinematics, collision guards,
-modular backend switching, cuRobo GPU planning, and REST APIs:
+modular backend switching, cuRobo GPU planning, REST APIs, choreo sequence planning, and hardware preflight:
 
 ```bash
 /home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/test_motion_planner.py
 ```
 
-Test Sections:
+### Covered Test Sections:
 1. `SSIK Analytical Kinematics & FK Consistency` (reconstruction error: 0.0000 mm)
 2. `MuJoCo Collision Checking & Clearance Guard` (stow safe: 39.9 mm, head contact caught)
 3. `CBiRRT Motion Planning & TOPP-RA Retiming` (spline limits, velocity bounds)
 4. `Modular Backend Registry & cuRobo Adapter` (GPU CUDA trajectory, custom backend swap)
-5. `Studio HTTP Server & REST API Endpoints` (`/api/status`, `/api/presets`, `/api/ik`, `/api/plan`, `/api/benchmark`, `/api/export_show`)
+5. `Studio HTTP Server & REST API Endpoints` (`/api/status`, `/api/presets`, `/api/ik`, `/api/plan`, `/api/benchmark`, `/api/export_show`, `/api/hardware/execute`)
+6. `Hardware Bridge Safety Preflight & HITL Loopback` (bounds, velocities, 50 Hz progress)
+7. `Choreography Sequence Planning & Gripper Lifecycle` (multi-keyframe transitions + gripper open/close)
+8. `Remote Hardware Bridge Transport & Preflight Validation` (SSH transport detection, safety validation)
 
 ---
 
@@ -199,12 +219,12 @@ simulation motion planning testbed:
 | System | Role | Execution Environment |
 |---|---|---|
 | **WebXR Tele-op** | Real-time direct controller tracking via Quest headset | Runs in `openarm` Docker container via `opendubs-teleop.service` |
-| **Motion Planner** | Collision-free trajectory generation & choreo authoring | Runs in simulation testbed (`sim/planner/`) |
+| **Motion Planner** | Collision-free trajectory generation & choreo authoring | Runs in simulation testbed (`sim/planner/`) or standalone on Thor port 8095 |
 
 - **No Shared State:** The motion planning code resides entirely in `sim/planner/` and `sim/ik_artifacts/`. No tele-op services, patches, or controller configs were modified.
 - **Controller Safety:** Regular tele-op continues to communicate with the `openarm_impedance_controller` as documented in [WebXR teleop](teleop-setup.md).
 
 ### Roadmap Toward Hardware Integration
-1. **Phase 0 (Current):** Verified in simulation with CBiRRT + SSIK and cuRobo GPU backends.
-2. **Phase 1 (Hardware-in-the-Loop):** Connect planned trajectories to `openarm_impedance_controller` via ROS 2 trajectory action clients.
+1. **Phase 0 (Completed):** Verified in simulation with CBiRRT + SSIK and cuRobo GPU backends.
+2. **Phase 1 (Hardware-in-the-Loop & Execution):** Hardware safety preflight layer, HITL 50 Hz loopback, remote SSH transport to Thor `openarm` container, and gripper action commands.
 3. **Phase 2 (cuRobo ROS Real-time Integration):** Stream cuRobo GPU trajectory points dynamically as the target hand position moves in tele-op mode.
