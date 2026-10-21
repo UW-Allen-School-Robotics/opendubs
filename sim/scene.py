@@ -124,6 +124,58 @@ def _add_face_screen(spec, w_m=FACE_W, h_m=FACE_H, x=FACE_X, yc=FACE_YC, zc=FACE
                                     density=0)
 
 
+# ---- the projection screen (notes/design/choreo-video.md, "The twin's projection screen") ----------
+# The show's projector video, on a wall BEHIND the robot, so the audience sees the robot in front of the
+# image (the user's choice, 2026-10-21). PLACEHOLDERS, all here: put the real throw and image size in
+# once the projector (Nebula P1i) is measured. The robot faces +x; the screen faces it from behind,
+# fixed to the world (it does not ride the base).
+PROJ_TEXTURE = "projection_screen"
+PROJ_TEX_W, PROJ_TEX_H = 640, 360                 # the twin's copy of the picture (16:9)
+PROJ_FPS = 15                                     # frames decoded per second of video
+PROJ_IMAGE_W_M = 2.0                              # the projected image's width (16:9: height follows)
+PROJ_BEHIND_M = 1.2                               # how far behind the robot's start the wall is
+PROJ_BOTTOM_Z_M = 0.35                            # the image's lower edge above the floor
+PROJ_CENTRE_Y_M = 0.0                             # left/right of the robot's centre line
+
+
+def projection_corners():
+    """The screen's four corners (world metres): bottom-left, bottom-right, top-right, top-left as
+    the audience in front sees them."""
+    w, h = PROJ_IMAGE_W_M, PROJ_IMAGE_W_M * 9 / 16
+    x, y0, z0 = -PROJ_BEHIND_M, PROJ_CENTRE_Y_M, PROJ_BOTTOM_Z_M
+    return [(x, y0 - w / 2, z0), (x, y0 + w / 2, z0), (x, y0 + w / 2, z0 + h), (x, y0 - w / 2, z0 + h)]
+
+
+def _add_projection(spec):
+    """An emissive textured plane behind the robot, facing +x (toward the robot and the audience), as
+    the face screen is built. Hidden until a show with video is shown (the viewers set its alpha)."""
+    import mujoco
+    spec.add_texture(name=PROJ_TEXTURE, type=mujoco.mjtTexture.mjTEXTURE_2D,
+                     builtin=mujoco.mjtBuiltin.mjBUILTIN_FLAT, width=PROJ_TEX_W, height=PROJ_TEX_H,
+                     rgb1=[0.0, 0.0, 0.0], rgb2=[0.0, 0.0, 0.0], nchannel=3)
+    mat = spec.add_material(name=PROJ_TEXTURE, emission=1.0, specular=0.0, shininess=0.0, rgba=[1, 1, 1, 1])
+    mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = PROJ_TEXTURE
+    verts = [v for c in projection_corners() for v in c]
+    # seen from in front (+x looking -x): the audience's left is -y, so the texture's u runs with +y
+    spec.add_mesh(name=PROJ_TEXTURE, uservert=verts, userface=[0, 1, 2, 0, 2, 3],
+                  usertexcoord=[0, 1, 1, 1, 1, 0, 0, 0], inertia=mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL)
+    spec.worldbody.add_geom(name=PROJ_TEXTURE, type=mujoco.mjtGeom.mjGEOM_MESH, meshname=PROJ_TEXTURE,
+                            material=PROJ_TEXTURE, contype=0, conaffinity=0, group=2, density=0,
+                            rgba=[1, 1, 1, 0])
+
+
+def set_projection_visible(model, on: bool) -> None:
+    """Show or hide the projection screen (both the geom's and its material's alpha). A model built
+    without it is left alone."""
+    import mujoco
+    g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PROJ_TEXTURE)
+    m = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_MATERIAL, PROJ_TEXTURE)
+    if g >= 0:
+        model.geom_rgba[g][3] = 1.0 if on else 0.0
+    if m >= 0:
+        model.mat_rgba[m][3] = 1.0 if on else 0.0
+
+
 # ---- the fitted head ------------------------------------------------------------------------
 # The head is a swappable sub-assembly, chosen by ONE setting in the robot description (the Thor
 # lane's): head_assembly.fitted in description/opendubs/dimensions.yaml. The body twin follows it,
@@ -171,8 +223,9 @@ def _fit_tablet(spec):
 
 
 def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
-          head: str | None = None):
-    """`head`: tab5_pantilt or galaxy_tablet; default, the robot description's fitted head."""
+          head: str | None = None, projection: bool = False):
+    """`head`: tab5_pantilt or galaxy_tablet; default, the robot description's fitted head.
+    `projection`: the projection screen behind the robot, built hidden (geom alpha 0)."""
     import mujoco
 
     a = find_assets(assets)
@@ -190,6 +243,9 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
             _add_face_screen(ours, pw, ph, front + 0.0005, FACE_YC, FACE_ZC)
     elif face_screen:
         _add_face_screen(ours)
+
+    if projection:
+        _add_projection(ours)
 
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
     frame.attach_body(arms.body("openarm_body_link0"), ARM_PREFIX, "")

@@ -64,7 +64,13 @@ def main() -> int:
     import scene
 
     import face_frames
-    model = scene.build(a.assets, face_screen=True, head=a.head)
+    import library
+    import projection
+    model = scene.build(a.assets, face_screen=True, head=a.head, projection=True)
+    proj_tex = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TEXTURE, scene.PROJ_TEXTURE)
+    proj_adr, proj_n = model.tex_adr[proj_tex], scene.PROJ_TEX_W * scene.PROJ_TEX_H * 3
+    proj, proj_key = None, None
+    scene.set_projection_visible(model, False)
     data = mujoco.MjData(model)
     face_tex = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TEXTURE, scene.FACE_TEXTURE)
     face_adr, face_n = model.tex_adr[face_tex], scene.FACE_TEX_W * scene.FACE_TEX_H * 3
@@ -89,6 +95,13 @@ def main() -> int:
                     if s["rev"] != rev:
                         d = get(a.composer, "/api/twin/timeline")
                         rev, tl, path = d["rev"], d["timeline"], d["path"]
+                        # the projection screen: shown (and its videos decoded) only for a show with video
+                        tracks = (tl or {}).get("tracks") or {}
+                        proj = (projection.Projection(tracks, library.root(), scene.PROJ_TEX_W, scene.PROJ_TEX_H,
+                                                      scene.PROJ_FPS, log=print if a.log else None)
+                                if tracks.get("VIDEO") else None)
+                        proj_key = None
+                        scene.set_projection_visible(model, proj is not None)
                     run_status = s.get("status")       # set when following the runner
                     if run_status == "RUNNING" and s.get("lease_until") and s["now"] > s["lease_until"]:
                         run_status = "LEASE LOST"      # the runner stopped renewing: hold, and say so
@@ -107,6 +120,12 @@ def main() -> int:
                 face_seen = True
 
             t = t_base + ((time.monotonic() - clock_base) if playing else 0.0)
+            if proj is not None:                      # the show's video, chosen by the same show clock
+                key, rgb = proj.picture(t)
+                if key != proj_key:
+                    model.tex_data[proj_adr:proj_adr + proj_n] = rgb.reshape(-1)
+                    v.update_texture(proj_tex)
+                    proj_key = key
             if tl and tl.get("tracks") is not None:
                 smp = sim_preview.sample(tl, t)
                 clearance.set_pose(model, data, sim_preview.joints_arg(smp), smp["lift_mm"],
