@@ -142,7 +142,8 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 ```json
 { "checked_at": 1760900000.0,
   "outputs": { "cast": {"found": true, "name": "Nebula P1i", "host": "10.42.2.40", "ready": true, "why": null},
-               "hdmi": {"present": false, "ready": false, "why": "the HDMI player isn't running on the robot"} },
+               "hdmi": {"present": false, "ready": false, "why": "the HDMI player isn't running on the robot"},
+               "stage": {"present": true, "ready": true, "pages": 1, "why": null} },
   "default": "cast", "selected": "cast", "override": null,
   "playing": {"show": "info_show", "file": "lab-tour", "output": "cast", "position_s": 31.4,
               "sync_err_ms": -120, "seeks": 1},
@@ -154,7 +155,9 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
   the runner's log.
 - `selected` is what a show would use now; `override` is the operator's choice (null: each show's own).
   `playing` is null when nothing plays; `note` says why a running show runs without its video.
-- `POST /api/choreo/video/output {"output": "cast"|"hdmi"|"off"|null}` → the whole GET body; refused
+- `stage` is the stage page ([`choreo-stage.md`](choreo-stage.md)): ready when at least one page is open;
+  `pages` says how many.
+- `POST /api/choreo/video/output {"output": "cast"|"hdmi"|"stage"|"off"|null}` → the whole GET body; refused
   while a show runs: 409 `{"error": "…", "code": "SHOW_VIDEO_BUSY"}`. Both codes are in
   `docs/reference/registry/shows.yaml`.
 
@@ -223,3 +226,12 @@ can be authored and reviewed without the projector.
   the robot's start, lower edge 0.35 m up, centred. Put the Nebula P1i's real throw and image size there
   once it is set up.
 - The music keeps playing in the composer as before; nothing here plays sound.
+
+## 11. The stage output (2026-10-21)
+
+A third output beside cast and HDMI: `stage`. The runner sends the dashboard only the show's timing —
+the videos in show seconds, the beat grid, t0 on the Thor's monotonic clock — and every stage page plays
+the video itself, on that clock, under the live skeletons. The same page works in the projector's own
+app, on a small computer driving the projector by HDMI, or in any browser. Details, the messages and
+what "ready" and "lost" mean: [`choreo-stage.md`](choreo-stage.md), "The show's timing". A show picks it
+with `video: {output: stage}` or a cue's `output: stage`; the operator can pick it on the projector card.

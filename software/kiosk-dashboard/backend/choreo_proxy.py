@@ -81,14 +81,14 @@ async def video():
 
 @router.post("/api/choreo/video/output")
 async def video_output(request: Request):
-    """The operator's play-time choice of video output: {output: cast|hdmi|off|null}. Returns the
+    """The operator's play-time choice of video output: {output: cast|hdmi|stage|off|null}. Returns the
     whole GET body; refused while a show plays (SHOW_VIDEO_BUSY)."""
     try:
         raw = await request.json() if await request.body() else {}
     except ValueError:
         return JSONResponse({"error": "the body must be JSON: {output}"}, status_code=400)
     if not isinstance(raw, dict) or "output" not in raw:
-        return JSONResponse({"error": "the body must be {output: cast|hdmi|off|null}"}, status_code=400)
+        return JSONResponse({"error": "the body must be {output: cast|hdmi|stage|off|null}"}, status_code=400)
     return await _forward("POST", "video/output", {"output": raw["output"]})
 
 

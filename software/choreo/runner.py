@@ -705,6 +705,10 @@ class Runner:
             if carries:
                 self._carrier = name
                 lead = self.projector_settings.get("audio_lead_s")
+            if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
+                self.videos.append(be.make_show(its, tl.get("music"), log=self._log,
+                                                on_lost=self._music_lost if carries else None))
+                continue
             self.videos.append(video_out.ShowVideo(
                 be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log,
                 on_lost=self._music_lost if carries else None))
@@ -1236,6 +1240,8 @@ class Palette:
         else:
             outs["cast"] = {"found": False, "name": None, "host": None, "ready": False,
                             "why": "this robot isn't set up to cast (the runner has no cast output)"}
+        if "stage" in self.video:
+            outs["stage"] = self.video["stage"].status()
         if "hdmi" in self.video:
             outs["hdmi"] = self.video["hdmi"].status()
         else:
@@ -1267,7 +1273,7 @@ class Palette:
         return self.video_status()
 
     def set_video_output(self, output):
-        """The operator's play-time choice (cast | hdmi | off), or None to follow each show. Not while
+        """The operator's play-time choice (cast | hdmi | stage | off), or None to follow each show. Not while
         a routine runs: its videos are already on their output."""
         if output not in (None, *cue.VIDEO_OUTPUTS):
             raise ValueError(f"output must be one of {', '.join(cue.VIDEO_OUTPUTS)}, or null for each show's own")
@@ -1478,7 +1484,7 @@ def main() -> int:
     pp.add_argument("--light", choices=("none", "dashboard"), default="none",
                     help="dashboard: a live run lays its colour over the state light (show_light.py)")
     pp.add_argument("--video", default="",
-                    help="the projector outputs this runner drives: cast, hdmi or cast,hdmi (video_out.py; "
+                    help="the projector outputs this runner drives, comma-separated: cast, hdmi, stage (video_out.py; "
                          "per robot: OPENDUBS_CAST_NAME / OPENDUBS_CAST_HOST, OPENDUBS_VIDEO_PORT (8094), OPENDUBS_VIDEO_BIND, "
                          "OPENDUBS_MPV_SOCKET, OPENDUBS_VIDEO_OUTPUT)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
@@ -1537,12 +1543,14 @@ def main() -> int:
                 if "dashboard" in (a.lift, a.light) else None)
         video = {}
         wanted = {x.strip() for x in a.video.split(",") if x.strip()}
-        if wanted - {"cast", "hdmi"}:
-            ap.error(f"--video: {', '.join(sorted(wanted - {'cast', 'hdmi'}))} is not cast or hdmi")
+        if wanted - {"cast", "hdmi", "stage"}:
+            ap.error(f"--video: {', '.join(sorted(wanted - {'cast', 'hdmi', 'stage'}))} is not cast, hdmi or stage")
         if "cast" in wanted:
             video["cast"] = video_out.CastOutput(server=video_out.MediaServer(bind=video_out.bind_address()))
         if "hdmi" in wanted:
             video["hdmi"] = video_out.HdmiOutput()
+        if "stage" in wanted:                     # the stage page (choreo-stage.md), through the dashboard
+            video["stage"] = video_out.StageOutput(show_outputs.base_of(a.dashboard))
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
                       local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
                       light_live=a.light == "dashboard", no_neck=no_neck, video=video)

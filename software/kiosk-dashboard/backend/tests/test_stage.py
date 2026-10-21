@@ -50,3 +50,24 @@ def test_a_slow_page_gets_the_newest_frame_not_a_queue():
     for t in range(5):
         h.publish(frame(float(t), []))
     assert json.loads(me["slot"])["t"] == 4.0                     # one slot, the newest
+
+
+def test_the_show_timing_reaches_every_page_including_a_late_one():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        r = c.post("/api/stage/show", json={"op": "load", "id": "s1", "beat": {"offset_s": 0.79, "bpm": 99.4},
+                                            "videos": [{"t": 0, "end_t": 170, "url": "/api/choreo/media/library/videos/v.mp4",
+                                                        "from_s": 0, "end": "black", "id": "v"}]})
+        assert r.status_code == 200
+        m = json.loads(page.receive_text())
+        assert m["type"] == "show" and m["state"] == "loaded" and m["videos"][0]["id"] == "v"
+        c.post("/api/stage/show", json={"op": "start", "id": "s1", "t0_mono": 1234.5})
+        m = json.loads(page.receive_text())
+        assert m["state"] == "playing" and m["t0_mono"] == 1234.5
+    with c.websocket_connect("/ws/skeleton") as late:              # joins mid-show: told what plays, since when
+        m = json.loads(late.receive_text())
+        assert m["type"] == "show" and m["state"] == "playing" and m["t0_mono"] == 1234.5
+    assert c.post("/api/stage/show", json={"op": "stop", "id": "other"}).status_code == 400   # not the loaded show
+    assert c.post("/api/stage/show", json={"op": "stop", "id": "s1", "cut": True}).json()["ok"]
+    assert c.get("/api/stage").json()["show"]["state"] == "stopped"

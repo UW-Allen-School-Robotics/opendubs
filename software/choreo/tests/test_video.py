@@ -144,7 +144,7 @@ class Out(FakeOut):
         return {"ready": self.ready, "why": None if self.ready else "projector not found on the robot's Wi-Fi"}
 
 
-def run_show(extra, out, override=None):
+def run_show(extra, out, override=None, key="cast"):
     tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
     tmp.write("id: v\nslots: [VIDEO, FACE]\nrequires: {tab5: true}\n" + extra + "cues:\n"
               "  - { t: 1.0, slot: VIDEO, do: play, video: clip, secs: 3 }\n"
@@ -156,7 +156,7 @@ def run_show(extra, out, override=None):
     def sleep(s):
         clk["t"] += s
     r = R.Runner(tmp.name, LIMITS, robot, log=io.StringIO(), clock=lambda: clk["t"], sleep=sleep, start_lead=0.5,
-                 video={"cast": out}, video_override=override)
+                 video={key: out}, video_override=override)
     return r, r.run()
 
 
@@ -294,6 +294,81 @@ check("a valid video cue validates", not problems("  - { t: 1, slot: VIDEO, do: 
                                                   "  - { t: 6, slot: VIDEO, do: stop }\n"))
 check("a sound's role is music or dialogue, nothing else",
       any("role 'speech'" in m for m in problems("  - { t: 1, slot: SOUND, do: play, sound: attend, role: speech }\n")))
+
+print("\nvideo: the STAGE PAGE gets only the show's timing (choreo-stage.md)")
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+class FakeStage(V.StageOutput):
+    """The dashboard's /api/stage and /api/stage/show, in memory."""
+    def __init__(self, pages=1):
+        super().__init__("http://dash.invalid", library_root=LIB)
+        self.n, self.sent, self.cv = pages, [], threading.Condition()
+
+    def _get(self):
+        return {"pages": self.n}
+
+    def post(self, msg):
+        with self.cv:
+            self.sent.append(msg)
+            self.cv.notify_all()
+        return {"ok": True}
+
+    def wait_for(self, op, secs=3.0):
+        with self.cv:
+            return self.cv.wait_for(lambda: any(m["op"] == op for m in self.sent), secs)
+
+
+so = FakeStage(pages=0)
+check("no stage page open: not ready, saying where to open one",
+      so.status()["ready"] is False and "/stage/" in so.status()["why"], so.status())
+so.n = 2
+check("... a page open: ready, with how many", so.status() == {"present": True, "ready": True, "pages": 2, "why": None},
+      so.status())
+check("a library video is served to the page by the dashboard, same origin",
+      so.url(f) == "/api/choreo/media/library/clip.mp4", so.url(f))
+
+so = FakeStage()
+sh = so.make_show([{"t": 1.0, "end_t": 4.0, "path": f, "from_s": 2.0, "end": "hold", "id": "clip"}],
+                  {"bpm": 120, "offset_s": 0.25})
+sh.begin()
+check("load sends the videos (show seconds, the dashboard's URL) and the beat grid — nothing device-specific",
+      so.wait_for("load") and so.sent[0]["videos"] == [{"t": 1.0, "end_t": 4.0, "url": "/api/choreo/media/library/clip.mp4",
+                                                        "from_s": 2.0, "end": "hold", "id": "clip"}]
+      and so.sent[0]["beat"] == {"offset_s": 0.25, "bpm": 120.0}, so.sent)
+check("... and nothing starts before the show's clock does", [m["op"] for m in so.sent] == ["load"], so.sent)
+sh.go(lambda: -0.5)                          # half a second before the show's t0
+before = time.monotonic()
+check("start gives t0 on the Thor's monotonic clock (now + the lead)", so.wait_for("start")
+      and abs(so.sent[1]["t0_mono"] - (before + 0.5)) < 0.2 and so.sent[1]["id"] == so.sent[0]["id"], so.sent)
+sh.end("ESTOPPED")
+sh._thread.join(3)
+check("an e-stop stops the pages with a CUT (no fade, no hold)",
+      so.sent[-1] == {"op": "stop", "id": so.sent[0]["id"], "cut": True}, so.sent[-1])
+
+so = FakeStage()
+sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None)
+sh.begin()
+sh.go(lambda: 0.0)
+so.wait_for("start")
+sh.end("COMPLETED")
+sh._thread.join(3)
+check("a show with no beat sends none; a normal end is not a cut",
+      so.sent[0]["beat"] is None and so.sent[-1]["cut"] is False, so.sent)
+
+so = FakeStage()
+sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None)
+sh.end("REFUSED")
+check("a run refused before it began sends the pages nothing", so.sent == [], so.sent)
+
+r, end = run_show("", FakeStage(pages=1), override="stage", key="stage")
+check("the runner hands a show's video to the stage output as one StageShow",
+      end[0] == "COMPLETED" and len(r.videos) == 1 and isinstance(r.videos[0], V.StageShow), (end, r.videos))
+r, end = run_show("video: { required: true }\n", FakeStage(pages=0), override="stage", key="stage")
+check("... and refuses a show that requires video when no stage page is open",
+      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "/stage/" in end[2], end)
+check("'stage' is a video output a cue may name", "stage" in cue.VIDEO_OUTPUTS)
 
 print()
 if FAILS:
