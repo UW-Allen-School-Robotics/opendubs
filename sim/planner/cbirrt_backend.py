@@ -1,8 +1,11 @@
 """CBiRRT motion planner backend using sscbirrt."""
 from __future__ import annotations
 
-import numpy as np
-from sscbirrt import CBiRRT, CBiRRTConfig
+try:
+    from sscbirrt import CBiRRT, CBiRRTConfig
+    _HAVE_SSCBIRRT = True
+except ImportError:
+    _HAVE_SSCBIRRT = False
 
 from .base import MotionPlannerBackend, register_backend
 
@@ -57,5 +60,5 @@ register_backend(
     name="cbirrt",
     factory=CBiRRTBackend,
     description="PRL CBiRRT sampling-based path planner (CPU)",
-    is_available_fn=lambda: True,
+    is_available_fn=lambda: _HAVE_SSCBIRRT,
 )

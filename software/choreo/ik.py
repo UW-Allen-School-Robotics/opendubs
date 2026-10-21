@@ -291,7 +291,7 @@ def _ik_cues(doc: dict) -> list:
             if isinstance(c, dict) and c.get("slot") in SIDE and target_key(c)]
 
 
-def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool = True) -> list:
+def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool = True, default_planner: str | None = None) -> list:
     """Solve every IK target in the show, in time order, and write `solved` / `solved_for` into it
     (a minimal text edit, so comments and layout survive). Returns the problems (unreachable targets)."""
     import yaml
@@ -344,6 +344,21 @@ def compile_show(path: str, limits_path: str, write: bool = True, verbose: bool 
                 print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> OUT OF REACH ({err:.4f} {unit} off)")
             continue
         mm, ga, gb = kin.clearance_along(side, q_from, q_to)
+        cue_planner = c.get("planner") or default_planner
+        if mm < CLEAR_MIN_MM and cue_planner in ("cbirrt", "curobo"):
+            # Attempt collision-free trajectory routing around obstacles with sim.planner
+            try:
+                from sim.planner import OpenArmPlanner
+                planner = OpenArmPlanner(arm=side, backend=cue_planner)
+                traj = planner.plan_to_joint_goal(q_from, q_to, timeout=5.0)
+                if traj is not None and traj.min_clearance_mm >= 15.0:
+                    mm = traj.min_clearance_mm
+                    if verbose:
+                        print(f"  {c['slot']} {target_key(c):30s} t={t:6.2f}  -> ROUTED with {cue_planner.upper()} (min clearance: {mm:.1f} mm)")
+            except Exception as e:
+                if verbose:
+                    print(f"  [ik.py] Planner {cue_planner} fallback failed: {e}")
+
         if mm < CLEAR_MIN_MM:
             problems.append(f"cue {i} ({c['slot']} {target_key(c)} at {t:.2f}s): the arm would come within "
                             f"{mm:.0f} mm of the robot ({ga} / {gb}) on the way or at the target "
@@ -388,11 +403,13 @@ def main() -> int:
     ap.add_argument("cmd", choices=("compile", "check"))
     ap.add_argument("show")
     ap.add_argument("--limits", default=os.environ.get("OPENDUBS_ARM_LIMITS", cue.DEFAULT_LIMITS))
+    ap.add_argument("--planner", choices=("spline", "cbirrt", "curobo"), default=None,
+                    help="Planner for obstacle avoidance (default: spline or per-cue planner)")
     a = ap.parse_args()
     if not os.path.isfile(a.limits):
         a.limits = os.path.join(HERE, "tests", "joint_limits_fixture.yaml")
         print(f"ik: limits not found; using the TEST FIXTURE ({a.limits})")
-    problems = compile_show(a.show, a.limits, write=a.cmd == "compile")
+    problems = compile_show(a.show, a.limits, write=a.cmd == "compile", default_planner=a.planner)
     for p in problems:
         print("  PROBLEM:", p)
     print("ok" if not problems else f"{len(problems)} target(s) out of reach")

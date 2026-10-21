@@ -34,6 +34,7 @@ import cue  # noqa: E402  the validator is the gate; we call it, never copy it
 import library  # noqa: E402  the show library (songs, clips, skins) — its rules, not copies of them
 import timeline_notes  # noqa: E402  notes for the next editor, their history, the agent prompt
 import yamledit  # noqa: E402
+import arm_planner_bridge  # noqa: E402
 
 FIXTURE_LIMITS = os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml")
 STATIC_DIR = os.path.join(HERE, "static")
@@ -95,7 +96,8 @@ class Composer:
                 "limits_are_test_fixture": self.fixture, "preview_only": True,
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
                 "slot_requires": {s: cue.slot_requirements(s) for s in cue.SLOTS},
-                "speed_caps": cue.SPEED_CAP_DEG_S}
+                "speed_caps": cue.SPEED_CAP_DEG_S,
+                "planners": arm_planner_bridge.get_available_planners()}
 
     def list_shows(self) -> list:
         out = []
@@ -614,3 +616,33 @@ class Composer:
         return {"side": side, "slot": "ARM_L" if side == "left" else "ARM_R",
                 "joints": {str(k): v for k, v in sorted(joints.items())},
                 "source": joint_state.get("source", "unknown")}
+
+    def plan_arm(self, rel: str, text: str, index: int, planner: str = "cbirrt", reach: str | list | None = None) -> dict:
+        """Plan a collision-free motion for an arm cue using the selected planner (spline, cbirrt, curobo)."""
+        self._path(rel)
+        try:
+            doc = cue.show_from_text(text, self._path(rel)).doc
+        except Exception:
+            doc = yaml.safe_load(text)
+        try:
+            res = arm_planner_bridge.plan_arm_move(
+                doc=doc,
+                text=text,
+                index=int(index),
+                planner_choice=planner,
+                reach_target=reach,
+                limits_path=self.limits_path,
+            )
+        except Exception as e:
+            raise ApiError(f"Motion planning error: {e}") from e
+
+        ana = self.analyse(rel, res["text"])
+        return {
+            "ok": True,
+            "planner": res["planner"],
+            "text": res["text"],
+            "message": res["message"],
+            "min_clearance_mm": res["min_clearance_mm"],
+            "waypoints_inserted": res["waypoints_inserted"],
+            "analysis": ana,
+        }

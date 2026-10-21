@@ -89,6 +89,8 @@ def make_handler(comp: Composer):
                     return self._file(p)
                 if u.path == "/api/info":
                     return self._json(comp.info())
+                if u.path == "/api/planners":
+                    return self._json(comp.info().get("planners", {}))
                 if u.path == "/api/shows":
                     return self._json(comp.list_shows())
                 if u.path == "/api/twin":
@@ -190,6 +192,9 @@ def make_handler(comp: Composer):
                                                     b.get("joints"), b.get("t"), b.get("index")))
                 if u.path == "/api/capture":
                     return self._json(comp.capture(b.get("side"), b.get("joint_state")))
+                if u.path == "/api/arm/plan":
+                    return self._json(comp.plan_arm(b.get("path"), b.get("text") or "", b.get("index"),
+                                                    b.get("planner") or "cbirrt", b.get("reach")))
                 raise ApiError("not found", 404)
             except ApiError as e:
                 return self._json({"error": str(e)}, e.status)

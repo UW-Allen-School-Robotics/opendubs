@@ -703,6 +703,48 @@ function renderInspector() {
   } else if (evs.length) {
     resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <button data-openclip="${esc(c.clip)}" title="Show this clip's own cues on the timeline, from its start, and edit them there">edit the clip ✎</button>`;
   }
+
+  const isArm = (c.slot === "ARM_L" || c.slot === "ARM_R");
+  const currentPlanner = c.planner || "spline";
+  const reachVal = c.reach ? (Array.isArray(c.reach) ? JSON.stringify(c.reach) : c.reach) : "";
+
+  let armRoutingHtml = "";
+  if (isArm && !S.clip) {
+    const planners = (S.info && S.info.planners) || {
+      spline: { name: "Spline (Default)", available: true },
+      cbirrt: { name: "CBiRRT (SSIK + Clearance)", available: true },
+      curobo: { name: "cuRobo (GPU Tensor)", available: true },
+    };
+    const plannerOptions = Object.entries(planners).map(([k, p]) => {
+      const label = p.name || k;
+      const disabled = p.available === false ? "disabled" : "";
+      const selected = (currentPlanner === k) ? "selected" : "";
+      return `<option value="${k}" ${selected} ${disabled}>${esc(label)}${p.available === false ? " (unavailable)" : ""}</option>`;
+    }).join("");
+
+    armRoutingHtml = `
+      <div class="arm-routing-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-weight:600; font-size:11px;">Motion Tool & Routing</span>
+          <span class="badge" id="armPlannerBadge" style="font-size:10px; padding:1px 6px;">${esc(currentPlanner.toUpperCase())}</span>
+        </div>
+        <div class="row2" style="margin-bottom:6px; gap:6px;">
+          <label title="Select motion generator tool: Spline (standard cubic Hermite), CBiRRT (analytical kinematics + collision check), or cuRobo (GPU tensor)" style="font-size:11px; flex:1;">
+            Tool:
+            <select id="iArmPlanner">${plannerOptions}</select>
+          </label>
+          <button id="iPlanMove" class="btn-plan-tool" title="Plan collision-free path from previous pose to this pose using selected planner">⚡ Plan Path</button>
+        </div>
+        <div class="row2" style="gap:6px;">
+          <label title="Static Hand Position (v0): [x, y, z] in metres relative to chassis, or named target (head_screen, lift_platform)" style="font-size:11px; flex:1;">
+            Target:
+            <input id="iArmReach" placeholder="[x, y, z] or head_screen" value="${esc(reachVal)}">
+          </label>
+          <button id="iSolveReach" title="Solve target hand position and compute collision-free trajectory">Solve Reach</button>
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = `
     <div class="meta">cue ${i}${line ? ` · line ${line}` : ""}${c.slot ? " · " + c.slot : ""}${c.clip ? " · clip placement" : ""}</div>
     <div class="resolved">${resolved}</div>${probs}
@@ -717,6 +759,7 @@ function renderInspector() {
     ${c.slot === "SOUND" ? `<div class="row2"><label title="Dialogue always plays from the tablet; music from the projector's speaker when a projector is ready. Unmarked is dialogue.">plays as
       <select id="iRole"><option value="dialogue" ${c.role !== "music" ? "selected" : ""}>dialogue — always the tablet</option>
       <option value="music" ${c.role === "music" ? "selected" : ""}>music — the projector, when one is ready</option></select></label></div>` : ""}
+    ${armRoutingHtml}
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
   $("iApply").onclick = () => {
@@ -749,6 +792,77 @@ function renderInspector() {
         + (r.next_problem ? ` · ${r.next_problem}` : ""), 8000);
     } catch (e) { toast(e.message, 5000); }
   };
+  if ($("iArmPlanner")) {
+    $("iArmPlanner").onchange = () => {
+      const val = $("iArmPlanner").value;
+      const cue = { ...c };
+      if (val === "spline") delete cue.planner;
+      else cue.planner = val;
+      edit([{ op: "set", index: i, cue }], `set planner to ${val}`);
+    };
+  }
+  if ($("iPlanMove")) {
+    $("iPlanMove").onclick = async () => {
+      const planner = $("iArmPlanner") ? $("iArmPlanner").value : "cbirrt";
+      const btn = $("iPlanMove");
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Planning...";
+      try {
+        const resp = await api("api/arm/plan", {
+          path: S.path,
+          text: S.text,
+          index: i,
+          planner: planner,
+        });
+        if (resp.ok && resp.text) {
+          S.undo.push(S.text);
+          if (resp.analysis) setData(resp.analysis);
+          else { S.text = resp.text; render(); }
+          toast(resp.message || `Planned with ${planner}!`, 5000);
+        }
+      } catch (err) {
+        toast(`Planning failed: ${err.message}`, 6000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    };
+  }
+  if ($("iSolveReach")) {
+    $("iSolveReach").onclick = async () => {
+      const reachInput = $("iArmReach").value.trim();
+      if (!reachInput) {
+        toast("Please enter a target e.g. [0.45, -0.20, 1.0] or head_screen", 4000);
+        return;
+      }
+      const planner = $("iArmPlanner") ? $("iArmPlanner").value : "cbirrt";
+      const btn = $("iSolveReach");
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Solving...";
+      try {
+        const resp = await api("api/arm/plan", {
+          path: S.path,
+          text: S.text,
+          index: i,
+          planner: planner,
+          reach: reachInput,
+        });
+        if (resp.ok && resp.text) {
+          S.undo.push(S.text);
+          if (resp.analysis) setData(resp.analysis);
+          else { S.text = resp.text; render(); }
+          toast(resp.message || `Solved reach target with ${planner}!`, 5000);
+        }
+      } catch (err) {
+        toast(`Reach failed: ${err.message}`, 6000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    };
+  }
 }
 function deleteSelected() {
   if (S.selected === null) return;
