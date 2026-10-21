@@ -155,6 +155,37 @@ def groups_exist(system, hardware: dict) -> list[str]:
     return [f"hardware group '{name}' is not a control group of the model ({sorted(known)})" for name in hardware if name not in known]
 
 
+def bimanual_engage(system, controllers: dict) -> list[str]:
+    """The `bimanual` task space spans both arms (14 joints) and `engage` builds over it: `engage.py --side both` is one controller over both,
+    because a RobotInterface runs one and a stage binds to one task space."""
+    from gafro.control import spec
+    from gafro.robot import JointDomain
+    import gafro.control as control
+
+    if "bimanual" not in system.get_task_space_names():
+        return ["no `bimanual` task space in the model (openarm_assets declares it when both arms are built)"]
+
+    task_space = system.get_task_space("bimanual")
+    arms = sorted(i for side in ("left", "right") for i in system.get_task_space(side).get_joint_indices())
+    if sorted(task_space.get_joint_indices()) != arms:
+        return ["the `bimanual` task space is not exactly the two arms' joints"]
+
+    q = np.asarray(system.get_default_configuration(), dtype=float)
+    right = system.get_task_space("right")
+    pose = right.compute_ee_motor(q[np.asarray(right.get_joint_indices())])
+    description = controllers["engage"]
+    try:
+        spec.build(description, dict(description["inputs"]),
+                   dict(system=system, task_space=task_space, task_space_name="bimanual", domain=JointDomain.from_task_space(system, task_space),
+                        configuration=q, reference=pose, reference_source=control.MotorReferenceSource(pose, horizon=0.02),
+                        posture_source=control.JointReferenceSource(q.copy(), horizon=0.02), posture_initial=q.copy()),
+                   "engage")
+    except Exception as error:  # noqa: BLE001 -- report whatever the build says
+        return [f"bimanual engage: {error}"]
+    print("  both  engage     builds over the bimanual task space (14 joints)")
+    return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default=os.path.join(REPO, "description", "openarm", "gafro", "openarm_bimanual.xml"),
@@ -168,7 +199,7 @@ def main() -> int:
     hardware = yaml.safe_load(open(os.path.join(HERE, "hardware.example.yaml")))
 
     print(f"model: {args.model}")
-    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers) + guard_reacts_to_cap(args.model, controllers) + ready_keyframe(system)
+    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers) + guard_reacts_to_cap(args.model, controllers) + ready_keyframe(system) + bimanual_engage(system, controllers)
 
     for problem in problems:
         print(f"PROBLEM: {problem}")

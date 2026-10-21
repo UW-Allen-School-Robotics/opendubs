@@ -29,6 +29,16 @@ left_arm:
   zero_offset: [0, 0, 0, 0, 0, 0, 0]
 
   verify_motors: true              # each in MIT mode with the ranges the frames assume, before it is enabled
+
+  # The gripper, a Damiao motor on this arm's bus (ids 0x08 / 0x18). Off until it has been calibrated: the two angles are this robot's, found with
+  # the gripper moving freely (the motor's angle at fully open and at fully shut, radians), and have no default. Speed, torque and the grasp
+  # margin are starting values.
+  use_gripper: false
+  # gripper_open_position: <found on this robot>
+  # gripper_closed_position: <found on this robot>
+  # gripper_speed: 2.0
+  # gripper_torque: 0.3
+  # gripper_grasp_margin: 0.05
   realtime_priority: 0             # 1 to 99 asks for SCHED_FIFO (CAP_SYS_NICE); diagnostics say if it was not granted
 
 right_arm:
@@ -43,4 +53,5 @@ right_arm:
   direction: [1, 1, 1, 1, 1, 1, 1]
   zero_offset: [0, 0, 0, 0, 0, 0, 0]
   verify_motors: true
+  use_gripper: false               # as on the left arm: off until calibrated (gripper_open_position, gripper_closed_position)
   realtime_priority: 0
