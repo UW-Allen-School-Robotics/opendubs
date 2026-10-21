@@ -281,7 +281,7 @@ def video_items(show, tl) -> tuple:
             continue
         out.setdefault(e.get("output") or cue.DEFAULT_VIDEO_OUTPUT, []).append(
             {"t": e["t"], "end_t": end_t, "path": f, "from_s": float(c.get("from_s") or 0.0),
-             "end": c.get("end", "black"), "id": c.get("video")})
+             "end": c.get("end", "black"), "id": c.get("video"), "song": ent.get("song")})
     return out, skipped
 
 
@@ -485,6 +485,7 @@ class Runner:
         # Music on the projector (notes/design/choreo-audio.md): its ShowVideo, where the music is now
         # ("projector" | "tablet" | None) and why it is not on the projector
         self.music, self.music_on, self.music_why, self._load_id = [], None, None, None
+        self._carrier = None                      # the output whose video carries the show's song
         self.projector_settings = video_out.load_settings()
         if start not in START_MODES:
             raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
@@ -696,8 +697,17 @@ class Runner:
                     self._log("video_warning", note=why)
                 continue
             lead = self.projector_settings.get("video_lead_s") if name == "cast" else None
+            # A video that CARRIES the show's song (its library entry's `song`, in step with the show's
+            # music) plays the music itself: it is started by the AUDIO offset — the beat is what must
+            # land — and if it drops out the tablet takes the music over (choreo-audio.md).
+            song = (tl.get("music") or {}).get("song")
+            carries = [it for it in its if song and it.get("song") == song and abs(it["t"] - it["from_s"]) < 0.05]
+            if carries:
+                self._carrier = name
+                lead = self.projector_settings.get("audio_lead_s")
             self.videos.append(video_out.ShowVideo(
-                be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log))
+                be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log,
+                on_lost=self._music_lost if carries else None))
         self.video_note = "; ".join(notes) or None
         return out
 
@@ -717,6 +727,15 @@ class Runner:
         """MUSIC to the projector when one is ready, DIALOGUE always to the tablet (choreo-audio.md). A
         music item for the projector stays in the tablet's set HELD — loaded, silent — so the tablet can
         take it over in step if the projector drops out (`unhold`)."""
+        if self._carrier:
+            # the projector's video carries the show's song: the tablet holds its copy, silent, as the
+            # fallback (whatever its role — the video plays it anyway, so playing it here would double it)
+            for it in items:
+                if it.get("kind") == "music":
+                    it["held"] = True
+            self.music_on, self.music_why = "projector", None
+            self._log("audio", note=f"music in the projector's video ({self._carrier}); the tablet holds it")
+            return
         music = [it for it in items if it.get("role") == "music"]
         if not music:
             return

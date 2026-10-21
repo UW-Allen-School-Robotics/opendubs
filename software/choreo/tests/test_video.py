@@ -224,6 +224,48 @@ r, end, items, calls = run_audio("music", Out(ready=True), lose=True)
 check("the projector dropping out hands the music to the tablet (unhold, same load), and the show goes on",
       end[0] == "COMPLETED" and any(c.get("op") == "unhold" and c.get("id") == r._load_id for c in calls)
       and r.music_on == "tablet", (end, [c.get("op") for c in calls]))
+# a video that CARRIES the show's song (its library entry's `song`): the projector plays the music
+with open(os.path.join(LIB, "index.yaml"), "a") as fh:
+    fh.write("- {id: tune, kind: song, file: song.wav, sha256: x, bytes: 12, source: test, licence: test, duration_s: 20}\n"
+             "- {id: clipsong, kind: video, file: clip.mp4, sha256: x, bytes: 10240, source: test, licence: test, "
+             "duration_s: 20, width: 1280, height: 720, song: tune}\n")
+
+
+def run_carrier(lose=False):
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
+    tmp.write("id: c\nslots: [FACE, VIDEO]\nrequires: {tab5: true}\nmusic: { song: tune, bpm: 120 }\ncues:\n"
+              "  - { t: 0.0, slot: VIDEO, do: play, video: clipsong, secs: 4 }\n"
+              "  - { t: 4.0, slot: FACE, do: emote, name: SOFT }\n")
+    tmp.close()
+    clk = {"t": 1000.0}
+
+    def sleep(s):
+        clk["t"] += s
+    audio = R.NullAudio(holder="tablet")
+    r = R.Runner(tmp.name, LIMITS, R.FakeRobotState(), log=io.StringIO(), clock=lambda: clk["t"], sleep=sleep,
+                 start_lead=0.5, audio=audio, video={"cast": Out(ready=True)})
+    if lose:
+        send = audio.send
+
+        def send_then_lose(msg):
+            send(msg)
+            if msg.get("op") == "start" and r.videos and r.videos[0].on_lost:
+                r.videos[0].on_lost("the projector stopped answering")
+        audio.send = send_then_lose
+    end = r.run()
+    load = next((c for c in audio.calls if c.get("op") == "load"), {})
+    return r, end, load.get("items", []), audio.calls
+
+
+r, end, items, _ = run_carrier()
+check("a video CARRYING the show's song: the projector plays the music, the tablet holds its copy silent, "
+      "and the video starts by the AUDIO offset (the beat must land)",
+      end[0] == "COMPLETED" and items and items[0].get("held") is True and r.music_on == "projector"
+      and r.videos and r.videos[0].items[0]["lead_s"] == 0.6 and not r.music, (items, r.music_on, r.videos and r.videos[0].items))
+r, end, items, calls = run_carrier(lose=True)
+check("... and if that video drops out, the tablet takes the music over from the same point",
+      end[0] == "COMPLETED" and any(c.get("op") == "unhold" for c in calls) and r.music_on == "tablet",
+      [c.get("op") for c in calls])
 try:
     V.save_settings({"audio_lead_s": 7})
     bad = False
