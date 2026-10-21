@@ -12,8 +12,10 @@ choreography and Thor-stack lanes (2026-10-21):
                                         intended body velocity (feed-forward). After each cue the
                                         runner streams the home target, zero twist, for 1.5 s
   /dance/stop    std_msgs/Empty         stop at once and drop the stream until the next target
-  /dance/status  std_msgs/String (JSON) 5 Hz: {"ready", "why", "origin_seq", "tracking", "mode",
-                                        "guard", "err_m", "err_deg"}
+  /dance/status  std_msgs/String (JSON) 5 Hz: {"ready", "why", "origin", "origin_seq", "tracking",
+                                        "mode", "guard", "err_m", "err_deg"}. ready = /odom and
+                                        the guard are fit to move; "origin" says whether this run's
+                                        origin is latched (a run latches it at its t0)
   /cmd_vel       geometry_msgs/Twist    out, to drive_bridge, only while tracking
 
 Command = feed-forward + gain x error (in the body frame), clamped to drive_bridge's full scale,
@@ -160,11 +162,10 @@ def main():
             why = "/odom is not current"
         elif st["guard"] == "blind":
             why = st["guard_why"] or "the people guard is blind"
-        elif st["origin"] is None:
-            why = "no origin"
         e = st["err"]
         status.publish(String(data=json.dumps({
-            "ready": why is None, "why": why, "origin_seq": st["seq"], "tracking": st["moving"],
+            "ready": why is None, "why": why, "origin": st["origin"] is not None,
+            "origin_seq": st["seq"], "tracking": st["moving"],
             "mode": st["mode"], "guard": st["guard"],
             "err_m": round(math.hypot(e[0], e[1]), 3), "err_deg": round(math.degrees(e[2]), 1)})))
 
