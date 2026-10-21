@@ -90,7 +90,7 @@ def head_cap_in_model(system, hardware: dict) -> list[str]:
 
 
 def guard_reacts_to_cap(model: str, controllers: dict) -> list[str]:
-    """The `free` controller's joint-limit guard sees the cap: at the same state, the torque on joint 2 near the cap differs from the one
+    """The `track` controller's joint-limit guard sees the cap: at the same state, the torque on joint 2 near the cap differs from the one
     the arm's own, uncapped model gives, and far from it is the same."""
     import gafro as g
     from gafro import control
@@ -99,7 +99,7 @@ def guard_reacts_to_cap(model: str, controllers: dict) -> list[str]:
     from openarm_assets import get_generated_model_path
 
     cap = math.radians(__import__("cue").SHOULDER_HEAD_CONTACT_DEG - __import__("cue").SHOULDER_MARGIN_DEG)
-    description = controllers["free"]
+    description = controllers["track"]
 
     def torque_on_j2(path: str, j2: float) -> float:
         system = g.SystemSerialization.load(path)
@@ -113,7 +113,7 @@ def guard_reacts_to_cap(model: str, controllers: dict) -> list[str]:
             description, {"reference": "pose", "posture": "joints"},
             dict(system=system, task_space=task_space, task_space_name="right", domain=domain, configuration=q, reference=pose,
                  reference_source=control.MotorReferenceSource(pose, horizon=0.02),
-                 posture_source=control.JointReferenceSource(q.copy(), horizon=0.02), posture_initial=q.copy()), "free")
+                 posture_source=control.JointReferenceSource(q.copy(), horizon=0.02), posture_initial=q.copy()), "track")
         state = control.SystemState(system.get_dof())
         state.set_position(q)
         state.set_velocity(np.zeros(system.get_dof()))
@@ -129,6 +129,24 @@ def guard_reacts_to_cap(model: str, controllers: dict) -> list[str]:
     print(f"  guard: 0.1 rad from the cap the joint 2 torque is {difference:+.2f} N m from what the uncapped model gives")
     if difference > -1.0:  # the right arm's cap is an upper bound: the guard pushes the joint back down
         problems.append(f"0.1 rad from the cap the guard changes the joint 2 torque by {difference:+.2f} N m: it does not see the cap")
+    return problems
+
+
+def ready_keyframe(system) -> list[str]:
+    """The model's `ready` keyframe is the robot's ready pose (tools/arm_gafro_model.py), not the arm's own nearly straight one."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import arm_gafro_model as generator
+
+    keyframe = system.get_keyframe("ready")
+    if keyframe is None:
+        return ["the model has no ready keyframe"]
+    names = [a.joint_name for a in system.get_actuators()]
+    qpos = np.asarray(keyframe.qpos, dtype=float)
+    problems = []
+    for name, value in generator.ready_pose().items():
+        got = float(qpos[names.index(name)])
+        if abs(got - value) > 1e-6:
+            problems.append(f"ready keyframe: {name} is {got:.4f}, the ready pose has {value:.4f} (regenerate with tools/arm_gafro_model.py)")
     return problems
 
 
@@ -150,7 +168,7 @@ def main() -> int:
     hardware = yaml.safe_load(open(os.path.join(HERE, "hardware.example.yaml")))
 
     print(f"model: {args.model}")
-    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers) + guard_reacts_to_cap(args.model, controllers)
+    problems = groups_exist(system, hardware) + head_cap_in_model(system, hardware) + controllers_build(system, controllers) + guard_reacts_to_cap(args.model, controllers) + ready_keyframe(system)
 
     for problem in problems:
         print(f"PROBLEM: {problem}")
