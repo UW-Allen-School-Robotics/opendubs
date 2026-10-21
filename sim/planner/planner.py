@@ -285,7 +285,8 @@ class OpenArmPlanner:
         pc_vel = constraint.JointVelocityConstraint(v_lim)
         pc_acc = constraint.JointAccelerationConstraint(a_lim)
 
-        instance = toppra.algorithm.TOPPRA([pc_vel, pc_acc], path_interp)
+        gridpoints = np.linspace(0, 1, max(100, len(path_arr)))
+        instance = toppra.algorithm.TOPPRA([pc_vel, pc_acc], path_interp, gridpoints=gridpoints)
         jnt_traj = instance.compute_trajectory(0.0, 0.0)
         if jnt_traj is None:
             return None
