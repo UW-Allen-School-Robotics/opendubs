@@ -187,7 +187,8 @@ sh = os.path.join(shows, "sub", "uses-it.yaml")
 s_ = cue.load_show(sh)
 items, skipped = runner.audio_items(s_, s_.export(LIMITS, None))
 check("on the robot, a show's song is played from the library: the dashboard serves it under media/library/",
-      items == [{"url": "/api/choreo/media/library/songs/made-up-tune.wav", "at": 0.0, "kind": "music"}] and not skipped,
+      [{k: x[k] for k in ("url", "at", "kind")} for x in items]
+      == [{"url": "/api/choreo/media/library/songs/made-up-tune.wav", "at": 0.0, "kind": "music"}] and not skipped,
       (items, skipped))
 os.remove(sh)
 gone = library.remove("made-up-tune", lib, used_by=library.shows_using("made-up-tune", shows))

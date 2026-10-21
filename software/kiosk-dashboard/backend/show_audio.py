@@ -60,7 +60,7 @@ MEDIA_SUBDIRS = ("audio", "sounds")
 # The show library (software/choreo/library.py): only its songs are served, under media/library/.
 LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
 LIBRARY_MEDIA_SUBDIRS = ("songs",)
-OPS = ("load", "start", "stop", "cut")
+OPS = ("load", "start", "stop", "cut", "unhold")   # unhold: the projector dropped out — the tablet takes its held music
 AMBIENT_OPS = ("play", "stop", "volume", "next", "play_file", "stop_play")
 PLAY_URL_PREFIX = "/api/play/files/"      # the Tablet lane's store, same origin
 PLAY_TITLE_MAX = 120
