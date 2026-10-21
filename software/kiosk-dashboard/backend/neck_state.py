@@ -1,16 +1,19 @@
 """The neck's live pan and tilt into ROS, so the arms' head-clearance limits can follow the head.
 
   /head/joint_states   sensor_msgs/msg/JointState, about RATE_HZ a second while the neck answers
-      name      ["head_pan_joint", "head_tilt_joint"]
-      position  radians from centre, the neck's commanded angles converted to the real ones:
-                  head_pan_joint   + turns the head to the robot's LEFT  (yaw, about +z; REP-103)
-                  head_tilt_joint  + tips the face UP
+      name      ["head_pan", "head_tilt"]: THE ROBOT DESCRIPTION'S joint names (description/opendubs/
+                opendubs.urdf, the MJCF, sim/clearance.py), so a joint_state_publisher can merge this
+                for robot_state_publisher (the Thor lane's; head_tilt_link carries the tablet's frames)
+      position  radians from centre, the neck's commanded angles converted to the real ones, with the
+                description's signs:
+                  head_pan   axis +z: + turns the head to the robot's LEFT; 0 straight ahead
+                  head_tilt  axis +y: + tips the face DOWN (+x swings toward -z); 0 level
       stamp     the Thor's clock when the neck answered
   /head/joint_targets  sensor_msgs/msg/JointState, the same joints and rate: where the neck is going.
       While the two differ the head is moving, and may be anywhere between them.
   /head/joint_limits   sensor_msgs/msg/JointState, LATCHED (transient local), re-sent when they change
       and every LIMITS_EVERY_S: the travel the neck's firmware enforces, as four "joints"
-      head_pan_joint_lower/_upper, head_tilt_joint_lower/_upper, in the same radians. Pan is the
+      head_pan_lower/_upper, head_tilt_lower/_upper, in the same radians and signs. Pan is the
       firmware's fixed 0-180 commanded; tilt is this robot's band (NVS, reported in NECK as tilt_band).
 
 Through the local rosbridge, as one client (tablet_relay.Rosbridge). The neck is asked `NECK` over UDP
@@ -44,7 +47,7 @@ LIMITS = "/head/joint_limits"
 TYPE = "sensor_msgs/msg/JointState"
 PAN_TRAVEL = (0.0, 180.0)                 # pantilt_core.h kRcPanMin / kRcPanMax
 LIMITS_EVERY_S = 5.0
-JOINTS = ["head_pan_joint", "head_tilt_joint"]
+JOINTS = ["head_pan", "head_tilt"]
 RATE_HZ = 20
 STALE_S = 3 / RATE_HZ                    # what a consumer should call unknown (documented above)
 CENTRE = 90.0
@@ -65,9 +68,11 @@ def _span(env=None) -> float:
 
 
 def to_radians(pan_cmd: float, tilt_cmd: float, span_deg: float = 300.0) -> tuple[float, float]:
-    """The neck's commanded degrees (90 = centred) -> real radians from centre, + left and + up."""
+    """The neck's commanded degrees (90 = centred) -> real radians from centre in the description's
+    signs: pan + left; tilt + face DOWN, so the tilt's commanded degrees (which rise as it tips up)
+    are negated."""
     k = span_deg / 180.0
-    return (math.radians((pan_cmd - CENTRE) * k), math.radians((tilt_cmd - CENTRE) * k))
+    return (math.radians((pan_cmd - CENTRE) * k), -math.radians((tilt_cmd - CENTRE) * k))
 
 
 def _stamp(now: float) -> dict:
@@ -82,11 +87,13 @@ def message(pan_cmd: float, tilt_cmd: float, now: float, span_deg: float = 300.0
 
 
 def limits_message(tilt_band: tuple[float, float], now: float, span_deg: float = 300.0) -> dict:
-    lo = to_radians(PAN_TRAVEL[0], tilt_band[0], span_deg)
-    hi = to_radians(PAN_TRAVEL[1], tilt_band[1], span_deg)
+    a = to_radians(PAN_TRAVEL[0], tilt_band[0], span_deg)
+    b = to_radians(PAN_TRAVEL[1], tilt_band[1], span_deg)
+    pan_lo, pan_hi = sorted((a[0], b[0]))
+    tilt_lo, tilt_hi = sorted((a[1], b[1]))          # negated tilt: the band's ends swap
     return {"header": {"stamp": _stamp(now), "frame_id": ""},
-            "name": ["head_pan_joint_lower", "head_pan_joint_upper", "head_tilt_joint_lower", "head_tilt_joint_upper"],
-            "position": [round(lo[0], 5), round(hi[0], 5), round(lo[1], 5), round(hi[1], 5)],
+            "name": ["head_pan_lower", "head_pan_upper", "head_tilt_lower", "head_tilt_upper"],
+            "position": [round(pan_lo, 5), round(pan_hi, 5), round(tilt_lo, 5), round(tilt_hi, 5)],
             "velocity": [], "effort": []}
 
 
