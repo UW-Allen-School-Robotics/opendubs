@@ -1,7 +1,7 @@
 /* OpenArm Motion Planner Studio & Halloween Show Designer
  * Main Application Logic
  */
-import { PlannerStudioView } from "./armview.js?v=2.4";
+import { PlannerStudioView } from "./armview.js?v=2.5";
 
 function logClient(level, message, stack = "") {
   try {
@@ -80,7 +80,7 @@ class StudioApp {
     // 1. Build sliders and bind events FIRST so all buttons work immediately
     this._createJointSliders();
     this._bindEvents();
-    this._syncUIFromState();
+    this._setTargetMode("goal");
     this._updateGripperUI();
 
     // 2. Fetch backend status and keyframes in parallel
@@ -98,6 +98,9 @@ class StudioApp {
       this.view = await new PlannerStudioView(canvas).load();
       logClient("info", "3D WebGL PlannerStudioView loaded successfully.");
       this._updateArmPosesInView();
+      if (this.view.setActiveEditArm) {
+        this.view.setActiveEditArm(this.targetMode);
+      }
       if (this.view.setGripper) {
         this.view.setGripper(this.arm, this.gripperState[this.arm]);
       }
@@ -207,6 +210,7 @@ class StudioApp {
           this.qStart[i] = val;
         }
         document.getElementById(`val-j${i}`).textContent = `${val.toFixed(1)}°`;
+        this._syncPresetDropdown();
         this._updateArmPosesInView();
         this._scheduleCollisionCheck();
       });
@@ -226,18 +230,7 @@ class StudioApp {
 
     // Presets dropdown
     document.getElementById("preset-select").addEventListener("change", (e) => {
-      const presets = getPresetsForArm(this.arm);
-      const p = presets[e.target.value];
-      if (p) {
-        if (this.targetMode === "goal") {
-          this.qGoal = [...p];
-        } else {
-          this.qStart = [...p];
-        }
-        this._syncUIFromState();
-        this._updateArmPosesInView();
-        this._checkCollisionAndFK();
-      }
+      this._applySelectedPreset(e.target.value);
     });
 
     // View buttons
@@ -385,11 +378,65 @@ class StudioApp {
     await this._loadKeyframes();
   }
 
+  _applySelectedPreset(presetKey) {
+    if (!presetKey) return;
+    const presets = getPresetsForArm(this.arm);
+    const p = presets[presetKey];
+    if (p) {
+      if (this.targetMode === "goal") {
+        this.qGoal = [...p];
+      } else {
+        this.qStart = [...p];
+      }
+      this._syncUIFromState();
+      this._updateArmPosesInView();
+      this._checkCollisionAndFK();
+    }
+  }
+
+  _syncPresetDropdown() {
+    const selector = document.getElementById("preset-select");
+    if (!selector) return;
+    const currentQ = this.targetMode === "goal" ? this.qGoal : this.qStart;
+    const presets = getPresetsForArm(this.arm);
+
+    let matchedKey = "";
+    for (const [key, angles] of Object.entries(presets)) {
+      const match = angles.every((val, idx) => Math.abs(val - currentQ[idx]) < 0.25);
+      if (match) {
+        matchedKey = key;
+        break;
+      }
+    }
+    selector.value = matchedKey;
+  }
+
   _setTargetMode(mode) {
     this.targetMode = mode;
     document.getElementById("btn-mode-goal").classList.toggle("active", mode === "goal");
     document.getElementById("btn-mode-start").classList.toggle("active", mode === "start");
+
+    const panelBody = document.querySelector(".panel-body");
+    if (panelBody) {
+      panelBody.classList.toggle("editing-goal", mode === "goal");
+      panelBody.classList.toggle("editing-start", mode === "start");
+    }
+
+    const badge = document.getElementById("active-target-badge");
+    const badgeText = document.getElementById("active-target-text");
+    if (badge && badgeText) {
+      badge.classList.toggle("badge-goal", mode === "goal");
+      badge.classList.toggle("badge-start", mode === "start");
+      badgeText.textContent = mode === "goal"
+        ? "Editing: GOAL TARGET (Ghost Arm)"
+        : "Editing: START POSE (Solid Arm)";
+    }
+
     this._syncUIFromState();
+    this._checkCollisionAndFK();
+    if (this.view && this.view.setActiveEditArm) {
+      this.view.setActiveEditArm(mode);
+    }
   }
 
   _syncUIFromState() {
@@ -400,6 +447,7 @@ class StudioApp {
       if (slider) slider.value = currentQ[i];
       if (readout) readout.textContent = `${currentQ[i].toFixed(1)}°`;
     }
+    this._syncPresetDropdown();
     this._updateArmPosesInView();
     if (this.view && this.view.getTcpWorldPosition) {
       const tcpPos = this.view.getTcpWorldPosition(this.arm, this.targetMode === "goal");

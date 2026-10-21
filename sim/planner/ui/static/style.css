@@ -364,6 +364,71 @@ canvas#arm-canvas {
   border: 1px solid var(--border-color);
 }
 
+#btn-mode-goal.active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+#btn-mode-start.active {
+  background: rgba(148, 163, 184, 0.22);
+  color: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  box-shadow: 0 0 8px rgba(148, 163, 184, 0.25);
+}
+
+/* Active Target Status Badge */
+.active-target-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-top: 4px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  transition: all 0.2s ease;
+}
+
+.active-target-badge.badge-goal {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.active-target-badge.badge-goal .target-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
+.active-target-badge.badge-start {
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #e2e8f0;
+}
+
+.active-target-badge.badge-start .target-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  box-shadow: 0 0 6px #cbd5e1;
+}
+
+/* Color slider thumbs and accents depending on whether Goal (cyan) or Start (silver) is being edited */
+.editing-start .joint-slider-row input[type="range"] {
+  accent-color: #94a3b8;
+}
+
+.editing-goal .joint-slider-row input[type="range"] {
+  accent-color: var(--accent-cyan);
+}
+
 .form-group {
   display: flex;
   flex-direction: column;

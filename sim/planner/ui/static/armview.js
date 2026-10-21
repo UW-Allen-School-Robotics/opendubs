@@ -239,6 +239,27 @@ export class PlannerStudioView {
     this.render();
   }
 
+  setActiveEditArm(mode) {
+    const isGoal = mode === "goal";
+    // When editing Goal Target: ghost arm is prominent (opacity 0.75), solid is secondary (opacity 0.60)
+    // When editing Start Pose: solid arm is prominent (opacity 1.0), ghost is secondary (opacity 0.28)
+    this.ghostArm.root.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.opacity = isGoal ? 0.75 : 0.28;
+        child.material.transparent = true;
+        child.material.needsUpdate = true;
+      }
+    });
+    this.solidArm.root.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.opacity = isGoal ? 0.60 : 1.0;
+        child.material.transparent = isGoal;
+        child.material.needsUpdate = true;
+      }
+    });
+    this.render();
+  }
+
   setCollisionState(isCollision) {
     const mat = isCollision ? this.matCollision : this.matSolid;
     this.solidArm.root.traverse((child) => {

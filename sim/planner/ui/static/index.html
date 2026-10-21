@@ -39,8 +39,13 @@
         <div class="form-group">
           <label>Editing Target</label>
           <div class="toggle-group" id="target-mode-toggle">
-            <button id="btn-mode-goal" class="active" title="Edit goal target configuration (Ghost)">Goal Target</button>
-            <button id="btn-mode-start" title="Edit starting configuration (Solid)">Start Pose</button>
+            <button id="btn-mode-goal" class="active" title="Edit goal target configuration (Ghost Arm)">Goal Target</button>
+            <button id="btn-mode-start" title="Edit starting configuration (Solid Arm)">Start Pose</button>
+          </div>
+          <!-- Dynamic Target Indicator Badge -->
+          <div id="active-target-badge" class="active-target-badge badge-goal">
+            <span class="target-indicator-dot"></span>
+            <span id="active-target-text">Editing: GOAL TARGET (Ghost Arm)</span>
           </div>
         </div>
 
@@ -48,10 +53,10 @@
         <div class="form-group">
           <label for="preset-select">Preset Poses</label>
           <select id="preset-select">
-            <option value="" disabled selected>Select a preset...</option>
+            <option value="" disabled selected>Select a preset / Custom Pose...</option>
             <optgroup label="Standard Poses">
-              <option value="stow">Stow / Rest</option>
-              <option value="zero">Zero Angles</option>
+              <option value="stow">Stow / Rest (Tucked Elbow 95°)</option>
+              <option value="zero">Zero / Gravity Hang (Straight Down 0°)</option>
               <option value="reach_forward">Reach Forward</option>
               <option value="high_reach">High Reach</option>
               <option value="wave_ready">Wave Ready</option>
