@@ -476,6 +476,8 @@ async def ws(socket: WebSocket) -> None:
     SLOW_EVERY = HZ   # ~1 Hz: subprocess status (net/vnc) + system metrics
     tick = 0
     slow = {}
+    # Which robot-Wi-Fi client this page is, so it can find its own signal in net.robot_wifi.
+    peer = socket.client.host if socket.client else None
     loop = asyncio.get_event_loop()
     try:
         while True:
@@ -493,7 +495,7 @@ async def ws(socket: WebSocket) -> None:
                 STATE["ai_tracking"] = await loop.run_in_executor(None, _tracker_active)
             if tick % FAST_EVERY == 0:
                 # cheap (reader snapshots only) → safe to run inline at 10 Hz.
-                payload["status"] = {**status_mod.collect_fast(), **slow}
+                payload["status"] = {**status_mod.collect_fast(), **slow, "client_ip": peer}
             await socket.send_text(json.dumps(payload))
             tick += 1
             await asyncio.sleep(1.0 / HZ)
@@ -594,6 +596,13 @@ app.include_router(_tablet_relay_router)
 # The kiosk app's next build, signed on the Thor, which the tablet installs itself (kiosk_update.py).
 from kiosk_update import router as _kiosk_update_router  # noqa: E402
 app.include_router(_kiosk_update_router)
+# What the voice may say about the robot: what the dashboard shows, in its words (spoken_status.py).
+from spoken_status import router as _spoken_router  # noqa: E402
+app.include_router(_spoken_router)
+# The stage page's live skeletons (stage.py, Choreography's): the relay's frames in (localhost only), the
+# projector's page out. The page itself is static: frontend/stage/.
+from stage import router as _stage_router  # noqa: E402
+app.include_router(_stage_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

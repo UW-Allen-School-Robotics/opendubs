@@ -85,6 +85,14 @@ class KioskBridge(private val activity: Activity) {
         openCameras.clear()
     }
 
+    /** The page is alive: the face (engine/main.js) and the dashboard (app.js) call this every 5 s. A robot
+     *  page that stops calling it is reloaded (KioskActivity's watchdog). */
+    @JavascriptInterface
+    fun alive() {
+        val a = activity as? KioskActivity ?: return
+        a.runOnUiThread { a.pageAlive() }
+    }
+
     /** The accelerometer samples since the last call, JSON `[[ax, ay, az, age_ms], ...]` (m/s², gravity
      *  included, the tablet's own axes: x right, y up the screen, z out of it; age_ms from the sensor's
      *  own timestamp to now). An empty list when nothing new arrived. The tablet has no gyroscope. */

@@ -232,6 +232,7 @@ else touches this slot for a while". It extends the span; it never shortens it.
 | `LIFT` `up`/`down` | command | `t` | `t + max(secs, hold_s)` | `secs` |
 | `LIFT` `stop` | command | `t` | `t + hold_s` | 0 |
 | `SOUND` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the WAV file's length, else 0.5 s (span sizing only) |
+| `VIDEO` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the library video's `duration_s` less `from_s`; a following VIDEO cue ends it sooner on the robot |
 | `FACE`, `LIGHT` | command | `t` | `t + hold_s` | 0 — a state change, not a motion |
 
 A cue whose `start` falls before the previous cue on the same slot has ended is refused: "two
@@ -369,6 +370,7 @@ Unchanged from v0 unless marked **new**.
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped; **no colour that reads as the state light's E-STOP red or DEGRADED amber** — within ±20° of their hue and saturated enough to read as it (plan 1.8; `cue.py describe`) | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
 
 | `DEVICE` **new** (2026-10-13) | `do: volume\|brightness`, `level: 0..1`, optional `fade_s` (0–30). Show-level `device: { volume, brightness }` sets both at time 0 | ranges; a fade owns the slot for its length; needs `tab5: true`. **Brightness below 0.15 warns**: the head never dims past its own floor (`bright_min`), so it would come out brighter than written. Every show end hands both back to the head (`VOLUME IDLE`, `BRIGHT IDLE`) | head protocol v5, agreed with the Tablet lane: `VOLUME <0..1> [fade_s]`, `BRIGHT <0..1> [fade_s]`, `VOLUME IDLE`, `BRIGHT IDLE`; the reply carries the level applied. VOLUME is the head's **media volume** — what the show audio plays at — not a gain in the player |
+| `VIDEO` **new** (2026-10-20) | `do: play`, `video: <library id>`, optional `from_s`, `secs`, `end: black\|hold`, `output: cast\|hdmi\|off`; or `do: stop`. Show-level `video: { output, required }` | a library video (kind `video`); one at a time (a collision otherwise); `from_s` inside the file. The span is `secs`, else the file's length from `from_s` | the projector, by Cast or by HDMI — `software/choreo/video_out.py`; the whole design, sync limits and the dashboard contract in [`choreo-video.md`](choreo-video.md) |
 
 `LIGHT`'s second verb is `release`, not `off`, for two reasons. YAML 1.1 reads a bare `off` as
 the boolean `false` (the validator names this trap when it sees it — the first draft of the demo

@@ -12,7 +12,8 @@ Entries marked `optional` (the local language models, 8 to 17 GB each) are fetch
 with --only: a robot gets one only once its gates have passed (notes/workplan-voice.md, 1.5).
 
 Everything comes from models.lock.json: each repository at a full commit hash, each file with its
-size and either its SHA-256 (large files) or its git blob id (small files). A file that does not
+size and either its SHA-256 (large files) or its git blob id (small files). An entry with a `base_url`
+instead of a repository (a release asset, such as Silero VAD's) must give a SHA-256 for every file. A file that does not
 match is deleted and the run fails. Nothing is fetched from a branch, so a model cannot change
 underneath a robot. --check verifies what is already there and downloads nothing.
 
@@ -30,7 +31,8 @@ import json
 import os
 import shutil
 import sys
-import tempfile
+import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,13 +80,53 @@ def model_dir(dest: str, m: dict) -> str:
     return os.path.join(dest, m["dest"])
 
 
-def http_get(url: str, out_path: str) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "opendubs-fetch-models"})
-    with urllib.request.urlopen(req, timeout=60) as r, open(out_path, "wb") as f:
-        shutil.copyfileobj(r, f, CHUNK)
+RETRIES = 6
+RETRY_WAIT_S = (2, 5, 10, 20, 30, 60)
 
 
-def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False, log=print) -> int:
+def http_get(url: str, out_path: str, offset: int = 0) -> None:
+    """Append the bytes of `url` from `offset` to `out_path`. A connection that ends early is not an
+    error here: fetch() sees the short file and resumes it with a Range request."""
+    headers = {"User-Agent": "opendubs-fetch-models"}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        if offset and r.status != 206:
+            raise OSError(f"server ignored the resume request (HTTP {r.status})")
+        with open(out_path, "ab" if offset else "wb") as f:
+            shutil.copyfileobj(r, f, CHUNK)
+
+
+def download(url: str, part: str, spec: dict, get=http_get, sleep=time.sleep, log=print) -> None:
+    """Download into `part`, resuming after a dropped connection, until it has the pinned size.
+    Large files come from a CDN whose connections can end early (seen on the robot: a 5 GB shard cut
+    at 1.66 GB); each attempt asks for the full URL again, so an expired redirect is renewed."""
+    for attempt in range(RETRIES + 1):
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        if have > spec["size"]:
+            os.unlink(part)                               # longer than pinned: start over
+            have = 0
+        if have == spec["size"]:
+            return
+        try:
+            get(url, part, have)
+        except (urllib.error.URLError, OSError) as e:
+            if attempt == RETRIES:
+                raise Mismatch(f"{part}: download failed after {RETRIES + 1} attempts: {e}") from None
+            log(f"  retrying after: {e}")
+        else:
+            if os.path.getsize(part) == spec["size"]:
+                return
+            if attempt == RETRIES:
+                break
+            log(f"  connection ended at {os.path.getsize(part) / 1e6:.0f} of {spec['size'] / 1e6:.0f} MB; resuming")
+        sleep(RETRY_WAIT_S[min(attempt, len(RETRY_WAIT_S) - 1)])
+    raise Mismatch(f"{part}: {os.path.getsize(part)} bytes after {RETRIES + 1} attempts, expected {spec['size']}")
+
+
+def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False, log=print,
+          sleep=time.sleep) -> int:
     """Download and verify; returns the number of files fetched. Raises Mismatch on any bad file."""
     fetched = 0
     for m in models:
@@ -97,23 +139,37 @@ def fetch(dest: str, models: list[dict], get=http_get, check_only: bool = False,
             if check_only:
                 raise Mismatch(f"{path}: missing (run fetch_models.py without --check)")
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            url = f"{BASE_URL}/{m['repo']}/resolve/{m['revision']}/{spec['path']}"
+            if m.get("base_url"):        # a release asset elsewhere: pinned by its sha256 alone
+                url = f"{m['base_url']}/{spec['path']}"
+            else:
+                url = f"{BASE_URL}/{m['repo']}/resolve/{m['revision']}/{spec['path']}"
             log(f"fetch {m['name']}: {spec['path']} ({spec['size'] / 1e6:.1f} MB)")
-            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".part-")
-            os.close(fd)
+            # A fixed partial-file name, so a run that was interrupted resumes where it stopped.
+            part = os.path.join(os.path.dirname(path), f".part-{os.path.basename(path)}")
+            download(url, part, spec, get=get, sleep=sleep, log=log)
             try:
-                get(url, tmp)
-                verify(tmp, spec)
-                os.replace(tmp, path)
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
+                verify(part, spec)
+            except Mismatch:
+                os.unlink(part)                           # never keep, or resume, bytes that do not match
+                raise
+            os.replace(part, path)
+            os.chmod(path, 0o644)       # readable by the voice container's non-root user
             fetched += 1
         if m.get("hf_cache"):
-            refs = os.path.join(os.path.dirname(os.path.dirname(root)), "refs")
-            os.makedirs(refs, exist_ok=True)
-            with open(os.path.join(refs, "main"), "w") as f:
-                f.write(m["revision"])
+            ref = os.path.join(os.path.dirname(os.path.dirname(root)), "refs", "main")
+            try:
+                with open(ref) as f:
+                    current = f.read().strip()
+            except FileNotFoundError:
+                current = None
+            if current != m["revision"]:
+                # --check never writes: run.sh calls it with the weights mounted read-only.
+                if check_only:
+                    raise Mismatch(f"{ref}: {current or 'missing'}, expected {m['revision']} "
+                                   "(run fetch_models.py without --check)")
+                os.makedirs(os.path.dirname(ref), exist_ok=True)
+                with open(ref, "w") as f:
+                    f.write(m["revision"])
     if not check_only and os.path.exists(NOTICE):
         shutil.copyfile(NOTICE, os.path.join(dest, "NOTICE.md"))     # the credits travel with the weights
     return fetched

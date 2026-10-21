@@ -11,6 +11,15 @@ export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", 
 // ARMED WAIT is leased (v5): a runner that dies cannot leave the face saying "armed".
 export const ARMED_LEASE_MS = 3000;
 let armedLease = null;
+// Head protocol v8: the robot's state in plain words, for people who don't know the colours. The
+// dashboard decides the words and when (state_words.py); the face shows them (Face & HRI's
+// skins/caption.js). Dropped when not renewed: a stale "Ready" must never outlive the dashboard.
+export const CAPTION_MAX = 60, CAPTION_EXPIRY_MS = 10000;
+let caption = null;                             // {text, at}
+/** The caption to show at `now`, or null. */
+export function captionNow(now) {
+  return caption && now - caption.at <= CAPTION_EXPIRY_MS ? caption.text : null;
+}
 
 function levelLine(levels, which, rest) {
   // VOLUME|BRIGHT <0..1> [fade_s]  /  VOLUME|BRIGHT IDLE [fade_s]   (head protocol v5)
@@ -123,6 +132,14 @@ export function handle(face, audio, line, now, skins, levels, opts = {}) {
       if (!ok) return "ERR batt <0..100|-> <0|1>";
       face.setBatt(soc === "-" ? null : Number(soc), ch === "1", now);
       return `OK batt ${soc === "-" ? "-" : Number(soc)} ${ch}`;
+    }
+    case "CAPTION": {
+      // The rest of the line, as sent; longer than CAPTION_MAX characters is refused, never cut.
+      const text = line.trim().slice(verb.length).trim();
+      if (text === "OFF") { caption = null; return "OK caption off"; }
+      if (!text || [...text].length > CAPTION_MAX) return `ERR caption <text, at most ${CAPTION_MAX} characters> | OFF`;
+      caption = { text, at: now };
+      return "OK caption";
     }
     case "CFG":
       return "ERR cfg: the library is not built yet (tablet plan 4.4)";

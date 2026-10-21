@@ -60,7 +60,7 @@ The robot state shown when a fault is latched — an over-temperature, for examp
 
 ### Drive bus {#drive-bus}
 
-The 24 V supply for everything that moves — the drive motors, the lift — and for the head. It sits behind the [contactor](#contactor), so an e-stop removes it. Compare the [logic bus](#logic-bus).
+The 24 V supply for everything that moves — the drive motors, the lift, the arms. It sits behind the [contactor](#contactor), so an e-stop removes it. Compare the [logic bus](#logic-bus).
 
 **See also:** [Power architecture](../power-architecture.md)
 
@@ -68,7 +68,7 @@ The 24 V supply for everything that moves — the drive motors, the lift — and
 
 *Also:* **emergency stop**
 
-Anything that opens the drive [contactor](#contactor). The red buttons on the robot do it in hardware, independent of all software. A **software e-stop** — from the dashboard or the head — has the controller open it, and [latches](#latch) until an operator re-arms.
+Anything that opens the drive [contactor](#contactor). The red buttons on the robot do it in hardware, independent of all software. A **software e-stop**, from the dashboard, has the controller open it, and [latches](#latch) until an operator re-arms.
 
 **See also:** [E-stop system](../e-stop.md) · [Operating the robot](../operating.md#stopping-the-robot)
 
@@ -96,7 +96,7 @@ What an RC receiver reports when it has lost the transmitter's signal. The robot
 
 *Also:* **the head**
 
-The robot's face and front control panel: a touchscreen on the front of the robot with its own **E-STOP** button. It is powered from the drive bus, so it turns off whenever the contactor opens.
+The robot's face: an Android tablet on a pan/tilt neck. The tablet shows the face, plays sound and runs on its own battery; lifted off the mount, it is the operator's dashboard. An M5Dial neck controller moves the neck. The head has no e-stop of its own.
 
 **See also:** [System Overview](../system-overview.md)
 

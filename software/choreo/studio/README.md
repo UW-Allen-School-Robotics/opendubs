@@ -64,4 +64,5 @@ system for free ones otherwise; `status` shows which.
 `software/head-protocol`, `sim/` and `description/`, in the repository's own layout, without tests,
 deploy files, `software/face-web/vendor/` (camera tracking is off in the studio) or
 `software/face-web/test/` (bench files the studio never loads). `.github/workflows/studio.yml` builds it, installs it and runs the whole
-app on macOS and Linux for every change to those folders.
+app: on Linux for every pull request that changes what the wheel carries (once it is ready for
+review, not while a draft), and on Linux and macOS weekly and by hand.

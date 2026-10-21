@@ -8,6 +8,7 @@ import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.text.Html
 import android.util.Log
@@ -53,6 +54,33 @@ class KioskActivity : Activity() {
     private var loadFailed = false
     private val retryLoad = Runnable { loadFailed = false; web.loadUrl(dashboardUrl()) }
 
+    // A PAGE THAT LOADED BUT NEVER RAN, OR STOPPED. On 2026-10-19 the face reloaded while the dashboard
+    // restarted: its HTML arrived, its scripts did not, and the WebView sat there with no code running
+    // until the tablet was rebooted by hand (a main-frame load error retries above; this was not one).
+    // The robot's pages call OpenDubsKiosk.alive() every 5 s; one that has not done so within
+    // SILENT_MS of loading, or since its last call, is reloaded, backing off to SILENT_MAX_MS. Only pages
+    // that check in (the face and the dashboard), and only while this activity is in front.
+    private var lastAlive = 0L
+    private var watched = false
+    private var resumed = false
+    private var silentReloadMs = SILENT_MS
+    private val watchdog = object : Runnable {
+        override fun run() {
+            val now = SystemClock.elapsedRealtime()
+            if (watched && resumed && !loadFailed && now - lastAlive > silentReloadMs) {
+                lastAlive = now                                  // the next reload waits a full period
+                silentReloadMs = (silentReloadMs * 2).coerceAtMost(SILENT_MAX_MS)
+                web.reload()
+            }
+            retry.postDelayed(this, 5_000L)
+        }
+    }
+
+    fun pageAlive() {
+        lastAlive = SystemClock.elapsedRealtime()
+        silentReloadMs = SILENT_MS
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,7 +93,8 @@ class KioskActivity : Activity() {
         // outlives this activity, so it must hold nothing of it: it reads the URL through the
         // application. (0.3.0 captured the activity here, and with it its WebView: after the app was
         // restarted once, an invisible face page kept running and held the camera.)
-        if (Updater.current == null) {
+        // Not on a display (Provision.isDisplay): it is no device owner, so an update would prompt on screen.
+        if (Updater.current == null && !Provision.isDisplay(this)) {
             val app = applicationContext
             Updater.current = Updater(app) {
                 val u = Uri.parse(Provision.url(app) ?: app.getString(R.string.default_url))
@@ -92,7 +121,10 @@ class KioskActivity : Activity() {
                                  RETRY_SLOW_MS)
                 }
                 override fun onPageFinished(v: WebView, url: String) {
-                    if (!loadFailed && sameOrigin(Uri.parse(url), dashboardUrl())) {
+                    val u = Uri.parse(url)
+                    watched = !loadFailed && sameOrigin(u, dashboardUrl()) && !(u.path ?: "").startsWith("/docs")
+                    if (watched) lastAlive = SystemClock.elapsedRealtime()   // it has SILENT_MS to check in
+                    if (!loadFailed && sameOrigin(u, dashboardUrl())) {
                         retry.removeCallbacks(retryLoad)
                         retryDelayMs = RETRY_FIRST_MS
                         failingSince = 0
@@ -131,12 +163,16 @@ class KioskActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        bridge.start()
+        resumed = true
+        lastAlive = SystemClock.elapsedRealtime()               // a page paused in the background gets a fresh start
+        retry.removeCallbacks(watchdog); retry.postDelayed(watchdog, 5_000L)
+        if (!Provision.isDisplay(this)) bridge.start()         // a display has no sensors to report
         hideSystemBars()
         enterLockTaskIfAllowed()
     }
 
     override fun onPause() {
+        resumed = false
         bridge.stop()
         super.onPause()
     }
@@ -200,7 +236,7 @@ class KioskActivity : Activity() {
 
     private fun enterLockTaskIfAllowed() {
         val am = getSystemService(ActivityManager::class.java)
-        if (!maintenance && DeviceOwner.isOwner(this) &&
+        if (!maintenance && !Provision.isDisplay(this) && DeviceOwner.isOwner(this) &&
             am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE)
             runCatching { startLockTask() }
     }
@@ -220,6 +256,8 @@ class KioskActivity : Activity() {
         const val RETRY_FIRST_MS = 2_000L
         const val RETRY_MAX_MS = 10_000L
         const val RETRY_SLOW_MS = 30_000L
+        const val SILENT_MS = 30_000L
+        const val SILENT_MAX_MS = 120_000L
     }
 
     @Deprecated("Back would leave the dashboard; in a kiosk it goes back in the page instead.")

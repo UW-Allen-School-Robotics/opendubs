@@ -9,8 +9,8 @@ The effects, all of them:
 
   set_expression  -> `EMOTE <NAME>`   to the face (eyes on a screen)
   face_gesture    -> `MOVE <name>`    to the face (eyes on a screen; the head does not turn)
-  robot_status    -> GET /api/choreo/robot on the dashboard, READ-ONLY, so the robot can say
-                     truthfully whether it is e-stopped
+  robot_status    -> GET /api/status/spoken on the dashboard, READ-ONLY: the robot may say
+                     anything its dashboard shows, and do nothing it does (robot_facts.py)
   end_conversation-> the voice service ends the conversation
 
 1. **Closed vocabularies, from the protocol's own copy.** Names come from
@@ -34,6 +34,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+import robot_facts
+
 try:
     import head_protocol as hp          # beside this file in the container image
 except ImportError:                     # a checkout: the protocol package two levels up
@@ -41,7 +43,7 @@ except ImportError:                     # a checkout: the protocol package two l
     import head_protocol as hp  # noqa: E402
 
 ALLOWED_HEAD_VERBS = frozenset({"EMOTE", "MOVE"})
-ALLOWED_HTTP = frozenset({("GET", "/api/choreo/robot")})
+ALLOWED_HTTP = frozenset({("GET", robot_facts.STATUS_PATH)})
 FACE_BURST, FACE_WINDOW_S = 4, 2.0
 
 EMOTE_NAMES = [e.lower() for e in hp.EMOTES] + ["auto"]
@@ -97,9 +99,11 @@ def tool_definitions() -> list[dict]:
         },
         {
             "name": "robot_status",
-            "description": ("Read whether you are e-stopped, which mode your operator's transmitter "
-                            "is in, and any faults. Read-only. Use it to answer questions about "
-                            "yourself truthfully."),
+            "description": ("Read your own status exactly as your dashboard shows it: your state, "
+                            "battery and charging, faults with what they mean, your arms, whether a "
+                            "show is running, your network uplink, and how long you have been on. "
+                            "Read-only. Use it for every question about yourself, and answer only "
+                            "from what it returns."),
             "input_schema": {"type": "object", "additionalProperties": False, "properties": {}},
             "strict": True,
         },
@@ -144,7 +148,7 @@ def plan(name, args, limiter: Limiter, now: float | None = None) -> Action:
     if name == "robot_status":
         if args:
             return Action(refused="robot_status takes no arguments")
-        return Action(http=("GET", "/api/choreo/robot"))
+        return Action(http=("GET", robot_facts.STATUS_PATH))
 
     if name == "end_conversation":
         if args:
@@ -164,20 +168,3 @@ def every_possible_effect() -> list[Action]:
     out.append(plan("robot_status", {}, Limiter()))
     out.append(plan("end_conversation", {}, Limiter()))
     return out
-
-
-def status_summary(robot: dict | None) -> str:
-    """The dashboard's /api/choreo/robot view, as a sentence a model can repeat. Unknown is said
-    as unknown, never as fine: the view uses None for anything it cannot vouch for."""
-    if not isinstance(robot, dict):
-        return "Your status cannot be read right now."
-
-    def say(v, yes, no):
-        return "unknown" if v is None else (yes if v else no)
-    parts = [
-        f"e-stop: {say(robot.get('estop'), 'pressed, so you are stopped', 'not pressed')}",
-        f"transmitter mode: {robot.get('ch5') or 'unknown'}",
-        f"faults: {robot.get('fault') or 'none reported'}",
-        f"arms: {robot.get('arms') or 'unknown'}",
-    ]
-    return "; ".join(parts) + ". Your operator controls all movement."

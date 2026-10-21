@@ -16,12 +16,15 @@ import { CODE_SKINS } from "./skins/index.js";
  *              turn: a twin's simulated head turn, design px; song: AirPlay's {title, artist} or null;
  *              bright: 0..1, drawn as a dimming of the whole frame (the render; live, the device dims)
  *              caption: false = no line under the eyes (a rendered show: the idle quote is not the show's)
+ *              words: the robot's state in plain words (head protocol CAPTION), drawn by drawCaption
+ *              (Face & HRI's skins/caption.js); in its place, the line under the eyes
  *              cams: {screen, back}, which of the tablet's cameras are open; drawCamera: the skin's
  *              indicator (Face & HRI's skins/camera.js), else the plain one here
  * @returns     {fullFace, armed, camera}: camera is whether the camera sign was drawn
  */
 export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "#000", turn = 0, song = null, bright = 1, caption = true,
-                          cams = null, drawCamera = null, drawCharge = null, drawReticle = null }) {
+                          cams = null, drawCamera = null, drawCharge = null, drawReticle = null,
+                          words = null, drawCaption = null }) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const s = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -29,8 +32,11 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // A reserved state (DEGRADED, E_STOP) overrides any skin: "something is wrong" must look the same on
   // every robot and every show, so it is drawn by the default eyes in the state's own colour.
   const drawn = face.reserved() ? CODE_SKINS.default : skins.current;
-  let skinDrew = true;
+  let skinDrew = true, eyesOk = true;
   for (const e of face.eyes()) {
+    // Drawable at all: an eye whose geometry is not a finite, visible size draws nothing, and the face
+    // goes black under its overlays (seen on the tablet, 2026-10-17). main.js reloads on it.
+    if (!(Number.isFinite(e.cx) && Number.isFinite(e.cy) && e.w > 1 && e.h > 1)) eyesOk = false;
     // An asset skin still loading (or failed) draws nothing: the default eyes stand in. Never blank.
     if (drawn.draw(ctx, e, now / 1000) === false) { CODE_SKINS.default.draw(ctx, e, now / 1000); skinDrew = false; }
   }
@@ -44,7 +50,12 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
   // doing comes before a song or the idle quote. Below ARMED, which owns the bottom while it shows.
   const charge = typeof face.chargeText === "function" ? face.chargeText(now) : null;
   // AirPlay playing and heard: what it is, in the quote's place.
-  const text = !caption || fullFace || armed ? null
+  // The state in plain words (CAPTION) is for whoever cannot read the colours, so it comes first and shows
+  // over any skin and with ARMED (its band ends above ARMED's frame). With Face & HRI's panel it is drawn
+  // below; without it, it takes this line. When the dashboard sends none, the charge line says charging.
+  const panel = words && drawCaption;
+  const text = words && !panel ? words
+    : !caption || fullFace || armed || panel ? null
     : charge ? charge
     : song ? `♪ ${song.title || "AirPlay"}${song.artist ? ` — ${song.artist}` : ""}` : face.quoteText();
   if (text) { ctx.fillStyle = "#5a5a5a"; ctx.font = "24px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(text, DESIGN_W / 2, 672); }
@@ -61,6 +72,10 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
       drawReticle(ctx, { x: DESIGN_W / 2 + c(t.x) * DESIGN_W / 2, y: DESIGN_H / 2 + c(t.y) * DESIGN_H / 2, kind: t.kind || "face" }, now / 1000);
     }
   }
+  // The words' panel, AFTER the reticle: a robot looking down puts the reticle's lower edge on the caption
+  // band, and the words are for someone already struggling to read the face (Face & HRI). It overlaps
+  // none of the gauge, ARMED's frame or the camera sign, which follow.
+  if (panel) drawCaption(ctx, words, { fault: face.reserved() });
   // The charge gauge round the edge (the outermost 8 px), FIRST of the overlays, under ARMED's frame
   // (which starts at 10 px) and the camera sign.
   if (drawCharge && typeof face.chargeState === "function") drawCharge(ctx, face.chargeState(now), now / 1000);
@@ -79,7 +94,7 @@ export function drawFace(ctx, W, H, now, { face, skins, drawArmed = null, bg = "
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     ctx.fillStyle = `rgba(0,0,0,${(1 - Math.max(0, bright)).toFixed(4)})`; ctx.fillRect(0, 0, W, H);
   }
-  return { fullFace, armed, camera };
+  return { fullFace, armed, camera, eyesOk };
 }
 
 /** The plain camera indicator, until Face & HRI's skins/camera.js draws its own: a red dot at the

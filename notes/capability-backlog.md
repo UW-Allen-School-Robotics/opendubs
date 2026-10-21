@@ -33,8 +33,9 @@ on Port A, already detected):
 
 ## 2. Camera control & viewing  ◐
 
-**A RealSense D415 is fitted to the head** and `opendubs-camera.service` publishes it as ROS
-topics; the YOLO face tracker consumes it directly through `pyrealsense2`. The dashboard has a
+**A RealSense D415 is fitted to the head**, and the YOLO face tracker reads it directly through
+`pyrealsense2`; no ROS driver publishes it. (`opendubs-camera.service` ran the stopgap Orbbec Astra,
+retired 2026-10-20.) The dashboard has a
 camera pane but it still reads *"no feed configured"* — nothing is wired into it yet.
 
 - Camera selection is a separate question — see [camera-selection.md](../docs/camera-selection.md);

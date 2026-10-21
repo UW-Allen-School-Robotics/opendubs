@@ -5,8 +5,9 @@
 Description=OpenDubs YOLO face tracker (RealSense -> pan/tilt over UDP)
 # The Tab5 is the command target; the dashboard is not in the path, so this does not need it.
 # It does need the network up for mDNS to resolve the head.
-After=network-online.target
-Wants=network-online.target
+# network.target, not network-online.target: it needs only a LAN address, and on a network with no
+# internet "online" can wait or never come. A start before the address exists fails and restarts.
+After=network.target
 
 [Service]
 Type=simple

@@ -31,6 +31,36 @@ someone's hands.
 
 ---
 
+## Where things stand — 2026-10-16
+
+**Head tracking is the Tab5's law, re-applied (#343), and the user called it "much better".** That is
+the design; start from it.
+
+- **The law** (`neck_follow.py`, from `firmware/tab5_idf/app_face/pantilt.cpp`; the Dial's
+  `pantilt_core` carries the same): for a confident target (0.6; a person 0.45, #329) further off
+  centre than 0.25, pan = 90 − nx·30, tilt = 90 − ny·18, else centre; sent as GAZE at 10 Hz, the
+  neck slewing at 70 °/s. The head's angle is a fixed function of where the person appears, so a
+  late or repeated sighting only repeats the target. Refuses in a reserved state (DEGRADED, E_STOP:
+  #332, the user's decision) and holds at the envelope's edge.
+- **Pan sign −1, measured** with the servo watched (pan 70 = the robot's right) and the tablet's frames
+  unmirrored; the code default since #333, also in `robot.env`. Tilt −1. (The Tab5's own nx had the
+  opposite pan sense.) Last night's note calling +1 "measured" was wrong: it was the default.
+- **The servos are 300°**: the firmware maps 0–180 to 500–2500 µs, so a commanded degree is ~1.67 real
+  ones. Every GAZE angle, the 30/18 ranges and the tilt commissioning are in COMMANDED degrees.
+- **Tried and removed, and why.** One aim per new sighting after the head stopped (#333): calm but about
+  one move a second. An absolute bearing from the head's pose at capture, at full gain (#336): fast, but
+  it swung, because the ×1.67 servo scale was not in its numbers. Both integrate, so a scale or latency
+  error compounds; the Tab5's law does not. If it ever needs more than it does, #336's bearing with the
+  scale corrected is the next step, not a new design.
+- **The reticle** is hidden in reserved states, by design. **A deploy reloads the face page by itself**
+  (#338; turning tracking on never did). **The state in plain words** shows on the face (CAPTION, v8,
+  #337 with Face & HRI's #334); **the chest light** mirrors the PRISM (CHEST, v7, #322).
+- Settings persist: `tracking` and `show_reticle` are saved on the robot and re-sent to the face page as
+  it connects, so a dashboard or app restart resumes them.
+
+**Open:** reaching the dashboard by a long-press on the face stopped working on the tablet (being
+investigated; the page's long-press passes in desktop Chrome).
+
 ## Where things stand — 2026-10-15 (evening)
 
 **On the robot (opendubs2), working:** the kiosk app updates itself over Wi-Fi from the robot (0.3.0
@@ -41,21 +71,11 @@ on demand). The face shows CAMERA ON, the charging gauge (BATT, protocol v6) and
 page asks, the tracking reticle. The tracker is the Tab5's attention model (motion, person, face).
 The head follows through `neck_follow`, behind its runaway and limit guards.
 
-**Parked for the next robot session:**
-- **The head pinned at the pan limit after the last deploy.** With the user in front, `neck_follow`
-  drove pan to 60 and tilt to ~104, and the limit guard held it there. The target, called a FACE at
-  confidence 1.0, stayed at image x ≈ 0.25 while the head was commanded ~30°; a real person would
-  have crossed the frame. So either the pan servo did not physically turn (NECK reports the commanded
-  angle; there is no encoder, and the servo was dead earlier the same day), or something moving with
-  the camera (a reflection, something on the robot, a fixed poster or screen) was being tracked.
-  **The signs are measured and correct: PAN +1, TILT −1. Do not flip them.** They were measured
-  open-loop with the head held at centre, which does not depend on the pan servo. The suspect is the
-  PAN SERVO (dead earlier the same day; tonight's signature matches), or something moving with the
-  camera. **First check next session: a large commanded pan (e.g. GAZE 70 then 110) with someone
-  watching the head.** Tracking is OFF until then.
-- **Person confidence retune**, ready on branch `tracking/person-confidence` (no PR yet). The person
-  cue's own score range and full belief after two linked hits, and `neck_follow`'s floor for a person
-  0.45 (motion and face 0.6). Open it after the user has seen the reticle sit on them.
+**Parked for the next robot session:** both items below were settled on 2026-10-16; see that day.
+- *The head pinned at the pan limit.* This note said the signs were measured and correct, PAN +1.
+  **That was wrong**: +1 was the code's default, and `neck_follow`'s own docstring still said the pan
+  sign was not measured. Written on another lane's word without checking the code.
+- *Person confidence retune*: merged as #329.
 
 ## Where things stand — 2026-10-14
 

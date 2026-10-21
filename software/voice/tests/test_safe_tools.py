@@ -87,11 +87,6 @@ class Boundary(unittest.TestCase):
         for good in ("EMOTE SOFT", "MOVE wink_l", "CONVO LISTEN 3000", "CONVO IDLE"):
             face.check(good)
 
-    def test_status_says_unknown_never_fine(self):
-        s = st.status_summary({"estop": None, "ch5": None, "fault": None, "arms": None})
-        self.assertIn("e-stop: unknown", s)
-        self.assertIn("cannot be read", st.status_summary(None))
-
     def test_the_service_has_no_other_way_out(self):
         """No module of the service may write to the robot by any other route: no POST, no ROS
         publisher, no serial port, no socket to anything but the door's loopback UDP."""

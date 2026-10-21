@@ -16,8 +16,14 @@
 export const KIND = { NONE: "none", MOTION: "motion", PERSON: "person", FACE: "face" };
 
 const SCORE_FLOOR = 0.30, SCORE_FULL = 0.90, REPS_FULL = 3;
-const FACE = { base: 0.15, score: 0.55, reps: 0.30, dwellMin: 500, dwellMax: 2400 };
-const PERSON = { base: 0.12, score: 0.50, reps: 0.28, dwellMin: 450, dwellMax: 2000 };
+const FACE = { base: 0.15, score: 0.55, reps: 0.30, dwellMin: 500, dwellMax: 2400,
+               scoreFloor: SCORE_FLOOR, scoreFull: SCORE_FULL, repsFull: REPS_FULL };
+// PERSON, retuned on the robot (2026-10-15): EfficientDet scores a person standing in front of the robot
+// around 0.4-0.6, not a face model's 0.9, and it runs on every other frame (~2.5 a second), so the
+// face's "three linked hits, 0.3..0.9" left a person who stood still at ~0.5 and the head never turned.
+// Its own score range, and full belief after two linked hits.
+const PERSON = { base: 0.12, score: 0.50, reps: 0.28, dwellMin: 450, dwellMax: 2000,
+                 scoreFloor: 0.25, scoreFull: 0.70, repsFull: 2 };
 const LINK_MS = 700, LINK_DIST = 0.25;          // two hits are the same person: close in time and space
 const MOTION_STR_FLOOR = 0.06, MOTION_STR_FULL = 0.40, MOTION_CONF_CAP = 0.70;
 const MOTION_DWELL_MIN = 350, MOTION_DWELL_MAX = 1200;
@@ -27,7 +33,7 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const ramp = (v, lo, hi) => (hi - lo < 1e-6 ? (v >= hi ? 1 : 0) : clamp01((v - lo) / (hi - lo)));
 
 export function detectorConfidence(c, k) {
-  return clamp01(k.base + k.score * ramp(c.quality, SCORE_FLOOR, SCORE_FULL) + k.reps * clamp01((c.reps - 1) / (REPS_FULL - 1)));
+  return clamp01(k.base + k.score * ramp(c.quality, k.scoreFloor, k.scoreFull) + k.reps * clamp01((c.reps - 1) / (k.repsFull - 1)));
 }
 export function motionConfidence(c) { return clamp01(ramp(c.quality, MOTION_STR_FLOOR, MOTION_STR_FULL) * MOTION_CONF_CAP); }
 
@@ -37,23 +43,26 @@ export function dwellFor(kind, conf) {
   return MOTION_DWELL_MIN + (MOTION_DWELL_MAX - MOTION_DWELL_MIN) * (conf / MOTION_CONF_CAP);
 }
 
-const empty = () => ({ live: false, nx: 0, ny: 0, quality: 0, stamp: 0, reps: 0 });
+// `seen`: when the frame this cue came from was CAPTURED. A cue outlives its sighting by its dwell, at
+// the position it was seen at; the neck must never re-aim at that held position (neck_follow.py).
+const empty = () => ({ live: false, nx: 0, ny: 0, quality: 0, stamp: 0, reps: 0, seen: 0 });
 
 export class Attention {
   constructor() { this.reset(); this.seq = 0; }
 
   reset() { this.face = empty(); this.person = empty(); this.motion = empty(); this.cur = { kind: KIND.NONE, nx: 0, ny: 0, seq: this.seq || 0 }; }
 
-  noteMotion(now, nx, ny, strength) { Object.assign(this.motion, { live: true, nx, ny, quality: strength, stamp: now, reps: 1 }); }
-  noteFace(now, nx, ny, score) { this._linked(this.face, now, nx, ny, score); }
-  notePerson(now, nx, ny, score) { this._linked(this.person, now, nx, ny, score); }
+  noteMotion(now, nx, ny, strength, seen = now) { Object.assign(this.motion, { live: true, nx, ny, quality: strength, stamp: now, reps: 1, seen }); }
+  noteFace(now, nx, ny, score, seen = now) { this._linked(this.face, now, nx, ny, score, seen); }
+  notePerson(now, nx, ny, score, seen = now) { this._linked(this.person, now, nx, ny, score, seen); }
 
-  _linked(c, now, nx, ny, score) {
+  _linked(c, now, nx, ny, score, seen = now) {
     const linked = c.live && now - c.stamp <= LINK_MS && Math.abs(nx - c.nx) < LINK_DIST && Math.abs(ny - c.ny) < LINK_DIST;
-    Object.assign(c, { live: true, nx, ny, quality: score, stamp: now, reps: linked ? c.reps + 1 : 1 });
+    Object.assign(c, { live: true, nx, ny, quality: score, stamp: now, reps: linked ? c.reps + 1 : 1, seen });
   }
 
-  /** The target now: {kind, nx, ny, confidence, seq, goodUntil}. */
+  /** The target now: {kind, nx, ny, confidence, seq, goodUntil, seen}. `seen` is the winning cue's own
+   *  sighting, which stays put while the cue is held: a new sighting is a new `seen`. */
   tick(now) {
     // Cues age out against their own dwell: a face holds its claim longer by construction.
     if (this.face.live && now - this.face.stamp > dwellFor(KIND.FACE, detectorConfidence(this.face, FACE))) this.face.live = false;
@@ -61,10 +70,10 @@ export class Attention {
     if (this.motion.live && now - this.motion.stamp > dwellFor(KIND.MOTION, motionConfidence(this.motion))) this.motion.live = false;
     // Precedence by rule, not by comparing confidences: they measure different things.
     let next;
-    if (this.face.live) next = { kind: KIND.FACE, nx: this.face.nx, ny: this.face.ny, confidence: detectorConfidence(this.face, FACE) };
-    else if (this.person.live) next = { kind: KIND.PERSON, nx: this.person.nx, ny: this.person.ny, confidence: detectorConfidence(this.person, PERSON) };
-    else if (this.motion.live) next = { kind: KIND.MOTION, nx: this.motion.nx, ny: this.motion.ny, confidence: motionConfidence(this.motion) };
-    else next = { kind: KIND.NONE, nx: 0, ny: 0, confidence: 0 };
+    if (this.face.live) next = { kind: KIND.FACE, nx: this.face.nx, ny: this.face.ny, confidence: detectorConfidence(this.face, FACE), seen: this.face.seen };
+    else if (this.person.live) next = { kind: KIND.PERSON, nx: this.person.nx, ny: this.person.ny, confidence: detectorConfidence(this.person, PERSON), seen: this.person.seen };
+    else if (this.motion.live) next = { kind: KIND.MOTION, nx: this.motion.nx, ny: this.motion.ny, confidence: motionConfidence(this.motion), seen: this.motion.seen };
+    else next = { kind: KIND.NONE, nx: 0, ny: 0, confidence: 0, seen: 0 };
     if (next.kind === KIND.NONE) { next.seq = this.seq; next.goodUntil = now; }
     else {
       const moved = Math.abs(next.nx - this.cur.nx) > RETARGET || Math.abs(next.ny - this.cur.ny) > RETARGET;

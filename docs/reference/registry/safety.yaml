@@ -23,15 +23,14 @@ entries:
 
   - code: CONTACTOR_OPEN
     title: The drive contactor is open
-    symptom: [head-dark, wont-drive, lift-wont-move, arms-wont-activate]
+    symptom: [wont-drive, lift-wont-move, arms-wont-activate]
     rank: 4
     kind: warning
-    seen_on: [dashboard, head, lights]
+    seen_on: [dashboard, lights]
     means: >
       The drive [contactor](glossary.md#contactor) is open, so the drive bus is unpowered: no
-      wheel, lift, arm or other drive-bus load can move. That includes the head, which is powered
-      from the drive bus and turns off, and the arms, which can leave their CAN links needing a
-      restart once power is back. The computer, the controller and the router stay on —
+      wheel, lift, arm or other drive-bus load can move. The arms can leave their CAN links
+      needing a restart once power is back. The computer, the controller and the router stay on —
       they run from the logic bus, which the contactor does not switch.
     do:
       - >
@@ -39,12 +38,10 @@ entries:
         each source.
       - >
         After any e-stop the contactor stays open until an operator re-arms: set
-        [CH5](glossary.md#ch5) to `OFF`, then hold **RE-ARM** on the dashboard.
+        [CH5](glossary.md#ch5) (mode) to `OFF`, then re-arm from the dashboard: hold **RE-ARM**.
       - >
         At power-on the robot closes the contactor by itself a few seconds after boot, but only
         with CH5 at `OFF`. While it waits, the status lights strobe amber.
-      - >
-        You cannot re-arm from the head: it is off while the contactor is open. Use the dashboard.
     see: [operating.md#stopping-the-robot, e-stop.md]
 
   - code: ESTOP_BUTTON
@@ -63,7 +60,8 @@ entries:
         Find the pressed button — there are two on the rear of the robot, left and right, plus any
         e-stop a payload has added — and twist it to release.
       - >
-        Re-arm: set CH5 to `OFF`, then hold **RE-ARM** on the dashboard. Releasing the button does
+        To re-enable: switch CH5 (mode) to `OFF`, then re-arm from the dashboard (hold
+        **RE-ARM**). Releasing the button does
         not re-close the contactor by itself.
       - >
         If no button is pressed and this persists, the e-stop circuit is open somewhere else.
@@ -77,15 +75,15 @@ entries:
     kind: fault
     seen_on: [dashboard]
     means: >
-      Someone pressed **E-STOP** on the dashboard or on the head, and the controller opened the
-      contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an
-      operator re-arms, and nothing clears it on its own.
+      E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
+
+      Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A
+      software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms,
+      and nothing clears it on its own.
     do:
       - Make sure it is safe for the robot to move again.
-      - Set CH5 to `OFF`.
-      - >
-        Hold **RE-ARM** on the dashboard. The head cannot re-arm: it is powered behind the
-        contactor, so it is off until the dashboard has re-armed.
+      - Switch CH5 (mode) to `OFF`.
+      - "Re-arm from the dashboard: hold **RE-ARM**."
     see: [operating.md#stopping-the-robot]
 
   - code: ESTOP_REARM_CH5
@@ -95,13 +93,15 @@ entries:
     kind: refusal
     seen_on: [dashboard]
     means: >
+      To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.
+
       Re-arming closes the contactor, and the dashboard will not do that while the transmitter
       grants [authority](glossary.md#authority) — the robot could move the instant drive power
       returned. This is the most common refusal.
     do:
-      - Set CH5 to `OFF`.
-      - Hold **RE-ARM** again.
-      - Set CH5 back to `MANUAL` when you are ready to drive.
+      - Switch CH5 (mode) to `OFF`.
+      - "Re-arm from the dashboard: hold **RE-ARM** again."
+      - Switch CH5 back to `MANUAL` when you are ready to drive.
     see: [operating.md#stopping-the-robot, control-authority.md]
 
   - code: CONTACTOR_WELDED
@@ -152,7 +152,7 @@ entries:
     symptom: [wont-drive, lift-wont-move]
     rank: 25
     kind: fault
-    seen_on: [dashboard, head]
+    seen_on: [dashboard]
     means: >
       The receiver on the robot is hearing nothing from the transmitter. Without a link nothing
       moves, whatever the switches show.
@@ -168,7 +168,7 @@ entries:
     symptom: [wont-drive, lift-wont-move]
     rank: 26
     kind: fault
-    seen_on: [dashboard, head]
+    seen_on: [dashboard]
     means: >
       The receiver has lost the transmitter's signal and is reporting
       [failsafe](glossary.md#failsafe) instead of live stick positions. The robot treats this as
@@ -185,7 +185,7 @@ entries:
     symptom: [wont-drive, lift-wont-move]
     rank: 30
     kind: expected
-    seen_on: [dashboard, head, transmitter]
+    seen_on: [dashboard, transmitter]
     means: >
       [CH5](glossary.md#ch5) is the authority switch. At `OFF` nobody may command motion — not the
       sticks and not the computer. The dashboard shows this as **STANDBY**.
@@ -273,14 +273,14 @@ entries:
     symptom: lift-wont-move
     rank: 1
     kind: expected
-    seen_on: [head, robot]
+    seen_on: [dashboard, robot]
     means: >
       The [pinch guard](glossary.md#pinch-guard) arrests the lift's descent short of the bottom,
-      where the closing gap can trap a hand. The head shows an amber **Z-AXIS HELD** banner and two
-      short tones sound. Nothing is latched and nothing needs clearing.
+      where the closing gap can trap a hand. The dashboard's Z-axis readout shows **PINCH HOLD**.
+      Nothing is latched and nothing needs clearing.
     do:
       - Release the stick, and keep it released for about half a second.
-      - Command down again. The banner turns green and reads **LOWERING**.
+      - Command down again.
     see: [operating.md#z-axis-pinch-protection, build/scissor-lift.md]
 
   - code: LIFT_CH7_NOT_ZAXIS

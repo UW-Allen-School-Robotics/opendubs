@@ -459,6 +459,41 @@ def _push_chest(colour, now: float) -> None:
         _neck_write(line)
 
 
+# ---- the state in plain words (head protocol: CAPTION <text> | CAPTION OFF; state_words.py) ---------
+_caption_line = None                    # the CAPTION line last sent; face_door.py sends it as a page connects
+
+
+def face_caption():
+    """The CAPTION line the face should have now, or None before the first."""
+    return _caption_line
+
+
+def caption_line(rs: str, rsd: dict, status_mod) -> str:
+    """The CAPTION line for the shown state `rs`, under the Head & face setting `state_words`."""
+    import head_settings
+    import state_words
+    try:
+        mode = head_settings.load().get("state_words", state_words.DEFAULT_MODE)
+    except Exception:
+        mode = state_words.DEFAULT_MODE
+    try:
+        pack = status_mod._pack() or {}
+        soc = pack.get("soc") if pack.get("present") else None
+    except Exception:
+        soc = None
+    return state_words.line(state_words.caption(rs, rsd, soc, mode))
+
+
+def _push_caption(rs: str, rsd: dict, status_mod, with_state: bool) -> None:
+    """With every STATE line (the face drops a caption not renewed), and at once when the words change:
+    a new reason, a whole percent of charge, or the setting (so it applies live)."""
+    global _caption_line
+    line = caption_line(rs, rsd, status_mod)
+    if line != _caption_line or with_state:
+        _caption_line = line
+        _tab5_write(line)
+
+
 _neck_seen = None                       # what the log last said: an address, False (absent), or None
 
 
@@ -512,12 +547,25 @@ def _introduce_peers() -> None:
         _peers_last_intro = now - _PEER_REINTRO_S + 5.0
 
 
+# The PRISM is re-written this often even when its colour has not changed. A write can be lost (at boot,
+# while the ESCs arm on the shared I2C bus, the StamPLC answered one FAILED), and without a refresh a lost
+# write stayed lost: on 2026-10-19 the strip showed INIT's white through DEGRADED and every RC mode until
+# the next state change. One write per 5 s, against the breath's 2 a second, costs the bus nothing.
+_PRISM_REFRESH_S = 5.0
+
+
+def prism_due(want, prev, prev_at: float, now: float) -> bool:
+    """Whether to write the PRISM now: a new colour, or the same one not written for _PRISM_REFRESH_S."""
+    return want is not None and (want != prev or now - prev_at >= _PRISM_REFRESH_S)
+
+
 def _loop() -> None:
     import status as status_mod
     import stamplc
 
     prev = None
-    prev_led = None                  # the colour last written to the PRISM: written again only on a change
+    prev_led = None                  # the colour last written to the PRISM, and when (prism_due)
+    led_at = 0.0
     last = 0.0
     prev_conn = False
     while True:
@@ -529,24 +577,26 @@ def _loop() -> None:
             if conn and not prev_conn:
                 prev = prev_led = None       # ... and the WINNING colour, a show's if its lease is fresh
             prev_conn = conn
-            rs = present(status_mod._robot_state() or {})
+            rsd = status_mod._robot_state() or {}
+            rs = present(rsd)
             now = time.monotonic()
             if rs:
-                # PRISM: the winning colour (the state's, or a show's layered over it), written ONLY
-                # when it changes — at most once per pass of this 0.3 s loop. The strip shares the
-                # StamPLC's I2C with the drive ESCs, so nothing writes it faster than this.
+                # PRISM: the winning colour (the state's, or a show's layered over it), written when it
+                # changes and every _PRISM_REFRESH_S — at most once per pass of this 0.3 s loop. The strip
+                # shares the StamPLC's I2C with the drive ESCs, so nothing writes it faster than this.
                 want = _prism_target(rs)
-                if want is not None and want != prev_led:
+                if prism_due(want, prev_led, led_at, now):
                     _push_prism_colour(want)
-                    prev_led = want
+                    prev_led, led_at = want, now
                 _push_chest(want, now)       # the chest light shows the same colour, on the neck
+                pushed = False
                 if rs != prev:
                     _push_tab5(rs)
-                    prev = rs
-                    last = now
+                    prev, last, pushed = rs, now, True
                 elif (now - last) >= _REFRESH_S:
                     _push_tab5(rs)           # refresh keeps the Tab5 link-alive; held port → no reboot
-                    last = now
+                    last, pushed = now, True
+                _push_caption(rs, rsd, status_mod, pushed)
             _push_batt(status_mod, now)
             # TURN, LIFT and PMODE (turn chevrons, lift height, CH7 mode) went to the Arduino face
             # from here. The ESP-IDF head answers them ERR unknown, so they are retired

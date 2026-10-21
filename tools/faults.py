@@ -15,6 +15,10 @@ troubleshooting page and the glossary are *views* of it, generated between marke
 
 Keys: troubleshooting (docs/reference/troubleshooting.md) | glossary (docs/reference/glossary.md)
 
+It also writes software/voice/fault_help.json, a plain view of every fault and warning
+({CODE: {title, means, do}}), so the robot's voice can read an active fault's help aloud from
+the same words. Generated: never edit it by hand. --check fails if it is stale.
+
 Usage:
   tools/faults.py             validate, then list the codes by symptom
   tools/faults.py --inject    regenerate every FAULTS-AUTO block (writes)
@@ -30,7 +34,7 @@ A code is "used" when the source names it where the scan can see it:
                             so `setHelp(el, bad ? "CODE" : null)` counts
   @fault CODE               an annotation, for any language (shell, C++, a comment)
 """
-import argparse, os, re, sys
+import argparse, json, os, re, sys
 
 try:
     import yaml
@@ -40,6 +44,8 @@ except ImportError:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
 REG_DIR = os.path.join(DOCS, "reference", "registry")
+VOICE_HELP = os.path.join(ROOT, "software", "voice", "fault_help.json")
+VOICE_KINDS = ("fault", "warning")
 PAGES = {
     "troubleshooting": os.path.join(DOCS, "reference", "troubleshooting.md"),
     "glossary": os.path.join(DOCS, "reference", "glossary.md"),
@@ -55,7 +61,8 @@ CALL = re.compile(r"\b(?:refuse|helpLink|setHelp|openHelp)\(")
 QUOTED = re.compile(r"""["']([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)["']""")
 ANNOTATION = re.compile(r"@fault\s+([A-Z][A-Z0-9_]*)")
 
-PREFIXES = ("ESTOP", "CONTACTOR", "RC", "DRIVE", "LINK", "POWER", "LIFT", "HEAD", "ARM", "SHOW")
+PREFIXES = ("ESTOP", "CONTACTOR", "RC", "DRIVE", "LINK", "POWER", "LIFT", "HEAD", "ARM", "SHOW",
+            "VOICE")
 CODE_RE = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 KINDS = {"refusal": "Refused action", "fault": "Fault", "warning": "Warning",
@@ -150,6 +157,9 @@ def validate(symptoms, entries, terms):
                 errs.append(f"{where}: missing {k}")
         if not isinstance(e.get("do"), list) or not e["do"]:
             errs.append(f"{where}: 'do' must be a non-empty list of steps")
+        elif not all(isinstance(d, str) for d in e["do"]):
+            # An unquoted step with ": " in it parses as a mapping and renders as a Python dict.
+            errs.append(f"{where}: every 'do' step must be text — quote a step that contains ': '")
         for s in _as_list(e.get("symptom")):
             if s not in sym_ids:
                 errs.append(f"{where}: unknown symptom '{s}' (see symptoms.yaml)")
@@ -267,6 +277,17 @@ def render_glossary(terms):
     return "\n".join(out).rstrip() + "\n"
 
 
+def render_voice_help(entries):
+    """The help text of every fault and warning, keyed by code, for the voice to read aloud."""
+    out = {}
+    for e in entries:
+        if e.get("kind", "refusal") in VOICE_KINDS:
+            out[e["code"]] = {"title": str(e["title"]).strip(),
+                              "means": " ".join(str(e["means"]).split()),
+                              "do": [" ".join(str(d).split()) for d in e["do"]]}
+    return json.dumps(out, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+
+
 def process_pages(symptoms, entries, terms, write):
     """Regenerate (write=True) or compare (write=False). Returns a list of problems."""
     bodies = {"troubleshooting": render_troubleshooting(symptoms, entries),
@@ -290,6 +311,16 @@ def process_pages(symptoms, entries, terms, write):
                 print(f"updated {rel}")
             else:
                 problems.append(f"{rel}: stale — run tools/faults.py --inject")
+    rel = os.path.relpath(VOICE_HELP, ROOT)
+    want = render_voice_help(entries)
+    have = open(VOICE_HELP, encoding="utf-8").read() if os.path.isfile(VOICE_HELP) else None
+    if have != want:
+        if write:
+            with open(VOICE_HELP, "w", encoding="utf-8") as f:
+                f.write(want)
+            print(f"updated {rel}")
+        else:
+            problems.append(f"{rel}: {'missing' if have is None else 'stale'} — run tools/faults.py --inject")
     return problems
 
 

@@ -52,6 +52,13 @@ such as reading the published extrinsics, are handed to the dashboard's lane rat
   (`ISAAC_ROS_BASE_IMAGE`). CPU-only modules build on the pinned plain ROS image
   (`ROS_BASE_IMAGE`, `ros:jazzy-ros-base` by digest) and run unchanged on 7.1, 7.2 and Orin. The
   `openarm` image is the first of these (arms PR #107).
+- **T-1, exception (2026-10-19, agreed between the Thor stack and Voice lanes; for the user's
+  review):** the GPU voice image builds FROM `VOICE_LLM_IMAGE`, the pinned NVIDIA vLLM image the local
+  model already runs, not from `ISAAC_ROS_BASE_IMAGE`, which is not pinned yet. It shares one CUDA
+  stack and its layers with `opendubs-llm`. Consequences: the voice image is Thor-only (an Orin uses
+  `build.sh --cpu`), it carries NVIDIA's CUDA libraries so it is built on each robot and never pushed
+  or shipped, and its tag includes the base digest so a bump of that pin rebuilds it. Switching to
+  the Isaac ROS base later is a one-line change in the voice lane's `build.sh`.
 - **T-2:** option (b). Every ROS node runs in a container; the dashboard stays on the host for now.
   Migrate one unit at a time (3.3).
 
@@ -153,7 +160,7 @@ recreates them.
 | Docker engine | present: the `openarm` container runs, and avahi once published `docker0` | **not in repo**; source and version unknown | `docker --version; apt-cache policy docker-ce docker.io` |
 | NVIDIA container runtime | unknown. The `openarm` run line passes no `--runtime nvidia` or `--gpus`, so the arms may never have needed it | **not in repo** | `dpkg -l \| grep nvidia-container; cat /etc/docker/daemon.json` |
 | Host ROS | apt Jazzy: `ros-base`, `rplidar-ros`, `rosbridge-suite`, `foxglove-bridge`, `diagnostic-msgs` | `provision-ros.sh` | `dpkg -l 'ros-jazzy-*' \| wc -l` (portability audit counted 212) |
-| Host ROS from source | Astra driver in `~/orbbec_ws` of the account `opendubs-camera.service` runs as | `astra-jazzy-build.sh` (manual) | `ls ~/orbbec_ws/install` |
+| Host ROS from source | none since 2026-10-20 (the Astra driver's `~/orbbec_ws` is left in its account, unused) | `notes/history/astra-camera/` (history only) | — |
 | Host Python | `/opt/opendubs/venv` with **`ultralytics` + `torch` from plain pip**, and `/opt/opendubs/piovenv` | `provision.sh`, `provision-firmware.sh` | `venv/bin/python -c 'import torch;print(torch.__version__, torch.cuda.is_available())'`. **Expect `False`**: generic aarch64 wheels are CPU-only, and `yolo_tracker.py` silently falls back to the CPU |
 | systemd units | 9 ROS units, plus dash, stamplc-hb, yolo-tracker, runner and teleop | the provisioners; the teleop unit by hand | `systemctl list-units 'opendubs-*'` |
 | Containers | `openarm` (`openarm-ros2:<host>`, made by `docker commit`, `--privileged --network=host`, `--restart unless-stopped`) | `openarm-setup.md` (manual) | `docker ps -a; docker images` |
@@ -186,7 +193,7 @@ Read-only audit before the deploy of `877454b`.
 - `opendubs-xorg-fix` is still enabled.
 - An `opendubs-mavros` drop-in directory is left over.
 - `/etc/opendubs-fastdds-udp-only.xml` is absent; the teleop unit is not installed either.
-- `opendubs-camera` launches the Astra driver while a D415 is fitted.
+- ~~`opendubs-camera` launches the Astra driver while a D415 is fitted.~~ **Retired 2026-10-20:** the Astra is off the robot; `provision-ros.sh` stops, disables and removes the unit, and the driver's Jazzy port is kept in `notes/history/astra-camera/`.
 
 **Drift.**
 - 22 files differed from the repo. **All 22 were exact older repo versions**, checked against git history, so the deploy overwrote no robot-side edits.
@@ -244,9 +251,32 @@ containers. Steps marked **robot** need opendubs2 or the CAD.
 | L.2a | **Started 2026-10-08.** `description/opendubs/gen_urdf.py` reads the new *ROS FRAMES* section of `dimensions.yaml` and writes `opendubs.urdf`; `--check` fails if the URDF is stale. Present now: `base_link`, `base_footprint`, `datum`, wheels, `lift_platform` (`zaxis`), `arm_mount`, and the Tab5 head as a swappable assembly (`head_pan`, `head_tilt`, `camera_link`, `head_screen_link`). `camera_link` matches the MJCF's independently derived `d415_face` site. **Awaiting CAD numbers** for `laser`, `laser_rear`, `pinpoint_link`, `gps_link`, `tof_front_link` and `head_imu_link`; until then they are left out, not guessed. The Galaxy head is a placeholder that emits no head frames | All six filled from CAD; `check_urdf` passes on the non-robot Thor; CI runs `--check` (the workflow file is not this lane's) |
 | L.2b | **A `joint_states` source** for `zaxis`, `head_pan` and `head_tilt`, or `robot_state_publisher` publishes nothing below them. Lift height comes from StamPLC telemetry; pan and tilt from the head, whose protocol the tablet lane owns. In the meantime, `joint_state_publisher` at zero | The camera frame follows the head on Foxglove |
 | L.3 | **robot:** measure the extrinsics: both RPLIDARs (x, y, z, yaw; the rear's π yaw is an assumption), the Pinpoint pod and its heading sign, the ToF, and the D415 (already in the MJCF) | Values in `dimensions.yaml` with the method noted, not guesses |
+| L.3b | **robot: the Galaxy tablet head** (fitted 2026-10-15, a Samsung Galaxy Tab A11 SM-X133 on the M5Dial-driven pan/tilt). `dimensions.yaml` carries SPEC values only (211 × 125 × 8 mm, 340 g, 1340 × 800) and ASSUMES the neck's pan and tilt axes are unchanged from the Tab5 bracket. Measure, relative to the tilt axis, at pan = tilt = 0: (1) that the pan and tilt axes are where `head:` says (423, 0, 1245.6) and their ranges; (2) the tablet's screen centre and outward direction (`head_screen_link`); (3) **both cameras'** positions and directions: the screen-side `tablet_front_camera_link` and the rear `tablet_rear_camera_link` (its 180° yaw is assumed); (3b) the GNSS antenna's approximate position (`tablet_gps_link`; the tablet body is close enough); (4) the tablet's actual size and mass; (5) the IMU's orientation, from Android's axes (`tablet_imu_link`, position only roughly). Also ask whether the D415 and the front ToF are still on the robot: neither is on this head, and the tracker has reported no RealSense since 2026-10-12 | Measured values replace the spec values; the three frames appear in the URDF |
 | L.4 | **`/odom` made fusion-grade.** Measure the velocity scaling (C2) and characterise the covariance; it is a placeholder today. Note: `drive_bridge.py` now receives `[ODO]` over UDP 5005 directly, not through the dashboard's 5 Hz poll that `localization-fusion.md` still describes, but it still **stamps on arrival** | Covariance from a logged drive; the doc updated |
-| L.5 | **[DEC] Primary IMU** (Pinpoint, camera, or the tablet's), then a local `robot_localization` EKF publishing `odom→base_link`. **`drive_bridge` stops publishing that TF when the EKF takes over**: two publishers of one transform is the failure the fusion doc warns about | Smooth `odom→base_link` from the EKF; one publisher |
-| L.6 | **Agreed so far (2026-10-11):** the head's front ToF returns as `sensor_msgs/Range` (INFRARED), `frame_id` `tof_front_link`, on a topic the tablet lane names, once its head-protocol item 2.1 lands. **Tablet sensor topic contract:** names, types and frames (e.g. `sensor_msgs/Imu` in a `tablet_link` frame), handed to the tablet lane to implement | A short spec the tablet lane accepts |
+| L.5 | **[DEC] Primary IMU** (Pinpoint or camera; NOT the tablet's, which has no gyroscope and rides on the moving head), then a local `robot_localization` EKF publishing `odom→base_link`. **`drive_bridge` stops publishing that TF when the EKF takes over**: two publishers of one transform is the failure the fusion doc warns about | Smooth `odom→base_link` from the EKF; one publisher |
+| L.6 | **The /tablet/ contract, accepted by the Tablet lane as the target (2026-10-15).** Nothing is built until the user decides.
+- `/tablet/imu` (`sensor_msgs/Imu`, frame `tablet_imu_link`, ~60 Hz) carries **linear acceleration and an accel+mag tilt orientation only**, valid when the head is still. The SM-X133 has **no gyroscope** (accelerometer and magnetometer only, per adb's sensor list), so `angular_velocity_covariance[0] = -1` always. A head-tilt and vibration check, **not a fusion input**.
+- **Cameras, both on demand** (off unless the Thor requests them), set by the user 2026-10-15:
+  - `/tablet/camera/front/{image_raw/compressed, camera_info}`, frame `tablet_front_camera_optical_frame`.
+  - `/tablet/camera/rear/{image_raw/compressed, camera_info}`, frame `tablet_rear_camera_optical_frame`. The rear camera has a full, unobstructed backward view.
+  - Each optical frame is a child of `tablet_{front,rear}_camera_link` with the standard optical rotation, generated from `optical: true` in `dimensions.yaml`.
+- **`/tablet/fix` (`NavSatFix`, frame `tablet_gps_link`) is first-class, and worth building now.**
+  - The chassis GPS (a Holybro M9N on the front LIDAR stack) is **planned, not yet fitted** (the user, 2026-10-15). Until it is fitted, `/tablet/fix` is the robot's **only** GPS.
+  - Once the M9N is fitted, it is the **primary** GPS and the tablet's GNSS the **fallback**.
+  - Either feeds the global tier (`navsat_transform` + global EKF) outdoors.
+  - The tablet's antenna rides on the head, so its frame needs the neck's joint states (L.2b). The M9N's, on the chassis, does not.
+- `/tablet/illuminance`, `/tablet/mag` and `/tablet/battery` are optional.
+- The tablet has no proximity sensor and no barometer.
+- All stamps are in Thor time, through the show-audio clock offset (IMU under about 5 ms, camera under about 20 ms).
+- **Implemented by the Tablet lane** (PRs #286, #287, #288, open, 2026-10-15; merge in that order).
+  - The kiosk page sends readings to the dashboard's `/ws/tablet`. The backend stamps each on the Thor's clock (arrival, less the reading's age and half the round trip) and publishes through the local rosbridge, so `ros2 topic info` shows `rosbridge_websocket` as the publisher.
+  - Rates: fix 1 Hz, IMU ~60 Hz (batched every 100 ms), illuminance 1 Hz, battery 0.1 Hz.
+  - Each camera streams 640×480 JPEG at 10 fps, only while subscribed.
+  - `camera_info` is zeros until `/var/lib/opendubs/tablet/camera_{front,rear}.yaml` exists on the robot. That file is per-robot and never in the repo.
+  - Android's thermal status goes to `/diagnostics` as `tablet: thermal`.
+  - When `navsat_transform` is wired, set `zero_altitude`: `/tablet/fix` altitude can be NaN.
+
+**Agreed earlier (2026-10-11):** the head's front ToF returns as `sensor_msgs/Range` (INFRARED), `frame_id` `tof_front_link`, on a topic the tablet lane names, once its head-protocol item 2.1 lands. **Tablet sensor topic contract:** names, types and frames (e.g. `sensor_msgs/Imu` in a `tablet_link` frame), handed to the tablet lane to implement | A short spec the tablet lane accepts |
 | L.7 | **Stamp-at-source odometry** (hardening tracks 3/4, micro-ROS or a stamped line) is a **StamPLC firmware change**, raised through the orchestrator, never made here | Proposal sent |
 | L.8 | Hand the dashboard's lane the change that makes it read the published extrinsics and drop the guessed facings in `app.js` | Handed over |
 | L.9 | Global tier (`map→odom`): SLAM from the scans, or cuVSLAM in Phase 5. **[DEC]** arbitration between global sources comes later | Out of scope until L.5 is done |

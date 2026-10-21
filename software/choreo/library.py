@@ -36,7 +36,11 @@ import wave
 
 DEFAULT_ROOT = "/var/lib/opendubs/library"
 INDEX = "index.yaml"
-KINDS = ("song", "clip", "skin")                 # later: overlay, theme, sound
+KINDS = ("song", "clip", "skin", "video")        # later: overlay, theme, sound
+# A `video` is for the PROJECTOR (VIDEO cues, video_out.py; notes/design/choreo-video.md), not the face:
+# a file the Cast receiver or mpv plays as it is, so H.264 in MP4 (every Cast device decodes it), up
+# to 1920x1080. A face `clip` is a different thing (the face panel, its own size).
+VIDEO_TYPES = (".mp4", ".m4v", ".webm", ".mkv")
 # Library skins (the tablet lane's fields, built and measured in its #115; notes/design/face-engine.md,
 # "Skin types"): `image` and `video` now, `svg` and `riv` later. One file each (a folder for svg/riv
 # later, hashed by the folder rule). A video skin must be WebM — VP9 carries the alpha channel that
@@ -63,7 +67,7 @@ COUNTER_KEYS = ("every_s", "hold_s", "ease_s")
 VIDEO_SKIN_SIZE_PX = (400, 512)
 SKIN_INPUTS = ("lookX", "lookY", "lid", "emote", "shape", "colour", "side")   # face-engine.md §A
 FACE_PANEL = (1340, 800)                         # the tablet's 8.7-inch panel
-KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins"}
+KIND_DIR = {"song": "songs", "clip": "clips", "skin": "skins", "video": "videos"}
 # `bytes` is the item's total size (a folder: its files summed). The tablet checks its free space
 # before it fetches anything (tablet plan 5.3), so a missing size would mean fetching blind.
 REQUIRED = {"id", "kind", "file", "sha256", "bytes", "source", "licence"}
@@ -73,7 +77,7 @@ SONG_TYPES = {".wav": (b"RIFF",), ".mp3": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\
               ".ogg": (b"OggS",), ".flac": (b"fLaC",), ".m4a": (b"ftyp",)}
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")   # an id the composer may create (a safe file name)
 REQUIRED_BY_KIND = {"song": {"duration_s"}, "clip": {"duration_s", "width", "height", "fps"},
-                    "skin": {"type", "width", "height"}}
+                    "skin": {"type", "width", "height"}, "video": {"duration_s", "width", "height"}}
 
 
 def root() -> str:
@@ -136,6 +140,8 @@ def entry_problems(e: dict) -> list:
     elif str(e.get("id", "")).lower() == "idle":
         p.append(f"{e['id']!r}: `idle` is reserved — SKIN IDLE means the robot's idle skin (head protocol "
                  "v5) — choose another")
+    if kind == "video" and os.path.splitext(str(e.get("file", "")))[1].lower() not in VIDEO_TYPES:
+        p.append(f"{e['id']!r}: a projector video must be {', '.join(VIDEO_TYPES)} (MP4/H.264 plays on any Cast device)")
     if kind == "skin":
         params = e.get("params")
         if params is not None and not isinstance(params, dict):
@@ -188,6 +194,9 @@ def _counter_problems(item_id, c) -> list:
 def entry_warnings(e: dict) -> list:
     """What is legal but probably not meant."""
     w = []
+    if e.get("kind") == "video" and ((e.get("width") or 0) > 1920 or (e.get("height") or 0) > 1080):
+        w.append(f"{e['id']!r}: {e.get('width')}x{e.get('height')} is more than the projector's 1920x1080 — it "
+                 "is scaled down on the projector, and a bigger file is slower to buffer over Wi-Fi")
     if e.get("kind") == "clip" and (e.get("width"), e.get("height")) != FACE_PANEL:
         w.append(f"{e['id']!r}: {e.get('width')}x{e.get('height')} is not the face panel's {FACE_PANEL[0]}x{FACE_PANEL[1]}")
     if e.get("kind") == "skin" and e.get("type") == "video":
@@ -497,6 +506,8 @@ def shows_using(item_id: str, shows_dir: str) -> list:
                     if c.get("do") == "skin":
                         names.add(c.get("name"))
                     names.add(c.get("clip"))
+                    if c.get("slot") == "VIDEO":
+                        names.add(c.get("video"))
             for cl in (doc.get("clips") or {}).values() if isinstance(doc.get("clips"), dict) else []:
                 for c in (cl.get("cues") or []) if isinstance(cl, dict) else []:
                     if isinstance(c, dict):
@@ -575,6 +586,8 @@ def main() -> int:
     a.add_argument("--width", type=int)
     a.add_argument("--height", type=int)
     a.add_argument("--fps", type=float)
+    a.add_argument("--song", help="a video: the library song it carries as its soundtrack, from its start "
+                                  "(the projector then plays the show's music; choreo-audio.md)")
     args = ap.parse_args()
     if args.cmd == "check":
         p = check()
@@ -606,7 +619,8 @@ def main() -> int:
         params = dict(x.split("=", 1) for x in args.param if "=" in x) or None
         e = add(args.path, args.id, args.kind, args.source, args.licence, type=args.type, params=params,
                 inputs=[x for x in (args.inputs or "").split(",") if x],
-                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps)
+                duration_s=args.duration_s, width=args.width, height=args.height, fps=args.fps,
+                song=args.song)
     except ValueError as err:
         print(f"refused: {err}")
         return 1

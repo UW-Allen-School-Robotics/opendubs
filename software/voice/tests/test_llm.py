@@ -81,7 +81,7 @@ class Profile(unittest.TestCase):
             fetch_models.main(["--dest", tempfile.mkdtemp(), "--only", "qwen3-4b"])
         finally:
             fetch_models.fetch = real
-        self.assertEqual(seen[0], ["parakeet", "kokoro", "g2p-fallback"])
+        self.assertEqual(seen[0], ["parakeet", "kokoro", "g2p-fallback", "silero-vad"])
         self.assertEqual(seen[1], ["qwen3-4b"])
 
 
@@ -229,6 +229,16 @@ class RunLLM(unittest.TestCase):
                      "--gpu-memory-utilization 0.20", "--max-model-len 8192", "--max-num-seqs 2",
                      "--enable-prefix-caching", "--tool-call-parser hermes"):
             self.assertIn(part, cmd)
+        for label in ("opendubs.llm.profile=qwen3-30b-a3b-w4a16", "opendubs.llm.share=0.20",
+                      "opendubs.llm.image=example/vllm@sha256:"):
+            self.assertIn(label, cmd)                     # so a deploy can adopt a matching copy
+
+    def test_replace_comes_before_the_port_check(self):
+        """--replace must remove a running opendubs-llm before the port check, or replacing a live
+        copy always dies with "port 8000 is already in use" (found by the Thor lane)."""
+        with open(RUN_LLM) as f:
+            src = f.read()
+        self.assertLess(src.index('docker rm -f "$NAME"'), src.index("ss -ltn"))
 
     def test_refusals(self):
         r = self.run_llm("qwen3-30b-a3b-w4a16", "--dry-run", OPENDUBS_VERSIONS=os.devnull, VOICE_LLM_GPU_SHARE="0.20")
@@ -238,6 +248,57 @@ class RunLLM(unittest.TestCase):
         self.assertIn("VOICE_LLM_GPU_SHARE", r.stderr)
         r = self.run_llm("kokoro", "--dry-run", OPENDUBS_VERSIONS=self.stack.name, VOICE_LLM_GPU_SHARE="0.20")
         self.assertIn("no such profile", r.stderr)
+
+
+BUILD = os.path.join(HERE, "..", "image", "build.sh")
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("git"), "needs bash and git")
+class BuildSh(unittest.TestCase):
+    def build(self, *args):
+        return subprocess.run(["bash", BUILD, *args, "--dry-run"], capture_output=True, text=True)
+
+    def test_a_checkout_is_tagged_by_its_inputs_including_the_base(self):
+        import re
+        r = self.build()                                   # the GPU variant, FROM the vLLM image
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = re.search(r"BASE_IMAGE=(\S+)@sha256:([0-9a-f]{64})", r.stdout)
+        self.assertIn("vllm", m.group(1))
+        self.assertIn("VARIANT=gpu", r.stdout)
+        self.assertIn("TTS_DEVICE=cuda", r.stdout)
+        tag = re.search(r"-t opendubs-voice:([0-9a-f]{12})-([0-9a-f]{8})-([0-9a-f]{8}) ", r.stdout)
+        self.assertIsNotNone(tag, r.stdout)
+        self.assertEqual(tag.group(3), m.group(2)[:8])      # a new base pin means a new tag
+        c = self.build("--cpu")
+        self.assertIn("BASE_IMAGE=ros:jazzy-ros-base@sha256:", c.stdout)
+        self.assertIn("VARIANT=cpu", c.stdout)
+        ctag = re.search(r"-t opendubs-voice:(\S+) ", c.stdout).group(1)
+        self.assertNotEqual(ctag, "-".join(tag.groups()))   # the two variants never share a tag
+
+    def test_run_adds_the_nvidia_runtime_only_for_the_gpu_variant(self):
+        with open(os.path.join(HERE, "..", "image", "run.sh")) as f:
+            src = f.read()
+        self.assertIn('opendubs.voice.variant', src)
+        self.assertIn('[ "$VARIANT" = gpu ] && RUNTIME=(--runtime nvidia)', src)
+        self.assertIn('"${RUNTIME[@]}"', src)
+        self.assertNotIn("/opt/voice/venv/bin/python", src)   # one wrapper path for both variants
+
+    def test_a_prepared_context(self):
+        with tempfile.TemporaryDirectory() as d:
+            for f in ("software/voice/image/Dockerfile.voice", "software/voice/server.py",
+                      "software/head-protocol/head_protocol.py"):
+                os.makedirs(os.path.dirname(os.path.join(d, f)), exist_ok=True)
+                open(os.path.join(d, f), "w").close()
+            r = self.build("--context", d, "--tag", "opendubs-voice:abc123-def4")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("-t opendubs-voice:abc123-def4", r.stdout)
+            self.assertTrue(r.stdout.rstrip().endswith(d))
+            self.assertNotEqual(self.build("--context", d).returncode, 0)                       # no tag
+            self.assertNotEqual(self.build("--context", d, "--tag", "evil:latest").returncode, 0)
+            os.unlink(os.path.join(d, "software/head-protocol/head_protocol.py"))
+            r = self.build("--context", d, "--tag", "opendubs-voice:x")
+            self.assertIn("head_protocol.py", r.stderr)
+        self.assertNotEqual(self.build("--tag", "opendubs-voice:x").returncode, 0)             # tag needs --context
 
 
 if __name__ == "__main__":

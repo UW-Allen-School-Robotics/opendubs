@@ -28,19 +28,27 @@ DEFAULT_CERT = "/etc/opendubs/tls/dashboard.crt"
 DEFAULT_KEY = "/etc/opendubs/tls/dashboard.key"
 
 
+# A stop waits this long for open connections, then closes them. Without it uvicorn waits for every
+# WebSocket (the face, the tablet relay, the voice relay, rosbridge) to end by itself, which they never
+# do: every stop ran out systemd's 90 s and was killed, so every deploy cost 90 s of dashboard instead
+# of ~2 (2026-10-19, "State 'stop-sigterm' timed out. Killing."). The pages reconnect by themselves.
+STOP_GRACE_S = 2
+
+
 def configs(env=os.environ) -> list[uvicorn.Config]:
     """The servers to run. Pure, so it can be tested without binding anything."""
     app = env.get("OPENDUBS_ASGI_APP", "app:app")
     host = env.get("OPENDUBS_HOST", "0.0.0.0")
     http = uvicorn.Config(app, host=host, port=int(env.get("OPENDUBS_HTTP_PORT", "8080")),
-                          lifespan="on")
+                          lifespan="on", timeout_graceful_shutdown=STOP_GRACE_S)
     out = [http]
     cert = env.get("OPENDUBS_TLS_CERT", DEFAULT_CERT)
     key = env.get("OPENDUBS_TLS_KEY", DEFAULT_KEY)
     if os.path.isfile(cert) and os.path.isfile(key):
         # lifespan off: the app's startup hooks (state_out, the serial port) run once, on HTTP.
         out.append(uvicorn.Config(app, host=host, port=int(env.get("OPENDUBS_HTTPS_PORT", "8443")),
-                                  ssl_certfile=cert, ssl_keyfile=key, lifespan="off"))
+                                  ssl_certfile=cert, ssl_keyfile=key, lifespan="off",
+                                  timeout_graceful_shutdown=STOP_GRACE_S))
     else:
         log.warning("no TLS certificate at %s / %s: HTTPS off, HTTP only "
                     "(deploy/make-robot-ca.sh makes one)", cert, key)

@@ -14,7 +14,9 @@ node software/face-web/tests/test_mouth.mjs          # the optional mouth; OFF m
 node software/face-web/tests/test_monsters.mjs       # the monster skins: lids, gaze, brow, and no clip left behind
 node software/face-web/tests/test_render_hooks.mjs   # offline render: no hidden clock, a seeded source, skinsReady
 node software/face-web/tests/test_armed.mjs          # the ARMED overlay, and its lease
+node software/face-web/tests/test_caption.mjs        # the plain-English state label: white, in its band, never overflowing
 node software/face-web/tests/test_camera_sign.mjs    # a camera is on: shown when one is, never when none is
+node software/face-web/tests/test_caption_call.mjs   # CAPTION: kept, renewed or dropped, refused if long, drawn first
 node software/face-web/tests/test_charging.mjs       # CHARGING: the purple, the edge gauge, and no invented level
 node software/face-web/tests/test_reticle.mjs        # the tracking reticle: legible, on screen, and never invented
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded

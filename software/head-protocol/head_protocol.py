@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 7                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT (all tablet face only); v7 CHEST (neck)
+VERSION = 8                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT, v8 CAPTION (tablet face only); v7 CHEST (neck)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -41,6 +41,7 @@ LEASE = {"gaze": (600, 1000), "track": (600, 1000), "touch": (600, 1000), "park"
          "rc": (600, 600)}
 SLEW_DPS = 70.0
 TOUCH_RATE_MAX_DPS = 45.0
+CAPTION_MAX = 60               # v8: characters; longer is refused, never cut
 CHEST_US = (500, 2500)         # v7: the chest light's servo pulse range
 
 # ---- which half answers what (§1) --------------------------------------------------------------
@@ -63,6 +64,7 @@ MESSAGES = {
     "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
     "ARMED":   (FACE, "agreed"),        # v5, tablet face only
     "BATT":    (FACE, "agreed"),        # v6, tablet face only (agreed with Face & HRI, 2026-10-15)
+    "CAPTION": (FACE, "agreed"),        # v8, the state in plain words (agreed with Face & HRI, 2026-10-16)
     "VOICE":   (FACE, "tab5-only"),
     "SIM":     (TWIN, "twin-only"),
     "GAZE":    (NECK, "shipping"),
@@ -84,7 +86,7 @@ KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
     "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
-                    "BRIGHT", "ARMED", "BATT", "REBOOT", "OTA"},
+                    "BRIGHT", "ARMED", "BATT", "CAPTION", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "CHEST", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -148,6 +150,7 @@ REPLY = {
     "armed_err": re.compile(r"^ERR armed "),
     "batt_ok": re.compile(r"^OK batt (-|\d{1,3}) [01]$"),
     "batt_err": re.compile(r"^ERR batt "),
+    "caption_err": re.compile(r"^ERR caption "),
     "chest_ok": re.compile(r"^OK chest \d{3,4}$"),
     "chest_off": re.compile(r"^OK chest off$"),
     "chest_err": re.compile(r"^ERR chest "),

@@ -71,13 +71,22 @@ if ! "$SRC../face-web/fetch-vendor.sh" --check; then
   echo "== fetching the face's MediaPipe files (software/face-web/fetch-vendor.sh) =="
   "$SRC../face-web/fetch-vendor.sh" || echo "== note: fetch-vendor.sh failed (npm and internet needed); tracking stays as the robot has it =="
 fi
+# The wake-word spotter (vendor/kws, ~18 MB) is BUILT, not fetched (software/face-web/kws/build-kws.sh:
+# sherpa-onnx publishes no browser build of it). Copied only when it is this exact pinned build; without
+# it the robot keeps its own copy, and the face falls back to the Talk button.
+FACE_VENDOR=(--include 'vendor/')
 if "$SRC../face-web/fetch-vendor.sh" --check; then            # only ever the complete, pinned set
-  FACE_VENDOR=(--include 'vendor/' --include 'vendor/mediapipe/***' --exclude 'vendor/*')
+  FACE_VENDOR+=(--include 'vendor/mediapipe/***')
 else
   echo "== note: no software/face-web/vendor/mediapipe here (run fetch-vendor.sh); the robot keeps its own =="
-  FACE_VENDOR=(--exclude 'vendor/')
 fi
-rsync -az --delete "${FACE_VENDOR[@]}" --exclude 'library/' --exclude 'node_modules/' \
+if "$SRC../face-web/kws/build-kws.sh" --check; then
+  FACE_VENDOR+=(--include 'vendor/kws/***')
+else
+  echo "== note: no wake-word build here (software/face-web/kws/build-kws.sh); the robot keeps its own =="
+fi
+FACE_VENDOR+=(--exclude 'vendor/*')
+rsync -az --delete "${FACE_VENDOR[@]}" --exclude 'library/' --exclude 'node_modules/' --exclude '/kws/' \
   --exclude '__pycache__' --exclude '*.pyc' \
   "$SRC../face-web/" "$HOST:$DEST_ROOT/face-web/"
 

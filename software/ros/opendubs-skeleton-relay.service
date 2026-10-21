@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenDubs skeleton feed relay (tracker topic -> dashboard -> stage page; skeleton points only)
+After=network.target opendubs-dash.service
+Wants=opendubs-dash.service
+# Idle until the choreography lane's adapter is deployed: it names the message type to relay.
+ConditionPathExists=/opt/opendubs/choreo/skeleton_feed.py
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+# UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10), and the tracker
+# may run as another user or in a container.
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=OPENDUBS_CHOREO=/opt/opendubs/choreo
+ExecStart=/opt/opendubs/ros/skeleton-relay.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

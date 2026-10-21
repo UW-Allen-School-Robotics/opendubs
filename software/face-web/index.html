@@ -21,6 +21,22 @@
   #hint { position: fixed; left: 0; right: 0; bottom: 5vh; text-align: center; pointer-events: none;
           font: 24px system-ui, sans-serif; color: #5a5a5a; opacity: 0; transition: opacity .3s; }   /* the quote's look */
   #hint.show { opacity: 1; }
+  /* The system strip (engine/voice.js): plain page elements above the face and any media, never drawn by a
+     skin. The Talk button keeps its touches; the REC dot is separate so an open microphone always shows. */
+  #sys { position: fixed; right: 20px; bottom: 20px; z-index: 5; display: flex; flex-direction: column;
+         align-items: flex-end; gap: 6px; font: 600 22px system-ui, sans-serif; }
+  #sys.hidden { display: none; }
+  #talk { min-width: 190px; min-height: 76px; border-radius: 38px; border: 0; font: inherit; color: #fff;
+          background: #1f6feb; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #talk:disabled { background: #3a3f46; color: #9aa3ad; }
+  #talkNote { max-width: 340px; text-align: right; color: #8a929b; font: 16px system-ui, sans-serif; }
+  #rec { position: fixed; top: 16px; right: 16px; z-index: 6; width: 18px; height: 18px; border-radius: 50%;
+         background: #e0242d; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
+  #rec.on { display: block; }
+  /* Listening for the wake word, nothing sent (engine/voice.js): a hollow white ring where REC would be. */
+  #ear { position: fixed; top: 16px; right: 16px; z-index: 6; width: 14px; height: 14px; border-radius: 50%;
+         border: 3px solid #e8eaed; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
+  #ear.on { display: block; }
 </style>
 </head>
 <body>
@@ -28,12 +44,19 @@
 <video id="media" playsinline preload="auto"></video>
 <div id="hud"></div>
 <div id="hint" aria-live="polite">Hold anywhere to open controls</div>
+<div id="sys" class="hidden">
+  <button id="talk" disabled>Hold to talk</button>
+  <div id="talkNote" aria-live="polite"></div>
+</div>
+<div id="rec" title="Audio is being sent to the robot"></div>
+<div id="ear" title="Listening for &quot;Hey OpenDubs&quot; on the tablet; nothing is sent"></div>
 <div id="op" role="dialog" aria-label="Operator">
   <button class="stop" id="opStop">STOP SHOW</button>
   <button class="dash" id="opDash">DASHBOARD</button>
   <button class="back" id="opBack">FACE</button>
   <div class="note" id="opNote">The RC deadman and the e-stop stop everything, always.</div>
 </div>
-<script type="module" src="engine/boot.js"></script>
+<!-- boot.js itself failing to load (the dashboard restarting) would leave a dead page: reload instead. -->
+<script type="module" src="engine/boot.js" onerror="setTimeout(function () { location.reload(); }, 3000)"></script>
 </body>
 </html>

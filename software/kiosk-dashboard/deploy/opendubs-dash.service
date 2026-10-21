@@ -1,7 +1,8 @@
 [Unit]
 Description=OpenDubs Kiosk Dashboard backend (FastAPI)
-After=network-online.target
-Wants=network-online.target
+# network.target, not network-online.target: it needs only a LAN address, and on a network with no
+# internet "online" can wait or never come. A start before the address exists fails and restarts.
+After=network.target
 
 [Service]
 Type=simple
@@ -13,6 +14,9 @@ WorkingDirectory=/opt/opendubs/kiosk-dashboard/backend
 ExecStart=/opt/opendubs/venv/bin/python serve.py
 Restart=always
 RestartSec=2
+# A backstop only: serve.py itself closes open connections after 2 s on a stop. Without that, every
+# stop ran out the default 90 s and was killed (2026-10-19).
+TimeoutStopSec=15
 # tegrastats/nvpmodel read from /sys. MAVLink now comes from MAVROS (which owns
 # the Pixhawk serial) over a local UDP forward — NOT the raw /dev/ttyACM* port.
 # (dialout kept as a harmless fallback in case of reverting to direct serial.)

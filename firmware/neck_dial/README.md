@@ -31,6 +31,20 @@ PY
 `CHEST <us>` / `CHEST OFF` · `OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
 Anything else answers `ERR unknown`.
 
+### Which way is which
+
+Measured on the robot with somebody watching the head, because nothing in the firmware records it
+and guessing is the easiest way to drive into a stop:
+
+| | increasing degrees | decreasing degrees |
+|---|---|---|
+| **pan** | the robot's **left** | the robot's **right** |
+| **tilt** | **up** | **down** |
+
+Centre is 90 on both. Pan was measured twice, on separate days and from opposite directions —
+`GAZE 130` read as the robot's left, `GAZE 70` as its right — which is worth knowing because the
+pan axis has a history of reporting motion it was not performing (below).
+
 **`NECK` and `PING` report the COMMANDED angle. There is no encoder.** A servo that is unplugged,
 stalled or wired to the wrong channel reports exactly the same numbers as one that is working —
 this cost an afternoon on 2026-10-15, when the pan axis was not driving at all and every log said
@@ -86,6 +100,8 @@ It takes an ordinary servo pulse and **the pulse width is the colour**, publishe
 Smooth gradient between. **Below 1100 is off; above 1900 is solid white.** There is no brightness
 channel — hue only — so nothing on this part can dim, fade or breathe.
 
+This is goBILDA's published table, and it is the map the robot uses.
+
 `CHEST OFF` sends **500 µs**, a defined off, rather than stopping the pulses: silence leaves the
 light in a state nobody has characterised, and an off that might not be off is not off.
 
@@ -102,26 +118,6 @@ Two margins the backend should keep, because of where the thresholds sit:
 
 The light is on the neck, which is on the e-stop branch: **it goes dark on a real e-stop**, by
 design, the same as the head. Red therefore mostly indicates a software-latched fault.
-
-### Verifying the colour map, when the light is fitted
-
-The table above is goBILDA's, not a measurement, and the named points are **names**: "indigo" is
-quoted anywhere from 265° to 280° depending who is asked, and at 1800 µs a 15° error moves the
-pulse by about 75 µs. Do not settle it by looking at it and saying "that looks purple" — that
-judgement moves with the room lights, the plate's diffuser and the person.
-
-Measure it instead, about ten minutes:
-
-1. Fix the camera: manual exposure, manual white balance, no auto anything. A phone in pro mode is
-   fine. Frame the lit lens, same position throughout.
-2. Step `CHEST 1100` to `CHEST 1900` in 50 µs, one photo at each, plus `CHEST 500` and
-   `CHEST 2500` for the two ends.
-3. Sample the pixel hue at the centre of the lens in each frame and tabulate (pulse → hue).
-4. Send the table to the Tablet lane: it replaces `state_out.CHEST_HUES` directly, and moves
-   `CHEST_LIT_US` if the real off and white edges are not at 1100 and 1900.
-
-Fixed exposure and white balance are the whole trick — auto white balance will "correct" the very
-colour being measured, and report the light as neutral whatever it is doing.
 
 **The cable** is goBILDA's included TJC8 ↔ JST PH, 300 mm: JST PH at the light, which exits the
 back of the plate through a ø14 hole (the side TJC8 ports are boxed in by the pocket), and TJC8 at
@@ -177,6 +173,41 @@ carry that much margin on their own.
 **Known rough edge:** `commissioned` goes true on the *first* `TILT` write, which during a
 measurement is a provisional number. A procedure abandoned halfway leaves the robot claiming to be
 commissioned on a throwaway band.
+
+## Where this stands — 2026-10-15
+
+Written here rather than in a workplan because this is where anyone touching the neck will look.
+
+**On the robot:** main `faab662` (`fw=faab66262b87`), OTA'd from the Thor. `tilt_band=71,150`,
+`commissioned=1`, held in the Dial's own NVS and deliberately not in the repo.
+
+**Commissioned today** with the maintainers at the head: increasing degrees is **up**; down verified
+free to 72.2 with no contact; the ceiling set to 150 **by choice**, not at a stop — the mechanism
+has more travel. So neither end is a hard stop and no margin is written against one.
+
+**The button interlock is UNTESTED ON HARDWARE.** The logic is covered on the host; the pin
+(`GPIO 42`, from M5Unified's board table) has never had a button pressed against it. Offered as a
+15-second check and declined — the maintainers are satisfied with the bounds and nothing needs
+re-commissioning soon. If the pin is wrong the symptom is that a UDP `TILT` always expires; the
+band on the robot is unaffected and the serial path still works with a cable.
+
+**The pan servo has failed once and may be intermittent.** On the morning of the 15th it was not
+driving at all while every log said it was turning — `NECK` reports the command and there is no
+encoder. The maintainers found and fixed a hardware fault; later the same day the Tablet lane saw
+the same signature again (a confident face holding still in the image while pan was commanded
+~30°). **Unresolved.** If tracking looks wrong, rule this out first: command a large pan and have
+somebody watch the head, rather than trusting any number.
+
+**Tracker signs are measured, not guessed:** `PAN_SIGN = +1` (correct as it stands) and
+`TILT_SIGN = -1`. Measured open-loop with the follow ranges clamped to 0 so the head could not move
+while targets were read. An earlier suspicion that pan was inverted was **wrong** — pan saturated
+because the servo was dead, and a dead axis saturates even with a correct sign, because the camera
+rides the head and the error never closes.
+
+**Known rough edges:** `commissioned` goes true on the first `TILT` write, so a procedure abandoned
+halfway leaves the robot claiming to be commissioned on a provisional band. And the autonomous
+envelope (`±18°` tilt) is now the limiter rather than the band — if tracking cannot look up far
+enough at somebody close, that is why.
 
 ## The control law
 

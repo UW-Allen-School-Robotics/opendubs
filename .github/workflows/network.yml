@@ -1,0 +1,26 @@
+name: Network
+
+# The Network lane's tools (CLAUDE.md "Lanes"): the uplink state rules the dashboard shows and
+# netjoin's refusals. Standard library only, so no install step.
+#
+# CI minutes are metered. This runs only on a PR that is ready for review (open PRs as drafts,
+# then `gh pr ready <n>`), or by hand from the Actions tab. Not on pushes to main: the PR already
+# ran it. Only tools/network/ is tested, so notes changes don't trigger it.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths: ["tools/network/**", ".github/workflows/network.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: python3 -m unittest discover -s tools/network/tests -v

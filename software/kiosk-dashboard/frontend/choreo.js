@@ -101,7 +101,10 @@
   }
   const labelOf = (id) => (routines.find((r) => r.id === id) || {}).label || id;
 
+  let busy = false;      // one request at a time: a slow list must not stack up repeats on the runner
   async function refresh(full) {
+    if (busy) return;
+    busy = true;
     try {
       if (full || !routines.length) routines = await getJSON("/api/choreo/routines");
       status = await getJSON("/api/choreo/palette");
@@ -112,6 +115,8 @@
       el("showsStatus").innerHTML = `<span class="bad">${esc(e.message)}</span>`;
       el("showsList").innerHTML = ""; el("showsStop").disabled = true;
       return;
+    } finally {
+      busy = false;
     }
     render();
   }

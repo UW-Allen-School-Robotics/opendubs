@@ -48,6 +48,9 @@ try:
     import yaml
 except ImportError:
     sys.exit("needs pyyaml: pip install pyyaml")
+# LibYAML's parser when PyYAML has it: the same documents, several times faster. Every palette listing
+# re-reads every show, and the pure-Python parser made that slower than the dashboard waits for.
+_SHOW_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import library  # noqa: E402  the show library's index (plan 4.6), beside this file
@@ -57,7 +60,7 @@ EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
 SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE",
-         "DEVICE")
+         "DEVICE", "VIDEO")
 # DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
 # the twin drives the base, but the runner refuses any show that uses it on the robot, because the
 # robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
@@ -219,6 +222,12 @@ SOUND_SECS_SANITY = (0.05, 600.0)
 # sound; the operator may override at run time (Show.audio_override), and the show is re-checked
 # against the override — a sound an output cannot play is an ERROR, never silence.
 AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+# What a sound IS (notes/design/choreo-audio.md, the user's decision 2026-10-20): MUSIC (the soundtrack,
+# background, effects) plays from the projector's speaker when a projector is ready; DIALOGUE (scripted
+# lines, the voice assistant) always from the tablet. Unmarked is dialogue, so speech never reaches the
+# projector by default — a narration track is dialogue until someone marks it music.
+AUDIO_ROLES = ("music", "dialogue")
+DEFAULT_AUDIO_ROLE = "dialogue"
 DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
 # What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
 # the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
@@ -319,13 +328,23 @@ SLOT_KEYS = {
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
-    "SOUND": {"do", "sound", "secs", "output"},
+    "SOUND": {"do", "sound", "secs", "output", "role"},
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
     "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
     "DEVICE": {"do", "level", "fade_s"},
+    "VIDEO": {"do", "video", "from_s", "secs", "end", "output"},
 }
+# VIDEO (notes/design/choreo-video.md): a library video (kind `video`) on the projector, on the show's
+# clock. `play` starts it at the cue's time from `from_s` into the file, for `secs` (default: to its
+# end), then shows `end`: black (default) or hold (its last frame). `stop` ends whatever plays. The
+# output is the cue's `output`, else the show's `video: {output}`, else the robot's default; the
+# operator may override it at play time. One video at a time: one projector.
+VIDEO_OUTPUTS = ("cast", "hdmi", "stage", "off")   # stage: the stage page (choreo-stage.md)
+DEFAULT_VIDEO_OUTPUT = "cast"           # the user's decision, 2026-10-20: casting first
+VIDEO_ENDS = ("black", "hold")
+VIDEO_KEYS = {"output", "required"}     # the show-level `video:` block
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
 # and the head's pan reflects about centre. Arm joints are written in each arm's OWN outward sense,
@@ -334,7 +353,7 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device"}
+            "start_countdown_s", "device", "video"}
 # How a run starts (the runner's start modes): after the GO, a countdown the operator can see on the
 # face, before anything moves. A show may set its own length; a run may override it.
 START_COUNTDOWN_DEFAULT_S = 5.0
@@ -360,6 +379,9 @@ NOT_EXECUTABLE = {
     "LIGHT": "LIGHT plays on the robot only where the runner is armed for it (--light dashboard): "
              "layered over the state colour by the dashboard, a reserved state always winning, and "
              "colour changes closer than ~0.33 s merged (the strip shares the drive ESCs' I2C)",
+    "VIDEO": "VIDEO plays on the robot only where the runner has a video output (--video cast,hdmi) and "
+             "the projector is ready; otherwise the show runs without it, saying so (a show may say "
+             "video: {required: true} to be refused instead)",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
@@ -464,6 +486,7 @@ class Show:
         self.cues = doc.get("cues") or []
         self.doc = doc
         self.audio_override = None      # the operator's run-time output choice; None = as written
+        self.video_override = None      # ... and the projector output's (cast | hdmi | off)
 
     # ---- time ------------------------------------------------------------------------------
     def _music(self, P):
@@ -477,8 +500,11 @@ class Show:
         out = {"file": m.get("file"), "song": m.get("song"), "bpm": m.get("bpm"),
                "offset_s": m.get("offset_s", 0.0), "beats_per_bar": m.get("beats_per_bar", 4)}
         for k in m:
-            if k not in out and k != "output":
-                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output)"))
+            if k not in out and k not in ("output", "role"):
+                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output, role)"))
+        out["role"] = m.get("role", DEFAULT_AUDIO_ROLE)
+        if out["role"] not in AUDIO_ROLES:
+            P(Problem(f"music: role {out['role']!r} is not {' or '.join(AUDIO_ROLES)} (unmarked is dialogue)"))
         written = m.get("output", DEFAULT_AUDIO_OUTPUT)
         if written not in AUDIO_OUTPUTS:
             P(Problem(f"music: output {written!r} is not one of {', '.join(AUDIO_OUTPUTS)}"))
@@ -751,7 +777,20 @@ class Show:
         P = problems.append
         self._unchecked_skins, self._skin_assets, self._lib, self._lib_error = set(), {}, False, None
         self._unchecked_song = None
+        self._unchecked_videos = set()
         self._grip_effort = False
+        vblock = self.doc.get("video")
+        if vblock is not None:
+            if not isinstance(vblock, dict):
+                P(Problem("video: must be a mapping {output: cast|hdmi|off, required: true|false}"))
+            else:
+                for k in vblock:
+                    if k not in VIDEO_KEYS:
+                        P(Problem(f"video: unknown key {k!r} (known: {', '.join(sorted(VIDEO_KEYS))})"))
+                if vblock.get("output") is not None and vblock["output"] not in VIDEO_OUTPUTS:
+                    P(Problem(f"video: output {vblock['output']!r} is not one of {', '.join(VIDEO_OUTPUTS)}"))
+                if "required" in vblock and not isinstance(vblock["required"], bool):
+                    P(Problem("video: required must be true or false"))
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:
@@ -926,6 +965,9 @@ class Show:
             elif slot == "SOUND":
                 msgs = self._check_sound(where, c)
                 intrinsic = self._sound_length(c)
+            elif slot == "VIDEO":
+                msgs = self._check_video(where, c)
+                intrinsic = self._video_length(c) if not msgs else 0.0
             elif slot == "DANCE":
                 msgs = self._check_dance(where, c)
                 if not msgs:
@@ -1004,15 +1046,19 @@ class Show:
             notices.append("gripper `effort` has no physical effect on this robot: its grippers take a "
                            "position only, and how hard they squeeze is set by the calibrated closed "
                            "position (Arms lane, 2026-10-10)")
-        if self._lib_error and (self._unchecked_song or self._unchecked_skins):
+        if self._lib_error and (self._unchecked_song or self._unchecked_skins or self._unchecked_videos):
             # A library that is THERE but cannot be read: the runner would fail to find what the show
             # plays — say so here, rather than let it pass as "no library on this machine"
             P(Problem(f"the show library at {library.root()} cannot be read ({self._lib_error}) — this "
                       "show plays from it; on the robot the runner reads it as its own user"))
-            self._unchecked_song, self._unchecked_skins = None, set()
+            self._unchecked_song, self._unchecked_skins, self._unchecked_videos = None, set(), set()
         if self._unchecked_song:
             notices.append(f"no show library at {library.root()}: song {self._unchecked_song!r} is unchecked "
                            "here — the Thor checks it against its library before every run")
+        if self._unchecked_videos:
+            notices.append(f"no show library at {library.root()}: video(s) "
+                           f"{', '.join(sorted(self._unchecked_videos))} are unchecked here — the Thor "
+                           "checks them against its library before every run")
         if self._unchecked_skins:
             notices.append(f"no show library at {library.root()}: skin(s) "
                            f"{', '.join(sorted(self._unchecked_skins))} are unchecked here — the Thor "
@@ -1373,6 +1419,59 @@ class Show:
                 pass
         return SOUND_DEFAULT_S
 
+    def video_route(self, c) -> str:
+        """Where a VIDEO cue plays: the operator's override, else the cue's `output`, else the show's
+        `video: {output}`, else the robot's default (casting, DEC 2026-10-20)."""
+        if getattr(self, "video_override", None):
+            return self.video_override
+        v = self.doc.get("video") if isinstance(self.doc.get("video"), dict) else {}
+        return c.get("output") or v.get("output") or DEFAULT_VIDEO_OUTPUT
+
+    def _video_entry(self, vid):
+        idx = self._library()
+        return None if idx is None else idx.get(vid)
+
+    def _video_length(self, c):
+        if _num(c.get("secs")):
+            return float(c["secs"])
+        e = self._video_entry(c.get("video")) if c.get("do") == "play" else None
+        if e and _num(e.get("duration_s")):
+            return max(0.0, float(e["duration_s"]) - float(c.get("from_s") or 0.0))
+        return 0.0
+
+    def _check_video(self, where, c):
+        do = c.get("do")
+        if do == "stop":
+            return [f"{where}: stop takes no {k}" for k in ("video", "from_s", "secs", "end") if k in c]
+        if do != "play":
+            return [f"{where}: video do must be play or stop"]
+        p = []
+        vid = c.get("video")
+        if not isinstance(vid, str) or not vid:
+            p.append(f"{where}: play needs a video: the id of a library video (library.py add --kind video)")
+        else:
+            idx = self._library()
+            if idx is None:
+                self._unchecked_videos.add(vid)       # no library here: checked on the robot, said once
+            else:
+                e = idx.get(vid)
+                if e is None or e.get("kind") != "video":
+                    p.append(f"{where}: {vid!r} is not a video in the library at {library.root()}")
+                else:
+                    self._skin_assets[vid] = e.get("sha256")
+                    if _num(c.get("from_s")) and _num(e.get("duration_s")) and float(c["from_s"]) >= float(e["duration_s"]):
+                        p.append(f"{where}: from_s {c['from_s']} is past the end of {vid} ({e['duration_s']} s)")
+        if "from_s" in c and not (_num(c["from_s"]) and float(c["from_s"]) >= 0):
+            p.append(f"{where}: from_s must be seconds >= 0 into the video")
+        if "secs" in c and not (_num(c["secs"]) and float(c["secs"]) > 0):
+            p.append(f"{where}: secs must be > 0 (how long it plays)")
+        if c.get("end", "black") not in VIDEO_ENDS:
+            p.append(f"{where}: end must be {' or '.join(VIDEO_ENDS)} (what shows after it)")
+        route = self.video_route(c)
+        if route not in VIDEO_OUTPUTS:
+            p.append(f"{where}: video output {route!r} is not one of {', '.join(VIDEO_OUTPUTS)}")
+        return p
+
     def sound_route(self, c) -> str:
         """Where a SOUND cue plays: the operator's override, else the cue's own `output`, else the
         tablet (DEC-5) — except a Tab5 earcon with no file of the same name, which only the Tab5
@@ -1390,6 +1489,8 @@ class Show:
         if c.get("do") != "play":
             return [f"{where}: sound do must be play (SOUND plays a named sound effect)"]
         p = []
+        if c.get("role", DEFAULT_AUDIO_ROLE) not in AUDIO_ROLES:
+            p.append(f"{where}: role {c['role']!r} is not {' or '.join(AUDIO_ROLES)} (unmarked is dialogue)")
         name = c.get("sound")
         if not isinstance(name, str) or not name:
             p.append(f"{where}: play needs a sound name")
@@ -1669,6 +1770,9 @@ class Show:
                   "src": e["src"]}
             if e["slot"] == "SOUND":
                 ev["output"] = self.sound_route(e["fields"])     # resolved, so players need not guess
+                ev["role"] = e["fields"].get("role", DEFAULT_AUDIO_ROLE)
+            if e["slot"] == "VIDEO":
+                ev["output"] = self.video_route(e["fields"])
             if e["slot"] == "FACE" and e["fields"].get("do") == "move" and e["fields"].get("name") in FACE_MOVES:
                 peak, dur = FACE_MOVES[e["fields"]["name"]]
                 ev["send_t"] = _r(max(0.0, e["t"] - peak))      # when the line goes, so the PEAK is at t
@@ -1683,7 +1787,7 @@ class Show:
             evs.sort(key=lambda x: (x["start"], x["t"]))
         music = None
         if a["music"]:
-            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar")}
+            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar", "role")}
             music["output"] = a["music"].get("output", DEFAULT_AUDIO_OUTPUT)
             music["beat_s"] = _r(a["music"]["beat_s"])
         ends = [e["end"] for e in a["events"] if "end" in e] + [m["t"] for m in a["markers"]]
@@ -1792,7 +1896,7 @@ def load_limits(path: str) -> dict:
 
 def load_show(path: str) -> Show:
     with open(path) as fh:
-        doc = yaml.safe_load(fh)
+        doc = yaml.load(fh, Loader=_SHOW_LOADER)
     if not isinstance(doc, dict):
         raise ShowError(f"{path}: not a mapping")
     return Show(doc, path)
@@ -1800,7 +1904,7 @@ def load_show(path: str) -> Show:
 
 def show_from_text(text: str, path: str = "") -> Show:
     """For editors: a show from unsaved text. `path` locates relative files (the audio)."""
-    doc = yaml.safe_load(text)
+    doc = yaml.load(text, Loader=_SHOW_LOADER)
     if not isinstance(doc, dict):
         raise ShowError("not a mapping")
     return Show(doc, path)

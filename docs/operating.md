@@ -57,7 +57,7 @@ wiring, is in [RC control mapping](rc-control-mapping.md).
 1. **CH5 to `OFF`** before anything else. Authority off means nothing can drive, whatever else is
    true.
 2. **BATTERY on.**
-3. **RUN on.** The StamPLC screen and the Tab5 come up; the Thor takes longer.
+3. **RUN on.** The StamPLC screen comes up; the Thor takes longer.
 4. **Open the dashboard** from the tablet at `http://<robot>:8080`. The robot has no screen of its
    own — the tablet is the interface.
 5. **Confirm both e-stops are released** and that the dashboard reports the contactor closed.
@@ -112,12 +112,11 @@ in the repository, so a freshly deployed robot needs its own.
 
 The Z-axis arrests its own descent short of the bottom, where the closing gap is a pinch hazard.
 
-**What you will see:** the lift stops on its own, the Tab5 shows an amber **Z-AXIS HELD** banner
-reading *release, then press down again*, and two short tones sound.
+**What you will see:** the lift stops on its own, and the dashboard's Z-axis readout shows
+**PINCH HOLD**.
 
 **To continue:** release the stick, then command DOWN again. The release must be held for roughly
-half a second — the guard requires a deliberate new request rather than stick bounce. The banner
-turns green and reads **LOWERING** once the descent resumes.
+half a second — the guard requires a deliberate new request rather than stick bounce.
 
 This is a guard, not a fault: nothing latches and nothing needs clearing. It will arrest the
 descent again on the next approach to the bottom.
@@ -132,18 +131,11 @@ descent again on the next approach to the bottom.
 | Control | What it does | How to clear it |
 |---|---|---|
 | **The red mushrooms**, rear left and right | Break the contactor coil circuit directly. They work with the software dead or the Thor off — this is the real e-stop | Release the button, then re-arm |
-| **E-STOP on the Tab5** | Sends the controller the same software e-stop the dashboard sends: the contactor drops and the robot latches `E-STOP` | **From the dashboard only** — see below |
-| **E-stop on the dashboard** | Identical mechanism to the Tab5's | The dashboard's guarded re-arm |
+| **E-STOP on the dashboard** | Sends the controller a software e-stop: the contactor drops and the robot latches `E-STOP` | The dashboard's guarded re-arm |
 
-!!! warning "The Tab5's E-STOP switches the Tab5 off"
-    The Tab5 is powered from the **drive branch**, behind the contactor. So its own E-STOP button
-    removes its own power: the command reaches the controller, the contactor opens, and the head
-    goes dark a moment later.
-
-    That is correct behaviour, not a fault — but it means **you cannot re-arm from the head**,
-    because the head is off. Re-arm from the dashboard on the tablet, or over the network. The
-    button briefly displays *"clear at the dashboard"* before the screen dies, which is why it is
-    written here instead.
+The face on the head has no e-stop of its own. A long press on the face opens **STOP SHOW**,
+which stops a running show but is not an e-stop; the RC deadman and the e-stop stop everything.
+The head's tablet runs on its own battery, so it stays on through an e-stop.
 
 Re-arming is deliberately guarded and will refuse unless **CH5 is OFF**, the button is released,
 telemetry is fresh and no contactor weld is detected. "CH5 not OFF" is the usual refusal.

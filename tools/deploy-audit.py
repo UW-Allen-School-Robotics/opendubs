@@ -46,8 +46,16 @@ MAP = [
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
     ("software/stack",                          "/opt/opendubs/stack",                          SYNC),
     ("software/face-web",                       "/opt/opendubs/face-web",                       SYNC),  # deploy.sh, /face/
+    ("software/voice",                          "/opt/opendubs/voice",                          SYNC),  # deploy-all.sh; run by stack/voice
+    ("tools/network",                           "/opt/opendubs/network",                        SYNC),  # deploy-all.sh; opendubs-netmon
     ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
+
+# Repo paths a deploy deliberately leaves on the dev machine, so their absence on the robot is not
+# reported. Keep this in step with the excludes in the deploy scripts that ship each tree.
+NOT_SHIPPED = (
+    "software/face-web/kws/",   # the wake-word build script; deploy.sh ships only its output, vendor/kws
+)
 
 # Never compared: build output, caches, editor droppings, and the ad-hoc backups we leave
 # behind on the robot mid-debug (main.cpp.pre-mast, platformio.ini.bak, ...).
@@ -107,6 +115,8 @@ def build_pairs():
             pairs[rel] = (remote, kind)
             continue
         for f in files:
+            if f.startswith(NOT_SHIPPED):
+                continue
             sub = f[len(rel) + 1:]
             pairs[f] = (f"{remote}/{sub}", kind)
     for rel, remote, kind in MAP:
@@ -171,6 +181,16 @@ def main():
 
     print(f"\n{a.robot}:  {len(same)} identical, {len(drift)} DRIFTED, "
           f"{len(review)} per-robot, {len(missing)} not deployed\n")
+    # What the last deploy-all.sh carried (its /opt/opendubs/DEPLOYED), so a branch on the robot is
+    # never mistaken for main. "identical" above is against THIS checkout, whatever it is.
+    marker = subprocess.run(["ssh", a.robot, "cat /opt/opendubs/DEPLOYED 2>/dev/null"],
+                            capture_output=True, text=True).stdout
+    last = dict(l.split("=", 1) for l in marker.splitlines() if "=" in l)
+    if last.get("source"):
+        flag = "" if last["source"].startswith("main @") else "  <-- NOT main"
+        print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")
+    else:
+        print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
     if drift:
         print("  DRIFTED — repo and robot disagree, and they should not:")
         for rel, _ in drift:

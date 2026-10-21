@@ -78,9 +78,11 @@ class FakeLLM:
     stop: str = ""                    # force a stop_reason, e.g. "refusal"
     name: str = "fake"
     calls: list = field(default_factory=list)
+    systems: list = field(default_factory=list)       # the system prompt of each round, for the tests
 
     async def stream(self, history, system):
         self.calls.append(list(history))
+        self.systems.append(system)
         await asyncio.sleep(self.delay_s)
         item = self.script.pop(0) if self.script else self.default
         items = item if isinstance(item, list) else [item]

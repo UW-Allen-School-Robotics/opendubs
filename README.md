@@ -66,7 +66,7 @@ questions about clearance and reach and not about force, torque or timing.
 | `software/teleop/` | Unity VR teleop pipeline |
 | `sim/` | **MuJoCo model of the robot** (geometry, not a planner) — see [Simulation](#simulation) |
 | `hardware/` | `parts.csv` — **the BOM source of truth**, from which every table in the docs is generated — plus `cad/` (Fusion 360 exports) and `renders/` |
-| `access/` | Public keys and the manifest for operator accounts on the robots |
+| `access/` | How SSH accounts on the robots are managed (`tools/access.py`); the roster itself lives in the git-ignored `ops/access/` |
 | `tools/` | Repo utilities |
 | `notes/` | Internal planning / design history — in-repo but not part of the published site |
 | `optional/` | Non-baseline variants kept for possible future use (e.g. a Pixhawk build) — in-repo, off the baseline |

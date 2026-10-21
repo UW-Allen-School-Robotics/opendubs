@@ -106,5 +106,28 @@ function frame(blob) {
   check("a target 60 s old is gone", a.tick(60100).kind === KIND.NONE, a.tick(60100).kind);
 }
 
+{
+  // A cue outlives its sighting by its dwell, at the position it was seen at. The neck must tell a NEW
+  // sighting from that held one (2026-10-16: it re-aimed at a held face for 2 s and ran to its limit).
+  const a = new Attention();
+  a.noteFace(1000, -0.46, -0.04, 0.9, 950);              // the frame was captured at 950
+  const held = [1000, 1200, 1400, 1600].map((t) => a.tick(t));
+  check("a held face keeps its sighting time", held.every((g) => g.kind === KIND.FACE && g.seen === 950),
+        held.map((g) => g.seen).join(","));
+  a.noteFace(1700, -0.20, -0.04, 0.9, 1650);
+  check("a new sighting has a new time", a.tick(1700).seen === 1650, a.tick(1700).seen);
+  a.noteMotion(1800, 0.5, 0, 0.6);
+  check("  a cue noted without one is seen when noted", a.motion.seen === 1800, a.motion.seen);
+  check("nobody seen has no sighting", new Attention().tick(0).seen === 0, "a sighting");
+}
+{
+  // On the robot a person standing still scored ~0.5 and never reached the head's floor (0.45 for a person).
+  const a = new Attention();
+  a.notePerson(0, 0.3, -0.2, 0.5);
+  a.notePerson(400, 0.31, -0.2, 0.5);                   // linked: the next run of the person detector
+  const g = a.tick(400);
+  check("a person standing still is believed enough for the head after two hits", g.kind === KIND.PERSON && g.confidence >= 0.45, g.confidence);
+}
+
 console.log(`\n${pass} PASS, ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

@@ -105,7 +105,7 @@ isUp() -> bool
 
 - **CAN wire adapter** — not yet implemented; no module has a CAN transceiver wired today (the
   StamPLC's CAN port is used for the REV PDH). Maps directly to native TWAI frames once built.
-- **WiFi/UDP adapter** — today's real transport for the lift module (Tab5's ESP32-C6 co-processor).
+- **WiFi/UDP adapter** — a network transport for modules with Wi-Fi or Ethernet.
   Each UDP datagram is `[CAN_ID:2B][DLC:1B][payload:0–8B]` — the CAN ID and DLC that a real CAN
   frame carries out-of-band get a 3-byte prefix since UDP has no equivalent framing. Uses a
   **dedicated port**, separate from the existing StamPLC `[TAG]` text protocol on `:5005`
@@ -192,7 +192,7 @@ only.
 Both severities plug into the *existing* fault display, not a new one —
 `software/kiosk-dashboard/backend/robot_state.py` already has a `mast`
 subsystem slot and a `mast_fault` input; `status.py` currently hardcodes it (`status.py:332`,
-`mast_fault = False  # mast/payload is independent (Tab5-driven)...`) because nothing feeds it yet:
+`mast_fault = False`) because nothing feeds it yet:
 
 - **`LIFT_FAULT` active (module reports a problem, still communicating)** → drive `mast_fault=True`.
   Shows as `mast: FAULT` on the MASTER STATUS subsystem rollup, same as `base_fault` today.

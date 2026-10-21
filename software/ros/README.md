@@ -192,6 +192,23 @@ for a few seconds as false, so a camera never keeps streaming because this node 
 To make the rear camera stream from a shell, subscribe to it:
 `ros2 topic hz /tablet/camera/rear/image_raw/compressed`.
 
+## Skeleton feed relay
+
+**`opendubs-skeleton-relay.service`** (`skeleton-relay.sh` → `skeleton_relay.py`) carries the live
+skeleton feed from the Femto Bolt tracker (issue #450) to the stage page. It subscribes to the
+tracker's topic, turns each message into the stage page's frame with the choreography lane's adapter
+(`software/choreo/skeleton_feed.py`, deployed to `/opt/opendubs/choreo`), and sends it as JSON to the
+dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
+
+- **Only skeleton points pass.** The relay subscribes to exactly the adapter's `MSG_TYPE` and refuses
+  to start if that is an image, depth or point-cloud type. Nothing is recorded.
+- **Newest frame only.** A slow socket drops older frames rather than queueing them. An empty frame
+  goes out after 1 s with no message, marked `"status": "stale"`, so the page can tell "nobody there"
+  from a stopped feed.
+- While the adapter's `MSG_TYPE` is `None` (the tracker's type not known yet) it idles and says so once.
+- It idles until the adapter is deployed (`ConditionPathExists`), runs on UDP-only DDS, and reconnects
+  across dashboard restarts.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts

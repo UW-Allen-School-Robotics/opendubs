@@ -1,0 +1,27 @@
+{
+ "_note": "Reconstructed from the router's CLI output on 2026-10-19 (read-only), in the REST API's shape: every value a string. MAC addresses of client devices are made up. Replace with a real REST capture when the read-only account exists.",
+ "reg": [
+  {".id": "*1", "interface": "wlan1", "mac-address": "02:00:00:00:00:13", "ap": "false", "rx-rate": "78Mbps-20MHz/1S", "tx-rate": "72.2Mbps-20MHz/1S/SGI", "bytes": "70530901,31761489", "uptime": "3h8m48s", "signal-strength": "-48@24Mbps", "signal-to-noise": "53", "tx-ccq": "83", "p-throughput": "54711", "last-ip": "10.42.2.13"},
+  {".id": "*2", "interface": "wlan1", "mac-address": "02:00:00:00:00:16", "ap": "false", "rx-rate": "150Mbps-40MHz/1S/SGI", "tx-rate": "108Mbps-40MHz/1S", "bytes": "7133231,12362366", "uptime": "2h28m28s", "signal-strength": "-39@6Mbps", "signal-to-noise": "62", "tx-ccq": "88", "p-throughput": "83987", "last-ip": "10.42.2.16"},
+  {".id": "*4", "interface": "wlan2", "mac-address": "AC:23:16:ED:A5:91", "ap": "true", "rx-rate": "52Mbps-20MHz/1S", "tx-rate": "144.4Mbps-20MHz/2S/SGI", "bytes": "506076593,23896892180", "uptime": "1h43m36s", "signal-strength": "-83@12Mbps", "signal-to-noise": "25", "last-ip": "44.235.6.101"}
+ ],
+ "wireless": [
+  {".id": "*5", "name": "wlan1", "ssid": "Opendubs2", "mode": "ap-bridge", "disabled": "false", "running": "true"},
+  {".id": "*6", "name": "wlan2", "ssid": "UW MPSK", "mode": "station", "disabled": "false", "running": "true", "security-profile": "uwmpsk", "default-authentication": "yes"}
+ ],
+ "ifaces": [
+  {".id": "*1", "name": "ether1", "running": "false", "disabled": "false", "rx-byte": "0", "tx-byte": "0"},
+  {".id": "*6", "name": "wlan2", "running": "true", "disabled": "false", "rx-byte": "23896892180", "tx-byte": "506076593"}
+ ],
+ "dhcpc": [
+  {".id": "*1", "interface": "ether1", "status": "stopped", "disabled": "false"},
+  {".id": "*2", "interface": "wlan2", "status": "bound", "address": "10.19.194.172/15", "gateway": "10.18.0.1", "disabled": "false"}
+ ],
+ "leases": [
+  {"address": "10.42.2.10", "mac-address": "02:00:00:00:00:10", "comment": "opendubs2 thor", "host-name": "opendubs2"},
+  {"address": "10.42.2.16", "active-address": "10.42.2.16", "mac-address": "02:00:00:00:00:16", "host-name": "esp32s3-977DF0"},
+  {"address": "10.42.2.13", "active-address": "10.42.2.13", "mac-address": "02:00:00:00:00:13", "host-name": "Galaxy-Tab-A11"}
+ ],
+ "resource": {"uptime": "3h10m10s", "cpu-load": "6", "version": "7.20.7 (long-term)"},
+ "monitor": {"status": "connected-to-ess", "ssid": "UW MPSK", "signal-strength": "-83@12Mbps"}
+}

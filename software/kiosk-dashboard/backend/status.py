@@ -8,6 +8,7 @@ at ~1 Hz, not in the fast telemetry loop.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ import psutil
 import battery_history
 import robot_state
 import stamplc
-from supervisor import supervisor
+from supervisor import LIFT_SILENT, supervisor
 
 _BOOT = time.monotonic()
 
@@ -126,7 +127,33 @@ def _net():
     wifi["ssid"] = ssid or None
     if ssid:
         wifi["up"] = True
-    return {"wired": wired, "wifi": wifi}
+    return {"wired": wired, "wifi": wifi, **_router_report()}
+
+
+# The router's view of the network, written by opendubs-netmon (the Network lane's poller) —
+# notes/design/network-router-api.md §4, sample tools/network/sample-network.json. The dashboard
+# never talks to the router itself.
+NETWORK_JSON = os.environ.get("OPENDUBS_NETWORK_JSON", "/run/opendubs-network/network.json")
+NETWORK_STALE_S = 15.0
+_NO_NETWORK = {"uplink": {"state": "UNKNOWN", "say": "No network data"}, "robot_wifi": []}
+
+
+def _router_report(path: str = NETWORK_JSON, now: float | None = None) -> dict:
+    """{"uplink": {...}, "robot_wifi": [...]}. A missing, unreadable or stale file (by its own
+    `ts`) is UNKNOWN, never the last thing it said: an old GOOD must not be shown as a live one."""
+    now = time.time() if now is None else now
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        age = now - float(data["ts"])
+        uplink = dict(data["uplink"])
+    except (OSError, ValueError, TypeError, KeyError):
+        return {**_NO_NETWORK, "uplink": dict(_NO_NETWORK["uplink"])}
+    if not 0 <= age <= NETWORK_STALE_S:
+        return {**_NO_NETWORK, "uplink": dict(_NO_NETWORK["uplink"])}
+    clients = data.get("robot_wifi") if isinstance(data.get("robot_wifi"), list) else []
+    return {"uplink": {**uplink, "age_s": round(age, 1)},
+            "robot_wifi": [c for c in clients if isinstance(c, dict)]}
 
 
 def _rc_link():
@@ -233,15 +260,16 @@ def _drive():
 REQUIRED_MODULES = {"lift": True}
 
 
-def _lift():
-    """The Z-axis as a module: height, motion, inhibit and its own fault.
+def _lift(s=None):
+    """The Z-axis as a module: height, motion, inhibit and its own fault. `s`: a StamPLC snapshot
+    already taken, so a caller judging link and lift together reads them from the same moment.
 
     `fresh` needs BOTH the StamPLC link and the module's own liveness — the same combination
     `_rc_link()` uses. A stale module is not trusted even if it last reported a fault code,
     which is why `fault_active` is gated on freshness: a cached fault from a module that has
     gone quiet is not evidence of a present fault.
     """
-    s = stamplc.reader.snapshot()
+    s = stamplc.reader.snapshot() if s is None else s
     lift = s.get("lift") or {}
     fresh = bool(s.get("fresh")) and bool(lift.get("live"))
     fault = lift.get("fault")
@@ -287,6 +315,13 @@ def _safety():
     sources = []
     if sw:
         sources.append("SOFTWARE")
+    # The StamPLC's own latch (BtnC held, OTA, REBOOT, or an ESTOP command) makes its [RC] line say
+    # mode=ESTOP. Unread, that mode maps to no authority and the robot read "RC link lost" in amber
+    # with the contactor open. Our own e-stop sets it too, so it is named only when SOFTWARE is not
+    # (which also covers a dashboard restart, where the in-memory software flag is gone).
+    plc_latch = fresh and (s.get("rc") or {}).get("mode") == "ESTOP"
+    if plc_latch and not sw:
+        sources.append("STAMPLC")
     if btn:
         sources.append("BUTTON")
     # Fail-safe (review R2): a STALE StamPLC link freezes the entire safety-sensing
@@ -337,6 +372,28 @@ def _can_arms():
     return {"left": dict(nc), "right": dict(nc)}
 
 
+# "Lift module not responding" waits LIFT_SILENT_S. The lift's liveness comes only from the [DRIVE] line
+# (every 100 ms), so with the link fresh a silent lift is either a real fault or a transient: the link
+# fresh again before the first [DRIVE] arrives. On 2026-10-19 such a blip at boot (STALE TELEMETRY for
+# 7 s) latched DEGRADED with a healthy lift until someone cleared it by hand. Raised only after the lift
+# has been silent that long while the link has been continuously fresh at least as long.
+LIFT_SILENT_S = 2.0
+_lift_watch = {"link_since": None, "silent_since": None}
+
+
+def lift_not_responding(link_fresh: bool, lift_fresh: bool, now: float, w=None) -> bool:
+    w = _lift_watch if w is None else w
+    if not link_fresh:
+        w["link_since"] = w["silent_since"] = None          # a stale link says nothing about the lift
+        return False
+    w["link_since"] = w["link_since"] if w["link_since"] is not None else now
+    if lift_fresh:
+        w["silent_since"] = None
+        return False
+    w["silent_since"] = w["silent_since"] if w["silent_since"] is not None else now
+    return now - w["silent_since"] >= LIFT_SILENT_S and now - w["link_since"] >= LIFT_SILENT_S
+
+
 def _robot_state():
     """Derive the robot-level FSM (docs/state-machines.md) from live telemetry:
     safety latch, RC authority/deadman, link health, and (non-bench) faults."""
@@ -366,16 +423,16 @@ def _robot_state():
 
     # The Z-axis is NOT independent of the StamPLC: it owns the ToF, the relays and the pinch
     # guard, and reports all three. So a lift fault is a real input to the FSM.
-    lift = _lift()
+    lift = _lift(s)                     # the SAME snapshot as the link below: never two moments
     mast_fault = lift["fault_active"]
     # A required module that has gone quiet degrades the robot — but ONLY when the StamPLC link
     # itself is healthy. If the link is stale the module cannot report by definition, and calling
     # that a lift fault both mis-attributes it and latches DEGRADED every time the StamPLC
     # reboots — which is every OTA flash. Observed on the robot doing exactly that.
     link_fresh = bool(s.get("fresh"))
-    if (REQUIRED_MODULES.get("lift") and link_fresh and not lift["fresh"]
-            and supervisor.ready):
-        raw_faults.append("lift module not responding")
+    if (REQUIRED_MODULES.get("lift") and supervisor.ready
+            and lift_not_responding(link_fresh, lift["fresh"], time.monotonic())):
+        raw_faults.append(LIFT_SILENT)
 
     # Fold raw telemetry through the stateful supervisor so latching/readiness
     # actually persist between frames (review R1/R4/R5); derive() stays pure.
@@ -398,10 +455,27 @@ def _robot_state():
     if sup["note"]:
         out["reason"] = out["reason"] + " · " + sup["note"]
     out["estop_events"] = supervisor.recent_events()
+    # What to do about an e-stop, in the registry's words (state_words.RECOVERY): the dashboard shows it.
+    import state_words
+    r = state_words.recovery(out)
+    out["recovery"] = r[0] if r else None
     out["latched"] = {"estop": supervisor.estop_latched,
                       "faults": list(supervisor.fault_latched),
                       "ready": supervisor.ready}
     return out
+
+
+def ch5_position(rc: dict) -> str | None:
+    """OFF | MANUAL | AUTO from the raw CH5 value, with the StamPLC's own thresholds
+    (rc_serial_probe computeRcMode: <600 OFF, <1400 MANUAL, else AUTO), or None when the link is not
+    trustworthy (not live, failsafe, a stick out of range, no frame). Read from the raw channel, not
+    `mode`: a board-held e-stop makes `mode` say ESTOP and hides the switch. CH5 is index 4, the
+    firmware's default RC map (rc_config.cpp FN_AUTH)."""
+    raw = rc.get("raw") or []
+    if not rc.get("live") or rc.get("fs") or rc.get("rng") or len(raw) < 5:
+        return None
+    m = raw[4]
+    return "OFF" if m < 600 else "MANUAL" if m < 1400 else "AUTO"
 
 
 def try_estop_clear() -> dict:
@@ -410,10 +484,9 @@ def try_estop_clear() -> dict:
     THEN clears the software latch + re-energizes relay 0. Returns the outcome."""
     saf = _safety()
     rc = stamplc.reader.snapshot().get("rc") or {}
-    authority = MODE_TO_AUTHORITY.get(rc.get("mode"))
     ok, blockers = supervisor.estop_rearm_guard(
         button_pressed=bool(saf["estop_button"]), stale=saf["stale"],
-        welded=saf["welded"], authority=authority)
+        welded=saf["welded"], ch5=ch5_position(rc))
     if not ok:
         # `blockers` stays a list of sentences (the tablet reads it); `codes` runs beside it.
         return {"ok": False, "blockers": [t for _, t in blockers], "codes": [c for c, _ in blockers]}

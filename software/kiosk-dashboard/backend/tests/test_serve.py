@@ -21,3 +21,11 @@ def test_a_certificate_adds_https_on_8443_without_a_second_startup():
     assert [(c.port, bool(c.ssl_certfile)) for c in cfgs] == [(8080, False), (8443, True)]
     # the app's startup hooks (state_out, the serial port) must run once: only on HTTP
     assert [c.lifespan for c in cfgs] == ["on", "off"]
+
+
+def test_a_stop_does_not_wait_for_open_websockets():
+    """2026-10-19: uvicorn waited for every WebSocket to close by itself, so each stop ran out systemd's
+    90 s and was killed. Each server now closes what is left after a short grace."""
+    import serve
+    for c in serve.configs({"OPENDUBS_TLS_CERT": "/nonexistent"}):
+        assert c.timeout_graceful_shutdown == serve.STOP_GRACE_S <= 5

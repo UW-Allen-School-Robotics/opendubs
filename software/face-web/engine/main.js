@@ -16,7 +16,7 @@
 import { Face, DESIGN_W, DESIGN_H } from "./face.js";
 import { drawFace } from "./frame.js";
 import { STATES, EMOTES } from "./vocab.js";
-import { handle, Earcons, libraryRefresher } from "./protocol.js";
+import { handle, Earcons, libraryRefresher, captionNow } from "./protocol.js";
 import { Skins } from "./skins/index.js";
 import { Levels } from "./levels.js";
 
@@ -38,7 +38,8 @@ import("./skins/armed.js").then((m) => { drawArmed = m.drawArmed; }).catch(() =>
 // From the kiosk app, the hardware's own state (any app, any camera: OpenDubsKiosk.cameras()); and,
 // in any browser, this page's own live video tracks, so a laptop twin's webcam shows it too. Either
 // one open lights the indicator.
-let drawCamera = null, drawCharge = null, drawReticle = null, showReticle = false;
+let drawCamera = null, drawCharge = null, drawReticle = null, showReticle = false, drawCaption = null;
+import("./skins/caption.js").then((m) => { drawCaption = m.drawCaption || null; }).catch(() => {});
 import("./skins/reticle.js").then((m) => { drawReticle = m.drawReticle || null; }).catch(() => {});
 import("./skins/charge.js").then((m) => { drawCharge = m.drawCharge || null; }).catch(() => {});
 import("./skins/camera.js").then((m) => { drawCamera = m.drawCameraOn || null; }).catch(() => {});
@@ -111,7 +112,23 @@ window.faceStats = stats;                           // read by a harness through
 
 // ---- the frame --------------------------------------------------------------------------------
 let last = performance.now();
+const health = { drawnAt: performance.now(), eyesOk: true, lost: false, fullFace: false, frames: 0,
+                 errors: 0, lastError: null, refits: 0 };
+let lastAlive = 0;
+canvas.addEventListener("contextlost", () => { health.lost = true; });
+
 function frame(now) {
+  // Scheduled first, so nothing below can end the loop; a frame that throws is counted and reported.
+  requestAnimationFrame(frame);
+  // A canvas whose size no longer matches the page (laid out at 0 x 0 before the view had a size, say)
+  // draws nowhere. Refit it here rather than trusting a resize event to arrive.
+  const dpr = window.devicePixelRatio || 1;
+  if (innerWidth && (canvas.width !== Math.round(innerWidth * dpr) || canvas.height !== Math.round(innerHeight * dpr))) {
+    fit(); health.refits++;
+  }
+  try { drawFrame(now); } catch (e) { health.errors++; health.lastError = String(e && e.message || e).slice(0, 160); }
+}
+function drawFrame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   frames.push(now - last); last = now;
   if (frames.length > 240) frames.shift();
@@ -123,8 +140,13 @@ function frame(now) {
   const turn = neck ? (neck.pan - 90) * 4 : 0;
   // AirPlay playing and heard: what it is, in the quote's place.
   const ap = window.OpenDubsAirplay, song = ap && ap.gate !== "mute" && ap.playing && ap.playing.active ? ap.playing : null;
-  stats.cameraSign = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
-                                   drawReticle: showReticle ? drawReticle : null }).camera;
+  const drew = drawFace(ctx, W, H, now, { face, skins, drawArmed, bg: BG, turn, song, cams, drawCamera, drawCharge,
+                                   drawReticle: showReticle ? drawReticle : null, words: captionNow(now), drawCaption });
+  stats.cameraSign = drew.camera;
+  health.drawnAt = now; health.eyesOk = drew.eyesOk; health.fullFace = drew.fullFace; health.frames++;
+  // The kiosk app's watchdog (KioskActivity): a robot page that stops checking in is reloaded. From the
+  // frame loop, so a page whose drawing has stopped stops checking in too.
+  if (now - lastAlive > 5000) { lastAlive = now; try { window.OpenDubsKiosk?.alive?.(); } catch (e) {} }
   draws.push(performance.now() - t0); if (draws.length > 240) draws.shift();
 
   if (hud && frames.length % 15 === 0) {
@@ -143,7 +165,6 @@ function frame(now) {
       (stats.track ? `  track ${stats.track}` : "") +
       (stats.video ? `  video ${stats.video.w}x${stats.video.h} dropped ${stats.video.dropped}/${stats.video.total}${stats.video.showing ? " (showing)" : ""}` : "");
   }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
@@ -187,7 +208,13 @@ setInterval(() => {
   if (!door || door.readyState !== WebSocket.OPEN || !tracking) return;
   const t = face.target;
   const fresh = t && typeof t.ix === "number" && performance.now() - t.at < 400;
-  if (fresh) { door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf, kind: t.kind || "face" } })); sentNobody = false; }
+  if (fresh) {
+    // age_ms: how long ago the frame behind this position was captured. A held cue repeats its old
+    // position with a growing age, and the neck aims only at a NEW sighting (neck_follow.py).
+    const age = typeof t.seen === "number" && t.seen > 0 ? Math.max(0, Math.round(performance.now() - t.seen)) : undefined;
+    door.send(JSON.stringify({ track: { ix: t.ix, iy: t.iy, conf: t.conf, kind: t.kind || "face", age_ms: age } }));
+    sentNobody = false;
+  }
   else if (!sentNobody) { door.send(JSON.stringify({ track: null })); sentNobody = true; }
 }, 100);
 
@@ -226,6 +253,156 @@ function applySettings(s) {
     location.reload();                         // the camera is released with the page
   }
 }
+
+// ---- picking up a deploy by itself ---------------------------------------------------------------
+// The kiosk has no reload control, and turning tracking on only adds a module to the page already
+// running, so a deployed fix to this page sat unused until something reloaded it (2026-10-16). Every
+// 15 s the page asks the dashboard which version of its files it serves (face_door.py), and reloads
+// when that changes. Never while a show is armed or running (a reload would cut it); it tries again.
+(function followDeploys() {
+  let seen = null;                                   // "version boot" as first seen
+  async function busy() {
+    if (typeof face.armedState === "function" && face.armedState(performance.now())) return true;
+    try {
+      const p = await (await fetch("/api/choreo/palette", { cache: "no-store" })).json();
+      return !!p.running;
+    } catch (e) { return false; }   // no runner: no show can be running
+  }
+  // A deploy copies the face's files and THEN restarts the dashboard, so a change is seen while the old
+  // process is about to stop. A reload then lost its scripts in the gap and left a page with no voice and
+  // no door (2026-10-19). Reload only once the new version holds 5 s later and the page's code answers.
+  // The gap can outlast those 5 s (2026-10-20: the page reloaded into the old process, which stopped while
+  // the wake word's model was downloading), so the dashboard's own process counts too: a restart is a
+  // change, and the page reloads again once the new process holds. Two reloads in a deploy, the last clean.
+  const key = (j) => (j && j.version ? `${j.version} ${j.boot || ""}` : null);
+  async function settled(v) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const again = key(await (await fetch("/api/face/version", { cache: "no-store" })).json());
+      const code = await fetch("engine/main.js", { method: "HEAD", cache: "no-store" });
+      return again === v && code.ok;
+    } catch (e) { return false; }                    // still restarting: the next round tries again
+  }
+  async function check() {
+    try {
+      const r = await fetch("/api/face/version", { cache: "no-store" });
+      const v = r.ok ? key(await r.json()) : null;               // not served by a dashboard: nothing to follow
+      if (v && seen === null) seen = v;
+      else if (v && v !== seen && !(await busy()) && (await settled(v))) { location.reload(); return; }
+    } catch (e) { /* the dashboard is restarting during the deploy: try again next round */ }
+    setTimeout(check, 15000);
+  }
+  check();
+})();
+
+// ---- a touch stops the head --------------------------------------------------------------------
+// Any touch on the robot's tablet stops the head at once (backend neck_follow.touched): the moment a
+// finger lands, and again every second it stays down. Only from the tablet itself (the kiosk app's
+// bridge), never from a laptop that has this page open.
+(function touchHoldsHead() {
+  if (!window.OpenDubsKiosk) return;
+  let last = 0, down = 0, downAt = 0, timer = null;
+  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
+  addEventListener("pointerdown", () => {
+    down++; downAt = performance.now(); if (downAt - last > 250) say();
+    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
+    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  }, { capture: true, passive: true });
+  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  addEventListener("pointerup", up, { capture: true, passive: true });
+  addEventListener("pointercancel", up, { capture: true, passive: true });
+})();
+
+// ---- a face that has gone blank reloads itself ---------------------------------------------------
+// On 2026-10-17 the tablet's face went BLACK under its overlays (the camera sign still drew) after
+// running for a while, with the page otherwise alive, and a reload is what clears it. On 2026-10-20 it
+// went black again after a tablet restart, with the frame loop, the voice and the kiosk heartbeat all
+// alive, and this watchdog said nothing: it checked the eyes' GEOMETRY, which was fine, never the
+// PIXELS. So it now reads them back: where the eyes should be lit, is anything there?
+// Every 2 s: the canvas's context lost, no frame drawn for 5 s while the page is visible, the eyes not
+// drawable, or the eyes' pixels all background. Three bad checks in a row (6 s) and the page says why to
+// the dashboard and reloads, never while a show is armed or running. At most once a minute.
+// The same 2 s sends the face's render health to the dashboard (/api/head/face_health): numbers only.
+const bgRgb = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 1;
+  const x = c.getContext("2d"); x.fillStyle = BG; x.fillRect(0, 0, 1, 1);
+  return x.getImageData(0, 0, 1, 1).data;
+})();
+// Read through a small canvas of its own: getImageData on the face's own context, every 2 s, can make the
+// browser move that canvas off the GPU for good (its read-frequently heuristic).
+const probe = document.createElement("canvas"); probe.width = probe.height = 48;
+const pctx = probe.getContext("2d", { willReadFrequently: true });
+// "ok" (an eye is lit), "blank" (every eye that should be lit is background), "skip" (nothing to judge:
+// a hidden page, a full-face picture, eyes shut or dark on purpose), or "error: ...".
+function eyePixels() {
+  if (document.visibilityState !== "visible") return "skip";
+  const W = canvas.width, H = canvas.height;
+  if (!W || !H) return "blank";
+  if (health.fullFace || !health.eyesOk) return "skip";
+  try {
+    const s = Math.min(W / DESIGN_W, H / DESIGN_H);
+    const turn = neck ? (neck.pan - 90) * 4 : 0;
+    const ox = (W - DESIGN_W * s) / 2 - turn * s, oy = (H - DESIGN_H * s) / 2;
+    let judged = 0;
+    for (const e of face.eyes()) {
+      if (Math.max(...e.rgb) < 40 || e.lid > 0.85) continue;          // dark or shut on purpose
+      const x0 = Math.max(0, Math.floor(ox + (e.cx - e.w / 2) * s)), y0 = Math.max(0, Math.floor(oy + (e.cy - e.h / 2) * s));
+      const x1 = Math.min(W, Math.ceil(ox + (e.cx + e.w / 2) * s)), y1 = Math.min(H, Math.ceil(oy + (e.cy + e.h / 2) * s));
+      if (x1 - x0 < 2 || y1 - y0 < 2) continue;
+      judged++;
+      pctx.imageSmoothingEnabled = false;                              // samples, not a blur
+      pctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, 0, 0, 48, 48);
+      const px = pctx.getImageData(0, 0, 48, 48).data;
+      for (let i = 0; i < px.length; i += 4) {
+        if (Math.abs(px[i] - bgRgb[0]) + Math.abs(px[i + 1] - bgRgb[1]) + Math.abs(px[i + 2] - bgRgb[2]) > 30) return "ok";
+      }
+    }
+    return judged ? "blank" : "skip";
+  } catch (e) { return "error: " + String(e && e.message || e).slice(0, 120); }
+}
+(function watchFace() {
+  let bad = 0, pixels = "skip", lastFrames = 0;
+  const why = () => {
+    if (health.lost) return "the canvas context was lost";
+    if (document.visibilityState === "visible" && performance.now() - health.drawnAt > 5000) return "no frame drawn for 5 s";
+    if (!health.eyesOk) return "the eyes are not drawable (geometry not finite, or no size)";
+    if (pixels === "blank") return "the eyes' pixels are all background";
+    return null;
+  };
+  let lastReload = null;
+  try { lastReload = JSON.parse(sessionStorage.getItem("face-reloaded-why") || "null"); } catch (e) {}
+  setInterval(async () => {
+    pixels = eyePixels();
+    const r = why();
+    bad = r ? bad + 1 : 0;
+    if (onRobot) {
+      const attrs = typeof ctx.getContextAttributes === "function" ? ctx.getContextAttributes() : {};
+      const report = {
+        at: Date.now(), fps: (health.frames - lastFrames) / 2,
+        frame_age_ms: Math.round(performance.now() - health.drawnAt), context_lost: health.lost,
+        pixels, eyes_ok: health.eyesOk, bad: r, bad_checks: bad, visible: document.visibilityState,
+        canvas: { w: canvas.width, h: canvas.height, css_w: innerWidth, css_h: innerHeight,
+                  dpr: window.devicePixelRatio || 1, desynchronized: attrs.desynchronized ?? null },
+        refits: health.refits, errors: health.errors, last_error: health.lastError, last_reload: lastReload,
+      };
+      try { navigator.sendBeacon && navigator.sendBeacon("/api/head/face_health", JSON.stringify(report)); } catch (e) {}
+    }
+    lastFrames = health.frames;
+    if (bad < 3) return;
+    let showOn = typeof face.armedState === "function" && !!face.armedState(performance.now());
+    try { showOn = showOn || !!(await (await fetch("/api/choreo/palette", { cache: "no-store" })).json()).running; } catch (e) {}
+    if (showOn) return;
+    let last = 0;
+    try { last = +sessionStorage.getItem("face-reloaded-at") || 0; } catch (e) {}
+    if (Date.now() - last < 60000) return;
+    try {
+      sessionStorage.setItem("face-reloaded-at", String(Date.now()));
+      sessionStorage.setItem("face-reloaded-why", JSON.stringify({ why: r, at: Date.now() }));
+    } catch (e) {}
+    try { if (door && door.readyState === WebSocket.OPEN) door.send(JSON.stringify({ face_health: r })); } catch (e) {}
+    setTimeout(() => location.reload(), 200);
+  }, 2000);
+})();
 
 // ---- the body twin's picture (door_dev.py with OPENDUBS_FACE_FRAMES; the robot's door never asks) -
 // The MuJoCo body twin shows this face on its head by copying it, never by drawing its own (a second
@@ -279,6 +456,13 @@ if (q.get("state")) face.setState(q.get("state"), performance.now());   // e.g. 
 if (!doorUrl) setInterval(() => { if (face.state >= 0) face.stateAt = performance.now(); }, 1000);
 
 import("./operator.js").then((m) => m.start({ onRobot }));   // long-press: STOP SHOW / DASHBOARD / FACE
+// Talking to the robot (voice.js): only where there is a robot to talk to, or a desk door that asks for it.
+// Retried, not dropped: a failed import (the dashboard restarting as the page loaded) left the face deaf
+// for good (2026-10-19). After a minute of failures, the page reloads.
+const importRetry = (path, tries = 12) => import(path).catch((e) =>
+  tries > 1 ? new Promise((r) => setTimeout(r, 5000)).then(() => importRetry(`${path}?retry=${tries}`, tries - 1))
+            : (setTimeout(() => location.reload(), 1000), Promise.reject(e)));
+if (onRobot || q.get("voice") === "1") importRetry("./voice.js").then((m) => m.start({ face })).catch(() => {});
 import("./airplay.js").then((m) => m.start({ onRobot })).catch(() => {});   // AirPlay, live (on the robot)
 if (q.get("track") === "1") tracking = true;
 if (q.get("track") === "1") import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });

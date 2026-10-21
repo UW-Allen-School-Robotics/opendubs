@@ -128,15 +128,16 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
     const cap = captured.get(r.seq); captured.delete(r.seq);
     if (cap) { m.latencyMs.push(now - cap); if (m.latencyMs.length > 120) m.latencyMs.shift(); }
     // The cues, in image coordinates -1..1 (x right, y down), the same for all three.
-    if (r.motion && r.motion.valid) { att.noteMotion(now, r.motion.nx, r.motion.ny, r.motion.strength); m.cues.motion++; }
+    const seen = cap || now;              // when the frame was captured: the neck needs it (neck_follow.py)
+    if (r.motion && r.motion.valid) { att.noteMotion(now, r.motion.nx, r.motion.ny, r.motion.strength, seen); m.cues.motion++; }
     if (r.person) {
-      att.notePerson(now, (r.person.x - 0.5) * 2, (r.person.y - 0.5) * 2, r.person.score);
+      att.notePerson(now, (r.person.x - 0.5) * 2, (r.person.y - 0.5) * 2, r.person.score, seen);
       lastPerson = { at: now, h: r.person.h }; m.cues.person++;
     }
     if (r.found) {
       // Facing the robot is what a face is worth: the score falls off with head turn.
       const facing = Math.max(0, 1 - Math.abs(r.yaw) / 45);
-      att.noteFace(now, (r.x - 0.5) * 2, (r.y - 0.5) * 2, 0.3 + 0.7 * facing);
+      att.noteFace(now, (r.x - 0.5) * 2, (r.y - 0.5) * 2, 0.3 + 0.7 * facing, seen);
       m.yaw = r.yaw; m.cues.face++;
     }
     const g = att.tick(now);
@@ -146,7 +147,7 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
       // The camera looks out of the screen, so a person on its right is on the face's left (x flips).
       // ix, iy: where in the camera's image (0..1), for the neck (main.js → the door → neck_follow.py).
       face.look({ x: -g.nx * GAIN, y: g.ny * GAIN, conf: g.confidence, at: now, kind: g.kind,
-                  ix: (g.nx + 1) / 2, iy: (g.ny + 1) / 2 });
+                  ix: (g.nx + 1) / 2, iy: (g.ny + 1) / 2, seen: g.seen });
     }
     const el = (now - m.since) / 1000;
     info.state = "running"; info.hz = +(m.frames / el).toFixed(1);

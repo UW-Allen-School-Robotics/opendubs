@@ -172,8 +172,9 @@ def to_messages(r: dict, rtt_ms: float | None, now: float | None = None) -> list
 class Rosbridge:
     """One rosbridge client: advertises the topics on (re)connect, publishes, never queues."""
 
-    def __init__(self, url: str = ROSBRIDGE_URL):
+    def __init__(self, url: str = ROSBRIDGE_URL, topics: dict | None = None, latched=()):
         self.url, self.ws, self._task = url, None, None
+        self.topics, self.latched = topics if topics is not None else TOPICS, set(latched)
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -186,8 +187,11 @@ class Rosbridge:
         while True:
             try:
                 async with websockets.connect(self.url, max_size=None, open_timeout=3) as ws:
-                    for topic, typ in TOPICS.items():
-                        await ws.send(json.dumps({"op": "advertise", "topic": topic, "type": typ}))
+                    for topic, typ in self.topics.items():
+                        adv = {"op": "advertise", "topic": topic, "type": typ}
+                        if topic in self.latched:
+                            adv["latch"] = True          # rosbridge: transient-local durability
+                        await ws.send(json.dumps(adv))
                     self.ws, delay = ws, 1.0
                     log.info("tablet relay: rosbridge connected at %s", self.url)
                     async for _ in ws:                       # nothing is asked for; keeps the link honest
