@@ -117,7 +117,10 @@ cues:
   replaces `required:`, and the operator approves running without it. Not done here, to keep the two
   PRs apart.
 
-## 5. Audio — a proposal, not a decision
+## 5. Audio — decided 2026-10-20: see [`choreo-audio.md`](choreo-audio.md)
+
+The user chose: music to the projector, dialogue (the default) to the tablet, the tablet as the
+fallback. The options as they were proposed:
 
 Today show audio plays on the head's tablet (DEC-5), on the show's clock, with its own clock matching.
 With video on the projector, sound and picture are on two devices:

@@ -121,9 +121,11 @@
   const RESYNC_S = 0.25;             // further off than this: restart in step instead
   const heard = (ctxT) => play.anchorShow + (ctxT - play.anchorCtx) * play.rate;
 
-  // Every item from show time `showT`, heard from context time `atCtx`, at speed 1.
-  function startSources(c, atCtx, showT) {
+  // Every item from show time `showT`, heard from context time `atCtx`, at speed 1. A HELD item (music
+  // the projector is playing, choreo-audio.md) is loaded but not played, until `unhold` hands it here.
+  function startSources(c, atCtx, showT, only) {
     for (const it of buffers) {
+      if (it.held || (only && !only.includes(it))) continue;
       const off = showT - it.at;
       if (off >= it.buf.duration) continue;                       // long over
       const s = c.createBufferSource(); s.buffer = it.buf; s.connect(gain);
@@ -149,6 +151,20 @@
     st.sync = { err_ms: 0, rate: 1, corrections: 0, resyncs: 0 };
     play.timer = setInterval(keepInStep, SYNC_EVERY_MS);
     st.state = "playing";
+  }
+
+  // The projector dropped out: the held music joins in step at the show's current position (the same
+  // late join a late start makes), and stays in the set every resync restarts.
+  function unhold(m) {
+    if (m.id !== st.loadId) return;
+    const held = buffers.filter((it) => it.held);
+    if (!held.length) return;
+    for (const it of held) it.held = false;
+    st.unheld = (st.unheld || 0) + held.length;
+    const c = ctx;
+    if (!play || st.state !== "playing" || !c) return;          // not started yet: start() plays them
+    const at = c.currentTime + 0.05;
+    startSources(c, at, heard(at), held);
   }
 
   function keepInStep() {
@@ -306,6 +322,7 @@
       if (m.op === "stop_play") return pfDone(null);
       if (m.op === "load") { amb.show = true; pfDone(null, false); ambStop(); load(m); }   // a show takes over; a play does not come back
       else if (m.op === "start") start(m);
+      else if (m.op === "unhold") unhold(m);
       else if (m.op === "stop") { silence(m.fade_s || 0); amb.show = false; setTimeout(() => ambApply(true), (m.fade_s || 0) * 1000 + 500); }
       else if (m.op === "cut") { silence(0); pfDone(null, false); amb.show = false; ambApply(true); }
     };

@@ -52,8 +52,87 @@ HDMI_NUDGE = 0.03            # the speed change that pulls it back (3 %), releas
 PRELOAD_S = 6.0              # a video is loaded (paused) this long before it plays
 CHECK_EVERY_S = 1.0          # how often a playing video's position is compared with the show's
 TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
-         ".png": "image/png", ".jpg": "image/jpeg"}
+         ".png": "image/png", ".jpg": "image/jpeg",
+         # music on the projector (notes/design/choreo-audio.md)
+         ".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".flac": "audio/flac"}
+AUDIO_EXTS = (".m4a", ".mp3", ".wav", ".ogg", ".flac")
+CAST_AUDIO_LEAD_S = float(os.environ.get("OPENDUBS_CAST_AUDIO_LEAD_S") or CAST_LEAD_S)
 CAST_APP = "CC1AD845"        # the Cast Default Media Receiver
+
+
+# ---- the projector's per-robot settings (never in the repo) -------------------------------------------
+SETTINGS_PATH = os.environ.get("OPENDUBS_PROJECTOR_SETTINGS") or "/var/lib/opendubs-runner/projector.json"
+SETTINGS_DEFAULTS = {"audio_lead_s": CAST_AUDIO_LEAD_S, "video_lead_s": CAST_LEAD_S,
+                     "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio"}
+LEAD_RANGE_S = (0.0, 3.0)
+
+
+def load_settings(path: str | None = None) -> dict:
+    """This projector's offsets and how it takes music: projector.json on the robot (the runner's state
+    directory), over robot.env's starting values. Set by ear at the robot, through the projector card."""
+    out = dict(SETTINGS_DEFAULTS)
+    try:
+        with open(path or SETTINGS_PATH, encoding="utf-8") as fh:
+            got = json.load(fh)
+        if isinstance(got, dict):
+            out.update({k: v for k, v in got.items() if k in SETTINGS_DEFAULTS})
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def save_settings(change: dict, path: str | None = None) -> dict:
+    """Merge `change` (any of audio_lead_s, video_lead_s, music_as) into projector.json; ValueError on a
+    bad value. Written atomically. Returns the settings now in force."""
+    cur = load_settings(path)
+    for k, v in change.items():
+        if k in ("audio_lead_s", "video_lead_s"):
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]:
+                raise ValueError(f"{k} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
+            cur[k] = round(float(v), 3)
+        elif k == "music_as":
+            if v not in ("audio", "video"):
+                raise ValueError("music_as must be audio (the song as it is) or video (the song with a black picture)")
+            cur[k] = v
+        else:
+            raise ValueError(f"unknown setting {k!r} (known: {', '.join(SETTINGS_DEFAULTS)})")
+    p = path or SETTINGS_PATH
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({k: cur[k] for k in SETTINGS_DEFAULTS}, fh, indent=1)
+    os.replace(tmp, p)
+    return cur
+
+
+def audio_as_video(path: str, cache_dir: str) -> str | None:
+    """The song as an MP4 with a black still picture, for a Cast receiver that will not play sound alone
+    (music_as: video). Muxed once by ffmpeg into `cache_dir` and reused; None when there is no ffmpeg
+    (the music then stays on the tablet)."""
+    import hashlib
+    import shutil
+    import subprocess
+    ff = shutil.which("ffmpeg")
+    if not ff or not os.path.isfile(path):
+        return None
+    st = os.stat(path)
+    tag = hashlib.sha1(f"{os.path.abspath(path)}:{st.st_size}:{st.st_mtime_ns}".encode()).hexdigest()[:12]
+    out = os.path.join(cache_dir, f"{os.path.splitext(os.path.basename(path))[0]}-{tag}.mp4")
+    if os.path.isfile(out):
+        return out
+    os.makedirs(cache_dir, exist_ok=True)
+    png = os.path.join(cache_dir, "black.png")
+    if not os.path.isfile(png):
+        with open(png, "wb") as fh:
+            fh.write(black_png(1280, 720))
+    tmp = out + ".part.mp4"
+    r = subprocess.run([ff, "-v", "error", "-y", "-loop", "1", "-framerate", "2", "-i", png, "-i", path,
+                        "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                        "-b:a", "192k", "-shortest", "-movflags", "+faststart", tmp], capture_output=True)
+    if r.returncode != 0:
+        return None
+    os.replace(tmp, out)
+    return out
 
 
 def black_png(w=16, h=9) -> bytes:
@@ -420,8 +499,11 @@ class ShowVideo:
     or for an e-stop a plain stop. prepare() and tick(show_t) are the same steps, called directly
     (tests, the CLI)."""
 
-    def __init__(self, out, items: list, log=None):
+    def __init__(self, out, items: list, log=None, on_lost=None):
         self.out, self.items, self.log = out, sorted(items, key=lambda x: x["t"]), log or (lambda *a, **k: None)
+        # on_lost(why): the output failed or dropped mid-run, called once (the runner hands the music
+        # back to the tablet); after it, nothing more is sent to this output this run
+        self.on_lost, self.lost = on_lost, None
         self.i, self.loaded, self.started, self.done = 0, None, False, False
         self.last_check = self.last_seek = -1e9
         self.err_s, self.seeks, self.nudged, self.failed = None, 0, False, None
@@ -452,7 +534,17 @@ class ShowVideo:
         except Exception as e:  # noqa: BLE001  video trouble never stops the show
             self.failed = f"{what}: {type(e).__name__}: {e}"
             self.log("video_error", output=self.out.kind, error=self.failed)
+            self._lose(f"the projector failed ({what})")
             return None
+
+    def _lose(self, why):
+        if self.lost is None and not self.done:
+            self.lost = why
+            if self.on_lost:
+                try:
+                    self.on_lost(why)
+                except Exception as e:  # noqa: BLE001
+                    self.log("video_error", output=self.out.kind, error=f"on_lost: {type(e).__name__}: {e}")
 
     def prepare(self):
         if self.items:
@@ -467,25 +559,40 @@ class ShowVideo:
         if self.loaded != self.i and show_t >= it["t"] - PRELOAD_S:
             self._safe("load", self.out.load, it["path"], it["from_s"])
             self.loaded = self.i
-        if not self.started and show_t >= it["t"] - self.out.lead_s:
+        lead = it.get("lead_s", self.out.lead_s)
+        if not self.started and show_t >= it["t"] - lead:
             self._safe("play", self.out.play)
             self.started, self.last_seek = True, show_t
             self.log("video", output=self.out.kind, note=f"{it['id']} playing", show_t=round(show_t, 3))
         if self.started and show_t >= it["end_t"]:
-            self._safe("end", self.out.black if it.get("end", "black") == "black" else self.out.pause)
+            end = it.get("end", "black")
+            self._safe("end", self.out.black if end == "black" else self.out.stop if end == "stop" else self.out.pause)
             self.log("video", output=self.out.kind, note=f"{it['id']} ended ({it.get('end', 'black')})",
                      show_t=round(show_t, 3))
             self.i, self.started, self.err_s, self.nudged = self.i + 1, False, None, False
             return
         if self.started and show_t - self.last_check >= CHECK_EVERY_S:
             self.last_check = show_t
+            if hasattr(self.out, "connected") and not self.out.connected():
+                self.failed = "the projector's connection dropped"
+                self._lose("the projector stopped answering")
+                return
             got = self._safe("position", self.out.position)
             if not got or got[0] is None:
                 return
+            if not got[1] and show_t - self.last_seek > 3.0 and show_t < it["end_t"] - 1.0:
+                # it stopped playing on its own (someone else cast to it, or it went to sleep)
+                self.idle_checks = getattr(self, "idle_checks", 0) + 1
+                if self.idle_checks >= 3:
+                    self.failed = "the projector stopped playing"
+                    self._lose("the projector stopped playing")
+                    return
+            else:
+                self.idle_checks = 0
             want = it["from_s"] + (show_t - it["t"])
             self.position_s, self.err_s = got[0], got[0] - want
             if sync_action(self.err_s, show_t - self.last_seek, self.out.tol_s, self.out.min_gap_s):
-                self._safe("seek", self.out.seek, want + self.out.lead_s)
+                self._safe("seek", self.out.seek, want + lead)
                 self.seeks, self.last_seek = self.seeks + 1, show_t
                 self.log("video", output=self.out.kind, note="seek", err_ms=round(self.err_s * 1000), show_t=round(show_t, 3))
             elif self.out.nudge:

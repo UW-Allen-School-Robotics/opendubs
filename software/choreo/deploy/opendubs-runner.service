@@ -39,6 +39,9 @@ Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --gaze auto --earcons off --lift dashboard --light dashboard --video cast --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
 LogsDirectory=opendubs-runner
+# The projector's per-robot settings (projector.json: the audio and video offsets set by ear, how it
+# takes music) and the cast cache live here, on the robot, never in the repo (choreo-audio.md)
+StateDirectory=opendubs-runner
 Restart=always
 RestartSec=2
 

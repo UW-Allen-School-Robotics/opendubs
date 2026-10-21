@@ -222,6 +222,12 @@ SOUND_SECS_SANITY = (0.05, 600.0)
 # sound; the operator may override at run time (Show.audio_override), and the show is re-checked
 # against the override — a sound an output cannot play is an ERROR, never silence.
 AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+# What a sound IS (notes/design/choreo-audio.md, the user's decision 2026-10-20): MUSIC (the soundtrack,
+# background, effects) plays from the projector's speaker when a projector is ready; DIALOGUE (scripted
+# lines, the voice assistant) always from the tablet. Unmarked is dialogue, so speech never reaches the
+# projector by default — a narration track is dialogue until someone marks it music.
+AUDIO_ROLES = ("music", "dialogue")
+DEFAULT_AUDIO_ROLE = "dialogue"
 DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
 # What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
 # the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
@@ -322,7 +328,7 @@ SLOT_KEYS = {
     "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
-    "SOUND": {"do", "sound", "secs", "output"},
+    "SOUND": {"do", "sound", "secs", "output", "role"},
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
@@ -494,8 +500,11 @@ class Show:
         out = {"file": m.get("file"), "song": m.get("song"), "bpm": m.get("bpm"),
                "offset_s": m.get("offset_s", 0.0), "beats_per_bar": m.get("beats_per_bar", 4)}
         for k in m:
-            if k not in out and k != "output":
-                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output)"))
+            if k not in out and k not in ("output", "role"):
+                P(Problem(f"music: unknown key {k!r} (known: song, file, bpm, offset_s, beats_per_bar, output, role)"))
+        out["role"] = m.get("role", DEFAULT_AUDIO_ROLE)
+        if out["role"] not in AUDIO_ROLES:
+            P(Problem(f"music: role {out['role']!r} is not {' or '.join(AUDIO_ROLES)} (unmarked is dialogue)"))
         written = m.get("output", DEFAULT_AUDIO_OUTPUT)
         if written not in AUDIO_OUTPUTS:
             P(Problem(f"music: output {written!r} is not one of {', '.join(AUDIO_OUTPUTS)}"))
@@ -1480,6 +1489,8 @@ class Show:
         if c.get("do") != "play":
             return [f"{where}: sound do must be play (SOUND plays a named sound effect)"]
         p = []
+        if c.get("role", DEFAULT_AUDIO_ROLE) not in AUDIO_ROLES:
+            p.append(f"{where}: role {c['role']!r} is not {' or '.join(AUDIO_ROLES)} (unmarked is dialogue)")
         name = c.get("sound")
         if not isinstance(name, str) or not name:
             p.append(f"{where}: play needs a sound name")
@@ -1759,6 +1770,7 @@ class Show:
                   "src": e["src"]}
             if e["slot"] == "SOUND":
                 ev["output"] = self.sound_route(e["fields"])     # resolved, so players need not guess
+                ev["role"] = e["fields"].get("role", DEFAULT_AUDIO_ROLE)
             if e["slot"] == "VIDEO":
                 ev["output"] = self.video_route(e["fields"])
             if e["slot"] == "FACE" and e["fields"].get("do") == "move" and e["fields"].get("name") in FACE_MOVES:
@@ -1775,7 +1787,7 @@ class Show:
             evs.sort(key=lambda x: (x["start"], x["t"]))
         music = None
         if a["music"]:
-            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar")}
+            music = {k: a["music"].get(k) for k in ("file", "song", "bpm", "offset_s", "beats_per_bar", "role")}
             music["output"] = a["music"].get("output", DEFAULT_AUDIO_OUTPUT)
             music["beat_s"] = _r(a["music"]["beat_s"])
         ends = [e["end"] for e in a["events"] if "end" in e] + [m["t"] for m in a["markers"]]

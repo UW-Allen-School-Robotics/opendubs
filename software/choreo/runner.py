@@ -220,7 +220,8 @@ def audio_items(show, tl) -> tuple:
     to_tablet = (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"
     if m.get("file") and to_tablet:
         if base and os.path.isfile(os.path.join(base, m["file"])):
-            items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music"})
+            items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music",
+                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": os.path.join(base, m["file"])})
         else:
             skipped.append(f"music {m['file']} is not on this machine")
     elif m.get("song") and to_tablet:
@@ -234,7 +235,8 @@ def audio_items(show, tl) -> tuple:
         if unreadable:
             skipped.append(f"the show library cannot be read ({unreadable}) — running without music")
         elif e and e.get("kind") == "song" and os.path.isfile(f):
-            items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music"})
+            items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music",
+                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f})
         else:
             skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
@@ -243,7 +245,7 @@ def audio_items(show, tl) -> tuple:
         f = show._sound_file(e["cue"].get("sound"))
         if f:
             items.append({"url": "/api/choreo/media/" + os.path.relpath(f, base).replace(os.sep, "/"),
-                          "at": e["t"], "kind": "sound"})
+                          "at": e["t"], "kind": "sound", "role": e.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f})
         else:
             skipped.append(f"sound {e['cue'].get('sound')} is not on this machine")
     return items, skipped
@@ -473,12 +475,17 @@ class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
                  arms=None, live=False, grips=None, lift=None, light=None, start="now",
-                 countdown_s=None, face=None, video=None, video_override=None):
+                 countdown_s=None, face=None, video=None, video_override=None, video_default=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # The projector (video_out.py): {output: backend} this runner has, the operator's play-time
         # choice of output, and this run's ShowVideo per output in use
         self.video_outputs, self.video_override = video or {}, video_override
         self.videos, self.video_note = [], None
+        self.video_default = video_default or cue.DEFAULT_VIDEO_OUTPUT
+        # Music on the projector (notes/design/choreo-audio.md): its ShowVideo, where the music is now
+        # ("projector" | "tablet" | None) and why it is not on the projector
+        self.music, self.music_on, self.music_why, self._load_id = [], None, None, None
+        self.projector_settings = video_out.load_settings()
         if start not in START_MODES:
             raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
         # How this run starts (START_MODES); the countdown is this run's, else the show's, else 5 s.
@@ -636,7 +643,7 @@ class Runner:
                 self._log("live", note="arm and gripper goals cancelled — they hold where they are")
             except Exception as e:  # noqa: BLE001
                 self._log("live_error", error=f"cancel: {type(e).__name__}: {e}")
-        for sv in self.videos:                    # black (an e-stop: stopped); never waits on the projector
+        for sv in self.videos + self.music:       # black (an e-stop: stopped); never waits on the projector
             sv.end(status)
         if self.audio_live:
             # DEC-6: an e-stop cuts the music, everything else fades it — including a show that
@@ -688,9 +695,69 @@ class Runner:
                     notes.append(why + " — running without it")
                     self._log("video_warning", note=why)
                 continue
-            self.videos.append(video_out.ShowVideo(be, its, log=self._log))
+            lead = self.projector_settings.get("video_lead_s") if name == "cast" else None
+            self.videos.append(video_out.ShowVideo(
+                be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log))
         self.video_note = "; ".join(notes) or None
         return out
+
+    def _projector(self):
+        """(name, backend) of the output a show's video would use now — the operator's choice, else the
+        robot's default — when it is ready; else (None, why)."""
+        name = self.video_override or self.video_default
+        if name == "off":
+            return None, "the projector output is off"
+        be = self.video_outputs.get(name)
+        if be is None:
+            return None, f"this robot has no {name} output"
+        st = be.status()
+        return (name, be) if st.get("ready") else (None, st.get("why") or "the projector isn't ready")
+
+    def _route_music(self, tl, items):
+        """MUSIC to the projector when one is ready, DIALOGUE always to the tablet (choreo-audio.md). A
+        music item for the projector stays in the tablet's set HELD — loaded, silent — so the tablet can
+        take it over in step if the projector drops out (`unhold`)."""
+        music = [it for it in items if it.get("role") == "music"]
+        if not music:
+            return
+        name, be = self._projector()
+        why = None if name else be
+        if name and any((e.get("output") or self.video_default) == name
+                        for e in (tl.get("tracks") or {}).get("VIDEO", [])):
+            name, why = None, "the projector plays this show's videos (one at a time), so the music stays on the tablet"
+        if name is None:
+            self.music_on, self.music_why = "tablet", why
+            self._log("audio", note=f"music on the tablet: {why}")
+            return
+        settings = self.projector_settings
+        lead = settings.get("audio_lead_s")
+        sends = []
+        for it in music:
+            path = it.get("path")
+            if settings.get("music_as") == "video" and name == "cast":
+                cache = os.path.join(os.path.dirname(video_out.SETTINGS_PATH), "cast-cache")
+                path = video_out.audio_as_video(path, cache) if path else None
+                if path is None:
+                    self.music_on = "tablet"
+                    self.music_why = "the music can't be sent as video here (no ffmpeg on the robot)"
+                    self._log("audio", note=f"music on the tablet: {self.music_why}")
+                    return
+            sends.append((it, path))
+        for it, path in sends:
+            it["held"] = True                     # the tablet has it, silent, as the fallback
+        self.music = [video_out.ShowVideo(be, [
+            {"t": it["at"], "end_t": max(it["at"], tl.get("duration_s") or 0.0) + 0.5, "path": path,
+             "from_s": 0.0, "end": "stop", "id": f"music:{os.path.basename(path)}", "lead_s": lead}
+            for it, path in sends], log=self._log, on_lost=self._music_lost)]
+        self.music_on, self.music_why = "projector", None
+        self._log("audio", note=f"music on the projector ({name}, {lead:g} s early); dialogue on the tablet")
+
+    def _music_lost(self, why):
+        """The projector dropped out mid-show: the tablet plays its held music from here, in step."""
+        self.music_on, self.music_why = "tablet", f"{why} — the tablet took the music over"
+        if self.audio_live:
+            self._audio({"op": "unhold", "id": self._load_id})
+        self._log("audio", note=f"music handed to the tablet: {why}")
 
     def video_state(self):
         return [sv.state() for sv in self.videos]
@@ -758,9 +825,11 @@ class Runner:
         # The show-audio device downloads the show's files now (4.2: whole files, started on cue),
         # so an armed run's music is ready by the time the operator gives the GO.
         items, skipped = audio_items(show, tl)
-        load_id = f"{show.id}@{round(time.time(), 3)}"
+        load_id = self._load_id = f"{show.id}@{round(time.time(), 3)}"
         for why in skipped:
             self._log("audio_warning", note=why)
+        self._route_music(tl, items)
+        items = [{k: v for k, v in it.items() if k != "path"} for it in items]   # the tablet fetches by URL
         if items:
             if not self._audio_holder():
                 self._log("audio_note", note="no device holds show audio yet — the music goes to the first "
@@ -792,7 +861,7 @@ class Runner:
 
         # PREPPING: travel to the start pose, slowly enough to need no warning — while the
         # show-audio device finishes loading
-        for sv in self.videos:                    # the projector loads (paused) while the arms travel
+        for sv in self.videos + self.music:       # the projector loads (paused) while the arms travel
             sv.begin()
         secs, targets = prep_moves(tl, measured)
         if self.live and secs > 0:
@@ -822,7 +891,7 @@ class Runner:
         # WAITING_FOR_START: a start in the future, so the music and the arms can begin together
         self._set(WAITING, lead_s=self.start_lead)
         t0 = self.clock() + self.start_lead
-        for sv in self.videos:                    # each follows the show's clock from here (its lead early)
+        for sv in self.videos + self.music:       # each follows the show's clock from here (its lead early)
             sv.go(lambda: self.clock() - t0)
         if self.audio_live:
             # T0 on the Thor's monotonic clock; the device converts it to its own audio clock
@@ -1160,11 +1229,23 @@ class Palette:
             v = cur[1].video_state()[0]
             playing = {"show": cur[0], **{k: v[k] for k in ("file", "output", "position_s", "sync_err_ms", "seeks")}}
         checked = self.video_checked_at if "cast" in self.video else None
+        live = cur if cur and cur[2].is_alive() else None
         return {"checked_at": round(checked if checked is not None else time.time(), 3),
                 "outputs": outs, "default": self.video_default(),
                 "selected": self.video_override or self.video_default(),
                 "override": self.video_override, "playing": playing,
-                "note": cur[1].video_note if cur and cur[2].is_alive() else None}
+                "note": live[1].video_note if live else None,
+                "settings": video_out.load_settings(),
+                "music": ({"on": live[1].music_on, "why": live[1].music_why} if live
+                          else {"on": None, "why": None})}
+
+    def set_projector_settings(self, change):
+        """The projector's offsets and how it takes music (choreo-audio.md), set at the robot by ear;
+        stored on the robot (projector.json) and used from the next run."""
+        if not isinstance(change, dict) or not change:
+            raise ValueError("the body must set one of audio_lead_s, video_lead_s, music_as")
+        video_out.save_settings(change)
+        return self.video_status()
 
     def set_video_output(self, output):
         """The operator's play-time choice (cast | hdmi | off), or None to follow each show. Not while
@@ -1224,7 +1305,8 @@ class Palette:
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
                             audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
                             start=start, countdown_s=countdown_s, face=self.face if live else None,
-                            video=self.video, video_override=self.video_override)
+                            video=self.video, video_override=self.video_override,
+                            video_default=self.video_default())
             runner.no_neck = live and self.no_neck
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
@@ -1318,6 +1400,15 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                     return self._json({"error": e.args[0] if e.args else "not found"}, 404)
                 except ValueError as e:
                     return self._json({"error": str(e)}, 422)
+            if p == "/api/video/settings" and palette:
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    return self._json(palette.set_projector_settings(body))
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 422)
+                except OSError as e:
+                    return self._json({"error": f"the robot couldn't save the projector settings: {e.strerror or e}"}, 500)
             if p == "/api/video/output" and palette:
                 try:
                     n = int(self.headers.get("Content-Length") or 0)

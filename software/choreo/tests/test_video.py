@@ -172,6 +172,66 @@ r, end = run_show("", Out(ready=True))
 check("a ready output gets the show's video", end[0] == "COMPLETED" and len(r.videos) == 1
       and r.videos[0].items[0]["id"] == "clip" and r.videos[0].items[0]["end_t"] == 4.0, r.videos and r.videos[0].items)
 
+print("\naudio: music on the projector, dialogue on the tablet (choreo-audio.md)")
+SETTINGS = os.path.join(LIB, "projector.json")
+V.SETTINGS_PATH = SETTINGS
+V.save_settings({"audio_lead_s": 0.6, "video_lead_s": 0.9})
+open(os.path.join(LIB, "song.wav"), "wb").write(b"RIFF....WAVE")
+
+
+def run_audio(music_role, out, extra_cues="", lose=False):
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
+    role = f", role: {music_role}" if music_role else ""
+    tmp.write("id: a\nslots: [FACE, VIDEO]\nrequires: {tab5: true}\n"
+              f"music: {{ file: song.wav, bpm: 120{role} }}\ncues:\n"
+              "  - { t: 4.0, slot: FACE, do: emote, name: SOFT }\n" + extra_cues)
+    tmp.close()
+    clk = {"t": 1000.0}
+
+    def sleep(s):
+        clk["t"] += s
+    audio = R.NullAudio(holder="tablet")
+    r = R.Runner(tmp.name, LIMITS, R.FakeRobotState(), log=io.StringIO(), clock=lambda: clk["t"], sleep=sleep,
+                 start_lead=0.5, audio=audio, video={"cast": out})
+    if lose:                                   # mid-show: just after the tablet starts the show's audio
+        send = audio.send
+
+        def send_then_lose(msg):
+            send(msg)
+            if msg.get("op") == "start" and r.music:
+                r.music[0].on_lost("the projector stopped answering")
+        audio.send = send_then_lose
+    end = r.run()
+    load = next((c for c in audio.calls if c.get("op") == "load"), {})
+    return r, end, load.get("items", []), audio.calls
+
+
+r, end, items, _ = run_audio(None, Out(ready=True))
+check("unmarked audio is DIALOGUE: it stays on the tablet, never the projector, even with one ready",
+      end[0] == "COMPLETED" and not r.music and items and not items[0].get("held"), (items, r.music))
+r, end, items, _ = run_audio("music", Out(ready=True))
+check("MUSIC goes to the projector, started early by ITS AUDIO offset (projector.json) — and stays on the "
+      "tablet too, HELD, as the fallback",
+      r.music and r.music[0].items[0]["lead_s"] == 0.6 and items[0].get("held") is True and r.music_on == "projector"
+      and "path" not in items[0], (items, r.music and r.music[0].items))
+r, end, items, _ = run_audio("music", Out(ready=False))
+check("no projector: the music plays from the tablet, as today, saying why",
+      not r.music and not items[0].get("held") and r.music_on == "tablet" and "Wi-Fi" in (r.music_why or ""), r.music_why)
+r, end, items, _ = run_audio("music", Out(ready=True), "  - { t: 1.0, slot: VIDEO, do: play, video: clip, secs: 2 }\n")
+check("a show that casts its own video keeps its music on the tablet (one media item at a time)",
+      not r.music and not items[0].get("held") and "videos" in (r.music_why or ""), r.music_why)
+r, end, items, calls = run_audio("music", Out(ready=True), lose=True)
+check("the projector dropping out hands the music to the tablet (unhold, same load), and the show goes on",
+      end[0] == "COMPLETED" and any(c.get("op") == "unhold" and c.get("id") == r._load_id for c in calls)
+      and r.music_on == "tablet", (end, [c.get("op") for c in calls]))
+try:
+    V.save_settings({"audio_lead_s": 7})
+    bad = False
+except ValueError:
+    bad = True
+check("the projector's settings refuse a nonsense offset, and keep the ones set by ear",
+      bad and V.load_settings()["audio_lead_s"] == 0.6 and V.load_settings()["video_lead_s"] == 0.9)
+
 print("\nvideo: the VIDEO cue's rules")
 
 
@@ -190,6 +250,8 @@ check("... and two videos at once collide (one projector)", any("collision" in m
     "  - { t: 1, slot: VIDEO, do: play, video: clip }\n  - { t: 5, slot: VIDEO, do: play, video: clip }\n")))
 check("a valid video cue validates", not problems("  - { t: 1, slot: VIDEO, do: play, video: clip, secs: 4 }\n"
                                                   "  - { t: 6, slot: VIDEO, do: stop }\n"))
+check("a sound's role is music or dialogue, nothing else",
+      any("role 'speech'" in m for m in problems("  - { t: 1, slot: SOUND, do: play, sound: attend, role: speech }\n")))
 
 print()
 if FAILS:
