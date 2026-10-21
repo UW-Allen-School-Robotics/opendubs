@@ -1,5 +1,5 @@
 # The arms' hardware config for gafro_robot_interface: one `openarm` driver (github.com/personalrobotics/openarm-driver) per control
-# group of the arm model (github.com/personalrobotics/openarm_assets, generated/openarm_bimanual_decorated.xml).
+# group of the arm model (description/openarm/gafro/openarm_bimanual.xml: openarm_assets' model with this robot's head cap).
 #
 # This is a TEMPLATE. The robot's own copy lives on the robot (/etc/opendubs/, like openarm-stow.conf) and is never overwritten by a
 # deploy: what is per robot -- the CAN interface names, each motor's direction and zero, the gripper's calibration -- is found on that
@@ -19,11 +19,9 @@ left_arm:
   require_permit: true
   auto_reengage: false             # an arm that heals itself after an e-stop is a decision (DEC-28, Q10), not a default
 
-  # What is true of this robot and not of the arm: the head. Contact with it is at J2 = 182 deg with the elbow folded, measured; a show
-  # leaves 25 deg (software/choreo/cue.py), so the arm is not driven past 157 deg. Left joints 1 to 3 are mirrored (sim/scene.py), so
-  # the outward cap is a lower limit on the left and an upper one on the right. Joint 2 only; the rest are the model's.
-  lower_limits: [-.inf, -2.7401669, -.inf, -.inf, -.inf, -.inf, -.inf]
-  upper_limits: [.inf, .inf, .inf, .inf, .inf, .inf, .inf]
+  # The head cap on joint 2 (contact at 182 deg, a show leaves 25) is in the MODEL, not here: description/openarm/gafro/, built by
+  # tools/arm_gafro_model.py. The controllers' joint-limit guard reads the model's limits, and the driver takes the same ones from the
+  # bound model, so there is one place for it. lower_limits / upper_limits here would only add a second.
   joint_limit_margin: 0.0
 
   # Found by moving the arm, one robot at a time. The identity is only the assumption.
@@ -41,8 +39,6 @@ right_arm:
   rate: 250
   require_permit: true
   auto_reengage: false
-  lower_limits: [-.inf, -.inf, -.inf, -.inf, -.inf, -.inf, -.inf]
-  upper_limits: [.inf, 2.7401669, .inf, .inf, .inf, .inf, .inf]
   joint_limit_margin: 0.0
   direction: [1, 1, 1, 1, 1, 1, 1]
   zero_offset: [0, 0, 0, 0, 0, 0, 0]
