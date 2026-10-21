@@ -8,47 +8,51 @@
 #   gh release create studio-vX.Y.Z <the downloaded wheel> --title "Studio X.Y.Z"
 name: studio
 
+# CI COST (2026-10-21): this workflow was half the repository's billed minutes, mostly the macOS leg
+# on every main push at 10x Linux billing. So: no push-to-main run (the PR already ran it); macOS
+# only on the weekly run and by hand; draft PRs skipped (CI runs on `gh pr ready`); and the paths
+# are what the wheel carries (build_wheel.py: SUBTREES and EXTRA, less EXCLUDE), not their tests.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/choreo/**"
+      - "!software/choreo/tests/**"
+      - "software/choreo/tests/test_render.py"            # run by this workflow
+      - "software/choreo/tests/joint_limits_fixture.yaml" # the wheel keeps it (KEEP)
+      - "!software/choreo/deploy/**"                      # the robot's units, not in the wheel
       - "software/face-web/**"
+      - "!software/face-web/vendor/**"
+      - "!software/face-web/test/**"
+      - "!software/face-web/tests/**"
       - "software/head-protocol/**"
+      - "!software/head-protocol/tests/**"
       - "sim/**"
       - "description/**"
-      - "software/openarm/limits/**"
+      - "software/openarm/limits/controllers.yaml"
       - ".github/workflows/studio.yml"
   push:
-    branches: [main]
-    paths:
-      - "software/choreo/**"
-      - "software/face-web/**"
-      - "software/head-protocol/**"
-      - "sim/**"
-      - "description/**"
-      - "software/openarm/limits/**"
-      - ".github/workflows/studio.yml"
-    tags: ["studio-v*"]
-  # macOS minutes bill at 10x Linux, so the macOS leg runs only on main, weekly and by hand (below).
+    tags: ["studio-v*"]   # a release wheel (Linux)
   schedule:
-    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
-  workflow_dispatch:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC: Linux and macOS
+  workflow_dispatch: {}    # by hand: Linux and macOS
 
-# A newer push to a branch cancels its older run; every main run is kept.
+# A newer push to a branch cancels its older run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   app:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests: Linux only. Push to main, a studio-v* tag, the weekly run and a manual run: Linux and macOS.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        # macOS (10x billing) only on the weekly run and a manual run; pull requests and tags: Linux only.
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     env:
       OPENDUBS_NO_BROWSER: "1"
