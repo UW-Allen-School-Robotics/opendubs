@@ -201,6 +201,21 @@ def _add_cue(text, seq, cue):
     return text[:le] + insert + text[le:]
 
 
+def _insert_cue(text, seq, index, cue):
+    if not isinstance(cue, dict) or not cue:
+        raise EditError("a cue must be a non-empty mapping")
+    if not seq.value or index >= len(seq.value):
+        return _add_cue(text, seq, cue)
+    if index < 0:
+        index = max(0, len(seq.value) + index)
+    node = seq.value[index]
+    s, e = node.start_mark.index, _end(node)
+    ls, _ = _line_bounds(text, s, e)
+    prefix = text[ls:s]
+    line = f"{prefix}{fmt({str(k): v for k, v in cue.items()})}\n"
+    return text[:ls] + line + text[ls:]
+
+
 def _set_music(text, key, value):
     """Set one field of the music block, or remove it with value None (song and file only: the
     tempo grid stays when a show's music is taken out, so bars and beats keep their meaning)."""
@@ -449,13 +464,15 @@ def apply(text: str, edits: list) -> str:
             text = _delete_cue(text, _notes_seq(text), _note_index(text, ed.get("id")))
         elif op == "clip_set":
             text = _clip_set(text, ed.get("name"), ed.get("clip"))
-        elif op in ("set", "delete", "add"):
+        elif op in ("set", "delete", "add", "insert"):
             clip = ed.get("clip_name")                 # a clip's own cues, when editing inside it
             seq = cue_nodes(text, clip)
             if op == "set":
                 text = _set_cue(text, seq, int(ed["index"]), ed.get("cue"), _cues_path(clip))
             elif op == "delete":
                 text = _delete_cue(text, seq, int(ed["index"]))
+            elif op == "insert":
+                text = _insert_cue(text, seq, int(ed["index"]), ed.get("cue"))
             else:
                 text = _add_cue(text, seq, ed.get("cue"))
         else:

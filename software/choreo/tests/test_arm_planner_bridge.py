@@ -1,6 +1,7 @@
 """Tests for arm planner bridge in composer (spline, cbirrt, curobo integration)."""
 import os
 import sys
+import yaml
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 CHOREO = os.path.dirname(DIR)
@@ -9,8 +10,10 @@ for p in (REPO, CHOREO):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from software.choreo.composer import arm_planner_bridge
+from software.choreo.composer import arm_planner_bridge, yamledit
 from software.choreo import cue
+
+LIMITS = cue.load_limits(os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml"))
 
 
 def test_planners_available():
@@ -45,8 +48,8 @@ def test_plan_arm_move():
         "slots": ["ARM_R"],
         "requires": {"arms": "active", "tab5": True, "rc_authority": "AUTO"},
         "cues": [
-            {"t": 0.0, "slot": "ARM_R", "pose": "rest"},
-            {"t": 3.0, "slot": "ARM_R", "joints": {"1": 15, "2": 20, "4": 60}},
+            {"t": 4.0, "slot": "ARM_R", "joints": {"1": 15, "2": 20, "4": 60}},
+            {"t": 8.0, "slot": "ARM_R", "pose": "rest"},
         ],
     }
     raw_text = """id: test-plan
@@ -57,13 +60,65 @@ requires:
   tab5: true
   rc_authority: AUTO
 cues:
-  - { t: 0.0, slot: ARM_R, pose: rest }
-  - { t: 3.0, slot: ARM_R, joints: { 1: 15, 2: 20, 4: 60 } }
+  - { t: 4.0, slot: ARM_R, joints: { 1: 15, 2: 20, 4: 60 } }
+  - { t: 8.0, slot: ARM_R, pose: rest }
 """
-    res = arm_planner_bridge.plan_arm_move(doc, raw_text, 1, planner_choice="cbirrt")
+    res = arm_planner_bridge.plan_arm_move(doc, raw_text, 0, planner_choice="cbirrt")
     assert res["ok"] is True
     assert "planner: cbirrt" in res["text"]
-    print("  ok    plan_arm_move succeeds with cbirrt and updates cue")
+    new_doc = yaml.safe_load(res["text"])
+    probs = cue.Show(new_doc, "").validate(LIMITS)
+    assert len(probs) == 0, f"Unexpected validation problems: {probs}"
+    print("  ok    plan_arm_move succeeds with cbirrt and produces valid show")
+
+
+def test_reach_target_solve_and_validate():
+    doc = {
+        "id": "test-reach",
+        "name": "Test Reach",
+        "slots": ["ARM_R"],
+        "requires": {"arms": "active", "tab5": True, "rc_authority": "AUTO"},
+        "cues": [
+            {"t": 5.0, "slot": "ARM_R", "joints": {"1": 20, "2": 20, "4": 70}},
+            {"t": 10.0, "slot": "ARM_R", "pose": "rest"},
+        ],
+    }
+    raw_text = """id: test-reach
+name: Test Reach
+slots: [ARM_R]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+cues:
+  - { t: 5.0, slot: ARM_R, joints: { 1: 20, 2: 20, 4: 70 } }
+  - { t: 10.0, slot: ARM_R, pose: rest }
+"""
+    res = arm_planner_bridge.plan_arm_move(doc, raw_text, 0, planner_choice="cbirrt", reach_target="head_screen")
+    assert res["ok"] is True
+    assert "reach: head_screen" in res["text"]
+    assert "joints:" not in res["text"].splitlines()[7]  # cue at index 0 must NOT have joints:
+    new_doc = yaml.safe_load(res["text"])
+    probs = cue.Show(new_doc, "").validate(LIMITS)
+    assert len(probs) == 0, f"Reach cue validation failed: {probs}"
+    print("  ok    reach target produces mutually exclusive reach/joints and validates cleanly")
+
+
+def test_yamledit_insert():
+    raw_text = """id: test
+slots: [ARM_R]
+cues:
+  - { t: 0.0, slot: ARM_R, pose: rest }
+  - { t: 5.0, slot: ARM_R, joints: { 1: 20 } }
+"""
+    edits = [
+        {"op": "insert", "index": 1, "cue": {"t": 2.5, "slot": "ARM_R", "joints": {"1": 10}}},
+    ]
+    out = yamledit.apply(raw_text, edits)
+    parsed = yaml.safe_load(out)
+    assert len(parsed["cues"]) == 3
+    assert parsed["cues"][1]["t"] == 2.5
+    print("  ok    yamledit op insert correctly places cue before target index")
 
 
 if __name__ == "__main__":
@@ -71,4 +126,6 @@ if __name__ == "__main__":
     test_planners_available()
     test_mirror_conversions()
     test_plan_arm_move()
+    test_reach_target_solve_and_validate()
+    test_yamledit_insert()
     print("all good")

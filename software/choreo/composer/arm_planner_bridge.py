@@ -185,6 +185,8 @@ def plan_arm_move(
             c["reach"] = reach_val
             c["solved"] = sol_outward
             c["solved_for"] = f"reach:{reach_target}@{kin.sig}"
+            c.pop("joints", None)
+            c.pop("pose", None)
         except Exception as e:
             raise ValueError(f"Failed to solve target '{reach_target}': {e}") from e
     elif "solved" in c:
@@ -203,6 +205,8 @@ def plan_arm_move(
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
         c["solved"] = sol_outward
         c["solved_for"] = f"reach:{c['reach']}@{kin.sig}"
+        c.pop("joints", None)
+        c.pop("pose", None)
     else:
         raise ValueError(f"Cue {index} does not have joints, pose, or reach target")
 
@@ -212,7 +216,10 @@ def plan_arm_move(
 
     if planner_choice == "spline":
         # Straight spline move: update cue with planner: spline and apply
-        if goal_deg and "joints" in c:
+        if "reach" in c:
+            c.pop("joints", None)
+            c.pop("pose", None)
+        elif goal_deg and "joints" in c:
             c["joints"] = {str(k): float(v) for k, v in goal_deg.items()}
         edits = [{"op": "set", "index": index, "cue": c}]
         new_text = yamledit.apply(text, edits)
@@ -249,9 +256,18 @@ def plan_arm_move(
     # Update arrival cue
     final_cue = copy.deepcopy(c)
     final_cue["planner"] = planner_choice
-    final_cue["joints"] = model_rad_to_choreo(side, traj.positions[-1])
-    if "solved" in final_cue:
-        final_cue["solved"] = model_rad_to_choreo(side, traj.positions[-1])
+    goal_outward = model_rad_to_choreo(side, traj.positions[-1])
+    if "reach" in final_cue:
+        final_cue.pop("joints", None)
+        final_cue.pop("pose", None)
+        final_cue["solved"] = goal_outward
+        final_cue["solved_for"] = f"reach:{final_cue['reach']}@{kin.sig}"
+    else:
+        final_cue["joints"] = goal_outward
+        final_cue.pop("reach", None)
+        final_cue.pop("solved", None)
+        final_cue.pop("solved_for", None)
+        final_cue.pop("pose", None)
 
     edits = []
     num_wp_inserted = 0
