@@ -30,13 +30,13 @@ RUN pip install torch torchvision "numpy<2" \
  && pip install git+https://github.com/ultralytics/CLIP.git \
  && pip install git+https://github.com/NVIDIA-AI-IOT/torch2trt.git
 
-# NanoSAM (NVIDIA) and HOUND's perception_models, both pinned.
+# NanoSAM (NVIDIA) and HOUND's perception_models, both pinned. Both go on PYTHONPATH: nanosam/
+# has no __init__.py, so `pip install -e` finds no packages and installs an empty mapping.
 RUN git clone https://github.com/NVIDIA-AI-IOT/nanosam.git /opt/nanosam \
  && git -C /opt/nanosam checkout 6536336 \
- && pip install -e /opt/nanosam \
  && git clone https://github.com/sidtalia/perception_models.git /opt/perception_models \
  && git -C /opt/perception_models checkout 2cd9a68
-ENV PYTHONPATH=/opt/perception_models
+ENV PYTHONPATH=/opt/nanosam:/opt/perception_models
 
 # ultralytics pulls in the desktop opencv-python, which needs libGL.
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0t64 \
