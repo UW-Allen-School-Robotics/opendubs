@@ -364,8 +364,9 @@ function seek(t) {
 
 /* ---------- rendering ---------- */
 function width() {
+  const sc = $("scroller"), scW = sc ? sc.clientWidth : 0;
   const d = Math.max(tl() ? tl().duration_s : 0, S.audio.buffer ? S.audio.buffer.duration : 0, 20) + 4;
-  return Math.min(30000, Math.ceil(d * S.pps));
+  return Math.max(scW, Math.min(30000, Math.ceil(d * S.pps)));
 }
 function render() {
   const d = S.data;

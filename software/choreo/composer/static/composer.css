@@ -61,8 +61,8 @@ button:not(:disabled):active { background: var(--line); }
 
 /* ---- timeline ---- */
 #tl { display: flex; overflow-y: auto; overflow-x: hidden; min-height: 0; border-bottom: 1px solid var(--line); }
-#heads { flex: 0 0 var(--head-w); background: var(--panel); border-right: 1px solid var(--line); z-index: 2; }
-#scroller { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; touch-action: pan-x pan-y; }
+#heads { flex: 0 0 var(--head-w); background: var(--panel); border-right: 1px solid var(--line); z-index: 2; align-self: flex-start; height: auto; }
+#scroller { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; touch-action: pan-x pan-y; align-self: flex-start; height: auto; min-height: 100%; }
 #canvas { position: relative; min-height: 100%; }
 .row { position: relative; height: var(--row-h); border-bottom: 1px solid var(--line); }
 .row.ruler { height: 30px; background: var(--panel-2); cursor: pointer; }
@@ -81,8 +81,15 @@ button:not(:disabled):active { background: var(--line); }
 .head.undeclared .name { color: var(--dim); font-weight: 400; }
 .head.muted .name { text-decoration: line-through; color: var(--dim); }
 .mute.on { background: var(--warn); color: #000; }
-.lane { cursor: crosshair; }
-.lane.undeclared { background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255,255,255,0.015) 8px 16px); }
+.lane { position: relative; cursor: crosshair; }
+.lane.undeclared { background: transparent; }
+.lane.undeclared::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255, 255, 255, 0.02) 8px 16px);
+}
 .lane.muted { opacity: 0.35; }
 .grid {
   background-image: linear-gradient(to right, var(--grid-bar) 1px, transparent 1px),
