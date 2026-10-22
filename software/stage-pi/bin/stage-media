@@ -1,0 +1,18 @@
+#!/bin/bash
+# At boot, before the agent: mount the media partition (label stage-media, a USB stick that setup.sh
+# formatted) on /srv/stage-media, the box's only writable store, for its copies of the robot's show
+# videos. It is never in /etc/fstab, so a missing, unplugged or damaged one can never stop the box from
+# booting. A dirty one is checked and repaired; one that will not mount even then is REFORMATTED: it
+# holds only copies, which the agent fetches again from the robot. Runs as root (stage-media.service).
+set -u
+LABEL=stage-media
+MNT=/srv/stage-media
+dev=$(blkid -L "$LABEL" 2>/dev/null) || { echo "stage-media: no media partition (label $LABEL); playing streams from the robot"; exit 0; }
+mountpoint -q "$MNT" && exit 0
+opts=noatime,nodev,nosuid,noexec
+e2fsck -p "$dev" >/dev/null 2>&1 || e2fsck -fy "$dev" >/dev/null 2>&1 || true
+if ! mount -t ext4 -o "$opts" "$dev" "$MNT"; then
+    echo "stage-media: $dev will not mount even after a repair: reformatting it (copies only; re-synced from the robot)"
+    mkfs.ext4 -F -q -L "$LABEL" -m 0 "$dev" && mount -t ext4 -o "$opts" "$dev" "$MNT" || { echo "stage-media: reformat failed"; exit 0; }
+fi
+echo "stage-media: $dev on $MNT"

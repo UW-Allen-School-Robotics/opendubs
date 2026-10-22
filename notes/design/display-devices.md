@@ -20,12 +20,27 @@ the screen's EDID mode or a forced one (`stage.conf`, applied as the kernel's `v
 restarting the browser (udev), a virtual output when no screen is attached so the sound still plays; a
 read-only root (overlay); one settings file on the boot partition; a local agent on `127.0.0.1:8095`.
 
-**The contract with the page** (agreed with the Choreography lane): the agent serves `/device.json`
-(`device`, `name`, `model`, `audio_output` usb|hdmi|none, `audio_name`, `under_voltage_now`,
-`under_voltage_since_boot`, `throttled_now`, `screen {connected, mode}`) and takes the page's heartbeat at
-`POST /alive`, with CORS and the Private Network Access preflight answered. A page that stops checking in
-for 30 s is restarted, backing off to 2 minutes. The page reports its device upward to the dashboard over
-its own socket, so the dashboard's projector card can show it. The page itself (`/stage/`:
+**Its own copies of the show videos** (the user, 2026-10-21: "like Netflix downloads", so a show plays
+with no Wi-Fi): a USB stick, labelled `stage-media`, is the box's one writable store, beside the
+read-only system. The agent copies the robot's library items of kind video, then song, newest first,
+while the robot is idle (`/api/stage`: no show loaded or playing), from `/api/library/index` (ETag) and
+`/api/library/item/<sha256>`. Each file is written as `.part`, its sha256 checked as it streams, then
+renamed; files are named by their hash, so a copy is right or absent. When full, the lowest-priority
+(oldest-added) copies go first; copies the robot no longer lists are deleted. The stick is mounted at
+boot by its own service, never by fstab: repaired if dirty, reformatted if it will not mount, never
+needed to boot.
+
+**The contract with the page** (agreed with the Choreography lane): the agent, on `127.0.0.1:8095` with
+CORS and the Private Network Access preflight answered, serves
+- `/device.json`: `device`, `name`, `model`, `audio_output` usb|hdmi|none, `audio_name`,
+  `under_voltage_now`, `under_voltage_since_boot`, `throttled_now`, `screen {connected, mode}`, and
+  `media {items, bytes, free, syncing}` or null;
+- `/media/<sha256>`: the box's verified copy, with byte ranges, or 404 (the page then streams from the
+  robot);
+- `/media.json`: the sync in detail;
+- `POST /alive`: the page's heartbeat. A page quiet for 30 s is restarted, backing off to 2 minutes.
+
+The page reports its device upward over its own socket, so the dashboard's projector card can show it. The page itself (`/stage/`:
 the show video and live skeletons) is the Choreography lane's.
 
 The goal (the user, 2026-10-21): the projector (an Anker Nebula P1i, Google TV inside) shows the stage page,

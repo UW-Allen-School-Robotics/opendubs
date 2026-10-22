@@ -2,14 +2,25 @@
 # Turn a freshly imaged Raspberry Pi 4 or 5 (64-bit Raspberry Pi OS Lite) into the OpenDubs stage box.
 # Run ON THE PI, from a copy of this folder, as the user Raspberry Pi Imager created:
 #
-#   sudo ./setup.sh               # install, configure, and make the root filesystem read-only
-#   sudo ./setup.sh --no-overlay  # the same, but leave the root writable (while trying things out)
+#   sudo ./setup.sh                                   # install, configure, root read-only
+#   sudo ./setup.sh --media /dev/sda --erase-media    # the same, and ERASE that USB stick to hold
+#                                                     # the box's copies of the show videos
+#   sudo ./setup.sh --no-overlay                      # leave the root writable (trying things out)
 #
 # Idempotent: run it again after an update to this folder (with the overlay off: see README).
 # The Wi-Fi, the user and the SSH key come from Raspberry Pi Imager's settings, never from here.
 set -euo pipefail
 cd "$(dirname "$0")"
-overlay=1; [ "${1:-}" = "--no-overlay" ] && overlay=0
+overlay=1; media=""; erase=0
+while [ $# -gt 0 ]; do
+    case $1 in
+        --no-overlay) overlay=0 ;;
+        --media) media=${2:-}; shift ;;
+        --erase-media) erase=1 ;;
+        *) echo "setup: unknown option $1" >&2; exit 1 ;;
+    esac
+    shift
+done
 
 die() { echo "setup: $*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "run it with sudo"
@@ -18,6 +29,13 @@ grep -q "Raspberry Pi [45]" /proc/device-tree/model 2>/dev/null || die "this is 
 admin=${SUDO_USER:-}
 [ -n "$admin" ] && [ -s "/home/$admin/.ssh/authorized_keys" ] || die "no SSH key for '${admin:-?}': set one in Raspberry Pi Imager first (password logins are about to be turned off)"
 if grep -q "^overlayroot\|boot=overlay" /proc/cmdline; then die "the root is read-only now: turn the overlay off first (README, Updating)"; fi
+if [ -n "$media" ]; then
+    [ -b "$media" ] || die "--media $media is not a disk"
+    root_disk=$(lsblk -no PKNAME "$(findmnt -no SOURCE /)")
+    [ "$(basename "$media")" != "$root_disk" ] || die "--media $media is the disk this system runs from"
+    [ "$(lsblk -dno TRAN "$media")" = usb ] || die "--media $media is not a USB disk"
+    [ "$erase" = 1 ] || die "--media erases $media: add --erase-media to confirm"
+fi
 
 echo "== the name: opendubs-stage"
 hostnamectl set-hostname opendubs-stage
@@ -28,7 +46,7 @@ echo "== packages"
 apt-get update -qq
 browser=chromium
 apt-cache show chromium >/dev/null 2>&1 || browser=chromium-browser
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cage "$browser" curl alsa-utils python3 fonts-dejavu-core avahi-daemon
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cage "$browser" curl alsa-utils python3 fonts-dejavu-core avahi-daemon e2fsprogs parted
 # No remote desktop of any kind, by decision.
 for p in realvnc-vnc-server wayvnc xrdp tigervnc-standalone-server x11vnc; do
     dpkg -s "$p" >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$p"
@@ -41,10 +59,20 @@ passwd -l stage >/dev/null
 
 echo "== the box's own programs"
 install -d /usr/local/lib/stage
-install -m 0755 bin/stage-conf bin/stage-audio bin/stage-kiosk bin/stage-mode bin/stage-agent /usr/local/lib/stage/
+install -m 0755 bin/stage-conf bin/stage-audio bin/stage-kiosk bin/stage-mode bin/stage-agent bin/stage-media /usr/local/lib/stage/
+install -d /srv/stage-media                       # the media partition's mount point, on the read-only root
 install -m 0644 systemd/*.service /etc/systemd/system/
 install -m 0644 udev/99-stage-display.rules /etc/udev/rules.d/
 [ -e /boot/firmware/stage.conf ] || install -m 0644 stage.conf.example /boot/firmware/stage.conf
+
+if [ -n "$media" ]; then
+    echo "== the media partition: ERASING $media for the box's copies of the show videos"
+    umount "$media"* 2>/dev/null || true
+    parted -s "$media" mklabel gpt mkpart stage-media ext4 1MiB 100%
+    sleep 2
+    part=$(lsblk -lnpo NAME "$media" | sed -n 2p)
+    mkfs.ext4 -F -q -L stage-media -m 0 "$part"
+fi
 
 echo "== SSH: keys only"
 cat > /etc/ssh/sshd_config.d/10-stage.conf <<EOF
@@ -63,7 +91,7 @@ echo "== start at boot: no login prompt, the browser instead"
 systemctl daemon-reload
 systemctl disable getty@tty1.service 2>/dev/null || true
 systemctl set-default graphical.target
-systemctl enable stage-mode.service stage-kiosk.service stage-agent.service
+systemctl enable stage-mode.service stage-media.service stage-kiosk.service stage-agent.service
 udevadm control --reload
 
 if [ "$overlay" = 1 ]; then

@@ -15,6 +15,3 @@ MODE=
 # usb, or hdmi.
 AUDIO=auto
 
-# How much show video the page may keep in memory between runs, in MB. Empty: by the board's memory
-# (800 from 4 GB up, 300 from 2 GB, else 150). Everything on this box lives in RAM.
-CACHE_MB=

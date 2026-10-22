@@ -20,16 +20,17 @@ shellcheck), not yet run on a Raspberry Pi.** The first build on real hardware i
 | **any screen** | the screen's preferred mode from its EDID, or a mode forced in the settings. Plugging in, unplugging or swapping a screen restarts the browser at the new screen's mode. **With no screen at all it still plays the show's sound.** |
 | **sound** | `auto`: a USB audio adapter if one is plugged in, else the HDMI screen. The settings can force either. |
 | **a watchdog** | the page checks in every 5 s; a page that goes quiet for 30 s is restarted, backing off to 2 minutes. systemd restarts the browser whenever it ends. |
-| **tells the page about itself** | `http://127.0.0.1:8095/device.json`, loopback only: the sound output, the screen and its mode, and **under-voltage** from the Pi's own power monitor, so the page's ready card can warn about a weak supply. |
-| **pull the plug any time** | the root filesystem is read-only, with an overlay in RAM, so cutting the power corrupts nothing. The browser's profile and the page's video cache live in RAM too, so they are cleared at each power-on. |
-| **the show's video, preloaded** | the page loads each show's whole video into memory when the show is armed, so only the timing crosses the Wi-Fi during the show. The cache is capped by the board's memory (passed to the page as `?cache_mb=`). |
+| **tells the page about itself** | `http://127.0.0.1:8095/device.json`, loopback only: the sound output, the screen and its mode, **under-voltage** from the Pi's own power monitor (so the page's ready card can warn about a weak supply), and how many show videos it holds. `/media.json` has the sync in detail. |
+| **keeps its own copies of the show videos** | like a streaming service's downloads: while the robot is idle, the box copies the robot's show videos (then its songs) onto a **USB stick**, newest first, so a show plays with **no Wi-Fi**. The page asks the box for a copy by its content hash and streams from the robot only when the box has none. Never during an armed or running show; each file is checked against the robot's checksum before it is used; a stick that fills up drops the oldest first. |
+| **pull the plug any time** | the system is read-only, with an overlay in RAM, so cutting the power corrupts nothing. The USB stick is the one writable part: a file cut off by a power cut is thrown away and fetched again, and a stick that will not mount is repaired, or reformatted and filled again from the robot. It is never needed to boot. |
 | **locked down** | the robot's Wi-Fi only, SSH with a key only, no remote desktop of any kind, Bluetooth off. |
 
 ## What to buy
 
 | part | why |
 |---|---|
-| **Raspberry Pi 5, 4 GB or more** (the standard; 8 GB for the full video cache), a **Raspberry Pi 4** as the spare; one image runs on both | the stage page keeps each show's video in memory (up to 800 MB), and on this box everything written lives in RAM |
+| **Raspberry Pi 5** (the standard; 4 GB is plenty), a **Raspberry Pi 4** as the spare; one image runs on both | |
+| **a USB stick, 32 GB or more** (a USB 3 one, plugged into a blue port) | the box's own copies of the show videos; it lives in the Pi and is erased by the setup |
 | **the official 27 W USB-C supply** for the Pi 5 (the 15 W one for a Pi 4) | AC is the power source; a weaker supply shows as under-voltage on the page |
 | **a Pi 5 active cooler** | |
 | **a high-endurance microSD card**, 32 GB or more | |
@@ -53,11 +54,15 @@ shellcheck), not yet run on a Raspberry Pi.** The first build on real hardware i
    scp -r software/stage-pi <user>@opendubs-stage.local:
    ```
 
+   With the USB stick plugged in (find it with `lsblk`: the disk whose TRAN is `usb`):
+
    ```bash
-   ssh <user>@opendubs-stage.local sudo ./stage-pi/setup.sh
+   ssh <user>@opendubs-stage.local sudo ./stage-pi/setup.sh --media /dev/sda --erase-media
    ```
 
-   It installs the browser and the box's programs, sets the name, turns password logins and Bluetooth off,
+   `--media` **erases that stick** and makes it the box's video store; it refuses a disk that is not
+   USB, or the one the system runs from, and needs `--erase-media` to go ahead. Without `--media` the
+   box works too, streaming every show from the robot. It installs the browser and the box's programs, sets the name, turns password logins and Bluetooth off,
    starts the browser at boot, and makes the root read-only. It refuses to run without your SSH key in
    place, since it turns password logins off.
 3. **Reboot.** The screen shows the stage page (its "stage ready" card between shows).
@@ -69,8 +74,7 @@ One file on the card's boot partition, **`stage.conf`**, editable from any compu
 
 - `ROBOT_URL` and `ROBOT_FALLBACK`: the robot's page, by name, then by address;
 - `MODE`: empty for the screen's own mode, or forced, e.g. `1920x1080@60`;
-- `AUDIO`: `auto`, `usb` or `hdmi`;
-- `CACHE_MB`: how much show video the page may keep in memory, empty for the board's own size.
+- `AUDIO`: `auto`, `usb` or `hdmi`.
 
 The box reads it at every start, so take the card out, edit, put it back, and power on.
 
@@ -93,3 +97,4 @@ itself: the box stays as it was set up until someone does this.
 | the page's card warns of **under-voltage** | the supply is too weak: use the official one for that model |
 | no sound | check `AUDIO` in `stage.conf`, and the adapter's cable; with `auto`, an adapter plugged in takes the sound from the screen |
 | the wrong resolution | force one with `MODE` |
+| a show stutters | the box had no copy of that show's video and the Wi-Fi was slow: leave it idle on the robot's network a while to copy the videos, and check `device.json`'s `media` |

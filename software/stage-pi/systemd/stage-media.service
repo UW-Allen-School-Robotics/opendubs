@@ -1,0 +1,14 @@
+# The media partition (stage-media): mounted, repaired or reformatted at boot, never via fstab, so it can
+# never stop the box from booting. The agent syncs the robot's show videos onto it.
+[Unit]
+Description=OpenDubs stage: mount the media partition for local show videos
+After=local-fs.target systemd-udev-settle.service
+Before=stage-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/stage/stage-media
+
+[Install]
+WantedBy=multi-user.target

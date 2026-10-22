@@ -23,16 +23,6 @@ until [ -n "$page" ]; do
 done
 echo "$page" > "$RUN/page"
 
-# The show's video is preloaded whole into memory when a show is armed, and cached across runs (#479).
-# On this box EVERYTHING written lands in RAM (the root is read-only, its writes in a RAM overlay), so
-# the cache is capped by the board's memory and passed to the page: 800 MB from 4 GB up, 300 MB from
-# 2 GB, else 150 MB. CACHE_MB in stage.conf overrides it.
-mem_mb=$(awk '/^MemTotal:/ {print int($2 / 1024)}' /proc/meminfo)
-cache=$("$LIB/stage-conf" CACHE_MB "")
-if ! printf '%s' "$cache" | grep -Eq '^[0-9]+$'; then
-    if [ "$mem_mb" -ge 3500 ]; then cache=800; elif [ "$mem_mb" -ge 1800 ]; then cache=300; else cache=150; fi
-fi
-case $page in *\?*) open_url="$page&cache_mb=$cache" ;; *) open_url="$page?cache_mb=$cache" ;; esac
 
 # A screen, or none. With no screen the box still plays the show's sound: the compositor then runs on a
 # virtual output so the page keeps running as if it were shown.
@@ -46,10 +36,11 @@ else
 fi
 
 browser=$(command -v chromium || command -v chromium-browser)
-exec cage -d -- "$browser" --kiosk "$open_url" \
+exec cage -d -- "$browser" --kiosk "$page" \
     --ozone-platform=wayland \
     --user-data-dir="$HOME/.stage-chromium" \
     --autoplay-policy=no-user-gesture-required \
     --noerrdialogs --disable-infobars --disable-session-crashed-bubble --no-first-run \
     --hide-scrollbars --overscroll-history-navigation=0 --password-store=basic \
-    --disable-features=Translate,MediaRouter --check-for-update-interval=31536000
+    --check-for-update-interval=31536000 \
+    --disable-features=Translate,MediaRouter,LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults
