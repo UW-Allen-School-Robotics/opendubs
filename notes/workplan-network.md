@@ -256,7 +256,7 @@ Each step still needs the user's word on the day, with a person there.
 3. **DHCP reservations** for devices on the robot Wi-Fi, each by its real MAC (randomized
    per-network MAC turned off on the device first):
    - the **show projector** (Choreography; it casts from the Thor, `notes/design/choreo-video.md`);
-   - the **stage Pi**, `opendubs-stage`: a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
+   - the **stage Pi**, `opendubs2-stage` (one per robot, `opendubs<N>-stage`): a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
      robot and carried off to drive a projector or a building video wall.
 4. Optional, only if the user asks: **J-1 and J-2** (`netjoin init`, `netjoin wired-first`).
 
