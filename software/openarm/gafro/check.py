@@ -3,7 +3,7 @@
 arms, the model carries the head cap on joint 2 (the choreography's, mirrored) and nothing else changed, and the hardware config adds
 no second cap.
 
-    ~/coding/lab/venv/bin/python software/openarm/gafro/check.py [--model path/to/model.xml]
+    $PY software/openarm/gafro/check.py [--model path/to/model.xml]
 
 Needs gafro (the public one) and openarm_assets importable. It builds the controllers; it does not run them, and it does not touch
 an arm or the simulator.

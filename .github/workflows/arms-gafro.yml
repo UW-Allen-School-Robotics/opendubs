@@ -5,38 +5,40 @@ name: arms-gafro
 # mujoco and openarm_assets, not gafro: software/openarm/gafro/check.py (the controllers against the model) needs the published gafro, which is
 # a C++ build, so it is run by hand: see software/openarm/gafro/README.md.
 #
-# openarm_assets is pinned: its main moving would turn this red for a change that is not in this repository. Bump the pin with the model.
+# The guards the first runs go through (software/openarm/tests/test_gafro_guards.py) are tested here too: they decide whether a script may
+# command an arm, and need nothing but numpy, PyYAML and the loopback.
+#
+# openarm_assets, mujoco and numpy are pinned: a new release of any would turn this red for a change that is not in this repository. Bump
+# the pins together with the model.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "tools/arm_gafro_model.py"
-      - "description/openarm/**"
-      - "software/openarm/gafro/**"
-      - "software/choreo/cue.py"
-      - ".github/workflows/arms-gafro.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "tools/arm_gafro_model.py"
       - "description/openarm/**"
       - "software/openarm/gafro/**"
+      - "software/openarm/tests/test_gafro_guards.py"
       - "software/choreo/cue.py"
       - ".github/workflows/arms-gafro.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   model:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install mujoco numpy pyyaml "openarm_assets @ git+https://github.com/personalrobotics/openarm_assets@148e840"
+      - run: pip install mujoco==3.16.0 numpy==2.5.3 pyyaml==6.0.3 "openarm_assets @ git+https://github.com/personalrobotics/openarm_assets@148e840522334ab31929e324d20da9d2f5f2a729"
       - name: The committed model is what the generator builds
         run: python3 tools/arm_gafro_model.py --check
       - name: The controllers file parses
         run: python3 -c "import yaml; print(sorted(yaml.safe_load(open('software/openarm/gafro/controllers.yaml'))['controllers']))"
+      - name: The guards refuse what they should
+        run: python3 software/openarm/tests/test_gafro_guards.py

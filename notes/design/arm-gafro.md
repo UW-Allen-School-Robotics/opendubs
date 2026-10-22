@@ -33,6 +33,33 @@ The driver's permit is the hook for the authority layer: with `require_permit` t
 permit and keeps renewing it, so if the service stops, for any reason, the arm holds by itself. This is the lease of `arm-authority.md`
 at the lowest software layer. The driver does not know who grants it or why.
 
+## What the first runs refuse
+
+Until the arm service exists nothing checks presence, CH5 or the deadman, so the scripts do, on a real bus (a `bus: can` group in the hardware config) and before
+anything is enabled, since `RobotInterface.initialize()` already commands the motors. `software/openarm/gafro/guards.py`, tested by
+`software/openarm/tests/test_gafro_guards.py` (the CAN listener against real frames on a socket pair, the dashboard on a local server, each guard
+mutated to see the tests fail):
+
+- **Another controller on the bus** (every stage): the stack's `ros2_control_node` running (the arms' container is visible to the host's `pgrep`), or a passive
+  listen on each arm's interface for MIT command frames, ids 0x001 to 0x008, from anyone else. An interface that cannot be listened to is a refusal.
+- **Motion** (`engage`, `--park`, `bringup.py lapse` and `move`): CH5 MANUAL or AUTO (DEC-21: STANDBY is hold and status only) and the e-stop clear, read from
+  the dashboard's `GET /api/choreo/robot`, the read-only view the runner uses, and `--supervised`, which says a person is at the e-stop. A dashboard that does not
+  answer, or an unknown CH5 or e-stop, is a refusal.
+- **Where a move starts** (`engage`, `--park`): within 5 degrees per joint of stow (the stow file's pose) or ready. The straight-line check against the collision geometry
+  uses a model with no head, neck or lift, and the head moves, so from anywhere else the line could pass through it unseen. Until the head is in the model,
+  that is the rule; the maintainers' decision on the cap and the ready pose makes it a condition.
+
+A `fake` bus and the simulator are not gated. The arm service replaces the second and third: it owns presence, the leases and the deadman.
+
+**Ready is a working pose, not a resting one.** An e-stop or a power drop with an arm at ready lets the forearm fall, where stow moves nothing. Park (`engage.py --park`,
+or `openarm-up park`) before leaving the robot. The maintainers approved the J2 hard cap of 157 degrees (182 measured contact less the 25 of a show) as a backstop that
+matches what shows already obey, and the ready pose's 78 mm to the head as a working pose, on two conditions: the head, neck and lift go into the model before either figure
+is relied on near a moving head, and ready is never where the arms are left. `tools/arm_gafro_model.py` derives the cap from `software/choreo/cue.py`'s `SHOULDER_*`, so
+changing those moves the arm's hard cap.
+
+**Pins.** `env.sh` builds the driver at f881bf4 and refuses another checkout, and uses openarm_can 1.4.1, the version the driver's CAN backend was built and run against. The
+existing stack's image carries 1.4.0 (f340d4b), which the driver has not been tried against.
+
 ## What is not covered, stated
 
 - **A dead driver process.** The motors never time out and keep their last frame, so a process killed in torque mode leaves that
@@ -55,8 +82,10 @@ at the lowest software layer. The driver does not know who grants it or why.
 Three ways to send torque were weighed: gafro as a ROS 2 client of the existing stack (forward the efforts through
 `forward_command_controller`), gafro's controller inside the ROS controller manager, and gafro owning the bus. The first adds a DDS hop
 inside the torque loop, on a controller manager that already shows missed cycles at 400 Hz without realtime scheduling (item 2.5). The
-second ties the arm to ROS 2 and needs a C++ plugin. The third was chosen for loop quality and no ROS. It excludes the ROS stack from
-the bus, since only one process can own the CAN interface, so the two cannot run together.
+second ties the arm to ROS 2 and needs a C++ plugin. The third was chosen for loop quality and no ROS. It must not run beside the ROS stack,
+but nothing in the kernel makes sure of that: SocketCAN lets any number of processes send, so two controllers can command the same motors. The
+first-run scripts refuse to start while the stack's `ros2_control_node` is running or another sender's command frames are on the bus (see
+*What the first runs refuse*); the driver has no such check yet.
 
 ## Stow and ready
 
@@ -105,7 +134,7 @@ An earlier `track` run from the model's default pose looked like drift (9 mm, 0.
 **`go_to_keyframe` does not return.** From a displaced pose it brings the arm to within 0.057 rad of the ready keyframe and never finishes: RI's
 position servo has no gravity feedforward, so it settles a few hundredths of a radian short, outside its stopping tolerance. The real arm's
 position mode would sag the same way unless the driver feeds gravity forward, which it now does (hold, position and velocity frames, from the bound
-model; `openarm-driver`, uncommitted when this was written, tested on a fake bus whose load is the model's own torque: the hold sags 0.006 rad
+model; `openarm-driver` f881bf4, tested on a fake bus whose load is the model's own torque: the hold sags 0.006 rad
 against 0.1 to 0.4 rad without). In the simulation the position servo is MuJoCo's own actuator, not the driver, so `go_to_keyframe` there needs the model's gravity compensation
 (`openarm_assets.assembly --gravcomp`): with it the move back to ready returns in 0.8 s within 0.01 rad, without it it never returns (0.13 to
 0.27 rad short). That model cannot be the default: the torque controllers cancel gravity themselves, so on a weightless model `track` holds
