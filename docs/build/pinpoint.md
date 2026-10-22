@@ -108,21 +108,37 @@ Outline (fill in once photos are in):
     `NOT COMMISSIONED` until someone does the steps below; treat pose as untrustworthy
     until it doesn't.
 
-These are physical facts about *your* robot — where the pods are bolted and which way round
-they ended up — so they are stored on the robot, never in the repo.
+These are physical facts about *your* robot: where the pods are bolted and which way round
+they ended up. The StamPLC stores them in its own memory, where they survive a firmware update;
+they are never in the repo. The procedure below follows goBILDA's
+[Pinpoint user guide](https://www.gobilda.com/content/user_manuals/3110-0002-0001%20User%20Guide.pdf)
+(part 3110-0002-0001), with the StamPLC's `PPCAL` commands in place of goBILDA's FTC driver.
 
 **Do it in this order.** Direction comes first because getting it wrong invalidates
 everything measured afterwards.
 
-**1. Encoder directions.** Push the robot **forward** by hand and watch `ex` in the `[ODO]`
-telemetry: it must *increase*. Push the robot **left**: `ey` must *increase*.
+**0. Check the status LED.** It should be **green** before you start.
+
+| LED | Means | Do |
+|---|---|---|
+| Green | Ready, working normally | — |
+| Red | Starting up after a power cycle, or measuring the IMU's zero offset | Wait a moment. If it stays red, check that the Pinpoint's reset button isn't stuck down |
+| Purple | No pods detected | Check both pod cables |
+| Blue | The X pod isn't detected | Swap the two pod cables: if the colour changes to orange, the cable or pod moved with it |
+| Orange | The Y pod isn't detected | As for blue |
+
+**1. Encoder directions.** Push the robot **forward** by hand, without turning it, and watch
+`ex` in the `[ODO]` telemetry: it must *increase*. Push the robot **left**: `ey` must
+*increase*.
 
 ```
 PPCAL DIRX FWD     (or REV if X counted backwards)
 PPCAL DIRY FWD     (or REV)
 ```
 
-If neither value moves, that pod or its cable is the problem, not the direction.
+If neither value moves, that pod or its cable is the problem, not the direction. If pushing
+forward moves `ey` more than `ex`, the pod plugged into the X port is the sideways one: swap
+the cables.
 
 **2. Encoder resolution** — ticks per mm, which is your encoder's CPR divided by the tracking
 wheel's circumference:
@@ -135,12 +151,13 @@ PPCAL TICKS <n>      anything else
 
 **3. Pod offsets.** Each offset is the **perpendicular** distance from a pod to the tracking
 point — the point on the robot whose position the Pinpoint reports. Distance *along* a pod's
-own direction of travel doesn't matter.
+own direction of travel doesn't matter. The tracking point can be anywhere; the centre of the
+robot is the usual choice.
 
 | | Measures | Positive when |
 |---|---|---|
-| `x` | how far **sideways** the X (forward) pod sits | pod is **left** of the tracking point |
-| `y` | how far **forwards** the Y (strafe) pod sits | pod is **forward** of the tracking point |
+| `x` | how far **sideways** the X (forward-tracking) pod sits from the tracking point | the pod is **left** of it |
+| `y` | how far **forwards** the Y (sideways-tracking) pod sits from the tracking point | the pod is **forward** of it |
 
 ```
 PPCAL OFFSETS <x_mm> <y_mm>
@@ -148,21 +165,43 @@ PPCAL OFFSETS <x_mm> <y_mm>
 
 !!! warning "The usual mistake is a sign, not a measurement"
     goBILDA call this out directly: the most common error is an offset that is positive when
-    it should be negative. Both offsets are frequently negative on a normal build.
+    it should be negative. In goBILDA's own example robot, with both pods at the back and the X
+    pod right of centre, both offsets are negative.
 
-**4. Save and check.**
+**4. Save.**
 
 ```
 PPCAL SAVE
 ```
 
-Then **spin the robot in place around the tracking point**. `x` and `y` should barely move —
-drift over ~100 mm during a full rotation means an offset is wrong, and a *sign* is the first
-thing to suspect. Then drive a measured straight line and compare against a tape measure; a
-large disagreement is the ticks-per-mm.
+**5. Check it, with goBILDA's tests.**
 
-`PPCAL RESET` zeroes the pose and re-measures the IMU's zero offset — the robot must be
-**stationary**, since a bad zero offset shows up as heading drifting while it sits still.
+1. **Still.** With the robot untouched, `x`, `y` and `h` should not move. If they drift,
+   `PPCAL RESET` with the robot stationary: it zeroes the pose and re-measures the IMU's zero
+   offset, and a bad zero offset shows up as heading drifting while the robot sits still.
+2. **Spin in place.** Turn the robot around the tracking point without sliding it. `x` and `y`
+   should stay within about **100 mm**. More means an offset is wrong, and a *sign* is the first
+   thing to suspect.
+3. **One turn.** Turn the robot one full turn **counter-clockwise**. `h` (radians) should rise by
+   very nearly one positive turn: 6.28.
+4. **Tape measure.** Push the robot a measured distance and compare it with what the Pinpoint
+   reports. A large difference means the ticks per mm is wrong.
+5. **Back to the start.** `PPCAL RESET`, drive the robot around, and bring it back to where it
+   started. The pose should read within about **10 mm** of zero. More means something above is
+   wrong.
+
+**Leave the yaw scalar alone.** Each Pinpoint's heading scale is calibrated at the factory, and
+goBILDA say tuning it is not normally needed. The StamPLC never changes it.
+
+A slight heading wobble is normal; the IMU notices someone walking past. Steady drift of more
+than about 1° a minute with the robot still, after a `PPCAL RESET`, is a fault to raise with
+goBILDA.
+
+!!! note "Recording your robot's values"
+    Write down the values you set, so they can be restored if the StamPLC is ever replaced. The
+    project keeps its own robots' values, and how each was established, in
+    [`notes/per-robot-calibration.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/notes/per-robot-calibration.md).
+    They are a record of those robots, not values to copy: measure your own.
 
 ## Verify — done when…
 
@@ -172,6 +211,8 @@ large disagreement is the ticks-per-mm.
 - [ ] Status LED is **green** — purple/blue/orange means a pod isn't detected.
 - [ ] Pushing the robot forward increases `ex`; pushing it left increases `ey`.
 - [ ] `PPCAL SHOW` reports **commissioned** and **live**.
-- [ ] Spinning in place leaves `x`/`y` nearly unchanged.
-- [ ] A measured straight-line drive matches a tape measure.
+- [ ] Spinning in place keeps `x`/`y` within about 100 mm.
+- [ ] One counter-clockwise turn reads one positive turn in `h`.
+- [ ] A measured straight-line push matches a tape measure.
+- [ ] A drive around and back to the start reads within about 10 mm of zero.
 - [ ] Heading holds steady while the robot sits still (no IMU drift).
