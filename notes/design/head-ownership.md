@@ -31,6 +31,11 @@ it. It is a **pause, never a motion command**. The one exception is software tha
 somewhere particular (a manipulation task aiming the head-top depth camera): `HOLD <pan> <tilt>`
 slews there at the head's ordinary rate, within its limits, and holds.
 
+**Why it outranks the RC stick** (the user's decision, 2026-10-22): the pan and tilt sticks spring back
+to centre, so the way to leave the head aimed is to aim it with the sticks, turn the knob to HOLD and
+let go, and the stick is then ignored until RELEASE; a software hold with angles does the same for
+research runs in AUTO. Light use is expected, so nothing more is planned.
+
 **The knob, not the button.** Turned one way, deliberately (**three detents within a second**), it
 holds the head where it is; turned the other way, it releases. A bump or a slow turn does nothing.
 The button is hard to press, above all while the neck moves, and it already has a job: confirming a
