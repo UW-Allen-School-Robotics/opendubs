@@ -207,13 +207,22 @@ sensors:
   lidar_front:
     frame: laser                       # opendubs-rplidar.service
     fitted: true
-    xyz_mm: TODO_CAD                   # the front lidar mount (docs/build/lidar.md)
-    rpy_deg: [0, 0, 0]                 # ASSUMED forward. The A1's own zero-angle mark decides it
+    # CAD 2026-10-21: on the centreline, 554.38 mm forward of the datum; scan plane about 9.5 in
+    # (241.3 mm) above it, read from CAD (the beam window is not modelled, so z is approximate).
+    xyz_mm: [554.38, 0.0, 241.3]
+    # MEASURED 2026-10-21: the driver's 0 deg faces the robot. Both units go blind in a ~120 deg arc
+    # centred on 0 deg (the frame, inside range_min), and the motor faces the datum per CAD. The
+    # dashboard's LIDAR view, confirmed correct at the robot, encodes the same (app.js: facing pi
+    # plus a 180 deg correction).
+    rpy_deg: [0, 0, 180]
   lidar_rear:
     frame: laser_rear                  # opendubs-rplidar-rear.service
     fitted: true
-    xyz_mm: TODO_CAD
-    rpy_deg: [0, 0, 180]               # ASSUMED (lidar-frames-and-fusion.md says so too)
+    # CAD 2026-10-21: on the centreline, 199.578 mm behind the datum; scan plane as the front's.
+    xyz_mm: [-199.578, 0.0, 241.3]
+    # MEASURED 2026-10-21: 0 deg faces the robot, as the front; here that is forward. The earlier
+    # assumption (180) was the wrong way round.
+    rpy_deg: [0, 0, 0]
   pinpoint:
     frame: pinpoint_link               # the Pinpoint computer, which contains its IMU
     fitted: true
