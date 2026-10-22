@@ -10,6 +10,7 @@
 #include "ppcfg.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
+#include "ota_verify.h"      // signed OTA: only images signed by the Thor's key (firmware-signing.md)
 
 // ---- Telemetry tee (USB Serial + PoE UDP) -------------------------------------------------
 // Mirror a telemetry line to USB Serial AND, when the PoE link is up, out over UDP so the SAME
@@ -2948,9 +2949,13 @@ static void netMaintain()
     static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
     if (millis() - last_net_stat > 5000) {
         last_net_stat = millis();
-        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s\n",
+        static char otakey[17] = "";               // the signing key this build trusts, or none
+        static bool otakey_read = false;
+        if (!otakey_read) { otaVerifyKeyId(otakey, sizeof(otakey)); otakey_read = true; }
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakey=%s\n",
                 (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
-                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId);
+                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId,
+                otakey[0] ? otakey : "none");
     }
 
     if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
@@ -3035,11 +3040,66 @@ static void pollNetCommands()
 // into it. Triggered by `OTA http://<host>:<port>/<path>` over serial OR UDP — the whole point is
 // reflashing with USB unplugged. Plain HTTP only (no TLS over the W5500). We drop the drive
 // contactor first (no motion during a reflash), and on ANY failure we abort and stay on the
-// current firmware. A truncated/corrupt image is caught by Update.end(); a complete-but-buggy
-// image still needs USB recovery, so keep a USB port reachable. Needs a dual-OTA table (default.csv).
+// current firmware. Needs a dual-OTA table (default.csv).
+//
+// SIGNED UPDATES ONLY (notes/design/firmware-signing.md). The command is unauthenticated, so the
+// image must carry a signature: `<path>.sig`, ECDSA P-256 over the image's SHA-256, made on the
+// Thor by ota-from-thor.sh. It is fetched first, the image is hashed as it streams into flash, and
+// the signature is checked against the compiled-in public key BEFORE Update.end() marks the new
+// image bootable. Bad, missing or keyless = Update.abort(): the new partition is never selected and
+// the current firmware keeps running. Like any failed OTA, the drive bus stays off until cleared.
+
+// Connect, send GET, read the status line and headers. Returns the Content-Length on HTTP 200,
+// or -1 having said why.
+static long otaHttpOpen(EthernetClient& client, const char* host, int port, const char* path)
+{
+    client.setConnectionTimeout(5000);
+    IPAddress ip; bool ok;
+    if (ip.fromString(host)) ok = client.connect(ip, (uint16_t)port);   // dotted-quad: skip DNS
+    else                     ok = client.connect(host, (uint16_t)port); // hostname: needs DNS
+    if (!ok) { tprintf("[OTA] abort: connect failed (%s)\n", path); return -1; }
+
+    char req[192];
+    int rn = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: opendubs-stamplc\r\nConnection: close\r\n\r\n",
+        path, host);
+    client.write((const uint8_t*)req, rn);
+
+    long content_len = -1; int status = 0;
+    char line[160]; uint32_t t0 = millis(); bool first = true, headers_done = false;
+    while (!headers_done) {
+        int li = 0;
+        for (;;) {
+            int c = client.read();
+            if (c < 0) {
+                if (!client.connected() && client.available() == 0) { headers_done = true; break; }
+                if (millis() - t0 > 8000) { client.stop(); tprintf("[OTA] abort: header timeout (%s)\n", path); return -1; }
+                esp_task_wdt_reset(); delay(1); continue;
+            }
+            t0 = millis();
+            if (c == '\r') continue;
+            if (c == '\n') break;
+            if (li < (int)sizeof(line) - 1) line[li++] = (char)c;
+        }
+        if (headers_done) break;
+        line[li] = '\0';
+        if (first) { first = false; sscanf(line, "HTTP/%*s %d", &status); }
+        else if (li == 0) headers_done = true;
+        else if (strncasecmp(line, "Content-Length:", 15) == 0) content_len = atol(line + 15);
+    }
+    if (status != 200) { client.stop(); tprintf("[OTA] abort: HTTP status %d (%s)\n", status, path); return -1; }
+    if (content_len <= 0) { client.stop(); tprintf("[OTA] abort: no/zero Content-Length (%s)\n", path); return -1; }
+    return content_len;
+}
+
 static void otaHttpPull(const char* url)
 {
     if (!eth_up) { Serial.println("[OTA] abort: Ethernet down"); return; }
+
+    // A build with no key accepts nothing: refuse before touching anything, the drive bus included.
+    const uint8_t* key; size_t key_len;
+    otaVerifyKey(&key, &key_len);
+    if (!key) { tprintf("[OTA] REJECTED: %s\n", otaVerifyReason(OTA_SIG_NO_KEY)); return; }
 
     // Free the head socket first: with MAX_SOCK_NUM 2 the HTTP client cannot open while it
     // is held, and the fetch would fail AFTER we had already dropped the bus.
@@ -3058,73 +3118,71 @@ static void otaHttpPull(const char* url)
     if (*pp == ':') { port = atoi(pp + 1); while (*pp && *pp != '/') pp++; }
     snprintf(path, sizeof(path), "%s", (*pp == '/') ? pp : "/");
     if (hi == 0 || port <= 0) { Serial.println("[OTA] abort: bad URL (want http://host[:port]/path)"); return; }
-    tprintf("[OTA] fetching http://%s:%d%s\n", host, port, path);
 
-    EthernetClient client;
-    client.setConnectionTimeout(5000);
-    IPAddress ip; bool ok;
-    if (ip.fromString(host)) ok = client.connect(ip, (uint16_t)port);   // dotted-quad: skip DNS
-    else                     ok = client.connect(host, (uint16_t)port); // hostname: needs DNS
-    if (!ok) { Serial.println("[OTA] abort: connect failed"); return; }
-
-    char req[192];
-    int rn = snprintf(req, sizeof(req),
-        "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: opendubs-stamplc\r\nConnection: close\r\n\r\n",
-        path, host);
-    client.write((const uint8_t*)req, rn);
-
-    // ---- status line + headers ----
-    long content_len = -1; int status = 0;
-    char line[160]; uint32_t t0 = millis(); bool first = true, headers_done = false;
-    while (!headers_done) {
-        int li = 0;
-        for (;;) {
-            int c = client.read();
-            if (c < 0) {
-                if (!client.connected() && client.available() == 0) { headers_done = true; break; }
-                if (millis() - t0 > 8000) { client.stop(); Serial.println("[OTA] abort: header timeout"); return; }
-                esp_task_wdt_reset(); delay(1); continue;
-            }
-            t0 = millis();
-            if (c == '\r') continue;
-            if (c == '\n') break;
-            if (li < (int)sizeof(line) - 1) line[li++] = (char)c;
+    // ---- the signature: a small detached file beside the image ----
+    char sigpath[104]; snprintf(sigpath, sizeof(sigpath), "%s.sig", path);
+    uint8_t sig[160]; size_t sig_len = 0;
+    {
+        EthernetClient sc;
+        long sl = otaHttpOpen(sc, host, port, sigpath);
+        if (sl <= 0 || sl > (long)sizeof(sig)) {
+            sc.stop();
+            tprintf("[OTA] REJECTED: no usable signature at %s (%ld bytes); staying on the current firmware\n", sigpath, sl);
+            return;
         }
-        if (headers_done) break;
-        line[li] = '\0';
-        if (first) { first = false; sscanf(line, "HTTP/%*s %d", &status); }
-        else if (li == 0) headers_done = true;
-        else if (strncasecmp(line, "Content-Length:", 15) == 0) content_len = atol(line + 15);
+        uint32_t ts = millis();
+        while (sig_len < (size_t)sl && millis() - ts < 8000) {
+            int n = sc.read(sig + sig_len, (size_t)sl - sig_len);
+            if (n > 0) { sig_len += n; ts = millis(); }
+            else { if (!sc.connected() && sc.available() == 0) break; esp_task_wdt_reset(); delay(1); }
+        }
+        sc.stop();
+        if (sig_len != (size_t)sl) { tprintf("[OTA] REJECTED: short signature read %u/%ld\n", (unsigned)sig_len, sl); return; }
     }
-    if (status != 200) { client.stop(); Serial.printf("[OTA] abort: HTTP status %d\n", status); return; }
-    if (content_len <= 0) { client.stop(); Serial.println("[OTA] abort: no/zero Content-Length"); return; }
+
+    tprintf("[OTA] fetching http://%s:%d%s (signed)\n", host, port, path);
+    EthernetClient client;
+    long content_len = otaHttpOpen(client, host, port, path);
+    if (content_len <= 0) return;
     tprintf("[OTA] status=200 len=%ld — writing…\n", content_len);
 
+    OtaVerify v;
+    if (!otaVerifyBegin(v)) { client.stop(); Serial.println("[OTA] abort: cannot hash the image"); return; }
     if (!Update.begin((size_t)content_len)) {
         Serial.printf("[OTA] abort: Update.begin failed: %s\n", Update.errorString());
-        client.stop(); return;
+        otaVerifyAbort(v); client.stop(); return;
     }
 
-    // ---- stream body → flash ----
+    // ---- stream body → flash, hashing as it goes ----
     size_t written = 0; uint8_t buf[1024]; uint32_t tlast = millis();
     while (written < (size_t)content_len) {
         int avail = client.available();
         if (avail <= 0) {
             if (!client.connected()) break;
-            if (millis() - tlast > 8000) { Update.abort(); client.stop(); Serial.println("[OTA] abort: body timeout"); return; }
+            if (millis() - tlast > 8000) { Update.abort(); otaVerifyAbort(v); client.stop(); Serial.println("[OTA] abort: body timeout"); return; }
             esp_task_wdt_reset(); delay(1); continue;
         }
         int toread = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
         int n = client.read(buf, toread);
         if (n <= 0) continue;
-        if (Update.write(buf, n) != (size_t)n) { Update.abort(); client.stop(); Serial.printf("[OTA] abort: flash write failed: %s\n", Update.errorString()); return; }
+        if (Update.write(buf, n) != (size_t)n) { Update.abort(); otaVerifyAbort(v); client.stop(); Serial.printf("[OTA] abort: flash write failed: %s\n", Update.errorString()); return; }
+        otaVerifyUpdate(v, buf, n);
         written += n; tlast = millis();
         esp_task_wdt_reset();                                  // multi-second write — keep the WDT fed
         if ((written & 0x1FFFF) == 0) tprintf("[OTA] %u/%ld\n", (unsigned)written, content_len);
     }
     client.stop();
 
-    if (written != (size_t)content_len) { Update.abort(); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
+    if (written != (size_t)content_len) { Update.abort(); otaVerifyAbort(v); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
+
+    // The check that makes it ours. Nothing above has made the new image bootable yet.
+    OtaVerifyResult r = otaVerifyFinish(v, sig, sig_len, key, key_len);
+    if (r != OTA_SIG_OK) {
+        Update.abort();
+        tprintf("[OTA] REJECTED: %s; staying on the current firmware\n", otaVerifyReason(r));
+        return;
+    }
+    tprintf("[OTA] signature valid\n");
     if (!Update.end(true)) { Serial.printf("[OTA] abort: Update.end failed: %s\n", Update.errorString()); return; }
 
     tprintf("[OTA] OK %u bytes — rebooting into new firmware\n", (unsigned)written);

@@ -29,6 +29,12 @@ Telemetry and commands run over **either** USB serial **or** the PoE Ethernet li
 > USB-only (`esptool` needs USB-CDC), and a complete-but-buggy OTA image needs a USB reflash to
 > recover — so keep a USB port reachable as the recovery fallback. Requires a dual-OTA partition
 > table (`board_build.partitions = default.csv`, already set).
+>
+> **Updates are signed.** The board installs only an image signed with the Thor's firmware-signing
+> key: `sudo ./ota-from-thor.sh` compiles the public key in, signs the image and serves the signature
+> beside it, and the board checks it before the image can boot. Keys, backup, rotation and recovery:
+> [`software/stack/firmware-signing/`](../../software/stack/firmware-signing/README.md); design:
+> [`notes/design/firmware-signing.md`](../../notes/design/firmware-signing.md).
 
 Full design, transport selection (`OPENDUBS_STAMPLC_TRANSPORT=auto|udp|serial`), and the
 apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-ethernet-transport.md).
@@ -39,7 +45,8 @@ apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-
 `RELAY <ch> <0|1>` · `ESTOP` · `ENC_RESET` · `I2C_SCAN` · `I2C_INFO` ·
 `LED_COLOR/LED_LEN/LED_OFF` (PRISM RGB over I²C) ·
 **`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page) ·
-**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash).
+**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image and its `fw.bin.sig` over Ethernet,
+check the signature, and self-flash only if it is valid).
 
 ## Local UI
 
