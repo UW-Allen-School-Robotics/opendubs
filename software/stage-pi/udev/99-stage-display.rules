@@ -1,0 +1,3 @@
+# A screen plugged in, unplugged or swapped: restart the browser so it takes the new screen and its
+# mode (stage-kiosk waits a second for the burst of events to settle).
+ACTION=="change", SUBSYSTEM=="drm", RUN+="/usr/bin/systemctl --no-block restart stage-kiosk.service"
