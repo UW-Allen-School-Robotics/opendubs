@@ -15,6 +15,7 @@ device-owner receiver, and a small JavaScript bridge. Anything a user sees is th
 | awake on the robot's power | `FLAG_KEEP_SCREEN_ON`; as device owner also *stay on while plugged in* |
 | on battery, saves power and then sleeps (from 0.5.0) | the tablet is powered from the robot's drive bus, so on battery the robot is off or e-stopped. At once: battery mode (the face dims to half, draws half the frames and stops camera tracking). The screen then goes off (`lockNow`) after **2 min** if the robot's dashboard does not answer (off), or **10 min** if it does (e-stopped, so the stopped face stays up a while). Below **15 %** on battery it sleeps at once and stays asleep; woken by hand it shows "Battery low" for 10 s. When the robot's power returns the screen **wakes by itself**. `Power.kt` |
 | sleep and restart from the dashboard (from 0.5.0) | Head & face page: SLEEP TABLET, and RESTART TABLET (asks twice; refused during a show). The app asks the robot for them itself every 5 s, from native code, so a restart reaches a tablet whose page is dead; the page passes them on at once when it is alive |
+| a Zoom call from the dashboard (from 0.6.0) | Head & face: START CALL with a Zoom meeting link opens it in the **Zoom app**, the one other app lock task lets in front; END CALL brings the face back and stops Zoom, which ends the call. While a call is up the face, the head's tracking and the robot's voice are off, the app does not self-update, and shows and RESTART TABLET are refused. `Call.kt` |
 | locked in front — no status bar, notifications, Home or Overview | lock task mode, as device owner. One system feature is allowed (from 0.5.0): the **power menu**, so holding the side key offers Power off and Restart (setup step 5) |
 | no update prompts | system update policy: postpone (Android allows 30 days per update) |
 | comes back after a reboot | it is the launcher (HOME), set as device owner |
@@ -111,7 +112,10 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
    on. Check it with `adb shell settings get global power_button_long_press` (`1`).
    The app is called **OpenDubs** on the tablet. It does not appear in Samsung's *Never sleeping
    apps* list: it is already exempt (device owner, and step 2's battery-optimisation exemption).
-6. **Name the robot** the tablet belongs to — on the robot, `OPENDUBS_ROBOT_NAME` in
+6. **For calls (optional, from 0.6.0):** install **Zoom** (`us.zoom.videomeetings`) from the Play
+   Store and sign in, in maintenance (below); the app lets it in front of lock task by itself. Join a
+   test meeting once by hand so Zoom's camera and microphone permission prompts are answered.
+7. **Name the robot** the tablet belongs to — on the robot, `OPENDUBS_ROBOT_NAME` in
    `/etc/opendubs/robot.env` (`software/kiosk-dashboard/deploy/provision.sh` prints how). The
    dashboard shows it top left, so a tablet never drives the wrong robot.
 

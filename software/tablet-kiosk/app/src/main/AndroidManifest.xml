@@ -15,6 +15,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Waking the screen when the robot's power returns (Power.kt). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Call mode (Call.kt): ending a call stops Zoom's background process. -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <!-- ... and the app must be able to see that Zoom is installed (package visibility, Android 11+). -->
+    <queries>
+        <package android:name="us.zoom.videomeetings" />
+    </queries>
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- It also runs on Android TV / Google TV as a display (the projector's stage page; Provision

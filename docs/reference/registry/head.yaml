@@ -65,3 +65,17 @@ entries:
     do:
       - Stop the show (Shows page, or STOP SHOW on the face), then press RESTART TABLET again.
       - To restart it by hand at any time, hold the tablet's side key and choose Restart.
+
+  - code: HEAD_CALL_SHOW
+    title: A call won't start during a show
+    symptom: [head-dark]
+    rank: 55
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      START CALL on the Head & face page is refused while a show is loaded or running. A call puts the
+      Zoom app in front of the face, and the show's music and the face both play from the face page.
+      For the same reason RESTART TABLET is refused during a call.
+    do:
+      - Stop the show (Shows page, or STOP SHOW on the face), then press START CALL again.
+      - To end a call, press END CALL on the Head & face page; the face comes back within a few seconds.

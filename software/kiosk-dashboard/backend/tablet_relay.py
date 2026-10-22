@@ -59,6 +59,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
@@ -471,7 +472,18 @@ NOT_CHARGING_BELOW = 75
 FALLING_PCT, FALLING_S = 3, 900.0
 HOT_C = 45.0                    # P-5's placeholder, until the datasheet's limit is recorded
 BATTERY_STALE_S = 30.0          # no reading for this long (the page asleep or gone): no warning either way
-COMMANDS = ("sleep", "restart")
+COMMANDS = ("sleep", "restart", "call", "endcall")
+# CALL MODE (telepresence, the user's decision 2026-10-23; the kiosk app's Call.kt): the head tablet joins
+# a meeting in the real Zoom app. Only a Zoom meeting link over https; refused during a show; while a call
+# is up the app's self-update waits (kiosk_update.latest) and the dashboard shows it. The link may carry
+# the meeting's passcode: it stays on the robot, and is only ever sent to the tablet.
+ZOOM_LINK = re.compile(r"^https://([a-z0-9-]+\.)?zoom\.us/(j|my|w)/[A-Za-z0-9._-]+(\?[A-Za-z0-9=&._%-]*)?$")
+call = {"active": False, "since": None}
+
+
+def call_busy() -> str | None:
+    """Why the tablet must not be taken over now (a call is up), or None."""
+    return "a call is up on the tablet" if call["active"] else None
 COMMAND_TTL_S = 60.0            # not picked up by then: dropped, so a tablet back later never acts on it
 power = {"readings": [], "command": None}     # readings: (monotonic, level, plugged, charging, battery_c)
 
@@ -533,16 +545,30 @@ async def tablet_command(request: Request) -> JSONResponse:
         body = None
     cmd = body.get("cmd") if isinstance(body, dict) else None
     if cmd not in COMMANDS:
-        return JSONResponse({"error": 'send {"cmd": "sleep"|"restart"}'}, status_code=400)
-    if cmd == "restart":
+        return JSONResponse({"error": 'send {"cmd": "sleep"|"restart"|"call"|"endcall"}'}, status_code=400)
+    line = cmd
+    if cmd in ("restart", "call"):
         import kiosk_update
         why = await asyncio.get_running_loop().run_in_executor(None, kiosk_update.show_busy)
-        if why:
+        if why and cmd == "restart":
             return refuse("HEAD_RESTART_SHOW", f"The tablet is not restarted while {why}. Stop the show first.")
-    power["command"] = {"id": f"{cmd}-{time.time_ns()}", "cmd": cmd, "at": time.monotonic()}
+        if why:
+            return refuse("HEAD_CALL_SHOW", f"A call is not started while {why}. Stop the show first.")
+    if cmd == "restart" and call["active"]:
+        return refuse("HEAD_RESTART_SHOW", "The tablet is not restarted during a call. End the call first.")
+    if cmd == "call":
+        link = body.get("link")
+        if not isinstance(link, str) or len(link) > 300 or not ZOOM_LINK.match(link):
+            return JSONResponse({"error": "send a Zoom meeting link: https://…zoom.us/j/<meeting>"}, status_code=400)
+        call.update(active=True, since=time.time())
+        line = f"call {link}"
+    if cmd == "endcall":
+        call.update(active=False, since=None)
+    power["command"] = {"id": f"{cmd}-{time.time_ns()}", "cmd": line, "at": time.monotonic()}
     await tell_page_command()
     log.info("tablet: %s asked (%s)", cmd, power["command"]["id"])
-    return JSONResponse({"ok": True, "id": power["command"]["id"], "cmd": cmd, "page": state["page"] is not None})
+    return JSONResponse({"ok": True, "id": power["command"]["id"], "cmd": cmd, "page": state["page"] is not None,
+                         "call": call})
 
 
 @router.get("/api/tablet/command")
@@ -556,7 +582,7 @@ def tablet_command_pending() -> dict:
 def sensors_status() -> dict:
     """What the relay last published, for the dashboard and for checking it by hand."""
     return {"page": state["page"] is not None, "rosbridge": ros.ws is not None, "rtt_ms": state["rtt_ms"],
-            "power": power_status(),
+            "power": power_status(), "call": call,
             "published": state["published"], "dropped": state["dropped"], "thermal": state["thermal"],
             "app": state["app"], "tilt": state["tilt"], "impacts": state["impacts"][-10:],
             "camera": {c: {k: v for k, v in d.items() if k != "busy"} for c, d in state["camera"].items()},

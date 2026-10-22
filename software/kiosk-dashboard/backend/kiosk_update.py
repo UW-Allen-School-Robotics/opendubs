@@ -61,6 +61,9 @@ async def latest() -> JSONResponse:
     if d is None:
         return JSONResponse({"error": "this robot serves no kiosk build"}, status_code=404)
     why = await asyncio.get_running_loop().run_in_executor(None, show_busy)
+    if why is None:                                   # nor over a call: an update would pull the face over it
+        import tablet_relay
+        why = tablet_relay.call_busy()
     return JSONResponse({"versionCode": d["versionCode"], "versionName": d.get("versionName"),
                          "sha256": d["sha256"], "install_ok": why is None, "why": why})
 

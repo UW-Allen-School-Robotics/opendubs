@@ -131,7 +131,7 @@ class Power(private val activity: KioskActivity, private val origin: () -> Strin
     fun touched() { if (!plugged) awakeSince = SystemClock.elapsedRealtime() }
 
     private fun check() {
-        if (plugged || !pm.isInteractive) return
+        if (plugged || !pm.isInteractive || Call.active) return     // never sleep the screen under a call
         if (level in 0 until LOW_PCT && !low) {
             low = true
             sleep("battery low ($level %) on battery")
@@ -164,9 +164,11 @@ class Power(private val activity: KioskActivity, private val origin: () -> Strin
         if (id.isEmpty() || id == prefs.getString("last_command", null)) return@post
         prefs.edit().putString("last_command", id).commit()
         Log.i(TAG, "power: command $cmd ($id)")
-        when (cmd) {
-            "sleep" -> sleep("asked from the dashboard")
-            "restart" -> if (DeviceOwner.isOwner(activity)) runCatching {
+        when {
+            cmd.startsWith("call ") -> Call.start(activity, cmd.removePrefix("call ").trim())
+            cmd == "endcall" -> Call.end(activity)
+            cmd == "sleep" -> sleep("asked from the dashboard")
+            cmd == "restart" -> if (DeviceOwner.isOwner(activity)) runCatching {
                 dpm.reboot(ComponentName(activity, KioskAdminReceiver::class.java))
             }.onFailure { Log.w(TAG, "power: reboot failed: $it") }
         }

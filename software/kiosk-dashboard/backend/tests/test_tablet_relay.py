@@ -358,3 +358,23 @@ def test_the_charge_limit_is_not_a_charger_fault_but_a_falling_battery_is():
         tr.note_battery({"level": level, "charging": True, "plugged": "usb"}, now=i * 300.0)
     assert [w["code"] for w in tr.power_status(now=900.0)["warnings"]] == ["HEAD_TABLET_NOT_CHARGING"]
     assert tr.power_status(now=900.0 + tr.BATTERY_STALE_S + 1)["warnings"] == []   # asleep: no word either way
+
+
+def test_a_call_takes_only_a_zoom_link_and_holds_updates_and_restarts_until_it_ends(monkeypatch):
+    import kiosk_update
+    c = _client(monkeypatch, "ws://127.0.0.1:9")
+    tr.call.update(active=False, since=None)
+    monkeypatch.setattr(kiosk_update, "show_busy", lambda: None)
+    for bad in ("https://zoom.us.evil.com/j/1", "http://zoom.us/j/1", "javascript:alert(1)", None):
+        assert c.post("/api/tablet/command", json={"cmd": "call", "link": bad}).status_code == 400
+    link = "https://us02web.zoom.us/j/81234567890?pwd=AbC.12"
+    assert c.post("/api/tablet/command", json={"cmd": "call", "link": link}).status_code == 200
+    assert c.get("/api/tablet/command").json()["cmd"] == f"call {link}"         # what the app runs
+    assert tr.call_busy()                                                     # the updater waits (kiosk_update.latest)
+    r = c.post("/api/tablet/command", json={"cmd": "restart"})
+    assert r.status_code == 409 and r.json()["code"] == "HEAD_RESTART_SHOW"
+    assert c.post("/api/tablet/command", json={"cmd": "endcall"}).status_code == 200
+    assert not tr.call_busy() and c.get("/api/tablet/command").json()["cmd"] == "endcall"
+    monkeypatch.setattr(kiosk_update, "show_busy", lambda: "a show is loaded (demo, armed)")
+    r = c.post("/api/tablet/command", json={"cmd": "call", "link": link})
+    assert r.status_code == 409 and r.json()["code"] == "HEAD_CALL_SHOW"
