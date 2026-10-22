@@ -70,6 +70,7 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformBroadcaster, TransformListener
 
+import drive_scale
 import people_guard
 from plc_peer import MOVED, ADOPTED, REFUSED_OWN, REFUSED_PIN, PeerGuard
 
@@ -85,15 +86,16 @@ class DriveBridge(Node):
     def __init__(self) -> None:
         super().__init__("drive_bridge")
 
-        # --- scaling -----------------------------------------------------------------------
-        # `DRIVE` takes -1..1, Twist carries m/s and rad/s, so a full-scale speed is needed to
-        # convert. THE ROBOT'S TOP SPEED HAS NOT BEEN MEASURED (punch list C2: "max groundspeed
-        # at 24 V with our mecanum wheels"), so these are declared parameters with deliberately
-        # conservative defaults, and the node says so at startup rather than implying the numbers
-        # are characterised. Getting them wrong does not make the robot unsafe — it makes Nav2's
-        # velocity model wrong, which shows up as overshoot.
+        # --- scaling and the software speed cap (drive_scale.py) ------------------------------
+        # Software motion is capped at auto_cap of FULL command, per robot (/etc/opendubs/base.env),
+        # capping every WHEEL, not each axis. The full scales are the speeds the robot reaches AT the
+        # cap on each axis alone, measured per robot with short bursts at the cap. The cap is software
+        # only: in MANUAL the firmware ignores host DRIVE, so the RC driver is not limited by it.
         self.declare_parameter("max_linear_mps", 0.5)
+        self.declare_parameter("max_strafe_mps", 0.0)       # 0 = same as max_linear_mps
         self.declare_parameter("max_angular_rps", 1.0)
+        self.declare_parameter("auto_cap", drive_scale.DEFAULT_AUTO_CAP)
+        self.declare_parameter("fw_auto_max_unit", drive_scale.FW_AUTO_MAX_UNIT)
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         # TF odom->base_link from the Pinpoint. Off when another node (a fusion EKF) publishes that
@@ -101,15 +103,22 @@ class DriveBridge(Node):
         self.declare_parameter("publish_tf", True)
         self.max_lin = float(self.get_parameter("max_linear_mps").value)
         self.max_ang = float(self.get_parameter("max_angular_rps").value)
+        self.max_str = float(self.get_parameter("max_strafe_mps").value) or self.max_lin
+        self.auto_cap = float(self.get_parameter("auto_cap").value)
+        self.fw_max = float(self.get_parameter("fw_auto_max_unit").value)
         self.odom_frame = str(self.get_parameter("odom_frame").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
         self.publish_tf = bool(self.get_parameter("publish_tf").value)
         if not self.publish_tf:
             self.get_logger().info("publish_tf is false: /odom only, no TF odom->base_link from this node")
-        self.get_logger().warn(
-            f"scaling /cmd_vel against max_linear_mps={self.max_lin} "
-            f"max_angular_rps={self.max_ang} — THESE ARE UNMEASURED DEFAULTS; "
-            "measure the robot's actual top speed and set them (punch list C2)")
+        drive_cap = min(1.0, self.auto_cap / self.fw_max) if self.fw_max > 0 else 0.0
+        if self.auto_cap > self.fw_max:
+            self.get_logger().warn(f"auto_cap {self.auto_cap} is above the firmware's own AUTO ceiling "
+                                   f"{self.fw_max}: the firmware's ceiling applies")
+        self.get_logger().info(
+            f"software speed cap: {self.auto_cap:.0%} of full command on any wheel (DRIVE <= {drive_cap:.3f} "
+            f"under the firmware's {self.fw_max} ceiling at CH8 max); full scale at the cap: forward "
+            f"{self.max_lin} m/s, strafe {self.max_str} m/s, turn {self.max_ang} rad/s")
 
         self._guard = PeerGuard(STAMP_IP)
         self._peer: tuple[str, int] | None = (STAMP_IP, PLC_PORT) if STAMP_IP else None
@@ -164,15 +173,11 @@ class DriveBridge(Node):
 
     # ---- /cmd_vel → DRIVE ------------------------------------------------------------------
     def _on_cmd(self, msg: Twist) -> None:
-        def unit(v: float, full: float) -> float:
-            if full <= 0:
-                return 0.0
-            return max(-1.0, min(1.0, v / full))
         # Mecanum: x forward, y left, z yaw. The firmware's mixer owns wheel assignment and this
-        # robot's handedness (kDriveInvert / kStrafeInvert), so send intent and nothing more.
-        self._cmd = (unit(msg.linear.x, self.max_lin),
-                     unit(msg.angular.z, self.max_ang),
-                     unit(msg.linear.y, self.max_lin))
+        # robot's handedness (robot_config.h), so send intent, capped (drive_scale.py), and no more.
+        self._cmd = drive_scale.drive_units(msg.linear.x, msg.linear.y, msg.angular.z,
+                                            self.max_lin, self.max_str, self.max_ang,
+                                            self.auto_cap, self.fw_max)
         self._cmd_ns = self.get_clock().now().nanoseconds
 
     def _on_scan(self, topic: str, msg: LaserScan) -> None:

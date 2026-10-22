@@ -28,12 +28,17 @@ class FrameTest(unittest.TestCase):
 
 class CommandTest(unittest.TestCase):
     def test_feed_forward_plus_correction(self):
-        vx, vy, wz = d.command((0.1, 0.0, 0.0), (0.05, 0.0, 0.0), vmax=1.0, wmax=1.0)
+        vx, vy, wz = d.command((0.1, 0.0, 0.0), (0.05, 0.0, 0.0), 1.0, 1.0, 1.0)
         self.assertAlmostEqual(vx, 0.05 + d.K_LIN * 0.1); self.assertAlmostEqual(vy, 0.0)
 
     def test_never_asks_for_more_than_the_cap(self):
-        vx, vy, wz = d.command((5.0, 5.0, 5.0), (0.0, 0.0, 0.0), vmax=0.2, wmax=0.5)
-        self.assertAlmostEqual(math.hypot(vx, vy), 0.2); self.assertAlmostEqual(wz, 0.5)
+        # forward + strafe + turn, each in units of its speed at the cap, stay within 1
+        vx, vy, wz = d.command((5.0, 5.0, 5.0), (0.0, 0.0, 0.0), 0.2, 0.15, 0.5)
+        self.assertAlmostEqual(abs(vx) / 0.2 + abs(vy) / 0.15 + abs(wz) / 0.5, 1.0)
+
+    def test_a_strafe_is_trimmed_against_its_bleed(self):
+        vx, vy, wz = d.command((0.0, 0.0, 0.0), (0.0, 0.05, 0.0), 1.0, 1.0, 1.0, fwd_bleed=0.2, yaw_bleed=0.4)
+        self.assertAlmostEqual(vx, -0.01); self.assertAlmostEqual(wz, -0.02)
 
     def test_holds_rather_than_chases(self):
         self.assertTrue(d.over_limit((0.31, 0.0, 0.0)))

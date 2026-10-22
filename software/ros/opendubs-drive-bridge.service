@@ -19,10 +19,9 @@ Environment=HOME=@OPENDUBS_HOME@
 # shared memory can go deaf (workplan L.10). Deaf would mean blind, which refuses all motion.
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
-# Top speed is UNMEASURED (punch list C2). Set these once it is known — getting them wrong does
-# not make the robot unsafe, it makes a planner's velocity model wrong.
-Environment=OPENDUBS_MAX_LIN=0.5
-Environment=OPENDUBS_MAX_ANG=1.0
+# The software speed cap and the speeds at it, per robot, SHARED with opendubs-dance-tracker so the two
+# cannot disagree (drive_scale.py). Optional: without it, drive-bridge.sh's defaults apply.
+EnvironmentFile=-/etc/opendubs/base.env
 ExecStart=/opt/opendubs/ros/drive-bridge.sh
 Restart=always
 RestartSec=5

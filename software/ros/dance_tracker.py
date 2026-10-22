@@ -26,8 +26,9 @@ runs, and releases it on /dance/stop or after SHOW_IDLE_S without a target. If a
 (a navigation stack) holds the base, the claim is refused, status says ready=false with why, and
 the show runs without its base moves.
 
-Command = feed-forward + gain x error (in the body frame), clamped to drive_bridge's full scale,
-which in AUTO is the firmware's ceiling (0.35 x the CH8 knob): it never asks for more than the cap.
+Command = feed-forward + gain x error (in the body frame), plus an optional per-robot strafe trim,
+limited to the software speed cap the same way drive_bridge limits it (drive_scale.py): it never asks
+for more than the cap. A strafe that bleeds forward or yaws is pulled back by the error terms.
 It never chases: if the error passes 0.3 m or 20 deg (a people-guard stop, a slip) it HOLDS the
 base still and says so, rather than lunging back. A target older than 250 ms, a stale /odom, or
 /dance/stop sends one zero Twist and then nothing, so drive_bridge and the firmware stop too.
@@ -38,6 +39,8 @@ deadman held, and drive_bridge's people guard (people_guard.py) refuses motion t
 import json
 import math
 import os
+
+import drive_scale
 
 TARGET_STALE_S = 0.25
 OWNER = "show"
@@ -67,14 +70,20 @@ def body_error(target, current):
     return (c * dx - s * dy, s * dx + c * dy, wrap(target[2] - current[2]))
 
 
-def command(err, ff, vmax, wmax, k_lin=K_LIN, k_ang=K_ANG):
-    """(vx, vy, wz) = feed-forward + gain x error, linear clamped to vmax as a vector, wz to wmax."""
-    vx, vy = ff[0] + k_lin * err[0], ff[1] + k_lin * err[1]
-    n = math.hypot(vx, vy)
-    if n > vmax > 0:
-        vx, vy = vx * vmax / n, vy * vmax / n
-    wz = max(-wmax, min(wmax, ff[2] + k_ang * err[2]))
-    return vx, vy, wz
+def command(err, ff, full_x, full_y, full_w, k_lin=K_LIN, k_ang=K_ANG, fwd_bleed=0.0, yaw_bleed=0.0):
+    """(vx, vy, wz) = feed-forward + gain x error, with the strafe trim, never past the software cap.
+
+    full_* are the speeds at the cap (drive_scale.py). The result is scaled, keeping its direction, so
+    that forward + strafe + turn, each in units of its full scale, stay within 1: what drive_bridge
+    would allow, so the tracker never asks for more than the cap."""
+    vx = ff[0] + k_lin * err[0]
+    vy = ff[1] + k_lin * err[1]
+    wz = ff[2] + k_ang * err[2]
+    vx, vy, wz = drive_scale.strafe_trim(vx, vy, wz, fwd_bleed, yaw_bleed)
+    ux, uy, uw = drive_scale.l1_limit(vx / full_x if full_x > 0 else 0.0,
+                                      vy / full_y if full_y > 0 else 0.0,
+                                      wz / full_w if full_w > 0 else 0.0)
+    return ux * full_x, uy * full_y, uw * full_w
 
 
 def over_limit(err, hold_m=HOLD_M, hold_rad=HOLD_RAD):
@@ -97,8 +106,12 @@ def main():
     node = Node("dance_tracker")
     log = node.get_logger()
     # drive_bridge's full scale: the speed the robot reaches at DRIVE 1.0 (in AUTO, the ceiling).
+    # The speeds at the software cap, per robot (/etc/opendubs/base.env, shared with drive_bridge).
     vmax = float(os.environ.get("OPENDUBS_MAX_LIN", "0.5"))
+    smax = float(os.environ.get("OPENDUBS_MAX_STRAFE", "0") or 0) or vmax
     wmax = float(os.environ.get("OPENDUBS_MAX_ANG", "1.0"))
+    fwd_bleed = float(os.environ.get("OPENDUBS_STRAFE_FWD_BLEED", "0") or 0)
+    yaw_bleed = float(os.environ.get("OPENDUBS_STRAFE_YAW_BLEED", "0") or 0)
     st = {"odom": None, "odom_t": None, "origin": None, "seq": 0, "target": None, "target_t": None,
           "mode": "idle", "moving": False, "guard": "blind", "guard_why": "no guard state yet", "err": (0, 0, 0),
           "holder": None, "active": False, "active_t": 0.0}
@@ -190,7 +203,7 @@ def main():
                          "off the target, more than the limit; not chasing it")
             halt("holding")
             return
-        vx, vy, wz = command(err, ff, vmax, wmax)
+        vx, vy, wz = command(err, ff, vmax, smax, wmax, fwd_bleed=fwd_bleed, yaw_bleed=yaw_bleed)
         tw = Twist(); tw.linear.x, tw.linear.y, tw.angular.z = vx, vy, wz
         cmd.publish(tw)
         st["moving"] = True
@@ -222,7 +235,8 @@ def main():
     node.create_timer(1.0, renew)
     node.create_timer(0.05, tick)
     node.create_timer(0.2, report)
-    log.info(f"dance tracker: full scale {vmax} m/s, {wmax} rad/s; hold beyond {HOLD_M} m / "
+    log.info(f"dance tracker: at the cap {vmax} m/s forward, {smax} m/s strafe, {wmax} rad/s; strafe trim "
+             f"{fwd_bleed} fwd, {yaw_bleed} yaw; hold beyond {HOLD_M} m / "
              f"{math.degrees(HOLD_RAD):.0f} deg")
     try:
         rclpy.spin(node)

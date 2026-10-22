@@ -31,7 +31,8 @@ same door every other program uses.
     | gate | where | what it does |
     |---|---|---|
     | AUTO + deadman | robot firmware | software moves the base only in AUTO **while a person holds the deadman switch (CH6)**. Releasing it stops the base |
-    | speed ceiling | robot firmware | in AUTO a full command is 0.35 of the base's full speed, scaled further by the CH8 knob |
+    | software speed cap | the drive bridge | no wheel goes past a per-robot fraction of full command (25% to start; easy to change) in AUTO, whatever the mix of forward, strafe and turn. RC driving in MANUAL is not capped by it |
+    | firmware ceiling | robot firmware | in AUTO a full command is at most 0.35 of the base's full speed, scaled further by the CH8 knob |
     | command timeout | firmware and the drive bridge | a command older than 0.25–0.5 s stops the base. Keep publishing while you move |
     | people guard | the drive bridge | refuses motion toward anything within 0.5 m of the robot's outline, seen by either LIDAR (any side while turning). If a LIDAR stops publishing, **all** software motion is refused |
     | one writer | the drive bridge | if anything but the base selector writes to the drive bridge's input, all motion is refused |
@@ -83,10 +84,11 @@ it releases it. The robot's operator can free it with the release message `{"own
 **Handover is release, then claim.** When the base changes hands or is freed, the selector sends
 one zero command first, so the base stops before the next owner drives it.
 
-Scaling: a Twist is converted to the firmware's command range against the speed the base reaches at
-a full software command, so request real m/s and rad/s. Anything above the ceiling is clipped.
-**That speed has not been measured yet.** Until it is, the conversion uses a conservative placeholder
-(0.5 m/s, 1.0 rad/s at full command), so the base may move slower than you ask.
+Scaling: request real m/s and rad/s. The drive bridge converts a Twist against the speeds the base
+reaches **at the software cap**, on each axis, and scales any command that would push a wheel past the
+cap down to it, keeping its direction. So a request above the cap gets the cap. Those speeds are
+measured per robot with short bursts at the cap; until they are, they are conservative placeholders,
+and the base may move slower than you ask.
 
 A navigation stack that publishes `/cmd_vel` (Nav2's default) needs one remap,
 `/cmd_vel:=/base/<owner>/cmd_vel`, plus a small node that claims the base on start, renews it, and
