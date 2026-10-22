@@ -13,22 +13,33 @@ name: Hygiene
 #   names    skipped: no deny-list is configured, by the maintainers' decision (2026-10-14);
 #            names are caught in review. Setting the HYGIENE_NAME_DENYLIST secret turns it on.
 
+# Draft PRs are skipped to save CI minutes: open a PR as a draft and run `gh pr ready <n>` when
+# it is ready, which triggers this. A skipped required check counts as passing, but a draft cannot
+# be merged anyway. Pushes to main always run: they are the safety net for a direct push by an
+# admin, which bypasses the PR checks.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+# The draft flag is part of the group. A push made while the PR is a draft, followed seconds
+# later by `gh pr ready`, produces two runs, and GitHub can deliver the draft-time one (which
+# skips) AFTER the ready one. Sharing a group, the late skip cancelled the real run and left
+# "skipped" as the result, which a required check reads as passing (seen on #470). In separate
+# groups it can't cancel it. A later push still cancels its own superseded run.
 concurrency:
-  group: hygiene-${{ github.ref }}
+  group: hygiene-${{ github.ref }}-${{ github.event.pull_request.draft }}
   cancel-in-progress: true
 
 jobs:
   hygiene:
     name: Hygiene checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +79,18 @@ jobs:
       - name: Ignore rules, file size, image metadata
         if: always()
         run: python3 tools/hygiene/check_files.py --base "$BASE" --size warn --exif warn
+
+      # A refuse("X") / helpLink("X") / @fault X in the source must have a registry entry, or an
+      # operator's "?" link opens nothing. Owned by the Docs and BOM lane (tools/faults.py). It runs
+      # here, as a step in this already-running job, because a separate workflow costs a whole
+      # billed minute per run. PyYAML comes from the runner's python3-yaml, not pip: the runner's
+      # system Python refuses a bare pip install.
+      - name: Troubleshooting codes are registered
+        if: always()
+        run: |
+          python3 -c "import yaml" 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-yaml >/dev/null
+          python3 tools/faults.py --check
 
       - name: Personal names (skipped unless a deny-list is configured)
         if: always()

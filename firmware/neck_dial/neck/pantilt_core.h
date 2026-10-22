@@ -43,7 +43,7 @@ constexpr float kEyeOnly        = 0.25f;   // offset below which the head never 
 constexpr float kHeadConfidence = 0.60f;   // below this a detection costs eyes only, never a turn
 constexpr float kTiltFallbackHalfBand = 10.0f;   // the uncommissioned band, +/- around centre
 
-enum class Owner : uint8_t { None, Touch, Rc, Gaze, Track };
+enum class Owner : uint8_t { None, Touch, Rc, Gaze, Track, Hold };
 
 struct Limits {
     float tiltMin = kCentreDeg - kTiltFallbackHalfBand;
@@ -55,8 +55,11 @@ struct Limits {
 struct In {
     uint32_t nowMs = 0;
     bool motionAllowed = false;   // NO LINK means unknown, and unknown means do not move
-    // on-face touch (a rate, deg/s), highest priority
-    float touchPan = 0, touchTilt = 0; uint32_t touchMs = 0;
+    // A HOLD (hold.h) outranks every source below, the RC stick included: the head goes to, or
+    // stays at, these angles and nothing else moves it until the hold is released.
+    bool holdOn = false; float holdPan = kCentreDeg, holdTilt = kCentreDeg;
+    // on-face touch (a rate, deg/s; 0, 0 is TOUCH HOLD: keep still), highest of the leases
+    float touchPan = 0, touchTilt = 0; uint32_t touchMs = 0, touchLease = kTouchHoldMs;
     // RC sticks (a rate, deg/s)
     float rcPan = 0, rcTilt = 0;   uint32_t rcMs = 0;
     // a show's GAZE (an absolute target, degrees) with its own lease

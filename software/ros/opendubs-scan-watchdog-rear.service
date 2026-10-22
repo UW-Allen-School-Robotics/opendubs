@@ -5,8 +5,12 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=emmar
-Environment=HOME=/home/emmar
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+# UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10). The profile is
+# installed by software/choreo/deploy/provision-runner.sh.
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 # Watch the REAR scan; restart the REAR driver; restart-only (the front watchdog
 # owns /lidar/enable + motor stop). Unique node name to avoid a DDS name clash.
 Environment=OPENDUBS_WD_TOPIC=/scan_rear

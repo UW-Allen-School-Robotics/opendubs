@@ -2,7 +2,9 @@
 """Direct, stack-independent check of the OpenArm motors over CAN.
 
     openarm-motors [status]              one line per motor, both arms
-    openarm-motors summary               counts only: "enabled=N disabled=N faults=N missing=N"
+    openarm-motors links                 each arm's CAN link, key=value, from `ip` only (sends nothing)
+    openarm-motors summary               counts only: "enabled=N disabled=N faults=N missing=N",
+                                         plus "where=arm_left:1,2" when a motor went unheard
     openarm-motors disable               send DISABLE to every motor, then re-read
 
 Talks to the DAMIAO motors directly on arm_left / arm_right (names from
@@ -12,10 +14,12 @@ DISABLE ([0xFF]*7 + 0xFD). It never enables, moves, writes parameters, or sets z
 Protocol from enactic/openarm_can: send ids 1-8 (7 joints + gripper), replies on 0x10+id,
 CAN-FD with bit-rate switch, 8-byte payload.
 """
+import errno
 import os
 import re
 import socket
 import struct
+import subprocess
 import sys
 import time
 
@@ -61,12 +65,38 @@ def disable(mid):
     return frame(mid, [0xFF] * 7 + [0xFD])
 
 
+# A motor is asked ROUNDS times, all motors at once each round, with WINDOW to answer. It reads
+# "no reply" only if it answered none of them. One question per motor was not enough: on
+# 2026-10-21 left J1 and J2 lost 20% and 9% of their replies on a bus with errors (a reseated
+# cable), and a single lost reply read as "no reply" while the arm itself activated fine.
+ROUNDS = 3
+WINDOW = 0.1
+
+
 def open_bus(iface):
     s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
     s.setsockopt(socket.SOL_CAN_RAW, socket.CAN_RAW_FD_FRAMES, 1)
+    # Only the motors' replies (0x11-0x18): with the stack up the bus carries ~20k frames/s, most
+    # of them commands this tool never needs to see.
+    flt = b"".join(struct.pack("=II", 0x10 + m, 0x7FF) for m in range(1, 9))
+    s.setsockopt(socket.SOL_CAN_RAW, socket.CAN_RAW_FILTER, flt)
     s.bind((iface,))
     s.settimeout(0.02)
     return s
+
+
+def send(s, frame_bytes):
+    """Send, riding out a full transmit queue (the links' txqueuelen is 10): a few short waits, then
+    give up on this frame quietly -- the next round asks again."""
+    for _ in range(5):
+        try:
+            s.send(frame_bytes)
+            return True
+        except OSError as e:
+            if e.errno not in (errno.ENOBUFS, errno.EAGAIN):
+                raise
+            time.sleep(0.002)
+    return False
 
 
 def drain(s, limit=0.05):
@@ -99,40 +129,95 @@ def parse(mid, can_id, n, d):
     return STATUS.get(st, f"UNKNOWN_0x{st:X}"), q * 57.29578, d[6], d[7]
 
 
-def read(s, mid):
-    """Motor state (status name, position deg, MOS C, rotor C), or None if it didn't answer."""
-    s.send(refresh(mid))
-    end = time.monotonic() + 0.1
-    while time.monotonic() < end:
-        try:
-            raw = s.recv(FRAME.size)
-        except socket.timeout:
-            continue
-        can_id, n, _f, _a, _b, data = FRAME.unpack(raw.ljust(FRAME.size, b"\0"))
-        r = parse(mid, can_id, n, data[:8])
-        if r is not None:
-            return r
-    return None
+def poll(s, ids, rounds=ROUNDS, window=WINDOW):
+    """Ask every motor in `ids` once per round, all at once, and collect replies for `window`.
+    Returns ({mid: latest state or None}, {mid: rounds it answered in}). Any status frame from the
+    motor counts -- with the stack up, its replies to the stack's own queries are proof it is alive."""
+    latest = {m: None for m in ids}
+    heard = {m: 0 for m in ids}
+    for _ in range(rounds):
+        drain(s)
+        got = set()
+        for m in ids:
+            send(s, refresh(m))
+        end = time.monotonic() + window
+        while time.monotonic() < end and len(got) < len(ids):
+            try:
+                raw = s.recv(FRAME.size)
+            except socket.timeout:
+                continue
+            can_id, n, _f, _a, _b, data = FRAME.unpack(raw.ljust(FRAME.size, b"\0"))
+            m = (can_id & 0x7FF) - 0x10
+            if m in latest:
+                r = parse(m, can_id, n, data[:8])
+                if r is not None:
+                    latest[m] = r
+                    got.add(m)
+        for m in got:
+            heard[m] += 1
+    return latest, heard
+
+
+def link_info(iface):
+    """The link as data, from `ip` alone -- no CAN traffic: present, up, its CAN state, and the
+    error transitions and drops since it came up. Read-only."""
+    try:
+        r = subprocess.run(["ip", "-details", "-statistics", "link", "show", iface],
+                           capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return {"present": None}
+    if r.returncode != 0:
+        return {"present": False}
+    out = r.stdout
+    first = out.splitlines()[0] if out else ""
+    st = re.search(r"can (?:<[^>]*> )?state (\S+)", out)
+    errs = re.search(r"re-started bus-errors arbit-lost error-warn error-pass bus-off\s+"
+                     r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)", out)
+    rx = re.search(r"RX:.*\n\s+\d+\s+\d+\s+(\d+)\s+(\d+)", out)
+    tx = re.search(r"TX:.*\n\s+\d+\s+\d+\s+(\d+)\s+(\d+)", out)
+    info = {"present": True, "up": bool(re.search(r"<[^>]*\bUP\b[^>]*>", first)),
+            "state": st.group(1) if st else "UNKNOWN"}
+    if errs:
+        info.update(warn=int(errs.group(4)), passive=int(errs.group(5)), busoff=int(errs.group(6)))
+    if rx and tx:
+        info.update(rx_drop=int(rx.group(2)), tx_drop=int(tx.group(2)))
+    return info
+
+
+def link_health(iface):
+    """One line on the link: its CAN state and what it has dropped or warned since it came up.
+    Shown only for an arm with a motor that went unheard, so a flaky bus is named as such."""
+    i = link_info(iface)
+    if not i.get("present"):
+        return "link missing" if i.get("present") is False else ""
+    bits = [f"link {i['state']}" + ("" if i["up"] else " (down)")]
+    if "warn" in i:
+        bits.append(f"{i['warn']} error-warnings, {i['passive']} error-passive, {i['busoff']} bus-off since up")
+    if "rx_drop" in i:
+        bits.append(f"dropped rx {i['rx_drop']} / tx {i['tx_drop']}")
+    return "; ".join(bits)
 
 
 def rows_for():
+    """(iface, mid, state or None, error text or None, rounds answered) per motor, both arms."""
     out = []
     for iface in IFACES:
+        ids = list(ids_for(iface))
         try:
             s = open_bus(iface)
         except OSError as e:
-            out += [(iface, mid, None, f"no bus: {e.strerror}") for mid in ids_for(iface)]
+            out += [(iface, mid, None, f"no bus: {e.strerror}", 0) for mid in ids]
             continue
-        drain(s)
-        for mid in ids_for(iface):
-            out.append((iface, mid, read(s, mid), None))
+        latest, heard = poll(s, ids)
         s.close()
+        out += [(iface, mid, latest[mid], None, heard[mid]) for mid in ids]
     return out
 
 
 def counts(rows):
     c = {"enabled": 0, "disabled": 0, "faults": 0, "missing": 0}
-    for _i, _m, r, _e in rows:
+    for row in rows:
+        r = row[2]
         if r is None:
             c["missing"] += 1
         elif r[0] == "ENABLED":
@@ -150,6 +235,17 @@ def fmt_counts(c):
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "links":
+        # One line per arm, key=value, from `ip` alone: nothing is sent on the bus.
+        for iface in IFACES:
+            i = link_info(iface)
+            if not i.get("present"):
+                print(f"{iface} present={0 if i.get('present') is False else '?'}")
+                continue
+            kv = {"present": 1, "up": int(i["up"]), "state": i["state"]}
+            kv.update({k: i[k] for k in ("warn", "passive", "busoff", "rx_drop", "tx_drop") if k in i})
+            print(iface + " " + " ".join(f"{k}={v}" for k, v in kv.items()))
+        return
     if cmd == "disable":
         for iface in IFACES:
             try:
@@ -167,23 +263,36 @@ def main():
         print(fmt_counts(c))
         sys.exit(0 if c["enabled"] == 0 else 1)
     rows = rows_for()
+    c = counts(rows)
+    # Which motors went unheard, by arm, as a word the count parsers skip: where=arm_left:1,2
+    where = {}
+    for iface, mid, r, _e, _h in rows:
+        if r is None:
+            where.setdefault(iface, []).append(str(mid))
+    where_s = (" where=" + ";".join(f"{i}:{','.join(m)}" for i, m in where.items())) if where else ""
     if cmd == "summary":
-        print(fmt_counts(counts(rows)))
+        print(fmt_counts(c) + where_s)
         return
     if cmd != "status":
         sys.exit(__doc__)
     last = None
-    for iface, mid, r, err in rows:
+    for iface, mid, r, err, heard in rows:
         if iface != last:
             print(f"{iface}")
             last = iface
+            arm = [row for row in rows if row[0] == iface]
+            if any(row[2] is None or row[4] < ROUNDS for row in arm) and not any(row[3] for row in arm):
+                health = link_health(iface)
+                if health:
+                    print(f"  ({health})")
         name = "gripper" if mid == 8 else f"joint {mid}"
         if r is None:
-            print(f"  id {mid} ({name:7s})  {err or 'no reply'}")
+            print(f"  id {mid} ({name:7s})  {err or f'no reply after {ROUNDS} tries ({ROUNDS * WINDOW:.1f} s)'}")
         else:
             st, deg, tm, tr = r
-            print(f"  id {mid} ({name:7s})  {st:18s}  pos {deg:+8.2f} deg  MOS {tm:3d}C  rotor {tr:3d}C")
-    print(fmt_counts(counts(rows)))
+            flaky = f"  answered {heard}/{ROUNDS}" if heard < ROUNDS else ""
+            print(f"  id {mid} ({name:7s})  {st:18s}  pos {deg:+8.2f} deg  MOS {tm:3d}C  rotor {tr:3d}C{flaky}")
+    print(fmt_counts(c) + where_s)
 
 
 if __name__ == "__main__":

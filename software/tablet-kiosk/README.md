@@ -12,8 +12,10 @@ device-owner receiver, and a small JavaScript bridge. Anything a user sees is th
 | | how |
 |---|---|
 | dashboard full screen, landscape | one `WebView`; system bars hidden |
-| never sleeps | `FLAG_KEEP_SCREEN_ON`; as device owner also *stay on while plugged in* |
-| locked in front — no status bar, notifications, Home or Overview | lock task mode, as device owner |
+| awake on the robot's power | `FLAG_KEEP_SCREEN_ON`; as device owner also *stay on while plugged in* |
+| on battery, saves power and then sleeps (from 0.5.0) | the tablet is powered from the robot's drive bus, so on battery the robot is off or e-stopped. At once: battery mode (the face dims to half, draws half the frames and stops camera tracking). The screen then goes off (`lockNow`) after **2 min** if the robot's dashboard does not answer (off), or **10 min** if it does (e-stopped, so the stopped face stays up a while). Below **15 %** on battery it sleeps at once and stays asleep; woken by hand it shows "Battery low" for 10 s. When the robot's power returns the screen **wakes by itself**. `Power.kt` |
+| sleep and restart from the dashboard (from 0.5.0) | Head & face page: SLEEP TABLET, and RESTART TABLET (asks twice; refused during a show). The app asks the robot for them itself every 5 s, from native code, so a restart reaches a tablet whose page is dead; the page passes them on at once when it is alive |
+| locked in front — no status bar, notifications, Home or Overview | lock task mode, as device owner. One system feature is allowed (from 0.5.0): the **power menu**, so holding the side key offers Power off and Restart (setup step 5) |
 | no update prompts | system update policy: postpone (Android allows 30 days per update) |
 | comes back after a reboot | it is the launcher (HOME), set as device owner |
 | comes back after an update | an update stops the app; it brings itself back to the front, locked (`UpdateReceiver`) |
@@ -40,6 +42,8 @@ app on any tablet for development.
 | `light()` | ambient light, `{"lux": n, "age_ms": n}`, or `null` with no reading |
 | `cameras()` | each camera, `[{"id", "facing": "screen"\|"back"\|"external", "open": bool}]`; `open` is true while ANY app has it open, so the face's camera indicator follows the hardware |
 | `thermal()` | `{"status": "none"…"shutdown"\|null, "battery_c": n}`: Android's throttling level and the battery's temperature |
+| `power()` | `{"battery_mode", "low", "level", "robot_answers", "sleep_in_s"}` (from 0.5.0): the face saves power while `battery_mode` is true |
+| `sleep()`, `command(id, cmd)` | the screen off now; a dashboard command (`"sleep"`, `"restart"`) passed on by the page, run once by its id |
 | `battery()` | the tablet's own battery, `{"level": 0..100, "charging": bool, "plugged": "ac"\|"usb"\|"wireless"\|"dock"\|null}` — the dashboard shows it beside the robot's. `plugged` is whether power is connected, which a charge limit makes different from charging |
 
 ## Build
@@ -101,6 +105,10 @@ At the bench, with the tablet on USB and USB debugging on. **This erases the tab
    and **Battery › Battery protection** on (it stops charging at 80%; a tablet that lives on the
    mount's power is otherwise held at 100%). Check it with `adb shell settings get global
    protect_battery` — `0` means off.
+   **The side key** (from 0.5.0): holding it opens the power menu (Power off, Restart) only with
+   `adb shell settings put global power_button_long_press 1`; Samsung's default sends the hold to its
+   assistant, which lock task blocks, so it did nothing. A short press still turns the screen off and
+   on. Check it with `adb shell settings get global power_button_long_press` (`1`).
    The app is called **OpenDubs** on the tablet. It does not appear in Samsung's *Never sleeping
    apps* list: it is already exempt (device owner, and step 2's battery-optimisation exemption).
 6. **Name the robot** the tablet belongs to — on the robot, `OPENDUBS_ROBOT_NAME` in

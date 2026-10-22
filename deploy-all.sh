@@ -51,6 +51,7 @@ deploy_sub() {  # $1=repo path  $2=flat dest
 # delete docs-site/), and ships the show runner. Provisioning runs once, below, via provision-all.sh.
 OPENDUBS_SKIP_PROVISION=1 "$REPO/software/kiosk-dashboard/deploy/deploy.sh" "$HOST"
 deploy_sub software/ros             ros
+deploy_sub description/opendubs     description   # opendubs.urdf, read by opendubs-robot-state-publisher
 deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
 deploy_sub software/voice           voice     # the voice service's scripts; built and run below, on robots that opt in
 # The network lane's router health monitor and diagnostics (tools/network/README.md); its unit is

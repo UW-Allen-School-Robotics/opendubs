@@ -341,7 +341,7 @@ SLOT_KEYS = {
 # end), then shows `end`: black (default) or hold (its last frame). `stop` ends whatever plays. The
 # output is the cue's `output`, else the show's `video: {output}`, else the robot's default; the
 # operator may override it at play time. One video at a time: one projector.
-VIDEO_OUTPUTS = ("cast", "hdmi", "off")
+VIDEO_OUTPUTS = ("cast", "hdmi", "stage", "off")   # stage: the stage page (choreo-stage.md)
 DEFAULT_VIDEO_OUTPUT = "cast"           # the user's decision, 2026-10-20: casting first
 VIDEO_ENDS = ("black", "hold")
 VIDEO_KEYS = {"output", "required"}     # the show-level `video:` block

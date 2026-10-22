@@ -28,7 +28,7 @@ class LeftOut(unittest.TestCase):
 
     SECRETS = ["10.42.2.10", "192.168.88.1:8080", "fe80::1c2d:3e4f", "F8:3D:C6:91:75:C2", "Opendubs2",
                "UW MPSK", "/dev/ttyACM0", "usb-1a86_7523", "a3f9c2e81b7d", "SN 4471-22", "ops@example.org",
-               "https://10.42.2.10/", "emmar"]
+               "https://10.42.2.10/", "robotadmin"]
 
     def test_none_of_it_is_said(self):
         s = snap(state={"words": "Ready at 10.42.2.10"},
@@ -38,7 +38,7 @@ class LeftOut(unittest.TestCase):
                  faults=[{"words": "power board fault, id a3f9c2e81b7d", "code": None},
                          {"words": "see https://10.42.2.10/ or mail ops@example.org", "code": None}],
                  show={"running": True, "name": "wave"},
-                 controller="user: emmar",
+                 controller="user: robotadmin",
                  net={"wired": {"ip": "10.42.2.10"}, "wifi": {"ssid": "UW MPSK", "mac": "fe80::1c2d:3e4f"}},
                  client_ip="10.42.2.13", device="usb-1a86_7523")
         said = rf.summary(s, now=NOW, help={})

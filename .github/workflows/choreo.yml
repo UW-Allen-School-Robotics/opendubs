@@ -5,21 +5,11 @@ name: choreo
 # only. This job runs the validator's own tests, the composer's, and validates every show in the
 # repo against the test limits fixture. Pure Python + PyYAML; no robot, no ROS.
 
+# CI COST (2026-10-21): no push-to-main run (the PR already ran it); draft PRs are skipped (CI runs
+# on `gh pr ready`); a manual run is always possible.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/choreo/**"
-      # The code-skin names are pinned in four files across three lanes and tests/test_library.py
-      # checks they agree -- so a change to either of these must run THIS job, or it goes green and
-      # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
-      - "software/face-web/engine/skins/index.js"
-      - "software/head-protocol/head_protocol.py"
-      - "software/face-web/engine/face.js"         # the eye moves' measured peak offsets (test_face_moves)
-      - "sim/**"
-      - "description/**"
-      - ".github/workflows/choreo.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/choreo/**"
       # The code-skin names are pinned in four files across three lanes and tests/test_library.py
@@ -31,17 +21,20 @@ on:
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
+  workflow_dispatch: {}
 
-# A newer push to a branch cancels its older run; every main run is kept.
+# A newer push to a branch cancels its older run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # the draft flag keeps a late draft-time run from cancelling the real run that `gh pr ready` starts
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.draft }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

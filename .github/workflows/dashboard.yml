@@ -6,21 +6,19 @@ name: dashboard
 # the runner and the head.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/kiosk-dashboard/backend/**"
-      - ".github/workflows/dashboard.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/kiosk-dashboard/backend/**"
       - ".github/workflows/dashboard.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

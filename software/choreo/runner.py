@@ -84,6 +84,19 @@ AUDIO_READY_WAIT_S = 15.0 # PLACEHOLDER: how long a start waits for the audio de
 # check at that instant ran every show silently). So the load is ALWAYS sent — the dashboard keeps it
 # for the next device to claim — and only a device still absent this long into PREPPING means silence.
 AUDIO_HOLDER_GRACE_S = 3.0
+# An ARMED run waits here for the show audio — the tablet's, and the projector's music and video (a
+# cast load, the stage pages told the show), which load while it is armed — BEFORE it takes the GO (found at the robot 2026-10-16:
+# starting from the tablet swaps it to the face page, so the device holding show audio reconnects a few
+# seconds AFTER the run is armed, and the music then needs longer still to load; waiting after the GO
+# made the operator hold the deadman through 15-22 s of nothing, and a brief slip ended two runs).
+# Until the audio is ready, or this long has passed, a press is not a GO. After the GO only
+# AUDIO_AFTER_GO_S more is waited, then the show runs silently rather than keep the operator holding.
+AUDIO_ARMED_WAIT_S = 10.0
+# A stage page plays the show's video from the stage box's own copy, or streams it with a HEAD START: the
+# GO waits until every page has `stage_buffer_s` of it (projector.json, 25 s) — at most this long. Past it
+# the stage is dropped (the tablet keeps the music), or a show that requires its video is refused.
+STAGE_BUFFER_WAIT_S = 90.0
+AUDIO_AFTER_GO_S = 2.0
 
 # Start modes (agreed with the Orchestrator, 2026-10-13). An ARMED run has passed every check but the
 # deadman; nothing moves, the show audio loads, and the e-stop, CH5, faults and the arms are still
@@ -236,7 +249,8 @@ def audio_items(show, tl) -> tuple:
             skipped.append(f"the show library cannot be read ({unreadable}) — running without music")
         elif e and e.get("kind") == "song" and os.path.isfile(f):
             items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music",
-                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f})
+                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f,
+                          "lib": m["song"], "sha256": e.get("sha256")})
         else:
             skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
@@ -281,7 +295,8 @@ def video_items(show, tl) -> tuple:
             continue
         out.setdefault(e.get("output") or cue.DEFAULT_VIDEO_OUTPUT, []).append(
             {"t": e["t"], "end_t": end_t, "path": f, "from_s": float(c.get("from_s") or 0.0),
-             "end": c.get("end", "black"), "id": c.get("video"), "song": ent.get("song")})
+             "end": c.get("end", "black"), "id": c.get("video"), "song": ent.get("song"),
+             "sha256": ent.get("sha256")})            # a stage box's local copy is found by it
     return out, skipped
 
 
@@ -625,6 +640,7 @@ class Runner:
         out = {"start": self.start, "countdown_s": self.countdown}
         if self.status == ARMED:
             out["deadman"] = self._state.get("deadman")
+            out["audio_waiting"] = bool(getattr(self, "audio_waiting", False))
         if self.deadline and self.status in (ARMED, COUNTDOWN):
             out["left_s"] = round(max(0.0, self.deadline[1] - self.clock()), 1)
         return out
@@ -672,6 +688,16 @@ class Runner:
             return False
         return bool(st.get("ready")) and st.get("load") in (None, load_id)
 
+    def _media_late(self, load_id, media) -> list:
+        """What an armed run is still waiting for: the tablet's show audio, and each projector or stage
+        output that has not loaded yet."""
+        late = [] if not self.audio_live or self._audio_ready(load_id) else ["the tablet's show audio"]
+        return late + [(sv.waiting_for() if hasattr(sv, "waiting_for") else f"the {sv.state().get('output')} output")
+                       for sv in media if not sv.ready()]
+
+    def _media_ready(self, load_id, media) -> bool:
+        return not self._media_late(load_id, media)
+
     def _video_preflight(self, show, tl) -> list:
         """The show's videos, each on its output. An output that is not ready is a warning and the show
         runs without that video (as audio, DEC-7) — or a refusal, VIDEO_NOT_READY, for a show that says
@@ -696,7 +722,8 @@ class Runner:
                     notes.append(why + " — running without it")
                     self._log("video_warning", note=why)
                 continue
-            lead = self.projector_settings.get("video_lead_s") if name == "cast" else None
+            lead = (self.projector_settings.get("video_lead_s") if name == "cast" else
+                    self.projector_settings.get("stage_video_lead_s") if name == "stage" else None)
             # A video that CARRIES the show's song (its library entry's `song`, in step with the show's
             # music) plays the music itself: it is started by the AUDIO offset — the beat is what must
             # land — and if it drops out the tablet takes the music over (choreo-audio.md).
@@ -704,7 +731,12 @@ class Runner:
             carries = [it for it in its if song and it.get("song") == song and abs(it["t"] - it["from_s"]) < 0.05]
             if carries:
                 self._carrier = name
-                lead = self.projector_settings.get("audio_lead_s")
+                lead = self.projector_settings.get("stage_audio_lead_s" if name == "stage" else "audio_lead_s")
+            if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
+                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"),
+                                                buffer_s=self.projector_settings.get("stage_buffer_s"), log=self._log,
+                                                on_lost=self._music_lost if carries else None))
+                continue
             self.videos.append(video_out.ShowVideo(
                 be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log,
                 on_lost=self._music_lost if carries else None))
@@ -749,6 +781,22 @@ class Runner:
             self._log("audio", note=f"music on the tablet: {why}")
             return
         settings = self.projector_settings
+        if hasattr(be, "make_show"):
+            # the stage page (a stage Pi's speaker, say) plays the music itself, under its own scene, on the
+            # show's clock; the tablet holds its copy, silent, and takes over if every page goes
+            lead = settings.get("stage_audio_lead_s") or 0.0
+            for it in music:
+                it["held"] = True
+            self.music = [be.make_show([
+                {"t": it["at"], "end_t": max(it["at"], tl.get("duration_s") or 0.0) + 0.5, "path": it.get("path"),
+                 "url": it.get("url"),                # the same address the tablet fetches it by
+                 "lib": it.get("lib"), "sha256": it.get("sha256"),   # a stage box's own copy, if it has one
+                 "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
+                 "lead_s": lead, "audio": True} for it in music], tl.get("music"),
+                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost)]
+            self.music_on, self.music_why = "projector", None
+            self._log("audio", note=f"music on the stage page ({lead:g} s early); dialogue on the tablet")
+            return
         lead = settings.get("audio_lead_s")
         sends = []
         for it in music:
@@ -848,16 +896,21 @@ class Runner:
         for why in skipped:
             self._log("audio_warning", note=why)
         self._route_music(tl, items)
-        items = [{k: v for k, v in it.items() if k != "path"} for it in items]   # the tablet fetches by URL
+        items = [{k: v for k, v in it.items() if k not in ("path", "lib", "sha256")}   # the tablet fetches by URL
+                 for it in items]
         if items:
             if not self._audio_holder():
                 self._log("audio_note", note="no device holds show audio yet — the music goes to the first "
                                              "that claims it (a tablet changing page as the run starts)")
             if self._audio({"op": "load", "id": load_id, "items": items}):
                 self.audio_live = True
+        # The projector's videos and music, and the stage pages, load now too (paused, on their own
+        # threads), so an armed run's GO waits for them as well as for the tablet
+        for sv in self.videos + self.music:
+            sv.begin()
 
         # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
-        if self.start == "deadman" and (stop := self._wait_for_go(show, st)):
+        if self.start == "deadman" and (stop := self._wait_for_go(show, st, load_id)):
             return stop
 
         # COUNTDOWN: after the GO (or at once, in countdown mode), before anything moves. The
@@ -880,8 +933,6 @@ class Runner:
 
         # PREPPING: travel to the start pose, slowly enough to need no warning — while the
         # show-audio device finishes loading
-        for sv in self.videos + self.music:       # the projector loads (paused) while the arms travel
-            sv.begin()
         secs, targets = prep_moves(tl, measured)
         if self.live and secs > 0:
             for slot in targets:
@@ -893,15 +944,16 @@ class Runner:
             self._arms_moving = True
         self._set(PREPPING, prep_s=secs, targets=targets, audio_items=len(items))
         t_prep = self.clock()
-        t_end, wait_until = t_prep + secs, t_prep + AUDIO_READY_WAIT_S
+        # an armed run already waited for the audio before its GO: the operator is holding now
+        t_end = t_prep + secs
+        wait_until = t_prep + (AUDIO_AFTER_GO_S if self.start == "deadman" else AUDIO_READY_WAIT_S)
         while self.clock() < t_end or (self.audio_live and not self._audio_ready(load_id)):
             no_holder = self.audio_live and self.clock() >= t_prep + AUDIO_HOLDER_GRACE_S \
                 and not self._audio_holder()
             if no_holder or (self.audio_live and self.clock() >= max(t_end, wait_until)):
                 self._audio({"op": "cut"})
                 self._audio_silent("no device is playing show audio — running silently" if no_holder else
-                                   f"the show-audio device was not ready in {AUDIO_READY_WAIT_S:g} s — "
-                                   "running silently")
+                                   f"the show-audio device was not ready in time — running silently")
                 break
             if (stop := self._tick_checks(show, None)):
                 return stop
@@ -1051,9 +1103,10 @@ class Runner:
                                  f"{ARM_ACK_S:g} s — the arms are not following the show", t)
         return None
 
-    def _wait_for_go(self, show, st):
-        """ARMED_WAITING. Returns None on the GO (the deadman's rising edge after arming), else the
-        run's end: an operator stop, a disarm (e-stop, CH5, a fault, the arms) or the timeout."""
+    def _wait_for_go(self, show, st, load_id=None):
+        """ARMED_WAITING. Returns None on the GO (the deadman's rising edge after arming, once the show
+        audio is ready or AUDIO_ARMED_WAIT_S has passed), else the run's end: an operator stop, a disarm
+        (e-stop, CH5, a fault, the arms) or the timeout."""
         requires = show.requires or {}
         # The dashboard asks the arms and the head only ON DEMAND (refresh, at preflight: the arm read
         # uses the arms' CAN bus) and forgets the answer after its PROBE_MAX_AGE_S (10 s). Past that
@@ -1063,9 +1116,15 @@ class Runner:
         probed = {k: st.get(k) for k in PROBED_FIELDS}
         self.deadline = ("ARMED", self.clock() + ARM_TIMEOUT_S)
         prev = st.get("deadman")
+        media = self.videos + self.music
+        wait_s = max([AUDIO_ARMED_WAIT_S] + [STAGE_BUFFER_WAIT_S for sv in media if hasattr(sv, "drop")])
+        audio_until = self.clock() + wait_s if (self.audio_live or media) else None
+        self.audio_waiting = audio_until is not None
         self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
-                  note=("the deadman is held: let go of it, then press it to start" if prev is True
+                  note=("getting the show's audio and video ready — then press the deadman" if self.audio_waiting else
+                        "the deadman is held: let go of it, then press it to start" if prev is True
                         else "press the deadman to start"))
+        early = False
         self._armed("WAIT")
         waits = 1
         resend = self.clock() + ARMED_RESEND_S
@@ -1080,8 +1139,35 @@ class Runner:
             end = armed_monitor(requires, st)
             if end:
                 return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
+            if self.audio_waiting and not self._media_ready(load_id, media):
+                late = self._media_late(load_id, media)          # what the Shows page says while it waits
+                note = "getting the show's audio and video ready: " + ", ".join(late) + " — then press the deadman"
+                if note != getattr(self, "_wait_note", None):
+                    self._wait_note = note
+                    self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev, note=note)
+            if self.audio_waiting and (self._media_ready(load_id, media) or self.clock() >= audio_until):
+                self.audio_waiting = False
+                late = self._media_late(load_id, media)
+                self._log("audio_note", note="the show audio is ready" if not late else
+                          f"not ready after {wait_s:g} s: {', '.join(late)} — the tablet gets "
+                          f"{AUDIO_AFTER_GO_S:g} s more after the GO, then runs silently; the projector "
+                          "catches up on the show's clock")
+                for sv in [sv for sv in media if hasattr(sv, "drop") and not sv.ready()]:
+                    why = f"{sv.waiting_for()} after {wait_s:g} s"
+                    if isinstance(show.doc.get("video"), dict) and show.doc["video"].get("required") is True:
+                        # @fault SHOW_VIDEO_NOT_READY
+                        return self._end(REFUSED, "SHOW_VIDEO_NOT_READY", f"video on stage: {why}")
+                    sv.drop(why)                 # the stage plays nothing; the tablet keeps the music
+                    self.video_note = f"video on stage: {why} — running without it"
+                self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,
+                          note=("let go of the deadman, then press it to start" if prev is True
+                                else "press the deadman to start"))
             dm = st.get("deadman")
-            if dm is True and prev is False:
+            if dm is True and prev is False and self.audio_waiting and not early:
+                early = True
+                self._log("deadman", held=True, note="pressed before the show audio was ready: not a GO — "
+                          "let go, and press again when the Shows page says so")
+            elif dm is True and prev is False:
                 self.deadline = None
                 self._log("go", note="the deadman was pressed: GO", armed_wait_sent=waits)
                 return None
@@ -1236,6 +1322,8 @@ class Palette:
         else:
             outs["cast"] = {"found": False, "name": None, "host": None, "ready": False,
                             "why": "this robot isn't set up to cast (the runner has no cast output)"}
+        if "stage" in self.video:
+            outs["stage"] = self.video["stage"].status()
         if "hdmi" in self.video:
             outs["hdmi"] = self.video["hdmi"].status()
         else:
@@ -1262,12 +1350,12 @@ class Palette:
         """The projector's offsets and how it takes music (choreo-audio.md), set at the robot by ear;
         stored on the robot (projector.json) and used from the next run."""
         if not isinstance(change, dict) or not change:
-            raise ValueError("the body must set one of audio_lead_s, video_lead_s, music_as")
+            raise ValueError(f"the body must set one of {', '.join(video_out.LEAD_KEYS)}, music_as")
         video_out.save_settings(change)
         return self.video_status()
 
     def set_video_output(self, output):
-        """The operator's play-time choice (cast | hdmi | off), or None to follow each show. Not while
+        """The operator's play-time choice (cast | hdmi | stage | off), or None to follow each show. Not while
         a routine runs: its videos are already on their output."""
         if output not in (None, *cue.VIDEO_OUTPUTS):
             raise ValueError(f"output must be one of {', '.join(cue.VIDEO_OUTPUTS)}, or null for each show's own")
@@ -1478,7 +1566,7 @@ def main() -> int:
     pp.add_argument("--light", choices=("none", "dashboard"), default="none",
                     help="dashboard: a live run lays its colour over the state light (show_light.py)")
     pp.add_argument("--video", default="",
-                    help="the projector outputs this runner drives: cast, hdmi or cast,hdmi (video_out.py; "
+                    help="the projector outputs this runner drives, comma-separated: cast, hdmi, stage (video_out.py; "
                          "per robot: OPENDUBS_CAST_NAME / OPENDUBS_CAST_HOST, OPENDUBS_VIDEO_PORT (8094), OPENDUBS_VIDEO_BIND, "
                          "OPENDUBS_MPV_SOCKET, OPENDUBS_VIDEO_OUTPUT)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
@@ -1537,12 +1625,14 @@ def main() -> int:
                 if "dashboard" in (a.lift, a.light) else None)
         video = {}
         wanted = {x.strip() for x in a.video.split(",") if x.strip()}
-        if wanted - {"cast", "hdmi"}:
-            ap.error(f"--video: {', '.join(sorted(wanted - {'cast', 'hdmi'}))} is not cast or hdmi")
+        if wanted - {"cast", "hdmi", "stage"}:
+            ap.error(f"--video: {', '.join(sorted(wanted - {'cast', 'hdmi', 'stage'}))} is not cast, hdmi or stage")
         if "cast" in wanted:
             video["cast"] = video_out.CastOutput(server=video_out.MediaServer(bind=video_out.bind_address()))
         if "hdmi" in wanted:
             video["hdmi"] = video_out.HdmiOutput()
+        if "stage" in wanted:                     # the stage page (choreo-stage.md), through the dashboard
+            video["stage"] = video_out.StageOutput(show_outputs.base_of(a.dashboard))
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
                       local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
                       light_live=a.light == "dashboard", no_neck=no_neck, video=video)

@@ -1,4 +1,5 @@
-# Let the scan watchdog (running as emmar) restart the RPLIDAR driver when /scan
-# goes stale. Install to /etc/sudoers.d/opendubs-ros (mode 0440).
-emmar ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar
-emmar ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar-rear
+# Let the scan watchdog (running as the ROS service user) restart the RPLIDAR driver when /scan
+# goes stale. provision-ros.sh fills in the user, checks the result with visudo, and installs it to
+# /etc/sudoers.d/opendubs-ros (mode 0440). Never install this file as it stands.
+@OPENDUBS_USER@ ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar
+@OPENDUBS_USER@ ALL=(root) NOPASSWD: /usr/bin/systemctl restart opendubs-rplidar-rear

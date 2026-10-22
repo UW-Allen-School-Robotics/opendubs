@@ -28,7 +28,9 @@ PY
 ```
 
 `PING` · `NECK` · `GAZE <pan> <tilt> [lease_ms]` / `GAZE OFF` · `TILT <min> <max>` ·
-`CHEST <us>` / `CHEST OFF` · `OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
+`CHEST <us>` / `CHEST OFF` · `HOLD` / `HOLD HERE` / `HOLD <pan> <tilt>` / `HOLD OFF` ·
+`BADGE <STATE> <driver> <rrggbb>` / `BADGE OFF` · `TOUCH HOLD [lease_ms]` / `TOUCH RATE …` / `TOUCH OFF` ·
+`OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
 Anything else answers `ERR unknown`.
 
 ### Which way is which
@@ -86,6 +88,37 @@ kill %1
 A virgin or bricked board needs USB and `tools/flash.py` (app-only at `0x10000`; a merged image at
 `0x0` erases the NVS and takes the Wi-Fi credentials with it). Flashing over USB is CLAUDE.md's
 rote M5Stack procedure; do not improvise around it.
+
+## The knob and the screen: HOLD and the status badge
+
+The Dial has one job for a person: **HOLD** (`neck/hold.h`; the design is `notes/design/head-ownership.md`).
+
+- **Turn the knob one way**, three detents within about a second: the head is **held** where it is.
+  Tracking, shows, touch and the RC stick no longer move it. **Turn it the other way** the same: it is
+  released, but only after **3 s** in which the screen says "releasing hold" and the dashboard shows a
+  notice. A bump or a slow turn does nothing.
+- The dashboard (Head & face: HOLD HERE / RELEASE) and software (`HOLD …` above) set and release the
+  same hold. `NECK` reports it: `owner=hold hold=on|releasing|off hold_by=knob|remote`.
+- **A reboot always comes back released**: the hold is in RAM only.
+- **The button is unchanged**: it only confirms a pending tilt change, and the screen says so.
+
+The **screen** is a status badge: a ring in the robot state's colour, the state's label, and who drives
+the head (from the dashboard's `BADGE`, every 5 s), or what the neck knows itself: HOLD, "releasing
+hold", RC, TOUCH, "press to confirm tilt …". Blank until the dashboard first sends a badge; the ring
+goes grey after 20 s without one.
+
+**The screen can never cost the board** (`src/badge_screen.h`): it starts last, after the UDP socket
+is listening; its start runs under the task watchdog, so a hang resets the board; and after a crash or
+watchdog reset the board comes up **without** the screen. The serial report and `screen=` in the
+10 s report line say which. It is LovyanGFX configured by hand, with no touch controller, so nothing
+touches Port A's I2C.
+
+**To check at the Dial, the first time** (by eye, with the user there):
+
+1. **The knob's direction.** Clockwise should hold. If the screen says RELEASE (or nothing while held),
+   flip `kKnobUpHolds` in `neck/hold.h`.
+2. **A detent is four counts.** If three detents do nothing and six do, set `kKnobCountsPerDetent` to 2.
+3. **The screen's colours.** If the ring's red reads as blue, the panel wants `rgb_order = true` in `src/badge_screen.cpp`.
 
 ## The chest light
 

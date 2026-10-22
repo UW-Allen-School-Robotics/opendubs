@@ -182,3 +182,34 @@ def test_a_runs_start_mode_is_forwarded_and_nothing_else():
         assert seen == [{"start": "deadman", "countdown_s": 3}]
     finally:
         srv.shutdown()
+
+
+def test_the_stage_pis_own_leads_reach_the_runner_beside_the_casts():
+    seen = []
+
+    class Rec(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            seen.append(json.loads(self.rfile.read(n)) if n else None)
+            b = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+    srv = HTTPServer(("127.0.0.1", 0), Rec)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    choreo_proxy.RUNNER_URL = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        app = FastAPI()
+        app.include_router(choreo_proxy.router)
+        c = TestClient(app)
+        c.post("/api/choreo/video/settings", json={"stage_audio_lead_s": 0.2, "stage_video_lead_s": 0.05, "x": 1})
+        assert seen == [{"stage_audio_lead_s": 0.2, "stage_video_lead_s": 0.05}]
+    finally:
+        srv.shutdown()

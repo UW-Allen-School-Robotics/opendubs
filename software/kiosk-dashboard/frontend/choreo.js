@@ -92,6 +92,8 @@
   /* ARMED_WAITING and COUNTDOWN in words: what the operator must do next, and how long is left. */
   function startHTML(s) {
     const si = s.start_info || {}, left = si.left_s != null ? ` · ${Math.ceil(si.left_s)} s left` : "";
+    if (s.status === "ARMED_WAITING" && si.audio_waiting)
+      return `<b class="shows-armed">ARMED</b> — getting the show's audio and video ready (a few seconds); then press the deadman`;
     if (s.status === "ARMED_WAITING")
       return `<b class="shows-armed">ARMED</b> — ${si.deadman === true ? "let go of the deadman, then press it to start"
         : si.deadman === false ? "press the deadman to start" : "the deadman is unknown"}<span class="dim">${esc(left)}</span>`;

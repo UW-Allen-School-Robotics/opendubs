@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 8                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT, v8 CAPTION (tablet face only); v7 CHEST (neck)
+VERSION = 9                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT, v8 CAPTION (tablet face only); v7 CHEST, v9 HOLD/BADGE (neck)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -29,7 +29,7 @@ THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plai
 # other name is a library skin's id. `default` is the standard eyes.
 CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
               "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
-OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "none")
+OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "hold", "none")
 TRACK_SOURCES = ("thor", "local")
 
 # Precedence, highest first (§4). PARK is not an owner in this list: it sets aside everything
@@ -75,6 +75,8 @@ MESSAGES = {
     "TOF":     (NECK, "shipping"),
     "I2CSCAN": (NECK, "shipping"),
     "CHEST":   (NECK, "agreed"),        # v7, the chest light on the neck (agreed with Face & HRI, 2026-10-16)
+    "HOLD":    (NECK, "agreed"),        # v9, the neck Dial's hold: the knob, the dashboard, software (2026-10-22)
+    "BADGE":   (NECK, "agreed"),        # v9, the neck Dial's status screen (2026-10-22)
     "REBOOT":  (DEVICE, "shipping"),
     "OTA":     (DEVICE, "shipping"),
 }
@@ -87,7 +89,7 @@ KINDS = {
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
     "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
                     "BRIGHT", "ARMED", "BATT", "CAPTION", "REBOOT", "OTA"},
-    "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "CHEST", "TOF", "I2CSCAN", "REBOOT", "OTA"},
+    "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "CHEST", "HOLD", "BADGE", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
 TRACK_LOCAL_REFUSED = {"tab5"}

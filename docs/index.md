@@ -2,8 +2,8 @@
 
 A **low-cost, low-fabrication, open-source mobile robot** built at the University of Washington: an
 NVIDIA Jetson AGX Thor autonomy brain, an M5Stack StamPLC edge controller on the mobile base,
-mecanum drive on a goBILDA/REV chassis, and a Tab5 front panel carrying the animated face and
-the pan/tilt head — designed so a small team can replicate it from
+mecanum drive on a goBILDA/REV chassis, and a tablet head carrying the animated face on a pan/tilt
+neck — designed so a small team can replicate it from
 mostly off-the-shelf parts.
 
 !!! danger "Safety & disclaimer — read before you build or operate"
@@ -50,7 +50,7 @@ mostly off-the-shelf parts.
 
 ## Firmware, software, hardware
 
-- **Firmware** — `firmware/rc_serial_probe/` (StamPLC) and `firmware/tab5_idf/` (the Tab5 head). Flashing:
+- **Firmware** — `firmware/rc_serial_probe/` (StamPLC) and `firmware/neck_dial/` (the head's neck controller). Flashing:
   [Flash a StamPLC](flashing-stamplc.md); transport design: [StamPLC ↔ Thor over Ethernet](stamplc-ethernet-transport.md).
 - **Software** — `software/kiosk-dashboard/` (dashboard), `software/ros/` (ROS 2 bringup),
   `software/teleop/`. Bring-up: [Thor setup](thor-setup.md), [Deployment & portability](portability-audit.md).

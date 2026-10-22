@@ -39,17 +39,19 @@ try {
         await p.evaluate("JSON.stringify(window.faceCameras)"));
 
   const press = (ms) => p.evaluate(`(async () => {
-    dispatchEvent(new PointerEvent('pointerdown', { clientX: 200, clientY: 200 }));
+    dispatchEvent(new PointerEvent('pointerdown', { clientX: 200, clientY: 200, isPrimary: true }));
+    const ring = document.getElementById('touch').classList.contains('down');
     await new Promise((r) => setTimeout(r, ${ms}));
     dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 200 }));
-    return { hint: document.getElementById('hint').classList.contains('show'), op: document.getElementById('op').classList.contains('open') };
+    return { ring, hint: document.getElementById('hint').classList.contains('show'), op: document.getElementById('op').classList.contains('open') };
   })()`);
   const tap = await press(120);
+  check("a touch answers at once (the ring)", tap.ring, JSON.stringify(tap));
   check("a short tap shows the hint, and opens nothing", tap.hint && !tap.op, JSON.stringify(tap));
   await sleep(3400);
   check("  which goes by itself", (await p.evaluate("document.getElementById('hint').classList.contains('show')")) === false, "still showing");
-  const hold = await press(1700);
-  check("a long-press opens the controls, without the hint", hold.op && !hold.hint, JSON.stringify(hold));
+  const hold = await press(1200);
+  check("a one-second hold opens the controls, without the hint", hold.op && !hold.hint, JSON.stringify(hold));
   await p.close();
 } catch (e) {
   console.log(`FAIL ${e.message}`); fail++;

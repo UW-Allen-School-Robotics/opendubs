@@ -129,6 +129,15 @@ def test_media_serves_the_librarys_songs_and_nothing_else_of_it():
         assert c.get("/api/choreo/media/" + rel).status_code == 404, rel
 
 
+def test_media_serves_the_librarys_videos_by_byte_range_for_the_stage_page():
+    lib = tempfile.mkdtemp()
+    os.makedirs(os.path.join(lib, "videos"))
+    open(os.path.join(lib, "videos", "v.mp4"), "wb").write(bytes(range(256)))
+    show_audio.LIBRARY_DIR = lib
+    r = _client().get("/api/choreo/media/library/videos/v.mp4", headers={"Range": "bytes=10-19"})
+    assert r.status_code == 206 and r.content == bytes(range(10, 20))   # a <video> seeks by ranges
+
+
 def test_media_serves_only_audio_and_sounds_under_the_shows_directory():
     d = tempfile.mkdtemp()
     os.makedirs(os.path.join(d, "audio"))

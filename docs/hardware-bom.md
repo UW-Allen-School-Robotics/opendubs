@@ -19,12 +19,11 @@ part used in two places is listed once, with the quantities added.
 | Part | SKU | Qty | Used in | Notes |
 |---|---|---:|---|---|
 | [NVIDIA Jetson AGX Thor Developer Kit](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/) | — | 1 | — | The main computer: runs the dashboard, the ROS software and the arms. |
-| [Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface)](https://www.samsung.com/latin_en/tablets/galaxy-tab-a/galaxy-tab-a11-gray-64gb-sm-x133nzaagto/) | `SM-X133` | 1 | — | The robot has no screen of its own: the dashboard runs full-screen on this tablet, locked in the project's kiosk app (software/tablet-kiosk). The kiosk app's setup guide is written for this model. |
+| [Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (the head and the operator's tablet)](https://www.samsung.com/latin_en/tablets/galaxy-tab-a/galaxy-tab-a11-gray-64gb-sm-x133nzaagto/) | `SM-X133` | 1 | — | One tablet does both jobs: on the head's mount it is the face and plays the robot's sound; lifted off, it is the operator's dashboard. It runs the project's kiosk app, whose setup guide is written for this model. |
 | [ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery](https://www.ecoworthy.com/) | — | 1 | — | 2.56 kWh, 16 cells in series. Its BMS reports charge and voltage to the StamPLC over RS-485. The heaviest single part. |
 | [48 V LiFePO4 battery charger](https://a.co/d/0aP9q4YX) | — | 1 | — | Set it to 48 V; 8 A is the recommended current. |
 | [GIGAVAC GX11 contactor, 24 V coil](https://www.sensata.com/products/gigavac-power-contactors-fuses/gx-contactors-800v/gx-normally-open-contactors) | `GX11CAB` | 1 | — | The e-stop contactor: sealed, normally open, with an auxiliary contact the StamPLC reads to detect a weld. |
 | [RadioLink T8S transmitter + R8EF receiver](https://a.co/d/0cFzagC4) | — | 1 | — | Manual control; the receiver talks SBUS to the StamPLC. |
-| [M5Stack Tab5 (ESP32-P4)](https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4) | — | 1 | — | The head: the face, front control panel and voice. |
 | [DIHOOL electric scissor lift table, 130 lb, 3.95–14.76 in travel](https://www.amazon.com/dp/B0F7H1C4DJ) | — | 1 | — | Comes with its own up/down controller; the StamPLC presses its buttons through two relays. |
 | [M5Stack ToF4M unit (VL53L1X)](https://docs.m5stack.com/en/unit/Unit-ToF4M) | — | 1 | — | Measures the lift's height for the pinch guard. |
 | [OpenArm bimanual arm set (two 7-DOF arms with grippers)](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic) | — | 1 | — | Left and right, from OpenArm's certified seller. Each arm has its own CAN-FD bus. The robot uses the follower set; leader arms are a separate set. |
@@ -38,6 +37,8 @@ part used in two places is listed once, with the quantities added.
 | [REV Mini Power Module (24 V logic bus)](https://www.revrobotics.com/rev-11-1956/) | `REV-11-1956` | 1 | [Electronics Bay](build/electronics-bay.md) | 6 fused branch circuits — feeds Thor / StamPLC / router / USB hub(s) / E-stop signal (outside the bay) and the PRISM (inside) |
 | [goBILDA 2x80A ESC](https://www.servocity.com/content/user_manuals/3105-0202-0080_data-sheet.pdf) | `3105-0202-0080` | 2 | [Electronics Bay](build/electronics-bay.md) | Drive ESCs (datasheet at the link). NOTE: 2x80A is likely OVER-SPEC for this drivetrain — a lower-amperage ESC would work and cost less; we used these because we had them on hand. |
 | [M5 8Servo unit](https://docs.m5stack.com/en/unit/8Servos%20Unit) | — | 2 | [Electronics Bay](build/electronics-bay.md), [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The StamPLC's: PWM to the four drive ESCs, at I2C 0x25 behind the PaHub. The neck has its own (Pan/Tilt HMI). |
+| [M5Stack Dial v1.1 (ESP32-S3)](https://shop.m5stack.com/products/m5stack-dial-v1-1) | `K130-V11` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | The neck controller: takes the head's commands over the network and drives the neck's 8Servo. |
+| [goBILDA 2000 Series Dual Mode Servo (25-2, Torque)](https://www.servocity.com/2000-series-dual-mode-servo-25-2/) | `2000-0025-0002` | 2 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Pan and tilt, on the neck 8Servo's channels 1 and 0. Dual-mode: confirm each is in positional mode before fitting (see Commissioning). |
 | [goBILDA RGB Indicator Light (PWM Controlled)](https://www.servocity.com/rgb-indicator-light-pwm-controlled/) | `3118-0808-0002` | 1 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Lights the chest badge from behind in the robot's state colour; the PWM pulse width sets the colour. Fixed with M4 screws through its own holes. |
 | 6 x 2 mm disc magnet (N52 or similar) | — | 8 | [Pan/Tilt HMI Module](build/pan-tilt-hmi.md) | Four pairs, poles attracting: they hold the face on, so it lifts off to reach the screws. |
 | [ODrive Regen Clamp](https://shop.odriverobotics.com/products/odrive-regeneration-clamp) | — | 1 | [Electronics Bay](build/electronics-bay.md) | Absorbs braking regen; the resistor lead requires SOLDERING |
@@ -54,6 +55,15 @@ part used in two places is listed once, with the quantities added.
 | [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | [Right Upper Electronics Bay](build/upper-right-electronics-bay.md) | Adds PoE Ethernet to the StamPLC — the StamPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
 | [Micro-Fit 3.0 4-pin cable (Thor DC input)](https://a.co/d/06nenwIA) | `B07Z6BJCVH` | 1 | [Mini Power Module (logic bus)](build/mini-power-module.md) | Sold as an ATX 4-pin 12 V cable — the housing fits Thor, the PIN ASSIGNMENT DOES NOT. Verify against Thor's pinout and re-pin before first power-on; do not trust wire colors. |
 | [goBILDA 1205-series dual block mount (2-pack)](https://www.servocity.com/1205-series-dual-block-mount-1-5-2-pack/) | — | 1 | [Thor Install](build/thor-install.md) | The 2-pack gives the two dual blocks that clamp the Thor cradle to the rail. |
+| [Raspberry Pi 5, 4 GB](https://www.raspberrypi.com/products/raspberry-pi-5/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The box's computer. 4 GB is plenty. A Raspberry Pi 4 runs the same image and makes a good spare. |
+| [Raspberry Pi 27 W USB-C power supply](https://www.raspberrypi.com/products/27w-power-supply/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The official supply for the Pi 5; a weaker one shows as an under-voltage warning on the stage page. A Pi 4 takes the official 15 W one. |
+| [Raspberry Pi Active Cooler (for Pi 5)](https://www.raspberrypi.com/products/active-cooler/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. Clips onto the Pi 5. |
+| [High-endurance microSD card, 32 GB or more](https://www.sandisk.com/products/memory-cards/microsd-cards/sandisk-high-endurance-uhs-i-microsd) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. Holds the system, which runs read-only. A high-endurance card is made for constant use. |
+| [Micro-HDMI to HDMI cable, short](https://www.raspberrypi.com/products/micro-hdmi-to-standard-hdmi-a-cable/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The Pi's HDMI ports are micro-HDMI. Use HDMI 0, the port nearest the USB-C power. |
+| USB 3 flash drive, 32 GB or more | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The box's own copies of the show videos, so a show plays without Wi-Fi. The setup erases it. Plug it into a blue (USB 3) port. |
+| [Sabrent USB external stereo sound adapter](https://sabrent.com/products/au-mmsa) | `AU-MMSA` | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. Any class-compliant USB audio adapter works. Sends the show's music to a powered speaker instead of the screen. |
+| 3.5 mm stereo audio cable | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. From the USB audio adapter to a powered speaker's aux input. |
+| 3.5 mm ground-loop isolator | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. Only if the speaker hums. Fits inline on the audio cable. |
 <!-- /BOM-AUTO:purchase:components -->
 
 ## Structure
@@ -90,23 +100,22 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 
 | | Total (USD) | Lines without a price |
 |---|---:|---:|
-| **One robot, all parts** | **$14,534.53** | 10 |
-| One robot, without the Thor and the arms | $3,635.53 | 10 |
+| **One robot, all parts** | **$14,583.41** | 10 |
+| One robot, without the Thor and the arms | $3,684.41 | 10 |
 | Tools, bought once | $188.53 | 4 |
 
-*Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface); M4 x 20 mm socket-head cap screw (ISO 4762); M4 heat-set insert; 6 x 2 mm disc magnet (N52 or similar); CA glue; 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
+*Parts without a price, not in the totals:* Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (the head and the operator's tablet); M4 x 20 mm socket-head cap screw (ISO 4762); M4 heat-set insert; 6 x 2 mm disc magnet (N52 or similar); CA glue; 24 V 60 A DC/DC converter; USB cable (A1 to hub); ATM (mini) blade fuse, 5 A; ATM (mini) blade fuse, 10 A; XT30 connector pair (PRISM branch).
 
 *Tools without a price, not in the totals:* Safety glasses (PPE); Work gloves (PPE); 2.5 mm hex wrench / bit; Soldering iron + solder.
 
 | Part | Buy | Unit price | Line total | Price from |
 |---|---:|---:|---:|---|
 | NVIDIA Jetson AGX Thor Developer Kit | 1 | $5,499.00 | $5,499.00 | [developer.nvidia.com](https://developer.nvidia.com/embedded/faq), 2026-10-09 |
-| Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (operator interface) | 1 | — | — | no price yet |
+| Samsung Galaxy Tab A11, 8.7-inch, Wi-Fi (the head and the operator's tablet) | 1 | — | — | no price yet |
 | ECO-WORTHY 51.2 V 50 Ah LiFePO4 server-rack battery | 1 | $399.00 | $399.00 | price paid (the listing it was bought from has been withdrawn), 2026-10-09 |
 | 48 V LiFePO4 battery charger | 1 | $98.00 | $98.00 | [amazon.com](https://www.amazon.com/dp/B0G8JYWGBP), 2026-10-09 |
 | GIGAVAC GX11 contactor, 24 V coil | 1 | $194.91 | $194.91 | [digikey.com](https://www.digikey.com/en/products/detail/sensata-gigavac-clean-energy/GX11CAB/17867704), 2026-10-09 |
 | RadioLink T8S transmitter + R8EF receiver | 1 | $51.99 | $51.99 | [amazon.com](https://www.amazon.com/dp/B09BTSJN7P), 2026-10-09 |
-| M5Stack Tab5 (ESP32-P4) | 1 | $60.00 | $60.00 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4), 2026-10-09 |
 | DIHOOL electric scissor lift table, 130 lb, 3.95–14.76 in travel | 1 | $168.88 | $168.88 | [amazon.com](https://www.amazon.com/dp/B0F7H1C4DJ), 2026-10-09 |
 | M5Stack ToF4M unit (VL53L1X) | 1 | $8.95 | $8.95 | [shop.m5stack.com](https://shop.m5stack.com/products/time-of-flight-distance-unit-vl53l1x), 2026-10-09 |
 | OpenArm bimanual arm set (two 7-DOF arms with grippers) | 1 | $5,400.00 | $5,400.00 | [shop.wowrobo.com](https://shop.wowrobo.com/products/openarm-open-source-humanoid-robot-arm-by-enactic), 2026-10-09 |
@@ -144,6 +153,8 @@ Prices read 2026-10-09 to 2026-10-20, in US dollars, before tax and shipping. Ea
 | REV Mini Power Module (24 V logic bus) | 1 | $38.00 | $38.00 | [revrobotics.com](https://www.revrobotics.com/rev-11-1956/), 2026-10-09 |
 | goBILDA 2x80A ESC | 2 | $159.99 | $319.98 | [servocity.com](https://www.servocity.com/2x80a-motor-controller/), 2026-10-09 |
 | M5 8Servo unit | 2 | $6.95 | $13.90 | [shop.m5stack.com](https://shop.m5stack.com/products/8-channel-servo-driver-unit-stm32f030), 2026-10-09 |
+| M5Stack Dial v1.1 (ESP32-S3) | 1 | $34.90 | $34.90 | [shop.m5stack.com](https://shop.m5stack.com/products/m5stack-dial-v1-1), 2026-10-16 |
+| goBILDA 2000 Series Dual Mode Servo (25-2, Torque) | 2 | $36.99 | $73.98 | [servocity.com](https://www.servocity.com/2000-series-dual-mode-servo-25-2/), 2026-10-20 |
 | goBILDA RGB Indicator Light (PWM Controlled) | 1 | $24.99 | $24.99 | [servocity.com](https://www.servocity.com/rgb-indicator-light-pwm-controlled/), 2026-10-16 |
 | M4 x 20 mm socket-head cap screw (ISO 4762) | 4 | — | — | no price yet |
 | M4 heat-set insert | 4 | — | — | no price yet |

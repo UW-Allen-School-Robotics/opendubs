@@ -62,8 +62,15 @@ CAST_APP = "CC1AD845"        # the Cast Default Media Receiver
 
 # ---- the projector's per-robot settings (never in the repo) -------------------------------------------
 SETTINGS_PATH = os.environ.get("OPENDUBS_PROJECTOR_SETTINGS") or "/var/lib/opendubs-runner/projector.json"
+# audio_lead_s / video_lead_s are the CAST path's; stage_* the stage page's (a stage Pi's USB or HDMI sound,
+# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear
 SETTINGS_DEFAULTS = {"audio_lead_s": CAST_AUDIO_LEAD_S, "video_lead_s": CAST_LEAD_S,
-                     "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio"}
+                     "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio",
+                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0,
+                     # the head start a streamed stage video needs before the GO (seconds buffered)
+                     "stage_buffer_s": 25.0}
+BUFFER_RANGE_S = (5.0, 120.0)
+LEAD_KEYS = ("audio_lead_s", "video_lead_s", "stage_audio_lead_s", "stage_video_lead_s")
 LEAD_RANGE_S = (0.0, 3.0)
 
 
@@ -82,14 +89,18 @@ def load_settings(path: str | None = None) -> dict:
 
 
 def save_settings(change: dict, path: str | None = None) -> dict:
-    """Merge `change` (any of audio_lead_s, video_lead_s, music_as) into projector.json; ValueError on a
+    """Merge `change` (any of the LEAD_KEYS, music_as) into projector.json; ValueError on a
     bad value. Written atomically. Returns the settings now in force."""
     cur = load_settings(path)
     for k, v in change.items():
-        if k in ("audio_lead_s", "video_lead_s"):
+        if k in LEAD_KEYS:
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]:
                 raise ValueError(f"{k} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
             cur[k] = round(float(v), 3)
+        elif k == "stage_buffer_s":
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not BUFFER_RANGE_S[0] <= v <= BUFFER_RANGE_S[1]:
+                raise ValueError(f"{k} must be seconds, {BUFFER_RANGE_S[0]:g} to {BUFFER_RANGE_S[1]:g}")
+            cur[k] = round(float(v), 1)
         elif k == "music_as":
             if v not in ("audio", "video"):
                 raise ValueError("music_as must be audio (the song as it is) or video (the song with a black picture)")
@@ -487,6 +498,194 @@ class HdmiOutput:
         return (float(pos) if pos is not None else None), not paused
 
 
+class StageOutput:
+    """The STAGE PAGE (notes/design/choreo-stage.md): a page at /stage/ — in the projector's own app, on a
+    small computer by the projector, or any browser — that plays the show's video ON THE SHOW'S CLOCK and
+    draws the skeletons over it. The runner hands the dashboard only the show's timing (stage.py
+    /api/stage/show); every page keeps itself in step. Ready when at least one stage page is connected."""
+    kind = "stage"
+    lead_s = 0.0                                  # the page plays at the show's time itself
+
+    def __init__(self, dashboard: str = "http://127.0.0.1:8080", library_root=None):
+        self.base = dashboard.rstrip("/")
+        self.library_root = library_root
+        self.why = None
+
+    def _get(self):
+        import urllib.request
+        with urllib.request.urlopen(self.base + "/api/stage", timeout=1.5) as r:
+            return json.loads(r.read())
+
+    def post(self, msg: dict):
+        import urllib.request
+        req = urllib.request.Request(self.base + "/api/stage/show", data=json.dumps(msg).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=2.0) as r:
+            return json.loads(r.read())
+
+    def pages(self) -> int:
+        try:
+            return int(self._get().get("pages") or 0)
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def status(self) -> dict:
+        try:
+            got = self._get()
+            n = int(got.get("pages") or 0)
+        except Exception:  # noqa: BLE001
+            return {"present": False, "ready": False, "why": "the dashboard isn't answering"}
+        self.why = None if n else "no stage page is open (the projector's app, or a browser at /stage/)"
+        info = (got.get("pages_info") or [None])[0]
+        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info}
+
+    def url(self, path: str) -> str:
+        """A library file's address as the dashboard serves it to the page (same origin as the page)."""
+        import library
+        root = os.path.abspath(self.library_root or library.root())
+        return "/api/choreo/media/library/" + os.path.relpath(os.path.abspath(path), root).replace(os.sep, "/")
+
+    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None):
+        return StageShow(self, items, music, log, on_lost, buffer_s)
+
+
+class StageShow:
+    """One run's video on the stage page: load (the videos and the beat grid) while the arms travel, start
+    with the show's t0 on the Thor's monotonic clock, stop on every end (cut on an e-stop). Its own
+    thread, as ShowVideo's, so the runner never waits on the dashboard. A page that goes away mid-run
+    is LOST (the tablet then takes the music, when the video carried it)."""
+
+    def __init__(self, out: StageOutput, items, music, log=None, on_lost=None, buffer_s=None):
+        self.out, self.items, self.log, self.on_lost = out, sorted(items, key=lambda x: x["t"]), log or (lambda *a, **k: None), on_lost
+        self.id = f"stage@{time.time():.3f}"
+        m = music or {}
+        self.beat = ({"offset_s": float(m.get("offset_s") or 0.0), "bpm": float(m["bpm"])} if m.get("bpm") else None)
+        self.failed = self.lost = None
+        self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
+        self._end_status, self._loaded = None, False
+        self.buffer_s = float(buffer_s or SETTINGS_DEFAULTS["stage_buffer_s"])
+        # every page has its head start (a local copy, or buffer_s streamed); how far the slowest has got
+        self.preloaded, self.buffered, self.need, self.dropped, self.stalled = False, 0.0, self.buffer_s, None, None
+
+    def _send(self, msg):
+        try:
+            self.out.post(msg)
+            return True
+        except Exception as e:  # noqa: BLE001  video trouble never stops the show
+            self.failed = f"{msg.get('op')}: {type(e).__name__}: {e}"
+            self.log("video_error", output="stage", error=self.failed)
+            return False
+
+    def begin(self):
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="video-stage")
+        self._thread.start()
+
+    def go(self, show_clock):
+        self._clock = show_clock
+
+    def _loop(self):
+        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); audio:
+        # a song with no picture (the music alone), played under the page's own scene
+        videos = [{"t": it["t"], "end_t": it["end_t"], "url": it.get("url") or self.out.url(it["path"]), "from_s": it["from_s"],
+                   "end": it.get("end", "black"), "id": it["id"], "lead_s": float(it.get("lead_s") or 0.0),
+                   "audio": bool(it.get("audio")), "sha256": it.get("sha256"),
+                   # the library id a stage box keeps its own copy under (videos: their id; songs: `lib`)
+                   "lib": it.get("lib") or (None if it.get("audio") else it.get("id"))} for it in self.items]
+        self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat, "buffer_s": self.buffer_s})
+        self._loaded = True                                 # the pages load the video themselves
+        polled = 0.0
+        while self._clock is None and not self._stop.is_set():
+            if not self.preloaded and not self.failed and time.monotonic() - polled >= 0.5:
+                polled = time.monotonic()
+                self._check_preload()
+            self._stop.wait(0.02)                           # the start goes out within 20 ms of the clock
+        if self._clock is not None and not self._stop.is_set():
+            t0 = time.monotonic() - self._clock()           # the show's t0 on the Thor's monotonic clock
+            self._send({"op": "start", "id": self.id, "t0_mono": round(t0, 4)})
+            self.log("video", output="stage", note="the stage pages play the show", t0_mono=round(t0, 3))
+        missing = 0
+        while not self._stop.wait(2.0):
+            try:
+                got = self.out._get()
+            except Exception:  # noqa: BLE001
+                got = {}
+            self._check_stall(got)
+            missing = missing + 1 if int(got.get("pages") or 0) == 0 else 0
+            if missing >= 2 and self.lost is None:          # ~4 s with no page: the projector has gone
+                self.lost = "no stage page is connected any more"
+                self.log("video_error", output="stage", error=self.lost)
+                if self.on_lost:
+                    self.on_lost("the stage page went away")
+        self._send({"op": "stop", "id": self.id, "cut": self._end_status == "ESTOPPED"})
+
+    def prepare(self):
+        pass
+
+    def _check_preload(self):
+        """Every connected page has its head start: each page's {"preload": {id, ready, local, buffered_s,
+        need_s}} on /api/stage. A page with a local copy is ready at once."""
+        try:
+            got = self.out._get()
+        except Exception:  # noqa: BLE001
+            return
+        n = int(got.get("pages") or 0)
+        mine = [p for p in (got.get("preload") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        slow = [p for p in mine if not p.get("ready")]
+        self.buffered = min([float(p.get("buffered_s") or 0) for p in slow] + [0.0] * (n - len(mine)), default=0.0)
+        self.need = max([float(p.get("need_s") or self.buffer_s) for p in mine], default=self.buffer_s)
+        if n and len(mine) >= n and not slow:
+            self.preloaded = True
+            local = sum(1 for p in mine if p.get("local"))
+            self.log("video", output="stage", note=f"every stage page is ready ({local} of {n} from a local copy, "
+                                                   f"the rest {self.buffer_s:g} s ahead)")
+
+    def _check_stall(self, got: dict):
+        """A page that ran dry mid-show: handled like a dropout — logged, the pages muted, and the tablet
+        takes the music from the same point (on_lost). The show never stops for it; the page catches up on
+        the show's clock when the data comes back."""
+        st = [p for p in (got.get("stalls") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        if st and self.stalled is None:
+            self.stalled = f"a stage page ran out of video at {float(st[0].get('at_s') or 0):.1f} s"
+            self.log("video_error", output="stage", error=self.stalled)
+            if self.on_lost:
+                self._send({"op": "mute", "id": self.id})        # the tablet plays the music from here
+                self.on_lost(self.stalled)
+
+    def ready(self) -> bool:
+        """Every stage page has the show's whole video (or telling them failed, or it was dropped)."""
+        return self.preloaded or bool(self.failed) or bool(self.dropped) or not self.items
+
+    def waiting_for(self) -> str:
+        return f"the stage video (buffering, {self.buffered:.0f} of {self.need:.0f} s)"
+
+    def drop(self, why: str):
+        """Not loaded in time: the pages are stopped and the show runs without its stage video (the tablet
+        takes the music, when the video carried it)."""
+        if self.dropped:
+            return
+        self.dropped = why
+        self.log("video_error", output="stage", error=why)
+        self._send({"op": "stop", "id": self.id, "cut": True})
+        if self.on_lost:
+            self.on_lost(f"the stage video was not loaded in time ({why})")
+        self._stop.set()
+
+    def tick(self, show_t):
+        pass
+
+    def end(self, status: str):
+        if self.done:
+            return
+        self.done, self._end_status = True, status
+        if self._thread is None:
+            return                                         # never begun: nothing was sent
+        self._stop.set()
+
+    def state(self) -> dict:
+        return {"file": self.items[0]["id"] if self.items else None, "output": "stage", "position_s": None,
+                "sync_err_ms": None, "seeks": 0, "error": self.failed}
+
+
 # ---- a show's video, on the show's clock ---------------------------------------------------------
 class ShowVideo:
     """One output's video cues, played on the show's clock. `items`: [{"t", "end_t", "path",
@@ -551,6 +750,11 @@ class ShowVideo:
             it = self.items[0]
             self._safe("load", self.out.load, it["path"], it["from_s"])
             self.loaded = 0
+
+    def ready(self) -> bool:
+        """The first video is loaded (paused), or loading failed: either way an armed run need not wait
+        for it any longer before it takes the GO."""
+        return not self.items or self.loaded is not None or bool(self.failed)
 
     def tick(self, show_t: float):
         if self.failed or self.i >= len(self.items):

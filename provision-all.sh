@@ -19,6 +19,40 @@ if ! cmp -s "$ROOT/stack/journald/50-opendubs-persistent.conf" /etc/systemd/jour
   systemctl restart systemd-journald
   journalctl --flush
 fi
+# Host leftovers this stack no longer uses, removed so every robot matches the repo (CLAUDE.md rule 5).
+# Each is a no-op on a robot that never had it. Retired 2026-10-21, on the maintainers' word:
+#   opendubs-telemetry-log  the 8Servo-wedge UDP recorder (its script, /opt/opendubs/telemetry-log.py,
+#                           was never in the repo); it crash-looped once that work ended
+#   opendubs-xorg-fix       re-installed and locked a forced-HDMI xorg.conf for the retired kiosk panel
+#                           (the xorg.conf it left is not touched here)
+#   opendubs-mavros         the retired Pixhawk link
+#   x11vnc                  the retired kiosk panel's remote-desktop kit
+#   the cups snap           nothing prints from the robot
+#   iperf3's server         disabled only; the package stays for a manual network test
+RETIRED_UNITS="opendubs-telemetry-log opendubs-xorg-fix opendubs-mavros"
+for svc in $RETIRED_UNITS; do
+  if [ -e "/etc/systemd/system/$svc.service" ]; then
+    echo "-- retiring $svc"
+    systemctl disable --now "$svc" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/$svc.service"
+    rm -rf "/etc/systemd/system/$svc.service.d"
+  fi
+done
+systemctl daemon-reload
+rm -f "$ROOT/telemetry-log.py"
+if dpkg -s x11vnc >/dev/null 2>&1; then
+  echo "-- removing x11vnc"
+  DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq x11vnc >/dev/null || echo "   !! could not remove x11vnc"
+fi
+if command -v snap >/dev/null && snap list cups >/dev/null 2>&1; then
+  echo "-- removing the cups snap"
+  snap remove --purge cups >/dev/null || echo "   !! could not remove the cups snap"
+fi
+if systemctl is-enabled --quiet iperf3 2>/dev/null; then
+  echo "-- disabling the iperf3 server (the package stays)"
+  systemctl disable --now iperf3 >/dev/null 2>&1 || true
+fi
+
 bash "$ROOT/kiosk-dashboard/deploy/provision.sh"
 bash "$ROOT/ros/provision-ros.sh"
 bash "$ROOT/rc_serial_probe/provision-firmware.sh"

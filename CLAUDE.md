@@ -78,15 +78,20 @@ those sessions don't collide in git and so each area's expertise stays in one pl
    each fix. The Thor stack lane may deploy that branch for testing (rule 5 still applies: merge it
    or revert it the same day). Bundle small related fixes into one PR unless one is urgent.
    Branches are deleted automatically when their PR merges.
+9. **Open every PR as a draft; CI runs when it's ready.** CI minutes on this private repository
+   are metered, and every push to a ready PR re-runs its checks. Open the PR with
+   `gh pr create --draft` and push as often as you like while working: workflows skip drafts. Run
+   your lane's tests locally, then mark it ready with `gh pr ready <n>`, which is when CI runs.
+   After that, batch fix-ups into one push rather than pushing each commit.
 
 | Lane | Owns | Workplan |
 |---|---|---|
 | **Arms** | `software/openarm/`, `software/teleop/`; dashboard `frontend/teleop.js`, `frontend/armview.js`, `backend/openarm.py`; `notes/design/arm-*.md`, `notes/design/pinch-guard-consent.md`; `docs/openarm-setup.md`; `docs/reference/registry/arms.yaml` | `notes/workplan-arms.md` |
-| **Choreography** | `software/choreo/`; `sim/` (the twin scene and the clearance sweep); dashboard `frontend/choreo.js`, `frontend/show_audio.js`, `backend/choreo_proxy.py`, `backend/show_audio.py`; `notes/design/choreo-*.md`; `docs/reference/registry/shows.yaml`; `.github/workflows/choreo.yml` | `notes/workplan-choreography.md` |
+| **Choreography** | `software/choreo/`; `sim/` (the twin scene and the clearance sweep); dashboard `frontend/choreo.js`, `frontend/show_audio.js`, `backend/choreo_proxy.py`, `backend/show_audio.py`; `notes/design/choreo-*.md`; `docs/reference/registry/shows.yaml`; `.github/workflows/choreo.yml`, `.github/workflows/studio.yml` | `notes/workplan-choreography.md` |
 | **Face & HRI** (and the retired Tab5 firmware) | How the face looks and behaves on any head: the eyes, gaze behaviour, expressions, skins and the edge ring, in `software/face-web/engine/face.js`, `engine/anim.js`, `engine/vocab.js`, `engine/skins/`; `notes/design/face-*.md` (except `face-engine.md`), `notes/design/hri-interaction-design.md`; `firmware/tab5_*/`, `notes/design/tab5-*.md` | `notes/workplan-tab5-audio.md` (paused; `workplan-tab5-idf.md` is closed) |
-| **Tablet and head interface** | `software/tablet-kiosk/`; `software/face-web/` except the files Face & HRI owns (the page, the protocol door, camera tracking, the tests, `.github/workflows/face-web.yml`), `notes/design/face-engine.md`; dashboard `frontend/operate.js` and the backend's head routing, the robot-state rollup `backend/status.py` and `backend/supervisor.py`, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
+| **Tablet and head interface** | `software/tablet-kiosk/`; `software/stage-pi/` (the stage display box); `software/face-web/` except the files Face & HRI owns (the page, the protocol door, camera tracking, the tests, `.github/workflows/face-web.yml`), `notes/design/face-engine.md`; dashboard `frontend/operate.js` and the backend's head routing, the robot-state rollup `backend/status.py` and `backend/supervisor.py`, `backend/yolo_tracker.py`; `software/ros/tab5_bridge_node.py`; `notes/design/tablet-device.md`, `notes/design/head-ownership.md`, `notes/design/head-turn-gaze.md`; `docs/reference/registry/head.yaml`. Tablet sensor data is published on topics the localization lane defines | `notes/workplan-tablet.md` |
 | **Thor stack and localization** | `software/ros/` (except `tab5_bridge_node.py`); `deploy-all.sh`, `provision-all.sh`, `tools/deploy-audit.py`; the robot description and TF tree (sensor frames, LIDAR extrinsics), the odometry and IMU pipeline into `/odom`, and the NVIDIA / Isaac ROS stack; `docs/thor-setup.md`, `docs/portability-audit.md`, `docs/localization-fusion.md`, `docs/naming-frames.md`, `notes/design/lidar-frames-and-fusion.md`, `notes/deployment-drift.md` | `notes/workplan-thor-stack.md` |
-| **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`, `.github/workflows/faults.yml`; the root `README.md`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
+| **Docs and BOM** (the published build) | `docs/build/`, `docs/assets/build/`, `docs/hardware-bom.md`, `hardware/parts.csv`, `tools/bom.py`, `tools/convert-build-photos.sh`, `tools/convert_build_photos.py`, `mkdocs.yml`, `docs/stylesheets/`, `notes/docs-review-checklist.md`; the troubleshooting generator `tools/faults.py` and `docs/reference/registry/{safety,power,symptoms,glossary}.yaml`; `software/kiosk-dashboard/docs-site/` (the copy of the docs served from the robot); `.github/workflows/docs.yml`; the root `README.md`; any page under `docs/` that no other lane lists | `notes/docs-review-checklist.md` |
 | **Voice** (speech in and out, wake word, the on-robot and cloud language model) | `software/voice/` (the voice service), `tools/voice-bench/`; dashboard `backend/voice_proxy.py` (the `/ws/voice` relay); `notes/design/voice-*.md`. Mic capture in the face page, the face's listening, speaking and recording indicators, and any new head message are agreed with the Tablet and Face & HRI lanes and edited by them. The voice service may only reach the face and robot status, never motion | `notes/workplan-voice.md` |
 | **Network** (the robot's router, its Wi-Fi and its uplink) | The robot router's configuration (it lives on the router; a sanitized export may be kept in `notes/design/network-*`); `notes/design/network-*.md`; `tools/network/`. The router is changed only with the user's word and a person at the robot. Dashboard network status is specified here and built by the Tablet lane | `notes/workplan-network.md` |
 | **Hygiene** (audits the whole repo) | the root `.gitignore`; `LICENSE-*`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`; `tools/hygiene/`, `.github/workflows/hygiene.yml`; `notes/hygiene-findings.md` | `notes/hygiene-findings.md` |
@@ -107,7 +112,15 @@ orchestrator, with a suggested fix; the owner decides and fixes it. Rewriting gi
 something already committed is always the maintainers' decision, case by case.
 
 **CI:** a lane that needs its own check adds its own path-filtered workflow file under
-`.github/workflows/` and owns it. It never edits another lane's workflow.
+`.github/workflows/` and owns it. It never edits another lane's workflow. Every workflow:
+- **skips draft PRs**: `pull_request: types: [opened, synchronize, reopened, ready_for_review]`,
+  and `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false` on
+  each job;
+- **does not re-run on `push` to `main`** what the PR already checked. The exceptions are
+  `hygiene.yml`, the safety net for a push that bypasses the PR, and the docs deploy;
+- **filters on its own paths**, and offers `workflow_dispatch` for a manual run;
+- **uses macOS or Windows runners only on a schedule or by hand**, since they are billed at
+  several times the Linux rate.
 
 **No lane yet; ask the orchestrator first:** `firmware/rc_serial_probe/`, the StamPLC, which is
 the robot's safety controller. A lane that needs a StamPLC change, such as odometry or IMU

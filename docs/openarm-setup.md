@@ -18,11 +18,10 @@ stops the arms.
   access for the first provisioning run.
 - Two OpenArm arms. Each arm has 8 DAMIAO motors (7 joints plus the gripper) on its own CAN-FD bus.
 - A dual-channel USB CAN-FD adapter, one channel per arm, plugged into the Thor's USB. This robot
-  uses a [Pibiger SavvyCAN-FD-X2](https://www.amazon.com/dp/B0CGPRPZN8). It presents itself as a
-  PEAK-compatible device and is driven by the Linux `peak_usb` driver, so everything below applies
-  to it unchanged. The udev rule and provisioning match it by USB ID `0c72:0011`, PEAK's ID; that
-  this is the ID the adapter reports is *to confirm* with `lsusb` (the interface names appearing
-  at all suggests it is).
+  uses a [Pibiger SavvyCAN-FD-X2](https://www.amazon.com/dp/B0CGPRPZN8). Over USB it identifies
+  itself as a PEAK PCAN-USB Pro FD (USB ID `0c72:0011`, manufacturer "PEAK-System Technik GmbH"),
+  which is why the stock Linux `peak_usb` driver runs it and everything below applies unchanged.
+  The udev rule and provisioning match it by that ID.
 - The arm software: [openarm_robot-code](https://github.com/EricJGoossen/openarm_robot-code), a
   fork of [personalrobotics/robot-code](https://github.com/personalrobotics/robot-code). It provides
   the ROS 2 impedance controller (package `openarm_impedance_controller`) and a dev-container
@@ -233,8 +232,8 @@ page reads and displays, since that number is the difference between *"teleop fe
 *"the loop is missing 23% of its deadlines"*.
 
 The unit sets `OPENARM_TELEOP_VIEWER=0` and the RMW/FastDDS variables, matching what `openarm-up`
-does; see [the patches directory](https://github.com/UW-Allen-School-Robotics/opendubs/tree/main/software/openarm/patches)
-for why the viewer is off.
+does. The viewer is off because it took about two thirds of the control loop's time, and with it on
+the loop missed around a quarter of its deadlines; the robot runs headless.
 
 It is **`Restart=no`** on purpose: a teleop bridge that resurrects itself after the operator
 stopped it is a session they did not ask for, with an arm attached.

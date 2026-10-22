@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenDubs SLAM (slam_toolbox on the front scan: localizes on the site map, else maps)
+After=network.target opendubs-robot-state-publisher.service opendubs-drive-bridge.service opendubs-rplidar.service
+# Off until a robot opts in: sudo touch /etc/opendubs/slam.enabled && sudo systemctl start opendubs-slam
+ConditionPathExists=/etc/opendubs/slam.enabled
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+# UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10).
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+ExecStart=/opt/opendubs/ros/slam.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
