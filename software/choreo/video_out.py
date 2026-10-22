@@ -62,8 +62,12 @@ CAST_APP = "CC1AD845"        # the Cast Default Media Receiver
 
 # ---- the projector's per-robot settings (never in the repo) -------------------------------------------
 SETTINGS_PATH = os.environ.get("OPENDUBS_PROJECTOR_SETTINGS") or "/var/lib/opendubs-runner/projector.json"
+# audio_lead_s / video_lead_s are the CAST path's; stage_* the stage page's (a stage Pi's USB or HDMI sound,
+# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear
 SETTINGS_DEFAULTS = {"audio_lead_s": CAST_AUDIO_LEAD_S, "video_lead_s": CAST_LEAD_S,
-                     "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio"}
+                     "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio",
+                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0}
+LEAD_KEYS = ("audio_lead_s", "video_lead_s", "stage_audio_lead_s", "stage_video_lead_s")
 LEAD_RANGE_S = (0.0, 3.0)
 
 
@@ -82,11 +86,11 @@ def load_settings(path: str | None = None) -> dict:
 
 
 def save_settings(change: dict, path: str | None = None) -> dict:
-    """Merge `change` (any of audio_lead_s, video_lead_s, music_as) into projector.json; ValueError on a
+    """Merge `change` (any of the LEAD_KEYS, music_as) into projector.json; ValueError on a
     bad value. Written atomically. Returns the settings now in force."""
     cur = load_settings(path)
     for k, v in change.items():
-        if k in ("audio_lead_s", "video_lead_s"):
+        if k in LEAD_KEYS:
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]:
                 raise ValueError(f"{k} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
             cur[k] = round(float(v), 3)
@@ -520,11 +524,13 @@ class StageOutput:
 
     def status(self) -> dict:
         try:
-            n = int(self._get().get("pages") or 0)
+            got = self._get()
+            n = int(got.get("pages") or 0)
         except Exception:  # noqa: BLE001
             return {"present": False, "ready": False, "why": "the dashboard isn't answering"}
         self.why = None if n else "no stage page is open (the projector's app, or a browser at /stage/)"
-        return {"present": True, "ready": n > 0, "pages": n, "why": self.why}
+        info = (got.get("pages_info") or [None])[0]
+        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info}
 
     def url(self, path: str) -> str:
         """A library file's address as the dashboard serves it to the page (same origin as the page)."""
@@ -568,8 +574,11 @@ class StageShow:
         self._clock = show_clock
 
     def _loop(self):
-        videos = [{"t": it["t"], "end_t": it["end_t"], "url": self.out.url(it["path"]), "from_s": it["from_s"],
-                   "end": it.get("end", "black"), "id": it["id"]} for it in self.items]
+        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); audio:
+        # a song with no picture (the music alone), played under the page's own scene
+        videos = [{"t": it["t"], "end_t": it["end_t"], "url": it.get("url") or self.out.url(it["path"]), "from_s": it["from_s"],
+                   "end": it.get("end", "black"), "id": it["id"], "lead_s": float(it.get("lead_s") or 0.0),
+                   "audio": bool(it.get("audio"))} for it in self.items]
         self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat})
         self._loaded = True                                 # the pages load the video themselves
         while self._clock is None and not self._stop.is_set():

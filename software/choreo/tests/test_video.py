@@ -179,7 +179,7 @@ V.save_settings({"audio_lead_s": 0.6, "video_lead_s": 0.9})
 open(os.path.join(LIB, "song.wav"), "wb").write(b"RIFF....WAVE")
 
 
-def run_audio(music_role, out, extra_cues="", lose=False):
+def run_audio(music_role, out, extra_cues="", lose=False, key="cast"):
     tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
     role = f", role: {music_role}" if music_role else ""
     tmp.write("id: a\nslots: [FACE, VIDEO]\nrequires: {tab5: true}\n"
@@ -192,7 +192,7 @@ def run_audio(music_role, out, extra_cues="", lose=False):
         clk["t"] += s
     audio = R.NullAudio(holder="tablet")
     r = R.Runner(tmp.name, LIMITS, R.FakeRobotState(), log=io.StringIO(), clock=lambda: clk["t"], sleep=sleep,
-                 start_lead=0.5, audio=audio, video={"cast": out})
+                 start_lead=0.5, audio=audio, video={key: out}, video_default=key)
     if lose:                                   # mid-show: just after the tablet starts the show's audio
         send = audio.send
 
@@ -324,7 +324,8 @@ so = FakeStage(pages=0)
 check("no stage page open: not ready, saying where to open one",
       so.status()["ready"] is False and "/stage/" in so.status()["why"], so.status())
 so.n = 2
-check("... a page open: ready, with how many", so.status() == {"present": True, "ready": True, "pages": 2, "why": None},
+check("... a page open: ready, with how many", so.status() == {"present": True, "ready": True, "pages": 2, "why": None,
+                                                                 "page": None},
       so.status())
 check("a library video is served to the page by the dashboard, same origin",
       so.url(f) == "/api/choreo/media/library/clip.mp4", so.url(f))
@@ -335,7 +336,8 @@ sh = so.make_show([{"t": 1.0, "end_t": 4.0, "path": f, "from_s": 2.0, "end": "ho
 sh.begin()
 check("load sends the videos (show seconds, the dashboard's URL) and the beat grid — nothing device-specific",
       so.wait_for("load") and so.sent[0]["videos"] == [{"t": 1.0, "end_t": 4.0, "url": "/api/choreo/media/library/clip.mp4",
-                                                        "from_s": 2.0, "end": "hold", "id": "clip"}]
+                                                        "from_s": 2.0, "end": "hold", "id": "clip",
+                                                        "lead_s": 0.0, "audio": False}]
       and so.sent[0]["beat"] == {"offset_s": 0.25, "bpm": 120.0}, so.sent)
 check("... and nothing starts before the show's clock does", [m["op"] for m in so.sent] == ["load"], so.sent)
 sh.go(lambda: -0.5)                          # half a second before the show's t0
@@ -369,6 +371,46 @@ r, end = run_show("video: { required: true }\n", FakeStage(pages=0), override="s
 check("... and refuses a show that requires video when no stage page is open",
       end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "/stage/" in end[2], end)
 check("'stage' is a video output a cue may name", "stage" in cue.VIDEO_OUTPUTS)
+
+print("\nvideo: the stage Pi — its own audio and picture delays, and the music alone (choreo-stage.md)")
+got = V.save_settings({"stage_audio_lead_s": 0.18, "stage_video_lead_s": 0.05})
+check("the stage's own audio and video leads are settings beside the cast's, set by ear",
+      got["stage_audio_lead_s"] == 0.18 and got["stage_video_lead_s"] == 0.05 and "audio_lead_s" in got, got)
+try:
+    V.save_settings({"stage_audio_lead_s": 9})
+    ok = False
+except ValueError:
+    ok = True
+check("... in the same 0-3 s range", ok)
+
+
+class Captured(FakeStage):
+    """FakeStage that keeps each StageShow it makes, to read its load."""
+    def make_show(self, items, music, log=None, on_lost=None):
+        self.made = super().make_show(items, music, log, on_lost)
+        return self.made
+
+
+so = Captured()
+r, end = run_show("", so, override="stage", key="stage")
+so.wait_for("load")
+check("a show's video on the stage starts by the stage's VIDEO lead", end[0] == "COMPLETED"
+      and so.sent[0]["videos"][0]["lead_s"] == 0.05 and so.sent[0]["videos"][0]["audio"] is False, so.sent[:1])
+so = Captured()
+r, end, items, calls = run_audio("music", so, key="stage")
+so.wait_for("load")
+v = so.sent[0]["videos"][0] if so.sent else {}
+check("MUSIC with no video goes to the stage page (a stage Pi's speaker): the song alone, by the stage's AUDIO "
+      "lead, at the tablet's own address — and the tablet holds its copy, silent",
+      r.music_on == "projector" and v.get("audio") is True and v.get("lead_s") == 0.18
+      and v.get("url") == items[0]["url"] and items[0].get("held") is True, (v, items))
+so = Captured()
+r, end, items, calls = run_audio("music", so, key="stage", lose=True)
+check("... every stage page gone: the tablet takes the music over at the same point (unhold), the show goes on",
+      end[0] == "COMPLETED" and any(c.get("op") == "unhold" for c in calls) and r.music_on == "tablet",
+      (end, [c.get("op") for c in calls]))
+check("the stage's status carries what its page says of itself (screen, sound, power)",
+      FakeStage().status().get("page") is None)
 
 print()
 if FAILS:

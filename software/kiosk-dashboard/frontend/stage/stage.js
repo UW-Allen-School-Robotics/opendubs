@@ -11,10 +11,21 @@
    needs nothing else, so it is the same page in the projector's app, on a small computer by the projector,
    or in any browser. The video carries the song: the projector plays the music.
 
+   ANY SCREEN: the page lays itself out for whatever viewport it gets — a projector, a widescreen video wall,
+   a phone — never assuming 1920x1080: the video is letterboxed or pillarboxed to its own aspect, and the
+   skeletons are placed and scaled inside its picture. With NO screen (a stage Pi playing sound only) the
+   browser may not draw at all, so the show's media is also kept in step from a timer.
+
+   BETWEEN SHOWS a STAGE READY card says what this screen is: the robot connected or not, the resolution,
+   the sound output, the clock to the Thor, and an under-voltage warning — the last three from the device
+   this page runs on, when it reports itself (a stage Pi's http://127.0.0.1:8095/device.json, or the
+   kiosk app's OpenDubsKiosk.device()). Once a show is ARMED the screen goes black until it starts.
+
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
-   &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency.
-   The kiosk app on the projector reloads a page that stops checking in: alive() is called from the
-   draw loop every 5 s, so a page whose drawing stops also stops checking in. */
+   &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
+   ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
+   alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
+   the sync timer when the device says it has no screen. */
 "use strict";
 (() => {
   const q = new URLSearchParams(location.search);
@@ -24,6 +35,10 @@
   let show = null;                                  // the show's timing, from the Thor
   const SEEK_S = 0.15, NUDGE = 0.03;                // past 150 ms: seek; inside: a small rate change
   const BONE = "#eeecde", DARK = "#0e121c";
+  const card = document.getElementById("card");
+  const DEVICE_URL = "http://127.0.0.1:8095";        // a stage Pi's own status service (the Tablet lane's image)
+  const MAX_PIXELS = 3840 * 2160;                    // a canvas no larger than 4K, whatever the wall
+  let device = null, lastWsMsg = 0;
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
     video.src = q.get("video"); video.hidden = false; video.muted = !q.get("sound");
@@ -38,6 +53,7 @@
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/skeleton`);
     ws.onopen = () => { backoff = 500; burst(); };
     ws.onmessage = (e) => {
+      lastWsMsg = performance.now();
       const m = JSON.parse(e.data);
       if ("pong" in m) return onPong(m);
       if (m.type === "show") { show = m; showChanged(); return; }
@@ -75,27 +91,31 @@
   function showTime(now) {                          // seconds into the show, on the Thor's clock
     return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
   }
+  // each item plays lead_s EARLY: the stage's own audio or picture delay (projector.json, set by ear)
+  const at = (v, st) => st + (v.lead_s || 0);
   function keepVideo(now) {
     const st = showTime(now);
     if (st == null || manual) return null;
-    const it = (show.videos || []).find((v) => v.t <= st && st < v.end_t);
+    const it = (show.videos || []).find((v) => v.t <= at(v, st) && at(v, st) < v.end_t);
     if (!it) {                                       // between videos, or after: black (or the last frame held)
-      const last = (show.videos || []).filter((v) => v.end_t <= st).pop();
+      const last = (show.videos || []).filter((v) => v.end_t <= at(v, st)).pop();
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
       return st;
     }
     if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = it.url; }
-    const want = it.from_s + (st - it.t);
-    video.hidden = false;
+    const want = it.from_s + (at(it, st) - it.t);
+    video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
     if (video.paused) {
       video.currentTime = want; video.muted = false;
       video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
+      keepVideo.synced = now;
       return st;
     }
     const err = video.currentTime - want;
     if (Math.abs(err) > SEEK_S) { video.currentTime = want; video.playbackRate = 1; keepVideo.seeks = (keepVideo.seeks || 0) + 1; }
     else video.playbackRate = 1 - Math.max(-NUDGE, Math.min(NUDGE, err * 0.5));
     keepVideo.err = err;
+    keepVideo.synced = now;
     return st;
   }
 
@@ -167,10 +187,13 @@
   }
 
   /* ---- placing a skeleton on the screen -------------------------------------------------------------- */
-  // metres (x right, y up) -> pixels, feet near the bottom. The dancer is centred and 1.75 m tall on the
-  // screen; a live person is scaled to fit and placed where they stand (the camera's centre at the
-  // screen's centre), MIRRORED — they see themselves as in a mirror — and kept on the screen.
-  function place(J, W, H, mirror, fit) {
+  // metres (x right, y up) -> pixels inside the picture R = {x, y, w, h} (the video's letterboxed area, or
+  // the whole screen), feet near its bottom. The dancer is centred and 1.75 m tall in it; a live person is
+  // scaled to fit and placed where they stand (the camera's centre at the picture's centre), MIRRORED — they
+  // see themselves as in a mirror — and kept inside it. Scaled by the picture's height, and never wider
+  // than it, so a tall narrow screen still fits the figure.
+  function place(J, R, mirror, fit) {
+    const W = R.w, H = Math.min(R.h, R.w * 1.2);
     const pts = Object.values(J);
     const minY = Math.min(...pts.map((p) => p[1])), maxY = Math.max(...pts.map((p) => p[1]));
     const midX = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
@@ -178,7 +201,8 @@
     const sx = mirror ? -1 : 1;
     const off = fit ? Math.max(-W * 0.35, Math.min(W * 0.35, sx * midX * s)) : 0;
     const P = {};
-    for (const [k, p] of Object.entries(J)) P[k] = [W / 2 + off + sx * (p[0] - midX) * s, H * 0.95 - (p[1] - minY) * s];
+    const y0 = R.y + R.h * 0.95;
+    for (const [k, p] of Object.entries(J)) P[k] = [R.x + W / 2 + off + sx * (p[0] - midX) * s, y0 - (p[1] - minY) * s];
     return [P, s];
   }
   const MIN_CONF = 0.3;
@@ -195,9 +219,23 @@
 
   /* ---- the draw loop ------------------------------------------------------------------------------------ */
   let liveAlpha = 0, lastSeen = -1e9, lastAlive = 0, frames = 0, fpsAt = performance.now(), fps = 0;
+  function picture(W, H) {                         // where the video's picture lands (object-fit: contain)
+    if (video.hidden || !video.videoWidth || !video.videoHeight) return { x: 0, y: 0, w: W, h: H };
+    const a = video.videoWidth / video.videoHeight, w = Math.min(W, H * a), h = w / a;
+    return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+  }
   function draw(now) {
-    const W = cv.width = innerWidth * devicePixelRatio, H = cv.height = innerHeight * devicePixelRatio;
+    lastDraw = now;
+    const k = Math.min(devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / Math.max(1, innerWidth * innerHeight)));
+    const W = Math.round(innerWidth * k), H = Math.round(innerHeight * k);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }   // only when the screen changes
     const st = keepVideo(now);                     // first: the show's video kept to the show's clock
+    showCard(now);
+    if (show && show.state === "loaded" && !manual) {   // armed: black until the show starts
+      g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+      return finish(now, st, null);
+    }
+    const R = picture(W, H);
     if (video.hidden) {                            // no video: a dark light table
       const grd = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * 0.9);
       grd.addColorStop(0, "#0c2a44"); grd.addColorStop(1, "#04070f");
@@ -210,28 +248,98 @@
     liveAlpha += (target - liveAlpha) * Math.min(1, (now - (draw.prev || now)) / 400);
     draw.prev = now;
     const beat = show && show.beat && st != null ? show.beat : null;
-    const [DP, ds] = place(beat ? dancer((st - beat.offset_s) * 1000, 60000 / beat.bpm) : dancer(now), W, H, false, false);
+    const [DP, ds] = place(beat ? dancer((st - beat.offset_s) * 1000, 60000 / beat.bpm) : dancer(now), R, false, false);
     skeleton(DP, ds, 1 - liveAlpha);
-    if (who) { const [LP, ls] = place(who.joints, W, H, true, true); skeleton(LP, ls, liveAlpha); draw.last = [LP, ls]; }
+    if (who) { const [LP, ls] = place(who.joints, R, true, true); skeleton(LP, ls, liveAlpha); draw.last = [LP, ls]; }
     else if (draw.last && liveAlpha > 0.01) skeleton(draw.last[0], draw.last[1], liveAlpha);
     if (who && clock && latest.painted !== true) {          // capture -> painted, on the Thor's clock
       latest.painted = true;
       lat.push(now + clock.offset - latest.t * 1000);
       while (lat.length > 120) lat.shift();
     }
+    finish(now, st, who);
+  }
+  function finish(now, st, who) {
     frames++;
     if (now - fpsAt > 1000) { fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now; }
-    if (now - lastAlive > 5000) { lastAlive = now; try { window.OpenDubsKiosk?.alive?.(); } catch (e) { /* not in the kiosk */ } }
+    if (now - lastAlive > 5000) { lastAlive = now; alive(); }
     if (q.get("hud")) {
       const s = [...lat].sort((a, b) => a - b), p = (k) => (s.length ? Math.round(s[Math.floor(k * (s.length - 1))]) : "–");
       hud.textContent = `show ${show ? show.state : "none"}${st != null ? " · " + st.toFixed(1) + " s" : ""}`
         + `${keepVideo.err != null ? " · video " + (keepVideo.err * 1000).toFixed(0) + " ms, seeks " + (keepVideo.seeks || 0) : ""}\n`
         + `feed ${latest ? latest.status || "live" : "none"} · ${latest ? (now - latest.arrived).toFixed(0) + " ms old" : ""}\n`
-        + `person ${who ? "yes" : "no"} · ${fps.toFixed(0)} fps · clock ±${clock ? clock.err.toFixed(1) : "?"} ms\n`
+        + `person ${who ? "yes" : "no"} · ${fps.toFixed(0)} fps · ${cv.width}×${cv.height} · clock ±${clock ? clock.err.toFixed(1) : "?"} ms\n`
         + `latency capture→paint p50 ${p(0.5)} p95 ${p(0.95)} ms (n ${s.length})`;
     }
     requestAnimationFrame(draw);
   }
+
+  /* ---- no screen: the show's media kept in step from a timer, and the device told the page is alive ---- */
+  let lastDraw = -1e9;
+  setInterval(() => {
+    const now = performance.now();
+    if (now - lastDraw > 400) {                     // the browser is not drawing (no screen, or hidden)
+      keepVideo(now);
+      if (device && device.screen_connected === false && now - lastAlive > 5000) { lastAlive = now; alive(); }
+    }
+  }, 250);
+  function alive() {
+    try {
+      if (window.OpenDubsKiosk?.alive) return window.OpenDubsKiosk.alive();
+      if (device && device.device === "stage-pi") fetch(DEVICE_URL + "/alive", { method: "POST", mode: "cors" }).catch(() => {});
+    } catch (e) { /* not on a device that watches */ }
+  }
+
+  /* ---- the device this page runs on, and what the page reports of itself ------------------------------ */
+  async function readDevice() {
+    let d = null;
+    try {
+      if (window.OpenDubsKiosk?.device) d = JSON.parse(window.OpenDubsKiosk.device());
+      else {
+        const r = await fetch(DEVICE_URL + "/device.json", { mode: "cors", cache: "no-store" });
+        if (r.ok) d = await r.json();
+      }
+    } catch (e) { d = null; }                       // any other browser: nothing to report
+    readDevice.misses = d ? 0 : (readDevice.misses || 0) + 1;
+    device = d && typeof d === "object" ? {
+      device: d.device, name: d.name, model: d.model, audio_output: d.audio_output, audio_name: d.audio_name,
+      under_voltage_now: d.under_voltage_now, under_voltage_since_boot: d.under_voltage_since_boot,
+      throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode } : null;
+    send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
+                   clock_err_ms: clock ? Math.round(clock.err * 10) / 10 : undefined,
+                   sound: video.muted && !video.paused ? "muted" : "on" } });
+  }
+  // every 5 s on a device that answers; elsewhere, after 3 misses, once a minute (a refused connection
+  // to 127.0.0.1 is logged by the browser each time)
+  (function poll() {
+    readDevice().finally(() => setTimeout(poll, (readDevice.misses || 0) >= 3 ? 60000 : 5000));
+  })();
+
+  /* ---- the STAGE READY card, between shows ---------------------------------------------------------- */
+  const esc = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function showCard(now) {
+    const between = !show || show.state === "stopped";
+    const on = between && q.get("card") !== "0" && !manual;
+    card.hidden = !on;
+    if (!on || now - (showCard.at || 0) < 1000) return;
+    showCard.at = now;
+    const up = ws && ws.readyState === 1 && now - lastWsMsg < 15000;
+    const sound = !device ? "unknown (not a stage device)"
+      : { usb: "USB", hdmi: "HDMI", none: "none" }[device.audio_output] || device.audio_output || "unknown";
+    const res = `${Math.round(screen.width * devicePixelRatio)}×${Math.round(screen.height * devicePixelRatio)}`
+      + (device && device.screen_mode ? ` (${device.screen_mode})` : "")
+      + (device && device.screen_connected === false ? " — NO SCREEN: sound only" : "");
+    const rows = [["Robot", up ? "connected" : "NOT connected", !up],
+                  ["Screen", res, false],
+                  ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : ""), device && device.audio_output === "none"],
+                  ["Clock to the Thor", clock ? `in step, ±${clock.err.toFixed(1)} ms` : "measuring…", !clock]];
+    const uv = device && (device.under_voltage_now || device.under_voltage_since_boot);
+    card.innerHTML = `<b>OpenDubs stage — ready</b>` + rows.map(([k, v, bad]) =>
+      `<div class="row${bad ? " bad" : ""}"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")
+      + (uv ? `<div class="row bad"><span>Power</span><span>UNDER-VOLTAGE ${device.under_voltage_now ? "now" : "since boot"}`
+              + ` — use the proper power supply</span></div>` : "");
+  }
+
   setInterval(() => {                               // report the measured latency to the dashboard
     if (!lat.length) return;
     const s = [...lat].sort((a, b) => a - b);

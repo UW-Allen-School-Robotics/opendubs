@@ -80,10 +80,30 @@ class Hub:
         age = None if self.last_frame_at is None else round(time.monotonic() - self.last_frame_at, 2)
         return {"feed": {"hz": round(self.rate, 1), "age_s": age, "status": self.last_status},
                 "pages": len(self.pages), "latency_ms": self.latency_ms,
+                "pages_info": [p["info"] for p in self.pages.values() if p.get("info")],
                 "show": None if self.show is None else {k: self.show.get(k) for k in ("id", "state", "t0_mono")}}
 
 
 hub = Hub()
+
+# What a page may say of itself (frontend/stage/stage.js; a stage Pi's own device report folded in):
+# kept per page, newest only, plain values only.
+PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
+               "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
+               "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str}
+
+
+def page_info(raw: dict) -> dict:
+    out = {k: raw[k] for k, t in PAGE_FIELDS.items()
+           if k in raw and isinstance(raw[k], t) and not (t is not bool and isinstance(raw[k], bool))}
+    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound"):
+        if k in out:
+            out[k] = out[k][:80]
+    if "viewport" in out:
+        vp = out["viewport"][:2]
+        out["viewport"] = [int(x) for x in vp if isinstance(x, (int, float)) and not isinstance(x, bool)]
+    out["at"] = round(time.time(), 1)
+    return out
 
 
 def _local(ws: WebSocket) -> bool:
@@ -147,6 +167,8 @@ async def skeleton_page(ws: WebSocket):
                 await ws.send_json({"pong": m["ping"], "t1": t1, "t2": thor_ms()})
             elif isinstance(m.get("latency_ms"), dict):
                 hub.latency_ms = {k: m["latency_ms"].get(k) for k in ("p50", "p95", "n")}
+            elif isinstance(m.get("page"), dict):     # the page on itself: its screen, sound, power (a stage Pi)
+                me["info"] = page_info(m["page"])
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:

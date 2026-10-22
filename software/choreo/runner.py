@@ -715,7 +715,8 @@ class Runner:
                     notes.append(why + " — running without it")
                     self._log("video_warning", note=why)
                 continue
-            lead = self.projector_settings.get("video_lead_s") if name == "cast" else None
+            lead = (self.projector_settings.get("video_lead_s") if name == "cast" else
+                    self.projector_settings.get("stage_video_lead_s") if name == "stage" else None)
             # A video that CARRIES the show's song (its library entry's `song`, in step with the show's
             # music) plays the music itself: it is started by the AUDIO offset — the beat is what must
             # land — and if it drops out the tablet takes the music over (choreo-audio.md).
@@ -723,9 +724,9 @@ class Runner:
             carries = [it for it in its if song and it.get("song") == song and abs(it["t"] - it["from_s"]) < 0.05]
             if carries:
                 self._carrier = name
-                lead = self.projector_settings.get("audio_lead_s")
+                lead = self.projector_settings.get("stage_audio_lead_s" if name == "stage" else "audio_lead_s")
             if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
-                self.videos.append(be.make_show(its, tl.get("music"), log=self._log,
+                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"), log=self._log,
                                                 on_lost=self._music_lost if carries else None))
                 continue
             self.videos.append(video_out.ShowVideo(
@@ -772,6 +773,21 @@ class Runner:
             self._log("audio", note=f"music on the tablet: {why}")
             return
         settings = self.projector_settings
+        if hasattr(be, "make_show"):
+            # the stage page (a stage Pi's speaker, say) plays the music itself, under its own scene, on the
+            # show's clock; the tablet holds its copy, silent, and takes over if every page goes
+            lead = settings.get("stage_audio_lead_s") or 0.0
+            for it in music:
+                it["held"] = True
+            self.music = [be.make_show([
+                {"t": it["at"], "end_t": max(it["at"], tl.get("duration_s") or 0.0) + 0.5, "path": it.get("path"),
+                 "url": it.get("url"),                # the same address the tablet fetches it by
+                 "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
+                 "lead_s": lead, "audio": True} for it in music], tl.get("music"), log=self._log,
+                on_lost=self._music_lost)]
+            self.music_on, self.music_why = "projector", None
+            self._log("audio", note=f"music on the stage page ({lead:g} s early); dialogue on the tablet")
+            return
         lead = settings.get("audio_lead_s")
         sends = []
         for it in music:
@@ -1310,7 +1326,7 @@ class Palette:
         """The projector's offsets and how it takes music (choreo-audio.md), set at the robot by ear;
         stored on the robot (projector.json) and used from the next run."""
         if not isinstance(change, dict) or not change:
-            raise ValueError("the body must set one of audio_lead_s, video_lead_s, music_as")
+            raise ValueError(f"the body must set one of {', '.join(video_out.LEAD_KEYS)}, music_as")
         video_out.save_settings(change)
         return self.video_status()
 

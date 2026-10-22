@@ -143,7 +143,9 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 { "checked_at": 1760900000.0,
   "outputs": { "cast": {"found": true, "name": "Nebula P1i", "host": "10.42.2.40", "ready": true, "why": null},
                "hdmi": {"present": false, "ready": false, "why": "the HDMI player isn't running on the robot"},
-               "stage": {"present": true, "ready": true, "pages": 1, "why": null} },
+               "stage": {"present": true, "ready": true, "pages": 1, "why": null,
+                         "page": {"device": "stage-pi", "audio_output": "usb", "screen_mode": "3840x1080",
+                                  "viewport": [3840, 1080], "under_voltage_since_boot": false, "sound": "on"}} },
   "default": "cast", "selected": "cast", "override": null,
   "playing": {"show": "info_show", "file": "lab-tour", "output": "cast", "position_s": 31.4,
               "sync_err_ms": -120, "seeks": 1},
@@ -156,7 +158,8 @@ act (a film clip with its own soundtrack) and the robot just reacts to it. The u
 - `selected` is what a show would use now; `override` is the operator's choice (null: each show's own).
   `playing` is null when nothing plays; `note` says why a running show runs without its video.
 - `stage` is the stage page ([`choreo-stage.md`](choreo-stage.md)): ready when at least one page is open;
-  `pages` says how many.
+  `pages` says how many; `page` is what the first one says of itself (a stage Pi: its screen, sound
+  output and power; the fields are in choreo-stage.md, "The stage Pi"), or null.
 - `POST /api/choreo/video/output {"output": "cast"|"hdmi"|"stage"|"off"|null}` → the whole GET body; refused
   while a show runs: 409 `{"error": "…", "code": "SHOW_VIDEO_BUSY"}`. Both codes are in
   `docs/reference/registry/shows.yaml`.

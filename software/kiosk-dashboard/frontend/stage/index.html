@@ -7,8 +7,16 @@
   <style>
     html, body { margin: 0; height: 100%; background: #04070f; overflow: hidden; cursor: none; }
     video, canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; }
-    #hud { position: fixed; left: 12px; bottom: 10px; font: 14px/1.3 system-ui, sans-serif; color: #9fd; opacity: .8;
-           white-space: pre; display: none; }
+    #hud { position: fixed; left: 12px; bottom: 10px; font: clamp(11px, 1.1vmin, 22px)/1.3 system-ui, sans-serif;
+           color: #9fd; opacity: .8; white-space: pre; display: none; }
+    /* the STAGE READY card, between shows: sized from the screen, so it reads on a phone and on a video wall */
+    #card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: min(90vw, 34em);
+            max-width: 94vw; padding: 1.1em 1.4em; border-radius: .6em; background: rgba(4, 7, 15, .82);
+            border: 1px solid #2a4a66; color: #dfe9f3; font: clamp(13px, 2.2vmin, 40px)/1.45 system-ui, sans-serif; }
+    #card b { display: block; margin-bottom: .5em; color: #9fd; }
+    #card .row { display: flex; justify-content: space-between; gap: 2em; }
+    #card .row span:first-child { color: #8aa; }
+    #card .bad span:last-child { color: #ffb86b; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -16,6 +24,7 @@
        skeletons drawn over it. Only skeleton points reach this page; no camera image, ever. -->
   <video id="video" muted playsinline loop hidden></video>
   <canvas id="stage"></canvas>
+  <div id="card" hidden></div>
   <div id="hud"></div>
   <script src="stage.js"></script>
 </body>
