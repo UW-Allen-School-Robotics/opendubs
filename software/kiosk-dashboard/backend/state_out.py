@@ -495,7 +495,7 @@ def badge_driver() -> str:
     if kiosk_update.show_busy():
         return "show"
     import head_settings
-    if head_settings.load().get("tracking") in ("tablet", "d415"):
+    if head_settings.load().get("tracking") == "tablet":
         return "tracking"
     return "nobody"
 
@@ -548,7 +548,9 @@ def caption_line(rs: str, rsd: dict, status_mod) -> str:
 # bystander in front of it would take that for a broken tracker; a release is announced before the head
 # is free. "Can move again" states what is true in every case: a released head moves only if something
 # then drives it. No countdown, since one caption must stay true for the whole 3 s. A fault's or an
-# e-stop's own words come first, and the "no words" setting silences these too.
+# e-stop's own words come first, and the "no words" setting silences these too. THAT LAST IS RIGHT ONLY
+# BECAUSE the release has two other channels, the neck's own screen and the dashboard's notice: if either
+# is ever dropped, these words must become like a reserved state's, which no setting can silence.
 HOLD_WORDS = {"on": "The head is held still", "releasing": "The head can move again"}
 
 

@@ -239,9 +239,11 @@ function applySettings(s) {
     levels.idle("bright", 0.5);
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
   }
-  skins.idle = { skin: s.skin || "default", theme: s.theme || "plain" };   // for SKIN IDLE / THEME IDLE
+  // For SKIN IDLE / THEME IDLE, and EMOTE AUTO when expressions are off (protocol.js).
+  skins.idle = { skin: s.skin || "default", theme: s.theme || "plain", eyes: s.idle_eyes !== false };
   showReticle = s.show_reticle === true;       // the tracker's reticle: live, no reload
-  if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen) skins.select(s.skin);
+  // Not while a show holds the skin ("a show overrides these"): SKIN IDLE at its end applies the new one.
+  if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen && !skins.showHeld) skins.select(s.skin);
   if (changed("theme", s.theme) && s.theme && s.theme !== face.theme) face.setTheme(s.theme);
   if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
   if (changed("idle_eyes", s.idle_eyes)) face.setEmote(s.idle_eyes === false ? "NEUTRAL" : "AUTO", performance.now());
