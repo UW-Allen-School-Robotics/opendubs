@@ -41,8 +41,9 @@ shellcheck), not yet run on a Raspberry Pi.** The first build on real hardware i
 ## Make one
 
 1. **Image the card** with Raspberry Pi Imager: **Raspberry Pi OS Lite (64-bit)**. In its settings:
-   - hostname `opendubs-stage`;
-   - a user (any name) **and your SSH public key**;
+   - hostname `opendubs<N>-stage`, after its robot (`opendubs2-stage` for opendubs2): one box per
+     robot, so each is told apart on the network. The setup keeps this name;
+   - a user (any name; `opendubs<N>` by the same rule) **and your SSH public key**;
    - the robot's Wi-Fi network and its password;
    - SSH on.
 
@@ -51,19 +52,20 @@ shellcheck), not yet run on a Raspberry Pi.** The first build on real hardware i
 2. **Boot it on the robot's network**, then copy this folder onto it and run the setup:
 
    ```bash
-   scp -r software/stage-pi <user>@opendubs-stage.local:
+   scp -r software/stage-pi <user>@opendubs<N>-stage.local:
    ```
 
    With the USB stick plugged in (find it with `lsblk`: the disk whose TRAN is `usb`):
 
    ```bash
-   ssh <user>@opendubs-stage.local sudo ./stage-pi/setup.sh --media /dev/sda --erase-media
+   ssh <user>@opendubs<N>-stage.local sudo ./stage-pi/setup.sh --media /dev/sda --erase-media
    ```
 
    `--media` **erases that stick** and makes it the box's video store; it refuses a disk that is not
    USB, or the one the system runs from, and needs `--erase-media` to go ahead. Without `--media` the
    box works too, streaming every show from the robot. It installs the browser and the box's programs, sets the name, turns password logins and Bluetooth off,
-   starts the browser at boot, and makes the root read-only. It refuses to run without your SSH key in
+   starts the browser at boot, and makes the root read-only. It keeps the name the card was imaged
+   with (`--name <name>` changes it), and refuses a card still called `raspberrypi`. It refuses to run without your SSH key in
    place, since it turns password logins off.
 3. **Reboot.** The screen shows the stage page (its "stage ready" card between shows).
 
@@ -83,7 +85,7 @@ The box reads it at every start, so take the card out, edit, put it back, and po
 The root is read-only, so turn the overlay off first, then update, then turn it back on:
 
 ```bash
-ssh <user>@opendubs-stage.local sudo raspi-config nonint do_overlayfs 1
+ssh <user>@opendubs<N>-stage.local sudo raspi-config nonint do_overlayfs 1
 ```
 
 Reboot, copy the new folder over and run `sudo ./stage-pi/setup.sh` again, then reboot. Nothing updates

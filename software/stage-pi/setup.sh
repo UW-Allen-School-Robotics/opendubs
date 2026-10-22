@@ -6,17 +6,21 @@
 #   sudo ./setup.sh --media /dev/sda --erase-media    # the same, and ERASE that USB stick to hold
 #                                                     # the box's copies of the show videos
 #   sudo ./setup.sh --no-overlay                      # leave the root writable (trying things out)
+#   sudo ./setup.sh --name opendubs2-stage            # rename it (normally the image's name is kept)
 #
 # Idempotent: run it again after an update to this folder (with the overlay off: see README).
-# The Wi-Fi, the user and the SSH key come from Raspberry Pi Imager's settings, never from here.
+# The Wi-Fi, the user, the SSH key AND THE NAME come from Raspberry Pi Imager's settings, never from
+# here: one box per robot, named opendubs<N>-stage after its robot (opendubs2-stage). The name the
+# image has is kept; only an image still called "raspberrypi" is refused.
 set -euo pipefail
 cd "$(dirname "$0")"
-overlay=1; media=""; erase=0
+overlay=1; media=""; erase=0; name=""
 while [ $# -gt 0 ]; do
     case $1 in
         --no-overlay) overlay=0 ;;
         --media) media=${2:-}; shift ;;
         --erase-media) erase=1 ;;
+        --name) name=${2:-}; shift ;;
         *) echo "setup: unknown option $1" >&2; exit 1 ;;
     esac
     shift
@@ -36,11 +40,14 @@ if [ -n "$media" ]; then
     [ "$(lsblk -dno TRAN "$media")" = usb ] || die "--media $media is not a USB disk"
     [ "$erase" = 1 ] || die "--media erases $media: add --erase-media to confirm"
 fi
+name=${name:-$(hostname)}
+[ "$name" != raspberrypi ] || die "this box is still called raspberrypi: name it opendubs<N>-stage, after its robot (in Raspberry Pi Imager, or with --name)"
+[[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || die "--name $name: lower-case letters, digits and hyphens only"
 
-echo "== the name: opendubs-stage"
-hostnamectl set-hostname opendubs-stage
-sed -i 's/^127\.0\.1\.1.*/127.0.1.1\topendubs-stage/' /etc/hosts
-grep -q "^127.0.1.1" /etc/hosts || echo -e "127.0.1.1\topendubs-stage" >> /etc/hosts
+echo "== the name: $name"
+hostnamectl set-hostname "$name"
+sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$name/" /etc/hosts
+grep -q "^127.0.1.1" /etc/hosts || echo -e "127.0.1.1\t$name" >> /etc/hosts
 
 echo "== packages"
 apt-get update -qq

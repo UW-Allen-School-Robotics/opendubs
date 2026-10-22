@@ -12,7 +12,7 @@ screen is there: a projector, a video wall, a TV, within the robot's Wi-Fi range
 full-screen browser on `/stage/`, playing the show's video **and its music** from one file, so they cannot
 drift; the tablet keeps dialogue and voice. The user's decisions: 64-bit Raspberry Pi OS Lite, no desktop;
 a "stage ready" card between shows (the page's), black once a show is armed; sound to a USB adapter if one
-is plugged in, else HDMI, with a settings override; hostname `opendubs-stage`; AC power (the official
+is plugged in, else HDMI, with a settings override; hostname `opendubs<N>-stage` after its robot (`opendubs2-stage`), one box per robot; AC power (the official
 supply), with under-voltage reported to the page; the robot's Wi-Fi only, SSH key-only, no remote desktop.
 
 How it is built (`software/stage-pi/`, README): `cage` + Chromium kiosk as its own user from a systemd unit;
