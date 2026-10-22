@@ -39,7 +39,7 @@ runtime switching between planners without modifying caller code.
 | `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | [`sim/planner/cbirrt_backend.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/cbirrt_backend.py) |
 | `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | [`sim/planner/curobo_backend.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/curobo_backend.py) |
 | Benchmark Tool | Statistical measurement comparing planners in simulation | [`sim/planner/benchmark.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/benchmark.py) |
-| Web Studio UI | Interactive 3D visualizer, jogger, choreographer, exporter | [`sim/planner/ui/server.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/ui/server.py) |
+| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | [`software/choreo/composer/`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/software/choreo/composer/) |
 
 ---
 
@@ -152,55 +152,32 @@ Key takeaways:
 
 ---
 
-## 5. Web Motion Planner Studio & Sequence Choreographer
+## 5. Choreo Composer Integration
 
-The web-based visual studio allows interactive jogging, live clearance checking, trajectory preview,
-choreographing show routines with gripper actions, and hardware execution / HITL dry-runs.
+All motion planning capabilities are natively integrated into the **Choreo Composer** (`software/choreo/composer/`):
 
-### Starting the Web Studio:
+### Starting the Composer:
 ```bash
-# On Local Dev Laptop:
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/ui/server.py --port 8092
+python3 software/choreo/composer/server.py --port 8091
 ```
-Navigate to: **`http://localhost:8092`**
+Navigate to: **`http://localhost:8091`**
 
-### Hosting on the Physical Robot (Thor / `10.42.2.10`):
-Port `8092` on the Thor host is already reserved for the kiosk cue runner (`opendubs-runner`).
-The Motion Planner Studio is installed as a shared systemd service at `/opt/opendubs-planner` and runs on port **`8095`**:
-```bash
-# Service status:
-sudo systemctl status opendubs-planner.service
-
-# Restart if needed:
-sudo systemctl restart opendubs-planner.service
-```
-Navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from any device on the robot's Wi-Fi network.
-
-> [!NOTE]
-> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving team members collaborative access without touching `/opt/opendubs/`.
-
-### UI Features:
-- **Live Backend Dropdown:** Switch dynamically between CBiRRT and cuRobo in the top header.
-- **Benchmark Modal:** Click **Benchmark** in the top bar to run live simulation benchmarks or view the comparison table in the browser.
-- **Dual-Pose 3D Overlay:** Solid mesh displays starting pose; translucent ghost displays target pose.
-- **Millimetric Clearance Guard:** Live contact calculation with collision warnings.
-- **SSIK Analytical Jogger:** Cartesian $(X, Y, Z)$ target positioning with inverse kinematics solved in $< 0.2\text{ ms}$.
-- **Sequence Choreographer with Gripper Actions:** Build multi-step motion sequences with per-keyframe **Grip Open** / **Grip Closed** states, synthesize full collision-free transitions, and export directly to `software/choreo/shows/` YAML.
-- **Hardware Preflight & Simulation:**
-  - **🛡️ Preflight Check**: Validates clearance against 30 mm minimum, velocity caps, and TCP bounding box before any physical motion.
-  - **🔄 HITL Dry Run**: Runs closed-loop 50 Hz simulated execution with live progress bar and 3D visualizer feedback.
-  - **🎬 Choreo Show Export**: Exports collision-free trajectory keyframes directly to choreography shows executed by `software/choreo/runner.py`.
-  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory execution.
+### Features:
+- **3D Robot Arm Preview:** Dual-arm WebGL visualizer rendering real OpenArm mesh geometry with orbit camera.
+- **Dynamic Joint Sliders:** Interactive joint angle sliders with live 3D visual preview.
+- **SSIK Analytical Jogger & Reach Solver:** Enter Cartesian $(X, Y, Z)$ targets and click **Solve Reach** to compute analytical IK in $< 0.2\text{ ms}$.
+- **Automatic Path Planning:** Click **Plan Path** on any arm cue to synthesize collision-free paths routing around obstacles and the robot chassis using CBiRRT or cuRobo.
+- **Safety Clearance Verification:** Strictly verifies all generated trajectories against the 30.0 mm minimum clearance threshold (`CLEAR_MIN_MM` in `software/choreo/ik.py`).
+- **Show Runner Safety Gating:** Physical robot motion is executed through `software/choreo/runner.py`, which acquires the exclusive motion lease, validates preflight safety, and enforces the RC deadman switch.
 
 ---
 
 ## 6. Verification Test Suite
 
-All components are covered by an automated test suite verifying kinematics, collision guards,
-modular backend switching, cuRobo GPU planning, REST APIs, choreo sequence planning, and hardware preflight:
+The simulation planning components are covered by an automated test suite verifying kinematics, collision guards, modular backend switching, cuRobo GPU planning, and benchmarking:
 
 ```bash
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/test_motion_planner.py
+python3 sim/planner/test_motion_planner.py
 ```
 
 ### Covered Test Sections:
@@ -208,10 +185,7 @@ modular backend switching, cuRobo GPU planning, REST APIs, choreo sequence plann
 2. `MuJoCo Collision Checking & Clearance Guard` (stow safe: 39.9 mm, head contact caught)
 3. `CBiRRT Motion Planning & TOPP-RA Retiming` (spline limits, velocity bounds)
 4. `Modular Backend Registry & cuRobo Adapter` (GPU CUDA trajectory, custom backend swap)
-5. `Studio HTTP Server & REST API Endpoints` (`/api/status`, `/api/presets`, `/api/ik`, `/api/plan`, `/api/benchmark`, `/api/export_show`, `/api/hardware/execute`)
-6. `Hardware Bridge Safety Preflight & HITL Loopback` (bounds, velocities, 50 Hz progress)
-7. `Choreography Sequence Planning & Gripper Lifecycle` (multi-keyframe transitions + gripper open/close)
-8. `Remote Hardware Bridge Transport & Preflight Validation` (SSH transport detection, safety validation)
+5. `Performance Benchmarking` (CBiRRT & cuRobo success rates and latency profiling)
 
 ---
 
@@ -224,7 +198,7 @@ simulation motion planning testbed:
 | System | Role | Execution Environment |
 |---|---|---|
 | **WebXR Tele-op** | Real-time direct controller tracking via Quest headset | Runs in `openarm` Docker container via `opendubs-teleop.service` |
-| **Motion Planner** | Collision-free trajectory generation & choreo authoring | Runs in simulation testbed (`sim/planner/`) or standalone on Thor port 8095 |
+| **Motion Planner** | Collision-free trajectory generation & choreo authoring | Runs in simulation testbed (`sim/planner/`) and Choreo Composer (`software/choreo/composer/`) |
 
 - **No Shared State:** The motion planning code resides entirely in `sim/planner/` and `sim/ik_artifacts/`. No tele-op services, patches, or controller configs were modified.
 - **Controller Safety:** Regular tele-op continues to communicate with the `openarm_impedance_controller` as documented in [WebXR teleop](teleop-setup.md).
