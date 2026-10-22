@@ -764,13 +764,20 @@ function update3DRobot() {
   const i = S.selected, a = (S.data && S.data.authored) || [];
   if (i !== null && a[i] && (a[i].slot === "ARM_L" || a[i].slot === "ARM_R")) {
     const c = a[i];
-    for (const v of Object.values(T.tracks)) {
-      for (const e of v) {
-        if (e.src && e.src.index === i && e.pose) {
-          R3D.view.setGhostCuePose(c.slot, e.pose);
-          return;
+    let targetPose = c.joints || null;
+    if (!targetPose) {
+      for (const v of Object.values(T.tracks)) {
+        for (const e of v) {
+          if (e.src && e.src.index === i && e.pose) {
+            targetPose = e.pose;
+            break;
+          }
         }
       }
+    }
+    if (targetPose) {
+      R3D.view.setGhostCuePose(c.slot, targetPose);
+      return;
     }
   }
   R3D.view.setGhostVisible(false);
@@ -824,8 +831,52 @@ function renderInspector() {
   const currentPlanner = c.planner || "spline";
   const reachVal = c.reach ? (Array.isArray(c.reach) ? JSON.stringify(c.reach) : c.reach) : "";
 
+  const JOINT_DEFS = [
+    { j: 1, name: "Shoulder Yaw", min: -120, max: 120 },
+    { j: 2, name: "Shoulder Pitch", min: -20, max: 180 },
+    { j: 3, name: "Shoulder Roll", min: -100, max: 100 },
+    { j: 4, name: "Elbow Pitch", min: 0, max: 150 },
+    { j: 5, name: "Wrist Yaw", min: -100, max: 100 },
+    { j: 6, name: "Wrist Pitch", min: -60, max: 60 },
+    { j: 7, name: "Wrist Roll", min: -180, max: 180 },
+  ];
+
+  let armJointsHtml = "";
   let armRoutingHtml = "";
+  const currentJoints = {};
   if (isArm && !S.clip) {
+    for (const d of JOINT_DEFS) {
+      currentJoints[d.j] = (c.joints && c.joints[d.j] != null)
+        ? Math.round(Number(c.joints[d.j]))
+        : (evs.length && evs[0].pose && evs[0].pose[d.j] != null)
+          ? Math.round(Number(evs[0].pose[d.j]))
+          : 0;
+    }
+
+    const slidersHtml = JOINT_DEFS.map((d) => {
+      const val = currentJoints[d.j];
+      return `
+        <div class="joint-slider-row" title="${esc(d.name)} (${d.min}° to ${d.max}°)">
+          <span class="j-lbl" title="${esc(d.name)}">J${d.j}</span>
+          <input type="range" class="joint-slider" data-j="${d.j}" min="${d.min}" max="${d.max}" step="1" value="${val}">
+          <span class="j-val" id="jval_${d.j}">${val}°</span>
+        </div>`;
+    }).join("");
+
+    armJointsHtml = `
+      <div class="arm-joints-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:600; font-size:11px;">Joint Angles (${esc(c.slot)})</span>
+          <div style="display:flex; gap:4px;">
+            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Reset all joints to 0°">0° Zero</button>
+            <button id="btnToggle3DFromInsp" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Toggle 3D robot preview">🤖 3D Robot</button>
+          </div>
+        </div>
+        <div class="joint-sliders-container">
+          ${slidersHtml}
+        </div>
+      </div>`;
+
     const planners = (S.info && S.info.planners) || {
       spline: { name: "Spline (Default)", available: true },
       cbirrt: { name: "CBiRRT (SSIK + Clearance)", available: true },
@@ -875,6 +926,7 @@ function renderInspector() {
     ${c.slot === "SOUND" ? `<div class="row2"><label title="Dialogue always plays from the tablet; music from the projector's speaker when a projector is ready. Unmarked is dialogue.">plays as
       <select id="iRole"><option value="dialogue" ${c.role !== "music" ? "selected" : ""}>dialogue — always the tablet</option>
       <option value="music" ${c.role === "music" ? "selected" : ""}>music — the projector, when one is ready</option></select></label></div>` : ""}
+    ${armJointsHtml}
     ${armRoutingHtml}
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
@@ -979,6 +1031,98 @@ function renderInspector() {
       }
     };
   }
+  if ($("btnToggle3DFromInsp")) {
+    $("btnToggle3DFromInsp").onclick = async () => {
+      await toggle3DRobot();
+      if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = currentJoints;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, currentJoints);
+      }
+    };
+  }
+
+  if ($("btnZeroJoints")) {
+    $("btnZeroJoints").onclick = () => {
+      const cue = { ...c };
+      delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      const jointsObj = {};
+      for (const d of JOINT_DEFS) {
+        jointsObj[d.j] = 0;
+        currentJoints[d.j] = 0;
+        const valEl = $(`jval_${d.j}`);
+        if (valEl) valEl.textContent = "0°";
+      }
+      el.querySelectorAll(".joint-slider").forEach((sl) => { sl.value = 0; });
+      try {
+        const fields = JSON.parse($("iFields").value);
+        delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        fields.joints = jointsObj;
+        $("iFields").value = JSON.stringify(fields);
+      } catch (e) {}
+
+      if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = jointsObj;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, jointsObj);
+      }
+
+      cue.joints = jointsObj;
+      edit([{ op: "set", index: i, cue }], `zero ${c.slot} joints`);
+    };
+  }
+
+  el.querySelectorAll(".joint-slider").forEach((sl) => {
+    const j = +sl.dataset.j;
+    sl.oninput = () => {
+      const val = parseInt(sl.value, 10);
+      currentJoints[j] = val;
+      const valEl = $(`jval_${j}`);
+      if (valEl) valEl.textContent = `${val}°`;
+
+      try {
+        const fields = JSON.parse($("iFields").value);
+        delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        if (!fields.joints) fields.joints = {};
+        fields.joints[j] = val;
+        $("iFields").value = JSON.stringify(fields);
+      } catch (e) {}
+
+      if (!R3D.visible) {
+        toggle3DRobot().then(() => {
+          if (R3D.view && R3D.view.ready) {
+            const side = c.slot === "ARM_L" ? "left" : "right";
+            const dual = {};
+            dual[side] = currentJoints;
+            R3D.view.setDualArmChoreoPose(dual);
+            R3D.view.setGhostCuePose(c.slot, currentJoints);
+          }
+        });
+      } else if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = currentJoints;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, currentJoints);
+      }
+    };
+
+    sl.onchange = () => {
+      const cue = { ...c };
+      delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      const jointsObj = {};
+      for (const d of JOINT_DEFS) {
+        jointsObj[d.j] = currentJoints[d.j];
+      }
+      cue.joints = jointsObj;
+      edit([{ op: "set", index: i, cue }], `set ${c.slot} J${j}=${sl.value}°`);
+    };
+  });
+
   update3DRobot();
 }
 function deleteSelected() {

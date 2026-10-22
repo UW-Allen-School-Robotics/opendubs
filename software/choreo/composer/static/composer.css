@@ -261,6 +261,48 @@ button.on { border-color: var(--accent); color: var(--accent); }
 #inspector #nAtT, #inspector #nToT { font-size: 11px; }
 #audioState { font-size: 11px; min-width: 0; white-space: nowrap; }
 
+/* arm joints box */
+.arm-joints-box {
+  margin: 10px 0;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.joint-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.joint-slider-row:last-child {
+  margin-bottom: 0;
+}
+.joint-slider-row span.j-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  width: 22px;
+}
+.joint-slider-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  background: var(--line);
+  border: none;
+  border-radius: 3px;
+}
+.joint-slider-row span.j-val {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--txt);
+  width: 44px;
+  text-align: right;
+}
+
 /* arm routing & motion planner box */
 .arm-routing-box {
   margin: 10px 0;
