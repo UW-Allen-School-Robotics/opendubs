@@ -21,14 +21,15 @@ shellcheck), not yet run on a Raspberry Pi.** The first build on real hardware i
 | **sound** | `auto`: a USB audio adapter if one is plugged in, else the HDMI screen. The settings can force either. |
 | **a watchdog** | the page checks in every 5 s; a page that goes quiet for 30 s is restarted, backing off to 2 minutes. systemd restarts the browser whenever it ends. |
 | **tells the page about itself** | `http://127.0.0.1:8095/device.json`, loopback only: the sound output, the screen and its mode, and **under-voltage** from the Pi's own power monitor, so the page's ready card can warn about a weak supply. |
-| **pull the plug any time** | the root filesystem is read-only, with an overlay in RAM, so cutting the power corrupts nothing. |
+| **pull the plug any time** | the root filesystem is read-only, with an overlay in RAM, so cutting the power corrupts nothing. The browser's profile and the page's video cache live in RAM too, so they are cleared at each power-on. |
+| **the show's video, preloaded** | the page loads each show's whole video into memory when the show is armed, so only the timing crosses the Wi-Fi during the show. The cache is capped by the board's memory (passed to the page as `?cache_mb=`). |
 | **locked down** | the robot's Wi-Fi only, SSH with a key only, no remote desktop of any kind, Bluetooth off. |
 
 ## What to buy
 
 | part | why |
 |---|---|
-| **Raspberry Pi 5** (the standard; a **Raspberry Pi 4** is the spare, and one image runs on both) | |
+| **Raspberry Pi 5, 4 GB or more** (the standard; 8 GB for the full video cache), a **Raspberry Pi 4** as the spare; one image runs on both | the stage page keeps each show's video in memory (up to 800 MB), and on this box everything written lives in RAM |
 | **the official 27 W USB-C supply** for the Pi 5 (the 15 W one for a Pi 4) | AC is the power source; a weaker supply shows as under-voltage on the page |
 | **a Pi 5 active cooler** | |
 | **a high-endurance microSD card**, 32 GB or more | |
@@ -68,7 +69,8 @@ One file on the card's boot partition, **`stage.conf`**, editable from any compu
 
 - `ROBOT_URL` and `ROBOT_FALLBACK`: the robot's page, by name, then by address;
 - `MODE`: empty for the screen's own mode, or forced, e.g. `1920x1080@60`;
-- `AUDIO`: `auto`, `usb` or `hdmi`.
+- `AUDIO`: `auto`, `usb` or `hdmi`;
+- `CACHE_MB`: how much show video the page may keep in memory, empty for the board's own size.
 
 The box reads it at every start, so take the card out, edit, put it back, and power on.
 
