@@ -66,12 +66,26 @@ mapping below was taken with the mixer idle so only `SERVO8` moves a hub.
      positive command drives that wheel robot-forward, `-1` if it's wired
      reversed and needs flipping.
 
-6. **Set them in firmware**, re-flash, and re-verify: with the mixer live and
-   the base armed, a pure forward command must spin **all four** hubs
+6. **Set them in your robot's `firmware/rc_serial_probe/src/robot_config.h`**,
+   in the copy of the firmware the robot builds from (on the Thor). This file
+   holds one robot's calibration and is never committed: create it by copying
+   [`src/robot_config.h.example`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/rc_serial_probe/src/robot_config.h.example),
+   which documents every value. The firmware won't build without it. Then
+   re-flash and re-verify: with the mixer live and the base armed, a pure forward command must spin **all four** hubs
    robot-forward. A pure rotate command must spin the left corners one way and
    the right corners the other. If any corner is wrong, fix its entry in
    `kDriveCh`/`kDriveInvert` — do not rewire to compensate, or you'll desync the
    firmware map from the hardware.
+
+7. **Check strafe, in both directions**, once the wheels are on. Mecanum
+   rollers have a handedness, and if the robot strafes the wrong way, set
+   `kStrafeInvert` to `-1`. A mirrored mix drives forward and backward
+   perfectly and only gives itself away when it strafes.
+
+Record the values you settle on somewhere outside the robot, so they can be
+restored if the file is lost. The firmware's
+[README](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/rc_serial_probe/README.md)
+covers the file in full, under "Per-robot calibration".
 
 ### Worked example (this reference build)
 
@@ -85,7 +99,9 @@ answer. On the reference base, mapping came out:
 | RL     | 0                  | `+1`      |
 | RR     | 2                  | `-1` (wired reversed) |
 
-→ `kDriveCh[4] = {1, 3, 0, 2}`, `kDriveInvert[4] = {1, 1, 1, -1}`.
+→ in `robot_config.h`: `kDriveCh[4] = {1, 3, 0, 2}`, `kDriveInvert[4] = {1, 1, 1, -1}`,
+and `kStrafeInvert = 1`. The example file starts with exactly these values: they are the
+reference build's, not yours.
 
 Note channel **0**: the PRISM LED is on I2C, so **ch0 is a drive ESC** — make sure
 nothing else writes ch0.
