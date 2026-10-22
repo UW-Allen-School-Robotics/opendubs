@@ -113,10 +113,12 @@ Otherwise a show that casts its own video keeps its music on the tablet, as befo
 `GET /api/choreo/video` (#443) gains:
 
 ```json
-"settings": { "audio_lead_s": 0.8, "video_lead_s": 0.8, "music_as": "audio" },
+"settings": { "audio_lead_s": 0.8, "video_lead_s": 0.8, "music_as": "audio",
+              "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0 },
 "music": { "on": "projector" | "tablet" | null, "why": "…" | null }
 ```
 
-`POST /api/choreo/video/settings {"audio_lead_s": 0.85}` (any of the three keys) → the whole GET body;
+`POST /api/choreo/video/settings {"audio_lead_s": 0.85}` (any of the keys; the `stage_*` pair is the stage
+page's own, a stage Pi's sound and picture path) → the whole GET body;
 stored in projector.json on the robot and used from the next run. `music.on` is where the current run's
 music is (null: no run, or no music); `why` says why it is not on the projector, in plain words.

@@ -265,8 +265,12 @@ class DriveBridge(Node):
         o.pose.pose.position.y = y_mm / 1000.0
         o.pose.pose.orientation.z = math.sin(h / 2.0)
         o.pose.pose.orientation.w = math.cos(h / 2.0)
-        o.twist.twist.linear.x = vx_mm / 1000.0
-        o.twist.twist.linear.y = vy_mm / 1000.0
+        # The Pinpoint reports vx/vy in the odom (field) frame; measured 2026-10-21 by turning
+        # 180° and driving forward, which read vx < 0. Odometry's twist is in child_frame_id
+        # (base_link), so rotate by -h.
+        c, s = math.cos(h), math.sin(h)
+        o.twist.twist.linear.x = (c * vx_mm + s * vy_mm) / 1000.0
+        o.twist.twist.linear.y = (-s * vx_mm + c * vy_mm) / 1000.0
         o.twist.twist.angular.z = vh
         # Covariance is NOT characterised. These are placeholders chosen to be pessimistic so a
         # fuser does not over-trust this source; replace them with measured values before any

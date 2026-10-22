@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+"""The stage box's local agent, on 127.0.0.1:8095 only. Its contract with the Choreography lane's /stage/
+page (notes/design/display-devices.md):
+
+  GET  /device.json     what this box is and how it is doing, for the page's ready card:
+       {"device": "stage-pi", "name": <hostname>, "model": <the board>,
+        "audio_output": "usb" | "hdmi" | "none", "audio_name": <the sound card's name> | null,
+        "under_voltage_now": bool, "under_voltage_since_boot": bool, "throttled_now": bool,
+        "screen": {"connected": bool, "mode": "1920x1080" | "1920x1080@60" | null},
+        "media": {"items": n, "bytes": used, "free": bytes, "syncing": bool} | null}
+       under-voltage and throttling from `vcgencmd get_throttled` (bits 0, 16, 2); null where unknown.
+       media is null when there is no media partition.
+  POST /alive           the page's heartbeat, every 5 s.
+  HEAD/GET /media/<sha256>[?id=…]   the box's own copy of a library item, by its content hash, with byte
+       ranges (206) so a <video> can seek; 404 if the box does not hold a verified copy. `id` is for logs.
+  GET  /media.json      the sync in detail: {"mounted", "total_bytes", "free_bytes", "busy", "syncing",
+       "error", "last_sync_at", "items": [{"id", "sha256", "kind", "state": have|fetching|missing|error,
+       "pct", "bytes"}]}, one per item of the robot's index this box wants.
+
+Every answer carries Access-Control-Allow-Origin: *, and a preflight is answered with
+Access-Control-Allow-Private-Network: true (the page comes from the robot; this is localhost).
+
+THE MEDIA SYNC ("like Netflix downloads", the user, 2026-10-21): the robot's show videos, then its songs,
+copied to the media partition (stage-media, a USB stick; the system root stays read-only) while the robot
+is idle, so a show plays with no Wi-Fi. From the robot's library: GET /api/library/index (with its ETag),
+GET /api/library/item/<sha256>. Never while a show is armed or playing (GET /api/stage: show.state
+"loaded" or "playing"), and a download in progress is abandoned when one starts. Each file is written as
+<sha256>.part, hashed as it streams, renamed to <sha256>.<ext> only when the hash matches, and the folder
+synced; a .part left by a power cut is deleted at start. Files named by their hash are the only thing
+ever served, so a copy is right or absent. Priority: videos, then songs, the most recently added first.
+When the partition is full, the lowest-priority copies (the oldest added) make room for higher ones; a
+copy no longer in the robot's index is deleted.
+
+THE WATCHDOG: once the browser has the page (stage-kiosk writes it), a page that has not checked in for
+SILENT_S is restarted (systemctl restart stage-kiosk), backing off to SILENT_MAX_S.
+
+Runs as root (stage-agent.service), for that restart and the media partition; listens on loopback only.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import mimetypes
+import os
+import re
+import shutil
+import socket
+import subprocess
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = 8095
+RUN = os.environ.get("STAGE_RUN", "/run/stage")
+MEDIA = os.environ.get("STAGE_MEDIA", "/srv/stage-media")
+SILENT_S, SILENT_MAX_S = 30.0, 120.0
+SYNC_EVERY_S = 60
+SYNC_KINDS = ("video", "song")                    # videos first: they are the slow ones to stream
+MARGIN_BYTES = 64 << 20                           # always leave this much free
+CHUNK = 1 << 20
+CONF_TOOL = "/usr/local/lib/stage/stage-conf"
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+EXT_RE = re.compile(r"^\.[a-z0-9]{1,5}$")
+
+state = {"alive_at": None, "silent_s": SILENT_S, "restarts": 0}
+lock = threading.Lock()
+sync = {"busy": None, "syncing": False, "error": None, "last_sync_at": None, "items": [],
+        "fetching": None, "pct": None, "etag": None, "index": None}
+
+
+def _read(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _conf(key: str, default: str = "") -> str:
+    try:
+        return subprocess.run([CONF_TOOL, key, default], capture_output=True, text=True, timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return default
+
+
+# ---- the device ------------------------------------------------------------------------------------
+
+def throttled(text: str | None) -> dict:
+    """`throttled=0x50005` -> the three flags the page shows; None each when unknown."""
+    try:
+        v = int((text or "").split("=", 1)[1], 16)
+    except (IndexError, ValueError):
+        return {"under_voltage_now": None, "under_voltage_since_boot": None, "throttled_now": None}
+    return {"under_voltage_now": bool(v & 0x1), "under_voltage_since_boot": bool(v & 0x10000),
+            "throttled_now": bool(v & 0x4)}
+
+
+def screen(drm: str = "/sys/class/drm", forced: str = "") -> dict:
+    """The first connected HDMI screen and its mode: the forced one (stage.conf MODE), else the
+    screen's preferred mode (the first in its list, from its EDID)."""
+    try:
+        names = sorted(n for n in os.listdir(drm) if "-HDMI-A-" in n)
+    except OSError:
+        names = []
+    for n in names:
+        if _read(f"{drm}/{n}/status") == "connected":
+            modes = (_read(f"{drm}/{n}/modes") or "").splitlines()
+            return {"connected": True, "mode": forced or (modes[0] if modes else None)}
+    return {"connected": False, "mode": None}
+
+
+def audio_name(output: str | None, cards: str | None) -> str | None:
+    """The sound card's own name from /proc/asound/cards, for the output stage-audio chose."""
+    for line in (cards or "").splitlines():
+        if " - " not in line or "]:" not in line:
+            continue
+        if (output == "usb" and "USB-Audio" in line) or (output == "hdmi" and "vc4-hdmi" in line.lower().replace("_", "-")):
+            return line.split(" - ", 1)[1].strip()
+    return None
+
+
+def device() -> dict:
+    try:
+        thr = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        thr = None
+    out = _read(f"{RUN}/audio") or "none"
+    return {"device": "stage-pi", "name": socket.gethostname(),
+            "model": (_read("/proc/device-tree/model") or "").rstrip("\x00") or None,
+            "audio_output": out if out in ("usb", "hdmi") else "none",
+            "audio_name": audio_name(out, _read("/proc/asound/cards")),
+            **throttled(thr), "screen": screen(forced=_conf("MODE")), "media": media_summary()}
+
+
+# ---- the media partition ---------------------------------------------------------------------------
+
+def mounted() -> bool:
+    return os.path.ismount(MEDIA)
+
+
+def held(folder: str | None = None) -> dict:
+    """sha256 -> file name, for every complete copy on the partition."""
+    folder = folder or MEDIA
+    out = {}
+    try:
+        for name in os.listdir(folder):
+            sha, ext = os.path.splitext(name)
+            if SHA_RE.match(sha) and ext != ".part":
+                out[sha] = name
+    except OSError:
+        pass
+    return out
+
+
+def space(folder: str | None = None) -> tuple[int, int]:
+    try:
+        u = shutil.disk_usage(folder or MEDIA)
+        return u.total, u.free
+    except OSError:
+        return 0, 0
+
+
+def media_summary() -> dict | None:
+    if not mounted():
+        return None
+    h = held()
+    used = 0
+    for name in h.values():
+        try:
+            used += os.path.getsize(os.path.join(MEDIA, name))
+        except OSError:
+            pass
+    return {"items": len(h), "bytes": used, "free": space()[1], "syncing": sync["syncing"]}
+
+
+def wanted(index: list) -> list[dict]:
+    """The robot's items this box keeps, in priority order: videos, then songs; within a kind, the most
+    recently added first when the index says, else its own order. Single files with a sha256 only."""
+    out = []
+    for kind in SYNC_KINDS:
+        items = [e for e in index if isinstance(e, dict) and e.get("kind") == kind
+                 and SHA_RE.match(str(e.get("sha256", ""))) and isinstance(e.get("bytes"), int)]
+        if any("added" in e for e in items):
+            items.sort(key=lambda e: str(e.get("added", "")), reverse=True)
+        out += items
+    return out
+
+
+def ext_of(e: dict) -> str:
+    ext = os.path.splitext(str(e.get("file", "")))[1].lower()
+    return ext if EXT_RE.match(ext) else ".bin"
+
+
+def origins() -> list[str]:
+    """The robot, as the browser found it (stage-kiosk), then as stage.conf names it."""
+    out = []
+    for u in (_read(f"{RUN}/page"), _conf("ROBOT_URL", "http://opendubs2.local:8080/stage/"),
+              _conf("ROBOT_FALLBACK", "http://10.42.2.10:8080/stage/")):
+        if u:
+            p = urllib.parse.urlsplit(u)
+            o = f"{p.scheme}://{p.netloc}"
+            if p.scheme in ("http", "https") and o not in out:
+                out.append(o)
+    return out
+
+
+def robot_busy(origin: str) -> bool | None:
+    """True while a show is armed or playing; None when the robot does not answer."""
+    try:
+        with urllib.request.urlopen(origin + "/api/stage", timeout=4) as r:
+            show = (json.load(r) or {}).get("show") or {}
+        return show.get("state") in ("loaded", "playing")
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+
+
+def fetch_index(origin: str):
+    """(entries or None when unchanged, etag)."""
+    req = urllib.request.Request(origin + "/api/library/index")
+    if sync["etag"]:
+        req.add_header("If-None-Match", sync["etag"])
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r), r.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return None, sync["etag"]
+        raise
+
+
+def make_room(need: int, keep: set, rank: dict, folder: str | None = None) -> bool:
+    """Free `need` bytes (plus the margin) by deleting copies not in `keep`, the LOWEST priority first
+    (`rank`: sha256 -> place in the wanted list; the oldest-added items sit at the bottom). Priority
+    alone decides, so a pass never evicts a copy it will want back before the one it is fetching."""
+    folder = folder or MEDIA
+    h = held(folder)
+    order = sorted((s for s in h if s not in keep), key=lambda s: -rank.get(s, len(rank)))
+    size = lambda s: os.path.getsize(os.path.join(folder, h[s])) if os.path.exists(os.path.join(folder, h[s])) else 0
+    if space(folder)[1] + sum(size(s) for s in order) < need + MARGIN_BYTES:
+        return False                                # it cannot fit: delete nothing for it
+    while space(folder)[1] < need + MARGIN_BYTES:
+        if not order:
+            return False
+        s = order.pop(0)
+        try:
+            os.remove(os.path.join(folder, h[s]))
+        except OSError:
+            pass
+    return True
+
+
+def download(origin: str, e: dict, folder: str | None = None, still_idle=lambda: True) -> str:
+    """Fetch one item to <sha>.part, verify, rename. Returns "have", "error" or "abandoned"."""
+    folder = folder or MEDIA
+    sha = e["sha256"]
+    part = os.path.join(folder, sha + ".part")
+    final = os.path.join(folder, sha + ext_of(e))
+    h = hashlib.sha256()
+    got, last_check = 0, time.monotonic()
+    try:
+        with urllib.request.urlopen(f"{origin}/api/library/item/{sha}", timeout=20) as r, open(part, "wb") as f:
+            while True:
+                chunk = r.read(CHUNK)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                got += len(chunk)
+                sync["pct"] = int(100 * got / max(1, e["bytes"]))
+                if time.monotonic() - last_check > 10:          # a show armed meanwhile: stop at once
+                    last_check = time.monotonic()
+                    if not still_idle():
+                        raise InterruptedError
+            f.flush()
+            os.fsync(f.fileno())
+        if h.hexdigest() != sha:
+            os.remove(part)
+            return "error"
+        os.replace(part, final)
+        fd = os.open(folder, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return "have"
+    except InterruptedError:
+        _remove(part)
+        return "abandoned"
+    except (OSError, urllib.error.URLError):
+        _remove(part)
+        return "error"
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def sync_once(folder: str | None = None) -> None:
+    """One pass: the index, deletions, then the missing items in priority order while the robot is idle."""
+    folder = folder or MEDIA
+    origin = next((o for o in origins() if robot_busy(o) is not None), None)
+    if origin is None:
+        sync["error"] = "the robot does not answer"
+        return
+    if robot_busy(origin):
+        sync["busy"] = True
+        return
+    sync["busy"] = False
+    entries, etag = fetch_index(origin)
+    if entries is not None:
+        sync["index"], sync["etag"] = entries, etag
+    want = wanted(sync["index"] or [])
+    shas = {e["sha256"] for e in want}
+    for s, name in held(folder).items():                    # gone from the robot: gone from here
+        if s not in shas:
+            _remove(os.path.join(folder, name))
+    items = []
+    sync["syncing"] = True
+    try:
+        for i, e in enumerate(want):
+            item = {"id": e.get("id"), "sha256": e["sha256"], "kind": e.get("kind"), "bytes": e["bytes"],
+                    "state": "have" if e["sha256"] in held(folder) else "missing", "pct": None}
+            items.append(item)
+            sync["items"] = items + [{"id": x.get("id"), "sha256": x["sha256"], "kind": x.get("kind"),
+                                      "bytes": x["bytes"], "state": "missing", "pct": None} for x in want[i + 1:]]
+            if item["state"] == "have":
+                continue
+            if not make_room(e["bytes"], {x["sha256"] for x in want[:i]}, {x["sha256"]: k for k, x in enumerate(want)}, folder):
+                continue                                    # no room for it without evicting a higher one
+            item["state"], sync["fetching"], sync["pct"] = "fetching", e.get("id"), 0
+            res = download(origin, e, folder, still_idle=lambda: robot_busy(origin) is False)
+            item["state"] = "have" if res == "have" else ("missing" if res == "abandoned" else "error")
+            if res == "abandoned":
+                sync["busy"] = True
+                break
+        sync["items"] = items + [{"id": x.get("id"), "sha256": x["sha256"], "kind": x.get("kind"),
+                                  "bytes": x["bytes"], "state": "have" if x["sha256"] in held(folder) else "missing",
+                                  "pct": None} for x in want[len(items):]]
+        sync["error"], sync["last_sync_at"] = None, time.time()
+    finally:
+        sync["syncing"], sync["fetching"], sync["pct"] = False, None, None
+
+
+def syncer() -> None:
+    for name in os.listdir(MEDIA) if mounted() else []:      # a cut download from before a power cut
+        if name.endswith(".part"):
+            _remove(os.path.join(MEDIA, name))
+    while True:
+        if mounted():
+            try:
+                sync_once()
+            except Exception as e:                          # noqa: BLE001 — keep syncing next time
+                sync["error"] = str(e)[:160]
+        else:
+            sync["error"] = "no media partition"
+        time.sleep(SYNC_EVERY_S)
+
+
+def media_status() -> dict:
+    total, free = space() if mounted() else (0, 0)
+    return {"mounted": mounted(), "total_bytes": total, "free_bytes": free, "busy": sync["busy"],
+            "syncing": sync["syncing"], "error": sync["error"], "last_sync_at": sync["last_sync_at"],
+            "items": [dict(i, pct=sync["pct"] if i["state"] == "fetching" else i["pct"]) for i in sync["items"]]}
+
+
+def parse_range(header: str | None, size: int):
+    """`bytes=a-b` -> (start, end) inclusive, or None for the whole file; ValueError if unsatisfiable."""
+    if not header or not header.startswith("bytes="):
+        return None
+    spec = header[6:].split(",")[0].strip()
+    a, _, b = spec.partition("-")
+    if a == "":                                             # the last b bytes
+        n = int(b)
+        if n <= 0:
+            raise ValueError
+        return max(0, size - n), size - 1
+    start = int(a)
+    end = int(b) if b else size - 1
+    if start >= size or end < start:
+        raise ValueError
+    return start, min(end, size - 1)
+
+
+# ---- the server ------------------------------------------------------------------------------------
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _cors(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Range")
+        self.send_header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+
+    def _send(self, code: int, body: bytes = b"", ctype: str = "application/json") -> None:
+        self.send_response(code)
+        self._cors()
+        self.send_header("Cache-Control", "no-store")
+        if body:
+            self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body and self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:                   # the CORS / Private Network Access preflight
+        self._send(204)
+
+    def do_HEAD(self) -> None:
+        self.do_GET()
+
+    def do_GET(self) -> None:
+        path = self.path.split("?")[0]
+        if path == "/device.json":
+            return self._send(200, json.dumps(device()).encode())
+        if path == "/media.json":
+            return self._send(200, json.dumps(media_status()).encode())
+        if path.startswith("/media/"):
+            return self._media(path[len("/media/"):])
+        self._send(404, b'{"error": "not here"}')
+
+    def _media(self, sha: str) -> None:
+        name = held().get(sha) if SHA_RE.match(sha) and mounted() else None
+        if not name:
+            return self._send(404, b'{"error": "no copy here"}')
+        full = os.path.join(MEDIA, name)
+        size = os.path.getsize(full)
+        try:
+            rng = parse_range(self.headers.get("Range"), size)
+        except ValueError:
+            self.send_response(416)
+            self._cors()
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        start, end = rng if rng else (0, size - 1)
+        self.send_response(206 if rng else 200)
+        self._cors()
+        self.send_header("Content-Type", mimetypes.guess_type(name)[0] or "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if rng:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        try:
+            with open(full, "rb") as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(CHUNK, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                    # the video seeked elsewhere: normal
+
+    def do_POST(self) -> None:
+        n = min(int(self.headers.get("Content-Length") or 0), 4096)
+        if n:
+            self.rfile.read(n)
+        if self.path.split("?")[0] == "/alive":
+            with lock:
+                state["alive_at"], state["silent_s"] = time.monotonic(), SILENT_S
+            self._send(204)
+        else:
+            self._send(404, b'{"error": "not here"}')
+
+    def log_message(self, *args) -> None:           # a heartbeat every 5 s is not worth a log line
+        pass
+
+
+# ---- the watchdog ----------------------------------------------------------------------------------
+
+def page_loaded_at() -> float | None:
+    """When stage-kiosk last handed the browser the page (the file's age), as monotonic time."""
+    try:
+        age = time.time() - os.stat(f"{RUN}/page").st_mtime
+    except OSError:
+        return None
+    return time.monotonic() - age
+
+
+def check_once(restart=lambda: subprocess.run(["systemctl", "restart", "stage-kiosk.service"], timeout=60)) -> bool:
+    """One watchdog check: restart the browser if the page has gone quiet. True when it restarted."""
+    loaded = page_loaded_at()
+    if loaded is None:                              # the browser is still waiting for the robot
+        return False
+    with lock:
+        last = state["alive_at"] if state["alive_at"] and state["alive_at"] > loaded else loaded
+        silent, wait = time.monotonic() - last, state["silent_s"]
+    if silent <= wait:
+        return False
+    print(f"stage-agent: no heartbeat for {silent:.0f} s; restarting the browser", flush=True)
+    restart()
+    with lock:
+        state["restarts"] += 1
+        state["silent_s"] = min(SILENT_MAX_S, state["silent_s"] * 2)
+        state["alive_at"] = None
+    return True
+
+
+def watchdog() -> None:
+    while True:
+        time.sleep(5)
+        check_once()
+
+
+def main() -> None:
+    threading.Thread(target=watchdog, daemon=True).start()
+    threading.Thread(target=syncer, daemon=True).start()
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

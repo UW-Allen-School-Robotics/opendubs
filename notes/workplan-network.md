@@ -230,24 +230,60 @@ the user's word and a person there (lane rule 1). Nothing is applied from a desk
 | D-7 | Robot AP to 20 MHz on channel 1, 6 or 11 (E-3) | **Yes**, at the robot |
 | D-8 | Build order for `tools/network/` | **The logical order, all of it now**: the REST client and poller, `netdiag`, then `netjoin`. Not waiting for travel |
 
-### Next at-robot session (the Network lane's list)
+### At the robot (the Network lane's list)
 
-Each step still needs the user's word on the day.
+Each step still needs the user's word on the day, with a person there.
 
-1. **H-0**: a binary backup and an `/export`, both kept off the robot and out of the repository.
-   A sanitized copy of the export goes in `notes/design/` after checking it for secrets.
-2. **H-1**: turn off telnet, FTP and the plain API.
-3. **E-3**: set the robot AP to 20 MHz on a fixed channel 1, 6 or 11. Pick the quietest from a scan.
-4. **A-1**: create the read-only `netmon` account the poller needs for D-1
-   ([`design/network-router-api.md`](design/network-router-api.md) §2).
-   - It is the only route to the uplink's signal; nothing else on the robot can see it.
-   - The router change has no lockout risk: `admin` is not touched.
-   - The user types the account's password into `/etc/opendubs/network.env`.
-   - Options: REST over the HTTP page that D-4 keeps, or `www-ssl` turned on alongside it. HTTPS
-     is recommended, since the read password would otherwise cross the robot Wi-Fi in clear. The
-     page stays either way.
-5. **J-1 and J-2**, using `netjoin init` and `netjoin wired-first`: turn the uplink into a saved,
-   ordered list of networks, and make a cable win over Wi-Fi. No LAN-side change.
+**Done on 2026-10-20**, with the user at the robot:
+- **H-0**, as a plain `/export` only. The user chose to skip the binary backup. The export is kept
+  off the robot and out of the repository; a sanitized copy for `notes/design/` is still to do.
+- **H-1**: telnet, FTP and the plain API are off. SSH, Winbox, `www` and `api-ssl` stay on.
+- **A-1, the router side**: a self-signed certificate (`netmon-https`), `www-ssl` on alongside the
+  kept HTTP page, and the `netread` group (`read` and `rest-api` only). On the Thor,
+  `/etc/opendubs/network.env` holds the URL, the user name and the certificate's fingerprint.
+- `opendubs-netmon` is installed (Thor lane, #396). Until the next step it reports NO_ROUTER,
+  because the router refuses the login.
+
+**Still to do:**
+1. **The `netmon` user.** RouterOS 7.20 won't create a user without a password, so the user types
+   it: `/user add name=netmon group=netread address=10.42.2.10/32 password=…`, then the same
+   password on `ROUTER_PASS=` in `/etc/opendubs/network.env` on the Thor. Then check that the
+   dashboard's uplink tile shows a state other than UNKNOWN.
+2. **E-3 (D-7)**: the robot AP to 20 MHz on **channel 1**. Channel 1 was the quietest of 1, 6 and
+   11 from the Thor's scan on 2026-10-20; the AP was on channel 7 at 20/40 MHz. Every Wi-Fi client
+   drops for a few seconds. Do it under a scheduled automatic revert, cancelled once the tablet
+   is back.
+3. **DHCP reservations** for devices on the robot Wi-Fi, each by its real MAC (randomized
+   per-network MAC turned off on the device first):
+   - the **show projector** (Choreography; it casts from the Thor, `notes/design/choreo-video.md`);
+   - the **stage Pi**, `opendubs-stage`: a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
+     robot and carried off to drive a projector or a building video wall.
+4. Optional, only if the user asks: **J-1 and J-2** (`netjoin init`, `netjoin wired-first`).
+
+### How far the robot's Wi-Fi reaches (for the stage Pi and the projector)
+
+The robot's Wi-Fi is 2.4 GHz only: the router's 5 GHz radio is the campus uplink. Nothing here has
+been measured. It's a rule of thumb for planning, and the device's signal in `netdiag` settles
+it on the day.
+
+| Where the device is | What to expect |
+|---|---|
+| A few metres from the robot, same room | Solid. Video streams of 8–10 Mbit/s and control traffic are fine |
+| 10–25 m with a clear line of sight (a hall, an atrium) | Usually fine for one video stream. Aim for −70 dBm or better at the device |
+| Through one or two walls, or 25–40 m in the open | Marginal. Expect drops and stutters; a stream may stall |
+| Another floor, several walls, or beyond ~40 m | Don't plan on it |
+
+What shortens the range:
+- Metal close to the router (the robot's frame) shields its internal 2.4 GHz antennas.
+- The device's own radio matters as much: a Raspberry Pi's built-in antenna is small, and a USB
+  Wi-Fi adapter with an external antenna helps.
+- A crowd absorbs 2.4 GHz.
+- Campus 2.4 GHz is busy.
+- After E-3 the AP runs at 20 MHz, which halves the peak rate but not the reach.
+
+If a venue's wall display is further than this:
+- the Pi can be wired to a free LAN port on the robot's router with a long Ethernet cable (up to 100 m);
+- or it plays the content from its own storage and needs the robot only for cues.
 
 ### D-5 explored: restricting where `admin` can log in from
 

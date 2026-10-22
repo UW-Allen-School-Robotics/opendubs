@@ -94,14 +94,14 @@ async def video_output(request: Request):
 
 @router.post("/api/choreo/video/settings")
 async def video_settings(request: Request):
-    """The projector's offsets and how it takes music ({audio_lead_s, video_lead_s, music_as}; any of
-    them), set at the robot by ear and stored there (notes/design/choreo-audio.md). Returns the whole
-    GET body."""
+    """The projector's offsets and how it takes music ({audio_lead_s, video_lead_s, music_as}, and the
+    stage page's own stage_audio_lead_s, stage_video_lead_s; any of them), set at the robot by ear and
+    stored there (notes/design/choreo-audio.md). Returns the whole GET body."""
     try:
         raw = await request.json() if await request.body() else {}
     except ValueError:
         return JSONResponse({"error": "the body must be JSON"}, status_code=400)
-    keys = ("audio_lead_s", "video_lead_s", "music_as")
+    keys = ("audio_lead_s", "video_lead_s", "music_as", "stage_audio_lead_s", "stage_video_lead_s", "stage_buffer_s")
     if not isinstance(raw, dict) or not any(k in raw for k in keys):
         return JSONResponse({"error": f"the body must set one of {', '.join(keys)}"}, status_code=400)
     return await _forward("POST", "video/settings", {k: raw[k] for k in keys if k in raw})
