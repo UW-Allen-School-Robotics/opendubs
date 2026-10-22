@@ -8,3 +8,5 @@ opencv-python<4.12
 opencv-python-headless<4.12
 # perception_models was written against transformers 4.x (>=4.36).
 transformers>=4.36,<5
+# colcon-core (ROS 2's build tool) requires setuptools < 80.
+setuptools<80

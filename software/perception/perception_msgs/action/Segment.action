@@ -1,0 +1,22 @@
+# Segment named objects in the latest frame of one camera.
+# Served by perception_server; see notes/design/perception-shared-models.md.
+
+uint8 SOURCE_AUTO=0       # detector (YOLO-World), then CLIPSeg regions if it finds nothing
+uint8 SOURCE_DETECTOR=1   # YOLO-World only: one instance per box
+uint8 SOURCE_CLIPSEG=2    # CLIPSeg regions only: touching objects may merge into one
+
+string[] labels           # e.g. ["mug", "candy"]
+string camera             # a camera name from the server's config
+float32 min_score         # 0 = the server's default
+uint8 source
+---
+bool success
+string message
+std_msgs/Header header             # stamp and frame of the frame used
+sensor_msgs/Image rgb
+sensor_msgs/Image depth            # aligned to rgb; empty if the camera has no depth
+sensor_msgs/CameraInfo camera_info
+Instance[] instances
+float32 latency_ms                 # from the frame being taken for this goal to the result
+---
+string stage

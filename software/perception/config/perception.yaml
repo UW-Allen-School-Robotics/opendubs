@@ -1,0 +1,43 @@
+# perception_server settings for development on opendubs2 (archit), with the dummy camera.
+# Paths are inside the container: /data is ~/perception-data on the Thor.
+
+models:
+  clipseg_model: CIDAS/clipseg-rd16
+  clipseg_vision_engine: /data/engines/clipseg_vision_rd16_224.engine
+  clipseg_film_engine: /data/engines/clipseg_film_rd16_224_b1_p9.engine   # 9 prompt slots
+  # MobileSAM's TinyViT encoder at 1024 (tools/build_mobilesam_engines.sh). With NanoSAM's
+  # ResNet18 encoder instead: sam_image_size 512 and the *_512 engines.
+  sam_image_size: 1024
+  sam_image_encoder: /data/engines/mobilesam_vit_t_encoder_1024.engine
+  sam_mask_decoder: /data/engines/mobile_sam_mask_decoder_batched_1024.engine
+  yolo_world: /data/models/yolov8s-worldv2.pt
+  yolo_nav_labels: [person]
+  yolo_imgsz: 640
+
+cameras:
+  # Stand-in for the Femto Bolt until it is fitted: tools/dummy_camera.py.
+  dummy:
+    rgb: /dummy/color/image_raw
+    depth: /dummy/depth/image_raw
+    info: /dummy/color/camera_info
+    slop_s: 0.05
+
+navigation:
+  enabled: true
+  camera: dummy
+  period_s: 0.1          # 10 Hz
+  threshold: 0.3
+  groups:                # HOUND's 9 prompts in three groups; fits the text engine's 9 slots
+    traversable: [floor, ground, path, dirt]
+    non_traversable: [furniture, wall, pillar, car]
+    people: [people]
+  sam_max_boxes: 6
+  sam_min_area: 0.002
+  cloud_stride: 4
+  max_depth_m: 5.0
+
+query:
+  default_min_score: 0.25
+  max_instances: 16
+  clipseg_threshold: 0.4
+  clipseg_min_area: 0.001
