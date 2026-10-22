@@ -847,10 +847,10 @@ function renderInspector() {
         </div>
         <div style="display:flex; gap:6px; margin-bottom:10px;">
           <button id="btnGripOpen" class="btn-grip ${isOpen ? 'active' : ''}" style="flex:1;" title="Fully open the gripper (44 mm stroke)">
-            👐 Open
+            Open
           </button>
           <button id="btnGripClose" class="btn-grip ${isClosed ? 'active' : ''}" style="flex:1;" title="Fully close the gripper (0 mm stroke)">
-            ✊ Close
+            Close
           </button>
         </div>
         <div class="grip-slider-row" style="display:flex; align-items:center; gap:8px;">
