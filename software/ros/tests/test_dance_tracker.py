@@ -39,6 +39,10 @@ class CommandTest(unittest.TestCase):
     def test_a_strafe_is_trimmed_against_its_bleed(self):
         vx, vy, wz = d.command((0.0, 0.0, 0.0), (0.0, 0.05, 0.0), 1.0, 1.0, 1.0, fwd_bleed=0.2, yaw_bleed=0.4)
         self.assertAlmostEqual(vx, -0.01); self.assertAlmostEqual(wz, -0.02)
+        # per direction: only a RIGHT strafe (vy < 0) is trimmed when only the right value is set
+        _, _, wz_l = d.command((0.0, 0.0, 0.0), (0.0, 0.05, 0.0), 1.0, 1.0, 1.0, yaw_bleed=(0.0, 1.46))
+        _, _, wz_r = d.command((0.0, 0.0, 0.0), (0.0, -0.05, 0.0), 1.0, 1.0, 1.0, yaw_bleed=(0.0, 1.46))
+        self.assertEqual(wz_l, 0.0); self.assertAlmostEqual(wz_r, 1.46 * 0.05)
 
     def test_holds_rather_than_chases(self):
         self.assertTrue(d.over_limit((0.31, 0.0, 0.0)))

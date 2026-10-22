@@ -70,7 +70,7 @@ def body_error(target, current):
     return (c * dx - s * dy, s * dx + c * dy, wrap(target[2] - current[2]))
 
 
-def command(err, ff, full_x, full_y, full_w, k_lin=K_LIN, k_ang=K_ANG, fwd_bleed=0.0, yaw_bleed=0.0):
+def command(err, ff, full_x, full_y, full_w, k_lin=K_LIN, k_ang=K_ANG, fwd_bleed=(0.0, 0.0), yaw_bleed=(0.0, 0.0)):
     """(vx, vy, wz) = feed-forward + gain x error, with the strafe trim, never past the software cap.
 
     full_* are the speeds at the cap (drive_scale.py). The result is scaled, keeping its direction, so
@@ -110,8 +110,8 @@ def main():
     vmax = float(os.environ.get("OPENDUBS_MAX_LIN", "0.5"))
     smax = float(os.environ.get("OPENDUBS_MAX_STRAFE", "0") or 0) or vmax
     wmax = float(os.environ.get("OPENDUBS_MAX_ANG", "1.0"))
-    fwd_bleed = float(os.environ.get("OPENDUBS_STRAFE_FWD_BLEED", "0") or 0)
-    yaw_bleed = float(os.environ.get("OPENDUBS_STRAFE_YAW_BLEED", "0") or 0)
+    fwd_bleed = drive_scale.bleed_from_env(os.environ, "FWD")    # (left, right)
+    yaw_bleed = drive_scale.bleed_from_env(os.environ, "YAW")
     st = {"odom": None, "odom_t": None, "origin": None, "seq": 0, "target": None, "target_t": None,
           "mode": "idle", "moving": False, "guard": "blind", "guard_why": "no guard state yet", "err": (0, 0, 0),
           "holder": None, "active": False, "active_t": 0.0}
@@ -236,7 +236,7 @@ def main():
     node.create_timer(0.05, tick)
     node.create_timer(0.2, report)
     log.info(f"dance tracker: at the cap {vmax} m/s forward, {smax} m/s strafe, {wmax} rad/s; strafe trim "
-             f"{fwd_bleed} fwd, {yaw_bleed} yaw; hold beyond {HOLD_M} m / "
+             f"(left, right) fwd {fwd_bleed}, yaw {yaw_bleed}; hold beyond {HOLD_M} m / "
              f"{math.degrees(HOLD_RAD):.0f} deg")
     try:
         rclpy.spin(node)

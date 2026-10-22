@@ -91,10 +91,11 @@ Read by `opendubs-drive-bridge` and `opendubs-dance-tracker` (`software/ros/driv
 | Setting | Value | How it was set |
 |---|---|---|
 | `OPENDUBS_AUTO_CAP` | **0.25** (of full command, on any wheel) | The maintainers' first choice, 2026-10-22; expected to change |
-| `OPENDUBS_MAX_LIN` | not yet measured | forward speed at the cap: a short burst at the cap, read from `/odom` |
-| `OPENDUBS_MAX_STRAFE` | not yet measured | strafe speed at the cap, both directions |
-| `OPENDUBS_MAX_ANG` | not yet measured | turn rate at the cap, both directions |
-| `OPENDUBS_STRAFE_FWD_BLEED`, `_YAW_BLEED` | 0 (unset) | set only if the strafe bursts show bleed the tracker's loop can't absorb |
+| `OPENDUBS_MAX_LIN` | **0.27** m/s | forward speed at the cap: a 1.5 s burst at the cap, from `/odom`, 2026-10-22 |
+| `OPENDUBS_MAX_STRAFE` | **0.18** m/s | strafe speed at the cap; the same left and right |
+| `OPENDUBS_MAX_ANG` | **0.37** rad/s | turn rate at the cap (0.36 CCW, 0.38 CW) |
+| `OPENDUBS_STRAFE_YAW_BLEED_RIGHT` | **1.46** | strafing RIGHT at 0.18 m/s yawed **−0.262 rad/s** (clockwise, 16.5° in one burst): k = −0.262 / −0.18. Probably mechanical on one side; worth a look |
+| other strafe trims (`_YAW_BLEED_LEFT`, `_FWD_BLEED_*`) | 0 (unset) | strafing left yawed under 2°/s; the forward creep was 4% left, 9% right. All under the point where the loop's lag matters (about 2 cm or 3° over a 2 s sway) |
 
 ### Robot-side state that turns features on (per robot, not in the repo)
 
