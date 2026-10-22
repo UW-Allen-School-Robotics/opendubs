@@ -49,9 +49,11 @@
   #rec { position: fixed; top: 16px; right: 16px; z-index: 6; width: 18px; height: 18px; border-radius: 50%;
          background: #e0242d; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
   #rec.on { display: block; }
-  /* Listening for the wake word, nothing sent (engine/voice.js): a hollow white ring where REC would be. */
-  #ear { position: fixed; top: 16px; right: 16px; z-index: 6; width: 14px; height: 14px; border-radius: 50%;
-         border: 3px solid #e8eaed; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
+  /* Listening for the wake word, nothing sent (engine/voice.js): a hollow white ring of DOTS where REC would
+     be. Dotted so it is never the hold ring (#touch: solid, at the finger, filling): one is the robot
+     listening, the other your touch, and white is the only neutral left for either (2026-10-22). */
+  #ear { position: fixed; top: 16px; right: 16px; z-index: 6; width: 16px; height: 16px; border-radius: 50%;
+         border: 3px dotted #e8eaed; box-shadow: 0 0 0 3px rgba(0,0,0,.6); display: none; pointer-events: none; }
   #ear.on { display: block; }
 </style>
 </head>
