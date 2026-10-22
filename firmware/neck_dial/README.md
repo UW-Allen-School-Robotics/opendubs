@@ -96,7 +96,7 @@ against a key compiled into it (`lib/ota_verify`, linked to `firmware/common/ota
 stands: `otasig=enforce|report otaverify=ok|BROKEN otakeys=<id>[,<id>]`.
 
 Two cases install anyway and say so, `OK ota … WARN would reject: <why>`, because a check that
-strands a board with no cable costs opening the head on a desk:
+strands the neck costs a visit to fit a USB cable (it takes one, but none is routinely fitted):
 - a **report-only** build (`build.sh image-report-only`), which is the bootstrap image only;
 - a build whose own **self-test fails** on the board (`otaverify=BROKEN`).
 
