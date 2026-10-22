@@ -61,7 +61,7 @@ exact JetPack build used so units match.
 | **`opendubs-rplidar/rosbridge/foxglove` services** | enabled | ✅ `ros/*.service` | **install is manual** (`software/ros/README.md` shows the cp/enable) |
 | **PlatformIO venv `/opt/opendubs/piovenv`** | installed | ❌ | **manual** |
 | **`99-platformio-udev.rules`** | installed | ❌ | **manual** |
-| **emmar groups** dialout, plugdev (flashing) | set | ❌ | **manual** |
+| **The service user's groups** dialout, plugdev (flashing) | set | ❌ | **manual** |
 | App code `/opt/opendubs/{kiosk-dashboard,ros,rc_serial_probe}` | present | ✅ | rsync deploy |
 
 ## 3. Gaps — CLOSED (2026-06-09)

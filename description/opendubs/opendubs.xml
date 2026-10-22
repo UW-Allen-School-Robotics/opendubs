@@ -65,13 +65,17 @@
     <mesh name="wheel_rl" file="RL-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="wheel_rr" file="RR-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="zaxis"    file="z-axis-down.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="channel"  file="1120_channel.stl" scale="0.001 0.001 0.001"/>
     <!-- The pan/tilt head, exported IN CAD COORDINATES: these meshes carry their own absolute
          position, so they are placed by cancelling the head frame's offset rather than by
          positioning each part. See the head body below. -->
     <mesh name="pt_body"   file="pt_tilt_body.stl"   scale="0.001 0.001 0.001"/>
     <mesh name="pt_screen" file="pt_screen_cover.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="d415"      file="D415.stl"            scale="0.001 0.001 0.001"/>
+    <!-- The D415 as its ENVELOPE, not its maker's CAD (which is not ours to redistribute): the
+         eight corners of 20.05 x 98.86 x 23.0 mm (the datasheet's 20 x 99 x 23), in CAD
+         coordinates like the meshes above, from dimensions.yaml head.extents_cad_mm.d415. A mesh
+         rather than a box primitive so it is placed, and found by name, exactly as before. -->
+    <mesh name="d415" scale="0.001 0.001 0.001"
+          vertex="364.4 -48.04 1302.12 364.4 -48.04 1325.12 364.4 50.82 1302.12 364.4 50.82 1325.12 384.45 -48.04 1302.12 384.45 -48.04 1325.12 384.45 50.82 1302.12 384.45 50.82 1325.12"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>

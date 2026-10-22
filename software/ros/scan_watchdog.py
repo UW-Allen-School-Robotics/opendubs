@@ -16,7 +16,7 @@ ENV-DRIVEN so ONE script runs per lidar:
 
 A stale scan is ambiguous with an intentional motor STOP, so when it owns the
 enable it only restarts while the motor is *supposed* to be running (desired_on).
-Runs as the driver's user (emmar) so DDS matches; restart needs the sudoers rule.
+Runs as the driver's user (the robot's service user) so DDS matches; restart needs the sudoers rule.
 """
 import os
 import subprocess

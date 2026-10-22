@@ -56,7 +56,7 @@ Everything below needs the robot's network or hands on the machine. Nothing here
 **0 · ~~Get `[AUTH]` onto the robot.~~ DONE 2026-10-02.** Applied to the robot's own `main.cpp` by
 anchored edit (never a copy — `publishAuth()` plus its call in the 100 ms tick), calibration
 verified preserved (`kDriveInvert {-1,-1,1,-1}`, `kStrafeInvert -1`, `kEscSpanUs 400`), backup at
-`/home/emmar/main.cpp.bak.20261002-135950`. Built on the robot (7.2 s, 49.4% flash) and flashed with
+`~/main.cpp.bak.20261002-135950` (the deploy account's home). Built on the robot (7.2 s, 49.4% flash) and flashed with
 `ota-from-thor.sh` — which **correctly rejected the dashboard's stale `192.168.55.1` peer** and
 found the board via mDNS, so the discovery guard works. Verified: `[AUTH]` at 8.8 Hz, every field
 cross-checked against `[RC]`/`[IO]`, the auto-arm re-closed the contactor after reboot, and
@@ -157,7 +157,7 @@ Leave the `kiosk` **user** — the dashboard still runs as it.
 **7 · Photos for the operating page.** The rear face showing the RUN button and both emergency
 stops, and the battery with its latching switch.
 
-**8 · Housekeeping.** Remove `/home/emmar/tab5_build` on opendubs2 — a scratch build directory left
+**8 · Housekeeping.** Remove `~/tab5_build` (the deploy account's home) on opendubs2 — a scratch build directory left
 behind when the robot went off-network mid-session.
 
 **1b · Finish verifying the Pinpoint (carried from 2026-10-01).** Partly done:

@@ -9,8 +9,9 @@ set -euo pipefail
 
 ROOT=/opt/opendubs
 PIOVENV=$ROOT/piovenv
-# The user who runs flashing (owns the deploy; needs serial access).
-FLASH_USER="${SUDO_USER:-emmar}"
+# The user who runs flashing (owns the deploy; needs serial access): whoever ran sudo, otherwise
+# the owner of the deploy tree. Per robot, never named in the repo.
+FLASH_USER="${SUDO_USER:-$(stat -c %U "$ROOT")}"
 
 echo "== OpenDubs firmware/PlatformIO provisioning =="
 

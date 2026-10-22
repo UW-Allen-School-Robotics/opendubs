@@ -64,8 +64,30 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
   || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
 
+# --- the service user ---------------------------------------------------------
+# The ROS units and the sudoers rule name the account the nodes run as with placeholders
+# (@OPENDUBS_USER@, @OPENDUBS_HOME@): it is per robot and never in the repo. It is
+# OPENDUBS_SERVICE_USER in /etc/opendubs/robot.env if set, otherwise the owner of /opt/opendubs,
+# which is the account deploys run as. A unit installed WITHOUT rendering fails to start (no such
+# user) rather than running as root.
+SVC_USER=$(sed -n 's/^OPENDUBS_SERVICE_USER=//p' /etc/opendubs/robot.env 2>/dev/null | tail -1 | tr -d "\"'")
+[ -n "$SVC_USER" ] || SVC_USER=$(stat -c %U /opt/opendubs)
+if [ -z "$SVC_USER" ] || [ "$SVC_USER" = root ]; then
+  echo "!! no service user (set OPENDUBS_SERVICE_USER in /etc/opendubs/robot.env); refusing to run ROS as root" >&2
+  exit 2
+fi
+SVC_HOME=$(getent passwd "$SVC_USER" | cut -d: -f6)
+[ -n "$SVC_HOME" ] || { echo "!! service user $SVC_USER does not exist" >&2; exit 2; }
+render() { sed -e "s|@OPENDUBS_USER@|$SVC_USER|g" -e "s|@OPENDUBS_HOME@|$SVC_HOME|g" "$1"; }
+echo "-- ROS services run as $SVC_USER"
+
 # --- sudoers (scan watchdog → restart rplidar) ------------------------------
-install -m0440 "$ROSDIR/opendubs-ros-sudoers" /etc/sudoers.d/opendubs-ros
+# Checked before it is installed: a malformed file in sudoers.d breaks sudo for everyone.
+SUDOERS_TMP=$(mktemp)
+render "$ROSDIR/opendubs-ros-sudoers" > "$SUDOERS_TMP"
+visudo -cqf "$SUDOERS_TMP" || { rm -f "$SUDOERS_TMP"; echo "!! rendered sudoers rule failed visudo; not installed" >&2; exit 2; }
+install -m0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/opendubs-ros
+rm -f "$SUDOERS_TMP"
 
 # --- services ---------------------------------------------------------------
 for svc in $RETIRED; do
@@ -79,7 +101,8 @@ done
 echo "-- installing + enabling ROS services"
 chmod +x "$ROSDIR"/*.sh
 for svc in $SERVICES; do
-  install -m0644 "$ROSDIR/$svc.service" "/etc/systemd/system/$svc.service"
+  render "$ROSDIR/$svc.service" > "/etc/systemd/system/$svc.service"
+  chmod 0644 "/etc/systemd/system/$svc.service"
 done
 # The UDP-only DDS lines were first placed by hand as a drop-in on opendubs2; the units carry them now.
 rm -f /etc/systemd/system/opendubs-scan-watchdog.service.d/udp-only.conf \
