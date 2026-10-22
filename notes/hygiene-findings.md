@@ -175,7 +175,7 @@ noted.** No removal and no rewrite.
 - **Fix:** delete `1120_channel.stl`. Replace the D415 with a box of the datasheet envelope, or
   record its terms.
 
-**L4 · Licence texts are stubs and the copyright holder is unresolved.** · **holder awaiting legal advice** (decision 5: not raised again); the stub texts and the site notice are still open · owners:
+**L4 · Licence texts and the copyright holder.** · **texts fixed** (2026-10-22, the licence close-out PR): `LICENSE-DOCS` and `LICENSE-HARDWARE` carry the full CC-BY-4.0 and CERN-OHL-W-2.0 texts, verbatim; `CITATION.cff` is filled in. **Holder still awaiting legal advice** (decision 5) and is the one TODO left in `CITATION.cff`. The public site's licence notice is still open (Docs) ·
 **Hygiene** (`LICENSE-*`, `CITATION.cff`), **Docs & BOM** (`mkdocs.yml`), and the
 **maintainers** (who holds copyright).
 - `LICENSE-DOCS:17-19` and `LICENSE-HARDWARE:18-22` say "append the full text".
@@ -209,6 +209,7 @@ lane.**
 - `notes/docs-review-checklist.md:3,8,86` (Docs & BOM).
 - `notes/design/arm-authority.md:156,180,203,316`, `notes/design/arm-telemetry-and-viz.md:99`,
   `software/openarm/patches/README.md:3,9,59` and `software/openarm/patches/teleop-optional-viewer.py:2`
+  (both files are deleted from the tree by #488; they remain in history)
   (Arms).
 - `sim/README.md:40,84` (Choreography, which has owned `sim/` since PR #253 and is fixing these).
 - `notes/punch-list.md:40,46,65,127,245` (shared).
@@ -293,11 +294,11 @@ These are proposals for the owners. Hygiene will not refactor other lanes' code.
 
 ---
 
-## Pre-publication audit (2026-10-15)
+## Pre-publication audit (2026-10-15, re-checked 2026-10-22)
 
-The maintainers asked whether the repo could be made public. **Verdict: NO-GO until S1 is
-rotated; after that, GO with the decisions below.** Going public is parked (2026-10-15); this
-section is the reference for when it comes back. The audit was read-only.
+The maintainers asked whether the repo could be made public. **Verdict (2026-10-22): NO-GO
+until S1 is rotated; after that, GO with the decisions below.** On 2026-10-22, `ops/wifi.env` still
+held the leaked value. The audit was read-only. Status per item below is as of 2026-10-22.
 
 **Scope:**
 - a mirror clone: all 594 refs (271 branches, 311 PR heads, 0 tags), 1,267 commits and every blob
@@ -330,18 +331,32 @@ forks, public-archive crawlers, and PR refs that GitHub keeps.
    committer fields, and 71 commit messages name people. Only a history rewrite plus GitHub Support
    could remove them. Recommendation: no rewrite. Tell the contributors and get their agreement, and
    use noreply addresses from now on.
-2. **`access/` is still on `main`** (N1). Copy the roster into `ops/access/`, then merge #194.
+2. **`access/`** (N1): **resolved in the tree** (#194, #421). The roster is the private repo
+   `opendubs-access`. The old roster and key emails remain in history (same class as 1).
 3. **Names in the current tree** (24 files) and in 15 PR or issue texts. Most are the personal
    Unix username (N2). The PR and issue texts can be edited before publishing.
-4. **Unreleased upstream code.** `software/openarm/patches/teleop-optional-viewer.py` quotes
+4. **Unreleased upstream code** (**removed from the tree by #488**; still in history). `software/openarm/patches/teleop-optional-viewer.py` quoted
    fragments of the upstream teleop author's unpublished code as its find/replace targets. That is
    the reason the org's `openarm` copy is private. The Arms lane and the maintainers decide.
 5. **A private dependency.** `software/openarm/image/repos.lock` pins the private org `openarm`
    repo, so an outside replicator cannot build the arm image. This is functional, not a leak.
 6. **S2/S5.** Publishing the firmware source publishes the accepted network-command risk. Confirm
    that the acceptance holds when the code is public.
-7. **Licences (L4).** The DOCS and HARDWARE licence files are stubs, and the copyright holder
+7. **Licences (L4).** **Texts fixed** in the licence close-out PR. The DOCS and HARDWARE licence files were stubs, and the copyright holder
    awaits legal advice. Hygiene can add the full licence texts.
+
+**New on 2026-10-22:**
+- 23 files on `main` still name someone, mostly the personal Unix username in `software/ros/*.service`
+  (N2). One of them, `docs/portability-audit.md`, is on the public site.
+- Contributor branches add personal home paths and names, and two new personal or university
+  author emails. A student planner branch also adds a second real-arm execution path and weakens the
+  clearance gate; reported to the owners. Its commits become public with the repo even unmerged.
+- L3 (camera and rail meshes) and L8 (vendor models on the hat PRs) are unchanged. PR refs become
+  public even unmerged.
+- Moving the repo to another org first changes the Pages URL, which does not redirect and is
+  hard-coded in `README.md` and the dashboard. It also affects cross-org access to the private
+  `openarm` and `opendubs-access` repos, team access, and per-org app and Actions settings. It
+  changes none of the items above.
 
 **Clean:**
 - No other secret appears anywhere, and the run logs are clean.
