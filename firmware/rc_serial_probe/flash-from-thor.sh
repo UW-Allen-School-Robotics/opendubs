@@ -23,18 +23,14 @@ sudo systemctl stop opendubs-dash
 trap 'echo "== restarting opendubs-dash =="; sudo systemctl start opendubs-dash' EXIT
 sleep 1
 
-# Compile the firmware-signing public key in, so the recovered board accepts signed OTA updates
-# afterwards (notes/design/firmware-signing.md). USB is the recovery path, so a missing key does
-# not stop it: the image is built without one and refuses every OTA until it is reflashed with one.
-KS=/etc/opendubs/firmware-signing
-mkdir -p "$PROJ/include"
-if sudo test -r "$KS/ota.pub.der"; then
-  sudo cat "$KS/ota.pub.der" | python3 "$PROJ/tools/pubkey_header.py" /dev/stdin > "$PROJ/include/ota_pubkey.h"
-  echo "== this build trusts firmware-signing key $(sudo sha256sum "$KS/ota.pub.der" | cut -c1-16) =="
+# The keys the flashed board will trust are the repository's (lib/ota_verify/keys/). USB is the
+# recovery path, so none does not stop it: the board then refuses every OTA until reflashed.
+TRUSTED="$(ls "$PROJ/lib/ota_verify/keys/" 2>/dev/null | sed -n 's/\.der$//p' | tr '\n' ' ')"
+if [ -n "$TRUSTED" ]; then
+  echo "== the flashed board will trust firmware-signing key(s): $TRUSTED=="
 else
-  rm -f "$PROJ/include/ota_pubkey.h"
-  echo "WARNING: no firmware-signing key on this Thor: the flashed board will refuse every OTA until"
-  echo "         it is reflashed with one (software/stack/firmware-signing/README.md)."
+  echo "WARNING: this build trusts no firmware-signing key: the flashed board will refuse every OTA"
+  echo "         until it is reflashed with one (software/stack/firmware-signing/README.md)."
 fi
 
 echo "== flashing StampS3 via PlatformIO =="

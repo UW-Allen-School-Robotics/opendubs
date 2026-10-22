@@ -58,6 +58,7 @@ deploy_sub software/voice           voice     # the voice service's scripts; bui
 # installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
+deploy_sub firmware/common         common    # shared firmware code; rc_serial_probe/lib/ota_verify links here
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
