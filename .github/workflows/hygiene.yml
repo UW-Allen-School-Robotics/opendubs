@@ -27,8 +27,13 @@ on:
 permissions:
   contents: read
 
+# The draft flag is part of the group. A push made while the PR is a draft, followed seconds
+# later by `gh pr ready`, produces two runs, and GitHub can deliver the draft-time one (which
+# skips) AFTER the ready one. Sharing a group, the late skip cancelled the real run and left
+# "skipped" as the result, which a required check reads as passing (seen on #470). In separate
+# groups it can't cancel it. A later push still cancels its own superseded run.
 concurrency:
-  group: hygiene-${{ github.ref }}
+  group: hygiene-${{ github.ref }}-${{ github.event.pull_request.draft }}
   cancel-in-progress: true
 
 jobs:
