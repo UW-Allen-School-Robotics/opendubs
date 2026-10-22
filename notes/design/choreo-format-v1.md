@@ -399,6 +399,40 @@ warning until the save sweeps it; a measured collision is an error everywhere. C
 for the shows in this repository, up to ~10 s for a dense 2½-minute show; an unchanged show is not
 swept again.
 
+### Effectors: what a show needs, and what it can run without
+
+A show's **needs** are the robot's parts its cues use, by name: `arm_left`, `arm_right`,
+`grip_left`, `grip_right`, `lift`, `light` and `neck` (the HEAD slot) — derived from the cues, never
+written by hand (`cue.py EFFECTORS`; the export carries them as `needs`). The dashboard reports each
+part's availability (`effectors`, from the Arms lane's per-part status: `ok` or `down`, with why), and
+the runner's preflight refuses a run when a part it needs is not `ok`, naming the part and the reason.
+A part the show does not use never refuses it.
+
+```yaml
+can_skip: [grip_left, grip_right, light]   # optional: parts this show still works without
+```
+
+A part listed in `can_skip:` turns that refusal into an **offer**: the run is refused with
+`NEEDS_APPROVAL`, the Shows page shows RUN WITHOUT <part>, and only that tap plays the **variant** —
+the show with that part's cues left out (after clips are expanded, so a mirrored clip loses the right
+cues). The runner never picks a variant on its own; only the author can list a part as skippable, and
+a run may skip nothing else.
+
+A variant that changes the motion has its own collision stamp, written by the same sweep under
+`clearance.variants`, keyed by its moving parts (a light changes no clearance and needs none):
+
+```yaml
+clearance: { min_mm: 41.0, …, variants: { grip_left: { min_mm: 40.2, …, checked_for: "…" } } }
+```
+
+`sweep.py stamp` sweeps each single part, and with three or fewer moving `can_skip` parts every
+combination. A skipped part is assumed where the twin leaves an unused one, and the variant is swept
+that way: an arm at rest (the preflight refuses a skipped arm with any joint more than 10° from it, naming the
+joint; a limp arm's roll joints do not settle by themselves, and are turned back by hand), the head
+centred, the lift down, a gripper as the twin draws it. A skipped arm is also left out of the
+start-pose move. An arm with any silent joint is `down` (Arms lane: a silent joint goes limp, so it is
+never run around); a show runs without it only by skipping the whole arm.
+
 ### Valid is not the same as executable
 
 Some verbs above **have no receiver today**, and the validator says so as a *notice* (not a

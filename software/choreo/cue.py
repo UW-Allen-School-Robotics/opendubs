@@ -353,7 +353,24 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device", "video"}
+            "start_countdown_s", "device", "video", "can_skip"}
+# EFFECTORS: the robot's parts a show NEEDS — derived from the slots its cues use, never hand-listed —
+# and the names the robot reports their availability by (the runner's preflight). A show may list in
+# `can_skip:` the parts it can do without: the runner then offers that variant, the show without
+# those parts' cues, when one is unavailable, and plays it only on the operator's approval. A variant
+# that changes the motion carries its own collision stamp (clearance.variants, sweep.py). A skipped
+# part is assumed where the twin leaves an unused one: an arm at rest (zero), the head centred, the
+# lift down, a gripper as the sim draws it.
+EFFECTORS = {"ARM_L": "arm_left", "ARM_R": "arm_right", "GRIP_L": "grip_left", "GRIP_R": "grip_right",
+             "LIFT": "lift", "LIGHT": "light", "HEAD": "neck"}
+
+
+def variant_key(skip) -> str:
+    """The name a variant's collision stamp is kept under (clearance.variants): the skipped parts that
+    MOVE, sorted. Skipping a part that does not move (the light) changes no clearance, so it adds
+    nothing to the key; "" is the show's own stamp."""
+    slot_of = {v: k for k, v in EFFECTORS.items()}
+    return ",".join(sorted(p for p in skip if slot_of.get(p) in SWEEP_SLOTS))
 # How a run starts (the runner's start modes): after the GO, a countdown the operator can see on the
 # face, before anything moves. A show may set its own length; a run may override it.
 START_COUNTDOWN_DEFAULT_S = 5.0
@@ -487,6 +504,7 @@ class Show:
         self.doc = doc
         self.audio_override = None      # the operator's run-time output choice; None = as written
         self.video_override = None      # ... and the projector output's (cast | hdmi | off)
+        self.skip = frozenset()         # the effectors this run plays WITHOUT (a variant; can_skip)
 
     # ---- time ------------------------------------------------------------------------------
     def _music(self, P):
@@ -729,6 +747,8 @@ class Show:
                 "src": {"index": i, "time": label, "clip": None, "instance": None,
                         "local_index": None}})
             seq += 1
+        if self.skip:                   # a variant: the skipped parts' cues are not played at all
+            events = [e for e in events if EFFECTORS.get(e["slot"]) not in self.skip]
         markers = self._markers(music, P)
         events.sort(key=lambda e: (e["t"], e["seq"]))
         return events, music, markers
@@ -1075,10 +1095,34 @@ class Show:
                     P(Problem(msg))
                 else:
                     warnings.append(Problem(msg + " (the composer sweeps it when you save)"))
+        can_skip = self._check_can_skip(declared | used, P, warnings.append)
         tnotes = self._timeline_notes(music, warnings.append)
         return {"problems": problems, "warnings": warnings, "notices": notices, "events": events, "music": music,
                 "markers": markers, "declared": declared, "used": used, "assets": dict(self._skin_assets),
-                "timeline_notes": tnotes}
+                "timeline_notes": tnotes, "needs": sorted({EFFECTORS[s] for s in used if s in EFFECTORS}),
+                "can_skip": can_skip}
+
+    def _check_can_skip(self, slots, P, W) -> list:
+        """`can_skip:` — effector names, each one the show uses — and this run's skip within it."""
+        raw = self.doc.get("can_skip")
+        out = []
+        if raw is not None:
+            if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+                P(Problem(f"can_skip: must be a list of parts ({', '.join(EFFECTORS.values())})"))
+                raw = []
+            uses = {EFFECTORS[s] for s in slots if s in EFFECTORS}
+            for x in raw:
+                if x not in EFFECTORS.values():
+                    P(Problem(f"can_skip: {x!r} is not a part ({', '.join(EFFECTORS.values())})"))
+                elif x not in uses:
+                    W(Problem(f"can_skip: the show does not use {x} — nothing to skip"))
+                elif x not in out:
+                    out.append(x)
+        extra = sorted(set(self.skip) - set(out))
+        if extra:
+            P(Problem(f"this run skips {', '.join(extra)}, which the show does not list in can_skip: — "
+                      "only the author can say a show still works without a part"))
+        return out
 
     def _check_sweep(self, events) -> list:
         st = self.doc.get("clearance")
@@ -1086,6 +1130,14 @@ class Show:
         """[(sentence, fatal)]: fatal is a MEASURED collision; the others say the stamp is missing or stale."""
         if not isinstance(st, dict) or not st.get("checked_for"):
             return [(f"this show moves the arms but has not been swept for collisions — {how}", False)]
+        if self.skip and str(st["checked_for"]).split("@")[0] != motion_hash(events):
+            # a variant that changes the motion has a stamp of its own (sweep.py stamps every can_skip
+            # part); one that does not (a light, say) is covered by the show's own stamp
+            key = variant_key(self.skip)
+            var = (st.get("variants") or {}).get(key) if isinstance(st.get("variants"), dict) else None
+            if not isinstance(var, dict) or not var.get("checked_for"):
+                return [(f"the show without {key} has not been swept for collisions — {how}", False)]
+            st = var
         if str(st["checked_for"]).split("@")[0] != motion_hash(events):
             return [(f"the show's motion changed since it was swept for collisions — sweep it again: {how}", False)]
         mm = st.get("min_mm")
@@ -1807,6 +1859,7 @@ class Show:
             "notices": a["notices"],
             "requires": _jsonable(self.requires),
             "slots": declared,
+            "needs": a["needs"], "can_skip": a["can_skip"], "skip": sorted(self.skip),
             "music": music,
             # the content hash of every library asset the show was validated against (plan 4.6), so a
             # run can tell when one has changed since
