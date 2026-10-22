@@ -26,6 +26,7 @@ import argparse
 import math
 import os
 import sys
+import threading
 import time
 
 import numpy as np
@@ -121,6 +122,66 @@ def build(name: str, controllers: dict, system, side: str, configuration: np.nda
              posture_initial=configuration.copy()),
         name)
     return controller
+
+
+class PermitKeeper:
+    """Keeps the driver's permit alive while the sequence runs: the arm holds unless a short permit is being renewed (`require_permit`), so
+    a sequence that stops, dies or is interrupted leaves the arm holding within `lease` seconds. Revoked on exit.
+
+    A no-op without `groups` (the simulator has no permit). The driver names its permit after its control group (`left_arm`, `right_arm`).
+    """
+
+    def __init__(self, groups=(), lease: float = 0.5, period: float = 0.1):
+        self.groups, self.lease, self.period = tuple(groups), lease, period
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _run(self):
+        import openarm_driver
+
+        while not self._stop.is_set():
+            for group in self.groups:
+                openarm_driver.grant_permit(group, self.lease)
+            self._stop.wait(self.period)
+
+    def start(self):
+        if self.groups and self._thread is None:
+            import openarm_driver
+
+            for group in self.groups:
+                openarm_driver.grant_permit(group, self.lease)   # before the loop, so an unusable driver fails here and not later
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        return self
+
+    def stop(self):
+        """Stop renewing and revoke now: the arms hold from the next cycle."""
+        if self._thread is not None:
+            self._stop.set()
+            self._thread.join()
+            self._thread = None
+            import openarm_driver
+
+            for group in self.groups:
+                openarm_driver.revoke_permit(group)
+
+    def lapse(self):
+        """Stop renewing and let the permit run out by itself, as it does when whatever renews it dies."""
+        if self._thread is not None:
+            self._stop.set()
+            self._thread.join()
+            self._thread = None
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+
+
+def permit_groups(side: str) -> tuple[str, ...]:
+    return ("left_arm", "right_arm") if side == "both" else (f"{side}_arm",)
 
 
 STOW_CONF = os.environ.get("OPENARM_STOW_CONF", "/etc/opendubs/openarm-stow.conf")
@@ -281,14 +342,19 @@ def main() -> int:
     import gafro  # noqa: F401  -- before gafro_robot_interface
     import gafro_robot_interface as ri
 
+    if args.backend == "hardware":
+        import openarm_driver  # noqa: F401  -- registers `driver: openarm`; after gafro_robot_interface
+
     robot = ri.RobotInterface(ri.Configuration(args.model, args.backend, args.hardware_config))
     robot.initialize()
+    groups = permit_groups(args.side) if args.backend == "hardware" else ()
     try:
-        if args.park:
-            park(robot, args.side, args.model, args.stow_conf, args.speed)
-        else:
-            engage(robot, args.side, args.model, args.keyframe, args.speed)
-        time.sleep(1.0)
+        with PermitKeeper(groups):
+            if args.park:
+                park(robot, args.side, args.model, args.stow_conf, args.speed)
+            else:
+                engage(robot, args.side, args.model, args.keyframe, args.speed)
+            time.sleep(1.0)
     except EngageRefused as refused:
         print(f"refused: {refused}")
         return 1
