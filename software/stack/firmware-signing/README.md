@@ -36,7 +36,7 @@ above. A public key isn't secret, and committing it means every machine that bui
 in the same, reviewed key.
 
 The **key id** is the first 16 hex digits of the public key's SHA-256. `--show` prints it, it names the
-file in `keys/`, and each board reports the ids it trusts. The StamPLC reports `otakey=` in its `[NET]`
+file in `keys/`, and each board reports the ids it trusts. The StamPLC reports `otakeys=` in its `[NET]`
 telemetry line every 5 seconds.
 
 ## First robot: set it up

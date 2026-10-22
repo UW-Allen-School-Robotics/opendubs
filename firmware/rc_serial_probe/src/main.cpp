@@ -2967,7 +2967,7 @@ static void netMaintain()
     static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
     if (millis() - last_net_stat > 5000) {
         last_net_stat = millis();
-        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakey=%s otaverify=%s\n",
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakeys=%s otaverify=%s\n",
                 (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
                 hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId,
                 ota_key_ids, ota_selftest_ok ? "ok" : "BROKEN");

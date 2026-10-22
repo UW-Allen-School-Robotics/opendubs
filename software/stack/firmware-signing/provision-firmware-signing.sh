@@ -15,7 +15,7 @@
 #                  the public keys COMMITTED in firmware/common/ota_verify/keys/ (README, step 3)
 #   ota.next.key / ota.next.pub.der    only during a rotation
 # The key id is the first 16 hex digits of the public key's SHA-256: the boards report the same
-# number in their telemetry (the StamPLC as otakey= in its [NET] line).
+# number in their telemetry (the StamPLC as otakeys= in its [NET] line; the Dial in its PONG).
 set -euo pipefail
 die() { echo "!! $*" >&2; exit 2; }
 KS="${OPENDUBS_FW_KS_DIR:-/etc/opendubs/firmware-signing}"
