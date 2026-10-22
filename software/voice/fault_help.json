@@ -30,6 +30,15 @@
   "means": "The arm works, but its gripper controller is not running. The teleop bridge needs both grippers' controllers and exits about 30 s after START without them.",
   "title": "An arm's gripper controller would not start"
  },
+ "ARM_LINK_ERROR": {
+  "do": [
+   "Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).",
+   "Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.",
+   "If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer."
+  ],
+  "means": "The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down, or missing. While it is, that arm's motors answer intermittently or not at all, so it won't activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors that read disabled are normal, and are not this fault.",
+  "title": "One arm's CAN link is in error, so its motors can't be reached"
+ },
  "ARM_MOTORS_DISABLED": {
   "do": [
    "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."

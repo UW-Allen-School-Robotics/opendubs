@@ -356,17 +356,18 @@ Check in this order:
 3. [Another arm action is running](#arm-op-running)
 4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
 5. [The arms' CAN links are not ready](#arm-can-not-ready)
-6. [The arm stack did not start](#arm-stack-start-failed)
-7. [Some arm motors do not answer](#arm-motors-silent)
-8. [An arm motor reports a fault](#arm-motor-fault)
-9. [The arm's motors answer but are disabled](#arm-motors-disabled)
-10. [The arm could not be reset after a power loss](#arm-reset-failed)
-11. [Only some of an arm's motors enabled](#arm-partial-enable)
-12. [An arm's controller would not start](#arm-controller-inactive)
-13. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
-14. [The arm stack is dead](#arm-stack-dead)
-15. [An arm came up active by itself](#arm-came-up-active)
-16. [An arm action timed out](#arm-op-timeout)
+6. [One arm's CAN link is in error, so its motors can't be reached](#arm-link-error)
+7. [The arm stack did not start](#arm-stack-start-failed)
+8. [Some arm motors do not answer](#arm-motors-silent)
+9. [An arm motor reports a fault](#arm-motor-fault)
+10. [The arm's motors answer but are disabled](#arm-motors-disabled)
+11. [The arm could not be reset after a power loss](#arm-reset-failed)
+12. [Only some of an arm's motors enabled](#arm-partial-enable)
+13. [An arm's controller would not start](#arm-controller-inactive)
+14. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
+15. [The arm stack is dead](#arm-stack-dead)
+16. [An arm came up active by itself](#arm-came-up-active)
+17. [An arm action timed out](#arm-op-timeout)
 
 ### ACTIVATE recovered the arm after a power loss {#arm-power-restored}
 
@@ -417,6 +418,20 @@ The arms' two CAN interfaces are missing or down, so the arm stack cannot reach 
 3. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [Troubleshooting](troubleshooting.md#contactor-open) · [OpenArm setup](../openarm-setup.md#troubleshooting)
+
+### One arm's CAN link is in error, so its motors can't be reached {#arm-link-error}
+
+`ARM_LINK_ERROR` · Fault · seen on the dashboard
+
+The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down, or missing. While it is, that arm's motors answer intermittently or not at all, so it won't activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors that read disabled are normal, and are not this fault.
+
+**What to do**
+
+1. Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).
+2. Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.
+3. If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer.
+
+**See also:** [OpenArm setup](../openarm-setup.md#troubleshooting)
 
 ### The arm stack did not start {#arm-stack-start-failed}
 

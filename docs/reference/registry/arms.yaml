@@ -67,6 +67,29 @@ entries:
       - Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
     see: [arm-dashboard.md#arm-can-not-ready, reference/troubleshooting.md#contactor-open, openarm-setup.md#troubleshooting]
 
+  - code: ARM_LINK_ERROR
+    title: One arm's CAN link is in error, so its motors can't be reached
+    symptom: arms-wont-activate
+    rank: 21
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down,
+      or missing. While it is, that arm's motors answer intermittently or not at all, so it won't
+      activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link
+      that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors
+      that read disabled are normal, and are not this fault.
+    do:
+      - Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).
+      - >
+        Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered
+        only while the link is the problem, and it's refused during a show or while the arm is
+        energized.
+      - >
+        If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged
+        or its driver isn't loaded. Check its USB cable at the robot's computer.
+    see: [openarm-setup.md#troubleshooting]
+
   - code: ARM_STACK_START_FAILED
     title: The arm stack did not start
     symptom: arms-wont-activate
