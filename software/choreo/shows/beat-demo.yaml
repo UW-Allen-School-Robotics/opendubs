@@ -61,7 +61,7 @@ cues:
   # bars 5-8: the base dances, one bar per move (runs in the twin only, for now)
   - { bar: "5.1", slot: DANCE, move: sway, secs: 2 }
   - { bar: "6.1", slot: DANCE, move: sway, secs: 2 }
-  - { bar: "7.1", slot: DANCE, move: twist, secs: 2, amp: 0.6 }
+  - { bar: "7.1", slot: DANCE, move: twist, secs: 2, amp: 0.5 }
   - { bar: "8.1", slot: DANCE, move: rock, secs: 2 }
 
   # bar 2: open up, arriving ON the downbeat (a keyframe's time is when the arm gets there)

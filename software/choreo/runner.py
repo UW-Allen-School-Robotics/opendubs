@@ -20,7 +20,8 @@ LIVE OUTPUT (workplan 5.6) is a separately armed binding: only with `--arms ros`
 only for a run the operator marks LIVE (the Shows page's switch, off again after every run), the
 real ARMS follow the routine (arm_output.py); the grippers, the face and the head's pan/tilt as each is
 available; the LIFT (`--lift dashboard`) and the state LIGHT (`--light dashboard`), each armed separately
-(show_outputs.py). The base (DANCE) stays twin-only until the floor test. The robot's
+(show_outputs.py); the BASE's DANCE moves (`--base ros`), through the Thor's base tracker
+(base_output.py). The robot's
 state comes from a provider: a fake, settable over HTTP, so every abort path can be exercised with
 no robot (--robot fake, the default); or, on the robot, the dashboard's own read-only view of it
 (--robot dashboard, plan 4.4c), so preflight and aborts answer to the real e-stop, CH5 and deadman
@@ -44,6 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import arm_output  # noqa: E402
+import base_output  # noqa: E402
 import library  # noqa: E402
 import grippers  # noqa: E402
 import hand_output  # noqa: E402
@@ -577,7 +579,7 @@ class Runner:
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
                  arms=None, live=False, grips=None, lift=None, light=None, start="now",
                  countdown_s=None, face=None, video=None, video_override=None, video_default=None, skip=(),
-                 hand=None):
+                 hand=None, base=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # The projector (video_out.py): {output: backend} this runner has, the operator's play-time
         # choice of output, and this run's ShowVideo per output in use
@@ -593,6 +595,8 @@ class Runner:
         self.hand_out = hand if live else None     # hand_output.FloorHand: the crawling hand on the floor
         self.hand_run = None                       # ... and this run's HandRun, once it is armed
         self.offer = []                           # parts the operator may approve to run without
+        self.base_out = base if live else None   # base_output.BaseOutput: DANCE on the real base
+        self.base_run, self.base_note = None, None
         if start not in START_MODES:
             raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
         # How this run starts (START_MODES); the countdown is this run's, else the show's, else 5 s.
@@ -751,8 +755,8 @@ class Runner:
                 self._log("live", note="arm and gripper goals cancelled — they hold where they are")
             except Exception as e:  # noqa: BLE001
                 self._log("live_error", error=f"cancel: {type(e).__name__}: {e}")
-        for sv in self.videos + self.music + self._hands():   # black (an e-stop: stopped); the floor hand
-            sv.end(status)                                      # opens and stops; never waited on
+        for sv in self.videos + self.music + self._hands() + self._bases():   # black (an e-stop: stopped); the
+            sv.end(status)                                      # floor hand opens and stops; the base stops
         if self.audio_live:
             # DEC-6: an e-stop cuts the music, everything else fades it — including a show that
             # ends before its song does.
@@ -791,6 +795,27 @@ class Runner:
 
     def _media_ready(self, load_id, media) -> bool:
         return not self._media_late(load_id, media)
+
+    def _bases(self) -> list:
+        return [self.base_run] if self.base_run is not None else []
+
+    def _base_preflight(self, tl) -> list:
+        """A live run's DANCE moves, on the Thor's base tracker. Not ready: the show runs WITHOUT its base
+        moves, saying why — or, for `dance: {required: true}`, it is refused (SHOW_BASE_NOT_READY)."""
+        dance = tl.get("dance")
+        if not (self.live and self.base_out is not None and (tl.get("tracks") or {}).get("DANCE")):
+            return []
+        rd = self.base_out.readiness()
+        if not rd["ready"]:
+            # @fault SHOW_BASE_NOT_READY
+            if (dance or {}).get("required"):
+                return [("SHOW_BASE_NOT_READY", rd["why"])]
+            self.base_note = rd["why"] + " — running without the base's dance steps"
+            self._log("base_warning", note=self.base_note)
+            return []
+        self.base_run = self.base_out.make_run(tl, log=self._log)
+        self._log("base", note="DANCE moves go to the base tracker on this run")
+        return []
 
     def _video_preflight(self, show, tl) -> list:
         """The show's videos, each on its output. An output that is not ready is a warning and the show
@@ -951,8 +976,8 @@ class Runner:
         if why:
             # a crawling hand, or a tool with no driver (effectors.py): nothing on the robot can play it
             return self._end(REFUSED, "SHOW_TOOL_TWIN_ONLY", why)
-        if tl.get("dance") is not None:
-            self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
+        if tl.get("dance") is not None and not (self.live and self.base_out is not None):
+            self._log("note", note="DANCE plays in the twin only: this run does not drive the base")
         self.feed.show(self.path, tl)
 
         if self.stop_requested:
@@ -987,6 +1012,7 @@ class Runner:
         refusals = eff_refusals + refusals           # the offer first: it is what the operator can act on
         show.requires = dict(show.requires or {}, _needs=tl.get("needs") or [])   # armed_monitor re-checks them
         refusals += self._video_preflight(show, tl)
+        refusals += self._base_preflight(tl)
         if refusals:
             return self._end(REFUSED, refusals[0][0], "; ".join(r[1] for r in refusals))
         if self.hand_out is not None and tl.get("crawler") and hand_output.PART not in self.skip:
@@ -1024,8 +1050,8 @@ class Runner:
                 self.audio_live = True
         # The projector's videos and music, and the stage pages, load now too (paused, on their own
         # threads), so an armed run's GO waits for them as well as for the tablet
-        for sv in self.videos + self.music + self._hands():   # ... and the floor hand's port opens (it moves
-            sv.begin()                                          # nothing until the show's clock starts)
+        for sv in self.videos + self.music + self._hands() + self._bases():   # ... and the floor hand's port
+            sv.begin()                                          # opens (nothing moves until the show's clock starts)
 
         # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
         if self.start == "deadman" and (stop := self._wait_for_go(show, st, load_id)):
@@ -1081,7 +1107,7 @@ class Runner:
         # WAITING_FOR_START: a start in the future, so the music and the arms can begin together
         self._set(WAITING, lead_s=self.start_lead)
         t0 = self.clock() + self.start_lead
-        for sv in self.videos + self.music + self._hands():   # each follows the show's clock from here
+        for sv in self.videos + self.music + self._hands() + self._bases():   # each follows the show's clock
             sv.go(lambda: self.clock() - t0)
         if self.audio_live:
             # T0 on the Thor's monotonic clock; the device converts it to its own audio clock
@@ -1333,7 +1359,7 @@ class Palette:
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
                  clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None,
                  local_shows=None, dashboard=None, lift_live=False, light_live=False, no_neck=False,
-                 video=None, hand=None):
+                 video=None, hand=None, base=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
         self.no_neck = no_neck               # this robot has no neck (OPENDUBS_HEAD_NECK_HOST=none)
         self.local_shows = local_shows
@@ -1350,6 +1376,7 @@ class Palette:
         # The projector (video_out.py): this runner's outputs, the operator's play-time choice (None:
         # each show's own), and when the cast output was last checked (the tile's freshness)
         self.video = video or {}
+        self.base = base                     # base_output.BaseOutput, or None: DANCE stays in the twin
         self.video_override = None
         self.video_checked_at = None
         self.hand = hand                     # hand_output.FloorHand, or None: this robot has no floor hand
@@ -1542,7 +1569,8 @@ class Palette:
                             audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
                             start=start, countdown_s=countdown_s, face=self.face if live else None,
                             video=self.video, video_override=self.video_override,
-                            video_default=self.video_default(), skip=skip, hand=self.hand if live else None)
+                            video_default=self.video_default(), skip=skip, hand=self.hand if live else None,
+                            base=self.base if live else None)
             runner.no_neck = live and self.no_neck
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
@@ -1703,6 +1731,8 @@ def main() -> int:
     pp.add_argument("--hand", default=os.environ.get("OPENDUBS_FLOOR_HAND") or "off",
                     help="the floor hand's serial port (its RS-485 adapter, best by /dev/serial/by-id/), or off "
                          "(hand_output.py; per robot: OPENDUBS_FLOOR_HAND in robot.env)")
+    pp.add_argument("--base", choices=("none", "ros"), default="none",
+                    help="ros: a live run sends its DANCE moves to the Thor's base tracker (/dance/*, base_output.py)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
                     help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
                          "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
@@ -1741,6 +1771,12 @@ def main() -> int:
                 arms = arm_output.RosArms()
             except Exception as e:  # noqa: BLE001  no ROS: the runner still serves, twin-only
                 print(f"runner: live arm output NOT available ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
+        base = None
+        if a.base == "ros":
+            try:
+                base = base_output.BaseOutput(base_output.RosBase())
+            except Exception as e:  # noqa: BLE001  no ROS: DANCE stays in the twin
+                print(f"runner: live base output NOT available ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
         face = None
         if a.face != "none":
             face = face_bridge.LiveFace(face_bridge.head_face_host() if a.face == "auto" else a.face,
@@ -1770,7 +1806,8 @@ def main() -> int:
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
                       local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
                       light_live=a.light == "dashboard", no_neck=no_neck, video=video,
-                      hand=None if a.hand in ("", "off", "none") else hand_output.FloorHand(a.hand))
+                      hand=None if a.hand in ("", "off", "none") else hand_output.FloorHand(a.hand),
+                      base=base)
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "

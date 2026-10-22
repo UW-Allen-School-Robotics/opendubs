@@ -796,6 +796,7 @@ Check in this order:
 
 1. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
 2. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+3. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
 
 ### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
 
@@ -819,6 +820,18 @@ The video output (casting, HDMI or off) was changed while a show was running. A 
 **What to do**
 
 1. Change the output before starting the show, or stop the show first.
+
+### A show with dance steps was refused because the base tracker isn't ready {#show-base-not-ready}
+
+`SHOW_BASE_NOT_READY` · Refused action · seen on the dashboard
+
+This show moves the robot's base in small dance steps and says it must not run without them. The base tracker (the program on the robot that follows those steps using the base's own odometry, and stops the base when a person is in the way) wasn't ready, so the show was refused before anything moved. The sentence after the code says why. A show that doesn't insist on its dance steps runs without them instead, saying so.
+
+**What to do**
+
+1. Check that the robot's odometry and both LIDARs are running (the dashboard's robot status).
+2. Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the LIDARs see through glass.
+3. Start the show again once the tracker reports ready.
 
 ## The robot won't play a sound {#no-sound}
 

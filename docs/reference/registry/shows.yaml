@@ -45,6 +45,23 @@ entries:
       - For casting, check the projector is on, awake and joined to the robot's Wi-Fi.
       - For HDMI, check the cable and that the projector is on and set to its HDMI input.
       - Or choose the other output (or off) on the projector card, then start the show again.
+  - code: SHOW_BASE_NOT_READY
+    title: A show with dance steps was refused because the base tracker isn't ready
+    symptom: [show-wont-start]
+    rank: 74
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      This show moves the robot's base in small dance steps and says it must not run without them.
+      The base tracker (the program on the robot that follows those steps using the base's own
+      odometry, and stops the base when a person is in the way) wasn't ready, so the show was refused
+      before anything moved. The sentence after the code says why. A show that doesn't insist on its
+      dance steps runs without them instead, saying so.
+    do:
+      - Check that the robot's odometry and both LIDARs are running (the dashboard's robot status).
+      - Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the
+        LIDARs see through glass.
+      - Start the show again once the tracker reports ready.
   - code: SHOW_VIDEO_BUSY
     title: The projector output couldn't be changed because a show is playing
     symptom: [show-wont-start]
