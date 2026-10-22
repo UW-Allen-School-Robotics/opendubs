@@ -13,10 +13,18 @@ choreography and Thor-stack lanes (2026-10-21):
                                         runner streams the home target, zero twist, for 1.5 s
   /dance/stop    std_msgs/Empty         stop at once and drop the stream until the next target
   /dance/status  std_msgs/String (JSON) 5 Hz: {"ready", "why", "origin", "origin_seq", "tracking",
-                                        "mode", "guard", "err_m", "err_deg"}. ready = /odom and
-                                        the guard are fit to move; "origin" says whether this run's
-                                        origin is latched (a run latches it at its t0)
-  /cmd_vel       geometry_msgs/Twist    out, to drive_bridge, only while tracking
+                                        "owner", "mode", "guard", "err_m", "err_deg"}. ready = /odom
+                                        and the guard are fit to move and no OTHER program holds
+                                        the base; "origin" says whether this run's origin is
+                                        latched (a run latches it at its t0); "owner" is who holds
+                                        the base now (null, "show", or another program)
+  /base/show/cmd_vel  geometry_msgs/Twist   out, only while tracking and only while it holds the base
+
+THE BASE HAS ONE OWNER AT A TIME (base_selector.py). This node is the owner "show": it claims the
+base on /base/claim when a run latches its origin, renews the claim each second while the show
+runs, and releases it on /dance/stop or after SHOW_IDLE_S without a target. If another program
+(a navigation stack) holds the base, the claim is refused, status says ready=false with why, and
+the show runs without its base moves.
 
 Command = feed-forward + gain x error (in the body frame), clamped to drive_bridge's full scale,
 which in AUTO is the firmware's ceiling (0.35 x the CH8 knob): it never asks for more than the cap.
@@ -32,6 +40,9 @@ import math
 import os
 
 TARGET_STALE_S = 0.25
+OWNER = "show"
+SHOW_IDLE_S = 60.0             # a run with no target for this long gives the base back
+CLAIM_TTL_S = 3.0
 ODOM_STALE_S = 0.3
 HOLD_M, HOLD_RAD = 0.3, math.radians(20)
 K_LIN, K_ANG = 1.5, 1.5          # 1/s: close a 10 cm error at 15 cm/s, within the cap
@@ -79,7 +90,7 @@ def main():
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
     from rclpy.node import Node
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
     from std_msgs.msg import Empty, String
 
     rclpy.init()
@@ -89,9 +100,20 @@ def main():
     vmax = float(os.environ.get("OPENDUBS_MAX_LIN", "0.5"))
     wmax = float(os.environ.get("OPENDUBS_MAX_ANG", "1.0"))
     st = {"odom": None, "odom_t": None, "origin": None, "seq": 0, "target": None, "target_t": None,
-          "mode": "idle", "moving": False, "guard": "blind", "guard_why": "no guard state yet", "err": (0, 0, 0)}
+          "mode": "idle", "moving": False, "guard": "blind", "guard_why": "no guard state yet", "err": (0, 0, 0),
+          "holder": None, "active": False, "active_t": 0.0}
     now = lambda: node.get_clock().now().nanoseconds / 1e9
-    cmd = node.create_publisher(Twist, "/cmd_vel", 10)
+    cmd = node.create_publisher(Twist, f"/base/{OWNER}/cmd_vel", 10)
+    claim_pub = node.create_publisher(String, "/base/claim", 10)
+    release_pub = node.create_publisher(String, "/base/release", 10)
+
+    def claim():
+        claim_pub.publish(String(data=json.dumps({"owner": OWNER, "ttl_s": CLAIM_TTL_S})))
+
+    def release():
+        if st["active"]:
+            release_pub.publish(String(data=json.dumps({"owner": OWNER})))
+        st["active"] = False
     status = node.create_publisher(String, "/dance/status", 10)
 
     def on_odom(m):
@@ -105,6 +127,8 @@ def main():
         st["origin"], st["seq"] = st["odom"], st["seq"] + 1
         st["target"] = None
         st["mode"] = "idle"
+        st["active"], st["active_t"] = True, now()
+        claim()
         log.info(f"origin #{st['seq']} latched at odom ({st['odom'][0]:.3f}, {st['odom'][1]:.3f}, "
                  f"{math.degrees(st['odom'][2]):.1f} deg)")
 
@@ -114,11 +138,28 @@ def main():
         p, t = m.pose.pose, m.twist.twist
         st["target"] = ((p.position.x, p.position.y, yaw_of(p.orientation)),
                         (t.linear.x, t.linear.y, t.angular.z))
-        st["target_t"] = now()
+        st["target_t"] = st["active_t"] = now()
 
     def on_stop(_m):
         st["target"] = None
         halt("stop")
+        release()
+
+    def on_owner(m):
+        try:
+            st["holder"] = json.loads(m.data).get("owner")
+        except ValueError:
+            pass
+
+    def renew():
+        if not st["active"]:
+            return
+        if now() - st["active_t"] > SHOW_IDLE_S:
+            log.info(f"no DANCE target for {SHOW_IDLE_S:.0f} s: giving the base back")
+            halt("idle")
+            release()
+            return
+        claim()
 
     def on_guard(m):
         try:
@@ -137,7 +178,7 @@ def main():
         t = now()
         odom_ok = st["odom"] is not None and t - st["odom_t"] <= ODOM_STALE_S
         fresh = st["target"] is not None and t - st["target_t"] <= TARGET_STALE_S
-        if not (odom_ok and fresh and st["origin"] is not None):
+        if not (odom_ok and fresh and st["origin"] is not None) or st["holder"] != OWNER:
             halt("idle")
             return
         (target, ff) = st["target"]
@@ -162,10 +203,12 @@ def main():
             why = "/odom is not current"
         elif st["guard"] == "blind":
             why = st["guard_why"] or "the people guard is blind"
+        elif st["holder"] not in (None, OWNER):
+            why = f"the base is held by {st['holder']}"
         e = st["err"]
         status.publish(String(data=json.dumps({
             "ready": why is None, "why": why, "origin": st["origin"] is not None,
-            "origin_seq": st["seq"], "tracking": st["moving"],
+            "origin_seq": st["seq"], "tracking": st["moving"], "owner": st["holder"],
             "mode": st["mode"], "guard": st["guard"],
             "err_m": round(math.hypot(e[0], e[1]), 3), "err_deg": round(math.degrees(e[2]), 1)})))
 
@@ -174,6 +217,9 @@ def main():
     node.create_subscription(Odometry, "/dance/target", on_target, 10)
     node.create_subscription(Empty, "/dance/stop", on_stop, 10)
     node.create_subscription(String, "/people_guard/state", on_guard, 10)
+    node.create_subscription(String, "/base/owner", on_owner, QoSProfile(
+        depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE))
+    node.create_timer(1.0, renew)
     node.create_timer(0.05, tick)
     node.create_timer(0.2, report)
     log.info(f"dance tracker: full scale {vmax} m/s, {wmax} rad/s; hold beyond {HOLD_M} m / "

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive bridge: /cmd_vel in, /odom out.
+"""Drive bridge: base commands in, /odom out.
 
 Before this node, ROS could neither drive the robot nor know where it was: nothing subscribed to
 `/cmd_vel`, and Pinpoint odometry reached the StamPLC and stopped there as an `[ODO]` telemetry
@@ -11,7 +11,10 @@ dashboard is a consumer of telemetry; putting a web backend in a motion control 
 failure mode for nothing.
 
 Subscribes:
-  /cmd_vel        geometry_msgs/Twist     → `DRIVE <fwd> <rot> <str>` on UDP 5005
+  /opendubs/drive/cmd_vel  geometry_msgs/Twist  → `DRIVE <fwd> <rot> <str>` on UDP 5005
+                  Published ONLY by base_selector.py, which forwards the one program that holds the
+                  base (/base/claim). If anything else publishes here, this node refuses all motion:
+                  two writers on the wheels is the failure the selector exists to prevent.
 
 Publishes:
   /odom           nav_msgs/Odometry       ← the `[ODO]` line (mm, rad → m, rad)
@@ -44,7 +47,7 @@ which is the firmware gate above. It sees nothing above or below the LIDARs' pla
 ## Staleness is the stop
 
 `DRIVE` carries a heartbeat: the firmware neutralises the drive if commands stop arriving
-(`kRosCmdTimeoutMs`, 250 ms). So when `/cmd_vel` goes quiet this node **stops sending** rather than
+(`kRosCmdTimeoutMs`, 250 ms). So when commands go quiet this node **stops sending** rather than
 repeating the last Twist. Letting the heartbeat lapse is how a dead planner stops the robot, and
 re-sending a stale command would defeat it.
 """
@@ -74,6 +77,7 @@ PLC_PORT = int(os.environ.get("OPENDUBS_STAMPLC_UDP_PORT", "5005"))
 # Where to send commands: OPENDUBS_STAMP_IP if this robot pins it (a systemd drop-in), otherwise
 # learned from telemetry that passes plc_peer's checks, so a DHCP change needs no config edit.
 STAMP_IP = os.environ.get("OPENDUBS_STAMP_IP", "").strip() or None
+CMD_IN = "/opendubs/drive/cmd_vel"   # base_selector.py is its only publisher
 _KV = re.compile(r"([a-z_]+)=(-?[0-9.]+)")
 
 
@@ -92,10 +96,16 @@ class DriveBridge(Node):
         self.declare_parameter("max_angular_rps", 1.0)
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
+        # TF odom->base_link from the Pinpoint. Off when another node (a fusion EKF) publishes that
+        # transform: two publishers of one transform make it jump between them.
+        self.declare_parameter("publish_tf", True)
         self.max_lin = float(self.get_parameter("max_linear_mps").value)
         self.max_ang = float(self.get_parameter("max_angular_rps").value)
         self.odom_frame = str(self.get_parameter("odom_frame").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
+        self.publish_tf = bool(self.get_parameter("publish_tf").value)
+        if not self.publish_tf:
+            self.get_logger().info("publish_tf is false: /odom only, no TF odom->base_link from this node")
         self.get_logger().warn(
             f"scaling /cmd_vel against max_linear_mps={self.max_lin} "
             f"max_angular_rps={self.max_ang} — THESE ARE UNMEASURED DEFAULTS; "
@@ -116,7 +126,9 @@ class DriveBridge(Node):
 
         self.odom_pub = self.create_publisher(Odometry, "odom", qos_profile_sensor_data)
         self.tf = TransformBroadcaster(self)
-        self.create_subscription(Twist, "cmd_vel", self._on_cmd, 10)
+        self.create_subscription(Twist, CMD_IN, self._on_cmd, 10)
+        self._writers = 0                       # publishers on CMD_IN, checked at 1 Hz
+        self.create_timer(1.0, self._count_writers)
 
         # Last commanded Twist and when it arrived. Sent at a fixed rate so the firmware's
         # heartbeat stays fed while a command is current — a planner publishing at 5 Hz should
@@ -189,6 +201,16 @@ class DriveBridge(Node):
             state, why = "clear", None
         self._guard_pub.publish(String(data=json.dumps({"state": state, "why": why})))
 
+    def _count_writers(self) -> None:
+        n = self.count_publishers(CMD_IN)
+        if n > 1 and n != self._writers:
+            self.get_logger().error(
+                f"{n} publishers on {CMD_IN}; only base_selector may publish there. Refusing all motion "
+                "until there is one (claim the base on /base/claim instead)")
+        elif n <= 1 and self._writers > 1:
+            self.get_logger().info(f"one publisher on {CMD_IN} again")
+        self._writers = n
+
     def _send_cmd(self) -> None:
         if self._cmd is None or self._peer is None:
             return
@@ -196,9 +218,11 @@ class DriveBridge(Node):
             # Stale. STOP SENDING — do not repeat the last command. The firmware neutralises on
             # heartbeat loss, and that is exactly how a dead planner is meant to stop the robot.
             self._cmd = None
-            self.get_logger().warn("/cmd_vel went stale — letting the firmware heartbeat lapse")
+            self.get_logger().warn("base commands went stale — letting the firmware heartbeat lapse")
             return
         fwd, rot, str_ = self._cmd
+        if self._writers > 1:
+            fwd = rot = str_ = 0.0              # two writers: see _count_writers
         ok, why = people_guard.verdict(self._scans, self.get_clock().now().nanoseconds / 1e9,
                                        fwd, str_, rot, reach=self._reach)
         if not ok:
@@ -280,6 +304,8 @@ class DriveBridge(Node):
         for i, v in ((0, 0.05), (7, 0.05), (35, 0.10)):
             o.twist.covariance[i] = v
         self.odom_pub.publish(o)
+        if not self.publish_tf:
+            return
 
         t = TransformStamped()
         t.header.stamp = now

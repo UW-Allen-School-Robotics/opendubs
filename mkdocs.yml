@@ -85,6 +85,7 @@ nav:
       - Power & data: interfaces/power-data.md
       - Command & telemetry: interfaces/command-telemetry.md
       - Payload communications: interfaces/payload-comms.md
+      - Navigation (for your own stack): interfaces/navigation.md
   - Assembly Guide:
       - Lower Frame Assembly (overview): build/lower-frame.md
       - 1 · Base Frame: build/base-frame.md

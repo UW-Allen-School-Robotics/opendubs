@@ -32,4 +32,5 @@ jobs:
       - run: python3 software/ros/tests/test_floorplan.py
       - run: python3 software/ros/tests/test_people_guard.py
       - run: python3 software/ros/tests/test_dance_tracker.py
+      - run: python3 software/ros/tests/test_base_selector.py
       - run: python3 -m py_compile software/ros/*.py

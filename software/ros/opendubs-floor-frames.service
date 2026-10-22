@@ -1,8 +1,11 @@
 [Unit]
 Description=OpenDubs floor frames (building plan frame -> map, and the plan's room labels)
 After=network.target
-# Only where a site file exists: it names the map and its fit to the building plan (floorplan.py).
+# Only where a site file exists (it names the map and its fit to the building plan, floorplan.py)
+# AND our SLAM is on: the floor frame hangs off OUR map frame, so a robot running another SLAM
+# turns both off with the one flag.
 ConditionPathExists=/var/lib/opendubs/maps/site.yaml
+ConditionPathExists=/etc/opendubs/slam.enabled
 StartLimitIntervalSec=0
 
 [Service]
