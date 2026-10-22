@@ -336,6 +336,49 @@ button.on { border-color: var(--accent); color: var(--accent); }
   cursor: not-allowed;
 }
 
+/* gripper control box */
+.grip-box {
+  margin: 10px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.btn-grip {
+  background: var(--panel-2);
+  color: var(--txt);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-grip:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.btn-grip.active {
+  background: var(--accent);
+  color: #0b1118;
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(25, 209, 196, 0.3);
+}
+.grip-slider-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  background: var(--line);
+  border: none;
+  border-radius: 3px;
+}
+
 /* ---- 3D Robot Visualizer Pane & Floating Overlay ---- */
 #robot3dBtn.active {
   background: rgba(25, 209, 196, 0.22);

@@ -828,8 +828,38 @@ function renderInspector() {
   }
 
   const isArm = (c.slot === "ARM_L" || c.slot === "ARM_R");
+  const isGrip = (c.slot === "GRIP_L" || c.slot === "GRIP_R");
   const currentPlanner = c.planner || "spline";
   const reachVal = c.reach ? (Array.isArray(c.reach) ? JSON.stringify(c.reach) : c.reach) : "";
+
+  let gripHtml = "";
+  if (isGrip && !S.clip) {
+    const isClosed = c.do === "close" || (c.open != null && Number(c.open) === 0);
+    const isOpen = c.do === "open" || (c.open != null && Number(c.open) === 1);
+    const openFrac = (c.do === "close") ? 0.0 : (c.do === "open") ? 1.0 : (c.open != null ? Math.max(0, Math.min(1, Number(c.open))) : 1.0);
+    const pct = Math.round(openFrac * 100);
+
+    gripHtml = `
+      <div class="grip-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:600; font-size:11px;">Gripper State (${esc(c.slot)})</span>
+          <span class="badge" id="gripBadge" style="font-size:10px; padding:1px 6px;">${isClosed ? "CLOSED (0%)" : isOpen ? "OPEN (100%)" : pct + "%"}</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:10px;">
+          <button id="btnGripOpen" class="btn-grip ${isOpen ? 'active' : ''}" style="flex:1;" title="Fully open the gripper (44 mm stroke)">
+            👐 Open
+          </button>
+          <button id="btnGripClose" class="btn-grip ${isClosed ? 'active' : ''}" style="flex:1;" title="Fully close the gripper (0 mm stroke)">
+            ✊ Close
+          </button>
+        </div>
+        <div class="grip-slider-row" style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--dim); width:46px;">Position</span>
+          <input type="range" id="iGripSlider" min="0" max="100" step="1" value="${pct}" style="flex:1;" title="Fine-tune opening percentage (0% = closed, 100% = open)">
+          <span id="iGripVal" style="font-size:11px; font-family:monospace; width:36px; text-align:right;">${pct}%</span>
+        </div>
+      </div>`;
+  }
 
   const JOINT_DEFS = [
     { j: 1, name: "Shoulder Yaw", min: -75, max: 180 },
@@ -928,6 +958,7 @@ function renderInspector() {
     ${c.slot === "SOUND" ? `<div class="row2"><label title="Dialogue always plays from the tablet; music from the projector's speaker when a projector is ready. Unmarked is dialogue.">plays as
       <select id="iRole"><option value="dialogue" ${c.role !== "music" ? "selected" : ""}>dialogue — always the tablet</option>
       <option value="music" ${c.role === "music" ? "selected" : ""}>music — the projector, when one is ready</option></select></label></div>` : ""}
+    ${gripHtml}
     ${armJointsHtml}
     ${armRoutingHtml}
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
@@ -1080,6 +1111,92 @@ function renderInspector() {
       cue.joints = jointsObj;
       edit([{ op: "set", index: i, cue }], `reset ${c.slot} to rest pose`);
     };
+  }
+
+  if (isGrip && !S.clip) {
+    const side = c.slot === "GRIP_L" ? "left" : "right";
+
+    if ($("btnGripOpen")) {
+      $("btnGripOpen").onclick = () => {
+        const cue = { ...c };
+        delete cue.open;
+        cue.do = "open";
+        try {
+          const fields = JSON.parse($("iFields").value);
+          delete fields.open;
+          fields.do = "open";
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, 1.0);
+        }
+        edit([{ op: "set", index: i, cue }], `open ${c.slot}`);
+      };
+    }
+
+    if ($("btnGripClose")) {
+      $("btnGripClose").onclick = () => {
+        const cue = { ...c };
+        delete cue.open;
+        cue.do = "close";
+        try {
+          const fields = JSON.parse($("iFields").value);
+          delete fields.open;
+          fields.do = "close";
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, 0.0);
+        }
+        edit([{ op: "set", index: i, cue }], `close ${c.slot}`);
+      };
+    }
+
+    if ($("iGripSlider")) {
+      const sl = $("iGripSlider");
+      sl.oninput = () => {
+        const pct = parseInt(sl.value, 10);
+        const frac = pct / 100.0;
+        const valEl = $("iGripVal");
+        if (valEl) valEl.textContent = `${pct}%`;
+        const badge = $("gripBadge");
+        if (badge) badge.textContent = pct === 0 ? "CLOSED (0%)" : pct === 100 ? "OPEN (100%)" : `${pct}%`;
+
+        const btnO = $("btnGripOpen");
+        const btnC = $("btnGripClose");
+        if (btnO) btnO.classList.toggle("active", pct === 100);
+        if (btnC) btnC.classList.toggle("active", pct === 0);
+
+        try {
+          const fields = JSON.parse($("iFields").value);
+          if (pct === 100) { delete fields.open; fields.do = "open"; }
+          else if (pct === 0) { delete fields.open; fields.do = "close"; }
+          else { delete fields.do; fields.open = round(frac, 2); }
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, frac);
+        }
+      };
+
+      sl.onchange = () => {
+        const pct = parseInt(sl.value, 10);
+        const frac = round(pct / 100.0, 2);
+        const cue = { ...c };
+        if (pct === 100) {
+          delete cue.open;
+          cue.do = "open";
+        } else if (pct === 0) {
+          delete cue.open;
+          cue.do = "close";
+        } else {
+          delete cue.do;
+          cue.open = frac;
+        }
+        edit([{ op: "set", index: i, cue }], `${c.slot} set to ${pct === 100 ? "open" : pct === 0 ? "close" : pct + "%"}`);
+      };
+    }
   }
 
   el.querySelectorAll(".joint-slider").forEach((sl) => {
