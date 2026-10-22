@@ -76,6 +76,7 @@ nav:
   - Playing sound: playing-sound.md
   - Composer:
       - Quickstart: composer/quickstart.md
+      - Making a show: composer/making-a-show.md
   - Troubleshooting: reference/troubleshooting.md
   - Educators: educators.md
   - Design & Interfaces:
