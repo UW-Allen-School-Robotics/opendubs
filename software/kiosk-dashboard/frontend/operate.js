@@ -247,6 +247,13 @@
       tabletWarn = (t.power && t.power.warnings) || []; } catch (e) { tabletWarn = []; }
   }, 10000);
 
+  /* the neck's HOLD (the knob, or software): shown wherever the dashboard is open, and a release is
+     announced here before the head moves again (neck_state.py, head protocol v9) */
+  let headHold = null;
+  setInterval(async () => {
+    try { headHold = await (await fetch("/api/head/hold", { cache: "no-store" })).json(); } catch (e) { headHold = null; }
+  }, 1000);
+
   /* derive Operate state + notifications from the same rs app.js renders */
   function opFromRS(rs) {
     if (!rs) return; setOpState(rs.label, rs.color); lastRS = rs; renderOpStatus();
@@ -259,6 +266,9 @@
     if (lastSoc != null) { if (lastSoc < 15) n.push({ sev: "bad", txt: "PACK " + lastSoc + "% — RETURN" });
       else if (lastSoc < 25) n.push({ sev: "warn", txt: "PACK " + lastSoc + "% — low" }); }
     for (const w of tabletWarn) n.push({ sev: "warn", txt: "TABLET · " + w.text });
+    if (headHold && headHold.hold === "on")
+      n.push({ sev: "warn", txt: "HEAD HELD" + (headHold.by === "knob" ? " by the knob" : "") + " · nothing moves it until released (turn the knob back, or RELEASE on Head & face)" });
+    if (headHold && headHold.hold === "releasing") n.push({ sev: "warn", txt: "HEAD · releasing hold: it may move again in a moment" });
     setNotifs(n);
     const ds = $("opDrawerSafety"); if (ds) ds.textContent = n.length ? (n.length + " active " + (n.length > 1 ? "issues" : "issue")) : "system nominal — no active faults";
   }

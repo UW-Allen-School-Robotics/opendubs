@@ -269,11 +269,14 @@ def test_the_head_holds_still_while_someone_is_talking(monkeypatch):
 
 
 def test_a_touch_on_the_tablet_stops_the_head_at_once(monkeypatch):
-    """The user, 2026-10-20: any touch stops the head. GAZE OFF goes to the neck straight away, and no
-    GAZE follows until TOUCH_HOLD_S after the last touch."""
+    """The user, 2026-10-20 and 2026-10-22: any touch pauses the head. The neck's own TOUCH HOLD goes
+    straight away (a neck too old for it gets GAZE OFF instead), and no GAZE follows until TOUCH_HOLD_S
+    after the last touch."""
     import threading
-    sent = []
-    monkeypatch.setattr(nf, "_ask", lambda host, line, timeout=0.3: sent.append(line) or "OK")
+    sent, answer = [], {"TOUCH": "ERR unknown"}
+    monkeypatch.setattr(nf, "_ask", lambda host, line, timeout=0.3: sent.append(line) or answer.get(line.split()[0], "OK"))
+    import head
+    monkeypatch.setattr(head, "neck_host", lambda: "neck")
     monkeypatch.setattr(nf, "why_not_now", lambda: None)
     monkeypatch.setattr(nf, "someone_talking", lambda: False)
     t = [100.0]
@@ -283,8 +286,11 @@ def test_a_touch_on_the_tablet_stops_the_head_at_once(monkeypatch):
     for th in threading.enumerate():
         if th is not threading.current_thread() and th.daemon:
             th.join(1)
-    assert sent == ["GAZE OFF"]
+    assert sent == ["TOUCH HOLD 1000", "GAZE OFF"]               # an older neck: GAZE OFF does what it can
     assert "touched" in nf.step(nf.config())
-    assert sent == ["GAZE OFF"]                                  # nothing more while held
+    assert sent == ["TOUCH HOLD 1000", "GAZE OFF"]               # nothing more while held
+    answer["TOUCH"] = "OK touch hold"
+    sent.clear(); nf._touch_pause()
+    assert sent == ["TOUCH HOLD 1000"]                           # this neck pauses itself: nothing else
     t[0] += nf.TOUCH_HOLD_S + 0.1
     assert not nf.being_touched()

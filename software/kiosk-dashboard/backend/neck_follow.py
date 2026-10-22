@@ -230,14 +230,28 @@ def why_not_now():
     return None
 
 
-# A TOUCH ON THE TABLET STOPS THE HEAD AT ONCE (the user, 2026-10-20; tablet plan DT-12): a hand on the
-# face, or on the dashboard the tablet is showing, must not have the head turning under it. The page
-# says so on every touch (POST /api/head/touch, face_door.py); this sends GAZE OFF to the neck straight
-# away, so it stops where it is rather than finishing its current move, and sends no GAZE until
-# TOUCH_HOLD_S after the last touch. The neck's own TOUCH HOLD (head protocol) would also outrank RC and
-# a show's GAZE; the neck firmware answers it ERR unknown today, so until it does, this holds tracking.
+# A TOUCH ON THE TABLET PAUSES THE HEAD (the user, 2026-10-20 and 2026-10-22; tablet plan DT-12): a hand
+# on the face, or on the dashboard the tablet is showing, must not have the head turning under it. The
+# page says so on every touch (POST /api/head/touch, face_door.py). This sends the neck `TOUCH HOLD`
+# straight away, and renews it every TOUCH_RENEW_S until TOUCH_HOLD_S after the last touch: the neck's
+# own pause, above a show's GAZE and the tracker, so it stops where it is and resumes by itself shortly
+# after. A brief pause only; the knob's HOLD is the deliberate long one. A neck older than TOUCH answers
+# ERR, and then GAZE OFF does what it can (it stops tracking's move; a show re-sends). Tracking also
+# sends no GAZE while touched.
 TOUCH_HOLD_S = 4.0
-_touch = {"at": None, "off_at": 0.0}
+TOUCH_RENEW_S = 0.5
+TOUCH_LEASE_MS = 1000
+_touch = {"at": None, "off_at": 0.0, "renew_at": 0.0}
+
+
+def _touch_pause() -> None:
+    import head
+    host = head.neck_host()
+    if host is None:
+        return
+    reply = _ask(host, f"TOUCH HOLD {TOUCH_LEASE_MS}", 0.2)
+    if not reply or not reply.startswith("OK"):
+        _ask(host, "GAZE OFF", 0.2)
 
 
 def touched() -> None:
@@ -247,12 +261,11 @@ def touched() -> None:
     state["moving"], state["cmd"] = False, None
     if now - _touch["off_at"] < 0.3:                 # a finger moving sends many; the neck needs one
         return
-    _touch["off_at"] = now
+    _touch["off_at"] = _touch["renew_at"] = now
 
     def _off():
         try:
-            import head
-            _ask(head.neck_host(), "GAZE OFF", 0.2)
+            _touch_pause()
         except Exception:                            # noqa: BLE001 — the hold below still stops tracking
             pass
     threading.Thread(target=_off, daemon=True).start()
@@ -338,6 +351,11 @@ async def run() -> None:
     loop = asyncio.get_running_loop()
     while True:
         cfg = config()
+        # The touch pause is renewed here, whatever tracking is doing: it holds a show's GAZE too.
+        now = _clock()
+        if being_touched() and now - _touch["renew_at"] >= TOUCH_RENEW_S:
+            _touch["renew_at"] = now
+            loop.run_in_executor(None, _touch_pause)
         try:
             state["why"] = await loop.run_in_executor(None, step, cfg) or "following"
         except Exception as e:                       # noqa: BLE001 — never let the loop die

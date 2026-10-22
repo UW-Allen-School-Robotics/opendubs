@@ -64,6 +64,9 @@
       <div class="hf-note" id="hfTrackNote"></div>
       <div class="hf-note" id="hfTrackLive"></div>
       <div class="hf-note" id="hfNeckNote"></div>
+      <div class="hf-row"><label>Hold the head</label>
+        <button class="iobtn" id="hfHold">HOLD HERE</button><button class="iobtn" id="hfRelease">RELEASE</button></div>
+      <div class="hf-note" id="hfHoldNote">A held head stays where it is: tracking, shows, touch and the RC stick don't move it until it is released. Turning the neck's knob one way holds it; the other way releases it.</div>
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
       <h2 class="mt">TABLET</h2>
@@ -200,6 +203,25 @@
     if (!view.classList.contains("active")) return;
     try { renderPower((await getJSON("/api/tablet/sensors")).power); } catch (e) { /* no relay */ }
   }, 5000);
+
+  // The neck's HOLD (head protocol v9): what it is now, and the dashboard's way to set or release it.
+  const HOLD_WORDS = { on: "Held", releasing: "Releasing: it may move again in a moment", off: "Not held" };
+  async function loadHold() {
+    let h = null;
+    try { h = await getJSON("/api/head/hold"); } catch (e) { /* an older robot */ }
+    const w = h && h.hold ? HOLD_WORDS[h.hold] : null;
+    el("hfHoldNote").textContent = !h || !h.hold ? "The neck hasn't reported a hold (no neck, or an older neck)."
+      : `${w}${h.hold === "on" && h.by === "knob" ? " (by the knob)" : h.hold === "on" ? " (from the network)" : ""}.` +
+        " A held head stays where it is: tracking, shows, touch and the RC stick don't move it until it is released.";
+  }
+  async function setHold(op) {
+    try { await getJSON("/api/head/hold", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op }) }); }
+    catch (e) { el("hfHoldNote").textContent = `Not done: ${e.message}`; return; }
+    loadHold();
+  }
+  el("hfHold").addEventListener("click", () => setHold("here"));
+  el("hfRelease").addEventListener("click", () => setHold("off"));
+  setInterval(() => { if (view.classList.contains("active")) loadHold(); }, 1000);
 
   async function load() {
     loadTracker();
