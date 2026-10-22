@@ -126,6 +126,7 @@ def _client(monkeypatch, url, ros=None):
                                 "busy": False, "error": None, "w": None, "h": None} for c in tr.CAMERAS})
     monkeypatch.setattr(tr, "CAMERA_TICK_S", 0.1)
     tr.state["demand"] = {"at": None, "counts": None}
+    tr.power.update(readings=[], command=None)
     app = FastAPI()
     app.include_router(tr.router)
     return TestClient(app)
@@ -326,3 +327,34 @@ def test_a_demand_that_is_not_renewed_turns_the_camera_off(monkeypatch):
         assert m["camera"]["rear"]["on"] is False
     assert c.post("/api/tablet/camera/demand", json={"front": "yes"}).status_code == 400
     assert c.post("/api/tablet/camera/demand", content=b"nope").status_code == 400
+
+
+def test_a_restart_is_refused_during_a_show_and_a_sleep_reaches_the_page_and_the_app(monkeypatch):
+    import kiosk_update
+    c = _client(monkeypatch, "ws://127.0.0.1:9")
+    monkeypatch.setattr(kiosk_update, "show_busy", lambda: "a show is loaded (demo, armed)")
+    r = c.post("/api/tablet/command", json={"cmd": "restart"})
+    assert r.status_code == 409 and r.json()["code"] == "HEAD_RESTART_SHOW"
+    assert c.get("/api/tablet/command").json() == {}                   # nothing for the app to run
+    with c.websocket_connect("/ws/tablet") as page:
+        page.send_json({"hello": {"kiosk": True}})
+        page.receive_json(); page.receive_json()
+        r = c.post("/api/tablet/command", json={"cmd": "sleep"})
+        assert r.status_code == 200
+        assert page.receive_json() == {"command": {"id": r.json()["id"], "cmd": "sleep"}}
+    assert c.get("/api/tablet/command").json() == {"id": r.json()["id"], "cmd": "sleep"}
+    monkeypatch.setattr(tr, "COMMAND_TTL_S", 0.0)
+    assert c.get("/api/tablet/command").json() == {}                   # a tablet back later never acts on it
+
+
+def test_the_charge_limit_is_not_a_charger_fault_but_a_falling_battery_is():
+    tr.power.update(readings=[], command=None)
+    tr.note_battery({"level": 80, "charging": False, "plugged": "usb"}, now=0.0)
+    assert tr.power_status(now=1.0)["warnings"] == []                   # Battery protection: held at 80 %
+    tr.note_battery({"level": 60, "charging": False, "plugged": "usb"}, now=2.0)
+    assert [w["code"] for w in tr.power_status(now=3.0)["warnings"]] == ["HEAD_TABLET_NOT_CHARGING"]
+    tr.power.update(readings=[])
+    for i, level in enumerate((79, 78, 77, 76)):                        # "charging", yet falling: too weak
+        tr.note_battery({"level": level, "charging": True, "plugged": "usb"}, now=i * 300.0)
+    assert [w["code"] for w in tr.power_status(now=900.0)["warnings"]] == ["HEAD_TABLET_NOT_CHARGING"]
+    assert tr.power_status(now=900.0 + tr.BATTERY_STALE_S + 1)["warnings"] == []   # asleep: no word either way

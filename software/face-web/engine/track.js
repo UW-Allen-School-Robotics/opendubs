@@ -82,19 +82,23 @@ export async function start(face, stats, src = new URLSearchParams(location.sear
   // The tablet opens ONE camera at a time. The robot's own camera streams (the dashboard's
   // tablet_sensors.js) share this capture for the screen-side camera, and PAUSE tracking to use the
   // back-side one (the user's decision, 2026-10-15): the eyes go back to their idle gaze, and tracking
-  // resumes when the stream ends.
+  // resumes when the stream ends. The face also pauses it on battery (main.js), so each pause names its
+  // reason and tracking resumes only when none is left.
   let paused = false;
+  const holds = new Set();
   const stopVideo = () => { const s = video && video.srcObject; if (s && s.getTracks) s.getTracks().forEach((t) => t.stop()); };
   window.OpenDubsTracking = {
     video: () => (paused ? null : video),               // the live screen-side capture, to share
     paused: () => paused,
-    pause() {
+    pause(why = "stream") {
+      holds.add(why);
       if (paused) return;
       paused = true; stopVideo(); face.look(null);
-      stats.track = info.state = "paused: the camera is lent to a stream";
+      stats.track = info.state = why === "battery" ? "paused: the tablet is on battery" : "paused: the camera is lent to a stream";
     },
-    async resume() {
-      if (!paused) return;
+    async resume(why = "stream") {
+      holds.delete(why);
+      if (!paused || holds.size) return;
       video = await (src === "sweep" ? sweepSource() : cameraSource());
       paused = false; stats.track = "resumed"; info.state = "running";
       video.requestVideoFrameCallback(onFrame);

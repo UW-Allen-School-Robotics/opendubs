@@ -31,6 +31,15 @@ export class Levels {
     this.timer = { volume: null, bright: null };
     this.fade = { volume: null, bright: null };   // a fade in flight: {from, target, t0, ms}
     this.touched = false;                  // a show has set something since the last idle
+    this.scale = 1;                        // the tablet saving power (main.js): the screen gets level x scale
+  }
+
+  /** Scale the screen's brightness under whatever is set (0.5 on battery or hot, main.js), without
+   *  changing the level a show or the settings asked for, so 1 gives it back exactly. */
+  setScale(k) {
+    if (k === this.scale) return;
+    this.scale = k;
+    this._write("bright", this.level.bright);
   }
 
   /** The robot's settings (the Head & face page): brightMin, volMax and the idle levels. An idle
@@ -102,8 +111,9 @@ export class Levels {
     if (!this.device) return;
     const K = typeof window !== "undefined" ? window.OpenDubsKiosk : null;
     if (which === "bright") {
-      if (K && typeof K.setBrightness === "function") K.setBrightness(v);
-      else if (typeof document !== "undefined") document.documentElement.style.filter = v >= 1 ? "" : `brightness(${v})`;
+      const b = v * this.scale;
+      if (K && typeof K.setBrightness === "function") K.setBrightness(b);
+      else if (typeof document !== "undefined") document.documentElement.style.filter = b >= 1 ? "" : `brightness(${b})`;
     } else if (K && typeof K.setMediaVolume === "function") {
       K.setMediaVolume(v);
     }

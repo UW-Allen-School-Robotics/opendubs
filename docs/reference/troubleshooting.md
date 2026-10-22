@@ -280,6 +280,50 @@ Something asked the dashboard to change the robot's state — clear an e-stop, m
 1. Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
 2. If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
 
+## The head is dark or offline {#head-dark}
+
+The head is the tablet on the robot's neck, running on its own battery, and the M5Dial that moves the neck.
+
+Check in this order:
+
+1. [The tablet is plugged in but not charging](#head-tablet-not-charging)
+2. [The tablet's battery is hot](#head-tablet-hot)
+3. [The tablet won't restart during a show](#head-restart-show)
+
+### The tablet is plugged in but not charging {#head-tablet-not-charging}
+
+`HEAD_TABLET_NOT_CHARGING` · Warning · seen on the dashboard
+
+The head tablet charges from the robot's power whenever the robot is on and not e-stopped. Its Battery protection stops charging at 80 %, so a healthy tablet on the robot's power reads about 80 % and "not charging". This warning means it reads well below that and is still not charging, or it is losing charge while plugged in: its charger supplies too little, or has failed. Left alone, the tablet runs flat and the face goes dark.
+
+**What to do**
+
+1. Check the USB-C cable at the tablet and at the mount's charger; reseat both.
+2. If it persists, check the mount's charger output with a USB power meter, and replace the charger or the cable.
+3. Until it is fixed, charge the tablet from a wall charger between sessions.
+
+### The tablet's battery is hot {#head-tablet-hot}
+
+`HEAD_TABLET_HOT` · Warning · seen on the dashboard
+
+The tablet reports a battery temperature of 45 °C or more. Heat ages a lithium battery fastest, and a hot tablet throttles itself, which can make the face stutter. Above 40 °C, while no show runs, the face already dims and draws fewer frames to cool down. 45 °C is a provisional limit, to be revisited against the tablet's datasheet.
+
+**What to do**
+
+1. Shade the head from direct sun or stage lights, and make sure nothing covers the back of the tablet.
+2. If it stays hot with the robot idle, let the screen sleep (Head & face page, SLEEP TABLET) until it cools.
+
+### The tablet won't restart during a show {#head-restart-show}
+
+`HEAD_RESTART_SHOW` · Refused action · seen on the dashboard
+
+The dashboard's RESTART TABLET is refused while a show is loaded or running, because the tablet is the face and the show's speaker: a restart would take both away for about a minute.
+
+**What to do**
+
+1. Stop the show (Shows page, or STOP SHOW on the face), then press RESTART TABLET again.
+2. To restart it by hand at any time, hold the tablet's side key and choose Restart.
+
 ## The lift won't move {#lift-wont-move}
 
 The lift answers to the same safety gate as the drive, plus its own pinch guard near the bottom of its travel.

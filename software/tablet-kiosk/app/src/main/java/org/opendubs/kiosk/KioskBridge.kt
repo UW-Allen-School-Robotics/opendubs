@@ -174,6 +174,22 @@ class KioskBridge(private val activity: Activity) {
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
+    /** The tablet's power, JSON {"battery_mode", "low", "level", "robot_answers", "sleep_in_s"}
+     *  (Power.kt). The face saves power while `battery_mode` is true. `{"battery_mode": false}` on a
+     *  display. */
+    @JavascriptInterface
+    fun power(): String = (activity as? KioskActivity)?.power?.state() ?: "{\"battery_mode\": false}"
+
+    /** Turn the screen off now (the dashboard's "Sleep tablet" pressed on the tablet itself). */
+    @JavascriptInterface
+    fun sleep() { (activity as? KioskActivity)?.power?.sleep("asked by the page") }
+
+    /** A command from the dashboard, passed on by the page (tablet_sensors.js) as it arrives:
+     *  "sleep" or "restart", run once by its id (Power.kt polls for the same commands itself, so
+     *  they also reach a tablet whose page is dead). The dashboard guards the restart. */
+    @JavascriptInterface
+    fun command(id: String, cmd: String) { (activity as? KioskActivity)?.power?.run(id, cmd) }
+
     /** "on" or "off": whether the screen is interactive. */
     @JavascriptInterface
     fun screenState(): String =

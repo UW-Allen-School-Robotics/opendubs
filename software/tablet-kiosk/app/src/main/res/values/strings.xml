@@ -4,4 +4,7 @@
     <!-- Default dashboard address. Override per tablet by starting the activity with a string
          extra named "url" over adb; see README.md. -->
     <string name="default_url">http://10.42.2.10:8080/</string>
+    <!-- Shown when the battery is low and someone wakes the screen (Power.kt). The tablet charges
+         from the robot, so switching the robot on is how to charge it. -->
+    <string name="charge_me">Battery low.\n\nSwitch the robot on to charge me.</string>
 </resources>

@@ -15,17 +15,21 @@ Slamtec RPLIDAR A1 on USB (CP2102 bridge → `/dev/ttyUSB0`, stable by-id path i
 
 - **`rplidar.sh`** — launch wrapper (sources ROS, runs `rplidar.launch.py` on the
   by-id port). Env override: `OPENDUBS_LIDAR_DEV`.
-- **`opendubs-rplidar.service`** — systemd unit (User=emmar, Restart=always).
+- **`opendubs-rplidar.service`** — systemd unit (runs as the robot's service user, Restart=always).
 
 Publishes `sensor_msgs/LaserScan` on **`/scan`** (frame `laser`, ~7 Hz, 720
 pts/rev, 0.5°, 0.15–12 m).
 
 ### Deploy
 
+`./deploy-all.sh <host>` ships this folder and runs `provision-ros.sh`, which installs every unit.
+Don't copy a `.service` file into `/etc/systemd/system/` by hand: the units name their account as
+`@OPENDUBS_USER@` / `@OPENDUBS_HOME@`, which `provision-ros.sh` fills in from the robot
+(`OPENDUBS_SERVICE_USER` in `/etc/opendubs/robot.env`, or else the owner of `/opt/opendubs`). An
+unrendered unit refuses to start.
+
 ```bash
-rsync -az ros/ thor:/opt/opendubs/ros/
-ssh thor 'sudo cp /opt/opendubs/ros/opendubs-rplidar.service /etc/systemd/system/ \
-  && sudo systemctl daemon-reload && sudo systemctl enable --now opendubs-rplidar'
+ssh thor 'sudo /opt/opendubs/ros/provision-ros.sh'
 ```
 
 ### Verify
