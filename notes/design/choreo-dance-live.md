@@ -39,7 +39,7 @@ The tracker:
 - **The run:**
   - At t0 it publishes the origin.
   - Through each move it streams the same pose the twin draws (`sim_preview`'s model, the same speeds),
-    with the segment's body velocity.
+    with its body velocity.
   - Nothing is sent between moves, so the tracker stops.
   - On completion the last move still gets its settle, then it publishes `/dance/stop`. On any other end it
     publishes it at once. Either way the base is handed back, so another program can claim it.
@@ -52,20 +52,29 @@ The tracker:
 The twist is in m/s and rad/s, and drive_bridge maps it to the wheels through its full scale, the speed
 at DRIVE 1.0. In AUTO that is the firmware ceiling: 0.35 × the CH8 knob × full command.
 
-- **The show cap** (the user's direction, 2026-10-22): software (AUTO) base motion is capped at 25 % of
-  full command on every wheel (`cue.SHOW_BASE_CAP`). The Thor's drive path enforces it, per robot
-  (`/etc/opendubs/base.env`), and the user may raise it; RC is not capped. A dance unit of 1.0 is the cap.
-  Top speed is never measured: shows are planned at the speeds at the cap.
-- **Headroom** (the user's decision, 2026-10-22): a move peaks at no more than half the cap on the axis it
-  uses (`cue.DANCE_PEAK_OF_CAP` 0.5; `amp` ≤ 0.5, the default), so the tracker has room to correct, and
-  the validator refuses a DANCE cue that asks for more. No library move strafes and turns at once:
-  strafing right yaws this base clockwise (about 15 °/s, mechanical), and holding the heading uses part of
-  the turn budget. The tracker trims that yaw by feed-forward, per strafe direction.
-- **The speeds at the cap**, measured on opendubs2 (2026-10-22, 1.5 s bursts, CH8 at its maximum, from
-  `/odom`): forward 0.27 m/s, strafing 0.18 m/s either way, turning 0.37 rad/s (about 21 °/s)
-  (`BASE_M_PER_S_AT_CAP`, `BASE_M_PER_S_STRAFE_AT_CAP`, `BASE_RAD_PER_S_AT_CAP`). So at the default amp a
-  sway peaks at 0.09 m/s and a twist at about 11 °/s.
-- When the user raises the cap, `SHOW_BASE_CAP`, `DANCE_PEAK_OF_CAP` and the three speeds change together.
+- **The show cap** (the user's direction, 2026-10-22): software (AUTO) base motion is capped at a
+  fraction of full command on every wheel, 0.35 on opendubs2 today (`cue.SHOW_BASE_CAP`, provisional). The
+  Thor's drive path enforces it, per robot (`/etc/opendubs/base.env`), and the user may change it; RC is
+  not capped. A dance unit of 1.0 is the cap. Top speed is never measured: shows are planned at the speeds
+  at the cap.
+- **Headroom** (the user's decision, 2026-10-22): a move peaks at no more than 70 % of the cap on the axis
+  it uses (`cue.DANCE_PEAK_OF_CAP` 0.7; `amp` ≤ 0.7, the default), so the tracker has room to correct, and
+  the validator refuses a DANCE cue that asks for more. At half the cap the motors barely turned and the
+  base shuddered. No stroke moves and turns at once: strafing right yaws this base clockwise (about
+  15 °/s, mechanical), and holding the heading uses part of the turn budget. The tracker trims that yaw by
+  feed-forward, per strafe direction.
+- **The speeds at the cap**, opendubs2's `base.env` (provisional: measured at a 0.25 cap, 1.5 s bursts,
+  CH8 at its maximum, from `/odom`, and scaled to 0.35): forward 0.38 m/s, strafing 0.25 m/s either way,
+  turning 0.52 rad/s (`BASE_M_PER_S_AT_CAP`, `BASE_M_PER_S_STRAFE_AT_CAP`, `BASE_RAD_PER_S_AT_CAP`). So
+  at the default amp a sway peaks at about 0.175 m/s, and a 3 s sway swings about ±5.4 cm.
+- **Every move starts and ends at rest** (measured on opendubs2, 2026-10-22). Constant-speed steps
+  shuddered, the StamPLC holds each wheel still for 0.2 s at every direction flip, and a move that ends at
+  speed makes the tracker brake from the peak. So each stroke is either a **swing**, the windowed sine
+  `sin(2πu)·sin²(πu)` (out one way, through the middle at peak speed, out the other way and home, slow at
+  both turn-arounds), or a **step**, `(1 − cos πu)/2` (to a new place and stop). A stroke's peak speed is
+  exactly its amp × the speed at the cap.
+- All of these numbers are re-measured after the drivetrain gets its belts. When the cap changes,
+  `SHOW_BASE_CAP`, `DANCE_PEAK_OF_CAP` and the three speeds change together.
 - Shows assume CH8 at its maximum. A lower knob can make the base lag, and the tracker holds rather than
   chase.
 

@@ -58,21 +58,9 @@ def dance_command(events: list, t: float) -> dict | None:
             continue
         if t >= start + secs:
             return {"x": 0.0, "y": 0.0, "yaw": 0.0, "vx": 0.0, "vy": 0.0, "w": 0.0, "settle": True}
-        amp = float(c.get("amp", cue.DANCE_DEFAULT_AMP))
-        v, vs, w = cue.dance_speeds(amp)
-        x = y = yaw = 0.0
-        left = t - start
-        body = (0.0, 0.0, 0.0)
-        for frac, fwd, strafe, rot in cue.DANCE_MOVES[c["move"]]:
-            dt = min(frac * secs, left)
-            if dt <= 0:
-                break
-            body = (fwd * v, strafe * vs, rot * w)
-            x += (body[0] * math.cos(yaw) - body[1] * math.sin(yaw)) * dt
-            y += (body[0] * math.sin(yaw) + body[1] * math.cos(yaw)) * dt
-            yaw += body[2] * dt
-            left -= dt
-        return {"x": x, "y": y, "yaw": yaw, "vx": body[0], "vy": body[1], "w": body[2], "settle": False}
+        x, y, yaw, vx, vy, w = cue.dance_state(c["move"], secs, float(c.get("amp", cue.DANCE_DEFAULT_AMP)),
+                                               t - start)
+        return {"x": x, "y": y, "yaw": yaw, "vx": vx, "vy": vy, "w": w, "settle": False}
     return None
 
 

@@ -216,15 +216,22 @@ check_doc("a move longer than a gesture is refused",
 check_doc("amp above the show cap is refused",
           doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "amp": 1.5}], dance={"floor_radius_m": 1.5}),
           "amp")
-check_doc("a move that peaks past half the show cap is refused: the tracker needs room to correct",
-          doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.6}], dance={"floor_radius_m": 1.5}),
+check_doc("a move that peaks past 70 % of the show cap is refused: the tracker needs room to correct",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.75}], dance={"floor_radius_m": 1.5}),
           "room to correct")
-_at = doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.5},
+_at = doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.7},
                 {"t": 4.0, "slot": "DANCE", "move": "sway"}], dance={"floor_radius_m": 1.5}).analyse(LIMITS)
-check_true("amp 0.5, and a move with no amp (the default), are within the peak limit",
+check_true("amp 0.7, and a move with no amp (the default), are within the peak limit",
            not _at["problems"], [q.msg for q in _at["problems"]])
-check_true("no library move strafes and turns at once (strafing uses the turn budget to hold its heading)",
-           not any(s and r for m in _pin_caps.DANCE_MOVES.values() for _f, _x, s, r in m), _pin_caps.DANCE_MOVES)
+check_true("no library stroke moves and turns at once (strafing uses the turn budget to hold its heading)",
+           not any((x or s) and r for m in _pin_caps.DANCE_MOVES.values() for _f, x, s, r, _sh in m),
+           _pin_caps.DANCE_MOVES)
+_ends = [(_pin_caps.dance_state(m, 3.0, 0.7, 0.0), _pin_caps.dance_state(m, 3.0, 0.7, 3.0)) for m in _pin_caps.DANCE_MOVES]
+check_true("every move starts and ends at rest, and ends home",
+           all(abs(v) < 1e-9 for a, b in _ends for v in a + b), _ends)
+_pk = max(abs(_pin_caps.dance_state("sway", 3.0, 0.7, 3.0 * k / 600)[4]) for k in range(601))
+check_true("a move's speed peaks at exactly its amp of the speed at the cap",
+           abs(_pk - 0.7 * _pin_caps.BASE_M_PER_S_STRAFE_AT_CAP) < 1e-9, _pk)
 check_doc("too much total open-loop base time is refused",
           doc_show([{"t": float(i * 4), "slot": "DANCE", "move": "rock", "secs": 4} for i in range(9)],
                    dance={"floor_radius_m": 1.5}), "cap on open-loop base motion")
