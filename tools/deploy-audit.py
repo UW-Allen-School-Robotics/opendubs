@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -193,6 +195,22 @@ def main():
         print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")
     else:
         print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
+    # The tablet's kiosk app is not a deployed file but a signed build (deploy-all.sh's deploy_kiosk):
+    # compare the version the robot serves with the one this checkout's source says.
+    gradle = (ROOT / "software/tablet-kiosk/app/build.gradle.kts").read_text()
+    want = re.search(r"^\s*versionCode\s*=\s*(\d+)", gradle, re.M)
+    wname = re.search(r'^\s*versionName\s*=\s*"([^"]*)"', gradle, re.M)
+    served = subprocess.run(["ssh", a.robot, "cat /var/lib/opendubs/kiosk/latest.json 2>/dev/null"],
+                            capture_output=True, text=True).stdout
+    try:
+        sv = json.loads(served)
+        scode, sname = int(sv["versionCode"]), sv.get("versionName", "?")
+    except (ValueError, KeyError, TypeError):
+        scode, sname = 0, "nothing"
+    if want:
+        behind = "  <-- BEHIND: the tablet will not update until a build is published" if scode < int(want.group(1)) else ""
+        print(f"  kiosk app: robot serves {sname} ({scode}), this checkout is "
+              f"{wname.group(1) if wname else '?'} ({want.group(1)}){behind}\n")
     if drift:
         print("  DRIFTED — repo and robot disagree, and they should not:")
         for rel, _ in drift:
