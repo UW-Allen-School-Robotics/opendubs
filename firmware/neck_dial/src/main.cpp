@@ -39,6 +39,8 @@
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include "badge_screen.h"
+#include "ota_verify.h"      // signed OTA: the shared check (firmware/common/ota_verify, firmware-signing.md)
+#include "ota_keys.h"        // the signing keys this build trusts (generated from that library's keys/)
 #include "../neck/pantilt_core.h"
 #include "../neck/hold.h"
 #include "../neck/rc_frame.h"
@@ -129,6 +131,39 @@ char g_ssid[33] = {0};
 uint32_t g_lastReport = 0;
 uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
 
+// SIGNED UPDATES (notes/design/firmware-signing.md; the policy table in firmware/common/ota_verify/
+// README.md). An image is installed only if its signature, made on the Thor for board "neck", verifies
+// against a key compiled in here; otherwise it is rejected and the running app stays the one that boots.
+// TWO EXCEPTIONS, BOTH BECAUSE THIS BOARD HAS NO USB CABLE ON THE ROBOT, so a check that strands it
+// costs opening the head on a desk:
+//   * a REPORT-ONLY build (-DOTA_SIG_REPORT_ONLY, env neck_dial_report_only) checks, reports, and
+//     installs anyway. It is the bootstrap image only: a signed round trip is proved on it first;
+//   * a build whose own self-test FAILS (the verifier itself is broken on this board) behaves the same
+//     and says otaverify=BROKEN in PING.
+// Nothing sent over the network can choose either: one is the build, the other deterministic code.
+constexpr char kOtaBoard[] = "neck";
+#ifdef OTA_SIG_REPORT_ONLY
+constexpr bool kOtaReportOnly = true;
+#else
+constexpr bool kOtaReportOnly = false;
+static_assert(OTA_KEY_COUNT > 0, "an enforcing neck build must trust a key (firmware/common/ota_verify/keys/), "
+                                 "or it would refuse every update and need a cable; build neck_dial_report_only to test");
+#endif
+bool g_otaSelftestOk = false;                       // set once in setup()
+bool otaEnforcing() { return !kOtaReportOnly && g_otaSelftestOk; }
+
+// `otasig=enforce|report otaverify=ok|BROKEN otakeys=<id>[,<id>]|none`, for PING and the report.
+void otaFields(char* out, size_t n) {
+    char keys[40] = "";
+    for (size_t k = 0; k < OTA_KEY_COUNT; k++) {
+        char id[17];
+        otaKeyId(OTA_KEYS[k], id, sizeof(id));
+        snprintf(keys + strlen(keys), sizeof(keys) - strlen(keys), "%s%s", k ? "," : "", id);
+    }
+    snprintf(out, n, "otasig=%s otaverify=%s otakeys=%s", otaEnforcing() ? "enforce" : "report",
+             g_otaSelftestOk ? "ok" : "BROKEN", keys[0] ? keys : "none");
+}
+
 // THE TILT CONFIRM BUTTON. BtnA on the M5Dial is GPIO 42, ACTIVE LOW -- taken from M5Unified's own
 // board table (board_M5Dial reads `!gpio_in(GPIO_NUM_42)`), not from memory, because a wrong pin
 // here means the interlock can never be satisfied and commissioning becomes impossible on a board
@@ -184,6 +219,10 @@ void report() {
              neck::holdPhaseName(g_hold), neck::holdByName(g_hold), g_hold.pan, g_hold.tilt,
              g_knobUp ? "up" : "FAILED", g_screenNote);
     line(b);
+    char ota[96];
+    otaFields(ota, sizeof(ota));
+    snprintf(b, sizeof(b), "ota: %s", ota);
+    line(b);
 }
 
 // ---- the head protocol ------------------------------------------------------------------------
@@ -208,13 +247,17 @@ const char* ownerName() {
 
 void replyPing(char* out, size_t n) {
     if (!g_servoPresent) {
-        snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0",
-                 NECK_FW_SHA);
+        char ota[96];
+        otaFields(ota, sizeof(ota));
+        snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0 %s",
+                 NECK_FW_SHA, ota);
         return;
     }
     const char* owner = ownerName();
-    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=%s pan=%.1f tilt=%.1f",
-             NECK_FW_SHA, owner, g_pt.pan, g_pt.tilt);
+    char ota[96];
+    otaFields(ota, sizeof(ota));
+    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=%s pan=%.1f tilt=%.1f %s",
+             NECK_FW_SHA, owner, g_pt.pan, g_pt.tilt, ota);
 }
 
 // `NECK` -> the status the suite parses. With nothing fitted, the protocol's own
@@ -284,8 +327,36 @@ bool applyTilt(const char* args, char* out, size_t n) {
 // because a push needs a listener that has never worked reliably here. It is implemented EARLY --
 // out of the planned order -- because the Dial is about to lose its USB cable, and a board with no
 // OTA and no USB cannot be fixed at all.
+// The detached signature, `<url>.sig`, into `buf`. False if it is missing, empty or too long.
+bool fetchSig(const char* url, uint8_t* buf, size_t& len) {
+    len = 0;
+    char u[300];
+    if (snprintf(u, sizeof(u), "%s.sig", url) >= (int)sizeof(u)) return false;
+    HTTPClient h;
+    if (!h.begin(u)) return false;
+    const int code = h.GET();
+    const int size = h.getSize();
+    if (code != 200 || size <= 0 || size > OTA_SIG_MAX) { h.end(); return false; }
+    WiFiClient* st = h.getStreamPtr();
+    const uint32_t t0 = millis();
+    while (len < (size_t)size && millis() - t0 < 5000) {
+        const int a = st->available();
+        const size_t left = (size_t)size - len;
+        if (a > 0) len += st->read(buf + len, (size_t)a < left ? (size_t)a : left);
+        else delay(1);
+    }
+    h.end();
+    return len == (size_t)size;
+}
+
 bool otaPull(const char* url, char* out, size_t n) {
     if (!WiFi.isConnected()) { snprintf(out, n, "ERR ota no network"); return false; }
+    // The signature first: it is small, and an enforcing neck without one need not fetch the image.
+    static uint8_t sig[OTA_SIG_MAX];
+    size_t sigLen = 0;
+    const bool haveSig = fetchSig(url, sig, sigLen);
+    if (!haveSig && otaEnforcing()) { snprintf(out, n, "ERR ota no signature"); return false; }
+
     HTTPClient http;
     if (!http.begin(url)) { snprintf(out, n, "ERR ota bad url"); return false; }
     const int code = http.GET();
@@ -293,13 +364,61 @@ bool otaPull(const char* url, char* out, size_t n) {
     const int len = http.getSize();
     if (len <= 0) { snprintf(out, n, "ERR ota no length"); http.end(); return false; }
     if (!Update.begin(len)) { snprintf(out, n, "ERR ota no room"); http.end(); return false; }
-    const size_t wrote = Update.writeStream(http.getStream());
+    OtaVerify v;
+    if (!otaVerifyBegin(v, kOtaBoard)) { Update.abort(); http.end(); snprintf(out, n, "ERR ota cannot hash"); return false; }
+
+    // EVERY BYTE THROUGH THE HASH, so the stream is read here rather than by Update.writeStream().
+    WiFiClient* st = http.getStreamPtr();
+    static uint8_t buf[2048];
+    size_t wrote = 0;
+    uint32_t last = millis();
+    while (wrote < (size_t)len) {
+        const int a = st->available();
+        if (a <= 0) {
+            if (millis() - last > 8000) {
+                Update.abort(); otaVerifyAbort(v); http.end();
+                snprintf(out, n, "ERR ota stalled at %u/%d", (unsigned)wrote, len);
+                return false;
+            }
+            delay(1);
+            continue;
+        }
+        size_t want = (size_t)len - wrote;
+        if (want > sizeof(buf)) want = sizeof(buf);
+        if ((size_t)a < want) want = (size_t)a;
+        const int got = st->read(buf, want);
+        if (got <= 0) continue;
+        if (Update.write(buf, got) != (size_t)got) {
+            Update.abort(); otaVerifyAbort(v); http.end();
+            snprintf(out, n, "ERR ota write %u/%d", (unsigned)wrote, len);
+            return false;
+        }
+        otaVerifyUpdate(v, buf, got);
+        wrote += got;
+        last = millis();
+    }
     http.end();
-    if (wrote != (size_t)len || !Update.end(true) || !Update.isFinished()) {
-        snprintf(out, n, "ERR ota write %u/%d", (unsigned)wrote, len);
+
+    // THE CHECK, BEFORE Update.end(true): that call is what makes the new image the one that boots.
+    int which = -1;
+    OtaVerifyResult r = OTA_SIG_MISSING;
+    if (haveSig) r = otaVerifyFinish(v, sig, sigLen, OTA_KEYS, OTA_KEY_COUNT, &which);
+    else otaVerifyAbort(v);
+    if (r != OTA_SIG_OK && otaEnforcing()) {
+        Update.abort();                                     // the running app stays the one that boots
+        snprintf(out, n, "ERR ota rejected: %s", otaVerifyReason(r));
+        line(out);
         return false;
     }
-    snprintf(out, n, "OK ota %d bytes, rebooting", len);
+    if (!Update.end(true) || !Update.isFinished()) { snprintf(out, n, "ERR ota finish"); return false; }
+    if (r == OTA_SIG_OK) {
+        char id[17];
+        otaKeyId(OTA_KEYS[which], id, sizeof(id));
+        snprintf(out, n, "OK ota %d bytes, rebooting key=%s", len, id);
+    } else {
+        // Report-only, or a broken self-test: installed, and said loudly in the same reply.
+        snprintf(out, n, "OK ota %d bytes, rebooting WARN would reject: %s", len, otaVerifyReason(r));
+    }
     return true;
 }
 
@@ -458,7 +577,7 @@ void handle(const char* cmd, char* out, size_t n) {
     }
 
     if (!strncmp(cmd, "OTA ", 4)) {
-        char reply[128];
+        char reply[160];
         const bool ok = otaPull(cmd + 4, reply, sizeof(reply));
         snprintf(out, n, "%s", reply);
         // RESTART LATER, NOT HERE. Restarting inside the handler kills the board before the caller
@@ -579,6 +698,9 @@ void setup() {
     pinMode(kBtnPin, INPUT_PULLUP);        // the TILT confirm button; active low
     WiFi.setHostname(kHostName);
     g_knobUp = knobBegin();                // a hardware counter: nothing here can block the network
+    // The verifier's known-answer test, once. A failure makes this board report-only and says so
+    // (otaverify=BROKEN), never a board that refuses its own fix.
+    g_otaSelftestOk = otaVerifySelfTest();
 
     if (ssid.length()) {
         WiFi.begin(ssid.c_str(), pass.c_str());

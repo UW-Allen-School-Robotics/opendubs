@@ -177,7 +177,7 @@ reached. A reply without `kind=` is today's Tab5.
 |---|---|
 | `tab5` | both halves in one; the fields above |
 | `tablet-face` | `app=<version> engine=<version> library=<hash> mount=<in_mount\|held\|unknown> mode=<face\|engaged\|controller> st=<STATE> audio=<on\|OFF> skin=<shown>` and, if what was asked is not what shows, `skin_error=<why>` |
-| `neck` | `fw=<sha> state=<VALID\|…> plc=<ip>/<how>\|none owner=<o> pan=<deg> tilt=<deg>` |
+| `neck` | `fw=<sha> state=<VALID\|…> plc=<ip>/<how>\|none owner=<o> pan=<deg> tilt=<deg>`, and the signed-update policy (`firmware/neck_dial/README.md`, *Signed updates*): `otasig=<enforce\|report> otaverify=<ok\|BROKEN> otakeys=<id>[,<id>]\|none` |
 
 ## 7. What a head sends and hears besides replies
 
