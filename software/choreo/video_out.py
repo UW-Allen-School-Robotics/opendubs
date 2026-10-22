@@ -556,6 +556,7 @@ class StageShow:
         self.failed = self.lost = None
         self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
         self._end_status, self._loaded = None, False
+        self.preloaded, self.pct, self.dropped = False, 0.0, None   # every page has the whole file in memory
 
     def _send(self, msg):
         try:
@@ -581,8 +582,12 @@ class StageShow:
                    "audio": bool(it.get("audio"))} for it in self.items]
         self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat})
         self._loaded = True                                 # the pages load the video themselves
+        polled = 0.0
         while self._clock is None and not self._stop.is_set():
-            self._stop.wait(0.02)
+            if not self.preloaded and not self.failed and time.monotonic() - polled >= 0.5:
+                polled = time.monotonic()
+                self._check_preload()
+            self._stop.wait(0.02)                           # the start goes out within 20 ms of the clock
         if self._clock is not None and not self._stop.is_set():
             t0 = time.monotonic() - self._clock()           # the show's t0 on the Thor's monotonic clock
             self._send({"op": "start", "id": self.id, "t0_mono": round(t0, 4)})
@@ -600,9 +605,37 @@ class StageShow:
     def prepare(self):
         pass
 
+    def _check_preload(self):
+        """Every connected page has the whole file (each page's {"preload": {id, pct, ready}} on /api/stage)."""
+        try:
+            got = self.out._get()
+        except Exception:  # noqa: BLE001
+            return
+        n = int(got.get("pages") or 0)
+        mine = [p for p in (got.get("preload") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        self.pct = min([float(p.get("pct") or 0) for p in mine] + [0.0] * (n - len(mine))) if n else 0.0
+        if n and len(mine) >= n and all(p.get("ready") for p in mine):
+            self.preloaded = True
+            self.log("video", output="stage", note=f"every stage page has the show's video ({n})")
+
     def ready(self) -> bool:
-        """The pages have been told the show (or telling them failed)."""
-        return self._loaded
+        """Every stage page has the show's whole video (or telling them failed, or it was dropped)."""
+        return self.preloaded or bool(self.failed) or bool(self.dropped) or not self.items
+
+    def waiting_for(self) -> str:
+        return f"the stage video (still loading, {self.pct:.0f}%)"
+
+    def drop(self, why: str):
+        """Not loaded in time: the pages are stopped and the show runs without its stage video (the tablet
+        takes the music, when the video carried it)."""
+        if self.dropped:
+            return
+        self.dropped = why
+        self.log("video_error", output="stage", error=why)
+        self._send({"op": "stop", "id": self.id, "cut": True})
+        if self.on_lost:
+            self.on_lost(f"the stage video was not loaded in time ({why})")
+        self._stop.set()
 
     def tick(self, show_t):
         pass

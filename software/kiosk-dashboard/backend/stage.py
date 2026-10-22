@@ -81,6 +81,7 @@ class Hub:
         return {"feed": {"hz": round(self.rate, 1), "age_s": age, "status": self.last_status},
                 "pages": len(self.pages), "latency_ms": self.latency_ms,
                 "pages_info": [p["info"] for p in self.pages.values() if p.get("info")],
+                "preload": [p.get("preload") for p in self.pages.values()],   # one per page; None: not reported
                 "show": None if self.show is None else {k: self.show.get(k) for k in ("id", "state", "t0_mono")}}
 
 
@@ -169,6 +170,12 @@ async def skeleton_page(ws: WebSocket):
                 hub.latency_ms = {k: m["latency_ms"].get(k) for k in ("p50", "p95", "n")}
             elif isinstance(m.get("page"), dict):     # the page on itself: its screen, sound, power (a stage Pi)
                 me["info"] = page_info(m["page"])
+            elif isinstance(m.get("preload"), dict):  # how much of the show's video it holds (the runner waits)
+                pl = m["preload"]
+                me["preload"] = {"id": str(pl.get("id"))[:80], "ready": pl.get("ready") is True,
+                                 "pct": float(pl["pct"]) if isinstance(pl.get("pct"), (int, float))
+                                 and not isinstance(pl.get("pct"), bool) else 0.0,
+                                 **({"error": str(pl["error"])[:160]} if pl.get("error") else {})}
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:

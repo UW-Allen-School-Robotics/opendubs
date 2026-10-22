@@ -88,3 +88,16 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
     assert info[0]["viewport"] == [3840, 1080] and info[0]["screen_mode"] == "3840x1080@60"
     assert "secret" not in info[0] and "under_voltage_now" not in info[0]      # unknown, or the wrong type: dropped
     assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
+
+
+def test_each_pages_preload_progress_is_kept_for_the_runner():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as a, c.websocket_connect("/ws/skeleton") as b:
+        a.send_text(json.dumps({"preload": {"id": "s1", "pct": 62, "ready": False}}))
+        a.send_text(json.dumps({"ping": 1.0}))
+        a.receive_text()
+        b.send_text(json.dumps({"ping": 1.0}))
+        b.receive_text()
+        pre = c.get("/api/stage").json()["preload"]
+    assert sorted(pre, key=lambda p: p is None) == [{"id": "s1", "ready": False, "pct": 62.0}, None]   # b: not reported

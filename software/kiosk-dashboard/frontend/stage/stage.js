@@ -16,6 +16,12 @@
    skeletons are placed and scaled inside its picture. With NO screen (a stage Pi playing sound only) the
    browser may not draw at all, so the show's media is also kept in step from a timer.
 
+   PRELOAD: when a show loads (armed, before the GO) the page fetches each of its videos WHOLE into memory
+   and plays it from there, so during the show only the small timing messages cross the Wi-Fi. It reports
+   how far it has got ({"preload": {id, pct, ready}}); the runner's GO waits for every page to have it.
+   Files stay cached (up to CACHE_MAX_BYTES) for the next run. A page that joins mid-show, or a file that
+   failed, plays from the network as before.
+
    BETWEEN SHOWS a STAGE READY card says what this screen is: the robot connected or not, the resolution,
    the sound output, the clock to the Thor, and an under-voltage warning — the last three from the device
    this page runs on, when it reports itself (a stage Pi's http://127.0.0.1:8095/device.json, or the
@@ -51,7 +57,7 @@
   const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/skeleton`);
-    ws.onopen = () => { backoff = 500; burst(); };
+    ws.onopen = () => { backoff = 500; burst(); if (pre.report) pre.report(); };   // a new socket: say it again
     ws.onmessage = (e) => {
       lastWsMsg = performance.now();
       const m = JSON.parse(e.data);
@@ -83,9 +89,53 @@
       if (!manual) { video.pause(); video.hidden = true; video.removeAttribute("src"); }
       return;
     }
-    const first = (show.videos || [])[0];
-    if (first && !manual && video.dataset.url !== first.url) {      // load the first while it is still "loaded"
-      video.dataset.url = first.url; video.src = first.url; video.loop = false; video.preload = "auto";
+    if (!manual && show.state === "loaded") preloadShow(show);
+  }
+
+  /* ---- preload: the show's videos whole, in memory, before the GO ------------------------------------ */
+  const CACHE_MAX_BYTES = 800e6;                    // about eight shows' worth; the oldest unused go first
+  const cache = new Map();                          // url -> {obj: object URL, bytes, used}
+  let pre = { id: null };
+  const local = (url) => (cache.get(url) || {}).obj || url;      // the copy in memory, else the network
+  async function preloadShow(m) {
+    if (pre.id === m.id) return;
+    const urls = [...new Set((m.videos || []).map((v) => v.url))];
+    const me = pre = { id: m.id, got: 0, total: 0, ready: false, error: null };
+    const report = () => send({ preload: { id: me.id, ready: me.ready, error: me.error || undefined,
+                                           pct: me.ready ? 100 : me.total ? Math.floor(100 * me.got / me.total) : 0 } });
+    me.report = report;
+    report();
+    let last = 0;
+    try {
+      for (const url of urls) {
+        if (cache.has(url)) { cache.get(url).used = Date.now(); continue; }
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+        const size = Number(r.headers.get("content-length")) || 0;
+        me.total += size;
+        const reader = r.body.getReader(), parts = [];
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parts.push(value); me.got += value.length;
+          if (performance.now() - last > 500) { last = performance.now(); report(); }
+        }
+        const blob = new Blob(parts, { type: r.headers.get("content-type") || "video/mp4" });
+        cache.set(url, { obj: URL.createObjectURL(blob), bytes: blob.size, used: Date.now() });
+        trimCache(urls);
+      }
+      me.ready = true;
+    } catch (e) {
+      me.error = String(e.message || e);             // the runner waits, then drops the stage; or it streams
+    }
+    if (pre === me) report();
+  }
+  function trimCache(keep) {
+    let total = [...cache.values()].reduce((a, c) => a + c.bytes, 0);
+    for (const [url, c] of [...cache.entries()].sort((a, b) => a[1].used - b[1].used)) {
+      if (total <= CACHE_MAX_BYTES) break;
+      if (keep.includes(url) || video.src === c.obj) continue;
+      URL.revokeObjectURL(c.obj); cache.delete(url); total -= c.bytes;
     }
   }
   function showTime(now) {                          // seconds into the show, on the Thor's clock
@@ -102,7 +152,9 @@
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
       return st;
     }
-    if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = it.url; }
+    if (video.dataset.url !== it.url || (video.src !== local(it.url) && cache.has(it.url) && video.paused)) {
+      video.dataset.url = it.url; video.src = local(it.url);        // from memory when preloaded
+    }
     const want = it.from_s + (at(it, st) - it.t);
     video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
     if (video.paused) {
@@ -319,6 +371,7 @@
   const esc = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   function showCard(now) {
     const between = !show || show.state === "stopped";
+    if (!between) showCard.at = 0;                   // redraw at once when the card comes back
     const on = between && q.get("card") !== "0" && !manual;
     card.hidden = !on;
     if (!on || now - (showCard.at || 0) < 1000) return;

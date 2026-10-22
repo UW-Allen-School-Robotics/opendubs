@@ -412,6 +412,82 @@ check("... every stage page gone: the tablet takes the music over at the same po
 check("the stage's status carries what its page says of itself (screen, sound, power)",
       FakeStage().status().get("page") is None)
 
+print("\nvideo: the stage pages PRELOAD the whole video before the GO (choreo-stage.md)")
+
+
+class PreStage(Captured):
+    """The stage, with each page's preload report (GET /api/stage's `preload`)."""
+    def __init__(self, pages=1, pct=0.0, ready=False):
+        super().__init__(pages)
+        self.pre = {"pct": pct, "ready": ready}
+
+    def _get(self):
+        sid = self.made.id if getattr(self, "made", None) else None
+        return {"pages": self.n, "preload": [dict(self.pre, id=sid)] * self.n}
+
+
+so = PreStage(pct=40.0)
+lost = []
+sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
+                  on_lost=lost.append)
+sh.begin()
+so.wait_for("load")
+time.sleep(0.7)
+check("a page still loading: not ready, saying how far it has got",
+      not sh.ready() and sh.waiting_for() == "the stage video (still loading, 40%)", sh.waiting_for())
+so.pre = {"pct": 100.0, "ready": True}
+time.sleep(0.7)
+check("... every page holding the whole file: ready", sh.ready())
+so = PreStage(pct=10.0)
+sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
+                  on_lost=lost.append)
+sh.begin()
+so.wait_for("load")
+sh.drop("still loading 10% after 90 s")
+check("dropped: the pages are stopped, and the tablet is told to take the music",
+      so.sent[-1]["op"] == "stop" and sh.ready() and lost and "not loaded in time" in lost[-1], (so.sent[-1], lost))
+
+
+def armed(so, required=False, press_at=4.0, plan=None):
+    """An armed run (start: deadman) of a show with a stage video: the deadman pressed, let go, pressed."""
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
+    tmp.write("id: v\nslots: [VIDEO, FACE]\nrequires: {tab5: true}\n"
+              + ("video: { required: true }\n" if required else "")
+              + "cues:\n  - { t: 1.0, slot: VIDEO, do: play, video: clip, secs: 3 }\n"
+              "  - { t: 4.5, slot: FACE, do: emote, name: SOFT }\n")
+    tmp.close()
+    robot = R.FakeRobotState(deadman=False)
+    clk = {"t": 1000.0}
+    plan = plan or [(2.0, True), (3.0, False), (press_at, True)]
+
+    def sleep(sec):
+        clk["t"] += sec
+        time.sleep(0.0005)                         # the stage's own thread polls in real time
+        while plan and clk["t"] >= 1000.0 + plan[0][0]:
+            robot.set(deadman=plan.pop(0)[1])
+    log = io.StringIO()
+    r = R.Runner(tmp.name, LIMITS, robot, log=log, clock=lambda: clk["t"], sleep=sleep, start_lead=0.5,
+                 video={"stage": so}, video_override="stage", start="deadman")
+    end = r.run()
+    return r, end, [json.loads(x) for x in log.getvalue().splitlines()]
+
+
+import json  # noqa: E402
+r, end, lines = armed(PreStage(pct=100.0, ready=True), plan=[(2.0, True)])
+go = next((x for x in lines if x["kind"] == "go"), None)
+check("armed, every page preloaded: the GO is taken, and the stage plays the show",
+      end[0] == "COMPLETED" and go and not r.videos[0].dropped, (end, go))
+r, end, lines = armed(PreStage(pct=62.0), press_at=95.0)
+notes = [x.get("note", "") for x in lines if x["kind"] == "status"]
+check("armed, still loading: the Shows page says 'still loading 62%', and a press is not a GO",
+      any("still loading, 62%" in n for n in notes)
+      and any(x["kind"] == "deadman" and "not a GO" in x.get("note", "") for x in lines), notes[-3:])
+check("... past the preload wait the stage is dropped, and the show runs without it, saying why",
+      end[0] == "COMPLETED" and r.videos[0].dropped and "still loading" in (r.video_note or ""), (end, r.video_note))
+r, end, _ = armed(PreStage(pct=62.0), required=True, press_at=95.0)
+check("... unless the show requires its video: refused, SHOW_VIDEO_NOT_READY, with how far it got",
+      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "62%" in end[2], end)
+
 print()
 if FAILS:
     for x in FAILS:

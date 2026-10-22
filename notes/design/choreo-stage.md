@@ -128,6 +128,20 @@ song alone when a show has no video. The tablet keeps dialogue.
   cast's: `stage_audio_lead_s` (USB adapter, HDMI audio or the screen's speakers) and `stage_video_lead_s`
   (the screen's picture delay). A video carrying the song starts by the audio lead; a picture alone, by the
   video lead; the song alone, by the audio lead.
+- **Preloaded, so only timing crosses the Wi-Fi.** The robot's Wi-Fi is solid in the same room, usually
+  fine at 10–25 m in line of sight, and marginal through walls. So when a show is armed, the page fetches
+  each of its videos WHOLE into memory and plays it from there; during the show only the small timing
+  messages travel.
+  - The page reports `{"preload": {id, pct, ready}}`, and the dashboard lists them in `GET /api/stage` →
+    `preload`.
+  - The runner's armed wait is the stage's preflight. The GO is not taken until every stage page has the
+    file; meanwhile the Shows page says "the stage video (still loading, 62%)". The wait allows up to
+    `STAGE_PRELOAD_WAIT_S` (90 s).
+  - Past that the stage is dropped: the pages are stopped, the tablet keeps the music, and the run says
+    why. A show with `video: {required: true}` is refused instead (SHOW_VIDEO_NOT_READY).
+  - Files stay cached in the page (up to about 800 MB, the oldest unused evicted first), so running the same
+    show again needs no download.
+  - A page that joins mid-show, or a fetch that failed, plays from the network as before.
 - **The fallback** is unchanged. If every stage page is gone for about 4 s mid-show, the tablet takes the
   music over from the same point (it held its copy, silent), and the show goes on.
 
