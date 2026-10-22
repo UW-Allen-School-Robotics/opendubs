@@ -209,6 +209,38 @@ dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
 - It idles until the adapter is deployed (`ConditionPathExists`), runs on UDP-only DDS, and reconnects
   across dashboard restarts.
 
+## SLAM and the building floor plan
+
+`opendubs-robot-state-publisher` publishes the robot's frames from `description/opendubs/opendubs.urdf`
+(in the `/opendubs` namespace, so it never touches the arms' `/robot_description`). `opendubs-slam` runs
+slam_toolbox on the front scan, after `scan_body_filter.py` drops the robot's own returns. It is off
+unless `/etc/opendubs/slam.enabled` exists.
+
+Everything site-specific lives on the robot in `/var/lib/opendubs/maps/`, never in the repo:
+
+| file | written by | holds |
+|---|---|---|
+| `<name>.posegraph`, `<name>.data` | slam_toolbox's `serialize_map` service | a saved map, for localization |
+| `<name>.pgm`, `<name>.yaml` | a map_server-format save of `/map` | the same map as an image, for the fit |
+| `<floor>.plan.yaml` | `floorplan.py fit` | the floor frame's rooms: `{label: [x, y]}` in metres |
+| `site.yaml` | `floorplan.py fit` | which map to localize on, its start pose, and `map_in_floor` |
+
+With no `site.yaml` (or one naming a map that is not there), SLAM **maps**: a fresh map from wherever
+the robot starts. With one, SLAM **localizes** on the named map from its `start_pose`, which is where
+the mapping drive began, and `opendubs-floor-frames` publishes `<floor> -> map` and the room labels on
+`/floor/rooms`. A robot that boots elsewhere is corrected with `/initialpose`.
+
+To fit a map to a floor plan (a vector PDF with a scale bar), on a laptop:
+
+```bash
+uv run --with pymupdf --with numpy --with scipy --with pyyaml python3 software/ros/floorplan.py fit \
+    PLAN.pdf MAP.yaml --frame bldg_f2 --seed-room 204 --start X Y YAW -o OUT_DIR
+```
+
+Check `OUT_DIR/<map>.overlay.png` (the plan in grey, the map's walls in red), then copy
+`<frame>.plan.yaml` and `site.yaml` to the robot's `/var/lib/opendubs/maps/` and restart
+`opendubs-slam` and `opendubs-floor-frames`.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts

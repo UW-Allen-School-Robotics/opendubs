@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenDubs floor frames (building plan frame -> map, and the plan's room labels)
+After=network.target
+# Only where a site file exists: it names the map and its fit to the building plan (floorplan.py).
+ConditionPathExists=/var/lib/opendubs/maps/site.yaml
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=emmar
+Environment=HOME=/home/emmar
+# UDP DDS only: a long-lived participant on shared memory can go deaf (workplan L.10).
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+ExecStart=/opt/opendubs/ros/floor-frames.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

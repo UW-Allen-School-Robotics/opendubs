@@ -29,4 +29,5 @@ jobs:
       - run: python3 software/ros/tests/test_tablet_camera_demand.py
       - run: python3 software/ros/tests/test_skeleton_relay.py
       - run: python3 software/ros/tests/test_scan_body_filter.py
+      - run: python3 software/ros/tests/test_floorplan.py
       - run: python3 -m py_compile software/ros/*.py
