@@ -115,7 +115,9 @@ check("... targets stream at ~20 Hz through each move and its settle — the las
       "inside it", len(tg) > 0.8 * B.RATE_HZ * (1 + 0.5 + 2 * B.SETTLE_S) and tg[-1]["settle"], (len(tg), tg[-1:]))
 check("... nothing is sent between moves (the tracker stops)", any(kinds[i:i + 1] == ["target"] for i in range(len(kinds)))
       and not [x for x in tg if x is None], len(tg))
-check("... and a completed show sends no stop (the last target was home)", "stop" not in kinds, kinds[-3:])
+check("... and a completed show stops once, AFTER its last settle, which hands the base back",
+      kinds.count("stop") == 1 and kinds[-1] == "stop" and kinds[-2] == "target" and link.sent[-2][1]["settle"],
+      kinds[-3:])
 link = FakeLink()
 r, end, _ = live(show("  - { t: 0.3, slot: DANCE, move: rock, secs: 4 }\n"), link, stop_after=1.5)
 check("an operator stop mid-move: the run aborts and the tracker is told to STOP at once",

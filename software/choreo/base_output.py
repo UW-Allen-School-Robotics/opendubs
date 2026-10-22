@@ -12,11 +12,15 @@ THE INTERFACE (agreed with the Thor lane; its tracker closes the loop on /odom a
                                         pose = the intended base pose in the origin frame ("dance_origin"),
                                         twist = the intended BODY velocity ("base_link"), as feed-forward.
                                         A stream older than 250 ms means stop; every move ends at home
-  /dance/stop    std_msgs/Empty         on every end that is not a completion: stop now, not in 250 ms
-  /dance/status  std_msgs/String JSON   from the tracker, ~5 Hz: {"ready", "why", "origin", "origin_seq",
+  /dance/stop    std_msgs/Empty         on EVERY end: at once on a stop, an abort or an e-stop; after the last
+                                        move's settle on a completion. It also hands the base back (the
+                                        tracker holds it as the owner "show"), so another program may claim it
+  /dance/status  std_msgs/String JSON   from the tracker, ~5 Hz: {"ready", "why", "owner", "origin", "origin_seq",
                                         "mode": idle|tracking|settling|holding, "guard": clear|stopped|blind,
-                                        "err_m", "err_deg"}. `ready` covers /odom and the guard only; whether
-                                        an origin is latched is `origin` (a run latches its own at t0).
+                                        "err_m", "err_deg"}. `ready` covers /odom, the guard, and no OTHER
+                                        program holding the base (`owner`: the base has one software owner at a
+                                        time; the tracker is "show"); whether an origin is latched is `origin`
+                                        (a run latches its own at t0).
                                         "holding": the error passed 0.3 m or 20 deg, so the base stopped
                                         where it is (never chases); "blind": a LIDAR scan is over 0.5 s
                                         old, so it refuses to move
@@ -149,7 +153,8 @@ class BaseOutput:
 
 class BaseRun:
     """One live run's base: the origin at t0, then each move's targets on the show's clock, in its own
-    thread (the runner's loop never waits on ROS), and a stop on every end but a completion."""
+    thread (the runner's loop never waits on ROS), and a stop on every end — after the last settle on a
+    completion — which also releases the base."""
 
     def __init__(self, link, events, log=None):
         self.link, self.events, self.log = link, events, log or (lambda *a, **k: None)
@@ -182,7 +187,8 @@ class BaseRun:
                     self.log("base", note="the show's origin is latched; DANCE moves follow it")
                 c = self.events and dance_command(self.events, t)
                 if self._finishing is not None and (not c or time.monotonic() > self._finishing):
-                    break                                  # a completed show: its last move has settled
+                    self._stop_base()                      # a completed show: its last move has settled
+                    break
                 if c:
                     self.link.target(c)
                     self.sent += 1
@@ -190,6 +196,12 @@ class BaseRun:
         except Exception as e:  # noqa: BLE001  the base output never crashes the run; the tracker stops on silence
             self.failed = f"{type(e).__name__}: {e}"
             self.log("base_error", error=self.failed)
+
+    def _stop_base(self):
+        try:
+            self.link.stop()
+        except Exception as e:  # noqa: BLE001
+            self.log("base_error", error=f"stop: {type(e).__name__}: {e}")
 
     def _watch(self):
         """Log the tracker's guard and mode as they change; the tracker decides what the base does."""
@@ -215,17 +227,13 @@ class BaseRun:
             self._stop.set()
             return                                          # never begun: nothing was sent
         if status == "COMPLETED":
-            # the show's end may fall inside a move's settle: finish it (home, held still), then stop
-            # sending — never past SETTLE_S, and never on any other end
+            # the show's end may fall inside a move's settle: finish it (home, held still) — never past
+            # SETTLE_S — then stop, which releases the base
             self._finishing = time.monotonic() + SETTLE_S
             self.log("base", note=f"DANCE targets end after the last move settles ({self.sent} sent so far)")
             return
         self._stop.set()
-        if status != "COMPLETED":
-            try:
-                self.link.stop()
-            except Exception as e:  # noqa: BLE001
-                self.log("base_error", error=f"stop: {type(e).__name__}: {e}")
+        self._stop_base()                                    # any other end: stop at once
         self.log("base", note=f"DANCE targets ended ({self.sent} sent)", end=status)
 
     def state(self) -> dict:

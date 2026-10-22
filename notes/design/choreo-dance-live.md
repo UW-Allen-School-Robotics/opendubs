@@ -19,8 +19,8 @@ guard and the speed measurement are the Thor lane's (drive_bridge: #471 the guar
 |---|---|---|---|
 | `/dance/origin` | `std_msgs/Empty` | runner | once per run, at the show's t0, the base at rest: the tracker latches the current `/odom` pose as the show's origin (`origin_seq` +1) |
 | `/dance/target` | `nav_msgs/Odometry` | runner | 20 Hz while a move plays and for 1.5 s after it (the home target, zero twist, so the tracker closes the residual). `frame_id` `dance_origin`, `child_frame_id` `base_link`; pose = the intended base pose in the origin frame (x forward, y left, yaw); twist = the intended BODY velocity (m/s, rad/s) as feed-forward. Freshness by receipt time: older than 250 ms means stop |
-| `/dance/stop` | `std_msgs/Empty` | runner | on every end but a completion (operator stop, abort, e-stop): stop at once, drop the stream |
-| `/dance/status` | `std_msgs/String` (JSON, ~5 Hz) | tracker | `{"ready", "why", "origin", "origin_seq", "mode": idle\|tracking\|settling\|holding, "guard": clear\|stopped\|blind, "err_m", "err_deg"}`; `ready` covers `/odom` and the guard only, `origin` whether one is latched |
+| `/dance/stop` | `std_msgs/Empty` | runner | on every end: at once on an operator stop, abort or e-stop; after the last move's settle on a completion. Stops and drops the stream, and releases the base (the tracker holds it as the owner `show`, #485) |
+| `/dance/status` | `std_msgs/String` (JSON, ~5 Hz) | tracker | `{"ready", "why", "origin", "origin_seq", "mode": idle\|tracking\|settling\|holding, "guard": clear\|stopped\|blind, "owner": null\|"show"\|<another program>, "err_m", "err_deg"}`; `ready` covers `/odom`, the guard, and no OTHER program holding the base ("the base is held by <name>": the base has one software owner at a time, #485); `origin` whether one is latched |
 
 The tracker:
 
@@ -41,7 +41,8 @@ The tracker:
   - Through each move it streams the same pose the twin draws (`sim_preview`'s model, the same speeds),
     with the segment's body velocity.
   - Nothing is sent between moves, so the tracker stops.
-  - On completion the last move still gets its settle. On any other end it publishes `/dance/stop`.
+  - On completion the last move still gets its settle, then it publishes `/dance/stop`. On any other end it
+    publishes it at once. Either way the base is handed back, so another program can claim it.
 - **Logging:** the guard (`stopped`: someone in the way; `blind`) and a `holding` tracker are logged.
   Neither aborts the show: the tracker decides what the base does.
 - **Elsewhere:** a runner without `--base ros`, or a run that is not live, plays DANCE in the twin only.
