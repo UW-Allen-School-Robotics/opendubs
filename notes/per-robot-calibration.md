@@ -57,6 +57,40 @@ From `RCCAL SHOW`. Columns are min/centre/max.
 Note `MAST` is reversed and `DEAD` reads 200 at rest — both per-transmitter, both already safe in
 NVS rather than in source.
 
+### Pinpoint odometry — in the StamPLC's NVS (`ppcfg`), survives a flash
+
+Commissioned 2026-10-21 by goBILDA's own setup steps (3110-0002-0001 User Guide), at the robot.
+The Pinpoint forgets its configuration at every power cycle; the firmware re-applies these from NVS
+(`ppcfg.cpp`). They are lost if the StamPLC is **replaced**, or its NVS erased; restore them with
+the commands below, then `PPCAL SAVE`.
+
+| Setting | Value | Restore with | How it was established |
+|---|---|---|---|
+| Pod type | **4-bar, 19.894 ticks/mm** | `PPCAL POD 4BAR` | The pods are goBILDA 4-bar pods (seen at the robot). It had been set to swing-arm (13.263), which read 39% long |
+| X pod direction | **REVERSED** | `PPCAL DIRX REV` | Driving forward made X fall (−968 mm for about 1 m) |
+| Y pod direction | forward | `PPCAL DIRY FWD` | Driving left made Y rise |
+| X pod offset | **48.0 mm** (left +) | `PPCAL OFFSETS 48 -396` | X pod sits left of the centre line (seen at the robot). The value was already set; a one-turn spin confirmed its sign |
+| Y pod offset | **−396.0 mm** (fwd +) | (same command) | Y pod sits about 40 cm behind the centre (seen at the robot). A flipped sign would have shown as a ~1.6 m loop in the spin; it did not |
+
+Both offsets are measured from `base_link`, the centre of the wheel rectangle (workplan-thor-stack L.1).
+
+**Results, for comparison after a restore:**
+
+- Stationary heading drift after `PPCAL RESET` (robot still): about 0.25°/min. Before it, 150°/min.
+  If heading turns while the robot is still, `PPCAL RESET` with the robot untouched.
+- 48 in (1219 mm) on the tape read 1173 mm and, in another run, 1126 mm: 4-8% short, varying run to run.
+- Out-and-back loops closed 286 mm short over 4.7 m and 377 mm over 6.6 m (about 6%). No setting
+  closes both (gyro scale, either pod's scale, forward-only or reverse-only scale were all fitted),
+  so the pods lose counts while driving. Accepted for use as-is on 2026-10-21; check pod contact if it worsens.
+
+### Robot-side state that turns features on (per robot, not in the repo)
+
+| Path | What it does |
+|---|---|
+| `/etc/opendubs/drive-bridge.enabled` | Lets `opendubs-drive-bridge` start (`/odom`, and `/cmd_vel` → `DRIVE`). Created 2026-10-21 once the Pinpoint was commissioned |
+| `/etc/opendubs/slam.enabled` | Lets `opendubs-slam` start |
+| `/var/lib/opendubs/maps/` | Saved SLAM maps, the building plan's rooms and `site.yaml` (which map to localize on, and its fit to the plan). **Site data: never in the repo.** Back it up off the robot; regenerating needs a new mapping drive and `software/ros/floorplan.py fit` against the plan |
+
 ### Neck-follow signs — in `/etc/opendubs/robot.env`
 
 | Setting | Value | How it was measured |
