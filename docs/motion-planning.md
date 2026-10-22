@@ -34,12 +34,12 @@ runtime switching between planners without modifying caller code.
 
 | Component | Role | Location |
 |---|---|---|
-| `OpenArmPlanner` | High-level facade for planning, collision checking, kinematics | [`sim/planner/planner.py`](../sim/planner/planner.py) |
-| `MotionPlannerBackend` | Protocol interface defining `plan()` and `plan_cartesian()` | [`sim/planner/base.py`](../sim/planner/base.py) |
-| `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | [`sim/planner/cbirrt_backend.py`](../sim/planner/cbirrt_backend.py) |
-| `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | [`sim/planner/curobo_backend.py`](../sim/planner/curobo_backend.py) |
-| Benchmark Tool | Statistical measurement comparing planners in simulation | [`sim/planner/benchmark.py`](../sim/planner/benchmark.py) |
-| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | [`software/choreo/composer/`](../software/choreo/composer/) |
+| `OpenArmPlanner` | High-level facade for planning, collision checking, kinematics | `sim/planner/planner.py` |
+| `MotionPlannerBackend` | Protocol interface defining `plan()` and `plan_cartesian()` | `sim/planner/base.py` |
+| `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | `sim/planner/cbirrt_backend.py` |
+| `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | `sim/planner/curobo_backend.py` |
+| Benchmark Tool | Statistical measurement comparing planners in simulation | `sim/planner/benchmark.py` |
+| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | `software/choreo/composer/` |
 
 ---
 
