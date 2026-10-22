@@ -27,7 +27,7 @@ PATH = os.environ.get("OPENDUBS_HEAD_SETTINGS") or "/var/lib/opendubs/head/setti
 DEFAULTS = {
     "screen_on": True,          # keep the tablet's screen on
     "idle_eyes": True,          # expressions change by themselves when no show is running
-    "tracking": "off",          # off | tablet (the face's own camera) | d415 (the Thor's tracker)
+    "tracking": "off",          # off | tablet (the face's own camera)
     "skin": "default",          # a code skin or a library skin's id
     "theme": "plain",
     "mouth": False,             # Face & HRI's mouth; off by default (face-design.md)
@@ -39,7 +39,10 @@ DEFAULTS = {
     "show_reticle": False,      # draw the tracker's reticle on the face (a diagnostic; off by default)
     "state_words": "hide_auto_manual",   # the state in plain words: always | hide_auto_manual | off (state_words.py)
 }
-TRACKING = ("off", "tablet", "d415")
+# The RealSense option (d415) was removed 2026-10-22: its tracker sent the Tab5's retired angle frame,
+# which the neck Dial refuses, so it steered nothing. A saved "d415" no longer passes _check, so
+# load() gives "off" in its place.
+TRACKING = ("off", "tablet")
 
 
 def _check(key, v):
@@ -97,61 +100,7 @@ def get_settings() -> JSONResponse:
     import head                                 # read-only: the robot's own config, not a setting
     s["neck"] = head.neck_host() or "none"
     s["airplay"] = airplay_state()
-    s["realsense"] = realsense_present()
     return JSONResponse(s)
-
-
-# ---- tracking: the setting is the one truth, and the RealSense tracker's service follows it -------
-# `tracking: d415` runs the robot's own tracker (opendubs-yolo-tracker); anything else stops it. The
-# Operate page's AI TRACKING button writes this same setting (app.py), so the two cannot disagree,
-# and the dashboard puts the service in line with the setting as it starts.
-USB_SYSFS = "/sys/bus/usb/devices"
-# Intel RealSense D4xx product ids (vendor 8086): D415, D435, D435i, D455, D405, D410, D400.
-REALSENSE_PRODUCTS = {"0ad3", "0b07", "0b3a", "0b5c", "0b5b", "0ad2", "0ad1"}
-TRACKER_UNIT = "opendubs-yolo-tracker"
-
-
-def realsense_present() -> bool:
-    """Whether a RealSense depth camera is plugged in (read from sysfs; no driver needed)."""
-    import glob
-    for d in glob.glob(os.path.join(USB_SYSFS, "*")):
-        try:
-            with open(os.path.join(d, "idVendor")) as v, open(os.path.join(d, "idProduct")) as p:
-                if v.read().strip() == "8086" and p.read().strip() in REALSENSE_PRODUCTS:
-                    return True
-        except OSError:
-            continue
-    return False
-
-
-def set_tracker(on: bool):
-    """Start or stop the RealSense tracker's service. Returns an error, or None. Blocking."""
-    import subprocess
-    verb = "start" if on else "stop"
-    try:
-        r = subprocess.run(["sudo", "-n", "systemctl", verb, TRACKER_UNIT], capture_output=True, text=True, timeout=15)
-    except Exception as e:                       # noqa: BLE001
-        return f"systemctl {verb} failed: {e}"
-    if r.returncode != 0:
-        return (r.stderr or r.stdout or f"systemctl {verb} returned {r.returncode}").strip()
-    return None
-
-
-def tracker_active() -> bool:
-    import subprocess
-    try:
-        return subprocess.run(["systemctl", "is-active", TRACKER_UNIT], capture_output=True,
-                              text=True, timeout=3).stdout.strip() == "active"
-    except Exception:                            # noqa: BLE001
-        return False
-
-
-def reconcile_tracker():
-    """Put the tracker's service in line with the setting (at the dashboard's start). Blocking."""
-    want = load().get("tracking") == "d415"
-    if want != tracker_active():
-        return set_tracker(want)
-    return None
 
 
 # AirPlay on/off is the receiver unit's own state (the Thor lane's opendubs-airplay.service), not a
@@ -214,8 +163,6 @@ async def put_settings(request: Request) -> JSONResponse:
     problems = [p for k, v in change.items() if (p := _check(k, v))]
     if problems:
         return JSONResponse({"error": "; ".join(problems)}, status_code=400)
-    if change.get("tracking") == "d415" and not realsense_present():
-        return JSONResponse({"error": "no RealSense camera is connected to the robot"}, status_code=409)
     s = load()
     s.update(change)
     if s["bright_idle"] < s["bright_min"]:
@@ -229,11 +176,7 @@ async def put_settings(request: Request) -> JSONResponse:
                                       f"({e.strerror}); provision.sh creates that folder"}, status_code=503)
     import face_door                            # push to every face page now
     await face_door.broadcast({"settings": s})
-    if "tracking" in change:                    # the RealSense tracker follows the setting
-        import asyncio
-        err = await asyncio.to_thread(set_tracker, s["tracking"] == "d415")
-        if err:
-            s["tracker_error"] = err
+    import head
+    s["neck"] = head.neck_host() or "none"      # as GET has it, so a save does not blank the neck note
     s["airplay"] = airplay_state()
-    s["realsense"] = realsense_present()
     return JSONResponse(s)

@@ -41,6 +41,7 @@
       <div class="hf-row"><label for="hfIdle">Expressions change by themselves</label><input type="checkbox" id="hfIdle"></div>
       <div class="hf-row"><label for="hfSkin">Look (skin)</label><select id="hfSkin"></select></div>
       <div class="hf-row"><label for="hfTheme">Colours (theme)</label><select id="hfTheme"><option value="plain">plain</option><option value="halloween">halloween</option></select></div>
+      <div class="hf-note">A problem or an emergency stop replaces the look with the plain eyes, so a problem looks the same on every robot and in every show, and the face says in words what is wrong. The chosen look comes back by itself when it clears. With the state in words turned off, the face shows the plain eyes and explains nothing. Halloween recolours the calm states (starting up, ready, manual, automatic); charging, a problem and an emergency stop keep their own colours.</div>
       <div class="hf-note" id="hfLookNote"></div>
       <div class="hf-row"><label for="hfMouth">Mouth</label><input type="checkbox" id="hfMouth">
         <span class="hf-note">Off by default. It moves while the robot speaks a reply; otherwise it is still.</span></div>
@@ -57,7 +58,6 @@
         <select id="hfTrack">
           <option value="off">off</option>
           <option value="tablet">the face's own camera</option>
-          <option value="d415">the RealSense camera (on the robot)</option>
         </select></div>
       <div class="hf-row"><label for="hfReticle">Show tracking reticle</label><input type="checkbox" id="hfReticle">
         <span class="hf-note">A box on the face where it thinks the person is: amber for motion, cyan for a person or face. For checking the tracking; off by default.</span></div>
@@ -81,7 +81,8 @@
       <div class="hf-row"><label for="hfAirplay">AirPlay</label><input type="checkbox" id="hfAirplay">
         <span class="hf-note" id="hfAirplayNote"></span></div>
       <div class="hf-row"><label for="hfVol">Volume</label><input type="checkbox" id="hfVolSet" title="Set it here, or leave the tablet's own volume alone"><input type="range" id="hfVol" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolV"></span></div>
-      <div class="hf-row"><label for="hfVolMax">Never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span></div>
+      <div class="hf-row"><label for="hfVolMax">Shows never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span>
+        <span class="hf-note">Caps a show's volume and the volume set above. The tablet's own buttons, AirPlay and sounds sent from a phone are not held to it.</span></div>
 
       <div class="hf-note">Anyone on the robot's Wi-Fi can send it a sound from their phone: open <b id="hfPlayUrl"></b> in the phone's browser.</div>
 
@@ -146,15 +147,9 @@
     el("hfNeckNote").textContent = s.neck === "none"
       ? "No neck is fitted on this robot (OPENDUBS_HEAD_NECK_HOST=none): the head doesn't turn, so the eyes follow people but the head stays still."
       : (s.neck ? `Neck: ${s.neck}` : "");
-    const rs = el("hfTrack").querySelector('option[value="d415"]');
-    if (rs) {
-      rs.disabled = !s.realsense && s.tracking !== "d415";
-      rs.textContent = s.realsense ? "the RealSense camera (on the robot)" : "the RealSense camera (not connected)";
-    }
     el("hfTrackNote").textContent = {
       off: "",
       tablet: "The face's own camera: the eyes follow people, and the head turns toward them when a neck is fitted.",
-      d415: "The robot's RealSense tracker (the same as AI TRACKING on Operate). It aims the neck only; the face's eyes don't follow it.",
     }[s.tracking];
   }
 
@@ -177,7 +172,9 @@
       if (line) code = [...line.split("=")[1].matchAll(/(\w+)\s*(?::\s*[\w.]+)?\s*[,}]/g)].map((m) => m[1]);
     } catch (e) {}
     let lib = [];
-    try { lib = (await getJSON("/api/library/index")).filter((e) => e.kind === "skin").map((e) => e.id); } catch (e) {}
+    // Only the kinds of skin the face can draw (face-web engine/skins/index.js ASSET_TYPES): any other
+    // falls back to the default eyes on the face, which here looked like a choice that did nothing.
+    try { lib = (await getJSON("/api/library/index")).filter((e) => e.kind === "skin" && ["image", "video"].includes(e.type)).map((e) => e.id); } catch (e) {}
     el("hfSkin").innerHTML = code.map((n) => `<option value="${n}">${n}</option>`).join("") +
       (lib.length ? `<optgroup label="library">${lib.map((n) => `<option value="${n}">${n}</option>`).join("")}</optgroup>` : "");
   }
@@ -283,13 +280,20 @@
   // ---- ambient music (the show-audio lane's API) ------------------------------------------------
   let amb = null;
   async function ambient(op) {
+    if (op && op.op === "play" && op.songs && !op.songs.length) {
+      el("hfAmbient").textContent = "Tick at least one song, then press PLAY.";
+      return;
+    }
     try {
       amb = await getJSON("/api/choreo/ambient", op ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(op) } : undefined);
     } catch (e) {
-      el("hfAmbient").textContent = `Ambient music isn't available on this robot yet (${e.message}).`;
-      ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = true; });
+      // Only a robot without the feature disables the buttons; a refused PLAY or STOP says why and
+      // leaves them usable (an empty pick used to lock all three until the page was reloaded).
+      el("hfAmbient").textContent = op ? `Not done: ${e.message}` : `Ambient music isn't available on this robot yet (${e.message}).`;
+      if (!op) ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = true; });
       return;
     }
+    ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = false; });
     const st = amb.state || {};
     el("hfAmbient").textContent = amb.show_active ? "A show is running: ambient music waits for it to end."
       : st.playing ? `Playing: ${st.now_playing || "—"}` : "Stopped.";

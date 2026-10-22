@@ -55,13 +55,6 @@ setInterval(() => { try { window.OpenDubsKiosk && window.OpenDubsKiosk.alive && 
   window.addEventListener("load", () => { if (v && document.getElementById("view-" + v)) setView(v); });
 })();
 
-if ($("btnAiToggle")) {
-  $("btnAiToggle").addEventListener("click", () => {
-    const isOff = $("btnAiToggle").classList.contains("off");
-    fetch(`/api/tracker/${isOff ? "on" : "off"}`, { method: "POST" }).catch(() => {});
-    $("btnAiToggle").textContent = isOff ? "STARTING..." : "STOPPING...";
-  });
-}
 
 /* ---------- System power controls (confirm-on-tap to avoid accidental taps) ---------- */
 function armButton(id, action, label) {
@@ -1010,23 +1003,44 @@ function renderMast(st) {
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function callService(service, args) { send({ op: "call_service", service, args: args || {} }); }
 
+  // ONLY WHAT IS ON SCREEN IS STREAMED (the Network lane's R-1, 2026-10-22). These topics are the
+  // dashboard's heavy traffic over the robot's Wi-Fi: two LaserScans and the arms' joint states, 10 Hz
+  // each, which every open dashboard used to take all the time, whatever page it showed and even in a
+  // background tab. Each is now subscribed while a view that draws it is up and the page is visible,
+  // and unsubscribed otherwise; rosbridge stops sending at once. Throttled at the SUBSCRIPTION, too:
+  // the arm controllers publish at 400 Hz and a display needs about 10, so the rate is asked for here
+  // rather than by adding a decimating node (one publisher, many subscribers, each taking what it uses).
+  const STREAMS = {
+    "/scan":         { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
+    "/scan_rear":    { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
+    "/joint_states": { type: "sensor_msgs/msg/JointState", views: ["teleop"] },   // teleop.js's arm view
+  };
+  const subscribed = new Set();
+  const shown = (name) => { const v = $("view-" + name); return !!v && v.classList.contains("active"); };
+  function syncStreams() {
+    if (!ws || ws.readyState !== 1) return;
+    for (const [topic, t] of Object.entries(STREAMS)) {
+      const want = !document.hidden && t.views.some(shown);
+      if (want && !subscribed.has(topic)) {
+        send({ op: "subscribe", topic, type: t.type, throttle_rate: 100, queue_length: 1 });
+        subscribed.add(topic);
+      } else if (!want && subscribed.has(topic)) {
+        send({ op: "unsubscribe", topic });
+        subscribed.delete(topic);
+      }
+    }
+  }
+  document.addEventListener("visibilitychange", syncStreams);
+  setInterval(syncStreams, 500);                     // a view change: cheap to check, no hook needed
+
   function rosConnect() {
     setRosBadge("…");
     try { ws = new WebSocket(ROS_URL); } catch (e) { setTimeout(rosConnect, 2500); return; }
     ws.onopen = () => {
       wsReady = true; setRosBadge("UP");
-      send({ op: "subscribe", topic: "/scan", type: "sensor_msgs/msg/LaserScan",
-             throttle_rate: 100, queue_length: 1 });
-      send({ op: "subscribe", topic: "/scan_rear", type: "sensor_msgs/msg/LaserScan",
-             throttle_rate: 100, queue_length: 1 });
-      // /joint_states for the TELEOP page's arm view. Throttled hard on purpose: the arm
-      // controllers publish at 400 Hz and a display needs ~10, so the rate is asked for at the
-      // SUBSCRIPTION rather than by adding a decimating node — one publisher, many subscribers,
-      // each taking what it can use.
-      send({ op: "subscribe", topic: "/joint_states", type: "sensor_msgs/msg/JointState",
-             throttle_rate: 100, queue_length: 1 });
+      subscribed.clear(); syncStreams();             // a new connection has no subscriptions yet
     };
-    ws.onclose = () => { wsReady = false; setRosBadge("DOWN"); setTimeout(rosConnect, 2500); };
+    ws.onclose = () => { wsReady = false; subscribed.clear(); setRosBadge("DOWN"); setTimeout(rosConnect, 2500); };
     ws.onerror = () => { try { ws.close(); } catch (e) {} };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -1404,7 +1418,6 @@ function connect() {
       safe(renderMast, s); safe(renderPower, s); safe(renderThermal, s); safe(renderDrive, s);
     }
     if (d.telemetry) { safe(renderRC, d.telemetry); safe(renderNav, d.telemetry); }
-    if (d.state) safe(renderServerState, d.state);
   };
 }
 
@@ -1417,17 +1430,5 @@ function renderRobotName(host) {
   document.title = `${n} · OpenDubs dashboard`;
 }
 
-function renderServerState(st) {
-  const btn = $("btnAiToggle");
-  if (!btn) return;
-  
-  if (st.ai_tracking) {
-    btn.textContent = "AI TRACKING: ON";
-    btn.classList.remove("off");
-  } else {
-    btn.textContent = "AI TRACKING: OFF";
-    btn.classList.add("off");
-  }
-}
 
 connect();
