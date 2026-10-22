@@ -39,7 +39,8 @@ on:
 
 # A newer push to a branch cancels its older run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # the draft flag keeps a late draft-time run from cancelling the real run that `gh pr ready` starts
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.draft }}
   cancel-in-progress: true
 
 permissions:
