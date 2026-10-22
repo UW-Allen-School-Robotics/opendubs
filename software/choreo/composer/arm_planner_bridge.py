@@ -2,7 +2,7 @@
 
 Provides multi-backend planning choice for arm moves:
 - 'spline': Default direct cubic Hermite spline interpolation.
-- 'cbirrt': Siddh's SSIK analytical kinematics + MuJoCo clearance search (CPU).
+- 'cbirrt': SSIK analytical kinematics + MuJoCo clearance search (CPU).
 - 'curobo': NVIDIA cuRobo GPU trajectory generator & collision optimizer (CUDA).
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ def get_available_planners() -> dict:
         "cbirrt": {
             "id": "cbirrt",
             "name": "CBiRRT (SSIK + Clearance)",
-            "description": "Siddh SSIK analytical kinematics + MuJoCo collision checking (CPU)",
+            "description": "SSIK analytical kinematics + MuJoCo collision checking (CPU)",
             "available": False,
             "badge": "CPU RRT",
         },
@@ -88,12 +88,13 @@ def model_rad_to_choreo(side: str, model_rad: np.ndarray | list[float]) -> dict:
     return out
 
 
-def clamp_to_usable_limits(joints_deg: dict, side: str, limits: dict) -> dict:
+def clamp_to_usable_limits(joints_deg: dict, side: str, limits: dict, report: list | None = None) -> dict:
     """Clamp joint angles in outward degrees to the validator's usable range [lo + margin, hi - margin]."""
     out = {}
     m = -1 if side == "left" else 1
     for j in range(1, 8):
-        v = float(joints_deg.get(j) if j in joints_deg else (joints_deg.get(str(j)) or 0.0))
+        raw_v = float(joints_deg.get(j) if j in joints_deg else (joints_deg.get(str(j)) or 0.0))
+        v = raw_v
         name = f"openarm_{side}_joint{j}"
         lo, hi = limits.get(name, (None, None))
         if lo is not None and hi is not None:
@@ -105,7 +106,11 @@ def clamp_to_usable_limits(joints_deg: dict, side: str, limits: dict) -> dict:
             else:
                 min_deg, max_deg = -hi_d, -lo_d
             # Add small 0.1 deg safety buffer so round(v, 1) never violates boundary
-            v = max(min_deg + 0.1, min(max_deg - 0.1, v))
+            clamped_v = max(min_deg + 0.1, min(max_deg - 0.1, v))
+            if abs(clamped_v - raw_v) > 0.05:
+                if report is not None:
+                    report.append(f"J{j} ({raw_v:.1f}° -> {clamped_v:.1f}°)")
+            v = clamped_v
         out[str(j)] = round(v, 1)
     return out
 
@@ -177,10 +182,11 @@ def plan_arm_move(
     q_start_rad = choreo_to_model_rad(side, clamp_to_usable_limits(q_prev_deg, side, limits))
 
     # 3. Determine goal pose
-    import sim_preview
-    kin = ik.Kin(limits)
-    trial = dict(doc, cues=[x for k, x in enumerate(doc.get("cues") or []) if k != index])
+    kin = None
     try:
+        kin = ik.Kin(limits)
+        import sim_preview
+        trial = dict(doc, cues=[x for k, x in enumerate(doc.get("cues") or []) if k != index])
         tl = cue.Show(trial, "").export(limits, limits_path)
         smp = sim_preview.sample(tl, t_goal)
         kin.pose(smp)
@@ -188,8 +194,11 @@ def plan_arm_move(
         pass
     q_goal_rad = None
     goal_deg = None
+    clamped_info: list[str] = []
 
     if reach_target is not None:
+        if kin is None:
+            raise RuntimeError("MuJoCo is required to solve Cartesian reach targets.")
         # Solve reach target (Cartesian static point or named target)
         mode = "reach"
         try:
@@ -202,7 +211,7 @@ def plan_arm_move(
             sol_outward, err, _ = kin.solve(side, mode, goal_world)
             if err > ik.REACH_TOL_M:
                 raise ValueError(f"Target '{reach_target}' is out of reach ({err:.3f} m off)")
-            goal_deg = clamp_to_usable_limits(sol_outward, side, limits)
+            goal_deg = clamp_to_usable_limits(sol_outward, side, limits, report=clamped_info)
             q_goal_rad = choreo_to_model_rad(side, goal_deg)
             c["reach"] = reach_val
             c["solved"] = goal_deg
@@ -212,18 +221,20 @@ def plan_arm_move(
         except Exception as e:
             raise ValueError(f"Failed to solve target '{reach_target}': {e}") from e
     elif "solved" in c:
-        goal_deg = clamp_to_usable_limits(c["solved"], side, limits)
+        goal_deg = clamp_to_usable_limits(c["solved"], side, limits, report=clamped_info)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "joints" in c:
-        goal_deg = clamp_to_usable_limits(c["joints"], side, limits)
+        goal_deg = clamp_to_usable_limits(c["joints"], side, limits, report=clamped_info)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "pose" in c and c["pose"] == "rest":
-        goal_deg = clamp_to_usable_limits(cue.rest_pose(limits, side), side, limits)
+        goal_deg = clamp_to_usable_limits(cue.rest_pose(limits, side), side, limits, report=clamped_info)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "reach" in c:
+        if kin is None:
+            raise RuntimeError("MuJoCo is required to solve Cartesian reach targets.")
         goal_world = kin.point(c["reach"], side)
         sol_outward, err, _ = kin.solve(side, "reach", goal_world)
-        goal_deg = clamp_to_usable_limits(sol_outward, side, limits)
+        goal_deg = clamp_to_usable_limits(sol_outward, side, limits, report=clamped_info)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
         c["solved"] = goal_deg
         c["solved_for"] = f"reach:{c['reach']}@{kin.sig}"
@@ -234,16 +245,19 @@ def plan_arm_move(
 
     # 4. Handle planner selection
     planner_choice = planner_choice.lower()
-    c["planner"] = planner_choice
+    c.pop("planner", None)
 
     if planner_choice == "spline":
-        # Straight spline move: update cue with planner: spline and apply
+        # Straight spline move: update cue and apply
         if "reach" in c:
             c.pop("joints", None)
             c.pop("pose", None)
         elif goal_deg and "joints" in c:
             c["joints"] = {str(k): float(v) for k, v in clamp_to_usable_limits(goal_deg, side, limits).items()}
         edits = [{"op": "set", "index": index, "cue": c}]
+        msg = "Configured move to use standard Hermite cubic spline."
+        if clamped_info:
+            msg += f" Note: target joint(s) {', '.join(clamped_info)} clamped to safe hardware limits (5° margin)."
         new_text = yamledit.apply(text, edits)
         return {
             "ok": True,
@@ -252,7 +266,8 @@ def plan_arm_move(
             "waypoints_inserted": 0,
             "min_clearance_mm": None,
             "duration_s": t_goal - t_prev,
-            "message": "Configured move to use standard Hermite cubic spline.",
+            "message": msg,
+            "clamped": clamped_info,
         }
 
     # 5. Collision-Free Planning (cbirrt or curobo)
@@ -269,15 +284,19 @@ def plan_arm_move(
 
     # 6. Check if intermediate waypoints are necessary
     # If the straight-line clearance is already >= 25 mm, no intermediate waypoints needed
-    straight_clearance, _, _ = kin.clearance_along(side, q_start_rad, q_goal_rad)
-    needs_intermediate = straight_clearance < ik.CLEAR_MIN_MM
+    if kin is not None:
+        straight_clearance, _, _ = kin.clearance_along(side, q_start_rad, q_goal_rad)
+        needs_intermediate = straight_clearance < ik.CLEAR_MIN_MM
+    else:
+        straight_clearance = float('inf')
+        needs_intermediate = False
 
     dt = max(0.1, t_goal - t_prev)
     time_form = "t" in c and "t" or ("beat" in c and "beat" or ("bar" in c and "bar" or "t"))
 
     # Update arrival cue
     final_cue = copy.deepcopy(c)
-    final_cue["planner"] = planner_choice
+    final_cue.pop("planner", None)
     goal_outward = clamp_to_usable_limits(model_rad_to_choreo(side, traj.positions[-1]), side, limits)
     if "reach" in final_cue:
         final_cue.pop("joints", None)
@@ -302,13 +321,16 @@ def plan_arm_move(
         ]
         # Insert them right before the arrival cue
         for k, idx in enumerate(wp_indices):
-            frac = (k + 1) / (len(wp_indices) + 1)
+            if hasattr(traj, "times") and len(traj.times) > idx and traj.duration > 0:
+                frac = float(traj.times[idx] / traj.duration)
+            else:
+                frac = (k + 1) / (len(wp_indices) + 1)
             t_wp = t_prev + frac * dt
+            t_wp = max(t_prev + 0.05, min(t_goal - 0.05, t_wp))
             wp_cue = {
                 "t": round(t_wp, 3),
                 "slot": slot,
                 "joints": clamp_to_usable_limits(model_rad_to_choreo(side, traj.positions[idx]), side, limits),
-                "planner": planner_choice,
             }
             edits.append({"op": "insert", "index": index + k, "cue": wp_cue})
             num_wp_inserted += 1
@@ -318,7 +340,38 @@ def plan_arm_move(
     else:
         edits.append({"op": "set", "index": index, "cue": final_cue})
 
+    # Record provenance in a timeline note
+    note_text = (
+        f"Generated with {planner_choice.upper()}: min clearance {traj.min_clearance_mm:.1f} mm "
+        f"({num_wp_inserted} avoidance waypoints inserted)."
+        if num_wp_inserted > 0 else
+        f"Generated with {planner_choice.upper()}: direct trajectory, min clearance {traj.min_clearance_mm:.1f} mm."
+    )
+    if clamped_info:
+        note_text += f" Target clamped: {', '.join(clamped_info)}."
+
+    note = {
+        "id": f"plan_{int(t_goal * 100)}_{slot.lower()}",
+        "at": round(t_prev, 2),
+        "to": round(t_goal, 2),
+        "slots": [slot],
+        "text": note_text,
+        "status": "done",
+        "by": "composer",
+    }
+    edits.append({"op": "note_add", "note": note})
+
     new_text = yamledit.apply(text, edits)
+
+    msg = (
+        f"Planned collision-free path with {planner_choice.upper()}! "
+        f"Min clearance: {traj.min_clearance_mm:.1f} mm "
+        f"({num_wp_inserted} avoidance waypoints inserted)."
+        if num_wp_inserted > 0 else
+        f"Planned direct path with {planner_choice.upper()}! Min clearance: {traj.min_clearance_mm:.1f} mm."
+    )
+    if clamped_info:
+        msg += f" Note: target joint(s) {', '.join(clamped_info)} clamped to safe hardware limits (5° margin)."
 
     return {
         "ok": True,
@@ -328,11 +381,6 @@ def plan_arm_move(
         "min_clearance_mm": round(float(traj.min_clearance_mm), 1),
         "duration_s": round(float(traj.duration), 2),
         "straight_clearance_mm": round(float(straight_clearance), 1),
-        "message": (
-            f"Planned collision-free path with {planner_choice.upper()}! "
-            f"Min clearance: {traj.min_clearance_mm:.1f} mm "
-            f"({num_wp_inserted} avoidance waypoints inserted)."
-            if num_wp_inserted > 0 else
-            f"Planned direct path with {planner_choice.upper()}! Min clearance: {traj.min_clearance_mm:.1f} mm."
-        ),
+        "message": msg,
+        "clamped": clamped_info,
     }

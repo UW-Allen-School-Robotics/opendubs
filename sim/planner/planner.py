@@ -15,14 +15,27 @@ for p in (REPO, SIM_DIR, IK_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import mujoco
-import scene
-import clearance
-import toppra
-import toppra.constraint as constraint
+try:
+    import mujoco
+    import scene
+    import clearance
+    _HAVE_MUJOCO = True
+except ImportError:
+    _HAVE_MUJOCO = False
 
-import openarm_left_ik
-import openarm_right_ik
+try:
+    import toppra
+    import toppra.constraint as constraint
+    _HAVE_TOPPRA = True
+except ImportError:
+    _HAVE_TOPPRA = False
+
+try:
+    import openarm_left_ik
+    import openarm_right_ik
+    _HAVE_SSIK = True
+except ImportError:
+    _HAVE_SSIK = False
 
 from .base import MotionPlannerBackend, PlannedTrajectory, create_backend, get_available_backends
 from .cbirrt_backend import CBiRRTBackend
@@ -142,6 +155,9 @@ class OpenArmPlanner:
         self.v_max = v_max
         self.a_max = a_max
 
+        if not _HAVE_MUJOCO:
+            raise ImportError("MuJoCo is required for OpenArmPlanner simulation environment.")
+
         # 1. Load MuJoCo model and data
         self.model = scene.build(None)
         self.data = mujoco.MjData(self.model)
@@ -156,9 +172,13 @@ class OpenArmPlanner:
         )
 
         # 3. Setup SSIK solver module
-        ik_mod = openarm_left_ik if arm == "left" else openarm_right_ik
-        self.ik_module = ik_mod
-        self.ik_solver = SSIKWrapper(ik_mod)
+        if _HAVE_SSIK:
+            ik_mod = openarm_left_ik if arm == "left" else openarm_right_ik
+            self.ik_module = ik_mod
+            self.ik_solver = SSIKWrapper(ik_mod)
+        else:
+            self.ik_module = None
+            self.ik_solver = None
 
         # 4. Set planning backend (defaults to CBiRRT, modular for cuRobo/custom)
         if isinstance(backend, str):
@@ -280,23 +300,38 @@ class OpenArmPlanner:
         v_lim = np.array([self.v_max] * self.robot_model.dof)
         a_lim = np.array([self.a_max] * self.robot_model.dof)
 
-        ss = np.linspace(0, 1, len(path_arr))
-        path_interp = toppra.SplineInterpolator(ss, path_arr)
-        pc_vel = constraint.JointVelocityConstraint(v_lim)
-        pc_acc = constraint.JointAccelerationConstraint(a_lim)
+        if _HAVE_TOPPRA:
+            ss = np.linspace(0, 1, len(path_arr))
+            path_interp = toppra.SplineInterpolator(ss, path_arr)
+            pc_vel = constraint.JointVelocityConstraint(v_lim)
+            pc_acc = constraint.JointAccelerationConstraint(a_lim)
 
-        gridpoints = np.linspace(0, 1, max(100, len(path_arr)))
-        instance = toppra.algorithm.TOPPRA([pc_vel, pc_acc], path_interp, gridpoints=gridpoints)
-        jnt_traj = instance.compute_trajectory(0.0, 0.0)
-        if jnt_traj is None:
-            return None
+            gridpoints = np.linspace(0, 1, max(100, len(path_arr)))
+            instance = toppra.algorithm.TOPPRA([pc_vel, pc_acc], path_interp, gridpoints=gridpoints)
+            jnt_traj = instance.compute_trajectory(0.0, 0.0)
+            if jnt_traj is None:
+                return None
 
-        duration = jnt_traj.duration
-        # Sample densely at 100 Hz
-        sample_times = np.linspace(0, duration, max(10, int(duration * 100)))
-        positions = np.array([jnt_traj(t) for t in sample_times])
-        velocities = np.array([jnt_traj(t, 1) for t in sample_times])
-        accelerations = np.array([jnt_traj(t, 2) for t in sample_times])
+            duration = jnt_traj.duration
+            sample_times = np.linspace(0, duration, max(10, int(duration * 100)))
+            positions = np.array([jnt_traj(t) for t in sample_times])
+            velocities = np.array([jnt_traj(t, 1) for t in sample_times])
+            accelerations = np.array([jnt_traj(t, 2) for t in sample_times])
+        else:
+            diffs = np.abs(np.diff(path_arr, axis=0))
+            seg_durations = np.max(diffs / np.maximum(self.v_max, 1e-3), axis=1)
+            seg_durations = np.maximum(seg_durations, 0.05)
+            cum_times = np.insert(np.cumsum(seg_durations), 0, 0.0)
+            duration = float(cum_times[-1])
+            sample_times = np.linspace(0, duration, max(10, int(duration * 100)))
+            positions = np.zeros((len(sample_times), self.robot_model.dof))
+            for j in range(self.robot_model.dof):
+                positions[:, j] = np.interp(sample_times, cum_times, path_arr[:, j])
+            velocities = np.zeros_like(positions)
+            if len(sample_times) > 1:
+                dt = sample_times[1] - sample_times[0]
+                velocities[1:] = np.diff(positions, axis=0) / dt
+            accelerations = np.zeros_like(positions)
 
         # Validate clearance along trajectory
         min_clearance = float('inf')

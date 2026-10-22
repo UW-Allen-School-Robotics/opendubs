@@ -1,6 +1,5 @@
 id: custom_testing
 name: "Custom testing"
-palette: { label: "Custom testing", order: 15 }
 slots: [ARM_L, GRIP_L]
 requires: { rc_authority: AUTO, arms: active }
 clearance: { min_mm: 38.9, at_s: 6.72, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "fc13c8d0ddf3@7b248092" }

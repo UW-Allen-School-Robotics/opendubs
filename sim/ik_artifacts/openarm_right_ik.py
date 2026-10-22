@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Generated with SSIK (Simple Symbolic Inverse Kinematics), Personal Robotics Lab.
 """Generated IK module for v1.
 
 This file was emitted by ``ssik build`` and is the public artifact for

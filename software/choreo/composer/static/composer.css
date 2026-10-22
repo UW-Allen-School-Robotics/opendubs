@@ -336,6 +336,37 @@ button.on { border-color: var(--accent); color: var(--accent); }
   cursor: not-allowed;
 }
 
+.plan-preview-box {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.plan-preview-box.pass {
+  background: rgba(46, 194, 126, 0.1);
+  border: 1px solid var(--good);
+}
+.plan-preview-box.fail {
+  background: rgba(224, 76, 76, 0.12);
+  border: 1px solid var(--bad);
+}
+.plan-preview-box .verdict-banner {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.plan-preview-box .verdict-banner.pass { color: var(--good); }
+.plan-preview-box .verdict-banner.fail { color: var(--bad); }
+.plan-preview-box .problems-list {
+  margin: 4px 0;
+  padding-left: 18px;
+  color: var(--bad);
+}
+.plan-preview-box .plan-msg {
+  color: var(--txt);
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+
 /* gripper control box */
 .grip-box {
   margin: 10px 0;

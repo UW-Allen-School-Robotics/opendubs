@@ -322,9 +322,9 @@ REPEAT_MAX = 64
 TIME_KEYS = ("t", "beat", "bar")
 COMMON_KEYS = set(TIME_KEYS) | {"slot", "hold_s"}
 SLOT_KEYS = {
-    # reach / point_at: an IK target (ik.py); solved / solved_for: the joint angles compiled for it; planner: motion planner backend
-    "ARM_L": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off", "planner"},
-    "ARM_R": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off", "planner"},
+    # reach / point_at: an IK target (ik.py); solved / solved_for: the joint angles compiled for it
+    "ARM_L": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
+    "ARM_R": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
     # pose / set: a fitted tool's named poses and channels (effectors.py); open and do work on every tool
     "GRIP_L": {"do", "open", "effort", "pos", "pose", "set"}, "GRIP_R": {"do", "open", "effort", "pos", "pose", "set"},
@@ -1333,8 +1333,6 @@ class Show:
         joints = c.get("joints")
         at_rest = False
         key = ik_target_key(c)
-        if "planner" in c and c["planner"] not in ("spline", "cbirrt", "curobo"):
-            return [f"{where}: {slot} planner {c['planner']!r} is not known (known: spline, cbirrt, curobo)"]
         if "elbow" in c and not ("reach" in c or "point_at" in c):
             return [f"{where}: {slot} elbow: goes with a reach: or point_at: target"]
         if key or "solved" in c:

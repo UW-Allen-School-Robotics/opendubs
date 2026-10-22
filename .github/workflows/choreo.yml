@@ -44,6 +44,7 @@ jobs:
       - run: pip install pyyaml mujoco numpy psutil platformdirs pillow   # mujoco: ik.py's tests; pillow: the projection screen's frames; psutil, platformdirs: the studio launcher's
       - run: python3 software/choreo/tests/test_cue.py
       - run: python3 software/choreo/tests/test_composer.py
+      - run: python3 software/choreo/tests/test_arm_planner_bridge.py
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_arm_goals.py   # a rejected or unanswered arm goal ends the show

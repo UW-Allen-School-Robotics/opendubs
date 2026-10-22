@@ -34,32 +34,27 @@ runtime switching between planners without modifying caller code.
 
 | Component | Role | Location |
 |---|---|---|
-| `OpenArmPlanner` | High-level facade for planning, collision checking, kinematics | [`sim/planner/planner.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/planner.py) |
-| `MotionPlannerBackend` | Protocol interface defining `plan()` and `plan_cartesian()` | [`sim/planner/base.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/base.py) |
-| `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | [`sim/planner/cbirrt_backend.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/cbirrt_backend.py) |
-| `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | [`sim/planner/curobo_backend.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/curobo_backend.py) |
-| Benchmark Tool | Statistical measurement comparing planners in simulation | [`sim/planner/benchmark.py`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/sim/planner/benchmark.py) |
-| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | [`software/choreo/composer/`](file:///home/arxzwood/Documents/Code/School/OpenDubs/opendubs/software/choreo/composer/) |
+| `OpenArmPlanner` | High-level facade for planning, collision checking, kinematics | [`sim/planner/planner.py`](../sim/planner/planner.py) |
+| `MotionPlannerBackend` | Protocol interface defining `plan()` and `plan_cartesian()` | [`sim/planner/base.py`](../sim/planner/base.py) |
+| `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | [`sim/planner/cbirrt_backend.py`](../sim/planner/cbirrt_backend.py) |
+| `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | [`sim/planner/curobo_backend.py`](../sim/planner/curobo_backend.py) |
+| Benchmark Tool | Statistical measurement comparing planners in simulation | [`sim/planner/benchmark.py`](../sim/planner/benchmark.py) |
+| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | [`software/choreo/composer/`](../software/choreo/composer/) |
 
 ---
 
 ## 2. Environment Setup
 
-The motion planning stack runs in a standalone conda/mamba environment (`env_curobo`) equipped with
-CUDA 12.8, PyTorch, NVIDIA Warp, cuRobo, MuJoCo, SSIK, and TOPP-RA:
-
-```bash
-# Executable location:
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python
-```
+The motion planning stack can run in a dedicated Python environment equipped with
+PyTorch, NVIDIA Warp, cuRobo, MuJoCo, SSIK, and TOPP-RA:
 
 Key dependencies:
-- `torch==2.11.0+cu128`
-- `warp-lang==1.18.0`
-- `curobo` (compiled targeting NVIDIA RTX GPUs)
-- `mujoco==3.16.0`
-- `ssik==8.2.0` & `sscbirrt==3.9.0`
-- `toppra==0.6.10`
+- `torch` (with CUDA support for cuRobo GPU acceleration)
+- `warp-lang`
+- `curobo` (optional; installed per https://curobo.org)
+- `mujoco`
+- `ssik` & `sscbirrt`
+- `toppra`
 
 ---
 
@@ -72,15 +67,15 @@ Pass `--backend cbirrt` or `--backend curobo`:
 
 ```bash
 # Plan left arm forward reach using cuRobo on GPU
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/run_planner.py \
+python sim/planner/run_planner.py \
   --arm left --preset reach_forward --backend curobo
 
 # Plan left arm forward reach using CBiRRT + SSIK on CPU
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/run_planner.py \
+python sim/planner/run_planner.py \
   --arm left --preset reach_forward --backend cbirrt
 
 # Open interactive MuJoCo 3D viewer to watch playback
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/run_planner.py \
+python sim/planner/run_planner.py \
   --arm left --preset reach_forward --backend curobo --view
 ```
 
@@ -115,10 +110,10 @@ duration, waypoint density, path clearance, and success rates in MuJoCo simulati
 ### Running Benchmarks
 ```bash
 # Run benchmark across canonical motions (5 trials per motion)
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/benchmark.py --trials 5
+python sim/planner/benchmark.py --trials 5
 
 # Benchmark right arm and output JSON
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/benchmark.py \
+python sim/planner/benchmark.py \
   --arm right --trials 3 --json-out benchmark_results.json
 ```
 
@@ -207,3 +202,13 @@ simulation motion planning testbed:
 1. **Phase 0 (Completed):** Verified in simulation with CBiRRT + SSIK and cuRobo GPU backends.
 2. **Phase 1 (Hardware-in-the-Loop & Execution):** Hardware safety preflight layer, HITL 50 Hz loopback, remote SSH transport to Thor `openarm` container, and gripper action commands.
 3. **Phase 2 (cuRobo ROS Real-time Integration):** Stream cuRobo GPU trajectory points dynamically as the target hand position moves in tele-op mode.
+
+---
+
+## 8. Licenses and Provenance
+
+- **cuRobo**: Copyright &copy; NVIDIA Corporation. cuRobo is an external library developed by NVIDIA Research under its own terms (NVIDIA Source Code License / Apache-2.0). It is **not vendored** into this repository. It is an optional dependency that users can install separately in environments equipped with NVIDIA CUDA GPUs. The composer, choreography tools, and test suites function cleanly without cuRobo.
+- **SSIK (Simple Symbolic Inverse Kinematics)**: The analytical IK artifacts in `sim/ik_artifacts/openarm_left_ik.py` and `sim/ik_artifacts/openarm_right_ik.py` were generated using SSIK, developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license.
+- **sscbirrt**: The constrained bidirectional RRT planner (`sscbirrt`) is developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license. It is an optional dependency; the test suite skips cleanly when it is not installed.
+- **TOPP-RA**: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`toppra`) is licensed under the **LGPL-3.0 / BSD-3-Clause** license and is an optional dependency for trajectory retiming. Fallback velocity-bounded interpolation is provided when TOPP-RA is not installed.
+

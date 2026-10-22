@@ -1000,6 +1000,7 @@ function renderInspector() {
           </label>
           <button id="iSolveReach" title="Solve target hand position and compute collision-free trajectory">Solve Reach</button>
         </div>
+        <div id="planPreviewContainer"></div>
       </div>`;
   }
 
@@ -1055,12 +1056,49 @@ function renderInspector() {
   if ($("iArmPlanner")) {
     $("iArmPlanner").onchange = () => {
       const val = $("iArmPlanner").value;
-      const cue = { ...c };
-      if (val === "spline") delete cue.planner;
-      else cue.planner = val;
-      edit([{ op: "set", index: i, cue }], `set planner to ${val}`);
+      if ($("armPlannerBadge")) $("armPlannerBadge").textContent = val.toUpperCase();
     };
   }
+
+  function showPlanPreview(resp, plannerName) {
+    const container = $("planPreviewContainer");
+    if (!container) return;
+    const timeline = resp.analysis && resp.analysis.timeline;
+    const problems = (timeline && timeline.problems) || [];
+    const isFail = (timeline && timeline.verdict === "FAIL") || problems.length > 0;
+
+    let problemsHtml = "";
+    if (problems.length > 0) {
+      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`;
+    }
+
+    container.innerHTML = `
+      <div class="plan-preview-box ${isFail ? 'fail' : 'pass'}">
+        <div class="verdict-banner ${isFail ? 'fail' : 'pass'}">
+          ${isFail ? '⚠️ Validation FAIL (Speed cap or limit exceeded)' : `✅ Validation PASS (Clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
+        </div>
+        ${problemsHtml}
+        <div class="plan-msg">${esc(resp.message || "")}</div>
+        <div class="row2" style="margin-top:8px; gap:6px;">
+          <button id="btnApplyPlan" class="${isFail ? 'danger' : 'btn-primary'}" title="${isFail ? 'Validation has problems: apply anyway?' : 'Apply planned waypoints to show'}">
+            ${isFail ? 'Apply Anyway' : 'Apply Planned Path'}
+          </button>
+          <button id="btnDiscardPlan" class="btn-secondary">Discard</button>
+        </div>
+      </div>`;
+
+    $("btnApplyPlan").onclick = () => {
+      S.undo.push(S.text);
+      if (resp.analysis) setData(resp.analysis);
+      else { S.text = resp.text; render(); }
+      toast(isFail ? "Applied with validation warnings" : `Applied plan from ${plannerName}!`, 4000);
+      container.innerHTML = "";
+    };
+    $("btnDiscardPlan").onclick = () => {
+      container.innerHTML = "";
+    };
+  }
+
   if ($("iPlanMove")) {
     $("iPlanMove").onclick = async () => {
       const planner = $("iArmPlanner") ? $("iArmPlanner").value : "cbirrt";
@@ -1076,10 +1114,7 @@ function renderInspector() {
           planner: planner,
         });
         if (resp.ok && resp.text) {
-          S.undo.push(S.text);
-          if (resp.analysis) setData(resp.analysis);
-          else { S.text = resp.text; render(); }
-          toast(resp.message || `Planned with ${planner}!`, 5000);
+          showPlanPreview(resp, planner);
         }
       } catch (err) {
         toast(`Planning failed: ${err.message}`, 6000);
@@ -1110,10 +1145,7 @@ function renderInspector() {
           reach: reachInput,
         });
         if (resp.ok && resp.text) {
-          S.undo.push(S.text);
-          if (resp.analysis) setData(resp.analysis);
-          else { S.text = resp.text; render(); }
-          toast(resp.message || `Solved reach target with ${planner}!`, 5000);
+          showPlanPreview(resp, planner);
         }
       } catch (err) {
         toast(`Reach failed: ${err.message}`, 6000);

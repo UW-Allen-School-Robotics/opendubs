@@ -34,7 +34,6 @@ import cue  # noqa: E402  the validator is the gate; we call it, never copy it
 import library  # noqa: E402  the show library (songs, clips, skins) — its rules, not copies of them
 import timeline_notes  # noqa: E402  notes for the next editor, their history, the agent prompt
 import yamledit  # noqa: E402
-import arm_planner_bridge  # noqa: E402
 
 FIXTURE_LIMITS = os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml")
 STATIC_DIR = os.path.join(HERE, "static")
@@ -89,6 +88,18 @@ class Composer:
         return p
 
     def info(self) -> dict:
+        try:
+            import arm_planner_bridge
+            planners = arm_planner_bridge.get_available_planners()
+        except ImportError:
+            planners = {
+                "spline": {
+                    "id": "spline",
+                    "name": "Spline (Standard Hermite)",
+                    "available": True,
+                    "description": "Standard cubic Hermite trajectory interpolation",
+                }
+            }
         return {"shows_dir": self.shows_dir, "library_dir": self.library_dir,
                 "library_exists": library.load_index(self.library_dir) is not None,
                 "max_song_mb": MAX_SONG_BYTES // (1024 * 1024), "song_types": sorted(library.SONG_TYPES),
@@ -97,7 +108,7 @@ class Composer:
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
                 "slot_requires": {s: cue.slot_requirements(s) for s in cue.SLOTS},
                 "speed_caps": cue.SPEED_CAP_DEG_S,
-                "planners": arm_planner_bridge.get_available_planners()}
+                "planners": planners}
 
     def list_shows(self) -> list:
         out = []
@@ -627,6 +638,10 @@ class Composer:
             doc = cue.show_from_text(text, self._path(rel)).doc
         except Exception:
             doc = yaml.safe_load(text)
+        try:
+            import arm_planner_bridge
+        except ImportError as e:
+            raise ApiError(f"Motion planning bridge is unavailable: {e}") from e
         try:
             res = arm_planner_bridge.plan_arm_move(
                 doc=doc,

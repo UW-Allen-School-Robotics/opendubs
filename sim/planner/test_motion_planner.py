@@ -24,21 +24,48 @@ for p in (REPO, SIM_DIR, IK_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from sim.planner import (
-    OpenArmPlanner,
-    PlannedTrajectory,
-    CBiRRTBackend,
-    CuRoboBackend,
-    create_backend,
-    get_available_backends,
-    run_benchmark,
-)
-import openarm_left_ik
-import openarm_right_ik
-import clearance
+try:
+    import pytest
+except ImportError:
+    pytest = None
+
+try:
+    import mujoco
+    import scene
+    import clearance
+    _HAVE_MUJOCO = True
+except ImportError:
+    _HAVE_MUJOCO = False
+
+try:
+    from sim.planner import (
+        OpenArmPlanner,
+        PlannedTrajectory,
+        CBiRRTBackend,
+        CuRoboBackend,
+        create_backend,
+        get_available_backends,
+        run_benchmark,
+    )
+    _HAVE_PLANNER = True
+except ImportError:
+    _HAVE_PLANNER = False
+
+try:
+    import sscbirrt
+    _HAVE_SSCBIRRT = True
+except ImportError:
+    _HAVE_SSCBIRRT = False
+
+try:
+    import openarm_left_ik
+    import openarm_right_ik
+    _HAVE_SSIK = True
+except ImportError:
+    _HAVE_SSIK = False
 
 
-def test_section(title: str):
+def _section(title: str):
     print(f"\n{'=' * 65}")
     print(f"▶ {title}")
     print(f"{'=' * 65}")
@@ -51,8 +78,17 @@ def assert_true(cond: bool, msg: str):
     print(f"  [PASS] {msg}")
 
 
+def _skip(reason: str):
+    print(f"  [SKIP] {reason}")
+    if pytest and os.environ.get("PYTEST_CURRENT_TEST"):
+        pytest.skip(reason)
+
+
 def test_ssik_kinematics():
-    test_section("1. SSIK Analytical Kinematics & FK Consistency")
+    _section("1. SSIK Analytical Kinematics & FK Consistency")
+    if not _HAVE_SSIK:
+        _skip("ssik / IK artifacts not available in this environment")
+        return
 
     # Left Arm
     q_test_l = np.radians([10.0, -20.0, 15.0, 60.0, -10.0, 20.0, 5.0])
@@ -74,7 +110,10 @@ def test_ssik_kinematics():
 
 
 def test_collision_checker():
-    test_section("2. MuJoCo Collision Checking & Clearance Guard")
+    _section("2. MuJoCo Collision Checking & Clearance Guard")
+    if not _HAVE_MUJOCO or not _HAVE_PLANNER:
+        _skip("MuJoCo / sim.planner not available in this environment")
+        return
 
     planner_l = OpenArmPlanner(arm="left", min_clearance_mm=30.0)
     planner_r = OpenArmPlanner(arm="right", min_clearance_mm=30.0)
@@ -103,7 +142,10 @@ def test_collision_checker():
 
 
 def test_cbirrt_planning():
-    test_section("3. CBiRRT Motion Planning & TOPP-RA Retiming")
+    _section("3. CBiRRT Motion Planning & TOPP-RA Retiming")
+    if not _HAVE_MUJOCO or not _HAVE_PLANNER or not _HAVE_SSCBIRRT:
+        _skip("MuJoCo / sscbirrt not available in this environment")
+        return
 
     planner = OpenArmPlanner(arm="left", v_max=1.5, a_max=3.0, min_clearance_mm=30.0)
 
@@ -133,7 +175,10 @@ def test_cbirrt_planning():
 
 
 def test_modular_backends():
-    test_section("4. Modular Backend Registry & cuRobo Adapter")
+    _section("4. Modular Backend Registry & cuRobo Adapter")
+    if not _HAVE_MUJOCO or not _HAVE_PLANNER:
+        _skip("MuJoCo / sim.planner not available in this environment")
+        return
 
     backends = get_available_backends()
     assert_true("cbirrt" in backends, "CBiRRT backend registered in registry")
@@ -153,24 +198,29 @@ def test_modular_backends():
         print("  [INFO] cuRobo is not installed in current environment; verifying graceful fallback")
         assert_true(backends["curobo"]["available"] is False, "cuRobo backend reports available=False (graceful fallback)")
 
-    # Instantiating CBiRRT by string
-    planner = OpenArmPlanner(arm="left", backend="cbirrt")
-    assert_true(planner.backend.name == "cbirrt", f"Planner initialized with backend name '{planner.backend.name}'")
+    if _HAVE_SSCBIRRT:
+        # Instantiating CBiRRT by string
+        planner = OpenArmPlanner(arm="left", backend="cbirrt")
+        assert_true(planner.backend.name == "cbirrt", f"Planner initialized with backend name '{planner.backend.name}'")
 
-    # Custom backend injection test
-    from sim.planner.example_custom_planner import MyCustomInterpolationPlanner
-    custom_backend = MyCustomInterpolationPlanner(collision_checker=planner.collision_checker, steps=10)
-    planner.set_backend(custom_backend)
-    assert_true(planner.backend.name == "custom_linear_interp", "Successfully swapped backend to custom planner")
+        # Custom backend injection test
+        from sim.planner.example_custom_planner import MyCustomInterpolationPlanner
+        custom_backend = MyCustomInterpolationPlanner(collision_checker=planner.collision_checker, steps=10)
+        planner.set_backend(custom_backend)
+        assert_true(planner.backend.name == "custom_linear_interp", "Successfully swapped backend to custom planner")
 
-    q_start = np.zeros(7)
-    q_goal = np.radians([0.0, -20.0, 0.0, 45.0, 0.0, 15.0, 0.0])
-    custom_traj = planner.plan_to_joint_goal(q_start, q_goal)
-    assert_true(custom_traj is not None, f"Custom backend generated valid trajectory ({custom_traj.duration:.2f} s)")
+        q_start = np.zeros(7)
+        q_goal = np.radians([0.0, -20.0, 0.0, 45.0, 0.0, 15.0, 0.0])
+        custom_traj = planner.plan_to_joint_goal(q_start, q_goal)
+        assert_true(custom_traj is not None, f"Custom backend generated valid trajectory ({custom_traj.duration:.2f} s)")
 
 
 def test_benchmark():
-    test_section("5. Performance Benchmarking")
+    _section("5. Performance Benchmarking")
+    if not _HAVE_MUJOCO or not _HAVE_PLANNER or not _HAVE_SSCBIRRT:
+        _skip("MuJoCo / sscbirrt not available in this environment")
+        return
+
     res = run_benchmark(arm="left", trials=1, verbose=False)
     assert_true("overall" in res, "Benchmark generated overall summary")
     assert_true("cbirrt" in res["overall"], "Benchmark evaluated CBiRRT")
