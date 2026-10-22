@@ -832,13 +832,13 @@ function renderInspector() {
   const reachVal = c.reach ? (Array.isArray(c.reach) ? JSON.stringify(c.reach) : c.reach) : "";
 
   const JOINT_DEFS = [
-    { j: 1, name: "Shoulder Yaw", min: -120, max: 120 },
-    { j: 2, name: "Shoulder Pitch", min: -20, max: 180 },
-    { j: 3, name: "Shoulder Roll", min: -100, max: 100 },
-    { j: 4, name: "Elbow Pitch", min: 0, max: 150 },
-    { j: 5, name: "Wrist Yaw", min: -100, max: 100 },
-    { j: 6, name: "Wrist Pitch", min: -60, max: 60 },
-    { j: 7, name: "Wrist Roll", min: -180, max: 180 },
+    { j: 1, name: "Shoulder Yaw", min: -75, max: 180 },
+    { j: 2, name: "Shoulder Pitch", min: -5, max: 180 },
+    { j: 3, name: "Shoulder Roll", min: -85, max: 85 },
+    { j: 4, name: "Elbow Pitch", min: 9, max: 135 },
+    { j: 5, name: "Wrist Yaw", min: -85, max: 85 },
+    { j: 6, name: "Wrist Pitch", min: -40, max: 40 },
+    { j: 7, name: "Wrist Roll", min: -85, max: 85 },
   ];
 
   let armJointsHtml = "";
@@ -846,11 +846,13 @@ function renderInspector() {
   const currentJoints = {};
   if (isArm && !S.clip) {
     for (const d of JOINT_DEFS) {
-      currentJoints[d.j] = (c.joints && c.joints[d.j] != null)
+      let v = (c.joints && c.joints[d.j] != null)
         ? Math.round(Number(c.joints[d.j]))
         : (evs.length && evs[0].pose && evs[0].pose[d.j] != null)
           ? Math.round(Number(evs[0].pose[d.j]))
-          : 0;
+          : (d.j === 4 ? 15 : 0);
+      if (d.j === 4 && v < d.min) v = d.min;
+      currentJoints[d.j] = v;
     }
 
     const slidersHtml = JOINT_DEFS.map((d) => {
@@ -868,7 +870,7 @@ function renderInspector() {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <span style="font-weight:600; font-size:11px;">Joint Angles (${esc(c.slot)})</span>
           <div style="display:flex; gap:4px;">
-            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Reset all joints to 0°">0° Zero</button>
+            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Reset joints to natural rest pose (J4=15°)">Rest</button>
             <button id="btnToggle3DFromInsp" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Toggle 3D robot preview">🤖 3D Robot</button>
           </div>
         </div>
@@ -1050,12 +1052,16 @@ function renderInspector() {
       delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
       const jointsObj = {};
       for (const d of JOINT_DEFS) {
-        jointsObj[d.j] = 0;
-        currentJoints[d.j] = 0;
+        const val = (d.j === 4 ? 15 : 0);
+        jointsObj[d.j] = val;
+        currentJoints[d.j] = val;
         const valEl = $(`jval_${d.j}`);
-        if (valEl) valEl.textContent = "0°";
+        if (valEl) valEl.textContent = `${val}°`;
       }
-      el.querySelectorAll(".joint-slider").forEach((sl) => { sl.value = 0; });
+      el.querySelectorAll(".joint-slider").forEach((sl) => {
+        const j = +sl.dataset.j;
+        sl.value = j === 4 ? 15 : 0;
+      });
       try {
         const fields = JSON.parse($("iFields").value);
         delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
@@ -1072,7 +1078,7 @@ function renderInspector() {
       }
 
       cue.joints = jointsObj;
-      edit([{ op: "set", index: i, cue }], `zero ${c.slot} joints`);
+      edit([{ op: "set", index: i, cue }], `reset ${c.slot} to rest pose`);
     };
   }
 
@@ -1157,7 +1163,8 @@ function addCue(slot) {
     /* "hold the pose here": a keyframe equal to the interpolated pose — move it from there */
     const p = armAt(tl().tracks[slot] || [], t).pose, joints = {};
     for (let j = 1; j <= 7; j++) if (Math.abs(p[j]) > 0.05) joints[j] = round(p[j], 1);
-    body = { joints: Object.keys(joints).length ? joints : { 7: 0 } };
+    if (!joints[4] || joints[4] < 9) joints[4] = 15;
+    body = { joints };
   }
   edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, ...body } }],
     `added ${slot} at ${t.toFixed(2)} s` + (declared().has(slot) ? "" : ` — and declared ${slot} in slots: (undo takes back both)`));

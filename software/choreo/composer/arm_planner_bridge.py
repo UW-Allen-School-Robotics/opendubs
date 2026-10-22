@@ -88,6 +88,28 @@ def model_rad_to_choreo(side: str, model_rad: np.ndarray | list[float]) -> dict:
     return out
 
 
+def clamp_to_usable_limits(joints_deg: dict, side: str, limits: dict) -> dict:
+    """Clamp joint angles in outward degrees to the validator's usable range [lo + margin, hi - margin]."""
+    out = {}
+    m = -1 if side == "left" else 1
+    for j in range(1, 8):
+        v = float(joints_deg.get(j) if j in joints_deg else (joints_deg.get(str(j)) or 0.0))
+        name = f"openarm_{side}_joint{j}"
+        lo, hi = limits.get(name, (None, None))
+        if lo is not None and hi is not None:
+            lo_d = math.degrees(lo) + cue.MARGIN_DEG
+            hi_d = math.degrees(hi) - cue.MARGIN_DEG
+            sign = (m if j in cue.MIRRORED_JOINTS else 1)
+            if sign > 0:
+                min_deg, max_deg = lo_d, hi_d
+            else:
+                min_deg, max_deg = -hi_d, -lo_d
+            # Add small 0.1 deg safety buffer so round(v, 1) never violates boundary
+            v = max(min_deg + 0.1, min(max_deg - 0.1, v))
+        out[str(j)] = round(v, 1)
+    return out
+
+
 def resolve_previous_arm_state(doc: dict, slot: str, target_time: float, limits: dict) -> tuple[dict, float]:
     """Find the arm's pose and finish time immediately prior to target_time in the show."""
     side = "left" if slot == "ARM_L" else "right"
@@ -152,7 +174,7 @@ def plan_arm_move(
 
     # 2. Find start pose and start time
     q_prev_deg, t_prev = resolve_previous_arm_state(doc, slot, t_goal, limits)
-    q_start_rad = choreo_to_model_rad(side, q_prev_deg)
+    q_start_rad = choreo_to_model_rad(side, clamp_to_usable_limits(q_prev_deg, side, limits))
 
     # 3. Determine goal pose
     import sim_preview
@@ -180,30 +202,30 @@ def plan_arm_move(
             sol_outward, err, _ = kin.solve(side, mode, goal_world)
             if err > ik.REACH_TOL_M:
                 raise ValueError(f"Target '{reach_target}' is out of reach ({err:.3f} m off)")
-            goal_deg = sol_outward
+            goal_deg = clamp_to_usable_limits(sol_outward, side, limits)
             q_goal_rad = choreo_to_model_rad(side, goal_deg)
             c["reach"] = reach_val
-            c["solved"] = sol_outward
+            c["solved"] = goal_deg
             c["solved_for"] = f"reach:{reach_target}@{kin.sig}"
             c.pop("joints", None)
             c.pop("pose", None)
         except Exception as e:
             raise ValueError(f"Failed to solve target '{reach_target}': {e}") from e
     elif "solved" in c:
-        goal_deg = c["solved"]
+        goal_deg = clamp_to_usable_limits(c["solved"], side, limits)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "joints" in c:
-        goal_deg = c["joints"]
+        goal_deg = clamp_to_usable_limits(c["joints"], side, limits)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "pose" in c and c["pose"] == "rest":
-        goal_deg = cue.rest_pose(limits, side)
+        goal_deg = clamp_to_usable_limits(cue.rest_pose(limits, side), side, limits)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
     elif "reach" in c:
         goal_world = kin.point(c["reach"], side)
         sol_outward, err, _ = kin.solve(side, "reach", goal_world)
-        goal_deg = sol_outward
+        goal_deg = clamp_to_usable_limits(sol_outward, side, limits)
         q_goal_rad = choreo_to_model_rad(side, goal_deg)
-        c["solved"] = sol_outward
+        c["solved"] = goal_deg
         c["solved_for"] = f"reach:{c['reach']}@{kin.sig}"
         c.pop("joints", None)
         c.pop("pose", None)
@@ -220,7 +242,7 @@ def plan_arm_move(
             c.pop("joints", None)
             c.pop("pose", None)
         elif goal_deg and "joints" in c:
-            c["joints"] = {str(k): float(v) for k, v in goal_deg.items()}
+            c["joints"] = {str(k): float(v) for k, v in clamp_to_usable_limits(goal_deg, side, limits).items()}
         edits = [{"op": "set", "index": index, "cue": c}]
         new_text = yamledit.apply(text, edits)
         return {
@@ -256,7 +278,7 @@ def plan_arm_move(
     # Update arrival cue
     final_cue = copy.deepcopy(c)
     final_cue["planner"] = planner_choice
-    goal_outward = model_rad_to_choreo(side, traj.positions[-1])
+    goal_outward = clamp_to_usable_limits(model_rad_to_choreo(side, traj.positions[-1]), side, limits)
     if "reach" in final_cue:
         final_cue.pop("joints", None)
         final_cue.pop("pose", None)
@@ -285,7 +307,7 @@ def plan_arm_move(
             wp_cue = {
                 "t": round(t_wp, 3),
                 "slot": slot,
-                "joints": model_rad_to_choreo(side, traj.positions[idx]),
+                "joints": clamp_to_usable_limits(model_rad_to_choreo(side, traj.positions[idx]), side, limits),
                 "planner": planner_choice,
             }
             edits.append({"op": "insert", "index": index + k, "cue": wp_cue})
