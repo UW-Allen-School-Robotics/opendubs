@@ -14,16 +14,44 @@ low-cost, replicable mobile robot — and we welcome fixes, improvements, new pa
 
 ## Developer Certificate of Origin (DCO)
 
-We use the [DCO](https://developercertificate.org/) instead of a CLA. It's a lightweight statement
-that you wrote the contribution (or have the right to submit it) under the project's licenses. Sign
-off every commit by adding a line to the commit message:
+We use the Developer Certificate of Origin ([`DCO.txt`](DCO.txt), version 1.1) instead of a
+contributor licence agreement. It is a short statement that you wrote the contribution, or have the
+right to submit it, under the project's licences. **Every commit must be signed off.** Commit with
+
+```bash
+git commit -s
+```
+
+which adds a line like this to the commit message, using your `git config user.name` and
+`user.email`:
 
 ```
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
-`git commit -s` adds it automatically. By signing off you agree your contribution is licensed under
-the project's licenses (below).
+The sign-off must match the commit's author email. By signing off you certify the DCO for that
+commit, and agree it is licensed under the project's licences (below).
+
+A coding assistant or agent working for a maintainer commits under that maintainer's git identity,
+so its commits are signed off in the maintainer's name, matching the author field. The maintainer
+certifies those commits. Like `AUTHORS`, this is a deliberate exception to the rule that the repo
+names no one.
+
+**CI checks it.** The required "Hygiene checks" fails a pull request with an unsigned commit. It
+checks only commits authored after the requirement started; older history is never rewritten.
+Merge and squash commits that GitHub creates are exempt. To fix an unsigned commit on your branch:
+
+```bash
+git commit --amend -s --no-edit                 # the last commit
+git rebase --signoff origin/main                # every commit on the branch
+```
+
+then push with `--force-with-lease`.
+
+## Authors
+
+"The OpenDubs Authors" named in the licences are the people listed in [`AUTHORS`](AUTHORS). You are
+added only with your own agreement, by a pull request that adds your line.
 
 ## Licenses
 
