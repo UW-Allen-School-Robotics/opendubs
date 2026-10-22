@@ -2,6 +2,7 @@
 """Direct, stack-independent check of the OpenArm motors over CAN.
 
     openarm-motors [status]              one line per motor, both arms
+    openarm-motors links                 each arm's CAN link, key=value, from `ip` only (sends nothing)
     openarm-motors summary               counts only: "enabled=N disabled=N faults=N missing=N",
                                          plus "where=arm_left:1,2" when a motor went unheard
     openarm-motors disable               send DISABLE to every motor, then re-read
@@ -157,25 +158,43 @@ def poll(s, ids, rounds=ROUNDS, window=WINDOW):
     return latest, heard
 
 
-def link_health(iface):
-    """One line on the link: its CAN state and what it has dropped or warned since it came up.
-    Shown only for an arm with a motor that went unheard, so a flaky bus is named as such."""
+def link_info(iface):
+    """The link as data, from `ip` alone -- no CAN traffic: present, up, its CAN state, and the
+    error transitions and drops since it came up. Read-only."""
     try:
-        out = subprocess.run(["ip", "-details", "-statistics", "link", "show", iface],
-                             capture_output=True, text=True, timeout=3).stdout
+        r = subprocess.run(["ip", "-details", "-statistics", "link", "show", iface],
+                           capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.SubprocessError):
-        return ""
+        return {"present": None}
+    if r.returncode != 0:
+        return {"present": False}
+    out = r.stdout
+    first = out.splitlines()[0] if out else ""
     st = re.search(r"can (?:<[^>]*> )?state (\S+)", out)
     errs = re.search(r"re-started bus-errors arbit-lost error-warn error-pass bus-off\s+"
                      r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)", out)
     rx = re.search(r"RX:.*\n\s+\d+\s+\d+\s+(\d+)\s+(\d+)", out)
     tx = re.search(r"TX:.*\n\s+\d+\s+\d+\s+(\d+)\s+(\d+)", out)
-    bits = [f"link {st.group(1)}" if st else "link state unknown"]
+    info = {"present": True, "up": bool(re.search(r"<[^>]*\bUP\b[^>]*>", first)),
+            "state": st.group(1) if st else "UNKNOWN"}
     if errs:
-        bits.append(f"{errs.group(4)} error-warnings, {errs.group(5)} error-passive, "
-                    f"{errs.group(6)} bus-off since up")
+        info.update(warn=int(errs.group(4)), passive=int(errs.group(5)), busoff=int(errs.group(6)))
     if rx and tx:
-        bits.append(f"dropped rx {rx.group(2)} / tx {tx.group(2)}")
+        info.update(rx_drop=int(rx.group(2)), tx_drop=int(tx.group(2)))
+    return info
+
+
+def link_health(iface):
+    """One line on the link: its CAN state and what it has dropped or warned since it came up.
+    Shown only for an arm with a motor that went unheard, so a flaky bus is named as such."""
+    i = link_info(iface)
+    if not i.get("present"):
+        return "link missing" if i.get("present") is False else ""
+    bits = [f"link {i['state']}" + ("" if i["up"] else " (down)")]
+    if "warn" in i:
+        bits.append(f"{i['warn']} error-warnings, {i['passive']} error-passive, {i['busoff']} bus-off since up")
+    if "rx_drop" in i:
+        bits.append(f"dropped rx {i['rx_drop']} / tx {i['tx_drop']}")
     return "; ".join(bits)
 
 
@@ -216,6 +235,17 @@ def fmt_counts(c):
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "links":
+        # One line per arm, key=value, from `ip` alone: nothing is sent on the bus.
+        for iface in IFACES:
+            i = link_info(iface)
+            if not i.get("present"):
+                print(f"{iface} present={0 if i.get('present') is False else '?'}")
+                continue
+            kv = {"present": 1, "up": int(i["up"]), "state": i["state"]}
+            kv.update({k: i[k] for k in ("warn", "passive", "busoff", "rx_drop", "tx_drop") if k in i})
+            print(iface + " " + " ".join(f"{k}={v}" for k, v in kv.items()))
+        return
     if cmd == "disable":
         for iface in IFACES:
             try:

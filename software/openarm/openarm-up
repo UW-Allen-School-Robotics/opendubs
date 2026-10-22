@@ -12,6 +12,7 @@
 #   openarm-up down [--drop]    controllers off, arms inactive, stack stopped, motors verified off.
 #                               REFUSES while an arm is active, because inactive = limp = the arm
 #                               falls from wherever it is. Park first, or pass --drop deliberately.
+#   openarm-up relink ARM       restart one arm's CAN link (left|right); refused under an energized arm
 #   openarm-up status           links, container, stack, hardware + controller states, motors
 #   openarm-up logs             follow the current launch log
 #
@@ -103,7 +104,7 @@ XML
   echo "  wrote $FASTDDS_PROFILE in the container (FastDDS SHM disabled)"
 }
 LOGDIR=/openarm_ws/log/openarm-up                      # inside the container; host-mounted
-MOTORS=/usr/local/lib/openarm/openarm-motors
+MOTORS=${OPENARM_MOTORS:-/usr/local/lib/openarm/openarm-motors}
 # Stow pose lives OUTSIDE /opt/opendubs: deploy-all.sh rsyncs --delete over /opt/opendubs/openarm,
 # which would eat it. Same lesson as the drive calibration in rc_serial_probe's main.cpp.
 # Format, one or both lines, joint angles in DEGREES so they can be eyeballed against
@@ -254,6 +255,56 @@ tablet_reset() {
   echo "on the TELEOP page press DE-ENERGIZE, tap it again to confirm, then press ACTIVATE $s"
 }
 
+# An arm's CAN link in plain words, from `openarm-motors links` (ip only; sends nothing). Empty when
+# the link is healthy (up and ERROR-ACTIVE). Otherwise "missing (...)", "down" or "in error (...)",
+# to follow "Its CAN link is". The same words the tablet's arm card shows (backend/openarm.py).
+link_words() {
+  local line; line=$($MOTORS links 2>/dev/null | awk -v b="arm_$1" '$1==b')
+  kv() { sed -n "s/.* $1=\([^ ]*\).*/\1/p" <<<"$line"; }
+  [ -n "$line" ] || { echo "unreadable"; return; }
+  if [ "$(kv present)" != 1 ]; then echo "missing (the CAN adapter is unplugged, or its driver is not loaded)"; return; fi
+  [ "$(kv up)" = 1 ] || { echo "down"; return; }
+  local st; st=$(kv state)
+  [ "$st" = ERROR-ACTIVE ] && return
+  local w; w=$(kv warn)
+  echo "in error ($st${w:+; $w error-warnings since it came up})"
+}
+arm_word() { [ "$1" = right ] && echo Right || echo Left; }
+arm_key()  { [ "$1" = right ] && echo R || echo L; }
+
+# Why an arm would not activate, in the words the operator sees (the dashboard shows the message).
+# Called where the hardware refuses to go active: its own reason (activation_hold's check) is in the
+# arm stack's log, never in the reply, which left "hardware is 'inactive'" and nothing else.
+explain_no_activation() {
+  local arm=$1 n c_en c_dis c_nr c_flt c_desc lw reason
+  local A; A=$(arm_word "$arm"); local K; K=$(arm_key "$arm")
+  n=$(arm_nmotors "$arm")
+  read -r c_en c_dis c_nr c_flt c_desc <<<"$(arm_motor_counts "$arm")"
+  lw=$(link_words "$arm")
+  reason=$(sudo docker exec "$CONTAINER" sh -c "grep -h 'Not activating' $LOGDIR/latest.log 2>/dev/null | tail -1" 2>/dev/null |
+           sed -e 's/\x1b\[[0-9;]*m//g' -e 's/.*Not activating: //')
+  local none=""; [ "${c_nr:-0}" -ge "$n" ] && none="no motor answers. "
+  case "$lw" in
+    missing*)
+      # @fault ARM_LINK_ERROR
+      die "$A arm: ${none}Its CAN link is $lw.
+  A link restart cannot fix that. To fix: check the CAN adapter's USB cable at the robot's computer." ;;
+    "")
+      if [ -n "$none" ]; then
+        die "$A arm: no motor answers, though its CAN link is up. The arm has no power, or its CAN cable is
+  loose. To fix: check the e-stop is released and the contactor closed, and the $arm arm's CAN cable
+  and power, then press ACTIVATE $K again."
+      fi
+      die "$A arm: the arm hardware refused to activate${reason:+: $reason}.
+  To fix: check the $arm arm's CAN cable and power, then press ACTIVATE $K again." ;;
+    *)
+      # @fault ARM_LINK_ERROR
+      die "$A arm: ${none}Its CAN link is $lw.
+  To fix: check the $arm arm's CAN cable and power (the e-stop released, the contactor closed), then
+  press RESTART LINK $K and ACTIVATE $K again (shell: openarm-up relink $arm, then activate $arm)." ;;
+  esac
+}
+
 activate_one() {
   local arm=$1
   local st; st=$(hw_state "$arm")
@@ -282,7 +333,7 @@ activate_one() {
     echo "== $arm: hardware $st -> active"
     ros "timeout 30 ros2 control set_hardware_component_state openarm_${arm}_hardware_interface active 2>&1" | tail -1 | sed 's/^/  /'
     st=$(hw_state "$arm")
-    [ "$st" = active ] || die "$arm hardware is '$st', not active — stopping"
+    [ "$st" = active ] || explain_no_activation "$arm"
   fi
   # The motors do not all answer the instant the hardware goes active — the GRIPPER is reliably
   # last, and a single immediate read raced it: 2026-10-02 saw "only 7/8 ENABLED" with id 8
@@ -304,6 +355,8 @@ activate_one() {
   A motor fault latches until the motor loses power.
   To fix: press and release the e-stop to power-cycle the arms, then press ACTIVATE again
   (shell: openarm-up activate $arm)."
+    elif [ "${c_nr:-0}" -gt 0 ] && [ -n "$(link_words "$arm")" ]; then
+      explain_no_activation "$arm"
     elif [ "${c_nr:-0}" -gt 0 ]; then
       die "$arm: $c_nr of $n motors do not answer on CAN. Not starting its controller.
   They are unpowered, or the CAN wiring is broken at or before the first silent one (the gripper is
@@ -581,8 +634,37 @@ cmd_status() {
   echo "== motors"; $MOTORS status | sed 's/^/  /'
 }
 
+# Restart one arm's CAN link (openarm-can@arm_<side>): moves nothing, but it cuts the bus under the
+# arm for a moment, so never under an energized arm -- the tablet's RESTART LINK button.
+cmd_relink() {
+  local arm=${1:-}
+  case "$arm" in left|right) ;; *) die "usage: openarm-up relink left|right" ;; esac
+  local i="arm_$arm" A; A=$(arm_word "$arm")
+  ip link show "$i" >/dev/null 2>&1 || die "$A arm: its CAN link $i is missing (the CAN adapter is unplugged, or its
+  driver is not loaded). A link restart cannot fix that."
+  if running && cm_reachable && [ "$(hw_state "$arm")" = active ]; then
+    die "$A arm: not restarting its CAN link -- the arm is active, and a restart cuts its commands.
+  It is only for an arm that is not energized."
+  fi
+  local en; en=$($MOTORS status | awk -v b="$i" '/^arm_/{cur=$1} cur==b && / ENABLED /{n++} END{print n+0}')
+  [ "${en:-0}" -eq 0 ] || die "$A arm: not restarting its CAN link -- $en of its motors are ENABLED (energized).
+  It is only for an arm that is not energized."
+  echo "== $i: $(link_state "$i") -- restarting the link (motion-free)"
+  sudo systemctl restart "openarm-can@$i" || die "$A arm: the link restart failed (systemctl restart openarm-can@$i)."
+  local _
+  for _ in 1 2 3 4 5 6; do [ "$(link_state "$i")" = ERROR-ACTIVE ] && break; sleep 0.5; done
+  local lw; lw=$(link_words "$arm")
+  # @fault ARM_LINK_ERROR
+  [ -z "$lw" ] || die "$A arm: its CAN link is still $lw after a restart.
+  To fix: check the $arm arm's CAN cable and power (the e-stop released, the contactor closed)."
+  echo "  $i: ERROR-ACTIVE"
+  echo "== $A arm motors:"
+  $MOTORS status | awk -v b="$i" '/^arm_/{cur=$1; next} cur==b'
+}
+
 case "${1:-start}" in
   start|up) cmd_start ;;
+  relink) cmd_relink "${2:-}" ;;
   activate) cmd_activate "$2" ;;
   park) cmd_park "${2:-}" ;;
   hold) cmd_hold "${2:-}" ;;
