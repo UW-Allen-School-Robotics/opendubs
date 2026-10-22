@@ -579,7 +579,7 @@ check("joints are handed to sim/scene.py in each arm's own sense",
       "left:2=20.0" in sim_preview.joints_arg(sim_preview.sample(tl, 3.0)))
 _ev = [{"t": 1.0, "start": 1.0, "end": 3.0, "cue": {"move": "sway", "secs": 2}}]
 _mid = sim_preview.base_pose(_ev, 1.5)
-check("a dance move displaces the base while it runs", abs(_mid[1]) > 0.03, _mid)
+check("a dance move displaces the base while it runs", abs(_mid[1]) > 0.01, _mid)
 check("... and the base is back where it started when the move ends",
       all(abs(v) < 1e-9 for v in sim_preview.base_pose(_ev, 2.999999)) or
       max(abs(v) for v in sim_preview.base_pose(_ev, 2.999999)) < 1e-4, sim_preview.base_pose(_ev, 2.999999))

@@ -91,22 +91,40 @@ DEVICE_BRIGHT_LOW = 0.15
 
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
 # Not DRIVE. A DANCE cue names a move from this library and nothing else: no free-form velocity is
-# expressible. Each move is a fixed open-loop profile — segments of (fraction of the move's
-# duration, forward, strafe, rotate), each axis in "dance units" where 1.0 is the SHOW CAP: the most
-# a show's base motion may ask for (SHOW_BASE_CAP of full command in AUTO, a software setting the Thor
-# enforces, below the firmware's AUTO ceiling of 0.35, which CH8 scales further in a human's hand).
-# Every move returns the base to where it started BY
-# CONSTRUCTION (every axis integrates to zero; the validator re-checks it), so only open-loop
-# drift can accumulate. On a live run the runner sends each move to the Thor's base tracker, which
+# expressible. Each move is a fixed profile: STROKES of (fraction of the move's duration, forward,
+# strafe, rotate, shape), each axis in "dance units" where 1.0 is the SHOW CAP: the most a show's base
+# motion may ask for (SHOW_BASE_CAP of full command in AUTO, a software setting the Thor enforces,
+# below the firmware's AUTO ceiling of 0.35, which CH8 scales further in a human's hand). A stroke's
+# speed on its axis peaks at exactly that many dance units, and EVERY stroke starts and ends at rest
+# (measured on opendubs2, 2026-10-22: constant-speed steps shudder, the StamPLC holds each wheel still
+# for 0.2 s at every direction flip, and a stroke that ends at speed brakes hard at the stop):
+#   "swing" — out one way, through the middle at peak speed, out the other way and home: the windowed
+#             sine sin(2 pi v) sin^2(pi v), at rest at both ends and slow at both turn-arounds;
+#   "step"  — to a new place and stop: (1 - cos pi v) / 2, at rest at both ends.
+# Every move returns the base to where it started BY CONSTRUCTION (the validator re-checks it), and no
+# stroke translates and turns at once (strafing already uses the turn budget to hold its heading), so
+# only drift can accumulate. On a live run the runner sends each move to the Thor's base tracker, which
 # closes the loop on /odom (base_output.py, notes/design/choreo-dance-live.md); elsewhere, the twin.
 DANCE_MOVES = {
-    "sway":    [(0.25, 0, +1, 0), (0.5, 0, -1, 0), (0.25, 0, +1, 0)],            # side to side
-    "rock":    [(0.25, +1, 0, 0), (0.5, -1, 0, 0), (0.25, +1, 0, 0)],            # forward and back
-    "twist":   [(0.25, 0, 0, +1), (0.5, 0, 0, -1), (0.25, 0, 0, +1)],            # turn and return
-    "shuffle": [(0.125, 0, +1, 0), (0.25, 0, -1, 0), (0.25, 0, +1, 0), (0.25, 0, -1, 0),
-                (0.125, 0, +1, 0)],                                               # two quick sways
-    "box":     [(0.25, +1, 0, 0), (0.25, 0, +1, 0), (0.25, -1, 0, 0), (0.25, 0, -1, 0)],
+    "sway":    [(1.0, 0, +1, 0, "swing")],                                        # side to side
+    "rock":    [(1.0, +1, 0, 0, "swing")],                                        # forward and back
+    "twist":   [(1.0, 0, 0, +1, "swing")],                                        # turn and return
+    "shuffle": [(0.5, 0, +1, 0, "swing"), (0.5, 0, +1, 0, "swing")],              # two quick sways
+    "box":     [(0.25, +1, 0, 0, "step"), (0.25, 0, +1, 0, "step"), (0.25, -1, 0, 0, "step"),
+                (0.25, 0, -1, 0, "step")],                                        # a square, home
 }
+
+
+def _stroke(shape: str, v: float) -> tuple:
+    """(position, rate) of a stroke's unit shape at v in [0, 1], scaled so the rate peaks at exactly 1:
+    a stroke of length T at a speed s moves s * T * position, at s * rate."""
+    if shape == "swing":     # sin(2 pi v) sin^2(pi v), whose slope peaks at 2 pi (at v = 0.5)
+        s1, c2 = math.sin(math.pi * v), math.cos(2 * math.pi * v)
+        return (math.sin(2 * math.pi * v) * s1 * s1 / (2 * math.pi),
+                c2 * s1 * s1 + math.sin(2 * math.pi * v) ** 2 / 2)
+    if shape == "step":      # (1 - cos pi v) / 2, whose slope peaks at pi / 2
+        return (1 - math.cos(math.pi * v)) / math.pi, math.sin(math.pi * v)
+    raise ValueError(f"unknown stroke shape {shape!r}")
 DANCE_SECS = (0.5, 4.0)          # SANITY: one move is a gesture, not a journey
 DANCE_DEFAULT_SECS = 2.0
 DANCE_TOTAL_MAX_S = 30.0         # SANITY: the whole show's open-loop base time
@@ -116,27 +134,29 @@ FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
 # user may raise; RC is not capped. A dance unit of 1.0 is the cap. Top speed is never measured: shows
 # are planned at the speeds AT the cap. When the user raises the cap, change SHOW_BASE_CAP, the peak
 # fraction and the three speeds below together.
-SHOW_BASE_CAP = 0.25
+SHOW_BASE_CAP = 0.35
 # Each DANCE move peaks at no more than this fraction of the cap on the axis it uses (amp <= it), so the
 # tracker keeps the rest to correct an error, including the yaw this base picks up when it strafes (the
-# user's decision, 2026-10-22). A move that asks for more is refused (_check_dance).
-DANCE_PEAK_OF_CAP = 0.50
+# user's decision, 2026-10-22: 70 %; at half the cap the motors barely turned and the base shuddered).
+# A move that asks for more is refused (_check_dance).
+DANCE_PEAK_OF_CAP = 0.70
 DANCE_DEFAULT_AMP = DANCE_PEAK_OF_CAP     # a cue with no amp: the most a move may ask for
-# MEASURED on opendubs2, 2026-10-22 (the Thor lane: 1.5 s bursts AT the cap, CH8 at its maximum, from
-# /odom): the base's speed at the cap, forward, strafing (either way) and turning. Strafing is slower
-# than driving, and strafing right yaws the base clockwise; the tracker corrects both closed-loop. They
-# size a move's excursion against the declared floor radius, and on a live run they are the speeds the
-# base tracker is asked to follow.
-BASE_M_PER_S_AT_CAP = 0.27
-BASE_M_PER_S_STRAFE_AT_CAP = 0.18
-BASE_RAD_PER_S_AT_CAP = 0.37
+# PROVISIONAL, opendubs2's base.env (the Thor lane, 2026-10-22): the base's speed at the cap, forward,
+# strafing (either way) and turning — measured at a 0.25 cap (1.5 s bursts, CH8 at its maximum, from
+# /odom) and scaled to 0.35. Strafing is slower than driving, and strafing right yaws the base
+# clockwise; the tracker corrects both closed-loop. They size a move's excursion against the declared
+# floor radius, and on a live run they are the speeds the base tracker is asked to follow. All of them
+# are re-measured when the drivetrain gets its belts.
+BASE_M_PER_S_AT_CAP = 0.38
+BASE_M_PER_S_STRAFE_AT_CAP = 0.25
+BASE_RAD_PER_S_AT_CAP = 0.52
 DRIVE_V_MAX = BASE_M_PER_S_AT_CAP                                 # m/s
 DRIVE_W_MAX_DEG = math.degrees(BASE_RAD_PER_S_AT_CAP)             # deg/s
 
 
 def dance_peak_command(amp: float = DANCE_DEFAULT_AMP) -> float:
     """The most a move at `amp` asks of the base, as a fraction of full command (every library
-    segment is a full dance unit on its axis)."""
+    stroke peaks at a full dance unit on its axis)."""
     return amp * SHOW_BASE_CAP
 
 
@@ -179,19 +199,35 @@ def drive_path(cues: list, step_s: float = 0.05):
 
 
 def dance_net(move: str) -> tuple:
-    """(forward, strafe, rotate) a move integrates to, in dance-unit fractions — zero by design."""
-    segs = DANCE_MOVES[move]
-    return tuple(sum(f * v[i] for f, *v in segs) for i in range(3))
+    """(forward, strafe, rotate) a move ends at, in dance-unit seconds per second of move — zero by
+    design."""
+    return tuple(sum(f * axes[i] * _stroke(shape, 1.0)[0] for f, *axes, shape in DANCE_MOVES[move])
+                 for i in range(3))
+
+
+def dance_state(move: str, secs: float, amp: float, t: float) -> tuple:
+    """(x, y, yaw rad, vx, vy, w) of a move t seconds in: the pose in the frame the move started in, and
+    the body velocity. At rest at t = 0 and t = secs, and home again at the end."""
+    v, vs, w = dance_speeds(amp)
+    x = y = yaw = 0.0
+    t = min(max(t, 0.0), secs)
+    for frac, fwd, strafe, rot, shape in DANCE_MOVES[move]:
+        dur = frac * secs
+        u = min(max(t / dur, 0.0), 1.0) if dur > 0 else 1.0
+        pos, rate = _stroke(shape, u)
+        bx, by = fwd * v * dur * pos, strafe * vs * dur * pos      # in the frame this stroke started in
+        c, s = math.cos(yaw), math.sin(yaw)
+        x, y, yaw = x + bx * c - by * s, y + bx * s + by * c, yaw + rot * w * dur * pos
+        if t < dur:
+            return x, y, yaw, fwd * v * rate, strafe * vs * rate, rot * w * rate
+        t -= dur
+    return x, y, yaw, 0.0, 0.0, 0.0
 
 
 def dance_excursion_m(move: str, secs: float, amp: float = DANCE_DEFAULT_AMP) -> float:
     """Farthest the base strays from where the move started, at the measured speeds (open loop)."""
-    v, vs, _w = dance_speeds(amp)
-    x = y = far = 0.0
-    for frac, fwd, strafe, _rot in DANCE_MOVES[move]:
-        x, y = x + fwd * v * frac * secs, y + strafe * vs * frac * secs
-        far = max(far, math.hypot(x, y))
-    return far
+    n = 200
+    return max(math.hypot(*dance_state(move, secs, amp, secs * k / n)[:2]) for k in range(n + 1))
 
 MARGIN_DEG = 5.0
 # MEASURED, 2026-10-08 (workplan 6.1; speed_test.py on opendubs2's right arm, the left a mirror of
@@ -1942,8 +1978,8 @@ class Show:
         if any(abs(n) > 1e-9 for n in dance_net(move)):
             p.append(f"{where}: dance move {move!r} does not return to where it started "
                      f"(net {dance_net(move)}) — a library error, refused")
-        if any(strafe and rot for _f, _fwd, strafe, rot in DANCE_MOVES[move]):
-            p.append(f"{where}: dance move {move!r} strafes and turns at once, and strafing already "
+        if any((fwd or strafe) and rot for _f, fwd, strafe, rot, _shape in DANCE_MOVES[move]):
+            p.append(f"{where}: dance move {move!r} moves and turns at once, and strafing already "
                      f"uses the turn budget to hold its heading — a library error, refused")
         secs = c.get("secs", DANCE_DEFAULT_SECS)
         if not (_num(secs) and DANCE_SECS[0] <= float(secs) <= DANCE_SECS[1]):

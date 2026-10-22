@@ -156,18 +156,8 @@ def _dance_pose(events: list, t: float) -> tuple:
         secs = float(c.get("secs", cue.DANCE_DEFAULT_SECS))
         if not e["start"] <= t < e["start"] + secs:
             continue
-        amp = float(c.get("amp", cue.DANCE_DEFAULT_AMP))
-        v, vs, w = cue.dance_speeds(amp)
-        x = y = yaw = 0.0
-        left = t - e["start"]
-        for frac, fwd, strafe, rot in cue.DANCE_MOVES[c["move"]]:
-            dt = min(frac * secs, left)
-            if dt <= 0:
-                break
-            x += (fwd * v * math.cos(yaw) - strafe * vs * math.sin(yaw)) * dt
-            y += (fwd * v * math.sin(yaw) + strafe * vs * math.cos(yaw)) * dt
-            yaw += rot * w * dt
-            left -= dt
+        x, y, yaw, *_ = cue.dance_state(c["move"], secs, float(c.get("amp", cue.DANCE_DEFAULT_AMP)),
+                                        t - e["start"])
         return x, y, math.degrees(yaw)
     return 0.0, 0.0, 0.0
 
