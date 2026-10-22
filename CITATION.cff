@@ -3,13 +3,16 @@ message: "If you use OpenDubs in academic work, please cite it as below."
 title: "OpenDubs: a low-cost, open-source mobile robot"
 abstract: >-
   OpenDubs is a low-cost, low-fabrication, open-source mobile robot platform built from mostly
-  off-the-shelf parts (NVIDIA Jetson AGX Thor, M5Stack StamPLC/Tab5, goBILDA/REV structure,
-  mecanum drive) with open firmware, software, and hardware designs so others can replicate it.
+  off-the-shelf parts (an NVIDIA Jetson AGX Thor, an M5Stack StamPLC safety controller, goBILDA
+  and REV structure, a mecanum drive, two OpenArm arms and a tablet head) with open firmware,
+  software and hardware designs, so that others can replicate it.
 type: software
 authors:
-  # TODO: replace with the real author list (name + affiliation + ORCID) before publishing.
+  # TODO: the copyright holder and the author list wait on legal advice (individual contributors
+  # or the University of Washington). Until then the project is cited as one collective author.
   - name: "The OpenDubs Authors"
 repository-code: "https://github.com/UW-Allen-School-Robotics/opendubs"
+url: "https://uw-allen-school-robotics.github.io/opendubs/"
 license:
   - Apache-2.0
   - CERN-OHL-W-2.0
@@ -21,6 +24,6 @@ keywords:
   - ROS 2
   - mecanum
   - open source
-# version: "0.1.0"        # TODO: set on first release
-# date-released: 2026-01-01   # TODO: set on first release
-# doi: 10.5281/zenodo.XXXXXXX # TODO: mint via the Zenodo–GitHub integration on first release
+  - open-source hardware
+# On the first tagged release, add `version`, `date-released` and the `doi` minted by the
+# Zenodo–GitHub integration.
