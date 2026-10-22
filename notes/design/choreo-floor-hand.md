@@ -53,10 +53,11 @@ twin only and never asks the hand.
   tether taped flat or flagged. Someone places the hand at its start mark before each run and collects it
   after. Open loop, with no sensing: its path is a plan, not a measurement, so the area has margin.
 
-## Open: decided by the user before anything is connected
+## Where it stands (2026-10-21)
 
-- The hand's input voltage range and peak current (label or datasheet), and what powered it on the bench.
-- The adapter and cable from the robot's computer to the hand.
-- The floor tether and the e-stop-switched 24 V branch (above).
-- The venue's floor surface: the walk's speed was measured on one floor only (about 10–13 cm/s).
-- A bench test of each move before it joins `tested_gaits` / `tested_patterns`.
+The hand is **wired and has run on the floor**; its hardware is settled and is not a gate on this work.
+What the floor showed: it moves over the ground very effectively, covering roughly one finger stroke per
+step. So the slow-crawl assumption behind the first plans was wrong. The hand is fast and agile, and its
+dances should use that: quick dashes, stop-and-go on the beat, bursts between finger dances. A
+move still plays live only once it has run on the real hand (`tested_gaits`, `tested_patterns`), so
+each new move gets a short floor run before it joins a show.
