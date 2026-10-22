@@ -186,7 +186,8 @@ scan is stale. The firmware gates (AUTO, a held deadman, the 0.35 ceiling) still
 command (0.25 to start) on every **wheel**, so no mix of forward, strafe and turn exceeds it. It's per
 robot, in `/etc/opendubs/base.env`, which both `opendubs-drive-bridge` and `opendubs-dance-tracker` read,
 together with the speeds at the cap (`OPENDUBS_MAX_LIN`, `_STRAFE`, `_ANG`) and the optional strafe trim
-(`OPENDUBS_STRAFE_FWD_BLEED`, `_YAW_BLEED`). Changing any of them is a one-line edit and
+(`OPENDUBS_STRAFE_YAW_BLEED_LEFT`/`_RIGHT` and `OPENDUBS_STRAFE_FWD_BLEED_LEFT`/`_RIGHT`, per direction,
+because a strafe can bleed differently each way). Changing any of them is a one-line edit and
 `sudo systemctl restart opendubs-drive-bridge opendubs-dance-tracker`. MANUAL (RC) driving isn't affected.
 
 The public contract for students and other stacks is the docs page

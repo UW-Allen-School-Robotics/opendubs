@@ -76,6 +76,22 @@ class TrimTest(unittest.TestCase):
         vx, vy, wz = d.strafe_trim(0.0, 0.1, 0.0, fwd_bleed=0.2, yaw_bleed=0.5)
         self.assertAlmostEqual(vx, -0.02); self.assertAlmostEqual(vy, 0.1); self.assertAlmostEqual(wz, -0.05)
 
+    def test_trim_per_direction_as_measured_on_opendubs2(self):
+        # strafing RIGHT at 0.18 m/s yawed -0.262 rad/s: k = -0.262 / -0.18 = 1.46. Left barely bled.
+        yaw = (0.0, 1.46)
+        _, _, wz_right = d.strafe_trim(0.0, -0.12, 0.0, yaw_bleed=yaw)
+        _, _, wz_left = d.strafe_trim(0.0, +0.12, 0.0, yaw_bleed=yaw)
+        self.assertAlmostEqual(wz_right, 1.46 * 0.12)      # turns CCW to cancel the clockwise bleed
+        self.assertEqual(wz_left, 0.0)
+
+    def test_bleed_from_env(self):
+        env = {"OPENDUBS_STRAFE_YAW_BLEED_RIGHT": "1.46"}
+        self.assertEqual(d.bleed_from_env(env, "YAW"), (0.0, 1.46))
+        self.assertEqual(d.bleed_from_env({"OPENDUBS_STRAFE_FWD_BLEED": "0.1"}, "FWD"), (0.1, 0.1))
+        self.assertEqual(d.bleed_from_env({"OPENDUBS_STRAFE_YAW_BLEED": "0.3", "OPENDUBS_STRAFE_YAW_BLEED_LEFT": "0"}, "YAW"),
+                         (0.0, 0.3))
+        self.assertEqual(d.bleed_from_env({}, "YAW"), (0.0, 0.0))
+
     def test_no_trim_by_default(self):
         self.assertEqual(d.strafe_trim(0.1, 0.2, 0.3), (0.1, 0.2, 0.3))
 

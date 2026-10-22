@@ -18,10 +18,14 @@ Full scales. OPENDUBS_MAX_LIN, OPENDUBS_MAX_STRAFE and OPENDUBS_MAX_ANG are the 
 at the CAP (unit 1.0 on that axis alone): measured on each robot with short bursts at the cap, never at
 full command. A command asking for more than the cap gets the cap.
 
-Strafe trim (optional, default 0): a mecanum strafe can bleed into forward motion and yaw. The dance
-tracker corrects that in closed loop; OPENDUBS_STRAFE_FWD_BLEED (m/s forward per m/s of strafe) and
-OPENDUBS_STRAFE_YAW_BLEED (rad/s per m/s of strafe) add a feed-forward correction when a robot's
-measured bleed is large enough for the loop's lag to matter.
+Strafe trim (optional, default 0): a mecanum strafe can bleed into forward motion and yaw, and not
+necessarily the same way in each direction (opendubs2 yaws clockwise strafing right and barely at all
+strafing left). The dance tracker corrects that in closed loop; a trim adds feed-forward when a robot's
+measured bleed is large enough for the loop's lag to matter. Each is k in "bleed = k x strafe
+velocity" (ROS signs: +y left, +yaw counter-clockwise), set per direction:
+  OPENDUBS_STRAFE_YAW_BLEED_LEFT / _RIGHT   rad/s of yaw per m/s of strafe
+  OPENDUBS_STRAFE_FWD_BLEED_LEFT / _RIGHT   m/s forward per m/s of strafe
+  OPENDUBS_STRAFE_YAW_BLEED / _FWD_BLEED    both directions at once (a per-direction value wins)
 
 Pure Python: no ROS, so it can be tested on a laptop.
 """
@@ -56,6 +60,23 @@ def to_firmware(fwd, rot_ccw, strafe_left):
     return fwd, -rot_ccw, -strafe_left
 
 
-def strafe_trim(vx, vy, wz, fwd_bleed=0.0, yaw_bleed=0.0):
-    """Feed-forward against a strafe's bleed into forward motion and yaw."""
-    return vx - fwd_bleed * vy, vy, wz - yaw_bleed * vy
+def strafe_trim(vx, vy, wz, fwd_bleed=(0.0, 0.0), yaw_bleed=(0.0, 0.0)):
+    """Feed-forward against a strafe's bleed into forward motion and yaw.
+
+    fwd_bleed and yaw_bleed are (left, right) pairs, or a single number for both: the k in
+    "bleed = k x vy" for a strafe in that direction. The trim subtracts the bleed it predicts."""
+    def k(pair):
+        if isinstance(pair, (int, float)):
+            return float(pair)
+        return float(pair[0] if vy > 0 else pair[1])
+    return vx - k(fwd_bleed) * vy, vy, wz - k(yaw_bleed) * vy
+
+
+def bleed_from_env(env, axis):
+    """The (left, right) trim for `axis` ("YAW" or "FWD") from OPENDUBS_STRAFE_<axis>_BLEED[_LEFT|_RIGHT]."""
+    def f(name):
+        v = env.get(name, "")
+        return float(v) if v.strip() else None
+    both = f(f"OPENDUBS_STRAFE_{axis}_BLEED")
+    left, right = f(f"OPENDUBS_STRAFE_{axis}_BLEED_LEFT"), f(f"OPENDUBS_STRAFE_{axis}_BLEED_RIGHT")
+    return (left if left is not None else (both or 0.0), right if right is not None else (both or 0.0))
