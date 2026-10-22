@@ -161,7 +161,8 @@ async function edit(edits, label) {
     S.undo.push(S.text);
     setData(d);
     if (label) toast(label, 1600);
-  } catch (e) { toast(e.message, 5000); }
+    return d;
+  } catch (e) { toast(e.message, 5000); throw e; }
 }
 async function undo() {
   if (!S.undo.length) return;
