@@ -460,3 +460,20 @@ button.on { border-color: var(--accent); color: var(--accent); }
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);
   padding: 8px 12px;
 }
+
+/* the crawling hand's floor plan (twin only) */
+.floorbox { display: flex; gap: 10px; align-items: flex-start; margin-top: 8px; flex-wrap: wrap; }
+svg.floor { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; max-width: 100%; height: auto; }
+svg.floor .area { fill: rgba(46, 194, 126, 0.07); stroke: var(--good); stroke-dasharray: 4 3; }
+svg.floor .reach { fill: none; stroke: var(--accent-2); stroke-dasharray: 2 4; opacity: 0.7; }
+svg.floor .chassis { fill: #2a3442; stroke: var(--dim); }
+svg.floor .keepoff { fill: rgba(239, 90, 90, 0.06); stroke: var(--bad); stroke-dasharray: 3 3; opacity: 0.7; }
+svg.floor .band { fill: none; stroke: rgba(25, 209, 196, 0.16); stroke-linecap: round; stroke-linejoin: round; }
+svg.floor .path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+svg.floor .dock { fill: var(--dim); }
+svg.floor .leash { stroke: #f0a030; stroke-width: 1.5; }
+svg.floor .hand { fill: #f4f4f6; stroke: var(--accent); }
+svg.floor .hdg { stroke: #f4f4f6; stroke-width: 2; }
+.floorlegend { font-size: 12px; flex: 1; min-width: 180px; }
+.floorlegend ul { margin: 4px 0; padding-left: 16px; }
+.badge.sim { background: rgba(240, 160, 48, 0.18); color: #f0a030; font-size: 10px; padding: 1px 6px; border-radius: 4px; }

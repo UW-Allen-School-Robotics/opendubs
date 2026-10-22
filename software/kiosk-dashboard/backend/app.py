@@ -40,24 +40,8 @@ import origin_guard  # noqa: E402
 origin_guard.install(app)
 
 # Server-side state for non-safety soft controls.
-STATE = {"last_action": None, "ai_tracking": False}
+STATE = {"last_action": None}
 
-TRACKER_UNIT = "opendubs-yolo-tracker"
-
-
-def _tracker_active() -> bool:
-    """Is the face tracker running? Asked of systemd, not remembered.
-
-    This used to be a flag the dashboard set when it spawned the tracker itself, which went
-    wrong in both directions: the flag survived a crash, and an instance started any other way
-    was invisible. systemd already knows, and it is the only thing that does.
-    """
-    try:
-        r = subprocess.run(["systemctl", "is-active", TRACKER_UNIT],
-                           capture_output=True, text=True, timeout=3)
-        return r.stdout.strip() == "active"
-    except Exception:
-        return False
 
 
 @app.on_event("startup")
@@ -124,71 +108,12 @@ def frontend_version() -> dict:
 
 @app.get("/api/snapshot")
 def snapshot() -> JSONResponse:
-    # Report what systemd says, so the button cannot claim the tracker is running after it has
-    # died — or claim it is stopped while it happily tracks.
-    STATE["ai_tracking"] = _tracker_active()
-
     return JSONResponse({
         "system": metrics.collect(), "telemetry": telemetry.collect(),
         "status": status_mod.collect(), "state": STATE,
     })
 
 
-@app.on_event("startup")
-async def _reconcile_tracker() -> None:
-    """The RealSense tracker's service runs exactly when the Head & face setting says d415."""
-    import head_settings
-    err = await asyncio.get_running_loop().run_in_executor(None, head_settings.reconcile_tracker)
-    if err:
-        print(f"TRACKER: could not match the setting: {err}")
-
-
-@app.post("/api/tracker/{state}")
-async def tracker_control(state: str) -> JSONResponse:
-    """Start or stop the AI face tracker.
-
-    This drives the systemd unit. It used to `subprocess.Popen` the script itself with the Tab5's
-    address hardcoded, which was wrong three ways: a second copy fought the service for the
-    camera and lost (a RealSense admits one client), the hardcoded IP broke whenever DHCP moved
-    the head, and a tracker started by systemd at boot was invisible to the button.
-    """
-    target = state.lower()
-    if target not in ("on", "off"):
-        return JSONResponse({"ok": False, "error": "use on|off"}, status_code=400)
-    # One truth: this button writes the Head & face `tracking` setting, which the service follows.
-    import head_settings
-    import face_door
-    if target == "on" and not head_settings.realsense_present():
-        return JSONResponse({"ok": False, "error": "no RealSense camera is connected to the robot"}, status_code=409)
-    s = head_settings.load()
-    if target == "on" or s.get("tracking") == "d415":
-        s["tracking"] = "d415" if target == "on" else "off"
-        try:
-            head_settings.save(s)
-            await face_door.broadcast({"settings": s})
-        except OSError:
-            pass                                  # the service still follows the button
-
-    verb = "start" if target == "on" else "stop"
-    try:
-        r = await asyncio.to_thread(subprocess.run, ["sudo", "-n", "systemctl", verb, TRACKER_UNIT],
-                                    capture_output=True, text=True, timeout=15)
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"systemctl {verb} failed: {e}"},
-                            status_code=503)
-    if r.returncode != 0:
-        # Almost always a missing sudoers rule — say so rather than failing silently, which is
-        # how this button came to be described as "doesn't work".
-        return JSONResponse({"ok": False,
-                             "error": (r.stderr.strip() or f"systemctl {verb} returned "
-                                       f"{r.returncode}"),
-                             "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
-                            status_code=503)
-
-    # Nothing to ask the head. A tracker that sends owns the head whenever nothing above it does
-    # (head-protocol.md §4); the old tracking-mode frame is retired (§8).
-    STATE["ai_tracking"] = _tracker_active()
-    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/arms/status")
@@ -487,12 +412,6 @@ async def ws(socket: WebSocket) -> None:
                 # fast path isn't stalled; cache the slow status between refreshes.
                 payload["system"] = await loop.run_in_executor(None, metrics.collect)
                 slow = await loop.run_in_executor(None, status_mod.collect_slow)
-                # The AI TRACKING button's label lives in `state`, and the DASHBOARD IS DRIVEN BY
-                # THIS WEBSOCKET, not by /api/snapshot. Refreshing it only in the snapshot handler
-                # is why the button appeared to do nothing: the POST worked, the service started,
-                # and the live feed kept sending a stale flag. 1 Hz, off-thread — `systemctl
-                # is-active` is a subprocess and has no business on the fast path.
-                STATE["ai_tracking"] = await loop.run_in_executor(None, _tracker_active)
             if tick % FAST_EVERY == 0:
                 # cheap (reader snapshots only) → safe to run inline at 10 Hz.
                 payload["status"] = {**status_mod.collect_fast(), **slow, "client_ip": peer}

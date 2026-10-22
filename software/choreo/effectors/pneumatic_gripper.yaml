@@ -1,0 +1,22 @@
+# A two-jaw pneumatic gripper driven by a 5/3 valve. REGISTRY AND TWIN ONLY: nothing of this kind is
+# fitted or driven yet. Its channel is a VALVE STATE, not a position: the validator accepts only the
+# named states, and the twin shows the jaws at the matching end of travel.
+id: pneumatic_gripper
+name: Pneumatic gripper (5/3 valve)
+kind: pneumatic
+mounts: [left, right]
+modes: [equipped]
+output: null
+channels:
+  valve: {states: [retract, extend, vent], full_stroke_s: 0.15, note: "retract = jaws open, extend = jaws closed, vent = both ports exhausted (jaws free)"}
+open_map: {channel: valve, states: {"1": retract, "0": extend}}     # open: 1 opens, 0 closes; between is refused
+poses:
+  open: {valve: retract}
+  closed: {valve: extend}
+  free: {valve: vent}
+sim:
+  model: primitive
+  parts:
+    - {shape: box, size: [0.025, 0.04, 0.025], pos: [0, 0, 0.025], rgba: [0.55, 0.55, 0.58, 1]}   # the body
+    - {shape: box, size: [0.006, 0.01, 0.03], pos: [0, 0.03, 0.08], rgba: [0.2, 0.2, 0.22, 1], moves: {channel: valve, axis: y, open: 0.03, closed: 0.008}}
+    - {shape: box, size: [0.006, 0.01, 0.03], pos: [0, -0.03, 0.08], rgba: [0.2, 0.2, 0.22, 1], moves: {channel: valve, axis: y, open: -0.03, closed: -0.008}}

@@ -123,17 +123,30 @@ def mix(show, tl: dict, t0: float, t1: float, notes: list) -> np.ndarray:
 
 # ---- the robot --------------------------------------------------------------------------------------
 class Robot:
-    def __init__(self, width: int, height: int, assets=None):
+    def __init__(self, width: int, height: int, assets=None, crawler: str | None = None, tools: dict | None = None):
         sys.path.insert(0, os.path.join(REPO, "sim"))
         import mujoco
         import scene
         self.mj, self.clearance = mujoco, __import__("clearance")
-        self.model = scene.build(assets, face_screen=True, projection=True)
+        extra = {}
+        if crawler or tools:                          # a show with a crawling hand or flange tools (effectors.py)
+            import effectors
+            reg = effectors.registry()
+            if crawler:
+                extra["crawler"] = reg[crawler]
+            flange = {s: reg[f["type"]] for s, f in (tools or {}).items()
+                      if s in ("left", "right") and f.get("mode") == "equipped" and f["type"] != "openarm_gripper"}
+            if flange:
+                extra["tools"] = flange
+        self.model = scene.build(assets, face_screen=True, projection=True, **extra)
         self.scene = scene
         self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth, width)
         self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, height)
-        self.model.vis.headlight.ambient[:] = [0.55] * 3     # the lighting of sim/scene.py --render
-        self.model.vis.headlight.diffuse[:] = [0.8] * 3
+        # a softer light than sim/scene.py --render (0.55 / 0.8 flattened white parts to a cartoon glare):
+        # less ambient, so surfaces keep their shading
+        self.model.vis.headlight.ambient[:] = [0.25] * 3
+        self.model.vis.headlight.diffuse[:] = [0.6] * 3
+        self.model.vis.headlight.specular[:] = [0.3] * 3
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, height, width)
         self.size = (width, height)
@@ -157,6 +170,10 @@ class Robot:
                                 s["head_tilt"] - P.HEAD_CENTRE_DEG)
         P.apply_base(m, d, s["base"])
         P.apply_grips(m, d, s)
+        if "crawler" in s:
+            P.apply_crawler(m, d, s)
+        if "tools" in s:
+            P.apply_tools(m, d, s)
 
     def axes(self) -> tuple:
         """The camera's forward, right and up, at the twin's angle."""
@@ -386,7 +403,12 @@ def render(show_path: str, out: str, layout="c", fps=30.0, size=(1280, 720), lim
              "-movflags", "+faststart", out],
             stdin=subprocess.PIPE)
         rw, rh = lay["robot"][:2]
-        robot = Robot(rw, rh)
+        robot = Robot(rw, rh, crawler=(tl.get("crawler") or {}).get("tool"), tools=tl.get("tools"))
+        if tl.get("crawler"):
+            import hand
+            log(f"render: the crawling hand ({tl['crawler']['tool']}) is drawn from "
+                + ("the vendor model at " + hand.surge_dir() if hand.surge_dir() else
+                   "the PRIMITIVE stand-in ($OPENDUBS_SURGE_DIR is not set)") + " — twin only; its path uses sim speeds")
         pts = []
         for t in np.arange(t_from, t_from + n / fps + 1e-9, 0.2):   # the robot's outline over the whole span
             robot.pose(P.sample(tl, float(t)))

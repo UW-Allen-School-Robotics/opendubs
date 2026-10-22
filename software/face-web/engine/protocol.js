@@ -49,6 +49,13 @@ export function handle(face, audio, line, now, skins, levels, opts = {}) {
       return `OK state ${arg}`;
     case "EMOTE":
       if (!arg) break;
+      // AUTO is "the face's own cycling", which every show ends with. With the robot's "expressions
+      // change by themselves" off (skins.idle.eyes, main.js), it means the still eyes the setting asked
+      // for: otherwise every show's end turned the expressions back on until the page reloaded.
+      if (arg.toUpperCase() === "AUTO" && skins && skins.idle && skins.idle.eyes === false) {
+        face.setEmote("NEUTRAL", now);
+        return `OK emote ${arg}`;
+      }
       return face.setEmote(arg, now) === null ? "ERR unknown emote" : `OK emote ${arg}`;
     case "THEME":
       if (!arg) break;
@@ -68,12 +75,14 @@ export function handle(face, audio, line, now, skins, levels, opts = {}) {
       if (!arg || !skins) return "ERR skin <name> | default";
       if (arg.toUpperCase() === "IDLE") {        // v5: the robot's idle skin, at every show end
         const name = (skins.idle && skins.idle.skin) || "default";
+        skins.showHeld = false;                  // the idle setting has the skin again (main.js)
         const r = skins.select(name);
         return r.ok ? `OK skin idle ${name}` : `ERR skin idle ${name}: ${r.error} (showing default)`;
       }
       const answer = (r) => r.ok ? `OK skin ${arg}`
         : r.error === "unknown skin" ? `ERR unknown skin ${arg} (showing default)`
         : `ERR skin ${arg}: ${r.error} (showing default)`;
+      skins.showHeld = true;                     // a show's skin: the idle setting waits for SKIN IDLE
       const r = skins.select(arg);
       // Unknown here may only mean "added since this page read the library" (a show's new skin, the
       // robot's library sync): look once more before falling back. The reply is then a promise.

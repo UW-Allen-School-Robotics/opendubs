@@ -24,7 +24,6 @@ def test_defaults_until_something_is_set(tmp_path, monkeypatch):
     s = _client(tmp_path, monkeypatch).get("/api/head/settings").json()
     assert s.pop("neck")                                   # read-only: the robot's neck, or "none"
     assert s.pop("airplay") in ("on", "off", "absent")     # the receiver unit's own state
-    assert s.pop("realsense") in (True, False)              # read-only: is a RealSense plugged in
     assert s == head_settings.DEFAULTS
     assert s["mouth"] is False and s["bright_min"] == 0.15 and s["volume_idle"] is None
 
@@ -113,35 +112,3 @@ def _usb(tmp_path, devices):
     return str(tmp_path / "usb")
 
 
-def test_a_realsense_is_seen_only_when_plugged_in(tmp_path, monkeypatch):
-    monkeypatch.setattr(head_settings, "USB_SYSFS", _usb(tmp_path, [("046d", "0825"), ("8086", "0ad3")]))
-    assert head_settings.realsense_present() is True                     # a D415
-    monkeypatch.setattr(head_settings, "USB_SYSFS", str(tmp_path / "none"))
-    assert head_settings.realsense_present() is False
-
-
-def test_tracking_d415_needs_the_camera_and_drives_the_service(tmp_path, monkeypatch):
-    c = _client(tmp_path, monkeypatch)
-    calls = []
-    monkeypatch.setattr(head_settings, "set_tracker", lambda on: calls.append(on))
-    monkeypatch.setattr(head_settings, "realsense_present", lambda: False)
-    r = c.put("/api/head/settings", json={"tracking": "d415"})
-    assert r.status_code == 409 and "no RealSense" in r.json()["error"] and calls == []
-    monkeypatch.setattr(head_settings, "realsense_present", lambda: True)
-    assert c.put("/api/head/settings", json={"tracking": "d415"}).json()["tracking"] == "d415"
-    assert c.put("/api/head/settings", json={"tracking": "tablet"}).status_code == 200
-    assert calls == [True, False]                                       # started, then stopped
-    c.put("/api/head/settings", json={"mouth": True})
-    assert calls == [True, False]                                       # other settings leave it alone
-
-
-def test_the_service_is_put_in_line_with_the_setting_at_start(tmp_path, monkeypatch):
-    _client(tmp_path, monkeypatch)
-    calls = []
-    monkeypatch.setattr(head_settings, "set_tracker", lambda on: calls.append(on))
-    head_settings.save({**head_settings.DEFAULTS, "tracking": "tablet"})
-    monkeypatch.setattr(head_settings, "tracker_active", lambda: True)    # enabled at boot, say
-    head_settings.reconcile_tracker()
-    monkeypatch.setattr(head_settings, "tracker_active", lambda: False)
-    head_settings.reconcile_tracker()                                    # already in line: nothing
-    assert calls == [False]

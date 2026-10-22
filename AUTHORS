@@ -1,0 +1,17 @@
+# The OpenDubs Authors
+
+"The OpenDubs Authors", the copyright holder named in LICENSE-CODE, LICENSE-HARDWARE,
+LICENSE-DOCS and CITATION.cff, are the people listed below.
+
+This file is the one place in the repository where contributors are named on purpose. Everywhere
+else, the docs, notes, code and commit messages say "the project team" or "the maintainers".
+
+Emma Romig, project lead
+
+## Being added
+
+You are added only with your own agreement. To be listed, open a pull request that adds one line
+in the form `Name, role`, signed off like every other commit (see CONTRIBUTING.md). Ask a
+maintainer if you would rather be listed under a handle, or not at all. Contributing does not
+require being listed: every signed-off commit is a contribution under the project's licences
+either way.

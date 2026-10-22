@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE", "DEVICE"];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE", "DEVICE", "CRAWL"];
 const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
@@ -442,7 +442,7 @@ function warningsByCue() { return byCue(tl() ? tl().warnings : []); }
 function label(ev) {
   const c = ev.cue;
   switch (ev.slot) {
-    case "GRIP_L": case "GRIP_R": return c.do || `open ${c.open}`;
+    case "GRIP_L": case "GRIP_R": return c.do || (c.pose ? `pose ${c.pose}` : c.set ? "set " + Object.keys(c.set).join(",") : `open ${c.open}`);
     case "HEAD": return [c.pan !== undefined ? `p${Math.round(c.pan)}` : "", c.tilt !== undefined ? `t${Math.round(c.tilt)}` : ""].join(" ");
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
@@ -450,6 +450,8 @@ function label(ev) {
     case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
     case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
+    case "CRAWL": return c.do === "walk" ? `${c.dir === "back" ? "◀ back" : "▶ walk"}${c.to ? " to " + (c.to === "start" ? "start" : c.to.join(",")) : c.dist_m ? ` ${c.dist_m} m` : ` ${c.secs}s`} (twin)`
+      : c.do === "turn" ? `↺ pivot ${c.by_deg}° (twin)` : c.do === "dance" ? `✋ ${c.pattern} (twin)` : `pause ${c.secs ?? 1}s`;
     case "DEVICE": return `${c.do === "volume" ? "vol" : "bright"} ${Math.round((c.level ?? 0) * 100)}%` + (c.fade_s ? ` /${c.fade_s}s` : "");
     default: return "";
   }
@@ -650,6 +652,8 @@ function renderPreview() {
         + (th ? ` <span class="dim" title="A theme lasts until the show ends: every end hands back the robot's idle skin, theme and emote">· theme ${esc(th.cue.name)}</span>` : ""));
     } else if (slot === "DEVICE") {
       row(slot, deviceHTML(T, t));
+    } else if (slot === "CRAWL") {
+      row(slot, crawlHTML(T, t));
     } else if (slot === "DANCE") {
       const e = evs.find((x) => x.start <= t && t < x.end);
       row(slot, e ? `<span class="moving" title="Open loop, at placeholder base speeds; runs only in the twin until the robot floor test">${esc(e.cue.move)} ${(t - e.start).toFixed(1)} of ${(e.end - e.start).toFixed(1)} s</span>`
@@ -660,6 +664,7 @@ function renderPreview() {
     }
   }
   $("preview").innerHTML = `<div class="pv">${out.join("")}</div>`;
+  $("floor").innerHTML = T.crawler ? floorSVG(T, t) : "";
   update3DRobot();
 }
 
@@ -781,6 +786,60 @@ function update3DRobot() {
     }
   }
   R3D.view.setGhostVisible(false);
+}
+
+/* ---------- the crawling hand (twin only; effectors.py) ---------- */
+// The leg in progress at t, and the hand's place on the validated (nominal) path.
+function crawlAt(T, t) {
+  const cr = T.crawler, legs = cr.legs || [];
+  let leg = null;
+  for (const l of legs) if (l.t <= t && t < l.t + l.secs) leg = l;
+  let p = cr.path[0];
+  for (const q of cr.path) { if (q[0] <= t + 1e-9) p = q; else break; }
+  return { leg, p };
+}
+const cms = (v) => (v * 100).toFixed(1);
+function crawlHTML(T, t) {
+  const { leg, p } = crawlAt(T, t);
+  const tip = "SIM, NOT HARDWARE: the speeds are simulated (and scaled for a trailing leash where marked); the timeline holds each leg for its SLOWEST case";
+  let what = '<span class="dim">standing (idle: tapping the beat)</span>';
+  if (leg && leg.do === "walk") what = `<span class="moving" title="${esc(tip)}">${leg.dir === "back" ? "backing" : "walking"} (${esc(leg.gait)}) · ${cms(leg.speed[0])}–${cms(leg.speed[1])} cm/s${leg.speed_key.startsWith("dragging") ? " dragging the leash" : ""} · ${(t - leg.t).toFixed(1)} of ${leg.secs.toFixed(0)} s</span>`;
+  else if (leg && leg.do === "turn") what = `<span class="moving" title="${esc(tip)}">pivot ${leg.by > 0 ? "left" : "right"} ${leg.by}° · ${leg.rate[0]}–${leg.rate[1]} °/s · ${(t - leg.t).toFixed(1)} of ${leg.secs.toFixed(0)} s</span>`;
+  else if (leg && leg.do === "dance") what = `<span class="moving">finger dance: ${esc(leg.pattern)}</span>`;
+  return `${what} <span class="dim">· (${p[1].toFixed(2)}, ${p[2].toFixed(2)}) m, ${p[3].toFixed(0)}°</span>`;
+}
+// Top-down: the chassis (at its start pose), the leash's anchor and reach, the declared floor area,
+// the predicted path with its uncertainty, and the hand at the playhead. x forward is UP the panel.
+function floorSVG(T, t) {
+  const cr = T.crawler, W = 300, H = 300;
+  const pts = cr.path.map((q) => [q[1], q[2]]);
+  const xs = [-0.05, 0.62, cr.anchor[0] + cr.length_m * 0.6, ...pts.map((q) => q[0])], ys = [-0.35, 0.35, ...pts.map((q) => q[1])];
+  if (cr.area) { xs.push(...cr.area[0]); ys.push(...cr.area[1]); }
+  const x0 = Math.min(...xs) - 0.1, x1 = Math.max(...xs) + 0.1, y0 = Math.min(...ys) - 0.1, y1 = Math.max(...ys) + 0.1;
+  const k = Math.min(H / (x1 - x0), W / (y1 - y0));
+  // screen: up = +x (forward), left = +y (the robot's left)
+  const sx = (y) => W / 2 - (y - (y0 + y1) / 2) * k, sy = (x) => H - (x - x0) * k;
+  const P = (x, y) => `${sx(y).toFixed(1)},${sy(x).toFixed(1)}`;
+  const { p } = crawlAt(T, t);
+  const reach = (cr.length_m - cr.slack_m) * k;
+  let svg = `<svg class="floor" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Floor plan of the crawling hand">`;
+  if (cr.area) svg += `<rect x="${sx(cr.area[1][1])}" y="${sy(cr.area[0][1])}" width="${(cr.area[1][1] - cr.area[1][0]) * k}" height="${(cr.area[0][1] - cr.area[0][0]) * k}" class="area"><title>The declared floor area (crawler.area)</title></rect>`;
+  svg += `<circle cx="${sx(cr.anchor[1])}" cy="${sy(cr.anchor[0])}" r="${reach}" class="reach"><title>The leash's reach: ${cr.length_m} m less ${cr.slack_m} m slack</title></circle>`;
+  const ko = cr.keep_off_m || 0;
+  svg += `<rect x="${sx(0.3245 + ko)}" y="${sy(0.612 + ko)}" width="${(0.649 + 2 * ko) * k}" height="${(0.644 + 2 * ko) * k}" rx="${ko * k}" class="keepoff"><title>Kept clear: the hand's edge stays ${Math.round(ko * 100)} cm from the chassis (keep_off_m)</title></rect>`;
+  svg += `<rect x="${sx(0.3245)}" y="${sy(0.612)}" width="${0.649 * k}" height="${0.644 * k}" class="chassis"><title>The chassis (at its start pose)</title></rect>`;
+  svg += `<polyline points="${pts.map((q) => P(q[0], q[1])).join(" ")}" class="band" style="stroke-width:${Math.max(2, 2 * (cr.hand_r + Math.max(...cr.path.map((q) => q[4]))) * k)}"><title>Where the hand may be: its size and the path's uncertainty (sim drift, speed range)</title></polyline>`;
+  svg += `<polyline points="${pts.map((q) => P(q[0], q[1])).join(" ")}" class="path"><title>The predicted path (mid-range sim speeds)</title></polyline>`;
+  svg += `<circle cx="${sx(cr.start[1])}" cy="${sy(cr.start[0])}" r="4" class="dock"><title>Where the hand starts</title></circle>`;
+  svg += `<line x1="${sx(cr.anchor[1])}" y1="${sy(cr.anchor[0])}" x2="${sx(p[2])}" y2="${sy(p[1])}" class="leash"/>`;
+  const hr = p[3] * Math.PI / 180, L = 0.1;
+  svg += `<line x1="${sx(p[2])}" y1="${sy(p[1])}" x2="${sx(p[2] + L * Math.sin(hr))}" y2="${sy(p[1] + L * Math.cos(hr))}" class="hdg"/>`;
+  svg += `<circle cx="${sx(p[2])}" cy="${sy(p[1])}" r="${Math.max(3, cr.hand_r * k * 0.6)}" class="hand"><title>The hand at the playhead</title></circle>`;
+  svg += "</svg>";
+  const legs = (cr.legs || []).filter((l) => l.do === "walk" || l.do === "turn").map((l) => l.do === "walk"
+    ? `<li>${l.t.toFixed(1)} s: ${l.dir === "back" ? "back" : "out"} ${l.dist_range[0] !== l.dist_range[1] ? `${Math.round(l.dist_range[0] * 100)}–${Math.round(l.dist_range[1] * 100)} cm in ${l.secs.toFixed(0)} s` : `${(l.dist_m * 100).toFixed(0)} cm in ${(l.dist_m / l.speed[1]).toFixed(0)}–${l.secs.toFixed(0)} s`} at ${cms(l.speed[0])}–${cms(l.speed[1])} cm/s${l.speed_key.startsWith("dragging") ? " (dragging the leash)" : ""}</li>`
+    : `<li>${l.t.toFixed(1)} s: pivot ${l.by}° in ${(Math.abs(l.by) / l.rate[1]).toFixed(0)}–${l.secs.toFixed(0)} s</li>`).join("");
+  return `<div class="floorbox">${svg}<div class="floorlegend"><b>Crawling hand</b> <span class="badge sim" title="${esc(cr.provenance)}">SIM, NOT HARDWARE</span><ul>${legs}</ul><p class="dim">Dotted circle: the leash's reach (${(cr.length_m - cr.slack_m).toFixed(2)} m from its anchor${cr.anchor[0] + cr.length_m - cr.slack_m > x1 ? ", beyond this view" : ""}). Every leg is held on the timeline for its slowest simulated speed. Twin only: the runner refuses this show on the robot.</p></div></div>`;
 }
 
 /* ---------- validator output ---------- */
@@ -1262,6 +1321,7 @@ const DEFAULTS = {
   DANCE: { move: "sway", secs: 2 },
   DRIVE: { forward_m: 0.5, secs: 3 },          /* twin-only: the runner refuses DRIVE on the robot */
   DEVICE: { do: "volume", level: 0.6, fade_s: 2 },
+  CRAWL: { do: "pause", secs: 2 },             /* twin-only: a crawling hand (tools: base) */
 };
 /* A show lists the parts it moves under `slots:` (the runner's preflight is built from it). Adding a
  * cue to a part not listed there lists it, in the same edit — one undo takes back both. */

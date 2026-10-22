@@ -1,0 +1,19 @@
+# A vacuum cup on the flange. REGISTRY AND TWIN ONLY: nothing of this kind is fitted or driven yet. It is
+# here to show the seams a new tool fits through: its channels, its named poses, its twin model.
+id: suction_cup
+name: Suction cup (vacuum)
+kind: suction
+mounts: [left, right]
+modes: [equipped]
+output: null                 # no driver: the runner refuses a show that needs it
+channels:
+  vacuum: {range: [0, 1], full_stroke_s: 0.3, note: "0 vented, 1 full vacuum (a proportional regulator); a plain valve uses 0 or 1 only"}
+open_map: {channel: vacuum, invert: true}   # open: 1 = released (vented), 0 = holding
+poses:
+  hold: {vacuum: 1}
+  release: {vacuum: 0}
+sim:
+  model: primitive
+  parts:
+    - {shape: cylinder, size: [0.012, 0.03], pos: [0, 0, 0.03], rgba: [0.3, 0.3, 0.32, 1]}       # the stem
+    - {shape: cylinder, size: [0.025, 0.006], pos: [0, 0, 0.066], rgba: [0.15, 0.4, 0.75, 1]}    # the cup

@@ -1,0 +1,141 @@
+# The Surge hand (Alt-Bionics Surge v1.3), right-handed: five fingers on six motors, one per finger plus
+# the thumb's flex and its rotation. Each finger is ONE motor driving a coupled linkage, so its tip moves
+# along one fixed curve: no sideways finger motion.
+#
+# NO DRIVER YET (output: null): every use is TWIN ONLY, and the runner refuses a show that needs it.
+# The hand's twin model is the vendor's URDF, which is NOT in this repository: point $OPENDUBS_SURGE_DIR
+# at a `surge_hands/` folder holding it (MIT, (c) 2025 Alt-Bionics Inc; see effectors/NOTICE.md). Without
+# it the twin draws a PRIMITIVE hand driven by the same channels, and every Surge-model test skips.
+#
+# EVERY NUMBER UNDER `crawl:` IS FROM SIMULATION, NOT HARDWARE. Nothing here has been checked against the
+# real hand: friction (rubber on tile, mu 0.6-1.0), the 0.65 finger coupling and the motor model are
+# assumptions. Each block says where it came from.
+id: surge_right
+name: Surge hand (right)
+kind: hand
+hand: right
+mounts: [left, right, base]
+modes: [equipped, crawl]
+output: null
+# 0 = straight (open), 1 = fully flexed. Datasheet: a finger travels 100 degrees in 0.4 s.
+channels:
+  index:      {range: [0, 1], full_stroke_s: 0.4}
+  middle:     {range: [0, 1], full_stroke_s: 0.4}
+  ring:       {range: [0, 1], full_stroke_s: 0.4}
+  pinky:      {range: [0, 1], full_stroke_s: 0.4}
+  thumb_flex: {range: [0, 1], full_stroke_s: 0.4}
+  thumb_rot:  {range: [0, 1], full_stroke_s: 0.4, note: "0 = beside the palm, 1 = across it (opposed)"}
+# `open: x` on this hand: x = 1 is the `open` pose, x = 0 the `fist`, in between a straight blend.
+open_map: {from: fist, to: open}
+poses:
+  open:      {index: 0, middle: 0, ring: 0, pinky: 0, thumb_flex: 0, thumb_rot: 0}
+  fist:      {index: 1, middle: 1, ring: 1, pinky: 1, thumb_flex: 0.7, thumb_rot: 0.6}
+  point:     {index: 0, middle: 1, ring: 1, pinky: 1, thumb_flex: 0.7, thumb_rot: 0.6}
+  peace:     {index: 0, middle: 0, ring: 1, pinky: 1, thumb_flex: 0.7, thumb_rot: 0.6}
+  horns:     {index: 0, middle: 1, ring: 1, pinky: 0, thumb_flex: 0.7, thumb_rot: 0.6}
+  thumbs_up: {index: 1, middle: 1, ring: 1, pinky: 1, thumb_flex: 0, thumb_rot: 0}
+  claw:      {index: 0.55, middle: 0.55, ring: 0.55, pinky: 0.55, thumb_flex: 0.4, thumb_rot: 0.5}
+  # standing on its fingertips, palm down, between strokes: where a crawling hand rests and dances
+  stand:     {index: 0.45, middle: 0.45, ring: 0.45, pinky: 0.45, thumb_flex: 0.3, thumb_rot: 0.5}
+# Finger dances: a hand standing still plays the steps in turn, each `step_beats` long, cycling; a step
+# names only the channels it changes. The validator checks each step against the channels' speed at the
+# show's tempo (a step the fingers cannot finish is a warning: the twin shows them arriving late).
+patterns:
+  ripple:   {step_beats: 0.5, base: stand, steps: [{index: 0.9}, {index: 0.45, middle: 0.9}, {middle: 0.45, ring: 0.9},
+                                                     {ring: 0.45, pinky: 0.9}, {pinky: 0.45, ring: 0.9}, {ring: 0.45, middle: 0.9},
+                                                     {middle: 0.45, index: 0.9}, {index: 0.45}]}
+  tap:      {step_beats: 0.5, base: stand, steps: [{index: 0.2, middle: 0.7}, {index: 0.7, middle: 0.2}]}
+  wave:     {step_beats: 1, base: stand, steps: [{index: 0.1, middle: 0.1, ring: 0.1, pinky: 0.1}, {index: 0.8, middle: 0.8, ring: 0.8, pinky: 0.8}]}
+  beckon:   {step_beats: 1, base: stand, steps: [{index: 0.05, middle: 1, ring: 1, pinky: 1}, {index: 0.95}]}
+  drum:     {step_beats: 0.5, base: stand, steps: [{thumb_flex: 0.75}, {thumb_flex: 0.25}]}
+  # the index finger taps the floor ON each beat (a cue that starts on a beat): down on the beat, up on the "and"
+  tap_index: {step_beats: 0.5, base: stand, steps: [{index: 0.6}, {index: 0.25}]}
+# FIRST FACTS FROM THE REAL HAND (the Surge Hand investigation, on opendubs2, 2026-10-16; its hardware log).
+# They do not change the twin; they gate any driver (output) and any finger dance on the real hand.
+hardware:
+  protocol: "Surge 1: AT commands over RS-485, 115200 8N1"
+  blocked_joint: >-
+    a joint that is BLOCKED latches an error flag (AT+GJE? reads 1) and stays flagged: in an empty hand
+    the power grip blocks the thumb and the chuck blocks the index. A finger dance must not close fingers
+    onto the thumb: use joint targets (AT+SJA) or poses where nothing meets.
+  clear_error: "AT+RCH=1 (recalibrate: ~20 s, the hand moves and returns to rest), then AT+SMC=0 (glove mode off)"
+  angle_gain: >-
+    commanded vs read angle is ~1.2x (SJA 25 -> reads ~31, 80 -> ~96): the twin's channel -> joint mapping
+    needs a measured calibration table before any real finger dance or gait
+  # poses here that close fingers onto an opposed thumb: twin only until checked on the hand
+  closes_onto_thumb: [fist, point, peace, horns]
+  # Every gait under crawl.gaits and crawl.pivots below (outrigger, flat, back, both pivots) is SIM ONLY:
+  # none has run on the real hand. The hand fitted on opendubs2 is a LEFT hand: see surge_left.yaml.
+sim:
+  model: surge                       # sim/hand.py; the primitive below when $OPENDUBS_SURGE_DIR is unset
+  urdf: surge_v13_hand_right_pybullet.urdf
+  # channel -> joint: radians at channel 1 (0 at channel 0); a finger's distal joint follows its proximal
+  # at 0.65 (the vendor's script), as in the real linkage
+  joints:
+    index:      {Index_MCP_Joint: 1.6, Index_PIP_Joint: 1.04}
+    middle:     {Middle_MCP_Joint: 1.6, Middle_PIP_Joint: 1.04}
+    ring:       {Ring_MCP_Joint: 1.6, Ring_PIP_Joint: 1.04}
+    pinky:      {Pinky_MCP_Joint: 1.6, Pinky_PIP_Joint: 1.04}
+    thumb_rot:  {Metacarpal_Joint: 1.4}
+    thumb_flex: {Thumb_Joint: 1.4}
+  # Fixes to the vendor URDF (the Surge Hand lane's, sim/surge_model.py): Middle_MCP upper limit 1774 ->
+  # 1.774 (a typo); masses scaled to the datasheet's 540 g (the links sum to ~1.68 kg)
+  mass_kg: 0.540
+  primitive: {palm: [0.026, 0.048, 0.062], finger_len: [0.05, 0.045], finger_r: 0.009}
+crawl:
+  provenance: >-
+    SIM, NOT HARDWARE. MuJoCo 3.14, the vendor URDF with the fixes above, palm down on a flat floor, the
+    185 g wrist puck on free wheels, rubber on tile mu 0.6-1.0, 20-30 s runs. Forward gaits, the heading
+    loop and the leash figure: the Surge Hand lane (sim/crawl.py, walking.md, HANDOFF.md, 2026-10-16).
+    The back-up gait, both pivots and the walking-turn limit: the Choreography lane, with that crawl.py
+    unmodified (2026-10-16).
+  hand_radius_m: 0.13               # palm centre to fingertip, plus the puck: the footprint check's radius
+  stance: stand                     # the pose a paused or dancing hand holds
+  idle: tap_index                   # what a standing hand does when no cue says otherwise: it never freezes
+  # A hand trailing a leash over the floor is slower. SIMULATED for the outrigger gait only (1.8 m leash,
+  # 50 g/m: 3.7 cm/s with the puck, 4.7 with the old roller). Every other `dragging` figure is that
+  # gait's free speed x 0.5-0.6 (the measured factor, 3.7 / ~6.9 = 0.53, widened): SCALED, NOT SIMULATED.
+  default_gait: outrigger
+  gaits:
+    outrigger:
+      dir: forward
+      steered: true                 # thumb PI loop on a simulated wrist IMU, kp 4, ki 1
+      speed_m_s: [0.063, 0.075]
+      dragging_m_s: [0.035, 0.047]
+      steer_deg_s: 1.5              # a heading change while walking: the loop's reference RAMPED at this
+                                    # rate holds at every mu; 2.5 fails at mu 1.0; a STEP turns the wrong way
+      drift_m_per_m: 0.05           # sideways, per metre walked (<= 10 cm over ~2 m)
+      sim_params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 0.636, trim_pinky: 1.0,
+                   thumb_rot: 0.758, thumb_flex: 0.361, heading_ctrl: {actuator: thumb, kp: 4.0, ki: 1.0}}
+    flat:
+      dir: forward
+      steered: false                # drifts +0.8-0.9 deg/s whatever the friction; nothing tested steers it
+      speed_m_s: [0.102, 0.107]
+      drift_deg_s: 0.9
+      drift_m_per_m: 0.15
+      sim_params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.375,
+                   thumb_rot: 0.081, thumb_flex: 0.18}
+    back:
+      dir: back
+      steered: false
+      speed_m_s: [0.0383, 0.0388]   # -3.83 to -3.88 cm/s, almost independent of friction
+      dragging_m_s: [0.019, 0.023]  # SCALED, NOT SIMULATED
+      drift_deg_s: 0.55             # open loop, -0.38 to -0.55 deg/s
+      drift_m_per_m: 0.04
+      # pairs, a fast flex and a slow extension: flexing takes 32% of the period
+      sim_params: {gait: pairs, skew: 0.324, phase: 0.108, freq: 0.982, lo: 0.019, hi: 1.405,
+                   trim_index: 1.0, trim_pinky: 0.782, thumb_rot: 0.277, thumb_flex: 0.327}
+  # Turning ON THE SPOT. + is to the hand's left (counter-clockwise from above), as the show's angles.
+  pivots:
+    left:
+      deg_s: [2.98, 3.84]
+      dragging_deg_s: [1.5, 2.3]    # SCALED, NOT SIMULATED
+      drift_m_per_s: 0.004          # 7-8 cm of travel per 20 s
+      sim_params: {gait: sync, skew: 0.558, phase: 0.0, freq: 0.829, lo: 0.234, hi: 1.098,
+                   trim_index: 1.0, trim_pinky: 0.840, thumb_rot: 0.0, thumb_flex: 0.385}
+    right:
+      deg_s: [8.97, 11.79]
+      dragging_deg_s: [4.5, 7.1]    # SCALED, NOT SIMULATED
+      drift_m_per_s: 0.0055         # 10-11 cm of travel per 20 s
+      sim_params: {gait: sides, skew: 0.787, phase: 0.863, freq: 0.547, lo: 0.311, hi: 1.5,
+                   trim_index: 0.616, trim_pinky: 0.985, thumb_rot: 0.244, thumb_flex: 0.600}
