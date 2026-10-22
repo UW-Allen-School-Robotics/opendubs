@@ -244,7 +244,9 @@
   let tabletWarn = [];
   setInterval(async () => {
     try { const t = await (await fetch("/api/tablet/sensors", { cache: "no-store" })).json();
-      tabletWarn = (t.power && t.power.warnings) || []; } catch (e) { tabletWarn = []; }
+      tabletWarn = ((t.power && t.power.warnings) || []).slice();
+      if (t.call && t.call.active) tabletWarn.push({ text: "in a Zoom call: the face is hidden (END CALL on Head & face)" });
+    } catch (e) { tabletWarn = []; }
   }, 10000);
 
   /* the neck's HOLD (the knob, or software): shown wherever the dashboard is open, and a release is

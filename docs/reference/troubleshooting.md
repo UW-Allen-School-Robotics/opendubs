@@ -289,6 +289,7 @@ Check in this order:
 1. [The tablet is plugged in but not charging](#head-tablet-not-charging)
 2. [The tablet's battery is hot](#head-tablet-hot)
 3. [The tablet won't restart during a show](#head-restart-show)
+4. [A call won't start during a show](#head-call-show)
 
 ### The tablet is plugged in but not charging {#head-tablet-not-charging}
 
@@ -323,6 +324,17 @@ The dashboard's RESTART TABLET is refused while a show is loaded or running, bec
 
 1. Stop the show (Shows page, or STOP SHOW on the face), then press RESTART TABLET again.
 2. To restart it by hand at any time, hold the tablet's side key and choose Restart.
+
+### A call won't start during a show {#head-call-show}
+
+`HEAD_CALL_SHOW` · Refused action · seen on the dashboard
+
+START CALL on the Head & face page is refused while a show is loaded or running. A call puts the Zoom app in front of the face, and the show's music and the face both play from the face page. For the same reason RESTART TABLET is refused during a call.
+
+**What to do**
+
+1. Stop the show (Shows page, or STOP SHOW on the face), then press START CALL again.
+2. To end a call, press END CALL on the Head & face page; the face comes back within a few seconds.
 
 ## The lift won't move {#lift-wont-move}
 

@@ -75,6 +75,10 @@
       <div class="hf-row"><label>Power</label>
         <button class="iobtn" id="hfSleep">SLEEP TABLET</button><button class="iobtn" id="hfRestart">RESTART TABLET</button></div>
       <div class="hf-note" id="hfPowerNote"></div>
+      <div class="hf-row"><label for="hfCallLink">Call (Zoom)</label>
+        <input id="hfCallLink" type="url" placeholder="https://zoom.us/j/…" style="min-width:18em">
+        <button class="iobtn" id="hfCallStart">START CALL</button><button class="iobtn" id="hfCallEnd">END CALL</button></div>
+      <div class="hf-note" id="hfCallNote">The tablet joins the meeting in the Zoom app: the face, the head's tracking and the robot's voice stop until END CALL brings the face back. Not during a show. Zoom must be installed and signed in on the tablet.</div>
       <div class="hf-note">On the robot's power the tablet stays awake. When the robot is switched off or e-stopped it runs on its own battery: the face dims at once, and the screen goes off after 2 minutes (robot off) or 10 minutes (e-stopped). It wakes by itself when the robot's power returns, or with the side key. Hold the side key for Power off or Restart.</div>
 
       <h2 class="mt">SOUND</h2>
@@ -198,7 +202,7 @@
   setInterval(() => { if (view.classList.contains("active")) loadTracker(); }, 3000);
   setInterval(async () => {
     if (!view.classList.contains("active")) return;
-    try { renderPower((await getJSON("/api/tablet/sensors")).power); } catch (e) { /* no relay */ }
+    try { const t = await getJSON("/api/tablet/sensors"); renderPower(t.power); renderCall(t.call); } catch (e) { /* no relay */ }
   }, 5000);
 
   // The neck's HOLD (head protocol v9): what it is now, and the dashboard's way to set or release it.
@@ -264,6 +268,25 @@
         : "The tablet restarts within 5 s and comes back to the face in about a minute.";
     } catch (e) { el("hfPowerNote").textContent = `Not done: ${e.message}`; }
   }
+  // CALL MODE (tablet_relay.py; the kiosk app's Call.kt): the real Zoom app, started and ended from here.
+  let callNoteHeld = 0;
+  function renderCall(c) {
+    if (!c || Date.now() < callNoteHeld) return;
+    el("hfCallNote").textContent = c.active
+      ? `In a call since ${new Date(c.since * 1000).toLocaleTimeString()}: the face is hidden until END CALL.`
+      : "The tablet joins the meeting in the Zoom app: the face, the head's tracking and the robot's voice stop until END CALL brings the face back. Not during a show. Zoom must be installed and signed in on the tablet.";
+  }
+  async function callCommand(body) {
+    callNoteHeld = Date.now() + 8000;
+    try {
+      await getJSON("/api/tablet/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      el("hfCallNote").textContent = body.cmd === "call" ? "Starting the call: the tablet opens Zoom within 5 s."
+        : "Ending the call: the face comes back within 5 s.";
+    } catch (e) { el("hfCallNote").textContent = `Not done: ${e.message}`; }
+  }
+  el("hfCallStart").addEventListener("click", () => callCommand({ cmd: "call", link: el("hfCallLink").value.trim() }));
+  el("hfCallEnd").addEventListener("click", () => callCommand({ cmd: "endcall" }));
+
   let restartArmed = null;
   el("hfSleep").addEventListener("click", () => tabletCommand("sleep"));
   el("hfRestart").addEventListener("click", () => {
