@@ -64,14 +64,16 @@ firmware/neck_dial/build.sh image
 # 2. put the APP image on the Thor, outside the repo
 scp firmware/neck_dial/.pio/build/neck_dial/firmware.bin opendubs2:/tmp/neck.bin
 
-# 3. on the Thor: serve it on a free port, send OTA, stop the server
+# 3. on the Thor: SIGN it for the neck (writes /tmp/neck.bin.sig), serve both on a free port,
+#    send OTA, stop the server. The neck fetches neck.bin.sig beside neck.bin.
 ssh opendubs2
+sudo /opt/opendubs/stack/firmware-signing/sign-firmware.sh neck /tmp/neck.bin
 cd /tmp && python3 -m http.server 8781 --bind 10.42.2.10 &
 python3 - <<'PY'
 import socket
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(120)
 s.sendto(b"OTA http://10.42.2.10:8781/neck.bin", ("10.42.2.12", 4242))
-print(s.recv(512).decode().strip())      # OK ota <bytes> bytes, rebooting
+print(s.recv(512).decode().strip())      # OK ota <bytes> bytes, rebooting key=<id>
 PY
 kill %1
 ```
@@ -84,6 +86,32 @@ kill %1
   and writes that pulse at once, so a head left at pan 61 jumps ~29° the moment it reboots. Tell
   whoever is standing there before you send the OTA.
 - Verify with `PING` — the reply carries the build's commit sha.
+
+### Signed updates
+
+The neck installs an image only if its signature, made on the Thor **for board `neck`**, verifies
+against a key compiled into it (`lib/ota_verify`, linked to `firmware/common/ota_verify`; the design is
+`notes/design/firmware-signing.md`). Otherwise it answers `ERR ota rejected: <why>` (or
+`ERR ota no signature`), and **the firmware it runs stays the one that boots**. `PING` says how it
+stands: `otasig=enforce|report otaverify=ok|BROKEN otakeys=<id>[,<id>]`.
+
+Two cases install anyway and say so, `OK ota … WARN would reject: <why>`, because a check that
+strands a board with no cable costs opening the head on a desk:
+- a **report-only** build (`build.sh image-report-only`), which is the bootstrap image only;
+- a build whose own **self-test fails** on the board (`otaverify=BROKEN`).
+
+An enforcing build with no trusted key does not compile.
+
+**The bootstrap, once per neck, with someone at the robot.** Never put the enforcing image on a neck
+whose report-only image has not passed steps 2 and 3:
+
+1. Install the **report-only** image (`build.sh image-report-only`) by today's path. `PING` should then
+   say `otasig=report otaverify=ok otakeys=<the robot's key id>`.
+2. A **signed** update to that same image: the reply should end `key=<id>`.
+3. The same update with a **corrupted** `.sig` (flip one byte): `WARN would reject: …`, and it still
+   installs. That is harmless, because it is the same firmware.
+4. Only then the **enforcing** image (`build.sh image`), signed. `PING`: `otasig=enforce`.
+5. On it, a corrupted `.sig` is **rejected**, and `PING`'s `fw=` is unchanged.
 
 A virgin or bricked board needs USB and `tools/flash.py` (app-only at `0x10000`; a merged image at
 `0x0` erases the NVS and takes the Wi-Fi credentials with it). Flashing over USB is CLAUDE.md's
