@@ -10,9 +10,9 @@ Environment=HOME=@OPENDUBS_HOME@
 # UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10).
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
-# MUST MATCH opendubs-drive-bridge.service: the speed at DRIVE 1.0, which /cmd_vel is scaled against.
-Environment=OPENDUBS_MAX_LIN=0.5
-Environment=OPENDUBS_MAX_ANG=1.0
+# The software speed cap and the speeds at it, per robot, SHARED with opendubs-drive-bridge so the two
+# cannot disagree (drive_scale.py). Optional: without it, the scripts' defaults apply.
+EnvironmentFile=-/etc/opendubs/base.env
 ExecStart=/opt/opendubs/ros/dance-tracker.sh
 Restart=always
 RestartSec=5

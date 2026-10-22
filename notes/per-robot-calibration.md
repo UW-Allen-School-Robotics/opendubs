@@ -82,6 +82,20 @@ Both offsets are measured from `base_link`, the centre of the wheel rectangle (w
   closes both (gyro scale, either pod's scale, forward-only or reverse-only scale were all fitted),
   so the pods lose counts while driving. Accepted for use as-is on 2026-10-21; check pod contact if it worsens.
 
+### Base speed and the software cap — `/etc/opendubs/base.env`
+
+Read by `opendubs-drive-bridge` and `opendubs-dance-tracker` (`software/ros/drive_scale.py`). Software
+(AUTO) motion only; RC driving in MANUAL is not capped by it. To change a value: edit the line, then
+`sudo systemctl restart opendubs-drive-bridge opendubs-dance-tracker`.
+
+| Setting | Value | How it was set |
+|---|---|---|
+| `OPENDUBS_AUTO_CAP` | **0.25** (of full command, on any wheel) | The maintainers' first choice, 2026-10-22; expected to change |
+| `OPENDUBS_MAX_LIN` | not yet measured | forward speed at the cap: a short burst at the cap, read from `/odom` |
+| `OPENDUBS_MAX_STRAFE` | not yet measured | strafe speed at the cap, both directions |
+| `OPENDUBS_MAX_ANG` | not yet measured | turn rate at the cap, both directions |
+| `OPENDUBS_STRAFE_FWD_BLEED`, `_YAW_BLEED` | 0 (unset) | set only if the strafe bursts show bleed the tracker's loop can't absorb |
+
 ### Robot-side state that turns features on (per robot, not in the repo)
 
 | Path | What it does |

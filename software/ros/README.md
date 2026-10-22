@@ -182,6 +182,13 @@ Before any command reaches the StamPLC, `drive_bridge`'s people guard (`people_g
 toward anything within 0.5 m of the robot's outline, from both LIDARs, and refuses everything when a
 scan is stale. The firmware gates (AUTO, a held deadman, the 0.35 ceiling) still apply on top.
 
+**The software speed cap** (`drive_scale.py`): AUTO motion is limited to `OPENDUBS_AUTO_CAP` of full
+command (0.25 to start) on every **wheel**, so no mix of forward, strafe and turn exceeds it. It's per
+robot, in `/etc/opendubs/base.env`, which both `opendubs-drive-bridge` and `opendubs-dance-tracker` read,
+together with the speeds at the cap (`OPENDUBS_MAX_LIN`, `_STRAFE`, `_ANG`) and the optional strafe trim
+(`OPENDUBS_STRAFE_FWD_BLEED`, `_YAW_BLEED`). Changing any of them is a one-line edit and
+`sudo systemctl restart opendubs-drive-bridge opendubs-dance-tracker`. MANUAL (RC) driving isn't affected.
+
 The public contract for students and other stacks is the docs page
 [Navigation interface](../../docs/interfaces/navigation.md); keep the two in step.
 
