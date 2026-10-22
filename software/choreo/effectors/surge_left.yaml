@@ -1,0 +1,95 @@
+# The Surge hand, left-handed: the right hand MIRRORED, because the vendor ships a right-hand URDF only.
+#
+# HOW IT IS MIRRORED (effectors.py, sim/hand.py): reflected through the hand's own sagittal plane (its
+# y = 0 plane, the one the fingers curl in). Every mesh is scaled by -1 in y; every body position, joint
+# anchor and inertia is reflected (y -> -y); every joint axis is reflected and then negated, so a positive
+# channel still flexes the finger the same way. The proof is a test: over random channel values, every
+# body of the left hand sits exactly at the right hand's position reflected (tests/test_effectors.py).
+# If the vendor's own left URDF is on disk (the SDK's Surge_Left, not read yet), name it under `sim.urdf`
+# here and it is used instead of the mirror.
+#
+# What mirroring does to the CRAWL numbers (all SIM, NOT HARDWARE, and none re-run on a left model): the
+# thumb is on the other side, so the left and right pivots swap, a sideways drift changes sign, and the
+# heading loop's thumb gain flips sign (the Surge Hand lane's inference). The magnitudes are carried over.
+id: surge_left
+name: Surge hand (left)
+mirror_of: surge_right
+hand: left
+# THE DRIVER (drivers/surge_at.py), through the runner's floor-hand output (hand_output.py, --hand PORT):
+# a live run plays every move; those it has not run before (hardware: tested_gaits, tested_patterns) are
+# named in the run's log.
+output: surge_at
+
+# THE HAND ON THE ROBOT IS THIS ONE (opendubs2, 2026-10-16). Its real-hardware facts are below; the shared
+# ones (protocol, blocked joints, error clearing, angle gain) are in surge_right.yaml's `hardware:`. The
+# sim gaits were all found on the RIGHT-hand model: mirrored here, not re-run on a left model.
+hardware:
+  protocol: "Surge 1: AT commands over RS-485, 115200 8N1"
+  blocked_joint: "a blocked joint latches AT+GJE? = 1 (contact/stall); loaded fingers latch it while walking, and it does not block motion"
+  clear_error: "AT+RCH=1 (recalibrate: ~20 s, the hand moves and returns to rest), then AT+SMC=0 (glove mode off)"
+  angle_gain: "commanded vs read angle ~1.2x (SJA 25 -> ~31, 80 -> ~96): uncalibrated"
+  closes_onto_thumb: [fist, point, peace, horns]
+  # The twin -> hardware mapping the exporter uses (cue.py export-effector): a channel's joint radians (sim:
+  # joints, the knuckle for a finger) in degrees, x gain, clamped to limits_deg. UNSCALED (gain 1) is what
+  # worked on 2026-10-16; the hand reads back ~1.2x what it was sent, so this is not yet a calibration.
+  calibration:
+    gain: {I: 1.0, M: 1.0, R: 1.0, P: 1.0, T: 1.0, X: 1.0}
+    limits_deg: {I: [0, 95], M: [0, 95], R: [0, 95], P: [0, 95], T: [0, 72], X: [0, 90]}
+    # finger dances on the real hand keep the thumb beside the palm and straight, so no finger can close
+    # onto it (a contact latches an error flag); the twin's poses that do are listed in closes_onto_thumb
+    dance_thumb_deg: {T: 10, X: 0}
+    presets_avoid: "AT+SPP=1 (power) and AT+SPP=2 (chuck) latch error flags on every joint in an empty hand"
+  # The first bench run of a show sequence (2026-10-16; the user: "read well ... the biggest note here is
+  # that with this gait the hand moves fast"):
+  #  * finger taps and ripples ON THE FLOOR may creep the hand forward (a loaded fingertip that flexes pulls,
+  #    like a small gait stroke): hard to see, unmeasured. The validator still treats a dance as standing
+  #    still. To stay in place, untested ideas: smaller flex, taps higher in the range, alternate sides;
+  #  * the bare gait is FAST for real (~10-13 cm/s): budget floor per walk second. To slow it, lower freq
+  #    or shorten the stroke (hi, trims). Untested; the sim speed is 3-4x low and no guide.
+  # THE FIRST GAIT THAT WORKS ON THE REAL HAND (2026-10-16, the user: "that works awesome"): bare hand,
+  # nothing under the wrist, OPEN LOOP. Sent as AT+SJA degrees = the gait model's radians, UNSCALED, all 6
+  # joints at 20 Hz with AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge
+  # Hand investigation's sim/out/bare_thumb_flexstroke.json and hw/gait_stream.py.
+  # The finger dances that have run on the real hand: the bench run of hand_bench (2026-10-16): the idle
+  # beat tap, ripple and wave, the thumb kept beside the palm. A live run names any other move as untried.
+  tested_patterns: [tap_index, ripple, wave]
+  tested_gaits:
+    bare_flexstroke:
+      dir: forward
+      tested: "hardware, bare hand, open loop"
+      speed_m_s: [0.10, 0.13]       # MEASURED BY EYE: ~0.5 m in 3-4 steps at 0.8 Hz (the sim said 3.1 cm/s)
+      veers: right                  # open loop, no IMU yet: heading is not corrected
+      params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.930,
+               thumb_rot: 0.557, thumb_flex: 0.977, thumb_amp_rot: 0.0, thumb_amp_flex: 0.25, thumb_phase: 0.5}
+      # knuckles 8.6-77.3 deg (index side), 8.6-72.5 deg (pinky side); thumb rotation held 31.9 deg, flex
+      # stroking 56 -> 70 deg in time with middle + pinky. The unscaled outrigger thumb (43.5 / 20.7 deg)
+      # propped the hand up; the vendor's x0.4 / x0.3 thumb scaling was tried too.
+
+# The hardware-tested gait as a gait the choreography can plan with, beside the mirrored sim gaits. Its
+# speed is MEASURED ON HARDWARE, open loop, bare hand, with its RS-485 cable trailing (so it is also the
+# `dragging` figure); its veer is real and its size unmeasured, so the drift margin is a generous estimate.
+crawl:
+  default_gait: bare_flexstroke
+  # ESTIMATES (2026-10-21), FOR THE TWIN ONLY: the backward walk and the pivots have run only in simulation,
+  # and the floor showed the simulation reads the real hand's forward walk 3-4x low (it covers about one
+  # finger stroke per step). These are the simulation's figures x3, the low end of that, so the twin shows
+  # a plausible routine. They play live too (the user's decision, 2026-10-22), named as untried, until a floor run
+  # measures it (hand_output.availability).
+  pivots:
+    left:  {deg_s: [27.0, 35.0], dragging_deg_s: [27.0, 35.0], estimate: "sim x3, unmeasured"}
+    right: {deg_s: [9.0, 11.5], dragging_deg_s: [9.0, 11.5], estimate: "sim x3, unmeasured"}
+  gaits:
+    back:
+      speed_m_s: [0.11, 0.12]       # ESTIMATE: the simulated back gait x3, unmeasured (see above)
+      dragging_m_s: [0.11, 0.12]
+      estimate: "sim x3, unmeasured"
+    bare_flexstroke:
+      dir: forward
+      measured: "MEASURED on hardware, open loop, bare hand"
+      steered: false                # the closed thumb heading loop is NOT on the real hand yet (no IMU)
+      speed_m_s: [0.10, 0.13]       # measured on hardware, open loop, bare hand (~0.5 m in 3-4 steps)
+      dragging_m_s: [0.10, 0.13]    # the same run, its cable trailing
+      veers: right                  # open loop; no trim found yet: try a lower trim_pinky or a thumb change
+      drift_m_per_m: 0.25           # ESTIMATE, until the veer is measured
+      sim_params: {gait: pairs, freq: 0.8, lo: 0.15, hi: 1.35, trim_index: 1.0, trim_pinky: 0.930,
+                   thumb_rot: 0.557, thumb_flex: 0.977, thumb_amp_rot: 0.0, thumb_amp_flex: 0.25, thumb_phase: 0.5}

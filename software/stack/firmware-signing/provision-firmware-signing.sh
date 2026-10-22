@@ -11,10 +11,11 @@
 # Files, in $OPENDUBS_FW_KS_DIR (default /etc/opendubs/firmware-signing, root 0700):
 #   ota.key        ECDSA P-256 private key (0400). Never printed, never copied off the robot except
 #                  by the backup the maintainers run by hand (README).
-#   ota.pub.der    its public key (0444); ota-from-thor.sh compiles it into every firmware build
+#   ota.pub.der    its public key (0444). The firmware does not read it from here: the boards trust
+#                  the public keys COMMITTED in firmware/common/ota_verify/keys/ (README, step 3)
 #   ota.next.key / ota.next.pub.der    only during a rotation
-# The key id is the first 16 hex digits of the public key's SHA-256: the board reports the same
-# number as otakey= in its [NET] telemetry line.
+# The key id is the first 16 hex digits of the public key's SHA-256: the boards report the same
+# number in their telemetry (the StamPLC as otakeys= in its [NET] line; the Dial in its PONG).
 set -euo pipefail
 die() { echo "!! $*" >&2; exit 2; }
 KS="${OPENDUBS_FW_KS_DIR:-/etc/opendubs/firmware-signing}"
@@ -45,8 +46,9 @@ case "${1:-}" in
     fi
     newkey "$KS/ota.key"; pub_of "$KS/ota.key" "$KS/ota.pub.der"
     echo "-- created the firmware-signing key, id $(keyid "$KS/ota.pub.der")"
-    echo "   BACK IT UP NOW (README.md, 'Back up the key'). Without it, the StamPLC can only be"
-    echo "   updated over USB."
+    echo "   BACK IT UP NOW (README.md, step 2). Without it, the StamPLC can only be updated over USB,"
+    echo "   and the neck Dial, which normally runs without a cable, only after a visit to fit one."
+    echo "   Then commit its PUBLIC half as firmware/common/ota_verify/keys/$(keyid "$KS/ota.pub.der").der (step 3)."
     ;;
   --import)
     [ -f "${2:-}" ] || die "usage: --import KEY.tar"
@@ -61,9 +63,10 @@ case "${1:-}" in
     [ -f "$KS/ota.key" ] || die "no current key: a rotation needs one (or recover over USB, README)"
     [ -f "$KS/ota.next.key" ] && die "a rotation is already under way (next id $(keyid "$KS/ota.next.pub.der"))"
     newkey "$KS/ota.next.key"; pub_of "$KS/ota.next.key" "$KS/ota.next.pub.der"
-    echo "-- created the NEXT key, id $(keyid "$KS/ota.next.pub.der")."
-    echo "   The next ota-from-thor.sh compiles it in and signs with the current key. Once the board"
-    echo "   reports otakey=$(keyid "$KS/ota.next.pub.der"), run --promote."
+    echo "-- created the NEXT key, id $(keyid "$KS/ota.next.pub.der"). Back it up now, then commit its"
+    echo "   PUBLIC half beside the current one: firmware/common/ota_verify/keys/$(keyid "$KS/ota.next.pub.der").der."
+    echo "   Update every board with firmware that trusts BOTH (signed with the current key), and only then"
+    echo "   run --promote (README.md, 'Rotate the key')."
     ;;
   --promote)
     [ -f "$KS/ota.next.key" ] || die "no rotation under way"
@@ -71,7 +74,8 @@ case "${1:-}" in
     mv "$KS/ota.key" "$KS/ota.retired-$stamp.key"; mv "$KS/ota.pub.der" "$KS/ota.retired-$stamp.pub.der"
     mv "$KS/ota.next.key" "$KS/ota.key"; mv "$KS/ota.next.pub.der" "$KS/ota.pub.der"
     echo "-- the current key is now id $(keyid "$KS/ota.pub.der"); the old one is kept as ota.retired-$stamp.*"
-    echo "   Back up the new key (README). Delete the retired one once every board reports the new id."
+    echo "   Updates are now signed with the new key, which every board must already trust. Remove the old"
+    echo "   key's .der from firmware/common/ota_verify/keys/ only after every board runs firmware trusting the new one."
     ;;
   --show)
     echo "current: $(keyid "$KS/ota.pub.der")"

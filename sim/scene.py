@@ -223,9 +223,12 @@ def _fit_tablet(spec):
 
 
 def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
-          head: str | None = None, projection: bool = False):
+          head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None):
     """`head`: tab5_pantilt or galaxy_tablet; default, the robot description's fitted head.
-    `projection`: the projection screen behind the robot, built hidden (geom alpha 0)."""
+    `projection`: the projection screen behind the robot, built hidden (geom alpha 0). `crawler`: a
+    crawling hand's tool type (effectors.Tool) to add, posed by sim_preview.apply_crawler. `tools`:
+    {"left"|"right": effectors.Tool} fitted at a flange in place of the OpenArm gripper, posed by
+    sim_preview.apply_tools. Both VISUAL ONLY: the clearance sweep still sees the gripper's geometry."""
     import mujoco
 
     a = find_assets(assets)
@@ -247,10 +250,22 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
     if projection:
         _add_projection(ours)
 
+    for side, tool in sorted((tools or {}).items()):
+        if tool is None or tool.id == "openarm_gripper":
+            continue
+        import hand
+        hand.add_flange_tool(arms, side, tool)
     frame = ours.body("lift_platform").add_frame(pos=list(ARM_MOUNT_XYZ))
     frame.attach_body(arms.body("openarm_body_link0"), ARM_PREFIX, "")
+    if crawler is not None:
+        import hand
+        hand.add_crawler(ours, crawler)
 
     model = ours.compile()
+    for side, tool in sorted((tools or {}).items()):
+        if tool is not None and tool.id != "openarm_gripper":
+            import hand
+            hand.hide_gripper(model, ARM_PREFIX, side)
     if not chest_cover:
         gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, ARM_PREFIX + CHEST_COVER_GEOM)
         if gid >= 0:

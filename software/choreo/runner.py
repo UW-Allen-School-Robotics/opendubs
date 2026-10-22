@@ -46,6 +46,7 @@ sys.path.insert(0, HERE)
 import arm_output  # noqa: E402
 import library  # noqa: E402
 import grippers  # noqa: E402
+import hand_output  # noqa: E402
 import cue  # noqa: E402
 import face_bridge  # noqa: E402
 import show_outputs  # noqa: E402
@@ -320,7 +321,9 @@ def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
         out.append(("PRECONDITION_FAILED", f"fault: {st['fault']}"))
     if "rc_authority" in requires:
         need("ch5", lambda v: v == requires["rc_authority"], f"CH5 must be {requires['rc_authority']}")
-    if "arms" in requires:
+    if "arms" in requires and not isinstance(st.get("effectors"), dict):
+        # an older dashboard: one all-or-nothing arms field. With `effectors`, each part the show
+        # needs is checked instead (effector_check), so a part it does not use cannot refuse it
         need("arms", lambda v: v == requires["arms"], f"the arms must be {requires['arms']}")
     if requires.get("tab5"):
         need("tab5", lambda v: v is True, "the Tab5 (head and face) must be up")
@@ -350,13 +353,76 @@ def armed_monitor(requires: dict, st: dict):
         return (ABORTED, "FAULT", f"fault: {st['fault']}")
     if "rc_authority" in requires and st.get("ch5") != requires["rc_authority"]:
         return (ABORTED, "AUTHORITY", f"CH5 is {st.get('ch5')!r}, not {requires['rc_authority']}")
-    if "arms" in requires and st.get("arms") != requires["arms"]:
+    if "arms" in requires and not isinstance(st.get("effectors"), dict) and st.get("arms") != requires["arms"]:
         return (ABORTED, "ARMS", f"the arms are {st.get('arms')!r}, not {requires['arms']}")
+    if isinstance(st.get("effectors"), dict) and (gone := _down(st["effectors"], requires.get("_needs") or ())):
+        p, e = gone[0]
+        return (ABORTED, "EFFECTOR_UNAVAILABLE", f"{p} became {e.get('state') or 'unknown'}: {e.get('why') or 'no reason given'}")
     return None
 
 
 # The robot-state fields the dashboard fills only when asked (choreo_proxy._probe_now), not by its poll
-PROBED_FIELDS = ("arms", "tab5")
+PROBED_FIELDS = ("arms", "tab5", "effectors")
+
+
+# ---- effectors: what a show needs vs what the robot has (cue.EFFECTORS) --------------------------
+# The dashboard reports each part as {"state": "ok"|"degraded"|"down", "why": ...} under `effectors`.
+# A part the map does not name is not checked (the dashboard says what it knows); a named part that
+# is not "ok" is unavailable. The show's `can_skip:` parts may be left out, but only on the
+# operator's approval: the run is refused with NEEDS_APPROVAL and an offer, and the Shows page runs
+# it again with `skip`. A skipped arm is assumed at rest, where the variant was swept.
+# Every joint, rolls included. A limp arm's ROLL joints (3, 5, 7) have no gravity moment and stay
+# where they were left (Arms lane: right J5 +15.8° on a hanging arm, 2026-10-12), but in the twin a
+# hanging arm with its rolls turned 30° puts its fingers into the body, so they are not waived: the
+# refusal names the joint, and a limp arm is turned back by hand.
+SKIPPED_ARM_TOL_DEG = 10.0
+
+
+def _down(eff: dict, needs) -> list:
+    return [(p, eff.get(p) if isinstance(eff.get(p), dict) else {"state": eff.get(p)})
+            for p in needs if p in eff and (eff[p].get("state") if isinstance(eff[p], dict) else eff[p]) != "ok"]
+
+
+def effector_check(tl: dict, st: dict) -> tuple:
+    """(refusals [(code, sentence)], offer [parts]) for a run of this export against the robot's
+    `effectors`. The offer is what the operator may approve to run without."""
+    eff = st.get("effectors")
+    if not isinstance(eff, dict):
+        return [], []
+    down = _down(eff, tl.get("needs") or ())
+    if not down:
+        return [], []
+    can = set(tl.get("can_skip") or ())
+    say = lambda p, e: f"{p} is {e.get('state') or 'unknown'}: {e.get('why') or 'no reason given'}"  # noqa: E731
+    hard = [(p, e) for p, e in down if p not in can]
+    if hard:
+        return [("EFFECTOR_UNAVAILABLE", "; ".join(say(p, e) for p, e in hard)
+                 + " — this show needs it" + ("" if len(hard) == 1 else ", and those"))], []
+    offer = sorted(set(tl.get("skip") or ()) | {p for p, _ in down})
+    arms = [p for p in offer if p in ("arm_left", "arm_right")]
+    return [("NEEDS_APPROVAL", "; ".join(say(p, e) for p, e in down)
+             + f" — this show can run without {', '.join(offer)}, on your approval"
+             + (f" (the {' and '.join(a.replace('_', ' ') for a in arms)} must hang at rest: it was checked there)"
+                if arms else ""))], offer
+
+
+def skipped_arms_at_rest(skip, measured: dict, eff=None) -> list:
+    """Refusals for a skipped arm that is away from rest, where its variant was swept. Its angles come
+    from the dashboard's `effectors` (the Arms lane reads `pose_deg` from the motors even when the arm
+    is limp, which /joint_states may not), else from /joint_states; an arm neither reports is left to
+    the approval, which says it must hang at rest."""
+    out = []
+    for slot in cue.ARM_SLOTS:
+        part = cue.EFFECTORS[slot]
+        e = (eff or {}).get(part) if isinstance((eff or {}).get(part), dict) else {}
+        pose = e.get("pose_deg") if isinstance(e.get("pose_deg"), list) else (measured or {}).get(slot)
+        if part in skip and pose is not None:
+            far = [(j, v) for j, v in enumerate(signed_pose(pose), 1) if abs(v) > SKIPPED_ARM_TOL_DEG]
+            if far:
+                out.append(("PRECONDITION_FAILED", f"{part} is skipped but not at rest ("
+                            + ", ".join(f"J{j} {v:+.0f}°" for j, v in far) + ") — the run without it was "
+                            "checked with it at rest; move it there (a limp arm turns by hand)"))
+    return out
 
 
 def signed_pose(p) -> list:
@@ -368,15 +434,19 @@ def signed_pose(p) -> list:
     return [float(p.get(str(j), p.get(j, 0.0))) for j in range(1, 8)]
 
 
-def prep_moves(tl: dict, measured: dict) -> tuple:
+def prep_moves(tl: dict, measured: dict, skip=()) -> tuple:
     """Moves that bring EVERY arm to where the show starts it — zero, the pose the validator's speed
     check and the twin both start every arm from (cue.py, sim_preview.arm_pose) — timed by the
     distance at the speed caps (x PEAK_FACTOR, the warning-free time), so the move needs no warning.
     Every arm, not only the ones the show moves: an arm left out stays wherever an aborted run left
     it, outside what was validated (found on the robot 2026-10-08, a one-arm run after a two-arm
-    abort). `measured` is {slot: pose} in signed degrees. Returns (seconds, {slot: [7 signed deg]})."""
+    abort). `measured` is {slot: pose} in signed degrees. Returns (seconds, {slot: [7 signed deg]}).
+    An arm the run SKIPS (a can_skip variant) is left alone: it may be down, and its variant was
+    swept with it at rest (skipped_arms_at_rest)."""
     secs, targets = 0.0, {}
     for slot in cue.ARM_SLOTS:
+        if cue.EFFECTORS[slot] in skip:
+            continue
         now = signed_pose(measured.get(slot))
         need = max(abs(now[j - 1]) / cue.SPEED_CAP_DEG_S[j] * cue.PEAK_FACTOR for j in range(1, 8))
         secs, targets[slot] = max(secs, need), [0.0] * 7
@@ -387,6 +457,22 @@ def prep_moves(tl: dict, measured: dict) -> tuple:
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
              ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
+
+
+def twin_only_tools(tl: dict) -> str | None:
+    """Why a show cannot run on this robot because of its ARM tools (effectors.py), or None: a tool type
+    with no driver at a flange. Today's grippers, and shows that name no tools, pass. The crawling hand on
+    the floor (`base`, CRAWL) is the floor_hand part instead: hand_output.availability, which a show may
+    skip (can_skip)."""
+    import effectors
+    reg = effectors.registry()
+    for mount, fit in sorted((tl.get("tools") or {}).items()):
+        if mount == "base":
+            continue
+        tool = reg.get(fit.get("type"))
+        if tool is None or tool.output is None:
+            return f"needs {fit.get('type')} at {mount}, which has no driver yet — it runs only in the twin"
+    return None
 
 
 def _grips_calibrated() -> bool:
@@ -490,7 +576,8 @@ class Runner:
     def __init__(self, path, limits_path, robot, feed=None, log=None, clock=time.monotonic,
                  sleep=time.sleep, start_lead=START_LEAD_S, audio_output=None, audio=None,
                  arms=None, live=False, grips=None, lift=None, light=None, start="now",
-                 countdown_s=None, face=None, video=None, video_override=None, video_default=None):
+                 countdown_s=None, face=None, video=None, video_override=None, video_default=None, skip=(),
+                 hand=None):
         self.path, self.limits_path, self.robot = path, limits_path, robot
         # The projector (video_out.py): {output: backend} this runner has, the operator's play-time
         # choice of output, and this run's ShowVideo per output in use
@@ -502,6 +589,10 @@ class Runner:
         self.music, self.music_on, self.music_why, self._load_id = [], None, None, None
         self._carrier = None                      # the output whose video carries the show's song
         self.projector_settings = video_out.load_settings()
+        self.skip = frozenset(skip or ())         # parts this run plays without (the operator approved)
+        self.hand_out = hand if live else None     # hand_output.FloorHand: the crawling hand on the floor
+        self.hand_run = None                       # ... and this run's HandRun, once it is armed
+        self.offer = []                           # parts the operator may approve to run without
         if start not in START_MODES:
             raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
         # How this run starts (START_MODES); the countdown is this run's, else the show's, else 5 s.
@@ -660,8 +751,8 @@ class Runner:
                 self._log("live", note="arm and gripper goals cancelled — they hold where they are")
             except Exception as e:  # noqa: BLE001
                 self._log("live_error", error=f"cancel: {type(e).__name__}: {e}")
-        for sv in self.videos + self.music:       # black (an e-stop: stopped); never waits on the projector
-            sv.end(status)
+        for sv in self.videos + self.music + self._hands():   # black (an e-stop: stopped); the floor hand
+            sv.end(status)                                      # opens and stops; never waited on
         if self.audio_live:
             # DEC-6: an e-stop cuts the music, everything else fades it — including a show that
             # ends before its song does.
@@ -674,6 +765,9 @@ class Runner:
             self._log("estop", note="everything stopped at once; audio cut, not faded")
         self.feed.playhead(t or 0.0, False, status)
         return self.ended
+
+    def _hands(self) -> list:
+        return [self.hand_run] if self.hand_run is not None else []
 
     def _audio_holder(self):
         try:
@@ -841,6 +935,7 @@ class Runner:
             show.audio_override = self.audio_output
             show.require_sweep = REQUIRE_SWEEP   # an arm show needs a current self-collision stamp (sweep.py)
             show.video_override = self.video_override
+            show.skip = self.skip                # a variant: validated (and its own stamp checked) as played
             tl = show.export(cue.load_limits(self.limits_path), self.limits_path)
         except Exception as e:  # noqa: BLE001
             return self._end(REFUSED, "PARSING_FAILURE", f"{type(e).__name__}: {e}")
@@ -852,6 +947,10 @@ class Runner:
             # after a drive assumes the base moved — so the whole show is refused, not the drives skipped
             return self._end(REFUSED, "SHOW_DRIVE_TWIN_ONLY",
                              "this show uses DRIVE, which runs only in the twin until odometry is trusted")
+        why = twin_only_tools(tl)
+        if why:
+            # a crawling hand, or a tool with no driver (effectors.py): nothing on the robot can play it
+            return self._end(REFUSED, "SHOW_TOOL_TWIN_ONLY", why)
         if tl.get("dance") is not None:
             self._log("note", note="DANCE runs only in the twin until the robot floor test (6.6)")
         self.feed.show(self.path, tl)
@@ -874,18 +973,37 @@ class Runner:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator")
         st = self.robot.read()
         refusals = preflight(show.requires or {}, st, deadman=self.start != "deadman")
+        if self.live and tl.get("crawler") and hand_output.PART in (tl.get("needs") or ()):
+            # the floor hand answers for itself (the dashboard does not know it): fitted, a driver, and the
+            # hand answering on its port. Moves it has never run play too; the log names them.
+            fh = hand_output.availability(tl, self.hand_out)
+            self._log("hand", note=f"the floor hand: {fh['state']}" + (f" — {fh['why']}" if fh["why"] else ""))
+            if fh.get("untried"):
+                self._log("hand", note="this crawl includes moves the real hand has not run before: "
+                                       + "; ".join(fh["untried"]))
+            eff = st.get("effectors") if isinstance(st.get("effectors"), dict) else {}
+            st = dict(st, effectors=dict(eff, **{hand_output.PART: fh}))
+        eff_refusals, self.offer = effector_check(tl, st)
+        refusals = eff_refusals + refusals           # the offer first: it is what the operator can act on
+        show.requires = dict(show.requires or {}, _needs=tl.get("needs") or [])   # armed_monitor re-checks them
         refusals += self._video_preflight(show, tl)
         if refusals:
             return self._end(REFUSED, refusals[0][0], "; ".join(r[1] for r in refusals))
+        if self.hand_out is not None and tl.get("crawler") and hand_output.PART not in self.skip:
+            self.hand_run = self.hand_out.make_run(tl, log=self._log)
 
         # LIVE: the arms' real position must be known. Unknown refuses — and it is read again after
         # the GO, because the start-pose move begins from where they are THEN.
         measured = st.get("arm_pose") or {}
         if self.live:
             measured = self.arms.measured()
-            if measured is None:
+            gone = [s for s in cue.ARM_SLOTS if cue.EFFECTORS[s] not in self.skip
+                    and (measured is None or measured.get(s) is None)]
+            if gone:
                 return self._end(REFUSED, "UNKNOWN_STATE",
-                                 "the arms' measured position is unknown (/joint_states) — a live run needs it")
+                                 f"the arms' measured position is unknown (/joint_states: {', '.join(gone)}) — a live run needs it")
+            if (bad := skipped_arms_at_rest(self.skip, measured, st.get("effectors"))):
+                return self._end(REFUSED, bad[0][0], "; ".join(r[1] for r in bad))
             self._log("live", note="LIVE: the real arms will follow this routine",
                       measured={k: [round(v, 1) for v in val] for k, val in measured.items()})
 
@@ -906,8 +1024,8 @@ class Runner:
                 self.audio_live = True
         # The projector's videos and music, and the stage pages, load now too (paused, on their own
         # threads), so an armed run's GO waits for them as well as for the tablet
-        for sv in self.videos + self.music:
-            sv.begin()
+        for sv in self.videos + self.music + self._hands():   # ... and the floor hand's port opens (it moves
+            sv.begin()                                          # nothing until the show's clock starts)
 
         # ARMED_WAITING: nothing moves until the deadman is pressed — freshly, after arming
         if self.start == "deadman" and (stop := self._wait_for_go(show, st, load_id)):
@@ -926,14 +1044,15 @@ class Runner:
             self.deadline = None
         if self.live and self.start != "now":
             measured = self.arms.measured()
-            if measured is None:
+            if measured is None or any(measured.get(s) is None for s in cue.ARM_SLOTS
+                                       if cue.EFFECTORS[s] not in self.skip):
                 return self._end(ABORTED, "UNKNOWN_STATE",
                                  "the arms' measured position became unknown (/joint_states) before the "
                                  "start-pose move")
 
         # PREPPING: travel to the start pose, slowly enough to need no warning — while the
         # show-audio device finishes loading
-        secs, targets = prep_moves(tl, measured)
+        secs, targets = prep_moves(tl, measured, self.skip)
         if self.live and secs > 0:
             for slot in targets:
                 pts = arm_output.track_points([{"start": 0.0, "t": secs, "pose_signed":
@@ -962,7 +1081,7 @@ class Runner:
         # WAITING_FOR_START: a start in the future, so the music and the arms can begin together
         self._set(WAITING, lead_s=self.start_lead)
         t0 = self.clock() + self.start_lead
-        for sv in self.videos + self.music:       # each follows the show's clock from here (its lead early)
+        for sv in self.videos + self.music + self._hands():   # each follows the show's clock from here
             sv.go(lambda: self.clock() - t0)
         if self.audio_live:
             # T0 on the Thor's monotonic clock; the device converts it to its own audio clock
@@ -990,7 +1109,8 @@ class Runner:
                 elif not hasattr(self.arms, "send_grip"):
                     self._log("live", note="gripper cues are NOT sent: this runner's arm output has no grippers")
                     self.grips = None
-                elif (missing := self.arms.grips_ready()):
+                elif (missing := [side for slot, side in arm_output.GRIP_SIDES.items()
+                                  if tl.get("tracks", {}).get(slot) and side in self.arms.grips_ready()]):
                     self._log("live", note="gripper cues are NOT sent: no gripper controller for "
                                            f"{' and '.join(missing)} (is that arm active?)")
                     self.grips = None
@@ -1213,7 +1333,7 @@ class Palette:
     def __init__(self, shows_dir, limits_path, robot, feed, log=None, start_lead=START_LEAD_S,
                  clock=time.monotonic, sleep=time.sleep, audio=None, arms=None, face=None, gaze=None,
                  local_shows=None, dashboard=None, lift_live=False, light_live=False, no_neck=False,
-                 video=None):
+                 video=None, hand=None):
         self.shows_dir, self.limits_path, self.robot, self.feed = shows_dir, limits_path, robot, feed
         self.no_neck = no_neck               # this robot has no neck (OPENDUBS_HEAD_NECK_HOST=none)
         self.local_shows = local_shows
@@ -1232,6 +1352,7 @@ class Palette:
         self.video = video or {}
         self.video_override = None
         self.video_checked_at = None
+        self.hand = hand                     # hand_output.FloorHand, or None: this robot has no floor hand
         if "cast" in self.video:
             threading.Thread(target=self._watch_cast, daemon=True, name="cast-watch").start()
         self.current = None           # (routine id, Runner, thread)
@@ -1264,6 +1385,8 @@ class Palette:
                 # listed, never runnable here: DRIVE is twin-only (the run would be refused anyway)
                 tl = dict(tl, valid=False, problems=[{"msg": "uses DRIVE — runs only in the twin until odometry "
                                                               "is trusted"}] + list(tl["problems"]))
+            if twin_only_tools(tl):
+                tl = dict(tl, valid=False, problems=[{"msg": twin_only_tools(tl)}] + list(tl["problems"]))
             if show.id in seen:
                 # two shows, one id: the operator's pick would be ambiguous, so this one is refused
                 tl = dict(tl, valid=False, problems=[{"msg": f"its id {show.id!r} is also the {seen[show.id]} "
@@ -1271,6 +1394,7 @@ class Palette:
             seen.setdefault(show.id, f"{where} folder's")
             out.append({"id": show.id, "label": pal.get("label", show.id), "order": pal.get("order", 999),
                         "path": path, "from": where, "valid": tl["valid"], "duration_s": tl["duration_s"],
+                        "needs": tl.get("needs") or [], "can_skip": tl.get("can_skip") or [],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
@@ -1291,6 +1415,7 @@ class Palette:
                     "status": cur[1].status if cur else None, "last": self.last,
                     **({"start_info": cur[1].start_info()} if running else {}),
                     "default_start": self.default_start(),
+                    "skipped": sorted(cur[1].skip) if running else [],
                     "audio_note": cur[1].audio_note if cur else None,
                     "live": bool(running and cur[1].live), "live_available": self.arms is not None}
 
@@ -1370,7 +1495,7 @@ class Palette:
         """The robot's runs wait for the deadman; a twin's count down (agreed 2026-10-13)."""
         return "deadman" if self.arms is not None else "countdown"
 
-    def run(self, rid: str, start=None, countdown_s=None) -> dict:
+    def run(self, rid: str, start=None, countdown_s=None, skip=None) -> dict:
         # A runner with arms always drives them. On the robot, CH5 AUTO and the held deadman are the
         # operator's go; a separate "live" switch only let a run skip the arms unnoticed (decided
         # 2026-10-08). A runner without arms (a laptop, with the composer) drives the twins only.
@@ -1383,6 +1508,10 @@ class Palette:
                 raise KeyError(f"no palette routine {rid!r}")
             if not r["valid"]:
                 raise ValueError(f"{rid!r} does not validate: {'; '.join(r['problems'])}")
+            skip = skip or []
+            if not isinstance(skip, list) or any(x not in r.get("can_skip", ()) for x in skip):
+                raise ValueError(f"skip must list parts this show can run without ({', '.join(r.get('can_skip') or ()) or 'none'}), "
+                                 f"not {skip!r}")
             start = start or self.default_start()
             if start not in START_MODES:
                 raise ValueError(f"start must be one of {', '.join(START_MODES)}, not {start!r}")
@@ -1413,7 +1542,7 @@ class Palette:
                             audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
                             start=start, countdown_s=countdown_s, face=self.face if live else None,
                             video=self.video, video_override=self.video_override,
-                            video_default=self.video_default())
+                            video_default=self.video_default(), skip=skip, hand=self.hand if live else None)
             runner.no_neck = live and self.no_neck
             for x in sinks:
                 x.note = lambda kind, **kw: runner._log(kind, **kw)
@@ -1434,7 +1563,8 @@ class Palette:
             except Exception:  # noqa: BLE001
                 status, code = ABORTED, "RUNNER_ERROR"
         with self.lock:
-            self.last = {"id": rid, "status": status, "code": code, "cause": cause}
+            self.last = {"id": rid, "status": status, "code": code, "cause": cause,
+                         "offer": list(runner.offer), "skipped": sorted(runner.skip)}
         # FAKE robot only: a completed routine left the arms at rest, so the next one's start-pose
         # move begins from there. The real provider MEASURES this instead.
         if status == COMPLETED and isinstance(self.robot, FakeRobotState):
@@ -1500,7 +1630,8 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                     if not isinstance(body, dict):
                         raise ValueError("the body must be a JSON object: {start, countdown_s}")
                     return self._json(palette.run(p.partition("?")[0].rsplit("/", 1)[1],
-                                                  start=body.get("start"), countdown_s=body.get("countdown_s")))
+                                                  start=body.get("start"), countdown_s=body.get("countdown_s"),
+                                                  skip=body.get("skip")))
                 except RuntimeError as e:
                     return self._json({"error": str(e)}, 409)
                 except KeyError as e:
@@ -1569,6 +1700,9 @@ def main() -> int:
                     help="the projector outputs this runner drives, comma-separated: cast, hdmi, stage (video_out.py; "
                          "per robot: OPENDUBS_CAST_NAME / OPENDUBS_CAST_HOST, OPENDUBS_VIDEO_PORT (8094), OPENDUBS_VIDEO_BIND, "
                          "OPENDUBS_MPV_SOCKET, OPENDUBS_VIDEO_OUTPUT)")
+    pp.add_argument("--hand", default=os.environ.get("OPENDUBS_FLOOR_HAND") or "off",
+                    help="the floor hand's serial port (its RS-485 adapter, best by /dev/serial/by-id/), or off "
+                         "(hand_output.py; per robot: OPENDUBS_FLOOR_HAND in robot.env)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
                     help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
                          "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
@@ -1635,7 +1769,8 @@ def main() -> int:
             video["stage"] = video_out.StageOutput(show_outputs.base_of(a.dashboard))
         pal = Palette(a.shows, a.limits, robot, feed, log, audio=audio, arms=arms, face=face, gaze=gaze,
                       local_shows=a.local_shows, dashboard=dash, lift_live=a.lift == "dashboard",
-                      light_live=a.light == "dashboard", no_neck=no_neck, video=video)
+                      light_live=a.light == "dashboard", no_neck=no_neck, video=video,
+                      hand=None if a.hand in ("", "off", "none") else hand_output.FloorHand(a.hand))
         serve(feed, robot, {}, "127.0.0.1", a.port, pal)
         names = ", ".join(f"{x['label']}{'' if x['valid'] else ' (INVALID)'}" for x in pal.routines())
         print(f"runner: palette on http://127.0.0.1:{a.port} — {names}. GET /api/routines, "

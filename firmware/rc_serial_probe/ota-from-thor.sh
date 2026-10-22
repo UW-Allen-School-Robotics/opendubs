@@ -5,11 +5,11 @@
 # ethernet-OTA firmware is on the board; keep a USB port reachable only as a recovery fallback
 # (a complete-but-buggy image still needs USB — see the firmware OTA notes).
 #
-# SIGNED: the board installs only images signed with the Thor's firmware-signing key
-# (notes/design/firmware-signing.md). This script compiles the public key into the build, signs
-# the image (firmware.bin.sig, served beside it) and checks the signature before serving it. The
-# key is root-only, so run it with sudo. A board still running pre-signing firmware ignores the
-# .sig and installs the image as before; that is how signing is bootstrapped.
+# SIGNED: the board installs only images signed with the Thor's firmware-signing key, for the
+# board name "stamplc" (notes/design/firmware-signing.md). This script signs the image with
+# software/stack/firmware-signing/sign-firmware.sh (firmware.bin.sig, served beside it). The key is
+# root-only, so run it with sudo. A board still running pre-signing firmware ignores the .sig and
+# installs the image as before; that is how signing is bootstrapped.
 #
 # Usage:  sudo ./ota-from-thor.sh            <- normal: finds the StamPLC itself
 #         ./ota-from-thor.sh 10.42.2.20      <- override, if discovery cannot
@@ -65,26 +65,27 @@ PIO=/opt/opendubs/piovenv/bin/pio
 BIN="$PROJ/.pio/build/stamplc/firmware.bin"
 
 # --- the signing key -------------------------------------------------------------------------
+# The one signing step is software/stack/firmware-signing/sign-firmware.sh. The keys a build TRUSTS
+# are the repository's (lib/ota_verify -> firmware/common/ota_verify/keys/), so check that the image
+# about to be installed trusts the key this Thor signs with, or the next update would be refused.
 KS="${OPENDUBS_FW_KS_DIR:-/etc/opendubs/firmware-signing}"
-keyid() { sha256sum "$1" | cut -c1-16; }
+SIGNER="$(cd "$PROJ/.." && pwd)/stack/firmware-signing/sign-firmware.sh"
+[ -x "$SIGNER" ] || SIGNER="$(cd "$PROJ/../.." && pwd)/software/stack/firmware-signing/sign-firmware.sh"
 [ "$(id -u)" = 0 ] || { echo "ERROR: run with sudo: the firmware-signing key is root-only."; exit 1; }
 if [ ! -r "$KS/ota.key" ] || [ ! -r "$KS/ota.pub.der" ]; then
   echo "ERROR: no firmware-signing key in $KS."
-  echo "       Create it once, then back it up (software/stack/firmware-signing/README.md):"
-  echo "         sudo /opt/opendubs/stack/firmware-signing/provision-firmware-signing.sh"
+  echo "       Create it once, back it up and commit its public key (software/stack/firmware-signing/README.md)."
   exit 1
 fi
-SIGN_KEY="$KS/ota.key"; SIGN_PUB="$KS/ota.pub.der"; TRUST_PUB="$SIGN_PUB"
-if [ -f "$KS/ota.next.pub.der" ]; then
-  # A rotation: the board running now trusts the current key, so sign with it; the image being
-  # installed trusts the next one from then on (provision-firmware-signing.sh --next/--promote).
-  TRUST_PUB="$KS/ota.next.pub.der"
-  echo "== ROTATION: signed with key $(keyid "$SIGN_PUB"); the new firmware will trust only key $(keyid "$TRUST_PUB") =="
-fi
-mkdir -p "$PROJ/include"
-python3 "$PROJ/tools/pubkey_header.py" "$TRUST_PUB" > "$PROJ/include/ota_pubkey.h" \
-  || { echo "ERROR: could not write include/ota_pubkey.h"; exit 1; }
-echo "== this build trusts firmware-signing key $(keyid "$TRUST_PUB") =="
+SIGN_ID="$(sha256sum "$KS/ota.pub.der" | cut -c1-16)"
+TRUSTED="$(ls "$PROJ/lib/ota_verify/keys/" 2>/dev/null | sed -n 's/\.der$//p' | tr '\n' ' ')"
+echo "== signing key $SIGN_ID; the new firmware will trust: ${TRUSTED:-NO KEY} =="
+case " $TRUSTED " in
+  *" $SIGN_ID "*) ;;
+  *) echo "WARNING: the new firmware does not trust this Thor's key $SIGN_ID. It installs (the running"
+     echo "         board checks the signature), but the NEXT update from this Thor would be refused."
+     echo "         Commit the key's public half first (README.md, 'First robot', step 3).";;
+esac
 # src/main.cpp is per robot (deploys never overwrite it), so it may predate signed OTA. Then the
 # image still installs, but the board it becomes will not check signatures. Say so plainly.
 if ! grep -q otaVerifyFinish "$PROJ/src/main.cpp"; then
@@ -125,13 +126,7 @@ cd "$PROJ" && "$PIO" run || { echo "ERROR: build failed"; exit 1; }
 echo "firmware: $(du -h "$BIN" | cut -f1)  ($BIN)"
 
 echo "== signing it =="
-rm -f "$BIN.sig"
-openssl dgst -sha256 -sign "$SIGN_KEY" -out "$BIN.sig" "$BIN" || { echo "ERROR: signing failed"; exit 1; }
-PUBPEM="$(mktemp)"; openssl pkey -pubin -inform DER -in "$SIGN_PUB" -out "$PUBPEM"
-openssl dgst -sha256 -verify "$PUBPEM" -signature "$BIN.sig" "$BIN" >/dev/null \
-  || { rm -f "$PUBPEM"; echo "ERROR: the signature does not verify against key $(keyid "$SIGN_PUB")"; exit 1; }
-rm -f "$PUBPEM"
-echo "signed with key $(keyid "$SIGN_PUB"): $BIN.sig"
+"$SIGNER" stamplc "$BIN" || { echo "ERROR: signing failed"; exit 1; }
 
 echo "== serving it on http://$THOR_IP:$HTTP_PORT =="
 # Bracketed so the pattern cannot match the command running it (it does, over ssh).

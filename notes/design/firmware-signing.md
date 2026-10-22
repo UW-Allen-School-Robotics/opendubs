@@ -1,124 +1,145 @@
-# Signed firmware updates for the StamPLC
+# Signed firmware updates: the StamPLC and the neck Dial
 
-**The problem.** The StamPLC, the robot's safety controller, reflashes itself when it receives
-`OTA http://<host>:<port>/<path>` on UDP 5005. The command is unauthenticated, so anyone on the robot's
-network could install any firmware on the safety controller. Once the repository is public, the
-command set and the unsigned OTA are visible to anyone.
+**The problem.** Two boards update themselves over the network when told to:
 
-**The goal.** The board installs only images signed with the project's key. A bad or missing
-signature means the image is rejected, the board says so, and it keeps running its current firmware.
+- **The StamPLC**, the safety controller: `OTA <url>` on UDP 5005.
+- **The neck Dial**, the head's pan/tilt: `OTA <url>` on UDP 4242.
 
-## The choice: an app-level check in the OTA handler
+Neither command is authenticated, so anyone on the robot's network could install any firmware on
+either board. Once the repository is public, the command set is public too.
 
-| | ESP-IDF signed apps | app-level ECDSA check (**chosen**) |
+**The goal.** Each board installs only an image signed on the Thor **for that board**. A bad, missing
+or wrong-board signature means the image is rejected, the board says so, and the running firmware is
+untouched and still the one that boots.
+
+## The pieces
+
+| | what | where |
 |---|---|---|
-| where the check runs | inside ESP-IDF's OTA and bootloader code, set by `sdkconfig` | `otaHttpPull()`, before `Update.end()` makes the image bootable |
-| fits this build | **no.** The firmware uses the Arduino core (espressif32 7.0.1, Arduino 2.0.17, ESP-IDF 4.4) with ESP-IDF prebuilt. Changing `sdkconfig` means a hybrid Arduino+IDF build or a framework fork | yes. Plain mbedTLS, already in the image |
-| testable on a laptop | no | yes, the same source file (`tests/test_ota_verify.sh`) |
-| also covers USB flashing | no (that needs secure boot, which burns eFuses irreversibly) | no |
+| **one check** | shared by both boards: ECDSA P-256 over SHA-256, plain mbedTLS, a boot self-test | `firmware/common/ota_verify/` |
+| **one signing step** | `sign-firmware.sh <board> <image>` writes `<image>.sig`, served beside the image | `software/stack/firmware-signing/` |
+| **one key** | the private half only on the Thor; the public half committed, so every builder compiles in the same key | Thor: `/etc/opendubs/firmware-signing/`; repo: `firmware/common/ota_verify/keys/` |
+| StamPLC side | `otaHttpPull()` fetches the `.sig`, hashes as it writes, decides before `Update.end()` | `firmware/rc_serial_probe` (this lane) |
+| Dial side | the same pattern, written against the library's interface | `firmware/neck_dial` (the Tablet lane) |
 
-The app-level check is the more robust choice **for this toolchain**. It needs no framework change
-that a platform update could silently undo, and it's small enough to test exactly as it ships.
+## Decisions
 
-**What it is:** ECDSA P-256 over SHA-256, the detached signature in DER, checked with mbedTLS's
-generic `md`/`pk` calls. They are the same in mbedTLS 2.28 on the board and 3.x on a laptop. Ed25519
-would be smaller, but mbedTLS 2.28 doesn't have it.
+**An app-level check in the OTA handler, not ESP-IDF's signed apps.** Both boards use the Arduino
+core, with ESP-IDF prebuilt. The StamPLC is on espressif32 7.0.1, ESP-IDF 4.4 and mbedTLS 2.28; the
+Dial on a newer platform with mbedTLS 3.x. ESP-IDF's signed-app verification is an `sdkconfig` option
+compiled into those prebuilt libraries, so it would mean a hybrid build or a framework fork on each
+board. The app-level check needs neither. It's one source file that both boards and a laptop build
+unchanged, and it uses only mbedTLS's `md`/`pk` calls, which are the same in 2.28 and 3.x. mbedTLS
+2.28 has no Ed25519, so the algorithm is P-256.
+
+**One project key, with the board's name inside every signature.** The signed message is
+`"OPENDUBS-FW-SIG-1" \0 <board> \0 <image>`.
+
+- Per-board keys would add a second private key to back up and rotate without separating anything,
+  because both would sit on the same Thor.
+- What per-board keys *would* prevent is a cross-board install. The board name in the signature
+  prevents exactly that. Both boards are ESP32-S3s: without it, a correctly signed StamPLC image sent
+  to the Dial would pass the check, boot, and break the Dial's updates until someone fits a USB
+  cable, which it normally runs without.
+
+**The public key is committed.** It isn't secret. Committing it means the Dial, which is built on a
+laptop, and the StamPLC, built on the Thor, compile in the same reviewed key, and its id is in the
+repository's history. Trusting a new key is a reviewed change.
+
+**Fail closed, except where failing closed would cost a USB visit.**
+
+- A build with no key rejects every update; the Dial's won't even build.
+- A failed self-test rejects everything on the StamPLC, which has USB. On the Dial it falls back to
+  report-only, below.
 
 ## How an update flows
 
-1. `sudo ota-from-thor.sh` on the Thor (still the one command) does four things.
-   - It writes `include/ota_pubkey.h` from the Thor's public key. The header is generated on every
-     build and never committed.
-   - It builds, then signs `firmware.bin` into `firmware.bin.sig`.
-   - It checks the signature itself.
-   - It serves both files and sends `OTA <url>`.
-2. The board does the rest, in this order.
-   - It refuses at once if it has no compiled-in key (`otakey=none`). It doesn't touch the drive bus.
-   - It opens the drive contactor, as before.
-   - It fetches `<path>.sig` (at most 160 bytes).
-   - It streams the image into the inactive OTA slot, hashing as it writes.
-   - It verifies the signature before `Update.end()`. If the check fails, `Update.abort()` runs, the
-     new slot is never selected, `[OTA] REJECTED: <why>` goes out, and the current firmware keeps
-     running.
-3. The board reports the key it trusts as `otakey=<id>` in its `[NET]` telemetry every 5 s.
+1. The Thor builds (the StamPLC) or receives (the Dial) the image, and runs
+   `sudo sign-firmware.sh <board> <image>`. The script signs, checks the signature against the key's
+   public half, and writes `<image>.sig`.
+2. The image and its `.sig` are served over HTTP. The board gets `OTA <url>`.
+3. The board does the rest, in this order:
+   - It refuses at once if it trusts no key, or if its self-test failed and it can be recovered over
+     USB (the StamPLC).
+   - It fetches `<url>.sig`.
+   - It streams the image into the inactive slot, hashing every byte.
+   - It runs `otaVerifyFinish(...)` **before** `Update.end(true)`. On failure, `Update.abort()` runs:
+     the new slot is never selected, and the running app stays the one that boots.
+4. Each board reports the key ids it trusts and whether its self-test passed. The StamPLC does this
+   in its `[NET]` telemetry line; the Dial in its `PING` reply, as the Tablet lane decides.
 
-**A build without the key header trusts no key and refuses every update.** It fails closed: a laptop
-build, or a USB recovery on a Thor with no key, can never produce firmware that accepts anything.
+## Keys, rotation and loss
 
-## Keys
+- **The private key** lives in `/etc/opendubs/firmware-signing/` on the Thor (root, 0700; key 0400),
+  the same place and style as the kiosk signing key. There is one project key for every robot, and a
+  second robot imports it from the backup. **The backup is what keeps a Dial reachable:** take it
+  before the first signed image ships, and keep it in the password manager.
+- **Rotation** never leaves a board trusting only a key we can't use:
+  1. `--next` creates the next key, and its public half is committed beside the current one.
+  2. Every board is updated, signed with the current key, to firmware that trusts **both**.
+  3. Only then does `--promote` make the next key current.
+  4. Updates are now signed with the new key, which every board already trusts.
+  5. Finally the old public key is removed, and the next update narrows each board to the new key.
 
-The private key lives only on the Thor, in `/etc/opendubs/firmware-signing/` (root, 0700; key 0400).
-That's the same place and the same style as the kiosk signing key: one project key for every robot, a
-password-manager backup taken by hand, and `--import` on another robot. The public key is compiled in;
-it isn't secret. Procedures: `software/stack/firmware-signing/README.md`.
+  If anything goes wrong in the middle, every board still trusts a key we hold.
+- **A lost key** can't be recovered. The way back is USB: on the robot for the StamPLC
+  (`flash-from-thor.sh`), and for the Dial with a USB cable fitted for the visit (it normally runs
+  without one). Both are made near-impossible by the backup, by
+  rotation never dropping a held key, and by the Dial refusing to build without a key.
 
 ## Bootstrap
 
-1. Create the key and back it up.
-2. Run `ota-from-thor.sh` once. The board's current firmware doesn't fetch the `.sig` and installs the
-   signing-capable image the unsigned way. The script reports which of the two happened.
-3. From then on, enforcement is on.
+**The StamPLC:**
 
-**This needs one decision first: `src/main.cpp` is per robot.** Each robot keeps its own copy, because
-it carries that robot's drive calibration (`notes/per-robot-calibration.md`). Deploys never overwrite
-it, and the OTA handler lives in it. So this repository's change does not reach a robot until that
-robot's `main.cpp` has it. `ota-from-thor.sh` warns plainly while it doesn't. There are two ways to get
-it there, both at the robot with the maintainers:
+1. Create the key, back it up, and commit its public half.
+2. Make sure the robot's own `src/main.cpp` carries the check. It's **per robot**, because it holds
+   that robot's drive calibration and deploys never overwrite it, and the OTA handler lives in it.
+   Either merge it by hand once, or (**recommended**) move the per-robot constants into a per-robot
+   header so `main.cpp` deploys normally. `ota-from-thor.sh` warns until this is done.
+3. Run `sudo ota-from-thor.sh` once. The running firmware predates signing, ignores the `.sig` and
+   installs the new image the old way. From then on, it checks every update.
 
-- **(A) Merge by hand, once:** diff the robot's `main.cpp` against the repository's (`tools/deploy-audit.py`
-  shows it), and bring the robot's copy to the repository's version with its per-robot constants
-  kept. That's quick, but it repeats every time `main.cpp` changes.
-- **(B) Move the per-robot constants into a per-robot header** (`src/robot_config.h`, never deployed;
-  the repository has an example), so `main.cpp` becomes an ordinary deployed file. That's a little
-  more work once, and it's the fix `per-robot-calibration.md` already names as the real one.
+**The Dial.** It normally runs without a USB cable, and recovering it means a visit to fit one, so
+every step is proven before the next one depends on it:
 
-The recommendation is **(B)**, done at the same robot session as the bootstrap. Until either is done,
-the robot is exactly as it is today: unsigned updates are still accepted.
+1. **Image A: report-only** (`-DOTA_SIG_REPORT_ONLY`). It checks every update and reports the verdict,
+   but installs anyway. It's installed by the Dial's current, unsigned OTA, the documented recipe,
+   with the user present. It reports its key id and `otaverify=ok`.
+2. **Prove the check on this unit, still on A:**
+   - a correctly signed update of A must report *signature valid* and install;
+   - an update of A with a corrupted `.sig` must report *would reject* and install anyway. That's
+     harmless, because it's the same firmware.
+3. **Image B: enforcing**, built from the same check. It's installed signed, so A's verdict on it must
+   be *valid*.
+4. **Prove enforcement on B:** a corrupted `.sig` must be **rejected**, with B still running. A signed
+   update must install.
 
-## Recovery and rotation
-
-- **A lost key** can't be recovered. The way back is USB with someone at the robot:
-  `flash-from-thor.sh` with a new key. USB flashing is not signature-checked, because physical access
-  is the root of trust. There is no secure boot, deliberately (eFuses can't be undone).
-- **Rotation** works because the board trusts one key at a time. `--next` creates the next key, and
-  `ota-from-thor.sh` builds firmware that trusts the next key, signed with the current one. When the
-  board reports the new id, run `--promote`.
+Never put an enforcing image on a Dial whose report-only image hasn't passed step 2. And if B's
+self-test ever fails, B falls back to report-only and says so: a bug in the check never costs a
+cable visit.
 
 ## What this does not cover
 
-- **Denial of service.** Anyone on the network can still send `OTA`. The board opens the drive
+- **Denial of service.** Anyone on the network can still send `OTA`. The StamPLC opens its drive
   contactor before it can know whether the image is good, so the robot stops until the e-stop is
-  cleared. That is a stop, not code execution, and it matches the network-first security stance.
-  Checking the signature before opening the contactor would need the whole image buffered first.
+  cleared. That's a stop, not code execution. Checking first would mean buffering the whole image.
 - **Rollback.** An older image that was signed correctly can be reinstalled. There is no version
   floor yet.
-- **USB and physical access**, as above.
-- **Confidentiality.** The image travels over plain HTTP. That's fine, because the signature covers
-  integrity, and the firmware is not secret.
+- **Physical access.** USB flashing isn't checked; there's no secure boot, by choice, because eFuses
+  are irreversible.
+- **Confidentiality.** Images travel over plain HTTP. The signature covers integrity, and the firmware
+  is not secret.
 
-## Tests
+## Tests (desk only; nothing is flashed from a desk)
 
-- `firmware/rc_serial_probe/tests/test_ota_verify.sh` builds mbedTLS and the board's own
-  `ota_verify.cpp` on a laptop. It signs with OpenSSL exactly as the Thor does, and checks eight cases:
-  - accepted: the signed image only;
-  - refused: a changed image byte, a changed signature byte, another key, a truncated signature,
-    random bytes as the signature, no signature, and a build with no key.
-- Desk builds of the firmware with and without a key header both compile and link against the board's
-  own toolchain.
-- Nothing is flashed from a desk. The first real run is `sudo ota-from-thor.sh`, with someone at the
-  robot.
-
-## Later: the neck Dial
-
-The Dial pulls its updates the same way (`OTA <url>` on UDP 4242) and should get the same check. But
-it has no USB cable on the robot: **a mistake there can't be undone without taking the head apart.**
-So, before it's enabled:
-
-- prove the check on a bench Dial;
-- make a keyless or wrong-key Dial image impossible to build, rather than just warned about;
-- prove a full signed round trip (sign, install, report the key id, reject a bad image) on the robot
-  while the old path is still there;
-- consider letting the Dial trust **two** keys during a rotation, so a half-finished rotation can't
-  lock it out.
-
-None of that is built yet.
+- `firmware/common/ota_verify/tests/test_ota_verify.sh` builds mbedTLS and the check on a laptop, and
+  signs with the Thor's own `sign-firmware.sh` against scratch keys. 14 cases:
+  - the boot self-test;
+  - this board's image passes, and the other board's image is refused;
+  - a changed image byte, a changed signature byte, an untrusted key, and truncated, random or missing
+    signatures are refused;
+  - a build that trusts no key is refused;
+  - during a rotation, both keys pass; after it, the retired key is refused.
+- StamPLC firmware builds against its own toolchain, trusting no key and trusting two keys: both
+  compile and link the shared library through the symlink.
+- `provision-firmware-signing.sh`, the key lifecycle, as a laptop dry run.

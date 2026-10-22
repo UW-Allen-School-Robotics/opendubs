@@ -129,6 +129,8 @@ def check_names(root, files, allow_none):
                    "--allow-no-denylist")
         return
     for f in files:
+        if f == "AUTHORS":                     # the one file that names contributors, on purpose
+            continue
         data = (root / f).read_bytes()
         if b"\0" in data[:8192]:
             continue                                    # binary

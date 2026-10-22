@@ -399,6 +399,40 @@ warning until the save sweeps it; a measured collision is an error everywhere. C
 for the shows in this repository, up to ~10 s for a dense 2½-minute show; an unchanged show is not
 swept again.
 
+### Effectors: what a show needs, and what it can run without
+
+A show's **needs** are the robot's parts its cues use, by name: `arm_left`, `arm_right`,
+`grip_left`, `grip_right`, `lift`, `light` and `neck` (the HEAD slot) — derived from the cues, never
+written by hand (`cue.py EFFECTORS`; the export carries them as `needs`). The dashboard reports each
+part's availability (`effectors`, from the Arms lane's per-part status: `ok` or `down`, with why), and
+the runner's preflight refuses a run when a part it needs is not `ok`, naming the part and the reason.
+A part the show does not use never refuses it.
+
+```yaml
+can_skip: [grip_left, grip_right, light]   # optional: parts this show still works without
+```
+
+A part listed in `can_skip:` turns that refusal into an **offer**: the run is refused with
+`NEEDS_APPROVAL`, the Shows page shows RUN WITHOUT <part>, and only that tap plays the **variant** —
+the show with that part's cues left out (after clips are expanded, so a mirrored clip loses the right
+cues). The runner never picks a variant on its own; only the author can list a part as skippable, and
+a run may skip nothing else.
+
+A variant that changes the motion has its own collision stamp, written by the same sweep under
+`clearance.variants`, keyed by its moving parts (a light changes no clearance and needs none):
+
+```yaml
+clearance: { min_mm: 41.0, …, variants: { grip_left: { min_mm: 40.2, …, checked_for: "…" } } }
+```
+
+`sweep.py stamp` sweeps each single part, and with three or fewer moving `can_skip` parts every
+combination. A skipped part is assumed where the twin leaves an unused one, and the variant is swept
+that way: an arm at rest (the preflight refuses a skipped arm with any joint more than 10° from it, naming the
+joint; a limp arm's roll joints do not settle by themselves, and are turned back by hand), the head
+centred, the lift down, a gripper as the twin draws it. A skipped arm is also left out of the
+start-pose move. An arm with any silent joint is `down` (Arms lane: a silent joint goes limp, so it is
+never run around); a show runs without it only by skipping the whole arm.
+
 ### Valid is not the same as executable
 
 Some verbs above **have no receiver today**, and the validator says so as a *notice* (not a
@@ -600,3 +634,56 @@ position**:
 
 It changes `SLOTS` and, when it runs on the robot, the authority model's treatment of the base and
 the runner — both still ahead (plan 5 and 6.6).
+
+## 13. Tools, and a crawling hand — built 2026-10-16, TWIN ONLY
+
+**The tool registry** (`software/choreo/effectors/`, one YAML per tool type; `effectors.py list`). A
+type declares its **channels** (a 0..1 range, or a set of named states, each with how long a full
+stroke takes), **named poses**, finger-dance **patterns**, where it can be fitted (**mounts**: `left`
+and `right` are the arm flanges, `base` is the floor, on a leash tied to the chassis), what it can do there
+(**modes**: `equipped`, `crawl`), its **twin model** (a vendor model loaded from outside the repo, or
+a primitive built from the same channels), and its **driver** (`output`; `null` = none yet, twin
+only). A type may be another one **mirrored** (`mirror_of`): `surge_left` is `surge_right` reflected
+through the hand's own sagittal plane, and a test proves every body and geom lands at its reflection.
+Types today: `openarm_gripper` (the default, with a driver), `surge_right` / `surge_left`, and
+`suction_cup` / `pneumatic_gripper` (registry and primitive twin only, to show the seams).
+
+**What is fitted** is per robot and lives on it: `$OPENDUBS_TOOLS`, else `/etc/opendubs/tools.yaml`
+(`effectors.py template`, `effectors.py check`). No file means today's robot: grippers on both arms.
+
+**In a show:**
+
+```yaml
+tools: { right: surge_right, base: { type: surge_right, mode: crawl } }   # absent: today's grippers
+crawler: { start: [1.16, 0, 0], keep_off_m: 0.25, tether: { anchor: base_front, length_m: 1.8 },
+           area: { x: [0.75, 2.4], y: [-1.1, 1.1] } }
+cues:
+  - { t: 2, slot: GRIP_R, pose: horns }                 # any tool: open / do, or pose, or set
+  - { t: 3, slot: GRIP_R, set: { thumb_rot: 0.2 } }
+  - { t: 1, slot: CRAWL, do: walk, dist_m: 0.3 }        # out, away from the robot
+  - { t: 14, slot: CRAWL, do: turn, by_deg: -45 }        # a pivot
+  - { t: 31, slot: CRAWL, do: dance, pattern: ripple, beats: 8 }
+  - { t: 40, slot: CRAWL, do: walk, dir: back, dist_m: 0.08 }
+```
+
+| rule | value | kind |
+|---|---|---|
+| GRIP on a tool | `open:` / `do:` through the type's `open_map` (a valve: 0 or 1 only); `pose:`; `set:` channels in range; exactly one | registry |
+| tool speed | a target the channels cannot reach before the next cue **warns** (it arrives late), never refuses | registry `full_stroke_s` |
+| fitted | validated against a robot's fitted tools, a show that needs a different tool is refused | per robot |
+| CRAWL walk | `dir: forward\|back` (no sidestep); one of `secs`, `dist_m`, `to: start\|[x, y]`; a `to:` must lie on the hand's line (it walks straight: pivot first); `heading_deg` ramps at ≤ the gait's `steer_deg_s` | sim |
+| CRAWL turn | `by_deg`, a **pivot on the spot** (+ = the hand's left), at the slowest simulated rate | sim |
+| CRAWL dance | a finger pattern while standing; a step the fingers cannot finish at the tempo warns | registry |
+| timing | every leg is held on the timeline for its **slowest** simulated speed; the next CRAWL cue may not start before | sim |
+| leash | from its anchor on the base (moving with a DANCE), the hand stays within `length_m` − 0.15 m slack | declaration |
+| start | the hand stands on the floor at `start` (default ~55 cm in front of the chassis, facing away); it is NOT attached to the base: a DANCE moves the leash's anchor, never the hand | declaration |
+| footprint, area | the hand (its radius plus the path's uncertainty: sim drift and the faster-than-nominal case) keeps `keep_off_m` (default 25 cm) of clear floor from the chassis and stays inside `area` | declaration + estimate |
+| idle | between cues a standing hand plays its type's `idle` pattern on the beat (the Surge: the index tapping), so it never freezes | registry |
+| robot | valid, but **twin only**: the runner refuses a CRAWL show, or one that needs a tool with no driver (`SHOW_TOOL_TWIN_ONLY`) | — |
+
+**Every crawl speed is from simulation, not hardware** (the YAML says where each came from). On a
+trailing leash the hand is slower: simulated for the forward gait (3.5–4.7 cm/s), and scaled from it for
+the back-up gait and the pivots (labelled so). The composer's CRAWL lane shows each leg; its floor plan
+shows the chassis, the leash's reach, the declared area, the predicted path with its uncertainty, the
+hand at the playhead, and every leg's distance and time at the sim speeds. The render draws the hand on
+that path, playing a gait cycle recorded from the physics model (`effectors/<type>.gaits.json`).

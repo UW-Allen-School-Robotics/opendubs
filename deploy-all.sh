@@ -58,6 +58,7 @@ deploy_sub software/voice           voice     # the voice service's scripts; bui
 # installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
+deploy_sub firmware/common         common    # shared firmware code; rc_serial_probe/lib/ota_verify links here
 # main.cpp used to carry each robot's calibration inline, and deploys skipped it; now it is an
 # ordinary deployed file and the values are in the robot's src/robot_config.h. Before the first such
 # deploy replaces a robot's old main.cpp (one that still defines the values inline), keep that copy,

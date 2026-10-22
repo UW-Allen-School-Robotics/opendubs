@@ -92,6 +92,16 @@ jobs:
             || sudo apt-get install -y --no-install-recommends python3-yaml >/dev/null
           python3 tools/faults.py --check
 
+      # Developer Certificate of Origin: every commit the change adds carries a Signed-off-by that
+      # matches its author (git commit -s; CONTRIBUTING.md). DCO_SINCE is the day the requirement
+      # started: commits authored before it, and the merge and squash commits GitHub creates, are
+      # exempt, so no history is rewritten.
+      - name: Commits are signed off (DCO)
+        if: always()
+        env:
+          DCO_SINCE: "2026-10-23"
+        run: python3 tools/hygiene/check_dco.py --base "$BASE"
+
       - name: Personal names (skipped unless a deny-list is configured)
         if: always()
         env:

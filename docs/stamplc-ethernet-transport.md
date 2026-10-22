@@ -13,9 +13,20 @@ OTA-capable firmware is on the board, **reflashing goes over Ethernet** (no USB)
 
 - **Only the very first flash of a StamPLC is over USB.** When replicating a robot, wire and flash
   the StamPLC over USB first, confirm it boots, then move to Ethernet for normal operation.
-- **After that, reflash with OTA** — `firmware/rc_serial_probe/ota-from-thor.sh` builds, serves the
-  `.bin`, and sends the `OTA` command so the board pulls it and reboots into it. No USB, no touching
-  the robot.
+- **After that, reflash with OTA** — `firmware/rc_serial_probe/ota-from-thor.sh` builds, signs and
+  serves the `.bin`, and sends the `OTA` command so the board pulls it and reboots into it. No USB,
+  no touching the robot.
+- **Over-the-air updates are signed.** The board installs only an image signed with the project's
+  firmware-signing key, which lives on the Thor (ECDSA P-256 over SHA-256). It checks the signature
+  as the image arrives, before the image can become bootable. An unsigned or tampered image is
+  refused, the board reports why, and its current firmware keeps running. The board opens the drive
+  contactor when an update starts, so even a refused update stops the robot until it is re-armed.
+- **USB flashing is not signature-checked**: physical access to the board is the root of trust.
+  A USB flash is also the way back if the signing key is lost. Creating, backing up and rotating
+  the key, and recovering without it:
+  [`firmware/rc_serial_probe/README.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/firmware/rc_serial_probe/README.md)
+  and
+  [`notes/design/firmware-signing.md`](https://github.com/UW-Allen-School-Robotics/opendubs/blob/main/notes/design/firmware-signing.md).
 - **Keep a USB port reachable only as a recovery fallback.** A complete-but-corrupt OTA image needs
   a USB reflash to recover — USB is *not* needed for routine reflashing.
 - USB flash procedure (initial + recovery): stop `opendubs-dash` (frees the port), `pio run -t

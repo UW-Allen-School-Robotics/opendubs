@@ -1,0 +1,8 @@
+{
+  "name": "ota_verify",
+  "version": "1.0.0",
+  "description": "OpenDubs signed firmware updates: the check every board runs before an image may boot (notes/design/firmware-signing.md).",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "srcDir": "src", "includeDir": "src" }
+}

@@ -593,6 +593,46 @@ def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=N
     return end, arms, [json.loads(x) for x in log.getvalue().splitlines()]
 
 
+print("\neffectors: a show runs on the parts it needs, and without a can_skip part only on approval")
+
+
+def run_eff(head, cues, effectors, skip=()):
+    robot = R.FakeRobotState(effectors=effectors)
+    sc = SimClock(robot, None, None)
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+    tmp.write(head + "requires: {arms: active, rc_authority: AUTO}\ncues:\n" + "".join(f"  - {c}\n" for c in cues))
+    tmp.close()
+    arms = AO.FakeArms()
+    r = R.Runner(tmp.name, LIMITS, robot, log=io.StringIO(), clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                 arms=arms, live=True, grips=CAL, skip=skip)
+    return r.run(), r, arms
+
+
+GL_DOWN = {"grip_left": {"state": "down", "why": "excluded by the operator"}, "arm_left": {"state": "ok"},
+           "arm_right": {"state": "ok"}, "grip_right": {"state": "ok"}}
+ECUES = ["{ t: 1.0, slot: GRIP_L, do: open }", "{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 2.0, slot: ARM_R, pose: rest }"]
+end, r, arms = run_eff("id: e\nslots: [ARM_R, GRIP_R]\n", ECUES[1:], GL_DOWN)
+check("a part that is down does not refuse a show that does not use it (the left gripper, 2026-10-17)",
+      end[0] == "COMPLETED", end)
+end, r, arms = run_eff("id: e\nslots: [ARM_R, GRIP_L, GRIP_R]\n", ECUES, GL_DOWN)
+check("a part the show needs and cannot skip refuses it, naming the part and why, before anything moves",
+      end[:2] == ("REFUSED", "EFFECTOR_UNAVAILABLE") and "grip_left" in end[2] and "excluded" in end[2]
+      and not arms.sent and not r.offer, end)
+CAN = "id: e\nslots: [ARM_R, GRIP_L, GRIP_R]\ncan_skip: [grip_left]\n"
+end, r, arms = run_eff(CAN, ECUES, GL_DOWN)
+check("... one it can skip is refused too, OFFERING the variant for the operator to approve",
+      end[:2] == ("REFUSED", "NEEDS_APPROVAL") and r.offer == ["grip_left"] and not arms.sent, (end, r.offer))
+end, r, arms = run_eff(CAN, ECUES, GL_DOWN, skip=["grip_left"])
+check("... and approved, the variant runs: no cue goes to the skipped part",
+      end[0] == "COMPLETED" and [g for g in arms.grips if g[0] == "GRIP_L"] == [] and arms.grips, (end, arms.grips))
+AL = {**GL_DOWN, "grip_left": {"state": "ok"},
+      "arm_left": {"state": "down", "why": "J4 silent", "pose_deg": [0, 0, 0, 40, 0, 0, 0]}}
+end, r, arms = run_eff("id: e\nslots: [ARM_L, ARM_R]\ncan_skip: [arm_left]\n",
+                       ["{ t: 2.0, slot: ARM_L, pose: rest }", "{ t: 2.0, slot: ARM_R, pose: rest }"], AL, skip=["arm_left"])
+check("a skipped arm away from rest refuses the run: its variant was checked with it at rest",
+      end[:2] == ("REFUSED", "PRECONDITION_FAILED") and "arm_left" in end[2] and not arms.sent, end)
+
+
 cues = ["{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 2.0, slot: GRIP_R, open: 0.5 }",
         "{ t: 3.0, slot: GRIP_R, do: close }", "{ t: 4.0, slot: ARM_R, pose: rest }"]
 end, arms, lines = run_grips(cues)
@@ -876,6 +916,10 @@ check("armed past the dashboard's 10 s probe age: the preflight's answer stands,
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(4.0, {"arms": "inactive"}), (15.0, {"deadman": True})])
 check("... but an arms answer that SAYS inactive still disarms it", end[:2] == ("ABORTED", "ARMS"), end)
+OK_PARTS = {p: {"state": "ok"} for p in ("arm_left", "arm_right", "grip_left", "grip_right")}
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, effectors=OK_PARTS),
+                                  changes=[(12.0, {"effectors": None}), (15.0, {"deadman": True})])
+check("... the per-part answer (effectors) ages out the same way, and stands the same way", end[0] == "COMPLETED", end)
 
 face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
