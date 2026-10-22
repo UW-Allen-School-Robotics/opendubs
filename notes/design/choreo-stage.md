@@ -139,8 +139,10 @@ song alone when a show has no video. The tablet keeps dialogue.
     `STAGE_PRELOAD_WAIT_S` (90 s).
   - Past that the stage is dropped: the pages are stopped, the tablet keeps the music, and the run says
     why. A show with `video: {required: true}` is refused instead (SHOW_VIDEO_NOT_READY).
-  - Files stay cached in the page (up to about 800 MB, the oldest unused evicted first), so running the same
-    show again needs no download.
+  - Files stay cached in the page, so running the same show again needs no download. The cap is
+    `?cache_mb=` (default 800). The stage box has a read-only root with its writes in RAM, so the cap is
+    really its RAM: it opens the page with 800 on 4 GB and up, 300 on 2 GB, 150 otherwise (stage.conf
+    `CACHE_MB` overrides). The oldest unused are evicted first; the show being played is always kept whole.
   - A page that joins mid-show, or a fetch that failed, plays from the network as before.
 - **The fallback** is unchanged. If every stage page is gone for about 4 s mid-show, the tablet takes the
   music over from the same point (it held its copy, silent), and the show goes on.

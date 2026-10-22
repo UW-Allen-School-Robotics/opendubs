@@ -19,7 +19,7 @@
    PRELOAD: when a show loads (armed, before the GO) the page fetches each of its videos WHOLE into memory
    and plays it from there, so during the show only the small timing messages cross the Wi-Fi. It reports
    how far it has got ({"preload": {id, pct, ready}}); the runner's GO waits for every page to have it.
-   Files stay cached (up to CACHE_MAX_BYTES) for the next run. A page that joins mid-show, or a file that
+   Files stay cached for the next run (up to ?cache_mb=, default 800 MB). A page that joins mid-show, or a file that
    failed, plays from the network as before.
 
    BETWEEN SHOWS a STAGE READY card says what this screen is: the robot connected or not, the resolution,
@@ -29,7 +29,8 @@
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
-   ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
+   ?card=0 hides the ready card; ?cache_mb=300 caps the preloaded videos kept (the stage box sets it from
+   its RAM). The device this page runs on reloads a page that stops checking in:
    alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
    the sync timer when the device says it has no screen. */
 "use strict";
@@ -93,7 +94,9 @@
   }
 
   /* ---- preload: the show's videos whole, in memory, before the GO ------------------------------------ */
-  const CACHE_MAX_BYTES = 800e6;                    // about eight shows' worth; the oldest unused go first
+  // the cache cap, in MB: the stage box sets ?cache_mb= from its RAM (its writes live in RAM too); else 800.
+  // The show being played is always kept whole, whatever the cap; the oldest unused go first.
+  const CACHE_MAX_BYTES = (Math.max(0, parseInt(q.get("cache_mb"), 10)) || 800) * 1e6;
   const cache = new Map();                          // url -> {obj: object URL, bytes, used}
   let pre = { id: null };
   const local = (url) => (cache.get(url) || {}).obj || url;      // the copy in memory, else the network
