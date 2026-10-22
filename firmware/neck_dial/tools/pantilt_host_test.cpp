@@ -18,6 +18,7 @@
 #include "../neck/tilt_confirm.h"
 #include "../neck/chest.h"
 #include "../neck/rc_frame.h"
+#include "../neck/hold.h"
 #include <cstring>
 
 using namespace neck;
@@ -357,6 +358,64 @@ int main()
         ok(!parseChest("   ", &us), "and whitespace alone");
         ok(!parseChest("red", &us), "a colour NAME is refused: the wire carries pulses, not names");
         ok(!parseChest(nullptr, &us), "and a null argument does not crash");
+    }
+
+    // ---- HOLD: the knob's gesture is deliberate -------------------------------------------------
+    // A bump must not hold or release the head; three detents one way within a second must.
+    {
+        const int det = kKnobCountsPerDetent;
+        KnobGesture g;
+        uint32_t t = 5000;
+        ok(knobFeed(g, det, t) == Knob::None && knobFeed(g, det, t + 200) == Knob::None,
+           "two detents are nothing (a bump)");
+        ok(knobFeed(g, det, t + 400) == (kKnobUpHolds ? Knob::Hold : Knob::Release),
+           "the third detent within the second completes the gesture");
+
+        KnobGesture slow;
+        ok(knobFeed(slow, det, t) == Knob::None && knobFeed(slow, det, t + 700) == Knob::None &&
+           knobFeed(slow, det, t + 1400) == Knob::None, "three detents spread over 1.4 s are nothing");
+
+        KnobGesture back;
+        knobFeed(back, det, t); knobFeed(back, det, t + 100);
+        ok(knobFeed(back, -det, t + 200) == Knob::None && knobFeed(back, -det, t + 300) == Knob::None,
+           "turning back starts the count again, so a wobble is nothing");
+        ok(knobFeed(back, -det, t + 400) == (kKnobUpHolds ? Knob::Release : Knob::Hold),
+           "and three the other way is the other gesture");
+    }
+
+    // ---- HOLD: nothing moves a held head, and a release is announced before it moves -----------
+    {
+        Limits lim = limitsFrom(true, 70, true, 120);
+        State s; s.pan = 100; s.tilt = 95; s.panTgt = 100; s.tiltTgt = 95;
+        In in; in.nowMs = 1000; in.motionAllowed = true;
+        in.holdOn = true; in.holdPan = 100; in.holdTilt = 95;
+        in.gazeMs = 1000; in.gazePan = 150; in.gazeTilt = 110;           // a show wants it elsewhere
+        in.rcMs = 1000; in.rcPan = 60;                                    // so does the stick
+        in.touchMs = 1000; in.touchPan = 40;                              // and a finger
+        run(s, in, lim, 1500);
+        ok(s.owner == Owner::Hold && std::fabs(s.pan - 100) < 0.01f && std::fabs(s.tilt - 95) < 0.01f,
+           "held: a show, the RC stick and touch all leave it where it is");
+
+        State m; m.pan = 90; m.tilt = 90; m.lastMs = 1000 - kPeriodMs;   // a neck already ticking
+        In sw; sw.nowMs = 1000 + kPeriodMs; sw.motionAllowed = true; sw.holdOn = true; sw.holdPan = 120; sw.holdTilt = 150;
+        run(m, sw, lim, 300);
+        ok(m.pan < 120 && m.pan > 90, "HOLD <pan> <tilt> slews there, it does not jump");
+        run(m, sw, lim, 2000);
+        ok(std::fabs(m.pan - 120) < 0.01f && std::fabs(m.tilt - 120) < 0.01f,
+           "and stops at the angles, the tilt clamped to this robot's band");
+
+        Hold h;
+        holdAt(h, 100, 95, HoldBy::Knob);
+        ok(holdRelease(h, 2000) && holding(h) && h.phase == HoldPhase::Releasing,
+           "a release is announced: still held while it says so");
+        ok(!holdTick(h, 2000 + kReleaseAnnounceMs - 1) && holding(h), "  for the whole announcement");
+        ok(holdTick(h, 2000 + kReleaseAnnounceMs) && !holding(h), "  and then the head is free");
+        holdAt(h, 100, 95, HoldBy::Remote); holdRelease(h, 3000); holdAt(h, 100, 95, HoldBy::Knob);
+        ok(h.phase == HoldPhase::On && !holdTick(h, 3000 + kReleaseAnnounceMs),
+           "holding again during the announcement cancels the release");
+        Hold w; holdAt(w, 90, 90, HoldBy::Knob); holdRelease(w, 0xFFFFFF00u);
+        ok(!holdTick(w, 0xFFFFFF10u) && holdTick(w, 0xFFFFFF00u + kReleaseAnnounceMs),
+           "the announcement survives millis() wrapping");
     }
 
     printf(failed ? "\n%d FAILED\n" : "\nall pantilt checks passed\n", failed);

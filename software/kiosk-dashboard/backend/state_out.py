@@ -459,6 +459,65 @@ def _push_chest(colour, now: float) -> None:
         _neck_write(line)
 
 
+# ---- the neck's status badge (head protocol v9: BADGE <STATE> <driver> <rrggbb> | BADGE OFF) ----------
+# The neck Dial's round screen (firmware/neck_dial/src/badge_screen.h): a ring in the robot state's
+# colour, the state's label, and who drives the head. The colour crosses the wire, the state's own from
+# _MAP (the PRISM's, never a show's light over it), so there is one map of state to colour, here. Sent
+# like the chest light: on a change, when the neck (re)appears, and every _BADGE_REFRESH_S; the neck
+# greys the ring when it stops hearing it. The neck shows what it knows better itself: HOLD, RC, touch.
+_BADGE_REFRESH_S = 5.0
+_DRIVER_EVERY_S = 1.0
+BADGE_DRIVERS = ("show", "tracking", "rc", "touch", "hold", "nobody")
+_badge = {"line": None, "at": 0.0, "addr": None, "driver": "nobody", "driver_at": -1e9}
+
+
+def badge_line(rs: str, driver: str):
+    """`BADGE <STATE> <driver> <rrggbb>` for robot state `rs`, or None for a state with no colour."""
+    ent = _MAP.get(rs)
+    if not ent or driver not in BADGE_DRIVERS:
+        return None
+    name, (r, g, b), _ = ent
+    return f"BADGE {name} {driver} {r:02x}{g:02x}{b:02x}"
+
+
+def badge_driver() -> str:
+    """Who drives the head now, in the badge's words. Blocking (it asks the show runner)."""
+    import neck_follow
+    import neck_state
+    h = neck_state.hold_status()
+    if h["hold"] in ("on", "releasing"):
+        return "hold"
+    if h["owner"] in ("rc", "touch"):
+        return h["owner"]
+    if neck_follow.being_touched():
+        return "touch"
+    import kiosk_update
+    if kiosk_update.show_busy():
+        return "show"
+    import head_settings
+    if head_settings.load().get("tracking") in ("tablet", "d415"):
+        return "tracking"
+    return "nobody"
+
+
+def _push_badge(rs: str, now: float) -> None:
+    if _neck is None or _neck is _face:
+        return
+    if now - _badge["driver_at"] >= _DRIVER_EVERY_S:
+        _badge["driver_at"] = now
+        try:
+            _badge["driver"] = badge_driver()
+        except Exception:                   # noqa: BLE001 — the badge is an indicator: keep the last word
+            pass
+    line = badge_line(rs, _badge["driver"])
+    if line is None:
+        return
+    addr = _neck.addr
+    if line != _badge["line"] or addr != _badge["addr"] or now - _badge["at"] >= _BADGE_REFRESH_S:
+        _badge.update(line=line, at=now, addr=addr)
+        _neck_write(line)
+
+
 # ---- the state in plain words (head protocol: CAPTION <text> | CAPTION OFF; state_words.py) ---------
 _caption_line = None                    # the CAPTION line last sent; face_door.py sends it as a page connects
 
@@ -589,6 +648,7 @@ def _loop() -> None:
                     _push_prism_colour(want)
                     prev_led, led_at = want, now
                 _push_chest(want, now)       # the chest light shows the same colour, on the neck
+                _push_badge(rs, now)         # and the neck's screen, the state's own colour and label
                 pushed = False
                 if rs != prev:
                     _push_tab5(rs)

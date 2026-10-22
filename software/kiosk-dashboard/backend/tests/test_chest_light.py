@@ -105,3 +105,15 @@ def test_the_line_reaches_the_neck_over_udp(monkeypatch):
         assert rx.recv(64) == b"CHEST 1500\n"
     finally:
         rx.close()
+
+
+def test_every_state_makes_a_badge_the_neck_accepts():
+    """The neck's screen stays blank on a BADGE it refuses, so each robot state's line must carry one
+    of the protocol's STATES names (the firmware checks the same list) and a six-digit colour."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "head-protocol"))
+    import head_protocol as hp
+    for rs in so._MAP:
+        verb, state, driver, rgb = so.badge_line(rs, "tracking").split()
+        assert verb == "BADGE" and state in hp.STATES and driver == "tracking"
+        assert len(rgb) == 6 and int(rgb, 16) >= 0
+    assert so.badge_line("SAFE_IDLE", "anyone") is None          # a driver the neck does not know

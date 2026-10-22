@@ -24,6 +24,13 @@ NOTHING IS PUBLISHED WHEN THE NECK DOES NOT ANSWER, or when no neck is fitted: a
 gap of STALE_S or more (three missed periods) as "the head's angle is unknown", never as "unchanged".
 That is the honest answer for a clearance limit; a stale angle is a confident wrong one.
 
+THE HOLD (head protocol v9; firmware/neck_dial/neck/hold.h): NECK also says whether the head is held
+(`hold=on`, by the knob or by software), or being released (`hold=releasing`: announced for 3 s before
+it may move again). It is kept here for the dashboard's notice (GET /api/head/hold), and
+POST /api/head/hold {"op": "here" | "off"} or {"pan": p, "tilt": t} holds or releases it from the
+dashboard. A hold is a pause, never a motion: only `pan`/`tilt` move the head, at its own slew rate,
+clamped to its limits.
+
 Conversions, per robot (OPENDUBS_NECK_* in /etc/opendubs/robot.env, read through head.py):
   SERVO_SPAN_DEG  the servos' travel over 500-2500 us: 300 (goBILDA 2000-series), so a commanded degree
                   (0-180 over that pulse range) is 300/180 = 1.67 real degrees. From the servo's
@@ -39,7 +46,11 @@ import logging
 import math
 import time
 
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
 log = logging.getLogger("neck_state")
+router = APIRouter()
 
 TOPIC = "/head/joint_states"
 TARGETS = "/head/joint_targets"
@@ -55,7 +66,8 @@ ASK_TIMEOUT_S = 0.08
 
 _task = None
 _ros = None
-last = {"pan": None, "tilt": None, "at": None, "published": 0, "moving": None, "tilt_band": None}
+last = {"pan": None, "tilt": None, "at": None, "published": 0, "moving": None, "tilt_band": None,
+        "owner": None, "hold": None, "hold_by": None}
 
 
 def _span(env=None) -> float:
@@ -106,7 +118,9 @@ def parse(reply: str):
         tp, tt = (float(x) for x in kv["target"].split(","))
         lo, hi = (float(x) for x in kv["tilt_band"].split(","))
         return {"pan": float(kv["pan"]), "tilt": float(kv["tilt"]), "target": (tp, tt),
-                "moving": kv.get("moving") == "1", "tilt_band": (lo, hi)}
+                "moving": kv.get("moving") == "1", "tilt_band": (lo, hi), "owner": kv.get("owner"),
+                # a neck older than HOLD says nothing: not held
+                "hold": kv.get("hold", "off"), "hold_by": kv.get("hold_by", "-")}
     except (KeyError, ValueError):
         return None
 
@@ -138,7 +152,8 @@ async def run() -> None:
             neck = None
         if neck is not None:
             now = time.time()
-            last.update(pan=neck["pan"], tilt=neck["tilt"], at=now, moving=neck["moving"], tilt_band=neck["tilt_band"])
+            last.update(pan=neck["pan"], tilt=neck["tilt"], at=now, moving=neck["moving"], tilt_band=neck["tilt_band"],
+                        owner=neck["owner"], hold=neck["hold"], hold_by=neck["hold_by"])
             if await _ros.publish(TOPIC, message(neck["pan"], neck["tilt"], now, span)):
                 last["published"] += 1
             await _ros.publish(TARGETS, message(*neck["target"], now, span))
@@ -159,3 +174,54 @@ def status() -> dict:
     return {"topic": TOPIC, "rate_hz": RATE_HZ, "pan_cmd": last["pan"], "tilt_cmd": last["tilt"],
             "moving": last["moving"], "tilt_band": last["tilt_band"],
             "age_s": age, "unknown": age is None or age >= STALE_S, "published": last["published"]}
+
+
+# ---- the hold (head protocol v9) ---------------------------------------------------------------------
+def hold_status() -> dict:
+    """What the neck last said about its hold. `hold` is "on", "releasing", "off", or None when the
+    neck's word is too old to go by (no neck, or it stopped answering)."""
+    st = status()
+    fresh = not st["unknown"]
+    return {"hold": last["hold"] if fresh else None, "by": last["hold_by"] if fresh else None,
+            "owner": last["owner"] if fresh else None, "pan_cmd": last["pan"], "tilt_cmd": last["tilt"],
+            "age_s": st["age_s"]}
+
+
+def hold_line(body) -> str | None:
+    """The HOLD line for a request body, or None if it is not one."""
+    if not isinstance(body, dict):
+        return None
+    if body.get("op") == "off":
+        return "HOLD OFF"
+    if body.get("op") == "here":
+        return "HOLD HERE"
+    p, t = body.get("pan"), body.get("tilt")
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (p, t)):
+        return f"HOLD {p:.1f} {t:.1f}"
+    return None
+
+
+@router.get("/api/head/hold")
+def get_hold() -> dict:
+    return hold_status()
+
+
+@router.post("/api/head/hold")
+async def post_hold(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    line = hold_line(body)
+    if line is None:
+        return JSONResponse({"error": 'send {"op": "here"|"off"} or {"pan": <deg>, "tilt": <deg>}'}, status_code=400)
+    import head
+    import neck_follow
+    host = head.neck_host()
+    if host is None:
+        return JSONResponse({"error": "no neck is fitted"}, status_code=409)
+    reply = await asyncio.get_running_loop().run_in_executor(None, neck_follow._ask, host, line, 0.5)
+    if not reply or not reply.startswith("OK"):
+        return JSONResponse({"error": f"the neck answered {reply!r}" if reply else "the neck did not answer"},
+                            status_code=502)
+    return JSONResponse({"ok": True, "sent": line, "reply": reply})
