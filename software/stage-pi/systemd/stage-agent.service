@@ -1,0 +1,13 @@
+# The page's local agent on 127.0.0.1:8095 (device.json, the heartbeat) and the browser's watchdog.
+[Unit]
+Description=OpenDubs stage: the page's local agent and the browser's watchdog
+After=stage-kiosk.service
+
+[Service]
+ExecStart=/usr/local/lib/stage/stage-agent
+Environment=STAGE_RUN=/run/stage
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

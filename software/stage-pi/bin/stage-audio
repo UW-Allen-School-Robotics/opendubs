@@ -1,0 +1,42 @@
+#!/bin/bash
+# stage-audio auto|usb|hdmi: point the browser's sound at one output, by writing the stage user's ALSA
+# default. auto = a USB audio adapter if one is plugged in, else the HDMI port a screen is on. Writes
+# what it chose to $RUNTIME_DIRECTORY/audio for the health report ("usb", "hdmi" or "none").
+set -u
+mode=${1:-auto}
+out=${RUNTIME_DIRECTORY:-/run/stage}/audio
+
+usb=$(awk -F'[][]' '/USB-Audio/ {gsub(/ /, "", $2); print $2; exit}' /proc/asound/cards)
+# The HDMI port with a screen on it: HDMI-A-1 is vc4hdmi0, HDMI-A-2 is vc4hdmi1 (Pi 4 and Pi 5 alike).
+hdmi=""
+for s in /sys/class/drm/card*-HDMI-A-*/status; do
+    [ -r "$s" ] && [ "$(cat "$s")" = connected ] || continue
+    n=${s##*HDMI-A-}; n=${n%%/*}
+    hdmi="vc4hdmi$((n - 1))"; break
+done
+[ -z "$hdmi" ] && grep -q vc4hdmi0 /proc/asound/cards && hdmi=vc4hdmi0
+
+case $mode in
+    usb)  pick=usb ;;
+    hdmi) pick=hdmi ;;
+    *)    if [ -n "$usb" ]; then pick=usb; else pick=hdmi; fi ;;
+esac
+
+if [ "$pick" = usb ] && [ -n "$usb" ]; then
+    # plughw converts rate and format for any class-compliant adapter.
+    pcm="plughw:CARD=$usb,DEV=0"; card=$usb
+elif [ "$pick" = hdmi ] && [ -n "$hdmi" ]; then
+    # HDMI on the Pi takes IEC958 frames only; the hdmi: device wraps that.
+    pcm="hdmi:CARD=$hdmi,DEV=0"; card=$hdmi
+else
+    echo "stage-audio: no $pick output found" >&2
+    echo none > "$out"; exit 0
+fi
+
+cat > "$HOME/.asoundrc" <<EOF
+# Written at every start by stage-audio ($mode -> $pick). Edit stage.conf, not this.
+pcm.!default { type plug; slave.pcm "$pcm" }
+ctl.!default { type hw; card "$card" }
+EOF
+echo "$pick" > "$out"
+echo "stage-audio: $mode -> $pick ($pcm)"

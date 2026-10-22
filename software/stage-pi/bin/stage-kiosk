@@ -1,0 +1,44 @@
+#!/bin/bash
+# The stage box's one job: a full-screen browser on the robot's /stage/ page. Run by stage-kiosk.service
+# as the `stage` user; systemd restarts it whenever it ends, and a display change restarts it (the udev
+# rule) so the new screen's mode is taken.
+set -u
+LIB=/usr/local/lib/stage
+RUN=${RUNTIME_DIRECTORY:-/run/stage}
+rm -f "$RUN/page"                       # the agent's watchdog waits until the page is handed over again
+url=$("$LIB/stage-conf" ROBOT_URL http://opendubs2.local:8080/stage/)
+fallback=$("$LIB/stage-conf" ROBOT_FALLBACK http://10.42.2.10:8080/stage/)
+"$LIB/stage-audio" "$("$LIB/stage-conf" AUDIO auto)"
+
+sleep 1                                # a display change arrives as a burst of events: let it settle
+
+# Wait for the robot rather than open an error page: whichever address answers first, retrying forever.
+# (A page that failed to load cannot retry by itself; the stage page reconnects once it is up.)
+page=""
+until [ -n "$page" ]; do
+    for u in "$url" "$fallback"; do
+        if curl -fsS -o /dev/null --max-time 3 "$u"; then page=$u; break; fi
+    done
+    [ -n "$page" ] || sleep 2
+done
+echo "$page" > "$RUN/page"
+
+# A screen, or none. With no screen the box still plays the show's sound: the compositor then runs on a
+# virtual output so the page keeps running as if it were shown.
+export WLR_LIBINPUT_NO_DEVICES=1
+if grep -qsx connected /sys/class/drm/card*-HDMI-A-*/status; then
+    export WLR_BACKENDS=drm
+    echo screen > "$RUN/screen"
+else
+    export WLR_BACKENDS=headless WLR_RENDERER=pixman
+    echo none > "$RUN/screen"
+fi
+
+browser=$(command -v chromium || command -v chromium-browser)
+exec cage -d -- "$browser" --kiosk "$page" \
+    --ozone-platform=wayland \
+    --user-data-dir="$RUN/chromium" \
+    --autoplay-policy=no-user-gesture-required \
+    --noerrdialogs --disable-infobars --disable-session-crashed-bubble --no-first-run \
+    --hide-scrollbars --overscroll-history-navigation=0 --password-store=basic \
+    --disable-features=Translate,MediaRouter --check-for-update-interval=31536000

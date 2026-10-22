@@ -1,0 +1,25 @@
+#!/bin/bash
+# At boot, before the kiosk: apply stage.conf's MODE (e.g. 1920x1080@60) as the kernel's video= setting
+# for both HDMI ports, or remove it when MODE is empty. Restarts the box once, only when cmdline.txt
+# actually changed, so it can never loop. Runs as root (stage-mode.service).
+set -eu
+LIB=/usr/local/lib/stage
+CMD=/boot/firmware/cmdline.txt
+mode=$("$LIB/stage-conf" MODE "")
+if [ -n "$mode" ] && ! printf '%s' "$mode" | grep -Eq '^[0-9]{3,4}x[0-9]{3,4}(@[0-9]{2,3})?$'; then
+    echo "stage-mode: MODE '$mode' is not WIDTHxHEIGHT[@HZ]; ignored" >&2
+    mode=""
+fi
+
+old=$(cat "$CMD")
+new=$(printf '%s\n' "$old" | tr ' ' '\n' | grep -v '^video=HDMI-A-[12]:' | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')
+[ -n "$mode" ] && new="$new video=HDMI-A-1:$mode video=HDMI-A-2:$mode"
+
+if [ "$new" != "$old" ]; then
+    echo "stage-mode: cmdline.txt now: $new"
+    mount -o remount,rw /boot/firmware
+    printf '%s\n' "$new" > "$CMD.new" && mv "$CMD.new" "$CMD"
+    sync
+    mount -o remount,ro /boot/firmware 2>/dev/null || true
+    systemctl --no-block reboot
+fi

@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""The stage box's local agent, on 127.0.0.1:8095 only (the contract with the Choreography lane's /stage/
+page, notes/design/display-devices.md):
+
+  GET  /device.json   what this box is and how it is doing, for the page's ready card:
+       {"device": "stage-pi", "name": <hostname>, "model": <the board>,
+        "audio_output": "usb" | "hdmi" | "none", "audio_name": <the sound card's name> | null,
+        "under_voltage_now": bool, "under_voltage_since_boot": bool, "throttled_now": bool,
+        "screen": {"connected": bool, "mode": "1920x1080" | "1920x1080@60" | null}}
+       under-voltage and throttling from `vcgencmd get_throttled` (bits 0, 16 and 2); null where unknown.
+  POST /alive         the page's heartbeat, every 5 s.
+
+Every answer carries Access-Control-Allow-Origin: *, and a preflight is answered with
+Access-Control-Allow-Private-Network: true: the page comes from the robot, and Chromium asks before a
+public-to-private (here, network-to-localhost) call.
+
+THE WATCHDOG: once the browser has the page (stage-kiosk writes it), a page that has not checked in for
+SILENT_S is restarted (systemctl restart stage-kiosk), backing off to SILENT_MAX_S, as the tablet's kiosk
+app does. Runs as root (stage-agent.service) for that restart; listens on loopback only.
+"""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = 8095
+RUN = os.environ.get("STAGE_RUN", "/run/stage")
+SILENT_S, SILENT_MAX_S = 30.0, 120.0
+CONF_TOOL = "/usr/local/lib/stage/stage-conf"
+
+state = {"alive_at": None, "silent_s": SILENT_S, "restarts": 0}
+lock = threading.Lock()
+
+
+def _read(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def throttled(text: str | None) -> dict:
+    """`throttled=0x50005` -> the three flags the page shows; None each when unknown."""
+    try:
+        v = int((text or "").split("=", 1)[1], 16)
+    except (IndexError, ValueError):
+        return {"under_voltage_now": None, "under_voltage_since_boot": None, "throttled_now": None}
+    return {"under_voltage_now": bool(v & 0x1), "under_voltage_since_boot": bool(v & 0x10000),
+            "throttled_now": bool(v & 0x4)}
+
+
+def screen(drm: str = "/sys/class/drm", forced: str = "") -> dict:
+    """The first connected HDMI screen and its mode: the forced one (stage.conf MODE), else the
+    screen's preferred mode (the first in its list, from its EDID)."""
+    try:
+        names = sorted(n for n in os.listdir(drm) if "-HDMI-A-" in n)
+    except OSError:
+        names = []
+    for n in names:
+        if _read(f"{drm}/{n}/status") == "connected":
+            modes = (_read(f"{drm}/{n}/modes") or "").splitlines()
+            return {"connected": True, "mode": forced or (modes[0] if modes else None)}
+    return {"connected": False, "mode": None}
+
+
+def audio_name(output: str | None, cards: str | None) -> str | None:
+    """The sound card's own name from /proc/asound/cards, for the output stage-audio chose."""
+    for line in (cards or "").splitlines():
+        if " - " not in line or "]:" not in line:
+            continue
+        if (output == "usb" and "USB-Audio" in line) or (output == "hdmi" and "vc4-hdmi" in line.lower().replace("_", "-")):
+            return line.split(" - ", 1)[1].strip()
+    return None
+
+
+def device() -> dict:
+    try:
+        thr = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        thr = None
+    try:
+        forced = subprocess.run([CONF_TOOL, "MODE", ""], capture_output=True, text=True, timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        forced = ""
+    out = _read(f"{RUN}/audio") or "none"
+    return {"device": "stage-pi", "name": socket.gethostname(),
+            "model": (_read("/proc/device-tree/model") or "").rstrip("\x00") or None,
+            "audio_output": out if out in ("usb", "hdmi") else "none",
+            "audio_name": audio_name(out, _read("/proc/asound/cards")),
+            **throttled(thr), "screen": screen(forced=forced)}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _head(self, code: int, body: bytes = b"", ctype: str = "application/json") -> None:
+        self.send_response(code)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Cache-Control", "no-store")
+        if body:
+            self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:                   # the CORS / Private Network Access preflight
+        self._head(204)
+
+    def do_GET(self) -> None:
+        if self.path.split("?")[0] == "/device.json":
+            self._head(200, json.dumps(device()).encode())
+        else:
+            self._head(404, b'{"error": "not here"}')
+
+    def do_POST(self) -> None:
+        n = min(int(self.headers.get("Content-Length") or 0), 4096)
+        if n:
+            self.rfile.read(n)
+        if self.path.split("?")[0] == "/alive":
+            with lock:
+                state["alive_at"], state["silent_s"] = time.monotonic(), SILENT_S
+            self._head(204)
+        else:
+            self._head(404, b'{"error": "not here"}')
+
+    def log_message(self, *args) -> None:           # a heartbeat every 5 s is not worth a log line
+        pass
+
+
+def page_loaded_at() -> float | None:
+    """When stage-kiosk last handed the browser the page (the file's age), as monotonic time."""
+    try:
+        age = time.time() - os.stat(f"{RUN}/page").st_mtime
+    except OSError:
+        return None
+    return time.monotonic() - age
+
+
+def check_once(restart=lambda: subprocess.run(["systemctl", "restart", "stage-kiosk.service"], timeout=60)) -> bool:
+    """One watchdog check: restart the browser if the page has gone quiet. True when it restarted."""
+    loaded = page_loaded_at()
+    if loaded is None:                              # the browser is still waiting for the robot
+        return False
+    with lock:
+        last = state["alive_at"] if state["alive_at"] and state["alive_at"] > loaded else loaded
+        silent, wait = time.monotonic() - last, state["silent_s"]
+    if silent <= wait:
+        return False
+    print(f"stage-agent: no heartbeat for {silent:.0f} s; restarting the browser", flush=True)
+    restart()
+    with lock:
+        state["restarts"] += 1
+        state["silent_s"] = min(SILENT_MAX_S, state["silent_s"] * 2)
+        state["alive_at"] = None
+    return True
+
+
+def watchdog() -> None:
+    while True:
+        time.sleep(5)
+        check_once()
+
+
+def main() -> None:
+    threading.Thread(target=watchdog, daemon=True).start()
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
