@@ -8,8 +8,8 @@ abstract: >-
   software and hardware designs, so that others can replicate it.
 type: software
 authors:
-  # TODO: the copyright holder and the author list wait on legal advice (individual contributors
-  # or the University of Washington). Until then the project is cited as one collective author.
+  # "The OpenDubs Authors" are the people listed in AUTHORS, added only with their agreement.
+  # TODO: whether the University of Washington is also a copyright holder waits on legal advice.
   - name: "The OpenDubs Authors"
 repository-code: "https://github.com/UW-Allen-School-Robotics/opendubs"
 url: "https://uw-allen-school-robotics.github.io/opendubs/"

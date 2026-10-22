@@ -19,7 +19,8 @@ caught by review and by the project's no-personal-names rule, not by CI, so this
 "skipped: no deny-list configured" and passes. Setting the secret turns it on with no other change.
 
 Not flagged: `Signed-off-by:` and `Co-Authored-By:` trailers (commit metadata, which the rule
-allows), and copyright lines in licence files, which the licences require.
+allows), copyright lines in licence files, which the licences require, and the root `AUTHORS`
+file, the one place contributors are named on purpose.
 
 Matching is case-insensitive and on whole words. Prefer distinctive entries (surnames,
 usernames, email addresses) over common first names, which also occur in third-party text.
@@ -87,6 +88,8 @@ def main():
     level = "error" if a.mode == "block" else "warning"
     hits = 0
     for path, n, text in added_lines(a.base):
+        if path == "AUTHORS":                  # the one file that names contributors, on purpose
+            continue
         if LICENCE_FILE.search(path) and COPYRIGHT.search(text):
             continue
         if deny.search(text):
