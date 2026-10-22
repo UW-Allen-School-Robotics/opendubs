@@ -113,9 +113,9 @@ docker run --rm -it --name archit-perception-dev \
 | 0.2 | `archit-perception:dev`, 18.4 GB. Three fixes: the Isaac ROS base does not set `NVIDIA_VISIBLE_DEVICES`, so the runtime injected no driver; ultralytics' `opencv-python` needs `libGL`; `nanosam/` has no `__init__.py`, so `pip install -e` maps nothing (now on `PYTHONPATH`). The generic arm64 CUDA repository offers TensorRT 11.4, so the r38.4 pin is required | 2026-10-22 |
 | 0.3 | **Pass.** NVIDIA Thor, driver 580.00; torch `2.14.0+cu130` on `sm_110`; TensorRT 10.13.3.9 with fast FP16; `trtexec` v10.13.3; all imports, including `torch2trt`, NanoSAM, `perception_models` and `rclpy` | 2026-10-22 |
 | 0.4 | CLIPSeg (1.2 GB Hugging Face cache), `mobile_sam.pt`, `yolov8s-worldv2.pt` downloaded, checksums in `SHA256SUMS`. **`resnet18_image_encoder.onnx` failed:** the Drive link refuses scripted downloads. The Hugging Face mirrors carry other encoders or the `.ort` format, not this ONNX | 2026-10-22 |
-| 0.5 | | |
-| 0.6 | | |
-| 0.7 | | |
+| 0.5 | **CLIPSeg: pass.** `trtexec` 10.13.3 built the image half (145 MB, 21.6 s) and the text half for 1 image × 9 prompts (1.3 MB, 20.5 s), `IMAGE_BATCH=1 USE_DLA=0`. NanoSAM waits for `resnet18_image_encoder.onnx` (0.4) | 2026-10-22 |
+| 0.6 | **CLIPSeg** (`bench_clipseg.py`): image half TensorRT **1.44 ms** (PyTorch eager 7.67 ms); text half, 9 prompts, PyTorch **2.49 ms**; TensorRT vs PyTorch features cosine 0.999995, FiLM probabilities within 0.0034. HOUND's Orin NX: ~6 ms and ~10 ms. The robot's GPU was otherwise idle (clock at 314 MHz outside the bench), so these are close to clean numbers. On the Thor, `tegrastats` reports the GPU clock (`GR3D_FREQ`), not a utilization percentage. NanoSAM and YOLO-World benches still to run | 2026-10-22 |
+| 0.7 | **Pass.** One loaded YOLO-World answered three label sets through `WorldModel.predict(x, txt_feats=…)`: every box matched the official `set_classes` path (4/4, 5/5, 4/4 at IoU > 0.9), and the model's own text features were unchanged. Text: ~2.9 s for the first CLIP load, then ~9 ms for a new label set, ~0.1 ms cached. Detect + NMS ~15–20 ms per image (PyTorch FP16). **Two rules for Phase 2:** the head's class count (`head.nc`, `head.no`) must be set per call to the number of labels; never zero-pad text features, because a zero vector normalised in FP16 gives NaN scores and NMS silently drops every box | 2026-10-22 |
 
 ## Later phases
 
