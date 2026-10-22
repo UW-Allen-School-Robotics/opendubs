@@ -10,7 +10,11 @@
 #include "ppcfg.h"    // task watchdog — auto-reset if the loop hangs
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
-#include "ota_verify.h"      // signed OTA: only images signed by the Thor's key (firmware-signing.md)
+#include "ota_verify.h"      // signed OTA: the shared check (firmware/common/ota_verify, firmware-signing.md)
+#include "ota_keys.h"        // the signing keys this build trusts (generated from that library's keys/)
+static constexpr const char* kOtaBoard = "stamplc";   // what our signatures must name
+static bool ota_selftest_ok = false;   // set in setup(); a broken check accepts nothing (there is USB)
+static char ota_key_ids[40] = "none";  // "id" or "id,id" during a rotation
 
 // ---- Telemetry tee (USB Serial + PoE UDP) -------------------------------------------------
 // Mirror a telemetry line to USB Serial AND, when the PoE link is up, out over UDP so the SAME
@@ -2883,6 +2887,20 @@ void setup()
             Serial.println("[FIX] AW9523 re-begin FAILED (internal bus still dead)");
         }
     }
+
+    // Signed updates: run the check's known-answer self-test once, here, before the loop (three
+    // ECDSA verifies: tens of ms, which the drive loop must not absorb), and note the trusted keys.
+    ota_selftest_ok = otaVerifySelfTest();
+    if (OTA_KEY_COUNT > 0) {
+        ota_key_ids[0] = '\0';
+        for (size_t k = 0; k < OTA_KEY_COUNT; k++) {
+            char kid[17]; otaKeyId(OTA_KEYS[k], kid, sizeof(kid));
+            if (k) strncat(ota_key_ids, ",", sizeof(ota_key_ids) - strlen(ota_key_ids) - 1);
+            strncat(ota_key_ids, kid, sizeof(ota_key_ids) - strlen(ota_key_ids) - 1);
+        }
+    }
+    tprintf("[OTA] signed updates: trusts key %s, check self-test %s\n", ota_key_ids,
+            ota_selftest_ok ? "ok" : "FAILED (no update will be accepted)");
 }
 
 // Broadcast a compact JSON snapshot over UDP for Thor / the dashboard to consume.
@@ -2949,13 +2967,10 @@ static void netMaintain()
     static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
     if (millis() - last_net_stat > 5000) {
         last_net_stat = millis();
-        static char otakey[17] = "";               // the signing key this build trusts, or none
-        static bool otakey_read = false;
-        if (!otakey_read) { otaVerifyKeyId(otakey, sizeof(otakey)); otakey_read = true; }
-        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakey=%s\n",
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakeys=%s otaverify=%s\n",
                 (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
                 hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId,
-                otakey[0] ? otakey : "none");
+                ota_key_ids, ota_selftest_ok ? "ok" : "BROKEN");
     }
 
     if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
@@ -3096,10 +3111,10 @@ static void otaHttpPull(const char* url)
 {
     if (!eth_up) { Serial.println("[OTA] abort: Ethernet down"); return; }
 
-    // A build with no key accepts nothing: refuse before touching anything, the drive bus included.
-    const uint8_t* key; size_t key_len;
-    otaVerifyKey(&key, &key_len);
-    if (!key) { tprintf("[OTA] REJECTED: %s\n", otaVerifyReason(OTA_SIG_NO_KEY)); return; }
+    // A build with no key, or whose check failed its boot self-test, accepts nothing: refuse before
+    // touching anything, the drive bus included. (The StamPLC has USB, so refusing is safe here.)
+    if (OTA_KEY_COUNT == 0) { tprintf("[OTA] REJECTED: %s\n", otaVerifyReason(OTA_SIG_NO_KEY)); return; }
+    if (!ota_selftest_ok) { tprintf("[OTA] REJECTED: this build's signature check failed its self-test; reflash over USB\n"); return; }
 
     // Free the head socket first: with MAX_SOCK_NUM 2 the HTTP client cannot open while it
     // is held, and the fetch would fail AFTER we had already dropped the bus.
@@ -3147,7 +3162,7 @@ static void otaHttpPull(const char* url)
     tprintf("[OTA] status=200 len=%ld — writing…\n", content_len);
 
     OtaVerify v;
-    if (!otaVerifyBegin(v)) { client.stop(); Serial.println("[OTA] abort: cannot hash the image"); return; }
+    if (!otaVerifyBegin(v, kOtaBoard)) { client.stop(); Serial.println("[OTA] abort: cannot hash the image"); return; }
     if (!Update.begin((size_t)content_len)) {
         Serial.printf("[OTA] abort: Update.begin failed: %s\n", Update.errorString());
         otaVerifyAbort(v); client.stop(); return;
@@ -3176,13 +3191,15 @@ static void otaHttpPull(const char* url)
     if (written != (size_t)content_len) { Update.abort(); otaVerifyAbort(v); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
 
     // The check that makes it ours. Nothing above has made the new image bootable yet.
-    OtaVerifyResult r = otaVerifyFinish(v, sig, sig_len, key, key_len);
+    int which = -1;
+    OtaVerifyResult r = otaVerifyFinish(v, sig, sig_len, OTA_KEYS, OTA_KEY_COUNT, &which);
     if (r != OTA_SIG_OK) {
         Update.abort();
         tprintf("[OTA] REJECTED: %s; staying on the current firmware\n", otaVerifyReason(r));
         return;
     }
-    tprintf("[OTA] signature valid\n");
+    char kid[17]; otaKeyId(OTA_KEYS[which], kid, sizeof(kid));
+    tprintf("[OTA] signature valid (key %s)\n", kid);
     if (!Update.end(true)) { Serial.printf("[OTA] abort: Update.end failed: %s\n", Update.errorString()); return; }
 
     tprintf("[OTA] OK %u bytes — rebooting into new firmware\n", (unsigned)written);
