@@ -109,9 +109,10 @@ docker run --rm -it --name archit-perception-dev \
 
 | # | Result | Date |
 |---|---|---|
-| 0.0 | | |
-| 0.2 | | |
-| 0.3 | | |
+| 0.0 | `archit` has passwordless `sudo docker`; 703 GB free; 87 GB of memory available; running: `opendubs-voice`, `opendubs-llm`, `opendubs-airplay`, `openarm`; host torch `2.14.0+cu130` | 2026-10-22 |
+| 0.2 | `archit-perception:dev`, 18.4 GB. Three fixes: the Isaac ROS base does not set `NVIDIA_VISIBLE_DEVICES`, so the runtime injected no driver; ultralytics' `opencv-python` needs `libGL`; `nanosam/` has no `__init__.py`, so `pip install -e` maps nothing (now on `PYTHONPATH`). The generic arm64 CUDA repository offers TensorRT 11.4, so the r38.4 pin is required | 2026-10-22 |
+| 0.3 | **Pass.** NVIDIA Thor, driver 580.00; torch `2.14.0+cu130` on `sm_110`; TensorRT 10.13.3.9 with fast FP16; `trtexec` v10.13.3; all imports, including `torch2trt`, NanoSAM, `perception_models` and `rclpy` | 2026-10-22 |
+| 0.4 | CLIPSeg (1.2 GB Hugging Face cache), `mobile_sam.pt`, `yolov8s-worldv2.pt` downloaded, checksums in `SHA256SUMS`. **`resnet18_image_encoder.onnx` failed:** the Drive link refuses scripted downloads. The Hugging Face mirrors carry other encoders or the `.ort` format, not this ONNX | 2026-10-22 |
 | 0.5 | | |
 | 0.6 | | |
 | 0.7 | | |
