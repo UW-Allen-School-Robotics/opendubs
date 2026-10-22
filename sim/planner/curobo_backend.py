@@ -1,7 +1,8 @@
 """NVIDIA cuRobo GPU Motion Planner Backend.
 
-Provides a drop-in MotionPlannerBackend implementation wrapping NVIDIA cuRobo.
-Computes collision-free, time-optimal joint trajectories directly on CUDA GPU.
+Provides a drop-in MotionPlannerBackend implementation wrapping NVIDIA cuRobo
+(and compatible distributions such as curobo-stretch). Computes collision-free,
+time-optimal joint trajectories directly on CUDA GPU.
 """
 from __future__ import annotations
 
