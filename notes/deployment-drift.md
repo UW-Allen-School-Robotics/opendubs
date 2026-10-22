@@ -36,11 +36,15 @@ Fixed that day:
 
 Expected to differ, and must not be blindly synced:
 
-- `rc_serial_probe/src/main.cpp` — carries this robot's drive calibration
+- `rc_serial_probe/src/main.cpp` carried this robot's drive calibration
   (`kDriveInvert`, `kEscSpanUs`, `kEscSlewUs`, `kEscRevDwellTicks`), the `-str` inversion,
-  and two features that exist only on the robot: the PWM mirror diagnostic and the
+  and two features that existed only on the robot: the PWM mirror diagnostic and the
   contactor auto-arm. **The uncommitted features are a second kind of drift** — work that
-  exists nowhere else, and the next flash from the repo overwrites it.
+  exists nowhere else, and the next flash from the repo overwrites it. Since 2026-10-22 the
+  calibration, the strafe sign included, is in a per-robot `src/robot_config.h`, and `main.cpp` is
+  an ordinary deployed file (`firmware/rc_serial_probe/README.md`). Both features are in the repo
+  now, so the first deploy of the new layout loses nothing that `tools/make_robot_config.py`
+  doesn't list.
 - `rc_serial_probe/platformio.ini` — has a local `monitor_port`.
 
 ## The real fix
