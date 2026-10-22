@@ -154,7 +154,7 @@ function setData(d) {
 }
 /* Inside a clip (S.clip), the timeline is the clip's own and cue edits go into its cue list. */
 S.clip = null; S.multi = new Set(); S.multiMode = false;
-const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
+const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add", "insert", "clear"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
 async function edit(edits, label) {
   try {
     const d = await api("api/edit", { path: S.path, text: S.text, edits: inClip(edits), clip: S.clip });
@@ -1509,6 +1509,61 @@ async function openFiles() {
   });
 }
 
+/* ---------- clear: wipe cues to work with a clean slate ---------- */
+function openClearDialog() {
+  const cues = (S.data && S.data.authored) || [];
+  const total = cues.length;
+  if (!total) {
+    toast("The timeline is already clear (no cues in this show).", 3000);
+    return;
+  }
+  const armCues = cues.filter((c) => c && (c.slot === "ARM_L" || c.slot === "ARM_R"));
+  const contextName = S.clip ? `clip '${S.clip}'` : `show '${S.path || "current"}'`;
+
+  const html = `
+    <section class="files">
+      <h3>Clear Timeline</h3>
+      <p style="margin-bottom:12px;">Delete existing cues from ${esc(contextName)} to work from a clean slate. Your previous show state is saved in undo history.</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button id="fClearAll" class="danger" style="width:100%; text-align:left; padding:10px 14px;">
+          <strong>Clear All Cues</strong> (${total} cue${total > 1 ? "s" : ""} across all tracks)
+        </button>
+        ${armCues.length > 0 && armCues.length < total ? `
+        <button id="fClearArms" style="width:100%; text-align:left; padding:10px 14px;">
+          <strong>Clear Arm Cues Only</strong> (${armCues.length} cue${armCues.length > 1 ? "s" : ""} on ARM_L and ARM_R)
+        </button>` : ""}
+      </div>
+      <p class="note" style="margin-top:12px;">Undo (Ctrl/Cmd-Z) will immediately restore your cues if needed.</p>
+    </section>`;
+
+  showText("Clear Interface", "", [], html);
+
+  const go = async (fn, label) => {
+    try {
+      await fn();
+      $("textDlg").close();
+      S.selected = null;
+      S.multi = new Set();
+      update3DRobot();
+      toast(label, 5000);
+    } catch (e) {
+      toast(e.message, 6000);
+    }
+  };
+
+  if ($("fClearAll")) {
+    $("fClearAll").onclick = () => go(async () => {
+      await edit([{ op: "clear" }], "Cleared all cues");
+    }, "Cleared all cues — undo brings them back");
+  }
+
+  if ($("fClearArms")) {
+    $("fClearArms").onclick = () => go(async () => {
+      await edit([{ op: "clear", slots: ["ARM_L", "ARM_R"] }], "Cleared arm cues");
+    }, "Cleared arm cues — undo brings them back");
+  }
+}
+
 /* ---------- clips: make one from cues, a new one, edit inside one (the user's composer item #1) ---------- */
 function renderMultiInspector() {
   const a = (S.data && S.data.authored) || [], idx = [...S.multi].sort((x, y) => x - y);
@@ -1587,6 +1642,7 @@ function bind() {
   $("tap").onpointerdown = tap;
   $("tapUse").onclick = () => S.tapBpm && edit([{ op: "music", key: "bpm", value: S.tapBpm }], `tempo set to ${S.tapBpm} BPM`).then(loadAudio);
   $("beatOne").onclick = () => edit([{ op: "music", key: "offset_s", value: round(S.t, 3) }], `beat 1 is now at ${S.t.toFixed(3)} s`);
+  if ($("clearBtn")) $("clearBtn").onclick = openClearDialog;
   $("undo").onclick = undo;
   $("save").onclick = save;
   bindMusic();

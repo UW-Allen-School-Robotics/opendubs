@@ -121,6 +121,33 @@ cues:
     print("  ok    yamledit op insert correctly places cue before target index")
 
 
+def test_yamledit_clear():
+    raw_text = """id: test
+slots: [ARM_L, ARM_R, SOUND]
+cues:
+  - { t: 1.0, slot: ARM_L, joints: { 1: 10 } }
+  - { t: 1.5, slot: SOUND, file: beep.wav }
+  - { t: 2.0, slot: ARM_R, joints: { 1: -10 } }
+"""
+    # 1. Clear arms only
+    out_arms = yamledit.apply(raw_text, [{"op": "clear", "slots": ["ARM_L", "ARM_R"]}])
+    p_arms = yaml.safe_load(out_arms)
+    assert len(p_arms["cues"]) == 1
+    assert p_arms["cues"][0]["slot"] == "SOUND"
+
+    # 2. Clear all
+    out_all = yamledit.apply(raw_text, [{"op": "clear"}])
+    p_all = yaml.safe_load(out_all)
+    assert p_all["cues"] == []
+
+    # 3. Add cue after clear all
+    out_added = yamledit.apply(out_all, [{"op": "add", "cue": {"t": 1.0, "slot": "ARM_L", "joints": {"1": 5}}}])
+    p_added = yaml.safe_load(out_added)
+    assert len(p_added["cues"]) == 1
+    assert p_added["cues"][0]["joints"][1] == 5
+    print("  ok    yamledit op clear wipes cues cleanly and accepts subsequent cues")
+
+
 if __name__ == "__main__":
     print("arm planner bridge: unit tests")
     test_planners_available()
@@ -128,4 +155,5 @@ if __name__ == "__main__":
     test_plan_arm_move()
     test_reach_target_solve_and_validate()
     test_yamledit_insert()
+    test_yamledit_clear()
     print("all good")
