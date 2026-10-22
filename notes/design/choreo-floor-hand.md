@@ -29,11 +29,12 @@ available only when:
 
 1. the show's hand type has a driver (`output: surge_at`; today only `surge_left`, the hand that exists);
 2. this robot has it fitted on the floor (its own tools file, `base: surge_left`);
-3. every crawl move in the show **has run on the real hand** (the type's `hardware: tested_gaits` and
-   `tested_patterns`): today the forward walk `bare_flexstroke` and the ripple, wave and idle beat-tap
-   dances. A pivot, a backward walk or any other dance is simulation only and is not played on a floor
-   with people on it until it has passed a bench test;
-4. this runner has a floor-hand port, and the hand answers a query on it (the query moves nothing).
+3. this runner has a floor-hand port, and the hand answers a query on it (the query moves nothing).
+
+Moves the real hand has never run play live too (the user's decision, 2026-10-22): pivots, the backward
+walk, any dance. The run's log names them as untried, so the operator knows what is new. The ones
+that have run (the type's `hardware: tested_gaits` and `tested_patterns`) are today the forward walk
+`bare_flexstroke` and the ripple, wave and idle beat-tap dances.
 
 Otherwise the run is refused with the reason (EFFECTOR_UNAVAILABLE) — or, for a show that lists
 `floor_hand` in `can_skip:`, the operator is offered the show without the hand (NEEDS_APPROVAL, the
@@ -58,6 +59,6 @@ twin only and never asks the hand.
 The hand is **wired and has run on the floor**; its hardware is settled and is not a gate on this work.
 What the floor showed: it moves over the ground very effectively, covering roughly one finger stroke per
 step. So the slow-crawl assumption behind the first plans was wrong. The hand is fast and agile, and its
-dances should use that: quick dashes, stop-and-go on the beat, bursts between finger dances. A
-move still plays live only once it has run on the real hand (`tested_gaits`, `tested_patterns`), so
-each new move gets a short floor run before it joins a show.
+dances should use that: quick dashes, stop-and-go on the beat, bursts between finger dances. Untried
+moves play live (named in the run's log); their speeds in the twin are labelled estimates until a floor
+run measures them.

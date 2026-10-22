@@ -718,7 +718,8 @@ def hardware_sequence(tl: dict, name: str, t_from: float = 0.0, t_to: float | No
 
 def hand_untested(tl: dict) -> list[str]:
     """The crawl moves in this export that have never run on the REAL hand (the type's `hardware:`
-    tested_gaits and tested_patterns): a live run plays only moves that have. [] when every one has, or
+    tested_gaits and tested_patterns). They play live (the user's decision, 2026-10-22); a run names them
+    in its log so the operator knows what is new. [] when every one has run, or
     the show has no crawling hand."""
     cr = tl.get("crawler")
     if not cr:

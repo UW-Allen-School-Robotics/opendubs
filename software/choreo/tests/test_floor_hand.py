@@ -91,7 +91,8 @@ check("it NEEDS the floor_hand part (from its CRAWL cues)", "floor_hand" in tl["
 check("its moves have all run on the real hand", E.hand_untested(tl) == [], E.hand_untested(tl))
 FakeDriver.calls = []
 check("fitted, a driver, tested moves and the hand answering: ok",
-      H.availability(tl, hand()) == {"state": "ok", "why": None} and FakeDriver.calls == [("open", False), ("close", False)],
+      H.availability(tl, hand()) == {"state": "ok", "why": None, "untried": []}
+      and FakeDriver.calls == [("open", False), ("close", False)],
       FakeDriver.calls)
 check("... the probe only queries: it opens read-only and never sends the open pose (the hand does not move)",
       ("open", True) not in FakeDriver.calls and ("close", True) not in FakeDriver.calls)
@@ -107,8 +108,10 @@ r_tl = export(TESTED, tool="surge_right")
 check("a hand type with no driver (the right hand): unavailable, twin only", "no driver" in why(r_tl, hand()), why(r_tl, hand()))
 un = export("  - { t: 0.5, slot: CRAWL, do: turn, by_deg: 30 }\n  - { t: 9, slot: CRAWL, do: dance, pattern: beckon, secs: 2 }\n",
             start=1.5)
-check("a pivot and an untested dance are moves never run on the real hand: unavailable, naming them",
-      un["valid"] and "pivot" in why(un, hand()) and "beckon" in why(un, hand()), why(un, hand()))
+av = H.availability(un, hand())
+check("a pivot and an untried dance (never run on the real hand) are AVAILABLE, and named as untried",
+      un["valid"] and av["state"] == "ok" and any("pivot" in u for u in av["untried"])
+      and any("beckon" in u for u in av["untried"]), av)
 
 print("\nfloor hand: the real hand's moves on the show's clock")
 sat = hand().mod()
@@ -169,9 +172,11 @@ check("... with floor_hand in can_skip: the operator is offered the show without
 r, end, _ = live(ps, hand(port=PORT + "-gone"), skip=("floor_hand",))
 check("... and approved, it runs without the hand, which is never touched",
       end[0] == "COMPLETED" and r.hand_run is None and not any(c[0] == "apply" for c in FakeDriver.calls), end)
-r, end, _ = live(write("  - { t: 0.5, slot: CRAWL, do: turn, by_deg: 30 }\n", start=1.5), hand())
-check("a show with a pivot (never run on the real hand) is refused live, naming it",
-      end[:2] == ("REFUSED", "EFFECTOR_UNAVAILABLE") and "pivot" in end[2], end)
+r, end, lines = live(write("  - { t: 0.5, slot: CRAWL, do: turn, by_deg: 30 }\n", start=1.5), hand())
+check("a show with a pivot (never run on the real hand) PLAYS live, its log naming the untried move, and the "
+      "hand is left open at the end",
+      end[0] == "COMPLETED" and any("not run before" in x.get("note", "") and "pivot" in x.get("note", "")
+                                    for x in lines) and FakeDriver.calls[-1] == ("close", True), (end, FakeDriver.calls[-2:]))
 clk = {"t": 1000.0}
 r = R.Runner(p, LIMITS_PATH, R.FakeRobotState(), log=io.StringIO(), start_lead=0.3, hand=hand(),
              clock=lambda: clk["t"], sleep=lambda s: clk.__setitem__("t", clk["t"] + s))

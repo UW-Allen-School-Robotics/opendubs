@@ -974,10 +974,13 @@ class Runner:
         st = self.robot.read()
         refusals = preflight(show.requires or {}, st, deadman=self.start != "deadman")
         if self.live and tl.get("crawler") and hand_output.PART in (tl.get("needs") or ()):
-            # the floor hand answers for itself (the dashboard does not know it): fitted, a driver, moves
-            # run on the real hand, and the hand answering on its port
+            # the floor hand answers for itself (the dashboard does not know it): fitted, a driver, and the
+            # hand answering on its port. Moves it has never run play too; the log names them.
             fh = hand_output.availability(tl, self.hand_out)
             self._log("hand", note=f"the floor hand: {fh['state']}" + (f" — {fh['why']}" if fh["why"] else ""))
+            if fh.get("untried"):
+                self._log("hand", note="this crawl includes moves the real hand has not run before: "
+                                       + "; ".join(fh["untried"]))
             eff = st.get("effectors") if isinstance(st.get("effectors"), dict) else {}
             st = dict(st, effectors=dict(eff, **{hand_output.PART: fh}))
         eff_refusals, self.offer = effector_check(tl, st)

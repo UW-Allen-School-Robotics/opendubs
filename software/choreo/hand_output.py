@@ -10,7 +10,8 @@ it in `can_skip:`. At preflight `availability(tl)` says whether it can play this
 
   * the show's hand type has a driver (effectors: `output: surge_at`), and this robot has it FITTED at
     `base` (effectors.load_fitted: the robot's own tools file);
-  * every crawl move in the show has run on the REAL hand (effectors.hand_untested): a pivot or a gait
+  * (moves that have never run on the real hand — effectors.hand_untested — PLAY: the user's decision,
+    2026-10-22; availability names them in `untried`, and the run logs them); a pivot or a gait
     found only in simulation is not played on a person's floor;
   * this runner has a floor-hand port (--hand), and the hand answers on it.
 
@@ -112,12 +113,11 @@ def availability(tl: dict, hand: FloorHand | None) -> dict:
         return no(f"this robot's tools file is unreadable: {e}")
     if have != tool.id:
         return no(f"this robot has {have or 'no hand'} on the floor (its tools file, `base:`), not the {tool.id}")
-    untested = effectors.hand_untested(tl)
-    if untested:
-        return no("the crawl uses moves never run on the real hand: " + "; ".join(untested[:3])
-                  + (f" (and {len(untested) - 3} more)" if len(untested) > 3 else ""))
     why = hand.probe()
-    return no(why) if why else {"state": "ok", "why": None}
+    if why:
+        return no(why)
+    # moves never run on the real hand play too (the user's decision, 2026-10-22): named, for the run's log
+    return {"state": "ok", "why": None, "untried": effectors.hand_untested(tl)}
 
 
 class HandRun:

@@ -16,7 +16,8 @@ name: Surge hand (left)
 mirror_of: surge_right
 hand: left
 # THE DRIVER (drivers/surge_at.py), through the runner's floor-hand output (hand_output.py, --hand PORT):
-# a live run plays only the moves this hand has run (hardware: tested_gaits, tested_patterns).
+# a live run plays every move; those it has not run before (hardware: tested_gaits, tested_patterns) are
+# named in the run's log.
 output: surge_at
 
 # THE HAND ON THE ROBOT IS THIS ONE (opendubs2, 2026-10-16). Its real-hardware facts are below; the shared
@@ -50,7 +51,7 @@ hardware:
   # joints at 20 Hz with AT+SEF=0 while streaming, then AT+SPP=0 and AT+SEF=1 on exit. Source: the Surge
   # Hand investigation's sim/out/bare_thumb_flexstroke.json and hw/gait_stream.py.
   # The finger dances that have run on the real hand: the bench run of hand_bench (2026-10-16): the idle
-  # beat tap, ripple and wave, the thumb kept beside the palm. A live run plays only these and tested_gaits.
+  # beat tap, ripple and wave, the thumb kept beside the palm. A live run names any other move as untried.
   tested_patterns: [tap_index, ripple, wave]
   tested_gaits:
     bare_flexstroke:
@@ -72,7 +73,7 @@ crawl:
   # ESTIMATES (2026-10-21), FOR THE TWIN ONLY: the backward walk and the pivots have run only in simulation,
   # and the floor showed the simulation reads the real hand's forward walk 3-4x low (it covers about one
   # finger stroke per step). These are the simulation's figures x3, the low end of that, so the twin shows
-  # a plausible routine. A live run still refuses every move not in hardware: tested_* until a floor run
+  # a plausible routine. They play live too (the user's decision, 2026-10-22), named as untried, until a floor run
   # measures it (hand_output.availability).
   pivots:
     left:  {deg_s: [27.0, 35.0], dragging_deg_s: [27.0, 35.0], estimate: "sim x3, unmeasured"}

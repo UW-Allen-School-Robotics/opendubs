@@ -404,9 +404,10 @@ NOT_EXECUTABLE = {
     "VIDEO": "VIDEO plays on the robot only where the runner has a video output (--video cast,hdmi) and "
              "the projector is ready; otherwise the show runs without it, saying so (a show may say "
              "video: {required: true} to be refused instead)",
-    "CRAWL": "CRAWL plays on the robot only with a floor hand fitted and connected (the runner's --hand), a "
-             "type with a driver, and moves that have run on the real hand; otherwise the runner refuses the "
-             "show — or, with floor_hand in can_skip:, offers it without the hand on the operator's approval",
+    "CRAWL": "CRAWL plays on the robot only with a floor hand fitted and connected (the runner's --hand) and "
+             "a type with a driver; otherwise the runner refuses the show — or, with floor_hand in can_skip:, "
+             "offers it without the hand on the operator's approval. Moves the real hand has not run before "
+             "play too, and the run names them",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
