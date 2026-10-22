@@ -58,6 +58,9 @@ class CommandTest(unittest.TestCase):
         self.assertAlmostEqual(d.command((0.03, 0, 0), (0, 0, 0), 1.0, 1.0, 1.0)[0], 1.5 * 0.03)
         self.assertAlmostEqual(d.command((0.01, 0, 0), (0, 0, 0), 1.0, 1.0, 1.0, min_lin=0.07)[0], 1.5 * 0.01)
         self.assertAlmostEqual(d.command((-0.02, 0, 0), (0.05, 0, 0), 1.0, 1.0, 1.0, min_lin=0.07)[0], 0.02)
+        # a heading error during a strafe (turn feed-forward zero, strafe not) gets the plain gain only
+        self.assertAlmostEqual(d.command((0, 0, math.radians(3)), (0, 0.09, 0), 1.0, 1.0, 1.0, min_ang=0.15)[2],
+                               1.5 * math.radians(3))
         vx, _, wz = d.command((0.03, 0, math.radians(3)), (0, 0, 0), 0.05, 0.05, 0.08, min_lin=0.07, min_ang=0.10)
         self.assertLessEqual(abs(vx) / 0.05 + abs(wz) / 0.08, 1.0 + 1e-9)
 
