@@ -105,6 +105,20 @@ THOR_IP="$(ip -4 route get "$STAMP_IP" 2>/dev/null | grep -oE 'src [0-9.]+' | aw
   exit 1
 }
 
+# This robot's calibration (drive channels and signs, ESC shaping, lift relays) is its own
+# src/robot_config.h, never in the repo. Without it the build cannot be right, so do not start one.
+if [ ! -f "$PROJ/src/robot_config.h" ]; then
+  echo "ERROR: $PROJ/src/robot_config.h is missing: this robot's calibration."
+  if [ -f "$PROJ/src/main.cpp.pre-robot-config" ]; then
+    echo "       Make it from this robot's previous main.cpp, which carried the values:"
+    echo "         python3 $PROJ/tools/make_robot_config.py $PROJ/src/main.cpp.pre-robot-config > robot_config.h"
+    echo "       review it (and the differences it lists), then put it in $PROJ/src/."
+  else
+    echo "       Copy src/robot_config.h.example and set THIS robot's values (notes/per-robot-calibration.md)."
+  fi
+  exit 1
+fi
+
 echo "== building firmware =="
 cd "$PROJ" && "$PIO" run || { echo "ERROR: build failed"; exit 1; }
 [ -f "$BIN" ] || { echo "ERROR: $BIN not found after build"; exit 1; }
