@@ -10,7 +10,9 @@ Stage 3 `hold`: the motors are verified, enabled and held where the arm is, with
 move. Stage 4 `lapse`: a slow move is under way on a permit; the permit then stops being renewed, as when whatever renews it dies, and the arm
 must stop where it is. Stage 5 `move`: one joint a small step and back, on a permit.
 
-For the first run of an arm: supported, a person at the e-stop, one arm at a time, and `require_permit: true` in the hardware config. The
+For the first run of an arm: supported, a person at the e-stop, one arm at a time, and `require_permit: true` in the hardware config. On a real bus every
+stage first refuses if the existing arm stack is running or another sender is commanding the motors, and `lapse` and `move` also refuse unless CH5 is
+MANUAL or AUTO with the e-stop clear and `--supervised` says a person is at the e-stop (guards.py). The
 verdicts are the thresholds below, which are starting values like everything else. The same commands run against the simulator with
 `--backend mujoco` (no permit there, so `lapse` is skipped), which is how the script itself was tried.
 """
@@ -27,12 +29,33 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import guards  # noqa: E402
 from engage import PermitKeeper, permit_groups  # noqa: E402
 
 HOLD_TOLERANCE = 0.02      # rad, how far an arm that is only held may drift in the hold stage
 LAPSE_TOLERANCE = 0.01     # rad, how far an arm may still travel after its permit stops being renewed
 MOVE_TOLERANCE = 0.03      # rad, how far from the target a small move may end
 MOVE_TIMEOUT = 40.0        # s
+
+
+def gate(args, motion: bool) -> int:
+    """The guards of guards.py, before the RobotInterface exists (initialize() enables the motors, which is already a command on the bus).
+
+    Every stage needs the bus to itself; a stage that moves an arm (`lapse`, `move`) also needs CH5 to permit it and `--supervised`. A `fake` bus
+    and the simulator are not gated. Returns 0 to go on.
+    """
+    if args.backend != "hardware":
+        return 0
+    try:
+        interfaces, real = guards.buses_of(args.hardware_config, permit_groups(args.side))
+        if real:
+            guards.require_exclusive(interfaces, args.listen_seconds)
+            if motion:
+                guards.require_motion_permitted(args.supervised, args.dashboard)
+    except guards.Refused as refused:
+        print(f"refused: {refused}")
+        return 1
+    return 0
 
 
 def connect(args):
@@ -143,9 +166,15 @@ def main() -> int:
     parser.add_argument("--delta", type=float, default=0.05, help="lapse, move: the step, rad")
     parser.add_argument("--speed", type=float, default=0.1, help="lapse, move: rad/s")
     parser.add_argument("--after", type=float, default=1.0, help="lapse: seconds into the move before the permit stops being renewed")
+    parser.add_argument("--supervised", action="store_true", help="lapse, move: a person is at the e-stop (required on a real bus)")
+    parser.add_argument("--dashboard", default=guards.DASHBOARD, help="where CH5 and the e-stop are read (GET /api/choreo/robot)")
+    parser.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
     args = parser.parse_args()
     if not 1 <= args.joint <= 7:
         parser.error("--joint is 1 to 7")
+    refused = gate(args, motion=args.stage in ("lapse", "move"))
+    if refused:
+        return refused
     return {"hold": hold, "lapse": lapse, "move": move}[args.stage](args)
 
 

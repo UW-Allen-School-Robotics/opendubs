@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Engage an arm: from where it is to the ready pose, then hand over to `track`.
 
-    ~/coding/lab/venv/bin/python software/openarm/gafro/engage.py --model description/openarm/gafro/openarm_bimanual.xml --side right
+    $PY software/openarm/gafro/engage.py --model description/openarm/gafro/openarm_bimanual.xml --side right
 
-The arm is wherever it was left -- stow, which is zero and singular, or frozen anywhere. `track` from there has its singular-value guard
+The arm starts at stow, which is zero and singular. `track` from there has its singular-value guard
 swing the arm, so the first controller is `engage` (a posture stage in joint space, gravity from the model) following a straight line in
 joint space to the model's `ready` keyframe. The line is checked against the collision geometry first and refused if any pair of parts
 comes nearer along it than it is at either end and within 2 cm (pairs that touch by construction, a hand on its wrist, are at the same distance at both
@@ -17,8 +17,12 @@ that was not already the state. One arm per call, or both: the other arm of a on
 are taken as the model's joint angles, which is what they are where the driver's direction and zero are the identity (opendubs2 stows at
 zero); for a robot whose are not, the file is in the motors' terms and needs converting first.
 
-This is the sequence, not the authority: it does not ask a permit of anything. The arm service calls it once an arm is permitted to move.
-It runs against the simulator as written; against hardware only the `RobotInterface` configuration changes.
+This is the sequence, not the authority. Until the arm service exists, a move on a real bus (a `bus: can` group in the hardware config) is
+refused unless the guards of guards.py pass, before anything is enabled: the existing stack is not running and no other sender is commanding
+the motors, CH5 is MANUAL or AUTO with the e-stop clear, `--supervised` says a person is at the e-stop, and the arm starts near stow or ready (the
+line to the target is checked against a model with no head). A `fake` bus and the simulator are not gated.
+
+"Ready" is a working pose and not a resting one: an e-stop or a power drop there lets the forearm fall. Park before leaving the robot.
 """
 from __future__ import annotations
 
@@ -33,6 +37,9 @@ import numpy as np
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+import guards  # noqa: E402
 MARGIN = 0.003          # how much nearer than at its closer end a pair may come along the path, m
 CLEARANCE = 0.02        # a pair further apart than this along the whole path is clear, however much nearer than at its ends, m
 JOINT_SPEED = 0.3       # rad/s, the largest joint's; RI's default for go_to_*
@@ -41,7 +48,7 @@ SETTLE_TOLERANCE = 0.05  # rad, per joint, at the end of the move: joint frictio
 HANDOVER_HOLD = 1.0     # s, held under `track` before it is reported engaged
 
 
-class EngageRefused(RuntimeError):
+class EngageRefused(guards.Refused):
     """The sequence did not start, or did not finish: the message says why and nothing was left running."""
 
 
@@ -209,7 +216,8 @@ def stow_pose(side: str, path: str | None = None) -> np.ndarray | None:
     return np.radians(degrees)
 
 
-def park(robot, side: str, model_path: str, conf: str | None = None, speed: float = JOINT_SPEED, controllers: dict | None = None, log=print):
+def park(robot, side: str, model_path: str, conf: str | None = None, speed: float = JOINT_SPEED, controllers: dict | None = None, log=print,
+         start_tolerance: float | None = None):
     """Bring `side` ("left", "right" or "both") to its configured stow pose and leave `engage` holding it, ready to be de-energized.
 
     Unset is refused and not guessed, as `openarm-up park` does: a wrong pose drives the arm into the head.
@@ -217,18 +225,22 @@ def park(robot, side: str, model_path: str, conf: str | None = None, speed: floa
     system = robot.get_system()
     target_all = np.asarray(robot.get_state().get_position(), dtype=float).copy()
 
+    stows = []
     for name in ("left", "right") if side == "both" else (side,):
         pose = stow_pose(name, conf)
         if pose is None:
             raise EngageRefused(f"{name}: no stow pose configured in {conf or STOW_CONF} (a line `{name.upper()}_STOW=<7 angles in degrees>`); it is "
                                 "deliberately unset and not guessed, since a wrong pose drives the arm into the head")
         target_all[np.asarray(system.get_task_space(name).get_joint_indices())] = pose
+        stows.append(pose)
 
-    return engage(robot, side, model_path, "stow", speed, controllers, log, target_all=target_all, then="hold")
+    return engage(robot, side, model_path, "stow", speed, controllers, log, target_all=target_all, then="hold",
+                  known_starts={"stow": np.concatenate(stows)}, start_tolerance=start_tolerance)
 
 
 def engage(robot, side: str, model_path: str, keyframe: str = "ready", speed: float = JOINT_SPEED, controllers: dict | None = None,
-           log=print, target_all: np.ndarray | None = None, then: str = "track"):
+           log=print, target_all: np.ndarray | None = None, then: str = "track", known_starts: dict | None = None,
+           start_tolerance: float | None = None):
     """Bring `side` ("left", "right" or "both") to the keyframe. One arm is left under `track`, holding it, and its sources are returned,
     (reference, posture). Both arms are left under `engage`, holding the pose (None is returned): a RobotInterface runs one controller and a
     stage binds to one task space, so there is no `track` over both until gafro can bind a stage to a task space of its own.
@@ -236,7 +248,12 @@ def engage(robot, side: str, model_path: str, keyframe: str = "ready", speed: fl
     `target_all` is a whole-system configuration to go to instead of the keyframe's. `then` is "track" (the handover) or "hold" (stay under
     `engage`, for a pose `track` cannot start at, such as stow).
 
-    Raises EngageRefused, with the arm held by whatever was running, for a target outside the joint ranges or a line through a collision.
+    `start_tolerance` (rad, per joint) makes the move start only near stow or ready: the line to the target is checked against a model with no
+    head, neck or lift, so from anywhere else it could pass through the head unseen. `known_starts` names the poses (this arm's joints, in the task
+    space's order) it may start near besides the model's `ready`; the stow pose is the one a caller gives.
+
+    Raises EngageRefused, with the arm held by whatever was running, for a target outside the joint ranges, a line through a collision, or
+    a start that is not known.
     """
     from gafro import control
 
@@ -259,6 +276,16 @@ def engage(robot, side: str, model_path: str, keyframe: str = "ready", speed: fl
 
     start_all = state().copy()
     start, target = start_all[indices], target_all[indices]
+
+    if start_tolerance is not None:
+        known = dict(known_starts or {})
+        ready = system.get_keyframe("ready")
+        if ready is not None:
+            known["ready"] = np.asarray(ready.qpos, dtype=float)[: len(start_all)][indices]
+        try:
+            log(f"the arm starts near {guards.require_known_start(start, known, start_tolerance)}")
+        except guards.Refused as refused:
+            raise EngageRefused(str(refused)) from None
 
     lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
     upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
@@ -337,25 +364,47 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=JOINT_SPEED, help="the largest joint's peak-average speed, rad/s")
     parser.add_argument("--backend", default="mujoco", choices=("mujoco", "hardware"))
     parser.add_argument("--hardware-config", default="", help="hardware.yaml, for --backend hardware")
+    parser.add_argument("--supervised", action="store_true", help="a person is at the e-stop (required for a move on a real bus)")
+    parser.add_argument("--dashboard", default=guards.DASHBOARD, help="where CH5 and the e-stop are read (GET /api/choreo/robot)")
+    parser.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)),
+                        help="on a real bus the arm must start this near stow or ready, per joint")
+    parser.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
     args = parser.parse_args()
 
     import gafro  # noqa: F401  -- before gafro_robot_interface
     import gafro_robot_interface as ri
 
+    groups = permit_groups(args.side) if args.backend == "hardware" else ()
+    names = ("left", "right") if args.side == "both" else (args.side,)
+    known, tolerance = None, None
+
     if args.backend == "hardware":
+        # Before the RobotInterface exists: initialize() enables the motors, which is already a command on the bus.
+        try:
+            interfaces, real = guards.buses_of(args.hardware_config, groups)
+            if real:
+                guards.require_exclusive(interfaces, args.listen_seconds)
+                guards.require_motion_permitted(args.supervised, args.dashboard)
+                stows = [stow_pose(name, args.stow_conf) for name in names]
+                if any(pose is None for pose in stows):
+                    raise guards.Refused(f"no stow pose configured in {args.stow_conf or STOW_CONF}: a move on a real bus starts near stow or ready")
+                known, tolerance = {"stow": np.concatenate(stows)}, float(np.radians(args.start_tolerance_deg))
+        except guards.Refused as refused:
+            print(f"refused: {refused}")
+            return 1
+
         import openarm_driver  # noqa: F401  -- registers `driver: openarm`; after gafro_robot_interface
 
     robot = ri.RobotInterface(ri.Configuration(args.model, args.backend, args.hardware_config))
     robot.initialize()
-    groups = permit_groups(args.side) if args.backend == "hardware" else ()
     try:
         with PermitKeeper(groups):
             if args.park:
-                park(robot, args.side, args.model, args.stow_conf, args.speed)
+                park(robot, args.side, args.model, args.stow_conf, args.speed, start_tolerance=tolerance)
             else:
-                engage(robot, args.side, args.model, args.keyframe, args.speed)
+                engage(robot, args.side, args.model, args.keyframe, args.speed, known_starts=known, start_tolerance=tolerance)
             time.sleep(1.0)
-    except EngageRefused as refused:
+    except guards.Refused as refused:
         print(f"refused: {refused}")
         return 1
     finally:
