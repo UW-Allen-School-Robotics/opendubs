@@ -5,6 +5,10 @@ Description=OpenDubs stage: a full-screen browser on the robot's /stage/ page
 After=systemd-user-sessions.service network-online.target stage-mode.service
 Wants=network-online.target
 Conflicts=getty@tty1.service
+# NO START LIMIT. A screen unplugged and plugged in fires a burst of display events, and the udev rule
+# restarts this on each: systemd's default (5 starts in 10 s) then gave up and left the box on a
+# console until someone power-cycled it (found on the first box, 2026-10-22). RestartSec paces it.
+StartLimitIntervalSec=0
 
 [Service]
 User=stage

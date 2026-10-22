@@ -39,4 +39,5 @@ pcm.!default { type plug; slave.pcm "$pcm" }
 ctl.!default { type hw; card "$card" }
 EOF
 echo "$pick" > "$out"
+echo "$card" > "${out}_card"           # which card: the health report names it (stage-agent)
 echo "stage-audio: $mode -> $pick ($pcm)"

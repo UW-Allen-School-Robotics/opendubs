@@ -112,12 +112,17 @@ def screen(drm: str = "/sys/class/drm", forced: str = "") -> dict:
     return {"connected": False, "mode": None}
 
 
-def audio_name(output: str | None, cards: str | None) -> str | None:
-    """The sound card's own name from /proc/asound/cards, for the output stage-audio chose."""
+def audio_name(output: str | None, cards: str | None, card: str | None = None) -> str | None:
+    """The sound card's own name from /proc/asound/cards, for the card stage-audio chose. By the card's
+    id when stage-audio wrote it: the first HDMI card is not the one in use when the screen is on the
+    second port (the first box reported vc4-hdmi-0 while it played on vc4-hdmi-1)."""
     for line in (cards or "").splitlines():
         if " - " not in line or "]:" not in line:
             continue
-        if (output == "usb" and "USB-Audio" in line) or (output == "hdmi" and "vc4-hdmi" in line.lower().replace("_", "-")):
+        if card:
+            if line.split("[", 1)[1].split("]", 1)[0].strip() == card:
+                return line.split(" - ", 1)[1].strip()
+        elif (output == "usb" and "USB-Audio" in line) or (output == "hdmi" and "vc4-hdmi" in line.lower().replace("_", "-")):
             return line.split(" - ", 1)[1].strip()
     return None
 
@@ -131,7 +136,7 @@ def device() -> dict:
     return {"device": "stage-pi", "name": socket.gethostname(),
             "model": (_read("/proc/device-tree/model") or "").rstrip("\x00") or None,
             "audio_output": out if out in ("usb", "hdmi") else "none",
-            "audio_name": audio_name(out, _read("/proc/asound/cards")),
+            "audio_name": audio_name(out, _read("/proc/asound/cards"), _read(f"{RUN}/audio_card")),
             **throttled(thr), "screen": screen(forced=_conf("MODE")), "media": media_summary()}
 
 

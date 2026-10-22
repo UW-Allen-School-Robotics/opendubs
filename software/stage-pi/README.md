@@ -97,6 +97,7 @@ itself: the box stays as it was set up until someone does this.
 |---|---|
 | a black screen after boot | the browser is waiting for the robot: is the robot on, and is the box on its Wi-Fi? |
 | the page's card warns of **under-voltage** | the supply is too weak: use the official one for that model |
-| no sound | check `AUDIO` in `stage.conf`, and the adapter's cable; with `auto`, an adapter plugged in takes the sound from the screen |
+| no sound | check `AUDIO` in `stage.conf`, and the adapter's cable; with `auto`, an adapter plugged in takes the sound from the screen. Either micro-HDMI port works: the sound follows the one a screen is on |
+| a console instead of the page after the screen was replugged | a box set up before 2026-10-22 gave up restarting its browser: power-cycle it, then update it (Updating) |
 | the wrong resolution | force one with `MODE` |
 | a show stutters | the box had no copy of that show's video and the Wi-Fi was slow: leave it idle on the robot's network a while to copy the videos, and check `device.json`'s `media` |
