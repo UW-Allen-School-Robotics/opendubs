@@ -111,26 +111,27 @@ DANCE_SECS = (0.5, 4.0)          # SANITY: one move is a gesture, not a journey
 DANCE_DEFAULT_SECS = 2.0
 DANCE_TOTAL_MAX_S = 30.0         # SANITY: the whole show's open-loop base time
 FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
-# THE SHOW CAP (the user's direction, 2026-10-22): a show's base motion asks for at most SHOW_BASE_CAP
-# of full command in AUTO, a software setting the Thor's drive path enforces and the user may raise
-# (RC in MANUAL is not capped). Shows are planned at the speeds AT the cap, never at full; a DANCE cue
-# whose peak passes DANCE_PEAK_OF_CAP of it is refused (_check_dance).
+# THE SHOW CAP (the user's direction, 2026-10-22): software (AUTO) base motion is capped at SHOW_BASE_CAP
+# of full command on every wheel, a setting the Thor's drive path enforces (per robot, base.env) and the
+# user may raise; RC is not capped. A dance unit of 1.0 is the cap. Top speed is never measured: shows
+# are planned at the speeds AT the cap. When the user raises the cap, change SHOW_BASE_CAP, the peak
+# fraction and the three speeds below together.
 SHOW_BASE_CAP = 0.25
-# Each DANCE move peaks at no more than this fraction of the cap (amp <= it), so the tracker keeps the rest
-# to correct an error without hitting the cap. Both numbers are expected to change when the user raises
-# the cap: change them here, together with the speeds at the cap below.
-DANCE_PEAK_OF_CAP = 0.70
+# Each DANCE move peaks at no more than this fraction of the cap on the axis it uses (amp <= it), so the
+# tracker keeps the rest to correct an error, including the yaw this base picks up when it strafes (the
+# user's decision, 2026-10-22). A move that asks for more is refused (_check_dance).
+DANCE_PEAK_OF_CAP = 0.50
 DANCE_DEFAULT_AMP = DANCE_PEAK_OF_CAP     # a cue with no amp: the most a move may ask for
-# PLACEHOLDERS, NOT measured on the robot: the base's speed AT the cap, forward, strafing and turning
-# (the simulator's full speed, WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py,
-# times the cap). Strafing is imperfect on this base; the tracker corrects it closed-loop. They size a
-# move's excursion against the declared floor radius, and on a live run they are the speeds the base
-# tracker is asked to follow. To be replaced by the Thor lane's numbers at the cap.
-BASE_M_PER_S_AT_CAP = 0.175
-BASE_M_PER_S_STRAFE_AT_CAP = BASE_M_PER_S_AT_CAP
-BASE_RAD_PER_S_AT_CAP = 0.35
-DRIVE_V_MAX = BASE_M_PER_S_AT_CAP                                 # m/s, PLACEHOLDER
-DRIVE_W_MAX_DEG = math.degrees(BASE_RAD_PER_S_AT_CAP)             # deg/s, PLACEHOLDER
+# MEASURED on opendubs2, 2026-10-22 (the Thor lane: 1.5 s bursts AT the cap, CH8 at its maximum, from
+# /odom): the base's speed at the cap, forward, strafing (either way) and turning. Strafing is slower
+# than driving, and strafing right yaws the base clockwise; the tracker corrects both closed-loop. They
+# size a move's excursion against the declared floor radius, and on a live run they are the speeds the
+# base tracker is asked to follow.
+BASE_M_PER_S_AT_CAP = 0.27
+BASE_M_PER_S_STRAFE_AT_CAP = 0.18
+BASE_RAD_PER_S_AT_CAP = 0.37
+DRIVE_V_MAX = BASE_M_PER_S_AT_CAP                                 # m/s
+DRIVE_W_MAX_DEG = math.degrees(BASE_RAD_PER_S_AT_CAP)             # deg/s
 
 
 def dance_peak_command(amp: float = DANCE_DEFAULT_AMP) -> float:
@@ -140,7 +141,7 @@ def dance_peak_command(amp: float = DANCE_DEFAULT_AMP) -> float:
 
 
 def dance_speeds(amp: float = DANCE_DEFAULT_AMP) -> tuple:
-    """(forward m/s, strafe m/s, turn rad/s) of one dance unit at `amp`, at the PLACEHOLDER speeds."""
+    """(forward m/s, strafe m/s, turn rad/s) of one dance unit at `amp`, at the measured speeds."""
     return amp * BASE_M_PER_S_AT_CAP, amp * BASE_M_PER_S_STRAFE_AT_CAP, amp * BASE_RAD_PER_S_AT_CAP
 # APPROXIMATE: the chassis box's half-diagonal (description/opendubs/dimensions.yaml: x -32..612 mm,
 # y +-324.5 mm -> 0.457 m). The arms are NOT counted. The floor radius is clear space around the
@@ -151,7 +152,7 @@ ROBOT_FOOTPRINT_RADIUS_M = 0.46
 # ---- DRIVE: a relative move of the base, TWIN-ONLY (see SLOTS) --------------------------------
 # A cue moves the base by forward_m / left_m and turns it by turn_deg, over secs, in the robot's
 # own frame as it is at the cue — no velocities, no room coordinates. Its speed is bounded by the
-# same show cap DANCE uses, at the same PLACEHOLDER base speeds: a move that would need more
+# same show cap DANCE uses, at the same measured base speeds: a move that would need more
 # is refused with the time it needs.
 DRIVE_SECS = (0.5, 10.0)
 
@@ -184,7 +185,7 @@ def dance_net(move: str) -> tuple:
 
 
 def dance_excursion_m(move: str, secs: float, amp: float = DANCE_DEFAULT_AMP) -> float:
-    """Farthest the base strays from where the move started, at the PLACEHOLDER speeds."""
+    """Farthest the base strays from where the move started, at the measured speeds (open loop)."""
     v, vs, _w = dance_speeds(amp)
     x = y = far = 0.0
     for frac, fwd, strafe, _rot in DANCE_MOVES[move]:
@@ -419,7 +420,7 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 # reported as notices on every validation so nobody mistakes the one for the other.
 NOT_EXECUTABLE = {
     "DRIVE": "DRIVE runs only in the twin until odometry is trusted — the runner REFUSES this show on "
-             "the robot (format 12); the distances shown use placeholder base speeds",
+             "the robot (format 12); the distances shown are open-loop estimates at the speeds at the show cap",
     "DANCE": "DANCE moves the real base on a live run, through the Thor's base tracker (closed loop on "
              "/odom, a people guard on the LIDARs; without a ready tracker the show runs without its base "
              "moves). STAGE IT: keep the declared floor radius clear of glass railings and glass walls (the "
@@ -1069,7 +1070,7 @@ class Show:
                         warnings.append(Problem(
                             f"{where}: {c['move']} may stray ~{far:.2f} m; with the base's own "
                             f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor "
-                            f"radius {floor_r:g} m (placeholder speeds, arms not counted — an estimate)",
+                            f"radius {floor_r:g} m (open loop at the speeds at the cap, arms not counted — an estimate)",
                             *ref))
             elif slot == "DRIVE":
                 msgs = self._check_drive(where, c)
@@ -1110,7 +1111,7 @@ class Show:
                 warnings.append(Problem(
                     f"the DRIVE cues take the base ~{far:.2f} m from where the show starts; with its own "
                     f"~{ROBOT_FOOTPRINT_RADIUS_M:g} m that needs more than the declared floor radius "
-                    f"{floor_r:g} m (placeholder speeds, open loop — an estimate)"))
+                    f"{floor_r:g} m (open loop at the speeds at the cap — an estimate)"))
         for msg in self._check_requires(used):
             P(Problem(msg))
         for msg in self._check_palette(used, arm_state, head_tgt, events, limits):
@@ -1929,7 +1930,7 @@ class Show:
         need = math.hypot(vals["forward_m"], vals["left_m"]) / DRIVE_V_MAX + abs(vals["turn_deg"]) / DRIVE_W_MAX_DEG
         if need > float(secs) + 1e-9:
             p.append(f"{where}: this drive needs at least {need:.1f}s at the show cap "
-                     f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s — placeholder speeds), not {float(secs):g}s")
+                     f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s at the cap), not {float(secs):g}s")
         return p
 
     def _check_dance(self, where, c):
@@ -1941,6 +1942,9 @@ class Show:
         if any(abs(n) > 1e-9 for n in dance_net(move)):
             p.append(f"{where}: dance move {move!r} does not return to where it started "
                      f"(net {dance_net(move)}) — a library error, refused")
+        if any(strafe and rot for _f, _fwd, strafe, rot in DANCE_MOVES[move]):
+            p.append(f"{where}: dance move {move!r} strafes and turns at once, and strafing already "
+                     f"uses the turn budget to hold its heading — a library error, refused")
         secs = c.get("secs", DANCE_DEFAULT_SECS)
         if not (_num(secs) and DANCE_SECS[0] <= float(secs) <= DANCE_SECS[1]):
             p.append(f"{where}: dance secs {secs!r} outside {DANCE_SECS}")

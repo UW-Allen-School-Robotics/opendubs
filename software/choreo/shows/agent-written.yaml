@@ -57,7 +57,7 @@ cues:
   - { bar: "10.1", slot: GRIP_R, do: close }
   # short dance
   - { bar: "11.1", slot: DANCE, move: sway, secs: 2 }
-  - { bar: "12.1", slot: DANCE, move: twist, secs: 2, amp: 0.6 }
+  - { bar: "12.1", slot: DANCE, move: twist, secs: 2, amp: 0.5 }
   - { bar: "11.1", slot: FACE, do: emote, name: SQUINT }
   # settle
   - { bar: "14.1", slot: ARM_R, joints: { 2: 0, 4: 10, 7: 0 } }

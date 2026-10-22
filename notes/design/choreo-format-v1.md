@@ -605,7 +605,7 @@ cues:
 | rule | value | kind |
 |---|---|---|
 | moves | `sway rock twist shuffle box`, each a fixed profile that integrates to zero on every axis (re-checked) | library (`cue.py` `DANCE_MOVES`) |
-| speed | `amp` in (0, 0.7], default 0.7; 1 = the show cap, 25 % of full command in AUTO (`cue.SHOW_BASE_CAP`, a software setting the Thor's drive path enforces and the user may raise); a move peaks at no more than 70 % of the cap (`DANCE_PEAK_OF_CAP`), leaving the tracker room to correct | the user's direction, 2026-10-22 |
+| speed | `amp` in (0, 0.5], default 0.5; 1 = the show cap, 25 % of full command in AUTO (`cue.SHOW_BASE_CAP`, a software setting the Thor's drive path enforces and the user may raise); a move peaks at no more than half the cap (`DANCE_PEAK_OF_CAP`), leaving the tracker room to correct; speeds at the cap measured on opendubs2: 0.27 m/s forward, 0.18 m/s strafing, 0.37 rad/s | the user's direction, 2026-10-22 |
 | one move | 0.5–4 s, default 2 s | sanity |
 | whole show | ≤ 30 s of base motion | sanity |
 | floor | `floor_radius_m` required, 0.5–10 m; warns if a move may stray past it (with the base's ~0.46 m footprint, arms not counted) | declaration + estimate |
