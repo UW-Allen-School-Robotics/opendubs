@@ -52,11 +52,17 @@ The tracker:
 The twist is in m/s and rad/s, and drive_bridge maps it to the wheels through its full scale, the speed
 at DRIVE 1.0. In AUTO that is the firmware ceiling: 0.35 × the CH8 knob × full command.
 
-- A dance unit of 1.0 is that full scale, so **shows assume CH8 at its maximum**. A lower knob makes the
-  base lag, and the tracker holds rather than chase.
-- `cue.BASE_M_PER_S_FULL`, `BASE_M_PER_S_STRAFE` and `BASE_RAD_PER_S_FULL` are still the simulator's
-  placeholders (0.70 m/s, the same strafing, 1.40 rad/s). The Thor lane measures them on `/odom` (a short
-  drive at the robot, in open space) and they are replaced then, strafing separately if it differs.
+- **The show cap** (the user's direction, 2026-10-22): a show's base motion asks for at most 25 % of full
+  command (`cue.SHOW_BASE_CAP`), and the Thor lane's drive path enforces it as a hard cap. A dance unit
+  of 1.0 is the cap. A move peaks at no more than 70 % of it (`cue.DANCE_PEAK_OF_CAP`; `amp` ≤ 0.7, the
+  default), so the tracker has room to correct, and the validator refuses a DANCE cue that asks for more.
+  Top speed is never measured: shows are planned at the speeds at the cap. The cap is a software setting
+  the user may raise; `SHOW_BASE_CAP`, `DANCE_PEAK_OF_CAP` and the speeds at the cap change together.
+- The cap sits under the firmware ceiling at CH8's maximum (0.35), so **shows assume CH8 at its
+  maximum**. A lower knob can make the base lag, and the tracker holds rather than chase.
+- `cue.BASE_M_PER_S_AT_CAP`, `BASE_M_PER_S_STRAFE_AT_CAP` and `BASE_RAD_PER_S_AT_CAP` are placeholders
+  (the simulator's full speed × the cap: 0.175 m/s, the same strafing, 0.35 rad/s), replaced by the Thor
+  lane's numbers at the cap. Strafing is imperfect on this base; the tracker corrects it closed-loop.
 
 ## Staging (also in every DANCE show's notices)
 

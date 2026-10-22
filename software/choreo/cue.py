@@ -92,9 +92,10 @@ DEVICE_BRIGHT_LOW = 0.15
 # ---- DANCE: bounded open-loop base motion (workplan DEC-2, item 1.4; format spec 12) ----------
 # Not DRIVE. A DANCE cue names a move from this library and nothing else: no free-form velocity is
 # expressible. Each move is a fixed open-loop profile — segments of (fraction of the move's
-# duration, forward, strafe, rotate), each axis in "dance units" where 1.0 is the base's AUTONOMY
-# CEILING (kAutoMaxUnit = 0.35 of full command, firmware/rc_serial_probe main.cpp), which CH8
-# scales further in a human's hand. Every move returns the base to where it started BY
+# duration, forward, strafe, rotate), each axis in "dance units" where 1.0 is the SHOW CAP: the most
+# a show's base motion may ask for (SHOW_BASE_CAP of full command in AUTO, a software setting the Thor
+# enforces, below the firmware's AUTO ceiling of 0.35, which CH8 scales further in a human's hand).
+# Every move returns the base to where it started BY
 # CONSTRUCTION (every axis integrates to zero; the validator re-checks it), so only open-loop
 # drift can accumulate. On a live run the runner sends each move to the Thor's base tracker, which
 # closes the loop on /odom (base_output.py, notes/design/choreo-dance-live.md); elsewhere, the twin.
@@ -110,17 +111,37 @@ DANCE_SECS = (0.5, 4.0)          # SANITY: one move is a gesture, not a journey
 DANCE_DEFAULT_SECS = 2.0
 DANCE_TOTAL_MAX_S = 30.0         # SANITY: the whole show's open-loop base time
 FLOOR_RADIUS_SANITY_M = (0.5, 10.0)
-# PLACEHOLDERS, from the simulator, NOT measured on the robot: base speed at full command
-# (WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py), strafing (a mecanum base
-# usually strafes slower than it drives; the same until measured) and the matching turn rate. They
-# size a move's excursion against the declared floor radius, and on a live run they are the speeds
-# the base tracker is asked to follow. To be replaced by the Thor lane's /odom measurement.
-BASE_M_PER_S_FULL = 0.70
-BASE_M_PER_S_STRAFE = BASE_M_PER_S_FULL
-BASE_RAD_PER_S_FULL = 1.40
-AUTO_MAX_UNIT = 0.35
-DRIVE_V_MAX = AUTO_MAX_UNIT * BASE_M_PER_S_FULL                  # m/s, PLACEHOLDER-based
-DRIVE_W_MAX_DEG = math.degrees(AUTO_MAX_UNIT * BASE_RAD_PER_S_FULL)  # deg/s, PLACEHOLDER-based
+# THE SHOW CAP (the user's direction, 2026-10-22): a show's base motion asks for at most SHOW_BASE_CAP
+# of full command in AUTO, a software setting the Thor's drive path enforces and the user may raise
+# (RC in MANUAL is not capped). Shows are planned at the speeds AT the cap, never at full; a DANCE cue
+# whose peak passes DANCE_PEAK_OF_CAP of it is refused (_check_dance).
+SHOW_BASE_CAP = 0.25
+# Each DANCE move peaks at no more than this fraction of the cap (amp <= it), so the tracker keeps the rest
+# to correct an error without hitting the cap. Both numbers are expected to change when the user raises
+# the cap: change them here, together with the speeds at the cap below.
+DANCE_PEAK_OF_CAP = 0.70
+DANCE_DEFAULT_AMP = DANCE_PEAK_OF_CAP     # a cue with no amp: the most a move may ask for
+# PLACEHOLDERS, NOT measured on the robot: the base's speed AT the cap, forward, strafing and turning
+# (the simulator's full speed, WHEEL_MAX_RADS 10 rad/s x the measured 70 mm wheel radius, sim/scene.py,
+# times the cap). Strafing is imperfect on this base; the tracker corrects it closed-loop. They size a
+# move's excursion against the declared floor radius, and on a live run they are the speeds the base
+# tracker is asked to follow. To be replaced by the Thor lane's numbers at the cap.
+BASE_M_PER_S_AT_CAP = 0.175
+BASE_M_PER_S_STRAFE_AT_CAP = BASE_M_PER_S_AT_CAP
+BASE_RAD_PER_S_AT_CAP = 0.35
+DRIVE_V_MAX = BASE_M_PER_S_AT_CAP                                 # m/s, PLACEHOLDER
+DRIVE_W_MAX_DEG = math.degrees(BASE_RAD_PER_S_AT_CAP)             # deg/s, PLACEHOLDER
+
+
+def dance_peak_command(amp: float = DANCE_DEFAULT_AMP) -> float:
+    """The most a move at `amp` asks of the base, as a fraction of full command (every library
+    segment is a full dance unit on its axis)."""
+    return amp * SHOW_BASE_CAP
+
+
+def dance_speeds(amp: float = DANCE_DEFAULT_AMP) -> tuple:
+    """(forward m/s, strafe m/s, turn rad/s) of one dance unit at `amp`, at the PLACEHOLDER speeds."""
+    return amp * BASE_M_PER_S_AT_CAP, amp * BASE_M_PER_S_STRAFE_AT_CAP, amp * BASE_RAD_PER_S_AT_CAP
 # APPROXIMATE: the chassis box's half-diagonal (description/opendubs/dimensions.yaml: x -32..612 mm,
 # y +-324.5 mm -> 0.457 m). The arms are NOT counted. The floor radius is clear space around the
 # robot, so a move needs footprint + how far it strays.
@@ -130,7 +151,7 @@ ROBOT_FOOTPRINT_RADIUS_M = 0.46
 # ---- DRIVE: a relative move of the base, TWIN-ONLY (see SLOTS) --------------------------------
 # A cue moves the base by forward_m / left_m and turns it by turn_deg, over secs, in the robot's
 # own frame as it is at the cue — no velocities, no room coordinates. Its speed is bounded by the
-# same autonomy ceiling DANCE uses, at the same PLACEHOLDER base speeds: a move that would need more
+# same show cap DANCE uses, at the same PLACEHOLDER base speeds: a move that would need more
 # is refused with the time it needs.
 DRIVE_SECS = (0.5, 10.0)
 
@@ -162,9 +183,9 @@ def dance_net(move: str) -> tuple:
     return tuple(sum(f * v[i] for f, *v in segs) for i in range(3))
 
 
-def dance_excursion_m(move: str, secs: float, amp: float = 1.0) -> float:
+def dance_excursion_m(move: str, secs: float, amp: float = DANCE_DEFAULT_AMP) -> float:
     """Farthest the base strays from where the move started, at the PLACEHOLDER speeds."""
-    v, vs = AUTO_MAX_UNIT * amp * BASE_M_PER_S_FULL, AUTO_MAX_UNIT * amp * BASE_M_PER_S_STRAFE
+    v, vs, _w = dance_speeds(amp)
     x = y = far = 0.0
     for frac, fwd, strafe, _rot in DANCE_MOVES[move]:
         x, y = x + fwd * v * frac * secs, y + strafe * vs * frac * secs
@@ -1043,7 +1064,7 @@ class Show:
                     secs = float(c.get("secs", DANCE_DEFAULT_SECS))
                     intrinsic = secs
                     dance_total += secs
-                    far = dance_excursion_m(c["move"], secs, float(c.get("amp", 1.0)))
+                    far = dance_excursion_m(c["move"], secs, float(c.get("amp", DANCE_DEFAULT_AMP)))
                     if floor_r is not None and far + ROBOT_FOOTPRINT_RADIUS_M > floor_r:
                         warnings.append(Problem(
                             f"{where}: {c['move']} may stray ~{far:.2f} m; with the base's own "
@@ -1907,7 +1928,7 @@ class Show:
         # the wheels share one command budget between moving and turning: the time each needs adds up
         need = math.hypot(vals["forward_m"], vals["left_m"]) / DRIVE_V_MAX + abs(vals["turn_deg"]) / DRIVE_W_MAX_DEG
         if need > float(secs) + 1e-9:
-            p.append(f"{where}: this drive needs at least {need:.1f}s at the base's autonomy ceiling "
+            p.append(f"{where}: this drive needs at least {need:.1f}s at the show cap "
                      f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s — placeholder speeds), not {float(secs):g}s")
         return p
 
@@ -1923,9 +1944,13 @@ class Show:
         secs = c.get("secs", DANCE_DEFAULT_SECS)
         if not (_num(secs) and DANCE_SECS[0] <= float(secs) <= DANCE_SECS[1]):
             p.append(f"{where}: dance secs {secs!r} outside {DANCE_SECS}")
-        amp = c.get("amp", 1.0)
-        if not (_num(amp) and 0.0 < float(amp) <= 1.0):
-            p.append(f"{where}: dance amp {amp!r} must be within (0, 1] — 1 is the autonomy ceiling")
+        amp = c.get("amp", DANCE_DEFAULT_AMP)
+        if not (_num(amp) and float(amp) > 0.0):
+            p.append(f"{where}: dance amp {amp!r} must be a number above 0")
+        elif dance_peak_command(float(amp)) > DANCE_PEAK_OF_CAP * SHOW_BASE_CAP + 1e-9:
+            p.append(f"{where}: dance amp {amp!r} peaks at {float(amp):.0%} of the show cap "
+                     f"({dance_peak_command(float(amp)):.1%} of full command): a move may use at most "
+                     f"{DANCE_PEAK_OF_CAP:.0%} of the cap (amp {DANCE_PEAK_OF_CAP:g}), so the tracker has room to correct")
         return p
 
     @staticmethod
@@ -2285,8 +2310,8 @@ def describe(limits: dict) -> str:
     w("CRAWL (twin only; tools: { base: { type, mode: crawl } } and crawler: { tether, area }): do walk "
       "(dir forward|back; secs | dist_m | to: start|[x, y]; gait; heading_deg), turn (by_deg: a pivot), pause (secs), "
       "dance (pattern; secs | beats); speeds from simulation, each leg held for its slowest case")
-    w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, 1] "
-      f"(default 1 = the autonomy ceiling); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
+    w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, {DANCE_PEAK_OF_CAP:g}] "
+      f"(1 = the show cap, {SHOW_BASE_CAP:.0%} of full command; default {DANCE_DEFAULT_AMP:g}); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
     w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
       f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")

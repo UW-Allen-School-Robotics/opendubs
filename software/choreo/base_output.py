@@ -58,10 +58,8 @@ def dance_command(events: list, t: float) -> dict | None:
             continue
         if t >= start + secs:
             return {"x": 0.0, "y": 0.0, "yaw": 0.0, "vx": 0.0, "vy": 0.0, "w": 0.0, "settle": True}
-        amp = float(c.get("amp", 1.0))
-        v = cue.AUTO_MAX_UNIT * amp * cue.BASE_M_PER_S_FULL
-        vs = cue.AUTO_MAX_UNIT * amp * cue.BASE_M_PER_S_STRAFE
-        w = cue.AUTO_MAX_UNIT * amp * cue.BASE_RAD_PER_S_FULL
+        amp = float(c.get("amp", cue.DANCE_DEFAULT_AMP))
+        v, vs, w = cue.dance_speeds(amp)
         x = y = yaw = 0.0
         left = t - start
         body = (0.0, 0.0, 0.0)

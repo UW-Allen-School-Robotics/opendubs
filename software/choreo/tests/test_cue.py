@@ -213,9 +213,16 @@ check_doc("a free-form velocity on a dance cue is refused",
 check_doc("a move longer than a gesture is refused",
           doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "secs": 9}], dance={"floor_radius_m": 1.5}),
           "secs")
-check_doc("amp above the autonomy ceiling is refused",
+check_doc("amp above the show cap is refused",
           doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "amp": 1.5}], dance={"floor_radius_m": 1.5}),
           "amp")
+check_doc("a move that peaks past 70 % of the show cap is refused: the tracker needs room to correct",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.75}], dance={"floor_radius_m": 1.5}),
+          "room to correct")
+_at = doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.7},
+                {"t": 4.0, "slot": "DANCE", "move": "sway"}], dance={"floor_radius_m": 1.5}).analyse(LIMITS)
+check_true("amp 0.7, and a move with no amp (the default), are within the peak limit",
+           not _at["problems"], [q.msg for q in _at["problems"]])
 check_doc("too much total open-loop base time is refused",
           doc_show([{"t": float(i * 4), "slot": "DANCE", "move": "rock", "secs": 4} for i in range(9)],
                    dance={"floor_radius_m": 1.5}), "cap on open-loop base motion")
@@ -225,14 +232,14 @@ _dr = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 0.5, "secs": 3}], slots
 check_true("a DRIVE move validates — and every validation says it runs only in the twin, refused on the robot",
            not _dr["problems"] and any("runs only in the twin" in n and "REFUSES" in n for n in _dr["notices"]),
            ([q.msg for q in _dr["problems"]], _dr["notices"]))
-check_doc("a DRIVE faster than the base's autonomy ceiling is refused, with the time it needs",
+check_doc("a DRIVE faster than the show cap allows is refused, with the time it needs",
           doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 2.0, "secs": 3}], slots=["DRIVE"],
                    dance={"floor_radius_m": 5.0}), "needs at least")
 check_doc("a DRIVE that moves nothing is refused",
           doc_show([{"t": 1.0, "slot": "DRIVE", "secs": 3}], slots=["DRIVE"], dance={"floor_radius_m": 2.0}), "moves nothing")
 check_doc("a DRIVE needs the show's floor space declared, like DANCE",
           doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 0.5, "secs": 3}], slots=["DRIVE"]), "declares no floor space")
-_far = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 1.5, "secs": 8}], slots=["DRIVE"],
+_far = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 1.5, "secs": 10}], slots=["DRIVE"],
                 dance={"floor_radius_m": 1.0}).analyse(LIMITS)
 check_true("a DRIVE path that leaves the declared floor radius warns (an estimate), and stays valid",
            not _far["problems"] and any("DRIVE cues take the base" in w.msg for w in _far["warnings"]),

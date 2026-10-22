@@ -445,7 +445,7 @@ function label(ev) {
     case "LIFT": return c.do + (c.secs ? ` ${c.secs}s` : "");
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
     case "FACE": return c.do === "theme" ? `theme ${c.name}` : (c.name || c.do);
-    case "DANCE": return c.move + (c.amp !== undefined && c.amp !== 1 ? ` ×${c.amp}` : "");
+    case "DANCE": return c.move + (c.amp !== undefined ? ` ×${c.amp}` : "");
     case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     case "CRAWL": return c.do === "walk" ? `${c.dir === "back" ? "◀ back" : "▶ walk"}${c.to ? " to " + (c.to === "start" ? "start" : c.to.join(",")) : c.dist_m ? ` ${c.dist_m} m` : ` ${c.secs}s`} (twin)`
