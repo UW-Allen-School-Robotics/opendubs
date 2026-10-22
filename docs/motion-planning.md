@@ -177,7 +177,7 @@ sudo systemctl restart opendubs-planner.service
 Navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from any device on the robot's Wi-Fi network.
 
 > [!NOTE]
-> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving all team members (`andrew`, `archit`, `shamika`, `daphne`, `eric`, `tobi`, `raj`) full collaborative access without touching `/opt/opendubs/`.
+> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving team members collaborative access without touching `/opt/opendubs/`.
 
 ### UI Features:
 - **Live Backend Dropdown:** Switch dynamically between CBiRRT and cuRobo in the top header.
@@ -186,11 +186,11 @@ Navigate to **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`) from
 - **Millimetric Clearance Guard:** Live contact calculation with collision warnings.
 - **SSIK Analytical Jogger:** Cartesian $(X, Y, Z)$ target positioning with inverse kinematics solved in $< 0.2\text{ ms}$.
 - **Sequence Choreographer with Gripper Actions:** Build multi-step motion sequences with per-keyframe **Grip Open** / **Grip Closed** states, synthesize full collision-free transitions, and export directly to `software/choreo/shows/` YAML.
-- **Hardware Preflight & Execution:**
-  - **🛡️ Preflight Check**: Validates clearance, velocity limits, and TCP bounding box before any physical motion.
+- **Hardware Preflight & Simulation:**
+  - **🛡️ Preflight Check**: Validates clearance against 30 mm minimum, velocity caps, and TCP bounding box before any physical motion.
   - **🔄 HITL Dry Run**: Runs closed-loop 50 Hz simulated execution with live progress bar and 3D visualizer feedback.
-  - **🚀 Execute on Robot**: Sends validated trajectories to the physical OpenArm controller over direct ROS 2 or remote SSH transport (`andrew@10.42.2.10`).
-  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory and commands the controller to hold in place.
+  - **🎬 Choreo Show Export**: Exports collision-free trajectory keyframes directly to choreography shows executed by `software/choreo/runner.py`.
+  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory execution.
 
 ---
 

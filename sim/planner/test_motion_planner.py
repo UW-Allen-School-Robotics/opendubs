@@ -183,7 +183,7 @@ def get_studio_url() -> str:
     import threading
     from sim.planner.ui.server import HTTPServer, StudioHandler, SERVICE
 
-    for candidate_port in [8092, 8095]:
+    for candidate_port in [8095, 8098]:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{candidate_port}/api/status", timeout=1.0) as resp:
                 data = json.loads(resp.read().decode())
@@ -195,7 +195,7 @@ def get_studio_url() -> str:
 
     SERVICE.set_backend("cbirrt")
     server = None
-    for port in [8095, 8092, 0]:
+    for port in [8095, 8098, 0]:
         try:
             server = HTTPServer(("127.0.0.1", port), StudioHandler)
             actual_port = server.server_address[1]
@@ -208,7 +208,7 @@ def get_studio_url() -> str:
         server_thread.start()
         time.sleep(0.5)
 
-    return GLOBAL_STUDIO_URL or "http://127.0.0.1:8092"
+    return GLOBAL_STUDIO_URL or "http://127.0.0.1:8095"
 
 
 def test_studio_rest_api():

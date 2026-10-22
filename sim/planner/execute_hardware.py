@@ -45,7 +45,11 @@ def main():
     args = parser.parse_args()
 
     arm = args.arm
-    mode = "hitl" if args.hitl else ("ros2" if args.live else "auto")
+    if args.live:
+        print("ERROR: Direct hardware execution is disabled on this branch.")
+        print("All physical arm motion must go through the choreography runner (software/choreo/runner.py).")
+        sys.exit(1)
+    mode = "hitl"
 
     print("=" * 65)
     print(f" 🚀 OpenArm Hardware Trajectory Execution Utility ({arm.upper()} ARM)")

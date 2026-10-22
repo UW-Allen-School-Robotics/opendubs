@@ -91,6 +91,7 @@ core
 core.[0-9]*
 
 # --- Caches and editor / OS junk ---
+.history/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

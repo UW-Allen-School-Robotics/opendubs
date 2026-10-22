@@ -1753,7 +1753,7 @@ class StudioApp {
           times: this.trajectory.times,
           positions_rad: this.trajectory.positions_rad,
           velocities_rad_s: this.trajectory.velocities_rad_s,
-          min_clearance_mm: this.trajectory.min_clearance_mm || 15.0,
+          min_clearance_mm: this.trajectory.min_clearance_mm || 30.0,
         }),
       });
       const data = await resp.json();
@@ -1871,9 +1871,6 @@ class StudioApp {
       this._isAwaitingExecutionStart = false;
       this._isExecutingOnHardware = false;
       this._updateExecutionButtonState();
-    }
-  }
-      }
     }
   }
 

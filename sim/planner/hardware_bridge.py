@@ -37,56 +37,72 @@ for p in (REPO, SIM_DIR, CHOREO_DIR):
 
 import urllib.request
 import tcp
-from cue import TRIP_DEG_S
+import cue
+from cue import TRIP_DEG_S, SPEED_CAP_DEG_S
+import ik
 
-# Default joint limits in degrees [lower, upper] per joint (from openarm stack)
-DEFAULT_JOINT_LIMITS_DEG = {
-    1: (-150.0, 150.0),
-    2: (-180.0, 180.0),
-    3: (-150.0, 150.0),
-    4: (0.0, 135.0),
-    5: (-120.0, 120.0),
-    6: (-90.0, 90.0),
-    7: (-180.0, 180.0),
-}
+
+def load_arm_limits() -> dict:
+    """Load the single source of truth for arm limits (OPENDUBS_ARM_LIMITS)."""
+    limits_path = os.environ.get("OPENDUBS_ARM_LIMITS", cue.DEFAULT_LIMITS)
+    if not os.path.isfile(limits_path):
+        limits_path = os.path.join(CHOREO_DIR, "tests", "joint_limits_fixture.yaml")
+    return cue.load_limits(limits_path)
 
 
 def get_robot_safety_state(thor_host: str = "127.0.0.1", timeout: float = 0.5) -> Dict[str, Any]:
-    """Query live robot safety telemetry (deadman, estop, ch5 authority) from kiosk-dashboard."""
+    """Query live robot safety telemetry from kiosk-dashboard with fail-closed semantics."""
     candidates = [
         f"http://{thor_host}:8080/api/choreo/robot",
         "http://127.0.0.1:8080/api/choreo/robot",
-        "http://10.42.2.10:8080/api/choreo/robot",
     ]
-    seen_urls = set()
     for url in candidates:
-        if url in seen_urls:
-            continue
-        seen_urls.add(url)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "OpenArmPlanner/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
+                    estop = data.get("estop")
+                    deadman = data.get("deadman")
+                    ch5 = data.get("ch5")
+                    motion_power = data.get("motion_power")
+                    fault = data.get("fault")
+
+                    # Fail-closed rules:
+                    # estop must be strictly False (not None, not True)
+                    # deadman must be strictly True (not None, not False)
+                    # ch5 must be strictly "AUTO"
+                    # motion_power must be strictly True
+                    # fault must be None or empty
+                    is_safe = (
+                        estop is False
+                        and deadman is True
+                        and ch5 == "AUTO"
+                        and bool(motion_power) is True
+                        and not fault
+                    )
                     return {
                         "ok": True,
-                        "deadman": bool(data.get("deadman")),
-                        "ch5": data.get("ch5"),
-                        "estop": bool(data.get("estop")),
-                        "motion_power": bool(data.get("motion_power")),
-                        "fault": data.get("fault"),
+                        "safe": is_safe,
+                        "deadman": deadman,
+                        "ch5": ch5,
+                        "estop": estop,
+                        "motion_power": motion_power,
+                        "fault": fault,
                         "arms": data.get("arms"),
                         "source": url,
                     }
         except Exception:
             continue
+
     return {
         "ok": False,
+        "safe": False,
         "deadman": None,
         "ch5": None,
         "estop": None,
         "motion_power": None,
-        "fault": "Could not connect to robot safety API (10.42.2.10:8080 / 127.0.0.1:8080)",
+        "fault": "Could not connect to robot safety API — fail closed",
         "source": None,
     }
 
@@ -124,7 +140,7 @@ def validate_trajectory_safety(
     times: List[float],
     positions_rad: np.ndarray,
     velocities_rad_s: Optional[np.ndarray] = None,
-    min_clearance_mm: float = 15.0,
+    min_clearance_mm: Optional[float] = None,
 ) -> PreflightCheckResult:
     """Preflight safety checker that validates a trajectory before physical hardware execution."""
     arm = arm.lower()
@@ -154,28 +170,35 @@ def validate_trajectory_safety(
             problems=[f"Trajectory times count ({n_pts}) does not match positions ({len(pos)})."],
         )
 
-    # 1. Joint Limits Verification
+    # 1. Joint Limits Verification against OPENDUBS_ARM_LIMITS
+    limits = load_arm_limits()
     deg = np.degrees(pos)
     joint_limits_ok = True
+    m = -1 if arm == "left" else 1
+
     for j_idx in range(7):
         j_num = j_idx + 1
-        lo, hi = DEFAULT_JOINT_LIMITS_DEG.get(j_num, (-180.0, 180.0))
-        j_min = float(np.min(deg[:, j_idx]))
-        j_max = float(np.max(deg[:, j_idx]))
-        if j_min < lo - 0.5 or j_max > hi + 0.5:
-            joint_limits_ok = False
-            problems.append(
-                f"Joint {j_num} limits exceeded: min={j_min:.1f}°, max={j_max:.1f}° (allowed [{lo:.1f}°, {hi:.1f}°])"
-            )
+        name = f"openarm_{arm}_joint{j_num}"
+        lo, hi = limits.get(name, (None, None))
+        if lo is not None and hi is not None:
+            # Model radians to degrees with validator margin
+            lo_d = math.degrees(lo) + cue.MARGIN_DEG
+            hi_d = math.degrees(hi) - cue.MARGIN_DEG
+            j_min = float(np.min(deg[:, j_idx]))
+            j_max = float(np.max(deg[:, j_idx]))
+            if j_min < lo_d - 0.5 or j_max > hi_d + 0.5:
+                joint_limits_ok = False
+                problems.append(
+                    f"Joint {j_num} limits exceeded: min={j_min:.1f}°, max={j_max:.1f}° (usable [{lo_d:.1f}°, {hi_d:.1f}°])"
+                )
 
-    # 2. Velocity and Speed Trip Verification
+    # 2. Velocity and Measured Speed Cap Verification
     speed_trip_ok = True
     max_speeds: Dict[int, float] = {}
 
     if velocities_rad_s is not None and len(velocities_rad_s) == n_pts:
         vel_deg_s = np.degrees(np.asarray(velocities_rad_s, float))
     else:
-        # Numerically differentiate if velocities not provided
         dt = np.diff(t)
         dt = np.where(dt <= 1e-6, 1e-6, dt)
         vel_deg_s = np.zeros_like(deg)
@@ -186,17 +209,17 @@ def validate_trajectory_safety(
         j_num = j_idx + 1
         peak_v = float(np.max(np.abs(vel_deg_s[:, j_idx])))
         max_speeds[j_num] = peak_v
+        measured_cap = SPEED_CAP_DEG_S.get(j_num, 135.0)
         trip_limit = TRIP_DEG_S.get(j_num, 960.0)
-        # We enforce a safe operational ceiling at 80% of trip cap
-        safe_ceiling = trip_limit * 0.8
+
         if peak_v >= trip_limit:
             speed_trip_ok = False
             problems.append(
                 f"Joint {j_num} peak speed {peak_v:.1f}°/s exceeds hardware trip cap of {trip_limit}°/s (motor will fault)!"
             )
-        elif peak_v >= safe_ceiling:
+        elif peak_v > measured_cap * cue.PEAK_FACTOR:
             warnings.append(
-                f"Joint {j_num} peak speed {peak_v:.1f}°/s is near trip cap ({trip_limit}°/s, >80%)."
+                f"Joint {j_num} peak speed {peak_v:.1f}°/s exceeds measured speed cap ({measured_cap}°/s x {cue.PEAK_FACTOR})."
             )
 
     # 3. Workspace Box Verification (HAND_BOX link7 + 186 mm)
@@ -206,7 +229,6 @@ def validate_trajectory_safety(
     try:
         chain = tcp.load_chain()
         if chain is not None:
-            # Controller sense joint angles
             tcps = tcp.tcp_points(chain, arm, pos)
             tcp_min_z = float(np.min(tcps[:, 2]))
             tcp_max_z = float(np.max(tcps[:, 2]))
@@ -228,14 +250,45 @@ def validate_trajectory_safety(
     except Exception as e:
         warnings.append(f"Could not compute TCP box check: {e}")
 
-    ok = joint_limits_ok and speed_trip_ok and hand_box_ok and (min_clearance_mm >= 15.0)
+    # 4. Computed Collision Clearance Verification against CLEAR_MIN_MM (30 mm)
+    computed_clearance = float("inf")
+    try:
+        import clearance
+        import scene
+        model = scene.build(None)
+        data = clearance.mujoco.MjData(model)
+        side = "left" if arm == "left" else "right"
+        jids = [clearance.mujoco.mj_name2id(model, clearance.mujoco.mjtObj.mjOBJ_JOINT, f"oa_openarm_{side}_joint{j}") for j in range(1, 8)]
+        qadr = [model.jnt_qposadr[i] for i in jids]
+        step = max(1, len(pos) // 12)
+        indices = list(range(0, len(pos), step))
+        if (len(pos) - 1) not in indices:
+            indices.append(len(pos) - 1)
+        for idx in indices:
+            q_pt = pos[idx]
+            for i, a in enumerate(qadr):
+                data.qpos[a] = q_pt[i]
+            clearance.mujoco.mj_forward(model, data)
+            c = clearance.clearances(model, data, limit_mm=200.0)
+            if c and c[0][0] < computed_clearance:
+                computed_clearance = c[0][0]
+    except Exception as e:
+        computed_clearance = min_clearance_mm if min_clearance_mm is not None else ik.CLEAR_MIN_MM
+
+    clearance_ok = computed_clearance >= ik.CLEAR_MIN_MM
+    if not clearance_ok:
+        problems.append(
+            f"Trajectory clearance {computed_clearance:.1f} mm is below required {ik.CLEAR_MIN_MM:.0f} mm (CLEAR_MIN_MM)."
+        )
+
+    ok = joint_limits_ok and speed_trip_ok and hand_box_ok and clearance_ok
 
     return PreflightCheckResult(
         ok=ok,
         hand_box_ok=hand_box_ok,
         speed_trip_ok=speed_trip_ok,
         joint_limits_ok=joint_limits_ok,
-        min_clearance_mm=min_clearance_mm,
+        min_clearance_mm=computed_clearance,
         max_joint_speeds_deg_s=max_speeds,
         tcp_min_z_m=tcp_min_z,
         tcp_max_z_m=tcp_max_z,
@@ -287,65 +340,20 @@ class HardwareBridge:
         return self._cached_safety
 
     def detect_environment(self) -> Dict[str, Any]:
-        """Detect what execution transports are available on the host system."""
-        # Check Docker container 'openarm'
-        docker_available = False
-        docker_running = False
-        try:
-            r = subprocess.run(["docker", "ps", "--filter", "name=openarm", "--format", "{{.Names}}"],
-                               capture_output=True, text=True, timeout=2.0)
-            if "openarm" in r.stdout:
-                docker_available = True
-                docker_running = True
-        except Exception:
-            pass
-
-        # Check remote Thor via SSH
-        remote_thor_available = False
-        thor_host = os.environ.get("OPENDUBS_THOR_HOST", "andrew@10.42.2.10")
-        try:
-            r = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, "sudo docker ps --filter name=openarm --format {{.Names}}"],
-                capture_output=True, text=True, timeout=3.0
-            )
-            if "openarm" in r.stdout:
-                remote_thor_available = True
-        except Exception:
-            pass
-
-        # Check rclpy and control_msgs
-        ros2_rclpy = False
-        ros2_control_msgs = False
-        try:
-            import rclpy  # noqa: F401
-            ros2_rclpy = True
-            from control_msgs.action import FollowJointTrajectory  # noqa: F401
-            ros2_control_msgs = True
-        except Exception:
-            pass
-
-        # Check openarm-up binary
-        openarm_up_present = os.path.exists("/usr/local/bin/openarm-up") or os.path.exists(
-            os.path.join(REPO, "software", "openarm", "openarm-up")
-        )
-
-        recommended = (
-            "ros2" if (ros2_rclpy and ros2_control_msgs)
-            else ("docker" if docker_running
-            else ("remote_ssh" if remote_thor_available
-            else "hitl"))
-        )
-
+        """Detect what execution transports are available on the host system.
+        
+        Hardware execution on physical robot is disabled on this branch:
+        arm motion goes exclusively through software/choreo/runner.py.
+        """
         return {
             "hitl_available": True,
-            "docker_available": docker_available,
-            "docker_running": docker_running,
-            "remote_thor_available": remote_thor_available,
-            "remote_thor_host": thor_host,
-            "ros2_rclpy_available": ros2_rclpy,
-            "ros2_control_msgs_available": ros2_control_msgs,
-            "openarm_up_present": openarm_up_present,
-            "recommended_mode": recommended,
+            "docker_available": False,
+            "docker_running": False,
+            "remote_thor_available": False,
+            "ros2_rclpy_available": False,
+            "ros2_control_msgs_available": False,
+            "openarm_up_present": False,
+            "recommended_mode": "hitl",
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -370,12 +378,18 @@ class HardwareBridge:
         self,
         arm: str,
         action: str | float | int,
-        mode: str = "auto",
+        mode: str = "hitl",
     ) -> Dict[str, Any]:
-        """Command the specified arm gripper to open or close."""
+        """Command the simulated arm gripper in HITL mode."""
         arm = arm.lower()
         if arm not in ("left", "right"):
             return {"success": False, "error": f"Invalid arm: {arm}"}
+
+        if mode != "hitl":
+            return {
+                "success": False,
+                "error": "Direct hardware commanding is disabled on this branch. Physical arm and gripper motion must go through software/choreo/runner.py.",
+            }
 
         # Normalize action to 0.0 (closed) .. 1.0 (open)
         if isinstance(action, str):
@@ -393,59 +407,10 @@ class HardwareBridge:
             fraction = float(action)
 
         fraction = max(0.0, min(1.0, fraction))
-        # Stroke travel: 0.044 m (44 mm)
         pos_m = round(fraction * 0.044, 4)
-
-        env = self.detect_environment()
-        chosen_mode = mode
-        if chosen_mode == "auto":
-            chosen_mode = env["recommended_mode"]
-
-        # Gate physical gripper execution on robot safety & deadman
-        if chosen_mode != "hitl":
-            safety = get_robot_safety_state(timeout=0.8)
-            if safety.get("ok"):
-                if not safety.get("deadman"):
-                    return {"success": False, "error": "Gripper command refused: RC Deadman (CH6) is not held."}
-                if safety.get("estop"):
-                    return {"success": False, "error": "Gripper command refused: E-Stop is engaged on the robot."}
 
         with self.lock:
             self._sim_gripper_state[arm] = fraction
-
-        # If live hardware or docker
-        if chosen_mode == "docker" and env.get("docker_running"):
-            cmd = (
-                f"docker exec openarm bash -c 'ros2 action send_goal "
-                f"/{arm}_gripper_controller/gripper_cmd "
-                f"control_msgs/action/GripperCommand "
-                f"\"{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}\"'"
-            )
-            try:
-                subprocess.Popen(cmd, shell=True)
-            except Exception as e:
-                return {"success": False, "error": f"Docker gripper command error: {e}"}
-        elif chosen_mode == "remote_ssh":
-            thor_host = env.get("remote_thor_host", "andrew@10.42.2.10")
-            cmd = (
-                f"ssh -o BatchMode=yes -o ConnectTimeout=3 {thor_host} \"sudo docker exec openarm bash -c 'source /opt/ros/jazzy/setup.bash && "
-                f"ros2 action send_goal /{arm}_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "
-                f"\\\"{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}\\\" '\""
-            )
-            try:
-                subprocess.Popen(cmd, shell=True)
-            except Exception as e:
-                return {"success": False, "error": f"Remote gripper command error: {e}"}
-        elif chosen_mode == "ros2" and env.get("ros2_rclpy_available"):
-            cmd = (
-                f"ros2 action send_goal /{arm}_gripper_controller/gripper_cmd "
-                f"control_msgs/action/GripperCommand "
-                f"'{{command: {{position: {pos_m:.4f}, max_effort: 5.0}}}}'"
-            )
-            try:
-                subprocess.Popen(cmd, shell=True)
-            except Exception as e:
-                return {"success": False, "error": f"ROS 2 gripper command error: {e}"}
 
         return {
             "success": True,
@@ -453,7 +418,7 @@ class HardwareBridge:
             "action": "open" if fraction >= 0.5 else "close",
             "open_fraction": fraction,
             "position_m": pos_m,
-            "mode": chosen_mode,
+            "mode": "hitl",
         }
 
     def stop(self) -> Dict[str, Any]:
@@ -464,35 +429,35 @@ class HardwareBridge:
             self._cancel_requested.set()
             arm = self.active_arm
 
-        # Attempt to issue hold command to hardware if available
-        try:
-            openarm_up = "/usr/local/bin/openarm-up"
-            if os.path.exists(openarm_up) and arm:
-                subprocess.run(["sudo", "-n", openarm_up, "hold", arm], capture_output=True, timeout=3.0)
-            else:
-                thor_host = os.environ.get("OPENDUBS_THOR_HOST", "andrew@10.42.2.10")
-                subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, f"sudo /usr/local/bin/openarm-up hold {arm}"], capture_output=True, timeout=3.0)
-        except Exception:
-            pass
-
         return {"success": True, "message": f"Execution cancellation requested for {arm} arm."}
 
     def execute_trajectory(
         self,
         arm: str,
         trajectory: Dict[str, Any],
-        mode: str = "auto",
+        mode: str = "hitl",
         progress_cb: Optional[Callable[[float, float], None]] = None,
     ) -> Dict[str, Any]:
-        """Execute trajectory on robot or via HITL loopback."""
+        """Execute trajectory via HITL simulation loopback."""
         arm = arm.lower()
         times = trajectory.get("times", [])
         positions = trajectory.get("positions_rad", [])
         velocities = trajectory.get("velocities_rad_s", None)
-        clearance_mm = float(trajectory.get("min_clearance_mm", 20.0))
+        clearance_mm = float(trajectory.get("min_clearance_mm", 30.0))
 
         if not times or not positions:
             return {"success": False, "error": "Empty trajectory provided."}
+
+        # Direct hardware execution is strictly disabled on this branch
+        if mode != "hitl":
+            return {
+                "success": False,
+                "error": (
+                    "Direct hardware execution bypassed show runner and is disabled in this branch. "
+                    "All physical arm motion on the robot must go through the choreography show runner "
+                    "(software/choreo/runner.py), which holds the motion lease and safety gates."
+                ),
+            }
 
         # 1. Run Preflight Safety Verification
         safety = validate_trajectory_safety(
@@ -509,45 +474,6 @@ class HardwareBridge:
                 "details": safety.to_dict(),
             }
 
-        # Determine mode
-        env = self.detect_environment()
-        if mode == "auto":
-            mode = env["recommended_mode"]
-
-        # Enforce Robot Safety & Deadman for live hardware execution
-        if mode != "hitl":
-            robot_safety = get_robot_safety_state(timeout=1.0)
-            if not robot_safety.get("ok"):
-                return {
-                    "success": False,
-                    "error": f"Robot Safety Offline: Cannot verify RC Deadman link ({robot_safety.get('fault')}). Ensure opendubs-dash is running.",
-                    "robot_safety": robot_safety,
-                }
-            if robot_safety.get("estop"):
-                return {
-                    "success": False,
-                    "error": "Hardware Execution Refused: E-STOP is active on the robot.",
-                    "robot_safety": robot_safety,
-                }
-            if not robot_safety.get("motion_power"):
-                return {
-                    "success": False,
-                    "error": "Hardware Execution Refused: Motion power is disabled (contactor open / 24V bus de-energized).",
-                    "robot_safety": robot_safety,
-                }
-            if not robot_safety.get("deadman"):
-                return {
-                    "success": False,
-                    "error": "Hardware Execution Refused: DEADMAN (RC CH6) is RELEASED. The deadman switch on the RC controller must be actively held to permit physical arm motion.",
-                    "robot_safety": robot_safety,
-                }
-            if robot_safety.get("ch5") in ("STANDBY", "OFF"):
-                return {
-                    "success": False,
-                    "error": f"Hardware Execution Refused: RC authority switch CH5 is in {robot_safety.get('ch5')}. Switch CH5 to AUTO with the deadman held.",
-                    "robot_safety": robot_safety,
-                }
-
         with self.lock:
             if self.is_executing:
                 return {"success": False, "error": f"Another execution is already active on {self.active_arm}."}
@@ -563,20 +489,10 @@ class HardwareBridge:
 
         gripper_events = trajectory.get("gripper_events") or trajectory.get("gripperEvents") or []
 
-        # Run execution asynchronously in background thread
+        # Run execution asynchronously in background thread (HITL loopback simulation)
         def runner():
             try:
-                if mode == "hitl":
-                    self._run_hitl(arm, times, positions, gripper_events, progress_cb)
-                elif mode == "remote_ssh":
-                    thor_host = env.get("remote_thor_host", "andrew@10.42.2.10")
-                    self._run_remote_ssh_action(arm, times, positions, thor_host, progress_cb)
-                elif mode == "ros2":
-                    self._run_ros2_action(arm, times, positions, velocities, progress_cb)
-                elif mode == "docker":
-                    self._run_docker_action(arm, times, positions, progress_cb)
-                else:
-                    self._run_hitl(arm, times, positions, gripper_events, progress_cb)
+                self._run_hitl(arm, times, positions, gripper_events, progress_cb)
             except Exception as e:
                 with self.lock:
                     self.status = "failed"
@@ -595,7 +511,7 @@ class HardwareBridge:
 
         return {
             "success": True,
-            "mode": mode,
+            "mode": "hitl",
             "goal_id": self.active_goal_id,
             "duration": self.total_time_s,
             "safety_check": safety.to_dict(),
@@ -659,289 +575,6 @@ class HardwareBridge:
             if gripper_events:
                 self._sim_gripper_state[arm] = float(gripper_events[-1].get("fraction", 1.0))
             self.status = "succeeded"
-
-    def _run_ros2_action(
-        self,
-        arm: str,
-        times: List[float],
-        positions: List[List[float]],
-        velocities: Optional[List[List[float]]],
-        progress_cb: Optional[Callable[[float, float], None]],
-    ):
-        """Execute on physical robot using rclpy FollowJointTrajectory."""
-        import rclpy
-        from control_msgs.action import FollowJointTrajectory
-        from rclpy.action import ActionClient
-        from rclpy.signals import SignalHandlerOptions
-        from trajectory_msgs.msg import JointTrajectoryPoint
-        from builtin_interfaces.msg import Duration
-
-        if not rclpy.ok():
-            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-
-        node = rclpy.create_node(f"{self.node_name}_{arm}")
-        action_name = f"/{arm}_controller/follow_joint_trajectory"
-        client = ActionClient(node, FollowJointTrajectory, action_name)
-
-        if not client.wait_for_server(timeout_sec=3.0):
-            node.destroy_node()
-            raise RuntimeError(f"Action server '{action_name}' not reachable.")
-
-        goal = FollowJointTrajectory.Goal()
-        goal.trajectory.joint_names = [f"openarm_{arm}_joint{j}" for j in range(1, 8)]
-
-        for i, (t_sec, pos_rad) in enumerate(zip(times, positions)):
-            pt = JointTrajectoryPoint()
-            pt.positions = [float(v) for v in pos_rad]
-            if velocities is not None and i < len(velocities):
-                pt.velocities = [float(v) for v in velocities[i]]
-            sec = int(t_sec)
-            pt.time_from_start = Duration(sec=sec, nanosec=int(round((t_sec - sec) * 1e9)))
-            goal.trajectory.points.append(pt)
-
-        with self.lock:
-            self.status = "executing"
-
-        send_fut = client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(node, send_fut, timeout_sec=5.0)
-        goal_handle = send_fut.result()
-
-        if not goal_handle or not goal_handle.accepted:
-            node.destroy_node()
-            raise RuntimeError("Hardware controller REJECTED the trajectory goal.")
-
-        result_fut = goal_handle.get_result_async()
-        t_total = float(times[-1])
-        t_start = time.perf_counter()
-        last_saf_poll = 0.0
-
-        while not result_fut.done():
-            now = time.monotonic()
-            if now - last_saf_poll >= 0.08:
-                last_saf_poll = now
-                saf = get_robot_safety_state(timeout=0.2)
-                if saf.get("ok"):
-                    if not saf.get("deadman"):
-                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
-                        self._cancel_requested.set()
-                    elif saf.get("estop"):
-                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
-                        self._cancel_requested.set()
-                    elif not saf.get("motion_power"):
-                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
-                        self._cancel_requested.set()
-
-            if self._cancel_requested.is_set():
-                goal_handle.cancel_goal_async()
-                rclpy.spin_until_future_complete(node, goal_handle.cancel_goal_async(), timeout_sec=2.0)
-                node.destroy_node()
-                with self.lock:
-                    self.status = "cancelled"
-                return
-
-            rclpy.spin_once(node, timeout_sec=0.05)
-            t_elapsed = time.perf_counter() - t_start
-            with self.lock:
-                self.current_time_s = min(t_elapsed, t_total)
-                self.progress_pct = min(100.0, (t_elapsed / max(0.001, t_total)) * 100.0)
-
-            if progress_cb:
-                progress_cb(self.current_time_s, self.progress_pct)
-
-        node.destroy_node()
-        res = result_fut.result()
-        if res.status != 4:  # 4 = STATUS_SUCCEEDED
-            raise RuntimeError(f"Trajectory execution finished with status code {res.status}.")
-
-    def _run_docker_action(
-        self,
-        arm: str,
-        times: List[float],
-        positions: List[List[float]],
-        progress_cb: Optional[Callable[[float, float], None]],
-    ):
-        """Execute on physical robot through docker exec openarm container."""
-        names = [f"openarm_{arm}_joint{j}" for j in range(1, 8)]
-        names_str = ", ".join(f"'{n}'" for n in names)
-
-        # Build trajectory points string
-        points_str_list = []
-        for t, pos in zip(times, positions):
-            sec = int(t)
-            nanosec = int(round((t - sec) * 1e9))
-            pos_str = ", ".join(f"{float(p):.5f}" for p in pos)
-            points_str_list.append(
-                f"{{positions: [{pos_str}], time_from_start: {{sec: {sec}, nanosec: {nanosec}}}}}"
-            )
-        pts_str = ", ".join(points_str_list)
-
-        goal_yaml = f"{{trajectory: {{joint_names: [{names_str}], points: [{pts_str}]}}}}"
-        total_time = int(times[-1]) + 10
-
-        cmd = [
-            "docker", "exec", "openarm", "bash", "-c",
-            f"source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash && "
-            f"timeout {total_time} ros2 action send_goal /{arm}_controller/follow_joint_trajectory "
-            f"control_msgs/action/FollowJointTrajectory \"{goal_yaml}\""
-        ]
-
-        with self.lock:
-            self.status = "executing"
-
-        t_total = float(times[-1])
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        t_start = time.perf_counter()
-        last_saf_poll = 0.0
-
-        while proc.poll() is None:
-            now = time.perf_counter()
-            if now - last_saf_poll >= 0.08:
-                last_saf_poll = now
-                saf = get_robot_safety_state(timeout=0.2)
-                if saf.get("ok"):
-                    if not saf.get("deadman"):
-                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
-                        self._cancel_requested.set()
-                    elif saf.get("estop"):
-                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
-                        self._cancel_requested.set()
-                    elif not saf.get("motion_power"):
-                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
-                        self._cancel_requested.set()
-
-            if self._cancel_requested.is_set():
-                proc.terminate()
-                # Run hold
-                subprocess.run(
-                    ["docker", "exec", "openarm", "bash", "-c", f"/usr/local/bin/openarm-up hold {arm}"],
-                    capture_output=True, timeout=3.0
-                )
-                with self.lock:
-                    self.status = "cancelled"
-                return
-
-            t_elapsed = time.perf_counter() - t_start
-            with self.lock:
-                self.current_time_s = min(t_elapsed, t_total)
-                self.progress_pct = min(100.0, (t_elapsed / max(0.001, t_total)) * 100.0)
-
-            if progress_cb:
-                progress_cb(self.current_time_s, self.progress_pct)
-
-            time.sleep(0.05)
-
-        out, err = proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"Docker action execution failed: {err or out}")
-        if "Goal accepted" not in out:
-            raise RuntimeError(f"Controller did not accept goal: {out}")
-
-    def _run_remote_ssh_action(
-        self,
-        arm: str,
-        times: List[float],
-        positions: List[List[float]],
-        thor_host: str,
-        progress_cb: Optional[Callable[[float, float], None]],
-    ):
-        """Execute on physical robot through remote SSH to Thor into openarm docker container."""
-        names = [f"openarm_{arm}_joint{j}" for j in range(1, 8)]
-        names_str = ", ".join(f"'{n}'" for n in names)
-
-        # Build trajectory points string
-        points_str_list = []
-        for t, pos in zip(times, positions):
-            sec = int(t)
-            nanosec = int(round((t - sec) * 1e9))
-            pos_str = ", ".join(f"{float(p):.5f}" for p in pos)
-            points_str_list.append(
-                f"{{positions: [{pos_str}], time_from_start: {{sec: {sec}, nanosec: {nanosec}}}}}"
-            )
-        pts_str = ", ".join(points_str_list)
-
-        goal_yaml = f"{{trajectory: {{joint_names: [{names_str}], points: [{pts_str}]}}}}"
-        total_time = int(times[-1]) + 10
-
-        inner_cmd = (
-            f"source /opt/ros/jazzy/setup.bash && "
-            f"timeout {total_time} ros2 action send_goal /{arm}_controller/follow_joint_trajectory "
-            f"control_msgs/action/FollowJointTrajectory \"{goal_yaml}\""
-        )
-        cmd = [
-            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-            thor_host,
-            f"sudo docker exec openarm bash -c '{inner_cmd}'"
-        ]
-
-        with self.lock:
-            self.status = "executing"
-
-        t_total = float(times[-1])
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        t_start = time.perf_counter()
-        last_saf_poll = 0.0
-
-        while proc.poll() is None:
-            now = time.perf_counter()
-            if now - last_saf_poll >= 0.08:
-                last_saf_poll = now
-                saf = get_robot_safety_state(thor_host=thor_host, timeout=0.2)
-                if saf.get("ok"):
-                    if not saf.get("deadman"):
-                        print("[HardwareBridge] DEADMAN RELEASED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "DEADMAN_RELEASED: RC Deadman (CH6) was released mid-trajectory."
-                        self._cancel_requested.set()
-                    elif saf.get("estop"):
-                        print("[HardwareBridge] ESTOP TRIGGERED mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "ESTOP_TRIGGERED: E-Stop was engaged mid-trajectory."
-                        self._cancel_requested.set()
-                    elif not saf.get("motion_power"):
-                        print("[HardwareBridge] MOTION POWER LOST mid-execution! Triggering emergency hold...", flush=True)
-                        with self.lock:
-                            self.last_error = "POWER_LOST: Motion power contactor opened mid-trajectory."
-                        self._cancel_requested.set()
-
-            if self._cancel_requested.is_set():
-                proc.terminate()
-                # Run hold on Thor
-                subprocess.run(
-                    ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", thor_host, f"sudo /usr/local/bin/openarm-up hold {arm}"],
-                    capture_output=True, timeout=3.0
-                )
-                with self.lock:
-                    self.status = "cancelled"
-                return
-
-            t_elapsed = time.perf_counter() - t_start
-            with self.lock:
-                self.current_time_s = min(t_elapsed, t_total)
-                self.progress_pct = min(100.0, (t_elapsed / max(0.001, t_total)) * 100.0)
-
-            if progress_cb:
-                progress_cb(self.current_time_s, self.progress_pct)
-
-            time.sleep(0.05)
-
-        out, err = proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"Remote action execution failed: {err or out}")
-        if "Goal accepted" not in out:
-            raise RuntimeError(f"Controller did not accept goal: {out}")
-
 
 # Global instance
 HARDWARE_BRIDGE = HardwareBridge()

@@ -52,7 +52,7 @@ import numpy as np
 from sim.planner import OpenArmPlanner
 
 # Initialize planner for left arm
-planner = OpenArmPlanner(arm="left", min_clearance_mm=15.0)
+planner = OpenArmPlanner(arm="left", min_clearance_mm=30.0)
 
 # Plan to joint goal:
 q_start = np.zeros(7)
@@ -117,15 +117,15 @@ A lightweight, zero-dependency Web UI is available to jog arm poses, inspect 3D 
 
 ```bash
 # Launch the Motion Planner Studio (Local Workstation / Laptop)
-/home/arxzwood/.local/share/mamba/envs/env_curobo/bin/python sim/planner/ui/server.py --port 8092
+python3 sim/planner/ui/server.py --port 8095
 ```
 
 Then open in your browser:
-**`http://localhost:8092`**
+**`http://localhost:8095`**
 
 ### Hosting on the Robot (Thor / `10.42.2.10`):
 On the physical robot, **port 8092 is occupied** by `opendubs-runner` (the kiosk choreography cue runner).
-The Motion Planner Studio is installed as a shared system service at `/opt/opendubs-planner` and runs on port **`8095`**:
+The Motion Planner Studio runs on port **`8095`**:
 ```bash
 # Service status:
 sudo systemctl status opendubs-planner.service
@@ -137,7 +137,7 @@ Access it directly from any browser on the robot's Wi-Fi at:
 **`http://10.42.2.10:8095`** (or `http://opendubs2.local:8095`).
 
 > [!NOTE]
-> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving all team members (`andrew`, `archit`, `shamika`, `daphne`, `eric`, `tobi`, `raj`) full collaborative access without touching `/opt/opendubs/`.
+> `/opt/opendubs-planner/` is owned by group `opendubs-admin` (`2775`), giving the project team full collaborative access without touching `/opt/opendubs/`.
 
 ### Web Studio Features:
 - **Interactive 3D Arm Visualizer:** Real OpenArm V1 mesh geometry in WebGL with orbit camera (ISO, Front, Side, Top, free orbit).
@@ -151,11 +151,10 @@ Access it directly from any browser on the robot's Wi-Fi at:
   - Set individual keyframe gripper states (**Open** / **Closed**).
   - Click **Plan Full Sequence** to synthesize collision-free paths with automatic gripper action transitions.
   - Export sequences directly to `software/choreo/shows/` YAML format.
-- **Live Hardware Controls:**
+- **Safety Preflight & HITL Controls:**
   - **🛡️ Preflight Check**: Validates clearance, velocity limits, and TCP bounding box before any physical motion.
   - **🔄 HITL Dry Run**: Runs closed-loop 50 Hz simulated execution with live progress bar and 3D visualizer feedback.
-  - **🚀 Execute on Robot**: Sends validated trajectories to the physical OpenArm controller.
-  - **🛑 EMERGENCY HOLD**: Immediately cancels active trajectory and commands the controller to hold in place.
+  - **Show Runner Integration**: Exported shows are executed on physical hardware through `software/choreo/runner.py`, which manages the motion lease, E-Stop, and RC deadman switch.
 
 ---
 
@@ -199,22 +198,16 @@ Every trajectory is subjected to strict preflight validation and live runtime ga
 3. **Velocity Trip Protection (`TRIP_DEG_S`):**
    Verifies joint velocities against motor trip limits (`J1,J2: 960°/s`, `J3,J4: 312°/s`, `J5-J7: 1200°/s`) to guarantee the physical motor drivers will never trip or freeze mid-motion.
 4. **Collision & Clearance Guard:**
-   Ensures continuous MuJoCo collision clearance $\ge 15.0\text{ mm}$ across the entire path.
+   Ensures continuous MuJoCo collision clearance $\ge 30.0\text{ mm}$ across the entire path (`CLEAR_MIN_MM` from `software/choreo/ik.py`).
 
 ### Execution Transports & Architecture:
 - **`hitl` (Hardware-in-the-Loop Simulation):** Runs a 50 Hz closed-loop simulated execution with real-time progress and visualizes the moving arm live in the 3D studio.
-- **`remote_ssh` (Remote Thor Transport):** When running off-board on a development laptop, automatically detects the robot at `andrew@10.42.2.10` and dispatches trajectory action goals directly into the `openarm` ROS 2 container over passwordless SSH.
-- **`ros2` (Direct Action Client):** Directly commands the active ROS 2 action servers (`/{arm}_controller/follow_joint_trajectory` and `/{arm}_gripper_controller/gripper_cmd`).
-- **`docker` (Container Exec Bridge):** Dispatches trajectory goals directly into the `openarm` container via `openarm-up` / ROS 2 CLI.
-- **`Emergency Hold (E-Stop)`:** Sends immediate goal cancellation and issues `openarm-up hold <arm>` to freeze the arm in place safely without dropping.
+- **Show Runner Integration:** All physical robot hardware execution is mediated exclusively through the choreography show runner (`software/choreo/runner.py`), which acquires the motion lease, validates safety gates, monitors the RC deadman switch, and drives the arms. Direct hardware commanding from outside the runner is strictly disallowed.
 
 ### Running from the CLI:
 ```bash
 # Validate and test trajectory in HITL loopback:
 python3 -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --hitl
-
-# Execute on physical robot hardware (requires RC Deadman CH6 held):
-python3 -m sim.planner.execute_hardware --arm left --start stow --goal reach_forward --live
 ```
 
 ---
@@ -227,16 +220,13 @@ The OpenArm Planner Studio is hosted directly on Thor as a systemd service, maki
 - **Shared Repository Path:** `/opt/opendubs-planner` (owned by group `opendubs-users`)
 - **Systemd Service:** `opendubs-planner.service`
 
-### Updating Code on Thor:
+### Managing the Service on Thor:
 ```bash
-# Push latest commits directly from your development machine to Thor:
-git push andrew@10.42.2.10:/opt/opendubs-planner feat/arm-motion-planner-ui
-
 # Restart the planner studio service:
-ssh andrew@10.42.2.10 "sudo systemctl restart opendubs-planner.service"
+sudo systemctl restart opendubs-planner.service
 
 # View live service logs:
-ssh andrew@10.42.2.10 "journalctl -u opendubs-planner.service -f"
+journalctl -u opendubs-planner.service -f
 ```
 
 ---

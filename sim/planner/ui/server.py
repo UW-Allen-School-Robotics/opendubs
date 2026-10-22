@@ -238,6 +238,23 @@ class PlannerService:
 SERVICE = PlannerService()
 
 
+def is_own_origin(origin: str, host_header: str, server_port: int) -> bool:
+    from urllib.parse import urlsplit
+    if not origin:
+        return True
+    o = urlsplit(origin)
+    if not o.scheme or not o.hostname:
+        return False
+    req = urlsplit(f"//{host_header}")
+    if not req.hostname or o.hostname.lower() != req.hostname.lower():
+        return False
+    try:
+        o_port = o.port or {"http": 80, "https": 443}.get(o.scheme)
+    except ValueError:
+        return False
+    return o_port == (req.port or server_port) or o_port in {8080, 8443, 8091, 8092, 8095}
+
+
 class StudioHandler(SimpleHTTPRequestHandler):
     """Custom HTTP handler serving the studio app, assets, and REST APIs."""
 
@@ -367,6 +384,18 @@ class StudioHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         url = self.path.split("?")[0]
+        # Origin guard: protect POST endpoints from cross-origin execution
+        origin = self.headers.get("Origin")
+        if not origin:
+            ref = self.headers.get("Referer", "")
+            if ref:
+                from urllib.parse import urlsplit
+                u = urlsplit(ref)
+                origin = f"{u.scheme}://{u.netloc}" if u.scheme and u.netloc else None
+        host = self.headers.get("Host", "")
+        if origin and not is_own_origin(origin, host, self.server.server_port):
+            return self._send_json({"error": "Cross-origin request refused"}, status=403)
+
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b"{}"
         try:
@@ -455,15 +484,24 @@ class StudioHandler(SimpleHTTPRequestHandler):
             times = req.get("times", [])
             positions = req.get("positions_rad", [])
             velocities = req.get("velocities_rad_s", None)
-            min_clearance = float(req.get("min_clearance_mm", 15.0))
+            min_clearance = float(req.get("min_clearance_mm", 30.0))
             res = validate_trajectory_safety(arm, times, positions, velocities, min_clearance)
             return self._send_json(res.to_dict())
 
         if url == "/api/hardware/execute":
             arm = req.get("arm", "left")
             trajectory = req.get("trajectory", {})
-            mode = req.get("mode", "auto")
-            res = HARDWARE_BRIDGE.execute_trajectory(arm, trajectory, mode=mode)
+            mode = req.get("mode", "hitl")
+            if mode != "hitl":
+                return self._send_json({
+                    "success": False,
+                    "error": (
+                        "Hardware execution is disabled on this branch. "
+                        "All physical arm motion on the robot goes exclusively through "
+                        "the show runner (software/choreo/runner.py)."
+                    ),
+                }, status=403)
+            res = HARDWARE_BRIDGE.execute_trajectory(arm, trajectory, mode="hitl")
             status_code = 200 if res.get("success") else 400
             return self._send_json(res, status=status_code)
 
@@ -504,8 +542,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if url == "/api/gripper":
             arm = req.get("arm", "left")
             action = req.get("action", "open")
-            mode = req.get("mode", "auto")
-            res = HARDWARE_BRIDGE.command_gripper(arm, action, mode=mode)
+            res = HARDWARE_BRIDGE.command_gripper(arm, action, mode="hitl")
             return self._send_json(res)
 
         self.send_error(404, "Endpoint not found")
@@ -543,7 +580,7 @@ def generate_show_yaml(keyframes: list[dict]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="OpenArm Motion Planner Studio Web Server")
-    parser.add_argument("--port", type=int, default=8092, help="Port to listen on (default: 8092)")
+    parser.add_argument("--port", type=int, default=8095, help="Port to listen on (default: 8095)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
     parser.add_argument("--backend", default="cbirrt", help="Default motion planning backend (e.g. 'cbirrt', 'curobo') (default: cbirrt)")
     args = parser.parse_args()
