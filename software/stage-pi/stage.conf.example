@@ -2,6 +2,8 @@
 # edit it (the partition is FAT); the box reads it at every start. One KEY=value per line; a missing or
 # empty value takes the default shown. Nothing secret goes here (the Wi-Fi is set when the card is imaged).
 
+# ONE BOX PER ROBOT: it is named opendubs<N>-stage after its robot when the card is imaged (opendubs2-stage
+# for opendubs2), and points at that robot here.
 # The robot's stage page. The box tries ROBOT_URL first (the robot's mDNS name), then ROBOT_FALLBACK (its
 # reserved address on the robot's network), and keeps trying both until one answers.
 ROBOT_URL=http://opendubs2.local:8080/stage/
