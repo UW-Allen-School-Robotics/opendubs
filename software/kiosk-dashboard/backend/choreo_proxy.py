@@ -101,7 +101,7 @@ async def video_settings(request: Request):
         raw = await request.json() if await request.body() else {}
     except ValueError:
         return JSONResponse({"error": "the body must be JSON"}, status_code=400)
-    keys = ("audio_lead_s", "video_lead_s", "music_as", "stage_audio_lead_s", "stage_video_lead_s")
+    keys = ("audio_lead_s", "video_lead_s", "music_as", "stage_audio_lead_s", "stage_video_lead_s", "stage_buffer_s")
     if not isinstance(raw, dict) or not any(k in raw for k in keys):
         return JSONResponse({"error": f"the body must set one of {', '.join(keys)}"}, status_code=400)
     return await _forward("POST", "video/settings", {k: raw[k] for k in keys if k in raw})

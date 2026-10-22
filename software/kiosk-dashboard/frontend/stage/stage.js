@@ -16,11 +16,11 @@
    skeletons are placed and scaled inside its picture. With NO screen (a stage Pi playing sound only) the
    browser may not draw at all, so the show's media is also kept in step from a timer.
 
-   PRELOAD: when a show loads (armed, before the GO) the page fetches each of its videos WHOLE into memory
-   and plays it from there, so during the show only the small timing messages cross the Wi-Fi. It reports
-   how far it has got ({"preload": {id, pct, ready}}); the runner's GO waits for every page to have it.
-   Files stay cached for the next run (up to ?cache_mb=, default 800 MB). A page that joins mid-show, or a file that
-   failed, plays from the network as before.
+   THE VIDEO, like a streaming service: the stage box's OWN copy when it has one (its media partition,
+   synced while idle: no Wi-Fi at all), else streamed from the robot with a HEAD START — when a show is
+   armed the page buffers `buffer_s` (25 s) ahead, reports it, and the runner's GO waits for that; it keeps
+   reading ahead as it plays. A page that runs dry mid-show reports a stall: the tablet takes the music from
+   the same point, the page goes silent, and it catches up on the show's clock when the data returns.
 
    BETWEEN SHOWS a STAGE READY card says what this screen is: the robot connected or not, the resolution,
    the sound output, the clock to the Thor, and an under-voltage warning — the last three from the device
@@ -29,8 +29,7 @@
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
-   ?card=0 hides the ready card; ?cache_mb=300 caps the preloaded videos kept (the stage box sets it from
-   its RAM). The device this page runs on reloads a page that stops checking in:
+   ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
    alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
    the sync timer when the device says it has no screen. */
 "use strict";
@@ -90,56 +89,55 @@
       if (!manual) { video.pause(); video.hidden = true; video.removeAttribute("src"); }
       return;
     }
-    if (!manual && show.state === "loaded") preloadShow(show);
+    if (!manual && show.state === "loaded") prepare(show);
   }
 
-  /* ---- preload: the show's videos whole, in memory, before the GO ------------------------------------ */
-  // the cache cap, in MB: the stage box sets ?cache_mb= from its RAM (its writes live in RAM too); else 800.
-  // The show being played is always kept whole, whatever the cap; the oldest unused go first.
-  const CACHE_MAX_BYTES = (Math.max(0, parseInt(q.get("cache_mb"), 10)) || 800) * 1e6;
-  const cache = new Map();                          // url -> {obj: object URL, bytes, used}
+  /* ---- the show's video: the stage box's own copy first, else streamed with a head start ------------- */
+  // A stage box keeps its own copies of the library's videos (its media partition, synced while idle), by
+  // content hash: http://127.0.0.1:8095/media/<sha256>?id=<library id> — played from there, no Wi-Fi at all. Else
+  // the page streams from the robot, and the GO waits until `buffer_s` (the show's, from projector.json) is
+  // buffered ahead of where it starts; it keeps reading ahead while it plays. It reports
+  // {"preload": {id, ready, local, buffered_s, need_s}} until the show starts.
+  const MIN_START_S = 8;                            // the least head start a streamed video starts on
   let pre = { id: null };
-  const local = (url) => (cache.get(url) || {}).obj || url;      // the copy in memory, else the network
-  async function preloadShow(m) {
-    if (pre.id === m.id) return;
-    const urls = [...new Set((m.videos || []).map((v) => v.url))];
-    const me = pre = { id: m.id, got: 0, total: 0, ready: false, error: null };
-    const report = () => send({ preload: { id: me.id, ready: me.ready, error: me.error || undefined,
-                                           pct: me.ready ? 100 : me.total ? Math.floor(100 * me.got / me.total) : 0 } });
-    me.report = report;
-    report();
-    let last = 0;
-    try {
-      for (const url of urls) {
-        if (cache.has(url)) { cache.get(url).used = Date.now(); continue; }
-        const r = await fetch(url, { cache: "no-store" });
-        if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-        const size = Number(r.headers.get("content-length")) || 0;
-        me.total += size;
-        const reader = r.body.getReader(), parts = [];
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          parts.push(value); me.got += value.length;
-          if (performance.now() - last > 500) { last = performance.now(); report(); }
-        }
-        const blob = new Blob(parts, { type: r.headers.get("content-type") || "video/mp4" });
-        cache.set(url, { obj: URL.createObjectURL(blob), bytes: blob.size, used: Date.now() });
-        trimCache(urls);
-      }
-      me.ready = true;
-    } catch (e) {
-      me.error = String(e.message || e);             // the runner waits, then drops the stage; or it streams
-    }
-    if (pre === me) report();
+  const localUrl = {};                              // a show's url -> the box's copy, for the show loaded now
+  const src = (url) => localUrl[url] || url;
+  function ahead(from) {                            // seconds buffered from `from` onward, in one stretch
+    const b = video.buffered;
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= from + 0.5 && b.end(i) > from) return b.end(i) - from;
+    return 0;
   }
-  function trimCache(keep) {
-    let total = [...cache.values()].reduce((a, c) => a + c.bytes, 0);
-    for (const [url, c] of [...cache.entries()].sort((a, b) => a[1].used - b[1].used)) {
-      if (total <= CACHE_MAX_BYTES) break;
-      if (keep.includes(url) || video.src === c.obj) continue;
-      URL.revokeObjectURL(c.obj); cache.delete(url); total -= c.bytes;
+  async function prepare(m) {
+    if (pre.id === m.id) return;
+    const me = pre = { id: m.id, local: false, buffered: 0, need: 0, ready: false, error: null };
+    me.report = () => send({ preload: { id: me.id, ready: me.ready, local: me.local, need_s: me.need,
+                                        buffered_s: Math.round(me.buffered * 10) / 10, error: me.error || undefined } });
+    const first = (m.videos || [])[0];
+    if (!first) { me.ready = true; return me.report(); }
+    for (const v of m.videos || []) {
+      delete localUrl[v.url];
+      if (!v.sha256 || !(device && device.device === "stage-pi")) continue;
+      const u = `${DEVICE_URL}/media/${v.sha256}?id=${encodeURIComponent(v.lib || "")}`;
+      try { if ((await fetch(u, { method: "HEAD", cache: "no-store" })).ok) localUrl[v.url] = u; } catch (e) { /* none */ }
     }
+    if (pre !== me) return;
+    me.local = !!localUrl[first.url];
+    me.need = Math.min(m.buffer_s || 25, Math.max(1, first.end_t - first.t));
+    video.dataset.url = first.url; video.loop = false; video.preload = "auto"; video.src = src(first.url);
+    video.addEventListener("loadedmetadata", () => { if (video.paused) video.currentTime = first.from_s; }, { once: true });
+    video.onerror = () => { if (pre === me) me.error = `the video would not load (${video.error && video.error.code})`; };
+    (function tick() {
+      if (pre !== me || !show || show.id !== me.id || show.state !== "loaded") return;   // started, or replaced
+      me.buffered = ahead(first.from_s);
+      const rest = video.duration ? video.duration - first.from_s : Infinity;   // a short video: all of it
+      // A paused <video> buffers only so far (Chromium caps it in BYTES: ~14 MB, 14 s of an 8 Mbit/s file,
+      // a minute of a 2 Mbit/s one), so the head start is `need` seconds OR, when the browser has stopped
+      // loading because it can already play through, whatever it holds — at least MIN_START_S.
+      const satisfied = video.readyState === 4 && video.networkState === 1 && me.buffered >= MIN_START_S;
+      me.ready = me.local || me.buffered >= Math.min(me.need, rest) - 0.25 || satisfied;
+      me.report();
+      setTimeout(tick, 500);
+    })();
   }
   function showTime(now) {                          // seconds into the show, on the Thor's clock
     return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
@@ -155,17 +153,25 @@
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
       return st;
     }
-    if (video.dataset.url !== it.url || (video.src !== local(it.url) && cache.has(it.url) && video.paused)) {
-      video.dataset.url = it.url; video.src = local(it.url);        // from memory when preloaded
-    }
+    if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = src(it.url); }   // the box's copy, if it has one
     const want = it.from_s + (at(it, st) - it.t);
     video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
+    if (show.muted && !video.muted) video.muted = true;     // the tablet took the music after a stall
     if (video.paused) {
-      video.currentTime = want; video.muted = false;
+      video.currentTime = want; video.muted = !!show.muted;
       video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
       keepVideo.synced = now;
       return st;
     }
+    if (video.readyState < 3) {                      // playing but out of data: a stall, told once per show
+      keepVideo.dry = keepVideo.dry || now;
+      if (now - keepVideo.dry > 1500 && keepVideo.stallFor !== show.id) {
+        keepVideo.stallFor = show.id;
+        send({ stall: { id: show.id, at_s: Math.round(st * 10) / 10 } });
+      }
+      return st;                                     // when the data returns, the seek below catches up
+    }
+    keepVideo.dry = 0;
     const err = video.currentTime - want;
     if (Math.abs(err) > SEEK_S) { video.currentTime = want; video.playbackRate = 1; keepVideo.seeks = (keepVideo.seeks || 0) + 1; }
     else video.playbackRate = 1 - Math.max(-NUDGE, Math.min(NUDGE, err * 0.5));
@@ -359,7 +365,9 @@
     device = d && typeof d === "object" ? {
       device: d.device, name: d.name, model: d.model, audio_output: d.audio_output, audio_name: d.audio_name,
       under_voltage_now: d.under_voltage_now, under_voltage_since_boot: d.under_voltage_since_boot,
-      throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode } : null;
+      throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode,
+      media_items: d.media?.items, media_bytes: d.media?.bytes, media_free: d.media?.free,
+      media_syncing: d.media?.syncing } : null;
     send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
                    clock_err_ms: clock ? Math.round(clock.err * 10) / 10 : undefined,
                    sound: video.muted && !video.paused ? "muted" : "on" } });
@@ -389,6 +397,9 @@
                   ["Screen", res, false],
                   ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : ""), device && device.audio_output === "none"],
                   ["Clock to the Thor", clock ? `in step, ±${clock.err.toFixed(1)} ms` : "measuring…", !clock]];
+    if (device && device.media_items != null)        // the box's own copies (its media stick)
+      rows.push(["Local videos", `${device.media_items} held (${(device.media_bytes / 1e9).toFixed(1)} GB, `
+                 + `${(device.media_free / 1e9).toFixed(1)} GB free)${device.media_syncing ? " · syncing" : ""}`, false]);
     const uv = device && (device.under_voltage_now || device.under_voltage_since_boot);
     card.innerHTML = `<b>OpenDubs stage — ready</b>` + rows.map(([k, v, bad]) =>
       `<div class="row${bad ? " bad" : ""}"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")

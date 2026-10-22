@@ -92,10 +92,10 @@ AUDIO_HOLDER_GRACE_S = 3.0
 # Until the audio is ready, or this long has passed, a press is not a GO. After the GO only
 # AUDIO_AFTER_GO_S more is waited, then the show runs silently rather than keep the operator holding.
 AUDIO_ARMED_WAIT_S = 10.0
-# A stage page PRELOADS the show's whole video before the GO (choreo-stage.md), so only timing crosses the
-# Wi-Fi during the show; a ~100 MB file over a far link takes a while, so the armed wait allows this long
-# for it. Past it the stage is dropped (the tablet keeps the music), or a show that requires video refused.
-STAGE_PRELOAD_WAIT_S = 90.0
+# A stage page plays the show's video from the stage box's own copy, or streams it with a HEAD START: the
+# GO waits until every page has `stage_buffer_s` of it (projector.json, 25 s) — at most this long. Past it
+# the stage is dropped (the tablet keeps the music), or a show that requires its video is refused.
+STAGE_BUFFER_WAIT_S = 90.0
 AUDIO_AFTER_GO_S = 2.0
 
 # Start modes (agreed with the Orchestrator, 2026-10-13). An ARMED run has passed every check but the
@@ -249,7 +249,8 @@ def audio_items(show, tl) -> tuple:
             skipped.append(f"the show library cannot be read ({unreadable}) — running without music")
         elif e and e.get("kind") == "song" and os.path.isfile(f):
             items.append({"url": "/api/choreo/media/library/" + e["file"], "at": 0.0, "kind": "music",
-                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f})
+                          "role": m.get("role") or cue.DEFAULT_AUDIO_ROLE, "path": f,
+                          "lib": m["song"], "sha256": e.get("sha256")})
         else:
             skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
@@ -294,7 +295,8 @@ def video_items(show, tl) -> tuple:
             continue
         out.setdefault(e.get("output") or cue.DEFAULT_VIDEO_OUTPUT, []).append(
             {"t": e["t"], "end_t": end_t, "path": f, "from_s": float(c.get("from_s") or 0.0),
-             "end": c.get("end", "black"), "id": c.get("video"), "song": ent.get("song")})
+             "end": c.get("end", "black"), "id": c.get("video"), "song": ent.get("song"),
+             "sha256": ent.get("sha256")})            # a stage box's local copy is found by it
     return out, skipped
 
 
@@ -731,7 +733,8 @@ class Runner:
                 self._carrier = name
                 lead = self.projector_settings.get("stage_audio_lead_s" if name == "stage" else "audio_lead_s")
             if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
-                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"), log=self._log,
+                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"),
+                                                buffer_s=self.projector_settings.get("stage_buffer_s"), log=self._log,
                                                 on_lost=self._music_lost if carries else None))
                 continue
             self.videos.append(video_out.ShowVideo(
@@ -787,9 +790,10 @@ class Runner:
             self.music = [be.make_show([
                 {"t": it["at"], "end_t": max(it["at"], tl.get("duration_s") or 0.0) + 0.5, "path": it.get("path"),
                  "url": it.get("url"),                # the same address the tablet fetches it by
+                 "lib": it.get("lib"), "sha256": it.get("sha256"),   # a stage box's own copy, if it has one
                  "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
-                 "lead_s": lead, "audio": True} for it in music], tl.get("music"), log=self._log,
-                on_lost=self._music_lost)]
+                 "lead_s": lead, "audio": True} for it in music], tl.get("music"),
+                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost)]
             self.music_on, self.music_why = "projector", None
             self._log("audio", note=f"music on the stage page ({lead:g} s early); dialogue on the tablet")
             return
@@ -892,7 +896,8 @@ class Runner:
         for why in skipped:
             self._log("audio_warning", note=why)
         self._route_music(tl, items)
-        items = [{k: v for k, v in it.items() if k != "path"} for it in items]   # the tablet fetches by URL
+        items = [{k: v for k, v in it.items() if k not in ("path", "lib", "sha256")}   # the tablet fetches by URL
+                 for it in items]
         if items:
             if not self._audio_holder():
                 self._log("audio_note", note="no device holds show audio yet — the music goes to the first "
@@ -1112,7 +1117,7 @@ class Runner:
         self.deadline = ("ARMED", self.clock() + ARM_TIMEOUT_S)
         prev = st.get("deadman")
         media = self.videos + self.music
-        wait_s = max([AUDIO_ARMED_WAIT_S] + [STAGE_PRELOAD_WAIT_S for sv in media if hasattr(sv, "drop")])
+        wait_s = max([AUDIO_ARMED_WAIT_S] + [STAGE_BUFFER_WAIT_S for sv in media if hasattr(sv, "drop")])
         audio_until = self.clock() + wait_s if (self.audio_live or media) else None
         self.audio_waiting = audio_until is not None
         self._set(ARMED, timeout_s=ARM_TIMEOUT_S, deadman=prev,

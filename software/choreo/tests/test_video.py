@@ -337,7 +337,7 @@ sh.begin()
 check("load sends the videos (show seconds, the dashboard's URL) and the beat grid — nothing device-specific",
       so.wait_for("load") and so.sent[0]["videos"] == [{"t": 1.0, "end_t": 4.0, "url": "/api/choreo/media/library/clip.mp4",
                                                         "from_s": 2.0, "end": "hold", "id": "clip",
-                                                        "lead_s": 0.0, "audio": False}]
+                                                        "lead_s": 0.0, "audio": False, "sha256": None, "lib": "clip"}]
       and so.sent[0]["beat"] == {"offset_s": 0.25, "bpm": 120.0}, so.sent)
 check("... and nothing starts before the show's clock does", [m["op"] for m in so.sent] == ["load"], so.sent)
 sh.go(lambda: -0.5)                          # half a second before the show's t0
@@ -386,8 +386,8 @@ check("... in the same 0-3 s range", ok)
 
 class Captured(FakeStage):
     """FakeStage that keeps each StageShow it makes, to read its load."""
-    def make_show(self, items, music, log=None, on_lost=None):
-        self.made = super().make_show(items, music, log, on_lost)
+    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None):
+        self.made = super().make_show(items, music, log, on_lost, buffer_s)
         return self.made
 
 
@@ -412,40 +412,55 @@ check("... every stage page gone: the tablet takes the music over at the same po
 check("the stage's status carries what its page says of itself (screen, sound, power)",
       FakeStage().status().get("page") is None)
 
-print("\nvideo: the stage pages PRELOAD the whole video before the GO (choreo-stage.md)")
+print("\nvideo: the stage video — the box's own copy, else streamed with a head start (choreo-stage.md)")
 
 
 class PreStage(Captured):
-    """The stage, with each page's preload report (GET /api/stage's `preload`)."""
-    def __init__(self, pages=1, pct=0.0, ready=False):
+    """The stage, with each page's head-start report (GET /api/stage's `preload`) and stalls."""
+    def __init__(self, pages=1, buffered=0.0, ready=False, local=False):
         super().__init__(pages)
-        self.pre = {"pct": pct, "ready": ready}
+        self.pre = {"buffered_s": buffered, "need_s": 25.0, "ready": ready, "local": local}
+        self.stalls = []
 
     def _get(self):
         sid = self.made.id if getattr(self, "made", None) else None
-        return {"pages": self.n, "preload": [dict(self.pre, id=sid)] * self.n}
+        return {"pages": self.n, "preload": [dict(self.pre, id=sid)] * self.n,
+                "stalls": [dict(x, id=sid) for x in self.stalls]}
 
 
-so = PreStage(pct=40.0)
+so = PreStage(buffered=12.0)
 lost = []
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip", "sha256": "ab"}],
+                  None, on_lost=lost.append, buffer_s=25)
+sh.begin()
+so.wait_for("load")
+time.sleep(0.7)
+check("load carries the head start and each video's library id and hash (the box's copy is found by them)",
+      so.sent[0]["buffer_s"] == 25.0 and so.sent[0]["videos"][0]["lib"] == "clip"
+      and so.sent[0]["videos"][0]["sha256"] == "ab", so.sent[0])
+check("a page still buffering: not ready, saying how far it has got",
+      not sh.ready() and sh.waiting_for() == "the stage video (buffering, 12 of 25 s)", sh.waiting_for())
+so.pre = {"buffered_s": 0.0, "need_s": 25.0, "ready": True, "local": True}
+time.sleep(0.7)
+check("... a page playing the box's OWN copy is ready at once", sh.ready())
+sh.go(lambda: 0.0)
+so.stalls = [{"at_s": 31.5}]
+time.sleep(2.4)
+check("a page that runs dry mid-show: logged, the pages muted, and the tablet takes the music — never an abort",
+      sh.stalled and lost and "ran out of video at 31.5 s" in lost[-1] and any(m["op"] == "mute" for m in so.sent),
+      (sh.stalled, lost, [m["op"] for m in so.sent]))
+sh.end("COMPLETED")
+so = PreStage(buffered=10.0)
 sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
                   on_lost=lost.append)
 sh.begin()
 so.wait_for("load")
-time.sleep(0.7)
-check("a page still loading: not ready, saying how far it has got",
-      not sh.ready() and sh.waiting_for() == "the stage video (still loading, 40%)", sh.waiting_for())
-so.pre = {"pct": 100.0, "ready": True}
-time.sleep(0.7)
-check("... every page holding the whole file: ready", sh.ready())
-so = PreStage(pct=10.0)
-sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
-                  on_lost=lost.append)
-sh.begin()
-so.wait_for("load")
-sh.drop("still loading 10% after 90 s")
+sh.drop("buffering, 10 of 25 s after 90 s")
 check("dropped: the pages are stopped, and the tablet is told to take the music",
-      so.sent[-1]["op"] == "stop" and sh.ready() and lost and "not loaded in time" in lost[-1], (so.sent[-1], lost))
+      so.sent[-1]["op"] == "stop" and sh.ready() and "not loaded in time" in lost[-1], (so.sent[-1], lost))
+got = V.save_settings({"stage_buffer_s": 30})
+check("the head start is a setting, 5-120 s (projector.json, beside the leads)", got["stage_buffer_s"] == 30.0, got)
+V.save_settings({"stage_buffer_s": 25})
 
 
 def armed(so, required=False, press_at=4.0, plan=None):
@@ -473,20 +488,20 @@ def armed(so, required=False, press_at=4.0, plan=None):
 
 
 import json  # noqa: E402
-r, end, lines = armed(PreStage(pct=100.0, ready=True), plan=[(2.0, True)])
+r, end, lines = armed(PreStage(buffered=25.0, ready=True), plan=[(2.0, True)])
 go = next((x for x in lines if x["kind"] == "go"), None)
-check("armed, every page preloaded: the GO is taken, and the stage plays the show",
+check("armed, every page with its head start: the GO is taken, and the stage plays the show",
       end[0] == "COMPLETED" and go and not r.videos[0].dropped, (end, go))
-r, end, lines = armed(PreStage(pct=62.0), press_at=95.0)
+r, end, lines = armed(PreStage(buffered=12.0), press_at=95.0)
 notes = [x.get("note", "") for x in lines if x["kind"] == "status"]
-check("armed, still loading: the Shows page says 'still loading 62%', and a press is not a GO",
-      any("still loading, 62%" in n for n in notes)
+check("armed, still buffering: the Shows page says 'buffering, 12 of 25 s', and a press is not a GO",
+      any("buffering, 12 of 25 s" in n for n in notes)
       and any(x["kind"] == "deadman" and "not a GO" in x.get("note", "") for x in lines), notes[-3:])
 check("... past the preload wait the stage is dropped, and the show runs without it, saying why",
-      end[0] == "COMPLETED" and r.videos[0].dropped and "still loading" in (r.video_note or ""), (end, r.video_note))
-r, end, _ = armed(PreStage(pct=62.0), required=True, press_at=95.0)
+      end[0] == "COMPLETED" and r.videos[0].dropped and "buffering" in (r.video_note or ""), (end, r.video_note))
+r, end, _ = armed(PreStage(buffered=12.0), required=True, press_at=95.0)
 check("... unless the show requires its video: refused, SHOW_VIDEO_NOT_READY, with how far it got",
-      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "62%" in end[2], end)
+      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "12 of 25 s" in end[2], end)
 
 print()
 if FAILS:

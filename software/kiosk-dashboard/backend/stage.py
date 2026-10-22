@@ -66,13 +66,15 @@ class Hub:
         op = m.get("op")
         if op == "load":
             self.show = {"id": m.get("id"), "videos": m.get("videos") or [], "beat": m.get("beat"),
-                         "state": "loaded", "t0_mono": None}
+                         "buffer_s": m.get("buffer_s"), "state": "loaded", "t0_mono": None}
         elif op == "start" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="playing", t0_mono=m.get("t0_mono"))
         elif op == "stop" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="stopped", cut=bool(m.get("cut")))
+        elif op == "mute" and self.show and self.show.get("id") == m.get("id"):
+            self.show.update(muted=True)           # the tablet has the music now: the pages play silent
         else:
-            return {"error": f"op must be load, or start/stop for the loaded show — not {op!r}"}
+            return {"error": f"op must be load, or start/stop/mute for the loaded show — not {op!r}"}
         self.control({"type": "show", **self.show})
         return {"ok": True, "pages": len(self.pages)}
 
@@ -82,6 +84,7 @@ class Hub:
                 "pages": len(self.pages), "latency_ms": self.latency_ms,
                 "pages_info": [p["info"] for p in self.pages.values() if p.get("info")],
                 "preload": [p.get("preload") for p in self.pages.values()],   # one per page; None: not reported
+                "stalls": [p["stall"] for p in self.pages.values() if p.get("stall")],
                 "show": None if self.show is None else {k: self.show.get(k) for k in ("id", "state", "t0_mono")}}
 
 
@@ -91,7 +94,8 @@ hub = Hub()
 # kept per page, newest only, plain values only.
 PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
                "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
-               "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str}
+               "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str,
+               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool}
 
 
 def page_info(raw: dict) -> dict:
@@ -170,12 +174,16 @@ async def skeleton_page(ws: WebSocket):
                 hub.latency_ms = {k: m["latency_ms"].get(k) for k in ("p50", "p95", "n")}
             elif isinstance(m.get("page"), dict):     # the page on itself: its screen, sound, power (a stage Pi)
                 me["info"] = page_info(m["page"])
-            elif isinstance(m.get("preload"), dict):  # how much of the show's video it holds (the runner waits)
+            elif isinstance(m.get("preload"), dict):  # its head start on the show's video (the runner waits)
                 pl = m["preload"]
+                num = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0  # noqa: E731
                 me["preload"] = {"id": str(pl.get("id"))[:80], "ready": pl.get("ready") is True,
-                                 "pct": float(pl["pct"]) if isinstance(pl.get("pct"), (int, float))
-                                 and not isinstance(pl.get("pct"), bool) else 0.0,
+                                 "local": pl.get("local") is True, "buffered_s": num(pl.get("buffered_s")),
+                                 "need_s": num(pl.get("need_s")),
                                  **({"error": str(pl["error"])[:160]} if pl.get("error") else {})}
+            elif isinstance(m.get("stall"), dict):    # it ran out of video mid-show (the tablet takes the music)
+                me["stall"] = {"id": str(m["stall"].get("id"))[:80], "at_s": m["stall"].get("at_s")
+                               if isinstance(m["stall"].get("at_s"), (int, float)) else None}
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:
@@ -186,6 +194,7 @@ async def skeleton_page(ws: WebSocket):
 @router.get("/api/stage")
 async def stage_state():
     return JSONResponse(hub.view())
+
 
 
 @router.post("/api/stage/show")

@@ -90,14 +90,29 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
     assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
 
 
-def test_each_pages_preload_progress_is_kept_for_the_runner():
+def test_each_pages_head_start_and_stall_are_kept_for_the_runner():
     stage.hub = stage.Hub()
     c = TestClient(app)
     with c.websocket_connect("/ws/skeleton") as a, c.websocket_connect("/ws/skeleton") as b:
-        a.send_text(json.dumps({"preload": {"id": "s1", "pct": 62, "ready": False}}))
+        a.send_text(json.dumps({"preload": {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4,
+                                            "need_s": 25, "secret": 1}}))
+        a.send_text(json.dumps({"stall": {"id": "s1", "at_s": 31.5}}))
         a.send_text(json.dumps({"ping": 1.0}))
         a.receive_text()
         b.send_text(json.dumps({"ping": 1.0}))
         b.receive_text()
-        pre = c.get("/api/stage").json()["preload"]
-    assert sorted(pre, key=lambda p: p is None) == [{"id": "s1", "ready": False, "pct": 62.0}, None]   # b: not reported
+        v = c.get("/api/stage").json()
+    assert sorted(v["preload"], key=lambda p: p is None) == [
+        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0}, None]   # b: not reported
+    assert v["stalls"] == [{"id": "s1", "at_s": 31.5}]
+
+
+def test_mute_silences_the_pages_of_the_loaded_show_only():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    c.post("/api/stage/show", json={"op": "load", "id": "s1", "videos": []})
+    assert c.post("/api/stage/show", json={"op": "mute", "id": "other"}).status_code == 400
+    assert c.post("/api/stage/show", json={"op": "mute", "id": "s1"}).json()["ok"]
+    with c.websocket_connect("/ws/skeleton") as page:            # a page joining now is told it is muted
+        assert json.loads(page.receive_text())["muted"] is True
+
