@@ -95,8 +95,8 @@ Three things worth carrying forward:
   upstream's `250` — lowering the rate is the symptomatic fix for this exact problem, and it still
   did not fit. Worth re-testing 250 now the viewer is gone.
 
-The change lives in `software/openarm/patches/` (default unchanged; `OPENARM_TELEOP_VIEWER=0`),
-because the container's copy of the upstream teleop has drifted from the published one and has no `.git`.
+The change is in the org copy of the teleop, at `1f0f8f1` (default unchanged; `OPENARM_TELEOP_VIEWER=0`). It
+was first carried here as a script, while the container's copy had no `.git`; that script is retired.
 
 ## Open
 
