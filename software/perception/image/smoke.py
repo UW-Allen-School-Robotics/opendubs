@@ -19,7 +19,7 @@ def torch_gpu():
     import torch
 
     x = torch.ones(1024, 1024, device="cuda", dtype=torch.float16)
-    total = (x @ x).sum().item()
+    total = (x @ x).float().sum().item()  # 1024**3: overflows a float16 sum
     cap = torch.cuda.get_device_capability()
     return f"torch {torch.__version__}, {torch.cuda.get_device_name()}, sm_{cap[0]}{cap[1]}, matmul sum {total:.0f}"
 

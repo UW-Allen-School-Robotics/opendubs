@@ -38,6 +38,14 @@ RUN git clone https://github.com/NVIDIA-AI-IOT/nanosam.git /opt/nanosam \
  && git -C /opt/perception_models checkout 2cd9a68
 ENV PYTHONPATH=/opt/perception_models
 
+# ultralytics pulls in the desktop opencv-python, which needs libGL.
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0t64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# The NVIDIA runtime injects the driver only when these are set. NVIDIA's CUDA images set them;
+# the Isaac ROS base does not.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=all
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 WORKDIR /work
 CMD ["bash"]
