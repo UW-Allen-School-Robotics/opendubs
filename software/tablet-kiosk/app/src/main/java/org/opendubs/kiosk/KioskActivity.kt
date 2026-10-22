@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.os.Looper
 import android.text.Html
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -25,6 +26,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.TextView
 import java.text.DateFormat
 import java.util.Date
 
@@ -42,6 +45,8 @@ import java.util.Date
 class KioskActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var bridge: KioskBridge
+    var power: Power? = null            // the tablet's power behaviour (Power.kt); not on a display
+        private set
     private var maintenance = false     // after `unlock`: stay out of lock task until `lock` or a restart
 
     // WAITING FOR THE ROBOT. The tablet often starts before the Thor (both come up at RUN, and the
@@ -152,7 +157,20 @@ class KioskActivity : Activity() {
             bridge = KioskBridge(this@KioskActivity)
             addJavascriptInterface(bridge, "OpenDubsKiosk")
         }
-        setContentView(web)
+        // The low-battery screen (Power.kt): native, over the page, so it shows with any page or none.
+        val chargeMe = TextView(this).apply {
+            text = getString(R.string.charge_me)
+            setTextColor(0xFFCCCCDD.toInt()); setBackgroundColor(0xFF000000.toInt())
+            textSize = 34f; gravity = Gravity.CENTER; visibility = View.GONE
+        }
+        setContentView(FrameLayout(this).apply { addView(web); addView(chargeMe) })
+        if (!Provision.isDisplay(this)) {
+            setShowWhenLocked(true)                              // a wake lands on the face, not a lock screen
+            power = Power(this, {
+                val u = Uri.parse(dashboardUrl())
+                "${u.scheme}://${u.authority}"
+            }, chargeMe).also { it.start() }
+        }
         handle(intent)
     }
 
@@ -171,6 +189,11 @@ class KioskActivity : Activity() {
         enterLockTaskIfAllowed()
     }
 
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        power?.touched()
+    }
+
     override fun onPause() {
         resumed = false
         bridge.stop()
@@ -181,6 +204,7 @@ class KioskActivity : Activity() {
     // page running (timers, sockets, an open camera) until then.
     override fun onDestroy() {
         retry.removeCallbacksAndMessages(null)
+        power?.stop()
         web.stopLoading()
         web.loadUrl("about:blank")
         web.removeJavascriptInterface("OpenDubsKiosk")

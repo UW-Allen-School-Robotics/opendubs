@@ -1,6 +1,7 @@
 # Power: idle power management, a graceful shutdown, and power-on
 
-**Status: design, 2026-10-09, for the team to approve. Nothing here is built.** Tablet & head
+**Status: design, 2026-10-09, for the team to approve.** **Revisited 2026-10-20 for the tablet (§9): what
+has been built since, what is still missing, and five decisions.** Tablet & head
 interface lane. The Thor's side is to be agreed with the Thor stack lane and the arms' with the Arms
 lane (questions sent, §6); the sleeping face's *look* is the Face & HRI lane's; the operator-facing
 procedures and troubleshooting entries are the Docs lane's once this settles.
@@ -365,3 +366,97 @@ own estimate on the bench reads 2.7 Ah, so its charge counter is not to be trust
 **What the CAD needs from this:** the connector's position must meet the tablet's USB-C port (on its short
 edge) when the tablet seats; a short lead-in so the magnetic tip finds its socket; cable strain relief on the
 robot side; and room for the converter in the head or on the lift, near the neck controller's own supply.
+
+---
+
+## 9. The tablet's power, revisited — 2026-10-20, decided 2026-10-21, built in 0.5.0
+
+**Decided 2026-10-21 (the user), built in kiosk 0.5.0, not yet run on the robot's tablet.** The tablet now
+lives on the robot **permanently** and has USB power whenever the drive bus is powered, so losing power
+means the robot is off or e-stopped. The behaviour is driven by `ACTION_POWER_CONNECTED` /
+`ACTION_POWER_DISCONNECTED` (`Power.kt`), and **supersedes P-4 below** (an idle timer on robot state):
+
+| # | behaviour | where |
+|---|---|---|
+| 1 | **Charging**: Battery protection (80 %) stays. The dashboard warns when the tablet is plugged in but not charging below 75 %, or plugged in and 3 % down in 15 min (`HEAD_TABLET_NOT_CHARGING`): its charger is too weak or failed | `tablet_relay.py`; Operate notices, Head & face page |
+| 2 | **Power lost → battery mode at once**: half brightness, half the frame rate (30 fps), camera tracking off. The screen sleeps (`lockNow`) after **2 min** if the dashboard does not answer (robot off), or **10 min** if it does (robot on but e-stopped, so the stopped face stays visible) | `Power.kt`; face `main.js`, `levels.js`, `track.js` |
+| 3 | **Power returns → wake**: the screen turns on and the face is back. The side key also wakes it | `Power.kt` |
+| 4 | **Deliberate**: SLEEP TABLET on the Head & face page. **P-1**: the power menu in lock task (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`) plus the setup line `power_button_long_press 1`, so holding the side key offers Power off and Restart | `Power.kt`, `DeviceOwner.kt`; kiosk README step 5 |
+| 5 | **Low battery**: below 15 % on battery, asleep at once, and kept asleep until power returns. Woken by hand, a "Battery low — switch the robot on to charge me" screen for 10 s, then asleep again | `Power.kt` (a native screen over the page) |
+| 6 | **P-2, restart from the dashboard**: RESTART TABLET (asks twice), refused while a show is loaded or running (`HEAD_RESTART_SHOW`). Delivered two ways: the page passes it to the app at once over its socket, and the app asks `/api/tablet/command` itself every 5 s from native code, so it reaches a tablet whose page is dead. Each command runs once, by its id; one not picked up in 60 s is dropped | `tablet_relay.py`, `Power.kt`, `tablet_sensors.js` |
+| P-5 | **Heat**: a dashboard warning at 45 °C (`HEAD_TABLET_HOT`); above 40 °C while no show holds the levels, the face dims and slows as in battery mode | `tablet_relay.py`; face `main.js` |
+| P-3 | Remote power-off: **not now** | — |
+
+**"A touch wakes it"** applies to a dimmed face; once the screen is off (`lockNow`), a touch reaches
+nothing. Samsung's *Double tap to turn on screen* would make a double tap wake it, where the tablet
+has that setting: to check at the tablet. The side key always does.
+
+**The side key, before 0.5.0** (the user: "isn't working as expected while our app is running").
+Read from the code and §7's bench probe, not yet watched on the robot's tablet:
+- **Long press: did nothing.** `LOCK_TASK_FEATURE_NONE` blocks the power menu, and Samsung's default
+  (`power_button_long_press` = `103`) sends the hold to the assistant, which lock task also blocks. Fixed by P-1.
+- **Short press: should turn the screen off and on**, and lands straight on the face, because lock task
+  without `LOCK_TASK_FEATURE_KEYGUARD` shows no lock screen. Nothing in the app overrides it:
+  `FLAG_KEEP_SCREEN_ON` and *stay on while plugged in* only stop the screen timing out. If a short
+  press misbehaves at the tablet, what it does is to be watched there with the user, not guessed.
+
+### The review of 2026-10-20
+
+The punch list asked again for the tablet: low energy when idle, battery care, what an e-stop does to it, a
+deliberate power-off or restart for long shutdowns, and recovery from afar. Most of §1–§8 still stands. This
+section says what has been built since, what is still missing, and what needs a decision.
+
+### Built since 2026-10-09
+
+| item | where |
+|---|---|
+| **Power-on step 4**: the app shows a waiting page and retries until the dashboard answers (it no longer sticks on "Webpage not available") | `KioskActivity.kt`; kiosk README |
+| **Keep the screen on** as a setting, through the bridge's `keepAwake()` | Head & face page; `main.js` |
+| **Brightness and volume** through the bridge (`setBrightness`, `setMediaVolume`), with floors and ceilings no show can pass | `levels.js`; Head & face page |
+| **The tablet's own battery** (level, charging, plugged) and **temperature** (`battery()`, `thermal()`), shown on the dashboard beside the robot's | `KioskBridge.kt`; `tablet_relay.py` |
+| **A dead page recovers by itself**: the app reloads a page that stops checking in (0.3.5), and the page reloads itself on a failed boot or a blank face | `KioskActivity.kt`; `boot.js`, `main.js` |
+| **Battery protection** (charging stops at 80 %) is a setup step | kiosk README, step 5 |
+
+### Still missing
+
+- **No idle tier is built.** The screen stays on all day while the setting is on, and turns off by Android's
+  own timeout when it is off. §1's tiers are still the design.
+- **The power menu is blocked.** The kiosk locks with `LOCK_TASK_FEATURE_NONE`, so §7's manual route (hold
+  the side key → Power off) cannot open the menu. Today the only deliberate power-off is the hardware force
+  restart (hold the side key and volume-down for about 10 s), which restarts rather than powers off.
+- **No restart from afar.** A wedged tablet needs a person at the robot. The device owner *can* call
+  `reboot()`; nothing asks it to.
+- **No remote power-off.** Wireless adb (§7 route a) was never probed.
+
+### What the e-stop does to the tablet (unchanged, restated)
+
+An e-stop opens the contactor, which drops the drive bus. That takes out the mount's charger (§8) and the neck,
+but **not the tablet**: it runs on its own battery and keeps showing the face (the E-stop look and caption).
+§1's rule stands: the face may dim and sleep after **10 minutes** in E_STOP, because PRISM carries "stopped"
+indefinitely and an unattended e-stopped robot would otherwise run the tablet flat.
+
+### Battery care
+
+- **The charge limit stays on** (Battery protection, 80 %). A tablet that lives on the mount's power would
+  otherwise sit at 100 % for days, which ages a lithium cell fastest. Setup step 5 sets it, and the README
+  says how to check it.
+- **Heat:** the dashboard already shows the battery's temperature. Proposed: a warning on the dashboard at
+  **45 °C**, and the page drops to tier 1 (half brightness, 30 fps) above **40 °C** while idle. These are
+  placeholders; the datasheet's limit is not recorded.
+- **Long storage:** power the tablet off if the robot will sit for more than a few days (§7, until PW-1
+  measures the standby drain).
+
+### Decisions needed (answered 2026-10-21: see the top of this section)
+
+| # | decision | recommendation | cost |
+|---|---|---|---|
+| **P-1** | **Allow the power menu in lock task** (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`), plus §7's setup step `power_button_long_press 1`, so a long press on the side key offers Power off and Restart | **yes**: it is the deliberate power-off, by hand, at any time | a new APK (Thor signing), one setup line |
+| **P-2** | **Restart the tablet from the dashboard**: a guarded button ("Restart the tablet", confirm, never during a show) that makes the device owner call `reboot()`. It is delivered **two ways**: through the page's bridge when the page is alive, and through the app's own updater check (every 10 min, native code) when it is not. So it works on a tablet whose WebView is dead. | **yes**: the one remote lever that survives a dead page | a new APK; a small dashboard change |
+| **P-3** | **Remote power-off** over wireless adb (§7 route a) | **not now**: unprobed, and sleep plus the manual menu (P-1) cover daily use and storage | — |
+| **P-4** | **Build the idle tiers, starting with tier 3 only**: screen off after **30 min** idle (robot `OFF` or `SAFE_IDLE`, no show, no touch), back on at a touch, a state change or a show. Tiers 1–2 later, after PW-1's numbers. | **yes**: the biggest saving for the least risk | page and app changes; Face & HRI only for the sleeping face (tier 2, later) |
+| **P-5** | **Heat thresholds** (45 °C warning, 40 °C idle dimming) | **yes, as placeholders**, revisited when the datasheet limit is recorded | dashboard and page |
+
+**Interplay with listening:** a screen-off tablet stops its microphone (the WebView pauses). Today that
+matters only for **Talk**, which needs a touch and so wakes the screen anyway. The wake word is parked
+(2026-10-20); if it returns, P-4's tier 3 must hold off while voice is on, or the robot will not hear its
+name after 30 minutes.

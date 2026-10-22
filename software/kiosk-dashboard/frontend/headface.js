@@ -69,6 +69,10 @@
       <h2 class="mt">TABLET</h2>
       <div class="hf-row"><label>Kiosk app</label><span id="hfApp">…</span></div>
       <div class="hf-note" id="hfAppNote">The tablet updates its app from the robot by itself, over Wi-Fi, when no show is loaded.</div>
+      <div class="hf-row"><label>Power</label>
+        <button class="iobtn" id="hfSleep">SLEEP TABLET</button><button class="iobtn" id="hfRestart">RESTART TABLET</button></div>
+      <div class="hf-note" id="hfPowerNote"></div>
+      <div class="hf-note">On the robot's power the tablet stays awake. When the robot is switched off or e-stopped it runs on its own battery: the face dims at once, and the screen goes off after 2 minutes (robot off) or 10 minutes (e-stopped). It wakes by itself when the robot's power returns, or with the side key. Hold the side key for Power off or Restart.</div>
 
       <h2 class="mt">SOUND</h2>
       <div class="hf-row"><label for="hfAirplay">AirPlay</label><input type="checkbox" id="hfAirplay">
@@ -192,6 +196,10 @@
     el("hfTrackLive").textContent = line + (f && f.why ? ` Head: ${f.why}.` : "");
   }
   setInterval(() => { if (view.classList.contains("active")) loadTracker(); }, 3000);
+  setInterval(async () => {
+    if (!view.classList.contains("active")) return;
+    try { renderPower((await getJSON("/api/tablet/sensors")).power); } catch (e) { /* no relay */ }
+  }, 5000);
 
   async function load() {
     loadTracker();
@@ -205,6 +213,7 @@
     let t = null, served = null;
     try { t = await getJSON("/api/tablet/sensors"); } catch (e) { /* no relay */ }
     try { served = await getJSON("/api/kiosk/latest"); } catch (e) { /* this robot serves no build */ }
+    renderPower(t && t.power);
     const a = t && t.app;
     const runs = a ? `the tablet runs ${a.version}` : "the tablet hasn't reported (an app older than 0.3.0, or not connected)";
     const serves = served ? `; the robot serves ${served.versionName || served.versionCode}` : "; the robot serves no build";
@@ -213,6 +222,41 @@
     if (u && u.state) el("hfAppNote").textContent = `Updates: ${u.state}${u.detail ? ` (${u.detail})` : ""}` +
       (u.at ? `, ${Math.max(0, Math.round((Date.now() - u.at) / 60000))} min ago` : "");
   }
+
+  // The tablet's power (notes/design/power-and-shutdown.md §9): its battery and what is wrong with it,
+  // and two levers. Restart asks twice, and the robot refuses it during a show.
+  let noteHeld = 0;                                  // a command's answer stays up for a moment
+  function renderPower(p) {
+    if (Date.now() < noteHeld) return;
+    const n = el("hfPowerNote");
+    const w = (p && p.warnings) || [];
+    n.style.color = w.length ? "var(--warn)" : "";
+    n.textContent = !p || p.level == null ? "The tablet hasn't reported its battery (asleep, or not connected)."
+      : w.length ? w.map((x) => x.text).join(" ")
+      : `${p.plugged ? "On the robot's power" : "On its own battery"}, ${Math.round(p.level)} %` +
+        (p.charging ? ", charging." : p.plugged ? " (charging stops at 80 % to spare the battery)." : ".");
+    setHelp(n, w.length ? w[0].code : null);
+  }
+  async function tabletCommand(cmd) {
+    try {
+      noteHeld = Date.now() + 8000;
+      await getJSON("/api/tablet/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd }) });
+      el("hfPowerNote").textContent = cmd === "sleep" ? "The tablet's screen goes off within 5 s. The side key wakes it."
+        : "The tablet restarts within 5 s and comes back to the face in about a minute.";
+    } catch (e) { el("hfPowerNote").textContent = `Not done: ${e.message}`; }
+  }
+  let restartArmed = null;
+  el("hfSleep").addEventListener("click", () => tabletCommand("sleep"));
+  el("hfRestart").addEventListener("click", () => {
+    const b = el("hfRestart");
+    if (!restartArmed) {
+      b.textContent = "PRESS AGAIN TO RESTART";
+      restartArmed = setTimeout(() => { restartArmed = null; b.textContent = "RESTART TABLET"; }, 4000);
+      return;
+    }
+    clearTimeout(restartArmed); restartArmed = null; b.textContent = "RESTART TABLET";
+    tabletCommand("restart");
+  });
 
   // ---- ambient music (the show-audio lane's API) ------------------------------------------------
   let amb = null;
