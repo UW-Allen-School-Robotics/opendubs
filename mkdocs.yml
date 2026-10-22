@@ -107,8 +107,10 @@ nav:
       - Payload Modules (in development):
           - Scissor Lift Module: build/scissor-lift.md
           - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
+          - Depth Camera Mount: build/depth-camera.md
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md
+      - Stage Display Box (for shows): build/stage-display.md
   - Build & Flash:
       - Flash a StamPLC: flashing-stamplc.md
       - Drive bring-up (channel → ESC → wheel): drive-bringup.md
