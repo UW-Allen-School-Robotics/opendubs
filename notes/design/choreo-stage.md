@@ -80,8 +80,10 @@ its one WebSocket:
 - **The dashboard** (`stage.py`) keeps that state and sends it as `{"type": "show", …}` to every page,
   and to a page that joins later (a reload, a second screen), which then starts in the right place.
 - **The page** maps its clock to the Thor's (the ping/pong above), so show time is
-  `now_on_the_Thor − t0_mono`; it plays the video at `from_s + (show time − t)`, seeks when it is more
-  than 150 ms out, and inside that nudges the playback rate by up to ±3 %. Between videos it is black,
+  `now_on_the_Thor − t0_mono`; it plays the video at `from_s + (show time − t)`. A silent video is
+  seeked when it is more than 150 ms out, and inside that its playback rate is nudged by up to ±3 %. A
+  video that is heard keeps its rate at exactly 1, because any rate change time-stretches the sound and
+  a Pi plays that choppy; it is seeked only past 400 ms, at most every 5 s. Between videos it is black,
   or holds the last frame for `end: hold`. It plays with sound (the video carries the song, as on the
   cast path), falling back to muted if the device refuses autoplay with sound.
 - **Ready** means at least one page is connected (`GET /api/stage` `pages`): none, and a show runs
