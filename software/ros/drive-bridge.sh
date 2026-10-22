@@ -8,4 +8,5 @@ source /opt/ros/jazzy/setup.bash
 #   OPENDUBS_MAX_LIN=0.8 OPENDUBS_MAX_ANG=1.5 ./drive-bridge.sh
 exec python3 /opt/opendubs/ros/drive_bridge.py --ros-args \
   -p max_linear_mps:="${OPENDUBS_MAX_LIN:-0.5}" \
-  -p max_angular_rps:="${OPENDUBS_MAX_ANG:-1.0}"
+  -p max_angular_rps:="${OPENDUBS_MAX_ANG:-1.0}" \
+  -p publish_tf:="${OPENDUBS_ODOM_TF:-true}"

@@ -1,12 +1,13 @@
 [Unit]
-# /cmd_vel → the StamPLC's `DRIVE` command, and its `[ODO]` line → /odom + TF odom→base_link.
+# The base owner's commands (forwarded by base_selector on /opendubs/drive/cmd_vel) → the StamPLC's
+# `DRIVE` command, and its `[ODO]` line → /odom + TF odom→base_link.
 # Speaks UDP 5005 directly; the dashboard is deliberately not in the motion path.
 #
-# Safe to leave enabled. It is inert unless BOTH something publishes /cmd_vel and CH5 is in AUTO —
+# Safe to leave enabled. It is inert unless BOTH a program holds the base (/base/claim) and CH5 is in AUTO —
 # the StamPLC ignores host drive commands otherwise, and its arm gate additionally requires the
 # contactor closed, no e-stop, a live in-band RC link and a stable control loop. Authority is the
 # physical switch, by design (docs/control-authority.md).
-Description=OpenDubs drive bridge (/cmd_vel -> DRIVE, [ODO] -> /odom + TF)
+Description=OpenDubs drive bridge (base owner's commands -> DRIVE, [ODO] -> /odom + TF)
 After=network.target
 StartLimitIntervalSec=0
 
@@ -14,6 +15,10 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+# UDP DDS only: it subscribes to both scans for the people guard, and a long-lived subscriber on
+# shared memory can go deaf (workplan L.10). Deaf would mean blind, which refuses all motion.
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
 # Top speed is UNMEASURED (punch list C2). Set these once it is known — getting them wrong does
 # not make the robot unsafe, it makes a planner's velocity model wrong.
 Environment=OPENDUBS_MAX_LIN=0.5

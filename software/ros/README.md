@@ -124,7 +124,7 @@ Interim bridge — the long-term clean path is **micro-ROS on the ESP32-S3** (se
 Verify: `ros2 topic echo /diagnostics --once` · `ros2 service call
 /robot/i2c_scan std_srvs/srv/Trigger`.
 
-## Drive bridge (/cmd_vel → DRIVE, [ODO] → /odom)
+## Drive bridge (base commands → DRIVE, [ODO] → /odom)
 
 `drive_bridge.py` (`opendubs-drive-bridge.service`) speaks the StamPLC's UDP 5005 directly. It
 sends motion commands, so it is strict about **who the StamPLC is** (`plc_peer.py`, tests in
@@ -162,8 +162,28 @@ sudo systemctl daemon-reload
 
 `systemctl status opendubs-drive-bridge` then reads *start condition unmet*, and provisioning still
 enables and "restarts" it cleanly. To turn it on: `sudo touch /etc/opendubs/drive-bridge.enabled &&
-sudo systemctl restart opendubs-drive-bridge`. Nothing on the robot consumes `/odom` or publishes
-`/cmd_vel` yet, so holding it costs nothing; the dashboard's odometry card reads `[ODO]` directly.
+sudo systemctl restart opendubs-drive-bridge`. The dashboard's odometry card reads `[ODO]`
+directly, so holding the bridge off costs nothing but `/odom` and ROS motion.
+
+`OPENDUBS_ODOM_TF=false` in a drop-in stops the bridge publishing TF `odom → base_link` (for a
+stack that fuses its own); `/odom` keeps publishing.
+
+## Base ownership (who drives in AUTO)
+
+The base has one software owner at a time. `base_selector.py` (`opendubs-base-selector.service`)
+holds the lease: an owner claims on `/base/claim`, renews within its `ttl_s` (at most 5 s), sends
+`Twist` on `/base/<owner>/cmd_vel`, and releases on `/base/release`; `/base/owner` says who holds it.
+Only the holder's commands are forwarded, to `/opendubs/drive/cmd_vel`, and `drive_bridge` refuses all
+motion if anything but the selector publishes there. A claim never takes the base from a live holder;
+a dead one frees it when its lease runs out, and `{"owner": "*"}` on `/base/release` is the operator's
+release. The dance tracker (`dance_tracker.py`) is the owner `show`.
+
+Before any command reaches the StamPLC, `drive_bridge`'s people guard (`people_guard.py`) refuses motion
+toward anything within 0.5 m of the robot's outline, from both LIDARs, and refuses everything when a
+scan is stale. The firmware gates (AUTO, a held deadman, the 0.35 ceiling) still apply on top.
+
+The public contract for students and other stacks is the docs page
+[Navigation interface](../../docs/interfaces/navigation.md); keep the two in step.
 
 ## /scan watchdog
 
