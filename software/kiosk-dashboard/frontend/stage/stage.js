@@ -39,7 +39,10 @@
   const hud = document.getElementById("hud"), video = document.getElementById("video");
   const BPM = Number(q.get("bpm")) || 99.4, BEAT_MS = 60000 / BPM;
   let show = null;                                  // the show's timing, from the Thor
-  const SEEK_S = 0.15, NUDGE = 0.03;                // past 150 ms: seek; inside: a small rate change
+  const SEEK_S = 0.15, NUDGE = 0.03;                // a silent video: past 150 ms, seek; inside, a small rate change
+  // a video heard (it carries the music): the rate stays 1, because any change time-stretches the sound,
+  // which a Pi plays choppy; a seek only past 400 ms, and at most every 5 s
+  const HEARD_SEEK_S = 0.4, HEARD_GAP_MS = 5000;
   const BONE = "#eeecde", DARK = "#0e121c";
   const card = document.getElementById("card");
   const DEVICE_URL = "http://127.0.0.1:8095";        // a stage Pi's own status service (the Tablet lane's image)
@@ -173,8 +176,12 @@
     }
     keepVideo.dry = 0;
     const err = video.currentTime - want;
-    if (Math.abs(err) > SEEK_S) { video.currentTime = want; video.playbackRate = 1; keepVideo.seeks = (keepVideo.seeks || 0) + 1; }
-    else video.playbackRate = 1 - Math.max(-NUDGE, Math.min(NUDGE, err * 0.5));
+    const heard = !video.muted;
+    let rate = heard ? 1 : 1 - Math.max(-NUDGE, Math.min(NUDGE, err * 0.5));
+    if (heard ? Math.abs(err) > HEARD_SEEK_S && now - (keepVideo.seekAt || 0) > HEARD_GAP_MS : Math.abs(err) > SEEK_S) {
+      video.currentTime = want; rate = 1; keepVideo.seekAt = now; keepVideo.seeks = (keepVideo.seeks || 0) + 1;
+    }
+    if (video.playbackRate !== rate) video.playbackRate = rate;
     keepVideo.err = err;
     keepVideo.synced = now;
     return st;
