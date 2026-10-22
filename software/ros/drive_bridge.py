@@ -173,8 +173,9 @@ class DriveBridge(Node):
 
     # ---- /cmd_vel → DRIVE ------------------------------------------------------------------
     def _on_cmd(self, msg: Twist) -> None:
-        # Mecanum: x forward, y left, z yaw. The firmware's mixer owns wheel assignment and this
-        # robot's handedness (robot_config.h), so send intent, capped (drive_scale.py), and no more.
+        # Mecanum: x forward, y left, z yaw (ROS's signs, kept here so the people guard watches the
+        # side the robot is really moving toward). The firmware's mixer owns wheel assignment and
+        # this robot's handedness (robot_config.h); _send_cmd converts the signs for DRIVE.
         self._cmd = drive_scale.drive_units(msg.linear.x, msg.linear.y, msg.angular.z,
                                             self.max_lin, self.max_str, self.max_ang,
                                             self.auto_cap, self.fw_max)
@@ -239,6 +240,8 @@ class DriveBridge(Node):
         elif self._refusing:
             self.get_logger().info("people guard: clear, moving again")
             self._refusing = ""
+        # ROS's +left / +counter-clockwise are the firmware's -right / -clockwise (drive_scale.to_firmware).
+        fwd, rot, str_ = drive_scale.to_firmware(fwd, rot, str_)
         try:
             self._sock.sendto(f"DRIVE {fwd:.3f} {rot:.3f} {str_:.3f}\n".encode(), self._peer)
         except OSError as e:

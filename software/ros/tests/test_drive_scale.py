@@ -48,6 +48,29 @@ class CapTest(unittest.TestCase):
         self.assertAlmostEqual(fwd, 1.0)
 
 
+class SignTest(unittest.TestCase):
+    """ROS turns left (+wz) and strafes left (+vy); the firmware's DRIVE means right by +rot / +str."""
+    def test_left_and_counter_clockwise_become_negative(self):
+        fwd, rot, strafe = d.to_firmware(*d.drive_units(0.0, 0.4, 1.0, 0.5, 0.4, 1.0))
+        self.assertEqual(fwd, 0.0); self.assertLess(rot, 0); self.assertLess(strafe, 0)
+
+    def test_forward_is_unchanged(self):
+        fwd, rot, strafe = d.to_firmware(*d.drive_units(0.5, 0.0, 0.0, 0.5, 0.4, 1.0))
+        self.assertGreater(fwd, 0); self.assertEqual((rot, strafe), (-0.0, -0.0))
+
+    def test_ros_right_and_clockwise_become_positive(self):
+        _fwd, rot, strafe = d.to_firmware(*d.drive_units(0.0, -0.4, -1.0, 0.5, 0.4, 1.0))
+        self.assertGreater(rot, 0); self.assertGreater(strafe, 0)
+
+    def test_firmware_mix_moves_the_robot_the_way_ros_asked(self):
+        # firmware mix: FL = fwd + str + rot. A ROS strafe LEFT must give FL BACKWARD (wheel <0) and FR
+        # forward, which is a mecanum left strafe before the robot's own kStrafeInvert handedness
+        # correction, the same one the RC path goes through.
+        fwd, rot, strafe = d.to_firmware(*d.drive_units(0.0, 0.4, 0.0, 0.5, 0.4, 1.0))
+        fl, fr, rl, rr = wheels(fwd, rot, strafe)
+        self.assertLess(fl, 0); self.assertGreater(fr, 0); self.assertGreater(rl, 0); self.assertLess(rr, 0)
+
+
 class TrimTest(unittest.TestCase):
     def test_trim_counters_the_bleed(self):
         vx, vy, wz = d.strafe_trim(0.0, 0.1, 0.0, fwd_bleed=0.2, yaw_bleed=0.5)

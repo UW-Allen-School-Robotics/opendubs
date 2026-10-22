@@ -36,7 +36,8 @@ def l1_limit(a, b, c):
 
 
 def drive_units(vx, vy, wz, full_x, full_y, full_w, cap=DEFAULT_AUTO_CAP, fw_max=FW_AUTO_MAX_UNIT):
-    """(fwd, rot, strafe) for `DRIVE`, from a body command in m/s and rad/s.
+    """(fwd, rot, strafe) in DRIVE's range from a body command in m/s and rad/s, STILL IN ROS'S SIGNS
+    (+strafe left, +rot counter-clockwise): to_firmware() converts it for the DRIVE line.
 
     full_* are the speeds at the cap. The result never makes any wheel exceed `cap` of full command."""
     def u(v, full):
@@ -44,6 +45,15 @@ def drive_units(vx, vy, wz, full_x, full_y, full_w, cap=DEFAULT_AUTO_CAP, fw_max
     fwd, strafe, rot = l1_limit(u(vx, full_x), u(vy, full_y), u(wz, full_w))
     k = min(1.0, cap / fw_max) if fw_max > 0 else 0.0
     return fwd * k, rot * k, strafe * k
+
+
+def to_firmware(fwd, rot_ccw, strafe_left):
+    """The firmware's DRIVE sign convention from ROS's (REP 103: +y left, +yaw counter-clockwise).
+
+    The StamPLC's DRIVE <fwd> <rot> <str> takes +rot as ROTATE RIGHT (clockwise from above) and +str as
+    STRAFE RIGHT, the same as its RC sticks (main.cpp: driveMix drives the left wheels forward on
+    +rot; [DRIVE] telemetry reads "+1 right"). So turn and strafe flip; forward does not."""
+    return fwd, -rot_ccw, -strafe_left
 
 
 def strafe_trim(vx, vy, wz, fwd_bleed=0.0, yaw_bleed=0.0):
