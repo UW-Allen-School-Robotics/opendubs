@@ -66,13 +66,15 @@ class Hub:
         op = m.get("op")
         if op == "load":
             self.show = {"id": m.get("id"), "videos": m.get("videos") or [], "beat": m.get("beat"),
-                         "state": "loaded", "t0_mono": None}
+                         "buffer_s": m.get("buffer_s"), "state": "loaded", "t0_mono": None}
         elif op == "start" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="playing", t0_mono=m.get("t0_mono"))
         elif op == "stop" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="stopped", cut=bool(m.get("cut")))
+        elif op == "mute" and self.show and self.show.get("id") == m.get("id"):
+            self.show.update(muted=True)           # the tablet has the music now: the pages play silent
         else:
-            return {"error": f"op must be load, or start/stop for the loaded show — not {op!r}"}
+            return {"error": f"op must be load, or start/stop/mute for the loaded show — not {op!r}"}
         self.control({"type": "show", **self.show})
         return {"ok": True, "pages": len(self.pages)}
 
@@ -80,10 +82,33 @@ class Hub:
         age = None if self.last_frame_at is None else round(time.monotonic() - self.last_frame_at, 2)
         return {"feed": {"hz": round(self.rate, 1), "age_s": age, "status": self.last_status},
                 "pages": len(self.pages), "latency_ms": self.latency_ms,
+                "pages_info": [p["info"] for p in self.pages.values() if p.get("info")],
+                "preload": [p.get("preload") for p in self.pages.values()],   # one per page; None: not reported
+                "stalls": [p["stall"] for p in self.pages.values() if p.get("stall")],
                 "show": None if self.show is None else {k: self.show.get(k) for k in ("id", "state", "t0_mono")}}
 
 
 hub = Hub()
+
+# What a page may say of itself (frontend/stage/stage.js; a stage Pi's own device report folded in):
+# kept per page, newest only, plain values only.
+PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
+               "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
+               "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str,
+               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool}
+
+
+def page_info(raw: dict) -> dict:
+    out = {k: raw[k] for k, t in PAGE_FIELDS.items()
+           if k in raw and isinstance(raw[k], t) and not (t is not bool and isinstance(raw[k], bool))}
+    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound"):
+        if k in out:
+            out[k] = out[k][:80]
+    if "viewport" in out:
+        vp = out["viewport"][:2]
+        out["viewport"] = [int(x) for x in vp if isinstance(x, (int, float)) and not isinstance(x, bool)]
+    out["at"] = round(time.time(), 1)
+    return out
 
 
 def _local(ws: WebSocket) -> bool:
@@ -147,6 +172,18 @@ async def skeleton_page(ws: WebSocket):
                 await ws.send_json({"pong": m["ping"], "t1": t1, "t2": thor_ms()})
             elif isinstance(m.get("latency_ms"), dict):
                 hub.latency_ms = {k: m["latency_ms"].get(k) for k in ("p50", "p95", "n")}
+            elif isinstance(m.get("page"), dict):     # the page on itself: its screen, sound, power (a stage Pi)
+                me["info"] = page_info(m["page"])
+            elif isinstance(m.get("preload"), dict):  # its head start on the show's video (the runner waits)
+                pl = m["preload"]
+                num = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0  # noqa: E731
+                me["preload"] = {"id": str(pl.get("id"))[:80], "ready": pl.get("ready") is True,
+                                 "local": pl.get("local") is True, "buffered_s": num(pl.get("buffered_s")),
+                                 "need_s": num(pl.get("need_s")),
+                                 **({"error": str(pl["error"])[:160]} if pl.get("error") else {})}
+            elif isinstance(m.get("stall"), dict):    # it ran out of video mid-show (the tablet takes the music)
+                me["stall"] = {"id": str(m["stall"].get("id"))[:80], "at_s": m["stall"].get("at_s")
+                               if isinstance(m["stall"].get("at_s"), (int, float)) else None}
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:
@@ -157,6 +194,7 @@ async def skeleton_page(ws: WebSocket):
 @router.get("/api/stage")
 async def stage_state():
     return JSONResponse(hub.view())
+
 
 
 @router.post("/api/stage/show")

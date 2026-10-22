@@ -98,6 +98,74 @@ and cannot be seen from inside it: a phone filming the person and the screen giv
 **Target: under ~150 ms** to look live. On the development machine (a synthetic feed, a desktop browser)
 capture → paint measured 6–9 ms (p50–p95).
 
+## The stage Pi — the standard way onto a screen (decided 2026-10-21)
+
+A Raspberry Pi kept on the robot and plugged into whatever screen there is (a projector, a building's
+video wall, a TV) runs `/stage/` full-screen. The image is the Tablet lane's (`software/stage-pi`, #477).
+It plays the show's video **and the show's music**: the song inside the video (the #449 rule), or the
+song alone when a show has no video. The tablet keeps dialogue.
+
+- **Any screen.** The page never assumes 1920×1080:
+  - the video is letterboxed or pillarboxed to its own aspect (`object-fit: contain`);
+  - the skeletons are placed and scaled inside the video's picture, by its height and never wider than it;
+  - the canvas is sized only when the viewport changes, and capped at 4K pixels on a very large wall.
+- **No screen.** On a Pi with only a speaker, the browser runs on a virtual output and may never draw.
+  The show's media is also kept in step from a 250 ms timer, so the music plays to the show's clock with
+  nothing drawn.
+- **The STAGE READY card**, between shows, shows:
+  - whether the robot is connected (the page's WebSocket);
+  - the screen's resolution (and the mode the Pi reports);
+  - the sound output (USB, HDMI or none, and the device's name);
+  - the clock to the Thor;
+  - an under-voltage warning (now, or since boot).
+
+  Once a show is **armed** (loaded) the screen goes black, and stays black until the show starts. `?card=0`
+  hides the card.
+- **The clock.** The page measures its own offset to the Thor's show clock over its WebSocket (ping/pong,
+  the best of the last 40 round trips, refreshed every 10 s), as show audio does. No chrony is needed on the
+  Pi. The card shows the error bound.
+- **The audio path.** `projector.json` holds the stage's own leads, set by ear at the robot beside the
+  cast's: `stage_audio_lead_s` (USB adapter, HDMI audio or the screen's speakers) and `stage_video_lead_s`
+  (the screen's picture delay). A video carrying the song starts by the audio lead; a picture alone, by the
+  video lead; the song alone, by the audio lead.
+- **The video, like a streaming service (decided 2026-10-21).** The robot's Wi-Fi is solid in the same
+  room, usually fine at 10–25 m in line of sight, and marginal through walls.
+  1. **The box's own copy first.** The stage box keeps copies of the library's videos and songs on its
+     media stick, synced while idle from the robot's existing library routes (`GET /api/library/index`,
+     `GET /api/library/item/<sha256>`, checksum-verified), never while a show is armed or running. The page
+     asks `http://127.0.0.1:8095/media/<sha256>?id=<library id>` and, given a copy, plays it from there:
+     instant, no Wi-Fi involved.
+  2. **Otherwise stream, with a head start.** When the show is armed the page points its video at the robot
+     and lets it buffer from where the show starts. The GO waits until the buffer reaches `stage_buffer_s`
+     (projector.json, 25 s, 5–120). There is one exception: a paused video buffers only so far. Chromium
+     caps it in bytes (about 14 MB measured, which is 14 s of an 8 Mbit/s file and about a minute of a
+     2 Mbit/s show video). So when the browser has stopped loading because it can already play through,
+     the head start it holds counts, provided it is at least 8 s. While playing it keeps reading ahead.
+     - The page reports `{"preload": {id, ready, local, buffered_s, need_s}}`.
+     - The Shows page says "the stage video (buffering, 12 of 25 s)" until every page is ready.
+     - The wait allows up to `STAGE_BUFFER_WAIT_S` (90 s). Past it the stage is dropped and the tablet keeps
+       the music; a show with `video: {required: true}` is refused instead (SHOW_VIDEO_NOT_READY).
+  3. **A stall mid-show is a dropout.**
+     - A page that runs dry for 1.5 s reports `{"stall": {id, at_s}}`.
+     - The runner logs it, mutes the stage pages (`mute`), and the tablet takes the music from the same
+       point. The show never stops for it.
+     - The page catches up on the show's clock when the data returns.
+- **The fallback** is unchanged. If every stage page is gone for about 4 s mid-show, the tablet takes the
+  music over from the same point (it held its copy, silent), and the show goes on.
+
+The contract with the Pi (agreed with the Tablet lane):
+
+| what | where | |
+|---|---|---|
+| device status | `GET http://127.0.0.1:8095/device.json` (CORS `*`, the Private Network Access preflight answered) | `{"device": "stage-pi", "name", "model", "audio_output": usb\|hdmi\|none, "audio_name", "under_voltage_now", "under_voltage_since_boot", "throttled_now" (null when unreadable), "screen": {"connected", "mode"}}` |
+| alive | `POST http://127.0.0.1:8095/alive` every 5 s | from the draw loop, so a page that stops drawing stops checking in. With no screen it is sent from the sync timer instead. The Pi restarts the browser after 30 s of silence |
+| local copies | `HEAD/GET http://127.0.0.1:8095/media/<sha256>?id=<library id>` | 200/206 with byte ranges, or 404; only verified copies. `device.json` adds `"media": {"items", "bytes", "free", "syncing"}` (null without a media stick), shown on the ready card |
+| upward | `{"page": {...}}` every 5 s over `/ws/skeleton` | the device's fields (the screen's flattened to `screen_connected`, `screen_mode`), plus `viewport`, `dpr`, `clock_err_ms`, and `sound` (`on`, or `muted` when the browser refused autoplay with sound). The dashboard keeps the newest per page (`GET /api/stage` → `pages_info`); the projector card reads the first as `outputs.stage.page` |
+| browser | Chromium `--kiosk --autoplay-policy=no-user-gesture-required`, no window size forced | |
+
+In any other browser `device.json` does not answer: the card says "unknown (not a stage device)", and the
+page asks again only once a minute.
+
 ## Getting the page onto the projector (no HDMI unless nothing else works)
 
 To try in this order at the projector (a Nebula P1i, Google TV):

@@ -71,3 +71,48 @@ def test_the_show_timing_reaches_every_page_including_a_late_one():
     assert c.post("/api/stage/show", json={"op": "stop", "id": "other"}).status_code == 400   # not the loaded show
     assert c.post("/api/stage/show", json={"op": "stop", "id": "s1", "cut": True}).json()["ok"]
     assert c.get("/api/stage").json()["show"]["state"] == "stopped"
+
+
+def test_a_page_reports_its_screen_sound_and_power_and_only_those():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        page.send_text(json.dumps({"page": {"device": "stage-pi", "audio_output": "usb", "under_voltage_since_boot": True,
+                                            "screen_connected": True, "screen_mode": "3840x1080@60",
+                                            "viewport": [3840, 1080], "dpr": 1, "clock_err_ms": 0.4, "sound": "on",
+                                            "secret": "x", "under_voltage_now": "yes", "dpr_": True}}))
+        page.send_text(json.dumps({"ping": 1.0}))       # a round trip, so the report has been handled
+        page.receive_text()
+        info = c.get("/api/stage").json()["pages_info"]
+    assert len(info) == 1 and info[0]["audio_output"] == "usb" and info[0]["under_voltage_since_boot"] is True
+    assert info[0]["viewport"] == [3840, 1080] and info[0]["screen_mode"] == "3840x1080@60"
+    assert "secret" not in info[0] and "under_voltage_now" not in info[0]      # unknown, or the wrong type: dropped
+    assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
+
+
+def test_each_pages_head_start_and_stall_are_kept_for_the_runner():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as a, c.websocket_connect("/ws/skeleton") as b:
+        a.send_text(json.dumps({"preload": {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4,
+                                            "need_s": 25, "secret": 1}}))
+        a.send_text(json.dumps({"stall": {"id": "s1", "at_s": 31.5}}))
+        a.send_text(json.dumps({"ping": 1.0}))
+        a.receive_text()
+        b.send_text(json.dumps({"ping": 1.0}))
+        b.receive_text()
+        v = c.get("/api/stage").json()
+    assert sorted(v["preload"], key=lambda p: p is None) == [
+        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0}, None]   # b: not reported
+    assert v["stalls"] == [{"id": "s1", "at_s": 31.5}]
+
+
+def test_mute_silences_the_pages_of_the_loaded_show_only():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    c.post("/api/stage/show", json={"op": "load", "id": "s1", "videos": []})
+    assert c.post("/api/stage/show", json={"op": "mute", "id": "other"}).status_code == 400
+    assert c.post("/api/stage/show", json={"op": "mute", "id": "s1"}).json()["ok"]
+    with c.websocket_connect("/ws/skeleton") as page:            # a page joining now is told it is muted
+        assert json.loads(page.receive_text())["muted"] is True
+
