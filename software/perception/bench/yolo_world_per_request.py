@@ -29,10 +29,10 @@ from ultralytics.utils.ops import scale_boxes
 
 IMGSZ = 640
 CONF = 0.25
-# The detection head's class count is fixed by the last set_classes() (head.nc, head.no), so text
-# features passed per call must always have the same length. Every label set is padded to SLOTS
-# with zero vectors, and detections in padded slots are dropped.
-SLOTS = 16
+# The detection head's class count (head.nc, head.no) is set by set_classes() and must match the
+# number of text features passed. It is set on each call, which is safe because the server runs one
+# model call at a time. Padding to a fixed count does not work: a zero text vector, normalised in
+# FP16, gives NaN scores that NMS then drops along with every real box.
 NAV_LABELS = ["person"]
 REQUESTS = [["bus", "shoe"], ["person", "bus"], ["bus", "shoe"]]  # the last repeats the first
 
@@ -42,12 +42,10 @@ def ms(t0):
     return (time.perf_counter() - t0) * 1000.0
 
 
-def pad(feats):
-    """[1, n, D] text features -> [1, SLOTS, D], zero-filled."""
-    n = feats.shape[1]
-    if n > SLOTS:
-        raise ValueError(f"{n} labels > {SLOTS} slots")
-    return torch.cat([feats, feats.new_zeros(1, SLOTS - n, feats.shape[2])], dim=1)
+def set_head_classes(world, n):
+    head = world.model[-1]
+    head.nc = n
+    head.no = n + head.reg_max * 4
 
 
 def iou(a, b):
@@ -74,15 +72,11 @@ def main(weights):
         ]
     del ref
 
-    # Shared model: navigation's class list and a fixed head of SLOTS classes, set once at startup.
+    # Shared model: navigation's class list, set once at startup.
     shared = YOLO(weights)
     shared.set_classes(NAV_LABELS)
     world = shared.model.to("cuda").eval()
     world.half()
-    head = world.model[-1]
-    world.txt_feats = pad(world.txt_feats)
-    head.nc = SLOTS
-    head.no = SLOTS + head.reg_max * 4
     nav_feats = world.txt_feats.clone()
 
     lb = LetterBox((IMGSZ, IMGSZ), auto=False, stride=32)
@@ -96,15 +90,15 @@ def main(weights):
         was_cached = key in cache
         t0 = time.perf_counter()
         if not was_cached:
-            cache[key] = pad(world.get_text_pe(labels, cache_clip_model=True).to("cuda").half())
+            cache[key] = world.get_text_pe(labels, cache_clip_model=True).to("cuda").half()
         t_text = ms(t0)
 
         t0 = time.perf_counter()
+        set_head_classes(world, len(labels))
         with torch.inference_mode():
             raw = world.predict(x, txt_feats=cache[key])
         raw = raw[0] if isinstance(raw, (tuple, list)) else raw
         det = non_max_suppression(raw, conf_thres=CONF, iou_thres=0.7, max_det=300)[0]
-        det = det[det[:, 5] < len(labels)]  # drop padded slots
         t_det = ms(t0)
 
         boxes = scale_boxes(x.shape[2:], det[:, :4].clone(), bgr.shape[:2]).cpu().numpy()
