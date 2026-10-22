@@ -94,8 +94,10 @@ Read by `opendubs-drive-bridge` and `opendubs-dance-tracker` (`software/ros/driv
 | `OPENDUBS_MAX_LIN` | **0.27** m/s | forward speed at the cap: a 1.5 s burst at the cap, from `/odom`, 2026-10-22 |
 | `OPENDUBS_MAX_STRAFE` | **0.18** m/s | strafe speed at the cap; the same left and right |
 | `OPENDUBS_MAX_ANG` | **0.37** rad/s | turn rate at the cap (0.36 CCW, 0.38 CW) |
-| `OPENDUBS_STRAFE_YAW_BLEED_RIGHT` | **1.46** | strafing RIGHT at 0.18 m/s yawed **−0.262 rad/s** (clockwise, 16.5° in one burst): k = −0.262 / −0.18. Probably mechanical on one side; worth a look |
+| `OPENDUBS_STRAFE_YAW_BLEED_RIGHT` | **0** (off) | strafing RIGHT at 0.18 m/s yawed **−0.262 rad/s** (clockwise, 16.5° in one burst), so k = 1.46. Set to 1.46, the first sway turned 8° the OTHER way: the trim is applied to the commanded strafe, and the base's actual strafe lags it, so the trim overcorrected. Off, the loop held heading within ±2.3°. To come back only if it is rebuilt on the strafe measured from `/odom`. The yaw itself is probably mechanical on one side; worth a look |
 | other strafe trims (`_YAW_BLEED_LEFT`, `_FWD_BLEED_*`) | 0 (unset) | strafing left yawed under 2°/s; the forward creep was 4% left, 9% right. All under the point where the loop's lag matters (about 2 cm or 3° over a 2 s sway) |
+| `OPENDUBS_MIN_LIN`, `OPENDUBS_MIN_ANG` | 0 (off) until tuned | the dance tracker's least settling correction (m/s, rad/s): without it opendubs2 stopped 3.8 cm short of home after a sway, a correction too small to beat static friction. Applies only while settling, beyond 1.5 cm or 1.5° |
+| `OPENDUBS_K_LIN`, `OPENDUBS_K_ANG` | 1.5 (unset) | the dance tracker's gains, 1/s |
 
 ### Robot-side state that turns features on (per robot, not in the repo)
 

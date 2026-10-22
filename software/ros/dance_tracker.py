@@ -29,6 +29,11 @@ the show runs without its base moves.
 Command = feed-forward + gain x error (in the body frame), plus an optional per-robot strafe trim,
 limited to the software speed cap the same way drive_bridge limits it (drive_scale.py): it never asks
 for more than the cap. A strafe that bleeds forward or yaws is pulled back by the error terms.
+A small correction can stall on static friction (opendubs2 stopped 3.8 cm short of home after a
+sway), so while SETTLING (no feed-forward on that axis) a correction for more than SETTLE_M or
+SETTLE_RAD is raised to at least OPENDUBS_MIN_LIN (m/s) or OPENDUBS_MIN_ANG (rad/s), per robot in
+/etc/opendubs/base.env; 0, the default, turns it off. Never during a move: there a raised command
+could push the base further past a target it is already ahead of.
 It never chases: if the error passes 0.3 m or 20 deg (a people-guard stop, a slip) it HOLDS the
 base still and says so, rather than lunging back. A target older than 250 ms, a stale /odom, or
 /dance/stop sends one zero Twist and then nothing, so drive_bridge and the firmware stop too.
@@ -48,7 +53,9 @@ SHOW_IDLE_S = 60.0             # a run with no target for this long gives the ba
 CLAIM_TTL_S = 3.0
 ODOM_STALE_S = 0.3
 HOLD_M, HOLD_RAD = 0.3, math.radians(20)
-K_LIN, K_ANG = 1.5, 1.5          # 1/s: close a 10 cm error at 15 cm/s, within the cap
+K_LIN, K_ANG = 1.5, 1.5          # 1/s: close a 10 cm error at 15 cm/s, within the cap; per robot as
+                                 # OPENDUBS_K_LIN / OPENDUBS_K_ANG in /etc/opendubs/base.env
+SETTLE_M, SETTLE_RAD = 0.015, math.radians(1.5)   # closer than this, the minimum command stops
 
 
 def wrap(a):
@@ -70,15 +77,24 @@ def body_error(target, current):
     return (c * dx - s * dy, s * dx + c * dy, wrap(target[2] - current[2]))
 
 
-def command(err, ff, full_x, full_y, full_w, k_lin=K_LIN, k_ang=K_ANG, fwd_bleed=(0.0, 0.0), yaw_bleed=(0.0, 0.0)):
+def command(err, ff, full_x, full_y, full_w, k_lin=K_LIN, k_ang=K_ANG, fwd_bleed=(0.0, 0.0), yaw_bleed=(0.0, 0.0),
+            min_lin=0.0, min_ang=0.0):
     """(vx, vy, wz) = feed-forward + gain x error, with the strafe trim, never past the software cap.
 
     full_* are the speeds at the cap (drive_scale.py). The result is scaled, keeping its direction, so
     that forward + strafe + turn, each in units of its full scale, stay within 1: what drive_bridge
-    would allow, so the tracker never asks for more than the cap."""
+    would allow, so the tracker never asks for more than the cap.
+
+    min_lin / min_ang (0 = off): while settling, a correction beyond SETTLE_M / SETTLE_RAD is raised
+    to at least this speed, keeping its direction, so it overcomes static friction."""
     vx = ff[0] + k_lin * err[0]
     vy = ff[1] + k_lin * err[1]
     wz = ff[2] + k_ang * err[2]
+    v = math.hypot(vx, vy)
+    if min_lin > 0 and ff[0] == ff[1] == 0.0 and math.hypot(err[0], err[1]) > SETTLE_M and 0 < v < min_lin:
+        vx, vy = vx * min_lin / v, vy * min_lin / v
+    if min_ang > 0 and ff[2] == 0.0 and abs(err[2]) > SETTLE_RAD and abs(wz) < min_ang:
+        wz = math.copysign(min_ang, wz)
     vx, vy, wz = drive_scale.strafe_trim(vx, vy, wz, fwd_bleed, yaw_bleed)
     ux, uy, uw = drive_scale.l1_limit(vx / full_x if full_x > 0 else 0.0,
                                       vy / full_y if full_y > 0 else 0.0,
@@ -112,6 +128,10 @@ def main():
     wmax = float(os.environ.get("OPENDUBS_MAX_ANG", "1.0"))
     fwd_bleed = drive_scale.bleed_from_env(os.environ, "FWD")    # (left, right)
     yaw_bleed = drive_scale.bleed_from_env(os.environ, "YAW")
+    min_lin = float(os.environ.get("OPENDUBS_MIN_LIN", "0") or 0)
+    min_ang = float(os.environ.get("OPENDUBS_MIN_ANG", "0") or 0)
+    k_lin = float(os.environ.get("OPENDUBS_K_LIN", "") or K_LIN)
+    k_ang = float(os.environ.get("OPENDUBS_K_ANG", "") or K_ANG)
     st = {"odom": None, "odom_t": None, "origin": None, "seq": 0, "target": None, "target_t": None,
           "mode": "idle", "moving": False, "guard": "blind", "guard_why": "no guard state yet", "err": (0, 0, 0),
           "holder": None, "active": False, "active_t": 0.0}
@@ -203,7 +223,8 @@ def main():
                          "off the target, more than the limit; not chasing it")
             halt("holding")
             return
-        vx, vy, wz = command(err, ff, vmax, smax, wmax, fwd_bleed=fwd_bleed, yaw_bleed=yaw_bleed)
+        vx, vy, wz = command(err, ff, vmax, smax, wmax, k_lin, k_ang, fwd_bleed=fwd_bleed, yaw_bleed=yaw_bleed,
+                             min_lin=min_lin, min_ang=min_ang)
         tw = Twist(); tw.linear.x, tw.linear.y, tw.angular.z = vx, vy, wz
         cmd.publish(tw)
         st["moving"] = True
@@ -236,7 +257,7 @@ def main():
     node.create_timer(0.05, tick)
     node.create_timer(0.2, report)
     log.info(f"dance tracker: at the cap {vmax} m/s forward, {smax} m/s strafe, {wmax} rad/s; strafe trim "
-             f"(left, right) fwd {fwd_bleed}, yaw {yaw_bleed}; hold beyond {HOLD_M} m / "
+             f"(left, right) fwd {fwd_bleed}, yaw {yaw_bleed}; gains {k_lin}, {k_ang} /s; settle minimum {min_lin} m/s, {min_ang} rad/s; hold beyond {HOLD_M} m / "
              f"{math.degrees(HOLD_RAD):.0f} deg")
     try:
         rclpy.spin(node)

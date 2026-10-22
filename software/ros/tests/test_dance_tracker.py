@@ -44,6 +44,23 @@ class CommandTest(unittest.TestCase):
         _, _, wz_r = d.command((0.0, 0.0, 0.0), (0.0, -0.05, 0.0), 1.0, 1.0, 1.0, yaw_bleed=(0.0, 1.46))
         self.assertEqual(wz_l, 0.0); self.assertAlmostEqual(wz_r, 1.46 * 0.05)
 
+    def test_settling_overcomes_static_friction(self):
+        # 3 cm short of home, no feed-forward: 1.5 x 0.03 = 0.045 m/s is raised to the minimum, same direction
+        vx, vy, _ = d.command((0.03, 0.0, 0.0), (0.0, 0.0, 0.0), 1.0, 1.0, 1.0, min_lin=0.07)
+        self.assertAlmostEqual(vx, 0.07); self.assertEqual(vy, 0.0)
+        vx, vy, _ = d.command((-0.02, 0.02, 0.0), (0.0, 0.0, 0.0), 1.0, 1.0, 1.0, min_lin=0.07)
+        self.assertAlmostEqual(math.hypot(vx, vy), 0.07); self.assertAlmostEqual(vx, -vy)
+        _, _, wz = d.command((0.0, 0.0, math.radians(-3)), (0.0, 0.0, 0.0), 1.0, 1.0, 1.0, min_ang=0.10)
+        self.assertAlmostEqual(wz, -0.10)
+
+    def test_minimum_command_stays_out_of_the_way(self):
+        # off by default; not inside the settle band; never during a move; never past the cap
+        self.assertAlmostEqual(d.command((0.03, 0, 0), (0, 0, 0), 1.0, 1.0, 1.0)[0], 1.5 * 0.03)
+        self.assertAlmostEqual(d.command((0.01, 0, 0), (0, 0, 0), 1.0, 1.0, 1.0, min_lin=0.07)[0], 1.5 * 0.01)
+        self.assertAlmostEqual(d.command((-0.02, 0, 0), (0.05, 0, 0), 1.0, 1.0, 1.0, min_lin=0.07)[0], 0.02)
+        vx, _, wz = d.command((0.03, 0, math.radians(3)), (0, 0, 0), 0.05, 0.05, 0.08, min_lin=0.07, min_ang=0.10)
+        self.assertLessEqual(abs(vx) / 0.05 + abs(wz) / 0.08, 1.0 + 1e-9)
+
     def test_holds_rather_than_chases(self):
         self.assertTrue(d.over_limit((0.31, 0.0, 0.0)))
         self.assertTrue(d.over_limit((0.0, 0.0, math.radians(21))))
