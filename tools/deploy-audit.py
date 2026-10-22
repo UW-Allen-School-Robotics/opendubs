@@ -44,6 +44,7 @@ MAP = [
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
+    ("description/opendubs",                    "/opt/opendubs/description",                    SYNC),  # deploy-all.sh; opendubs.urdf
     ("software/stack",                          "/opt/opendubs/stack",                          SYNC),
     ("software/face-web",                       "/opt/opendubs/face-web",                       SYNC),  # deploy.sh, /face/
     ("software/voice",                          "/opt/opendubs/voice",                          SYNC),  # deploy-all.sh; run by stack/voice
