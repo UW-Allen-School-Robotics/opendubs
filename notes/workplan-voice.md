@@ -55,7 +55,20 @@ robot from `voice.env`).
 
 ---
 
-## The wake phrase, "Hey OpenDubs"
+## The wake phrase, "Hey OpenDubs" — PARKED
+
+**Parked on 2026-10-20 by the project team, and off by default since 2026-10-22.** After the
+"Hey OpenDubs" deploy the page's self-test hit, but a live "hey open dubs" at a normal distance got
+0 of 3, even at speech peaks around −11 dBFS. On 2026-10-22 the face's tracker stalled while the
+spotter's worker kept failing to load beside it, so wake was switched off on opendubs2
+(`OPENDUBS_VOICE_WAKE=0`) and is now off unless a robot sets it to 1. Talk and status by voice
+carry on. The design below stays as the record of what was built and learned.
+
+**The open question for later: voice input in a crowd.** Demos will often be in crowds, not a quiet
+room, so voice-in may need rethinking altogether rather than more tuning. Options to weigh, none
+decided: a microphone array with beamforming (the sketch under "Later" below); a presenter's
+wireless or lapel microphone; a physical push-to-talk button on the robot; an operator "listen"
+control on the dashboard; other wake-word approaches.
 
 Brought forward on 2026-10-19 by the project team, ahead of latency work; it is part of phase 1.
 **Talk stays** as the fallback, and for a noisy room. The phrase was "hey dubs" until 2026-10-20;
@@ -89,7 +102,7 @@ page change), because about six phonemes was too short to spot at a normal dista
   off, which includes every show.
 - **Indicators**: a hollow white ring while the page listens locally; the red REC dot only while
   audio is being sent.
-- **Switches**: `OPENDUBS_VOICE_WAKE` (default on); `OPENDUBS_VOICE_WAKE_KEYWORDS` retunes the
+- **Switches**: `OPENDUBS_VOICE_WAKE` (default off while parked; 1 turns it on); `OPENDUBS_VOICE_WAKE_KEYWORDS` retunes the
   spotter from the robot without a page change (#399, open). The turn log's `uplink_x` (#417)
   flags a page sending more than one stream.
 
@@ -185,9 +198,7 @@ covers the left-out list and the stale-data cases.
 ## Next, in order
 
 1. **#402** (speech rules) merged and deployed.
-2. **V-7** in normal use, read from `wake_hits` and the turn log; retune the keyword line with #399
-   if it is too eager or too deaf.
-3. **The persona eval set** (2.5 below), so a model or persona change cannot quietly bring back "I
+2. **The persona eval set** (2.5 below), so a model or persona change cannot quietly bring back "I
    don't understand" or an offer of motion.
 
 ## Later: hardening
