@@ -18,7 +18,8 @@ Keys and signing on the Thor: [software/stack/firmware-signing/](../../../softwa
 ECDSA P-256 over SHA-256 of `"OPENDUBS-FW-SIG-1" \0 <board> \0 <image>`. The signature is detached, in
 DER, at most `OTA_SIG_MAX` bytes, and served as `<image URL>.sig`. Because the board name is inside
 the signature, an image signed for one board fails on another. That matters: the StamPLC and the Dial
-are both ESP32-S3s, so a StamPLC image would otherwise boot on the Dial and strand it. Board names:
+are both ESP32-S3s, so a StamPLC image would otherwise boot on the Dial and break its updates until
+someone fits a USB cable. Board names:
 `stamplc`, `neck`.
 
 ## Linking it into a firmware
@@ -57,10 +58,10 @@ chunks yourself.
 
 | | StamPLC | neck Dial |
 |---|---|---|
-| recovery if updates break | USB, on the robot | USB **at a desk**, with the head opened (no cable on the robot) |
+| recovery if updates break | USB, on the robot | USB, with a cable fitted for the visit (the Dial normally runs without one) |
 | bad signature, enforcing | reject, keep running | reject, keep running |
 | no trusted key in the build | rejects everything | **must not build**: `static_assert(OTA_KEY_COUNT > 0)` unless report-only |
-| self-test FAILED (the check is broken on this board) | rejects everything | **report-only**: installs anyway and reports `otaverify=BROKEN` loudly. A verify bug must never strand it |
+| self-test FAILED (the check is broken on this board) | rejects everything | **report-only**: installs anyway and reports `otaverify=BROKEN` loudly. A verify bug must never cost a cable visit |
 | report-only build (`-DOTA_SIG_REPORT_ONLY`) | not used | the bootstrap build only: checks, reports, installs anyway |
 
 Nobody else can trigger report-only behaviour. It comes either from the build (the report-only flag)

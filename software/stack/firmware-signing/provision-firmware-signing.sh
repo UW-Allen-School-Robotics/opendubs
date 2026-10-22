@@ -47,7 +47,7 @@ case "${1:-}" in
     newkey "$KS/ota.key"; pub_of "$KS/ota.key" "$KS/ota.pub.der"
     echo "-- created the firmware-signing key, id $(keyid "$KS/ota.pub.der")"
     echo "   BACK IT UP NOW (README.md, step 2). Without it, the StamPLC can only be updated over USB,"
-    echo "   and the neck Dial, which has no USB cable on the robot, only at a desk."
+    echo "   and the neck Dial, which normally runs without a cable, only after a visit to fit one."
     echo "   Then commit its PUBLIC half as firmware/common/ota_verify/keys/$(keyid "$KS/ota.pub.der").der (step 3)."
     ;;
   --import)

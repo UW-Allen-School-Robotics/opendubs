@@ -40,7 +40,7 @@ PER_ROBOT = "per-robot"  # expected to differ; report, never auto-sync
 MAP = [
     ("firmware/rc_serial_probe/src",            "/opt/opendubs/rc_serial_probe/src",            SYNC),
     ("firmware/common",                         "/opt/opendubs/common",                         SYNC),  # deploy-all.sh; the shared signed-update check
-    ("firmware/rc_serial_probe/src/main.cpp",   "/opt/opendubs/rc_serial_probe/src/main.cpp",   PER_ROBOT),
+    ("firmware/rc_serial_probe/src/robot_config.h", "/opt/opendubs/rc_serial_probe/src/robot_config.h", PER_ROBOT),  # never in the repo
     ("firmware/rc_serial_probe/platformio.ini", "/opt/opendubs/rc_serial_probe/platformio.ini", PER_ROBOT),
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),

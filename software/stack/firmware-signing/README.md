@@ -48,7 +48,7 @@ Run these from the dev machine, in this order, with someone at the robot.
    ssh -t opendubs2 sudo /opt/opendubs/stack/firmware-signing/provision-firmware-signing.sh
    ```
 2. **Back up the key.** Do this before anything else. Without it, the StamPLC can only be updated over
-   USB, and the neck Dial, which has no USB cable on the robot, only at a desk with the head opened:
+   USB, and the neck Dial, which normally runs without a USB cable, only after a visit to fit one:
    ```bash
    ssh opendubs2 'sudo tar -C /etc/opendubs/firmware-signing -cf - ota.key' > ~/opendubs-firmware-signing.tar
    ```
@@ -87,7 +87,7 @@ rm ~/opendubs-firmware-signing.tar
 
 ## Rotate the key
 
-The order matters, because the Dial can't be reached if it ends up trusting only a key we don't use.
+The order matters: a Dial that ends up trusting only a key we don't use needs a visit with a USB cable.
 
 1. `sudo provision-firmware-signing.sh --next` creates the next key. Back it up.
 2. Commit its public half **beside** the current one in `firmware/common/ota_verify/keys/` (as in
@@ -110,7 +110,7 @@ The way back is USB:
 2. Reflash each board over USB. Neither USB path checks signatures, because physical access is the
    root of trust.
    - **The StamPLC:** on the robot, with `/opt/opendubs/rc_serial_probe/flash-from-thor.sh`.
-   - **The Dial:** at a desk, with the head opened (`firmware/neck_dial/README.md`).
+   - **The Dial:** with a USB cable fitted for the visit (`firmware/neck_dial/README.md`).
 3. Import the new key on every other robot.
 
 The backup, and a rotation that never drops a key we hold, exist so that this never happens to a Dial.

@@ -3,15 +3,14 @@
 **This file is a BACKUP, not a source.** These values belong to one physical robot and must never
 be copied into another, nor flashed at a robot without verifying them on that robot.
 
-The values live as `static constexpr` in the robot's own copy of `rc_serial_probe/src/main.cpp`,
-which is not the repo's copy. `deploy-all.sh` never writes that file: it is on
-`tools/deploy-audit.py`'s `PER_ROBOT` list, which the deploy reads. They can still be lost by a hand
-copy, by flashing a repo checkout over USB, or by reflashing the Thor. This file is the copy to restore
-from.
+The drive values live in **`rc_serial_probe/src/robot_config.h` on the robot**: the per-robot header
+`main.cpp` includes, made from the committed `src/robot_config.h.example`. It is never committed and
+never deployed (`tools/deploy-audit.py` lists it as `PER_ROBOT`, which the deploy reads), and
+`main.cpp` is an ordinary deployed file. Until 2026-10 the values sat inline in each robot's own
+`main.cpp`, and `tools/make_robot_config.py` moves them from such a file. The header can still be lost
+by reflashing the Thor, so this file is the copy to restore from.
 
-The real fix is to move them out of committed source into NVS. The firmware already does this for
-one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`), set by the
-`RCCAL` host command. That is the template.
+Further still, the values could move into NVS, as the RC map has (`rccfg`, set by `RCCAL`).
 
 ---
 
@@ -20,7 +19,7 @@ one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`)
 Read from `/opt/opendubs/rc_serial_probe/src/main.cpp` on 2026-10-01, after recovering the drive
 signs and verifying them by driving.
 
-### Drive — `main.cpp` (a per-robot file; deploys skip it)
+### Drive — `src/robot_config.h` (per robot; deploys skip it)
 
 | Constant | Value | Notes |
 |---|---|---|
@@ -109,13 +108,9 @@ Both offsets are measured from `base_link`, the centre of the wheel rectangle (w
 
 ## Restoring after an accidental overwrite
 
-```sh
-# on the robot, patching rather than copying — the repo's main.cpp has neither value
-sudo sed -i 's/kDriveInvert\[4\]   = {1, 1, 1, -1}/kDriveInvert[4]   = {-1, -1, 1, -1}/' \
-  /opt/opendubs/rc_serial_probe/src/main.cpp
-# kStrafeInvert does not exist in the repo at all — re-add it and apply it in driveMix()
-sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh
-```
+Recreate `/opt/opendubs/rc_serial_probe/src/robot_config.h` from `src/robot_config.h.example`, with
+the values in the tables above (all of them: the example's values are not this robot's), then
+`sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. A robot without the file refuses to build.
 
 Then **verify by driving** rather than trusting this file: forward, rotate, and strafe in *both*
 directions, wheels clear of the floor. A sign error that happens to look right one way is the one

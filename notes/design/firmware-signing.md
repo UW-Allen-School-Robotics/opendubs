@@ -39,13 +39,14 @@ unchanged, and it uses only mbedTLS's `md`/`pk` calls, which are the same in 2.2
   because both would sit on the same Thor.
 - What per-board keys *would* prevent is a cross-board install. The board name in the signature
   prevents exactly that. Both boards are ESP32-S3s: without it, a correctly signed StamPLC image sent
-  to the Dial would pass the check, boot, and strand a board that has no USB cable.
+  to the Dial would pass the check, boot, and break the Dial's updates until someone fits a USB
+  cable, which it normally runs without.
 
 **The public key is committed.** It isn't secret. Committing it means the Dial, which is built on a
 laptop, and the StamPLC, built on the Thor, compile in the same reviewed key, and its id is in the
 repository's history. Trusting a new key is a reviewed change.
 
-**Fail closed, except where failing closed would strand a board.**
+**Fail closed, except where failing closed would cost a USB visit.**
 
 - A build with no key rejects every update; the Dial's won't even build.
 - A failed self-test rejects everything on the StamPLC, which has USB. On the Dial it falls back to
@@ -82,7 +83,8 @@ repository's history. Trusting a new key is a reviewed change.
 
   If anything goes wrong in the middle, every board still trusts a key we hold.
 - **A lost key** can't be recovered. The way back is USB: on the robot for the StamPLC
-  (`flash-from-thor.sh`), at a desk for the Dial. Both are made near-impossible by the backup, by
+  (`flash-from-thor.sh`), and for the Dial with a USB cable fitted for the visit (it normally runs
+  without one). Both are made near-impossible by the backup, by
   rotation never dropping a held key, and by the Dial refusing to build without a key.
 
 ## Bootstrap
@@ -97,7 +99,8 @@ repository's history. Trusting a new key is a reviewed change.
 3. Run `sudo ota-from-thor.sh` once. The running firmware predates signing, ignores the `.sig` and
    installs the new image the old way. From then on, it checks every update.
 
-**The Dial.** No USB cable means every step is proven before the next one depends on it:
+**The Dial.** It normally runs without a USB cable, and recovering it means a visit to fit one, so
+every step is proven before the next one depends on it:
 
 1. **Image A: report-only** (`-DOTA_SIG_REPORT_ONLY`). It checks every update and reports the verdict,
    but installs anyway. It's installed by the Dial's current, unsigned OTA, the documented recipe,
@@ -112,8 +115,8 @@ repository's history. Trusting a new key is a reviewed change.
    update must install.
 
 Never put an enforcing image on a Dial whose report-only image hasn't passed step 2. And if B's
-self-test ever fails, B falls back to report-only and says so: a bug in the check cannot strand the
-head.
+self-test ever fails, B falls back to report-only and says so: a bug in the check never costs a
+cable visit.
 
 ## What this does not cover
 

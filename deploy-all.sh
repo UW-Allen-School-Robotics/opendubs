@@ -59,6 +59,16 @@ deploy_sub software/voice           voice     # the voice service's scripts; bui
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
 deploy_sub firmware/common         common    # shared firmware code; rc_serial_probe/lib/ota_verify links here
+# main.cpp used to carry each robot's calibration inline, and deploys skipped it; now it is an
+# ordinary deployed file and the values are in the robot's src/robot_config.h. Before the first such
+# deploy replaces a robot's old main.cpp (one that still defines the values inline), keep that copy,
+# once, so its values can still be moved
+# (firmware/rc_serial_probe/tools/make_robot_config.py). The .pre- name keeps it out of deploys and audits.
+ssh "$HOST" 'd=/opt/opendubs/rc_serial_probe/src
+  if [ -f "$d/main.cpp" ] && grep -q "kDriveInvert\[4\] *=" "$d/main.cpp" \
+     && [ ! -f "$d/robot_config.h" ] && [ ! -f "$d/main.cpp.pre-robot-config" ]; then
+    cp -p "$d/main.cpp" "$d/main.cpp.pre-robot-config" && echo "-- kept the robot s own main.cpp as $d/main.cpp.pre-robot-config"
+  fi'
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
