@@ -32,6 +32,11 @@ Signed-off-by: Your Name <your.email@example.com>
 The sign-off must match the commit's author email. By signing off you certify the DCO for that
 commit, and agree it is licensed under the project's licences (below).
 
+A coding assistant or agent working for a maintainer commits under that maintainer's git identity,
+so its commits are signed off in the maintainer's name, matching the author field. The maintainer
+certifies those commits. Like `AUTHORS`, this is a deliberate exception to the rule that the repo
+names no one.
+
 **CI checks it.** The required "Hygiene checks" fails a pull request with an unsigned commit. It
 checks only commits authored after the requirement started; older history is never rewritten.
 Merge and squash commits that GitHub creates are exempt. To fix an unsigned commit on your branch:
