@@ -12,8 +12,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=emmar
-Environment=HOME=/home/emmar
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
 # Top speed is UNMEASURED (punch list C2). Set these once it is known — getting them wrong does
 # not make the robot unsafe, it makes a planner's velocity model wrong.
 Environment=OPENDUBS_MAX_LIN=0.5
