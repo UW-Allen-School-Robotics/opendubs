@@ -232,8 +232,8 @@ page reads and displays, since that number is the difference between *"teleop fe
 *"the loop is missing 23% of its deadlines"*.
 
 The unit sets `OPENARM_TELEOP_VIEWER=0` and the RMW/FastDDS variables, matching what `openarm-up`
-does; see [the patches directory](https://github.com/UW-Allen-School-Robotics/opendubs/tree/main/software/openarm/patches)
-for why the viewer is off.
+does. The viewer is off because it took about two thirds of the control loop's time, and with it on
+the loop missed around a quarter of its deadlines; the robot runs headless.
 
 It is **`Restart=no`** on purpose: a teleop bridge that resurrects itself after the operator
 stopped it is a session they did not ask for, with an arm attached.
