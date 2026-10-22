@@ -265,6 +265,9 @@ function applySettings(s) {
 const HOT_C = 40, SAVE_FRAME_MS = 30;
 const power = { battery: false, hot: false, save: false, low: false };
 window.facePower = power;                          // read by a harness through devtools
+// Whether a caption is on the face now: the operator's hint (operator.js) sits in the same strip, so
+// it stays away while one shows rather than drawing over it (Face & HRI's review, 2026-10-22).
+window.faceCaptionShowing = () => !!captionNow(performance.now());
 function pollPower() {
   const K = window.OpenDubsKiosk;
   if (!K || typeof K.power !== "function") return;   // a browser, or an app older than 0.5.0

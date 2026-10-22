@@ -30,7 +30,8 @@ export function start({ onRobot }) {
   // small grey type at the bottom; nothing shows on its own, so a show's face is never cluttered.
   const hint = document.getElementById("hint");
   const showHint = () => {
-    if (!hint) return;
+    // Never over a caption: they share the bottom strip, and the caption already says what is going on.
+    if (!hint || (window.faceCaptionShowing && window.faceCaptionShowing())) return;
     hint.classList.add("show");
     clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.remove("show"), HINT_MS);
   };
