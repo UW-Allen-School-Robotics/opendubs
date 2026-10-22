@@ -540,7 +540,27 @@ def caption_line(rs: str, rsd: dict, status_mod) -> str:
         soc = pack.get("soc") if pack.get("present") else None
     except Exception:
         soc = None
-    return state_words.line(state_words.caption(rs, rsd, soc, mode))
+    hold = hold_words(rs, mode)
+    return state_words.line(hold or state_words.caption(rs, rsd, soc, mode))
+
+
+# THE NECK'S HOLD ON THE FACE (Face & HRI's words, 2026-10-22). A held head follows nobody, and a
+# bystander in front of it would take that for a broken tracker; a release is announced before the head
+# is free. "Can move again" states what is true in every case: a released head moves only if something
+# then drives it. No countdown, since one caption must stay true for the whole 3 s. A fault's or an
+# e-stop's own words come first, and the "no words" setting silences these too.
+HOLD_WORDS = {"on": "The head is held still", "releasing": "The head can move again"}
+
+
+def hold_words(rs: str, mode: str):
+    import show_light
+    if mode == "off" or rs in show_light.RESERVED:
+        return None
+    try:
+        import neck_state
+        return HOLD_WORDS.get(neck_state.hold_status()["hold"])
+    except Exception:                       # noqa: BLE001 — words only: none rather than wrong
+        return None
 
 
 def _push_caption(rs: str, rsd: dict, status_mod, with_state: bool) -> None:

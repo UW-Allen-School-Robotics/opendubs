@@ -41,8 +41,10 @@ tilt-limit change. While one is pending, the press belongs to that alone, and th
 No idle timeout (§3).
 
 **A release is announced.** For 3 s after a release the head stays held while the neck's screen says
-"releasing hold" and the dashboard shows a notice; only then may it move. (A face caption as well is
-for Face & HRI to agree.)
+"releasing hold", the dashboard shows a notice and the face's caption says "The head can move again";
+only then may it move. While held, the caption says "The head is held still", so someone in front of a
+face that has stopped following them does not take it for a broken tracker. (Face & HRI's words. No
+countdown: one caption must stay true for the whole 3 s. A fault's or an e-stop's words come first.)
 
 **Always comes back released.** The hold lives in the neck's RAM: a reboot, an OTA or a power cycle
 (an e-stop cuts the neck's power) always starts released.
