@@ -1,0 +1,19 @@
+# The OpenArm two-finger gripper: the tool every robot has today, and the default on both arms.
+# A show with no `tools:` block is a show for this tool on both sides, exactly as before the registry.
+id: openarm_gripper
+name: OpenArm two-finger gripper
+kind: gripper
+mounts: [left, right]
+modes: [equipped]
+# The driver that exists: the runner sends a position through the arm stack, mapped by the robot's own
+# calibration (grippers.py, /etc/opendubs/grippers.yaml).
+output: openarm_gripper
+channels:
+  open: {range: [0, 1], full_stroke_s: 0.5, note: "0 closed, 1 open; full_stroke_s is ASSUMED (sim_preview.GRIP_STROKE_S)"}
+# How a cue's `open: x` (and do: open|close) maps to this tool's channels.
+open_map: {channel: open}
+poses:
+  open: {open: 1}
+  closed: {open: 0}
+  half: {open: 0.5}
+sim: {model: openarm}       # part of the vendored arm model (description/openarm)

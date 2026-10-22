@@ -54,13 +54,14 @@ _SHOW_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import library  # noqa: E402  the show library's index (plan 4.6), beside this file
+import effectors  # noqa: E402  the tool registry: what can be fitted, and the crawling hand's path
 
 FORMAT_VERSION = 1
 EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
 SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE",
-         "DEVICE", "VIDEO")
+         "DEVICE", "VIDEO", "CRAWL")
 # DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
 # the twin drives the base, but the runner refuses any show that uses it on the robot, because the
 # robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
@@ -76,7 +77,7 @@ CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
 CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
 REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
-MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
+MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "CRAWL")
 TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the pan/tilt head, the face and its volume/brightness
 
 # ---- DEVICE: the head's media volume and screen brightness (head protocol v5) -------------------
@@ -325,7 +326,8 @@ SLOT_KEYS = {
     "ARM_L": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
     "ARM_R": {"joints", "pose", "reach", "point_at", "elbow", "standoff", "solved", "solved_for", "elbow_off"},
     # pos is KNOWN so that the old metres form is refused by name, with what replaced it
-    "GRIP_L": {"do", "open", "effort", "pos"}, "GRIP_R": {"do", "open", "effort", "pos"},
+    # pose / set: a fitted tool's named poses and channels (effectors.py); open and do work on every tool
+    "GRIP_L": {"do", "open", "effort", "pos", "pose", "set"}, "GRIP_R": {"do", "open", "effort", "pos", "pose", "set"},
     "HEAD": {"pan", "tilt"},
     "LIFT": {"do", "secs", "ack_pinch"},     # ack_pinch is KNOWN so that it is refused by name
     "SOUND": {"do", "sound", "secs", "output", "role"},
@@ -335,6 +337,8 @@ SLOT_KEYS = {
     "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
     "DEVICE": {"do", "level", "fade_s"},
     "VIDEO": {"do", "video", "from_s", "secs", "end", "output"},
+    # the crawling hand (effectors.py): walk / turn (a pivot) / pause / dance (a finger pattern, standing still)
+    "CRAWL": {"do", "dir", "secs", "dist_m", "to", "heading_deg", "gait", "by_deg", "pattern", "beats"},
 }
 # VIDEO (notes/design/choreo-video.md): a library video (kind `video`) on the projector, on the show's
 # clock. `play` starts it at the cue's time from `from_s` into the file, for `secs` (default: to its
@@ -353,7 +357,7 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device", "video", "can_skip"}
+            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler"}
 # EFFECTORS: the robot's parts a show NEEDS — derived from the slots its cues use, never hand-listed —
 # and the names the robot reports their availability by (the runner's preflight). A show may list in
 # `can_skip:` the parts it can do without: the runner then offers that variant, the show without
@@ -362,7 +366,8 @@ TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clip
 # part is assumed where the twin leaves an unused one: an arm at rest (zero), the head centred, the
 # lift down, a gripper as the sim draws it.
 EFFECTORS = {"ARM_L": "arm_left", "ARM_R": "arm_right", "GRIP_L": "grip_left", "GRIP_R": "grip_right",
-             "LIFT": "lift", "LIGHT": "light", "HEAD": "neck"}
+             "LIFT": "lift", "LIGHT": "light", "HEAD": "neck",
+             "CRAWL": "floor_hand"}         # the crawling hand on the floor (hand_output.py)
 
 
 def variant_key(skip) -> str:
@@ -399,6 +404,10 @@ NOT_EXECUTABLE = {
     "VIDEO": "VIDEO plays on the robot only where the runner has a video output (--video cast,hdmi) and "
              "the projector is ready; otherwise the show runs without it, saying so (a show may say "
              "video: {required: true} to be refused instead)",
+    "CRAWL": "CRAWL plays on the robot only with a floor hand fitted and connected (the runner's --hand) and "
+             "a type with a driver; otherwise the runner refuses the show — or, with floor_hand in can_skip:, "
+             "offers it without the hand on the operator's approval. Moves the real hand has not run before "
+             "play too, and the run names them",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
              "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
@@ -505,6 +514,7 @@ class Show:
         self.audio_override = None      # the operator's run-time output choice; None = as written
         self.video_override = None      # ... and the projector output's (cast | hdmi | off)
         self.skip = frozenset()         # the effectors this run plays WITHOUT (a variant; can_skip)
+        self.fitted_tools = None        # {mount: type} a robot has fitted (effectors.load_fitted); None = the twin
 
     # ---- time ------------------------------------------------------------------------------
     def _music(self, P):
@@ -834,6 +844,23 @@ class Show:
 
         events, music, markers = self._resolve(P)
 
+        # TOOLS (effectors.py). A show with no `tools:` is a show for today's grippers, and none of the new
+        # checks below speak about it.
+        self._tool_map, tool_problems = effectors.show_tools(self.doc.get("tools"))
+        for msg in tool_problems:
+            P(Problem(msg))
+        if self.fitted_tools is not None:
+            for msg in effectors.fitted_mismatch(self._tool_map, self.fitted_tools):
+                P(Problem(msg))
+        if "tools" in self.doc:
+            reg = effectors.registry()
+            for m, fit in sorted(self._tool_map.items()):
+                if reg[fit["type"]].output is None:
+                    notices.append(f"tools: {fit['type']} ({m}) has no driver yet — this show plays only in the "
+                                   "twin, and the runner refuses it on the robot")
+        tool_state: dict[str, tuple] = {}     # GRIP slot -> (channel targets, the time they are reached)
+        crawl_events: list = []
+
         sounds = self.doc.get("sounds")
         if sounds is not None:
             if not isinstance(sounds, list) or not all(isinstance(x, str) and x for x in sounds):
@@ -955,8 +982,21 @@ class Show:
                 continue
 
             intrinsic = 0.0
-            if slot in GRIP_SLOTS:
-                msgs = self._check_grip(where, c, slot)
+            fit = self._tool_map.get(effectors.SLOT_MOUNT.get(slot)) if slot in GRIP_SLOTS else None
+            if slot in GRIP_SLOTS and fit is not None and fit["type"] == "openarm_gripper" \
+                    and "pose" not in c and "set" not in c:
+                msgs = self._check_grip(where, c, slot)            # today's gripper: exactly as before
+            elif slot in GRIP_SLOTS:
+                tw: list[str] = []
+                msgs = self._check_tool(where, c, slot, fit, t, tool_state, tw)
+                for q in tw:
+                    warnings.append(Problem(q, *ref))
+                if not msgs and fit is not None:
+                    e["tool"], e["channels"] = fit["type"], dict(tool_state[slot][0])
+            elif slot == "CRAWL":
+                msgs = self._check_crawl_cue(where, c)
+                if not msgs:
+                    crawl_events.append(e)
             elif slot == "HEAD":
                 msgs = self._check_head(where, c)
                 if not msgs:
@@ -1023,6 +1063,11 @@ class Show:
             e["start"], e["end"] = t, t + max(intrinsic, hold)
             owner_until[slot] = e["end"]
 
+        if "CRAWL" in used or "crawler" in self.doc:
+            for msg, cue_ref, is_problem in self._check_crawler(crawl_events, events, music, notices):
+                (P if is_problem else warnings.append)(Problem(msg, *cue_ref))
+        else:
+            self._crawl = None
         if ("DANCE" in used or "DRIVE" in used) and floor_r is None and dance_doc is None:
             P(Problem("the show moves the base but declares no floor space — add dance: { floor_radius_m: "
                       "<metres> }; the runner asks a human to confirm it before the base moves"))
@@ -1406,6 +1451,210 @@ class Show:
         if eff is not None and not (_num(eff) and 0 < float(eff) <= GRIP_EFFORT_MAX):
             p.append(f"{where}: {slot} effort {eff} outside (0, {GRIP_EFFORT_MAX}]")
         return p
+
+    # ---- tools other than today's gripper (effectors.py) ------------------------------------------------
+    def _check_tool(self, where, c, slot, fit, t, state, warn) -> list[str]:
+        """A GRIP cue on the tool fitted on that side: `open:` / `do:` through the tool's open_map, or a named
+        `pose:`, or `set:` channel values; exactly one. Records the channel targets, and warns when the
+        tool cannot have finished its last move (its channels' own speed)."""
+        mount = effectors.SLOT_MOUNT[slot]
+        if fit is None:
+            return [f"{where}: {slot} — the show fits no tool at {mount} (tools:)"]
+        tool = effectors.registry()[fit["type"]]
+        if fit["mode"] != "equipped":
+            return [f"{where}: {slot} — the {mount} tool is fitted to crawl, not equipped"]
+        if "pos" in c:
+            return [f"{where}: {slot} pos (metres) is gone — write open: 0..1"]
+        said = [k for k in ("do", "open", "pose", "set") if c.get(k) is not None]
+        if len(said) != 1:
+            return [f"{where}: {slot} needs exactly one of do: open|close, open: 0..1, pose: <name>, set: {{channel: value}}"
+                    + (f" — it has {', '.join(said)}" if said else "")]
+        if c.get("effort") is not None:
+            return [f"{where}: {slot} effort is the OpenArm gripper's; {tool.id} takes none"]
+        if tool.output and said[0] in ("pose", "set") and tool.id == "openarm_gripper":
+            return [f"{where}: {slot} — the OpenArm gripper's driver takes a position only: write open: 0..1"]
+        k = said[0]
+        if k == "do":
+            if c["do"] not in ("open", "close"):
+                return [f"{where}: {slot} do must be open|close"]
+            vals = tool.open_channels(1.0 if c["do"] == "open" else 0.0)
+        elif k == "open":
+            if not (_num(c["open"]) and 0.0 <= float(c["open"]) <= 1.0):
+                return [f"{where}: {slot} open {c['open']!r} must be within 0..1 (0 closed, 1 open)"]
+            vals = tool.open_channels(float(c["open"]))
+        elif k == "pose":
+            if c["pose"] not in tool.poses:
+                return [f"{where}: {slot} — {tool.id} has no pose {c['pose']!r} (it has {', '.join(tool.poses)})"]
+            vals = dict(tool.poses[c["pose"]])
+        else:
+            if not isinstance(c["set"], dict) or not c["set"]:
+                return [f"{where}: {slot} set: must map channels to values ({', '.join(tool.channels)})"]
+            bad = [m for m in (tool.check_value(ch, v) for ch, v in c["set"].items()) if m]
+            if bad:
+                return [f"{where}: {slot} " + "; ".join(bad)]
+            vals = dict(c["set"])
+        if isinstance(vals, str):
+            return [f"{where}: {slot} {vals}"]
+        prev, ready_at = state.get(slot, (tool.rest(), 0.0))
+        if t < ready_at - 1e-6:
+            warn.append(f"{where}: {slot} ({tool.id}) is still moving to its last target until t={ready_at:.2f}s "
+                        "(its channels' own speed) — it turns toward this one from where it is")
+        cur = {**prev, **vals}
+        state[slot] = (cur, t + tool.travel_s(prev, vals))
+        return []
+
+    # ---- the crawling hand (effectors.py) --------------------------------------------------------------
+    def _check_crawl_cue(self, where, c) -> list[str]:
+        do = c.get("do")
+        if do not in effectors.CRAWL_DOS:
+            return [f"{where}: CRAWL do must be one of {', '.join(effectors.CRAWL_DOS)}"]
+        allowed = {"walk": {"dir", "secs", "dist_m", "to", "heading_deg", "gait"}, "turn": {"by_deg"},
+                   "pause": {"secs"}, "dance": {"pattern", "secs", "beats"}}[do]
+        extra = sorted(k for k in c if k not in allowed | {"do", "t", "beat", "bar", "slot", "hold_s"})
+        if extra:
+            return [f"{where}: CRAWL {do} takes {', '.join(sorted(allowed))} — not {', '.join(extra)}"]
+        p = []
+        if do == "walk":
+            if c.get("dir", "forward") not in ("forward", "back"):
+                p.append(f"{where}: walk dir must be forward or back (a crawling hand cannot sidestep)")
+            how = [k for k in ("secs", "dist_m", "to") if k in c]
+            if len(how) != 1:
+                p.append(f"{where}: a walk needs exactly one of secs, dist_m, to: start|[x, y]")
+            if "secs" in c and not (_num(c["secs"]) and 0.5 <= c["secs"] <= 120):
+                p.append(f"{where}: walk secs {c['secs']!r} must be 0.5..120")
+            if "dist_m" in c and not (_num(c["dist_m"]) and 0.01 <= c["dist_m"] <= 5):
+                p.append(f"{where}: walk dist_m {c['dist_m']!r} must be 0.01..5")
+            to = c.get("to")
+            if to is not None and to != "start" and not (isinstance(to, list) and len(to) == 2 and all(_num(v) for v in to)):
+                p.append(f"{where}: walk to: must be start or [x m, y m] in the robot's starting frame")
+            if "heading_deg" in c and not _num(c["heading_deg"]):
+                p.append(f"{where}: walk heading_deg must be a number")
+        elif do == "turn":
+            if not (_num(c.get("by_deg")) and 1 <= abs(c["by_deg"]) <= 360):
+                p.append(f"{where}: turn by_deg must be 1..360 either way (+ to the hand's left) — the hand pivots on the spot")
+        elif do == "pause":
+            if not (_num(c.get("secs", 1.0)) and 0 < c.get("secs", 1.0) <= 300):
+                p.append(f"{where}: pause secs must be 0..300")
+        else:
+            if not isinstance(c.get("pattern"), str):
+                p.append(f"{where}: dance needs pattern: <a finger dance of the tool>")
+            how = [k for k in ("secs", "beats") if k in c]
+            if len(how) != 1 or not (_num(c[how[0]]) and 0 < c[how[0]] <= 300):
+                p.append(f"{where}: dance needs one of secs or beats (> 0)")
+        return p
+
+    def _check_crawler(self, crawl_events, events, music, notices) -> list:
+        """The crawl as a whole: a crawler fitted, the declared floor area, the leash, the robot's footprint,
+        every leg finished before the next starts (at the SLOWEST simulated speed), and the hand kept
+        clear of the chassis (keep_off_m) with the leash slack throughout. [(sentence, cue ref, is_problem)]."""
+        out = []
+        self._crawl = None
+        fit = self._tool_map.get("base")
+        if not fit or fit["mode"] != "crawl":
+            return [("the show drives a crawling hand (CRAWL / crawler:) but fits none — add tools: { base: "
+                     "{ type: <hand>, mode: crawl } }", (None, None, None), True)]
+        tool = effectors.registry()[fit["type"]]
+        cfg, cp = effectors.crawler_config(self.doc.get("crawler"), tool)
+        out += [(m, (None, None, None), True) for m in cp]
+        beat_s = (music or {}).get("beat_s")
+        ref = lambda e: (e["src"]["index"], e["src"]["clip"], e["src"]["instance"])  # noqa: E731
+        for e in crawl_events:
+            c = e["fields"]
+            if c["do"] == "dance":
+                if c["pattern"] not in tool.patterns:
+                    out.append((f"{e['where']}: {tool.id} has no finger dance {c['pattern']!r} "
+                                f"(it has {', '.join(tool.patterns)})", ref(e), True))
+                elif "beats" in c and not beat_s:
+                    out.append((f"{e['where']}: dance beats needs the show's music grid — or write secs", ref(e), True))
+                else:
+                    pat = tool.patterns[c["pattern"]]
+                    step_s = float(pat.get("step_beats", 1)) * (beat_s or 0.5)
+                    vals = {**tool.rest(), **tool.poses.get(pat.get("base"), {})}
+                    worst = 0.0
+                    for st in pat["steps"]:
+                        worst = max(worst, tool.travel_s(vals, st))
+                        vals.update(st)
+                    if worst > step_s + 1e-9:
+                        out.append((f"{e['where']}: dance {c['pattern']!r} — a step needs {worst:.2f}s of finger travel, "
+                                    f"and at this tempo a step lasts {step_s:.2f}s: the fingers will not reach every "
+                                    "step (the twin shows them arriving late)", ref(e), False))
+        plan = effectors.plan(tool, cfg, [e for e in crawl_events if e["fields"]["do"] != "dance"
+                                          or e["fields"]["pattern"] in tool.patterns], beat_s)
+        out += [(m, ref(e), True) for e, m in plan["problems"]]
+        notices += plan["notices"]
+        legs = plan["legs"]
+        # every leg occupies the timeline for its slowest-case duration: the next must not start before it ends
+        by_where = {e["where"]: e for e in crawl_events}
+        for a, b in zip(legs, legs[1:]):
+            end = a["t"] + a["secs"]
+            if b["t"] < end - 1e-6:
+                out.append((f"{b['where']}: the hand is still busy with {a['where']} ({a['do']}) until t={end:.1f}s at the "
+                            f"slowest simulated speed — start this at {end:.1f}s or later", ref(by_where[b["where"]]), True))
+        for leg in legs:
+            ev = by_where.get(leg["where"])
+            if ev is not None:
+                ev["start"], ev["end"] = leg["t"], leg["t"] + leg["secs"]
+        # the floor checks, sampled along the nominal path with a margin that grows with the drift and
+        # with the faster-than-nominal case
+        import sim_preview
+        dance = [{"start": e["start"], "cue": e["fields"]} for e in events if e["slot"] == "DANCE" and "start" in e and not e.get("bad")]
+        drive = [{"start": e["start"], "cue": e["fields"]} for e in events if e["slot"] == "DRIVE" and "start" in e and not e.get("bad")]
+        t_end = max([leg["t"] + leg["secs"] for leg in legs] + [0.0])
+        worst = {"leash": (None, -1e9), "foot": (None, 1e9), "area": (None, -1e9)}
+        r, margin_acc = cfg["hand_r"], 0.0
+        samples = []
+        tt = 0.0
+        li = 0
+        while tt <= t_end + 1e-9:
+            while li < len(legs) and legs[li]["t"] + legs[li]["secs"] <= tt:
+                grow = legs[li].get("drift_m", 0.0) + max(0.0, legs[li].get("dist_range", (0, 0))[1] - legs[li].get("dist_m", 0.0))
+                # a walk TO a place ends there: what came before no longer says where the hand is
+                margin_acc = grow if legs[li].get("targeted") else margin_acc + grow
+                li += 1
+            st = effectors.state_at(legs, cfg["start"], tt)
+            cur = margin_acc
+            if li < len(legs) and legs[li]["t"] <= tt:
+                lg = legs[li]
+                f = min(1.0, (tt - lg["t"]) / lg["secs"]) if lg["secs"] else 1.0
+                grow = f * (lg.get("drift_m", 0.0) + max(0.0, lg.get("dist_range", (0, 0))[1] - lg.get("dist_m", 0.0)))
+                cur = (cur * (1.0 - f) + grow) if lg.get("targeted") else cur + grow
+            base = sim_preview.base_pose(dance, tt, drive)
+            ax, ay = effectors.base_to_world(base, cfg["anchor"][0], cfg["anchor"][1])
+            reach = math.hypot(st["x"] - ax, st["y"] - ay) + cur
+            gap = effectors.footprint_gap(base, st["x"], st["y"]) - r - cur
+            if reach > worst["leash"][1]:
+                worst["leash"] = (tt, reach)
+            if gap < worst["foot"][1]:
+                worst["foot"] = (tt, gap)
+            if cfg["area"]:
+                (x0, x1), (y0, y1) = cfg["area"]
+                over = max(x0 - (st["x"] - r - cur), (st["x"] + r + cur) - x1, y0 - (st["y"] - r - cur), (st["y"] + r + cur) - y1)
+                if over > worst["area"][1]:
+                    worst["area"] = (tt, over)
+            samples.append([_r(tt, 2), _r(st["x"], 3), _r(st["y"], 3), _r(st["heading"], 1), _r(cur, 3)])
+            tt += 0.25
+        lim = cfg["length_m"] - effectors.LEASH_SLACK_M
+        if worst["leash"][0] is not None and worst["leash"][1] > lim:
+            out.append((f"the hand may reach {worst['leash'][1]:.2f} m from the leash's anchor at t={worst['leash'][0]:.1f}s "
+                        f"— the {cfg['length_m']:g} m leash leaves {lim:.2f} m with {effectors.LEASH_SLACK_M:g} m slack "
+                        "(a taut leash stalls the hand)", (None, None, None), True))
+        keep = cfg["keep_off_m"]
+        if worst["foot"][0] is not None and worst["foot"][1] < keep:
+            out.append((f"the hand may come within {max(0.0, worst['foot'][1]) * 100:.0f} cm of the chassis at "
+                        f"t={worst['foot'][0]:.1f}s — keep_off_m asks for {keep * 100:.0f} cm of clear floor (beyond the "
+                        f"hand's own {r:g} m and the path's uncertainty)", (None, None, None), True))
+        if worst["area"][0] is not None and worst["area"][1] > 0:
+            out.append((f"the hand may leave the declared floor area by {worst['area'][1] * 100:.0f} cm at "
+                        f"t={worst['area'][0]:.1f}s (its own {r:g} m and the path's uncertainty included)",
+                        (None, None, None), True))
+        self._crawl = {"tool": tool.id, "start": list(cfg["start"]), "anchor": list(cfg["anchor"]),
+                       "keep_off_m": keep,
+                       "length_m": cfg["length_m"], "slack_m": effectors.LEASH_SLACK_M,
+                       "area": [list(a) for a in cfg["area"]] if cfg["area"] else None, "hand_r": r,
+                       "provenance": "SIM, NOT HARDWARE — " + " ".join(str(tool.crawl.get("provenance", "")).split()),
+                       "legs": [{k: _jsonable(v) for k, v in leg.items() if k != "where"} | {"where": leg["where"]} for leg in legs],
+                       "path": samples}
+        return out
 
     def _check_head(self, where, c):
         p = []
@@ -1829,6 +2078,8 @@ class Show:
                 peak, dur = FACE_MOVES[e["fields"]["name"]]
                 ev["send_t"] = _r(max(0.0, e["t"] - peak))      # when the line goes, so the PEAK is at t
                 ev["move_s"] = _r(dur)
+            if "channels" in e:                                  # a tool other than today's gripper
+                ev["tool"], ev["channels"] = e["tool"], _jsonable(e["channels"])
             if e["slot"] in ARM_SLOTS:
                 sign = -1 if e["slot"] == "ARM_L" else 1
                 ev["pose_signed"] = {str(j): _r(v, 4) for j, v in e["pose"].items()}
@@ -1875,6 +2126,9 @@ class Show:
             # the head's volume and brightness at show time 0 (format §1); DEVICE cues change them
             "device": ({k: float(v) for k, v in self.doc["device"].items() if k in ("volume", "brightness")}
                        if isinstance(self.doc.get("device"), dict) else None),
+            # only a show that names tools or drives a crawling hand carries these (effectors.py)
+            **({"tools": _jsonable(dict(sorted(self._tool_map.items())))} if "tools" in self.doc else {}),
+            **({"crawler": self._crawl} if getattr(self, "_crawl", None) else {}),
         }
 
 
@@ -2016,6 +2270,11 @@ def describe(limits: dict) -> str:
     w(f"LIGHT: do color, rgb [0..{LIGHT_RGB_MAX}] x3, br 0..{LIGHT_BR_MAX}; or do release. Refused: "
       f"anything within {LIGHT_RESERVED_BAND_DEG:g} deg of hue of {dict(LIGHT_RESERVED_HUES)} and at least "
       f"{LIGHT_RESERVED_MIN_SAT:g} saturated (reads as a reserved state colour)")
+    w("GRIP on another tool (tools: { left|right: <type> }): open / do as above through the tool's open_map, "
+      "or pose: <named pose>, or set: { channel: value } (effectors.py list)")
+    w("CRAWL (twin only; tools: { base: { type, mode: crawl } } and crawler: { tether, area }): do walk "
+      "(dir forward|back; secs | dist_m | to: start|[x, y]; gait; heading_deg), turn (by_deg: a pivot), pause (secs), "
+      "dance (pattern; secs | beats); speeds from simulation, each leg held for its slowest case")
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, 1] "
       f"(default 1 = the autonomy ceiling); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
@@ -2034,7 +2293,7 @@ def describe(limits: dict) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["validate", "export", "describe"])
+    ap.add_argument("cmd", choices=["validate", "export", "export-effector", "describe"])
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--limits", default=DEFAULT_LIMITS,
                     help="the arm software's joint_limits.yaml (default: the path in the container)")
@@ -2042,6 +2301,9 @@ def main():
     ap.add_argument("-o", "--out", help="export: write here instead of stdout")
     ap.add_argument("--allow-invalid", action="store_true",
                     help="export: write the timeline even if the show fails (valid: false)")
+    ap.add_argument("--slot", default="CRAWL", help="export-effector: the slot whose tool to export (CRAWL)")
+    ap.add_argument("--from", dest="t_from", type=float, default=0.0, help="export-effector: start, show seconds")
+    ap.add_argument("--to", dest="t_to", type=float, default=None, help="export-effector: end, show seconds")
     ap.add_argument("--no-sweep", action="store_true",
                     help="do not require the self-collision stamp (sweep.py) the robot requires — desk work only")
     a = ap.parse_args()
@@ -2053,6 +2315,30 @@ def main():
     if not a.paths:
         sys.exit(f"{a.cmd} needs at least one show")
     paths = [q for p in a.paths for q in sorted(glob.glob(p))] or a.paths
+
+    if a.cmd == "export-effector":
+        # the show's hand cues as the real hand plays them (effectors.hardware_sequence): only from a VALID show
+        if len(paths) != 1:
+            sys.exit("export-effector takes exactly one show")
+        if a.slot != "CRAWL":
+            sys.exit("export-effector: only --slot CRAWL so far (a flange tool's driver comes later)")
+        show = load_show(paths[0])
+        show.require_sweep = not a.no_sweep
+        tl = show.export(limits, a.limits)
+        if not tl["valid"]:
+            for q in tl["problems"]:
+                print("FAIL:", q["msg"], file=sys.stderr)
+            sys.exit("refusing to export an invalid show")
+        seq = effectors.hardware_sequence(tl, f"{show.id} {a.t_from:g}-{a.t_to if a.t_to is not None else 'end'} s",
+                                          a.t_from, a.t_to)
+        text = json.dumps(seq, indent=1) + "\n"
+        if a.out:
+            with open(a.out, "w") as fh:
+                fh.write(text)
+            print(f"wrote {a.out}: {len(seq['segments'])} segments, {seq['hand']} hand", file=sys.stderr)
+        else:
+            sys.stdout.write(text)
+        sys.exit(0)
 
     if a.cmd == "export":
         if len(paths) != 1:
