@@ -484,7 +484,7 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
             leg.update(targeted=to is not None, gait=gait, dir=direction, dist_m=dist, dist_range=(d_lo, d_hi), speed=(lo, hi), speed_key=key,
                        secs=secs_slow, nominal_secs=dist / nominal if nominal else secs_slow, steer=steer,
                        drift_m=float(g.get("drift_m_per_m", 0.05)) * d_hi, to=(x1, y1, h1))
-            src = g.get("measured") or "SIM, not hardware"
+            src = g.get("measured") or (f"ESTIMATE, {g['estimate']}" if g.get("estimate") else "SIM, not hardware")
             how = (f"on a trailing leash; {src}" if key.startswith("dragging") else f"free floor; {src}")
             if d_lo != d_hi:
                 N.append(f"CRAWL {where}: walk {direction} for {secs_slow:g}s with the {gait} gait at {lo*100:.1f}–{hi*100:.1f} cm/s "
@@ -505,7 +505,9 @@ def plan(tool: Tool, cfg: dict, events: list, beat_s: float | None) -> dict:
             drift = float(tool.crawl["pivots"][side].get("drift_m_per_s", 0.005)) * secs
             leg.update(by=by, side=side, rate=(lo, hi), secs=secs, nominal_secs=abs(by) / ((lo + hi) / 2),
                        drift_m=drift, to=(x, y, _wrap(h + by)))
-            N.append(f"CRAWL {where}: pivot {by:+.0f}° ({side}) at {lo:.1f}–{hi:.1f}°/s (SIM, not hardware"
+            pv_src = tool.crawl["pivots"][side].get("estimate")
+            N.append(f"CRAWL {where}: pivot {by:+.0f}° ({side}) at {lo:.1f}–{hi:.1f}°/s "
+                     f"({'ESTIMATE, ' + pv_src if pv_src else 'SIM, not hardware'}"
                      f"{'; scaled for the leash' if key.startswith('dragging') else ''}) — {abs(by)/hi:.0f}–{secs:.0f}s, "
                      f"drifting up to {drift*100:.0f} cm")
             h = _wrap(h + by)

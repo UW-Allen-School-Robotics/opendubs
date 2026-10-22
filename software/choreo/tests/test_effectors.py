@@ -48,8 +48,8 @@ reg = E.registry()
 check("every type loads, and the left Surge is the right one mirrored",
       {"openarm_gripper", "surge_right", "surge_left", "suction_cup", "pneumatic_gripper"} <= set(reg)
       and reg["surge_left"].mirrored and reg["surge_left"].hand == "left", sorted(reg))
-check("a mirrored hand's pivots swap sides",
-      reg["surge_left"].crawl["pivots"]["left"]["deg_s"] == reg["surge_right"].crawl["pivots"]["right"]["deg_s"])
+check("a mirrored hand's pivots swap sides (their gaits; its own speed estimates may override the rates)",
+      reg["surge_left"].crawl["pivots"]["left"]["sim_params"] == reg["surge_right"].crawl["pivots"]["right"]["sim_params"])
 check("the mirror flips the heading loop's thumb gain",
       reg["surge_left"].crawl["gaits"]["outrigger"]["sim_params"]["heading_ctrl"]["plant_sign"] == 1.0)
 check("every crawl number says it is from simulation",

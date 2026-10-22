@@ -69,7 +69,19 @@ hardware:
 # `dragging` figure); its veer is real and its size unmeasured, so the drift margin is a generous estimate.
 crawl:
   default_gait: bare_flexstroke
+  # ESTIMATES (2026-10-21), FOR THE TWIN ONLY: the backward walk and the pivots have run only in simulation,
+  # and the floor showed the simulation reads the real hand's forward walk 3-4x low (it covers about one
+  # finger stroke per step). These are the simulation's figures x3, the low end of that, so the twin shows
+  # a plausible routine. A live run still refuses every move not in hardware: tested_* until a floor run
+  # measures it (hand_output.availability).
+  pivots:
+    left:  {deg_s: [27.0, 35.0], dragging_deg_s: [27.0, 35.0], estimate: "sim x3, unmeasured"}
+    right: {deg_s: [9.0, 11.5], dragging_deg_s: [9.0, 11.5], estimate: "sim x3, unmeasured"}
   gaits:
+    back:
+      speed_m_s: [0.11, 0.12]       # ESTIMATE: the simulated back gait x3, unmeasured (see above)
+      dragging_m_s: [0.11, 0.12]
+      estimate: "sim x3, unmeasured"
     bare_flexstroke:
       dir: forward
       measured: "MEASURED on hardware, open loop, bare hand"
