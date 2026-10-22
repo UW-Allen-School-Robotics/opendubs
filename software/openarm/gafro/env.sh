@@ -6,6 +6,7 @@
 #   ARM_VENV     the venv with gafro, RI and the driver      (default $ARM_CODING/lab/venv)
 #   ARM_REPO     the opendubs checkout with software/openarm/gafro  (found under $ARM_CODING if not set)
 #   ARM_DRIVER   the openarm-driver checkout                 (found under $ARM_CODING if not set)
+#   ARM_RI       the gafro-robot-interface checkout          (found under $ARM_CODING if not set)
 #   ARM_HW_CONFIG  this robot's copy of hardware.example.yaml        (default /etc/opendubs/openarm-gafro-hardware.yaml)
 #   ARM_JOBS     compiler processes, the build cap           (default 2; gafro's files take 1-2 GB each)
 #
@@ -26,6 +27,11 @@ export ARM_JOBS="${ARM_JOBS:-2}"
 # The commits the lab venv was verified at; a build of anything else is a different test.
 ARM_GAFRO_REV="272c223fe7437d04bf0efb65130fab28e24d4694"
 ARM_RI_REV="087cab970aa6a9141c4b6340b5a5536483a24465"
+# What the driver and the CAN library were built and tested at. openarm_can 1.4.1 is the version the driver's CAN backend has been compiled
+# against; the existing stack's image carries 1.4.0 (f340d4b), and the driver has not been tried against it.
+ARM_DRIVER_REV="f881bf4d2ad2ad39975a700808d9a95754c47283"
+ARM_CAN_VERSION="1.4.1"
+ARM_CAN_REV="bfd4e52194aefe38389fa6e670be3738136facb9"
 
 # -- the toolchain: gafro is C++23, which is GCC 14 and up -----------------------------------------------------------------------
 if command -v gcc-14 >/dev/null 2>&1 && command -v g++-14 >/dev/null 2>&1; then
@@ -80,6 +86,22 @@ _arm_driver() {
     return 1
 }
 
+_arm_ri() {
+    local found
+    _arm_find bindings/pyproject.toml "${ARM_RI:-}" "$ARM_CODING/src/gafro-robot-interface" "$ARM_CODING/lib/gafro-robot-interface" "$ARM_CODING/gafro-robot-interface" && return 0
+    found=$(find "$ARM_CODING" -maxdepth 3 -type d -name 'gafro-robot-interface*' -not -path '*/.git/*' 2>/dev/null | head -1)
+    if [ -n "$found" ] && [ -f "$found/bindings/pyproject.toml" ]; then
+        echo "$found"
+        return 0
+    fi
+    echo "no gafro-robot-interface checkout found under $ARM_CODING; set ARM_RI" >&2
+    return 1
+}
+
+_arm_gafro_dir() {  # the gafro wheel ships its CMake config inside the package
+    python -c "import gafro, os; print(os.path.join(os.path.dirname(gafro.__file__), 'cmake'))"
+}
+
 _arm_need_venv() {
     [ -n "${VIRTUAL_ENV:-}" ] || { echo "no venv active (source this file after creating $ARM_VENV)" >&2; return 1; }
 }
@@ -103,14 +125,42 @@ arm_install_ri() {
     nice -n 10 pip install -v "git+https://github.com/personalrobotics/gafro-robot-interface.git@$ARM_RI_REV#subdirectory=bindings"
 }
 
-arm_build_driver() {  # configure, build at the cap, install into the venv
-    _arm_need_venv || return 1
-    local src site
-    src=$(_arm_driver) || return 1
-    site=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") || return 1
-    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DOPENARM_DRIVER_CAN=ON -DOPENARM_DRIVER_PYTHON_DIR="$site" || return 1
+arm_build_can() {  # openarm_can at its pin, into the prefix. Needs libcli11-dev (sudo apt install libcli11-dev). Installs ITS tools, some of which rewrite the motors: they stay off PATH.
+    local src=${ARM_CAN_SRC:-$ARM_CODING/lib/openarm_can}
+    [ -d "$src/.git" ] || { echo "no openarm_can checkout at $src (git clone https://github.com/enactic/openarm_can there, or set ARM_CAN_SRC)" >&2; return 1; }
+    git -C "$src" checkout --quiet "$ARM_CAN_REV" || return 1
+    rm -rf "$src/build"
+    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$ARM_PREFIX" -DCMAKE_PREFIX_PATH="$ARM_PREFIX" || return 1
     nice -n 10 cmake --build "$src/build" -j "$ARM_JOBS" || return 1
     cmake --install "$src/build"
+}
+
+arm_build_ri_cxx() {  # RI's C++ library, headers and cmake config into the prefix, for the driver: the wheel installs none of them
+    _arm_need_venv || return 1
+    local src gdir
+    src=$(_arm_ri) || return 1
+    gdir=$(_arm_gafro_dir) || return 1
+    cmake -S "$src" -B "$src/build-cxx" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$ARM_PREFIX" -Dgafro_DIR="$gdir" \
+        -DROBOT_INTERFACE_BUILD_PYTHON=OFF -DROBOT_INTERFACE_BUILD_TESTS=OFF \
+        -DROBOT_INTERFACE_DRIVER_UR=OFF -DROBOT_INTERFACE_DRIVER_XARM=OFF -DROBOT_INTERFACE_DRIVER_FRANKA=OFF || return 1
+    nice -n 10 cmake --build "$src/build-cxx" -j "$ARM_JOBS" || return 1
+    cmake --install "$src/build-cxx"
+}
+
+arm_build_driver() {  # configure, build at the cap, install into the venv
+    _arm_need_venv || return 1
+    local src site gdir head
+    src=$(_arm_driver) || return 1
+    head=$(git -C "$src" rev-parse HEAD 2>/dev/null)
+    if [ "$head" != "$ARM_DRIVER_REV" ] && [ -z "${ARM_ALLOW_UNPINNED:-}" ]; then
+        echo "arm_build_driver: $src is at ${head:-no git checkout}, not the pinned $ARM_DRIVER_REV (set ARM_ALLOW_UNPINNED=1 to build it anyway)" >&2
+        return 1
+    fi
+    site=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") || return 1
+    gdir=$(_arm_gafro_dir) || return 1
+    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -Dgafro_DIR="$gdir" -DOPENARM_DRIVER_CAN=ON -DOPENARM_DRIVER_PYTHON_DIR="$site" || return 1
+    nice -n 10 cmake --build "$src/build" -j "$ARM_JOBS" || return 1
+    cmake --install "$src/build" --prefix "$ARM_PREFIX"   # not the default /usr/local, which needs root; the Python package goes to site-packages regardless
 }
 
 arm_test_driver() {  # the tests are timing-based: run it a few times
@@ -127,14 +177,44 @@ arm_doctor() {  # what is installed, at which version, and whether it is what wa
     echo "python      : $(python --version 2>&1) ($(command -v python))"
     echo "venv        : ${VIRTUAL_ENV:-none}"
     v=$(grep -h 'PACKAGE_VERSION ' "$ARM_PREFIX"/share/eigen3/cmake/Eigen3ConfigVersion.cmake 2>/dev/null | head -1); echo "Eigen       : ${v:-missing} (want 5.0.1)"
-    v=$(pkg-config --modversion openarm-can 2>/dev/null);                                       echo "openarm_can : ${v:-missing} (want 1.4.1)"
-    local pkg pin got
-    for pkg in gafro:$ARM_GAFRO_REV gafro_robot_interface:$ARM_RI_REV; do
-        got=$(cat "$VIRTUAL_ENV"/lib/python*/site-packages/"${pkg%%:*}"-*.dist-info/direct_url.json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin)['vcs_info']['commit_id'])" 2>/dev/null)
-        pin=${pkg##*:}
-        echo "${pkg%%:*}: ${got:-not installed}$([ -n "$got" ] && { [ "$got" = "$pin" ] && echo ' (the verified commit)' || echo " (NOT the verified $pin)"; })"
+    v=$(pkg-config --modversion openarm-can 2>/dev/null);                                       echo "openarm_can : ${v:-missing} (want $ARM_CAN_VERSION)$([ -n "$v" ] && [ "$v" != "$ARM_CAN_VERSION" ] && echo '  <- NOT the version the driver was built against')"
+    local drv dirty
+    if drv=$(_arm_driver 2>/dev/null); then
+        v=$(git -C "$drv" rev-parse HEAD 2>/dev/null); dirty=$(git -C "$drv" status --porcelain 2>/dev/null | head -1)
+        echo "driver src  : ${v:0:8} ($([ "$v" = "$ARM_DRIVER_REV" ] && echo 'the pinned commit' || echo "NOT the pinned ${ARM_DRIVER_REV:0:8}"))${dirty:+, with uncommitted changes} at $drv"
+    else
+        echo "driver src  : no checkout found"
+    fi
+    local dist pin
+    for dist in gafro:$ARM_GAFRO_REV gafro-robot-interface:$ARM_RI_REV; do
+        pin=${dist##*:}
+        python - "${dist%%:*}" "$pin" <<'PY'
+import importlib.metadata as md, json, subprocess, sys, urllib.parse
+name, pin = sys.argv[1], sys.argv[2]
+try:
+    dist = md.distribution(name)
+except md.PackageNotFoundError:
+    import importlib.util
+    found = importlib.util.find_spec(name.replace("-", "_"))
+    print(f"{name}: " + (f"imports from {found.origin}, but there is no pip metadata (a cmake install?), so the commit is not recorded"
+                         if found else "not installed in this python"))
+    raise SystemExit
+origin = json.loads(dist.read_text("direct_url.json") or "{}")
+commit, where = origin.get("vcs_info", {}).get("commit_id"), origin.get("url", "an index")
+if commit is None and where.startswith("file://"):                  # built from a local clone: its checkout says which commit
+    path = urllib.parse.unquote(urllib.parse.urlparse(where).path)
+    for up in (path, path.rsplit("/", 1)[0]):
+        try:
+            commit = subprocess.check_output(["git", "-C", up, "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip(); break
+        except Exception:
+            pass
+verdict = "unknown commit" if commit is None else ("the verified commit" if commit == pin else f"NOT the verified {pin[:8]}")
+print(f"{name} {dist.version}: {(commit or '?')[:8]} ({verdict}), from {where}")
+PY
     done
-    echo "driver      : $(python -c 'import gafro, gafro_robot_interface, openarm_driver; print("imports")' 2>&1 | tail -1)"
+    for mod in gafro gafro_robot_interface openarm_driver; do
+        echo "import ${mod}: $(python -c "import ${mod}; print(getattr(${mod}, '__file__', 'ok'))" 2>&1 | tail -1)"
+    done
     echo "CAN links   :"; ip -br link show type can 2>/dev/null | sed 's/^/              /' || true
     echo "memory      : $(free -g | awk '/^Mem:/ {print $7 " GB available of " $2}')   compilers running: $(pgrep -c cc1plus || true)"
 }
@@ -153,8 +233,8 @@ _arm_bringup() {  # _arm_bringup <stage> <side> [args]
 }
 
 arm_hold()  { _arm_confirm "Stage 3: enables the $1 arm's motors and holds where it is for ${2:-20} s, no permit, nothing commanded." && _arm_bringup hold "$1" --seconds "${2:-20}"; }
-arm_lapse() { _arm_confirm "Stage 4: moves the $1 arm's joint ${2:-3} slowly by ${3:-0.05} rad, then stops renewing the permit." && _arm_bringup lapse "$1" --joint "${2:-3}" --delta "${3:-0.05}"; }
-arm_move()  { _arm_confirm "Stage 5: moves the $1 arm's joint ${2:-3} by ${3:-0.05} rad and back." && _arm_bringup move "$1" --joint "${2:-3}" --delta "${3:-0.05}"; }
+arm_lapse() { _arm_confirm "Stage 4: moves the $1 arm's joint ${2:-3} slowly by ${3:-0.05} rad, then stops renewing the permit." && _arm_bringup lapse "$1" --supervised --joint "${2:-3}" --delta "${3:-0.05}"; }
+arm_move()  { _arm_confirm "Stage 5: moves the $1 arm's joint ${2:-3} by ${3:-0.05} rad and back." && _arm_bringup move "$1" --supervised --joint "${2:-3}" --delta "${3:-0.05}"; }
 
 _arm_engage() {  # _arm_engage <side> [engage.py args]
     local repo side=$1
@@ -164,12 +244,12 @@ _arm_engage() {  # _arm_engage <side> [engage.py args]
         --hardware-config "$ARM_HW_CONFIG" --side "$side" "$@"
 }
 
-arm_engage() { _arm_confirm "Moves the $1 arm from where it is to the ready pose (11 s from stow), then holds it under track." && _arm_engage "$1" --speed "${2:-0.15}"; }
-arm_park()   { _arm_confirm "Moves the $1 arm to the stow pose of /etc/opendubs/openarm-stow.conf and holds it." && _arm_engage "$1" --park --speed "${2:-0.15}"; }
+arm_engage() { _arm_confirm "Moves the $1 arm from where it is to the ready pose (11 s from stow), then holds it under track." && _arm_engage "$1" --supervised --speed "${2:-0.15}"; }
+arm_park()   { _arm_confirm "Moves the $1 arm to the stow pose of /etc/opendubs/openarm-stow.conf and holds it." && _arm_engage "$1" --supervised --park --speed "${2:-0.15}"; }
 
 arm_help() {
     cat <<'EOF'
-building   arm_install_gafro | arm_install_ri | arm_build_driver | arm_test_driver
+building   arm_build_can | arm_install_gafro | arm_install_ri | arm_build_ri_cxx | arm_build_driver | arm_test_driver   (in that order)
 looking    arm_doctor | arm_can_health [args]
 first run  arm_hold <side> [seconds]        stage 3: enabled and held, nothing commanded
            arm_lapse <side> [joint] [rad]   stage 4: the permit stops being renewed mid-move
