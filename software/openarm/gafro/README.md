@@ -43,6 +43,24 @@ and zero are the identity; otherwise convert them first. It ends under `engage`,
 
 It asks no permit of anything and is not the authority layer: the arm service calls it once an arm may move. Simulation only so far.
 
+## First run on an arm
+
+`bringup.py` is the first-run checks of one arm, a stage per subcommand, each ending in PASS or FAIL: `hold` (stage 3: verified, enabled and held
+with no permit, so it must not move), `lapse` (stage 4: a slow move on a permit, the permit stops being renewed, the arm must stop where it is),
+`move` (stage 5: one joint a small step and back). The arm supported, a person at the e-stop, one arm at a time:
+
+```sh
+PY=<venv>/bin/python; M=description/openarm/gafro/openarm_bimanual.xml; HW=/etc/opendubs/<the robot's copy of hardware.example.yaml>
+$PY software/openarm/gafro/bringup.py hold  --side right --model $M --hardware-config $HW
+$PY software/openarm/gafro/bringup.py lapse --side right --model $M --hardware-config $HW
+$PY software/openarm/gafro/bringup.py move  --side right --model $M --hardware-config $HW --joint 3 --delta 0.05
+```
+
+With `require_permit: true` the arm holds unless the permit is renewed; `engage.py` and `bringup.py` renew it themselves (`PermitKeeper`) while they
+run and revoke it on exit, and the arm service will do that once it exists. In the simulator (`--backend mujoco`) `hold` and `move` fail by the
+sim's own sag, 0.057 rad: its hold is MuJoCo's position servo, which gets none of the driver's gravity feedforward. On the arm that figure is the
+thing to look at. Not yet run on an arm.
+
 ## The gripper
 
 The driver commands each arm's gripper (one more Damiao motor on the arm's bus, ids 0x08 and 0x18) as RI's `<name>/gripper`, closure 0 open and
