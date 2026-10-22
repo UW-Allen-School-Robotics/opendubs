@@ -369,7 +369,38 @@ robot side; and room for the converter in the head or on the lift, near the neck
 
 ---
 
-## 9. The tablet's power, revisited — 2026-10-20
+## 9. The tablet's power, revisited — 2026-10-20, decided 2026-10-21, built in 0.5.0
+
+**Decided 2026-10-21 (the user), built in kiosk 0.5.0, not yet run on the robot's tablet.** The tablet now
+lives on the robot **permanently** and has USB power whenever the drive bus is powered, so losing power
+means the robot is off or e-stopped. The behaviour is driven by `ACTION_POWER_CONNECTED` /
+`ACTION_POWER_DISCONNECTED` (`Power.kt`), and **supersedes P-4 below** (an idle timer on robot state):
+
+| # | behaviour | where |
+|---|---|---|
+| 1 | **Charging**: Battery protection (80 %) stays. The dashboard warns when the tablet is plugged in but not charging below 75 %, or plugged in and 3 % down in 15 min (`HEAD_TABLET_NOT_CHARGING`): its charger is too weak or failed | `tablet_relay.py`; Operate notices, Head & face page |
+| 2 | **Power lost → battery mode at once**: half brightness, half the frame rate (30 fps), camera tracking off. The screen sleeps (`lockNow`) after **2 min** if the dashboard does not answer (robot off), or **10 min** if it does (robot on but e-stopped, so the stopped face stays visible) | `Power.kt`; face `main.js`, `levels.js`, `track.js` |
+| 3 | **Power returns → wake**: the screen turns on and the face is back. The side key also wakes it | `Power.kt` |
+| 4 | **Deliberate**: SLEEP TABLET on the Head & face page. **P-1**: the power menu in lock task (`LOCK_TASK_FEATURE_GLOBAL_ACTIONS`) plus the setup line `power_button_long_press 1`, so holding the side key offers Power off and Restart | `Power.kt`, `DeviceOwner.kt`; kiosk README step 5 |
+| 5 | **Low battery**: below 15 % on battery, asleep at once, and kept asleep until power returns. Woken by hand, a "Battery low — switch the robot on to charge me" screen for 10 s, then asleep again | `Power.kt` (a native screen over the page) |
+| 6 | **P-2, restart from the dashboard**: RESTART TABLET (asks twice), refused while a show is loaded or running (`HEAD_RESTART_SHOW`). Delivered two ways: the page passes it to the app at once over its socket, and the app asks `/api/tablet/command` itself every 5 s from native code, so it reaches a tablet whose page is dead. Each command runs once, by its id; one not picked up in 60 s is dropped | `tablet_relay.py`, `Power.kt`, `tablet_sensors.js` |
+| P-5 | **Heat**: a dashboard warning at 45 °C (`HEAD_TABLET_HOT`); above 40 °C while no show holds the levels, the face dims and slows as in battery mode | `tablet_relay.py`; face `main.js` |
+| P-3 | Remote power-off: **not now** | — |
+
+**"A touch wakes it"** applies to a dimmed face; once the screen is off (`lockNow`), a touch reaches
+nothing. Samsung's *Double tap to turn on screen* would make a double tap wake it, where the tablet
+has that setting: to check at the tablet. The side key always does.
+
+**The side key, before 0.5.0** (the user: "isn't working as expected while our app is running").
+Read from the code and §7's bench probe, not yet watched on the robot's tablet:
+- **Long press: did nothing.** `LOCK_TASK_FEATURE_NONE` blocks the power menu, and Samsung's default
+  (`power_button_long_press` = `103`) sends the hold to the assistant, which lock task also blocks. Fixed by P-1.
+- **Short press: should turn the screen off and on**, and lands straight on the face, because lock task
+  without `LOCK_TASK_FEATURE_KEYGUARD` shows no lock screen. Nothing in the app overrides it:
+  `FLAG_KEEP_SCREEN_ON` and *stay on while plugged in* only stop the screen timing out. If a short
+  press misbehaves at the tablet, what it does is to be watched there with the user, not guessed.
+
+### The review of 2026-10-20
 
 The punch list asked again for the tablet: low energy when idle, battery care, what an e-stop does to it, a
 deliberate power-off or restart for long shutdowns, and recovery from afar. Most of §1–§8 still stands. This
@@ -415,7 +446,7 @@ indefinitely and an unattended e-stopped robot would otherwise run the tablet fl
 - **Long storage:** power the tablet off if the robot will sit for more than a few days (§7, until PW-1
   measures the standby drain).
 
-### Decisions needed
+### Decisions needed (answered 2026-10-21: see the top of this section)
 
 | # | decision | recommendation | cost |
 |---|---|---|---|

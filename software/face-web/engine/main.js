@@ -114,7 +114,7 @@ window.faceStats = stats;                           // read by a harness through
 let last = performance.now();
 const health = { drawnAt: performance.now(), eyesOk: true, lost: false, fullFace: false, frames: 0,
                  errors: 0, lastError: null, refits: 0 };
-let lastAlive = 0;
+let lastAlive = 0, lastDrawn = 0;
 canvas.addEventListener("contextlost", () => { health.lost = true; });
 
 function frame(now) {
@@ -126,6 +126,8 @@ function frame(now) {
   if (innerWidth && (canvas.width !== Math.round(innerWidth * dpr) || canvas.height !== Math.round(innerHeight * dpr))) {
     fit(); health.refits++;
   }
+  if (power.save && now - lastDrawn < SAVE_FRAME_MS) return;     // saving power: every other frame
+  lastDrawn = now;
   try { drawFrame(now); } catch (e) { health.errors++; health.lastError = String(e && e.message || e).slice(0, 160); }
 }
 function drawFrame(now) {
@@ -248,11 +250,38 @@ function applySettings(s) {
   const want = s.tracking === "tablet";        // the face's own camera; "d415" is the Thor's tracker
   if (want && !tracking) {
     tracking = true;
-    import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
+    import("./track.js").then((m) => m.start(face, stats))
+      .then(() => { if (power.battery) window.OpenDubsTracking?.pause("battery"); }).catch((e) => { stats.track = "unavailable: " + e.message; });
   } else if (!want && tracking) {
     location.reload();                         // the camera is released with the page
   }
 }
+
+// ---- the tablet's power (notes/design/power-and-shutdown.md §9) ---------------------------------
+// The tablet is powered from the robot's drive bus, so on battery the robot is off or e-stopped. The
+// face saves power at once: half brightness, half the frame rate, camera tracking off. When the screen
+// sleeps is the kiosk app's decision (Power.kt), and so is waking it when power returns. A hot battery
+// (HOT_C and up) while no show holds the levels dims and slows the face the same way (P-5).
+const HOT_C = 40, SAVE_FRAME_MS = 30;
+const power = { battery: false, hot: false, save: false, low: false };
+window.facePower = power;                          // read by a harness through devtools
+function pollPower() {
+  const K = window.OpenDubsKiosk;
+  if (!K || typeof K.power !== "function") return;   // a browser, or an app older than 0.5.0
+  let p = null, t = null;
+  try { p = JSON.parse(K.power()); } catch (e) { return; }
+  try { t = JSON.parse(K.thermal()); } catch (e) { /* no reading */ }
+  const battery = p.battery_mode === true;
+  if (battery !== power.battery) {
+    const T = window.OpenDubsTracking;
+    if (T) { if (battery) T.pause("battery"); else T.resume("battery").catch(() => {}); }
+  }
+  power.battery = battery; power.low = p.low === true;
+  power.hot = !!(t && typeof t.battery_c === "number" && t.battery_c >= HOT_C && !levels.touched);
+  power.save = power.battery || power.hot;
+  levels.setScale(power.save ? 0.5 : 1);
+}
+setInterval(pollPower, 2000); pollPower();
 
 // ---- picking up a deploy by itself ---------------------------------------------------------------
 // The kiosk has no reload control, and turning tracking on only adds a module to the page already

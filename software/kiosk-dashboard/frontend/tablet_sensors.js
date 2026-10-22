@@ -34,6 +34,9 @@
       if (m.ok) { st.connected = true; ws.send(JSON.stringify({ ping: performance.now() })); }
       if (m.error) st.error = m.error;
       if (m.camera) for (const [cam, want] of Object.entries(m.camera)) setCamera(cam, want);
+      // The dashboard's Sleep tablet / Restart tablet, handed to the app, which runs each id once (it
+      // also asks the robot itself, so this is the fast way, not the only one).
+      if (m.command && typeof K.command === "function") K.command(String(m.command.id), String(m.command.cmd));
       if (m.pong !== undefined) {                     // the round trip, for the robot's stamps
         const rtt = performance.now() - m.pong;
         st.rtt_ms = st.rtt_ms === null ? rtt : Math.min(rtt, 0.8 * st.rtt_ms + 0.2 * rtt);

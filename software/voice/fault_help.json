@@ -155,6 +155,23 @@
   "means": "E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard. Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.",
   "title": "A software e-stop is latched"
  },
+ "HEAD_TABLET_HOT": {
+  "do": [
+   "Shade the head from direct sun or stage lights, and make sure nothing covers the back of the tablet.",
+   "If it stays hot with the robot idle, let the screen sleep (Head & face page, SLEEP TABLET) until it cools."
+  ],
+  "means": "The tablet reports a battery temperature of 45 °C or more. Heat ages a lithium battery fastest, and a hot tablet throttles itself, which can make the face stutter. Above 40 °C, while no show runs, the face already dims and draws fewer frames to cool down. 45 °C is a provisional limit, to be revisited against the tablet's datasheet.",
+  "title": "The tablet's battery is hot"
+ },
+ "HEAD_TABLET_NOT_CHARGING": {
+  "do": [
+   "Check the USB-C cable at the tablet and at the mount's charger; reseat both.",
+   "If it persists, check the mount's charger output with a USB power meter, and replace the charger or the cable.",
+   "Until it is fixed, charge the tablet from a wall charger between sessions."
+  ],
+  "means": "The head tablet charges from the robot's power whenever the robot is on and not e-stopped. Its Battery protection stops charging at 80 %, so a healthy tablet on the robot's power reads about 80 % and \"not charging\". This warning means it reads well below that and is still not charging, or it is losing charge while plugged in: its charger supplies too little, or has failed. Left alone, the tablet runs flat and the face goes dark.",
+  "title": "The tablet is plugged in but not charging"
+ },
  "LIFT_NOT_RESPONDING": {
   "do": [
    "Do not move the lift until it reports again; the pinch guard's state is unknown.",

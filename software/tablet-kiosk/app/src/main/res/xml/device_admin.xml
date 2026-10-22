@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <device-admin>
-    <uses-policies />
+    <!-- lockNow(): the screen off on battery, on a low battery and from the dashboard (Power.kt) -->
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
 </device-admin>
