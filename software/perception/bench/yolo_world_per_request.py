@@ -79,7 +79,7 @@ def main(weights):
     world.half()
     nav_feats = world.txt_feats.clone()
 
-    lb = LetterBox((IMGSZ, IMGSZ), auto=False, stride=32)
+    lb = LetterBox((IMGSZ, IMGSZ), auto=True, stride=32)  # minimal padding, as the official predictor
     img = lb(image=bgr)[:, :, ::-1].transpose(2, 0, 1).copy()
     x = torch.from_numpy(img).to("cuda").half().unsqueeze(0) / 255.0
 
