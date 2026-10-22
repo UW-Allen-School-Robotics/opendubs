@@ -1,0 +1,10 @@
+# Applied to every pip install in the image.
+# torch: the build opendubs2's host already runs on the GPU (/opt/opendubs/venv, 2026-10-22).
+torch==2.14.0
+# ROS 2 Jazzy's apt Python packages are built against Ubuntu 24.04's numpy 1.26.
+numpy<2
+# opencv-python 4.12 and later require numpy 2.
+opencv-python<4.12
+opencv-python-headless<4.12
+# perception_models was written against transformers 4.x (>=4.36).
+transformers>=4.36,<5

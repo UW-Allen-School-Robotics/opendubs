@@ -1,0 +1,10 @@
+# CUDA, cuDNN and TensorRT come only from the Jetson r38.4 repository, so they match opendubs2's
+# host (JetPack 7.1). The base image also configures NVIDIA's generic arm64 CUDA repository, which
+# carries newer TensorRT (11.x, +cuda13.4) that would not match the host driver.
+Package: cuda-* libcublas* libcudnn* libnvinfer* libnvonnxparsers* python3-libnvinfer* tensorrt*
+Pin: origin repo.download.nvidia.com
+Pin-Priority: 1001
+
+Package: cuda-* libcublas* libcudnn* libnvinfer* libnvonnxparsers* python3-libnvinfer* tensorrt*
+Pin: origin developer.download.nvidia.com
+Pin-Priority: -1
