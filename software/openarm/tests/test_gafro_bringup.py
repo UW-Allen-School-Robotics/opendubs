@@ -166,8 +166,11 @@ check("the old lapse defaults refuse, saying the test cannot pass", [code, "cann
 # -- the helpers in env.sh ------------------------------------------------------------------------------------------------------------------
 env = os.path.join(GAFRO, "env.sh")
 for call in ("arm_move right 3", "arm_lapse right", "arm_move"):
-    run = subprocess.run(["bash", "-c", f"ARM_VENV=/nonexistent . '{env}' >/dev/null 2>&1; {call}"], capture_output=True, text=True)
+    run = subprocess.run(["bash", "-c", f"ARM_CODING=/nonexistent ARM_VENV=/nonexistent . '{env}' >/dev/null 2>&1; {call}"], capture_output=True, text=True)
     check(f"`{call}` without a signed step refuses with a usage line", [run.returncode, "WITH A SIGN" in run.stderr], [1, True])
+
+run = subprocess.run(["bash", "-c", f"unset ARM_CODING; . '{env}'"], capture_output=True, text=True)
+check("env.sh without ARM_CODING says so and does not guess a layout", [run.returncode, "ARM_CODING" in run.stderr], [1, True])
 
 print("\nall bringup checks pass" if not fails else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)
