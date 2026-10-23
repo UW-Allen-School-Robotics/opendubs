@@ -73,7 +73,18 @@ check("nothing running", guards.stack_running(run=lambda *a, **k: Result("")), [
 check("a command frame (0x003) from someone else is seen", guards.foreign_commands("x", 0.3, bus_with(frame(0x003))), [3])
 check("a CAN FD command frame is seen too", guards.foreign_commands("x", 0.3, bus_with(frame(0x008, fd=True))), [8])
 check("the motors' replies (0x013) are not commands", guards.foreign_commands("x", 0.3, bus_with(frame(0x013), frame(0x018))), [])
-check("an extended frame with the same low bits is not a command", guards.foreign_commands("x", 0.3, bus_with(frame(0x003, extended=True))), [])
+REFRESH, READ_REG, WRITE_REG, SAVE_REGS = (bytes([3, 0, f, 0, 0, 0, 0, 0]) for f in (0xCC, 0x33, 0x55, 0xAA))
+check("a read-only status refresh (0x7FF, 0xCC) is not a command", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=REFRESH))), [])
+check("a register read (0x7FF, 0x33) is not a command", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=READ_REG))), [])
+check("a register write (0x7FF, 0x55) is one", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=WRITE_REG))), [0x7FF])
+check("so is saving the registers (0x7FF, 0xAA)", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=SAVE_REGS))), [0x7FF])
+check("a register write as a CAN FD frame is seen", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=WRITE_REG, fd=True))), [0x7FF])
+check("a poller's burst, requests and replies, is not a second controller",
+      guards.foreign_commands("x", 0.3, bus_with(*[f for m in range(1, 9) for f in (frame(0x7FF, data=bytes([m, 0, 0xCC, 0, 0, 0, 0, 0])), frame(0x10 + m))])), [])
+check("a poller that also commands one motor is seen by the command",
+      guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=REFRESH), frame(0x013), frame(0x004))), [4])
+check("an extended 0x7FF write is not a register write", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, extended=True, data=WRITE_REG))), [])
+check("a short 0x7FF frame is not mistaken for one", guards.foreign_commands("x", 0.3, bus_with(frame(0x7FF, data=b"\x03\x00"))), [])
 check("an id outside 1 to 8 is not a command", guards.foreign_commands("x", 0.3, bus_with(frame(0x009), frame(0x000))), [])
 check("a quiet bus", guards.foreign_commands("x", 0.2, bus_with()), [])
 
@@ -88,6 +99,9 @@ check("the stack running refuses", refuses(lambda: guards.require_exclusive(["a"
                                            "existing arm stack", "4242"), True)
 check("another sender refuses and names the interface and the id",
       refuses(lambda: guards.require_exclusive(["arm_left"], stack=lambda: [], listen=lambda i, s: [3]), "arm_left", "0x003"), True)
+check("a register write refuses, and names 0x7ff", refuses(lambda: guards.require_exclusive(["arm_left"], stack=lambda: [], listen=lambda i, s: [0x7FF]),
+                                                              "arm_left", "0x7ff"), True)
+check("the default listen is half a second", guards.LISTEN_SECONDS, 0.5)
 check("a bus of its own passes", guards.require_exclusive(["arm_left", "arm_right"], stack=lambda: [], listen=lambda i, s: []), None)
 
 # -- CH5, the e-stop, and a person -----------------------------------------------------------------------------------------------------

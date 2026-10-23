@@ -41,7 +41,10 @@ anything is enabled, since `RobotInterface.initialize()` already commands the mo
 mutated to see the tests fail):
 
 - **Another controller on the bus** (every stage): the stack's `ros2_control_node` running (the arms' container is visible to the host's `pgrep`), or a passive
-  listen on each arm's interface for MIT command frames, ids 0x001 to 0x008, from anyone else. An interface that cannot be listened to is a refusal.
+  listen on each arm's interface, for half a second, for what only a controller or a tool that changes the motors sends: command frames to ids 0x001 to
+  0x008 (MIT, enable, disable) and register writes (0x7FF with function 0x55 or 0xAA). A read-only status refresh (0x7FF, function 0xCC) and the motors'
+  replies are not counted: something on opendubs2 polls both arms with refreshes every 2.2 s, whatever the arm stack is doing, and a poll asks the
+  motors for their state and commands nothing. An interface that cannot be listened to is a refusal.
 - **Motion** (`engage`, `--park`, `bringup.py lapse` and `move`): CH5 MANUAL or AUTO (DEC-21: STANDBY is hold and status only) and the e-stop clear, read from
   the dashboard's `GET /api/choreo/robot`, the read-only view the runner uses, and `--supervised`, which says a person is at the e-stop. A dashboard that does not
   answer, or an unknown CH5 or e-stop, is a refusal.
