@@ -136,27 +136,57 @@ class PermitKeeper:
     a sequence that stops, dies or is interrupted leaves the arm holding within `lease` seconds. Revoked on exit.
 
     A no-op without `groups` (the simulator has no permit). The driver names its permit after its control group (`left_arm`, `right_arm`).
+
+    `allowed`, if given, is asked before every renewal (guards.motion_gate: CH5 MANUAL or AUTO with the e-stop clear): when it says no, or raises, the renewal
+    is withheld and the arm holds within `lease`. So a sequence in progress stops when CH5 goes to OFF or the e-stop is pressed, instead of finishing its move.
+    `grant` and `revoke` replace the driver's calls, for tests.
     """
 
-    def __init__(self, groups=(), lease: float = 0.5, period: float = 0.1):
+    def __init__(self, groups=(), lease: float = 0.5, period: float = 0.1, allowed=None, grant=None, revoke=None):
         self.groups, self.lease, self.period = tuple(groups), lease, period
+        self.allowed = allowed
+        self.withheld = 0                      # renewals not made because `allowed` said no: how often the sequence was cut short
+        self._grant_fn, self._revoke_fn = grant, revoke
         self._stop = threading.Event()
         self._thread = None
 
-    def _run(self):
+    def _grant(self, group):
+        if self._grant_fn is not None:
+            return self._grant_fn(group, self.lease)
         import openarm_driver
 
+        return openarm_driver.grant_permit(group, self.lease)
+
+    def _revoke(self, group):
+        if self._revoke_fn is not None:
+            return self._revoke_fn(group)
+        import openarm_driver
+
+        return openarm_driver.revoke_permit(group)
+
+    def _may_renew(self) -> bool:
+        if self.allowed is None:
+            return True
+        try:
+            return bool(self.allowed())
+        except Exception:  # noqa: BLE001 -- a gate that cannot answer is a gate that says no
+            return False
+
+    def _run(self):
         while not self._stop.is_set():
-            for group in self.groups:
-                openarm_driver.grant_permit(group, self.lease)
+            if self._may_renew():
+                for group in self.groups:
+                    self._grant(group)
+            else:
+                self.withheld += 1
             self._stop.wait(self.period)
 
     def start(self):
         if self.groups and self._thread is None:
-            import openarm_driver
-
+            if not self._may_renew():
+                raise guards.Refused("CH5 does not permit motion, or the e-stop is not clear, or the dashboard did not answer: no permit was granted")
             for group in self.groups:
-                openarm_driver.grant_permit(group, self.lease)   # before the loop, so an unusable driver fails here and not later
+                self._grant(group)   # before the loop, so an unusable driver fails here and not later
             self._stop.clear()
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
@@ -168,10 +198,9 @@ class PermitKeeper:
             self._stop.set()
             self._thread.join()
             self._thread = None
-            import openarm_driver
 
             for group in self.groups:
-                openarm_driver.revoke_permit(group)
+                self._revoke(group)
 
     def lapse(self):
         """Stop renewing and let the permit run out by itself, as it does when whatever renews it dies."""
@@ -376,7 +405,7 @@ def main() -> int:
 
     groups = permit_groups(args.side) if args.backend == "hardware" else ()
     names = ("left", "right") if args.side == "both" else (args.side,)
-    known, tolerance = None, None
+    known, tolerance, gate = None, None, None
 
     if args.backend == "hardware":
         # Before the RobotInterface exists: initialize() enables the motors, which is already a command on the bus.
@@ -389,6 +418,7 @@ def main() -> int:
                 if any(pose is None for pose in stows):
                     raise guards.Refused(f"no stow pose configured in {args.stow_conf or STOW_CONF}: a move on a real bus starts near stow or ready")
                 known, tolerance = {"stow": np.concatenate(stows)}, float(np.radians(args.start_tolerance_deg))
+                gate = guards.motion_gate(args.dashboard)    # renew the permit only while CH5 and the e-stop still allow the move
         except guards.Refused as refused:
             print(f"refused: {refused}")
             return 1
@@ -398,7 +428,7 @@ def main() -> int:
     robot = ri.RobotInterface(ri.Configuration(args.model, args.backend, args.hardware_config))
     robot.initialize()
     try:
-        with PermitKeeper(groups):
+        with PermitKeeper(groups, allowed=gate):
             if args.park:
                 park(robot, args.side, args.model, args.stow_conf, args.speed, start_tolerance=tolerance)
             else:

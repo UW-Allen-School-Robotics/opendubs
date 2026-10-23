@@ -182,5 +182,53 @@ with tempfile.TemporaryDirectory() as directory:
     else:
         print("skip engage.py end to end: gafro is not importable here")
 
+# The permit is renewed only while CH5 and the e-stop still allow motion: a sequence in progress is cut short, not finished.
+import time  # noqa: E402
+
+import engage  # noqa: E402
+
+live = {"ch5": "MANUAL", "estop": False}
+check("permitted: CH5 MANUAL, e-stop clear", guards.motion_still_permitted(state=lambda url: live), True)
+check("permitted: CH5 AUTO", guards.motion_still_permitted(state=lambda url: {"ch5": "AUTO", "estop": False}), True)
+check("not permitted: CH5 OFF", guards.motion_still_permitted(state=lambda url: {"ch5": "OFF", "estop": False}), False)
+check("not permitted: e-stop engaged", guards.motion_still_permitted(state=lambda url: {"ch5": "MANUAL", "estop": True}), False)
+check("not permitted: e-stop null", guards.motion_still_permitted(state=lambda url: {"ch5": "MANUAL", "estop": None}), False)
+check("not permitted: no ch5", guards.motion_still_permitted(state=lambda url: {"estop": False}), False)
+check("not permitted: null answer", guards.motion_still_permitted(state=lambda url: None), False)
+
+
+def unreachable(url):
+    raise OSError("no dashboard")
+
+
+check("not permitted: dashboard unreachable", guards.motion_still_permitted(state=unreachable), False)
+
+granted, revoked, gate = [], [], {"open": True}
+keeper = engage.PermitKeeper(("right_arm",), period=0.01, allowed=lambda: gate["open"],
+                             grant=lambda group, lease: granted.append(group), revoke=revoked.append)
+with keeper:
+    time.sleep(0.1)
+    before = len(granted)
+    gate["open"] = False
+    time.sleep(0.1)
+    settled = len(granted)
+    time.sleep(0.1)
+check("the keeper renews while allowed", before >= 3, True)
+check("the keeper stops renewing once the gate closes", settled - before <= 2 and len(granted) == settled, True)
+check("... and counts the withheld renewals", keeper.withheld >= 5, True)
+check("... and revokes on exit", revoked, ["right_arm"])
+
+
+def raising():
+    raise RuntimeError("gate broke")
+
+
+granted.clear()
+check("a gate that raises withholds", refuses(lambda: engage.PermitKeeper(("right_arm",), allowed=raising, grant=lambda g, l: granted.append(g)).start(),
+                                              "no permit was granted"), True)
+check("... and nothing was granted", granted, [])
+check("no gate: renews as before", (lambda k: (k.start(), time.sleep(0.05), k.stop(), len(granted) > 0)[-1])(
+    engage.PermitKeeper(("right_arm",), period=0.01, grant=lambda g, l: granted.append(g), revoke=lambda g: None)), True)
+
 print(f"\n{fails} failure(s)" if fails else "\nall guards pass")
 sys.exit(1 if fails else 0)
