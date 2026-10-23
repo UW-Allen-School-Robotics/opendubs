@@ -66,13 +66,26 @@ def _geom_sets(model):
     return right, left, body
 
 
+def _mounts(model, geoms) -> set:
+    """Each arm's link0: its fixed mount on the arm frame, which no arm joint moves."""
+    import mujoco
+    return {g for g in geoms
+            if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, g) or "").endswith("_link0_collision")}
+
+
 def pairs_of_interest(model):
     """The pairs worth measuring: each arm against the structure, and the two arms against
-    each other. NOT a link against its own neighbour — those touch by construction."""
+    each other. NOT a link against its own neighbour — those touch by construction. NOT an arm's
+    mount (link0) against the structure, nor the two mounts against each other: no joint moves
+    them relative to it, so the pair is structure, not choreography. On the Galaxy head the
+    mounts sit 31.1 mm under the neck's box at every pan, lift and pose, where the unmodelled pan
+    servo really joins them; counted, that constant would be every show's floor. A mount is
+    still measured against the OTHER arm's moving links."""
     right, left, body = _geom_sets(model)
-    out = [(a, b) for a in right for b in body]
-    out += [(a, b) for a in left for b in body]
-    out += [(a, b) for a in right for b in left]
+    mounts = _mounts(model, right + left)
+    out = [(a, b) for a in right if a not in mounts for b in body]
+    out += [(a, b) for a in left if a not in mounts for b in body]
+    out += [(a, b) for a in right for b in left if not (a in mounts and b in mounts)]
     return [(a, b) for a, b in out if not _adjacent(model, a, b)]
 
 
