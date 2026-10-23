@@ -20,6 +20,41 @@ notes. It adds no new architecture of its own beyond the decisions it asks for.
 | [`../docs/localization-fusion.md`](../docs/localization-fusion.md) | Two-tier REP-105 (`map→odom→base_link`). `robot_localization` for the local EKF. One primary IMU. Odometry with real covariance, stamped at source as the endgame |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md), [`../docs/naming-frames.md`](../docs/naming-frames.md) | Extrinsics are published from a URDF via `robot_state_publisher`, never as loose static transforms. Do not merge the two scans. **`base_link` placement must be settled before measuring anything** |
 
+## State, end of day 2026-10-22 (opendubs2)
+
+- **On the robot: main 3895126.** The kiosk app served is 0.6.0 (11). The wake word is off in
+  `/etc/opendubs/voice.env`. Merged since and **not deployed**: #516 and #517; #515 and #518 merge when
+  green. **The next robot session deploys main first.** #515's DANCE moves (start and end at rest,
+  peaks up to 70% of the cap) need that deploy before any base run. The neck is unpowered while the
+  tablet's holder parts are replaced, so its PING failing is expected until it is back.
+- **`/etc/opendubs/base.env`, all pre-belt.** These were set on the worn mitre-gear drive, which
+  strafes unevenly (table in [`per-robot-calibration.md`](per-robot-calibration.md)):
+  - `OPENDUBS_AUTO_CAP` = 0.35, the firmware's AUTO ceiling;
+  - speeds at the cap: forward 0.38 m/s, strafe 0.25 m/s, turn 0.52 rad/s. These are **estimates**: they
+    were measured at a 0.25 cap and scaled;
+  - the right-strafe yaw trim is off;
+  - the settle minimum is 0.10 m/s and 0.15 rad/s; the gains are at their default of 1.5.
+
+  The 0.25-cap file is kept on the robot as `/etc/opendubs/base.env.cap25`.
+- **After the belt change, recommission in this order.** Handedness comes first, before any software
+  motion, because belts can reverse a wheel:
+  1. **Handedness.**
+     - Review the channel and inversion values in `robot_config.h` with the maintainers.
+     - Check forward, strafe-right and turn-right under RC from the StamPLC's `[DRIVE]` telemetry.
+     - Flash with `ota-from-thor.sh` only if a value changes.
+     - Then one gated burst per direction confirms the drive bridge's signs.
+  2. Short bursts at the cap give the speeds at the cap (forward, strafe each way, turn) and the
+     strafe's bleed into forward motion and yaw.
+  3. The settle minimum, the gains, and a windowed-sine sway.
+  4. The new numbers go to the Choreography lane, for `cue.py`.
+- **#517: the kiosk app in deploys.** `deploy-all.sh` now compares the source's kiosk versionCode with
+  the one the robot serves:
+  - it says loudly when the robot is behind and no build is present;
+  - it refuses a build of a different version as stale.
+
+  To publish an app update: `./gradlew assembleRelease` in `software/tablet-kiosk`, then deploy (or set
+  `OPENDUBS_KIOSK_APK` to that build). Nothing is built inside the deploy.
+
 ## Priorities and machines
 
 **Priority (2026-10-08):** the NVIDIA-stack infrastructure is high priority. T-1, T-2 and the
