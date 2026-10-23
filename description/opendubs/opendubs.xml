@@ -70,6 +70,10 @@
          which tilts. See the head bodies below for how they are placed. -->
     <mesh name="head_neck_pan"  file="head_neck_pan.stl"  scale="0.001 0.001 0.001"/>
     <mesh name="head_face_tilt" file="head_face_tilt.stl" scale="0.001 0.001 0.001"/>
+    <!-- The Femto Bolt module, in the same export frame: its mount, and the camera as its
+         115 x 65 x 40 mm envelope (not Orbbec's CAD). -->
+    <mesh name="femto_mount"    file="femto_mount.stl"    scale="0.001 0.001 0.001"/>
+    <mesh name="femto_bolt"     file="femto_bolt.stl"     scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
@@ -260,9 +264,23 @@
                  axis. The face page belongs here. -->
             <site name="head_screen" pos="0.0828 -0.00035 -0.01515" size="0.006" rgba="0.95 0.65 0.15 1"/>
 
-            <!-- THE FEMTO MOUNT SLOT. An Orbbec Femto Bolt depth camera will mount on this body
-                 at femto_mount (dimensions.yaml head_assembly.galaxy_tablet.femto_mount). Its
-                 position waits for the mount's CAD, so nothing is placed here yet. -->
+            <!-- THE FEMTO MOUNT: the attach frame for the Orbbec Femto Bolt module
+                 (dimensions.yaml head_assembly.galaxy_tablet.femto_mount). The mount's two legs
+                 (y +/-41..60.55, x 40.75..70.75 mm) slide into two pockets in the face's holder,
+                 held on all four sides, and leave it at the face's top face (z 52.0 from the tilt
+                 axis). The frame is the centre of those pocket mouths, aligned with this body.
+                 The module is its own body so it can later be attached and swapped as one. -->
+            <body name="femto_mount" pos="0.05575 0 0.052">
+              <geom class="visual" type="mesh" mesh="femto_mount" material="frame" pos="-0.05575 0 -0.9407"/>
+              <geom class="visual" type="mesh" mesh="femto_bolt"  material="rubber" pos="-0.05575 0 -0.9407"/>
+              <!-- Coarse boxes from each mesh's extents, about 2 mm outward, in this body's
+                   frame. Mount: x -31.3..15.0, y +/-60.6, z -49.7..51.4 mm; camera: x -31.3..33.9,
+                   y +/-57.6, z 7.4..47.6 mm. -->
+              <geom class="collision" type="box" pos="-0.00813 0 0.00084" size="0.02513 0.06255 0.05253"
+                    name="femto_mount_collision"/>
+              <geom class="collision" type="box" pos="0.00135 0 0.0275" size="0.0346 0.0596 0.0221"
+                    name="femto_bolt_collision"/>
+            </body>
           </body>
         </body>
       </body>

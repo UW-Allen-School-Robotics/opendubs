@@ -107,15 +107,28 @@ head:
     groups:
       neck: rides head_pan    # meshes/head_neck_pan.stl: the neck, without its servos (below)
       face: rides head_tilt   # meshes/head_face_tilt.stl: the tablet, its holder and the arms that carry it
+      femto_mount: rides head_tilt   # meshes/femto_mount.stl: the Femto Bolt's mount (the module, below)
+      femto_bolt: rides head_tilt    # meshes/femto_bolt.stl: the camera's 115 x 65 x 40 envelope, not Orbbec's CAD
     extents_export_mm:
       # As exported. Placed on the robot, add to_robot_mm.
       neck: { x: [-46.0, 26.0],    y: [-47.5, 47.5],   z: [793.0, 913.0] }
       face: { x: [-15.87, 85.75],  y: [-110.5, 110.5], z: [806.7, 940.7] }
+      femto_mount: { x: [24.5, 70.75], y: [-60.55, 60.55], z: [891.01, 992.06] }
+      femto_bolt:  { x: [24.5, 89.7],  y: [-57.58, 57.58], z: [948.11, 988.31] }
     landmarks_export_mm:
       # Read off the face mesh: the tablet's front face is the plane at x = 82.8 measuring
       # 211.0 x 124.7 mm (the SM-X133's spec body), and its display area is the 189.0 x 113.6 mm
       # plane just behind it; both are centred at y -0.35, z 873.55.
       screen_face: [82.8, -0.35, 873.55]
+      # Read off the two module meshes, where they meet: the mount's two legs (y +/-41..60.55,
+      # x 40.75..70.75) slide into two pockets in the face's holder, held on all four sides, and
+      # leave it at the face's top face (z 940.7). The interface is the centre of those mouths.
+      femto_interface: [55.75, 0.0, 940.7]
+      # The camera envelope's front face is at x = 89.7, facing +x, and carries two 1 mm-deep
+      # circular marks for its two cameras. Which is depth and which is colour waits for the
+      # user's word.
+      femto_mark_a: [89.7, -30.0, 968.21]   # diameter 16.6
+      femto_mark_b: [89.7, 2.0, 967.71]     # diameter 15.5
   not_modelled:
     # The neck export EXCLUDES the two goBILDA servos and their bearing blocks. They are not
     # added as primitives: the export does not say where they sit, and a guessed position is
@@ -163,6 +176,8 @@ meshes:
   # The head, exported in the head assembly's own frame (see head.export above):
   head_neck:      { file: meshes/head_neck_pan.stl }    # 1500 triangles; rides head_pan
   head_face:      { file: meshes/head_face_tilt.stl }   # 5948 triangles; rides head_tilt
+  femto_mount:    { file: meshes/femto_mount.stl }      # 1348 triangles; the module's mount
+  femto_bolt:     { file: meshes/femto_bolt.stl }       # 1526 triangles; the camera's envelope
 
 # ============================== ROS FRAMES ===================================================
 # What gen_urdf.py turns into opendubs.urdf for robot_state_publisher. Same rules as the rest of
@@ -253,26 +268,32 @@ head_assembly:
     # The face mesh does not locate the tablet's cameras, GNSS antenna or IMU; they stay
     # TODO_MEASURE (workplan-thor-stack L.3b).
     femto_mount:
-      # THE SLOT for the next head module: an Orbbec Femto Bolt depth camera on its own mount,
-      # attached to the tilting face. femto_mount_link is the fixed attach frame on head_tilt_link
-      # where the mount module's own frame goes; the module then brings the camera.
+      # The attach frame for the head's Orbbec Femto Bolt module, on the tilting face: where the
+      # mount's legs enter the face's holder (head.export.landmarks_export_mm.femto_interface),
+      # aligned with head_tilt_link. The module's own frames are positioned from it.
       frame: femto_mount_link
       parent: head_tilt_link
-      xyz_mm: TODO_CAD                # from the mount's CAD
-      rpy_deg: TODO_CAD
+      at: femto_interface
+      rpy_deg: [0, 0, 0]
       module: femto_bolt
   modules:
     femto_bolt:
-      # Orbbec Femto Bolt. NOT FITTED: it is emitted once femto_mount is located and fitted is true.
-      fitted: false
-      housing_mm: [40, 115, 65]       # SPEC 115 x 65 x 40 (w x h x d), as x (depth) x y x z here
-      # Every sensor position is relative to the MODULE frame (femto_mount_link) and comes from
-      # the mount's CAD together with Orbbec's own CAD file; TODO_CAD until then.
+      # Orbbec Femto Bolt on the user's mount. The geometry is the user's (head.export: femto_mount
+      # and femto_bolt); the camera is its 115 x 65 x 40 mm envelope, as x 65.2 (deep) x y 115.2
+      # x z 40.2 here, front face at x = 89.7 in the export, facing +x.
+      fitted: true
+      # Frame positions: `at:` an export landmark, or robot CAD coordinates (pan = tilt = 0, lift
+      # down), like the head's; the generator places them relative to femto_mount_link.
       frames:
         camera_link: { xyz_mm: TODO_CAD, rpy_deg: TODO_CAD }
-        # The DEPTH camera's focal point, which is what OrbbecSDK_ROS2 publishes as its root.
-        # The depth camera is tilted 6 deg down from the colour camera (Orbbec's spec; confirm
-        # against their CAD).
+        # The DEPTH camera, which is what OrbbecSDK_ROS2 publishes as its root. It goes on
+        # femto_mark_a or femto_mark_b, whichever is the depth camera (held for the user's word),
+        # at the front face's surface: the true focal point sits behind the glass by an amount
+        # that is not in this geometry. The depth camera is pitched 6 deg down from the colour
+        # camera (Orbbec's spec; confirm against their CAD).
+        camera_color: { xyz_mm: TODO_CAD, rpy_deg: TODO_CAD, urdf: false }
+        # The other mark: the colour camera, for the simulator and for a reader. The driver
+        # publishes the real colour frame itself (below), so the URDF does not emit this one.
       driver_frames: >
         The colour camera, the depth camera and the IMU each have a frame below camera_link, which
         OrbbecSDK_ROS2 publishes itself from the camera's factory calibration. The URDF never

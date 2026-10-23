@@ -55,12 +55,14 @@ class Urdf:
         self.parts, self.missing, self.links = [], [], set()
 
     def link(self, name, visual=None):
+        """visual: one visual's inner XML, or a list of them."""
         assert name not in self.links, f"duplicate link {name}"
         self.links.add(name)
         if visual is None:
             self.parts.append(f'  <link name="{name}"/>')
-        else:
-            self.parts.append(f'  <link name="{name}">\n    <visual>\n{visual}\n    </visual>\n  </link>')
+            return
+        vis = "".join(f"    <visual>\n{v}\n    </visual>\n" for v in ([visual] if isinstance(visual, str) else visual))
+        self.parts.append(f'  <link name="{name}">\n{vis}  </link>')
 
     def joint(self, name, kind, parent, child, origin=(0, 0, 0), rot=(0, 0, 0), axis=None, limit=None):
         body = [f'    <parent link="{parent}"/>', f'    <child link="{child}"/>',
@@ -179,21 +181,32 @@ def tablet_head(u, d, ha, asm):
         if spec.get("optical"):
             optical_frame(u, frame)
 
-    # The Femto Bolt's slot: a fixed attach frame on the face, then the module that rides on it.
+    # The Femto Bolt: a fixed attach frame on the face, then the module that rides on it. Its
+    # frames are placed relative to the attach frame (both in robot CAD coordinates at rest).
     fm = asm.get("femto_mount")
     if fm:
-        if known(fm.get("xyz_mm")) and known(fm.get("rpy_deg")):
-            u.link(fm["frame"])
-            u.joint(f"{fm['frame']}_joint", "fixed", fm["parent"], fm["frame"],
-                    [p - o for p, o in zip(fm["xyz_mm"], pivot)], fm["rpy_deg"])
-        else:
-            u.missing.append(f"{fm['frame']} (the Femto mount slot)")
+        at = marks[fm["at"]] if "at" in fm else fm.get("xyz_mm")
         mod = (ha.get("modules") or {}).get(fm["module"], {})
+        if known(at) and known(fm.get("rpy_deg")):
+            assert fm["rpy_deg"] == [0, 0, 0], "the module's frames assume an unrotated mount frame"
+            rel_mount = lambda span: {a: [v - at[i] for v in span[a]] for i, a in enumerate("xyz")}
+            moved = lambda key: {a: [v + shift[i] for v in ext[key][a]] for i, a in enumerate("xyz")}
+            vis = [box(rel_mount(moved(k)), c) for k, c in (("femto_mount", "frame"), ("femto_bolt", "rubber"))
+                   if mod.get("fitted") and k in ext]
+            u.link(fm["frame"], vis or None)
+            u.joint(f"{fm['frame']}_joint", "fixed", fm["parent"], fm["frame"],
+                    [p - o for p, o in zip(at, pivot)], fm["rpy_deg"])
+        else:
+            u.missing.append(f"{fm['frame']} (the Femto mount)")
         if mod.get("fitted") and fm["frame"] in u.links:
             for frame, spec in (mod.get("frames") or {}).items():
-                if known(spec.get("xyz_mm")) and known(spec.get("rpy_deg")):
+                if spec.get("urdf") is False:
+                    continue
+                pos = marks[spec["at"]] if "at" in spec else spec.get("xyz_mm")
+                if known(pos) and known(spec.get("rpy_deg")):
                     u.link(frame)
-                    u.joint(f"{frame}_joint", "fixed", fm["frame"], frame, spec["xyz_mm"], spec["rpy_deg"])
+                    u.joint(f"{frame}_joint", "fixed", fm["frame"], frame,
+                            [p - o for p, o in zip(pos, at)], spec["rpy_deg"])
                 else:
                     u.missing.append(f"{frame} ({fm['module']})")
 
