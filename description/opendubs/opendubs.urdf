@@ -4,9 +4,8 @@
      Head assembly fitted: galaxy_tablet.
      base_link: centre of the wheel rectangle, axle height (workplan-thor-stack L.1).
      Movable joints zaxis / head_pan / head_tilt need a joint_states source.
-     LEFT OUT (no CAD position in the repo yet):
+     LEFT OUT (no CAD or measured position in the repo yet):
        - pinpoint_link (pinpoint)
-       - head_screen_link (galaxy_tablet)
        - tablet_front_camera_link (galaxy_tablet)
        - tablet_front_camera_optical_frame (follows tablet_front_camera_link)
        - tablet_rear_camera_link (galaxy_tablet)
@@ -116,7 +115,13 @@
     <child link="arm_mount"/>
     <origin xyz="0.423 0 0.3575" rpy="0 0 0"/>
   </joint>
-  <link name="head_pan_link"/>
+  <link name="head_pan_link">
+    <visual>
+      <origin xyz="-0.01 0 -0.0357" rpy="0 0 0"/>
+      <geometry><box size="0.072 0.095 0.12"/></geometry>
+      <material name="frame"/>
+    </visual>
+  </link>
   <joint name="head_pan" type="revolute">
     <parent link="lift_platform"/>
     <child link="head_pan_link"/>
@@ -124,12 +129,47 @@
     <axis xyz="0 0 1"/>
     <limit lower="-2.617994" upper="2.617994" effort="0" velocity="0"/>
   </joint>
-  <link name="head_tilt_link"/>
+  <link name="head_tilt_link">
+    <visual>
+      <origin xyz="0.03494 0 -0.015" rpy="0 0 0"/>
+      <geometry><box size="0.10162 0.221 0.134"/></geometry>
+      <material name="plate"/>
+    </visual>
+  </link>
   <joint name="head_tilt" type="revolute">
     <parent link="head_pan_link"/>
     <child link="head_tilt_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.636246" upper="0.274889" effort="0" velocity="0"/>
+  </joint>
+  <link name="head_screen_link"/>
+  <joint name="head_screen_link_joint" type="fixed">
+    <parent link="head_tilt_link"/>
+    <child link="head_screen_link"/>
+    <origin xyz="0.0828 -0.00035 -0.01515" rpy="0 0 0"/>
+  </joint>
+  <link name="femto_mount_link">
+    <visual>
+      <origin xyz="-0.008125 0 0.000835" rpy="0 0 0"/>
+      <geometry><box size="0.04625 0.1211 0.10105"/></geometry>
+      <material name="frame"/>
+    </visual>
+    <visual>
+      <origin xyz="0.00135 0 0.02751" rpy="0 0 0"/>
+      <geometry><box size="0.0652 0.11516 0.0402"/></geometry>
+      <material name="rubber"/>
+    </visual>
+  </link>
+  <joint name="femto_mount_link_joint" type="fixed">
+    <parent link="head_tilt_link"/>
+    <child link="femto_mount_link"/>
+    <origin xyz="0.05575 0 0.052" rpy="0 0 0"/>
+  </joint>
+  <link name="camera_link"/>
+  <joint name="camera_link_joint" type="fixed">
+    <parent link="femto_mount_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.03395 -0.03 0.02751" rpy="0 0.10472 0"/>
   </joint>
 </robot>

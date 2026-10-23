@@ -95,10 +95,11 @@ else:
     up = os.path.join(tmp, "up.yaml")
     with open(up, "w") as fh:
         fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
-                 # out to the sides (y +-0.25): with the tablet head (2026-10-16) +-0.2 meets its
-                 # clearance before the box, and this check is about the box
-                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.66] }\n'
-                 '  - { t: 4.0, slot: ARM_R, reach: [0.45, -0.25, 1.65] }\n')
+                 # out to the sides (y +-0.30): the Galaxy head (2026-10-23) is wide, and nearer the
+                 # middle an arm raised overhead meets its clearance before the box; this check is
+                 # about the box
+                 '  - { t: 4.0, slot: ARM_L, reach: [0.45, 0.30, 1.65] }\n'
+                 '  - { t: 4.0, slot: ARM_R, reach: [0.45, -0.30, 1.65] }\n')
     p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
     tu = cue.load_show(up).export(LIMITS, LIMITS_PATH)
     sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
@@ -107,6 +108,14 @@ else:
     check("a hand raised overhead past the arm controllers' box is REFUSED by the solver, saying how much lower",
           len(p) == 2 and all("outside their box" in x and "lower this target" in x for x in p) and not sol
           and not tu["valid"], (p, sol))
+    with open(up, "w") as fh:
+        fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
+                 '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.66] }\n'
+                 '  - { t: 4.0, slot: ARM_R, reach: [0.45, -0.25, 1.65] }\n')
+    p = ik.compile_show(up, LIMITS_PATH, write=True, verbose=False)
+    sol = [c["solved"] for c in _yaml.safe_load(open(up))["cues"] if "solved" in c]
+    check("... nearer the middle, a hand raised overhead comes too close to the head and is refused, naming it",
+          len(p) == 2 and all("head_collision" in x for x in p) and not sol, (p, sol))
     with open(up, "w") as fh:
         fh.write('id: up\nslots: [ARM_L, ARM_R]\nrequires: {arms: active, rc_authority: AUTO}\ncues:\n'
                  '  - { t: 4.0, slot: ARM_L, reach: [0.42, 0.25, 1.45] }\n'
