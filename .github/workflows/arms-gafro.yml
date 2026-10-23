@@ -6,7 +6,8 @@ name: arms-gafro
 # a C++ build, so it is run by hand: see software/openarm/gafro/README.md.
 #
 # The guards the first runs go through (software/openarm/tests/test_gafro_guards.py) are tested here too: they decide whether a script may
-# command an arm, and need nothing but numpy, PyYAML and the loopback.
+# command an arm, and need nothing but numpy, PyYAML and the loopback. So are the checks a motion step makes before it moves
+# (software/openarm/tests/test_gafro_bringup.py): a signed step, a lapse test that can pass, the clearance, the confirmation.
 #
 # openarm_assets, mujoco and numpy are pinned: a new release of any would turn this red for a change that is not in this repository. Bump
 # the pins together with the model.
@@ -19,6 +20,7 @@ on:
       - "description/openarm/**"
       - "software/openarm/gafro/**"
       - "software/openarm/tests/test_gafro_guards.py"
+      - "software/openarm/tests/test_gafro_bringup.py"
       - "software/choreo/cue.py"
       - ".github/workflows/arms-gafro.yml"
   workflow_dispatch: {}
@@ -42,3 +44,5 @@ jobs:
         run: python3 -c "import yaml; print(sorted(yaml.safe_load(open('software/openarm/gafro/controllers.yaml'))['controllers']))"
       - name: The guards refuse what they should
         run: python3 software/openarm/tests/test_gafro_guards.py
+      - name: A bringup step refuses what it should before it moves
+        run: python3 software/openarm/tests/test_gafro_bringup.py
