@@ -80,6 +80,7 @@ def describe(side: str, joint: int, start, delta: float, speed: float, closest=N
                      + (f"; the stage refuses below {minimum_mm:g} mm. The twin was 6 deg optimistic on the one pose measured on the robot." if minimum_mm else ""))
     else:
         lines.append("Clearance along the path was NOT checked (--skip-clearance).")
+    lines.append("The head is not in the model: it must be tracking OFF with the neck centred, or it can move into the path.")
     return "\n".join(lines)
 
 

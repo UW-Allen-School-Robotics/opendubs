@@ -393,7 +393,7 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=JOINT_SPEED, help="the largest joint's peak-average speed, rad/s")
     parser.add_argument("--backend", default="mujoco", choices=("mujoco", "hardware"))
     parser.add_argument("--hardware-config", default="", help="hardware.yaml, for --backend hardware")
-    parser.add_argument("--supervised", action="store_true", help="a person is at the e-stop (required for a move on a real bus)")
+    parser.add_argument("--supervised", action="store_true", help="a person is at the e-stop, head tracking is off and the neck centred (required for a move on a real bus)")
     parser.add_argument("--dashboard", default=guards.DASHBOARD, help="where CH5 and the e-stop are read (GET /api/choreo/robot)")
     parser.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)),
                         help="on a real bus the arm must start this near stow or ready, per joint")

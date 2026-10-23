@@ -1,14 +1,15 @@
 # Source this on the robot's host (`source env.sh`), do not run it: the toolchain, the prefix, the venv and a few helpers for building and first-running
 # the arms on the gafro path. Everything is overridable by setting the variable first. It sets no shell options and changes nothing until you call a function.
 #
-#   ARM_CODING   where everything lives                      (default ~/coding)
+#   ARM_CODING   where everything lives                      (REQUIRED: there is no default layout)
 #   ARM_PREFIX   the install prefix of Eigen 5, openarm_can  (default $ARM_CODING/local)
 #   ARM_VENV     the venv with gafro, RI and the driver      (default $ARM_CODING/lab/venv)
 #   ARM_REPO     the opendubs checkout with software/openarm/gafro  (found under $ARM_CODING if not set)
 #   ARM_DRIVER   the openarm-driver checkout                 (found under $ARM_CODING if not set)
 #   ARM_RI       the gafro-robot-interface checkout          (found under $ARM_CODING if not set)
 #   ARM_HW_CONFIG  this robot's copy of hardware.example.yaml        (default /etc/opendubs/openarm-gafro-hardware.yaml)
-#   ARM_ASSETS   the openarm_assets checkout the clearance twin is built from  (default $ARM_CODING/src/openarm_assets)
+#   ARM_ASSETS   the openarm_assets checkout the clearance twin is built from  (no default: arm_lapse/arm_move pass it when set, else the twin looks
+#                for $OPENARM_ASSETS, and the step is refused if it finds none)
 #   ARM_JOBS     compiler processes, the build cap           (default 2; gafro's files take 1-2 GB each)
 #
 # `arm_help` lists the functions. The CAN tools are NOT put on PATH: openarm_can installs scripts that rewrite the motors' zero and registers
@@ -19,11 +20,15 @@ if [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" = "$0" ]; then
     exit 1
 fi
 
-export ARM_CODING="${ARM_CODING:-$HOME/coding}"
+if [ -z "${ARM_CODING:-}" ]; then
+    echo "env.sh: set ARM_CODING to the directory your checkouts and venv live under, then source this again" >&2
+    return 1
+fi
+export ARM_CODING
 export ARM_PREFIX="${ARM_PREFIX:-$ARM_CODING/local}"
 export ARM_VENV="${ARM_VENV:-$ARM_CODING/lab/venv}"
 export ARM_HW_CONFIG="${ARM_HW_CONFIG:-/etc/opendubs/openarm-gafro-hardware.yaml}"
-export ARM_ASSETS="${ARM_ASSETS:-$ARM_CODING/src/openarm_assets}"
+export ARM_ASSETS="${ARM_ASSETS:-}"
 export ARM_JOBS="${ARM_JOBS:-2}"
 
 # The commits the lab venv was verified at; a build of anything else is a different test.
@@ -110,7 +115,7 @@ _arm_need_venv() {
 
 _arm_confirm() {  # _arm_confirm <what is about to happen>
     echo "$1"
-    printf 'The arm is supported, a person is at the e-stop, and the other arm is clear? [y/N] '
+    printf 'The arm is supported, a person is at the e-stop, the other arm is clear, and head tracking is OFF with the neck centred? [y/N] '
     local answer
     read -r answer
     [ "$answer" = "y" ] || { echo "not done"; return 1; }
@@ -241,12 +246,12 @@ _arm_step_usage() { echo "usage: $1 <left|right> <joint 1-7> <step in rad WITH A
 arm_lapse() {  # arm_lapse <side> <joint> <signed rad> [speed rad/s, default 0.03] [after s, default 0.3]
     [ $# -ge 3 ] || { _arm_step_usage arm_lapse " [speed] [after]"; return 1; }
     _arm_confirm "Stage 4: moves the $1 arm's joint $2 by $3 rad slowly, then stops renewing the permit; the arm must stop where it is." \
-        && _arm_bringup lapse "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${5:+--after "$5"} --assets "$ARM_ASSETS"
+        && _arm_bringup lapse "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${5:+--after "$5"} ${ARM_ASSETS:+--assets "$ARM_ASSETS"}
 }
 arm_move() {  # arm_move <side> <joint> <signed rad> [speed rad/s]
     [ $# -ge 3 ] || { _arm_step_usage arm_move " [speed]"; return 1; }
     _arm_confirm "Stage 5: moves the $1 arm's joint $2 by $3 rad and back." \
-        && _arm_bringup move "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} --assets "$ARM_ASSETS"
+        && _arm_bringup move "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${ARM_ASSETS:+--assets "$ARM_ASSETS"}
 }
 
 _arm_engage() {  # _arm_engage <side> [engage.py args]
