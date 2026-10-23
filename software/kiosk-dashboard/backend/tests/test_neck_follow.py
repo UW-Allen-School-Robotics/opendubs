@@ -31,6 +31,8 @@ def test_the_necks_status_line_is_read():
 def test_the_settings_and_the_neck_gate_it(tmp_path, monkeypatch):
     import head
     import head_settings
+    import arm_clearance
+    monkeypatch.setattr(arm_clearance, "why_not", lambda now=None: None)   # the arms are down: not what this tests
     monkeypatch.setattr(head_settings, "PATH", str(tmp_path / "s.json"))
     head_settings.save({**head_settings.DEFAULTS, "tracking": "off"})
     assert nf.why_not_now() == "tracking is not set to the tablet"
@@ -119,6 +121,8 @@ def test_the_targets_kind_and_the_trackers_winner_are_kept():
 def test_the_head_never_follows_in_a_reserved_state_and_resumes_by_itself(tmp_path, monkeypatch):
     import head
     import head_settings
+    import arm_clearance
+    monkeypatch.setattr(arm_clearance, "why_not", lambda now=None: None)   # the arms are down: not what this tests
     import kiosk_update
     monkeypatch.setattr(head_settings, "PATH", str(tmp_path / "s.json"))
     head_settings.save({**head_settings.DEFAULTS, "tracking": "tablet"})
