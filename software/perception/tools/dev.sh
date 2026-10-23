@@ -16,7 +16,8 @@ REPO="${REPO:-$HOME/opendubs-perception}"
 DATA="${DATA:-$HOME/perception-data}"
 CONFIG=/work/software/perception/config/perception.yaml
 DOCKER="sudo -n docker"
-in_ctr() { ${DOCKER} exec "$@"; }
+# docker exec bypasses the image ENTRYPOINT, so run through it to source ROS and perception_msgs.
+in_ctr() { local opts=(); while [[ "$1" == -* ]]; do opts+=("$1"); shift; done; ${DOCKER} exec "${opts[@]}" "$1" /opt/perception/entrypoint.sh "${@:2}"; }
 
 case "${1:-}" in
   up)
