@@ -1,9 +1,13 @@
 """Navigation adapter: one camera frame -> traversability image and obstacle points.
 
-The same steps as HOUND's segmentation: CLIPSeg scores navigation's prompts, each group's blobs
-become boxes, NanoSAM refines them, and masks of one group are merged. Unlike HOUND, the output is
-for OpenDubs' navigation stack: a mono8 traversability image (for nvblox later) and the obstacle
-pixels projected through depth into 3D points (for a Nav2 obstacle layer).
+CLIPSeg scores navigation's prompts. Obstacle and people blobs become boxes that NanoSAM refines
+into sharp masks; the traversable area comes from CLIPSeg's map directly. SAM segments the dominant
+object in a box, which suits things (people, furniture) but not stuff: given the box of a whole
+pavement it returned a window above it (Phase 1, bus.jpg). HOUND sends traversable blobs to SAM
+too; it shows less there because its cameras look at the ground.
+
+The output is for OpenDubs' navigation stack: a mono8 traversability image (for nvblox later) and
+the obstacle pixels projected through depth into 3D points (for a Nav2 obstacle layer).
 
 This adapter only ever adds obstacles. It never reports free space that the LIDARs see as blocked.
 """
@@ -12,10 +16,11 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from perception_models.seg_ops import labels_to_boxes
 
-from .models import SharedModels, upsample
+from .models import SharedModels
 
 
 class NavAdapter:
@@ -37,20 +42,22 @@ class NavAdapter:
         groups = self.m.nav_groups(self.m.clip_probs(self.m.clip_hidden(rgb), self.m.clip.cond))
         maxv, arg = groups.max(dim=0)
         labels = torch.where(maxv >= self.threshold, arg + 1, torch.zeros_like(arg)).to(torch.uint8)
-        cands = labels_to_boxes(labels.cpu().numpy(), groups.shape[0], self.min_area, self.max_boxes)
+        # Each pixel's winning group, one mask per group, upsampled with nearest (labels are not
+        # interpolatable: halfway between 1 and 3 is not 2).
+        onehot = labels[None] == torch.arange(1, groups.shape[0] + 1, device=labels.device)[:, None, None]
+        coarse = F.interpolate(onehot[None].float(), size=(h, w), mode="nearest")[0] > 0.5
 
-        if cands:
+        blocked = coarse[self.blocked].any(dim=0) if self.blocked else torch.zeros((h, w), dtype=torch.bool, device=groups.device)
+        cands = [c for c in labels_to_boxes(labels.cpu().numpy(), groups.shape[0], self.min_area, 4 * self.max_boxes)
+                 if c[0] in self.blocked][: self.max_boxes]
+        if cands:  # sharpen obstacles and people with SAM; the coarse map still counts
             sy, sx = h / labels.shape[0], w / labels.shape[1]
             boxes = [(x0 * sx, y0 * sy, x1 * sx, y1 * sy) for _, _, (x0, y0, x1, y1) in cands]
             masks = self.m.sam_masks(self.m.sam_features(rgb), boxes, (h, w),
                                      classes=[g for g, _, _ in cands], per_instance=False)
-            refined = torch.zeros((groups.shape[0], h, w), device=masks.device)
-            refined[: masks.shape[0]] = masks
-        else:  # nothing above threshold: fall back to the coarse maps
-            refined = (upsample(groups, (h, w)) >= self.threshold).float()
+            blocked |= masks.amax(dim=0) > 0
 
-        blocked = refined[self.blocked].amax(dim=0) > 0 if self.blocked else torch.zeros((h, w), dtype=torch.bool, device=refined.device)
-        free = (refined[self.trav] > 0) & ~blocked
+        free = coarse[self.trav] & ~blocked
         trav = (free.to(torch.uint8) * 255).cpu().numpy()
 
         points = np.zeros((0, 3), dtype=np.float32)

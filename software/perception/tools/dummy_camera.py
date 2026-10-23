@@ -20,7 +20,9 @@ from sensor_msgs.msg import CameraInfo, Image
 
 def to_msg(arr, encoding, stamp, frame):
     m = Image()
-    m.header.stamp, m.header.frame_id = stamp, frame
+    m.header.frame_id = frame
+    if stamp is not None:
+        m.header.stamp = stamp
     m.height, m.width = arr.shape[:2]
     m.encoding, m.is_bigendian = encoding, 0
     arr = np.ascontiguousarray(arr)
@@ -44,22 +46,24 @@ class DummyCamera(Node):
                 raise FileNotFoundError(path)
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
-            self.frames.append((rgb, floor_depth_mm(h, w)))
+            # Packed once: repacking ~4 MB per tick in Python held the camera to ~6 Hz.
+            self.frames.append((to_msg(rgb, "rgb8", None, "dummy_color_optical_frame"),
+                                to_msg(floor_depth_mm(h, w), "16UC1", None, "dummy_color_optical_frame"),
+                                (h, w)))
         self.frame_id = "dummy_color_optical_frame"
         self.pub_rgb = self.create_publisher(Image, f"{ns}/color/image_raw", 5)
         self.pub_depth = self.create_publisher(Image, f"{ns}/depth/image_raw", 5)
         self.pub_info = self.create_publisher(CameraInfo, f"{ns}/color/camera_info", 5)
-        self.i, self.period_s, self.t_switch = 0, period_s, None
+        self.i, self.period_s, self.t_switch = len(self.frames) - 1 if period_s > 0 else 0, period_s, None
         self.create_timer(1.0 / rate, self.tick)
         self.get_logger().info(f"dummy camera: {len(self.frames)} image(s) at {rate} Hz on {ns}")
 
     def tick(self):
         now = self.get_clock().now()
-        if self.t_switch is None or (now - self.t_switch).nanoseconds * 1e-9 >= self.period_s:
+        if self.period_s > 0 and (self.t_switch is None or (now - self.t_switch).nanoseconds * 1e-9 >= self.period_s):
             self.i = (self.i + 1) % len(self.frames)
             self.t_switch = now
-        rgb, depth = self.frames[self.i]
-        h, w = rgb.shape[:2]
+        rgb_msg, depth_msg, (h, w) = self.frames[self.i]
         stamp = now.to_msg()
         info = CameraInfo()
         info.header.stamp, info.header.frame_id = stamp, self.frame_id
@@ -69,8 +73,9 @@ class DummyCamera(Node):
         info.p = [f, 0.0, w / 2.0, 0.0, 0.0, f, h / 2.0, 0.0, 0.0, 0.0, 1.0, 0.0]
         info.distortion_model = "plumb_bob"
         info.d = [0.0] * 5
-        self.pub_rgb.publish(to_msg(rgb, "rgb8", stamp, self.frame_id))
-        self.pub_depth.publish(to_msg(depth, "16UC1", stamp, self.frame_id))
+        rgb_msg.header.stamp = depth_msg.header.stamp = stamp
+        self.pub_rgb.publish(rgb_msg)
+        self.pub_depth.publish(depth_msg)
         self.pub_info.publish(info)
 
 
@@ -79,7 +84,7 @@ def main():
     ap.add_argument("--images", nargs="*")
     ap.add_argument("--rate", type=float, default=10.0)
     ap.add_argument("--ns", default="/dummy")
-    ap.add_argument("--switch-every", type=float, default=5.0, help="seconds per image")
+    ap.add_argument("--switch-every", type=float, default=5.0, help="seconds per image (0: first only)")
     args, ros_args = ap.parse_known_args()
     images = args.images
     if not images:
