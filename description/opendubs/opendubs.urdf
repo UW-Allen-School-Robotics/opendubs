@@ -4,15 +4,15 @@
      Head assembly fitted: galaxy_tablet.
      base_link: centre of the wheel rectangle, axle height (workplan-thor-stack L.1).
      Movable joints zaxis / head_pan / head_tilt need a joint_states source.
-     LEFT OUT (no CAD position in the repo yet):
+     LEFT OUT (no CAD or measured position in the repo yet):
        - pinpoint_link (pinpoint)
-       - head_screen_link (galaxy_tablet)
        - tablet_front_camera_link (galaxy_tablet)
        - tablet_front_camera_optical_frame (follows tablet_front_camera_link)
        - tablet_rear_camera_link (galaxy_tablet)
        - tablet_rear_camera_optical_frame (follows tablet_rear_camera_link)
        - tablet_gps_link (galaxy_tablet)
-       - tablet_imu_link (galaxy_tablet) -->
+       - tablet_imu_link (galaxy_tablet)
+       - femto_mount_link (the Femto mount slot) -->
 <robot name="opendubs">
   <material name="frame"><color rgba="0.55 0.57 0.6 1"/></material>
   <material name="plate"><color rgba="0.75 0.75 0.78 1"/></material>
@@ -116,7 +116,13 @@
     <child link="arm_mount"/>
     <origin xyz="0.423 0 0.3575" rpy="0 0 0"/>
   </joint>
-  <link name="head_pan_link"/>
+  <link name="head_pan_link">
+    <visual>
+      <origin xyz="-0.01 0 -0.0357" rpy="0 0 0"/>
+      <geometry><box size="0.072 0.095 0.12"/></geometry>
+      <material name="frame"/>
+    </visual>
+  </link>
   <joint name="head_pan" type="revolute">
     <parent link="lift_platform"/>
     <child link="head_pan_link"/>
@@ -124,12 +130,24 @@
     <axis xyz="0 0 1"/>
     <limit lower="-2.617994" upper="2.617994" effort="0" velocity="0"/>
   </joint>
-  <link name="head_tilt_link"/>
+  <link name="head_tilt_link">
+    <visual>
+      <origin xyz="0.03494 0 -0.015" rpy="0 0 0"/>
+      <geometry><box size="0.10162 0.221 0.134"/></geometry>
+      <material name="plate"/>
+    </visual>
+  </link>
   <joint name="head_tilt" type="revolute">
     <parent link="head_pan_link"/>
     <child link="head_tilt_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.636246" upper="0.274889" effort="0" velocity="0"/>
+  </joint>
+  <link name="head_screen_link"/>
+  <joint name="head_screen_link_joint" type="fixed">
+    <parent link="head_tilt_link"/>
+    <child link="head_screen_link"/>
+    <origin xyz="0.0828 -0.00035 -0.01515" rpy="0 0 0"/>
   </joint>
 </robot>

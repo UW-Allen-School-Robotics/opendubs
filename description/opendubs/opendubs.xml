@@ -65,17 +65,11 @@
     <mesh name="wheel_rl" file="RL-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="wheel_rr" file="RR-wheel.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="zaxis"    file="z-axis-down.stl" scale="0.001 0.001 0.001"/>
-    <!-- The pan/tilt head, exported IN CAD COORDINATES: these meshes carry their own absolute
-         position, so they are placed by cancelling the head frame's offset rather than by
-         positioning each part. See the head body below. -->
-    <mesh name="pt_body"   file="pt_tilt_body.stl"   scale="0.001 0.001 0.001"/>
-    <mesh name="pt_screen" file="pt_screen_cover.stl" scale="0.001 0.001 0.001"/>
-    <!-- The D415 as its ENVELOPE, not its maker's CAD (which is not ours to redistribute): the
-         eight corners of 20.05 x 98.86 x 23.0 mm (the datasheet's 20 x 99 x 23), in CAD
-         coordinates like the meshes above, from dimensions.yaml head.extents_cad_mm.d415. A mesh
-         rather than a box primitive so it is placed, and found by name, exactly as before. -->
-    <mesh name="d415" scale="0.001 0.001 0.001"
-          vertex="364.4 -48.04 1302.12 364.4 -48.04 1325.12 364.4 50.82 1302.12 364.4 50.82 1325.12 384.45 -48.04 1302.12 384.45 -48.04 1325.12 384.45 50.82 1302.12 384.45 50.82 1325.12"/>
+    <!-- The head, as two groups exported in the HEAD ASSEMBLY'S OWN FRAME (dimensions.yaml
+         head.export): the neck, which turns with pan, and the face (the tablet and its mounts),
+         which tilts. See the head bodies below for how they are placed. -->
+    <mesh name="head_neck_pan"  file="head_neck_pan.stl"  scale="0.001 0.001 0.001"/>
+    <mesh name="head_face_tilt" file="head_face_tilt.stl" scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
@@ -199,27 +193,20 @@
                <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
 
-        <!-- THE HEAD. Rides with the extrusion, so it hangs off the lift platform.
+        <!-- THE HEAD: a Samsung Galaxy Tab A11 on a pan/tilt neck. Rides with the extrusion, so
+             it hangs off the lift platform.
              TILT AXIS at CAD (423, 0, 1245.575), measured — 115.1 mm above the top of the arm
-             extrusion, on the same x as the arm frame. The PAN axis is the vertical through it.
+             extrusion, on the same x as the arm frame. The PAN axis is the vertical through it,
+             so the two meet, and this body's origin is that point.
 
-             THE MESHES ARE EXPORTED IN CAD COORDINATES, so the parts are not positioned one by
-             one. Each geom carries a single transform that cancels this body's offset, and
-             every vertex lands where CAD put it.
+             The two meshes are exported in the head assembly's own frame, where the pan/tilt
+             point is (0, 0, 888.7) mm and the tablet faces +x. That frame is placed on the robot
+             by a PURE TRANSLATION, (+423, 0, +356.875) mm, with no rotation (dimensions.yaml
+             head.export). In this body's frame that is one offset, pos (0, 0, -0.8887), the same
+             for both meshes, and every vertex lands where CAD put it.
 
-             That transform is a 180 degree yaw (quat 0 0 0 1) plus pos (0.423, 0.00185,
-             -1.245575), because the export is turned around and 1.85 mm off the centreline:
-               * the yaw, because as exported the screen sits at x 363..386 and the camera at
-                 x 364..384, both BEHIND the tilt axis at 423 — the export is posed at pan=180.
-                 Confirmed: the head faces forward, the way the front wheels do (FL/FR x=528,
-                 RL/RR x=120, so +x is forward).
-             The pan axis IS on the centreline; the parts around it are not. The Tab5 carries a
-             camera on one side, so the assembly sits about 1.85 mm off centre in y and that is
-             real geometry, not an export artefact. An earlier version here subtracted it, which
-             moved the head a millimetre off where CAD puts it. The yaw carries the asymmetry to
-             the other side, which is what physically happens when the head turns round.
-             After the yaw, the screen spans x 460.0..482.8 and the camera x 461.6..481.6, ahead
-             of the axis and facing +x. -->
+             The neck excludes the two goBILDA servos and their bearing blocks, which the export
+             does not carry (dimensions.yaml head.not_modelled). -->
         <body name="head_pan" pos="0.423 0 1.245575">
           <!-- PAN is limited by nothing but the servo's own travel: the goBILDA 2000-series
                dual-mode servo turns 300 deg, and the horn was set at the middle of that, so
@@ -229,55 +216,55 @@
                to pre-empt by narrowing the joint. -->
           <joint name="head_pan" type="hinge" axis="0 0 1" damping="1"
                  range="-2.6180 2.6180"/>
-          <!-- The pan bearing and its bracket are not separate meshes; this body needs mass
-               because MuJoCo refuses a moving body without it. Nominal, not measured. -->
+          <!-- Nominal, not weighed: MuJoCo refuses a moving body without mass. -->
           <inertial pos="0 0 0" mass="0.3" diaginertia="0.001 0.001 0.001"/>
+          <geom class="visual" type="mesh" mesh="head_neck_pan" material="frame" pos="0 0 -0.8887"/>
+          <!-- What the arms must not hit on the neck: one coarse box from the mesh's extents,
+               relative to the pan/tilt point: x -46..26, y -47.5..47.5, z -95.7..24.3 mm, 2 mm
+               outward. Large is the safe error. -->
+          <geom class="collision" type="box" pos="-0.010 0 -0.036" size="0.038 0.0495 0.062"
+                name="neck_collision"/>
           <body name="head_tilt">
-            <!-- TILT TRAVEL IS ASYMMETRIC, and measured. From firmware/tab5_pantilt/README.md,
-                 characterised by creeping the servo and watching current, soft-stopping at
-                 0.20 A so it never stalled:
+            <!-- TILT TRAVEL IS ASYMMETRIC. Characterised on this neck's goBILDA tilt servo
+                 (firmware/tab5_pantilt/README.md) by creeping it and watching current,
+                 soft-stopping at 0.20 A so it never stalled:
                    920 us  full up      1545 us  HORIZONTAL      1650 us  full down
                    hard stop measured at 1680 us
                  The goBILDA 2000-series dual-mode servo travels 300 deg out of the box (their
                  spec), so 500-2500 us is 6.667 us/deg, giving 93.8 deg UP and 15.8 deg
-                 DOWN, with the hard stop a further 4.5 deg below.
-
-                 NOTE that README does its own arithmetic at 7.14 us/deg, from an assumed 280
-                 deg of travel. Its own observation contradicts that: it records 920 us as
-                 "slightly past vertical", which 7.14 makes 87.5 deg — slightly SHORT of
-                 vertical. At 6.667 it is 93.8, past vertical, as observed. The servo
-                 spec and the eye agree; the assumed 280 was the odd one out.
-                 STILL DERIVED, not measured: nobody has put a protractor on this axis. One
-                 reading at 920 us would settle it.
+                 DOWN, with the hard stop a further 4.5 deg below. (That README converts at
+                 7.14 us/deg from an assumed 280 deg; its own note that 920 us is "slightly past
+                 vertical" agrees with 6.667, not 7.14.)
+                 The servo and the axes did not change when the face parts did, but the new face
+                 may meet its stops elsewhere: this range is the servo's, and the robot's
+                 operating limits are the neck controller's (the M5Dial's per-robot tilt limits).
+                 DERIVED, not measured with a protractor.
 
                  Positive here is DOWN: the joint turns about +y, so +x swings toward -z.
-                 Confirmed on the model — +30 deg drops the camera face from z 1313.6 to
-                 1275.2. -->
+                 Confirmed on the model: +30 deg drops the screen centre from z 1230.4 to
+                 1191.1 mm. -->
             <joint name="head_tilt" type="hinge" axis="0 1 0" damping="1"
                    range="-1.6362 0.2749"/>
-            <geom class="visual" type="mesh" mesh="pt_body"   material="frame"
-                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
-            <geom class="visual" type="mesh" mesh="pt_screen" material="plate"
-                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
-            <geom class="visual" type="mesh" mesh="d415"      material="rubber"
-                  quat="0 0 0 1" pos="0.423 0 -1.245575"/>
+            <geom class="visual" type="mesh" mesh="head_face_tilt" material="plate" pos="0 0 -0.8887"/>
 
-            <!-- What the arms must not hit: one coarse box over the whole head — body, screen
-                 and the camera on top. From the placed mesh extents, relative to the tilt axis:
-                 x -29.6..59.8, y -80.9..77.2, z -55.8..79.5 mm, rounded outward. The arms need
-                 to know the head is there, not its fillets, and large is the safe error. -->
-            <geom class="collision" type="box" pos="0.015 -0.0019 0.012" size="0.045 0.079 0.068"
+            <!-- What the arms must not hit on the face: one coarse box from the mesh's extents
+                 (the tablet, its holder and the arms that carry it), relative to the tilt axis:
+                 x -15.9..85.8, y -110.5..110.5, z -82.0..52.0 mm, about 2 mm outward. The arms
+                 need to know the head is there, not its fillets, and large is the safe error. -->
+            <geom class="collision" type="box" pos="0.035 0 -0.015" size="0.053 0.1125 0.069"
                   name="head_collision"/>
 
-            <!-- Centre of the D415's front face. NOT the optical frame: RealSense puts the
-                 depth origin at the left imager, which we have not located. -->
-            <site name="d415_face" pos="0.0586 -0.0014 0.0680" size="0.006" rgba="0.95 0.65 0.15 1"/>
+            <!-- The screen: the centre of the tablet's front face, x out of the glass. From the
+                 mesh: the tablet's front face is the 211.0 x 124.7 mm plane at x = 82.8 mm, its
+                 display area 189.0 x 113.6 mm, both centred at y -0.35, z -15.15 mm from the tilt
+                 axis. The face page belongs here. -->
+            <site name="head_screen" pos="0.0828 -0.00035 -0.01515" size="0.006" rgba="0.95 0.65 0.15 1"/>
+
+            <!-- THE FEMTO MOUNT SLOT. An Orbbec Femto Bolt depth camera will mount on this body
+                 at femto_mount (dimensions.yaml head_assembly.galaxy_tablet.femto_mount). Its
+                 position waits for the mount's CAD, so nothing is placed here yet. -->
           </body>
         </body>
-        <!-- The 1120 extrusion is deliberately absent, and its absence costs nothing: it fits
-             INSIDE the tilt body already modelled here, so nothing can strike it without
-             striking that first. It was carried as an open gap for a while on the assumption
-             that a missing structural member understates clearance; it does not, here. -->
       </body>
     </body>
   </worldbody>
@@ -341,10 +328,12 @@
          sliders for everything except the thing we most want to aim.
 
          ctrlrange matches each joint's range exactly, so a slider cannot command past a limit
-         the servo does not have. kp is sized against the real load rather than guessed: the
-         tilt body's centre of mass sits 23.6 mm from its axis, so gravity pulls with up to
-         0.69 Nm, and holding that within a degree needs kp >= 40. 60 gives margin. Pan carries
-         no gravity load at all — its axis is vertical — so it only needs enough to feel crisp.
+         the servo does not have. The tilt body's mass is MESH- AND BOX-DERIVED, at the density
+         of water (5.1 kg; the real head is under 1 kg), with its centre of mass 47 mm from the
+         axis, so gravity here pulls with up to 2.4 Nm and kp 60 holds it within about 2.3 deg.
+         Weighing the head is a punch-list item; until then this sag is the model's, not the
+         robot's. Pan carries no gravity load at all — its axis is vertical — so it only needs
+         enough to feel crisp.
 
          Units are RADIANS, which is what the sliders show: tilt runs -1.636 (93.8 deg up) to
          +0.275 (15.8 deg down), pan +/-2.618 (150 deg). -->
