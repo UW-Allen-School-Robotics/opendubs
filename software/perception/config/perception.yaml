@@ -5,11 +5,12 @@ models:
   clipseg_model: CIDAS/clipseg-rd16
   clipseg_vision_engine: /data/engines/clipseg_vision_rd16_224.engine
   clipseg_film_engine: /data/engines/clipseg_film_rd16_224_b1_p9.engine   # 9 prompt slots
-  # MobileSAM's TinyViT encoder at 1024 (tools/build_mobilesam_engines.sh). With NanoSAM's
-  # ResNet18 encoder instead: sam_image_size 512 and the *_512 engines.
-  sam_image_size: 1024
-  sam_image_encoder: /data/engines/mobilesam_vit_t_encoder_1024.engine
-  sam_mask_decoder: /data/engines/mobile_sam_mask_decoder_batched_1024.engine
+  # NanoSAM's ResNet18 encoder at 512, as HOUND ships. Without NanoSAM's encoder ONNX (Drive
+  # only), MobileSAM's own encoder works too (tools/build_mobilesam_engines.sh): sam_image_size
+  # 1024, mobilesam_vit_t_encoder_1024.engine and mobile_sam_mask_decoder_batched_1024.engine.
+  sam_image_size: 512
+  sam_image_encoder: /data/engines/resnet18_image_encoder_512.engine
+  sam_mask_decoder: /data/engines/mobile_sam_mask_decoder_batched_512.engine
   yolo_world: /data/models/yolov8s-worldv2.pt
   yolo_nav_labels: [person]
   yolo_imgsz: 640
