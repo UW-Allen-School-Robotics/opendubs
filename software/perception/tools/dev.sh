@@ -3,7 +3,7 @@
 # Everything runs in one container, archit-perception-server: ROS domain 77, localhost-only
 # discovery, so nothing reaches the robot's ROS graph (domain 0). Nothing here changes the host.
 #
-#   dev.sh up                      server + dummy camera
+#   dev.sh up                      server + dummy camera (DUMMY_ARGS="--switch-every 0" holds one image)
 #   dev.sh query bus person        one Segment query; results in ~/perception-data/results/query-<time>
 #   dev.sh topics                  navigation output rates
 #   dev.sh logs                    follow the server log
@@ -27,7 +27,7 @@ case "${1:-}" in
       -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \
       -v "${DATA}:/data" -v "${REPO}:/work:ro" \
       "${IMAGE}" bash -c "python3 -u -m perception_server.server --config ${CONFIG} 2>&1 | tee /data/results/server.log"
-    in_ctr -d "${NAME}" bash -c "python3 -u /work/software/perception/tools/dummy_camera.py > /data/results/dummy_camera.log 2>&1"
+    in_ctr -d "${NAME}" bash -c "python3 -u /work/software/perception/tools/dummy_camera.py ${DUMMY_ARGS:-} > /data/results/dummy_camera.log 2>&1"
     echo "started ${NAME}; 'dev.sh logs' to follow"
     ;;
   query)
