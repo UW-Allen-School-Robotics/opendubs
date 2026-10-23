@@ -4,7 +4,7 @@
 models:
   clipseg_model: CIDAS/clipseg-rd16
   clipseg_vision_engine: /data/engines/clipseg_vision_rd16_224.engine
-  clipseg_film_engine: /data/engines/clipseg_film_rd16_224_b1_p9.engine   # 9 prompt slots
+  # No FiLM (text-half) engine: TensorRT 10.13 computes it wrongly; it runs in PyTorch (models.py).
   # NanoSAM's ResNet18 encoder at 512, as HOUND ships. Without NanoSAM's encoder ONNX (Drive
   # only), MobileSAM's own encoder works too (tools/build_mobilesam_engines.sh): sam_image_size
   # 1024, mobilesam_vit_t_encoder_1024.engine and mobile_sam_mask_decoder_batched_1024.engine.
@@ -28,7 +28,7 @@ navigation:
   camera: dummy
   period_s: 0.1          # 10 Hz
   threshold: 0.3
-  groups:                # HOUND's 9 prompts in three groups; fits the text engine's 9 slots
+  groups:                # HOUND's 9 prompts in three groups
     traversable: [floor, ground, path, dirt]
     non_traversable: [furniture, wall, pillar, car]
     people: [people]

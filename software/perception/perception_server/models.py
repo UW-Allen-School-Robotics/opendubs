@@ -13,12 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from perception_models.clipseg.shared import ClipSegParts, PromptLayout
-from perception_models.clipseg.trt import (
-    TrtFilmDecoder,
-    load_clipseg_film_engine,
-    load_clipseg_vision_engine,
-    trt_encode_hs,
-)
+from perception_models.clipseg.trt import load_clipseg_vision_engine, trt_encode_hs
 from perception_models.nanosam_trt import NanoSamDecoder, NanoSamEncoder
 
 # NanoSAM's batched decoder engine is built for at most this many boxes per call.
@@ -51,10 +46,12 @@ class SharedModels:
             cfg["clipseg_model"], self.nav_layout, input_res=224, compile_mode="none",
             device="cuda", logger=log,
         )
+        # The image half runs in TensorRT. The text half (FiLM decoder) runs in PyTorch: TensorRT
+        # 10.13 on the Thor computes it wrongly (FP16 and FP32 alike, while ONNX Runtime runs the
+        # same ONNX correctly), so on bus.jpg "ground" scored 0.01 on the pavement instead of 0.74.
+        # HOUND's design note also ships FiLM in PyTorch. Never route it through a FiLM engine.
         self.clip_vision = load_clipseg_vision_engine(cfg["clipseg_vision_engine"])
-        self.film = TrtFilmDecoder(load_clipseg_film_engine(cfg["clipseg_film_engine"]))
-        self.film_slots = self.film._num_prompts or 0
-        self.film_torch = self.clip.build_decoder()  # any prompt count, for long label lists
+        self.film = self.clip.build_decoder()  # any prompt count
         self._cond_cache: dict[str, torch.Tensor] = {}
 
         # NanoSAM (or MobileSAM's encoder: the same embedding).
@@ -115,13 +112,10 @@ class SharedModels:
 
     @torch.inference_mode()
     def clip_probs(self, hs: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
-        """Per-prompt probabilities [P, 224, 224]. TensorRT when the prompts fit its slots."""
+        """Per-prompt probabilities [P, 224, 224], from the PyTorch FiLM decoder."""
         t0 = time.perf_counter()
-        if 0 < cond.shape[0] <= self.film_slots:
+        with torch.autocast("cuda", dtype=torch.float16):
             probs = self.film(hs, cond)
-        else:
-            with torch.autocast("cuda", dtype=torch.float16):
-                probs = self.film_torch(hs, cond)
         self._t("clip_text_ms", t0)
         return probs[0].float()
 
