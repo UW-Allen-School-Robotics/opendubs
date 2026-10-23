@@ -26,9 +26,9 @@ The checks are the ones the hand-written demos earned:
     software — never a copy of the numbers in this repo)
   * a per-joint speed cap, because "over 3 seconds" hides a 45 deg/s elbow
   * grippers clamped per side, since the two sides were zeroed in different physical states
-  * the head's travel, and the SHOULDER/HEAD CLEARANCE RULE measured on the robot: with the
-    elbow folded the shoulder reaches the head at 182 deg, and nothing in the arm controller
-    stops it — the only Cartesian guard is a 1.2 m box, which that pose satisfies
+  * the head's travel, and the SHOULDER/HEAD CLEARANCE RULE: with the elbow folded the shoulder
+    reaches the head at about 180 deg (simulated for the Galaxy head, the neck centred), and nothing
+    in the arm controller stops it — the only Cartesian guard is a 1.2 m box, which that pose satisfies
   * one owner per slot at a time: two cues driving the same thing is the bug class that made
     the lift relays chatter (see the Tab5 STOP-stream fix), not a blend
 """
@@ -263,9 +263,13 @@ GRIP_EFFORT_MAX = 5.0          # the controller's own max_effort; we stay at or 
 HEAD_RANGE_DEG = (10, 170)     # pan and tilt, clamped well inside the servos' 0..180
 HEAD_NEUTRAL_DEG = 90.0        # what a clip's `strength` scales head angles toward
 
-# Shoulder/head clearance, measured: contact at J2 182 deg with the elbow folded (~100 deg).
-SHOULDER_HEAD_CONTACT_DEG = 182.0
-SHOULDER_MARGIN_DEG = 25.0     # what a show must leave
+# Shoulder/head clearance: J2 at which the arm (link4) meets the head with the elbow folded (~100 deg).
+# SIMULATED for the Galaxy tablet head with the neck CENTRED: 180.4 deg (sim/, head_collision). A hand
+# re-measurement on the robot is pending; the 182 deg measured by hand was against the old Tab5 head.
+# Arm motion near the head ASSUMES THE NECK IS CENTRED: with the neck free to turn, contact can come as
+# low as 167.7 deg. The user's decision, 2026-10-23. ik.py and the arm planners' hard cap derive from it.
+SHOULDER_HEAD_CONTACT_DEG = 180.0
+SHOULDER_MARGIN_DEG = 25.0     # what a show must leave: J2 <= 155 deg
 ELBOW_FOLD_MIN_DEG = 60.0      # below this the arm is "extended" and the 1.2 m box bites first
 SHOULDER_EXTENDED_MAX_DEG = 135.0   # measured: 140 passed, 146 was rejected on the box
 
