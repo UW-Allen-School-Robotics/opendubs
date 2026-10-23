@@ -25,10 +25,12 @@ THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fac
     after, so a long climb may run faster than this. One measurement, near the bottom of the
     stroke: re-measure over a long climb. (It replaces a 56 mm/s placeholder from the sim's own
     damping, five times too fast: the twin showed 224 mm where the robot rose 45.)
-  * head degrees map as 90 = the sim's zero for both axes, and the SIGN of tilt is unverified —
-    the show's 10..170 convention and the sim's asymmetric tilt range have never been reconciled;
-  * FACT, not assumption: the head turns toward each target at 25 deg/s per axis, the Tab5
-    firmware's own slew limit (HEAD_SLEW_DPS), so the preview shows where it IS, not its target.
+  * head degrees: 90 is the model's zero on both axes. The neck's own directions were MEASURED on the
+    robot (firmware/neck_dial/README.md): pan rises toward the robot's left, tilt rises UP. The model's
+    pan turns left for a positive angle too, but its tilt turns DOWN (description/opendubs/opendubs.xml),
+    so tilt changes sign on the way in (head_joint_deg);
+  * the head turns toward each target at HEAD_SLEW_DPS per axis, the neck's own slew limit, so the
+    preview shows where it IS, not its target.
 
 `--dry-run` needs only PyYAML. Rendering and clearance need mujoco; the robot model, arms included,
 is in description/ (sim/scene.py loads it). Both paths were first run on 2026-10-07 (workplan 2.3).
@@ -53,7 +55,13 @@ import motion  # noqa: E402
 
 LIFT_MM_PER_S = 11.25     # MEASURED on opendubs2 (2026-10-13): a 4 s up rose ~45 mm (see above)
 LIFT_MAX_MM = 275.1       # measured stroke (sim/README)
-HEAD_CENTRE_DEG = 90.0    # ASSUMED: the show's 90 is the sim's 0
+HEAD_CENTRE_DEG = 90.0    # the show's 90 is the model's 0, on both axes
+
+
+def head_joint_deg(s) -> tuple:
+    """(pan, tilt) of a sample in the model's joint degrees. A show's tilt rises UP (measured on the neck);
+    the model's head_tilt turns +y, which is DOWN, so tilt changes sign. Pan agrees: both turn left."""
+    return s["head_pan"] - HEAD_CENTRE_DEG, HEAD_CENTRE_DEG - s["head_tilt"]
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's
 # own slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can
 # override. The servos themselves are faster, so the firmware is what governs.
@@ -403,7 +411,7 @@ def main():
     worst = (float("inf"), None, None)
     for i, s in enumerate(frames(tl, a.fps)):
         clearance.set_pose(model, data, joints_arg(s), s["lift_mm"],
-                           s["head_pan"] - HEAD_CENTRE_DEG, s["head_tilt"] - HEAD_CENTRE_DEG)
+                           *head_joint_deg(s))
         apply_base(model, data, s["base"])
         apply_grips(model, data, s)
         if a.clearance:
