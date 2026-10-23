@@ -102,6 +102,17 @@ except ImportError:
 else:
     import yaml
     import sweep
+    import clearance
+    import scene
+    _m = scene.build(None)
+    _n = lambda g: mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_GEOM, g)  # noqa: E731
+    _r, _l, _b = clearance._geom_sets(_m)
+    _pairs = {(_n(a), _n(b)) for a, b in clearance.pairs_of_interest(_m)}
+    _mount = {_n(g) for g in clearance._mounts(_m, _r + _l)}
+    check("an arm's fixed mount (link0) is not measured against the structure, which no joint moves it "
+          "relative to, but is against the other arm's moving links",
+          len(_mount) == 2 and not any(a in _mount and b in {_n(g) for g in _b} for a, b in _pairs)
+          and ("oa_openarm_right_link0_collision", "oa_openarm_left_link4_collision") in _pairs, _mount)
     tmp = tempfile.mkdtemp()
     try:
         bad, good = os.path.join(tmp, "bad.yaml"), os.path.join(tmp, "good.yaml")
