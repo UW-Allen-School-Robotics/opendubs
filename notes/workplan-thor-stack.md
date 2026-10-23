@@ -20,6 +20,20 @@ notes. It adds no new architecture of its own beyond the decisions it asks for.
 | [`../docs/localization-fusion.md`](../docs/localization-fusion.md) | Two-tier REP-105 (`map→odom→base_link`). `robot_localization` for the local EKF. One primary IMU. Odometry with real covariance, stamped at source as the endgame |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md), [`../docs/naming-frames.md`](../docs/naming-frames.md) | Extrinsics are published from a URDF via `robot_state_publisher`, never as loose static transforms. Do not merge the two scans. **`base_link` placement must be settled before measuring anything** |
 
+## TEMPORARY on opendubs2: the head-up waiver (2026-10-23)
+
+- **Set:** `/etc/opendubs/robot.env` has `OPENDUBS_WAIVE_HEAD_UP=1`, set on the maintainers' word, so
+  shows can play while the head tablet is in a Zoom call (#528). `opendubs-runner` reads it.
+- **What it waives:** ONLY the runner's "head and face must be up" precondition, and every run logs it.
+- **To remove it when the maintainers say:**
+  1. Delete the line and its comment from `robot.env`. The file from before is kept as
+     `/etc/opendubs/robot.env.pre-waiver`.
+  2. `sudo systemctl restart opendubs-runner`.
+
+  #524 (refuse a show during a call) stays unmerged while the waiver is in use.
+- **Deployed with it:** main 7bad01d. That carries #515–#518 and #523 (the 155° shoulder cap for the
+  Galaxy head). The kiosk app was already at 0.6.0 (11).
+
 ## State, end of day 2026-10-22 (opendubs2)
 
 - **On the robot: main 3895126.** The kiosk app served is 0.6.0 (11). The wake word is off in
