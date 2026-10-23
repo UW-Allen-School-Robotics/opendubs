@@ -40,7 +40,7 @@ comes nearer along it than at its closer end and within 2 cm. One arm ends under
 the two-arm move and no `track` exists over it.
 
 **On a real bus the move is gated** (guards.py), before anything is enabled: the existing stack must not be running and no other sender may be commanding the motors; CH5 must be
-MANUAL or AUTO with the e-stop clear (read from the dashboard, `GET /api/choreo/robot`); `--supervised` says a person is at the e-stop; and the arm must start within 5 degrees per
+MANUAL or AUTO with the e-stop clear (read from the dashboard, `GET /api/choreo/robot`); `--supervised` says a person is at the e-stop **and that head tracking is OFF with the neck centred** (the head moves on its own and is not in the collision model; the plan and the prompt say so); the permit is renewed only while CH5 and the e-stop stay clear, so turning CH5 off or pressing the e-stop cuts a running sequence short; and the arm must start within 5 degrees per
 joint of stow or ready, because the collision check has no head in its model. A `fake` bus and the simulator are not gated. **Ready is a working pose, not a resting one**: an
 e-stop or a power drop there lets the forearm fall, so park before leaving the robot.
 
