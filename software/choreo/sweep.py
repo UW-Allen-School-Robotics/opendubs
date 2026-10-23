@@ -90,8 +90,7 @@ class Sweeper:
         import clearance
         import sim_preview as P
         smp = P.sample(tl, t)
-        clearance.set_pose(self.m, self.d, P.joints_arg(smp), smp["lift_mm"], smp["head_pan"] - 90,
-                           smp["head_tilt"] - 90)
+        clearance.set_pose(self.m, self.d, P.joints_arg(smp), smp["lift_mm"], *P.head_joint_deg(smp))
         P.apply_grips(self.m, self.d, smp)
         c = clearance.clearances(self.m, self.d, limit_mm=500.0)
         mm, a, b = c[0] if c else (float("inf"), None, None)
