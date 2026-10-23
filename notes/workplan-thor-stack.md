@@ -20,19 +20,17 @@ notes. It adds no new architecture of its own beyond the decisions it asks for.
 | [`../docs/localization-fusion.md`](../docs/localization-fusion.md) | Two-tier REP-105 (`map→odom→base_link`). `robot_localization` for the local EKF. One primary IMU. Odometry with real covariance, stamped at source as the endgame |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md), [`../docs/naming-frames.md`](../docs/naming-frames.md) | Extrinsics are published from a URDF via `robot_state_publisher`, never as loose static transforms. Do not merge the two scans. **`base_link` placement must be settled before measuring anything** |
 
-## TEMPORARY on opendubs2: the head-up waiver (2026-10-23)
+## The head-up waiver on opendubs2: set and REMOVED, 2026-10-23
 
-- **Set:** `/etc/opendubs/robot.env` has `OPENDUBS_WAIVE_HEAD_UP=1`, set on the maintainers' word, so
-  shows can play while the head tablet is in a Zoom call (#528). `opendubs-runner` reads it.
-- **What it waives:** ONLY the runner's "head and face must be up" precondition, and every run logs it.
-- **To remove it when the maintainers say:**
-  1. Delete the line and its comment from `robot.env`. The file from before is kept as
-     `/etc/opendubs/robot.env.pre-waiver`.
-  2. `sudo systemctl restart opendubs-runner`.
-
-  #524 (refuse a show during a call) stays unmerged while the waiver is in use.
-- **Deployed with it:** main 7bad01d. That carries #515–#518 and #523 (the 155° shoulder cap for the
-  Galaxy head). The kiosk app was already at 0.6.0 (11).
+- **Set:** `OPENDUBS_WAIVE_HEAD_UP=1` (#528) was set in `/etc/opendubs/robot.env`, on the maintainers'
+  word, so shows could play during a Zoom call on the head tablet. It waived only the runner's "head
+  and face must be up" precondition, and every run logged it.
+- **Removed the same day, on the maintainers' word.**
+  - `robot.env` was restored byte-for-byte from `/etc/opendubs/robot.env.pre-waiver`, which differed
+    only by the waiver's two lines.
+  - `opendubs-runner` was restarted, and its process no longer carries the flag.
+  - The runner again refuses a show unless the head and face are up.
+- **On the robot:** main 7bad01d (#515–#518, #523's 155° shoulder cap). The kiosk app is at 0.6.0 (11).
 
 ## State, end of day 2026-10-22 (opendubs2)
 
