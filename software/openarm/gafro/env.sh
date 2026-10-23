@@ -8,6 +8,7 @@
 #   ARM_DRIVER   the openarm-driver checkout                 (found under $ARM_CODING if not set)
 #   ARM_RI       the gafro-robot-interface checkout          (found under $ARM_CODING if not set)
 #   ARM_HW_CONFIG  this robot's copy of hardware.example.yaml        (default /etc/opendubs/openarm-gafro-hardware.yaml)
+#   ARM_ASSETS   the openarm_assets checkout the clearance twin is built from  (default $ARM_CODING/src/openarm_assets)
 #   ARM_JOBS     compiler processes, the build cap           (default 2; gafro's files take 1-2 GB each)
 #
 # `arm_help` lists the functions. The CAN tools are NOT put on PATH: openarm_can installs scripts that rewrite the motors' zero and registers
@@ -22,6 +23,7 @@ export ARM_CODING="${ARM_CODING:-$HOME/coding}"
 export ARM_PREFIX="${ARM_PREFIX:-$ARM_CODING/local}"
 export ARM_VENV="${ARM_VENV:-$ARM_CODING/lab/venv}"
 export ARM_HW_CONFIG="${ARM_HW_CONFIG:-/etc/opendubs/openarm-gafro-hardware.yaml}"
+export ARM_ASSETS="${ARM_ASSETS:-$ARM_CODING/src/openarm_assets}"
 export ARM_JOBS="${ARM_JOBS:-2}"
 
 # The commits the lab venv was verified at; a build of anything else is a different test.
@@ -233,8 +235,19 @@ _arm_bringup() {  # _arm_bringup <stage> <side> [args]
 }
 
 arm_hold()  { _arm_confirm "Stage 3: enables the $1 arm's motors and holds where it is for ${2:-20} s, no permit, nothing commanded." && _arm_bringup hold "$1" --seconds "${2:-20}"; }
-arm_lapse() { _arm_confirm "Stage 4: moves the $1 arm's joint ${2:-3} slowly by ${3:-0.05} rad, then stops renewing the permit." && _arm_bringup lapse "$1" --supervised --joint "${2:-3}" --delta "${3:-0.05}"; }
-arm_move()  { _arm_confirm "Stage 5: moves the $1 arm's joint ${2:-3} by ${3:-0.05} rad and back." && _arm_bringup move "$1" --supervised --joint "${2:-3}" --delta "${3:-0.05}"; }
+# A step has no default joint, size or direction: the right direction depends on what the arm stands next to. bringup.py checks the path in the lane's twin,
+# prints the plan with the arm's real pose, and starts only when the joint and direction are typed back (3+ or 3-).
+_arm_step_usage() { echo "usage: $1 <left|right> <joint 1-7> <step in rad WITH A SIGN, e.g. +0.01 or -0.01>$2" >&2; return 1; }
+arm_lapse() {  # arm_lapse <side> <joint> <signed rad> [speed rad/s, default 0.03] [after s, default 0.3]
+    [ $# -ge 3 ] || { _arm_step_usage arm_lapse " [speed] [after]"; return 1; }
+    _arm_confirm "Stage 4: moves the $1 arm's joint $2 by $3 rad slowly, then stops renewing the permit; the arm must stop where it is." \
+        && _arm_bringup lapse "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${5:+--after "$5"} --assets "$ARM_ASSETS"
+}
+arm_move() {  # arm_move <side> <joint> <signed rad> [speed rad/s]
+    [ $# -ge 3 ] || { _arm_step_usage arm_move " [speed]"; return 1; }
+    _arm_confirm "Stage 5: moves the $1 arm's joint $2 by $3 rad and back." \
+        && _arm_bringup move "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} --assets "$ARM_ASSETS"
+}
 
 _arm_engage() {  # _arm_engage <side> [engage.py args]
     local repo side=$1
@@ -252,8 +265,8 @@ arm_help() {
 building   arm_build_can | arm_install_gafro | arm_install_ri | arm_build_ri_cxx | arm_build_driver | arm_test_driver   (in that order)
 looking    arm_doctor | arm_can_health [args]
 first run  arm_hold <side> [seconds]        stage 3: enabled and held, nothing commanded
-           arm_lapse <side> [joint] [rad]   stage 4: the permit stops being renewed mid-move
-           arm_move <side> [joint] [rad]    stage 5: one joint a small step and back
+           arm_lapse <side> <joint> <+/-rad> [speed] [after]   stage 4: the permit stops being renewed mid-move (no default step or direction)
+           arm_move <side> <joint> <+/-rad> [speed]            stage 5: one joint a small step and back (no default step or direction)
            arm_engage <side|both> [rad/s]   stage 6/7: to the ready pose, then track (default 0.15 rad/s)
            arm_park <side|both> [rad/s]     back to the stow pose
 Each first-run function asks first. <side> is left or right. Variables: ARM_CODING ARM_PREFIX ARM_VENV ARM_REPO ARM_DRIVER ARM_HW_CONFIG ARM_JOBS.

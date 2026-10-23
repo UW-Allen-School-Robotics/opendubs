@@ -3,12 +3,18 @@
 
     PY=<venv>/bin/python
     $PY bringup.py hold  --side right --model <model.xml> --hardware-config <hardware.yaml>
-    $PY bringup.py lapse --side right ...
-    $PY bringup.py move  --side right --joint 3 --delta 0.05 ...
+    $PY bringup.py lapse --side right --joint 3 --delta +0.05 --speed 0.03 --after 0.3 ...
+    $PY bringup.py move  --side right --joint 3 --delta +0.01 ...
 
 Stage 3 `hold`: the motors are verified, enabled and held where the arm is, with no permit, so nothing is commanded and the arm must not
 move. Stage 4 `lapse`: a slow move is under way on a permit; the permit then stops being renewed, as when whatever renews it dies, and the arm
 must stop where it is. Stage 5 `move`: one joint a small step and back, on a permit.
+
+A step has no default size or direction (`--delta` is signed and required; at most 5 deg unless `--allow-large`). Once the arm is held at its real pose and
+before it moves, `lapse` and `move` check the clearance along the path in the Choreography lane's twin (sim/clearance.py: refuse under 20 mm, a floor
+and not a margin, since the twin was 6 deg optimistic on the one pose measured on the robot), print the plan with that pose, and start only when the joint and the
+direction are typed back (`3+`). A `lapse` that cannot pass, because the move would be over before the permit runs out, is refused before anything is
+enabled. See motion_plan.py.
 
 For the first run of an arm: supported, a person at the e-stop, one arm at a time, and `require_permit: true` in the hardware config. On a real bus every
 stage first refuses if the existing arm stack is running or another sender is commanding the motors, and `lapse` and `move` also refuse unless CH5 is
@@ -30,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import guards  # noqa: E402
+import motion_plan  # noqa: E402
 from engage import PermitKeeper, permit_groups  # noqa: E402
 
 HOLD_TOLERANCE = 0.02      # rad, how far an arm that is only held may drift in the hold stage
@@ -71,6 +78,23 @@ def connect(args):
     return robot, indices, lambda: np.asarray(robot.get_state().get_position(), dtype=float)[indices]
 
 
+def authorise(args, start, away) -> bool:
+    """With the arm held at its real pose and before it moves: the clearance along the path, the plan, and the operator's confirmation. True to go."""
+    closest = None
+    try:
+        if not args.skip_clearance:
+            clearance_of = motion_plan.twin_clearance(args.side, args.assets, args.sim_dir or os.environ.get("OPENDUBS_SIM_DIR"))
+            closest = motion_plan.require_clearance(motion_plan.line_poses(start, away), clearance_of, args.min_clearance_mm)
+        motion_plan.confirm(motion_plan.describe(args.side, args.joint, start, args.delta, args.speed, closest,
+                                                 None if args.skip_clearance else args.min_clearance_mm),
+                            args.joint, args.delta, args.confirm)
+    except guards.Refused as refused:
+        print(f"refused: {refused}")
+        print("the arm is at (deg): " + " ".join(f"{np.degrees(v):+.2f}" for v in start))
+        return False
+    return True
+
+
 def verdict(ok: bool, text: str) -> int:
     print(("PASS: " if ok else "FAIL: ") + text)
     return 0 if ok else 1
@@ -108,8 +132,11 @@ def lapse(args) -> int:
     robot, indices, position = connect(args)
     keeper = PermitKeeper(permit_groups(args.side))
     try:
-        target = position().copy()
+        start = position().copy()
+        target = start.copy()
         target[args.joint - 1] += args.delta
+        if not authorise(args, start, target):
+            return 1
         finished = threading.Event()
         keeper.start()
         threading.Thread(target=go_to, args=(robot, args.side, target, args.speed, finished), daemon=True).start()
@@ -137,6 +164,8 @@ def move(args) -> int:
         start = position().copy()
         away = start.copy()
         away[args.joint - 1] += args.delta
+        if not authorise(args, start, away):
+            return 1
         keeper.start()
         worst = 0.0
         for name, target in (("out", away), ("back", start)):
@@ -163,15 +192,40 @@ def main() -> int:
     parser.add_argument("--hardware-config", default="", help="the robot's copy of hardware.example.yaml")
     parser.add_argument("--seconds", type=float, default=20.0, help="hold: how long to watch")
     parser.add_argument("--joint", type=int, default=3, help="lapse, move: the joint, 1 to 7")
-    parser.add_argument("--delta", type=float, default=0.05, help="lapse, move: the step, rad")
-    parser.add_argument("--speed", type=float, default=0.1, help="lapse, move: rad/s")
-    parser.add_argument("--after", type=float, default=1.0, help="lapse: seconds into the move before the permit stops being renewed")
+    parser.add_argument("--delta", type=float, default=None, help="lapse, move: the step, rad, with a sign (+0.01 or -0.01). Required: there is no default "
+                        "direction, because the right one depends on what the arm stands next to")
+    parser.add_argument("--speed", type=float, default=None, help="lapse, move: rad/s (default: move 0.1, lapse 0.03, slow enough for the move to outlast the permit)")
+    parser.add_argument("--after", type=float, default=None, help="lapse: seconds into the move before the permit stops being renewed (default 0.3)")
+    parser.add_argument("--max-step-deg", type=float, default=motion_plan.MAX_STEP_DEG, help="the largest step taken without --allow-large")
+    parser.add_argument("--allow-large", action="store_true", help="take a step larger than --max-step-deg")
+    parser.add_argument("--min-clearance-mm", type=float, default=motion_plan.DEFAULT_MIN_CLEARANCE_MM,
+                        help="refuse if the path comes nearer than this to anything in the lane's twin")
+    parser.add_argument("--skip-clearance", action="store_true", help="do not check the path in the twin (it says so in the plan)")
+    parser.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (or $OPENARM_ASSETS)")
+    parser.add_argument("--sim-dir", default=None, help="the sim/ directory of an opendubs checkout whose twin builds (or $OPENDUBS_SIM_DIR); "
+                        "default: this checkout's own")
+    parser.add_argument("--confirm", default=None, help="the joint and direction to start with (3+ or 3-), for a script that has read the plan; "
+                        "without it the operator is asked")
     parser.add_argument("--supervised", action="store_true", help="lapse, move: a person is at the e-stop (required on a real bus)")
     parser.add_argument("--dashboard", default=guards.DASHBOARD, help="where CH5 and the e-stop are read (GET /api/choreo/robot)")
     parser.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
     args = parser.parse_args()
     if not 1 <= args.joint <= 7:
         parser.error("--joint is 1 to 7")
+    if args.stage in ("lapse", "move"):
+        if args.speed is None:
+            args.speed = 0.03 if args.stage == "lapse" else 0.1
+        if args.after is None:
+            args.after = 0.3
+        if args.speed <= 0.0:
+            parser.error("--speed must be positive")
+        try:
+            motion_plan.validate_step(args.joint, args.delta if args.delta is not None else 0.0, args.max_step_deg, args.allow_large)
+            if args.stage == "lapse":
+                motion_plan.require_lapse_can_pass(args.delta, args.speed, args.after)
+        except guards.Refused as refused:
+            print(f"refused: {refused}")
+            return 1
     refused = gate(args, motion=args.stage in ("lapse", "move"))
     if refused:
         return refused

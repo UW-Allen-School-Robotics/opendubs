@@ -45,6 +45,11 @@ mutated to see the tests fail):
   0x008 (MIT, enable, disable) and register writes (0x7FF with function 0x55 or 0xAA). A read-only status refresh (0x7FF, function 0xCC) and the motors'
   replies are not counted: something on opendubs2 polls both arms with refreshes every 2.2 s, whatever the arm stack is doing, and a poll asks the
   motors for their state and commands nothing. An interface that cannot be listened to is a refusal.
+- **A step in `bringup.py lapse` and `move`** (motion_plan.py): it has no default size or direction (`--delta` signed and required, 5 deg at most unless `--allow-large`);
+  a lapse that cannot pass (the move over before the 0.5 s permit runs out) is refused before anything is enabled; and with the arm held at its real pose, before it moves,
+  the clearance along the path is checked in the twin (refuse under 20 mm, only the arm being moved counts; the twin is a third opinion and was 6 deg optimistic on the one
+  measured pose), the plan is printed with that pose, and the joint and direction must be typed back. A twin that cannot be built is a refusal. Added after a first `move` met the
+  body column: nothing in the script then asked about direction or checked clearance.
 - **Motion** (`engage`, `--park`, `bringup.py lapse` and `move`): CH5 MANUAL or AUTO (DEC-21: STANDBY is hold and status only) and the e-stop clear, read from
   the dashboard's `GET /api/choreo/robot`, the read-only view the runner uses, and `--supervised`, which says a person is at the e-stop. A dashboard that does not
   answer, or an unknown CH5 or e-stop, is a refusal.

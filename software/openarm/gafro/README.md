@@ -59,9 +59,23 @@ with no permit, so it must not move), `lapse` (stage 4: a slow move on a permit,
 ```sh
 PY=<venv>/bin/python; M=description/openarm/gafro/openarm_bimanual.xml; HW=/etc/opendubs/<the robot's copy of hardware.example.yaml>
 $PY software/openarm/gafro/bringup.py hold  --side right --model $M --hardware-config $HW
-$PY software/openarm/gafro/bringup.py lapse --side right --model $M --hardware-config $HW --supervised
-$PY software/openarm/gafro/bringup.py move  --side right --model $M --hardware-config $HW --supervised --joint 3 --delta 0.05
+$PY software/openarm/gafro/bringup.py lapse --side right --model $M --hardware-config $HW --supervised --joint 3 --delta +0.05 --speed 0.03 --after 0.3
+$PY software/openarm/gafro/bringup.py move  --side right --model $M --hardware-config $HW --supervised --joint 3 --delta +0.01
 ```
+
+**A step has no default size or direction.** `--delta` is required and signed (`+0.01`, `-0.01`), at most 5 deg unless `--allow-large`, and the
+right sign depends on what the arm stands next to. Before anything is enabled `bringup.py` refuses a step it cannot take, and a `lapse` that cannot pass.
+Then, with the arm held at its real pose and before it moves, it (1) checks the clearance along the straight path in the Choreography lane's twin
+(`sim/clearance.py`, read and never edited; only pairs involving the arm being moved count) and refuses under `--min-clearance-mm` (20): a floor
+and not a margin, since the twin was 6 deg optimistic on the one pose measured on the robot, (2) prints the plan with the pose the arm is at, and
+(3) starts only when the joint and direction are typed back (`3+`, or `--confirm 3+` from a script that has read the plan). The twin needs
+`--assets` (the openarm_assets checkout, `$ARM_ASSETS` in `env.sh`) and a `sim/` whose twin builds (`--sim-dir`, or `$OPENDUBS_SIM_DIR`); one that cannot be
+built is a refusal, not a pass, and `--skip-clearance` goes without it and says so in the plan. The twin keeps its meshes in `/tmp/opendubs_sim_meshes_<hash>`
+as links into the checkout that built them: remove that directory when that checkout is removed, or the next build fails on dangling links.
+
+**Why the lapse defaults are `--speed 0.03 --after 0.3`.** The permit stays valid 0.5 s after the last renewal, so the arm keeps following the move for about
+`after + 0.5` s. A move shorter than that has finished by then and the stage reports FAIL however well the arm holds: the earlier defaults (0.05 rad at 0.1 rad/s,
+after 1.0 s) could not pass, and neither could `--after 0.3` at 0.1 rad/s. At 0.03 rad/s the 0.05 rad move takes 1.67 s and is cut after about 1.3 deg.
 
 With `require_permit: true` the arm holds unless the permit is renewed; `engage.py` and `bringup.py` renew it themselves (`PermitKeeper`) while they
 run and revoke it on exit, and the arm service will do that once it exists. In the simulator (`--backend mujoco`) `hold` and `move` fail by the
