@@ -61,10 +61,12 @@ It reports the closest pairs and marks which ones actually **move** with the pos
 arm frame sits a fixed distance from the head whatever the arms do and that constant floor
 otherwise hides the number an author cares about.
 
-**Checked against the robot, and six degrees optimistic.** Contact was felt by hand at J2 182;
-the model reaches zero at 188.3, for both arms, and barely varies with elbow fold (187.5 at
-J4=60, 188.3 at J4=140). Six degrees in the *unsafe* direction, so the measured constant stays
-in charge and this supplies the shape of the curve between the points nobody measured.
+**Checked against the robot.** Checked 2026-10-23 against the old (Tab5) head: the model puts
+contact at 181.6° (right) and 182.5° (left), elbow at 100°, against 182° felt by hand, so it agrees
+within about half a degree (`clearance.py --contact right:2 --hold right:4=100`). The new head's
+180° is simulated; the hand re-measurement replaces it. A measured figure outranks the model, so a
+measured constant stays in charge where there is one, and this supplies the shape of the curve
+between the points nobody measured.
 
 **It is a check, not the guard.** Two things already protect the real robot, and this is a third
 opinion rather than the thing standing between the arm and the head:

@@ -590,9 +590,9 @@ Stated so none of it is read as settled.
   against is being retracted in the Tab5 thread as a primitive-rasterisation measurement misapplied
   as a fill/blit ceiling. The cost *hierarchy* stands; the number does not. Phase 4.3 must not
   derive a validated range from it until it is re-measured.
-- **`sim/` is six degrees optimistic on clearance** — contact felt by hand at J2 182°, the model
-  reaches zero at 188.3°. The hand-measured constant stays in charge; a simulator-validated show is
-  not a safe show. And **the sim's dynamics are placeholders**: it answers collision, reach and "does
+- **`sim/`'s clearance agrees with the robot within about half a degree** (checked 2026-10-23 against
+  the old Tab5 head: contact at 181.6° right and 182.5° left, against 182° felt by hand). A measured
+  figure still outranks the model, and a simulator-validated show is still not a safe show. And **the sim's dynamics are placeholders**: it answers collision, reach and "does
   the sequence read", not force, torque, sag, tipping, or **how long a move takes** — which matters
   here, because a timeline is made of durations.
 - **Whether anyone wants a node graph.** The argument above is about where a graph *can* be correct,
