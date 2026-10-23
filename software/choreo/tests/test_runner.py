@@ -485,6 +485,12 @@ os.environ["OPENDUBS_HEAD_NECK_HOST"] = ""
 os.environ["OPENDUBS_HEAD_FACE_HOST"] = "127.0.0.1"
 check("an empty neck keeps its old meaning: the face's box", FB.head_neck_host() == "127.0.0.1", FB.head_neck_host())
 del os.environ["OPENDUBS_HEAD_NECK_HOST"], os.environ["OPENDUBS_HEAD_FACE_HOST"]
+_was_tab5 = os.environ.pop("OPENDUBS_TAB5_HOST", None)
+check("with nothing set, the face and the neck stay on this machine (a laptop never reaches a real head)",
+      FB.head_face_host() == "127.0.0.1" and FB.head_neck_host() == "127.0.0.1",
+      (FB.head_face_host(), FB.head_neck_host()))
+if _was_tab5 is not None:
+    os.environ["OPENDUBS_TAB5_HOST"] = _was_tab5
 
 robot, plog = R.FakeRobotState(), io.StringIO()
 sc = SimClock(robot)

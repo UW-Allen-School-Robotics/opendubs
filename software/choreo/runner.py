@@ -1749,15 +1749,15 @@ def main() -> int:
     pp.add_argument("--arms", choices=("none", "ros"), default="none",
                     help="ros: the real arms can follow a run marked LIVE (plan 5.6); needs ROS sourced")
     pp.add_argument("--gaze", default="none",
-                    help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local; a "
+                    help="auto (OPENDUBS_HEAD_NECK_HOST, else the face's host, else 127.0.0.1; a "
                          "neck host of none or off means no neck is fitted) or a host: live runs turn "
                          "the real head (its GAZE command, Tab5 PR #56)")
     pp.add_argument("--earcons", choices=("on", "off"), default="on",
                     help="off: live runs do not send the head its earcons (CUE) — held back while the "
                          "head's audio task damps its face tracking (2026-10-08)")
     pp.add_argument("--face", default="none",
-                    help="auto (the head's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
-                         "opendubs-tab5.local) or a host: live runs drive the real face and earcons")
+                    help="auto (the face's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
+                         "127.0.0.1, the dashboard's face door) or a host: live runs drive the real face")
     for x in (r, pp):
         x.add_argument("--audio", choices=("none", "dashboard"), default="none",
                        help="play show audio on the dashboard's show-audio device (plan 4.2)")
