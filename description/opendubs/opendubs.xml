@@ -280,6 +280,14 @@
                     name="femto_mount_collision"/>
               <geom class="collision" type="box" pos="0.00135 0 0.0275" size="0.0346 0.0596 0.0221"
                     name="femto_bolt_collision"/>
+              <!-- The cameras, on the two marks on the front face (x 89.7 in the export), at the
+                   surface: the true focal points are behind the glass, by an amount not yet
+                   located. camera_link is the DEPTH camera, OrbbecSDK_ROS2's root, x forward and
+                   pitched 6 deg DOWN from the colour camera (Orbbec's documentation): +6 deg about
+                   y. camera_color is square to the housing. -->
+              <site name="camera_link"  pos="0.03395 -0.030 0.02751" quat="0.998630 0 0.052336 0"
+                    size="0.004" rgba="0.15 0.65 0.95 1"/>
+              <site name="camera_color" pos="0.03395 0.002 0.02701" size="0.004" rgba="0.95 0.35 0.15 1"/>
             </body>
           </body>
         </body>

@@ -11,8 +11,7 @@
        - tablet_rear_camera_link (galaxy_tablet)
        - tablet_rear_camera_optical_frame (follows tablet_rear_camera_link)
        - tablet_gps_link (galaxy_tablet)
-       - tablet_imu_link (galaxy_tablet)
-       - camera_link (femto_bolt) -->
+       - tablet_imu_link (galaxy_tablet) -->
 <robot name="opendubs">
   <material name="frame"><color rgba="0.55 0.57 0.6 1"/></material>
   <material name="plate"><color rgba="0.75 0.75 0.78 1"/></material>
@@ -166,5 +165,11 @@
     <parent link="head_tilt_link"/>
     <child link="femto_mount_link"/>
     <origin xyz="0.05575 0 0.052" rpy="0 0 0"/>
+  </joint>
+  <link name="camera_link"/>
+  <joint name="camera_link_joint" type="fixed">
+    <parent link="femto_mount_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.03395 -0.03 0.02751" rpy="0 0.10472 0"/>
   </joint>
 </robot>

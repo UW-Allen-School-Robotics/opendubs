@@ -125,10 +125,10 @@ head:
       # leave it at the face's top face (z 940.7). The interface is the centre of those mouths.
       femto_interface: [55.75, 0.0, 940.7]
       # The camera envelope's front face is at x = 89.7, facing +x, and carries two 1 mm-deep
-      # circular marks for its two cameras. Which is depth and which is colour waits for the
-      # user's word.
-      femto_mark_a: [89.7, -30.0, 968.21]   # diameter 16.6
-      femto_mark_b: [89.7, 2.0, 967.71]     # diameter 15.5
+      # circular marks for its two cameras (assignment confirmed by the user, 2026-10-23, against
+      # Orbbec's Femto Bolt coordinate-system documentation):
+      femto_depth_mark: [89.7, -30.0, 968.21]   # diameter 16.6: the DEPTH camera, 30 mm to the robot's right
+      femto_color_mark: [89.7, 2.0, 967.71]     # diameter 15.5: the COLOUR (RGB) camera
   not_modelled:
     # The neck export EXCLUDES the two goBILDA servos and their bearing blocks. They are not
     # added as primitives: the export does not say where they sit, and a guessed position is
@@ -285,18 +285,19 @@ head_assembly:
       # Frame positions: `at:` an export landmark, or robot CAD coordinates (pan = tilt = 0, lift
       # down), like the head's; the generator places them relative to femto_mount_link.
       frames:
-        camera_link: { xyz_mm: TODO_CAD, rpy_deg: TODO_CAD }
-        # The DEPTH camera, which is what OrbbecSDK_ROS2 publishes as its root. It goes on
-        # femto_mark_a or femto_mark_b, whichever is the depth camera (held for the user's word),
-        # at the front face's surface: the true focal point sits behind the glass by an amount
-        # that is not in this geometry. The depth camera is pitched 6 deg down from the colour
-        # camera (Orbbec's spec; confirm against their CAD).
-        camera_color: { xyz_mm: TODO_CAD, rpy_deg: TODO_CAD, urdf: false }
-        # The other mark: the colour camera, for the simulator and for a reader. The driver
-        # publishes the real colour frame itself (below), so the URDF does not emit this one.
+        camera_link: { at: femto_depth_mark, rpy_deg: [0, 6, 0] }
+        # The DEPTH camera's origin, which is what OrbbecSDK_ROS2 publishes as its root, in ROS's
+        # body convention (x forward, z up). It sits on the depth mark at the FRONT FACE's
+        # surface: the true focal point is behind the glass, by an amount not yet located.
+        # Pitched 6 deg DOWN from the colour camera (Orbbec's documentation): +6 deg about y,
+        # which swings x toward -z. The colour camera is square to the housing, which is square
+        # to the head.
+        camera_color: { at: femto_color_mark, rpy_deg: [0, 0, 0], urdf: false }
+        # The colour camera, for the simulator and for a reader. The URDF does not emit it: the
+        # driver publishes the real colour frame itself, below.
       driver_frames: >
-        The colour camera, the depth camera and the IMU each have a frame below camera_link, which
-        OrbbecSDK_ROS2 publishes itself from the camera's factory calibration. The URDF never
+        The depth, colour and IMU frames and their optical frames hang below camera_link, and
+        OrbbecSDK_ROS2 publishes them itself from the device's factory extrinsics. The URDF never
         carries them, because two publishers of one transform conflict; it ends at camera_link.
-        The simulator's copies (sites for the depth and colour centres and the IMU) wait for
-        Orbbec's CAD file: TODO_CAD.
+        The simulator carries sites for the depth and colour cameras at the two marks; the IMU's
+        position inside the housing is not in this geometry (TODO_CAD).
