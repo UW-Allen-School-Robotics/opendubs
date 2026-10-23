@@ -112,17 +112,56 @@ docker run --rm -it --name archit-perception-dev \
 | 0.0 | `archit` has passwordless `sudo docker`; 703 GB free; 87 GB of memory available; running: `opendubs-voice`, `opendubs-llm`, `opendubs-airplay`, `openarm`; host torch `2.14.0+cu130` | 2026-10-22 |
 | 0.2 | `archit-perception:dev`, 18.4 GB. Three fixes: the Isaac ROS base does not set `NVIDIA_VISIBLE_DEVICES`, so the runtime injected no driver; ultralytics' `opencv-python` needs `libGL`; `nanosam/` has no `__init__.py`, so `pip install -e` maps nothing (now on `PYTHONPATH`). The generic arm64 CUDA repository offers TensorRT 11.4, so the r38.4 pin is required | 2026-10-22 |
 | 0.3 | **Pass.** NVIDIA Thor, driver 580.00; torch `2.14.0+cu130` on `sm_110`; TensorRT 10.13.3.9 with fast FP16; `trtexec` v10.13.3; all imports, including `torch2trt`, NanoSAM, `perception_models` and `rclpy` | 2026-10-22 |
-| 0.4 | CLIPSeg (1.2 GB Hugging Face cache), `mobile_sam.pt`, `yolov8s-worldv2.pt` downloaded, checksums in `SHA256SUMS`. **`resnet18_image_encoder.onnx` failed:** the Drive link refuses scripted downloads. The Hugging Face mirrors carry other encoders or the `.ort` format, not this ONNX | 2026-10-22 |
-| 0.5 | **CLIPSeg: pass.** `trtexec` 10.13.3 built the image half (145 MB, 21.6 s) and the text half for 1 image × 9 prompts (1.3 MB, 20.5 s), `IMAGE_BATCH=1 USE_DLA=0`. NanoSAM waits for `resnet18_image_encoder.onnx` (0.4) | 2026-10-22 |
+| 0.4 | CLIPSeg (1.2 GB Hugging Face cache), `mobile_sam.pt`, `yolov8s-worldv2.pt` downloaded, checksums in `SHA256SUMS`. `resnet18_image_encoder.onnx`: the Drive link refuses scripted downloads (the Hugging Face mirrors carry other encoders or `.ort`), so the user fetched it in a browser (SHA-256 `d266fcdc…`) | 2026-10-22 |
+| 0.5 | **Pass, with one engine unusable.** `trtexec` 10.13.3 built: CLIPSeg image half (145 MB) and text half (1.3 MB), NanoSAM ResNet18 encoder at 512 (31 MB) and batched decoder (11 MB, ≤ 32 boxes), and the Drive-free fallback, MobileSAM's TinyViT encoder at 1024 (27 MB) and its decoder (12.5 MB). PyTorch 2.14 exports with dynamo by default, which failed on MobileSAM; the exports run on the classic exporter (`tools/onnx_export_classic.py`, `tools/classic_onnx/`). **The CLIPSeg text-half engine computes wrong results** (Phase 1, below) and is not used | 2026-10-22 |
 | 0.6 | **CLIPSeg** (`bench_clipseg.py`): image half TensorRT **1.44 ms** (PyTorch eager 7.67 ms); text half, 9 prompts, PyTorch **2.49 ms**; TensorRT vs PyTorch features cosine 0.999995, FiLM probabilities within 0.0034. HOUND's Orin NX: ~6 ms and ~10 ms. The robot's GPU was otherwise idle (clock at 314 MHz outside the bench), so these are close to clean numbers. On the Thor, `tegrastats` reports the GPU clock (`GR3D_FREQ`), not a utilization percentage. NanoSAM and YOLO-World benches still to run | 2026-10-22 |
 | 0.7 | **Pass.** One loaded YOLO-World answered three label sets through `WorldModel.predict(x, txt_feats=…)`: every box matched the official `set_classes` path (4/4, 5/5, 4/4 at IoU > 0.9), and the model's own text features were unchanged. Text: ~2.9 s for the first CLIP load, then ~9 ms for a new label set, ~0.1 ms cached. Detect + NMS ~15–20 ms per image (PyTorch FP16). **Two rules for Phase 2:** the head's class count (`head.nc`, `head.no`) must be set per call to the number of labels; never zero-pad text features, because a zero vector normalised in FP16 gives NaN scores and NMS silently drops every box | 2026-10-22 |
 
-## Later phases
+## Phases 1 and 2: the server, with both adapters
+
+Built together on 2026-10-22 and run on opendubs2 with the dummy camera (`tools/dev.sh`). The
+Femto Bolt is the manipulation camera once fitted; the navigation cameras are not chosen yet, so
+both adapters run on the dummy camera for now (user, 2026-10-22).
+
+| Piece | Where |
+|---|---|
+| Server: one worker thread makes every model call; a navigation frame when due, at most one query between two | `perception_server/server.py` |
+| The three models, one copy each | `perception_server/models.py` |
+| Navigation adapter | `perception_server/nav.py` |
+| Query adapter | `perception_server/query.py` |
+| `Segment` action, `Instance` message | `perception_msgs/` (built into the image) |
+| Dummy RGB-D camera, query client, navigation snapshot, run helper | `tools/dummy_camera.py`, `tools/segment_client.py`, `tools/nav_snapshot.py`, `tools/dev.sh` |
+
+### Results
+
+| Check | Result |
+|---|---|
+| Queries during the navigation stream | All answered. `bus` → the bus (0.91); `bus person` → bus + 4 people; `bus person shoe` → 8 instances. Each person is its own mask, edges on the body (overlays checked by eye). `mug` on a scene without one → 0. Server 117–144 ms, round trip 160–189 ms (target < 300 ms) |
+| CLIPSeg-only query (`source: clipseg`) | `ground` follows the pavement around people's feet; `bus` covers the bus |
+| Navigation output | `bus.jpg`: 33 % free (the pavement), bus, building and people blocked; 35 k obstacle points at 1.5–4.0 m |
+| Navigation rate | **6–8 Hz, limited by the dummy camera**, not the server: frames take 41–47 ms (image half ~7, text half ~6, SAM encode 10–17, SAM decode ~7 ms), and every frame that arrives is processed. The dummy camera's 3–4 MB frames reach the server at ~6 Hz. Re-measure with a real camera |
+| Model memory | about 3 GB for the server process |
+
+### What Phase 1 found
+
+1. **TensorRT 10.13 computes CLIPSeg's text half (FiLM decoder) wrongly on the Thor.** On
+   `bus.jpg`, "ground" over the pavement: PyTorch 0.74, ONNX Runtime 0.74 on the same ONNX file,
+   TensorRT 0.01, in FP16, FP32 and FP32 without TF32, through `torch2trt` and through TensorRT's
+   own API. The image half's engine is correct (cosine 0.999986). The text half now runs in
+   PyTorch (~3–6 ms), as HOUND's design note ships it. Phase 0.6 missed this: its "FiLM
+   probabilities" line compared PyTorch with PyTorch. **HOUND's SSoT points at a FiLM engine**
+   (`clipseg_film_rd16_224_b3_p9.engine`); if their TensorRT does the same, their navigation
+   segmentation is degraded. Worth telling them.
+2. **SAM box prompts suit things, not stuff.** Given the box of a whole pavement, SAM returned a
+   window above it. Free space now comes from CLIPSeg's traversable map; SAM only sharpens
+   obstacles and people, joined with CLIPSeg's coarse obstacle map.
+3. `docker exec` bypasses the image entrypoint, so `dev.sh` execs through it to source ROS.
+
+### Next
 
 | Phase | Work | Done when |
 |---|---|---|
-| **1. Server, navigation only** | The single-process server (`software/perception/`): ingress, scheduler, the three models, the navigation adapter. Fed from recorded images or a bag | A steady navigation rate on one camera, measured with the language model running, at 120 W. Target to confirm: ≥ 10 Hz |
-| **2. Queries** | The `Segment` action and its interface package; per-instance NanoSAM decode; the per-request YOLO-World path; packaging the same frame's depth and `camera_info` | Queries are answered while the navigation stream runs, and the navigation rate still holds. Target to confirm: under 300 ms per query on the Thor |
+| **2b. Under load** | Run the server while the robot is in use (the language model answering) | Navigation and query numbers with the robot busy |
 | **3. Camera and Nav2** | The Orbbec driver (D1), its owner and udev rules (with the Thor stack lane); the obstacle cloud into Nav2's costmap (Thor stack lane) | Masks line up with depth; the costmap shows semantic obstacles; the LIDARs' obstacles are never cleared |
 | **4. AnyGrasp** | A WebSocket client in the container: a query's masks and depth become a point cloud, sent to the workstation, which returns grasp poses | A "mug" query returns a grasp list |
 
@@ -131,14 +170,15 @@ docker run --rm -it --name archit-perception-dev \
 | # | Decision | Owner | Status |
 |---|---|---|---|
 | D0 | Test on opendubs2 as `archit`, under the rules above | user | **Decided 2026-10-22** |
-| D1 | Orbbec model; which camera serves navigation, and its mount and tilt | user | Open |
-| D2 | YOLO-World (AGPL-3.0) or an Apache-licensed detector (NanoOWL / OWLv2) | user, with the Hygiene lane | Open |
-| D3 | A perception lane owning `software/perception/`, this workplan and the design note; its CI workflow | orchestrator | Open |
+| D1 | Manipulation camera: **Orbbec Femto Bolt** (OrbbecSDK_ROS2 `v2-main` lists it). Navigation cameras: not fitted yet; the dummy camera stands in | user | **Decided 2026-10-22** |
+| D2 | YOLO-World (AGPL-3.0) or an Apache-licensed detector: "whatever suits best and works". YOLO-World works and stays; the licence goes to the Hygiene lane before merging | user | **Decided 2026-10-22** |
+| D3 | A perception lane owning `software/perception/`, this workplan and the design note. **Not announced until everything is built and validated on `archit@opendubs2`** | user | **Decided 2026-10-22** |
 | D4 | Base image: Isaac ROS 4.4 for r38.4 by digest (above). Tell the Thor stack lane, since it may answer their `ISAAC_ROS_BASE_IMAGE` | user, Thor stack lane | Proposed |
 
-## Messages to send (after Phase 0)
+## Messages to send (only once everything is validated, D3)
 
-- **Orchestrator:** perception lane request (D3), and the Phase 0 result from the test container
-  run on opendubs2 under `archit`, with no host changes (D0).
+- **Orchestrator:** perception lane request (D3), and the results from the test containers run on
+  opendubs2 under `archit`, with no host changes (D0).
+- **HOUND's maintainers:** the CLIPSeg FiLM TensorRT finding (Phase 1, finding 1).
 - **Thor stack lane:** the Isaac ROS 4.4 r38.4 base digest, the finding that JetPack 7's runtime
   mounts only devices and drivers, and the host's CUDA/cuDNN/TensorRT versions (D4).

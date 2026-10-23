@@ -1,7 +1,8 @@
 # Perception: one set of segmentation models for navigation and manipulation
 
-**Status:** draft design, 2026-10-22, on `archit/perception`. Nothing is built or deployed.
-The phases, decisions and test rules are in `notes/workplan-perception.md`.
+**Status:** built and tested on opendubs2 under `archit` (dummy camera), 2026-10-22, on
+`archit/perception`. Nothing is deployed to the robot's stack. The phases, results, decisions and
+test rules are in `notes/workplan-perception.md`; the code is in `software/perception/`.
 
 ## The goal
 
@@ -61,11 +62,11 @@ and never read.
  nav camera   │   │ ingress: latest frame per camera, with depth of the same stamp│
  Segment      │   │ scheduler: a nav frame every period; at most one query between│
  action goals ┘   │ models (one copy each):                                       │
-                  │   CLIPSeg    image half TensorRT, text half TensorRT or torch │
+                  │   CLIPSeg    image half TensorRT, text half PyTorch           │
                   │   YOLO-World torch FP16, text features per call               │
                   │   NanoSAM    encoder TensorRT, batched decoder TensorRT       │
                   │ adapters:                                                     │
-                  │   navigation → merge by group → obstacle cloud + trav image   │
+                  │   navigation → CLIPSeg free space, SAM-sharpened obstacles    │
                   │   query      → per-instance masks + rgb + depth + camera_info │
                   └───────────────────────────────────────────────────────────────┘
 ```
@@ -94,13 +95,17 @@ image encoding is reused.
 **Per-request labels without changing the shared models.**
 
 - *CLIPSeg:* the request's text embedding is computed once (cached per label) and passed to the
-  decoder. The text engine has fixed prompt slots; fewer labels are zero-padded automatically
-  (`clipseg/trt.py`), more use the PyTorch decoder.
+  PyTorch FiLM decoder, which takes any number of prompts. **The text half never runs in
+  TensorRT:** TensorRT 10.13 on the Thor computes it wrongly (on `bus.jpg`, "ground" over the
+  pavement scored 0.01 against 0.74 in PyTorch and in ONNX Runtime on the same ONNX file, in FP16
+  and FP32 alike). The image half's engine is correct and does the expensive work.
 - *YOLO-World:* HOUND changes the class list with `set_classes`, which modifies the model for
   every caller. Instead, call `WorldModel.predict(x, txt_feats=…)` with text features from
-  `get_text_pe(…, cache_clip_model=True)`. Both exist in Ultralytics 8.4.183 (checked in
-  `ultralytics/nn/tasks.py`). The cost is writing our own letterbox and duplicate-box removal
-  around that call; Ultralytics has helpers for both.
+  `get_text_pe(…, cache_clip_model=True)`, with Ultralytics' letterbox and NMS around it. The
+  detection head's class count (`head.nc`, `head.no`) must be set to the number of labels on each
+  call; that is safe because calls are serialised. **Never zero-pad text features** to a fixed
+  count: a zero vector normalised in FP16 gives NaN scores, and NMS silently drops every box
+  (Phase 0.7). Matched the official path box for box (4/4, 5/5, 4/4).
 - *NanoSAM:* query boxes run as their own decode, never batched with navigation frames:
   `decode_multi` requires every image in a batch to be the same size, and a query camera may
   differ.
@@ -128,6 +133,11 @@ string stage
 ```
 
 "All of them" depends on the detector: CLIPSeg alone gives regions, not separate instances.
+
+**Navigation adapter.** CLIPSeg's traversable map is the free space; obstacle and people blobs
+become boxes for SAM, whose masks are joined with CLIPSeg's coarse obstacle map; free = traversable
+minus blocked. SAM is not used for the floor: it segments the dominant *object* in a box, and given
+the box of a whole pavement it returned a window above it.
 
 **Navigation stream, per camera:**
 
@@ -168,8 +178,13 @@ and TensorRT "live on the host … exposed via `--runtime=nvidia`" is not true o
 
 **Model files** live outside git and outside the image, in a data directory mounted into the
 container: CLIPSeg from Hugging Face, the NanoSAM encoder ONNX (NVIDIA's Google Drive link in the
-NanoSAM README), the MobileSAM checkpoint, and the YOLO-World weights. TensorRT engines are built
-on the Thor into the same directory, named with the TensorRT version.
+NanoSAM README, which refuses scripted downloads), the MobileSAM checkpoint, and the YOLO-World
+weights. TensorRT engines are built on the Thor into the same directory.
+
+**SAM engines.** The default is NanoSAM's ResNet18 encoder at 512 with HOUND's batched decoder, as
+HOUND ships. Without the Drive file, MobileSAM's own TinyViT encoder (the model NanoSAM distils)
+exports from `mobile_sam.pt` and runs at 1024 (`tools/build_mobilesam_engines.sh`). PyTorch 2.14
+exports ONNX with dynamo by default, which fails on MobileSAM; exports run on the classic exporter.
 
 **Run:** `--runtime nvidia --network host`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp` (the robot uses
 FastDDS; HOUND's image ships a CycloneDDS config), data directory mounted.
@@ -193,10 +208,12 @@ Tracked with owners in `notes/workplan-perception.md`. In short:
   D415 moves with the neck and is held by the face tracker).
 - **D2** YOLO-World (AGPL-3.0) or an Apache-licensed detector (NanoOWL / OWLv2).
 - **D3** The perception lane, its paths, and its CI workflow (the orchestrator).
-- **R1** PyTorch kernels inside the container (the host runs the same wheel, but unproven in a container).
-- **R2** `torch2trt` was last updated May 2024.
+- ~~**R1** PyTorch kernels inside the container~~: work (Phase 0.3).
+- ~~**R2** `torch2trt` on TensorRT 10~~: works for the engines we use.
 - **R3** YOLO-World has no TensorRT path (`adaptive_max_pool2d` fails ONNX export), so it runs in
-  PyTorch FP16; the per-request wrapper is new code.
+  PyTorch FP16 (~15–20 ms per image). The per-request path matches the official one.
+- **R7** TensorRT 10.13 miscomputes CLIPSeg's FiLM decoder (above). Any future TensorRT engine is
+  checked against PyTorch on a real image before use; a synthetic one hid this.
 - **R4** The GPU is shared with the voice lane's language model (capped at 20 % of memory) and
   the face tracker; compute is shared by time-slicing.
 - **R5** Moving images between host and container under FastDDS (UDP only) costs CPU; unmeasured.
