@@ -30,11 +30,13 @@ Each half has its own address, set per robot in `/etc/opendubs/robot.env`:
 
 | setting | default |
 |---|---|
-| `OPENDUBS_HEAD_FACE_HOST` | `OPENDUBS_TAB5_HOST` if set (the old name), else `opendubs-tab5.local` |
+| `OPENDUBS_HEAD_FACE_HOST` | `OPENDUBS_TAB5_HOST` if set (the old name), else `127.0.0.1`: the face door on the robot's own computer (`face_door.py`), which relays to the tablet's face page |
 | `OPENDUBS_HEAD_NECK_HOST` | the face's host |
 
-So with the Tab5 fitted both halves are one address, and nothing has to be configured. **Every
-sender resolves the two in this order** (`software/kiosk-dashboard/backend/head.py`).
+So the face needs no setting: it is the face door on the robot's own computer. A robot with the M5Dial
+neck sets `OPENDUBS_HEAD_NECK_HOST=opendubs-neck.local`. With nothing set, the neck stays at the door too,
+so a dashboard run on a laptop never reaches a real neck. **Every sender resolves the two in this order**
+(`software/kiosk-dashboard/backend/head.py`).
 
 ## 2. Transport
 
