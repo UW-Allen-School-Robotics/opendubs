@@ -120,9 +120,15 @@ async def run(rid: str, request: Request):
     """On a robot whose runner has the arms, the real arms follow every run (plan 5.6); the runner's
     preflight gates it on CH5 AUTO, the held deadman and the arms being active. The body may say how
     the run starts ({start: deadman|countdown|now, countdown_s}), and `skip`: the parts the operator
-    approved running without (a can_skip variant, offered by a NEEDS_APPROVAL refusal); only those keys are passed on."""
+    approved running without (a can_skip variant, offered by a NEEDS_APPROVAL refusal); only those keys are passed on.
+    Refused while a call is up on the head tablet (SHOW_HEAD_IN_CALL): the call holds the tablet, so a
+    show's face and music could not play there."""
     if not rid.replace("-", "").replace("_", "").isalnum():
         return JSONResponse({"error": "not a routine id"}, status_code=400)
+    import tablet_relay
+    from refusals import refuse
+    if why := tablet_relay.call_busy():
+        return refuse("SHOW_HEAD_IN_CALL", f"A show can't start: {why}. End the call first.")
     try:
         raw = await request.json() if await request.body() else {}
     except ValueError:

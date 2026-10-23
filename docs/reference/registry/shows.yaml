@@ -62,6 +62,17 @@ entries:
       - Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the
         LIDARs see through glass.
       - Start the show again once the tracker reports ready.
+  - code: SHOW_HEAD_IN_CALL
+    title: A show won't start because the head tablet is on a call
+    symptom: [show-wont-start]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      A video call is up on the head tablet. During a call the tablet shows the call, not the face, so a
+      show's face and music could not play there, and the show was refused rather than run without them.
+    do:
+      - End the call on the tablet, then start the show again.
   - code: SHOW_VIDEO_BUSY
     title: The projector output couldn't be changed because a show is playing
     symptom: [show-wont-start]

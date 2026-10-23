@@ -152,6 +152,43 @@ def test_a_run_is_forwarded_without_a_live_mark():
         srv.shutdown()
 
 
+def test_a_run_is_refused_while_a_call_holds_the_tablet():
+    import tablet_relay
+    seen = []
+
+    class Rec(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(self.path)
+            b = b'{"started": "reach"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+    srv = HTTPServer(("127.0.0.1", 0), Rec)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    choreo_proxy.RUNNER_URL = f"http://127.0.0.1:{srv.server_address[1]}"
+    was = dict(tablet_relay.call)
+    try:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        app = FastAPI()
+        app.include_router(choreo_proxy.router)
+        c = TestClient(app)
+        tablet_relay.call.update(active=True)
+        r = c.post("/api/choreo/run/reach")
+        assert r.status_code == 409 and r.json()["code"] == "SHOW_HEAD_IN_CALL" and seen == []
+        tablet_relay.call.update(active=False)
+        assert c.post("/api/choreo/run/reach").status_code == 200 and seen == ["/api/run/reach"]
+    finally:
+        tablet_relay.call.clear()
+        tablet_relay.call.update(was)
+        srv.shutdown()
+
+
 def test_a_runs_start_mode_is_forwarded_and_nothing_else():
     seen = []
 
