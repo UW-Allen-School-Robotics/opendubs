@@ -1,9 +1,0 @@
-id: custom_testing
-name: "Custom testing"
-slots: [ARM_L, GRIP_L]
-requires: { rc_authority: AUTO, arms: active }
-clearance: { min_mm: 38.9, at_s: 6.72, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "fc13c8d0ddf3@7b248092" }
-cues:
-  - { t: 3.5, slot: ARM_L, joints: { 1: 31.0, 2: 13.0, 3: -29.0, 4: 8.5, 5: -17.0, 6: -22.0, 7: -42.0 } }
-  - { t: 4.25, slot: GRIP_L, open: 0.5 }
-  - { t: 6.75, slot: ARM_L, pose: rest }

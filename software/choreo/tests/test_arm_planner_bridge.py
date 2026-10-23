@@ -143,6 +143,41 @@ def test_clamping_reported():
     print("  ok    clamp_to_usable_limits reports clamped joints")
 
 
+def test_partial_joints_filled_from_previous_pose():
+    doc = {
+        "id": "test-partial",
+        "name": "Test Partial",
+        "slots": ["ARM_R"],
+        "requires": {"arms": "active", "tab5": True, "rc_authority": "AUTO"},
+        "cues": [
+            {"t": 2.0, "slot": "ARM_R", "joints": {"1": 15, "2": 25, "3": 10, "4": 40, "5": 20, "6": 15, "7": 30}},
+            {"t": 6.0, "slot": "ARM_R", "joints": {"4": 75}},
+        ],
+    }
+    raw_text = """id: test-partial
+name: Test Partial
+slots: [ARM_R]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+cues:
+  - { t: 2.0, slot: ARM_R, joints: { 1: 15, 2: 25, 3: 10, 4: 40, 5: 20, 6: 15, 7: 30 } }
+  - { t: 6.0, slot: ARM_R, joints: { 4: 75 } }
+"""
+    res = arm_planner_bridge.plan_arm_move(doc, raw_text, 1, planner_choice="spline")
+    assert res["ok"] is True
+    parsed = yaml.safe_load(res["text"])
+    cue1_joints = parsed["cues"][1]["joints"]
+    get_j = lambda j: float(cue1_joints[j] if j in cue1_joints else cue1_joints[str(j)])
+    # Joint 4 should be 75, and unspecified joints should keep previous values, NOT 0.0
+    assert abs(get_j(4) - 75.0) < 1e-2
+    assert abs(get_j(1) - 15.0) < 1e-2
+    assert abs(get_j(2) - 25.0) < 1e-2
+    assert abs(get_j(5) - 20.0) < 1e-2
+    print("  ok    partial joint cues preserve previous pose values rather than 0.0")
+
+
 def test_yamledit_insert():
     raw_text = """id: test
 slots: [ARM_R]
@@ -205,6 +240,7 @@ if __name__ == "__main__":
     test_planners_available()
     test_mirror_conversions()
     test_clamping_reported()
+    test_partial_joints_filled_from_previous_pose()
     test_plan_arm_move()
     test_reach_target_solve_and_validate()
     test_yamledit_insert()

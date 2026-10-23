@@ -1,17 +1,16 @@
-# OpenArm Motion Planning & cuRobo Integration
+# Arm motion planning (simulation)
 
-How motion planning works for OpenDubs' two 7-DOF OpenArm arms. This page documents the dual-backend
-architecture (**CBiRRT + SSIK** and **cuRobo GPU**), the benchmarking suite, the interactive Web
-Motion Planner Studio, simulation verification, and the integration roadmap toward hardware tele-op
-and impedance control.
+How motion planning works for OpenDubs' two 7-DOF OpenArm arms in simulation. This page documents
+the planner architecture (CBiRRT + SSIK and optional cuRobo GPU), the benchmarking suite,
+choreography composer integration, and simulation verification.
 
----
+Planning is simulation-only and has not yet run on the physical arms.
 
-## 1. Overview & Architecture
+## Architecture
 
-OpenDubs supports modular motion planning for both arms in simulation prior to deployment on hardware.
-The stack is structured around a backend-agnostic abstraction (`MotionPlannerBackend`), allowing seamless
-runtime switching between planners without modifying caller code.
+OpenDubs supports modular motion planning for both arms in simulation. The stack is structured
+around an abstraction (`MotionPlannerBackend`), allowing runtime switching between planners
+without modifying caller code.
 
 ```
                   ┌──────────────────────────────────────────────┐
@@ -23,7 +22,7 @@ runtime switching between planners without modifying caller code.
                    ▼                                           ▼
       ┌─────────────────────────┐                 ┌─────────────────────────┐
       │     CBiRRT Backend      │                 │      cuRobo Backend     │
-      │   (robocode + SSIK)     │                 │   (GPU CUDA Batched)    │
+      │   (SSIK + Clearance)    │                 │   (GPU CUDA Batched)    │
       ├─────────────────────────┤                 ├─────────────────────────┤
       │ • SSIK Analytical IK    │                 │ • PyTorch + Warp C/CUDA │
       │ • MuJoCo Clearance      │                 │ • Batched Optimization  │
@@ -34,35 +33,36 @@ runtime switching between planners without modifying caller code.
 
 | Component | Role | Location |
 |---|---|---|
-| `OpenArmPlanner` | High-level facade for planning, collision checking, kinematics | `sim/planner/planner.py` |
+| `OpenArmPlanner` | Facade for planning, collision checking, kinematics | `sim/planner/planner.py` |
 | `MotionPlannerBackend` | Protocol interface defining `plan()` and `plan_cartesian()` | `sim/planner/base.py` |
-| `CBiRRTBackend` | robocode SSIK + MuJoCo collision + CBiRRT + TOPP-RA | `sim/planner/cbirrt_backend.py` |
+| `CBiRRTBackend` | SSIK + MuJoCo collision + CBiRRT + TOPP-RA | `sim/planner/cbirrt_backend.py` |
 | `CuRoboBackend` | NVIDIA cuRobo GPU trajectory optimization adapter | `sim/planner/curobo_backend.py` |
 | Benchmark Tool | Statistical measurement comparing planners in simulation | `sim/planner/benchmark.py` |
-| Choreo Composer | Interactive 3D visualizer, jogger, and cue path planner | `software/choreo/composer/` |
+| Choreo Composer | 3D visualizer, jogger, and cue path planner | `software/choreo/composer/` |
 
----
+## Environment setup
 
-## 2. Environment Setup
+### Needed dependencies
 
-The motion planning stack can run in a dedicated Python environment equipped with
-PyTorch, NVIDIA Warp, cuRobo, MuJoCo, SSIK, and TOPP-RA:
+The core simulation environment requires:
+- `numpy`: numerical operations and joint array handling (`pip install numpy`)
+- `mujoco`: simulation scene, forward kinematics, and clearance sweeps (`pip install mujoco`)
+- Generated SSIK artifacts: analytical IK solvers pre-built in `sim/ik_artifacts/` (`openarm_left_ik.py`, `openarm_right_ik.py`)
 
-Key dependencies:
-- `torch` (with CUDA support for cuRobo GPU acceleration)
-- `warp-lang`
-- `curobo` (optional; installed per https://curobo.org)
-- `mujoco`
-- `ssik` & `sscbirrt`
-- `toppra`
+With only the needed dependencies installed, spline interpolation and analytical IK solving work.
 
----
+### Optional dependencies
 
-## 3. Selecting Backends
+Additional planners and retiming tools can be installed as needed:
+- `sscbirrt`: Sampling-based constrained bidirectional RRT planner (`pip install sscbirrt` or build from git source). Adds the `cbirrt` backend. Without it, spline planning remains functional.
+- `toppra`: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`pip install toppra`). Provides time-optimal trajectory retiming. Without it, the planner falls back to velocity-bounded linear interpolation.
+- `curobo` + `torch` + `warp-lang`: NVIDIA cuRobo GPU trajectory generator (CUDA only; install per [cuRobo installation](https://curobo.org)). Adds the `curobo` backend. Without it, CPU backends continue to work normally.
 
-Both planners can be selected through the CLI, Python API, or Web Studio UI.
+## Selecting backends
 
-### Command Line Interface
+Planners can be selected through the CLI, Python API, or Composer UI.
+
+### Command-line interface
 Pass `--backend cbirrt` or `--backend curobo`:
 
 ```bash
@@ -100,14 +100,12 @@ traj = planner.plan_to_joint_goal(q_start, q_goal)
 planner.set_backend("cbirrt")
 ```
 
----
+## Performance benchmarking
 
-## 4. Performance Benchmarking
+The benchmark suite (`sim/planner/benchmark.py`) measures planning latency, trajectory duration,
+waypoint density, path clearance, and success rates in MuJoCo simulation.
 
-The benchmark suite (`sim/planner/benchmark.py`) measures and compares planning latency, trajectory
-duration, waypoint density, path clearance, and success rates in MuJoCo simulation.
-
-### Running Benchmarks
+### Running benchmarks
 ```bash
 # Run benchmark across canonical motions (5 trials per motion)
 python sim/planner/benchmark.py --trials 5
@@ -117,9 +115,10 @@ python sim/planner/benchmark.py \
   --arm right --trials 3 --json-out benchmark_results.json
 ```
 
-### Empirical Results (Simulation)
+### Empirical results (simulation)
 
-Tested on OpenArm V1 left arm across canonical workspace transitions (`stow` $\to$ `reach_forward`, `reach_forward` $\to$ `spooky_arms_up`, `spooky_arms_up` $\to$ `zombie_reach`, `zombie_reach` $\to$ `pumpkin_carry`, `pumpkin_carry` $\to$ `stow`):
+Tested on an x86_64 host (AMD Ryzen 9 7950X) with an NVIDIA RTX 4090 GPU in MuJoCo simulation,
+evaluating OpenArm V1 left arm transitions across canonical workspace poses (`stow` → `reach_forward` → `reach_high` → `reach_side` → `ready` → `stow`):
 
 ```
 ==============================================================================
@@ -140,54 +139,46 @@ Min Path Clearance           | 39.9 mm              | 39.9 mm
 ==============================================================================
 ```
 
-Key takeaways:
-1. **Speedup:** cuRobo operates **2.3× to 4.8× faster** than CBiRRT by computing trajectory optimization in parallel on GPU CUDA cores.
-2. **Smoothness:** cuRobo outputs denser waypoint paths (32 waypoints vs 17) with 26% faster execution duration.
-3. **Safety:** Both planners strictly obey the 38.9–39.9 mm clearance threshold against the robot chassis and head in MuJoCo.
+Key observations:
+1. **Speedup:** cuRobo operates **2.3× faster** on average than CBiRRT on this test host by parallelizing optimization on CUDA cores.
+2. **Clearance:** Both planners achieved measured clearances of 39.9 mm along their generated waypoints in the simulation scene. The authoritative collision gate remains the save-time sweep (`sim/clearance.py`), which checks the interpolated spline against the 30.0 mm threshold (`CLEAR_MIN_MM`). Note that the twin simulation reads about 6° optimistic and the head moves during live operation.
 
----
+## Choreo Composer integration
 
-## 5. Choreo Composer Integration
+Motion planning is integrated into the Choreo Composer (`software/choreo/composer/`). To start the
+composer, see the [Composer quickstart](composer/quickstart.md) or run:
 
-All motion planning capabilities are natively integrated into the **Choreo Composer** (`software/choreo/composer/`):
-
-### Starting the Composer:
 ```bash
-python3 software/choreo/composer/server.py --port 8091
+software/choreo/studio-up.sh
 ```
-Navigate to: **`http://localhost:8091`**
 
-### Features:
+### Capabilities
 - **3D Robot Arm Preview:** Dual-arm WebGL visualizer rendering real OpenArm mesh geometry with orbit camera.
 - **Dynamic Joint Sliders:** Interactive joint angle sliders with live 3D visual preview.
-- **SSIK Analytical Jogger & Reach Solver:** Enter Cartesian $(X, Y, Z)$ targets and click **Solve Reach** to compute analytical IK in $< 0.2\text{ ms}$.
+- **SSIK Analytical Jogger & Reach Solver:** Enter Cartesian (X, Y, Z) targets and click **Solve Reach** to compute analytical IK in under 0.2 ms.
 - **Automatic Path Planning:** Click **Plan Path** on any arm cue to synthesize collision-free paths routing around obstacles and the robot chassis using CBiRRT or cuRobo.
-- **Safety Clearance Verification:** Strictly verifies all generated trajectories against the 30.0 mm minimum clearance threshold (`CLEAR_MIN_MM` in `software/choreo/ik.py`).
+- **Save-Time Clearance Verification:** Clearance reported by the planner applies to the planner's own waypoints. The save-time sweep (`sim/clearance.py`) provides the check against the 30.0 mm threshold (`CLEAR_MIN_MM`).
 - **Show Runner Safety Gating:** Physical robot motion is executed through `software/choreo/runner.py`, which acquires the exclusive motion lease, validates preflight safety, and enforces the RC deadman switch.
 
----
+## Verification test suite
 
-## 6. Verification Test Suite
-
-The simulation planning components are covered by an automated test suite verifying kinematics, collision guards, modular backend switching, cuRobo GPU planning, and benchmarking:
+The simulation planning components are covered by an automated test suite verifying kinematics,
+collision guards, backend switching, cuRobo integration, and benchmarking:
 
 ```bash
 python3 sim/planner/test_motion_planner.py
 ```
 
-### Covered Test Sections:
+### Covered test sections
 1. `SSIK Analytical Kinematics & FK Consistency` (reconstruction error: 0.0000 mm)
 2. `MuJoCo Collision Checking & Clearance Guard` (stow safe: 39.9 mm, head contact caught)
 3. `CBiRRT Motion Planning & TOPP-RA Retiming` (spline limits, velocity bounds)
 4. `Modular Backend Registry & cuRobo Adapter` (GPU CUDA trajectory, custom backend swap)
 5. `Performance Benchmarking` (CBiRRT & cuRobo success rates and latency profiling)
 
----
+## Tele-op independence
 
-## 7. Relationship to Regular Tele-Op Mode
-
-### Tele-Op Independence
-Regular tele-operation (**Meta Quest WebXR bridge**) is completely separate and isolated from the
+Regular tele-operation ([WebXR teleop](teleop-setup.md)) is separate and isolated from the
 simulation motion planning testbed:
 
 | System | Role | Execution Environment |
@@ -195,20 +186,13 @@ simulation motion planning testbed:
 | **WebXR Tele-op** | Real-time direct controller tracking via Quest headset | Runs in `openarm` Docker container via `opendubs-teleop.service` |
 | **Motion Planner** | Collision-free trajectory generation & choreo authoring | Runs in simulation testbed (`sim/planner/`) and Choreo Composer (`software/choreo/composer/`) |
 
-- **No Shared State:** The motion planning code resides entirely in `sim/planner/` and `sim/ik_artifacts/`. No tele-op services, patches, or controller configs were modified.
-- **Controller Safety:** Regular tele-op continues to communicate with the `openarm_impedance_controller` as documented in [WebXR teleop](teleop-setup.md).
+Tele-op communicates with the `openarm_impedance_controller` as documented in [WebXR teleop](teleop-setup.md).
+The motion planning code resides in `sim/planner/` and `sim/ik_artifacts/`. Planning is simulation only and
+has not yet run on the physical arms.
 
-### Roadmap Toward Hardware Integration
-1. **Phase 0 (Completed):** Verified in simulation with CBiRRT + SSIK and cuRobo GPU backends.
-2. **Phase 1 (Hardware-in-the-Loop & Execution):** Hardware safety preflight layer, HITL 50 Hz loopback, remote SSH transport to Thor `openarm` container, and gripper action commands.
-3. **Phase 2 (cuRobo ROS Real-time Integration):** Stream cuRobo GPU trajectory points dynamically as the target hand position moves in tele-op mode.
+## Licenses and provenance
 
----
-
-## 8. Licenses and Provenance
-
-- **cuRobo / curobo-stretch**: Copyright &copy; NVIDIA Corporation. Based on *cuRobo: Parallelized Collision-Free Minimum-Jerk Robot Motion Generation* (NVIDIA Research, arXiv:2310.17274). It is an external library developed under its own terms (NVIDIA Source Code License / Apache-2.0); lab installations using `curobo-stretch` provide the same `curobo` package interface. It is **not vendored** into this repository and is an optional dependency that users can install separately in environments equipped with NVIDIA CUDA GPUs. The composer, choreography tools, and test suites function cleanly without cuRobo.
-- **SSIK (Simple Symbolic Inverse Kinematics)**: The analytical IK artifacts in `sim/ik_artifacts/openarm_left_ik.py` and `sim/ik_artifacts/openarm_right_ik.py` were generated using SSIK, developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license.
-- **sscbirrt**: The constrained bidirectional RRT planner (`sscbirrt`) is developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license. It is an optional dependency; the test suite skips cleanly when it is not installed.
-- **TOPP-RA**: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`toppra`) is licensed under the **LGPL-3.0 / BSD-3-Clause** license and is an optional dependency for trajectory retiming. Fallback velocity-bounded interpolation is provided when TOPP-RA is not installed.
-
+- **cuRobo**: Copyright &copy; NVIDIA Corporation. The backend targets the cuRobo v2 API, licensed under **Apache-2.0**. (Earlier v0.7.x releases were under the NVIDIA non-commercial license). cuRobo is an external library and is **not vendored** into this repository. It is an optional dependency installed separately by users in environments equipped with NVIDIA CUDA GPUs. The composer, choreography tools, and test suites function without cuRobo.
+- **SSIK (Simple Symbolic Inverse Kinematics)**: The analytical IK artifacts in `sim/ik_artifacts/openarm_left_ik.py` and `sim/ik_artifacts/openarm_right_ik.py` were generated using SSIK, developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license. See `sim/ik_artifacts/LICENSE-ssik`.
+- **sscbirrt**: The constrained bidirectional RRT planner (`sscbirrt`) is developed by the Personal Robotics Lab and licensed under the **MIT** license. It is an optional dependency; the test suite skips cleanly when it is not installed.
+- **TOPP-RA**: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`toppra`) is licensed under the **MIT** license and is an optional dependency for trajectory retiming. Fallback velocity-bounded interpolation is provided when TOPP-RA is not installed.

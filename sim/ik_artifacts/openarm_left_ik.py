@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# SPDX-FileCopyrightText: Copyright (c) 2026, Siddhartha Srinivasa
 # Generated with SSIK (Simple Symbolic Inverse Kinematics), Personal Robotics Lab.
 """Generated IK module for v1.
 

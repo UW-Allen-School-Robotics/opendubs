@@ -1075,7 +1075,7 @@ function renderInspector() {
     container.innerHTML = `
       <div class="plan-preview-box ${isFail ? 'fail' : 'pass'}">
         <div class="verdict-banner ${isFail ? 'fail' : 'pass'}">
-          ${isFail ? '⚠️ Validation FAIL (Speed cap or limit exceeded)' : `✅ Validation PASS (Clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
+          ${isFail ? '⚠️ Validation FAIL (Speed cap or limit exceeded)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
         </div>
         ${problemsHtml}
         <div class="plan-msg">${esc(resp.message || "")}</div>
