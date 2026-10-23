@@ -4,7 +4,11 @@ Nothing here talks to a motor. Each guard fails closed: a question it cannot ans
 
   stack_running / foreign_commands   another controller on the arms' bus. SocketCAN lets any number of processes send, so nothing
                                      stops two controllers commanding the same motors: the existing stack's `ros2_control_node` is
-                                     looked for, and the bus is listened to, passively, for MIT command frames from anyone else.
+                                     looked for, and the bus is listened to, passively, for what only a controller or a tool that
+                                     changes the motors sends: command frames (MIT, enable, disable) to ids 0x001 to 0x008, and
+                                     parameter writes (0x7FF with function 0x55 or 0xAA). A read-only status refresh (0x7FF, 0xCC) is
+                                     not one: something on opendubs2 polls both arms with it every 2.2 s, and it asks, it does not
+                                     command. Its replies (0x011 to 0x018) are not looked at either.
   require_motion_permitted           CH5 permits motion (MANUAL or AUTO, DEC-21), the e-stop is clear, and a person has said, with
                                      --supervised, that they are at the e-stop. The state is the dashboard's read-only
                                      /api/choreo/robot, the one the runner reads; an unanswered or unknown state is a refusal.
@@ -28,7 +32,9 @@ import numpy as np
 
 DASHBOARD = "http://127.0.0.1:8080/api/choreo/robot"
 MOTION_CH5 = ("MANUAL", "AUTO")                 # OFF (STANDBY) is hold and status only: nothing that moves an arm (DEC-21)
-COMMAND_IDS = range(0x001, 0x009)               # the MIT command frames to the arm's motors 1 to 8; their replies are on 0x011 and up
+COMMAND_IDS = range(0x001, 0x009)               # the frames to the arm's motors 1 to 8: MIT commands, and enable and disable
+REGISTER_ID = 0x7FF                             # the frames that read, write or save a motor's registers, and ask for its status: id in the data
+REGISTER_WRITES = (0x55, 0xAA)                  # in data[2]: write a register, save the registers. 0x33 reads one and 0xCC asks for the status
 STACK_PROCESSES = ("ros2_control_node",)
 LISTEN_SECONDS = 0.5
 START_TOLERANCE = np.radians(5.0)               # per joint, as `openarm-up` takes an arm to be at its stow pose
@@ -62,10 +68,20 @@ def _open_can(interface: str):
     return sock
 
 
-def foreign_commands(interface: str, seconds: float = LISTEN_SECONDS, open_socket=_open_can, clock=time.monotonic) -> list[int]:
-    """The command ids (0x001 to 0x008) seen on `interface` in `seconds`: someone is already commanding the arm's motors.
+def _commands(can_id: int, data: bytes) -> bool:
+    """Whether a standard frame is one that commands a motor or changes its registers, as opposed to one that only asks it something."""
+    if can_id in COMMAND_IDS:
+        return True
+    return can_id == REGISTER_ID and len(data) > 2 and data[2] in REGISTER_WRITES
 
-    Passive: the socket only reads. Frames this process sent are not delivered back to it, and the driver is not running while this is called.
+
+def foreign_commands(interface: str, seconds: float = LISTEN_SECONDS, open_socket=_open_can, clock=time.monotonic) -> list[int]:
+    """The ids seen on `interface` in `seconds` that command a motor: frames to ids 0x001 to 0x008 (MIT, enable, disable), and 0x7FF frames
+    that write or save a register. Someone is already commanding the arm's motors.
+
+    Passive: the socket only reads, and the driver is not running while this is called. A status refresh (0x7FF, 0xCC) and the motors'
+    replies are not commands and are not reported: a read-only poll of the motors is common (the dashboard and the lane's tools do it) and
+    puts nothing on the motors that a controller of ours could be contradicting.
     """
     try:
         sock = open_socket(interface)
@@ -82,7 +98,7 @@ def foreign_commands(interface: str, seconds: float = LISTEN_SECONDS, open_socke
             if len(frame) < 4:
                 continue
             (can_id,) = struct.unpack_from("=I", frame)
-            if not can_id & CAN_EFF_FLAG and (can_id & 0x7FF) in COMMAND_IDS:
+            if not can_id & CAN_EFF_FLAG and _commands(can_id & 0x7FF, frame[8:16]):
                 seen.add(can_id & 0x7FF)
     except OSError as error:
         raise Refused(f"reading {interface} failed ({error}), so another sender cannot be ruled out") from error
@@ -100,7 +116,7 @@ def require_exclusive(interfaces, seconds: float = LISTEN_SECONDS, stack=stack_r
     for interface in interfaces:
         ids = listen(interface, seconds)
         if ids:
-            raise Refused(f"another sender is commanding the motors on {interface} (MIT command frames, ids "
+            raise Refused(f"another sender is commanding the motors on {interface} (command or register-write frames, ids "
                           + ", ".join(f"0x{i:03x}" for i in ids) + ").")
 
 
