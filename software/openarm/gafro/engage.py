@@ -137,8 +137,9 @@ class PermitKeeper:
 
     A no-op without `groups` (the simulator has no permit). The driver names its permit after its control group (`left_arm`, `right_arm`).
 
-    `allowed`, if given, is asked before every renewal (guards.motion_gate: CH5 MANUAL or AUTO with the e-stop clear): when it says no, or raises, the renewal
-    is withheld and the arm holds within `lease`. So a sequence in progress stops when CH5 goes to OFF or the e-stop is pressed, instead of finishing its move.
+    `allowed`, if given, is asked before every renewal (guards.motion_gate: CH5 MANUAL or AUTO, the e-stop clear and the deadman, CH6, held): when it says no, or raises, the
+    renewal is withheld and the arm holds within `lease`. So a sequence in progress stops when CH5 goes to OFF, the e-stop is pressed or the deadman is released, instead of
+    finishing its move.
     `grant` and `revoke` replace the driver's calls, for tests.
     """
 
@@ -413,7 +414,7 @@ def main() -> int:
             interfaces, real = guards.buses_of(args.hardware_config, groups)
             if real:
                 guards.require_exclusive(interfaces, args.listen_seconds)
-                guards.require_motion_permitted(args.supervised, args.dashboard)
+                guards.require_motion_permitted(args.supervised, args.dashboard, deadman=True)   # CH6 held from the start: there is no typed-back step to hold it from
                 stows = [stow_pose(name, args.stow_conf) for name in names]
                 if any(pose is None for pose in stows):
                     raise guards.Refused(f"no stow pose configured in {args.stow_conf or STOW_CONF}: a move on a real bus starts near stow or ready")

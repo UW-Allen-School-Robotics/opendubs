@@ -52,8 +52,11 @@ mutated to see the tests fail):
   body column: nothing in the script then asked about direction or checked clearance.
 - **Motion** (`engage`, `--park`, `bringup.py lapse` and `move`): CH5 MANUAL or AUTO (DEC-21: STANDBY is hold and status only) and the e-stop clear, read from
   the dashboard's `GET /api/choreo/robot`, the read-only view the runner uses, and `--supervised`, which says a person is at the e-stop with head tracking off and the neck centred (the head is not in the model). A dashboard that does not
-  answer, or an unknown CH5 or e-stop, is a refusal. The same check gates every permit renewal (`guards.motion_gate`): CH5 OFF, the e-stop, or a stale or null answer stops
-  the renewals and the arm holds within the 0.5 s lease, so a sequence in progress is cut short rather than finished.
+  answer, or an unknown CH5 or e-stop, is a refusal. The deadman, CH6, must be **held** (`deadman: true` in the same answer): the arms are deliberately not on it in normal
+  operation (see `docs/interfaces/command-telemetry.md`), so this is a hold to run for the first runs, a requirement of the user's. `bringup.py lapse` and `move` ask for it
+  once the joint and direction are typed back, before the first permit is granted (a released deadman is a refusal there, not a move that quietly never starts), and `engage`
+  and `--park` ask at launch, having no such step. Released, null and absent all mean no. The same check gates every permit renewal (`guards.motion_gate`): CH5 OFF, the e-stop, a
+  released deadman, or a stale or null answer stops the renewals and the arm holds within the 0.5 s lease, so a sequence in progress is cut short rather than finished.
 - **Where a move starts** (`engage`, `--park`): within 5 degrees per joint of stow (the stow file's pose) or ready. The straight-line check against the collision geometry
   uses a model with no head, neck or lift, and the head moves, so from anywhere else the line could pass through it unseen. Until the head is in the model,
   that is the rule; the maintainers' decision on the cap and the ready pose makes it a condition.

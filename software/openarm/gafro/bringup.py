@@ -18,7 +18,9 @@ enabled. See motion_plan.py.
 
 For the first run of an arm: supported, a person at the e-stop, one arm at a time, and `require_permit: true` in the hardware config. On a real bus every
 stage first refuses if the existing arm stack is running or another sender is commanding the motors, and `lapse` and `move` also refuse unless CH5 is
-MANUAL or AUTO with the e-stop clear and `--supervised` says a person is at the e-stop (guards.py). The
+MANUAL or AUTO with the e-stop clear and `--supervised` says a person is at the e-stop (guards.py). They also need the deadman, CH6, HELD: hold it from
+the moment you type the joint and direction back until the stage ends. It is checked once before the first permit is granted and before every renewal, so
+letting go stops the move within the 0.5 s lease, as flipping CH5 to OFF does. The
 verdicts are the thresholds below, which are starting values like everything else. The same commands run against the simulator with
 `--backend mujoco` (no permit there, so `lapse` is skipped), which is how the script itself was tried.
 """
@@ -104,6 +106,22 @@ def authorise(args, start, away) -> bool:
     return True
 
 
+def deadman_held(args) -> bool:
+    """On a real bus the deadman (CH6) must be held when the arm is first told to move: asked once the move is confirmed, before the first permit is granted, so that
+    a released deadman is a refusal and not a move that quietly never starts. The keeper asks again before every renewal (guards.motion_gate)."""
+    if args.backend != "hardware":
+        return True
+    _, real = guards.buses_of(args.hardware_config, permit_groups(args.side))
+    if not real:
+        return True
+    try:
+        guards.require_deadman(args.dashboard)
+    except guards.Refused as refused:
+        print(f"refused: {refused}")
+        return False
+    return True
+
+
 def verdict(ok: bool, text: str) -> int:
     print(("PASS: " if ok else "FAIL: ") + text)
     return 0 if ok else 1
@@ -146,6 +164,8 @@ def lapse(args) -> int:
         target[args.joint - 1] += args.delta
         if not authorise(args, start, target):
             return 1
+        if not deadman_held(args):
+            return 1
         finished = threading.Event()
         keeper.start()
         threading.Thread(target=go_to, args=(robot, args.side, target, args.speed, finished), daemon=True).start()
@@ -174,6 +194,8 @@ def move(args) -> int:
         away = start.copy()
         away[args.joint - 1] += args.delta
         if not authorise(args, start, away):
+            return 1
+        if not deadman_held(args):
             return 1
         keeper.start()
         worst = 0.0

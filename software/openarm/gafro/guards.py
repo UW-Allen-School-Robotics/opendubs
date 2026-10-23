@@ -150,8 +150,30 @@ def robot_state(url: str = DASHBOARD, timeout: float = 2.0, opener=urllib.reques
         return json.loads(response.read())
 
 
-def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state) -> None:
-    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear."""
+def _deadman_refusal(robot: dict) -> str | None:
+    """Why the deadman (CH6) does not allow motion, or None if it is held. Only a held deadman is a yes: released, null and absent are all no."""
+    deadman = robot.get("deadman")
+    if deadman is True:
+        return None
+    return (f"CH6 (the deadman) is {'released' if deadman is False else 'unknown'}: hold it for the whole move. The arms do not move without it, and "
+            "letting go stops the move within the 0.5 s lease.")
+
+
+def require_deadman(url: str = DASHBOARD, state=robot_state) -> None:
+    """Refuse unless CH6 is held right now. Normal operation does not put the arms on the deadman (docs/interfaces/command-telemetry.md); the first runs do,
+    as a hold to run: it is asked once the move is confirmed, before the first permit is granted, and again before every renewal (motion_still_permitted)."""
+    try:
+        robot = state(url)
+    except Exception as error:  # noqa: BLE001 -- whatever the dashboard did, its answer is unknown
+        raise Refused(f"the dashboard did not answer at {url} ({type(error).__name__}), so CH6 is unknown.") from error
+
+    why = _deadman_refusal(robot if isinstance(robot, dict) else {})
+    if why:
+        raise Refused(why)
+
+
+def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state, deadman: bool = False) -> None:
+    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear; with `deadman`, and CH6 is held."""
     if not supervised:
         raise Refused("a move needs --supervised: a person at the e-stop, the arm supported or clear, head tracking OFF and the neck centred "
                       "(the head moves on its own and the twin and the stow check assume it does not; the arm service that would check is not built).")
@@ -165,16 +187,19 @@ def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot
         raise Refused(f"CH5 is {ch5 or 'unknown'}, not MANUAL or AUTO: the arms do not move.")
     if estop is not False:
         raise Refused("the e-stop is " + ("engaged" if estop else "unknown") + ".")
+    if deadman and (why := _deadman_refusal(robot)):
+        raise Refused(why)
 
 
 def motion_still_permitted(url: str = DASHBOARD, state=robot_state) -> bool:
-    """Whether CH5 permits motion and the e-stop is clear right now. Anything else is False: CH5 off, the e-stop engaged or unknown, and a dashboard that
-    does not answer or answers something the guard cannot read (stale or null counts as stop)."""
+    """Whether CH5 permits motion, the e-stop is clear and the deadman (CH6) is held, right now. Anything else is False: CH5 off, the e-stop engaged or unknown,
+    the deadman released or unknown, and a dashboard that does not answer or answers something the guard cannot read (stale or null counts as stop)."""
     try:
         robot = state(url)
     except Exception:  # noqa: BLE001 -- whatever the dashboard did, its answer is unknown
         return False
-    return isinstance(robot, dict) and robot.get("ch5") in MOTION_CH5 and robot.get("estop") is False
+    return (isinstance(robot, dict) and robot.get("ch5") in MOTION_CH5 and robot.get("estop") is False
+            and _deadman_refusal(robot) is None)
 
 
 def motion_gate(url: str = DASHBOARD, timeout: float = 0.2):
