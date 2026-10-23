@@ -82,7 +82,7 @@ class PerceptionServer(Node):
             self.pub_cloud = self.create_publisher(PointCloud2, f"/perception/{self.nav_camera}/obstacles", 5)
 
         self.jobs: queue.Queue[_Job] = queue.Queue()
-        self.stats = {"nav": [], "query": [], "nav_skipped_stale": 0}
+        self.stats = {"nav": [], "query": []}
         self._last_nav_stamp = None
         self._running = True
         self.worker = threading.Thread(target=self._work, daemon=True)
@@ -103,8 +103,10 @@ class PerceptionServer(Node):
         while self._running and rclpy.ok():
             now = time.monotonic()
             if self.nav_enabled and now >= next_nav:
-                next_nav = max(next_nav + self.nav_period, now)
-                self._run_nav()
+                if self._run_nav():
+                    next_nav = max(next_nav + self.nav_period, now)
+                else:  # no new frame yet: look again shortly, not a whole period later
+                    next_nav = now + 0.005
                 if not self.jobs.empty():  # at most one query between navigation frames
                     self._run_query(self.jobs.get())
                 continue
@@ -114,11 +116,11 @@ class PerceptionServer(Node):
             except queue.Empty:
                 pass
 
-    def _run_nav(self):
+    def _run_nav(self) -> bool:
+        """One navigation frame, if the camera has a new one. -> whether it ran."""
         frame = self.cameras[self.nav_camera].latest()
         if frame is None or frame.stamp == self._last_nav_stamp:
-            self.stats["nav_skipped_stale"] += 1
-            return
+            return False
         self._last_nav_stamp = frame.stamp
         t0 = time.perf_counter()
         rgb = image_to_numpy(frame.rgb_msg)
@@ -128,6 +130,7 @@ class PerceptionServer(Node):
         self.pub_trav.publish(numpy_to_image(trav, "mono8", hdr))
         self.pub_cloud.publish(_cloud(points, hdr))
         self.stats["nav"].append((time.perf_counter() - t0) * 1000.0)
+        return True
 
     def _run_query(self, job: _Job):
         g = job.goal
