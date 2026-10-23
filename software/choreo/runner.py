@@ -303,14 +303,6 @@ def video_items(show, tl) -> tuple:
     return out, skipped
 
 
-def head_up_waived() -> bool:
-    """TEMPORARY (the user's request, 2026-10-23): shows may play while the head tablet is in a video
-    call, with the face in the background. OPENDUBS_WAIVE_HEAD_UP=1 in the robot's robot.env waives ONLY
-    the "head and face must be up" precondition; every run logs that it is waived. It is not a motion
-    gate (the e-stop, the deadman, CH5 and the parts' checks all stay). Remove the line, and this, after."""
-    return os.environ.get("OPENDUBS_WAIVE_HEAD_UP") == "1"
-
-
 def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
     """Refusals, as (code, sentence). Built from the show's `requires:` (validated by cue.py), plus
     what every show needs: no e-stop, the deadman held, no fault — and nothing UNKNOWN. `deadman`
@@ -335,7 +327,7 @@ def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
         # an older dashboard: one all-or-nothing arms field. With `effectors`, each part the show
         # needs is checked instead (effector_check), so a part it does not use cannot refuse it
         need("arms", lambda v: v == requires["arms"], f"the arms must be {requires['arms']}")
-    if requires.get("tab5") and not head_up_waived():
+    if requires.get("tab5"):
         need("tab5", lambda v: v is True, "the Tab5 (head and face) must be up")
     return out
 
@@ -1006,9 +998,6 @@ class Runner:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator")
         st = self.robot.read()
         refusals = preflight(show.requires or {}, st, deadman=self.start != "deadman")
-        if (show.requires or {}).get("tab5") and head_up_waived():
-            self._log("warning", note="the head-up check is WAIVED (OPENDUBS_WAIVE_HEAD_UP=1, temporary): "
-                                      f"this show runs with the head {'up' if st.get('tab5') is True else 'NOT up'}")
         if self.live and tl.get("crawler") and hand_output.PART in (tl.get("needs") or ()):
             # the floor hand answers for itself (the dashboard does not know it): fitted, a driver, and the
             # hand answering on its port. Moves it has never run play too; the log names them.
