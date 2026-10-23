@@ -3,7 +3,11 @@
 Simulation motion planning engine for the OpenArm V1 arms on OpenDubs.
 Integrates **SSIK** analytical IK, **MuJoCo** clearance/collision checking, **CBiRRT** path planning, **TOPP-RA** time-optimal retiming, and **cuRobo** GPU trajectory optimization.
 
-Natively integrated with the **Choreo Composer** (`software/choreo/composer/`) for interactive 3D authoring, joint angle sliders, Cartesian reach solving, and collision-free path synthesis.
+Integrated with the **Choreo Composer** (`software/choreo/composer/`) for interactive 3D authoring,
+joint angle sliders, Cartesian reach solving, and collision-free path synthesis.
+
+> For full step-by-step instructions on using the tool, enabling the arms via the dashboard,
+> deploying to Thor, and developer Python API references, see [**INSTRUCTIONS.md**](INSTRUCTIONS.md).
 
 ---
 
