@@ -24,6 +24,7 @@ a commanded degree is ~1.67 real ones.)
 It sends nothing at all, and the head stays where it is when the lease runs out, unless ALL hold:
   - the Head & face setting `tracking` is `tablet`;
   - a neck is fitted (OPENDUBS_HEAD_NECK_HOST, not `none`);
+  - neither arm's shoulder is raised above J2 142 deg, and their positions are known (arm_clearance.py);
   - the robot is not in a reserved state (DEGRADED, E_STOP): the user's decision, 2026-10-16;
   - no show is loaded (the runner has no run): a show aims the head itself;
   - the neck is not held by a person: RC or touch own it (the neck says so in `NECK`).
@@ -211,6 +212,12 @@ def why_not_now():
         return "tracking is not set to the tablet"
     if head.neck_host() is None:
         return "no neck is fitted"
+    # Never while a shoulder is raised, or the arms' positions are unknown (arm_clearance.py, #523's cap):
+    # a show that stopped mid-move leaves the arms up, and the head must not turn into them.
+    import arm_clearance
+    arm = arm_clearance.why_not()
+    if arm:
+        return arm
     # Never in a RESERVED state (DEGRADED, E_STOP): the user's decision (2026-10-16), the same rule as
     # the reticle and a show's light. The head waits, and follows again by itself when the state clears:
     # nothing is latched. A state that cannot be read counts as reserved.
@@ -372,6 +379,8 @@ async def start() -> None:
         _task = asyncio.get_running_loop().create_task(run())
     import neck_state                                # the neck's angles into ROS (/head/joint_states)
     await neck_state.start()
+    import arm_clearance                             # the arms' shoulders, so the head keeps out of their way
+    await arm_clearance.start()
 
 
 def status() -> dict:

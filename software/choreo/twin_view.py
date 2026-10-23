@@ -129,8 +129,7 @@ def main() -> int:
             if tl and tl.get("tracks") is not None:
                 smp = sim_preview.sample(tl, t)
                 clearance.set_pose(model, data, sim_preview.joints_arg(smp), smp["lift_mm"],
-                                   smp["head_pan"] - sim_preview.HEAD_CENTRE_DEG,
-                                   smp["head_tilt"] - sim_preview.HEAD_CENTRE_DEG)
+                                   *sim_preview.head_joint_deg(smp))
                 sim_preview.apply_base(model, data, smp["base"])
                 sim_preview.apply_grips(model, data, smp)
 

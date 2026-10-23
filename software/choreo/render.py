@@ -166,8 +166,7 @@ class Robot:
 
     def pose(self, s: dict) -> None:
         m, d = self.model, self.data
-        self.clearance.set_pose(m, d, P.joints_arg(s), s["lift_mm"], s["head_pan"] - P.HEAD_CENTRE_DEG,
-                                s["head_tilt"] - P.HEAD_CENTRE_DEG)
+        self.clearance.set_pose(m, d, P.joints_arg(s), s["lift_mm"], *P.head_joint_deg(s))
         P.apply_base(m, d, s["base"])
         P.apply_grips(m, d, s)
         if "crawler" in s:

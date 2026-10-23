@@ -5,8 +5,9 @@
     python3 clearance.py --contact right:2 --hold right:4=100   find where it touches
     python3 clearance.py --lift 275 --joints "left:2=170"       ... with the lift raised
 
-`software/choreo/cue.py` refuses a shoulder above 157 degrees because contact with the head was
-measured BY HAND, ONCE, ON ONE AXIS, with a human watching. This answers the same question from
+`software/choreo/cue.py` refuses a shoulder above 155 degrees: contact with the Galaxy head comes at
+about 180 with the elbow folded and the neck centred, SIMULATED, with a hand re-measurement pending
+(the old head's 182 was measured BY HAND, ONCE, ON ONE AXIS). This answers the same question from
 geometry: the minimum distance between any two parts, for any pose.
 
 A THIRD OPINION, NOT THE GUARD. Two things already protect the robot — the arm model's collision
@@ -23,12 +24,11 @@ WHAT IT IS ALLOWED TO CLAIM. Distances, and only distances. Geometry in this mod
 CAD; its masses and dynamics do not (see the banner in opendubs.xml), so nothing here says
 anything about what happens after a collision, only whether one occurs.
 
-AND IT IS NOT THE AUTHORITY. Checked against the one pose we measured on the robot, this model
-is SIX DEGREES OPTIMISTIC: contact was felt at J2 182, the model reaches zero at 188.3. Six
-degrees in the unsafe direction, so the measured constant stays in charge and this tool
-supplies the shape of the curve between the points nobody measured. Closing that gap is real
-work — most likely the head box or the arm's collision mesh is missing something physical, such
-as the cable runs, which no CAD export carries.
+AND IT IS NOT THE AUTHORITY. Checked 2026-10-23 against the one pose measured on the robot (the old
+Tab5 head): the model puts contact at 181.6 (right) and 182.5 (left), elbow at 100, against 182 felt
+by hand, so it agrees within about half a degree. The new head's 180 is simulated, and the hand
+re-measurement replaces it. A measured figure outranks the model: where one exists it stays in
+charge, and this tool supplies the shape of the curve between the points nobody measured.
 """
 from __future__ import annotations
 
@@ -66,13 +66,26 @@ def _geom_sets(model):
     return right, left, body
 
 
+def _mounts(model, geoms) -> set:
+    """Each arm's link0: its fixed mount on the arm frame, which no arm joint moves."""
+    import mujoco
+    return {g for g in geoms
+            if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, g) or "").endswith("_link0_collision")}
+
+
 def pairs_of_interest(model):
     """The pairs worth measuring: each arm against the structure, and the two arms against
-    each other. NOT a link against its own neighbour — those touch by construction."""
+    each other. NOT a link against its own neighbour — those touch by construction. NOT an arm's
+    mount (link0) against the structure, nor the two mounts against each other: no joint moves
+    them relative to it, so the pair is structure, not choreography. On the Galaxy head the
+    mounts sit 31.1 mm under the neck's box at every pan, lift and pose, where the unmodelled pan
+    servo really joins them; counted, that constant would be every show's floor. A mount is
+    still measured against the OTHER arm's moving links."""
     right, left, body = _geom_sets(model)
-    out = [(a, b) for a in right for b in body]
-    out += [(a, b) for a in left for b in body]
-    out += [(a, b) for a in right for b in left]
+    mounts = _mounts(model, right + left)
+    out = [(a, b) for a in right if a not in mounts for b in body]
+    out += [(a, b) for a in left if a not in mounts for b in body]
+    out += [(a, b) for a in right for b in left if not (a in mounts and b in mounts)]
     return [(a, b) for a, b in out if not _adjacent(model, a, b)]
 
 

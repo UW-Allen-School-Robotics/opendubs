@@ -95,7 +95,7 @@ class Kin:
         import clearance
         import sim_preview
         clearance.set_pose(self.m, self.d, sim_preview.joints_arg(smp), smp["lift_mm"],
-                           smp["head_pan"] - sim_preview.HEAD_CENTRE_DEG, smp["head_tilt"] - sim_preview.HEAD_CENTRE_DEG)
+                           *sim_preview.head_joint_deg(smp))
 
     def point(self, target, side: str, standoff=None):
         """A target, as a world point, in the pose last set. A named PART of the robot is moved out

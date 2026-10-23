@@ -91,6 +91,16 @@ r, end, _ = run("hello.yaml", R.FakeRobotState(ch5="MANUAL"))
 check("CH5 not in the show's required mode refuses", end[0] == "REFUSED" and "CH5 must be AUTO" in end[2], end)
 r, end, _ = run("hello.yaml", R.FakeRobotState(arms="inactive"))
 check("arms not active refuses", end[0] == "REFUSED" and "arms" in end[2], end)
+_rq = {"tab5": True, "rc_authority": "AUTO"}
+_st = {"estop": False, "deadman": True, "fault": None, "ch5": "AUTO", "tab5": False}
+check("the head not up refuses a show that needs it", any("Tab5" in w for _c, w in R.preflight(_rq, _st)))
+os.environ["OPENDUBS_WAIVE_HEAD_UP"] = "1"
+try:
+    check("... unless the head-up check is waived (OPENDUBS_WAIVE_HEAD_UP=1, temporary), and only that check",
+          R.preflight(_rq, _st) == [] and R.preflight(_rq, dict(_st, ch5="MANUAL")) != []
+          and R.preflight(_rq, dict(_st, deadman=False)) != [])
+finally:
+    del os.environ["OPENDUBS_WAIVE_HEAD_UP"]
 
 print("\nrunner: ending a show")
 r, end, lines = run("hello.yaml", flip_after=10.0, change={"estop": True})

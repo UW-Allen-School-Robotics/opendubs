@@ -577,6 +577,9 @@ check("the lift has risen for its 6 s by t=12 (placeholder speed, clamped to the
       abs(s["lift_mm"] - min(275.1, 6 * sim_preview.LIFT_MM_PER_S)) < 1e-6, s["lift_mm"])
 check("joints are handed to sim/scene.py in each arm's own sense",
       "left:2=20.0" in sim_preview.joints_arg(sim_preview.sample(tl, 3.0)))
+check("a show's head turns the model's head the way the neck turns: tilt up is the model's negative tilt, "
+      "pan left its positive pan (firmware/neck_dial/README.md; opendubs.xml)",
+      sim_preview.head_joint_deg({"head_pan": 120.0, "head_tilt": 120.0}) == (30.0, -30.0))
 _ev = [{"t": 1.0, "start": 1.0, "end": 3.0, "cue": {"move": "sway", "secs": 2}}]
 _mid = sim_preview.base_pose(_ev, 1.5)
 check("a dance move displaces the base while it runs", abs(_mid[1]) > 0.01, _mid)
