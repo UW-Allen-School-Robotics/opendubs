@@ -366,7 +366,7 @@ class LiveFace(_HeadLink):
         self._idle_err[r] -= 1
         self._once("idle:" + r, kind="face_note",
                    note=f"the head answered the show-end IDLE lines with {r!r}: a head without them "
-                        "(the Tab5) — expected")
+                        "(an older head) — expected")
         return True
 
     def armed(self, what):

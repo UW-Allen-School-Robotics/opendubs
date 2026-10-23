@@ -6,7 +6,7 @@ palette: { label: Shrug, order: 3 }
 slots: [ARM_L, ARM_R, HEAD, SOUND, FACE]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 
 clearance: { min_mm: 38.9, at_s: 0.3, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "411c4416b103@dc74e24f" }

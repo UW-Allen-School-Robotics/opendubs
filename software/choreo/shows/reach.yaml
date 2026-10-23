@@ -11,7 +11,7 @@ palette: { label: Reach, order: 1 }
 slots: [ARM_R, GRIP_R, HEAD, FACE]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 
 clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "7e0c8355f99d@dc74e24f" }

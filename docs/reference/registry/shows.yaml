@@ -62,6 +62,20 @@ entries:
       - Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the
         LIDARs see through glass.
       - Start the show again once the tracker reports ready.
+  - code: SHOW_HEAD_NOT_UP
+    title: A show won't start because the head tablet isn't showing its face
+    symptom: [show-wont-start]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The show uses the head (its face, its neck or its volume and brightness), and the head tablet is
+      not ready for it: the face page is not showing on the tablet, or a video call is holding the
+      tablet. The face and the show's sound could not play there, so the show was refused rather than
+      run without them.
+    do:
+      - If a video call is up on the tablet, end it.
+      - Make sure the head tablet is on and showing the face page, then start the show again.
   - code: SHOW_VIDEO_BUSY
     title: The projector output couldn't be changed because a show is playing
     symptom: [show-wont-start]

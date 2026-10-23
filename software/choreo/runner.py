@@ -137,7 +137,7 @@ class FakeRobotState:
     def __init__(self, **kw):
         self.lock = threading.Lock()
         self.s = {"ch5": "AUTO", "deadman": True, "estop": False, "arms": "active",
-                  "tab5": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}},
+                  "head": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}},
                   "mast_operator_seq": 0}
         self.s.update(kw)
 
@@ -156,7 +156,7 @@ class DashboardRobotState:
     field goes UNKNOWN and a running show ends (unknown never defaults, 5.2)."""
 
     POLL_S, STALE_S = 0.1, 0.5
-    UNKNOWN = {"ch5": None, "deadman": None, "estop": None, "arms": None, "tab5": None,
+    UNKNOWN = {"ch5": None, "deadman": None, "estop": None, "arms": None, "head": None,
                "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}}}
 
     def __init__(self, url="http://127.0.0.1:8080/api/choreo/robot"):
@@ -327,8 +327,12 @@ def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
         # an older dashboard: one all-or-nothing arms field. With `effectors`, each part the show
         # needs is checked instead (effector_check), so a part it does not use cannot refuse it
         need("arms", lambda v: v == requires["arms"], f"the arms must be {requires['arms']}")
-    if requires.get("tab5"):
-        need("tab5", lambda v: v is True, "the Tab5 (head and face) must be up")
+    if requires.get("head"):
+        head = st.get("head", st.get("tab5"))     # an older dashboard names the field tab5
+        if head is not True:                      # @fault SHOW_HEAD_NOT_UP   (unknown refuses too)
+            out.append(("SHOW_HEAD_NOT_UP", "the head is not ready for a show: the head tablet must be "
+                        "showing its face page, with no video call holding it"
+                        + (" (its state is unknown)" if head is None else "")))
     return out
 
 
@@ -364,7 +368,7 @@ def armed_monitor(requires: dict, st: dict):
 
 
 # The robot-state fields the dashboard fills only when asked (choreo_proxy._probe_now), not by its poll
-PROBED_FIELDS = ("arms", "tab5", "effectors")
+PROBED_FIELDS = ("arms", "head", "effectors")
 
 
 # ---- effectors: what a show needs vs what the robot has (cue.EFFECTORS) --------------------------

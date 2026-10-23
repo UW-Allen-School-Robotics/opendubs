@@ -6,7 +6,7 @@ format: 1
 id: agent-greeting
 name: Agent-written greeting
 slots: [ARM_L, ARM_R, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT, DANCE]
-requires: { arms: active, tab5: true, rc_authority: AUTO }
+requires: { arms: active, head: true, rc_authority: AUTO }
 music:
   file: audio/beat-demo-120.wav
   bpm: 120

@@ -27,7 +27,7 @@ LIMITS = load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
 
 fails = []
 # What a show that moves everything must declare; the test helpers default to it.
-REQUIRES_ALL = {"arms": "active", "tab5": True, "rc_authority": "AUTO"}
+REQUIRES_ALL = {"arms": "active", "head": True, "rc_authority": "AUTO"}
 
 
 def check(name, cues, expect, slots=None):
@@ -273,15 +273,20 @@ check_doc("a show that moves with no requires at all is caught",
 check_doc("a show using the arms must declare arms: active",
           doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 20}}],
                    requires={"rc_authority": "AUTO"}), "arms: active")
-check_doc("a show using the face must declare tab5: true",
-          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], requires={}), "tab5: true")
+check_doc("a show using the face must declare head: true",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], requires={}), "head: true")
+_old = doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
+                requires={"tab5": True, "rc_authority": "AUTO"}).analyse(LIMITS)
+check_true("tab5: is still read, as head: (the old name), with a notice to write head:",
+      not _old["problems"] and any("old name for head" in n for n in _old["notices"]),
+      ([q.msg for q in _old["problems"]], _old["notices"]))
 check_doc("an unknown requires key is caught",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
-                   requires={"tab5": True, "lidar": "on"}), "unknown key 'lidar'")
+                   requires={"head": True, "lidar": "on"}), "unknown key 'lidar'")
 check_doc("a face-and-sound show needs no rc_authority",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"},
                     {"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
-                   requires={"tab5": True}), None)
+                   requires={"head": True}), None)
 
 # Audio routing (DEC-5 / DEC-11, item 1.5): where each sound plays, and whether it can.
 _m = {"file": "x.wav", "bpm": 120}
@@ -665,7 +670,7 @@ check_doc("a fade over 30 s is refused", doc_show([_D(do="volume", level=0.5, fa
 check_doc("a fade owns the slot: a second cue inside it collides",
           doc_show([_D(do="volume", level=0.5, fade_s=5), {"t": 3.0, "slot": "DEVICE", "do": "brightness", "level": 0.5}]),
           "still busy")
-check_doc("DEVICE needs tab5: true", doc_show([_D(do="volume", level=0.5)], requires={"tab5": False}), "tab5: true")
+check_doc("DEVICE needs head: true", doc_show([_D(do="volume", level=0.5)], requires={"head": False}), "head: true")
 _w = doc_show([_D(do="brightness", level=0.1)]).export(LIMITS, _FIX)
 check_true("brightness below 0.15 is valid but warned: the head clamps to its floor",
            _w["valid"] and any("bright_min" in w["msg"] for w in _w["warnings"]), _w["warnings"])
@@ -675,8 +680,8 @@ check_true("a show-level device: block is exported for the runner",
            and _x["tracks"]["DEVICE"][0]["cue"]["level"] == 0.5, (_x["problems"], _x.get("device")))
 check_doc("device: with an unknown key is refused", doc_show([_D(do="volume", level=0.5)], device={"gain": 1}), "unknown key 'gain'")
 check_doc("device: out of range is refused", doc_show([_D(do="volume", level=0.5)], device={"volume": 2}), "volume 2 must be 0..1")
-check_doc("device: needs tab5: true too",
-          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"volume": 0.5}, requires={}), "tab5: true")
+check_doc("device: needs head: true too",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"volume": 0.5}, requires={}), "head: true")
 _y = doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"brightness": 0.05}).export(LIMITS, _FIX)
 check_true("... and a dim show-level brightness is warned too", any("bright_min" in w["msg"] for w in _y["warnings"]),
            _y["warnings"])

@@ -806,9 +806,21 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 Check in this order:
 
-1. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
-2. [The projector output couldn't be changed because a show is playing](#show-video-busy)
-3. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+1. [A show won't start because the head tablet isn't showing its face](#show-head-not-up)
+2. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+3. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+4. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+
+### A show won't start because the head tablet isn't showing its face {#show-head-not-up}
+
+`SHOW_HEAD_NOT_UP` · Refused action · seen on the dashboard
+
+The show uses the head (its face, its neck or its volume and brightness), and the head tablet is not ready for it: the face page is not showing on the tablet, or a video call is holding the tablet. The face and the show's sound could not play there, so the show was refused rather than run without them.
+
+**What to do**
+
+1. If a video call is up on the tablet, end it.
+2. Make sure the head tablet is on and showing the face page, then start the show again.
 
 ### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
 

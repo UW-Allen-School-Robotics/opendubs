@@ -76,9 +76,11 @@ ARM_SLOTS = ("ARM_L", "ARM_R")
 CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
 CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
-REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
+REQUIRES_KEYS = ("arms", "head", "rc_authority")
+REQUIRES_OLD_NAMES = {"tab5": "head"}   # the old names a show may still use; read as the new one
+
 MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "CRAWL")
-TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the pan/tilt head, the face and its volume/brightness
+TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the parts the head drives: the neck, the face and its volume/brightness
 
 # ---- DEVICE: the head's media volume and screen brightness (head protocol v5) -------------------
 # Show-level `device: {volume, brightness}` sets both at the start; a DEVICE cue changes one, with an
@@ -477,7 +479,7 @@ NOT_EXECUTABLE = {
              "offers it without the hand on the operator's approval. Moves the real hand has not run before "
              "play too, and the run names them",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
-             "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
+             "yet; the head's built-in earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
 }
 
@@ -514,7 +516,7 @@ def slot_requirements(slot: str) -> dict:
     if slot in ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R"):
         out["arms"] = "active"
     if slot in TAB5_SLOTS:
-        out["tab5"] = True
+        out["head"] = True
     return out
 
 
@@ -577,6 +579,14 @@ class Show:
         self.id = doc.get("id") or ""
         self.name = doc.get("name") or self.id
         self.requires = doc.get("requires") or {}
+        # `tab5:` is the old name for `head:` (the head is the Galaxy tablet now): read as `head`
+        self.requires_old = []
+        if isinstance(self.requires, dict):
+            self.requires = dict(self.requires)
+            for old, new in REQUIRES_OLD_NAMES.items():
+                if old in self.requires:
+                    self.requires_old.append(old)
+                    self.requires.setdefault(new, self.requires.pop(old))
         self.cues = doc.get("cues") or []
         self.doc = doc
         self.audio_override = None      # the operator's run-time output choice; None = as written
@@ -903,6 +913,9 @@ class Show:
         for k in self.doc:
             if k not in TOP_KEYS:
                 notices.append(f"top-level key {k!r} is not part of format v1 and is ignored")
+        for old in self.requires_old:
+            notices.append(f"requires: {old}: is the old name for {REQUIRES_OLD_NAMES[old]}: — it still works; "
+                           f"write {REQUIRES_OLD_NAMES[old]}: true")
         declared = set(self.doc.get("slots") or [])
         for s in sorted(declared, key=str):
             if s not in SLOTS:
@@ -1171,9 +1184,9 @@ class Show:
                         P(Problem(f"device: {k} {v!r} must be 0..1"))
                     elif k == "brightness" and v < DEVICE_BRIGHT_LOW:
                         warnings.append(Problem(_bright_low("device:", v)))
-                if (dev.keys() & {"volume", "brightness"}) and self.requires.get("tab5") is not True:
+                if (dev.keys() & {"volume", "brightness"}) and self.requires.get("head") is not True:
                     P(Problem("requires: this show sets the head's volume or brightness (device:) — "
-                              "add tab5: true, so the preflight checks the head is up"))
+                              "add head: true, so the preflight checks the head is up"))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -1867,7 +1880,7 @@ class Show:
         if not isinstance(name, str) or not name:
             p.append(f"{where}: play needs a sound name")
         elif name not in TAB5_EARCONS and not self._is_file_sound(name):
-            p.append(f"{where}: unknown sound {name!r} — not a Tab5 earcon "
+            p.append(f"{where}: unknown sound {name!r} — not one of the head's built-in earcons "
                      f"({', '.join(TAB5_EARCONS)}), no file {SOUND_DIR}/{name}.* beside the show, "
                      "and not listed in the show's sounds:")
         else:
@@ -1877,7 +1890,7 @@ class Show:
             else:
                 has = (("earcon",) if name in TAB5_EARCONS else ()) + (("file",) if self._is_file_sound(name) else ())
                 if not set(has) & set(CAN_PLAY[route]):
-                    what = "a Tab5 earcon" if name in TAB5_EARCONS else "a sound file"
+                    what = "one of the head's built-in earcons" if name in TAB5_EARCONS else "a sound file"
                     p.append(f"{where}: the {route} cannot play {name!r} — it is {what}, and the "
                              f"{route} plays {', '.join(CAN_PLAY[route])}s"
                              + (f"; add {SOUND_DIR}/{name}.wav for the {route}" if "file" in CAN_PLAY[route] else ""))
@@ -1924,7 +1937,7 @@ class Show:
         cosmetic: `rc_authority: AUOT` would otherwise pass here and refuse (or worse) later."""
         req = self.requires
         if not isinstance(req, dict):
-            return ["requires: must be a mapping of arms / tab5 / rc_authority"]
+            return ["requires: must be a mapping of arms / head / rc_authority"]
         p = [f"requires: unknown key {k!r} (known: {', '.join(REQUIRES_KEYS)})"
              for k in req if k not in REQUIRES_KEYS]
         auth = req.get("rc_authority")
@@ -1943,12 +1956,12 @@ class Show:
         if used & {"ARM_L", "ARM_R", "GRIP_L", "GRIP_R"} and arms != "active":
             p.append("requires: this show uses the arms — add arms: active, so the preflight checks "
                      "they are powered and their controllers running")
-        tab5 = req.get("tab5")
-        if tab5 is not None and not isinstance(tab5, bool):
-            p.append(f"requires: tab5 {tab5!r} must be true or false")
-        if used & set(TAB5_SLOTS) and tab5 is not True:
+        head = req.get("head")
+        if head is not None and not isinstance(head, bool):
+            p.append(f"requires: head {head!r} must be true or false")
+        if used & set(TAB5_SLOTS) and head is not True:
             p.append(f"requires: this show uses {', '.join(sorted(used & set(TAB5_SLOTS)))}, which "
-                     "the Tab5 drives — add tab5: true")
+                     "the head drives — add head: true")
         return p
 
     def _check_drive(self, where, c):
@@ -2339,7 +2352,7 @@ def describe(limits: dict) -> str:
     w(f"HEAD: pan, tilt in {HEAD_RANGE_DEG} deg (90 = centre); an axis left out keeps its target; "
       f"turns at {HEAD_SLEW_DPS:g} deg/s per axis (warns if a move cannot finish)")
     w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; never ack_pinch")
-    w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
+    w(f"SOUND: do play, sound: a head earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
     w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
@@ -2357,8 +2370,9 @@ def describe(limits: dict) -> str:
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, {DANCE_PEAK_OF_CAP:g}] "
       f"(1 = the show cap, {SHOW_BASE_CAP:.0%} of full command; default {DANCE_DEFAULT_AMP:g}); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
-    w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
-      f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
+    w(f"requires: arms: active | head: true|false (tab5: is its old name) | rc_authority: {CH5_MODES}; a "
+      f"show that moves {MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; "
+      f"HEAD/FACE need head: true")
     w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
     w(f"start_countdown_s: 0..{START_COUNTDOWN_MAX_S:g} (default {START_COUNTDOWN_DEFAULT_S:g}) — the "
       "countdown between a run's GO and its first move")
