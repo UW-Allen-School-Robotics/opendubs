@@ -5,8 +5,9 @@
     python3 clearance.py --contact right:2 --hold right:4=100   find where it touches
     python3 clearance.py --lift 275 --joints "left:2=170"       ... with the lift raised
 
-`software/choreo/cue.py` refuses a shoulder above 157 degrees because contact with the head was
-measured BY HAND, ONCE, ON ONE AXIS, with a human watching. This answers the same question from
+`software/choreo/cue.py` refuses a shoulder above 155 degrees: contact with the Galaxy head comes at
+about 180 with the elbow folded and the neck centred, SIMULATED, with a hand re-measurement pending
+(the old head's 182 was measured BY HAND, ONCE, ON ONE AXIS). This answers the same question from
 geometry: the minimum distance between any two parts, for any pose.
 
 A THIRD OPINION, NOT THE GUARD. Two things already protect the robot — the arm model's collision

@@ -80,8 +80,9 @@ whole arm frame rides on the platform, so its reach envelope moves with it and a
 above it. Worth stating because it is easy to model the envelope as if it were fixed to the
 chassis and then go looking for a collision that geometry rules out.
 
-Today `software/choreo/cue.py` refuses a shoulder above 157° because *the project team measured
-contact with the head at 182° by hand, once, on one axis, with a human watching*. The arm controller
+Today `software/choreo/cue.py` refuses a shoulder above 155° because contact with the Galaxy head
+comes at about 180° with the elbow folded and the neck centred: *simulated here, with a hand
+re-measurement on the robot pending* (the old head's 182° was measured by hand, once). The arm controller
 will not stop it either — its only Cartesian guard is a workspace box, and the arm reaches the head
 comfortably inside that box.
 
