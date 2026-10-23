@@ -167,6 +167,22 @@ def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot
         raise Refused("the e-stop is " + ("engaged" if estop else "unknown") + ".")
 
 
+def motion_still_permitted(url: str = DASHBOARD, state=robot_state) -> bool:
+    """Whether CH5 permits motion and the e-stop is clear right now. Anything else is False: CH5 off, the e-stop engaged or unknown, and a dashboard that
+    does not answer or answers something the guard cannot read (stale or null counts as stop)."""
+    try:
+        robot = state(url)
+    except Exception:  # noqa: BLE001 -- whatever the dashboard did, its answer is unknown
+        return False
+    return isinstance(robot, dict) and robot.get("ch5") in MOTION_CH5 and robot.get("estop") is False
+
+
+def motion_gate(url: str = DASHBOARD, timeout: float = 0.2):
+    """What a PermitKeeper asks before each renewal. A short timeout, so that a slow dashboard withholds a renewal (the arm then holds within the lease)
+    instead of delaying the next one past it."""
+    return lambda: motion_still_permitted(url, state=lambda u: robot_state(u, timeout=timeout))
+
+
 # -- where a move may start ----------------------------------------------------------------------------------------------------------
 
 def require_known_start(start, known: dict, tolerance: float = START_TOLERANCE) -> str:

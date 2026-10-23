@@ -78,6 +78,15 @@ def connect(args):
     return robot, indices, lambda: np.asarray(robot.get_state().get_position(), dtype=float)[indices]
 
 
+def keeper_for(args) -> PermitKeeper:
+    """The permit keeper of a hardware stage: on a real bus it renews only while CH5 and the e-stop still allow motion (guards.motion_gate)."""
+    if args.backend != "hardware":
+        return PermitKeeper(())
+    groups = permit_groups(args.side)
+    _, real = guards.buses_of(args.hardware_config, groups)
+    return PermitKeeper(groups, allowed=guards.motion_gate(args.dashboard) if real else None)
+
+
 def authorise(args, start, away) -> bool:
     """With the arm held at its real pose and before it moves: the clearance along the path, the plan, and the operator's confirmation. True to go."""
     closest = None
@@ -130,7 +139,7 @@ def lapse(args) -> int:
         return 0
 
     robot, indices, position = connect(args)
-    keeper = PermitKeeper(permit_groups(args.side))
+    keeper = keeper_for(args)
     try:
         start = position().copy()
         target = start.copy()
@@ -159,7 +168,7 @@ def lapse(args) -> int:
 def move(args) -> int:
     """One joint a small step and back, on a permit."""
     robot, indices, position = connect(args)
-    keeper = PermitKeeper(permit_groups(args.side) if args.backend == "hardware" else ())
+    keeper = keeper_for(args)
     try:
         start = position().copy()
         away = start.copy()
@@ -229,7 +238,11 @@ def main() -> int:
     refused = gate(args, motion=args.stage in ("lapse", "move"))
     if refused:
         return refused
-    return {"hold": hold, "lapse": lapse, "move": move}[args.stage](args)
+    try:
+        return {"hold": hold, "lapse": lapse, "move": move}[args.stage](args)
+    except guards.Refused as refused:       # e.g. CH5 went to OFF between the gate and the first permit
+        print(f"refused: {refused}")
+        return 1
 
 
 if __name__ == "__main__":
