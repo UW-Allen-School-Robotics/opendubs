@@ -109,7 +109,7 @@ origin. We `include` that model and place its root. We do not touch the arms.
 |---|---|
 | Chassis / base frame | what the arms can collide with, and the floor datum |
 | Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame. Stiff, slow and force-limited. A screw-driven scissor does not bounce and cannot throw the robot into the air, so the actuator is capped at 2500 N and the joint damped to about 56 mm/s — full stroke in ~5 s, arriving with the base rising 0.08 mm. Both numbers are placeholders |
-| Head bracket + Tab5 panel | **the thing the arms nearly hit** — the reason this is worth doing |
+| Head: the pan/tilt neck and the tablet face | **the thing the arms nearly hit** — the reason this is worth doing |
 
 | Mecanum wheels | driven, with rollers — see below |
 
@@ -208,15 +208,14 @@ Supplied and in use: four wheels and the lift plate — all exported at the CAD
 origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
 wheel geometry), a 408 mm wheelbase and a 589 mm track.
 
-The head is in too — `pt_tilt_body`, `pt_screen_cover` and `D415`, supplied in CAD coordinates,
-so they are placed by cancelling the head frame's offset rather than by positioning each part.
-That was the point of the exercise: the head is what the arms nearly hit, and until it existed
-`software/choreo/cue.py` had to refuse shoulder angles on a constant measured by hand once.
-
-Two corrections are folded into that single transform, both confirmed against the robot: the
-export is **posed at pan=180** (as exported the screen and camera sat behind the tilt axis,
-facing -x, while the wheels put forward at +x — FL/FR at x=528, RL/RR at x=120), and it is
-**1.85 mm off the centreline**, which is an artefact rather than a real offset.
+The head is in too: `head_neck_pan` turns with the pan joint and `head_face_tilt` (the Galaxy
+tablet, its holder and the arms that carry it) with the tilt joint. Both are supplied in CAD
+coordinates, so each is placed by one offset that cancels the head frame's position, pos
+(0, 0, -0.8887), rather than by positioning each part. That was the point of the exercise: the head
+is what the arms nearly hit. What the arms must not hit is two coarse boxes from the meshes' extents,
+`neck_collision` and `head_collision`; the `head_screen` site marks the centre of the tablet's glass,
+where the twin draws the face. `scene.py --check` confirms the face points forward, the site sits on
+the glass and both meshes are near the tilt axis.
 
 ## Poking at it interactively
 

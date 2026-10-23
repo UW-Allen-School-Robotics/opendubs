@@ -91,16 +91,28 @@ DRIVE_ACTUATORS = ("drive_fwd", "drive_rot", "drive_strafe")
 WHEEL_MAX_RADS = 10.0          # 0.70 m/s at the measured 70 mm radius
 
 
-# THE FACE ON THE HEAD (choreography plan 2.5). A flat 16:9 surface on the Tab5's screen cover that
-# shows the face twin's own frames. The cover is modelled as a solid plate with no display window, so
-# the surface is the 5" 16:9 panel's ACTIVE AREA (110.7 x 62.3 mm), centred on the cover's front face
-# (measured in head_tilt's frame: front at x = 59.8 mm, centre y -1.85, z -2.9 mm) and 0.5 mm proud
-# of it. Where the display really sits inside the bezel is not modelled — an approximation for a
-# preview, never used for clearance (visual group, no contacts, no mass).
+# THE FACE ON THE HEAD (choreography plan 2.5). A flat surface on the tablet's glass that shows the
+# face twin's own frames: the display area (189.0 x 113.6 mm), centred on the robot description's
+# head_screen site (the centre of the tablet's front face, in head_tilt's frame) and 0.5 mm proud of
+# it. A preview only, never used for clearance (visual group, no contacts, no mass).
 FACE_TEXTURE = "face_screen"
 FACE_TEX_W, FACE_TEX_H = 320, 180                 # the face twin's shared frame (frame_tap.h)
-FACE_W, FACE_H = 0.1107, 0.0623
-FACE_X, FACE_YC, FACE_ZC = 0.0603, -0.00185, -0.0029
+FACE_W, FACE_H = 0.1890, 0.1136
+
+
+def _head_screen() -> tuple:
+    """The head_screen site's position in head_tilt's frame, from the robot description. Read as text:
+    the description's comments hold "--", which MuJoCo accepts and a strict XML parser does not."""
+    import re
+    with open(os.path.join(OURS, "opendubs.xml"), encoding="utf-8") as fh:
+        m = re.search(r'<site\s+name="head_screen"\s+pos="([^"]+)"', fh.read())
+    if not m:
+        raise RuntimeError("the robot description has no head_screen site (description/opendubs/opendubs.xml)")
+    return tuple(float(v) for v in m.group(1).split())
+
+
+FACE_X, FACE_YC, FACE_ZC = _head_screen()
+FACE_X += 0.0005                                  # just proud of the glass
 
 
 def _add_face_screen(spec, w_m=FACE_W, h_m=FACE_H, x=FACE_X, yc=FACE_YC, zc=FACE_ZC):
@@ -178,53 +190,25 @@ def set_projection_visible(model, on: bool) -> None:
 
 # ---- the fitted head ------------------------------------------------------------------------
 # The head is a swappable sub-assembly, chosen by ONE setting in the robot description (the Thor
-# lane's): head_assembly.fitted in description/opendubs/dimensions.yaml. The body twin follows it,
-# so it is never a second model to keep in step.
-TAB5_HEAD, TABLET_HEAD = "tab5_pantilt", "galaxy_tablet"
-# PLACEHOLDER tablet geometry, until there is CAD (the description's galaxy_tablet block has none
-# yet): a Galaxy Tab A11 8.7-inch (SM-X133), its body 211.0 x 124.7 x 8.0 mm and its 1340x800
-# panel's active area 189.8 x 113.3 mm (8.7-inch diagonal). ASSUMED mount: on the same pan/tilt,
-# landscape, centred where the Tab5's panel is and standing just proud of its cover. Whether the
-# tablet keeps the pan/tilt, and where the D415 goes, are open (dimensions.yaml); the D415 and the
-# Tab5 panel are left off rather than drawn where they may not be.
-TABLET_BODY_MM = (8.0, 211.0, 124.7)       # depth (x), width (y), height (z)
-TABLET_PANEL_MM = (189.8, 113.3)
+# lane's): head_assembly.fitted in description/opendubs/dimensions.yaml, and the description carries
+# only the fitted head's meshes and collision boxes. The body twin builds what the description holds,
+# so it is never a second model to keep in step. Fitted now: the Galaxy tablet head, from CAD.
+TABLET_HEAD = "galaxy_tablet"
 
 
 def fitted_head() -> str:
-    """head_assembly.fitted from the robot description; the Tab5 head when it cannot be read."""
+    """head_assembly.fitted from the robot description; the tablet head when it cannot be read."""
     try:
         import yaml
         with open(os.path.join(OURS, "dimensions.yaml"), encoding="utf-8") as fh:
-            return (yaml.safe_load(fh).get("head_assembly") or {}).get("fitted") or TAB5_HEAD
+            return (yaml.safe_load(fh).get("head_assembly") or {}).get("fitted") or TABLET_HEAD
     except Exception:  # noqa: BLE001
-        return TAB5_HEAD
-
-
-def _fit_tablet(spec):
-    """Swap the Tab5's panel and camera for the PLACEHOLDER tablet, and grow the head's collision
-    box to enclose it — so the arms' clearance checks see the head that is fitted."""
-    import mujoco
-    for g in [g for g in spec.geoms if g.parent.name == "head_tilt" and g.meshname in ("pt_screen", "d415")]:
-        spec.delete(g)
-    d, w, h = (v / 1000.0 for v in TABLET_BODY_MM)
-    front = FACE_X + 0.002                        # the tablet's glass, just proud of the Tab5 cover
-    cx = front - d / 2
-    spec.body("head_tilt").add_geom(name="tablet_placeholder", type=mujoco.mjtGeom.mjGEOM_BOX,
-                                    size=[d / 2, w / 2, h / 2], pos=[cx, FACE_YC, FACE_ZC],
-                                    rgba=[0.08, 0.08, 0.09, 1.0], contype=0, conaffinity=0, group=2,
-                                    density=0)
-    col = next(g for g in spec.geoms if g.name == "head_collision")
-    lo = [min(col.pos[i] - col.size[i], (cx, FACE_YC, FACE_ZC)[i] - (d / 2, w / 2, h / 2)[i]) for i in range(3)]
-    hi = [max(col.pos[i] + col.size[i], (cx, FACE_YC, FACE_ZC)[i] + (d / 2, w / 2, h / 2)[i]) for i in range(3)]
-    col.pos = [(a + b) / 2 for a, b in zip(lo, hi)]
-    col.size = [(b - a) / 2 for a, b in zip(lo, hi)]
-    return front
+        return TABLET_HEAD
 
 
 def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
           head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None):
-    """`head`: tab5_pantilt or galaxy_tablet; default, the robot description's fitted head.
+    """`head`: galaxy_tablet, the head the robot description carries (the default).
     `projection`: the projection screen behind the robot, built hidden (geom alpha 0). `crawler`: a
     crawling hand's tool type (effectors.Tool) to add, posed by sim_preview.apply_crawler. `tools`:
     {"left"|"right": effectors.Tool} fitted at a flange in place of the OpenArm gripper, posed by
@@ -239,12 +223,10 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
     ours.meshdir = meshes
     arms.meshdir = meshes
     head = head or fitted_head()
-    if head == TABLET_HEAD:
-        front = _fit_tablet(ours)
-        if face_screen:
-            pw, ph = (v / 1000.0 for v in TABLET_PANEL_MM)
-            _add_face_screen(ours, pw, ph, front + 0.0005, FACE_YC, FACE_ZC)
-    elif face_screen:
+    if head != TABLET_HEAD:
+        raise ValueError(f"head {head!r} is not in the robot description, which carries the {TABLET_HEAD} "
+                         f"head (dimensions.yaml head_assembly.fitted)")
+    if face_screen:
         _add_face_screen(ours)
 
     if projection:
@@ -284,10 +266,7 @@ HEAD_MAX_REACH_MM = 200.0     # nothing on the head is further than this from th
 
 
 def check_invariants(model, head: str | None = None) -> list[str]:
-    """Return a list of failures; empty means the geometry is placed as the robot is built. With the
-    tablet fitted the Tab5's panel and camera checks do not apply — its placeholder has no CAD."""
-    if (head or fitted_head()) == TABLET_HEAD:
-        return []
+    """Return a list of failures; empty means the geometry is placed as the robot is built."""
     import mujoco
     import numpy as np
 
@@ -310,22 +289,24 @@ def check_invariants(model, head: str | None = None) -> list[str]:
         return None
 
     axis = np.array(HEAD_TILT_AXIS) * 1000.0
-    screen, cam = extent("pt_screen"), extent("d415")
-    if screen is None or cam is None:
-        return ["head meshes missing from the model"]
+    face, neck = extent("head_face_tilt"), extent("head_neck_pan")
+    sid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "head_screen")
+    if face is None or neck is None or sid < 0:
+        return ["head meshes or the head_screen site missing from the model"]
+    screen = data.site_xpos[sid] * 1000.0
 
     # The face points FORWARD. This is the one that has actually caught a bad export: a head
     # exported at pan=180 drives and renders perfectly and only looks wrong from the side.
-    if screen[0][0] <= axis[0]:
-        fails.append(f"screen is BEHIND the tilt axis (x {screen[0][0]:.0f} <= {axis[0]:.0f}) "
+    if screen[0] <= axis[0]:
+        fails.append(f"screen is BEHIND the tilt axis (x {screen[0]:.0f} <= {axis[0]:.0f}) "
                      f"— the face is pointing backwards")
-    # The camera sits on top of the screen, not under it.
-    if cam[0][2] < screen[1][2] - 1.0:
-        fails.append(f"camera is not above the screen (camera bottom z {cam[0][2]:.0f} < "
-                     f"screen top z {screen[1][2]:.0f}) — the face assembly is upside down")
+    # The screen site is ON the face's front, not floating off it: the glass is the face's front plane.
+    if abs(face[1][0] - screen[0]) > 3.0:
+        fails.append(f"the head_screen site (x {screen[0]:.1f}) is not on the face's front "
+                     f"(x {face[1][0]:.1f}) — the site or the mesh has moved")
     # Everything on the head is near the axis it turns about. Catches a mesh exported about a
     # different origin, which a flip check would happily pass.
-    for name, ext in (("screen", screen), ("camera", cam)):
+    for name, ext in (("face", face), ("neck", neck)):
         far = max(np.abs(np.array(ext[0]) - axis).max(), np.abs(np.array(ext[1]) - axis).max())
         if far > HEAD_MAX_REACH_MM:
             fails.append(f"{name} reaches {far:.0f} mm from the tilt axis, over "
@@ -358,7 +339,7 @@ def main():
     ap.add_argument("--assets")
     ap.add_argument("--render", metavar="PNG")
     ap.add_argument("--check", action="store_true")
-    ap.add_argument("--head", choices=(TAB5_HEAD, TABLET_HEAD), default=None,
+    ap.add_argument("--head", choices=(TABLET_HEAD,), default=None,
                     help="which head (default: the robot description's head_assembly.fitted)")
     ap.add_argument("--view", action="store_true",
                     help="open the interactive viewer (see view.sh)")
@@ -400,9 +381,7 @@ def main():
     for msg in problems:
         print(f"FAIL: {msg}", file=sys.stderr)
     if not problems:
-        print("invariants ok — " + ("the TABLET PLACEHOLDER is fitted (no CAD; the Tab5 head checks do not apply)"
-                                    if (a.head or fitted_head()) == TABLET_HEAD else
-                                    "face forward, camera on top, head on its axis, shoulders at height"))
+        print("invariants ok — face forward, the screen on its glass, head on its axis, shoulders at height")
     site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "arm_frame_mount")
     z = data.site_xpos[site][2]
     print(f"lift {a.lift:6.1f} mm -> arm frame base {(z + 0.094) * 1000:7.1f} mm above the floor, "
