@@ -163,6 +163,39 @@ check("a 11 deg step refuses", [code, "larger than" in text], [1, True])
 code, text = main_with("lapse", *base, "--delta", "+0.05", "--speed", "0.1", "--after", "1.0")
 check("the old lapse defaults refuse, saying the test cannot pass", [code, "cannot pass" in text], [1, True])
 
+# -- the deadman (CH6): held when the arm is first told to move, and the stages ask for it ----------------------------------------------------------
+import argparse  # noqa: E402
+import inspect  # noqa: E402
+
+args = argparse.Namespace(backend="hardware", hardware_config="hw.yaml", side="right", dashboard="http://dash")
+real_buses, real_require = guards.buses_of, guards.require_deadman
+guards.buses_of = lambda config, groups: (["arm_right"], True)
+
+
+def released(url):
+    raise guards.Refused("CH6 (the deadman) is released: hold it")
+
+
+guards.require_deadman = released
+with contextlib.redirect_stdout(io.StringIO()) as said:
+    refused_when_released = bringup.deadman_held(args)
+check("a released deadman on a real bus stops the move, saying why", [refused_when_released, "CH6" in said.getvalue()], [False, True])
+guards.require_deadman = lambda url: None
+check("a held deadman lets it go on", bringup.deadman_held(args), True)
+guards.require_deadman = released
+guards.buses_of = lambda config, groups: ([], False)
+check("a fake bus does not ask (nothing real can move)", bringup.deadman_held(args), True)
+check("the simulator does not ask", bringup.deadman_held(argparse.Namespace(**{**vars(args), "backend": "mujoco"})), True)
+guards.buses_of, guards.require_deadman = real_buses, real_require
+
+for stage in (bringup.lapse, bringup.move):                  # the call that puts a move on a real arm must sit between the confirmation and the first permit
+    source = inspect.getsource(stage)
+    order = [source.find(call) for call in ("authorise(", "deadman_held(", "keeper.start()")]
+    check(f"{stage.__name__}: authorise, then deadman_held, then the first permit", order == sorted(order) and min(order) >= 0, True)
+with open(os.path.join(GAFRO, "engage.py")) as f:
+    engage_source = f.read()
+check("engage and park ask for the deadman at launch", "require_motion_permitted(args.supervised, args.dashboard, deadman=True)" in engage_source, True)
+
 # -- the helpers in env.sh ------------------------------------------------------------------------------------------------------------------
 env = os.path.join(GAFRO, "env.sh")
 for call in ("arm_move right 3", "arm_lapse right", "arm_move"):

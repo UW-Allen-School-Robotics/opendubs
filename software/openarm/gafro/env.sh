@@ -245,12 +245,12 @@ arm_hold()  { _arm_confirm "Stage 3: enables the $1 arm's motors and holds where
 _arm_step_usage() { echo "usage: $1 <left|right> <joint 1-7> <step in rad WITH A SIGN, e.g. +0.01 or -0.01>$2" >&2; return 1; }
 arm_lapse() {  # arm_lapse <side> <joint> <signed rad> [speed rad/s, default 0.03] [after s, default 0.3]
     [ $# -ge 3 ] || { _arm_step_usage arm_lapse " [speed] [after]"; return 1; }
-    _arm_confirm "Stage 4: moves the $1 arm's joint $2 by $3 rad slowly, then stops renewing the permit; the arm must stop where it is." \
+    _arm_confirm "Stage 4: moves the $1 arm's joint $2 by $3 rad slowly, then stops renewing the permit; the arm must stop where it is. HOLD CH6 (the deadman) from when you type the sign back until it ends." \
         && _arm_bringup lapse "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${5:+--after "$5"} ${ARM_ASSETS:+--assets "$ARM_ASSETS"}
 }
 arm_move() {  # arm_move <side> <joint> <signed rad> [speed rad/s]
     [ $# -ge 3 ] || { _arm_step_usage arm_move " [speed]"; return 1; }
-    _arm_confirm "Stage 5: moves the $1 arm's joint $2 by $3 rad and back." \
+    _arm_confirm "Stage 5: moves the $1 arm's joint $2 by $3 rad and back. HOLD CH6 (the deadman) from when you type the sign back until it ends." \
         && _arm_bringup move "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${ARM_ASSETS:+--assets "$ARM_ASSETS"}
 }
 
@@ -262,8 +262,8 @@ _arm_engage() {  # _arm_engage <side> [engage.py args]
         --hardware-config "$ARM_HW_CONFIG" --side "$side" "$@"
 }
 
-arm_engage() { _arm_confirm "Moves the $1 arm from where it is to the ready pose (11 s from stow), then holds it under track." && _arm_engage "$1" --supervised --speed "${2:-0.15}"; }
-arm_park()   { _arm_confirm "Moves the $1 arm to the stow pose of /etc/opendubs/openarm-stow.conf and holds it." && _arm_engage "$1" --supervised --park --speed "${2:-0.15}"; }
+arm_engage() { _arm_confirm "Moves the $1 arm from where it is to the ready pose (11 s from stow), then holds it under track. HOLD CH6 (the deadman) from now until it ends." &&_arm_engage "$1" --supervised --speed "${2:-0.15}"; }
+arm_park()   { _arm_confirm "Moves the $1 arm to the stow pose of /etc/opendubs/openarm-stow.conf and holds it. HOLD CH6 (the deadman) from now until it ends." &&_arm_engage "$1" --supervised --park --speed "${2:-0.15}"; }
 
 arm_help() {
     cat <<'EOF'

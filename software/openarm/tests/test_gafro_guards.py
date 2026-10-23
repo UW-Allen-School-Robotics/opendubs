@@ -106,7 +106,7 @@ check("a bus of its own passes", guards.require_exclusive(["arm_left", "arm_righ
 
 # -- CH5, the e-stop, and a person -----------------------------------------------------------------------------------------------------
 def state(**fields):
-    return lambda url: {"ch5": "AUTO", "estop": False, **fields}
+    return lambda url: {"ch5": "AUTO", "estop": False, "deadman": True, **fields}
 
 
 check("not supervised refuses, whatever CH5 says", refuses(lambda: guards.require_motion_permitted(False, state=state()), "--supervised"), True)
@@ -126,7 +126,7 @@ check("a dashboard that does not answer refuses", refuses(lambda: guards.require
 
 
 class Dashboard(http.server.BaseHTTPRequestHandler):
-    reply = {"ch5": "MANUAL", "estop": False}
+    reply = {"ch5": "MANUAL", "estop": False, "deadman": True}
 
     def do_GET(self):
         body = json.dumps(self.reply).encode()
@@ -187,14 +187,29 @@ import time  # noqa: E402
 
 import engage  # noqa: E402
 
-live = {"ch5": "MANUAL", "estop": False}
-check("permitted: CH5 MANUAL, e-stop clear", guards.motion_still_permitted(state=lambda url: live), True)
-check("permitted: CH5 AUTO", guards.motion_still_permitted(state=lambda url: {"ch5": "AUTO", "estop": False}), True)
-check("not permitted: CH5 OFF", guards.motion_still_permitted(state=lambda url: {"ch5": "OFF", "estop": False}), False)
-check("not permitted: e-stop engaged", guards.motion_still_permitted(state=lambda url: {"ch5": "MANUAL", "estop": True}), False)
-check("not permitted: e-stop null", guards.motion_still_permitted(state=lambda url: {"ch5": "MANUAL", "estop": None}), False)
-check("not permitted: no ch5", guards.motion_still_permitted(state=lambda url: {"estop": False}), False)
+live = {"ch5": "MANUAL", "estop": False, "deadman": True}
+check("permitted: CH5 MANUAL, e-stop clear, deadman held", guards.motion_still_permitted(state=lambda url: live), True)
+check("permitted: CH5 AUTO", guards.motion_still_permitted(state=lambda url: {**live, "ch5": "AUTO"}), True)
+check("not permitted: CH5 OFF", guards.motion_still_permitted(state=lambda url: {**live, "ch5": "OFF"}), False)
+check("not permitted: e-stop engaged", guards.motion_still_permitted(state=lambda url: {**live, "estop": True}), False)
+check("not permitted: e-stop null", guards.motion_still_permitted(state=lambda url: {**live, "estop": None}), False)
+check("not permitted: no ch5", guards.motion_still_permitted(state=lambda url: {"estop": False, "deadman": True}), False)
 check("not permitted: null answer", guards.motion_still_permitted(state=lambda url: None), False)
+check("not permitted: deadman released", guards.motion_still_permitted(state=lambda url: {**live, "deadman": False}), False)
+check("not permitted: deadman null", guards.motion_still_permitted(state=lambda url: {**live, "deadman": None}), False)
+check("not permitted: no deadman field", guards.motion_still_permitted(state=lambda url: {"ch5": "MANUAL", "estop": False}), False)
+check("not permitted: deadman a truthy non-bool (a string)", guards.motion_still_permitted(state=lambda url: {**live, "deadman": "true"}), False)
+
+# -- the deadman (CH6): a hard requirement of the first runs, asked once the move is confirmed and before every renewal -----------------------
+check("deadman held: allowed", guards.require_deadman(state=state()), None)
+check("deadman released refuses, and says to hold it", refuses(lambda: guards.require_deadman(state=state(deadman=False)), "CH6", "released", "hold it"), True)
+check("deadman null refuses as unknown", refuses(lambda: guards.require_deadman(state=state(deadman=None)), "CH6", "unknown"), True)
+check("no deadman field refuses", refuses(lambda: guards.require_deadman(state=lambda url: {"ch5": "AUTO", "estop": False}), "CH6", "unknown"), True)
+check("a null answer refuses", refuses(lambda: guards.require_deadman(state=lambda url: None), "CH6"), True)
+check("a silent dashboard refuses", refuses(lambda: guards.require_deadman(state=lambda url: (_ for _ in ()).throw(OSError("down"))), "did not answer", "CH6"), True)
+check("the launch check does not ask for it unless told to", guards.require_motion_permitted(True, state=state(deadman=False)), None)
+check("... and asks for it when told to", refuses(lambda: guards.require_motion_permitted(True, state=state(deadman=False), deadman=True), "CH6", "released"), True)
+check("... and allows it held", guards.require_motion_permitted(True, state=state(), deadman=True), None)
 
 
 def unreachable(url):
