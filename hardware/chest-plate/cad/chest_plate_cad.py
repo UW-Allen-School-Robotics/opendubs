@@ -55,6 +55,7 @@ P = dict(
     close_r=1.2,                    # gaps narrower than 2 x close_r in the outline are white cut lines: they glow
     island_max=12.0,                # mm^2: opaque islands floating in a glow window up to this size become glow
     sliver_area=0.15,               # mm^2: glow specks below this are dropped
+    simplify=0.03,                  # mm: outline tolerance for the logo's polygons (keeps the STEP files light)
     # step 3: diffuser (transparent PLA)
     dif_t=1.6,                      # diffuser plate, behind the face
     plug_clear=0.1,                 # per side, plug in its window
@@ -207,7 +208,7 @@ def _faces(geom):
     for pg in getattr(geom, "geoms", [geom]):
         if pg.geom_type != "Polygon" or pg.area < 1e-3:
             continue
-        pg = orient(pg.simplify(0.01), 1.0)
+        pg = orient(pg.simplify(P["simplify"]), 1.0)
         outer = cq.Wire.makePolygon([cq.Vector(x, y, 0) for x, y in pg.exterior.coords[:-1]], close=True)
         inner = [cq.Wire.makePolygon([cq.Vector(x, y, 0) for x, y in r.coords[:-1]], close=True) for r in pg.interiors]
         out.append(cq.Face.makeFromWires(outer, inner))
@@ -227,6 +228,12 @@ def _fuse(a, *bs):
     for b in bs:
         out = out.fuse(b)
     return out.clean()
+
+
+def _rrect(w, h, r, z0, hgt, xy=(0, 0)):
+    """A rounded rectangle with TRUE arcs at its corners, extruded from z0 by hgt (> 0)."""
+    s = cq.Workplane("XY").rect(w, h).extrude(hgt).edges("|Z").fillet(r).val()
+    return s.translate(cq.Vector(xy[0], xy[1], z0))
 
 
 def _cyl(d, z0, h, xy=(0, 0)):
@@ -256,16 +263,14 @@ def heights(p=P):
 # ---------------------------------------------------------------- parts, built in place (chest frame)
 
 def face_part(R, p=P):
-    z = heights(p)
     sink_z = p["base_t"] - p["gear_sink"]
-    face = R["face"]
-    lower = prism(face.difference(R["lit"]), 0, sink_z)
-    upper = prism(face.difference(R["lit"]).difference(R["gold"].buffer(0.1)), sink_z, p["gear_sink"])
-    relief = prism(R["purple"], p["base_t"], p["relief_t"])
-    base = _fuse(lower, upper)
+    base = _rrect(p["face_w"], p["face_w"], p["face_r"], 0, p["base_t"])
+    base = base.cut(prism(R["lit"], -0.01, p["base_t"] + 0.02))
+    base = base.cut(prism(R["gold"].buffer(0.1, join_style="mitre"), sink_z, p["gear_sink"] + 0.01))
     for xy in mag_xys(p):
         base = base.cut(_cyl(p["mag_pocket_d"], -0.01, p["mag_face_depth"] + 0.01, xy))
-    return base, relief
+    relief = prism(R["purple"], p["base_t"], p["relief_t"])
+    return base.clean(), relief
 
 
 def gear_part(R, p=P):
@@ -273,38 +278,43 @@ def gear_part(R, p=P):
 
 
 def diffuser_part(R, lxy, p=P):
-    plate2d = _rsquare(p["box_w"] - 2 * p["wall"], p["box_r"] - p["wall"]).buffer(-p["box_clear"])
+    c, cav = p["box_clear"], p["box_w"] - 2 * p["wall"]
+    plate = _rrect(cav - 2 * c, cav - 2 * c, p["box_r"] - p["wall"] - c, -p["dif_t"], p["dif_t"])
     for xy in mag_xys(p):
-        plate2d = plate2d.difference(Point(xy).buffer(p["boss_d"] / 2 + p["box_clear"]))
-    plate = prism(plate2d, -p["dif_t"], p["dif_t"])
-    plugs2d = R["lit"].buffer(-p["plug_clear"], join_style="mitre").difference(R["eye"])
-    plugs = prism(_clean(plugs2d, 0.02), 0, p["base_t"])
-    dif = _fuse(plate, plugs)
+        plate = plate.cut(_cyl(p["boss_d"] + 2 * c, -p["dif_t"] - 0.01, p["dif_t"] + 0.02, xy))
+    plugs = prism(_clean(R["lit"].buffer(-p["plug_clear"], join_style="mitre"), 0.02), 0, p["base_t"])
+    eye = R["eye"].centroid
+    dif = _fuse(plate, plugs).cut(_cyl(p["eye_d"], 0, p["base_t"] + 0.01, (eye.x, eye.y))).clean()
     mask = None
     if p["mask"]:
         m = p["mask_margin"]
-        mask2d = sbox(-p["light_w"] / 2 - m, -p["light_h"] / 2 - m, p["light_w"] / 2 + m, p["light_h"] / 2 + m)
-        mask2d = affinity.translate(mask2d.buffer(2.0).buffer(-2.0), *lxy).intersection(plate2d.buffer(-1.0))
-        mask = prism(mask2d, -p["dif_t"] - p["mask_t"], p["mask_t"])
+        mask = _rrect(p["light_w"] + 2 * m, p["light_h"] + 2 * m, 2.0, -p["dif_t"] - p["mask_t"], p["mask_t"], lxy)
+    # the same plate in 2D, for the checks and logo_check.png
+    plate2d = _rsquare(cav, p["box_r"] - p["wall"]).buffer(-c)
+    for xy in mag_xys(p):
+        plate2d = plate2d.difference(Point(xy).buffer(p["boss_d"] / 2 + c))
     return dif, mask, plate2d
+
+
+def _holes(lxy, p=P):
+    return [Point(lxy[0] + sx * p["light_holes"], lxy[1] + sy * p["light_holes"]) for sx in (1, -1) for sy in (1, -1)]
 
 
 def box_part(lxy, p=P):
     z = heights(p)
-    outer = _rsquare(p["box_w"], p["box_r"])
-    inner = outer.buffer(-p["wall"])
+    w, r, t = p["box_w"], p["box_r"], p["wall"]
+    b = _rrect(w, w, r, z["ear_top"], -z["ear_top"])
+    b = b.cut(_rrect(w - 2 * t, w - 2 * t, r - t, z["floor_top"], -z["floor_top"] + 0.01))
     cover = affinity.translate(Polygon(LIGHT_COVER).buffer(p["cover_clear"], join_style="mitre"), *lxy)
-    holes = [Point(lxy[0] + sx * p["light_holes"], lxy[1] + sy * p["light_holes"]) for sx in (1, -1) for sy in (1, -1)]
-    floor2d = outer.difference(cover).difference(unary_union([h.buffer(p["screw_clear_d"] / 2) for h in holes]))
-    floor = prism(floor2d, z["ear_top"], p["floor_t"])
-    walls = prism(outer.difference(inner), z["floor_top"], -z["floor_top"])
-    bosses = prism(unary_union([Point(xy).buffer(p["boss_d"] / 2) for xy in mag_xys(p)]).intersection(outer),
-                   z["floor_top"], -z["floor_top"])
-    b = _fuse(floor, walls, bosses)
-    for xy in mag_xys(p):        # box magnet sits 0.4 deep so the face's proud magnet locates in the pocket
+    b = b.cut(prism(cover, z["ear_top"] - 0.01, p["floor_t"] + 0.02))
+    holes = _holes(lxy, p)
+    for h in holes:
+        b = b.cut(_cyl(p["screw_clear_d"], z["ear_top"] - 0.01, p["floor_t"] + 0.02, (h.x, h.y)))
+    for xy in mag_xys(p):        # corner bosses; the box magnet sits 0.4 deep so the face's proud magnet locates in it
+        b = b.fuse(_cyl(p["boss_d"], z["floor_top"] - 0.01, -z["floor_top"] + 0.01, xy))
         depth = p["mag_t"] + (p["mag_t"] - p["mag_face_depth"])
         b = b.cut(_cyl(p["mag_pocket_d"], -depth, depth + 0.01, xy))
-    return b, holes
+    return b.clean(), holes
 
 
 def hardware(lxy, holes, p=P):
@@ -330,14 +340,30 @@ def chest_cutout(lxy, holes, p=P):
     c = p["pocket_clear"]
     pocket_bottom = z["ear_top"] - c                 # the box hangs on the light; it never bottoms out
     top = 5.0                                        # above the chest face, so it subtracts cleanly
-    boxp = prism(_rsquare(p["box_w"] + 2 * c, p["box_r"] + c), pocket_bottom, top - pocket_bottom)
-    lp2d = affinity.translate(sbox(-p["light_w"] / 2 - c, -p["light_h"] / 2 - c, p["light_w"] / 2 + c, p["light_h"] / 2 + c), *lxy)
-    lightp = prism(lp2d, z["light_back"], pocket_bottom - z["light_back"] + 0.5)
-    cut = _fuse(boxp, lightp)
+    cut = _rrect(p["box_w"] + 2 * c, p["box_w"] + 2 * c, p["box_r"] + c, pocket_bottom, top - pocket_bottom)
+    lw, lh = p["light_w"] + 2 * c, p["light_h"] + 2 * c
+    cut = cut.fuse(cq.Solid.makeBox(lw, lh, pocket_bottom - z["light_back"] + 0.5,
+                                    cq.Vector(lxy[0] - lw / 2, lxy[1] - lh / 2, z["light_back"])))
     for h in holes:
         cut = cut.fuse(_cyl(p["insert_hole_d"], z["light_back"] - p["insert_hole_depth"], p["insert_hole_depth"] + 0.5, (h.x, h.y)))
     cut = cut.fuse(_cyl(p["cable_d"], z["light_back"] - p["cable_len"], p["cable_len"] + 0.5, lxy))
     return cut.clean()
+
+
+def light_envelope(lxy, holes, p=P):
+    """A light-weight stand-in for the light, from P alone: the case up to the ears, then the cover's outline
+    up to the lens, with its four holes. Goes in the assembly STEP unless the vendor model is asked for."""
+    z = heights(p)
+    w, h = p["light_w"], p["light_h"]
+    env = cq.Solid.makeBox(w, h, p["light_ear_top"] - p["light_back"],
+                           cq.Vector(lxy[0] - w / 2, lxy[1] - h / 2, z["light_back"]))
+    cover = affinity.translate(Polygon(LIGHT_COVER), *lxy)
+    env = env.fuse(prism(cover, z["ear_top"], p["floor_t"]))
+    # above the box floor the real cover tapers (0.7 mm in by its z 7.0); 0.5 keeps the stand-in inside it
+    env = env.fuse(prism(cover.buffer(-0.5, join_style="mitre"), z["floor_top"], z["lens_top"] - z["floor_top"]))
+    for hh in holes:
+        env = env.cut(_cyl(p["light_hole_d"], z["light_back"] - 0.01, z["ear_top"] - z["light_back"] + 0.02, (hh.x, hh.y)))
+    return env.clean()
 
 
 def light_reference(path, lxy, p=P):
@@ -430,7 +456,9 @@ def face_dxf(R, path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--logo", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "husky_trace.dxf"))
-    ap.add_argument("--light", default=None)
+    ap.add_argument("--light", default=None, help="the vendor STEP: used for the interference check and the render")
+    ap.add_argument("--light-in-assembly", action="store_true",
+                    help="also put the full vendor model in the assembly STEP (adds ~50 MB; slow in Fusion)")
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out"))
     ap.add_argument("--2d", dest="only2d", action="store_true", help="logo_check.png and face_layers.dxf only")
     a = ap.parse_args()
@@ -472,32 +500,42 @@ def main():
     face_dxf(R, os.path.join(a.out, "face_layers.dxf"))
     logo_png(R, lxy, plate2d, os.path.join(a.out, "logo_check.png"), p)
 
-    # assembly: components in the chest frame
+    # assembly: components in the chest frame. `comps` is what the interference check and the render see;
+    # the assembly STEP gets the same, with the light as a light-weight envelope unless --light-in-assembly.
     comps = {"face_base": (base, "face_base"), "face_relief": (relief, "face_relief"), "gear": (gear, "gear"),
              "diffuser": (dif, "diffuser"), "box": (box, "box")}
     if mask is not None:
         comps["centre_mask"] = (mask, "centre_mask")
     comps.update(hw)
-    chest = prism(_rsquare(95, 10), z["light_back"] - p["insert_hole_depth"] - 4, -(z["light_back"] - p["insert_hole_depth"] - 4)).cut(cut)
+    zb = z["light_back"] - p["insert_hole_depth"] - 4
+    chest = _rrect(95, 95, 10, zb, -zb).cut(cut)
     comps["ref_chest_piece"] = (chest, "ref_chest")
+    envelope = light_envelope(lxy, holes, p)
     light_show = None
     if a.light:
         main_l, light_show = light_reference(a.light, lxy, p)
         for i, s in enumerate(main_l):
             comps[f"ref_light_{('pcb', 'back_case', 'cover')[i]}"] = (s, "ref_light")
+    else:
+        comps["ref_light_envelope"] = (envelope, "ref_light")
 
     assy = cq.Assembly(name="opendubs_chest_plate")
     pos_dir = os.path.join(a.out, "assembly")
     os.makedirs(pos_dir, exist_ok=True)
+    for old in os.listdir(pos_dir):
+        os.remove(os.path.join(pos_dir, old))
     colours = {}
     for n, (s, kind) in comps.items():
         if n.startswith("ref_light") and light_show is not None:
-            continue
+            continue                                  # the vendor model is drawn whole, below
         assy.add(s, name=n, color=cq.Color(*RGBA[kind]))
         cq.exporters.export(cq.Workplane(obj=s), os.path.join(pos_dir, f"{n}.stl"), tolerance=0.05, angularTolerance=0.15)
         colours[n] = RGBA[kind]
     if light_show is not None:
-        assy.add(light_show, name="ref_light_goBILDA_3118-0808-0002", color=cq.Color(*RGBA["ref_light"]))
+        if a.light_in_assembly:
+            assy.add(light_show, name="ref_light_goBILDA_3118-0808-0002", color=cq.Color(*RGBA["ref_light"]))
+        else:
+            assy.add(envelope, name="ref_light_envelope", color=cq.Color(*RGBA["ref_light"]))
         cq.exporters.export(cq.Workplane(obj=light_show), os.path.join(pos_dir, "ref_light.stl"), tolerance=0.3, angularTolerance=0.8)   # coarse: MuJoCo caps STLs at 200k faces
         colours["ref_light"] = RGBA["ref_light"]
     assy.save(os.path.join(a.out, "chest_plate_assembly.step"))
@@ -524,7 +562,7 @@ def main():
           f"(face stands {z['face_top']:.1f} mm proud)")
     hits = interference({k: v for k, v in comps.items()})
     # Intended: the dia 7.0 screw heads touch the light cover's corner notches, which goBILDA sized for them.
-    ok = [h for h in hits if h[0].startswith("screw") and h[1] == "ref_light_cover" and h[2] < 0.5]
+    ok = [h for h in hits if h[0].startswith("screw") and h[1] in ("ref_light_cover", "ref_light_envelope") and h[2] < 0.5]
     bad = [h for h in hits if h not in ok]
     print("interference, intended (screw heads in the cover's notches):", ok)
     print("interference, UNINTENDED:", bad if bad else "none")
