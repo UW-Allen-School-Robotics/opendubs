@@ -54,6 +54,7 @@ deploy_sub software/ros             ros
 deploy_sub description/opendubs     description   # opendubs.urdf, read by opendubs-robot-state-publisher
 deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
 deploy_sub software/voice           voice     # the voice service's scripts; built and run below, on robots that opt in
+deploy_sub software/head-protocol   head-protocol  # the head's protocol and looks.py, read by the dashboard and the show runner
 # The network lane's router health monitor and diagnostics (tools/network/README.md); its unit is
 # installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
