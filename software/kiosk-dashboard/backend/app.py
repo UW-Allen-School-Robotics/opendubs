@@ -273,11 +273,21 @@ def estop_clear() -> JSONResponse:
 
 @app.post("/api/fault/clear")
 def fault_clear() -> JSONResponse:
-    """Clear a latched DEGRADED fault (review R4). Guarded by the supervisor on the
-    next frame: only non-fatal faults whose condition is absent clear, and only once
-    telemetry is ready. Fatal faults (welded contactor, PDH hardware) need service."""
-    status_mod.request_fault_clear()
-    return JSONResponse({"ok": True})
+    """Clear a latched DEGRADED fault (review R4; CLEAR FAULT on Operate). Guarded by the
+    supervisor: only non-fatal faults whose condition is absent clear, and only once
+    telemetry is ready. Fatal faults (welded contactor, PDH hardware) need service.
+    Whatever it can't clear it names, with why, and the first one's troubleshooting code."""
+    r = status_mod.clear_faults()
+    if not r["kept"]:
+        return JSONResponse({"ok": True, "cleared": r["cleared"]})
+    k = r["kept"][0]
+    if k["why"] == "not ready":
+        return refuse("LINK_NOT_READY", "not cleared: the robot is not ready yet (no fresh telemetry "
+                      "and RC link)", **r)
+    why = {"needs service": "it needs service before it can be cleared",
+           "still present": "its condition is still present"}
+    text = "not cleared: " + "; ".join(f"{x['cause']}: {why[x['why']]}" for x in r["kept"])
+    return refuse(k["code"] or "LINK_NOT_READY", text, **r)
 
 
 @app.post("/api/i2c/scan")

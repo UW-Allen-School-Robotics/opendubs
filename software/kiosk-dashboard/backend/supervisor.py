@@ -11,8 +11,8 @@ frames and feeds `derive()` *latched* inputs:
   twist-to-unlock control that cannot release itself, so the operator unlatching it
   IS the acknowledgement, and demanding a second software ack only teaches people to
   click past safety prompts. Same treatment STALE TELEMETRY already gets.
-- **Fault latch (DEGRADED):** faults latch until an explicit operator clear, and
-  only clear if the underlying condition is absent AND telemetry is ready (review
+- **Fault latch (DEGRADED):** faults latch until an explicit operator clear (CLEAR FAULT on
+  Operate), and only clear if the underlying condition is absent AND telemetry is ready (review
   R4 / D3). Fatal faults (welded contactor, PDH hardware) are non-clearable from
   the UI — they require physical service.
 - **INIT readiness:** boot completes on real ready-checks (StamPLC fresh + RC link
@@ -45,8 +45,8 @@ class Supervisor:
         self.estop_latched = False
         self.estop_sources_held: list[str] = []
         self.fault_latched: list[str] = []
+        self.raw_faults: list[str] = []    # the last frame's faults: which latched ones are still present
         self.ready = False                 # latches True once ready-checks first pass
-        self._clear_fault_req = False
         # Audit trail. The live indicator deliberately does not latch BUTTON, so
         # without this there would be no record that an e-stop ever happened.
         # Edges are the right shape for incident review, and unlike a latch they
@@ -55,9 +55,20 @@ class Supervisor:
         self._prev_raw_sources: set[str] = set()
 
     # ---- operator actions -------------------------------------------------
-    def request_clear_fault(self):
-        """Arm a one-shot DEGRADED clear, consumed (and guarded) on the next step()."""
-        self._clear_fault_req = True
+    def clear_faults(self) -> dict:
+        """The operator's DEGRADED clear, guarded against the last frame: a fault clears only if it is
+        not fatal and its condition is gone, and nothing clears before telemetry is ready. Returns
+        {"cleared": [fault], "kept": [(fault, why)]}, why being "not ready", "needs service" or
+        "still present"."""
+        if not self.ready:
+            return {"cleared": [], "kept": [(f, "not ready") for f in self.fault_latched]}
+        kept = [(f, "needs service" if f in FATAL_FAULTS else "still present")
+                for f in self.fault_latched if f in FATAL_FAULTS or f in self.raw_faults]
+        cleared = [f for f in self.fault_latched if f not in dict(kept)]
+        self.fault_latched = [f for f, _ in kept]
+        if cleared:
+            _log.info("fault cleared by the operator: %s", ", ".join(cleared))
+        return {"cleared": cleared, "kept": kept}
 
     def clear_estop(self):
         """Drop the e-stop latch. Callers MUST check estop_rearm_guard() first."""
@@ -100,10 +111,10 @@ class Supervisor:
     # ---- per-frame step ---------------------------------------------------
     def step(self, *, raw_estop_sources, raw_faults, fresh, control_ok, uptime):
         """Fold raw telemetry into latched inputs for derive(). Returns
-        {booting, estop_sources, faults, note}."""
+        {booting, estop_sources, faults}."""
         raw_estop_sources = list(raw_estop_sources or [])
         raw_faults = list(raw_faults or [])
-        note = None
+        self.raw_faults = raw_faults
 
         # Record edges on the RAW sources, before any latching, so the trail reflects
         # what physically happened — including a BUTTON release, which the live
@@ -146,30 +157,18 @@ class Supervisor:
             self.ready = True
         booting = (not self.ready) and (uptime < READY_TIMEOUT_S)
 
-        # Fault latch: accumulate; clear only on explicit, guarded operator action.
+        # Fault latch: accumulate; clear only on explicit, guarded operator action (clear_faults()).
         for f in raw_faults:
             if f not in self.fault_latched:
                 self.fault_latched.append(f)
         self.fault_latched = [f for f in self.fault_latched if f not in SELF_CLEARING or f in raw_faults]
-        if self._clear_fault_req:
-            self._clear_fault_req = False
-            if not self.fault_latched:
-                pass
-            elif not self.ready:
-                note = "fault clear blocked: telemetry not ready"
-            else:
-                kept = [f for f in self.fault_latched if (f in FATAL_FAULTS or f in raw_faults)]
-                if kept:
-                    note = "fault still latched: " + ", ".join(kept)
-                self.fault_latched = kept
 
         eff_faults = list(self.fault_latched)
         if (not self.ready) and (uptime >= READY_TIMEOUT_S):
             if "TELEMETRY NOT READY" not in eff_faults:
                 eff_faults.append("TELEMETRY NOT READY")   # condition-driven, not latched
 
-        return {"booting": booting, "estop_sources": eff_estop,
-                "faults": eff_faults, "note": note}
+        return {"booting": booting, "estop_sources": eff_estop, "faults": eff_faults}
 
 
 # Module-level singleton (the FSM has one supervisor; status.py drives it).

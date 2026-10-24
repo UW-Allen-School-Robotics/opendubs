@@ -19,7 +19,7 @@ import psutil
 import battery_history
 import robot_state
 import stamplc
-from supervisor import LIFT_SILENT, supervisor
+from supervisor import FATAL_FAULTS, LIFT_SILENT, supervisor
 
 _BOOT = time.monotonic()
 
@@ -452,8 +452,6 @@ def _robot_state():
         deadman=deadman, link=link, faults=sup["faults"], mast_fault=mast_fault,
         motion_enabled=saf["motion_enabled"], contactor=saf["contactor"],
         welded=saf["welded"], charging=charging)
-    if sup["note"]:
-        out["reason"] = out["reason"] + " · " + sup["note"]
     out["estop_events"] = supervisor.recent_events()
     # What to do about an e-stop, in the registry's words (state_words.RECOVERY): the dashboard shows it.
     import state_words
@@ -461,6 +459,7 @@ def _robot_state():
     out["recovery"] = r[0] if r else None
     out["latched"] = {"estop": supervisor.estop_latched,
                       "faults": list(supervisor.fault_latched),
+                      "fault_detail": [fault_detail(f) for f in supervisor.fault_latched],
                       "ready": supervisor.ready}
     return out
 
@@ -500,9 +499,35 @@ def try_estop_clear() -> dict:
     return {"ok": True}
 
 
-def request_fault_clear():
-    """Arm a one-shot DEGRADED clear; the supervisor guards it on the next frame."""
-    supervisor.request_clear_fault()
+# The faults that latch DEGRADED (the raw_faults above), for the operator: the troubleshooting code and
+# the cause in plain words. The Operate page's CLEAR FAULT names them, and links each to its entry.
+FAULT_INFO = {
+    "CONTACTOR WELDED": ("CONTACTOR_WELDED",     # @fault CONTACTOR_WELDED
+                         "the contactor reports closed while it is commanded open, so the e-stop may not cut drive power"),
+    "PDH brownout": ("POWER_PDH_BROWNOUT",       # @fault POWER_PDH_BROWNOUT
+                     "the power distribution hub saw its input voltage dip too low"),
+    "PDH hardware": ("POWER_PDH_FAULT",          # @fault POWER_PDH_FAULT
+                     "the power distribution hub reports an internal hardware fault"),
+    "OVERTEMP": ("POWER_OVERTEMP",               # @fault POWER_OVERTEMP
+                 "an internal temperature sensor read 70 °C or more"),
+    LIFT_SILENT: ("LIFT_NOT_RESPONDING",         # @fault LIFT_NOT_RESPONDING
+                  "the lift stopped reporting its height and pinch guard"),
+}
+
+
+def fault_detail(f: str) -> dict:
+    """One latched fault, for the operator: its code, its cause, and whether its condition is still
+    present (by the last frame) or it needs service before it can clear."""
+    code, cause = FAULT_INFO.get(f, (None, f))
+    return {"fault": f, "code": code, "cause": cause,
+            "present": f in supervisor.raw_faults, "fatal": f in FATAL_FAULTS}
+
+
+def clear_faults() -> dict:
+    """The operator's DEGRADED clear (supervisor.clear_faults), with each kept fault's detail."""
+    r = supervisor.clear_faults()
+    return {"cleared": r["cleared"],
+            "kept": [{**fault_detail(f), "why": why} for f, why in r["kept"]]}
 
 
 def _vnc():
