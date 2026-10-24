@@ -24,10 +24,13 @@ handout triggered by "trick or treat".
 | `opendubs_architect/config.py` | `OpenDubsConfig`, the `RobotConfig` ssa loads, and the backend switch |
 | `opendubs_architect/live_arms.py` | The arm service: each move planned on the twin, checked, and sent behind the runner's gates; `ShowRecorder` for the fallback |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
+| `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
+| `opendubs_architect/ssa_agent.py` | ARCHITECT (ssa's session) behind the runner, with library helpers copied into each program |
 | `opendubs_architect/show_backend.py` | The fallback backend: a program's arm calls recorded as a show |
 | `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode` with `REFUSED`) |
 | `skills/*.md` | What the model is told about this robot: motion, grasping, verification, camera questions, handoff, navigation |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
+| `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
 | `tests/test_live_arms.py` | The arm service's gates: the deadman, unknown state, the workspace, the twin's clearance check; a recorded program is a valid show |
 
 ## Run it at a desk
@@ -43,8 +46,33 @@ cd <ssa checkout>
 python3 scripts/ssa_cli.py --robot opendubs --dry-run --program my_program.py     # no model, no robot
 python3 scripts/ssa_cli.py --robot opendubs --dry-run "Hand a candy to the person" # needs ANTHROPIC_API_KEY
 python3 <this repo>/software/architect/tests/test_api.py                          # stdlib only
+python3 <this repo>/software/architect/tests/test_demo_runner.py                  # stdlib only
 python3 <this repo>/software/architect/tests/test_live_arms.py                    # + numpy, PyYAML; mujoco for the twin
 ```
+
+## The demo runner
+
+`demo_runner.py` holds the interaction: the supervisor's instruction becomes a program, the robot
+reads its `# Summary:` line aloud, and a spoken "yes" freezes it by hash. Each "trick or treat"
+with the deadman held runs that text again. While a program is armed, nothing anyone says reaches
+the model: "trick or treat" runs it, "stop" disarms it, everything else is ignored. A program must
+pass a desk check before it is offered: it compiles, names only primitives and what it defines,
+imports only `math` and `time`, never catches a refusal, and runs once on the dry-run robot.
+
+The voice service posts what it heard to `POST /api/heard` with `{"kind": "instruction" | "speech"
+| "trigger", "text": ...}`. `GET /` is the page that shows the code, for a browser and never the
+tablet; `POST /api/trigger` and `POST /api/stop` back its two buttons.
+
+```bash
+# a desk: a fixed program, the dry-run robot, the deadman held
+PYTHONPATH=.:<ssa checkout> python3 -m opendubs_architect.demo_runner --agent program --program handout.py --dry-run
+curl -X POST localhost:8098/api/heard -d '{"kind": "instruction", "text": "hand out candy"}'
+curl -X POST localhost:8098/api/heard -d '{"kind": "speech", "text": "yes"}'
+curl -X POST localhost:8098/api/heard -d '{"kind": "trigger", "text": "trick or treat"}'
+```
+
+`--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
+camera questions while writing, but every motion refuses until a program is approved.
 
 ## Two backends for the arms
 
