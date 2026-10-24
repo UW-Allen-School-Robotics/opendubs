@@ -157,6 +157,22 @@ both adapters run on the dummy camera for now (user, 2026-10-22).
    obstacles and people, joined with CLIPSeg's coarse obstacle map.
 3. `docker exec` bypasses the image entrypoint, so `dev.sh` execs through it to source ROS.
 
+### First run with the Femto Bolt (2026-10-23)
+
+The Femto Bolt is fitted, and its driver runs on the robot's graph (domain 0, `/camera`, run by
+another user for `hand3d`). `tools/camera_bridge.py` (`dev.sh bridge`) copies it one way into the
+test domain as camera `femto`, so the server still publishes nothing on domain 0. The bridge needs
+subnet discovery (with `LOCALHOST` it never finds the driver) and UDP only.
+
+| Check | Result |
+|---|---|
+| Feed | Colour 1280×720 `rgb8` ~19 Hz; `/camera/depth/image_raw` is aligned to colour, `16UC1`, ~20 Hz, stamps within 2 ms; 72 % of depth valid, median 1.7 m |
+| `wall` | One mask over the whole wall, edges on the door frame (overlay checked by eye); median depth 1.26–1.28 m, steady across queries. Server 53–100 ms, round trip 83–140 ms |
+| `whiteboard` | The board, and the far wall through the door (3.9 m) |
+| `person` | 0 with nobody in view; correct |
+| `door` | Weak: YOLO-World finds no door, and the CLIPSeg fallback gives up to 16 blobs at ~0.4, just over the 0.4 threshold, many on the whiteboard. Open: a higher fallback threshold, or keep only regions near the label's best |
+| Depth with the result | 7 of 10 queries in steady state. **Large frames are lost over UDP on this host**: `net.core.rmem_max` is 212992 and the kernel counts ~440 k UDP receive-buffer errors; the bridge itself misses ~45 % of depth frames from the driver. The server now uses the newest colour frame that has its depth (`frames.py`). Raising `rmem_max` is a host change, for the Thor stack lane |
+
 ### Next
 
 | Phase | Work | Done when |
