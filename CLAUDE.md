@@ -129,6 +129,10 @@ something already committed is always the maintainers' decision, case by case.
 - **puts the draft flag in its concurrency group**, if it has one
   (`group: <name>-${{ github.ref }}-${{ github.event.pull_request.draft }}`). Otherwise a late
   draft-time run can cancel the real ready-time run;
+- **gives a job skipped on drafts a distinct name**, so a skipped row never carries the real
+  check's name and hides its failure:
+  `name: "${{ github.event.pull_request.draft && '<name> (draft, skipped)' || '<name>' }}"`
+  (quoted; GitHub shows the raw expression on the skipped row, which is harmless);
 - **does not re-run on `push` to `main`** what the PR already checked. The exceptions are
   `hygiene.yml`, the safety net for a push that bypasses the PR, and the docs deploy;
 - **filters on its own paths**, and offers `workflow_dispatch` for a manual run;
