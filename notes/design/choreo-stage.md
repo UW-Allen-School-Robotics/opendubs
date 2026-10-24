@@ -61,6 +61,8 @@ depth camera → tracker (ROS 2 topic) → relay (#451): adapt(msg, received_mon
   — the running show's beat grid, else `?bpm=`. The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
 - **The kiosk:** `window.OpenDubsKiosk?.alive?.()` every 5 s from the draw loop, so a page that stops
   drawing stops checking in and the app reloads it; it reconnects its WebSocket itself, with back-off.
+- **Deploys:** the page polls `/api/frontend-version` every 15 s, as the dashboard does, and reloads
+  itself when it changes, but only between shows, so a deploy reaches the stage box with no one there.
 
 ## The show's timing — the only thing the page needs from the Thor
 

@@ -31,7 +31,8 @@
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
    ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
    alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
-   the sync timer when the device says it has no screen. */
+   the sync timer when the device says it has no screen. A deploy that changes the dashboard's pages
+   reloads this one too, between shows (it polls /api/frontend-version every 15 s). */
 "use strict";
 (() => {
   const q = new URLSearchParams(location.search);
@@ -419,5 +420,19 @@
     const s = [...lat].sort((a, b) => a - b);
     send({ latency_ms: { p50: Math.round(s[Math.floor(0.5 * (s.length - 1))]), p95: Math.round(s[Math.floor(0.95 * (s.length - 1))]), n: s.length } });
   }, 2000);
+
+  /* ---- a deploy reloads the page, between shows (as the dashboard's app.js followDeploys) ---------- */
+  (function followDeploys() {
+    let seen = null;
+    async function check() {
+      try {
+        const v = (await (await fetch("/api/frontend-version", { cache: "no-store" })).json()).version;
+        if (seen === null) seen = v;
+        else if (v !== seen && (!show || show.state === "stopped")) { location.reload(); return; }
+      } catch (e) { /* the dashboard restarting during the deploy: try again next round */ }
+      setTimeout(check, 15000);
+    }
+    check();
+  })();
   requestAnimationFrame(draw);
 })();
