@@ -58,10 +58,12 @@ class RegistryError(ValueError):
 
 # ---- the registry -------------------------------------------------------------------------------------
 class Tool:
-    """One tool type, as its YAML describes it (a mirrored type already resolved)."""
+    """One tool type, as its YAML describes it (a mirrored type already resolved). `dirs`: the folder
+    it came from (and its mirror source's), where its gaits file and its driver are looked for."""
 
     def __init__(self, doc: dict):
         self.doc = doc
+        self.dirs = [REG_DIR]
         self.id = doc["id"]
         self.name = doc.get("name", self.id)
         self.kind = doc.get("kind")
@@ -201,36 +203,72 @@ def _check_doc(d: dict, path: str) -> list[str]:
 _REG: dict | None = None
 
 
+def registry_dirs() -> list[str]:
+    """Where tool types are found: the engine's own effectors/, then each TOOL PACK in the content
+    folder (content.py: <dir>/tools/<pack>/), so an add-on such as a crawling hand ships with its
+    content, not with the engine."""
+    import content
+    return [REG_DIR] + content.tool_packs()
+
+
 def registry(reg_dir: str | None = None) -> dict[str, Tool]:
-    """{id: Tool} from every YAML in the registry folder; raises RegistryError on a bad file."""
+    """{id: Tool} from every YAML in the registry folders (registry_dirs; or only `reg_dir`); raises
+    RegistryError on a bad file, or on one id defined in two folders."""
     global _REG
     if _REG is not None and reg_dir is None:
         return _REG
-    folder = reg_dir or REG_DIR
     raw = {}
-    for f in sorted(os.listdir(folder)):
-        if not f.endswith(".yaml"):
-            continue
-        with open(os.path.join(folder, f), encoding="utf-8") as fh:
-            d = yaml.safe_load(fh) or {}
-        if d.get("id") != f[:-5]:
-            raise RegistryError(f"{f}: id {d.get('id')!r} must match the file name")
-        raw[d["id"]] = (d, os.path.join(folder, f))
+    for folder in ([reg_dir] if reg_dir else registry_dirs()):
+        for f in sorted(os.listdir(folder)):
+            if not f.endswith(".yaml"):
+                continue
+            with open(os.path.join(folder, f), encoding="utf-8") as fh:
+                d = yaml.safe_load(fh) or {}
+            if d.get("id") != f[:-5]:
+                raise RegistryError(f"{f}: id {d.get('id')!r} must match the file name")
+            if d["id"] in raw:
+                raise RegistryError(f"{d['id']}: defined in both {raw[d['id']][1]} and {os.path.join(folder, f)}")
+            raw[d["id"]] = (d, os.path.join(folder, f))
     out, problems = {}, []
     for tid, (d, path) in raw.items():
+        dirs = [os.path.dirname(path)]
         if "mirror_of" in d:
             src = raw.get(d["mirror_of"])
             if not src or "mirror_of" in src[0]:
                 problems.append(f"{tid}: mirror_of {d['mirror_of']!r} is not a plain tool type")
                 continue
             d = _mirror(src[0], d)
+            dirs.append(os.path.dirname(src[1]))
         problems += _check_doc(d, path)
         out[tid] = Tool(d)
+        out[tid].dirs = dirs
     if problems:
         raise RegistryError("; ".join(problems))
     if reg_dir is None:
         _REG = out
     return out
+
+
+def tool_file(tool: Tool, name: str) -> str | None:
+    """A file that belongs to a tool type (its `<id>.gaits.json`): in the tool's own folder, else its
+    mirror source's. None when there is none."""
+    for d in tool.dirs:
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def driver_path(tool: Tool) -> str | None:
+    """The driver a tool names in `output:`: drivers/<output>.py in its own pack, else the engine's
+    drivers/. None when it names none, or the file is missing."""
+    if not tool.output:
+        return None
+    for d in tool.dirs + [HERE]:
+        p = os.path.join(d, "drivers", f"{tool.output}.py")
+        if os.path.isfile(p):
+            return p
+    return None
 
 
 # ---- what is fitted on a robot --------------------------------------------------------------------------

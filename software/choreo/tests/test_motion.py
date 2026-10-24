@@ -74,9 +74,8 @@ check("a hold holds: still at 30 between arriving and setting off, at zero speed
       all(abs(H.at(t)[1] - 30) < 1e-9 and abs(H.speed(t)[1]) < 1e-9 for t in (2.0, 2.5, 3.0)))
 
 print("\nmotion: the robot and the twin play the same path")
-shows = os.path.join(HERE, "..", "shows")
 lim = cue.load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
-tl = cue.load_show(os.path.join(shows, "robotic-smile.yaml")).export(lim, None)
+tl = cue.load_show(os.path.join(HERE, "fixtures", "shows", "robotic-smile.yaml")).export(lim, None)
 kfs = tl["tracks"]["ARM_R"]
 pts = arm_output.track_points(kfs)
 worst = 0.0
@@ -88,7 +87,7 @@ check("the points sent to the right arm match the twin's pose at the same times 
 spacing = max(b[0] - a[0] for a, b in zip(pts, pts[1:]))
 check("they are sent densely enough to follow the curve", spacing <= arm_output.DENSE_S + 1e-6, spacing)
 
-tl2 = cue.load_show(os.path.join(shows, "robotic-smile.yaml")).export(lim, None)
+tl2 = cue.load_show(os.path.join(HERE, "fixtures", "shows", "robotic-smile.yaml")).export(lim, None)
 for slot in ("ARM_L", "ARM_R"):
     P = motion.Path(motion.knots(tl2["tracks"][slot], "pose_signed"))
     worst = 0.0

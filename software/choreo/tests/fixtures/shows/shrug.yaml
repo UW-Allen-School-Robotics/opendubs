@@ -1,0 +1,22 @@
+id: shrug
+name: Shrug
+# A palette routine (workplan 1.13): the reaction to a grab that failed — which, the research says,
+# partly makes up for the failure. Ends at rest, head centred.
+palette: { label: Shrug, order: 3 }
+slots: [ARM_L, ARM_R, HEAD, SOUND, FACE]
+requires:
+  arms: active
+  tab5: true
+  rc_authority: AUTO
+
+clearance: { min_mm: 38.9, at_s: 0.3, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "411c4416b103@dc74e24f" }
+cues:
+  - { t: 0.0, slot: FACE, do: emote, name: SLEEPY }
+  - { t: 0.0, slot: SOUND, do: play, sound: refuse }
+  - { t: 0.3, slot: HEAD, pan: 75 }
+  - { t: 1.0, slot: HEAD, pan: 105 }      # 30 deg at the head's 25 deg/s: there by 2.2 s
+  - { t: 2.4, slot: HEAD, pan: 90 }
+  - { t: 4.0, slot: ARM_L, joints: { 1: 15, 4: 40 } }
+  - { t: 4.0, slot: ARM_R, joints: { 1: 15, 4: 40 } }
+  - { t: 8.0, slot: ARM_L, pose: rest }
+  - { t: 8.0, slot: ARM_R, pose: rest }
