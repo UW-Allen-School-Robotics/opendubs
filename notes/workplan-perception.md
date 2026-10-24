@@ -188,6 +188,19 @@ domain-0 context (`domain:` in the camera's config) and shares the driver contai
 | Other readers | Fast DDS shared memory does not cross users (its files are 0644), and a node on the same host receives **nothing** unless it sets `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. Over UDP a non-root reader gets ~10-18 Hz colour and ~12 Hz depth: this host's `rmem_max` (208 KB) still drops large frames |
 | `--ipc host` | Tried and dropped: a participant that died holding a Fast DDS lock in the host's `/dev/shm` left every later root participant hanging at creation. Driver and server now share a private segment (`--ipc shareable` / `container:`) |
 | Firmware | The camera has 1.0.9; v2.10.6 recommends 1.1.3. Not updated |
+| Driver frame rate | Fast DDS's default 512 KB shared-memory segment let the server, as a second reader, cut every reader to ~7 Hz. `image/fastdds_camera.xml` (128 MB segment) and `--shm-size 1g`: **30 Hz** colour and depth with the server reading |
+| Camera latency | Capture stamp to arrival in the server's container: **~94 ms** median, p90 ~98 ms (depth engine, alignment, undistortion, frame sync). Over UDP to another user: 26-28 Hz but **~450 ms**; not yet explained |
+
+### Latency, paused 2026-10-23 (robot shut down)
+
+Per query, the server logs the frame's age at start and each stage; the client records capture to
+result. Warm `wall` queries: server 120-720 ms, capture to result 280-900 ms. The stages are each
+5-30 ms when quiet (detect ~25, CLIPSeg image ~6, text ~5, SAM encode ~10-15, decode ~5-15), but
+any one of them spikes to 100-550 ms at random: GPU time-sharing. First query of a new label set
+also pays its text features (~450-760 ms detect). Suspect: the camera's depth engine (OpenGL on
+the GPU, 30 Hz) or the language model. Test half done: `person` on the dummy camera's still image
+with the Femto driver running, median 195 ms (77-573); **the driver-stopped half is still to run**.
+Then: a fair breakdown (camera ~94 ms + frame wait + models + transfer), and the UDP 450 ms.
 
 ### Next
 
