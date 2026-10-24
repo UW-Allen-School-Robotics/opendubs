@@ -62,7 +62,21 @@ export const SHAPES = {
 export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 
 // Built-in themes: per-state colours for the states a theme may touch. Reserved states are absent
-// by construction, and the engine refuses them anyway.
+// by construction, and the engine refuses them anyway (`stateColour`).
+//
+// CHARGING IS DIFFERENT, AND WHOEVER ADDS A THEME LOADER MUST READ THIS. It is not `reserved` --
+// it cannot be, because a reserved state replaces the skin with the default eyes and suppresses
+// the charge gauge, which would take the charging face apart. So nothing in the engine stops a
+// theme from recolouring it: today the rule below is held by `setTheme` refusing any name that is
+// not in this table, plus one assertion in test_charging.mjs that pins THIS table's contents.
+//
+// Both of those are only true while every theme is built here. A theme arriving from the content
+// repository would reach `stateColour` with CHARGING in it and recolour it, and nothing in this
+// CI would ever see it. The dashboard's discovery already refuses such a theme and reports it
+// (looks.py, with a test), which is the guard that tells somebody -- but when a theme loader
+// lands on this side it needs its own refusal too, the same backstop shape as the content-skin
+// shadow check in skins/index.js. Not added yet, deliberately: there is no path for a content
+// theme to reach the engine, and a guard on an unreachable path is one nobody can test.
 export const THEMES = {
   plain: {},
   // HALLOWEEN NO LONGER RECOLOURS CHARGING, and that is a choice rather than an omission. Charging
