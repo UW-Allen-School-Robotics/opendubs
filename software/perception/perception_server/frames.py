@@ -2,7 +2,8 @@
 
 cv_bridge is built against the apt numpy; converting with numpy directly keeps the server free of
 that ABI coupling. Depth is matched to colour by the nearest stamp within a tolerance, so a query's
-result carries the depth of the same moment as its colour image.
+result carries the depth of the same moment as its colour image. Over best-effort QoS a large depth
+frame is sometimes lost, so the newest colour frame with a depth match is used, if one is recent.
 """
 
 from __future__ import annotations
@@ -62,16 +63,17 @@ class Frame:
 class CameraFrames:
     """Keeps the latest colour frame, recent depth frames and the camera info of one camera."""
 
-    def __init__(self, slop_s: float = 0.05):
+    def __init__(self, slop_s: float = 0.05, max_age_s: float = 0.5):
         self.slop = slop_s
+        self.max_age = max_age_s  # how much older a colour frame with depth may be than the newest
         self._lock = threading.Lock()
-        self._rgb: Image | None = None
+        self._rgb: collections.deque = collections.deque(maxlen=8)
         self._depth: collections.deque = collections.deque(maxlen=15)
         self._info: CameraInfo | None = None
 
     def on_rgb(self, msg: Image):
         with self._lock:
-            self._rgb = msg
+            self._rgb.append(msg)
 
     def on_depth(self, msg: Image):
         with self._lock:
@@ -82,14 +84,19 @@ class CameraFrames:
             self._info = msg
 
     def latest(self) -> Frame | None:
+        """The newest colour frame with a depth match within max_age, else the newest colour frame."""
         with self._lock:
-            if self._rgb is None:
+            if not self._rgb:
                 return None
-            t = stamp_s(self._rgb.header)
-            depth = min(self._depth, key=lambda d: abs(stamp_s(d.header) - t), default=None)
-            if depth is not None and abs(stamp_s(depth.header) - t) > self.slop:
-                depth = None
-            return Frame(self._rgb, depth, self._info)
+            newest = stamp_s(self._rgb[-1].header)
+            for rgb in reversed(self._rgb):
+                t = stamp_s(rgb.header)
+                if newest - t > self.max_age:
+                    break
+                depth = min(self._depth, key=lambda d: abs(stamp_s(d.header) - t), default=None)
+                if depth is not None and abs(stamp_s(depth.header) - t) <= self.slop:
+                    return Frame(rgb, depth, self._info)
+            return Frame(self._rgb[-1], None, self._info)
 
 
 def intrinsics(info: CameraInfo | None) -> np.ndarray | None:
