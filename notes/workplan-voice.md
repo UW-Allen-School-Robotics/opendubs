@@ -62,7 +62,8 @@ robot from `voice.env`).
 0 of 3, even at speech peaks around −11 dBFS. On 2026-10-22 the face's tracker stalled while the
 spotter's worker kept failing to load beside it, so wake was switched off on opendubs2
 (`OPENDUBS_VOICE_WAKE=0`) and is now off unless a robot sets it to 1. Talk and status by voice
-carry on. The design below stays as the record of what was built and learned.
+carry on. The design below stays as the record of what was built; what was tried and measured, for
+whoever picks up voice input next, is in [`design/voice-wake-findings.md`](design/voice-wake-findings.md).
 
 **The open question for later: voice input in a crowd.** Demos will often be in crowds, not a quiet
 room, so voice-in may need rethinking altogether rather than more tuning. Options to weigh, none
