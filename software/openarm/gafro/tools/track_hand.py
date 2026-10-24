@@ -17,8 +17,10 @@ for every permit renewal). The arm is left enabled and stiff.
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import sys
+import threading
 import time
 
 import numpy as np
@@ -79,6 +81,34 @@ def duration_for_path(path: np.ndarray, vmax: float) -> float:
     return engage.duration_for(path[:, 0], path[:, -1], vmax)
 
 
+def velocity_report(t: np.ndarray, hand_mm: np.ndarray, goal_mm: np.ndarray, duration: float, speed: np.ndarray, torque: np.ndarray) -> str:
+    """What a run did, from the recorded samples. `t` (n,) seconds from the moment the reference was published; `hand_mm` (n, 3) the hand's displacement from where it started;
+    `goal_mm` (3,) the displacement asked; `speed`, `torque` (n, 7) the joints'. Progress is measured along the asked direction and compared with the unshifted minimum-jerk
+    reference (the intended path: a --lead shifts what the controller is shown, not what was meant)."""
+    length = float(np.linalg.norm(goal_mm))
+    direction = np.asarray(goal_mm, dtype=float) / length
+    progress = hand_mm @ direction
+    ideal = length * np.array([engage.minimum_jerk(min(max(x / duration, 0.0), 1.0)) for x in t])
+
+    def first(mask):
+        hit = np.where(mask)[0]
+        return float(t[hit[0]]) if len(hit) else None
+
+    def show(value, unit="s"):
+        return "never" if value is None else f"{value:.2f} {unit}"
+
+    moving = t <= duration + 0.5
+    lag = ideal - progress
+    out = [f"{len(t)} samples over {t[-1]:.2f} s; the move asked {length:.1f} mm in {duration:.1f} s (minimum jerk)",
+           f"  breakaway (hand 1 mm along the move): {show(first(progress > 1.0))}   (the reference reaches 1 mm at {show(first(ideal > 1.0))})",
+           f"  halfway ({length / 2:.0f} mm): {show(first(progress >= length / 2))}   (reference: {duration / 2:.2f} s)",
+           f"  90 %: {show(first(progress >= 0.9 * length))}   (reference: {show(first(ideal >= 0.9 * length))})",
+           f"  peak lag behind the reference while it runs: {float(lag[moving].max()):.1f} mm at {float(t[moving][lag[moving].argmax()]):.2f} s",
+           f"  end: {float(progress[-1]):.1f} mm along the move, {float(progress[-1] - length):+.1f} mm from the goal; overshoot {max(0.0, float(progress.max() - length)):.1f} mm",
+           "  joints, peak speed rad/s | peak measured torque N m: " + "  ".join(f"{j + 1}: {np.abs(speed[:, j]).max():.2f}|{np.abs(torque[:, j]).max():.1f}" for j in range(speed.shape[1]))]
+    return "\n".join(out)
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--controller", choices=("velocity", "track"), default="velocity", help="`velocity` is built here; `track` is the torque controller of controllers.yaml")
@@ -94,6 +124,9 @@ def main(argv=None) -> int:
     p.add_argument("--hand-speed", type=float, default=0.1, help="velocity controller: the hand's speed cap, m/s")
     p.add_argument("--integral", type=float, default=0.0, help="velocity controller: integral gain (1/s^2); above 0 the pose law is a PID that pushes through stiction")
     p.add_argument("--integral-limit", type=float, default=0.02, help="velocity controller: bound of the integral of the pose error (m s)")
+    p.add_argument("--lead", type=float, default=0.0, help="seconds the pose reference runs ahead of its own clock. A proportional law on a ramp lags by speed/gain; shown the reference "
+                   "1/gain ahead it has no steady lag on a ramp. 0 is the plain reference")
+    p.add_argument("--csv", default=None, help="the raw samples (default ~/track_hand-<time>.csv)")
     p.add_argument("--weight", type=int, default=10)
     p.add_argument("--max-offset-cm", type=float, default=6.0)
     p.add_argument("--max-joint-deg", type=float, default=15.0)
@@ -118,6 +151,9 @@ def main(argv=None) -> int:
         return 1
     if args.controller == "track":
         print("refused: the torque `track` controller kicked the real arm (engage, 2026-10-23); it is not run until that is understood. --controller velocity only.")
+        return 1
+    if not 0.0 <= args.lead <= 2.0:
+        print("refused: --lead must be between 0 and 2 s")
         return 1
     if bringup.gate(args, motion=True):
         return 1
@@ -148,7 +184,8 @@ def main(argv=None) -> int:
             print(goto_hand.plan_text(args.side, plan, args.speed, closest, args.min_clearance_mm).split("\nDriven in position mode")[0])
             print(f"Run by the `{args.controller}` controller (a spec-built, pose -> velocity controller in the driver's VELOCITY mode: kp = 0, the command under kd), its pose reference "
                   f"timed by minimum jerk over {duration:.1f} s, gain {args.gain:g} /s, hand speed cap {args.hand_speed:g} m/s"
-                  f"{f', integral {args.integral:g} /s^2 (bound {args.integral_limit:g} m s)' if args.integral > 0 else ''}. It may stall short if kd is too low for the joint friction.\n"
+                  f"{f', integral {args.integral:g} /s^2 (bound {args.integral_limit:g} m s)' if args.integral > 0 else ''}"
+                  f"{f', reference shown {args.lead:g} s ahead' if args.lead > 0 else ''}. It may stall short if kd is too low for the joint friction.\n"
                   "The head and the camera mount are not in the model: head tracking must be OFF with the neck centred, and you judge the path by eye.\n"
                   "Hold CH6 from when you type `hand` until it ends; letting go stops it within about half a second and the arm holds where it is.")
             typed = args.confirm if args.confirm is not None else input("Is the arm clear for that? Type `hand` to move, anything else to stop: ").strip()
@@ -182,8 +219,18 @@ def main(argv=None) -> int:
             full = start_all.copy()
             full[indices] = q
             joints.append(full)
+        samples, recording = [], threading.Event()
+
+        def record():
+            while not recording.is_set():
+                s = robot.get_state()
+                samples.append((time.time(), np.asarray(s.get_position(), dtype=float)[indices], np.asarray(s.get_velocity(), dtype=float)[indices],
+                                np.asarray(s.get_torque(), dtype=float)[indices]))
+                time.sleep(0.002)
+
         began = time.time()
-        now = control.monotonic_now()
+        now = control.monotonic_now() - args.lead                # a lead starts the chunk in the past: the controller is shown the reference `lead` seconds ahead
+        threading.Thread(target=record, daemon=True).start()
         reference.publish(control.MotorReferenceChunk(now, duration / KNOTS, motors))     # the spacing between knots, not the length of the chunk
         posture.publish(control.JointReferenceChunk(now, duration / KNOTS, joints))
         while time.time() - began < duration + 1.5:
@@ -191,12 +238,28 @@ def main(argv=None) -> int:
             hand = hand_plan.hand_pose(task, state()[indices])
             print(f"  [+{time.time() - began:4.1f}] hand from start {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm | farthest joint from its target "
                   f"{np.abs(state()[indices] - plan['states'][:, -1]).max():.3f} rad", flush=True)
+        recording.set()
+        time.sleep(0.02)
         end_q = state()[indices]
         hand = hand_plan.hand_pose(task, end_q)
         error = (hand[:3] - plan["goal"][:3]) * 1000
         joint_error = float(np.abs(end_q - plan["states"][:, -1]).max())
         print(f"the hand moved {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm (asked {np.round((plan['goal'][:3] - plan['start'][:3]) * 1000, 1)}); "
               f"{np.round(error, 1)} mm from the target, {joint_error:.4f} rad from the planned joints")
+        if len(samples) > 10:
+            ts = np.array([x[0] for x in samples]) - began
+            qs = np.array([x[1] for x in samples])
+            hand_mm = np.array([(hand_plan.hand_pose(task, q)[:3] - plan["start"][:3]) * 1000 for q in qs])
+            speeds, torques = np.array([x[2] for x in samples]), np.array([x[3] for x in samples])
+            print("\n=== recorded ===")
+            print(velocity_report(ts, hand_mm, (plan["goal"][:3] - plan["start"][:3]) * 1000, duration, speeds, torques))
+            path = args.csv or os.path.expanduser(f"~/track_hand-{time.strftime('%Y%m%d-%H%M%S')}.csv")
+            with open(path, "w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["t", "hand_x_mm", "hand_y_mm", "hand_z_mm"] + [f"q{j + 1}" for j in range(7)] + [f"qd{j + 1}" for j in range(7)] + [f"tau{j + 1}" for j in range(7)])
+                for k in range(len(ts)):
+                    writer.writerow([f"{ts[k]:.4f}"] + [f"{x:.3f}" for x in hand_mm[k]] + [f"{x:.5f}" for x in np.r_[qs[k], speeds[k], torques[k]]])
+            print(f"raw samples: {path}\n")
         ok = np.linalg.norm(error) <= goto_hand.HAND_TOLERANCE_MM and joint_error <= goto_hand.JOINT_TOLERANCE
         return bringup.verdict(ok, "hand within tolerance under the velocity controller" if ok else
                                f"hand {np.linalg.norm(error):.1f} mm from the target, joints {joint_error:.3f} rad from the plan (a stall: kd too low for the friction, or CH6 released, or a trip)")

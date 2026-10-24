@@ -93,6 +93,21 @@ check("track_hand: no integral keeps the pd law, an integral makes a pid", [list
 check("track_hand: gate, connect, plan, checks, clearance, typed, deadman, first permit, controller",
       in_order(track_hand.main, "bringup.gate(", "bringup.connect(", "hand_plan.plan_hand(", "check_plan(", "require_clearance(", 'typed != "hand"', "bringup.deadman_held(", "keeper.start()", "robot.control("), True)
 
+check("track_hand: a --lead outside 0..2 s refuses", run(track_hand.main, *base, "--offset-cm", "3,0,0", "--lead", "5")[0], 1)
+duration, length = 2.0, 40.0
+ts = np.arange(0, 4.0, 0.004)
+ideal = length * np.array([track_hand.engage.minimum_jerk(min(max(x / duration, 0.0), 1.0)) for x in ts])
+late = length * np.array([track_hand.engage.minimum_jerk(min(max((x - 0.5) / duration, 0.0), 1.0)) for x in ts])      # the same move, half a second late
+direction = np.array([1.0, 0.0, 0.0])
+report = track_hand.velocity_report(ts, late[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, np.zeros((len(ts), 7)), np.zeros((len(ts), 7)))
+check("track_hand: the report of a move half a second late says halfway came at 1.50 s (reference 1.00 s) and no overshoot", ["halfway (20 mm): 1.50 s" in report, "reference: 1.00 s" in report, "overshoot 0.0 mm" in report], [True, True, True])
+over = np.minimum(ideal * 1.0, length) + np.where(ts > 2.0, 14.0 * (1 - np.exp(-(ts - 2.0) * 5)), 0.0)
+report = track_hand.velocity_report(ts, over[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, np.zeros((len(ts), 7)), np.zeros((len(ts), 7)))
+check("track_hand: the report finds a 14 mm overshoot", "overshoot 13.9 mm" in report or "overshoot 14.0 mm" in report, True)
+stuck = np.zeros(len(ts))
+report = track_hand.velocity_report(ts, stuck[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, np.zeros((len(ts), 7)), np.zeros((len(ts), 7)))
+check("track_hand: a move that never starts says breakaway never", "breakaway (hand 1 mm along the move): never" in report, True)
+
 # -- make_config -------------------------------------------------------------------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as tmp:
     base_yaml, out_yaml = os.path.join(tmp, "base.yaml"), os.path.join(tmp, "out.yaml")
