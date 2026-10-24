@@ -1,7 +1,8 @@
 // THEMES FROM THE CONTENT FOLDER — a theme is DATA, where a skin is code.
 //
-// A theme is a handful of per-state colours, living at `<content>/face/themes/<id>.json` and
-// listed by the dashboard's `/api/head/looks`. It draws nothing and runs nothing, so unlike a
+// A theme is a handful of per-state colours, served by the dashboard at
+// `/face/content/themes/<id>.json` and listed by its `/api/head/looks`. It draws nothing and runs
+// nothing, so unlike a
 // code skin it needs no module, no import and no drawing contract — what it needs is a check
 // that it is not recolouring something it has no business recolouring, which is most of this file.
 //
@@ -38,12 +39,13 @@ const STATE_NAMES = new Set(STATES.map((s) => s[0]));
 // the backstop that stops a wrong looks payload fooling the face.
 const UNTHEMEABLE = new Set([...STATES.filter((s) => s[4]).map((s) => s[0]), "CHARGING"]);
 
-// `"#8ac926"`, the form a person writes in a JSON file by hand, or a plain 24-bit integer for a
-// file something generated. Anything else is refused rather than coerced: `"lime"` and `"8ac926"`
-// are mistakes, and a theme is edited in a repository this CI never builds, so a value quietly
-// read as 0 would show up only as a black face on the robot.
+// `"#8ac926"` AND NOTHING ELSE — not a 24-bit integer, though the engine uses one internally, and
+// not a CSS colour name. The dashboard's discovery accepts only this form, so a file written any
+// other way is refused there and never listed; accepting more here would mean the two checks
+// disagree about what a theme is, and the looser one would never be reached. `"lime"` and
+// `"8ac926"` are mistakes, and in a repository this CI never builds a value quietly read as 0
+// would surface only as a black face on the robot.
 export function parseColour(v) {
-  if (Number.isInteger(v)) return v >= 0 && v <= 0xffffff ? v : null;
   if (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) return parseInt(v.slice(1), 16);
   return null;
 }
@@ -51,14 +53,24 @@ export function parseColour(v) {
 /**
  * Read one theme file: `{colours}` if it may be used, `{why}` if it may not.
  *
+ * The file is `{"label": "Halloween", "colors": {"INIT": "#e8e2d0", ...}}`. Anything else at the
+ * top level is ignored — the label is shown from the looks row, not from here — but `colors` must
+ * be there, because a file without it is a theme that would do nothing and say nothing.
+ *
+ * `colors` IS SPELLED THAT WAY ON PURPOSE and is not a typo to tidy: the file format is shared
+ * with the dashboard and the content repository, and this engine says `colours` everywhere else.
+ * The seam is here, in this one line, which is the cheapest place for it to be.
+ *
  * Deliberately strict about what it accepts. A theme comes from a repository nothing here builds,
  * so a typo in a state name has nothing else to catch it, and silently ignoring an unknown key
  * would make `"SAFEIDLE"` look like a theme that simply does nothing.
  */
 export function readTheme(doc) {
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { why: "not an object" };
+  const given = doc.colors;
+  if (!given || typeof given !== "object" || Array.isArray(given)) return { why: "no colors" };
   const colours = {};
-  for (const [name, value] of Object.entries(doc)) {
+  for (const [name, value] of Object.entries(given)) {
     if (!STATE_NAMES.has(name)) return { why: `${name} is not a state` };
     if (UNTHEMEABLE.has(name)) return { why: `${name} may not be recoloured` };
     const c = parseColour(value);

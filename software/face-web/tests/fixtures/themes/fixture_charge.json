@@ -1,1 +1,1 @@
-{ "SAFE_IDLE": "#8ac926", "CHARGING": "#00ff00" }
+{ "label": "Charge", "colors": { "SAFE_IDLE": "#8ac926", "CHARGING": "#00ff00" } }

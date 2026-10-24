@@ -1,1 +1,1 @@
-{ "E_STOP": "#00ff00" }
+{ "label": "E-stop", "colors": { "E_STOP": "#00ff00" } }

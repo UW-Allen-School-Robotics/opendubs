@@ -12,6 +12,11 @@
 // enforce that — doing so would replace the skin with the default eyes and suppress the gauge,
 // taking the charging face apart — so the loader's refusal is the only thing in the way.
 //
+// A theme file is `{"label": ..., "colors": {...}}`, and `colors` is spelled that way in the file
+// although the engine says `colours` everywhere else — the format is shared with the dashboard and
+// the content repository. A colour is `"#rrggbb"` and nothing else, matching what the dashboard's
+// discovery accepts, so the two checks cannot disagree about what a theme is.
+//
 // The theme FILES are real and read through the real fetch path; only `fetch` itself is stubbed,
 // because Node's does not do file://. The looks list is inline rather than a fixture file: it is
 // three lines, and keeping it here means this test does not share a fixture with the skin loader.
@@ -45,7 +50,7 @@ function ok(cond, what, detail = "") {
 const colourOf = (name) => STATES.find((s) => s[0] === name)[2];
 const listed = (...ids) => ({ themes: ids.map((id) => ({ id, source: "content" })) });
 const ALL = listed("fixture_theme", "fixture_charge", "fixture_estop", "fixture_typo",
-                   "fixture_named", "fixture_ints", "fixture_missing", "plain");
+                   "fixture_named", "fixture_ints", "fixture_nocolors", "fixture_missing", "plain");
 
 // ---- 1. what is taken, and what is refused ------------------------------------------------------
 const face = new Face();
@@ -55,7 +60,11 @@ const said = (id) => problems.some((p) => p.startsWith(id + ":"));
 
 ok(took("fixture_theme"), "a content theme is fetched and taken");
 ok(!("fixture_theme" in THEMES), "and it is NOT a built-in: nothing in this repo names it");
-ok(took("fixture_ints"), "a colour given as a plain integer is taken too");
+// Refused although the engine's own colours ARE integers: the dashboard accepts only "#rrggbb",
+// so a file written this way never gets listed, and accepting it here would only let the two
+// checks disagree.
+ok(!took("fixture_ints"), "a colour given as a plain integer is refused, as discovery refuses it");
+ok(!took("fixture_nocolors"), "a file with no colors at all is refused, not treated as empty");
 
 // THE ONE THAT MATTERS. Refused WHOLE, not stripped of its CHARGING key: the dashboard refuses
 // the whole theme too, and the two sides disagreeing about what exists is worse than a lost theme.
@@ -69,7 +78,7 @@ ok(!took("fixture_named"), "a colour that is not #rrggbb is refused, never coerc
 ok(!took("fixture_missing"), "a theme listed but not deployed is refused");
 ok(said("fixture_missing"), "and names the file, rather than failing silently");
 ok(!took("plain"), "a content theme shadowing a built-in is refused");
-ok(problems.length === 6, "every refusal is reported, none silently",
+ok(problems.length === 8, "every refusal is reported, none silently",
    `${problems.length}: ${problems.join(" | ")}`);
 
 // ---- 2. the engine uses it ----------------------------------------------------------------------
@@ -120,12 +129,15 @@ ok(problems.length === 6, "every refusal is reported, none silently",
 }
 
 // ---- 5. the reader, directly ---------------------------------------------------------------------
-ok(readTheme({}).colours && Object.keys(readTheme({}).colours).length === 0,
-   "an empty theme is allowed: it simply overrides nothing");
+const empty = readTheme({ colors: {} });
+ok(empty.colours && Object.keys(empty.colours).length === 0,
+   "an empty colors map is allowed: it simply overrides nothing");
+ok(readTheme({}).why === "no colors", "but a file with no colors key is refused", readTheme({}).why);
+ok(readTheme({ colors: {}, label: "x" }).colours, "a label alongside colors is ignored, not refused");
 ok(readTheme(null).why && readTheme([]).why, "a non-object is refused");
 ok(parseColour("#8AC926") === 0x8ac926, "#RRGGBB is case-insensitive");
-ok(parseColour("8ac926") === null && parseColour("#8ac9") === null && parseColour(0x1000000) === null,
-   "a colour missing its #, too short, or over 24 bits is refused");
+ok(parseColour("8ac926") === null && parseColour("#8ac9") === null && parseColour(0x8ac926) === null,
+   "a colour missing its #, too short, or given as a number is refused");
 
 console.log(failed ? `\n${failed} FAILED` : "\nall theme checks passed");
 process.exit(failed ? 1 : 0);
