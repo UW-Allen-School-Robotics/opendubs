@@ -4,7 +4,9 @@
 # discovery, so nothing reaches the robot's ROS graph (domain 0). Nothing here changes the host.
 #
 #   dev.sh up                      server + dummy camera (DUMMY_ARGS="--switch-every 0" holds one image)
+#   dev.sh bridge                  copy the Femto Bolt (/camera on domain 0) in as camera "femto", read-only
 #   dev.sh query bus person        one Segment query; results in ~/perception-data/results/query-<time>
+#   dev.sh query wall --camera femto
 #   dev.sh topics                  navigation output rates
 #   dev.sh logs                    follow the server log
 #   dev.sh down                    stop and remove the container
@@ -30,6 +32,10 @@ case "${1:-}" in
     in_ctr -d "${NAME}" bash -c "python3 -u /work/software/perception/tools/dummy_camera.py ${DUMMY_ARGS:-} > /data/results/dummy_camera.log 2>&1"
     echo "started ${NAME}; 'dev.sh logs' to follow"
     ;;
+  bridge)
+    in_ctr -d --env=FASTDDS_BUILTIN_TRANSPORTS=UDPv4 "${NAME}" bash -c "python3 -u /work/software/perception/tools/camera_bridge.py ${BRIDGE_ARGS:-} > /data/results/camera_bridge.log 2>&1"
+    echo "bridging /camera -> /femto; log in ${DATA}/results/camera_bridge.log"
+    ;;
   query)
     shift
     out="/data/results/query-$(date +%H%M%S)"
@@ -47,6 +53,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}"
     ;;
   *)
-    sed -n '2,12p' "$0"; exit 1
+    sed -n '2,14p' "$0"; exit 1
     ;;
 esac

@@ -3,7 +3,8 @@
   python3 segment_client.py --labels bus person --camera dummy --out /data/results/q1
 
 Writes to --out: rgb.png, depth.png (if any, 16-bit mm), mask_<i>_<label>.png, overlay.png and
-result.json (labels, scores, boxes, latency). Prints a one-line summary and the round-trip time.
+result.json (labels, scores, boxes, latency; with depth and camera_info, each mask's valid-depth
+share, median depth and centroid in the camera frame). Prints a one-line summary and the round-trip time.
 """
 
 import argparse
@@ -66,6 +67,8 @@ def main():
                "round_trip_ms": round(rt_ms, 1), "instances": []}
     if res.success and res.rgb.data:
         rgb = img(res.rgb)
+        depth = img(res.depth).astype(np.float32) / 1000.0 if res.depth.data else None
+        K = np.array(res.camera_info.k, dtype=np.float64).reshape(3, 3) if res.camera_info.k[0] else None
         cv2.imwrite(os.path.join(args.out, "rgb.png"), rgb[:, :, ::-1])
         if res.depth.data:
             cv2.imwrite(os.path.join(args.out, "depth.png"), img(res.depth))
@@ -77,8 +80,17 @@ def main():
             x0, y0, x1, y1 = [int(v) for v in inst.box]
             cv2.imwrite(os.path.join(args.out, f"mask_{i}_{inst.label.replace(' ', '_')}.png"),
                         mask.astype(np.uint8) * 255)
-            summary["instances"].append({"label": inst.label, "score": round(inst.score, 3),
-                                         "box": [x0, y0, x1, y1], "mask_px": int(mask.sum())})
+            entry = {"label": inst.label, "score": round(inst.score, 3),
+                     "box": [x0, y0, x1, y1], "mask_px": int(mask.sum())}
+            if depth is not None and K is not None and mask.any():
+                v, u = np.nonzero(mask & (depth > 0))
+                entry["depth_valid"] = round(len(v) / int(mask.sum()), 2)
+                if len(v):
+                    z = depth[v, u]
+                    pts = np.stack([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z], 1)
+                    entry["median_depth_m"] = round(float(np.median(z)), 3)
+                    entry["centroid_m"] = [round(float(c), 3) for c in np.median(pts, 0)]
+            summary["instances"].append(entry)
         overlay = overlay.astype(np.uint8)
         for i, inst in enumerate(res.instances):
             x0, y0, x1, y1 = [int(v) for v in inst.box]
@@ -89,7 +101,8 @@ def main():
         cv2.imwrite(os.path.join(args.out, "overlay.png"), overlay[:, :, ::-1])
     with open(os.path.join(args.out, "result.json"), "w") as f:
         json.dump(summary, f, indent=1)
-    names = ", ".join(f"{d['label']} {d['score']}" for d in summary["instances"])
+    names = ", ".join(f"{d['label']} {d['score']}" + (f" @{d['median_depth_m']} m" if "median_depth_m" in d else "")
+                      for d in summary["instances"])
     print(f"{'OK' if res.success else 'FAIL'} {res.message} | server {res.latency_ms:.1f} ms, "
           f"round trip {rt_ms:.1f} ms | {names}")
     node.destroy_node()
