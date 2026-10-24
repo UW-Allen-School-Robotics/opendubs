@@ -115,5 +115,19 @@ ok(!("fixture_good" in CODE_SKINS), "and it is NOT a built-in: nothing here name
   ok(await skins.skinsReady() === true, "and are ready with nothing to load");
 }
 
+// ---- 6. the contract surface content depends on -------------------------------------------------
+// skin-api.js is the ONLY module a skin outside this repository may import. Its exports are
+// therefore a published interface for code THIS CI NEVER BUILDS: renaming drawMouth in mouth.js
+// would break every content skin with nothing here failing. That is the one thing about the
+// content split that cannot be caught by looking at the robot, so it is checked.
+{
+  const api = await import(join(here, "../engine/skin-api.js"));
+  ok(typeof api.drawMouth === "function", "skin-api exports drawMouth", typeof api.drawMouth);
+  ok(api.DESIGN_W === 1280 && api.DESIGN_H === 720, "and the design geometry",
+     `${api.DESIGN_W}x${api.DESIGN_H}`);
+  ok(Number.isInteger(api.SKIN_API_VERSION), "and a version content can refuse politely against",
+     String(api.SKIN_API_VERSION));
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall content-skin checks passed");
 process.exit(failed ? 1 : 0);
