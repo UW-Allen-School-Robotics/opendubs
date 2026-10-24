@@ -5,6 +5,10 @@
 - Queries (action `segment`, perception_msgs/action/Segment): labels -> one mask per instance,
   with the colour, depth and camera_info of the frame used.
 
+A camera with `domain:` in the config is read from that ROS domain (the robot's, 0) through a
+second, subscribe-only context, so the server reads a driver others also read while everything it
+publishes stays on its own domain.
+
 One worker thread makes every model call, so the models are never used concurrently. It runs a
 navigation frame when one is due, and at most one query between two navigation frames, so queries
 cannot starve navigation and navigation delays a query by at most one frame.
@@ -25,6 +29,7 @@ import rclpy
 import yaml
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.context import Context
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -63,13 +68,16 @@ class PerceptionServer(Node):
 
         cb = ReentrantCallbackGroup()
         self.cameras: dict[str, CameraFrames] = {}
+        self.readers: dict[int, Node] = {}  # domain -> subscribe-only node for cameras on another domain
         for name, topics in cfg.get("cameras", {}).items():
             frames = CameraFrames(float(topics.get("slop_s", 0.05)))
-            self.create_subscription(Image, topics["rgb"], frames.on_rgb, qos_profile_sensor_data, callback_group=cb)
+            node = self if topics.get("domain") is None else self._reader(int(topics["domain"]))
+            group = cb if node is self else None  # a callback group belongs to one node
+            node.create_subscription(Image, topics["rgb"], frames.on_rgb, qos_profile_sensor_data, callback_group=group)
             if topics.get("depth"):
-                self.create_subscription(Image, topics["depth"], frames.on_depth, qos_profile_sensor_data, callback_group=cb)
+                node.create_subscription(Image, topics["depth"], frames.on_depth, qos_profile_sensor_data, callback_group=group)
             if topics.get("info"):
-                self.create_subscription(CameraInfo, topics["info"], frames.on_info, qos_profile_sensor_data, callback_group=cb)
+                node.create_subscription(CameraInfo, topics["info"], frames.on_info, qos_profile_sensor_data, callback_group=group)
             self.cameras[name] = frames
 
         self.nav_enabled = bool(nav_cfg.get("enabled", False))
@@ -95,6 +103,17 @@ class PerceptionServer(Node):
         self.get_logger().info(
             f"perception server up: cameras={list(self.cameras)} "
             f"navigation={'on ' + self.nav_camera if self.nav_enabled else 'off'} action=segment")
+
+    def _reader(self, domain: int) -> Node:
+        if domain not in self.readers:
+            ctx = Context()
+            rclpy.init(context=ctx, domain_id=domain)
+            node = Node("perception_camera_reader", context=ctx)
+            ex = MultiThreadedExecutor(num_threads=2, context=ctx)
+            ex.add_node(node)
+            threading.Thread(target=ex.spin, daemon=True).start()
+            self.readers[domain] = node
+        return self.readers[domain]
 
     # --- the worker: every model call happens here -------------------------------------------
 
@@ -197,6 +216,10 @@ class PerceptionServer(Node):
 
     def shutdown(self):
         self._running = False
+        for node in self.readers.values():
+            ctx = node.context
+            node.destroy_node()
+            rclpy.try_shutdown(context=ctx)
 
 
 def _cloud(points: np.ndarray, header) -> PointCloud2:

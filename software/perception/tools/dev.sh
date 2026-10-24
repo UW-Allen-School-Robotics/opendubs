@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Run the perception server on opendubs2 under the archit account (notes/workplan-perception.md).
-# Everything runs in one container, archit-perception-server: ROS domain 77, localhost-only
-# discovery, so nothing reaches the robot's ROS graph (domain 0). Nothing here changes the host.
+# Everything runs in one container, archit-perception-server, publishing only on ROS domain 77.
+# Camera "femto" is read, subscribe-only, from the robot's graph (domain 0), where tools/camera.sh
+# runs the driver; when that container is up the server shares its memory, so frames arrive
+# without UDP losses. Discovery is on the subnet so the domain-0 reader finds the driver (localhost
+# never did); domain-77 hosts on the LAN can see the server. Nothing here changes the host.
 #
 #   dev.sh up                      server + dummy camera (DUMMY_ARGS="--switch-every 0" holds one image)
-#   dev.sh bridge                  copy the Femto Bolt (/camera on domain 0) in as camera "femto", read-only
 #   dev.sh query bus person        one Segment query; results in ~/perception-data/results/query-<time>
 #   dev.sh query wall --camera femto
 #   dev.sh topics                  navigation output rates
@@ -13,6 +15,7 @@
 set -euo pipefail
 
 NAME=archit-perception-server
+CAMERA=archit-perception-camera
 IMAGE=archit-perception:dev
 REPO="${REPO:-$HOME/opendubs-perception}"
 DATA="${DATA:-$HOME/perception-data}"
@@ -23,18 +26,20 @@ in_ctr() { local opts=(); while [[ "$1" == -* ]]; do opts+=("$1"); shift; done; 
 
 case "${1:-}" in
   up)
-    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host \
-      -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+    ipc=()
+    if ${DOCKER} inspect -f '{{.State.Running}}' "${CAMERA}" 2>/dev/null | grep -q true; then
+      ipc=(--ipc "container:${CAMERA}")
+    else
+      echo "${CAMERA} is not running: camera femto will have no frames"
+    fi
+    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host "${ipc[@]}" \
+      -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       -e HOME=/data/home -w /data/home -e HF_HOME=/data/models/hf -e HF_HUB_OFFLINE=1 \
       -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \
       -v "${DATA}:/data" -v "${REPO}:/work:ro" \
       "${IMAGE}" bash -c "python3 -u -m perception_server.server --config ${CONFIG} 2>&1 | tee /data/results/server.log"
     in_ctr -d "${NAME}" bash -c "python3 -u /work/software/perception/tools/dummy_camera.py ${DUMMY_ARGS:-} > /data/results/dummy_camera.log 2>&1"
     echo "started ${NAME}; 'dev.sh logs' to follow"
-    ;;
-  bridge)
-    in_ctr -d --env=FASTDDS_BUILTIN_TRANSPORTS=UDPv4 --env=ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET "${NAME}" bash -c "python3 -u /work/software/perception/tools/camera_bridge.py ${BRIDGE_ARGS:-} > /data/results/camera_bridge.log 2>&1"
-    echo "bridging /camera -> /femto; log in ${DATA}/results/camera_bridge.log"
     ;;
   query)
     shift
@@ -53,6 +58,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}"
     ;;
   *)
-    sed -n '2,14p' "$0"; exit 1
+    sed -n '2,16p' "$0"; exit 1
     ;;
 esac

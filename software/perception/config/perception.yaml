@@ -22,12 +22,13 @@ cameras:
     depth: /dummy/depth/image_raw
     info: /dummy/color/camera_info
     slop_s: 0.05
-  # The Femto Bolt, copied from the robot's graph by tools/camera_bridge.py (dev.sh bridge).
-  # Depth is the driver's depth aligned to colour.
+  # The Femto Bolt, from our own driver (tools/camera.sh) on the robot's graph, where other nodes
+  # read it too. Colour is undistorted and depth aligned to it, so both share one pinhole K.
   femto:
-    rgb: /femto/color/image_raw
-    depth: /femto/depth/image_raw
-    info: /femto/color/camera_info
+    domain: 0
+    rgb: /camera/color/image_raw
+    depth: /camera/depth/image_raw
+    info: /camera/color/camera_info
     slop_s: 0.05
 
 navigation:
