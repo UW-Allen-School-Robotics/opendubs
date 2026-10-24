@@ -1,5 +1,0 @@
-[
-  { "kind": "skin", "id": "fixture_good", "type": "code", "file": "fixture_good.js" },
-  { "kind": "skin", "id": "fixture_nodraw", "type": "code", "file": "fixture_nodraw.js" },
-  { "kind": "skin", "id": "fixture_missing", "type": "code", "file": "no_such_file.js" }
-]

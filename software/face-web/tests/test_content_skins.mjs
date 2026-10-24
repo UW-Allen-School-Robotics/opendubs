@@ -24,13 +24,12 @@ import { readFileSync } from "node:fs";
 const here = dirname(fileURLToPath(import.meta.url));
 const CONTENT = pathToFileURL(join(here, "fixtures", "content") + "/");
 
-// The index comes over HTTP on the robot; here it is read from disk. Only the index: the modules
-// themselves are imported for real.
+// The looks list comes over HTTP on the robot; here it is read from disk. ONLY the list: the
+// modules themselves are imported for real, through the real dynamic import.
 globalThis.fetch = async (url) => {
   const u = String(url);
-  if (!u.endsWith("index.json")) throw new Error(`unexpected fetch ${u}`);
-  const body = readFileSync(fileURLToPath(u), "utf8");
-  return { json: async () => JSON.parse(body) };
+  if (!u.endsWith(".json")) throw new Error(`unexpected fetch ${u}`);
+  return { json: async () => JSON.parse(readFileSync(fileURLToPath(u), "utf8")) };
 };
 globalThis.document = { createElement: () => ({ setAttribute() {}, removeAttribute() {}, load() {}, pause() {} }) };
 globalThis.Image = class { set src(_) {} };
@@ -57,12 +56,21 @@ const EYE = { side: "left", cx: 320, cy: 360, w: 480, h: 480, radius: 98, lid: 0
               lidCurve: 0, browRaise: 0, browAngle: 0, gazeX: 0, gazeY: 0, sparkle: 0,
               mouth: null, colour: "rgb(46,204,88)", dim: "rgb(16,71,30)", rgb: [46, 204, 88] };
 
+const LOOKS = new URL("looks.json", CONTENT);
 const skins = new Skins();
-await skins.loadLibrary(CONTENT);
+await skins.loadLooks(LOOKS, CONTENT);
 
 // ---- 1. discovered, without being named anywhere in this repository ------------------------------
-ok(skins.names().includes("fixture_good"), "a content code skin is discovered from the index");
+ok(skins.names().includes("fixture_good"), "a content code skin is discovered from /api/head/looks");
 ok(!("fixture_good" in CODE_SKINS), "and it is NOT a built-in: nothing here names it");
+
+// A CONTENT SKIN MAY NOT TAKE A BUILT-IN'S NAME. The fixture list offers one called "default";
+// silently preferring either would give a show a face nobody could account for.
+ok(skins.content.has("fixture_good") && !skins.content.has("default"),
+   "a content skin shadowing a built-in is refused, not silently preferred");
+ok(skins.select("default").ok && skins.current === CODE_SKINS.default,
+   "and the built-in of that name still selects");
+ok(!skins.content.has("ring"), "a builtin-sourced row in the list is not treated as content");
 
 // ---- 2. it loads and it draws --------------------------------------------------------------------
 {
@@ -100,7 +108,7 @@ ok(!("fixture_good" in CODE_SKINS), "and it is NOT a built-in: nothing here name
 // is up. Whatever is chosen when it lands decides whether it shows.
 {
   const fresh = new Skins();
-  await fresh.loadLibrary(CONTENT);
+  await fresh.loadLooks(LOOKS, CONTENT);
   fresh.select("fixture_good");     // starts importing
   fresh.select("ring");             // the show moves on before it lands
   await new Promise((r) => setTimeout(r, 50));
