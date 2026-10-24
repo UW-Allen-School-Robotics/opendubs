@@ -111,6 +111,8 @@ scaled = torque_probe.scale_natural_frequencies(controllers, 0.25)
 check("torque_probe: every natural_frequency is scaled, nothing else, and the original is untouched",
       [scaled["a"]["stages"][0]["law"]["pd"], scaled["a"]["stages"][1]["stack"][0]["law"]["pd"]["natural_frequency"], controllers["a"]["stages"][0]["law"]["pd"]["natural_frequency"]],
       [{"natural_frequency": 10.0, "damping_ratio": 1.0, "max_speed": 0.6}, 5.0, 40])
+check("torque_probe: --park is added when missing, so engage's move to ready can never run from it",
+      [torque_probe.ensure_park(["--side", "right"]), torque_probe.ensure_park(["--park", "--side", "right"])], [["--side", "right", "--park"], ["--park", "--side", "right"]])
 t = np.arange(0, 2.0, 0.004)
 q = np.zeros((len(t), 7)); v = np.zeros((len(t), 7)); tau = np.zeros((len(t), 7))
 quiet = torque_probe.analyse(t, q, v, tau)
