@@ -7,8 +7,11 @@ It forwards at most --max-hz colour frames, each with the nearest depth frame, a
 
   python3 camera_bridge.py --src /camera --dst /femto --max-hz 10
 
-Run with FASTDDS_BUILTIN_TRANSPORTS=UDPv4: the driver runs as another user, and Fast DDS shared
-memory across users left a subscriber hanging.
+Run with FASTDDS_BUILTIN_TRANSPORTS=UDPv4 (the driver runs as another user, and Fast DDS shared
+memory across users left a subscriber hanging) and ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET: with
+LOCALHOST, which the server's container sets, the driver is never discovered. The range applies to
+both sides, so the test side can be discovered by domain-77 hosts on the LAN; domain 0 sees only a
+subscriber.
 """
 
 import argparse

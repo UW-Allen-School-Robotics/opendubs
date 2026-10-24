@@ -33,7 +33,7 @@ case "${1:-}" in
     echo "started ${NAME}; 'dev.sh logs' to follow"
     ;;
   bridge)
-    in_ctr -d --env=FASTDDS_BUILTIN_TRANSPORTS=UDPv4 "${NAME}" bash -c "python3 -u /work/software/perception/tools/camera_bridge.py ${BRIDGE_ARGS:-} > /data/results/camera_bridge.log 2>&1"
+    in_ctr -d --env=FASTDDS_BUILTIN_TRANSPORTS=UDPv4 --env=ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET "${NAME}" bash -c "python3 -u /work/software/perception/tools/camera_bridge.py ${BRIDGE_ARGS:-} > /data/results/camera_bridge.log 2>&1"
     echo "bridging /camera -> /femto; log in ${DATA}/results/camera_bridge.log"
     ;;
   query)
