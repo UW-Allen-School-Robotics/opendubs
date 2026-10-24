@@ -173,6 +173,22 @@ subnet discovery (with `LOCALHOST` it never finds the driver) and UDP only.
 | `door` | Weak: YOLO-World finds no door, and the CLIPSeg fallback gives up to 16 blobs at ~0.4, just over the 0.4 threshold, many on the whiteboard. Open: a higher fallback threshold, or keep only regions near the label's best |
 | Depth with the result | 7 of 10 queries in steady state. **Large frames are lost over UDP on this host**: `net.core.rmem_max` is 212992 and the kernel counts ~440 k UDP receive-buffer errors; the bridge itself misses ~45 % of depth frames from the driver. The server now uses the newest colour frame that has its depth (`frames.py`). Raising `rmem_max` is a host change, for the Thor stack lane |
 
+### Our own driver (2026-10-23, Phase 3 started)
+
+The user stopped the other driver; ours runs in `archit-perception-camera` (`tools/camera.sh`,
+image `image/camera.Dockerfile`, OrbbecSDK_ROS2 v2.10.6) and publishes `/camera/...` on the robot's
+graph (domain 0), so other nodes read it too. The server reads it through a subscribe-only
+domain-0 context (`domain:` in the camera's config) and shares the driver container's memory.
+
+| Finding | Result |
+|---|---|
+| Depth 3-4 px off colour | The Femto Bolt has no hardware alignment; the SDK aligns in software. Colour was published **distorted** while aligned depth uses the pinhole model (its camera_info has D = 0). Undistorting the saved colour frames took the offset from 4 px to ~1 px. Fix: `enable_color_undistortion:=true`; colour and depth now share one K with D = 0. After: the horizontal offset is ≤ 1 px; a vertical 3-6 px reading rests on few horizontal edges (black hair returns no depth), and needs an object with straight edges about 0.5 m away to settle |
+| Driver took ~9 cores | The Femto Bolt computes depth on the host in an OpenGL depth engine; in a container without the NVIDIA runtime it ran on Mesa's software renderer (`libgallium`). With `--runtime nvidia` and all driver capabilities: ~135 % CPU, aligned depth ~22 Hz, 94 % of colour frames paired with depth (55 % before) |
+| Depth with every query | **10 of 10** (7 of 10 over the UDP bridge, now removed) |
+| Other readers | Fast DDS shared memory does not cross users (its files are 0644), and a node on the same host receives **nothing** unless it sets `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. Over UDP a non-root reader gets ~10-18 Hz colour and ~12 Hz depth: this host's `rmem_max` (208 KB) still drops large frames |
+| `--ipc host` | Tried and dropped: a participant that died holding a Fast DDS lock in the host's `/dev/shm` left every later root participant hanging at creation. Driver and server now share a private segment (`--ipc shareable` / `container:`) |
+| Firmware | The camera has 1.0.9; v2.10.6 recommends 1.1.3. Not updated |
+
 ### Next
 
 | Phase | Work | Done when |
