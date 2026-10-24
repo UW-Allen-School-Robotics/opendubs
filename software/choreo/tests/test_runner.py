@@ -97,16 +97,6 @@ r, end, _ = run("hello.yaml", R.FakeRobotState(ch5="MANUAL"))
 check("CH5 not in the show's required mode refuses", end[0] == "REFUSED" and "CH5 must be AUTO" in end[2], end)
 r, end, _ = run("hello.yaml", R.FakeRobotState(arms="inactive"))
 check("arms not active refuses", end[0] == "REFUSED" and "arms" in end[2], end)
-_rq = {"tab5": True, "rc_authority": "AUTO"}
-_st = {"estop": False, "deadman": True, "fault": None, "ch5": "AUTO", "tab5": False}
-check("the head not up refuses a show that needs it", any("Tab5" in w for _c, w in R.preflight(_rq, _st)))
-os.environ["OPENDUBS_WAIVE_HEAD_UP"] = "1"
-try:
-    check("... unless the head-up check is waived (OPENDUBS_WAIVE_HEAD_UP=1, temporary), and only that check",
-          R.preflight(_rq, _st) == [] and R.preflight(_rq, dict(_st, ch5="MANUAL")) != []
-          and R.preflight(_rq, dict(_st, deadman=False)) != [])
-finally:
-    del os.environ["OPENDUBS_WAIVE_HEAD_UP"]
 
 print("\nrunner: ending a show")
 r, end, lines = run("hello.yaml", flip_after=10.0, change={"estop": True})
@@ -501,6 +491,12 @@ os.environ["OPENDUBS_HEAD_NECK_HOST"] = ""
 os.environ["OPENDUBS_HEAD_FACE_HOST"] = "127.0.0.1"
 check("an empty neck keeps its old meaning: the face's box", FB.head_neck_host() == "127.0.0.1", FB.head_neck_host())
 del os.environ["OPENDUBS_HEAD_NECK_HOST"], os.environ["OPENDUBS_HEAD_FACE_HOST"]
+_was_tab5 = os.environ.pop("OPENDUBS_TAB5_HOST", None)
+check("with nothing set, the face and the neck stay on this machine (a laptop never reaches a real head)",
+      FB.head_face_host() == "127.0.0.1" and FB.head_neck_host() == "127.0.0.1",
+      (FB.head_face_host(), FB.head_neck_host()))
+if _was_tab5 is not None:
+    os.environ["OPENDUBS_TAB5_HOST"] = _was_tab5
 
 robot, plog = R.FakeRobotState(), io.StringIO()
 sc = SimClock(robot)

@@ -84,8 +84,44 @@ FRESH = {"fresh": True, "motion_enabled": True}
 
 def test_a_healthy_robot_reads_as_the_runner_names_it():
     v = choreo_proxy.robot_view(_rs(), FRESH, {"fresh": True}, "active", True)
-    assert (v["estop"], v["ch5"], v["deadman"], v["fault"], v["arms"], v["tab5"]) == \
+    assert (v["estop"], v["ch5"], v["deadman"], v["fault"], v["arms"], v["head"]) == \
         (False, "AUTO", True, None, "active", True)
+
+
+def _door(reply: bytes):
+    """A fake face door on a free UDP port that answers every PING with `reply`."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("127.0.0.1", 0))
+
+    def serve():
+        while True:
+            try:
+                _data, who = s.recvfrom(512)
+            except OSError:
+                return
+            s.sendto(reply, who)
+    threading.Thread(target=serve, daemon=True).start()
+    return s
+
+
+def test_the_head_is_up_only_with_its_face_page_showing_and_no_call():
+    import tablet_relay
+    was = dict(tablet_relay.call)
+    shown = _door(b"PONG kind=tablet-face engine=web mount=tablet mode=face")
+    absent = _door(b"PONG kind=tablet-face engine=none mount=unknown mode=face face=absent")
+    try:
+        tablet_relay.call.update(active=False)
+        assert choreo_proxy.head_up("127.0.0.1", shown.getsockname()[1]) is True
+        assert choreo_proxy.head_up("127.0.0.1", absent.getsockname()[1]) is False   # the door, no face
+        assert choreo_proxy.head_up(None, 4242) is False
+        tablet_relay.call.update(active=True)
+        assert choreo_proxy.head_up("127.0.0.1", shown.getsockname()[1]) is False    # a call holds it
+    finally:
+        tablet_relay.call.clear()
+        tablet_relay.call.update(was)
+        shown.close()
+        absent.close()
 
 
 def test_ch5_uses_the_formats_names():

@@ -12,7 +12,7 @@ name: Beat demo
 slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT, DANCE]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 music:
   file: audio/beat-demo-120.wav

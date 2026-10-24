@@ -298,7 +298,7 @@ try:
                   + [{"op": "require", "key": k, "value": v} for k, v in need.items()]
                   + [{"op": "add", "cue": {"bar": "1.1", "slot": "HEAD", "pan": 80}}])
     check("its first cue (as + on a lane sends it: list the part, require what it needs, add) makes it valid",
-          need == {"rc_authority": "AUTO", "tab5": True} and r["timeline"]["valid"]
+          need == {"rc_authority": "AUTO", "head": True} and r["timeline"]["valid"]
           and yaml.safe_load(r["text"])["cues"][0]["slot"] == "HEAD", r["timeline"]["problems"])
     comp.save(d["path"], r["text"])
     for bad in ("../escape", "a/b", ".hidden", "", "x" * 80):
