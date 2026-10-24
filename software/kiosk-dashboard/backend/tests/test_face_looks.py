@@ -18,11 +18,17 @@ def test_the_looks_list_and_only_look_files_are_served(tmp_path, monkeypatch):
     (tmp_path / "secret.txt").write_text("not a look")
     monkeypatch.setenv("OPENDUBS_SHOWS_DIR", str(tmp_path))
     monkeypatch.setattr(face_looks, "_library_skins", lambda: [{"id": "sparkle", "kind": "image", "source": "library"}])
+    (tmp_path / "face" / "skins").mkdir()
+    for name in ("zebra", "apple"):
+        (tmp_path / "face" / "skins" / f"{name}.js").write_text("export function draw() {}")
     app = FastAPI()
     app.include_router(face_looks.router)
     c = TestClient(app)
     d = c.get("/api/head/looks").json()
     assert "winter" in {t["id"] for t in d["themes"]} and "sparkle" in {s["id"] for s in d["skins"]}
+    order = [(s["source"], s["id"]) for s in d["skins"] if s["source"] != "builtin"]
+    assert order == [("content", "apple"), ("content", "zebra"), ("library", "sparkle")]   # stable: by source, then id
+    assert {s["kind"] for s in d["skins"]} <= {"code", "image", "video"}
     r = c.get("/face/content/themes/winter.json")
     assert r.status_code == 200 and r.json()["colors"]["SAFE_IDLE"] == "#88ccff"
     for bad in ("/face/content/themes/..%2Fsecret.txt", "/face/content/other/winter.json",

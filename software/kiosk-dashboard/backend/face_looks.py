@@ -4,6 +4,9 @@
                                  the head protocol's discovery (software/head-protocol/looks.py: the core
                                  built-ins plus the content folder's face/themes and face/skins) and the
                                  show library's image and video skins (library_serve.py), in one list.
+                                 STABLE ORDER, so the pickers and the face agree on it: the built-ins in
+                                 the core's own order, then the content folder's by id, then the
+                                 library's by id. Every skin has `kind`: "code", "image" or "video".
   GET /face/content/{themes|skins}/<file>   one file of the content folder's face/, read-only, so the face
                                  page can fetch a theme or import a code skin from its own origin.
 
@@ -42,8 +45,9 @@ def _library_skins() -> list:
         _, entries, _ = library_serve._load(lib)
     except Exception:                                 # noqa: BLE001 — no library: no library skins
         return []
-    return [{"id": e["id"], "label": e.get("title") or e["id"], "kind": e.get("type"), "source": "library"}
-            for e in entries if e.get("kind") == "skin" and e.get("type") in ("image", "video")]
+    return sorted(({"id": e["id"], "label": e.get("title") or e["id"], "kind": e.get("type"), "source": "library"}
+                   for e in entries if e.get("kind") == "skin" and e.get("type") in ("image", "video")),
+                  key=lambda s: s["id"])
 
 
 @router.get("/api/head/looks")
