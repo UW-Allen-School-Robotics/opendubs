@@ -38,7 +38,11 @@ concurrency:
 
 jobs:
   hygiene:
-    name: Hygiene checks
+    # A draft PR's run is skipped, and it must not carry the required check's name. Otherwise the
+    # PR has two "Hygiene checks" results, the skipped draft-time one and the real one from
+    # `gh pr ready`, and `gh pr checks` and the PR page show only one of them, which hid real
+    # failures (#521, #540). The skipped row is named "Hygiene (draft, skipped)" instead.
+    name: "${{ github.event.pull_request.draft && 'Hygiene (draft, skipped)' || 'Hygiene checks' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
