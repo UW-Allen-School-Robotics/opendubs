@@ -213,8 +213,16 @@ async def post_capture_clip(request: Request) -> dict:
 # A touch anywhere on the robot's tablet, face or dashboard: the head stops at once (neck_follow.touched).
 # Holding still is the safe direction, so any page may say it; the pages send it only from the tablet.
 @router.post("/api/head/touch")
-async def post_touch() -> dict:
+async def post_touch(request: Request) -> dict:
+    """A touch on the tablet: the head pauses (neck_follow.touched). With `phantom=1` it is instead a
+    touch that never lifted (neck_follow.released): logged with the page's `x`, `y`, `type`, `pressure`,
+    `w`, `h`, `ms`, and the pause ends unless `release=0` (a real touch is still holding)."""
     import neck_follow
+    q = request.query_params
+    if q.get("phantom") == "1":
+        keep = ("x", "y", "type", "pressure", "w", "h", "ms", "page")
+        neck_follow.released({k: q.get(k)[:24] for k in keep if q.get(k) is not None}, end_pause=q.get("release") != "0")
+        return {"ok": True, "phantom": True}
     neck_follow.touched()
     return {"ok": True}
 

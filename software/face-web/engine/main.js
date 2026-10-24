@@ -335,14 +335,39 @@ setInterval(pollPower, 2000); pollPower();
 // bridge), never from a laptop that has this page open.
 (function touchHoldsHead() {
   if (!window.OpenDubsKiosk) return;
-  let last = 0, down = 0, downAt = 0, timer = null;
-  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
-  addEventListener("pointerdown", () => {
-    down++; downAt = performance.now(); if (downAt - last > 250) say();
-    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
-    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  // A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24): on the robot's USB power
+  // the tablet registers phantom touches (charger noise), and each paused the head. A touch still pauses
+  // at once, as before; but a pointer with no up or cancel within PHANTOM_MS is a phantom: its renewals
+  // stop, and the robot is told so, with what was seen, to end the pause (unless a real touch is still
+  // holding) and log it. Real taps, and the face's one-second hold, lift well inside the window.
+  const PHANTOM_MS = 2000, PAGE = "face";
+  const downs = new Map();                         // pointerId -> {at, info, timer}
+  let last = -1e9, lastLift = -1e9, renew = null;
+  const beacon = (q) => { try { navigator.sendBeacon("/api/head/touch" + q); } catch (e) {} };
+  const say = () => { last = performance.now(); beacon(""); };
+  const stopRenew = () => { if (!downs.size) { clearInterval(renew); renew = null; } };
+  const phantom = (id) => {
+    const d = downs.get(id); if (!d) return;
+    downs.delete(id);
+    const holding = downs.size > 0 || performance.now() - lastLift < 4000;   // a real touch still counts
+    const q = new URLSearchParams({ phantom: "1", release: holding ? "0" : "1", page: PAGE,
+                                    ms: String(Math.round(performance.now() - d.at)), ...d.info });
+    beacon("?" + q.toString());
+    stopRenew();
+  };
+  addEventListener("pointerdown", (e) => {
+    const now = performance.now();
+    if (now - last > 250) say();
+    downs.set(e.pointerId, { at: now, timer: setTimeout(() => phantom(e.pointerId), PHANTOM_MS),
+      info: { x: String(Math.round(e.clientX)), y: String(Math.round(e.clientY)), type: String(e.pointerType),
+              pressure: String(e.pressure), w: String(Math.round(e.width)), h: String(Math.round(e.height)) } });
+    if (!renew) renew = setInterval(() => { if (downs.size) say(); else stopRenew(); }, 1000);
   }, { capture: true, passive: true });
-  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  const up = (e) => {
+    const d = downs.get(e.pointerId); if (!d) return;
+    clearTimeout(d.timer); downs.delete(e.pointerId); lastLift = performance.now();
+    stopRenew();
+  };
   addEventListener("pointerup", up, { capture: true, passive: true });
   addEventListener("pointercancel", up, { capture: true, passive: true });
 })();

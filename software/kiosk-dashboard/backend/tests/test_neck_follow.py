@@ -298,3 +298,20 @@ def test_a_touch_on_the_tablet_stops_the_head_at_once(monkeypatch):
     assert sent == ["TOUCH HOLD 1000"]                           # this neck pauses itself: nothing else
     t[0] += nf.TOUCH_HOLD_S + 0.1
     assert not nf.being_touched()
+
+
+def test_a_phantom_touch_ends_the_pause_unless_a_real_one_still_holds(monkeypatch):
+    """The user, 2026-10-24: a touch that never lifts is not a person. The page reports it as a phantom
+    (face_door POST /api/head/touch?phantom=1): it is logged, and the pause it started ends at once,
+    unless the page says a real touch is still holding (release=0)."""
+    t = [100.0]
+    monkeypatch.setattr(nf, "_clock", lambda: t[0])
+    monkeypatch.setattr(nf, "_touch", {"at": None, "off_at": 0.0, "renew_at": 0.0})
+    monkeypatch.setattr(nf, "_touch_pause", lambda: None)
+    monkeypatch.setattr(nf, "phantoms", {"count": 0, "last": None})
+    nf.touched()
+    assert nf.being_touched()
+    nf.released({"x": "10", "y": "20", "type": "touch"}, end_pause=False)   # a real finger is still down
+    assert nf.being_touched() and nf.phantoms["count"] == 1
+    nf.released({"x": "10", "y": "20", "type": "touch"})
+    assert not nf.being_touched() and nf.phantoms["last"]["type"] == "touch"
