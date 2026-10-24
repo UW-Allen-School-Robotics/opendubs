@@ -1,0 +1,122 @@
+"""The fallback backend: a program's arm and gripper calls become a show for the runner to play.
+
+With ``OPENDUBS_ARCHITECT_BACKEND=show``, the approved program is run once to record it. Its arm
+and gripper calls are planned and checked exactly as the live service checks them
+(live_arms.ShowRecorder) and written as cues. Everything else (perception, the face, speech) goes to
+the robot as usual, or to the dry-run robot at a desk. The show is then compiled and stamped like
+any other (``ik.py check``, ``sweep.py stamp``) and played by the runner on each "trick or treat",
+with the runner's own gates.
+
+What changes for a program: its targets are fixed when it is recorded, so the arm goes to the same
+place every time the show plays. ``place_in_hand`` cannot follow a hand: it offers at the named pose
+OFFER_POSE and opens the gripper there.
+"""
+
+from __future__ import annotations
+
+import functools
+import os
+
+from opendubs_architect import api, live_arms
+from opendubs_architect.client import MotionRefused
+
+OFFER_POSE = "offer"
+DEFAULT_SHOW = os.path.join(os.path.expanduser("~"), ".cache", "opendubs", "architect.yaml")
+
+
+def _limits_path() -> str:
+    import cue
+    path = os.environ.get("OPENDUBS_ARCHITECT_LIMITS") or cue.DEFAULT_LIMITS
+    if os.path.isfile(path):
+        return path
+    fixture = os.path.join(os.path.dirname(cue.__file__), "tests", "joint_limits_fixture.yaml")
+    print(f"show backend: no joint limits at {path}; recording against the TEST FIXTURE. "
+          "The runner checks the show against the robot's own limits before it plays.")
+    return fixture
+
+
+def make_recorder(path: str | None = None) -> live_arms.ShowRecorder:
+    import cue
+    limits = cue.load_limits(_limits_path())
+    config = live_arms.ArmConfig.load()
+    path = path or os.environ.get("OPENDUBS_ARCHITECT_SHOW") or DEFAULT_SHOW
+    return live_arms.ShowRecorder(live_arms.Planner(limits, config), config, limits, path)
+
+
+def _refused(fn):
+    """A live_arms refusal as the MotionRefused a program is told never to catch."""
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except live_arms.Refused as e:
+            raise MotionRefused(str(e)) from None
+    return wrapped
+
+
+class ShowRobot:
+    """The live client's (or the dry-run robot's) calls, with the arm and gripper ones recorded."""
+
+    def __init__(self, base, recorder: live_arms.ShowRecorder) -> None:
+        self._base, self.recorder = base, recorder
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+    def destroy_node(self) -> None:
+        if hasattr(self._base, "destroy_node"):
+            self._base.destroy_node()
+
+    # Proprioception: where the recorded show has the arms
+    def get_current_joints(self) -> dict:
+        import math
+        pose = self.recorder._pose()
+        return {side: {f"joint{j}": {"position": math.radians(v), "velocity": 0.0, "effort": None}
+                       for j, v in enumerate(pose[live_arms.ARM_SLOT[side]], 1)} for side in live_arms.SIDES}
+
+    def get_current_ee_pose(self) -> dict:
+        return self.recorder.tool_poses()
+
+    def get_current_gripper_width(self) -> dict:
+        return self.recorder.gripper_openings()
+
+    def get_workspace(self) -> dict:
+        return self.recorder.config.workspace
+
+    def get_named_poses(self) -> dict:
+        return {"poses": self.recorder.named_poses()}
+
+    # Arm and gripper control
+    @_refused
+    def move_ee_to_pose(self, arm: str, target_pose: dict) -> bool:
+        p = api.check_pose(target_pose)["position"]
+        self.recorder.move_to_point(api.check_arm(arm), [p["x"], p["y"], p["z"]])
+        return True
+
+    @_refused
+    def move_ee_to_rel_pose(self, arm: str, delta: dict) -> bool:
+        d = api.check_delta(delta)
+        self.recorder.move_by(api.check_arm(arm), [d["x"], d["y"], d["z"]])
+        return True
+
+    @_refused
+    def move_arm_to_named_pose(self, arm: str, name: str) -> bool:
+        self.recorder.move_to_named(api.check_arm(arm), name)
+        return True
+
+    @_refused
+    def set_gripper_width(self, arm: str, opening: float) -> bool:
+        self.recorder.set_gripper(api.check_arm(arm), api.check_opening(opening))
+        return True
+
+    @_refused
+    def reset_robot(self) -> bool:
+        self.recorder.stow()
+        return True
+
+    @_refused
+    def place_in_hand(self, arm: str, timeout_s: float = 15.0) -> dict:
+        arm = api.check_arm(arm)
+        self.recorder.move_to_named(arm, OFFER_POSE)
+        self.recorder.set_gripper(arm, 1.0)
+        return {"released": True, "reason": f"recorded: offered at the fixed {OFFER_POSE!r} pose"}

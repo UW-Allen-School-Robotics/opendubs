@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from opendubs_architect import api
 
-_POSE = {"position": {"x": 0.35, "y": -0.2, "z": 0.25}, "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}
+_POSE = {"position": {"x": 0.45, "y": -0.25, "z": 0.75}, "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}
 
 
 class DryRunRobot:
@@ -55,7 +55,7 @@ class DryRunRobot:
 
     def get_current_ee_pose(self):
         self._log("get_current_ee_pose")
-        return {arm: {"position": dict(_POSE["position"], y=0.2 if arm == "left" else -0.2),
+        return {arm: {"position": dict(_POSE["position"], y=0.25 if arm == "left" else -0.25),
                       "orientation": dict(_POSE["orientation"])} for arm in api.ARMS}
 
     def get_current_gripper_width(self):
@@ -66,8 +66,8 @@ class DryRunRobot:
         # Dry-run numbers only, chosen so a program has something to clamp against.
         # The robot's own box comes from the robot; nothing here is a measured limit.
         self._log("get_workspace")
-        return {"left": {"x": [0.2, 0.6], "y": [-0.1, 0.45], "z": [0.0, 0.5]},
-                "right": {"x": [0.2, 0.6], "y": [-0.45, 0.1], "z": [0.0, 0.5]}}
+        return {"left": {"x": [0.25, 0.6], "y": [-0.1, 0.45], "z": [0.6, 1.1]},
+                "right": {"x": [0.25, 0.6], "y": [-0.45, 0.1], "z": [0.6, 1.1]}}
 
     def get_named_poses(self):
         self._log("get_named_poses")

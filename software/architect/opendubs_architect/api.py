@@ -130,13 +130,16 @@ API_SPEC = """\
 OpenDubs: a mobile robot with two 7-joint OpenArm arms (left and right), a parallel gripper on each,
 a pan/tilt head with an Orbbec RGB-D camera, an animated face on a tablet, and a speaker.
 
-Frames and units: every pose is in `base_link` (x forward, y left, z up), in meters; orientations
-are quaternions {x, y, z, w}. Angles you pass are in degrees unless stated.
+Frames and units: every pose is in the robot's chassis frame, `base_link` (x forward, y left,
+z up), in meters; orientations are quaternions {x, y, z, w}. A gripper's pose is that of its tool
+point, between the fingers. Angles you pass are in degrees unless stated.
 
-Failure behavior: a primitive that fails raises RuntimeError and the program stops. A primitive
-the robot's safety gates refuse (deadman released, wrong authority mode, arm lease lost, outside
-the workspace) raises MotionRefused, a RuntimeError subclass. Never catch MotionRefused: the person
-supervising decides what happens next, not the program.
+Failure behavior: a primitive that fails raises RuntimeError and the program stops. A motion
+the robot refuses raises MotionRefused, a RuntimeError subclass: the deadman released, the wrong
+authority mode, a target outside the workspace or out of the arm's reach, a move that would bring
+the arm too close to the robot's own body or the other arm. Every move is checked before it starts
+and watched while it runs. Never catch MotionRefused: the person supervising decides what happens
+next, not the program.
 
 ## Perception
 
@@ -192,13 +195,14 @@ get_named_poses()
 ## Arm and gripper control
 
 move_ee_to_pose(arm: str, target_pose: dict)
-    Move `arm`'s gripper to an absolute pose in base_link, planned and checked by the robot.
+    Move `arm`'s gripper tool point to target_pose["position"] in base_link, checked by the robot.
     target_pose: {"position": {x, y, z}, "orientation": {x, y, z, w}}
-    Returns True.
+    The orientation is not yet controlled: the arm reaches the position in the posture nearest
+    its current one. Returns True.
 
 move_ee_to_rel_pose(arm: str, delta: dict)
-    Move `arm`'s gripper by {"x": dx, "y": dy, "z": dz} meters in base_link
-    (x forward, y left, z up), keeping its orientation. Returns True.
+    Move `arm`'s gripper tool point by {"x": dx, "y": dy, "z": dz} meters in base_link
+    (x forward, y left, z up), in the posture nearest its current one. Returns True.
 
 move_arm_to_named_pose(arm: str, name: str)
     Move `arm` in joint space to a pose from get_named_poses(). Returns True.

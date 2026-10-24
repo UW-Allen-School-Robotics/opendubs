@@ -40,9 +40,16 @@ so it never drops what an arm is holding.
 - Finish with the arm used back at `"stow"` (`move_arm_to_named_pose(arm, "stow")`), so the
   next run starts from the same place.
 
+## Orientation
+The robot places the gripper's tool point; it does not yet control the gripper's orientation.
+The arm reaches each position in the posture nearest the one it is in, so approach a grasp
+from straight above with a short vertical move (`move_ee_to_rel_pose`), not a long diagonal one.
+
 ## Motion is gated by the robot, not by the program
 A motion runs only while the supervisor holds the deadman and authority is in AUTO. If
-either stops, the arm holds where it is and the call raises `MotionRefused`.
+either stops, the arm holds where it is and the call raises `MotionRefused`. A move is also
+refused before it starts if its target is out of reach or the arm would pass too close to the
+robot's own head, body or other arm: choose a different target, do not retry the same one.
 **Never catch `MotionRefused`** and never retry after it: the program must stop.
 Do not wrap motion calls in `try/except Exception`.
 

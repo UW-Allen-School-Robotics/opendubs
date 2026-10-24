@@ -40,6 +40,19 @@ for name in api.PRIMITIVE_NAMES:
     sig = lambda f: [(p.name, p.default) for p in inspect.signature(f).parameters.values()]
     check(f"{name}: dry-run signature matches live", sig(live) == sig(dry), f"{sig(live)} != {sig(dry)}")
 
+# The show backend and the robot node: only where their imports (the choreo modules, PyYAML) load
+try:
+    from opendubs_architect.robot_node import HANDLED
+    from opendubs_architect.show_backend import ShowRobot
+except ImportError as e:
+    print(f"skip the show backend and the robot node: {e}")
+else:
+    for name, f in vars(ShowRobot).items():
+        if name in names:
+            live = getattr(OpenDubsRobotClient, name)
+            check(f"{name}: show backend signature matches live", sig(live) == sig(f), f"{sig(live)} != {sig(f)}")
+    check("the robot node serves only primitives", set(HANDLED) <= names, sorted(set(HANDLED) - names))
+
 check("'scene' still means the head camera (task_scorers passes it)", api.check_camera("scene") == "head")
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nOK")
