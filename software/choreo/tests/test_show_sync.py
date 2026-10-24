@@ -20,7 +20,7 @@ import runner as R  # noqa: E402
 import show_sync as SS  # noqa: E402
 
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
-SHRUG = open(os.path.join(HERE, "..", "shows", "shrug.yaml"), encoding="utf-8").read()   # a stamped palette show
+SHRUG = open(os.path.join(HERE, "fixtures", "shows", "shrug.yaml"), encoding="utf-8").read()   # a stamped palette show
 FAILS = []
 
 
@@ -37,7 +37,7 @@ try:
     here_lib, src = os.path.join(tmp, "laptop-library"), os.path.join(tmp, "src")
     for d in (repo, src):
         os.makedirs(d)
-    shutil.copy(os.path.join(HERE, "..", "shows", "shrug.yaml"), repo)
+    shutil.copy(os.path.join(HERE, "fixtures", "shows", "shrug.yaml"), repo)
     with open(os.path.join(src, "eyes.png"), "wb") as fh:
         fh.write(b"not really a png")
     library.add(os.path.join(src, "eyes.png"), "made-up-eyes", "skin", "made up for a test", "CC0", here_lib,

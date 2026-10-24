@@ -17,7 +17,7 @@ import arm_output as AO  # noqa: E402
 import runner as R  # noqa: E402
 
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
-SHOW = os.path.join(HERE, "..", "shows", "celebrate.yaml")
+SHOW = os.path.join(HERE, "fixtures", "shows", "celebrate.yaml")     # test data: the show itself is content
 FAILS = []
 
 

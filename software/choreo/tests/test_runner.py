@@ -18,7 +18,13 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 import runner as R  # noqa: E402
 R.REQUIRE_SWEEP = False      # these tests' throwaway shows are not about collisions (test_sweep.py is)
 
-SHOWS = os.path.join(HERE, "..", "shows")
+# The palette's test folder: the repository's example shows plus the test-data copies of shows that are
+# content (tests/fixtures/shows), assembled once, so the tests never depend on content that moves out.
+SHOWS = tempfile.mkdtemp()
+for _d in (os.path.join(HERE, "..", "shows"), os.path.join(HERE, "fixtures", "shows")):
+    for _n in os.listdir(_d):
+        if _n.endswith(".yaml") and not os.path.exists(os.path.join(SHOWS, _n)):
+            shutil.copy(os.path.join(_d, _n), SHOWS)
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
 fails = []
 
