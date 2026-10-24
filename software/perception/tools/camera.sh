@@ -27,11 +27,14 @@ case "${1:-}" in
     # USB devices are character major 189; the container runs as root, so no host udev rules.
     # The Femto Bolt computes depth on the host in an OpenGL depth engine: without the NVIDIA
     # runtime it falls back to Mesa's software renderer and takes ~9 cores (130 % with the GPU).
-    # --ipc host: the server (root) reads it over shared memory. Fast DDS shared memory does not
-    # work between users (its files are 0644), so other users' nodes must read over UDP:
-    # FASTDDS_BUILTIN_TRANSPORTS=UDPv4 in their environment, or they receive nothing.
+    # --ipc shareable: the server joins this container's shared memory (dev.sh up) and reads the
+    # frames there. Not the host's: Fast DDS shared memory does not work between users anyway
+    # (its files are 0644), and a participant that dies holding a lock there leaves every later
+    # root participant hanging at creation. Every other node, on the host or in another container,
+    # must read over UDP: FASTDDS_BUILTIN_TRANSPORTS=UDPv4 in its environment, or it receives
+    # nothing (Fast DDS sees the same host and insists on shared memory it cannot open).
     ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia \
-      -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all --network host --ipc host \
+      -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all --network host --ipc shareable \
       -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
       -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       "${IMAGE}" ros2 launch orbbec_camera femto_bolt.launch.py "${LAUNCH_ARGS[@]}" ${CAMERA_ARGS:-}
