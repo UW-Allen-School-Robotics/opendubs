@@ -2,8 +2,7 @@
 # Run the perception server on opendubs2 under the archit account (notes/workplan-perception.md).
 # Everything runs in one container, archit-perception-server, publishing only on ROS domain 77.
 # Camera "femto" is read, subscribe-only, from the robot's graph (domain 0), where tools/camera.sh
-# runs the driver; when that container is up the server shares its memory, so frames arrive
-# without UDP losses. Discovery is on the subnet so the domain-0 reader finds the driver (localhost
+# runs the driver; both use the host's shared memory, so frames arrive without UDP losses. Discovery is on the subnet so the domain-0 reader finds the driver (localhost
 # never did); domain-77 hosts on the LAN can see the server. Nothing here changes the host.
 #
 #   dev.sh up                      server + dummy camera (DUMMY_ARGS="--switch-every 0" holds one image)
@@ -26,13 +25,9 @@ in_ctr() { local opts=(); while [[ "$1" == -* ]]; do opts+=("$1"); shift; done; 
 
 case "${1:-}" in
   up)
-    ipc=()
-    if ${DOCKER} inspect -f '{{.State.Running}}' "${CAMERA}" 2>/dev/null | grep -q true; then
-      ipc=(--ipc "container:${CAMERA}")
-    else
-      echo "${CAMERA} is not running: camera femto will have no frames"
-    fi
-    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host "${ipc[@]}" \
+    ${DOCKER} inspect -f '{{.State.Running}}' "${CAMERA}" 2>/dev/null | grep -q true \
+      || echo "${CAMERA} is not running: camera femto will have no frames"
+    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host --ipc host \
       -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       -e HOME=/data/home -w /data/home -e HF_HOME=/data/models/hf -e HF_HUB_OFFLINE=1 \
       -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \

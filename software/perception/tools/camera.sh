@@ -2,8 +2,10 @@
 # Run the Femto Bolt's driver on opendubs2 under the archit account (notes/workplan-perception.md).
 # One container, archit-perception-camera, publishing /camera/... on the robot's graph (domain 0),
 # so any node on the robot can read it. Only one process can open the camera: stop any other
-# driver first. The perception server (dev.sh up) shares this container's memory, so it reads the
-# frames without the UDP losses of this host (net.core.rmem_max is the 208 KB default).
+# driver first. The perception server (dev.sh up) reads it over shared memory, without the UDP
+# losses of this host (net.core.rmem_max is the 208 KB default).
+#
+# Reading it from another user's node:  export FASTDDS_BUILTIN_TRANSPORTS=UDPv4  (see below)
 #
 #   camera.sh up        start the driver
 #   camera.sh status    rates of colour and aligned depth, and the colour calibration
@@ -23,7 +25,13 @@ LAUNCH_ARGS=(depth_registration:=true align_mode:=SW enable_color_undistortion:=
 case "${1:-}" in
   up)
     # USB devices are character major 189; the container runs as root, so no host udev rules.
-    ${DOCKER} run -d --rm --name "${NAME}" --network host --ipc shareable \
+    # The Femto Bolt computes depth on the host in an OpenGL depth engine: without the NVIDIA
+    # runtime it falls back to Mesa's software renderer and takes ~9 cores (130 % with the GPU).
+    # --ipc host: the server (root) reads it over shared memory. Fast DDS shared memory does not
+    # work between users (its files are 0644), so other users' nodes must read over UDP:
+    # FASTDDS_BUILTIN_TRANSPORTS=UDPv4 in their environment, or they receive nothing.
+    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia \
+      -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all --network host --ipc host \
       -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
       -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       "${IMAGE}" ros2 launch orbbec_camera femto_bolt.launch.py "${LAUNCH_ARGS[@]}" ${CAMERA_ARGS:-}
