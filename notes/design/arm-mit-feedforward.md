@@ -66,7 +66,9 @@ position mode. A controller then says where the joint should be, how fast, and w
 ## Alternatives considered
 
 - **Keep torque mode and tune.** Measured: unstable at 40 rad/s, stalled at 10.
-- **Raise `torque_kd`.** Damping adds no stiffness, and a large `kd` on a light wrist is itself delay-unstable (`kd / I` times the delay).
+- **Raise `torque_kd`.** Tried (2026-10-23, `torque_probe.py --mode hold` at 40 rad/s, `torque_kd` 0.1 to 1.0 through a config copy): **worse.** Joint 1 moved 0.217 rad (0.045 before), joint 4
+  0.426 rad (0.031 before), 989 samples over 1 rad/s (93), peak torque 11.5 N m on joint 1 (5.1), and the oscillation was still going at 1 s. The reason is not known (an interaction with the
+  controller's own damping term is a guess). Damping in the frame is not the missing piece, and raising it adds risk: the elbow swung 24 degrees.
 - **A faster or delay-compensated loop.** Unquantified gain, and it leaves the stiffness limited by what the host can close; the firmware route removes the host from the inner loop.
 - **Only position mode.** Fine for slow moves, and the tools do this today; it leaves no way to apply a planned feed-forward torque.
 
