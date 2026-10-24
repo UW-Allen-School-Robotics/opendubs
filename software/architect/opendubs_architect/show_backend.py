@@ -90,6 +90,8 @@ class Publisher:
         fixture = os.path.basename(os.path.dirname(self.limits_path)) == "tests"
         return {"path": final, "show_id": show_id, "seconds": recorder.t, "cues": len(recorder.cues),
                 "clearance_mm": round(float(res["min_mm"]), 1),
+                # "may peak" and the like: shown to the person, who treats them as real
+                "warnings": [w["msg"] if isinstance(w, dict) else str(w) for w in tl.get("warnings") or []],
                 "limits": "TEST FIXTURE: re-check against the robot's" if fixture else self.limits_path}
 
 

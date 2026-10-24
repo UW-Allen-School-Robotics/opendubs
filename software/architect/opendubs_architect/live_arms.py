@@ -81,8 +81,11 @@ CONFIG_TEMPLATE = """\
 # /etc/opendubs/architect-arms.yaml: this robot's arm config for ARCHITECT (live_arms.py).
 # Measured on this robot, never committed. Metres in the chassis frame (x forward, y left, z up).
 workspace:            # the box each gripper's tool point may be sent into; no box, no Cartesian moves
-  left:  {x: [0.30, 0.55], y: [0.00, 0.35], z: [0.70, 1.10]}
-  right: {x: [0.30, 0.55], y: [-0.35, 0.00], z: [0.70, 1.10]}
+  # Proposed by tools/workspace_box.py from the twin (2026-10-23, test-fixture limits): every 5 cm
+  # point clean from stow, every move between its corners and centre clean (closest 36.8 mm). In
+  # front of the arm column and head, above the base, below the head. Re-run with this robot's limits.
+  left:  {x: [0.60, 0.80], y: [0.15, 0.45], z: [0.75, 1.10]}
+  right: {x: [0.60, 0.80], y: [-0.45, -0.15], z: [0.75, 1.10]}
 named:                # joint poses by name, 7 outward degrees (the shows' sense); "stow" is always rest
   offer: {right: [20, 10, 0, 60, 0, 10, 0]}
 head: [[0, 0]]        # the head poses (pan, tilt; degrees off centre) the clearance check assumes

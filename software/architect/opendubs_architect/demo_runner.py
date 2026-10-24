@@ -450,7 +450,7 @@ async function refresh() {
     $("summary").textContent = s.summary || "";
     $("sha").textContent = s.sha ? (s.approved ? "approved, frozen as " : "awaiting a spoken yes: ") + s.sha + (s.runs ? " - " + s.runs + " runs" : "") : "";
     $("code").textContent = s.code || "No program yet.";
-    $("published").textContent = s.published ? "Show ready: " + s.published.show_id + " (" + s.published.cues + " cues, " + s.published.seconds + " s, closest " + s.published.clearance_mm + " mm; limits: " + s.published.limits + "). Push it with show_sync.py, then run it from the Shows page." : "";
+    $("published").textContent = s.published ? "Show ready: " + s.published.show_id + " (" + s.published.cues + " cues, " + s.published.seconds + " s, closest " + s.published.clearance_mm + " mm; limits: " + s.published.limits + ")" + (s.published.warnings.length ? ". Validator warnings: " + s.published.warnings.join("; ") : "") + ". Push it with show_sync.py, then run it from the Shows page." : "";
     $("last").textContent = s.last ? "Last run: " + s.last.result + (s.last.error ? " - " + s.last.error : "") : "";
     $("events").textContent = s.events.map((e) => JSON.stringify(e)).reverse().join("\\n");
   } catch (e) { $("state").textContent = "runner unreachable"; }

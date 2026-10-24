@@ -30,6 +30,7 @@ handout triggered by "trick or treat".
 | `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode` with `REFUSED`) |
 | `skills/*.md` | What the model is told about this robot: motion, grasping, verification, camera questions, handoff, navigation |
 | `image/`, `tools/dev.sh` | The `archit-architect` image (the perception image's base and layout) and how it runs on opendubs2 |
+| `tools/workspace_box.py` | Proposes each arm's workspace box from the twin, and checks the moves inside it |
 | `examples/arms_wave.py` | An arms-only program for the first runs: no model needed |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
 | `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
@@ -102,6 +103,13 @@ python3 software/choreo/show_sync.py push opendubs2 architect-<sha>.yaml
 
 Then, on the dashboard: TELEOP, ACTIVATE L and R; Shows, the `ARCHITECT <sha>` card, ARM RUN with
 LIVE on; CH5 in AUTO and the deadman held for the whole run.
+
+The arm config's workspace box (where a program may send each gripper) comes from
+`tools/workspace_box.py`, which asks the live planner, on the twin, where each arm reaches cleanly
+and checks every move inside the box it proposes. Run it with the robot's own limits
+(`studio.py limits --from-robot opendubs2` brings them to the laptop), then copy the box into
+`~/architect-data/architect-arms.yaml` after a look at the robot. The template is
+`live_arms.CONFIG_TEMPLATE`.
 
 `dev.sh up` has ARCHITECT write the program instead of the fixed example. It needs
 `~/architect-data/architect.env` (mode 600) with ssa's API settings.
