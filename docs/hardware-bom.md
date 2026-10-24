@@ -207,7 +207,8 @@ tool links are examples, any equivalent works.
 | M4 x 20 mm socket-head cap screw (ISO 4762) | — | 4 | — | Through the light box floor and the light into the inserts; snug only. Socket heads, not button heads: the light's cover leaves exactly 7 mm for a head. |
 | M4 heat-set insert | — | 4 | — | In the chest piece; about 5.6 mm hole x 8.1 mm long. Check yours against the CAD parameters. |
 | M4 x 55 mm socket-head screws | — | 2 | [buy](https://www.amazon.com/gp/product/B0DFYK39N6) | Run up through the dual blocks to receive the cradle. The 50-pack bought for the OTOS module covers these two. |
-| M4 bolt, through each leg (length TBD) | optional | 2 | — | One through each pocket of the face holder and the leg inside it (4.3 mm hole). Length, and nut or threaded insert, to be confirmed. |
+| M4 x 16 mm bolt with a nut or threaded insert | optional | 2 | — | One through each pocket of the face holder and the leg inside it (4.3 mm hole). A pin that stops the leg sliding out; the pocket's fit holds the mount. |
+| Camera retaining screw (size TBD) | optional | 4 | — | Through the small holes in the sleeve's side walls, two a side, to hold the camera in. Size and length to be confirmed. |
 <!-- /BOM-AUTO:purchase:fasteners -->
 
 ### Tools

@@ -2,17 +2,17 @@
 
 !!! warning "In development"
     The mount is designed and its geometry is in the repository, but this page does not yet have
-    photos, print settings, the CAD downloads or the fastener sizes. Those are marked *TODO*
-    below.
+    photos, the CAD and print files, the camera's retaining-screw size or the cable. Those are
+    marked *TODO* below.
 
 !!! info "At a glance"
     | | |
     |---|---|
     | **You'll build** | A 3D-printed sleeve that holds an Orbbec Femto Bolt depth camera on top of the robot's face, looking where the face looks |
     | **Time** | *TODO* |
-    | **Difficulty** | Beginner (print one part, slide it in, fit two bolts) |
+    | **Difficulty** | Beginner (print one part, slide the camera in, fit a few screws) |
     | **Prerequisites** | The [Pan/Tilt HMI module](pan-tilt-hmi.md), whose face holder carries the mount; an Orbbec Femto Bolt |
-    | **Mates to** | Two pockets in the top of the face holder; *TODO: the camera's cable to the [Thor](thor-install.md)* |
+    | **Mates to** | Two pockets in the top of the face holder; a USB 3 cable to a USB hub on the [Thor](thor-install.md) (*TODO: the cable*) |
     | **Optional?** | Yes — the robot drives and performs without one |
 
 ## What this is
@@ -35,7 +35,8 @@ The Intel RealSense D415 is an alternative depth camera, also listed as optional
 ## CAD & 3D model
 
 - **View in browser (Fusion):** *TODO — add permalink*
-- **Download:** *TODO — STEP + the mount's STL, into `hardware/`*
+- **Download:** *TODO — STEP, plus the mount's STL and 3MF print file, into `hardware/`. 3MF
+  print files are still to come for every printed part in this guide.*
 
 The robot's description in the repository already carries simplified meshes of both parts,
 for the simulator and the robot model: `description/opendubs/meshes/femto_mount.stl` (the mount)
@@ -58,16 +59,17 @@ CAD downloads above for printing, not these.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| Femto Bolt mount (3D-printed) | — | 1 | A sleeve around the camera with two legs that drop into the face holder's pockets. STL in hardware/ TBD; print settings TBD. |
-| M4 bolt, through each leg (length TBD) | — | 2 | One through each pocket of the face holder and the leg inside it (4.3 mm hole). Length, and nut or threaded insert, to be confirmed. |
+| Femto Bolt mount (3D-printed) | — | 1 | A sleeve around the camera with two legs that drop into the face holder's pockets. PLA or PETG, 15% infill; STL and 3MF in hardware/ TBD. |
+| M4 x 16 mm bolt with a nut or threaded insert | — | 2 | One through each pocket of the face holder and the leg inside it (4.3 mm hole). A pin that stops the leg sliding out; the pocket's fit holds the mount. |
+| Camera retaining screw (size TBD) | — | 4 | Through the small holes in the sleeve's side walls, two a side, to hold the camera in. Size and length to be confirmed. |
 <!-- /BOM-AUTO:build:depth-camera -->
 
 ## Print
 
-*TODO — material, orientation, infill and supports.*
+Print the mount in **PLA or PETG** at **15% infill**, as the part sits on the bed in the print
+file. *TODO: the 3MF print file.*
 
-The sleeve's walls are about 3 mm thick at the sides and 3.75 mm top and bottom. The legs carry
-the camera's weight on a tilting head, so print them solid enough not to flex.
+The sleeve's walls are about 3 mm thick at the sides and 3.75 mm top and bottom.
 
 ## Assembly
 
@@ -77,17 +79,18 @@ the camera's weight on a tilting head, so print them solid enough not to flex.
    holds the camera on all four sides, with the camera's front face standing about 19 mm proud
    of the sleeve so nothing overlaps the lenses. Face the camera's lenses forward, the same way
    as the tablet's screen.
-2. **Secure the camera.** Each side wall of the sleeve has two small holes at the camera's
-   mid-height, 20 mm apart. *TODO: confirm what goes through them (the screw size, and which
-   threaded holes on the Femto Bolt's sides they meet), or how else the camera is held.*
+2. **Fit the retaining screws.** Each side wall of the sleeve has two small holes at the
+   camera's mid-height, 20 mm apart. A screw through each holds the camera in the sleeve so it
+   can't slide out. *TODO: the screw size and length.*
 3. **Drop the legs into the face holder.** The top of the face holder has two rectangular
    pockets, one at each side. Each leg slides about 50 mm down into its pocket, which holds it
    on all four sides; the sleeve then sits just above the top of the face holder.
-4. **Bolt each leg in.** A 4.3 mm hole, sized for an M4 bolt, runs sideways through each pocket
-   and the leg inside it. Put a bolt through each. *TODO: the bolt length and whether it takes
-   a nut or a threaded insert.*
-5. **Run the camera's cable** to the Thor. *TODO: the cable, its route along the neck, and
-   enough slack for the head's full pan and tilt.*
+4. **Pin each leg.** A 4.3 mm hole runs sideways through each pocket and the leg inside it. Put
+   an M4 × 16 mm bolt through each, with a nut or a threaded insert. The pockets' fit is what
+   holds the mount; the bolts act as pins that stop the legs sliding back out, so they only
+   need to be snug.
+5. **Run the camera's cable**, a USB 3 cable, to a USB hub on the Thor. Leave enough slack for
+   the head's full pan and tilt. *TODO: the cable and its route along the neck.*
 
 ## Where the camera is, for software
 
