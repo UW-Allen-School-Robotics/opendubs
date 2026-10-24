@@ -20,6 +20,7 @@ set -euo pipefail
 NAME=archit-perception-camera
 IMAGE=archit-perception-camera:dev
 DOCKER="sudo -n docker"
+REPO="${REPO:-$HOME/opendubs-perception}"
 LAUNCH_ARGS=(depth_registration:=true align_mode:=SW enable_color_undistortion:=true)
 
 case "${1:-}" in
@@ -33,8 +34,12 @@ case "${1:-}" in
     # root participant hanging at creation. Every other node, on the host or in another container,
     # must read over UDP: FASTDDS_BUILTIN_TRANSPORTS=UDPv4 in its environment, or it receives
     # nothing (Fast DDS sees the same host and insists on shared memory it cannot open).
+    # image/fastdds_camera.xml gives the driver a 128 MB shared-memory segment (the default 512 KB
+    # let one slow reader cut every reader to ~7 frames a second); --shm-size holds it.
     ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia \
       -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all --network host --ipc shareable \
+      --shm-size 1g -v "${REPO}/software/perception/image/fastdds_camera.xml:/opt/camera/fastdds.xml:ro" \
+      -e FASTRTPS_DEFAULT_PROFILES_FILE=/opt/camera/fastdds.xml \
       -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
       -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       "${IMAGE}" ros2 launch orbbec_camera femto_bolt.launch.py "${LAUNCH_ARGS[@]}" ${CAMERA_ARGS:-}
