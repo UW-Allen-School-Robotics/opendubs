@@ -29,6 +29,10 @@ recipe that matches your task.
   `remote: Bypassed rule violations for refs/heads/main`. The guard does not stop you; it only
   records that you ignored it. So branch **before the first commit**, not after. Let CI run on the
   PR, and do not merge or enable auto-merge unless asked.
+- **Sign off every commit:** `git commit -s`, and `git merge --signoff` when you merge `main`
+  into a branch. Hygiene's DCO check fails a PR with any commit, a merge commit included, that has
+  no `Signed-off-by:` line (see `CONTRIBUTING.md`). To fix a branch: `git rebase --signoff
+  origin/main`, then force-push your own branch with `--force-with-lease`.
 - **Downloads never land in the working tree.** Anything fetched, pulled off a device or produced
   as a by-product (packages, firmware images, photos, logs, recordings) goes in a scratch directory
   outside the repo. Stage by path (`git add <files>`), never `git add -A` or `git add .`, and read
@@ -42,6 +46,9 @@ recipe that matches your task.
   `docs/flashing-stamplc.md` sat unread — and one such attempt reset the robot's safety
   controller twice by opening a serial port that was never the right channel. If a procedure
   seems to be missing, say so and ask; do not experiment on the robot.
+- **Shows have a skill: read it first.** Before you change a show, the composer, the studio, the
+  twins or the runner, read `.claude/skills/opendubs-show/SKILL.md`. Most of what you might build
+  already exists, and it lists the invariants no change may break.
 
 ## Lanes — who owns what when several sessions run at once
 
@@ -81,8 +88,12 @@ those sessions don't collide in git and so each area's expertise stays in one pl
 9. **Open every PR as a draft; CI runs when it's ready.** CI minutes on this private repository
    are metered, and every push to a ready PR re-runs its checks. Open the PR with
    `gh pr create --draft` and push as often as you like while working: workflows skip drafts. Run
-   your lane's tests locally, then mark it ready with `gh pr ready <n>`, which is when CI runs.
-   After that, batch fix-ups into one push rather than pushing each commit.
+   your lane's tests locally. After your last push, wait until `gh pr checks <n>` shows that
+   push's (skipped) draft runs, then mark it ready with `gh pr ready <n>`, which is when CI runs.
+   After that, batch fix-ups into one push rather than pushing each commit. **Before merging, read
+   every run for the head commit** (`gh run list --branch <head-branch>`), not only
+   `gh pr checks`: when a workflow's draft-time run was skipped and its ready-time run failed,
+   `gh pr checks` can show only the skipped one.
 
 | Lane | Owns | Workplan |
 |---|---|---|
@@ -95,7 +106,6 @@ those sessions don't collide in git and so each area's expertise stays in one pl
 | **Voice** (speech in and out, wake word, the on-robot and cloud language model) | `software/voice/` (the voice service), `tools/voice-bench/`; dashboard `backend/voice_proxy.py` (the `/ws/voice` relay); `notes/design/voice-*.md`. Mic capture in the face page, the face's listening, speaking and recording indicators, and any new head message are agreed with the Tablet and Face & HRI lanes and edited by them. The voice service may only reach the face and robot status, never motion | `notes/workplan-voice.md` |
 | **Network** (the robot's router, its Wi-Fi and its uplink) | The robot router's configuration (it lives on the router; a sanitized export may be kept in `notes/design/network-*`); `notes/design/network-*.md`; `tools/network/`. The router is changed only with the user's word and a person at the robot. Dashboard network status is specified here and built by the Tablet lane | `notes/workplan-network.md` |
 | **Hygiene** (audits the whole repo) | the root `.gitignore`; `LICENSE-*`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`; `tools/hygiene/`, `.github/workflows/hygiene.yml`; `notes/hygiene-findings.md` | `notes/hygiene-findings.md` |
-| **Hat PCB** (parked) | `hardware/hat/` | — |
 
 **The head's protocol** (the messages the Thor and the dashboard send the head) is owned by the
 Tablet lane. The Face & HRI lane implements the face's side of it. A new head message is agreed with the
@@ -116,6 +126,13 @@ something already committed is always the maintainers' decision, case by case.
 - **skips draft PRs**: `pull_request: types: [opened, synchronize, reopened, ready_for_review]`,
   and `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false` on
   each job;
+- **puts the draft flag in its concurrency group**, if it has one
+  (`group: <name>-${{ github.ref }}-${{ github.event.pull_request.draft }}`). Otherwise a late
+  draft-time run can cancel the real ready-time run;
+- **gives a job skipped on drafts a distinct name**, so a skipped row never carries the real
+  check's name and hides its failure:
+  `name: "${{ github.event.pull_request.draft && '<name> (draft, skipped)' || '<name>' }}"`
+  (quoted; GitHub shows the raw expression on the skipped row, which is harmless);
 - **does not re-run on `push` to `main`** what the PR already checked. The exceptions are
   `hygiene.yml`, the safety net for a push that bypasses the PR, and the docs deploy;
 - **filters on its own paths**, and offers `workflow_dispatch` for a manual run;
@@ -135,7 +152,7 @@ readings for the localization lane, asks the orchestrator for it.
 | **StamPLC** (ESP32-S3) | `sudo firmware/rc_serial_probe/ota-from-thor.sh` — on the Thor, **no IP** | Everyday path. Builds, serves the `.bin`, sends `OTA` over **UDP 5005**, watches it recover. **Not** over serial. **Do not go hunting for the board's address** — the script finds it (argument → `$OPENDUBS_STAMP_IP` → the dashboard's learned peer → `opendubs-stamplc.local`) and refuses one belonging to the Thor itself. `sudo` because PlatformIO must write `.pio/` under `/opt/opendubs`, which the deploying user owns. |
 | StamPLC, first flash or recovery | `firmware/rc_serial_probe/flash-from-thor.sh`, or `pio run -t upload` over USB | Only for a virgin board or a corrupt image. Stop `opendubs-dash` first — it holds the port. See `docs/flashing-stamplc.md`. |
 | Tab5 face (ESP32-P4) | **Retired, no longer on the robot.** The face is the web page on the head's Galaxy tablet (`software/face-web`), updated by the normal deploy. | `firmware/tab5_idf/` keeps its own flashing notes (`ota-from-thor.sh`, `FLASHING-THE-ROBOT.md`) for a Tab5 on a desk. |
-| **Neck** (M5Dial, ESP32-S3) | OTA only: build `firmware/neck_dial/build.sh image`, copy `firmware.bin` to the Thor, serve it over HTTP there, then send `OTA <url>` to **UDP 4242**. Full recipe in `firmware/neck_dial/README.md`. **A `TILT` over UDP waits for a press of the Dial's button** (15 s) before it takes effect; serial `TILT` is not gated. | **IT HAS NO USB CABLE** — it is on the 24 V bus, so there is no serial console to fall back on. The board PULLS the image; there is no push listener. Use `firmware.bin`, the app image, not `firmware.factory.bin`. **The head snaps to centre on boot**, not slewed, so warn whoever is standing there. `PING` reports the build's sha. |
+| **Neck** (M5Dial, ESP32-S3) | OTA only: build `firmware/neck_dial/build.sh image`, copy `firmware.bin` to the Thor, serve it over HTTP there, then send `OTA <url>` to **UDP 4242**. Full recipe in `firmware/neck_dial/README.md`. **A `TILT` over UDP waits for a press of the Dial's button** (15 s) before it takes effect; serial `TILT` is not gated. | **No USB cable is routinely fitted.** It is on the 24 V bus, so a stranded neck means a visit to fit a USB cable for recovery; there is no serial console to fall back on remotely. The board PULLS the image; there is no push listener. Use `firmware.bin`, the app image, not `firmware.factory.bin`. **The head snaps to centre on boot**, not slewed, so warn whoever is standing there. `PING` reports the build's sha. |
 | Neck, first flash or recovery | USB and `firmware/neck_dial/tools/flash.py` | Only for a virgin or bricked board. App-only at `0x10000`: a merged image at `0x0` erases `nvs` and takes the Wi-Fi credentials and the tilt limits with it. |
 
 Full background: **`docs/flashing-stamplc.md`**, **`docs/stamplc-ethernet-transport.md`**, and
