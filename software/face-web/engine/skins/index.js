@@ -44,7 +44,7 @@ import { makeAssetSkin } from "./asset.js";
 export const CODE_SKINS = { default: eyes, ring, fireworks, monster_stitched, monster_vampire, monster_wolf, monster_mummy, monster_zombie, monster_ghoul, monster_lab };
 const ASSET_TYPES = ["image", "video"];
 
-// What a library code skin has to be before it is allowed to draw. A built-in is checked by the
+// What a CONTENT code skin has to be before it is allowed to draw. A built-in is checked by the
 // compiler and by review; one arriving from the content folder is checked here, because the
 // failure it prevents is a BLANK OR THROWING FACE -- and `draw` is called once per eye per frame,
 // so a bad module would throw sixty times a second with nothing saying why.
@@ -178,7 +178,13 @@ export class Skins {
     return { ok: true, shown: name };
   }
 
-  // Import a library code skin and, if it is still the one chosen, put it on. Late arrival is
+  // Import a CONTENT code skin and, if it is still the one chosen, put it on. NEVER A LIBRARY
+  // ENTRY: the library is uploaded through the dashboard, and the maintainers' rule is that DATA
+  // arrives that way while CODE arrives only through a repository. That rule is kept by the shape
+  // of `select` -- a library entry can only ever become an asset skin, gated on ASSET_TYPES -- and
+  // this is the only caller of `import()`. Do not give it a library entry; the upload path is not
+  // review, and a module imported from one would run on the robot having passed nobody. Late
+  // arrival is
   // handled the same way an image's is: whatever is current when it lands decides whether it shows,
   // so a show that has already moved on is not interrupted by a module finishing late.
   async importCode(name, entry) {
