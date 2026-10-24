@@ -30,7 +30,6 @@ part used in two places is listed once, with the quantities added.
 | [Pibiger USB to dual-channel CAN FD converter](https://www.amazon.com/dp/B0CGPRPZN8) | `SavvyCAN-FD-X2` | 1 | — | Two CAN-FD channels, one per arm: up to 12 Mbit/s, isolated from USB to 2.5 kV. |
 | [MikroTik hAP ac3 router](https://mikrotik.com/product/hap_ac3) | — | 1 | — | The robot's own network: the computer, the StamPLC, the head and the tablet. |
 | [RealSense D415 depth camera](https://www.realsenseai.com/products/stereo-depth-camera-d415/) | — | 1 | — | Optional. A depth camera for the head; the face tracker uses it. The Orbbec Femto Bolt is an alternative. |
-| [Orbbec Femto Bolt depth camera](https://store.orbbec.com/products/femto-bolt) | `100100433` | 1 | — | Optional. A time-of-flight depth camera; an alternative to the RealSense D415. |
 | [SparkFun Optical Tracking Odometry Sensor (OTOS)](https://www.sparkfun.com/sparkfun-optical-tracking-odometry-sensor-paa5160e1-qwiic.html) | — | 1 | [OTOS Module](build/otos.md) | PAA5160E1, Qwiic; 3.3 V — needs level-shifting to the 5 V M5 I2C bus |
 | [Adafruit logic level converter](https://www.adafruit.com/product/5637) | `Adafruit 5637` | 2 | [OTOS Module](build/otos.md), [Electronics Bay](build/electronics-bay.md) | Shifts OTOS 3.3 V I2C up to the 5 V M5 bus |
 | [4-Bar Odometry Pack — Pinpoint computer + 2 dead-wheel pods](https://www.servocity.com/4-bar-odometry-pack-2-pods-1-pinpoint-computer/) | `3203-3110-0002` | 1 | [Pinpoint Odometry](build/pinpoint.md) | Pinpoint (IMU + odometry) + 2 pods; I2C at 3.3 V — the step-down lives in the electronics bay, NOT this module. Same pack on the Core BOM. |
@@ -55,6 +54,7 @@ part used in two places is listed once, with the quantities added.
 | [M5Stack StamPLC PoE module](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/A165/28968801) | `A165` | 1 | [Right Upper Electronics Bay](build/upper-right-electronics-bay.md) | Adds PoE Ethernet to the StamPLC — the StamPLC<->Thor transport rides this. Many sources; DigiKey stocks well for US teams. |
 | [Micro-Fit 3.0 4-pin cable (Thor DC input)](https://a.co/d/06nenwIA) | `B07Z6BJCVH` | 1 | [Mini Power Module (logic bus)](build/mini-power-module.md) | Sold as an ATX 4-pin 12 V cable — the housing fits Thor, the PIN ASSIGNMENT DOES NOT. Verify against Thor's pinout and re-pin before first power-on; do not trust wire colors. |
 | [goBILDA 1205-series dual block mount (2-pack)](https://www.servocity.com/1205-series-dual-block-mount-1-5-2-pack/) | — | 1 | [Thor Install](build/thor-install.md) | The 2-pack gives the two dual blocks that clamp the Thor cradle to the rail. |
+| [Orbbec Femto Bolt depth camera](https://store.orbbec.com/products/femto-bolt) | `100100433` | 1 | [Depth Camera Mount (Femto Bolt)](build/depth-camera.md) | Optional. A time-of-flight depth camera; an alternative to the RealSense D415. |
 | [Raspberry Pi 5, 4 GB](https://www.raspberrypi.com/products/raspberry-pi-5/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The box's computer. 4 GB is plenty. A Raspberry Pi 4 runs the same image and makes a good spare. |
 | [Raspberry Pi 27 W USB-C power supply](https://www.raspberrypi.com/products/27w-power-supply/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. The official supply for the Pi 5; a weaker one shows as an under-voltage warning on the stage page. A Pi 4 takes the official 15 W one. |
 | [Raspberry Pi Active Cooler (for Pi 5)](https://www.raspberrypi.com/products/active-cooler/) | — | 1 | [Stage Display Box](build/stage-display.md) | Optional, for shows. Clips onto the Pi 5. |
@@ -207,6 +207,7 @@ tool links are examples, any equivalent works.
 | M4 x 20 mm socket-head cap screw (ISO 4762) | — | 4 | — | Through the light box floor and the light into the inserts; snug only. Socket heads, not button heads: the light's cover leaves exactly 7 mm for a head. |
 | M4 heat-set insert | — | 4 | — | In the chest piece; about 5.6 mm hole x 8.1 mm long. Check yours against the CAD parameters. |
 | M4 x 55 mm socket-head screws | — | 2 | [buy](https://www.amazon.com/gp/product/B0DFYK39N6) | Run up through the dual blocks to receive the cradle. The 50-pack bought for the OTOS module covers these two. |
+| M4 bolt, through each leg (length TBD) | optional | 2 | — | One through each pocket of the face holder and the leg inside it (4.3 mm hole). Length, and nut or threaded insert, to be confirmed. |
 <!-- /BOM-AUTO:purchase:fasteners -->
 
 ### Tools
