@@ -230,10 +230,26 @@ Findings against the lab's original server (port 8767), from a laptop on the wor
 | Up direction | Without one, the original takes tilt 0, which treats the optical axis as up: it reported 63.7 deg of tilt for an approach about 9 deg from horizontal. Upright and tilt from it are wrong for a camera looking forward. The new server picks by raw score when it knows no up direction, and says so in `mode` |
 | `perception_tasks` logic, with ROS stubbed | Segment-shaped messages (`bgr8`, `16UC1`, `mono8`) through `execute`: the same grasp as the probe; "nothing found" and "no depth" abort with their reason |
 
+### On the robot (opendubs2, 2026-10-24)
+
+The image was rebuilt (`websockets` in its own layer, the new `perception_msgs`), the Femto Bolt
+driver and the server started with `ANYGRASP_URL` set; the workstation ran `anygrasp_server/` with
+`--use_raw_best --top_down_grasp false`.
+
+| Check | Result |
+|---|---|
+| Thor to the workstation | Port 8768 reachable; the probe from inside the image: synthetic mug grasped, 376 ms round trip |
+| `dev.sh grasp chair --camera femto` | **The full chain from a name**: chair 0.50 (1 of 2), grasp on the chair back's lower-left edge at (-0.046, 0.344, 0.904) m, width 0.045 m. Segment 371 ms + AnyGrasp 163 ms; round trip 563 ms. Overlay checked by eye |
+| A black mesh pen stand at 0.90 m | **Not detected** by YOLO-World under any name tried (mug, cup, pen holder, pencil cup, black cup, basket, trash can, bucket; also at score 0.05) nor by CLIPSeg ("black pen holder"); the chair's mask swallows it. Depth is fine (93 % valid at 0.90 m), but through the mesh its top reads 1.75 m, the wall behind. With a mask cut from depth by hand, AnyGrasp grasped it at (-0.098, 0.206, 0.891) m, on the stand, horizontal closing, 100 ms |
+| Objects across the room | Everything else in view was 1.5-2 m away, beyond AnyGrasp's 1.5 m workspace; the client says so |
+| Two bugs found and fixed | rclpy refuses a logging call site that changes severity (a success after a failure crashed before its result was set); `grasp_client.py` could not write the ROS `int32` box to JSON |
+
+Still to run: a solid mug (not black, not mesh) 0.5-1 m away, on its own.
+
 `anygrasp_server/server.py` was run here with a stand-in `gsnet` (the protocol, the lock, the up
 logic, errors, a 7.4 MB request): with up known it chose the side grasp over a higher-scoring
-top-down one. It has not yet run with the real model on the workstation. Nothing ran on the robot,
-and `perception_msgs` with the new action has not been built in the image yet.
+top-down one. On the workstation with the real model it returns the original's grasp for the same
+input, with candidates, and accepts the 7.4 MB frame.
 
 ### Next
 
@@ -241,7 +257,7 @@ and `perception_msgs` with the new action has not been built in the image yet.
 |---|---|---|
 | **2b. Under load** | Run the server while the robot is in use (the language model answering) | Navigation and query numbers with the robot busy |
 | **3. Camera and Nav2** | The Orbbec driver (D1), its owner and udev rules (with the Thor stack lane); the obstacle cloud into Nav2's costmap (Thor stack lane) | Masks line up with depth; the costmap shows semantic obstacles; the LIDARs' obstacles are never cleared |
-| **4. AnyGrasp** | Built (above). Left: rebuild the image (`perception_msgs`, `websockets`); start `anygrasp_server/` on the workstation; reach it from the Thor; `dev.sh grasp mug --camera femto` with a real mug | The overlay's axes sit on the mug, and the pose's depth matches the mask's median depth |
+| **4. AnyGrasp** | Built and run on the robot (above). Left: a solid mug 0.5-1 m away, on its own | The overlay's axes sit on the mug, and the pose's depth matches the mask's median depth |
 
 ## Decisions
 
