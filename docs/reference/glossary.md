@@ -54,7 +54,7 @@ The transmitter's CH6 control. It must be held for the sticks to move the robot,
 
 ### DEGRADED {#degraded}
 
-The robot state shown when a fault is latched — an over-temperature, for example. A DEGRADED fault stays shown after its cause has gone, so an operator sees that it happened.
+The robot state shown when a fault is latched — an over-temperature, for example. A DEGRADED fault stays shown after its cause has gone, so an operator sees that it happened. An operator clears it with **CLEAR FAULT** on the dashboard's Operate page, which refuses while the cause is still there, or for a fault that needs service.
 
 **See also:** [Robot and Subsystem State Machines](../state-machines.md)
 

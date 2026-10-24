@@ -387,7 +387,7 @@ The StamPLC link is healthy, but its report of the lift — height, motion and t
 **What to do**
 
 1. Do not move the lift until it reports again; the pinch guard's state is unknown.
-2. The fault stays shown after the report returns. Restarting the robot clears it.
+2. It clears by itself once the lift reports again.
 
 **See also:** [Scissor Lift Module](../build/scissor-lift.md)
 
@@ -985,7 +985,7 @@ One of the robot's internal temperature sensors reads 70 °C or more, so the das
 
 1. Stop and let the robot cool.
 2. Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.
-3. The fault stays shown after the temperature falls. Restarting the robot clears it.
+3. The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the temperature is still high.
 
 **See also:** [8 · Cooling Fan Integration](../build/cooling-fan.md)
 
@@ -999,7 +999,7 @@ Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh
 
 1. Check the pack's charge on the dashboard.
 2. Check that the hub's input connections are tight.
-3. The fault stays shown after the voltage recovers. Restarting the robot clears it.
+3. The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the brownout is still reported.
 
 **See also:** [6 · Power Bay](../build/power-bay.md)
 
