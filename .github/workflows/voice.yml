@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   test:
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -50,6 +51,7 @@ jobs:
   # English pipeline with no espeak-ng (smoke_speech_deps.py). Downloads PyTorch's CPU wheel, the
   # 3 MB pronunciation fallback and a 2 KB config from their pinned commits; never the big weights.
   speech-deps:
+    name: "${{ github.event.pull_request.draft && 'speech-deps (draft, skipped)' || 'speech-deps' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
