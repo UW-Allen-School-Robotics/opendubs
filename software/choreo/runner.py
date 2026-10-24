@@ -1358,7 +1358,8 @@ class Runner:
 # The robot's OWN shows: a folder outside the deploy (which rsyncs /opt/opendubs/choreo/shows from the
 # repository with --delete), filled by show_sync.py. For shows that are not, or may not be, in the
 # repository — a show built from someone's photo, say. The palette lists both; an id in both is refused.
-LOCAL_SHOWS = os.environ.get("OPENDUBS_LOCAL_SHOWS") or "/var/lib/opendubs/shows"
+LOCAL_SHOWS = (os.environ.get("OPENDUBS_SHOWS_DIR") or os.environ.get("OPENDUBS_LOCAL_SHOWS")
+               or "/var/lib/opendubs/shows")      # the robot's content folder (content.py)
 
 
 class Palette:
@@ -1745,7 +1746,8 @@ def main() -> int:
     pp.add_argument("--base", choices=("none", "ros"), default="none",
                     help="ros: a live run sends its DANCE moves to the Thor's base tracker (/dance/*, base_output.py)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
-                    help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
+                    help="the robot's content folder, outside the deploy: its shows and tool packs "
+                         "(show_sync.py fills it; default $OPENDUBS_SHOWS_DIR, else the old "
                          "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
     pp.add_argument("--limits", default=r.get_default("limits"))
     pp.add_argument("--port", type=int, default=8092)
@@ -1770,6 +1772,8 @@ def main() -> int:
                        help="play show audio on the dashboard's show-audio device (plan 4.2)")
         x.add_argument("--audio-url", default="http://127.0.0.1:8080/api/choreo/audio")
     a = ap.parse_args()
+    if getattr(a, "local_shows", None):          # one content folder for this runner and all it loads
+        os.environ.setdefault("OPENDUBS_SHOWS_DIR", a.local_shows)
     audio = DashboardAudio(a.audio_url) if a.audio == "dashboard" else NullAudio()
 
     if a.cmd == "palette":
