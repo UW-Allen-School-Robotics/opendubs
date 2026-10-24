@@ -113,6 +113,10 @@ and `SKIN <id>` take any id the robot has. Agreed with Face & HRI (the face's lo
 - **A content skin is code the face runs**, with everything the page has (its door included). It is
   served from the dashboard's own origin (which is also what lets the face `import()` it) out of the
   robot's own content folder, filled from the private content repository: the same trust as the page.
+- **Content code is never uploaded** (the user's rule, 2026-10-24). Content DATA (images, sprites,
+  parameter skins, audio, video, show files) may come in through the dashboard; content CODE (code
+  skins) arrives ONLY from the content repository by the deploy/sync path. The dashboard serves
+  `/face/content/` read-only and has no endpoint that writes to the content folder; a test pins both.
 
 ## 4. Neck messages
 

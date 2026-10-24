@@ -34,3 +34,22 @@ def test_the_looks_list_and_only_look_files_are_served(tmp_path, monkeypatch):
     for bad in ("/face/content/themes/..%2Fsecret.txt", "/face/content/other/winter.json",
                 "/face/content/themes/secret.txt", "/face/content/skins/missing.js"):
         assert c.get(bad).status_code == 404, bad
+
+
+def test_content_code_never_arrives_through_the_dashboard():
+    """THE USER'S RULE (2026-10-24): content DATA may be uploaded through the dashboard; content CODE (code
+    skins) arrives only from the content repository by the deploy/sync path. So nothing in the dashboard
+    may write where the face imports code from: /face/content is GET-only, and only face_looks.py (which
+    only reads) may name the content folder. A future upload into it fails here, on purpose."""
+    import re
+    here = os.path.join(os.path.dirname(__file__), "..")
+    route = re.compile(r'@(?:router|app)\.(\w+)\(\s*["\'](/face/content[^"\']*)')
+    names_content = re.compile(r"content_dir\(|OPENDUBS_SHOWS_DIR|OPENDUBS_LOCAL_SHOWS|/var/lib/opendubs/shows")
+    for name in sorted(os.listdir(here)):
+        if not name.endswith(".py"):
+            continue
+        src = open(os.path.join(here, name), encoding="utf-8").read()
+        for method, path in route.findall(src):
+            assert method == "get", f"{name}: {method.upper()} {path}: /face/content is read-only"
+        if name != "face_looks.py":
+            assert not names_content.search(src), f"{name} names the content folder: only face_looks.py may, read-only"
