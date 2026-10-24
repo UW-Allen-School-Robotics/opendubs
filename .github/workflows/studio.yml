@@ -48,6 +48,8 @@ permissions:
 
 jobs:
   app:
+    # a draft's skipped job must not carry the real check's name, or the check list shows the skip
+    name: "${{ github.event.pull_request.draft && 'app (draft, skipped)' || format('app ({0})', matrix.os) }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
