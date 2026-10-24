@@ -134,8 +134,8 @@ uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
 // SIGNED UPDATES (notes/design/firmware-signing.md; the policy table in firmware/common/ota_verify/
 // README.md). An image is installed only if its signature, made on the Thor for board "neck", verifies
 // against a key compiled in here; otherwise it is rejected and the running app stays the one that boots.
-// TWO EXCEPTIONS, BOTH BECAUSE THIS BOARD HAS NO USB CABLE ON THE ROBOT, so a check that strands it
-// costs opening the head on a desk:
+// TWO EXCEPTIONS, BOTH BECAUSE NO USB CABLE IS ROUTINELY FITTED ON THE ROBOT, so a check that strands
+// the neck costs a visit to fit one:
 //   * a REPORT-ONLY build (-DOTA_SIG_REPORT_ONLY, env neck_dial_report_only) checks, reports, and
 //     installs anyway. It is the bootstrap image only: a signed round trip is proved on it first;
 //   * a build whose own self-test FAILS (the verifier itself is broken on this board) behaves the same
@@ -598,7 +598,7 @@ void handle(const char* cmd, char* out, size_t n) {
 // The knob's quadrature on a PCNT unit, both edges of both phases: four counts to a detent. ESP-IDF
 // 5's pulse_cnt driver, as in its own rotary-encoder example, and NOT the legacy driver/pcnt.h,
 // which aborts at boot if anything else in the image links the new one: a crash loop, on a board
-// with no cable.
+// that normally runs with no cable fitted.
 bool knobBegin() {
     pcnt_unit_config_t uc = {};
     uc.high_limit = 1000; uc.low_limit = -1000;      // read and cleared every loop: never near either
