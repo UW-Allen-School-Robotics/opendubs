@@ -173,7 +173,27 @@ requestAnimationFrame(frame);
 // ---- the door ---------------------------------------------------------------------------------
 const doorUrl = q.get("door");
 let door = null;                                   // the open door, for the tracker's target below
+// THE CONTENT FOLDER'S THEMES (head-protocol.md "Discovering the looks"): the robot's discovered looks,
+// read from the dashboard BEFORE the door opens, so a THEME naming a content theme finds it loaded; and
+// again at every reconnect, so a redeployed content folder is picked up. Face & HRI's loader reads and
+// checks each theme (face.loadContentThemes); what it refused is kept for the settings page. A twin with
+// no dashboard, or an older robot, has none: the built-in themes only. Never holds the door for long.
+const LOOKS_URL = new URL("/api/head/looks", location.href).href;
+const CONTENT_THEMES = new URL("/face/content/themes/", location.href).href;
+window.faceLooks = null; window.faceThemeProblems = [];        // read by a harness through devtools
+async function loadLooks() {
+  try {
+    const r = await fetch(LOOKS_URL, { cache: "no-store" });
+    if (!r.ok) return;
+    const doc = await r.json();
+    window.faceLooks = doc;
+    window.faceThemeProblems = await face.loadContentThemes(doc, CONTENT_THEMES);
+  } catch (e) { /* no dashboard here: the built-ins only */ }
+}
 function connect() {
+  Promise.race([loadLooks(), new Promise((r) => setTimeout(r, 3000))]).finally(openDoor);
+}
+function openDoor() {
   const ws = new WebSocket(doorUrl);
   door = ws;
   ws.onmessage = (m) => {
@@ -481,7 +501,10 @@ addEventListener("keydown", (k) => {
   else if (k.key === "e") face.setEmote(names[ei++ % names.length], now);
   else if (k.key === "a") face.setEmote("AUTO", now);
   else if (k.key === "s") { const n = skins.names(); skins.select(n[(n.indexOf(skins.chosen) + 1) % n.length]); }
-  else if (k.key === "t") face.setTheme(face.theme === "plain" ? "halloween" : "plain");
+  else if (k.key === "t") {                  // the next theme: plain, then the content folder's, round again
+    const ids = ["plain", ...((face.contentThemes && face.contentThemes.keys()) || [])];
+    face.setTheme(ids[(ids.indexOf(face.theme) + 1) % ids.length]);
+  }
   else if (k.key === "v") cut(video.style.visibility === "visible" ? "face" : "media");
 });
 // A twin with no door has no robot: say so on the face, as the head does (NO LINK), and keep the
