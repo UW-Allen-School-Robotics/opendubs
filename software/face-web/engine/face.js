@@ -5,6 +5,7 @@
 import { Spring, Ease } from "./anim.js";
 import { random, setRandom } from "./rng.js";
 import { STATES, EMOTES, SHAPES, THEMES, NO_LINK_COLOUR, QUOTES } from "./vocab.js";
+import { loadThemes } from "./themes.js";
 
 export { setRandom };          // the engine's random source (rng.js); an offline render seeds it
 
@@ -139,6 +140,7 @@ export class Face {
     this.emote = "NEUTRAL";
     this.pin = null;            // an EMOTE <name> pins; EMOTE AUTO releases
     this.theme = "plain";
+    this.contentThemes = new Map();   // id -> colours, from the content folder via the looks document
     this.bodyW = new Spring(BODY); this.bodyH = new Spring(BODY);
     this.radius = new Spring(BODY * 0.205);
     this.lid = new Spring(1);   // shut at first: the eyes open once, as the face's first act
@@ -192,9 +194,27 @@ export class Face {
   }
   setTheme(name) {
     const n = name.toLowerCase() === "none" ? "plain" : name.toLowerCase();
-    if (!(n in THEMES)) return false;
+    if (!(n in THEMES) && !this.contentThemes.has(n)) return false;
     this.theme = n; this.applyColour();
     return true;
+  }
+  /**
+   * Take the content folder's themes, from the looks document. Returns the problems, for the
+   * settings page to show; an empty list means every theme offered was accepted.
+   *
+   * IT TAKES THE DOCUMENT AND DOES ITS OWN READING, rather than being handed a map of colours,
+   * and that is the point: there is exactly one door into the engine and no way to put colours
+   * through it that skipped the guard (themes.js says what is refused, and why CHARGING is among
+   * it). Await it before the first `THEME` can arrive.
+   */
+  async loadContentThemes(doc, themesBase) {
+    const { themes, problems } = await loadThemes(doc, themesBase);
+    this.contentThemes = themes;
+    // A THEME CAN GO AWAY while it is the one showing -- the content folder is redeployed, or an
+    // edit to it introduces a problem that gets it refused. Falling back to plain keeps the face
+    // honest and, more to the point, keeps `stateColour` from reading colours off nothing.
+    if (!(this.theme in THEMES) && !themes.has(this.theme)) { this.theme = "plain"; this.applyColour(); }
+    return problems;
   }
   // From a tracker; null to let the eyes wander. `kind` ("motion" | "face" | "person") is
   // optional, carried only so the reticle can say WHICH cue this is -- the engine's own behaviour
@@ -476,7 +496,8 @@ export class Face {
     if (this.state < 0) return NO_LINK_COLOUR;
     const [name, , base, , reserved] = STATES[this.state];
     if (reserved) return base;                               // a theme can never recolour these
-    return THEMES[this.theme][name] ?? base;
+    const colours = THEMES[this.theme] ?? this.contentThemes.get(this.theme) ?? {};
+    return colours[name] ?? base;
   }
   applyColour(colour = this.stateColour()) {
     rgb(colour).forEach((v, k) => { if (this.col[k].target !== v) this.col[k].set(v, 0.45); });
