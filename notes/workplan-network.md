@@ -260,6 +260,45 @@ Each step still needs the user's word on the day, with a person there.
      robot and carried off to drive a projector or a building video wall.
 4. Optional, only if the user asks: **J-1 and J-2** (`netjoin init`, `netjoin wired-first`).
 
+### Names, not addresses (proposed 2026-10-24; needs the user's word at the robot)
+
+The rule: robot devices are reached by **name**, or by an address **reserved** on the router.
+Never by a dynamic address written into code or config. The neck has already changed address
+between sessions.
+
+**Today** (read 2026-10-20 and 2026-10-22):
+- Reserved:
+  - the Thor `.10`;
+  - the StamPLC `.20`;
+  - the retired Tab5 `.14`, a stale entry.
+- Everything else is dynamic: the neck `.16`, the stage Pi `.19`, the tablets, the projector.
+- The router is the LAN's DNS server, but its only name is a default `router.lan` pointing at the
+  wrong subnet (192.168.88.1). No DHCP domain is set, and lease host names aren't published.
+  Names therefore rely on mDNS (`.local`), which Android apps and WebView resolve unreliably.
+
+**The scheme:**
+- A DHCP reservation for every robot device, at its current address (no renumbering).
+- Router DNS A records under one domain per robot, `<role>.opendubs2.internal`: `thor`,
+  `stamplc`, `neck`, `head`, `stage`, `projector`. The DHCP network hands out that domain.
+  `.internal` is reserved for private use; `.lan` works but isn't.
+- `.local` stays as a fallback for laptops and for devices that also live off the robot.
+
+**Check with the Thor lane:** the Thor is also on the campus Wi-Fi directly. With the DHCP domain
+set, its resolver should send `*.opendubs2.internal` to the wired link's DNS. Confirm once.
+
+**Then each lane swaps its addresses for names:**
+- the stage Pi's fallback URL (Tablet lane);
+- the robot-local `robot.env` and the kiosk's dashboard URL (Tablet and Thor lanes). If the tablet
+  moves to a name over HTTPS, the dashboard's certificate must list that name;
+- the Quest teleop clients (Arms lane).
+
+**Change list at the robot** (about 10 minutes, no lockout risk):
+1. Reservations: the neck → `.16`; the stage Pi → `.19`; the head tablet once its MAC is
+   confirmed (it uses a per-network private MAC, stable for Opendubs2 unless the network is
+   forgotten); the projector once identified.
+2. Remove the stale Tab5 reservation.
+3. DNS: `router.lan` → 10.42.2.1, the six A records, and the DHCP network domain.
+
 ### How far the robot's Wi-Fi reaches (for the stage Pi and the projector)
 
 The robot's Wi-Fi is 2.4 GHz only: the router's 5 GHz radio is the campus uplink. Nothing here has
