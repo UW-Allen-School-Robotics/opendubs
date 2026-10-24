@@ -299,6 +299,37 @@ def test_the_code_skins_are_the_engines():
     assert tuple(re.findall(r"(\w+)(?::\s*\w+)?\s*[,}]", line.split("=", 1)[1])) == hp.CODE_SKINS, line
 
 
+
+def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_named():
+    """The discovery both the dashboard and the show validator read (looks.py): a theme file is a
+    state's colour by state name, a reserved state is refused, and content can't replace a core look."""
+    import json
+    import tempfile
+    import looks
+    with tempfile.TemporaryDirectory() as d:
+        face = os.path.join(d, "face")
+        os.makedirs(os.path.join(face, "themes")); os.makedirs(os.path.join(face, "skins"))
+        def put(rel, text):
+            with open(os.path.join(face, rel), "w") as fh:
+                fh.write(text)
+        put("themes/winter.json", json.dumps({"label": "Winter", "colors": {"SAFE_IDLE": "#88CCFF"}}))
+        put("themes/alarm.json", json.dumps({"colors": {"E_STOP": "#00ff00"}}))           # reserved: refused
+        put("themes/green.json", json.dumps({"colors": {"CHARGING": "#00ff00"}}))         # charging stays purple
+        put("themes/plain.json", json.dumps({"colors": {"INIT": "#ffffff"}}))             # a built-in name
+        put("skins/snowman.js", "export function draw() {}")
+        put("skins/snowman.json", json.dumps({"label": "Snowman"}))
+        found = looks.discover(d)
+        themes = {t["id"]: t for t in found["themes"]}
+        assert set(hp.THEMES_BUILT_IN) <= set(themes) and themes["winter"]["source"] == "content"
+        assert themes["winter"]["label"] == "Winter" and themes["winter"]["colors"] == {"SAFE_IDLE": "#88ccff"}
+        assert "alarm" not in themes and "green" not in themes and themes["plain"]["source"] == "builtin"
+        assert any("alarm.json" in p and "reserved" in p for p in found["problems"])
+        assert any("plain.json" in p for p in found["problems"])
+        assert {"id": "snowman", "label": "Snowman", "kind": "code", "source": "content"} in found["skins"]
+        assert looks.theme_ids(d) >= {"plain", "winter"} and "snowman" in looks.code_skin_ids(d)
+    assert looks.content_dir(env={"OPENDUBS_SHOWS_DIR": "/x/shows", "OPENDUBS_LOCAL_SHOWS": "/y"}).as_posix() == "/x/shows"
+
+
 if __name__ == "__main__":
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_")]
     for name, fn in tests:

@@ -41,6 +41,7 @@
       <div class="hf-row"><label for="hfIdle">Expressions change by themselves</label><input type="checkbox" id="hfIdle"></div>
       <div class="hf-row"><label for="hfSkin">Look (skin)</label><select id="hfSkin"></select></div>
       <div class="hf-row"><label for="hfTheme">Colours (theme)</label><select id="hfTheme"><option value="plain">plain</option><option value="halloween">halloween</option></select></div>
+      <div class="hf-note" id="hfLooksNote"></div>
       <div class="hf-note">A problem or an emergency stop replaces the look with the plain eyes, so a problem looks the same on every robot and in every show, and the face says in words what is wrong. The chosen look comes back by itself when it clears. With the state in words turned off, the face shows the plain eyes and explains nothing. Halloween recolours the calm states (starting up, ready, manual, automatic); charging, a problem and an emergency stop keep their own colours.</div>
       <div class="hf-note" id="hfLookNote"></div>
       <div class="hf-row"><label for="hfMouth">Mouth</label><input type="checkbox" id="hfMouth">
@@ -168,7 +169,23 @@
   }
 
   async function loadSkins() {
-    // The code skins, read from the face engine itself so this list can't drift from it.
+    // WHAT THIS ROBOT HAS: the head protocol's discovery (GET /api/head/looks: the core's looks, the
+    // content folder's, and the library's image and video skins), so a look installed with the show
+    // content appears here with no change to this page. Before that endpoint existed (an older robot),
+    // the code skins were read from the face engine's own list, as they still are here as a fallback.
+    let looks = null;
+    try { looks = await getJSON("/api/head/looks"); } catch (e) { /* an older robot */ }
+    if (looks) {
+      const opt = (x) => `<option value="${x.id}">${x.label || x.id}</option>`;
+      const group = (title, xs) => xs.length ? `<optgroup label="${title}">${xs.map(opt).join("")}</optgroup>` : "";
+      const by = (src) => looks.skins.filter((x) => x.source === src);
+      el("hfSkin").innerHTML = by("builtin").map(opt).join("") + group("show content", by("content")) + group("library", by("library"));
+      el("hfTheme").innerHTML = looks.themes.map(opt).join("");
+      el("hfLooksNote").textContent = (looks.problems || []).length
+        ? `Some looks in the content folder were left out: ${looks.problems.join("; ")}` : "";
+      if (s) { el("hfSkin").value = s.skin; el("hfTheme").value = s.theme; }
+      return;
+    }
     let code = ["default", "ring"];
     try {
       const js = await (await fetch("/face/engine/skins/index.js", { cache: "no-store" })).text();
