@@ -15,7 +15,7 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
 
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
     (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
-    FACE  { do: theme, name: halloween }   ->  THEME halloween (until the show ends)
+    FACE  { do: theme, name: <theme> }    ->  THEME <theme> (until the show ends)
     FACE  { do: move, name: wink_l }       ->  MOVE wink_l, sent at the event's `send_t` (its peak
                                                offset early, so the wink is shut ON the beat); one-shot,
                                                so a seek or a resync never replays it

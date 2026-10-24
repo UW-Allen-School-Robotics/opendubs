@@ -555,19 +555,32 @@ check_doc("an emote the face does not have is caught (HAPPY is documented, not i
           "not one the face has")
 check_doc("FACE has two verbs, emote and theme",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "blink"}]), "must be emote|theme")
-check_doc("a theme built into the face passes, in any case (the head ignores case)",
-          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "HALLOWEEN"}]), None)
+# Themes the face knows come from the head protocol's looks.py: the core's own and the content folder's.
+# The tests use a fixture content folder, never the content repository.
+_was_content = os.environ.get("OPENDUBS_SHOWS_DIR")
+os.environ["OPENDUBS_SHOWS_DIR"] = os.path.join(HERE, "fixtures", "content")
+check_doc("a theme the face knows (here the fixture content folder's) passes, in any case (the head ignores case)",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "FIXTURE_THEME"}]), None)
+check_doc("the core's own theme passes with no content at all, and so does its old name",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "plain"},
+                    {"t": 2.0, "slot": "FACE", "do": "theme", "name": "none"}]), None)
 check_doc("an authored theme the show does not list is caught — a typo is an error",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmass"}], themes=["christmas"]),
-          "neither built into the face")
+          "neither known to the face")
 check_doc("an authored theme listed under themes: passes",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "christmas"}], themes=["christmas"]), None)
-check_doc("a built-in theme listed under themes: is refused, so the list means 'install these'",
-          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "halloween"}], themes=["halloween"]),
-          "built into the face")
+check_doc("a theme the face knows, listed under themes:, is refused, so the list means 'install these'",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "fixture_theme"}], themes=["fixture_theme"]),
+          "known to the face")
+check_doc("a theme that is neither the core's, nor in the content folder, nor listed, is refused",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "seasonal_theme"}]), "neither known to the face")
 check_doc("`idle` is reserved for a theme: every show end sends THEME IDLE itself",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "theme", "name": "Idle"}], themes=["Idle"]),
           "`idle` is reserved")
+if _was_content is None:
+    os.environ.pop("OPENDUBS_SHOWS_DIR", None)
+else:
+    os.environ["OPENDUBS_SHOWS_DIR"] = _was_content
 check_doc("... and for a skin: every show end sends SKIN IDLE itself",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "skin", "name": "idle"}]), "`idle` is reserved")
 check_doc("... and no authored theme may be listed as idle",
@@ -648,8 +661,10 @@ if os.path.isfile(_face):
     _cues = _re.search(r"kNames\[\(int\)Cue::Count\] = \{(.*?)\};", _src, _re.S)
     _cn = _re.findall(r'"(\w+)"', _cues.group(1)) if _cues else []
     check_true("TAB5_EARCONS is exactly the face's cue names, in order", tuple(_cn) == _cue.TAB5_EARCONS, _cn)
+    sys.path.insert(0, _cue.HEAD_PROTOCOL_DIR)
+    import head_protocol as _hp  # noqa: E402
     check_true("every built-in theme name is one the face knows",
-               all(f'"{t}"' in _src or t == "none" for t in _cue.FACE_THEMES), _cue.FACE_THEMES)
+               all(f'"{t}"' in _src for t in _hp.THEMES_BUILT_IN), _hp.THEMES_BUILT_IN)
 else:
     print("  skip  firmware/tab5_idf/app_face is not on this branch; this runs once both are merged")
 
