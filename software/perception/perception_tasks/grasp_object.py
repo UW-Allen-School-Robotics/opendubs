@@ -129,12 +129,14 @@ class GraspObjectTask:
             res.success, res.message = False, str(exc)
         except Exception as exc:  # noqa: BLE001 - report to the client, keep serving
             res.success, res.message = False, f"{type(exc).__name__}: {exc}"
-        log = self.node.get_logger()
-        timing = f"segment {res.segment_ms:.0f} ms, grasp {res.grasp_ms:.0f} ms"
-        (log.info if res.success else log.error)(f"grasp_object {goal.label!r} on {goal.camera}: {res.message} | {timing}")
+        line = (f"grasp_object {goal.label!r} on {goal.camera}: {res.message} | "
+                f"segment {res.segment_ms:.0f} ms, grasp {res.grasp_ms:.0f} ms")
+        # One call site per severity: rclpy raises if a call site's severity changes between calls.
         if res.success:
+            self.node.get_logger().info(line)
             goal_handle.succeed()
         else:
+            self.node.get_logger().error(line)
             goal_handle.abort()
         return res
 
