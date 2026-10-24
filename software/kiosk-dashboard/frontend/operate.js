@@ -127,6 +127,23 @@
       btn.addEventListener(ev, () => { if (!done) reset(); }));
   })();
 
+  /* ---------- CLEAR FAULT (a single tap; only while a DEGRADED fault is latched) ----------
+     /api/fault/clear keeps any fault that is fatal (needs service) or whose condition is still
+     present, and answers 409 naming each one and why: say so, never fail silently. */
+  let clearSaid = null;                                 // the last refusal, shown until the next frame clears it
+  $("opClearFault") && $("opClearFault").addEventListener("click", async () => {
+    const btn = $("opClearFault");
+    btn.textContent = "CLEARING…";
+    try {
+      const r = await fetch("/api/fault/clear", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { btn.textContent = "CLEAR FAULT"; clearSaid = null; return; }
+      btn.classList.add("blocked"); btn.textContent = "NOT CLEARED";
+      clearSaid = { txt: j.error || "refused", code: j.code, at: performance.now() };
+      setTimeout(() => { btn.textContent = "CLEAR FAULT"; btn.classList.remove("blocked"); }, 3000);
+    } catch (e) { btn.textContent = "CLEAR FAULT"; }
+  });
+
   /* ---------- rear PiP expand ---------- */
   /* Guarded: only a click that ORIGINATED on the PiP toggles it. Without this, any click that
      bubbles up from (or lands on an element overlapping) the control zone expands the rear
@@ -208,7 +225,9 @@
   function setNotifs(list) {
     const box = $("opNotif"); if (!box) return; box.innerHTML = "";
     list.forEach((n) => { const d = document.createElement("div"); d.className = "op-nt " + n.sev;
-      d.innerHTML = (n.sev === "bad" ? BAD : WARN) + "<span>" + n.txt + "</span>"; box.appendChild(d); });
+      d.innerHTML = (n.sev === "bad" ? BAD : WARN) + "<span>" + n.txt + "</span>";
+      if (n.code && window.helpLink) d.appendChild(helpLink(n.code));   // its troubleshooting entry
+      box.appendChild(d); });
   }
   const STATE_SEV = { red: "bad", amber: "warn", yellow: "warn", orange: "warn", green: "ok", cyan: "ok" };
   function setOpState(label, color) {
@@ -264,6 +283,15 @@
     document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
     if (inp.estop_sources && inp.estop_sources.length) n.push({ sev: "bad", txt: "E-STOP · " + inp.estop_sources.join(" + ") });
     if (rs.recovery) n.push({ sev: "bad", txt: rs.recovery });     // what to do about it (the registry's words)
+    // A latched DEGRADED fault: what it is, and whether its cause is still there (status.fault_detail).
+    const faults = (rs.latched && rs.latched.fault_detail) || [];
+    document.body.classList.toggle("op-faulted", faults.length > 0);  // reveals CLEAR FAULT
+    for (const f of faults)
+      n.push({ sev: "bad", code: f.code, txt: "FAULT · " + f.cause + " · " +
+        (f.fatal ? "needs service before it can be cleared"
+         : f.present ? "still present" : "gone: CLEAR FAULT to clear it") });
+    if (!faults.length || (clearSaid && performance.now() - clearSaid.at > 10000)) clearSaid = null;
+    if (clearSaid) n.push({ sev: "bad", code: clearSaid.code, txt: "CLEAR FAULT · " + clearSaid.txt });
     if (inp.link === false) n.push({ sev: "bad", txt: "RC LINK LOST" });
     if (lastSoc != null) { if (lastSoc < 15) n.push({ sev: "bad", txt: "PACK " + lastSoc + "% — RETURN" });
       else if (lastSoc < 25) n.push({ sev: "warn", txt: "PACK " + lastSoc + "% — low" }); }

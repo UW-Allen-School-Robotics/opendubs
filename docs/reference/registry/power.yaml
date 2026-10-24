@@ -64,7 +64,8 @@ entries:
         Check that the cooling fan runs and that its airflow is not blocked. The dashboard's
         thermal view shows which zone is hot.
       - >
-        The fault stays shown after the temperature falls. Restarting the robot clears it.
+        The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on
+        the dashboard's Operate page; it refuses while the temperature is still high.
     see: [build/cooling-fan.md]
 
   - code: POWER_PDH_BROWNOUT
@@ -81,7 +82,8 @@ entries:
       - Check the pack's charge on the dashboard.
       - Check that the hub's input connections are tight.
       - >
-        The fault stays shown after the voltage recovers. Restarting the robot clears it.
+        The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on
+        the dashboard's Operate page; it refuses while the brownout is still reported.
     see: [build/power-bay.md]
 
   - code: POWER_PDH_FAULT
