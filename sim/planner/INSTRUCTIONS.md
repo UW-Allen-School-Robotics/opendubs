@@ -7,7 +7,7 @@ planning functions in Python.
 
 ---
 
-## 1. Quickstart: Using the Choreo Composer Tool
+## Quickstart: Choreo Composer
 
 The **Choreo Composer** is the visual authoring environment for creating robot routines and planning
 collision-free trajectories.
@@ -19,8 +19,6 @@ From the repository root, start the composer using the studio launcher:
 ```bash
 software/choreo/studio-up.sh
 ```
-
-*(Alternatively, start only the server directly: `python3 software/choreo/composer/server.py --port 8091`)*
 
 Open your web browser and navigate to:
 **`http://localhost:8091`**
@@ -42,7 +40,7 @@ To stop the background server when done, run `software/choreo/studio-down.sh`.
    - The **Arm Inspector** panel opens on the right.
 
 3. **Posing the Arm**:
-   - **Joint Sliders ($J_1$–$J_7$)**: Drag sliders to adjust outward joint angles interactively. The 3D ghost arm updates in real time to show the target pose.
+   - **Joint Sliders (J1–J7)**: Drag sliders to adjust outward joint angles interactively. The 3D ghost arm updates in real time to show the target pose.
    - **SSIK Cartesian Reach Solver**: In the *Solve Target Reach* section, enter Cartesian coordinates (e.g. `[0.45, 0.10, 0.25]` in meters relative to arm base) or a named target (e.g. `head_screen`), then click **Solve Reach**. Analytical IK resolves the target into joint angles in under 0.2 ms.
 
 4. **Select Motion Planner Backend**:
@@ -54,9 +52,9 @@ To stop the background server when done, run `software/choreo/studio-down.sh`.
 5. **Generate and Preview Trajectory**:
    - Click **Plan Path**.
    - The composer computes the trajectory and opens the **Plan Preview Card**:
-     - **Validation Verdict**: Displays `PASS` (green) or `FAIL` (red) based on validator speed caps ($180^\circ/\text{s}$) and joint limits.
+     - **Validation Verdict**: Displays `PASS` (green) or `FAIL` (red) based on validator speed caps (180 deg/s) and joint limits.
      - **Planner Clearance**: Reports the minimum clearance along the planner's own waypoints.
-     - **Clamping Notification**: Warns if any target or waypoint joint angle was clamped to stay within the usable range ($5^\circ$ margin inside hardware limits).
+     - **Clamping Notification**: Warns if any target or waypoint joint angle was clamped to stay within the usable range (5 deg margin inside hardware limits).
    - Click **Apply Planned Path** (or **Apply Anyway**) to insert avoidance waypoints and the arrival cue into the show, or click **Discard** to cancel.
 
 6. **Save the Show**:
@@ -65,54 +63,18 @@ To stop the background server when done, run `software/choreo/studio-down.sh`.
 
 ---
 
-## 2. Deploying and Running on the Physical Robot (Thor)
+## Deploying and running on the physical robot
 
-All physical robot motion is mediated through the official choreography show runner
-(`software/choreo/runner.py`) and is gated by hardware safety interlocks.
+Physical robot execution and show deployment are documented in the composer guides:
 
-### Step 1: Deploy Shows to Thor
+- [docs/composer/quickstart.md](../../docs/composer/quickstart.md) ("Run it live"): Live execution with the show runner (`software/choreo/runner.py`), RC authority (`AUTO`), and deadman switch gating.
+- [docs/composer/making-a-show.md](../../docs/composer/making-a-show.md) ("Sending a show to the robot"): Shows are transferred to the robot (`/var/lib/opendubs/shows`) using `python3 software/choreo/show_sync.py push <robot> <show>.yaml`.
 
-Connect to the robot's Wi-Fi network (`opendubs` or robot IP `10.42.2.10`), then run:
-
-```bash
-./deploy-all.sh
-```
-
-*(Alternatively, copy your show YAML file directly into `/opt/opendubs/shows/<your_show>.yaml` on Thor).*
+Before running arm shows, the arms must be energized and active (via the dashboard's Teleop page or `openarm-up activate` on the robot).
 
 ---
 
-### Step 2: Enabling the Arms Through the Dashboard
-
-Before a show can move the arms, the arm controllers must be energized and active. You can enable
-the arms directly through the web dashboard without needing a terminal:
-
-1. Open the robot dashboard on the tablet or in a browser:
-   - **`http://10.42.2.1/`** (or `http://opendubs.local/`)
-2. Go to the **TELEOP** page in the top navigation.
-3. In the **ARM POWER** panel:
-   - Tap **ACTIVATE L** (the button label changes to **MOVES TO ZERO**). Tap it a second time within 5 seconds to confirm.
-   - Tap **ACTIVATE R** (label changes to **MOVES TO ZERO**). Tap a second time within 5 seconds to confirm.
-4. The dashboard displays `ACTIVATING…` while starting the arm stack, homing the joints, and launching the gripper controllers.
-5. When complete, the arm status indicators turn green (**`active`**).
-
-*(From a Thor SSH terminal, you can also run `openarm-up activate`).*
-
----
-
-### Step 3: Executing the Show with Hardware Interlocks
-
-1. Navigate to the **Shows** page:
-   - **`http://10.42.2.1/shows.html`**
-2. Locate your show card and click **ARM RUN**.
-3. **Verify Safety Interlocks**:
-   - **CH5 Switch (RC Transmitter)**: Must be set to **AUTO** (far forward position).
-   - **CH6 Deadman Switch (RC Transmitter)**: Must be **held down** continuously during the run. Letting go of the deadman switch immediately halts arm and base motion.
-   - **Workspace**: Confirm bystanders and obstacles are clear of the robot.
-
----
-
-## 3. Python API Reference: CBiRRT, cuRobo, and SSIK
+## Python API reference: CBiRRT, cuRobo, and SSIK
 
 Developers can use the motion planning engine directly in Python scripts, testbeds, and notebooks.
 
@@ -216,7 +178,7 @@ traj = backend.plan(q_start, q_goal)
 
 ### Analytical Inverse Kinematics via SSIK
 
-For fast analytical kinematics ($< 0.2\text{ ms}$ per solve), use the generated SSIK modules directly:
+For fast analytical kinematics (< 0.2 ms per solve), use the generated SSIK modules directly:
 
 ```python
 import numpy as np
@@ -239,7 +201,7 @@ print("Reconstructed position:", T_fk[:3, 3].round(4))
 
 ---
 
-## 4. Command-Line Tools & Benchmarking
+## Command-line tools and benchmarking
 
 ### Command-Line Planner Runner
 Run test motions directly from the terminal without starting the web composer:

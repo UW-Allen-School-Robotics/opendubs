@@ -54,9 +54,9 @@ With only the needed dependencies installed, spline interpolation and analytical
 ### Optional dependencies
 
 Additional planners and retiming tools can be installed as needed:
-- `sscbirrt`: Sampling-based constrained bidirectional RRT planner (`pip install sscbirrt` or build from git source). Adds the `cbirrt` backend. Without it, spline planning remains functional.
+- [sscbirrt](https://github.com/personalrobotics/sscbirrt): Sampling-based constrained bidirectional RRT planner (`pip install sscbirrt` or build from source: [github.com/personalrobotics/sscbirrt](https://github.com/personalrobotics/sscbirrt)). Adds the `cbirrt` backend. Without it, spline planning remains functional.
 - `toppra`: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`pip install toppra`). Provides time-optimal trajectory retiming. Without it, the planner falls back to velocity-bounded linear interpolation.
-- `curobo` + `torch` + `warp-lang`: NVIDIA cuRobo GPU trajectory generator (CUDA only; install per [cuRobo installation](https://curobo.org)). Adds the `curobo` backend. Without it, CPU backends continue to work normally.
+- `curobo` + `torch` + `warp-lang`: NVIDIA cuRobo GPU trajectory generator (CUDA only; targets the v0.7.x API, pinned at `curobo==0.7.8`; install per [cuRobo installation](https://curobo.org)). Adds the `curobo` backend. Without it, CPU backends continue to work normally.
 
 ## Selecting backends
 
@@ -118,7 +118,7 @@ python sim/planner/benchmark.py \
 ### Empirical results (simulation)
 
 Tested on an x86_64 host (AMD Ryzen 9 7950X) with an NVIDIA RTX 4090 GPU in MuJoCo simulation,
-evaluating OpenArm V1 left arm transitions across canonical workspace poses (`stow` → `reach_forward` → `reach_high` → `reach_side` → `ready` → `stow`):
+evaluating OpenArm V1 left arm transitions across canonical workspace poses (`stow` → `reach_forward` → `spooky_arms_up` → `zombie_reach` → `pumpkin_carry` → `stow`):
 
 ```
 ==============================================================================
@@ -141,7 +141,7 @@ Min Path Clearance           | 39.9 mm              | 39.9 mm
 
 Key observations:
 1. **Speedup:** cuRobo operates **2.3× faster** on average than CBiRRT on this test host by parallelizing optimization on CUDA cores.
-2. **Clearance:** Both planners achieved measured clearances of 39.9 mm along their generated waypoints in the simulation scene. The authoritative collision gate remains the save-time sweep (`sim/clearance.py`), which checks the interpolated spline against the 30.0 mm threshold (`CLEAR_MIN_MM`). Note that the twin simulation reads about 6° optimistic and the head moves during live operation.
+2. **Clearance:** Both planners achieved measured clearances of 39.9 mm along their generated waypoints in the simulation scene. The save-time sweep is the check; it assumes the neck is centred near the arms (the J2 ≤ 155° cap).
 
 ## Choreo Composer integration
 
@@ -192,7 +192,7 @@ has not yet run on the physical arms.
 
 ## Licenses and provenance
 
-- **cuRobo**: Copyright &copy; NVIDIA Corporation. The backend targets the cuRobo v2 API, licensed under **Apache-2.0**. (Earlier v0.7.x releases were under the NVIDIA non-commercial license). cuRobo is an external library and is **not vendored** into this repository. It is an optional dependency installed separately by users in environments equipped with NVIDIA CUDA GPUs. The composer, choreography tools, and test suites function without cuRobo.
+- **cuRobo**: Copyright &copy; NVIDIA Corporation. The backend targets the cuRobo v0.7.x API (pinned at `curobo==0.7.8`), which is licensed under the **NVIDIA Source Code License (Non-Commercial, Research and Evaluation Only)**. (Later cuRobo v2 releases changed the public API and adopted Apache-2.0). cuRobo is an external library and is **not vendored** into this repository. It is an optional dependency installed separately by users in environments equipped with NVIDIA CUDA GPUs. The composer, choreography tools, and test suites function without cuRobo.
 - **SSIK (Simple Symbolic Inverse Kinematics)**: The analytical IK artifacts in `sim/ik_artifacts/openarm_left_ik.py` and `sim/ik_artifacts/openarm_right_ik.py` were generated using SSIK, developed by the Personal Robotics Lab and licensed under the **BSD-3-Clause** license. See `sim/ik_artifacts/LICENSE-ssik`.
-- **sscbirrt**: The constrained bidirectional RRT planner (`sscbirrt`) is developed by the Personal Robotics Lab and licensed under the **MIT** license. It is an optional dependency; the test suite skips cleanly when it is not installed.
+- **sscbirrt**: The constrained bidirectional RRT planner ([sscbirrt](https://github.com/personalrobotics/sscbirrt)) is developed by the Personal Robotics Lab and licensed under the **MIT** license. It is an optional dependency; the test suite skips cleanly when it is not installed.
 - **TOPP-RA**: Trajectory Optimization for Paths Subject to Acceleration and Velocity Constraints (`toppra`) is licensed under the **MIT** license and is an optional dependency for trajectory retiming. Fallback velocity-bounded interpolation is provided when TOPP-RA is not installed.

@@ -1,8 +1,8 @@
 """NVIDIA cuRobo GPU Motion Planner Backend.
 
 Provides a drop-in MotionPlannerBackend implementation wrapping NVIDIA cuRobo
-(and compatible distributions such as curobo-stretch). Computes collision-free,
-time-optimal joint trajectories directly on CUDA GPU.
+(targets v0.7.x API, pinned at v0.7.8, under NVIDIA's Non-Commercial Research & Evaluation License).
+Computes collision-free, time-optimal joint trajectories directly on CUDA GPU.
 """
 from __future__ import annotations
 
@@ -17,6 +17,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SIM_DIR = os.path.dirname(HERE)
 REPO = os.path.dirname(SIM_DIR)
 URDF_PATH = os.path.join(REPO, "description", "openarm", "urdf", "v1.urdf")
+
+
+def _to_2d_numpy(t):
+    if t is None:
+        return None
+    arr = t.cpu().numpy()
+    if arr.ndim == 3:
+        arr = arr[0]
+    elif arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    return arr
 
 
 class CuRoboBackend(MotionPlannerBackend):
@@ -40,7 +51,7 @@ class CuRoboBackend(MotionPlannerBackend):
                 "Requirements:\n"
                 "  1. NVIDIA GPU with CUDA support\n"
                 "  2. PyTorch with CUDA (e.g. torch >= 2.0 with CUDA >= 11.8)\n"
-                "  3. cuRobo (pip install curobo or see https://curobo.org)\n"
+                "  3. cuRobo v0.7.8 (pip install curobo==0.7.8 or see https://curobo.org)\n"
             )
 
         import torch
@@ -121,17 +132,6 @@ class CuRoboBackend(MotionPlannerBackend):
             return None
 
         interpolated = result.get_interpolated_plan()
-
-        def _to_2d_numpy(t):
-            if t is None:
-                return None
-            arr = t.cpu().numpy()
-            if arr.ndim == 3:
-                arr = arr[0]
-            elif arr.ndim == 1:
-                arr = arr.reshape(1, -1)
-            return arr
-
         positions = _to_2d_numpy(interpolated.position)
         velocities = _to_2d_numpy(getattr(interpolated, "velocity", None))
         if velocities is None:

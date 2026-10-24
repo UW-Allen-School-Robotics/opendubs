@@ -326,14 +326,18 @@ def plan_arm_move(
     straight_clearance = None
     needs_intermediate = False
     mujoco_checked = False
-    if kin is not None:
+    mujoco_skip_reason = None
+    if kin is None or not getattr(kin, "have_mujoco", False):
+        mujoco_skip_reason = "MuJoCo not available"
+    else:
         try:
             straight_clearance, _, _ = kin.clearance_along(side, q_start_rad, q_goal_rad)
             needs_intermediate = straight_clearance < ik.CLEAR_MIN_MM
             mujoco_checked = True
-        except Exception:
+        except Exception as exc:
             straight_clearance = None
             needs_intermediate = False
+            mujoco_skip_reason = f"clearance check error: {exc}"
 
     dt = max(0.1, t_goal - t_prev)
     time_form = "t" in c and "t" or ("beat" in c and "beat" or ("bar" in c and "bar" or "t"))
@@ -428,7 +432,7 @@ def plan_arm_move(
 
     if not mujoco_checked:
         msg = (
-            f"Planned path with {planner_choice.upper()} (straight-line clearance check skipped: MuJoCo not available). "
+            f"Planned path with {planner_choice.upper()} (straight-line clearance check skipped: {mujoco_skip_reason or 'MuJoCo not available'}). "
             f"Planner path clearance: {traj.min_clearance_mm:.1f} mm. "
             f"Note: save-time sweep verifies clearance for the robot's spline path."
         )
