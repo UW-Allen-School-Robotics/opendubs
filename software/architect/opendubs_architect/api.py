@@ -15,6 +15,8 @@ stale copy in a prompt can never widen what the arms are allowed to do.
 
 from __future__ import annotations
 
+import re
+
 #: Every function a program may call, as (name, ROS 2 service, kind). The
 #: service lives under /robot/; "query" is a RobotQuery (no request fields),
 #: "command" a RobotCommand (a JSON request). Motion services are the ones the
@@ -254,3 +256,38 @@ move_base_rel(dx: float = 0.0, dy: float = 0.0, dyaw_deg: float = 0.0)
     Short relative base move in base_link: dx forward, dy left (the base can strafe), meters;
     dyaw_deg counter-clockwise. Both arms must be at "stow". Returns True.
 """
+
+
+#: Which primitives a session offers. "arms" is the first one for the physical robot: no
+#: perception, no handoff, no speech or navigation, only what a recorded show can play.
+PROFILES = {
+    "full": PRIMITIVE_NAMES,
+    "arms": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
+             "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
+             "set_gripper_width", "reset_robot"),
+}
+
+_ENTRY = re.compile(r"^([a-z_]+)\(")
+
+
+def spec_for(names) -> str:
+    """API_SPEC with only the entries for `names`, and only the sections that keep one."""
+    names = set(names)
+    head, sections = [], []
+    for line in API_SPEC.splitlines():
+        if line.startswith("## "):
+            sections.append({"header": [line], "entries": []})
+        elif not sections:
+            head.append(line)
+        elif _ENTRY.match(line):
+            sections[-1]["entries"].append((_ENTRY.match(line).group(1), [line]))
+        elif sections[-1]["entries"]:
+            sections[-1]["entries"][-1][1].append(line)
+        else:
+            sections[-1]["header"].append(line)
+    out = list(head)
+    for s in sections:
+        kept = [lines for name, lines in s["entries"] if name in names]
+        if kept:
+            out += s["header"] + [line for lines in kept for line in lines]
+    return "\n".join(out).rstrip() + "\n"

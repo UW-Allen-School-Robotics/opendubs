@@ -457,9 +457,9 @@ class ShowRecorder(_Arms):
     """
 
     def __init__(self, planner: Planner, config: ArmConfig, limits: dict, path: str,
-                 show_id: str = "architect", name: str = "ARCHITECT program"):
+                 show_id: str = "architect", name: str = "ARCHITECT program", palette: dict | None = None):
         super().__init__(planner, config, limits)
-        self.path, self.show_id, self.name = path, show_id, name
+        self.path, self.show_id, self.name, self.palette = path, show_id, name, palette
         self.t = 0.0
         self.pose = {slot: [0.0] * 7 for slot in ARM_SLOT.values()}
         self.grips = {side: None for side in SIDES}
@@ -493,11 +493,15 @@ class ShowRecorder(_Arms):
         return dict(self.grips)
 
     def doc(self) -> dict:
-        return {"id": self.show_id, "name": self.name,
+        doc = {"id": self.show_id, "name": self.name}
+        if self.palette:                        # the Shows page lists only a show with a palette block
+            doc["palette"] = dict(self.palette)
+        return {**doc,
                 "slots": ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R"],
                 "requires": {"arms": "active", "rc_authority": "AUTO"},
-                "notes": "Recorded from an approved ARCHITECT program (software/architect, live_arms.py). "
-                         "Compile and stamp before it runs: ik.py check, sweep.py stamp.",
+                "notes": "Recorded from an approved ARCHITECT program (software/architect). "
+                         "Its clearance stamp is written when it is published (show_backend.Publisher); "
+                         "an edited copy needs sweep.py stamp again.",
                 "cues": list(self.cues)}
 
     def write(self) -> None:

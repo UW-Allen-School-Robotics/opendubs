@@ -157,5 +157,27 @@ class Twin(unittest.TestCase):
         self.assertTrue(tl["valid"], tl["problems"])
 
 
+@unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")
+class Publish(unittest.TestCase):
+    def test_an_approved_program_becomes_a_stamped_listed_show(self):
+        import tempfile
+        from opendubs_architect import api, show_backend
+        from opendubs_architect.demo_runner import Program
+        code = open(os.path.join(HERE, "..", "examples", "arms_wave.py")).read()
+        with tempfile.TemporaryDirectory() as d:
+            arms = os.path.join(d, "arms.yaml")
+            with open(arms, "w") as fh:
+                fh.write('workspace:\n  right: {x: [0.25, 0.6], y: [-0.45, 0.1], z: [0.6, 1.1]}\n')
+            os.environ["OPENDUBS_ARCHITECT_ARMS"] = arms
+            try:
+                out = show_backend.Publisher(os.path.join(d, "shows"), api.PROFILES["arms"], LIMITS_PATH)(Program(code, "wave"))
+            finally:
+                del os.environ["OPENDUBS_ARCHITECT_ARMS"]
+            show = cue.load_show(out["path"])
+            self.assertIn("label", show.doc["palette"])           # the Shows page lists it
+            self.assertGreaterEqual(show.doc["clearance"]["min_mm"], 30.0)
+            self.assertEqual(os.listdir(os.path.join(d, "shows")), [os.path.basename(out["path"])])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

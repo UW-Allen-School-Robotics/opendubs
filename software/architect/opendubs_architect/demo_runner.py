@@ -87,8 +87,9 @@ def summary_of(code: str) -> str:
     return m.group(1)[:SAID_MAX] if m else "I have a program ready."
 
 
-def check_program(code: str) -> None:
-    """Raise ValueError naming what is wrong with a program, before anyone is asked to approve it."""
+def check_program(code: str, primitives=api.PRIMITIVE_NAMES) -> None:
+    """Raise ValueError naming what is wrong with a program, before anyone is asked to approve it.
+    `primitives`: what the session's profile offers (api.PROFILES)."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -119,7 +120,7 @@ def check_program(code: str) -> None:
                 defined.add(node.id)
             else:
                 used.setdefault(node.id, node.lineno)
-    known = defined | set(api.PRIMITIVE_NAMES) | set(dir(builtins))
+    known = defined | set(primitives) | set(dir(builtins))
     unknown = sorted((n, line) for n, line in used.items() if n not in known)
     if unknown:
         raise ValueError("names nothing defines: " + ", ".join(f"{n} (line {line})" for n, line in unknown))
@@ -135,11 +136,11 @@ class _Quiet:
         self.lines.append(" ".join(str(a) for a in args))
 
 
-def desk_check(code: str) -> None:
+def desk_check(code: str, primitives=api.PRIMITIVE_NAMES) -> None:
     """check_program, then one run on the dry-run robot. Raise ValueError with the reason."""
     from opendubs_architect.dryrun import DryRunRobot, namespace_for
-    check_program(code)
-    ns = dict(namespace_for(DryRunRobot(_Quiet())))
+    check_program(code, primitives)
+    ns = {k: v for k, v in namespace_for(DryRunRobot(_Quiet())).items() if k in primitives}
     try:
         exec(compile(code, "<desk check>", "exec"), ns)  # noqa: S102  the dry-run robot moves nothing
     except Exception as e:  # noqa: BLE001
@@ -179,8 +180,14 @@ class DemoRunner:
     service and the dashboard page; `speak` and `deadman_held` reach the robot."""
 
     def __init__(self, agent, make_namespace, speak, deadman_held, clock=time.monotonic,
-                 log=None, background=True):
+                 log=None, background=True, primitives=api.PRIMITIVE_NAMES, publish=None):
+        """`publish`, when given, is called with each approved Program instead of arming it for
+        "trick or treat": the show path, where the Shows page runs it (show_backend.publish). It
+        returns what to report (a dict), or raises ValueError, and the program is not approved."""
         self.agent, self.make_namespace = agent, make_namespace
+        self.primitives, self.publish = tuple(primitives), publish
+        self.published = None                     # what publish returned for the approved program
+        self.failed: Program | None = None        # a program whose show could not be made
         self.speak, self.deadman_held, self.clock = speak, deadman_held, clock
         self.background = background
         self.lock = threading.RLock()
@@ -247,6 +254,9 @@ class DemoRunner:
             if self.state != ARMED:
                 self._log("trigger_ignored", source=source)
                 return False
+            if self.publish is not None:
+                self._log("trigger_ignored", source=source, why="the Shows page runs a published show")
+                return False
             try:
                 held = bool(self.deadman_held())
             except Exception as e:  # noqa: BLE001  unknown is not held
@@ -270,7 +280,7 @@ class DemoRunner:
         with self.lock:
             self._gen += 1
             self._stop.set()
-            self.offered = self.armed = None
+            self.offered = self.armed = self.published = self.failed = None
             if self.state != IDLE:
                 self._to(IDLE, "stopped", why=why)
 
@@ -284,7 +294,7 @@ class DemoRunner:
     # ---- generation ------------------------------------------------------------------------------
     def _generate(self, text: str, correction: bool) -> None:
         self._gen += 1
-        self.armed = None                        # a new program replaces it, and needs its own yes
+        self.armed = self.published = self.failed = None   # a new program needs its own yes
         self._to(GENERATING, "correction" if correction else "instruction", text=text)
         self._say("Let me think about that.")
         self._spawn(self._write, self._gen, text, correction)
@@ -300,7 +310,7 @@ class DemoRunner:
                     break
                 code = self.agent.bundle(code)
                 try:
-                    desk_check(code)
+                    desk_check(code, self.primitives)
                     break
                 except ValueError as e:
                     with self.lock:
@@ -325,9 +335,33 @@ class DemoRunner:
             self._say(f"{self.offered.summary} Shall I? Say yes to approve.")
 
     def _approve(self) -> None:
+        if self.publish is not None:
+            program, self.offered = self.offered, None
+            self._to(GENERATING, "approved_publishing", sha=program.sha)
+            self._spawn(self._publish, self._gen, program)
+            return
         self.armed, self.offered = self.offered, None
         self._to(ARMED, "approved", sha=self.armed.sha)
         self._say("Approved. Say trick or treat.")
+
+    def _publish(self, gen: int, program: Program) -> None:
+        try:
+            result, error = self.publish(program), None
+        except Exception as e:  # noqa: BLE001  a refusal while recording is a failed check
+            result, error = None, f"{type(e).__name__}: {e}"
+        with self.lock:
+            if gen != self._gen:
+                self._log("publish_dropped", sha=program.sha)
+                return
+            if error:
+                self.last = {"sha": program.sha, "result": "failed", "error": error}
+                self.failed = program                # shown on the page, beside the failure
+                self._to(CHECK_FAILED, "publish_failed", error=error)
+                self._say("I couldn't make that into a show: " + error.split(": ", 1)[-1][:SAID_MAX])
+                return
+            self.armed, self.published = program, result
+            self._to(ARMED, "published", sha=program.sha, **result)
+            self._say("Approved. The show is ready for the Shows page.")
 
     # ---- a run -----------------------------------------------------------------------------------
     def _namespace(self) -> dict:
@@ -338,7 +372,7 @@ class DemoRunner:
                 return f(*args, **kwargs)
             call.__name__ = getattr(f, "__name__", "primitive")
             return call
-        ns = {k: guard(v) for k, v in self.make_namespace().items() if k in api.PRIMITIVE_NAMES}
+        ns = {k: guard(v) for k, v in self.make_namespace().items() if k in self.primitives}
         ns["__builtins__"] = builtins
         return ns
 
@@ -369,10 +403,11 @@ class DemoRunner:
     # ---- what the dashboard page shows -----------------------------------------------------------
     def status(self) -> dict:
         with self.lock:
-            shown = self.armed or self.offered
+            shown = self.armed or self.offered or self.failed
             return {"state": self.state, "since_s": round(self.clock() - self.since, 1),
                     "summary": shown.summary if shown else None, "sha": shown.sha if shown else None,
                     "code": shown.code if shown else None, "approved": self.armed is not None,
+                    "published": self.published if self.armed else None,
                     "runs": self.runs, "last": self.last, "events": self.events[-30:]}
 
 
@@ -396,7 +431,10 @@ PAGE = """<!doctype html>
 <body><main>
 <h1>ARCHITECT program</h1>
 <div class="row"><span class="state" id="state">...</span><span class="quiet" id="since"></span></div>
-<div class="row"><button id="run">Run once (deadman must be held)</button><button class="stop" id="stop">Stop</button></div>
+<form class="row" id="ask"><input id="instruction" placeholder="Instruction for the robot" style="flex:1;min-width:240px;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink)"><button>Send instruction</button></form>
+<div class="row"><button id="yes">Yes</button><button id="no">No</button><button id="run">Run once (deadman must be held)</button><button class="stop" id="stop">Stop</button></div>
+<p class="quiet">Typed here until the voice service posts what it hears; a typed yes approves like a spoken one.</p>
+<p id="published"></p>
 <p id="summary"></p><p class="quiet" id="sha"></p>
 <pre id="code">No program yet.</pre>
 <p class="quiet" id="last"></p>
@@ -412,10 +450,15 @@ async function refresh() {
     $("summary").textContent = s.summary || "";
     $("sha").textContent = s.sha ? (s.approved ? "approved, frozen as " : "awaiting a spoken yes: ") + s.sha + (s.runs ? " - " + s.runs + " runs" : "") : "";
     $("code").textContent = s.code || "No program yet.";
+    $("published").textContent = s.published ? "Show ready: " + s.published.show_id + " (" + s.published.cues + " cues, " + s.published.seconds + " s, closest " + s.published.clearance_mm + " mm; limits: " + s.published.limits + "). Push it with show_sync.py, then run it from the Shows page." : "";
     $("last").textContent = s.last ? "Last run: " + s.last.result + (s.last.error ? " - " + s.last.error : "") : "";
     $("events").textContent = s.events.map((e) => JSON.stringify(e)).reverse().join("\\n");
   } catch (e) { $("state").textContent = "runner unreachable"; }
 }
+const heard = (kind, text) => fetch("/api/heard", {method: "POST", body: JSON.stringify({kind, text})}).then(refresh);
+$("ask").onsubmit = (e) => { e.preventDefault(); heard("instruction", $("instruction").value); $("instruction").value = ""; };
+$("yes").onclick = () => heard("speech", "yes");
+$("no").onclick = () => heard("speech", "no");
 $("run").onclick = () => fetch("/api/trigger", {method: "POST"}).then(refresh);
 $("stop").onclick = () => fetch("/api/stop", {method: "POST"}).then(refresh);
 refresh(); setInterval(refresh, 1000);
@@ -475,11 +518,19 @@ def main(argv=None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8098)
     ap.add_argument("--log", help="append every event to this file, one JSON line each")
+    ap.add_argument("--publish", metavar="DIR",
+                    help="the show path: each approved program is recorded as a stamped show in DIR, for "
+                         "show_sync.py and the Shows page; nothing here reaches the robot")
     a = ap.parse_args(argv)
 
-    from opendubs_architect.config import OpenDubsConfig
-    cfg = OpenDubsConfig()
-    if a.dry_run:
+    from opendubs_architect import config as config_mod
+    cfg = config_mod.OpenDubsConfig()
+    primitives = config_mod.primitives()
+    publish = None
+    if a.publish:
+        from opendubs_architect.show_backend import Publisher
+        publish = Publisher(a.publish, primitives)
+    if a.dry_run or a.publish:
         namespace = cfg.make_dry_run_namespace(_Quiet())
         deadman_held = lambda: True  # noqa: E731
     else:
@@ -507,7 +558,11 @@ def main(argv=None) -> int:
             log_fh.write(line + "\n")
             log_fh.flush()
 
-    runner = DemoRunner(agent, lambda: namespace, namespace["say"], deadman_held, log=log)
+    def speak(text):                              # the arms profile has no say(): the page and log show it
+        (namespace["say"] if "say" in namespace else lambda t: log({"said": t}))(text)
+
+    runner = DemoRunner(agent, lambda: namespace, speak, deadman_held, log=log,
+                        primitives=primitives, publish=publish)
 
     def ticks():
         while True:

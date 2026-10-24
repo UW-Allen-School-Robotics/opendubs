@@ -29,6 +29,8 @@ handout triggered by "trick or treat".
 | `opendubs_architect/show_backend.py` | The fallback backend: a program's arm calls recorded as a show |
 | `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode` with `REFUSED`) |
 | `skills/*.md` | What the model is told about this robot: motion, grasping, verification, camera questions, handoff, navigation |
+| `image/`, `tools/dev.sh` | The `archit-architect` image (the perception image's base and layout) and how it runs on opendubs2 |
+| `examples/arms_wave.py` | An arms-only program for the first runs: no model needed |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
 | `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
 | `tests/test_live_arms.py` | The arm service's gates: the deadman, unknown state, the workspace, the twin's clearance check; a recorded program is a valid show |
@@ -73,6 +75,36 @@ curl -X POST localhost:8098/api/heard -d '{"kind": "trigger", "text": "trick or 
 
 `--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
 camera questions while writing, but every motion refuses until a program is approved.
+
+## First runs on the robot: ARCHITECT writes a show
+
+The first profile for the physical robot has no perception and moves nothing itself. ARCHITECT
+writes an arms-only program (`OPENDUBS_ARCHITECT_PROFILE=arms`: named poses, workspace points,
+grippers, stow). A "yes" records it as a show, stamps it with the clearance sweep and validates
+it. From there the robot's existing path takes over: `show_sync.py` puts the show in the robot's
+own folder, and the dashboard's Shows page runs it through the show runner (see
+`sim/planner/INSTRUCTIONS.md` on `feat/arm-motion-planner-ui`, steps 2 and 3). It runs in a
+container, `archit-architect`, built and run like `archit-perception`: on opendubs2 as `archit`,
+the repository and ssa mounted read-only, data in `~/architect-data`, nothing on the host changed.
+
+```bash
+# on opendubs2, as archit, in ~/opendubs-architect (a clone of this branch); ssa in ~/ssa
+software/architect/tools/dev.sh build
+LIMITS=<the arm stack's joint_limits.yaml> software/architect/tools/dev.sh dry   # examples/arms_wave.py
+#   page: ssh -L 8098:127.0.0.1:8098 archit@opendubs2, then http://localhost:8098/; type an instruction, Yes
+software/architect/tools/dev.sh shows
+software/architect/tools/dev.sh down
+
+# on the laptop: the robot's own pre-run check first, then the push
+python3 software/choreo/show_sync.py push opendubs2 architect-<sha>.yaml --dry-run --limits-from-robot
+python3 software/choreo/show_sync.py push opendubs2 architect-<sha>.yaml
+```
+
+Then, on the dashboard: TELEOP, ACTIVATE L and R; Shows, the `ARCHITECT <sha>` card, ARM RUN with
+LIVE on; CH5 in AUTO and the deadman held for the whole run.
+
+`dev.sh up` has ARCHITECT write the program instead of the fixed example. It needs
+`~/architect-data/architect.env` (mode 600) with ssa's API settings.
 
 ## Two backends for the arms
 

@@ -35,12 +35,62 @@ def _limits_path() -> str:
     return fixture
 
 
-def make_recorder(path: str | None = None) -> live_arms.ShowRecorder:
+def make_recorder(path: str | None = None, limits_path: str | None = None) -> live_arms.ShowRecorder:
     import cue
-    limits = cue.load_limits(_limits_path())
+    limits = cue.load_limits(limits_path or _limits_path())
     config = live_arms.ArmConfig.load()
     path = path or os.environ.get("OPENDUBS_ARCHITECT_SHOW") or DEFAULT_SHOW
     return live_arms.ShowRecorder(live_arms.Planner(limits, config), config, limits, path)
+
+
+class Publisher:
+    """demo_runner's `publish` for the show path: an approved program, recorded as a show, stamped
+    by the clearance sweep, validated, and only then put in `out_dir` as architect-<sha>.yaml.
+    From there `show_sync.py push` takes it to the robot, and the Shows page runs it.
+
+    Arm calls are recorded; anything else goes to the dry-run robot, so a program in the arms
+    profile records the same show every time it is approved."""
+
+    def __init__(self, out_dir: str, primitives, limits_path: str | None = None):
+        self.out_dir, self.primitives = out_dir, tuple(primitives)
+        self.limits_path = limits_path or _limits_path()
+        os.makedirs(out_dir, exist_ok=True)
+
+    def __call__(self, program) -> dict:
+        import cue
+        import sweep
+        from opendubs_architect.demo_runner import _Quiet
+        from opendubs_architect.dryrun import DryRunRobot
+        show_id = f"architect-{program.sha}"
+        final = os.path.join(self.out_dir, show_id + ".yaml")
+        tmp = os.path.join(self.out_dir, f".recording-{program.sha}.yaml")
+        recorder = make_recorder(tmp, self.limits_path)
+        recorder.show_id, recorder.name = show_id, f"ARCHITECT: {program.summary}"
+        recorder.palette = {"label": f"ARCHITECT {program.sha[:6]}", "order": 90}
+        robot = ShowRobot(DryRunRobot(_Quiet()), recorder)
+        ns = {name: getattr(robot, name) for name in self.primitives}
+        try:
+            try:
+                exec(compile(program.code, f"<recording {program.sha}>", "exec"), ns)  # noqa: S102  records only
+            except MotionRefused as e:
+                raise ValueError(f"a move was refused while recording: {e}") from None
+            if not recorder.cues:
+                raise ValueError("the program moves nothing, so there is no show")
+            res = sweep.run(tmp, self.limits_path, True, force=True)
+            if res["min_mm"] < sweep.THRESHOLD_MM:
+                raise ValueError(f"the show comes within {res['min_mm']:.0f} mm of the robot's body "
+                                 f"(at least {sweep.THRESHOLD_MM:g})")
+            tl = cue.load_show(tmp).export(cue.load_limits(self.limits_path), self.limits_path)
+            if not tl["valid"]:
+                raise ValueError("the show validator refused it: " + "; ".join(p["msg"] for p in tl["problems"][:3]))
+            os.replace(tmp, final)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        fixture = os.path.basename(os.path.dirname(self.limits_path)) == "tests"
+        return {"path": final, "show_id": show_id, "seconds": recorder.t, "cues": len(recorder.cues),
+                "clearance_mm": round(float(res["min_mm"]), 1),
+                "limits": "TEST FIXTURE: re-check against the robot's" if fixture else self.limits_path}
 
 
 def _refused(fn):

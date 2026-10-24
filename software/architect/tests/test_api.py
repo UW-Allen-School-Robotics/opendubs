@@ -53,6 +53,11 @@ else:
             check(f"{name}: show backend signature matches live", sig(live) == sig(f), f"{sig(live)} != {sig(f)}")
     check("the robot node serves only primitives", set(HANDLED) <= names, sorted(set(HANDLED) - names))
 
+for prof, offered in api.PROFILES.items():
+    shown = set(re.findall(r"^([a-z_]+)\(", api.spec_for(offered), flags=re.M))
+    check(f"the {prof} profile's spec shows exactly its primitives", shown == set(offered) and set(offered) <= names,
+          sorted(shown ^ set(offered)))
+
 check("'scene' still means the head camera (task_scorers passes it)", api.check_camera("scene") == "head")
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nOK")

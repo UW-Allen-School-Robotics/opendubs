@@ -25,8 +25,8 @@ One plain sentence, under 20 words, saying what the robot will do. No code, no n
 ## Never catch a refusal
 - No bare `except:`, and no `except Exception`, `except RuntimeError` or `except MotionRefused`.
   A refusal or a failed check must end the run, so the supervisor sees it.
-- To handle a check yourself, test its result (`if not held["data"]["grasped"]: ...`) and raise
-  `RuntimeError("why")` to stop with a reason the robot can say aloud.
+- To stop on a condition of your own, test it and raise `RuntimeError("why")`, with a reason the
+  robot can say aloud.
 
 ## One run, one person
 The program runs once per "trick or treat": start from `reset_robot()`, serve one person, and end

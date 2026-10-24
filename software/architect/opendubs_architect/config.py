@@ -12,11 +12,18 @@ ssa loads it by name when ``SSA_ROBOT_PLUGINS`` names it:
     live  (default)  the robot's live arm services (robot_node.py over live_arms.LiveArms), one
                      checked move per call, as the program runs
     show             recorded into a show for the runner to play (show_backend.py), the fallback
+
+``OPENDUBS_ARCHITECT_PROFILE`` says which primitives the model is offered (api.PROFILES):
+``full`` (default), or ``arms``: no perception, handoff, speech or navigation, the first profile
+for the physical robot. With ``OPENDUBS_ARCHITECT_DATA`` set, the profile's skill docs are copied
+into ``<data>/skills-<profile>/`` and ssa keeps its library there, so the repository can be
+mounted read-only.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from ssa.robots.base import RobotConfig
@@ -26,6 +33,23 @@ from opendubs_architect.dryrun import DryRunRobot, namespace_for
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 BACKENDS = ("live", "show")
+#: The skill docs each profile loads; None is all of them.
+PROFILE_SKILLS = {"full": None, "arms": ("motion.md", "program.md")}
+
+
+def profile() -> str:
+    name = os.environ.get("OPENDUBS_ARCHITECT_PROFILE") or "full"
+    if name not in api.PROFILES:
+        raise ValueError(f"OPENDUBS_ARCHITECT_PROFILE must be one of {', '.join(api.PROFILES)}, not {name!r}")
+    return name
+
+
+def primitives() -> tuple:
+    return api.PROFILES[profile()]
+
+
+def _profile_namespace(robot) -> dict:
+    return {k: v for k, v in namespace_for(robot).items() if k in primitives()}
 
 
 def backend() -> str:
@@ -49,7 +73,13 @@ class OpenDubsConfig(RobotConfig):
 
     #: Agent tools this robot does not offer. run_ros2_command runs a shell command
     #: after a y/n; on a robot with children in front of it there is no shell for a model.
-    disabled_agent_tools = frozenset({"run_ros2_command"})
+    #: With no perception (the arms profile), the scene description tool has nothing to call.
+    @property
+    def disabled_agent_tools(self) -> frozenset:
+        off = {"run_ros2_command"}
+        if "get_vqa_response" not in primitives():
+            off.add("get_scene_description")
+        return frozenset(off)
 
     #: The arm services plan, check the workspace and refuse on the robot; ssa's
     #: client-side CuRobo wrapper (a stub that always passes) is not installed.
@@ -57,20 +87,33 @@ class OpenDubsConfig(RobotConfig):
 
     @property
     def api_spec(self) -> str:
-        return api.API_SPEC
+        return api.spec_for(primitives())
 
     @property
     def skills_dir(self) -> Path:
-        return _SKILLS_DIR
+        data, name = os.environ.get("OPENDUBS_ARCHITECT_DATA"), profile()
+        if not data and PROFILE_SKILLS[name] is None:
+            return _SKILLS_DIR
+        if not data:
+            raise ValueError(f"the {name} profile needs OPENDUBS_ARCHITECT_DATA, where its skill docs are copied")
+        out = Path(data) / f"skills-{name}"
+        out.mkdir(parents=True, exist_ok=True)
+        wanted = PROFILE_SKILLS[name] or tuple(p.name for p in _SKILLS_DIR.glob("*.md"))
+        for old in out.glob("*.md"):
+            if old.name not in wanted:
+                old.unlink()
+        for doc in wanted:
+            shutil.copyfile(_SKILLS_DIR / doc, out / doc)
+        return out
 
     def make_dry_run_namespace(self, console) -> dict:
-        return namespace_for(_with_backend(DryRunRobot(console)))
+        return _profile_namespace(_with_backend(DryRunRobot(console)))
 
     def make_live_namespace(self) -> tuple[dict, object]:
         from opendubs_architect.client import OpenDubsRobotClient
 
         client = _with_backend(OpenDubsRobotClient())
-        return namespace_for(client), client
+        return _profile_namespace(client), client
 
     def shutdown(self, client) -> None:
         client.destroy_node()

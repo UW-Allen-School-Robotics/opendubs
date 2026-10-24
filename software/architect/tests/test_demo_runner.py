@@ -167,6 +167,11 @@ class DeskCheck(unittest.TestCase):
         dr.desk_check("import math\ndef up(d):\n    return {'x': 0, 'y': 0, 'z': d}\n"
                       "for k in range(2):\n    move_ee_to_rel_pose('right', up(0.01 * k))\n")
 
+    def test_the_arms_profile_offers_no_perception(self):
+        with self.assertRaises(ValueError):
+            dr.desk_check('reset_robot()\nverify_grasp("candy", "right")\n', api.PROFILES["arms"])
+        dr.desk_check(GOOD, api.PROFILES["arms"])
+
     def test_a_program_that_keeps_failing_is_never_offered(self):
         agent = Agent(*["reset_robot()\npick_candy()\n"] * (dr.MAX_REPAIRS + 1))
         r, *_ = make(agent)
