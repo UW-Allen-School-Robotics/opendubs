@@ -97,6 +97,14 @@ export class Skins {
         if (s.kind !== "code" || s.source === "builtin") continue;
         // A CONTENT SKIN MAY NOT TAKE A BUILT-IN'S NAME. Silently preferring one or the other is
         // how a show gets a face nobody can account for; saying so costs a line.
+        //
+        // THIS IS THE BACKSTOP, NOT THE PRIMARY GUARD, and it is worth knowing which. The
+        // dashboard's discovery already refuses a shadowing id and reports it in the looks
+        // document's `problems`, where a person can see it -- so in normal operation this branch
+        // never runs. It stays because the face should not be fooled by a looks payload that is
+        // wrong, and because an unreachable guard is cheap where the thing it prevents is a robot
+        // wearing a face no one can account for. Do not delete it as dead code; do not rely on it
+        // instead of the dashboard's, which is the one that tells anybody.
         if (s.id in CODE_SKINS) { console.warn(`content skin ${s.id} shadows a built-in; ignored`); continue; }
         this.content.set(s.id, { id: s.id, url: new URL(`${s.id}.js`, contentBase).href });
       }
