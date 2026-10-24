@@ -1,0 +1,23 @@
+# Find a named object and a grasp for it: Segment on the camera's latest frame, then AnyGrasp on
+# the highest-scoring instance. Served by perception_tasks; see notes/design/perception-shared-models.md.
+
+string label                 # e.g. "mug"
+string camera                # a camera name from perception_server's config
+float32 min_score            # detector score floor; 0 = the server's default
+uint8 source                 # as Segment: AUTO=0, DETECTOR=1, CLIPSEG=2
+geometry_msgs/Vector3 up_cam # world up in the camera frame, if known (minus gravity); zero = unknown
+---
+bool success
+string message
+std_msgs/Header header             # the camera frame and stamp the grasp is in
+Instance instance                  # the object grasped
+int32 instances_found              # how many instances of the label Segment returned
+Grasp grasp                        # the best grasp
+Grasp[] candidates                 # others, best first (only from servers that return them)
+string mode                        # how the server chose the best grasp
+sensor_msgs/Image rgb              # the colour frame used, for checking the result
+sensor_msgs/CameraInfo camera_info
+float32 segment_ms
+float32 grasp_ms
+---
+string stage

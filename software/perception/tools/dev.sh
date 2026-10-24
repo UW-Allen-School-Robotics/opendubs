@@ -9,6 +9,7 @@
 #   dev.sh up                      server + dummy camera (DUMMY_ARGS="--switch-every 0" holds one image)
 #   dev.sh query bus person        one Segment query; results in ~/perception-data/results/query-<time>
 #   dev.sh query wall --camera femto
+#   dev.sh grasp mug --camera femto  one GraspObject (Segment, then AnyGrasp); needs ANYGRASP_URL at 'up'
 #   dev.sh topics                  navigation output rates
 #   dev.sh logs                    follow the server log
 #   dev.sh down                    stop and remove the container
@@ -35,16 +36,29 @@ case "${1:-}" in
     ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host "${ipc[@]}" \
       -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       -e HOME=/data/home -w /data/home -e HF_HOME=/data/models/hf -e HF_HUB_OFFLINE=1 \
+      -e ANYGRASP_URL="${ANYGRASP_URL:-}" \
       -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \
       -v "${DATA}:/data" -v "${REPO}:/work:ro" \
       "${IMAGE}" bash -c "python3 -u -m perception_server.server --config ${CONFIG} 2>&1 | tee /data/results/server.log"
     in_ctr -d "${NAME}" bash -c "python3 -u /work/software/perception/tools/dummy_camera.py ${DUMMY_ARGS:-} > /data/results/dummy_camera.log 2>&1"
+    # The tasks node is its own process, so a slow AnyGrasp workstation never stalls the models.
+    if [[ -n "${ANYGRASP_URL:-}" ]]; then
+      in_ctr -d "${NAME}" bash -c "python3 -u -m perception_tasks.node --config /work/software/perception/config/perception_tasks.yaml > /data/results/tasks.log 2>&1"
+    else
+      echo "ANYGRASP_URL is not set: grasp_object will not run (e.g. ANYGRASP_URL=ws://HOST:8768/grasp dev.sh up)"
+    fi
     echo "started ${NAME}; 'dev.sh logs' to follow"
     ;;
   query)
     shift
     out="/data/results/query-$(date +%H%M%S)"
     in_ctr "${NAME}" python3 /work/software/perception/tools/segment_client.py --labels "$@" --out "${out}"
+    echo "saved to ${DATA}/results/$(basename "${out}")"
+    ;;
+  grasp)
+    shift
+    out="/data/results/grasp-$(date +%H%M%S)"
+    in_ctr "${NAME}" python3 /work/software/perception/tools/grasp_client.py --label "$@" --out "${out}"
     echo "saved to ${DATA}/results/$(basename "${out}")"
     ;;
   topics)
@@ -58,6 +72,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}"
     ;;
   *)
-    sed -n '2,16p' "$0"; exit 1
+    sed -n '2,17p' "$0"; exit 1
     ;;
 esac

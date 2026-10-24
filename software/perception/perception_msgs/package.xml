@@ -3,7 +3,7 @@
 <package format="3">
   <name>perception_msgs</name>
   <version>0.1.0</version>
-  <description>Interfaces of the OpenDubs perception server: the Segment action and its Instance message.</description>
+  <description>Interfaces of the OpenDubs perception server: the Segment and GraspObject actions and their messages.</description>
   <maintainer email="arrchit.jain@gmail.com">Archit Jain</maintainer>
   <license>Apache-2.0</license>
 
@@ -11,6 +11,7 @@
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 

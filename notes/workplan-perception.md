@@ -202,13 +202,46 @@ the GPU, 30 Hz) or the language model. Test half done: `person` on the dummy cam
 with the Femto driver running, median 195 ms (77-573); **the driver-stopped half is still to run**.
 Then: a fair breakdown (camera ~94 ms + frame wait + models + transfer), and the UDP 450 ms.
 
+## Phase 4: AnyGrasp (built 2026-10-24, robot not yet)
+
+A label in, a grasp in the camera's optical frame out: action `grasp_object`
+(`perception_msgs/action/GraspObject`), served by `perception_tasks`, a separate process from
+`perception_server` (D5). It calls `segment`, takes the highest-scoring instance, and sends its
+mask with the frame's colour, raw `16UC1` depth and K to AnyGrasp on the workstation through
+`perception_clients/anygrasp.py`. `anygrasp_server/` is a server for the workstation that runs
+beside the lab's original and takes the same request.
+
+| Piece | Where |
+|---|---|
+| Client: erode the mask 2 px (time-of-flight edge pixels), check the workspace, crop to the mask's box and shift K, send, parse | `perception_clients/anygrasp.py` |
+| The action and its node | `perception_tasks/`, `perception_msgs/action/GraspObject.action`, `msg/Grasp.msg` |
+| Workstation server | `anygrasp_server/server.py`, `README.md` |
+| Checks without the robot: a synthetic mug, or a saved query | `tools/anygrasp_probe.py` |
+| On the robot | `ANYGRASP_URL=ws://HOST:8768/grasp dev.sh up`, then `dev.sh grasp mug --camera femto` (`tools/grasp_client.py`: overlay with the grasp's axes, `result.json`) |
+| Geometry tests (crop keeps every point, erosion, quaternion) | `tests/test_anygrasp_client.py` |
+
+Findings against the lab's original server (port 8767), from a laptop on the workstation's network:
+
+| Check | Result |
+|---|---|
+| A full 1280x720 frame (7.4 MB as base64) | **Refused**, WebSocket close 1009 "message too big": aiohttp's default limit is 4 MB. Cropped to the mask's box: 301 kB, accepted |
+| Synthetic mug 0.72 m away, 640x480 and 1280x720 | A grasp on the mug, width 0.10 m; round trip 553 ms cold, 150-190 ms warm |
+| Mug at 1.6 m | Stopped by the client: "the object is 1.54 m away; AnyGrasp's workspace ends at 1.5 m" |
+| Up direction | Without one, the original takes tilt 0, which treats the optical axis as up: it reported 63.7 deg of tilt for an approach about 9 deg from horizontal. Upright and tilt from it are wrong for a camera looking forward. The new server picks by raw score when it knows no up direction, and says so in `mode` |
+| `perception_tasks` logic, with ROS stubbed | Segment-shaped messages (`bgr8`, `16UC1`, `mono8`) through `execute`: the same grasp as the probe; "nothing found" and "no depth" abort with their reason |
+
+`anygrasp_server/server.py` was run here with a stand-in `gsnet` (the protocol, the lock, the up
+logic, errors, a 7.4 MB request): with up known it chose the side grasp over a higher-scoring
+top-down one. It has not yet run with the real model on the workstation. Nothing ran on the robot,
+and `perception_msgs` with the new action has not been built in the image yet.
+
 ### Next
 
 | Phase | Work | Done when |
 |---|---|---|
 | **2b. Under load** | Run the server while the robot is in use (the language model answering) | Navigation and query numbers with the robot busy |
 | **3. Camera and Nav2** | The Orbbec driver (D1), its owner and udev rules (with the Thor stack lane); the obstacle cloud into Nav2's costmap (Thor stack lane) | Masks line up with depth; the costmap shows semantic obstacles; the LIDARs' obstacles are never cleared |
-| **4. AnyGrasp** | A WebSocket client in the container: a query's masks and depth become a point cloud, sent to the workstation, which returns grasp poses | A "mug" query returns a grasp list |
+| **4. AnyGrasp** | Built (above). Left: rebuild the image (`perception_msgs`, `websockets`); start `anygrasp_server/` on the workstation; reach it from the Thor; `dev.sh grasp mug --camera femto` with a real mug | The overlay's axes sit on the mug, and the pose's depth matches the mask's median depth |
 
 ## Decisions
 
@@ -219,6 +252,8 @@ Then: a fair breakdown (camera ~94 ms + frame wait + models + transfer), and the
 | D2 | YOLO-World (AGPL-3.0) or an Apache-licensed detector: "whatever suits best and works". YOLO-World works and stays; the licence goes to the Hygiene lane before merging | user | **Decided 2026-10-22** |
 | D3 | A perception lane owning `software/perception/`, this workplan and the design note. **Not announced until everything is built and validated on `archit@opendubs2`** | user | **Decided 2026-10-22** |
 | D4 | Base image: Isaac ROS 4.4 for r38.4 by digest (above). Tell the Thor stack lane, since it may answer their `ISAAC_ROS_BASE_IMAGE` | user, Thor stack lane | Proposed |
+| D5 | Off-robot models get plain-Python clients in `perception_clients/`; tasks that combine services are actions in `perception_tasks/`, a process apart from `perception_server`, which keeps only the GPU models on the Thor | user | **Decided 2026-10-24** |
+| D6 | Grasps are returned in the camera's optical frame; no TF to the robot's base for now. The goal's optional `up_cam` lets an accelerometer improve the choice later | user | **Decided 2026-10-24** |
 
 ## Messages to send (only once everything is validated, D3)
 

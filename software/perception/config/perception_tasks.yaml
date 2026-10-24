@@ -1,0 +1,13 @@
+# perception_tasks settings. The AnyGrasp workstation's address comes from ANYGRASP_URL
+# (e.g. ws://HOST:8768/grasp for anygrasp_server/, ws://HOST:8767/get_grasp_config for the
+# original); `url` below is used only when that is unset.
+
+grasp_object:
+  segment_action: segment
+  segment_timeout_s: 10.0
+  anygrasp:
+    url: ""
+    timeout_s: 20.0
+    erode_px: 2        # drop the mask's edge, where time-of-flight depth mixes object and background
+    margin_px: 16      # context kept around the mask's box when cropping
+    top_k: 5           # candidates to ask for (anygrasp_server/ only)

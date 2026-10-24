@@ -28,7 +28,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
 COPY image/constraints.txt /etc/pip-constraints.txt
 
 RUN pip install torch torchvision "numpy<2" \
- && pip install transformers ultralytics opencv-python-headless onnx onnxscript gdown pyyaml timm \
+ && pip install transformers ultralytics opencv-python-headless onnx onnxscript gdown pyyaml timm websockets \
  && pip install git+https://github.com/ultralytics/CLIP.git \
  && pip install git+https://github.com/NVIDIA-AI-IOT/torch2trt.git
 

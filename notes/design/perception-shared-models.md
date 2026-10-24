@@ -148,6 +148,32 @@ the box of a whole pavement it returned a window above it.
 
 **Safety rule:** the navigation adapter only adds obstacles. It never clears what the LIDARs see.
 
+**Grasp: a ROS 2 action, `GraspObject`,** served by `perception_tasks`, a second process:
+
+```
+# goal
+string label  ·  string camera  ·  float32 min_score  ·  uint8 source
+geometry_msgs/Vector3 up_cam     # world up in the camera frame if known; zero = unknown
+---
+# result
+bool success  ·  string message
+std_msgs/Header header           # the camera's optical frame and stamp
+Instance instance  ·  int32 instances_found
+Grasp grasp  ·  Grasp[] candidates   # pose (x approach, y closing: GraspNet), width, scores
+string mode                      # how the workstation chose the best
+sensor_msgs/Image rgb  ·  sensor_msgs/CameraInfo camera_info
+float32 segment_ms  ·  float32 grasp_ms
+```
+
+It calls `segment`, then AnyGrasp on a workstation over a WebSocket (`perception_clients/`). Two
+layering rules. **Models that run off the robot get a plain-Python client** in
+`perception_clients/`, with no ROS, so it can be tested anywhere. **Tasks that combine services run
+apart from `perception_server`**: its one worker thread makes every model call, and a network round
+trip of seconds there would hold up the navigation stream. A workstation that is down or slow
+fails only the task. The request is cropped to the mask's box, with the principal point shifted:
+the workstation builds its cloud only from masked pixels, so nothing is lost, and a whole frame
+exceeds its server's 4 MB message limit. Details and results: the workplan, Phase 4.
+
 ## The container
 
 Built only for this work. Verified against opendubs2 (R38.4, JetPack 7.1) on 2026-10-22.
