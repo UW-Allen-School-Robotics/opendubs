@@ -1,0 +1,37 @@
+# perception_server for manipulation only (tools/grasp_stack.sh): the Femto Bolt, queries, no
+# navigation stream and no dummy camera. Paths are inside the container: /data is ~/perception-data.
+
+models:
+  clipseg_model: CIDAS/clipseg-rd16
+  clipseg_vision_engine: /data/engines/clipseg_vision_rd16_224.engine
+  # No FiLM (text-half) engine: TensorRT 10.13 computes it wrongly; it runs in PyTorch (models.py).
+  sam_image_size: 512
+  sam_image_encoder: /data/engines/resnet18_image_encoder_512.engine
+  sam_mask_decoder: /data/engines/mobile_sam_mask_decoder_batched_512.engine
+  yolo_world: /data/models/yolov8s-worldv2.pt
+  yolo_nav_labels: [person]
+  yolo_imgsz: 640
+
+cameras:
+  # The Femto Bolt, from tools/camera.sh on the robot's graph (domain 0). Colour is undistorted and
+  # depth aligned to it, so both share one pinhole K.
+  femto:
+    domain: 0
+    rgb: /camera/color/image_raw
+    depth: /camera/depth/image_raw
+    info: /camera/color/camera_info
+    slop_s: 0.05
+
+navigation:
+  enabled: false
+  # The models are built with navigation's prompts even when it is off (CLIPSeg's prompt layout).
+  groups:
+    traversable: [floor, ground, path, dirt]
+    non_traversable: [furniture, wall, pillar, car]
+    people: [people]
+
+query:
+  default_min_score: 0.25
+  max_instances: 16
+  clipseg_threshold: 0.4
+  clipseg_min_area: 0.001
