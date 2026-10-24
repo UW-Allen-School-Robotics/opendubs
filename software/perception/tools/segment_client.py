@@ -61,10 +61,13 @@ def main():
     rclpy.spin_until_future_complete(node, res_fut, timeout_sec=args.timeout)
     rt_ms = (time.perf_counter() - t0) * 1000.0
     res = res_fut.result().result
+    # From the camera's stamp (on the host clock) to this client holding the result.
+    capture_ms = (time.time() - (res.header.stamp.sec + res.header.stamp.nanosec * 1e-9)) * 1000.0
 
     os.makedirs(args.out, exist_ok=True)
     summary = {"success": res.success, "message": res.message, "server_ms": round(res.latency_ms, 1),
-               "round_trip_ms": round(rt_ms, 1), "instances": []}
+               "round_trip_ms": round(rt_ms, 1), "capture_to_result_ms": round(capture_ms, 1),
+               "instances": []}
     if res.success and res.rgb.data:
         rgb = img(res.rgb)
         depth = img(res.depth).astype(np.float32) / 1000.0 if res.depth.data else None
@@ -104,7 +107,7 @@ def main():
     names = ", ".join(f"{d['label']} {d['score']}" + (f" @{d['median_depth_m']} m" if "median_depth_m" in d else "")
                       for d in summary["instances"])
     print(f"{'OK' if res.success else 'FAIL'} {res.message} | server {res.latency_ms:.1f} ms, "
-          f"round trip {rt_ms:.1f} ms | {names}")
+          f"round trip {rt_ms:.1f} ms, capture to result {capture_ms:.1f} ms | {names}")
     node.destroy_node()
     rclpy.try_shutdown()
 

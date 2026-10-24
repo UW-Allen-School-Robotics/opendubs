@@ -155,6 +155,7 @@ class PerceptionServer(Node):
         g = job.goal
         res = Segment.Result()
         t0 = time.perf_counter()
+        self.models.timing.clear()  # safe: every model call happens on this thread
         try:
             frames = self.cameras.get(g.camera)
             if frames is None:
@@ -162,8 +163,10 @@ class PerceptionServer(Node):
             frame = frames.latest()
             if frame is None:
                 raise RuntimeError(f"no frame received yet from camera {g.camera!r}")
+            age_ms = (time.time() - frame.stamp) * 1000.0  # camera stamps are on the host clock
             rgb = image_to_numpy(frame.rgb_msg)
             found = self.query.run(rgb, list(g.labels), float(g.min_score), int(g.source))
+            t_models = time.perf_counter()
             hdr = frame.rgb_msg.header
             for f in found:
                 inst = Instance()
@@ -178,6 +181,11 @@ class PerceptionServer(Node):
                 res.camera_info = frame.info
             res.success = True
             res.message = f"{len(found)} instance(s)"
+            stages = ", ".join(f"{k[:-3]} {v:.1f}" for k, v in self.models.timing.items())
+            self.get_logger().info(
+                f"query {list(g.labels)} on {g.camera}: frame age {age_ms:.1f} ms at start | {stages} | "
+                f"models+glue {(t_models - t0) * 1000.0:.1f}, packing {(time.perf_counter() - t_models) * 1000.0:.1f}, "
+                f"total {(time.perf_counter() - t0) * 1000.0:.1f} ms")
         except Exception as exc:  # noqa: BLE001 - report to the client, keep serving
             res.success, res.message = False, f"{type(exc).__name__}: {exc}"
             self.get_logger().error(res.message)
