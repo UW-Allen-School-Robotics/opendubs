@@ -213,7 +213,12 @@ export class Face {
     // A THEME CAN GO AWAY while it is the one showing -- the content folder is redeployed, or an
     // edit to it introduces a problem that gets it refused. Falling back to plain keeps the face
     // honest and, more to the point, keeps `stateColour` from reading colours off nothing.
-    if (!(this.theme in THEMES) && !themes.has(this.theme)) { this.theme = "plain"; this.applyColour(); }
+    if (!(this.theme in THEMES) && !themes.has(this.theme)) this.theme = "plain";
+    // AND IT CAN SIMPLY CHANGE. The page reads the list again at every reconnect, so a theme whose
+    // file was edited and redeployed arrives here with the same id and different colours. Applying
+    // unconditionally is what makes that edit show: without it the face keeps the colour it already
+    // had until the next state change, which looks like a deploy that did not take.
+    this.applyColour();
     return problems;
   }
   // From a tracker; null to let the eyes wander. `kind` ("motion" | "face" | "person") is

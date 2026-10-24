@@ -120,6 +120,35 @@ ok(problems.length === 8, "every refusal is reported, none silently",
   ok(f.stateColour() === colourOf("SAFE_IDLE"), "and the state shows its own colour again");
 }
 
+// ---- 3b. a theme that CHANGES, keeping its id ---------------------------------------------------
+// The page reads the list again at every reconnect, so the same id can come back with DIFFERENT
+// colours: somebody edited the file and redeployed. The face has to show the edit straight away.
+//
+// This checks the colour the face is actually driving towards (`col`, the springs), not what
+// `stateColour()` computes -- stateColour reads the new map either way, so it cannot tell whether
+// the edit was APPLIED. Without the unconditional applyColour in loadContentThemes, the face keeps
+// the colour it already had until the next state change, and the deploy looks like it did not take.
+{
+  const real = globalThis.fetch;
+  const f = new Face();
+  await f.loadContentThemes(listed("fixture_theme"), BASE);
+  f.setTheme("fixture_theme");
+  f.setState("SAFE_IDLE");
+  const target = () => f.col.map((c) => c.target).join(",");
+  const before = target();
+  ok(before === [0x8a, 0xc9, 0x26].join(","), "the theme's colour is the one being driven to", before);
+
+  // The same id, a file that now says something else.
+  globalThis.fetch = async () => ({ ok: true, status: 200,
+    json: async () => ({ label: "Fixture", colors: { SAFE_IDLE: "#112233" } }) });
+  await f.loadContentThemes(listed("fixture_theme"), BASE);
+  globalThis.fetch = real;
+
+  ok(target() === [0x11, 0x22, 0x33].join(","), "an edited theme is applied without a state change",
+     target());
+  ok(f.theme === "fixture_theme", "and the theme is still the one chosen", f.theme);
+}
+
 // ---- 4. nothing at all ---------------------------------------------------------------------------
 // A robot with no content folder, or a dashboard too old to list themes, must still come up.
 {
