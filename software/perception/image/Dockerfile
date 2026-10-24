@@ -28,7 +28,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
 COPY image/constraints.txt /etc/pip-constraints.txt
 
 RUN pip install torch torchvision "numpy<2" \
- && pip install transformers ultralytics opencv-python-headless onnx onnxscript gdown pyyaml timm websockets \
+ && pip install transformers ultralytics opencv-python-headless onnx onnxscript gdown pyyaml timm \
  && pip install git+https://github.com/ultralytics/CLIP.git \
  && pip install git+https://github.com/NVIDIA-AI-IOT/torch2trt.git
 
@@ -43,6 +43,10 @@ ENV PYTHONPATH=/opt/nanosam:/opt/perception_models
 # ultralytics pulls in the desktop opencv-python, which needs libGL.
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
+
+# The AnyGrasp client (perception_clients/anygrasp.py). A step of its own, so adding it does not
+# rebuild the torch layer above.
+RUN pip install websockets
 
 # The NVIDIA runtime injects the driver only when these are set. NVIDIA's CUDA images set them;
 # the Isaac ROS base does not.
