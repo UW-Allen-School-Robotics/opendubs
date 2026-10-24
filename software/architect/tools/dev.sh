@@ -16,7 +16,8 @@
 #
 # Environment: REPO (this repository's clone, default ~/opendubs-architect), SSA (the ssa checkout on
 # its opendubs branch, default ~/ssa), DATA (default ~/architect-data), LIMITS (the arm stack's
-# joint_limits.yaml, read-only; without it the test fixture is used and the push re-checks),
+# joint_limits.yaml, mounted read-only; by default found where the show runner's drop-in binds it from,
+# as show_sync.py finds it; without one the test fixture is used and the push re-checks),
 # PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker).
 #
 # $DATA/architect.env holds ssa's API settings (the variables ssa's own .env has), owned by you
@@ -33,9 +34,22 @@ DATA="${DATA:-$HOME/architect-data}"
 PORT=8098
 DOCKER="${DOCKER:-sudo -n docker}"
 
+# The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
+# arm stack's hw_validation/ directory to /etc/opendubs/arm-limits (provision-runner.sh). Read in
+# place, never copied, so it cannot go stale.
+DROPIN=/etc/systemd/system/opendubs-runner.service.d/arm-limits.conf
+find_limits() {
+  local src
+  src=$(sed -n 's/^BindReadOnlyPaths=-\{0,1\}\([^:]*\):\/etc\/opendubs\/arm-limits\/\{0,1\}$/\1/p' "${DROPIN}" 2>/dev/null | tail -1)
+  [ -n "${src}" ] && sudo -n test -f "${src}/joint_limits.yaml" && echo "${src}/joint_limits.yaml"
+}
+
 run() {  # $@: the runner's arguments
   local args=() env=()
   mkdir -p "${DATA}/shows" "${DATA}/home"
+  LIMITS="${LIMITS:-$(find_limits || true)}"
+  if [ -n "${LIMITS}" ]; then echo "joint limits: ${LIMITS} (read-only)"
+  else echo "dev.sh: WARNING: no arm joint limits found (${DROPIN}); recording against the TEST FIXTURE" >&2; fi
   [ -n "${LIMITS:-}" ] && args+=(-v "${LIMITS}:/limits/joint_limits.yaml:ro") \
     && env+=(-e OPENDUBS_ARCHITECT_LIMITS=/limits/joint_limits.yaml)
   [ -f "${DATA}/architect-arms.yaml" ] && env+=(-e OPENDUBS_ARCHITECT_ARMS=/data/architect-arms.yaml)
