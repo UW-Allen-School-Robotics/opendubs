@@ -74,7 +74,7 @@ def main():
                             "upright_score": res.grasp.upright_score,
                             "tilt_from_floor_deg": res.grasp.tilt_from_floor_deg}
         summary["instance"] = {"label": res.instance.label, "score": res.instance.score,
-                               "box": list(res.instance.box)}
+                               "box": [int(v) for v in res.instance.box]}  # numpy int32 from ROS
         rgb = image_array(res.rgb).astype(np.float32)
         mask = image_array(res.instance.mask) > 0
         rgb[mask] = 0.5 * rgb[mask] + 0.5 * np.array([0, 200, 255], dtype=np.float32)
