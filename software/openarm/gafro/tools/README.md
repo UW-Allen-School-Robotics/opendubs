@@ -35,7 +35,7 @@ All are run as `python software/openarm/gafro/tools/<tool>.py ...` with `--side 
 | `track_hand.py --controller velocity` | the same target through a spec-built velocity controller with a pose reference (`--integral` adds a PID term) | `hand` | yes: needs `kd` near 5 (see below) |
 | `make_config.py --base --out --set g.k=v` | a COPY of the hardware config with keys changed, checked against the driver's real key list; never writes the base | | yes |
 | `move_probe.py`, `engage_probe.py` | `bringup.py` / `engage.py` unchanged plus a status line every 0.5 s (joints, torques, permit, deadman, driver status) | as the tool | yes |
-| `torque_probe.py --mode hold\|park` | `engage.py` unchanged plus a ~480 Hz recorder and a read-out of the first moments; `--nf-scale` scales the controllers' natural frequencies | as engage | **not yet** |
+| `torque_probe.py --mode hold\|park` | `engage.py` unchanged plus a ~480 Hz recorder and a read-out of the first moments; `--nf-scale` scales the controllers' natural frequencies; `--park` is added if missing (without it engage moves to the ready pose) | as engage | yes: see below |
 
 ## What is known (right arm, 2026-10-23)
 
@@ -43,9 +43,11 @@ All are run as `python software/openarm/gafro/tools/<tool>.py ...` with `--side 
   Joints stop up to ~0.01 rad short (joint friction, no integral action): about 4 to 10 mm at the hand.
 - Velocity mode sends kp = 0 and the command under kd: at the stock kd 2 the arm stalls completely; with kd [5,5,5,5,2,2,2] (a config copy with `use_model_gains: false`,
   since the driver takes gains from the model by default) the hand moved 34 of 40 mm after ~1 s of dead time; `--integral 5` overshot by 14 mm.
-- The torque controller (`engage`/`track`) kicked the arm: joints moved away from the target and joint 7 reached 6.1 rad/s, tripping the driver's speed limit.
-  The driver gives torque mode no gravity feed-forward (the controller supplies it) and a flat `torque_kd` of 0.1; the official ROS driver damps every command with
-  kd 0.5 to 2.75 per joint. `track_hand.py` refuses `--controller track` until that is understood; `torque_probe.py` is how to look.
+- The torque controller (`engage`/`track`, kp = 0 so its stiffness is a loop closed over CAN at 250 Hz) is unstable at its design natural frequency and too soft below it:
+  `torque_probe.py --mode hold` (nothing asked to move) at 40 rad/s ran away within 0.1 s (joint 7 to 6.1 rad/s, tripping the driver; joints 1 and 4 swinging +-5 N m at ~13 Hz);
+  at 10 rad/s the hold was quiet (0.10 rad/s) but the park move did not move at all (joint 7 stayed 0.096 rad away, peak torque 0.06 N m). No gain fixes both. The driver gives
+  torque mode no gravity feed-forward and a flat `torque_kd` of 0.1; the official ROS driver instead sends {kp, kd, q_ref, dq_ref, tau_ff} so the stiff part is the motor's own PD.
+  See `notes/design/arm-mit-feedforward.md`. `track_hand.py` refuses `--controller track`; do not run torque-mode `engage` on the arm.
 - The simulator has no gravity feed-forward in its servo: it cannot judge position-hold sag, velocity mode or torque dynamics. It checks plumbing, plans and clearance.
 
 ## Tests

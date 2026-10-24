@@ -4,7 +4,9 @@ a high-rate recorder and a read-out of what happened in the first moments. Writt
 driver, 2026-10-23) and a 2 Hz print cannot show a few-millisecond event.
 
     python torque_probe.py --mode hold --side right --model <xml> --backend hardware --hardware-config <yaml> --supervised --start-tolerance-deg 20
-    python torque_probe.py --mode park --nf-scale 0.25 --side right ... --park --speed 0.1 --start-tolerance-deg 20
+    python torque_probe.py --mode park --nf-scale 0.25 --side right ... --speed 0.1 --start-tolerance-deg 20
+
+`--park` is added if you leave it out (ensure_park): this tool only ever runs engage's park path, never its move to the `ready` pose.
 
   --mode hold      engage to the arm's CURRENT pose: nothing is asked to move. This isolates the TRANSITION from the driver's position hold (with its gravity feed-forward) into the
                    torque controller (which the driver gives no feed-forward). If the arm kicks or drifts here, it is the transition or the gravity term, not the gains.
@@ -62,6 +64,12 @@ def scale_natural_frequencies(node, factor: float):
     return node
 
 
+def ensure_park(argv: list) -> list:
+    """engage.py goes through park() only with --park, and without it moves the arm to the `ready` keyframe. This tool only ever diagnoses the park path (hold is park
+    patched to the arm's own pose), so --park is added if it is missing: it must never run the move to ready by leaving one flag out."""
+    return list(argv) if "--park" in argv else list(argv) + ["--park"]
+
+
 def analyse(t: np.ndarray, q: np.ndarray, v: np.ndarray, tau: np.ndarray, window: int = 24) -> str:
     """Per-joint onset, displacement, peak speed and torque, every sample over KICK_SPEED, and a window around the first big event. t in s from the first sample."""
     n, dof = q.shape
@@ -105,6 +113,7 @@ def main() -> int:
     if "-h" in rest or "--help" in rest:
         print(__doc__)
         return 0
+    rest = ensure_park(rest)
     sys.argv = [sys.argv[0]] + rest
     side = rest[rest.index("--side") + 1] if "--side" in rest else "right"
     if own.nf_scale <= 0:
