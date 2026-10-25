@@ -253,6 +253,36 @@ logic, errors, a 7.4 MB request): with up known it chose the side grasp over a h
 top-down one. On the workstation with the real model it returns the original's grasp for the same
 input, with candidates, and accepts the 7.4 MB frame.
 
+## Phase 5: from boot, on the robot's graph (a test on archit@opendubs2, 2026-10-24)
+
+The user's word (2026-10-24): test on this branch and this account first, nothing merged to main
+and no lane told yet; domain 0; systemd units allowed if nothing of the robot's own changes. The
+YOLO-World licence (D2) waits until then.
+
+How the robot's own always-on services run, for comparison: host systemd units (`opendubs-*`,
+installed by `provision-all.sh` from `/opt/opendubs`), containers with `--restart unless-stopped`
+(`opendubs-voice`, `opendubs-llm`, `openarm`), and a unit that runs a container
+(`opendubs-airplay`). The grasp pipeline follows the last: the server joins the camera container's
+shared memory, so it must start after the camera and restart with it, which a unit can say.
+
+| Piece | Where |
+|---|---|
+| Two test units, run from `~archit/opendubs-perception`: the camera (`camera.sh run`), and the grasp container (`grasp_stack.sh serve`: server + `grasp_object`, `tools/serve_grasp.sh`), which `BindsTo` the camera | `deploy/archit-perception-camera.service`, `deploy/archit-perception.service` |
+| Install, remove, and the everyday commands (through systemd once installed) | `grasp_stack.sh install`, `uninstall`, `up`, `grasp`, `status`, `logs`, `down` |
+| Names on domain 0 | everything under `/perception`: `/perception/segment`, `/perception/grasp_object`, nodes `/perception/perception_server`, `/perception/perception_tasks`. Navigation is off, so nothing is published |
+| A pose-only query | `GraspObject.include_images = false` (`grasp_client.py --no-images`): a few hundred bytes, for clients outside the container (this host drops large messages over UDP) |
+
+| Check | Result |
+|---|---|
+| By hand on domain 0 | Up in 12 s; bottle grasped (0.46, at 1.10 m), 484 ms round trip |
+| From the host's graph | `ros2 action list` shows `/perception/grasp_object` and `/perception/segment` beside the arms' actions; no name shared with the robot's |
+| `install` | Both units enabled and active; the containers up 14 s after |
+| Grasp container killed | systemd restarts it. The first goal after the restart went unanswered: the killed copy stays in discovery for its lease (~20 s) and swallowed it, and `grasp_client.py` crashed on the empty handle. The client now waits 5 s for acceptance and resends up to three times; rerun: chair grasped, 772 ms |
+| Camera unit restarted | The grasp unit restarted with it (`BindsTo`); chair grasped |
+| The robot's own | `opendubs-voice`, `opendubs-llm`, `openarm`, `opendubs-airplay` untouched; `/opt/opendubs` still `main @ 7bad01d8ae6d`; the one failed unit, `nv-graphics`, failed at boot, before this test |
+
+Still to check: a reboot.
+
 ### Next
 
 | Phase | Work | Done when |
