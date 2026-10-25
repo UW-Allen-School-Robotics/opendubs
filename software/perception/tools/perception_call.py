@@ -45,12 +45,25 @@ def main():
         raise SystemExit(f"{name} is not available (is the perception service running? on this host, "
                          "FASTDDS_BUILTIN_TRANSPORTS=UDPv4)")
     request = RobotQuery.Request() if is_query else RobotCommand.Request(req=args.req)
+    # A client that calls the moment it sees the service sometimes loses the reply: the server's
+    # reply path to it is not matched yet (about 1 call in 20 on opendubs2). Let discovery settle,
+    # and resend an unanswered request; every perception call only reads, so a resend is safe.
+    # A long-lived client (the robot's own code) matches once and does not need this.
+    settle = time.monotonic() + 0.5
+    while time.monotonic() < settle:
+        rclpy.spin_once(node, timeout_sec=0.05)
     t0 = time.perf_counter()
-    fut = client.call_async(request)
-    rclpy.spin_until_future_complete(node, fut, timeout_sec=args.timeout)
-    if fut.result() is None:
-        raise SystemExit(f"no reply from {name} within {args.timeout:.0f} s")
-    res = fut.result()
+    res, per_try = None, min(args.timeout, 10.0)
+    for attempt in range(1, 4):
+        fut = client.call_async(request)
+        rclpy.spin_until_future_complete(node, fut, timeout_sec=per_try)
+        if fut.result() is not None:
+            res = fut.result()
+            break
+        client.remove_pending_request(fut)
+        print(f"no reply from {name} within {per_try:.0f} s (try {attempt} of 3); sending again", file=sys.stderr)
+    if res is None:
+        raise SystemExit(f"no reply from {name} after 3 tries")
     code = res.result_code.result_code
     print(f"{CODES.get(code, code)}: {res.result_code.message}  ({(time.perf_counter() - t0) * 1000:.0f} ms round trip)")
     try:
