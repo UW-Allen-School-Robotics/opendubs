@@ -285,13 +285,15 @@ head_assembly:
       # Frame positions: `at:` an export landmark, or robot CAD coordinates (pan = tilt = 0, lift
       # down), like the head's; the generator places them relative to femto_mount_link.
       frames:
-        camera_link: { at: femto_depth_mark, rpy_deg: [0, 6, 0] }
-        # The DEPTH camera's origin, which is what OrbbecSDK_ROS2 publishes as its root, in ROS's
-        # body convention (x forward, z up). It sits on the depth mark at the FRONT FACE's
-        # surface: the true focal point is behind the glass, by an amount not yet located.
-        # Pitched 6 deg DOWN from the colour camera (Orbbec's documentation): +6 deg about y,
-        # which swings x toward -z. The colour camera is square to the housing, which is square
-        # to the head.
+        camera_link: { at: femto_depth_mark, rpy_deg: [0, 0, 0] }
+        # OrbbecSDK_ROS2's root, in ROS's body convention (x forward, z up): at the DEPTH camera's
+        # origin, on the depth mark at the FRONT FACE's surface (the true focal point is behind the
+        # glass, by an amount not yet located), but SQUARE TO THE HOUSING, not along the depth
+        # camera. The depth camera's 6 deg downward pitch is the driver's to publish, and it does:
+        # on opendubs2 (2026-10-24) camera_link -> camera_depth_frame is pitched +6.0 deg and
+        # camera_link -> camera_color_frame is 0. Pitching camera_link here as well counted it twice
+        # and put the colour camera 6 deg below where its accelerometer says it is. The colour camera
+        # is square to the housing, which is square to the head.
         camera_color: { at: femto_color_mark, rpy_deg: [0, 0, 0], urdf: false }
         # The colour camera, for the simulator and for a reader. The URDF does not emit it: the
         # driver publishes the real colour frame itself, below.

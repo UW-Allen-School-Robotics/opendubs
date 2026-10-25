@@ -2,11 +2,11 @@
 # Perception's grasp in the gafro OpenArm simulation, on the Thor (as any user):
 #
 #   grasp_to_sim.sh sim [--port 8093]                      # the simulated right arm and its viewer (http://<thor>:8093)
-#   grasp_to_sim.sh run --label bottle --cam-xyz X,Y,Z     # grasp_object -> the arm's frame -> the simulated arm
+#   grasp_to_sim.sh run --label bottle                     # grasp_object -> TF into the arm's frame -> the simulated arm
 #   grasp_to_sim.sh run --label bottle --dry-run           # the same, printing the targets without moving anything
 #
 # The simulation runs on its own ROS domain (GRASP_SIM_DOMAIN, 77), so its joint_states never reach the robot's
-# graph; `run` reads the camera and calls perception on the robot's (ROS_DOMAIN_ID, 0). See grasp_to_sim.py.
+# graph; `run` reads the camera, TF and perception on the robot's (ROS_DOMAIN_ID, 0). See grasp_to_sim.py.
 set -eo pipefail   # not -u: ROS's setup.bash fails under nounset
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

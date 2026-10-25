@@ -170,6 +170,6 @@
   <joint name="camera_link_joint" type="fixed">
     <parent link="femto_mount_link"/>
     <child link="camera_link"/>
-    <origin xyz="0.03395 -0.03 0.02751" rpy="0 0.10472 0"/>
+    <origin xyz="0.03395 -0.03 0.02751" rpy="0 0 0"/>
   </joint>
 </robot>

@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenDubs head joint relay (/head/joint_states -> /opendubs/joint_states for robot_state_publisher)
+After=network.target opendubs-robot-state-publisher.service
+Wants=opendubs-robot-state-publisher.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+# UDP DDS only: a long-lived participant on shared memory can go deaf (workplan L.10), and the neck's
+# topic arrives through rosbridge.
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+ExecStart=/opt/opendubs/ros/head-joint-relay.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

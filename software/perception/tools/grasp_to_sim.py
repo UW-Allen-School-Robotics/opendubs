@@ -1,30 +1,36 @@
 """Ask perception for a grasp and send it to the gafro OpenArm simulation (right arm), then say whether the hand got there.
 
-  grasp_to_sim.sh sim                                    # terminal 1: the simulation and its viewer, on its own ROS domain
-  grasp_to_sim.sh run --label bottle --cam-xyz 0.05,0,1.00   # terminal 2: perception -> transform -> simulated arm
+  grasp_to_sim.sh sim                     # terminal 1: the simulation and its viewer, on its own ROS domain
+  grasp_to_sim.sh run --label bottle      # terminal 2: perception -> TF -> simulated arm
 
 What it does:
-  1. Reads the camera's accelerometer (/camera/gyro_accel/sample) and the driver's colour->IMU transform, so the camera's
-     tilt and roll are measured, not guessed. That also gives `up_cam`, which grasp_object uses to prefer level grasps.
-  2. Calls /perception/grasp_object on the robot's domain (0). The pose comes back in camera_color_optical_frame
+  1. Calls /perception/grasp_object on the robot's domain (0). The pose comes back in camera_color_optical_frame
      (x right, y down, z forward) with the GraspNet gripper convention (x approach, y closing).
-  3. Puts it in the arm model's frame (openarm_body_link0: x forward, y left, z up), the frame the simulation's
-     `right/target` is read in, and turns the gripper axes into the TCP's (openarm_right_hand_tcp: z approach,
-     y closing).
+  2. Looks up arm_mount <- camera_color_optical_frame in TF at the image's stamp. The robot description carries the
+     chain arm_mount <- lift_platform -> head_pan -> head_tilt -> femto_mount_link -> camera_link, robot_state_publisher
+     moves the head with the neck's live angles (software/ros/head_joint_relay.py), and the Orbbec driver adds
+     camera_link -> camera_color_optical_frame from the camera's factory extrinsics. arm_mount is where the arm model's
+     root (openarm_body_link0: x forward, y left, z up) sits, the frame the simulation's `right/target` is read in.
+  3. Turns the gripper axes into the TCP's (openarm_right_hand_tcp: z approach, y closing).
   4. Moves the simulated hand to a pre-grasp pose --approach metres back along the approach, then onto the grasp,
      and reports the position and angle error the simulated arm reached.
 
-The camera's POSITION and YAW are not measurable from the IMU: give them with --cam-xyz (metres, in the arm model's
-frame, lift fully down) and --cam-yaw-deg (0 = looking straight ahead, positive = turned to the robot's left). The
-default --cam-xyz is an estimate from the CAD (the head's pan point is at 0, 0, 0.888) and says so when used.
+The camera's accelerometer (/camera/gyro_accel/sample, through the driver's colour->IMU transform) gives the world's
+up in the camera frame. It goes to grasp_object as `up_cam`, and it CHECKS the transform: the angle between it and
+arm_mount's +z as TF has it is printed, and over --max-tilt-disagree-deg the run stops. The neck has no encoder, so
+TF's head angles are the commanded ones; this is what catches a neck that is not where it says.
 
 The simulation runs on ROS domain --sim-domain (77), not on the robot's: the bridge publishes `joint_states`, and the
 robot's own /joint_states must not see simulated joints. Nothing here reaches a real arm: the gafro bridge refuses
 hardware, and this tool only publishes on the simulation's domain.
 
   --dry-run          perception and the transform only; prints the targets, sends nothing
-  --from-json FILE   use a saved grasp_object response (or a --save file's `response`) instead of calling perception;
-                     with --up-cam as well, nothing on the robot's domain is touched
+  --save FILE        the response, the transform used and the targets, as JSON
+  --from-json FILE   replay a --save file (its recorded transform included) or a bare grasp_object response, without
+                     calling perception
+  --tf-topics A,B    extra TF topics to read besides /tf and /tf_static (a private robot_state_publisher under test)
+  --cam-xyz, --cam-yaw-deg   a MANUAL camera pose instead of TF (position in arm_mount, yaw toward the robot's left),
+                     with tilt and roll from the IMU; for a robot without the head's TF
 """
 
 import argparse
@@ -37,7 +43,8 @@ import time
 
 import numpy as np
 
-DEFAULT_CAM_XYZ = (0.05, 0.0, 1.00)   # ESTIMATE: on top of the head's display; measure it
+ARM_FRAME = "arm_mount"               # the robot description's frame at the arm model's root
+CAMERA_FRAME = "camera_color_optical_frame"
 SHOULDER = np.array([0.0, -0.031, 0.698])   # openarm_right_link0 in the model's frame
 REACH_WARN_M = 0.62                   # beyond this from the shoulder the right arm is near or past its reach
 # GraspNet gripper axes -> TCP axes. Columns are the TCP's x, y, z in the grasp frame: z_tcp = x_grasp (approach),
@@ -183,37 +190,84 @@ def spin_in_thread(rclpy, node, context):
         except ExternalShutdownException:   # the context was shut down: the normal end
             pass
 
-    threading.Thread(target=spin, daemon=True).start()
+    thread = threading.Thread(target=spin, daemon=True)
+    thread.start()
+    SPINNING.append((context, thread))
     return ex
 
 
-def measure_up(rclpy, node, seconds=1.0):
+SPINNING = []   # (context, thread) of every executor started, so every way out can stop them
+
+
+def shutdown_all(rclpy):
+    """Shut every context down and let its executor thread end: a thread left spinning in an exiting interpreter
+    aborts it ("terminate called without an active exception")."""
+    for context, thread in SPINNING:
+        rclpy.try_shutdown(context=context)
+        thread.join(timeout=2.0)
+
+
+class TfReader:
+    """A tf2 buffer filled from /tf and /tf_static, plus any `extra` TF topics (a *tf_static name is read as static)."""
+
+    def __init__(self, rclpy, node, extra=()):
+        import tf2_ros
+        from rclpy.duration import Duration
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        from tf2_msgs.msg import TFMessage
+        self.rclpy, self.tf2 = rclpy, tf2_ros
+        self.buf = tf2_ros.Buffer(cache_time=Duration(seconds=30))
+        static_qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+        for topic in ("/tf", "/tf_static", *extra):
+            static = topic.endswith("tf_static")
+            node.create_subscription(TFMessage, topic, self._adder(static), static_qos if static else 100)
+
+    def _adder(self, static):
+        def add(msg):
+            for t in msg.transforms:
+                (self.buf.set_transform_static if static else self.buf.set_transform)(t, "grasp_to_sim")
+        return add
+
+    def lookup(self, target, source, stamp_s=None, timeout=3.0):
+        """The 4x4 taking `source` coordinates to `target`, at `stamp_s` (seconds) or the latest. Raises LookupError
+        saying why."""
+        when = self.rclpy.time.Time() if stamp_s is None else self.rclpy.time.Time(nanoseconds=int(stamp_s * 1e9))
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                t = self.buf.lookup_transform(target, source, when)
+                break
+            except self.tf2.TransformException as error:
+                if time.monotonic() > deadline:
+                    raise LookupError(str(error).splitlines()[0]) from None
+                time.sleep(0.05)
+        r, p = t.transform.rotation, t.transform.translation
+        m = np.eye(4)
+        m[:3, :3] = quat_to_mat(r.x, r.y, r.z, r.w)
+        m[:3, 3] = (p.x, p.y, p.z)
+        return m
+
+
+def measure_up(node, tf, seconds=1.0):
     """The world's up in camera_color_optical_frame: the mean accelerometer reading over `seconds`, rotated by the
-    driver's colour->IMU transform. None if either is missing."""
-    import tf2_ros
+    driver's colour->IMU transform. (None, why) if either is missing."""
     from sensor_msgs.msg import Imu
     samples = []
     sub = node.create_subscription(Imu, "/camera/gyro_accel/sample",
                                    lambda m: samples.append((m.linear_acceleration.x, m.linear_acceleration.y,
                                                              m.linear_acceleration.z)), 50)
-    buf = tf2_ros.Buffer()
-    tf2_ros.TransformListener(buf, node)
     deadline = time.monotonic() + max(seconds, 3.0)
-    tf = None
-    while time.monotonic() < deadline and (tf is None or len(samples) < 20):
+    while time.monotonic() < deadline and len(samples) < 20:
         time.sleep(0.05)
-        if tf is None:
-            try:
-                tf = buf.lookup_transform("camera_color_optical_frame", "camera_accel_gyro_optical_frame",
-                                          rclpy.time.Time())
-            except tf2_ros.TransformException:
-                pass
     node.destroy_subscription(sub)
-    if tf is None or len(samples) < 5:
-        return None, f"IMU samples {len(samples)}, colour->IMU transform {'found' if tf else 'missing'}"
-    r = tf.transform.rotation
+    try:
+        imu = tf.lookup(CAMERA_FRAME, "camera_accel_gyro_optical_frame", timeout=1.0)
+    except LookupError as error:
+        return None, f"no colour->IMU transform ({error})"
+    if len(samples) < 5:
+        return None, f"only {len(samples)} IMU samples"
     accel = np.mean(np.array(samples), axis=0)   # at rest the accelerometer reads +g, pointing up
-    up = quat_to_mat(r.x, r.y, r.z, r.w) @ accel
+    up = imu[:3, :3] @ accel
     return up / np.linalg.norm(up), f"{len(samples)} IMU samples, |a| = {np.linalg.norm(accel):.2f} m/s^2"
 
 
@@ -302,8 +356,12 @@ def fmt(v):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--label", default="bottle")
-    ap.add_argument("--cam-xyz", default=None, help="the camera's optical centre in the arm model's frame, metres: x,y,z")
-    ap.add_argument("--cam-yaw-deg", type=float, default=0.0)
+    ap.add_argument("--arm-frame", default=ARM_FRAME, help="the TF frame at the arm model's root")
+    ap.add_argument("--tf-topics", default="", help="extra TF topics, comma-separated (e.g. a private robot_state_publisher's)")
+    ap.add_argument("--max-tilt-disagree-deg", type=float, default=3.0,
+                    help="stop when TF's up and the camera IMU's differ by more than this")
+    ap.add_argument("--cam-xyz", default=None, help="MANUAL mode, instead of TF: the colour camera's position in the arm frame, metres")
+    ap.add_argument("--cam-yaw-deg", type=float, default=0.0, help="MANUAL mode: the camera's yaw, positive toward the robot's left")
     ap.add_argument("--up-cam", default=None, help="x,y,z: the world's up in the camera frame, instead of reading the IMU")
     ap.add_argument("--approach", type=float, default=0.10, help="pre-grasp distance back along the approach, metres")
     ap.add_argument("--move-s", type=float, default=3.0, help="seconds for each move")
@@ -313,8 +371,8 @@ def main():
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
     ap.add_argument("--sim-domain", type=int, default=77)
     ap.add_argument("--reference", default="right", help="the simulation's reference name: targets go to <reference>/target")
-    ap.add_argument("--from-json", default=None, help="a saved grasp_object response (its `data`) instead of calling perception")
-    ap.add_argument("--save", default=None, help="write the response and the computed targets here (JSON)")
+    ap.add_argument("--from-json", default=None, help="replay a --save file, or a bare grasp_object response, instead of calling perception")
+    ap.add_argument("--save", default=None, help="write the response, the transform used and the targets here (JSON)")
     ap.add_argument("--dry-run", action="store_true", help="perception and the transform only; send nothing")
     ap.add_argument("--timeout", type=float, default=10.0)
     args = ap.parse_args()
@@ -326,35 +384,38 @@ def main():
     from rclpy.context import Context
     from rclpy.node import Node
 
-    if args.cam_xyz:
-        cam_xyz = np.array([float(v) for v in args.cam_xyz.split(",")])
-    else:
-        cam_xyz = np.array(DEFAULT_CAM_XYZ)
-        print(f"WARNING: --cam-xyz not given; using the estimate {fmt(cam_xyz)} m. Measure the camera's position for a real answer.")
-
-    # -- the robot's side: the camera's up direction and the grasp ------------------------------------------------
-    up_cam, data = None, None
+    # -- a replay brings its own response, and the transform and up direction it was run with ---------------------
+    up_cam, data, t_base_cam, source = None, None, None, None
+    if args.from_json:
+        with open(args.from_json) as f:
+            saved = json.load(f)
+        data = saved.get("response", saved.get("data", saved))
+        if "t_arm_cam" in saved:
+            t_base_cam, source = np.array(saved["t_arm_cam"]), f"replayed from {args.from_json} ({saved.get('transform_source')})"
+        if "up_cam" in saved:
+            up_cam = np.array(saved["up_cam"])
     if args.up_cam:
         up_cam = np.array([float(v) for v in args.up_cam.split(",")])
-        up_cam /= np.linalg.norm(up_cam)
+    if up_cam is not None:
+        up_cam = up_cam / np.linalg.norm(up_cam)
+    if args.cam_xyz:
+        t_base_cam, source = None, "MANUAL (--cam-xyz)"
+
+    # -- the robot's side: the camera's up direction, the grasp and the transform ------------------------------------
     robot_ctx = None
-    if args.from_json is None or up_cam is None:
+    if data is None or up_cam is None or (t_base_cam is None and not args.cam_xyz):
         robot_ctx = Context()
         rclpy.init(context=robot_ctx, domain_id=args.robot_domain)
         robot_node = Node("grasp_to_sim_perception", context=robot_ctx)
+        tf = TfReader(rclpy, robot_node, [t for t in args.tf_topics.split(",") if t])
         spin_in_thread(rclpy, robot_node, robot_ctx)
-    if args.from_json:
-        with open(args.from_json) as f:
-            data = json.load(f)
-        data = data.get("response", data.get("data", data))
     if up_cam is None:
-        up_cam, how = measure_up(rclpy, robot_node)
+        up_cam, how = measure_up(robot_node, tf)
         if up_cam is None:
             raise SystemExit(f"could not measure the camera's up direction ({how}); give --up-cam x,y,z")
-        print(f"camera up (measured, {how}): {fmt(up_cam)}")
+        print(f"camera up (IMU, {how}): {fmt(up_cam)}")
     pitch, roll = camera_tilt(up_cam)
-    print(f"camera tilt: {pitch:.1f} deg down, roll {roll:+.1f} deg; yaw {args.cam_yaw_deg:+.1f} deg (given); "
-          f"position {fmt(cam_xyz)} m")
+    print(f"camera tilt (IMU): {pitch:.1f} deg down, roll {roll:+.1f} deg")
 
     if data is None:
         request = {"label": args.label, "up_cam": [round(float(v), 4) for v in up_cam]}
@@ -362,13 +423,39 @@ def main():
         print(f"grasp_object {args.label!r}: {code}: {message}")
         if code != "SUCCESS":
             return 1
+
+    if args.cam_xyz:
+        t_base_cam = camera_to_base(up_cam, np.array([float(v) for v in args.cam_xyz.split(",")]), args.cam_yaw_deg)
+    elif t_base_cam is None:
+        stamp = data.get("stamp")
+        try:
+            t_base_cam = tf.lookup(args.arm_frame, CAMERA_FRAME, stamp)
+            source = f"TF {args.arm_frame} <- {CAMERA_FRAME} at the image's stamp"
+        except LookupError as error:
+            try:
+                tf.lookup(args.arm_frame, CAMERA_FRAME, None, timeout=0.5)
+                why = ("the chain exists but not at the image's time: the head's transform is stale. Is the neck "
+                       "publishing /head/joint_states, and head_joint_relay forwarding it?")
+            except LookupError:
+                why = (f"there is no chain at all ({error}). It needs robot_state_publisher with the current "
+                       "description/opendubs/opendubs.urdf (femto_mount_link, camera_link) and the head's joint states "
+                       "from head_joint_relay, plus the Orbbec driver's camera_link frames")
+            raise SystemExit(f"no transform {args.arm_frame} <- {CAMERA_FRAME}: {why}")
+        tf_up = t_base_cam[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+        disagree = math.degrees(math.acos(max(-1.0, min(1.0, float(tf_up @ up_cam)))))
+        tf_pitch, tf_roll = camera_tilt(tf_up)
+        print(f"camera tilt (TF):  {tf_pitch:.1f} deg down, roll {tf_roll:+.1f} deg -> {disagree:.1f} deg from the IMU's")
+        if disagree > args.max_tilt_disagree_deg:
+            raise SystemExit(f"TF and the camera's IMU disagree about up by {disagree:.1f} deg (limit "
+                             f"{args.max_tilt_disagree_deg}): the neck is not where it reports, or the robot is not level. "
+                             "Not sending a grasp through a transform that is wrong.")
     if robot_ctx is not None:
         rclpy.try_shutdown(context=robot_ctx)
+    print(f"camera at {fmt(t_base_cam[:3, 3])} m in {args.arm_frame}; transform: {source}")
 
-    t_base_cam = camera_to_base(up_cam, cam_xyz, args.cam_yaw_deg)
     p, q = data["position"], data["orientation"]
     print(f"grasp in camera frame: {fmt([p['x'], p['y'], p['z']])} m, width {data.get('width', float('nan')):.3f} m, "
-          f"grasp score {data.get('grasp_score', float('nan')):.3f}, tilt from floor {data.get('tilt_from_floor_deg')}, "
+          f"grasp score {data.get('grasp_score')}, tilt from floor {data.get('tilt_from_floor_deg')}, "
           f"mode {data.get('mode')!r}")
 
     # -- the simulation's side -------------------------------------------------------------------------------------
@@ -394,7 +481,7 @@ def main():
     print(f"distance from the right shoulder: {reach:.3f} m" + (f"  -- WARNING: beyond about {REACH_WARN_M} m the arm cannot reach" if reach > REACH_WARN_M else ""))
     if args.save:
         with open(args.save, "w") as f:
-            json.dump({"response": data, "up_cam": up_cam.tolist(), "cam_xyz": cam_xyz.tolist(), "cam_yaw_deg": args.cam_yaw_deg,
+            json.dump({"response": data, "up_cam": up_cam.tolist(), "t_arm_cam": t_base_cam.tolist(), "transform_source": source,
                        "grasp_tcp": {"position": grasp_p.tolist(), "quaternion_xyzw": mat_to_quat(grasp_r).tolist()},
                        "pre_grasp_tcp": {"position": pre_p.tolist(), "quaternion_xyzw": mat_to_quat(grasp_r).tolist()}}, f, indent=1)
         print(f"saved {args.save}")
@@ -415,4 +502,10 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        if SPINNING:
+            import rclpy
+            shutdown_all(rclpy)
+    sys.exit(code)
