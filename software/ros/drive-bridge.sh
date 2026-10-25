@@ -4,8 +4,13 @@
 # not in the motion path.
 # NOTE: do NOT `set -u` — ROS's setup.bash aborts under nounset.
 source /opt/ros/jazzy/setup.bash
-# Top speed is UNMEASURED — see punch list C2. Override once it is known:
-#   OPENDUBS_MAX_LIN=0.8 OPENDUBS_MAX_ANG=1.5 ./drive-bridge.sh
+# The software speed cap and the full scales at it are per robot, in /etc/opendubs/base.env (the unit
+# reads it): OPENDUBS_AUTO_CAP (fraction of full command), OPENDUBS_MAX_LIN / _STRAFE / _ANG (the speeds
+# at the cap). See drive_scale.py.
 exec python3 /opt/opendubs/ros/drive_bridge.py --ros-args \
   -p max_linear_mps:="${OPENDUBS_MAX_LIN:-0.5}" \
-  -p max_angular_rps:="${OPENDUBS_MAX_ANG:-1.0}"
+  -p max_strafe_mps:="${OPENDUBS_MAX_STRAFE:-0.0}" \
+  -p max_angular_rps:="${OPENDUBS_MAX_ANG:-1.0}" \
+  -p auto_cap:="${OPENDUBS_AUTO_CAP:-0.25}" \
+  -p fw_auto_max_unit:="${OPENDUBS_FW_AUTO_MAX:-0.35}" \
+  -p publish_tf:="${OPENDUBS_ODOM_TF:-true}"

@@ -29,3 +29,61 @@ entries:
     do:
       - Check that the head's tablet is on and showing the dashboard or the face.
       - On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+  - code: SHOW_VIDEO_NOT_READY
+    title: A show with projector video was refused because the projector isn't ready
+    symptom: [show-wont-start]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      This show plays video on the projector and says it must not run without it. The output it uses
+      (casting over Wi-Fi, or the HDMI cable) wasn't ready, so the show was refused before anything
+      moved. The sentence after the code says why, in the words the projector card on the Shows page
+      uses. A show that doesn't insist on its video runs without it instead, saying so.
+    do:
+      - Look at the projector card on the Shows page; it shows each output and what is missing.
+      - For casting, check the projector is on, awake and joined to the robot's Wi-Fi.
+      - For HDMI, check the cable and that the projector is on and set to its HDMI input.
+      - Or choose the other output (or off) on the projector card, then start the show again.
+  - code: SHOW_BASE_NOT_READY
+    title: A show with dance steps was refused because the base tracker isn't ready
+    symptom: [show-wont-start]
+    rank: 74
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      This show moves the robot's base in small dance steps and says it must not run without them.
+      The base tracker (the program on the robot that follows those steps using the base's own
+      odometry, and stops the base when a person is in the way) wasn't ready, so the show was refused
+      before anything moved. The sentence after the code says why. A show that doesn't insist on its
+      dance steps runs without them instead, saying so.
+    do:
+      - Check that the robot's odometry and both LIDARs are running (the dashboard's robot status).
+      - Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the
+        LIDARs see through glass.
+      - Start the show again once the tracker reports ready.
+  - code: SHOW_HEAD_NOT_UP
+    title: A show won't start because the head tablet isn't showing its face
+    symptom: [show-wont-start]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The show uses the head (its face, its neck or its volume and brightness), and the head tablet is
+      not ready for it: the face page is not showing on the tablet, or a video call is holding the
+      tablet. The face and the show's sound could not play there, so the show was refused rather than
+      run without them.
+    do:
+      - If a video call is up on the tablet, end it.
+      - Make sure the head tablet is on and showing the face page, then start the show again.
+  - code: SHOW_VIDEO_BUSY
+    title: The projector output couldn't be changed because a show is playing
+    symptom: [show-wont-start]
+    rank: 73
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The video output (casting, HDMI or off) was changed while a show was running. A running show's
+      videos are already on their output, so the change was refused rather than switching mid-show.
+    do:
+      - Change the output before starting the show, or stop the show first.

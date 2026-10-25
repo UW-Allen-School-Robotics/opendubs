@@ -61,10 +61,12 @@ It reports the closest pairs and marks which ones actually **move** with the pos
 arm frame sits a fixed distance from the head whatever the arms do and that constant floor
 otherwise hides the number an author cares about.
 
-**Checked against the robot, and six degrees optimistic.** Contact was felt by hand at J2 182;
-the model reaches zero at 188.3, for both arms, and barely varies with elbow fold (187.5 at
-J4=60, 188.3 at J4=140). Six degrees in the *unsafe* direction, so the measured constant stays
-in charge and this supplies the shape of the curve between the points nobody measured.
+**Checked against the robot.** Checked 2026-10-23 against the old (Tab5) head: the model puts
+contact at 181.6° (right) and 182.5° (left), elbow at 100°, against 182° felt by hand, so it agrees
+within about half a degree (`clearance.py --contact right:2 --hold right:4=100`). The new head's
+180° is simulated; the hand re-measurement replaces it. A measured figure outranks the model, so a
+measured constant stays in charge where there is one, and this supplies the shape of the curve
+between the points nobody measured.
 
 **It is a check, not the guard.** Two things already protect the real robot, and this is a third
 opinion rather than the thing standing between the arm and the head:
@@ -80,8 +82,9 @@ whole arm frame rides on the platform, so its reach envelope moves with it and a
 above it. Worth stating because it is easy to model the envelope as if it were fixed to the
 chassis and then go looking for a collision that geometry rules out.
 
-Today `software/choreo/cue.py` refuses a shoulder above 157° because *the project team measured
-contact with the head at 182° by hand, once, on one axis, with a human watching*. The arm controller
+Today `software/choreo/cue.py` refuses a shoulder above 155° because contact with the Galaxy head
+comes at about 180° with the elbow folded and the neck centred: *simulated here, with a hand
+re-measurement on the robot pending* (the old head's 182° was measured by hand, once). The arm controller
 will not stop it either — its only Cartesian guard is a workspace box, and the arm reaches the head
 comfortably inside that box.
 
@@ -109,7 +112,7 @@ origin. We `include` that model and place its root. We do not touch the arms.
 |---|---|
 | Chassis / base frame | what the arms can collide with, and the floor datum |
 | Lift platform | a prismatic joint, 275.1 mm stroke (10.83 in), carrying the whole arm frame. Stiff, slow and force-limited. A screw-driven scissor does not bounce and cannot throw the robot into the air, so the actuator is capped at 2500 N and the joint damped to about 56 mm/s — full stroke in ~5 s, arriving with the base rising 0.08 mm. Both numbers are placeholders |
-| Head bracket + Tab5 panel | **the thing the arms nearly hit** — the reason this is worth doing |
+| Head: the pan/tilt neck and the tablet face | **the thing the arms nearly hit** — the reason this is worth doing |
 
 | Mecanum wheels | driven, with rollers — see below |
 
@@ -208,15 +211,14 @@ Supplied and in use: four wheels and the lift plate — all exported at the CAD
 origin, which is also the model's datum. From them we derived the floor (z = -94 mm, off the
 wheel geometry), a 408 mm wheelbase and a 589 mm track.
 
-The head is in too — `pt_tilt_body`, `pt_screen_cover` and `D415`, supplied in CAD coordinates,
-so they are placed by cancelling the head frame's offset rather than by positioning each part.
-That was the point of the exercise: the head is what the arms nearly hit, and until it existed
-`software/choreo/cue.py` had to refuse shoulder angles on a constant measured by hand once.
-
-Two corrections are folded into that single transform, both confirmed against the robot: the
-export is **posed at pan=180** (as exported the screen and camera sat behind the tilt axis,
-facing -x, while the wheels put forward at +x — FL/FR at x=528, RL/RR at x=120), and it is
-**1.85 mm off the centreline**, which is an artefact rather than a real offset.
+The head is in too: `head_neck_pan` turns with the pan joint and `head_face_tilt` (the Galaxy
+tablet, its holder and the arms that carry it) with the tilt joint. Both are supplied in CAD
+coordinates, so each is placed by one offset that cancels the head frame's position, pos
+(0, 0, -0.8887), rather than by positioning each part. That was the point of the exercise: the head
+is what the arms nearly hit. What the arms must not hit is two coarse boxes from the meshes' extents,
+`neck_collision` and `head_collision`; the `head_screen` site marks the centre of the tablet's glass,
+where the twin draws the face. `scene.py --check` confirms the face points forward, the site sits on
+the glass and both meshes are near the tilt axis.
 
 ## Poking at it interactively
 

@@ -53,7 +53,9 @@ under study, and in a demo a bump must not be silently blended into motion near 
 One primitive: **a source holds an axis, at a priority, with an expiry.**
 
 - Human drive in `RC` — a standing lease.
-- Autonomy in `AUTO` — a standing lease.
+- Autonomy in `AUTO` — a standing lease. On the computer, one program at a time holds the base:
+  it claims it on `/base/claim`, keeps the claim alive, and drives on `/base/<owner>/cmd_vel`. The
+  [Navigation interface](interfaces/navigation.md#moving-the-base) has the details.
 - A choreographed routine — a lease for the routine, released at the end. Triggered from the
   tablet, it takes over while playing and hands control back afterwards.
 - An intervention — a lease held only while the deadman is held and the stick deflected.
@@ -146,8 +148,8 @@ resumption from a state the policy did not plan is a discontinuity it cannot see
 The model above says a planner holds a standing lease and the deadman merely arms intervention.
 The firmware is currently **stricter**, deliberately:
 
-- **AUTO requires the deadman held.** Without it, CH5 in AUTO plus any live `/cmd_vel` publisher
-  moved the robot with nobody touching anything. That is the correct end state — a planner cannot
+- **AUTO requires the deadman held.** Without it, CH5 in AUTO plus the program that holds the base
+  would move the robot with nobody touching anything. That is the correct end state — a planner cannot
   hold a switch, and autonomy whose precondition is a human holding something is not autonomy — but
   it is the wrong default until the odometry has been proven to read the right way round.
 - **Commanded magnitude is scaled** to `kAutoMaxUnit` (0.35) times the CH8 speed knob, so the

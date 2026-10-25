@@ -5,21 +5,11 @@ name: choreo
 # only. This job runs the validator's own tests, the composer's, and validates every show in the
 # repo against the test limits fixture. Pure Python + PyYAML; no robot, no ROS.
 
+# CI COST (2026-10-21): no push-to-main run (the PR already ran it); draft PRs are skipped (CI runs
+# on `gh pr ready`); a manual run is always possible.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/choreo/**"
-      # The code-skin names are pinned in four files across three lanes and tests/test_library.py
-      # checks they agree -- so a change to either of these must run THIS job, or it goes green and
-      # fails the next choreography PR instead. (Added for the Choreography lane, at its request.)
-      - "software/face-web/engine/skins/index.js"
-      - "software/head-protocol/head_protocol.py"
-      - "software/face-web/engine/face.js"         # the eye moves' measured peak offsets (test_face_moves)
-      - "sim/**"
-      - "description/**"
-      - ".github/workflows/choreo.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/choreo/**"
       # The code-skin names are pinned in four files across three lanes and tests/test_library.py
@@ -31,24 +21,29 @@ on:
       - "sim/**"
       - "description/**"
       - ".github/workflows/choreo.yml"
+  workflow_dispatch: {}
 
-# A newer push to a branch cancels its older run; every main run is kept.
+# A newer push to a branch cancels its older run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # the draft flag keeps a late draft-time run from cancelling the real run that `gh pr ready` starts
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.draft }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   test:
+    # a draft's skipped job must not carry the real check's name, or the check list shows the skip
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - run: pip install pyyaml mujoco numpy psutil platformdirs   # mujoco: ik.py's tests; psutil, platformdirs: the studio launcher's
+      - run: pip install pyyaml mujoco numpy psutil platformdirs pillow   # mujoco: ik.py's tests; pillow: the projection screen's frames; psutil, platformdirs: the studio launcher's
       - run: python3 software/choreo/tests/test_cue.py
       - run: python3 software/choreo/tests/test_composer.py
       - run: python3 software/choreo/tests/test_bridge.py
@@ -57,6 +52,8 @@ jobs:
       - run: python3 software/choreo/tests/test_hand_box.py   # hand_tcp against the arm controllers' workspace box
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
+      - run: python3 software/choreo/tests/test_effectors.py   # the tool registry, tools on the arms, the crawling hand
+      - run: python3 software/choreo/tests/test_floor_hand.py   # the floor hand: availability, the show's clock, a live run, can_skip
       - run: python3 software/choreo/tests/test_ik.py
       - run: python3 software/choreo/tests/test_sweep.py   # the self-collision sweep and its robot gate
       - run: python3 software/choreo/tests/test_pose_ref.py   # the mapping; MediaPipe is not needed
@@ -66,6 +63,10 @@ jobs:
       - run: python3 software/choreo/tests/test_library_perms.py   # an index other users can read; unreadable is said
       - run: python3 software/choreo/tests/test_show_sync.py   # the robot's own shows folder, a fake robot
       - run: python3 software/choreo/tests/test_show_outputs.py   # the lift and the light on live runs, a fake dashboard
+      - run: python3 software/choreo/tests/test_video.py   # projector video: byte ranges, the schedule, preflight, VIDEO cues
+      - run: python3 software/choreo/tests/test_dance_live.py   # DANCE on the real base: targets, origin, stop, a tracker not ready
+      - run: python3 software/choreo/tests/test_skeleton_feed.py   # the live skeleton adapter: canonical joints, the Thor's clock, stdlib only
+      - run: python3 software/choreo/tests/test_projection.py   # the twin's projection screen: picture by show time, decoded once
       - run: python3 software/choreo/tests/test_motion.py
       - run: python3 software/choreo/tests/test_speed_test.py
       - run: python3 software/choreo/tests/test_studio.py   # the studio launcher and its wheel's contents

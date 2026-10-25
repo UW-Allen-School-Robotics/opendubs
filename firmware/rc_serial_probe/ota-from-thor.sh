@@ -5,7 +5,13 @@
 # ethernet-OTA firmware is on the board; keep a USB port reachable only as a recovery fallback
 # (a complete-but-buggy image still needs USB — see the firmware OTA notes).
 #
-# Usage:  ./ota-from-thor.sh                 <- normal: finds the StamPLC itself
+# SIGNED: the board installs only images signed with the Thor's firmware-signing key, for the
+# board name "stamplc" (notes/design/firmware-signing.md). This script signs the image with
+# software/stack/firmware-signing/sign-firmware.sh (firmware.bin.sig, served beside it). The key is
+# root-only, so run it with sudo. A board still running pre-signing firmware ignores the .sig and
+# installs the image as before; that is how signing is bootstrapped.
+#
+# Usage:  sudo ./ota-from-thor.sh            <- normal: finds the StamPLC itself
 #         ./ota-from-thor.sh 10.42.2.20      <- override, if discovery cannot
 #         OTA_PORT=8099 ./ota-from-thor.sh
 #
@@ -58,6 +64,36 @@ PROJ="$(cd "$(dirname "$0")" && pwd)"
 PIO=/opt/opendubs/piovenv/bin/pio
 BIN="$PROJ/.pio/build/stamplc/firmware.bin"
 
+# --- the signing key -------------------------------------------------------------------------
+# The one signing step is software/stack/firmware-signing/sign-firmware.sh. The keys a build TRUSTS
+# are the repository's (lib/ota_verify -> firmware/common/ota_verify/keys/), so check that the image
+# about to be installed trusts the key this Thor signs with, or the next update would be refused.
+KS="${OPENDUBS_FW_KS_DIR:-/etc/opendubs/firmware-signing}"
+SIGNER="$(cd "$PROJ/.." && pwd)/stack/firmware-signing/sign-firmware.sh"
+[ -x "$SIGNER" ] || SIGNER="$(cd "$PROJ/../.." && pwd)/software/stack/firmware-signing/sign-firmware.sh"
+[ "$(id -u)" = 0 ] || { echo "ERROR: run with sudo: the firmware-signing key is root-only."; exit 1; }
+if [ ! -r "$KS/ota.key" ] || [ ! -r "$KS/ota.pub.der" ]; then
+  echo "ERROR: no firmware-signing key in $KS."
+  echo "       Create it once, back it up and commit its public key (software/stack/firmware-signing/README.md)."
+  exit 1
+fi
+SIGN_ID="$(sha256sum "$KS/ota.pub.der" | cut -c1-16)"
+TRUSTED="$(ls "$PROJ/lib/ota_verify/keys/" 2>/dev/null | sed -n 's/\.der$//p' | tr '\n' ' ')"
+echo "== signing key $SIGN_ID; the new firmware will trust: ${TRUSTED:-NO KEY} =="
+case " $TRUSTED " in
+  *" $SIGN_ID "*) ;;
+  *) echo "WARNING: the new firmware does not trust this Thor's key $SIGN_ID. It installs (the running"
+     echo "         board checks the signature), but the NEXT update from this Thor would be refused."
+     echo "         Commit the key's public half first (README.md, 'First robot', step 3).";;
+esac
+# src/main.cpp is per robot (deploys never overwrite it), so it may predate signed OTA. Then the
+# image still installs, but the board it becomes will not check signatures. Say so plainly.
+if ! grep -q otaVerifyFinish "$PROJ/src/main.cpp"; then
+  echo "WARNING: this robot's src/main.cpp has no signature check (it predates signed OTA)."
+  echo "         The board will keep accepting UNSIGNED images until it is merged in:"
+  echo "         notes/design/firmware-signing.md, 'Bootstrap'."
+fi
+
 # Thor's address ON THE PATH TO THIS StamPLC — that is the URL it will fetch from.
 # Asking the routing table means this works on whatever subnet the robot happens to use and
 # picks the right interface on a dual-homed host. It used to grep the host's addresses for
@@ -70,10 +106,27 @@ THOR_IP="$(ip -4 route get "$STAMP_IP" 2>/dev/null | grep -oE 'src [0-9.]+' | aw
   exit 1
 }
 
+# This robot's calibration (drive channels and signs, ESC shaping, lift relays) is its own
+# src/robot_config.h, never in the repo. Without it the build cannot be right, so do not start one.
+if [ ! -f "$PROJ/src/robot_config.h" ]; then
+  echo "ERROR: $PROJ/src/robot_config.h is missing: this robot's calibration."
+  if [ -f "$PROJ/src/main.cpp.pre-robot-config" ]; then
+    echo "       Make it from this robot's previous main.cpp, which carried the values:"
+    echo "         python3 $PROJ/tools/make_robot_config.py $PROJ/src/main.cpp.pre-robot-config > robot_config.h"
+    echo "       review it (and the differences it lists), then put it in $PROJ/src/."
+  else
+    echo "       Copy src/robot_config.h.example and set THIS robot's values (notes/per-robot-calibration.md)."
+  fi
+  exit 1
+fi
+
 echo "== building firmware =="
 cd "$PROJ" && "$PIO" run || { echo "ERROR: build failed"; exit 1; }
 [ -f "$BIN" ] || { echo "ERROR: $BIN not found after build"; exit 1; }
 echo "firmware: $(du -h "$BIN" | cut -f1)  ($BIN)"
+
+echo "== signing it =="
+"$SIGNER" stamplc "$BIN" || { echo "ERROR: signing failed"; exit 1; }
 
 echo "== serving it on http://$THOR_IP:$HTTP_PORT =="
 # Bracketed so the pattern cannot match the command running it (it does, over ssh).
@@ -99,6 +152,11 @@ for i in $(seq 1 15); do
   sleep 1
 done
 [ "$pulled" -eq 0 ] && { echo "WARNING: no HTTP GET from the board in 15s — command not received? check $STAMP_IP reachable + firmware has OTA support."; }
+if grep -q "GET /firmware.bin.sig" /tmp/ota-http.log 2>/dev/null; then
+  echo "  the board fetched the signature too: it checks signatures"
+else
+  echo "  the board did not ask for a signature: it runs pre-signing firmware (bootstrap)"
+fi
 
 echo "== waiting for reboot + recovery =="
 # Expect: reachable -> drops (reboot) -> reachable again.
@@ -115,7 +173,8 @@ done
 if [ "$back" -eq 1 ]; then
   echo "== OTA OK — board rebooted into the new firmware and is reachable =="
 elif ping -c1 -W1 "$STAMP_IP" >/dev/null 2>&1; then
-  echo "== board reachable (no clean reboot dip observed). Verify telemetry freshness in the dashboard. =="
+  echo "== board reachable but did NOT reboot. It may have REJECTED the image (an [OTA] REJECTED line in"
+  echo "   its telemetry says why); it keeps running its current firmware. Check the dashboard. =="
 else
   echo "== ERROR: board NOT reachable after OTA. It may need USB recovery (reflash over USB). =="
   exit 1

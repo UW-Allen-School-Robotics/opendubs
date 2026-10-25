@@ -35,6 +35,16 @@ Published through the local rosbridge, as one client (OPENDUBS_ROSBRIDGE_URL, de
                         STALE with no reading for 10 s; on change and every 5 s. `level` goes as a plain
                         integer: check one with `ros2 topic echo /diagnostics --once` on the robot.
 
+The tablet's power (notes/design/power-and-shutdown.md §9), kept here too:
+  POST /api/tablet/command  {"cmd": "sleep"|"restart"}: the screen off now, or the tablet restarted (the
+                            device owner's reboot). A restart is REFUSED while a show is loaded or
+                            running (HEAD_RESTART_SHOW). The page is told at once over this socket and
+                            passes it to the app; the app also asks GET /api/tablet/command every 5 s
+                            itself, so it reaches a tablet whose page is dead. Each runs once, by its id,
+                            and is dropped after COMMAND_TTL_S.
+  GET /api/tablet/sensors   "power": the last battery reading and its warnings: plugged in but not
+                            charging, or losing charge (HEAD_TABLET_NOT_CHARGING), and hot (HEAD_TABLET_HOT).
+
 The tilt and impact log is kept here (GET /api/tablet/sensors): the tilt from gravity, taken only while the tablet is
 still (|a| within 5 % of 1 g), and every impact above IMPACT_G with its peak, on the Thor's clock.
 
@@ -49,12 +59,14 @@ import json
 import logging
 import math
 import os
+import re
 import time
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 import origin_guard
+from refusals import refuse
 
 log = logging.getLogger("tablet_relay")
 router = APIRouter()
@@ -172,8 +184,9 @@ def to_messages(r: dict, rtt_ms: float | None, now: float | None = None) -> list
 class Rosbridge:
     """One rosbridge client: advertises the topics on (re)connect, publishes, never queues."""
 
-    def __init__(self, url: str = ROSBRIDGE_URL):
+    def __init__(self, url: str = ROSBRIDGE_URL, topics: dict | None = None, latched=()):
         self.url, self.ws, self._task = url, None, None
+        self.topics, self.latched = topics if topics is not None else TOPICS, set(latched)
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -186,8 +199,11 @@ class Rosbridge:
         while True:
             try:
                 async with websockets.connect(self.url, max_size=None, open_timeout=3) as ws:
-                    for topic, typ in TOPICS.items():
-                        await ws.send(json.dumps({"op": "advertise", "topic": topic, "type": typ}))
+                    for topic, typ in self.topics.items():
+                        adv = {"op": "advertise", "topic": topic, "type": typ}
+                        if topic in self.latched:
+                            adv["latch"] = True          # rosbridge: transient-local durability
+                        await ws.send(json.dumps(adv))
                     self.ws, delay = ws, 1.0
                     log.info("tablet relay: rosbridge connected at %s", self.url)
                     async for _ in ws:                       # nothing is asked for; keeps the link honest
@@ -349,6 +365,7 @@ async def tablet_ws(socket: WebSocket) -> None:
     for c in CAMERAS:
         state["camera"][c]["on"] = False                   # a new page has nothing open yet
     await tell_page_cameras(force=True)
+    await tell_page_command(socket)
     try:
         while True:
             raw = await socket.receive()
@@ -381,6 +398,8 @@ async def tablet_ws(socket: WebSocket) -> None:
                 state["app"] = {"version": str(m.get("version"))[:32], "versionCode": _num(m.get("versionCode"), 0),
                                 "update": m.get("update") if isinstance(m.get("update"), dict) else None}
                 continue
+            if m.get("kind") == "battery":
+                note_battery(m)
             if m.get("kind") == "battery" and isinstance(m.get("thermal"), (str, type(None))):
                 state["thermal"] = m.get("thermal")
                 state["thermal_at"] = time.monotonic() if m.get("thermal") else state["thermal_at"]
@@ -445,10 +464,125 @@ def note_motion(msg: dict) -> None:
             log.info("tablet: impact %.1f g at %.3f", g, t)
 
 
+# ---- the tablet's power: warnings and commands (notes/design/power-and-shutdown.md §9) ---------------
+# The tablet lives on the robot's power with Battery protection on, so charging stops AT 80 % and a
+# plugged tablet normally reads 80 % and "not charging". Below NOT_CHARGING_BELOW while plugged and not
+# charging, or plugged and FALLING_PCT down within FALLING_S, the charger is too weak or has failed.
+NOT_CHARGING_BELOW = 75
+FALLING_PCT, FALLING_S = 3, 900.0
+HOT_C = 45.0                    # P-5's placeholder, until the datasheet's limit is recorded
+BATTERY_STALE_S = 30.0          # no reading for this long (the page asleep or gone): no warning either way
+COMMANDS = ("sleep", "restart", "call", "endcall")
+# CALL MODE (telepresence, the user's decision 2026-10-23; the kiosk app's Call.kt): the head tablet joins
+# a meeting in the real Zoom app. Only a Zoom meeting link over https; refused during a show; while a call
+# is up the app's self-update waits (kiosk_update.latest) and the dashboard shows it. The link may carry
+# the meeting's passcode: it stays on the robot, and is only ever sent to the tablet.
+ZOOM_LINK = re.compile(r"^https://([a-z0-9-]+\.)?zoom\.us/(j|my|w)/[A-Za-z0-9._-]+(\?[A-Za-z0-9=&._%-]*)?$")
+call = {"active": False, "since": None}
+
+
+def call_busy() -> str | None:
+    """Why the tablet must not be taken over now (a call is up), or None."""
+    return "a call is up on the tablet" if call["active"] else None
+COMMAND_TTL_S = 60.0            # not picked up by then: dropped, so a tablet back later never acts on it
+power = {"readings": [], "command": None}     # readings: (monotonic, level, plugged, charging, battery_c)
+
+
+def note_battery(m: dict, now: float | None = None) -> None:
+    level = _num(m.get("level"), 0, 100)
+    if level is None:
+        return
+    now = time.monotonic() if now is None else now
+    r = power["readings"]
+    r.append((now, level, m.get("plugged") is not None, m.get("charging") is True, _num(m.get("battery_c"), -40, 120)))
+    while r and now - r[0][0] > FALLING_S:
+        r.pop(0)
+
+
+def power_status(now: float | None = None) -> dict:
+    """The last battery reading and what is wrong with it: [{"code", "text"}]."""
+    now = time.monotonic() if now is None else now
+    r = power["readings"]
+    if not r or now - r[-1][0] > BATTERY_STALE_S:
+        return {"level": None, "plugged": None, "charging": None, "battery_c": None, "warnings": []}
+    _, level, plugged, charging, temp = r[-1]
+    warn = []
+    # @fault HEAD_TABLET_NOT_CHARGING   @fault HEAD_TABLET_HOT   (shown by the dashboard: operate.js, headface.js)
+    if plugged and not charging and level < NOT_CHARGING_BELOW:
+        warn.append({"code": "HEAD_TABLET_NOT_CHARGING",
+                     "text": f"The tablet is plugged in but not charging ({level:.0f} %): its charger may be too weak or have failed."})
+    elif plugged and all(p for _, _, p, _, _ in r) and now - r[0][0] >= FALLING_S * 0.9 and r[0][1] - level >= FALLING_PCT:
+        warn.append({"code": "HEAD_TABLET_NOT_CHARGING",
+                     "text": f"The tablet is plugged in but losing charge ({r[0][1]:.0f} % to {level:.0f} % in "
+                             f"{(now - r[0][0]) / 60:.0f} min): its charger is too weak."})
+    if temp is not None and temp >= HOT_C:
+        warn.append({"code": "HEAD_TABLET_HOT", "text": f"The tablet's battery is hot ({temp:.0f} °C)."})
+    return {"level": level, "plugged": plugged, "charging": charging, "battery_c": temp, "warnings": warn}
+
+
+def _command_now(now: float | None = None) -> dict | None:
+    c = power["command"]
+    now = time.monotonic() if now is None else now
+    return c if c is not None and now - c["at"] < COMMAND_TTL_S else None
+
+
+async def tell_page_command(page=None) -> None:
+    """Pass a fresh command to the kiosk page, which hands it to the app (OpenDubsKiosk.command)."""
+    page = page or state["page"]
+    c = _command_now()
+    if page is not None and c is not None:
+        try:
+            await page.send_json({"command": {"id": c["id"], "cmd": c["cmd"]}})
+        except Exception:                                   # noqa: BLE001
+            pass
+
+
+@router.post("/api/tablet/command")
+async def tablet_command(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    cmd = body.get("cmd") if isinstance(body, dict) else None
+    if cmd not in COMMANDS:
+        return JSONResponse({"error": 'send {"cmd": "sleep"|"restart"|"call"|"endcall"}'}, status_code=400)
+    line = cmd
+    if cmd in ("restart", "call"):
+        import kiosk_update
+        why = await asyncio.get_running_loop().run_in_executor(None, kiosk_update.show_busy)
+        if why and cmd == "restart":
+            return refuse("HEAD_RESTART_SHOW", f"The tablet is not restarted while {why}. Stop the show first.")
+        if why:
+            return refuse("HEAD_CALL_SHOW", f"A call is not started while {why}. Stop the show first.")
+    if cmd == "restart" and call["active"]:
+        return refuse("HEAD_RESTART_SHOW", "The tablet is not restarted during a call. End the call first.")
+    if cmd == "call":
+        link = body.get("link")
+        if not isinstance(link, str) or len(link) > 300 or not ZOOM_LINK.match(link):
+            return JSONResponse({"error": "send a Zoom meeting link: https://…zoom.us/j/<meeting>"}, status_code=400)
+        call.update(active=True, since=time.time())
+        line = f"call {link}"
+    if cmd == "endcall":
+        call.update(active=False, since=None)
+    power["command"] = {"id": f"{cmd}-{time.time_ns()}", "cmd": line, "at": time.monotonic()}
+    await tell_page_command()
+    log.info("tablet: %s asked (%s)", cmd, power["command"]["id"])
+    return JSONResponse({"ok": True, "id": power["command"]["id"], "cmd": cmd, "page": state["page"] is not None,
+                         "call": call})
+
+
+@router.get("/api/tablet/command")
+def tablet_command_pending() -> dict:
+    """The kiosk app's own check, every 5 s from native code: the command still to run, or {}."""
+    c = _command_now()
+    return {"id": c["id"], "cmd": c["cmd"]} if c else {}
+
+
 @router.get("/api/tablet/sensors")
 def sensors_status() -> dict:
     """What the relay last published, for the dashboard and for checking it by hand."""
     return {"page": state["page"] is not None, "rosbridge": ros.ws is not None, "rtt_ms": state["rtt_ms"],
+            "power": power_status(), "call": call,
             "published": state["published"], "dropped": state["dropped"], "thermal": state["thermal"],
             "app": state["app"], "tilt": state["tilt"], "impacts": state["impacts"][-10:],
             "camera": {c: {k: v for k, v in d.items() if k != "busy"} for c, d in state["camera"].items()},

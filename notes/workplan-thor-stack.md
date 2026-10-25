@@ -20,6 +20,53 @@ notes. It adds no new architecture of its own beyond the decisions it asks for.
 | [`../docs/localization-fusion.md`](../docs/localization-fusion.md) | Two-tier REP-105 (`map→odom→base_link`). `robot_localization` for the local EKF. One primary IMU. Odometry with real covariance, stamped at source as the endgame |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md), [`../docs/naming-frames.md`](../docs/naming-frames.md) | Extrinsics are published from a URDF via `robot_state_publisher`, never as loose static transforms. Do not merge the two scans. **`base_link` placement must be settled before measuring anything** |
 
+## The head-up waiver on opendubs2: set and REMOVED, 2026-10-23
+
+- **Set:** `OPENDUBS_WAIVE_HEAD_UP=1` (#528) was set in `/etc/opendubs/robot.env`, on the maintainers'
+  word, so shows could play during a Zoom call on the head tablet. It waived only the runner's "head
+  and face must be up" precondition, and every run logged it.
+- **Removed the same day, on the maintainers' word.**
+  - `robot.env` was restored byte-for-byte from `/etc/opendubs/robot.env.pre-waiver`, which differed
+    only by the waiver's two lines.
+  - `opendubs-runner` was restarted, and its process no longer carries the flag.
+  - The runner again refuses a show unless the head and face are up.
+- **On the robot:** main 7bad01d (#515–#518, #523's 155° shoulder cap). The kiosk app is at 0.6.0 (11).
+
+## State, end of day 2026-10-22 (opendubs2)
+
+- **On the robot: main 3895126.** The kiosk app served is 0.6.0 (11). The wake word is off in
+  `/etc/opendubs/voice.env`. Merged since and **not deployed**: #516 and #517; #515 and #518 merge when
+  green. **The next robot session deploys main first.** #515's DANCE moves (start and end at rest,
+  peaks up to 70% of the cap) need that deploy before any base run. The neck is unpowered while the
+  tablet's holder parts are replaced, so its PING failing is expected until it is back.
+- **`/etc/opendubs/base.env`, all pre-belt.** These were set on the worn mitre-gear drive, which
+  strafes unevenly (table in [`per-robot-calibration.md`](per-robot-calibration.md)):
+  - `OPENDUBS_AUTO_CAP` = 0.35, the firmware's AUTO ceiling;
+  - speeds at the cap: forward 0.38 m/s, strafe 0.25 m/s, turn 0.52 rad/s. These are **estimates**: they
+    were measured at a 0.25 cap and scaled;
+  - the right-strafe yaw trim is off;
+  - the settle minimum is 0.10 m/s and 0.15 rad/s; the gains are at their default of 1.5.
+
+  The 0.25-cap file is kept on the robot as `/etc/opendubs/base.env.cap25`.
+- **After the belt change, recommission in this order.** Handedness comes first, before any software
+  motion, because belts can reverse a wheel:
+  1. **Handedness.**
+     - Review the channel and inversion values in `robot_config.h` with the maintainers.
+     - Check forward, strafe-right and turn-right under RC from the StamPLC's `[DRIVE]` telemetry.
+     - Flash with `ota-from-thor.sh` only if a value changes.
+     - Then one gated burst per direction confirms the drive bridge's signs.
+  2. Short bursts at the cap give the speeds at the cap (forward, strafe each way, turn) and the
+     strafe's bleed into forward motion and yaw.
+  3. The settle minimum, the gains, and a windowed-sine sway.
+  4. The new numbers go to the Choreography lane, for `cue.py`.
+- **#517: the kiosk app in deploys.** `deploy-all.sh` now compares the source's kiosk versionCode with
+  the one the robot serves:
+  - it says loudly when the robot is behind and no build is present;
+  - it refuses a build of a different version as stale.
+
+  To publish an app update: `./gradlew assembleRelease` in `software/tablet-kiosk`, then deploy (or set
+  `OPENDUBS_KIOSK_APK` to that build). Nothing is built inside the deploy.
+
 ## Priorities and machines
 
 **Priority (2026-10-08):** the NVIDIA-stack infrastructure is high priority. T-1, T-2 and the
@@ -228,7 +275,7 @@ Read-only audit before the deploy of `877454b`.
 |---|---|---|
 | 3.1 | One run definition (compose or a systemd unit) using NVIDIA's own flags: `--runtime nvidia --network host --ipc=host`, plus privileged or a `/dev/bus/usb` mount for USB sensors. Map devices through the **host's** udev symlinks, never by enumeration order | The container survives a reboot and a replug |
 | 3.2 | **Standardise DDS robot-wide:** one `ROS_DOMAIN_ID` per robot (per-unit identity, not in git), FastDDS everywhere, and one shared XML profile. `openarm-up` already forces FastDDS with shared memory off; decide whether `--ipc=host` lets shared memory come back on | Host nodes, the ROS image and the `openarm` container all see each other's topics, with no phantom peers on the two-NIC Thor |
-| 3.2a | ~~**Found 2026-10-12:** `/etc/opendubs-fastdds-udp-only.xml` was missing, so `kiosk`-user nodes (the show runner) fell back to shared memory and heard nothing from the `emmar`-user publishers. FastDDS shared memory does not cross Unix users.~~ **DONE 2026-10-13:** `software/choreo/deploy/provision-runner.sh` installs it on every deploy from the arm stack's tracked `software/openarm/image/fastdds-udp-only.xml`, only when it differs. Verified through the 2026-10-13 deploy (profile unchanged, runner env names it). A separate problem from the 2026-10-12 "arms inactive" refusal, which was the `openarm-motors` parser (#210). Stopgap until 3.2's one robot-wide profile | — |
+| 3.2a | ~~**Found 2026-10-12:** `/etc/opendubs-fastdds-udp-only.xml` was missing, so `kiosk`-user nodes (the show runner) fell back to shared memory and heard nothing from the service user's publishers. FastDDS shared memory does not cross Unix users.~~ **DONE 2026-10-13:** `software/choreo/deploy/provision-runner.sh` installs it on every deploy from the arm stack's tracked `software/openarm/image/fastdds-udp-only.xml`, only when it differs. Verified through the 2026-10-13 deploy (profile unchanged, runner env names it). A separate problem from the 2026-10-12 "arms inactive" refusal, which was the `openarm-motors` parser (#210). Stopgap until 3.2's one robot-wide profile | — |
 | 3.3 | Move the host-side nodes that T-2 sends into containers, one at a time, keeping each old unit until its replacement is proven | Each move is a separate PR with a liveness check |
 
 ## Phase 4 — modularity as a contract

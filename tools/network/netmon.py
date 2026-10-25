@@ -242,6 +242,10 @@ class Streaks:
 def classify(s: dict, streaks: Streaks) -> tuple[str, str]:
     """The uplink's one state and the sentence the operator reads. First match wins (§4)."""
     if not s.get("router_ok"):
+        if s.get("router_refused"):
+            # Seen at the first setup (2026-10-20): reachable, but "can't reach" sent people to the
+            # cables. The state stays NO_ROUTER (no uplink data either way); the sentence says why.
+            return "NO_ROUTER", "The router refused netmon's login: check the netmon account and /etc/opendubs/network.env"
         return "NO_ROUTER", "Can't reach the robot's router"
     u, p = s["uplink"], s.get("probes") or {}
     net = u.get("network") or "the network"
@@ -350,11 +354,13 @@ def write_atomic(obj: dict, path: str = OUT) -> None:
 def poll_once(ros: ro.RouterOS | None, prev: dict | None, streaks: Streaks, last_probe: dict,
               do_probe: bool) -> dict:
     now = time.time()
+    refused = False
     try:
         raw = read_router(ros) if ros else None
     except ro.RouterError as e:
         print(f"netmon: {e}", file=sys.stderr)
         raw = None
+        refused = e.status in (401, 403)   # reachable, but the netmon login is wrong or missing
     gw = None
     if raw:
         for d in raw.get("dhcpc") or []:
@@ -363,6 +369,8 @@ def poll_once(ros: ro.RouterOS | None, prev: dict | None, streaks: Streaks, last
                 break
     probes = probe(gw) if do_probe else last_probe
     s = summarize(raw, probes, prev, now)
+    if refused:
+        s["router_refused"] = True
     streaks.update(s, do_probe)
     return s
 

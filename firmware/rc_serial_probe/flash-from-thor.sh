@@ -18,10 +18,34 @@ if ! ls /dev/serial/by-id/*Espressif*if00 >/dev/null 2>&1; then
   exit 1
 fi
 
+# This robot's calibration (drive channels and signs, ESC shaping, lift relays) is its own
+# src/robot_config.h, never in the repo. Without it the build cannot be right, so do not start one.
+if [ ! -f "$PROJ/src/robot_config.h" ]; then
+  echo "ERROR: $PROJ/src/robot_config.h is missing: this robot's calibration."
+  if [ -f "$PROJ/src/main.cpp.pre-robot-config" ]; then
+    echo "       Make it from this robot's previous main.cpp, which carried the values:"
+    echo "         python3 $PROJ/tools/make_robot_config.py $PROJ/src/main.cpp.pre-robot-config > robot_config.h"
+    echo "       review it (and the differences it lists), then put it in $PROJ/src/."
+  else
+    echo "       Copy src/robot_config.h.example and set THIS robot's values (notes/per-robot-calibration.md)."
+  fi
+  exit 1
+fi
+
 echo "== stopping opendubs-dash to free the serial port =="
 sudo systemctl stop opendubs-dash
 trap 'echo "== restarting opendubs-dash =="; sudo systemctl start opendubs-dash' EXIT
 sleep 1
+
+# The keys the flashed board will trust are the repository's (lib/ota_verify/keys/). USB is the
+# recovery path, so none does not stop it: the board then refuses every OTA until reflashed.
+TRUSTED="$(ls "$PROJ/lib/ota_verify/keys/" 2>/dev/null | sed -n 's/\.der$//p' | tr '\n' ' ')"
+if [ -n "$TRUSTED" ]; then
+  echo "== the flashed board will trust firmware-signing key(s): $TRUSTED=="
+else
+  echo "WARNING: this build trusts no firmware-signing key: the flashed board will refuse every OTA"
+  echo "         until it is reflashed with one (software/stack/firmware-signing/README.md)."
+fi
 
 echo "== flashing StampS3 via PlatformIO =="
 cd "$PROJ"

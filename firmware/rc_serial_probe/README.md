@@ -29,9 +29,37 @@ Telemetry and commands run over **either** USB serial **or** the PoE Ethernet li
 > USB-only (`esptool` needs USB-CDC), and a complete-but-buggy OTA image needs a USB reflash to
 > recover — so keep a USB port reachable as the recovery fallback. Requires a dual-OTA partition
 > table (`board_build.partitions = default.csv`, already set).
+>
+> **Updates are signed.** The board installs only an image signed on the Thor for the board name
+> `stamplc`: `sudo ./ota-from-thor.sh` signs the image and serves the signature beside it, and the
+> board checks it before the image can boot. The check is shared with the neck Dial:
+> [`firmware/common/ota_verify`](../common/ota_verify/README.md), linked here as `lib/ota_verify`.
+> Keys, backup, rotation and recovery: [`software/stack/firmware-signing/`](../../software/stack/firmware-signing/README.md);
+> design: [`notes/design/firmware-signing.md`](../../notes/design/firmware-signing.md).
 
 Full design, transport selection (`OPENDUBS_STAMPLC_TRANSPORT=auto|udp|serial`), and the
 apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-ethernet-transport.md).
+
+## Per-robot calibration: `src/robot_config.h`
+
+Each robot's drive channel map, wheel signs, strafe sign, ESC pulse shaping and lift relays are in
+**`src/robot_config.h`, which exists only on that robot**. It's never committed and never deployed.
+`main.cpp` includes it and won't build without it, and `ota-from-thor.sh` and `flash-from-thor.sh`
+refuse to start without it. The committed [`src/robot_config.h.example`](src/robot_config.h.example)
+documents every value. Its values are a worked example, not any robot's.
+
+- **A new robot:** copy the example to `src/robot_config.h` on the robot and set each value as its
+  comment says: bench-map the channels, then verify the signs by driving. Record the values in
+  `notes/per-robot-calibration.md` as a backup.
+- **A robot whose `main.cpp` still carries the values inline** (from before this file existed):
+  the first `deploy-all.sh` after the change keeps that file as `src/main.cpp.pre-robot-config`
+  before replacing it. Then, on the robot:
+  ```bash
+  python3 tools/make_robot_config.py src/main.cpp.pre-robot-config --reference <the repo's old main.cpp> > robot_config.h
+  ```
+  The tool copies every value, so nothing changes, and refuses if one is missing. With `--reference`
+  it lists any other constant, and the drive mixer, where the robot's old file differed: review each
+  one before building. Then put `robot_config.h` in `src/`.
 
 ## Host commands (newline-terminated — USB serial or Ethernet UDP :5005)
 
@@ -39,7 +67,8 @@ apply/verify runbook: [`../docs/stamplc-ethernet-transport.md`](../docs/stamplc-
 `RELAY <ch> <0|1>` · `ESTOP` · `ENC_RESET` · `I2C_SCAN` · `I2C_INFO` ·
 `LED_COLOR/LED_LEN/LED_OFF` (PRISM RGB over I²C) ·
 **`SERVO8 <pin> <pulse_us>`** (drive an 8Servo channel) · **`PAGE <n>`** (switch screen page) ·
-**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image over Ethernet and self-flash).
+**`OTA http://<host>:<port>/fw.bin`** (pull a firmware image and its `fw.bin.sig` over Ethernet,
+check the signature, and self-flash only if it is valid).
 
 ## Local UI
 

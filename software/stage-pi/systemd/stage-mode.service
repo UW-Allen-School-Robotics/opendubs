@@ -1,0 +1,12 @@
+# stage.conf's MODE into the kernel's video= setting, before the browser starts (restarts once on a change).
+[Unit]
+Description=OpenDubs stage: apply the forced screen mode, if any
+Before=stage-kiosk.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/stage/stage-mode
+
+[Install]
+WantedBy=multi-user.target

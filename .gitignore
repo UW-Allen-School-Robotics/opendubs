@@ -9,7 +9,11 @@ ops/
 notes/drafts/
 
 # --- Dev-machine / agent config ---
-.claude/
+# (a project skill is shared only when opted in by name below; the rest of .claude/ stays local)
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/opendubs-show/
 .mcp.json
 .figma_plan.md
 .DS_Store

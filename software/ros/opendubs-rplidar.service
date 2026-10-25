@@ -5,9 +5,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=emmar
+User=@OPENDUBS_USER@
 # ROS writes logs under $HOME/.ros — systemd gives a minimal env, so set it.
-Environment=HOME=/home/emmar
+Environment=HOME=@OPENDUBS_HOME@
 ExecStart=/opt/opendubs/ros/rplidar.sh
 # Recover if the LIDAR is unplugged/replugged or the driver dies, and keep
 # retrying if the device isn't present yet at boot.

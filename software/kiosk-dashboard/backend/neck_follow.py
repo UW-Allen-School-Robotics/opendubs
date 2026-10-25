@@ -24,6 +24,7 @@ a commanded degree is ~1.67 real ones.)
 It sends nothing at all, and the head stays where it is when the lease runs out, unless ALL hold:
   - the Head & face setting `tracking` is `tablet`;
   - a neck is fitted (OPENDUBS_HEAD_NECK_HOST, not `none`);
+  - neither arm's shoulder is raised above J2 142 deg, and their positions are known (arm_clearance.py);
   - the robot is not in a reserved state (DEGRADED, E_STOP): the user's decision, 2026-10-16;
   - no show is loaded (the runner has no run): a show aims the head itself;
   - the neck is not held by a person: RC or touch own it (the neck says so in `NECK`).
@@ -211,6 +212,12 @@ def why_not_now():
         return "tracking is not set to the tablet"
     if head.neck_host() is None:
         return "no neck is fitted"
+    # Never while a shoulder is raised, or the arms' positions are unknown (arm_clearance.py, #523's cap):
+    # a show that stopped mid-move leaves the arms up, and the head must not turn into them.
+    import arm_clearance
+    arm = arm_clearance.why_not()
+    if arm:
+        return arm
     # Never in a RESERVED state (DEGRADED, E_STOP): the user's decision (2026-10-16), the same rule as
     # the reticle and a show's light. The head waits, and follows again by itself when the state clears:
     # nothing is latched. A state that cannot be read counts as reserved.
@@ -230,14 +237,28 @@ def why_not_now():
     return None
 
 
-# A TOUCH ON THE TABLET STOPS THE HEAD AT ONCE (the user, 2026-10-20; tablet plan DT-12): a hand on the
-# face, or on the dashboard the tablet is showing, must not have the head turning under it. The page
-# says so on every touch (POST /api/head/touch, face_door.py); this sends GAZE OFF to the neck straight
-# away, so it stops where it is rather than finishing its current move, and sends no GAZE until
-# TOUCH_HOLD_S after the last touch. The neck's own TOUCH HOLD (head protocol) would also outrank RC and
-# a show's GAZE; the neck firmware answers it ERR unknown today, so until it does, this holds tracking.
+# A TOUCH ON THE TABLET PAUSES THE HEAD (the user, 2026-10-20 and 2026-10-22; tablet plan DT-12): a hand
+# on the face, or on the dashboard the tablet is showing, must not have the head turning under it. The
+# page says so on every touch (POST /api/head/touch, face_door.py). This sends the neck `TOUCH HOLD`
+# straight away, and renews it every TOUCH_RENEW_S until TOUCH_HOLD_S after the last touch: the neck's
+# own pause, above a show's GAZE and the tracker, so it stops where it is and resumes by itself shortly
+# after. A brief pause only; the knob's HOLD is the deliberate long one. A neck older than TOUCH answers
+# ERR, and then GAZE OFF does what it can (it stops tracking's move; a show re-sends). Tracking also
+# sends no GAZE while touched.
 TOUCH_HOLD_S = 4.0
-_touch = {"at": None, "off_at": 0.0}
+TOUCH_RENEW_S = 0.5
+TOUCH_LEASE_MS = 1000
+_touch = {"at": None, "off_at": 0.0, "renew_at": 0.0}
+
+
+def _touch_pause() -> None:
+    import head
+    host = head.neck_host()
+    if host is None:
+        return
+    reply = _ask(host, f"TOUCH HOLD {TOUCH_LEASE_MS}", 0.2)
+    if not reply or not reply.startswith("OK"):
+        _ask(host, "GAZE OFF", 0.2)
 
 
 def touched() -> None:
@@ -247,15 +268,32 @@ def touched() -> None:
     state["moving"], state["cmd"] = False, None
     if now - _touch["off_at"] < 0.3:                 # a finger moving sends many; the neck needs one
         return
-    _touch["off_at"] = now
+    _touch["off_at"] = _touch["renew_at"] = now
 
     def _off():
         try:
-            import head
-            _ask(head.neck_host(), "GAZE OFF", 0.2)
+            _touch_pause()
         except Exception:                            # noqa: BLE001 — the hold below still stops tracking
             pass
     threading.Thread(target=_off, daemon=True).start()
+
+
+# A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24). The tablet on the robot's
+# USB power registers phantom touches (charger noise, seen 2026-10-23), and each one paused the head. The
+# pages (face main.js, dashboard app.js) report a touch at once, as before, but a pointer that has not
+# lifted within their PHANTOM window is reported here as a phantom: the pause it started ends at once,
+# and it is logged with what the page saw, so the source can be found. Real taps and holds lift in time
+# and are untouched.
+phantoms = {"count": 0, "last": None}
+
+
+def released(info: dict | None = None, end_pause: bool = True) -> None:
+    """A phantom touch: log it, and (unless a real touch is still holding) end the pause at once."""
+    phantoms["count"] += 1
+    phantoms["last"] = {"at": time.time(), **(info or {})}
+    log.info("touch: a phantom ignored (no lift within the page's window): %s", info or {})
+    if end_pause:
+        _touch["at"] = None
 
 
 def being_touched() -> bool:
@@ -338,6 +376,11 @@ async def run() -> None:
     loop = asyncio.get_running_loop()
     while True:
         cfg = config()
+        # The touch pause is renewed here, whatever tracking is doing: it holds a show's GAZE too.
+        now = _clock()
+        if being_touched() and now - _touch["renew_at"] >= TOUCH_RENEW_S:
+            _touch["renew_at"] = now
+            loop.run_in_executor(None, _touch_pause)
         try:
             state["why"] = await loop.run_in_executor(None, step, cfg) or "following"
         except Exception as e:                       # noqa: BLE001 — never let the loop die
@@ -352,12 +395,16 @@ async def start() -> None:
     global _task
     if _task is None or _task.done():
         _task = asyncio.get_running_loop().create_task(run())
+    import neck_state                                # the neck's angles into ROS (/head/joint_states)
+    await neck_state.start()
+    import arm_clearance                             # the arms' shoulders, so the head keeps out of their way
+    await arm_clearance.start()
 
 
 def status() -> dict:
     tr = state["tracker"]
     tracker = dict(tr, age_s=round(time.monotonic() - state["tracker_at"], 1)) if tr else None
-    return {"why": state["why"], "tracker": tracker, "kind": state.get("kind"),
+    return {"why": state["why"], "tracker": tracker, "kind": state.get("kind"), "phantom_touches": phantoms,
             "neck": state["neck"],
             "neck_age_s": round(_clock() - state["neck_at"], 1) if state["neck"] else None,
             "sent": state["sent"], "sent_count": state["sent_count"],

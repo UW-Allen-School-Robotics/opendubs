@@ -1,0 +1,37 @@
+// robot_config.h — THIS ROBOT's calibration and wiring. Per robot: never committed, never deployed.
+//
+// Copy this file to src/robot_config.h on a robot and set every value for THAT robot, verified by
+// driving or on the bench as each note says. The values below are the WORKED EXAMPLE from
+// docs/drive-bringup.md, not any robot's: three of opendubs2's four wheel signs differ from them.
+// A robot's values are recorded, as a backup, in notes/per-robot-calibration.md.
+//
+// main.cpp includes this file and will not build without it. ota-from-thor.sh and
+// flash-from-thor.sh refuse to build without it too. deploy-all.sh never touches it (it is on
+// tools/deploy-audit.py's PER_ROBOT list). To create one from a robot's older main.cpp, which carried
+// these values inline, use tools/make_robot_config.py: it copies the values, so nothing changes.
+#pragma once
+#include <stdint.h>
+
+// ---- Drive ---------------------------------------------------------------------------------------
+// 8Servo channel for each ESC, indexed [FL, FR, RL, RR]. Bench-map with the wheels off the ground.
+static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
+// Per-wheel ESC direction sign, [FL, FR, RL, RR]: +1 or -1 so a forward command drives every wheel
+// robot-forward. VERIFY BY DRIVING; a wrong sign fights the other wheels.
+static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
+// Strafe sign: +1, or -1 when the mecanum rollers' handedness makes the mixer strafe the wrong way.
+// Verify both directions. (Check strafe, not drive: a mirrored mix drives and reverses perfectly.)
+static constexpr int8_t   kStrafeInvert     = 1;
+
+// ---- ESC pulse shaping ---------------------------------------------------------------------------
+static constexpr uint16_t kEscNeutralUs     = 1500;   // the ESCs' neutral, the centre of their arm zone
+static constexpr uint16_t kEscSpanUs        = 150;    // ±span around neutral at full command. Keep inside
+                                                      // the ESC's proportional band (~1050..1950 us)
+static constexpr uint16_t kEscSlewUs        = 12;     // max us step per 20 ms tick: the accel/decel ramp
+static constexpr uint8_t  kEscRevDwellTicks = 10;     // on a direction flip: brake to neutral, then hold this
+                                                      // many 20 ms ticks before reversing (spreads regen)
+
+// ---- Lift (Z-axis) relays ------------------------------------------------------------------------
+// Which StamPLC relay drives which leg of the lift: a wiring fact, discovered on the bench with
+// `MAST UP|DOWN` (pulse each relay and watch the lift). CODE indices, 0-based: silk R3 is code 2.
+static constexpr uint8_t  kRelayMastUp      = 2;      // silk R3
+static constexpr uint8_t  kRelayMastDown    = 1;      // silk R2

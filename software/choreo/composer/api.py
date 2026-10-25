@@ -471,6 +471,9 @@ class Composer:
                     sweep_note = f"swept: closest {r['min_mm']:.0f} mm at {float(r['at_s']):.1f} s"
                 if r["min_mm"] < sweep.THRESHOLD_MM:
                     sweep_note += f" — UNDER {sweep.THRESHOLD_MM:g} mm"
+                for k, v in sorted((r.get("variants") or {}).items()):     # the can_skip variants
+                    sweep_note += f"; without {k}: {v['min_mm']:.0f} mm" + (
+                        f" — UNDER {sweep.THRESHOLD_MM:g} mm" if v["min_mm"] < sweep.THRESHOLD_MM else "")
         out = self.analyse(rel, text)
         out["saved"] = True
         out["disk_sha"] = _sha(text)

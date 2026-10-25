@@ -12,7 +12,7 @@
 # is also a CONTROL value belongs somewhere else and is only mirrored here for geometry:
 #   * arm joint limits    -> the arm software's hw_validation/joint_limits.yaml
 #   * per-robot wiring    -> stays on the robot
-#   * head pan/tilt trim  -> the Tab5's own NVS
+#   * neck tilt limits    -> the neck controller's (M5Dial) own NVS
 #
 # units: millimetres, degrees. MJCF is metres, so the model scales by 0.001 like the arm assets.
 
@@ -37,8 +37,6 @@ lift:
   # scissor is slow and pushes about as hard as its motor. Capped, the full stroke takes ~5 s
   # and the base rises 0.08 mm on arrival. Time a real stroke and these become real.
   platform_face_z_mm: 357.5  # CAD z of the plate's top face, fully DOWN (mesh reads 356.6..357.6)
-  # NOTE (bug, not a dimension): firmware/tab5_face/src/lift.h scales its height bar
-  # MIN_MM=0 .. MAX_MM=900, so with a 275 mm stroke the bar can only ever reach ~30%.
 
 arms:
   # Not modelled here. The bimanual OpenArm model already carries the arms AND the stock V1
@@ -66,75 +64,78 @@ arms:
     shoulder_height_above_floor_mm: { lowered: 1149.5, raised: 1424.6 }
 
 head:
-  # Tab5 panel on a pan/tilt bracket, with the D415 on top. Pan then tilt, both servos through
-  # the 8Servo unit.
-  parent: lift_platform     # confirmed: the face/pan-tilt translates in +z with the extrusion
+  # A Samsung Galaxy Tab A11 (SM-X133), landscape, on a pan/tilt neck: pan then tilt, two goBILDA
+  # servos driven by the neck controller (an M5Dial, firmware/neck_dial).
+  parent: lift_platform     # confirmed: the head translates in +z with the extrusion
   tilt_axis_xyz_mm: [423.0, 0.0, 1245.575]   # MEASURED in CAD, lift fully down
   pan_axis_xyz_mm: [423.0, 0.0, 1245.575]    # CONFIRMED on the centreline, vertical through the tilt point
   pan_axis: [0, 0, 1]
   tilt_axis: [0, 1, 0]
   servo: goBILDA 2000-series dual-mode, 300 deg travel out of the box (manufacturer spec)
   # https://www.gobilda.com/2000-series-dual-mode-servo-25-2-torque/
-  # 500-2500 us over 300 deg = 6.667 us/deg. Both axes use one of these through the 8Servo.
+  # 500-2500 us over 300 deg = 6.667 us/deg. Pan and tilt use one each.
   pan_range_deg: [-150, 150]
-  # Pan has NO mechanical limit of its own: no stop in the bracket, no slip ring on this build.
-  # The horn was set at the middle of the servo's travel, so the limit is simply +/-150. Left
-  # deliberately wide -- whether the head can sweep that far without meeting the arms or the
-  # extrusion is for the model to answer, not for the joint range to pre-empt.
+  # Pan has NO mechanical limit of its own: no stop in the neck, no slip ring. The horn was set at
+  # the middle of the servo's travel, so the limit is simply +/-150. Left deliberately wide --
+  # whether the head can sweep that far without meeting the arms or the extrusion is for the model
+  # to answer, not for the joint range to pre-empt.
   tilt_travel_deg: { up: 93.75, down: 15.75, hard_stop_down: 20.25 }
   tilt_us: { up: 920, horizontal: 1545, down: 1650, hard_stop: 1680, us_per_deg: 6.667 }
-  # MEASURED in us, DERIVED in degrees. firmware/tab5_pantilt/README.md crept the servo in
-  # small steps watching current, soft-stopping at 0.20 A so it never stalled; the horizontal
-  # point is independently confirmed by the holding current peaking there, which is where the
-  # gravitational moment is greatest.
-  #
-  # That README converts at 7.14 us/deg from an ASSUMED 280 deg of travel. The servo spec says
-  # 300, and the README's own observation agrees with 300: it calls 920 us "slightly past
-  # vertical", which at 7.14 would be 87.5 deg -- slightly SHORT of vertical. At 6.667 it is
-  # 93.75, past vertical, as seen. The assumed 280 was the odd one out.
-  #
-  # Not cross-checked against firmware/tab5_roller's 99 deg span: that is the Roller485
-  # mechanism, with a slip-ring pan, so it is a different head and not evidence about this one.
+  # The TILT SERVO's travel, MEASURED in us and DERIVED in degrees: firmware/tab5_pantilt/README.md
+  # crept this servo in small steps watching current, soft-stopping at 0.20 A so it never stalled;
+  # the horizontal point is independently confirmed by the holding current peaking there, which is
+  # where the gravitational moment is greatest. (That README converts at 7.14 us/deg from an
+  # assumed 280 deg; its own note that 920 us is "slightly past vertical" agrees with 6.667.)
+  # The servo and the axes did not change when the face parts did (2026-10-23), but the new face
+  # may meet its stops elsewhere. The robot's operating limits are the neck controller's.
   # NOBODY HAS PUT A PROTRACTOR ON THIS AXIS. One reading at 920 us would settle it.
   # SIGN: in the model, positive tilt is DOWN (rotation about +y swings +x toward -z).
   mass_kg: MESH-DERIVED, NOT WEIGHED
-  # The tilt body comes out at 2.97 kg, because MuJoCo takes mass from mesh volume at its
-  # default 1000 kg/m3 -- solid water. The real head is nearer 0.8 kg (Tab5 ~400 g, D415 72 g,
-  # brackets). The viewer's head actuator gains were sized against the 2.97 figure, so they are
-  # conservative rather than wrong, but any statement about servo torque, sag or dynamics from
-  # this model is currently meaningless. Weigh the head, or set a density, before making one.
-  parts_frame: >
-    pt_tilt_body, pt_screen_cover and D415 are exported IN CAD COORDINATES, so the model places
-    them by cancelling the head frame's offset rather than positioning each part. No second
-    origin, nothing to re-derive.
-  export_pose: yawed_180
-  # RESOLVED: the head faces FORWARD on the robot, so the export is posed at pan=180 and the
-  # model corrects it. As exported the screen (x 363..386) and camera (x 364..384) sat behind
-  # the tilt axis at 423, looking toward -x; the wheel meshes put forward at +x (FL/FR x=528,
-  # RL/RR x=120). opendubs.xml applies the 180 deg yaw in the same transform that places the
-  # meshes, so there is still only one transform per part.
-  y_asymmetry_mm: 1.85
-  # The PAN AXIS is on the centreline; the parts around it are not. The Tab5 carries a camera on
-  # one side, so the assembly sits about 1.85 mm off centre in y. That is real geometry and is
-  # left alone. An earlier version subtracted it to "centre" the head, which moved it a
-  # millimetre off where CAD puts it. The yaw carries the asymmetry to the other side, which is
-  # what physically happens when the head turns round: placed, the screen spans y -80.9..77.2.
-  extents_cad_mm:
-    # Measured off the supplied meshes AS EXPORTED (before the yaw and the y correction).
-    # x forward, y left, z up. Placed, they become:
-    #   pt_tilt_body    x 393.37..468.75  y -76..76   z 1192.78..1292.63
-    #   pt_screen_cover x 460.00..482.75  y -79..79   z 1189.78..1295.63
-    #   d415            x 461.55..481.60  y -49..50   z 1302.12..1325.12
-    pt_tilt_body:    { x: [377.25, 452.63], y: [-74.15, 77.85], z: [1192.78, 1292.62] }
-    pt_screen_cover: { x: [363.25, 386.00], y: [-77.15, 80.85], z: [1189.78, 1295.62] }
-    d415:            { x: [364.40, 384.45], y: [-48.04, 50.82], z: [1302.12, 1325.12] }
-    # The D415's own dimensions check out against the datasheet: 98.9 wide (y), 20.1 deep (x),
-    # 23.0 tall (z) -- so the mesh is the camera, at the right scale, looking along x.
-  camera: D415
-  channel: enclosed
-  # The 1120 extrusion is not modelled, and does not need to be: it fits INSIDE the tilt body,
-  # so nothing can strike it without striking that first. Carried as an open gap for a while on
-  # the assumption that a missing structural member understates clearance. Here it does not.
+  # MuJoCo takes mass from geometry at its default 1000 kg/m3 -- solid water -- so the tilt body
+  # comes out at 5.1 kg (the face mesh and its collision box); the real head is under 1 kg (the
+  # tablet is 340 g). Any statement about servo torque, sag or dynamics from this model is
+  # meaningless until the head is weighed (a punch-list item).
+  export:
+    # THE SOURCE of the head's geometry: the head assembly's CAD, exported as two binary STLs in
+    # millimetres, in the assembly's OWN frame (not the robot's CAD origin). In that frame the pan
+    # and tilt axes meet at (0, 0, 888.7), the tilt axis runs along y, the pan axis is the vertical
+    # through x = 0, y = 0, and the tablet faces +x.
+    pan_tilt_point_mm: [0.0, 0.0, 888.7]
+    # Placing it on the robot is a PURE TRANSLATION, no rotation: it puts the export's pan/tilt
+    # point on the measured one above (0 + 423, 0 + 0, 888.7 + 356.875 = 1245.575).
+    to_robot_mm: [423.0, 0.0, 356.875]
+    groups:
+      neck: rides head_pan    # meshes/head_neck_pan.stl: the neck, without its servos (below)
+      face: rides head_tilt   # meshes/head_face_tilt.stl: the tablet, its holder and the arms that carry it
+      femto_mount: rides head_tilt   # meshes/femto_mount.stl: the Femto Bolt's mount (the module, below)
+      femto_bolt: rides head_tilt    # meshes/femto_bolt.stl: the camera's 115 x 65 x 40 envelope, not Orbbec's CAD
+    extents_export_mm:
+      # As exported. Placed on the robot, add to_robot_mm.
+      neck: { x: [-46.0, 26.0],    y: [-47.5, 47.5],   z: [793.0, 913.0] }
+      face: { x: [-15.87, 85.75],  y: [-110.5, 110.5], z: [806.7, 940.7] }
+      femto_mount: { x: [24.5, 70.75], y: [-60.55, 60.55], z: [891.01, 992.06] }
+      femto_bolt:  { x: [24.5, 89.7],  y: [-57.58, 57.58], z: [948.11, 988.31] }
+    landmarks_export_mm:
+      # Read off the face mesh: the tablet's front face is the plane at x = 82.8 measuring
+      # 211.0 x 124.7 mm (the SM-X133's spec body), and its display area is the 189.0 x 113.6 mm
+      # plane just behind it; both are centred at y -0.35, z 873.55.
+      screen_face: [82.8, -0.35, 873.55]
+      # Read off the two module meshes, where they meet: the mount's two legs (y +/-41..60.55,
+      # x 40.75..70.75) slide into two pockets in the face's holder, held on all four sides, and
+      # leave it at the face's top face (z 940.7). The interface is the centre of those mouths.
+      femto_interface: [55.75, 0.0, 940.7]
+      # The camera envelope's front face is at x = 89.7, facing +x, and carries two 1 mm-deep
+      # circular marks for its two cameras (assignment confirmed by the user, 2026-10-23, against
+      # Orbbec's Femto Bolt coordinate-system documentation):
+      femto_depth_mark: [89.7, -30.0, 968.21]   # diameter 16.6: the DEPTH camera, 30 mm to the robot's right
+      femto_color_mark: [89.7, 2.0, 967.71]     # diameter 15.5: the COLOUR (RGB) camera
+  not_modelled:
+    # The neck export EXCLUDES the two goBILDA servos and their bearing blocks. They are not
+    # added as primitives: the export does not say where they sit, and a guessed position is
+    # worse than none. Until their positions are in CAD, the arms' clearance checks do not see
+    # them. TODO_CAD: their placement, or an export that includes them.
+    - goBILDA servos (pan, tilt)
+    - goBILDA bearing blocks
 
 chassis:
   footprint_mm: TODO        # frame outline (x by y)
@@ -172,11 +173,11 @@ meshes:
     # first attempt had it mirrored, which drove forward and reversed perfectly and only
     # strafed the wrong way. Check strafe, not drive.
   lift_platform:  { file: meshes/z-axis-down.stl, span_mm: { x: [148, 548], y: [-160, 160], z: [356.6, 357.6] } }
-  # The head, supplied IN CAD COORDINATES (see head.extents_cad_mm above):
-  head_tilt_body: { file: meshes/pt_tilt_body.stl }
-  head_screen:    { file: meshes/pt_screen_cover.stl }
-  head_camera:    { file: meshes/D415.stl }
-  head_channel:   { file: meshes/1120_channel.stl }   # kept, but not placed: see head.channel
+  # The head, exported in the head assembly's own frame (see head.export above):
+  head_neck:      { file: meshes/head_neck_pan.stl }    # 1500 triangles; rides head_pan
+  head_face:      { file: meshes/head_face_tilt.stl }   # 5948 triangles; rides head_tilt
+  femto_mount:    { file: meshes/femto_mount.stl }      # 1348 triangles; the module's mount
+  femto_bolt:     { file: meshes/femto_bolt.stl }       # 1526 triangles; the camera's envelope
 
 # ============================== ROS FRAMES ===================================================
 # What gen_urdf.py turns into opendubs.urdf for robot_state_publisher. Same rules as the rest of
@@ -187,10 +188,9 @@ meshes:
 # URDF rather than inventing one: a guessed offset is the hardcoded-LIDAR-facing problem in
 # app.js, with more ceremony. A consumer looking up a missing frame fails loudly, which is right.
 #
-# Frame names are the ones the drivers publish (laser, laser_rear), so no node has to change.
-# tof_front_link is reserved for the head's front ToF (sensor_msgs/Range), which has no ROS
-# publisher until it returns through the head protocol (workplan-tablet 2.1; thor-stack L.6). Joint names match the MJCF (zaxis, head_pan, head_tilt), so one
-# joint_states message means the same thing to the simulator and the robot.
+# Frame names are the ones the drivers publish (laser, laser_rear), so no node has to change. Joint
+# names match the MJCF (zaxis, head_pan, head_tilt), so one joint_states message means the same
+# thing to the simulator and the robot.
 
 base_link:
   # DECIDED 2026-10-08 (workplan-thor-stack L.1). Where ROS's base_link sits, in CAD
@@ -207,13 +207,22 @@ sensors:
   lidar_front:
     frame: laser                       # opendubs-rplidar.service
     fitted: true
-    xyz_mm: TODO_CAD                   # the front lidar mount (docs/build/lidar.md)
-    rpy_deg: [0, 0, 0]                 # ASSUMED forward. The A1's own zero-angle mark decides it
+    # CAD 2026-10-21: on the centreline, 554.38 mm forward of the datum; scan plane about 9.5 in
+    # (241.3 mm) above it, read from CAD (the beam window is not modelled, so z is approximate).
+    xyz_mm: [554.38, 0.0, 241.3]
+    # MEASURED 2026-10-21: the driver's 0 deg faces the robot. Both units go blind in a ~120 deg arc
+    # centred on 0 deg (the frame, inside range_min), and the motor faces the datum per CAD. The
+    # dashboard's LIDAR view, confirmed correct at the robot, encodes the same (app.js: facing pi
+    # plus a 180 deg correction).
+    rpy_deg: [0, 0, 180]
   lidar_rear:
     frame: laser_rear                  # opendubs-rplidar-rear.service
     fitted: true
-    xyz_mm: TODO_CAD
-    rpy_deg: [0, 0, 180]               # ASSUMED (lidar-frames-and-fusion.md says so too)
+    # CAD 2026-10-21: on the centreline, 199.578 mm behind the datum; scan plane as the front's.
+    xyz_mm: [-199.578, 0.0, 241.3]
+    # MEASURED 2026-10-21: 0 deg faces the robot, as the front; here that is forward. The earlier
+    # assumption (180) was the wrong way round.
+    rpy_deg: [0, 0, 0]
   pinpoint:
     frame: pinpoint_link               # the Pinpoint computer, which contains its IMU
     fitted: true
@@ -234,42 +243,61 @@ sensors:
 
 head_assembly:
   # The head is a SWAPPABLE sub-assembly: it attaches to the lift platform at its own mount pose
-  # and brings its own joints and sensor frames. Changing heads changes `fitted` and nothing
-  # else. Only the fitted assembly is emitted.
-  fitted: galaxy_tablet           # 2026-10-15: the Galaxy tablet replaced the Tab5 panel
-  tab5_pantilt:
-    # Head frame positions are CAD coordinates with pan = tilt = 0 and the lift down, the same
-    # convention as head.extents_cad_mm once placed; they ride on head_tilt_link.
-    # Tab5 panel on the pan/tilt bracket, D415 on top. Geometry from the `head:` block above:
-    # pan/tilt axes, joint ranges, and the part extents the frames below are derived from.
-    geometry: head
-    frames:
-      camera_link:   { at: d415_face }   # the D415 front-face centre. NOT RealSense's camera_link
-                                         # origin, which is at the left imager (unlocated); refine
-      head_screen_link: { at: screen_face }  # Tab5 screen centre, x out of the glass
-      tof_front_link: { xyz_mm: TODO_CAD, rpy_deg: [0, 0, 0] }  # Tab5 Port A ToF; aim ASSUMED forward
-      head_imu_link:  { xyz_mm: TODO_CAD, rpy_deg: [0, 0, 0] }  # BMI270 on the Tab5 board
+  # and brings its own joints and sensor frames. Only the fitted assembly is emitted.
+  fitted: galaxy_tablet
   galaxy_tablet:
     # Samsung Galaxy Tab A11 (SM-X133), landscape, on the pan/tilt neck that the M5Dial drives.
-    # Fitted 2026-10-15. EVERY NUMBER HERE IS A MANUFACTURER SPEC VALUE OR AN ASSUMPTION, not a
-    # measurement: confirm each at the robot (workplan-thor-stack L.3b) and replace it.
     device:
       model: "Samsung Galaxy Tab A11 SM-X133"
-      size_mm: [211, 125, 8]          # SPEC: width x height x depth; landscape, so y x z x x here
+      size_mm: [211, 125, 8]          # SPEC: width x height x depth; landscape, so y x z x x here.
+                                      # The face mesh agrees: 211.0 x 124.7
       mass_g: 340                     # SPEC
       screen_px: [1340, 800]          # SPEC
-    # Pan/tilt axes and joint ranges: ASSUMED to be the same bracket as the Tab5 head (the `head:`
-    # block), so the neck's two joints keep their names and positions. Confirm at the robot.
-    geometry: head
-    # Frame positions use the same convention as tab5_pantilt: CAD coordinates with pan = tilt = 0
-    # and the lift down, riding on head_tilt_link. Left out of the URDF until measured.
-    # `optical: true` adds <name minus _link>_optical_frame (z forward, x right, y down; REP-103).
+    geometry: head                    # the neck's joints and the meshes' export frame
+    # Frame positions are ROBOT CAD coordinates with pan = tilt = 0 and the lift down, riding on
+    # head_tilt_link. `at:` takes one from head.export.landmarks_export_mm (moved by to_robot_mm);
+    # TODO_MEASURE / TODO_CAD leaves the frame out of the URDF. `optical: true` adds
+    # <name minus _link>_optical_frame (z forward, x right, y down; REP-103).
     # The camera feeds are on demand (off unless requested): /tablet/camera/front, /tablet/camera/rear.
     frames:
-      head_screen_link:   { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # screen centre, x out of the glass
+      head_screen_link:   { at: screen_face, rpy_deg: [0, 0, 0] }  # centre of the tablet's front face, x out of the glass
       tablet_front_camera_link: { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0], optical: true }  # screen side, facing out
       tablet_rear_camera_link:  { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 180], optical: true }  # back side; full rear view. Yaw ASSUMED
       tablet_gps_link:    { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the tablet's GNSS antenna: the robot's GPS
       tablet_imu_link:    { xyz_mm: TODO_MEASURE, rpy_deg: [0, 0, 0] }  # the tablet's IMU; Android axes
-    # Not on this head: the D415 (camera_link) and the front ToF (tof_front_link) were parts of
-    # the Tab5 head. If either is remounted, it gets a frame here with a measured position.
+    # The face mesh does not locate the tablet's cameras, GNSS antenna or IMU; they stay
+    # TODO_MEASURE (workplan-thor-stack L.3b).
+    femto_mount:
+      # The attach frame for the head's Orbbec Femto Bolt module, on the tilting face: where the
+      # mount's legs enter the face's holder (head.export.landmarks_export_mm.femto_interface),
+      # aligned with head_tilt_link. The module's own frames are positioned from it.
+      frame: femto_mount_link
+      parent: head_tilt_link
+      at: femto_interface
+      rpy_deg: [0, 0, 0]
+      module: femto_bolt
+  modules:
+    femto_bolt:
+      # Orbbec Femto Bolt on the user's mount. The geometry is the user's (head.export: femto_mount
+      # and femto_bolt); the camera is its 115 x 65 x 40 mm envelope, as x 65.2 (deep) x y 115.2
+      # x z 40.2 here, front face at x = 89.7 in the export, facing +x.
+      fitted: true
+      # Frame positions: `at:` an export landmark, or robot CAD coordinates (pan = tilt = 0, lift
+      # down), like the head's; the generator places them relative to femto_mount_link.
+      frames:
+        camera_link: { at: femto_depth_mark, rpy_deg: [0, 6, 0] }
+        # The DEPTH camera's origin, which is what OrbbecSDK_ROS2 publishes as its root, in ROS's
+        # body convention (x forward, z up). It sits on the depth mark at the FRONT FACE's
+        # surface: the true focal point is behind the glass, by an amount not yet located.
+        # Pitched 6 deg DOWN from the colour camera (Orbbec's documentation): +6 deg about y,
+        # which swings x toward -z. The colour camera is square to the housing, which is square
+        # to the head.
+        camera_color: { at: femto_color_mark, rpy_deg: [0, 0, 0], urdf: false }
+        # The colour camera, for the simulator and for a reader. The URDF does not emit it: the
+        # driver publishes the real colour frame itself, below.
+      driver_frames: >
+        The depth, colour and IMU frames and their optical frames hang below camera_link, and
+        OrbbecSDK_ROS2 publishes them itself from the device's factory extrinsics. The URDF never
+        carries them, because two publishers of one transform conflict; it ends at camera_link.
+        The simulator carries sites for the depth and colour cameras at the two marks; the IMU's
+        position inside the housing is not in this geometry (TODO_CAD).

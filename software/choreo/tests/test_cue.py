@@ -27,7 +27,7 @@ LIMITS = load_limits(os.path.join(HERE, "joint_limits_fixture.yaml"))
 
 fails = []
 # What a show that moves everything must declare; the test helpers default to it.
-REQUIRES_ALL = {"arms": "active", "tab5": True, "rc_authority": "AUTO"}
+REQUIRES_ALL = {"arms": "active", "head": True, "rc_authority": "AUTO"}
 
 
 def check(name, cues, expect, slots=None):
@@ -213,9 +213,25 @@ check_doc("a free-form velocity on a dance cue is refused",
 check_doc("a move longer than a gesture is refused",
           doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "secs": 9}], dance={"floor_radius_m": 1.5}),
           "secs")
-check_doc("amp above the autonomy ceiling is refused",
+check_doc("amp above the show cap is refused",
           doc_show([{"t": 1.0, "slot": "DANCE", "move": "sway", "amp": 1.5}], dance={"floor_radius_m": 1.5}),
           "amp")
+check_doc("a move that peaks past 70 % of the show cap is refused: the tracker needs room to correct",
+          doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.75}], dance={"floor_radius_m": 1.5}),
+          "room to correct")
+_at = doc_show([{"t": 1.0, "slot": "DANCE", "move": "twist", "amp": 0.7},
+                {"t": 4.0, "slot": "DANCE", "move": "sway"}], dance={"floor_radius_m": 1.5}).analyse(LIMITS)
+check_true("amp 0.7, and a move with no amp (the default), are within the peak limit",
+           not _at["problems"], [q.msg for q in _at["problems"]])
+check_true("no library stroke moves and turns at once (strafing uses the turn budget to hold its heading)",
+           not any((x or s) and r for m in _pin_caps.DANCE_MOVES.values() for _f, x, s, r, _sh in m),
+           _pin_caps.DANCE_MOVES)
+_ends = [(_pin_caps.dance_state(m, 3.0, 0.7, 0.0), _pin_caps.dance_state(m, 3.0, 0.7, 3.0)) for m in _pin_caps.DANCE_MOVES]
+check_true("every move starts and ends at rest, and ends home",
+           all(abs(v) < 1e-9 for a, b in _ends for v in a + b), _ends)
+_pk = max(abs(_pin_caps.dance_state("sway", 3.0, 0.7, 3.0 * k / 600)[4]) for k in range(601))
+check_true("a move's speed peaks at exactly its amp of the speed at the cap",
+           abs(_pk - 0.7 * _pin_caps.BASE_M_PER_S_STRAFE_AT_CAP) < 1e-9, _pk)
 check_doc("too much total open-loop base time is refused",
           doc_show([{"t": float(i * 4), "slot": "DANCE", "move": "rock", "secs": 4} for i in range(9)],
                    dance={"floor_radius_m": 1.5}), "cap on open-loop base motion")
@@ -225,14 +241,14 @@ _dr = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 0.5, "secs": 3}], slots
 check_true("a DRIVE move validates — and every validation says it runs only in the twin, refused on the robot",
            not _dr["problems"] and any("runs only in the twin" in n and "REFUSES" in n for n in _dr["notices"]),
            ([q.msg for q in _dr["problems"]], _dr["notices"]))
-check_doc("a DRIVE faster than the base's autonomy ceiling is refused, with the time it needs",
+check_doc("a DRIVE faster than the show cap allows is refused, with the time it needs",
           doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 2.0, "secs": 3}], slots=["DRIVE"],
                    dance={"floor_radius_m": 5.0}), "needs at least")
 check_doc("a DRIVE that moves nothing is refused",
           doc_show([{"t": 1.0, "slot": "DRIVE", "secs": 3}], slots=["DRIVE"], dance={"floor_radius_m": 2.0}), "moves nothing")
 check_doc("a DRIVE needs the show's floor space declared, like DANCE",
           doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 0.5, "secs": 3}], slots=["DRIVE"]), "declares no floor space")
-_far = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 1.5, "secs": 8}], slots=["DRIVE"],
+_far = doc_show([{"t": 1.0, "slot": "DRIVE", "forward_m": 1.5, "secs": 10}], slots=["DRIVE"],
                 dance={"floor_radius_m": 1.0}).analyse(LIMITS)
 check_true("a DRIVE path that leaves the declared floor radius warns (an estimate), and stays valid",
            not _far["problems"] and any("DRIVE cues take the base" in w.msg for w in _far["warnings"]),
@@ -257,15 +273,20 @@ check_doc("a show that moves with no requires at all is caught",
 check_doc("a show using the arms must declare arms: active",
           doc_show([{"t": 3.0, "slot": "ARM_R", "joints": {4: 20}}],
                    requires={"rc_authority": "AUTO"}), "arms: active")
-check_doc("a show using the face must declare tab5: true",
-          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], requires={}), "tab5: true")
+check_doc("a show using the face must declare head: true",
+          doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}], requires={}), "head: true")
+_old = doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
+                requires={"tab5": True, "rc_authority": "AUTO"}).analyse(LIMITS)
+check_true("tab5: is still read, as head: (the old name), with a notice to write head:",
+      not _old["problems"] and any("old name for head" in n for n in _old["notices"]),
+      ([q.msg for q in _old["problems"]], _old["notices"]))
 check_doc("an unknown requires key is caught",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"}],
-                   requires={"tab5": True, "lidar": "on"}), "unknown key 'lidar'")
+                   requires={"head": True, "lidar": "on"}), "unknown key 'lidar'")
 check_doc("a face-and-sound show needs no rc_authority",
           doc_show([{"t": 1.0, "slot": "FACE", "do": "emote", "name": "SOFT"},
                     {"t": 1.0, "slot": "SOUND", "do": "play", "sound": "attend"}],
-                   requires={"tab5": True}), None)
+                   requires={"head": True}), None)
 
 # Audio routing (DEC-5 / DEC-11, item 1.5): where each sound plays, and whether it can.
 _m = {"file": "x.wav", "bpm": 120}
@@ -649,7 +670,7 @@ check_doc("a fade over 30 s is refused", doc_show([_D(do="volume", level=0.5, fa
 check_doc("a fade owns the slot: a second cue inside it collides",
           doc_show([_D(do="volume", level=0.5, fade_s=5), {"t": 3.0, "slot": "DEVICE", "do": "brightness", "level": 0.5}]),
           "still busy")
-check_doc("DEVICE needs tab5: true", doc_show([_D(do="volume", level=0.5)], requires={"tab5": False}), "tab5: true")
+check_doc("DEVICE needs head: true", doc_show([_D(do="volume", level=0.5)], requires={"head": False}), "head: true")
 _w = doc_show([_D(do="brightness", level=0.1)]).export(LIMITS, _FIX)
 check_true("brightness below 0.15 is valid but warned: the head clamps to its floor",
            _w["valid"] and any("bright_min" in w["msg"] for w in _w["warnings"]), _w["warnings"])
@@ -659,8 +680,8 @@ check_true("a show-level device: block is exported for the runner",
            and _x["tracks"]["DEVICE"][0]["cue"]["level"] == 0.5, (_x["problems"], _x.get("device")))
 check_doc("device: with an unknown key is refused", doc_show([_D(do="volume", level=0.5)], device={"gain": 1}), "unknown key 'gain'")
 check_doc("device: out of range is refused", doc_show([_D(do="volume", level=0.5)], device={"volume": 2}), "volume 2 must be 0..1")
-check_doc("device: needs tab5: true too",
-          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"volume": 0.5}, requires={}), "tab5: true")
+check_doc("device: needs head: true too",
+          doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"volume": 0.5}, requires={}), "head: true")
 _y = doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"brightness": 0.05}).export(LIMITS, _FIX)
 check_true("... and a dim show-level brightness is warned too", any("bright_min" in w["msg"] for w in _y["warnings"]),
            _y["warnings"])

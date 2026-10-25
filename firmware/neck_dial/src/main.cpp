@@ -3,7 +3,11 @@
 // plan -- it is not a stand-in for either, so nothing here should read as temporary.
 //
 // WHAT IT ANSWERS, from head_protocol.py's own table: PING and REBOOT and OTA are `device` (both
-// halves answer them); GAZE, NECK, PARK, TOUCH, TRACK, TOF and I2CSCAN are `neck`. The face half --
+// halves answer them); GAZE, NECK, PARK, TOUCH, TRACK, TOF, I2CSCAN, CHEST, HOLD and BADGE are `neck`.
+//
+// ITS ONE JOB FOR A PERSON IS HOLD (neck/hold.h): the knob turned one way holds the head where it is,
+// the other way releases it, and the screen is a status badge (src/badge_screen.h). The button keeps
+// its one job, confirming a tilt-limit change. The face half --
 // EMOTE, SKIN, MOVE, CUE, the mouth, ARMED -- belongs to the tablet and is not here at all.
 //
 // THIS FILE IS STEP ONE: it joins Wi-Fi, answers PING as `kind=neck`, and answers NECK honestly.
@@ -30,7 +34,15 @@
 #include <Wire.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <driver/pulse_cnt.h>
+#include <driver/gpio.h>
+#include <esp_task_wdt.h>
+#include <esp_system.h>
+#include "badge_screen.h"
+#include "ota_verify.h"      // signed OTA: the shared check (firmware/common/ota_verify, firmware-signing.md)
+#include "ota_keys.h"        // the signing keys this build trusts (generated from that library's keys/)
 #include "../neck/pantilt_core.h"
+#include "../neck/hold.h"
 #include "../neck/rc_frame.h"
 #include "../neck/tilt_confirm.h"
 #include "../neck/chest.h"
@@ -71,6 +83,29 @@ uint32_t g_gazeMs = 0, g_gazeLease = neck::kGazeHoldMs;
 // law's RC lease rather than waiting for a "stop" that is never sent.
 float g_rcPan = 0, g_rcTilt = 0;
 uint32_t g_rcMs = 0, g_rcFrames = 0;
+// TOUCH, from the tablet (head protocol §4): HOLD keeps the head still while someone works at the
+// screen, renewed by the dashboard while they do; RATE is the on-face aiming pad.
+float g_touchPan = 0, g_touchTilt = 0;
+uint32_t g_touchMs = 0, g_touchLease = neck::kTouchHoldMs;
+constexpr float kTouchRateMax = 45.0f;       // head_protocol.TOUCH_RATE_MAX_DPS
+
+// HOLD, and the knob that sets it (neck/hold.h). RAM only: a reboot always comes back released.
+neck::Hold g_hold;
+neck::KnobGesture g_knob;
+// THE ENCODER, ON THE PCNT: a hardware counter, so no step is missed while the loop is busy with
+// the servos or a draw, and no interrupt is spent on it. Pins from the vendor's board table.
+constexpr int kEncA = 41, kEncB = 40;
+pcnt_unit_handle_t g_enc = nullptr;
+bool g_knobUp = false;
+
+// THE BADGE, as the robot last described it (BADGE <STATE> <driver> <rrggbb>), and when. Old after
+// kBadgeStaleMs: the dashboard re-sends every 5 s, so three missed sends mean it is not talking.
+badge::View g_badge;
+uint32_t g_badgeMs = 0;
+constexpr uint32_t kBadgeStaleMs = 20000;
+// The screen starts once the UDP socket is listening, or this long after boot without a network.
+constexpr uint32_t kScreenLateMs = 30000;
+const char* g_screenNote = "not started";
 
 uint16_t degToUs(float deg, bool reverse) {
     if (deg < 0.0f) deg = 0.0f;
@@ -95,6 +130,39 @@ Preferences g_nvs;
 char g_ssid[33] = {0};
 uint32_t g_lastReport = 0;
 uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
+
+// SIGNED UPDATES (notes/design/firmware-signing.md; the policy table in firmware/common/ota_verify/
+// README.md). An image is installed only if its signature, made on the Thor for board "neck", verifies
+// against a key compiled in here; otherwise it is rejected and the running app stays the one that boots.
+// TWO EXCEPTIONS, BOTH BECAUSE NO USB CABLE IS ROUTINELY FITTED ON THE ROBOT, so a check that strands
+// the neck costs a visit to fit one:
+//   * a REPORT-ONLY build (-DOTA_SIG_REPORT_ONLY, env neck_dial_report_only) checks, reports, and
+//     installs anyway. It is the bootstrap image only: a signed round trip is proved on it first;
+//   * a build whose own self-test FAILS (the verifier itself is broken on this board) behaves the same
+//     and says otaverify=BROKEN in PING.
+// Nothing sent over the network can choose either: one is the build, the other deterministic code.
+constexpr char kOtaBoard[] = "neck";
+#ifdef OTA_SIG_REPORT_ONLY
+constexpr bool kOtaReportOnly = true;
+#else
+constexpr bool kOtaReportOnly = false;
+static_assert(OTA_KEY_COUNT > 0, "an enforcing neck build must trust a key (firmware/common/ota_verify/keys/), "
+                                 "or it would refuse every update and need a cable; build neck_dial_report_only to test");
+#endif
+bool g_otaSelftestOk = false;                       // set once in setup()
+bool otaEnforcing() { return !kOtaReportOnly && g_otaSelftestOk; }
+
+// `otasig=enforce|report otaverify=ok|BROKEN otakeys=<id>[,<id>]|none`, for PING and the report.
+void otaFields(char* out, size_t n) {
+    char keys[40] = "";
+    for (size_t k = 0; k < OTA_KEY_COUNT; k++) {
+        char id[17];
+        otaKeyId(OTA_KEYS[k], id, sizeof(id));
+        snprintf(keys + strlen(keys), sizeof(keys) - strlen(keys), "%s%s", k ? "," : "", id);
+    }
+    snprintf(out, n, "otasig=%s otaverify=%s otakeys=%s", otaEnforcing() ? "enforce" : "report",
+             g_otaSelftestOk ? "ok" : "BROKEN", keys[0] ? keys : "none");
+}
 
 // THE TILT CONFIRM BUTTON. BtnA on the M5Dial is GPIO 42, ACTIVE LOW -- taken from M5Unified's own
 // board table (board_M5Dial reads `!gpio_in(GPIO_NUM_42)`), not from memory, because a wrong pin
@@ -147,6 +215,14 @@ void report() {
     } else {
         line("pantilt: 8servo not answering at 0x25");
     }
+    snprintf(b, sizeof(b), "hold: %s by=%s at p%.0f t%.0f  knob=%s  screen=%s",
+             neck::holdPhaseName(g_hold), neck::holdByName(g_hold), g_hold.pan, g_hold.tilt,
+             g_knobUp ? "up" : "FAILED", g_screenNote);
+    line(b);
+    char ota[96];
+    otaFields(ota, sizeof(ota));
+    snprintf(b, sizeof(b), "ota: %s", ota);
+    line(b);
 }
 
 // ---- the head protocol ------------------------------------------------------------------------
@@ -158,18 +234,30 @@ void report() {
 // to none. The servos have been fitted since, and nobody came back to this: during the tilt
 // commissioning NECK reported pan=61.2 tilt=95.4 while PING, one line later, said 0.0/0.0. A
 // field that was once "we do not know" had quietly become "we do know, and this is wrong".
+const char* ownerName() {
+    switch (g_pt.owner) {
+        case neck::Owner::Gaze:  return "gaze";
+        case neck::Owner::Rc:    return "rc";
+        case neck::Owner::Touch: return "touch";
+        case neck::Owner::Track: return "track";
+        case neck::Owner::Hold:  return "hold";
+        default:                 return "none";
+    }
+}
+
 void replyPing(char* out, size_t n) {
     if (!g_servoPresent) {
-        snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0",
-                 NECK_FW_SHA);
+        char ota[96];
+        otaFields(ota, sizeof(ota));
+        snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=none pan=0.0 tilt=0.0 %s",
+                 NECK_FW_SHA, ota);
         return;
     }
-    const char* owner = g_pt.owner == neck::Owner::Gaze ? "gaze"
-                      : g_pt.owner == neck::Owner::Rc   ? "rc"
-                      : g_pt.owner == neck::Owner::Touch ? "touch"
-                      : g_pt.owner == neck::Owner::Track ? "track" : "none";
-    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=%s pan=%.1f tilt=%.1f",
-             NECK_FW_SHA, owner, g_pt.pan, g_pt.tilt);
+    const char* owner = ownerName();
+    char ota[96];
+    otaFields(ota, sizeof(ota));
+    snprintf(out, n, "PONG kind=neck fw=%s state=VALID plc=none owner=%s pan=%.1f tilt=%.1f %s",
+             NECK_FW_SHA, owner, g_pt.pan, g_pt.tilt, ota);
 }
 
 // `NECK` -> the status the suite parses. With nothing fitted, the protocol's own
@@ -177,10 +265,7 @@ void replyPing(char* out, size_t n) {
 // does not have to pretend to a position it has no way to know.
 void replyNeck(char* out, size_t n) {
     if (!g_servoPresent) { snprintf(out, n, "ERR neck no pan/tilt fitted"); return; }
-    const char* owner = g_pt.owner == neck::Owner::Gaze ? "gaze"
-                      : g_pt.owner == neck::Owner::Rc   ? "rc"
-                      : g_pt.owner == neck::Owner::Touch ? "touch"
-                      : g_pt.owner == neck::Owner::Track ? "track" : "none";
+    const char* owner = ownerName();
     // tilt_band AND commissioned, both of them, because the band alone cannot be checked: the
     // FALLBACK is a legitimate-looking 80..100 and a commissioned robot could in principle be
     // measured to the same pair. Commissioning this neck is exactly the job that needs to be able
@@ -195,9 +280,12 @@ void replyNeck(char* out, size_t n) {
     // chest= so a dark plate can be told apart from a light that was never told anything. Without
     // it the only way to ask is to look at the robot, and the whole point of the part is to be
     // read from across a room by somebody who cannot.
-    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d %s chest=%u",
+    // hold= and hold_by= so the dashboard can show a held head and ANNOUNCE a release (hold.h): it
+    // reads `hold=releasing` here for the whole announcement, before the head may move.
+    snprintf(out, n, "OK neck pan=%.1f tilt=%.1f target=%.1f,%.1f moving=%d owner=%s tilt_band=%.0f,%.0f commissioned=%d %s chest=%u hold=%s hold_by=%s",
              g_pt.pan, g_pt.tilt, g_pt.panTgt, g_pt.tiltTgt, g_pt.moving ? 1 : 0, owner,
-             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0, pend, (unsigned)g_chestUs);
+             g_lim.tiltMin, g_lim.tiltMax, g_lim.known ? 1 : 0, pend, (unsigned)g_chestUs,
+             neck::holdPhaseName(g_hold), neck::holdByName(g_hold));
 }
 
 // TILT <min> <max> -- the per-robot tilt limits, measured ON the robot and written once.
@@ -239,8 +327,36 @@ bool applyTilt(const char* args, char* out, size_t n) {
 // because a push needs a listener that has never worked reliably here. It is implemented EARLY --
 // out of the planned order -- because the Dial is about to lose its USB cable, and a board with no
 // OTA and no USB cannot be fixed at all.
+// The detached signature, `<url>.sig`, into `buf`. False if it is missing, empty or too long.
+bool fetchSig(const char* url, uint8_t* buf, size_t& len) {
+    len = 0;
+    char u[300];
+    if (snprintf(u, sizeof(u), "%s.sig", url) >= (int)sizeof(u)) return false;
+    HTTPClient h;
+    if (!h.begin(u)) return false;
+    const int code = h.GET();
+    const int size = h.getSize();
+    if (code != 200 || size <= 0 || size > OTA_SIG_MAX) { h.end(); return false; }
+    WiFiClient* st = h.getStreamPtr();
+    const uint32_t t0 = millis();
+    while (len < (size_t)size && millis() - t0 < 5000) {
+        const int a = st->available();
+        const size_t left = (size_t)size - len;
+        if (a > 0) len += st->read(buf + len, (size_t)a < left ? (size_t)a : left);
+        else delay(1);
+    }
+    h.end();
+    return len == (size_t)size;
+}
+
 bool otaPull(const char* url, char* out, size_t n) {
     if (!WiFi.isConnected()) { snprintf(out, n, "ERR ota no network"); return false; }
+    // The signature first: it is small, and an enforcing neck without one need not fetch the image.
+    static uint8_t sig[OTA_SIG_MAX];
+    size_t sigLen = 0;
+    const bool haveSig = fetchSig(url, sig, sigLen);
+    if (!haveSig && otaEnforcing()) { snprintf(out, n, "ERR ota no signature"); return false; }
+
     HTTPClient http;
     if (!http.begin(url)) { snprintf(out, n, "ERR ota bad url"); return false; }
     const int code = http.GET();
@@ -248,13 +364,61 @@ bool otaPull(const char* url, char* out, size_t n) {
     const int len = http.getSize();
     if (len <= 0) { snprintf(out, n, "ERR ota no length"); http.end(); return false; }
     if (!Update.begin(len)) { snprintf(out, n, "ERR ota no room"); http.end(); return false; }
-    const size_t wrote = Update.writeStream(http.getStream());
+    OtaVerify v;
+    if (!otaVerifyBegin(v, kOtaBoard)) { Update.abort(); http.end(); snprintf(out, n, "ERR ota cannot hash"); return false; }
+
+    // EVERY BYTE THROUGH THE HASH, so the stream is read here rather than by Update.writeStream().
+    WiFiClient* st = http.getStreamPtr();
+    static uint8_t buf[2048];
+    size_t wrote = 0;
+    uint32_t last = millis();
+    while (wrote < (size_t)len) {
+        const int a = st->available();
+        if (a <= 0) {
+            if (millis() - last > 8000) {
+                Update.abort(); otaVerifyAbort(v); http.end();
+                snprintf(out, n, "ERR ota stalled at %u/%d", (unsigned)wrote, len);
+                return false;
+            }
+            delay(1);
+            continue;
+        }
+        size_t want = (size_t)len - wrote;
+        if (want > sizeof(buf)) want = sizeof(buf);
+        if ((size_t)a < want) want = (size_t)a;
+        const int got = st->read(buf, want);
+        if (got <= 0) continue;
+        if (Update.write(buf, got) != (size_t)got) {
+            Update.abort(); otaVerifyAbort(v); http.end();
+            snprintf(out, n, "ERR ota write %u/%d", (unsigned)wrote, len);
+            return false;
+        }
+        otaVerifyUpdate(v, buf, got);
+        wrote += got;
+        last = millis();
+    }
     http.end();
-    if (wrote != (size_t)len || !Update.end(true) || !Update.isFinished()) {
-        snprintf(out, n, "ERR ota write %u/%d", (unsigned)wrote, len);
+
+    // THE CHECK, BEFORE Update.end(true): that call is what makes the new image the one that boots.
+    int which = -1;
+    OtaVerifyResult r = OTA_SIG_MISSING;
+    if (haveSig) r = otaVerifyFinish(v, sig, sigLen, OTA_KEYS, OTA_KEY_COUNT, &which);
+    else otaVerifyAbort(v);
+    if (r != OTA_SIG_OK && otaEnforcing()) {
+        Update.abort();                                     // the running app stays the one that boots
+        snprintf(out, n, "ERR ota rejected: %s", otaVerifyReason(r));
+        line(out);
         return false;
     }
-    snprintf(out, n, "OK ota %d bytes, rebooting", len);
+    if (!Update.end(true) || !Update.isFinished()) { snprintf(out, n, "ERR ota finish"); return false; }
+    if (r == OTA_SIG_OK) {
+        char id[17];
+        otaKeyId(OTA_KEYS[which], id, sizeof(id));
+        snprintf(out, n, "OK ota %d bytes, rebooting key=%s", len, id);
+    } else {
+        // Report-only, or a broken self-test: installed, and said loudly in the same reply.
+        snprintf(out, n, "OK ota %d bytes, rebooting WARN would reject: %s", len, otaVerifyReason(r));
+    }
     return true;
 }
 
@@ -284,6 +448,85 @@ void handle(const char* cmd, char* out, size_t n) {
         const float cp = p < neck::kRcPanMin ? neck::kRcPanMin : (p > neck::kRcPanMax ? neck::kRcPanMax : p);
         const float ct = t < g_lim.tiltMin ? g_lim.tiltMin : (t > g_lim.tiltMax ? g_lim.tiltMax : t);
         snprintf(out, n, "OK gaze %d %d", (int)lroundf(cp), (int)lroundf(ct));
+        return;
+    }
+
+    // HOLD | HOLD HERE | HOLD <pan> <tilt> | HOLD OFF -- head protocol v9 (neck/hold.h). The same hold
+    // the knob sets. `HOLD <pan> <tilt>` is for software that aims the head-top camera: the head slews
+    // there at its own rate and stays, clamped like a GAZE to pan 0-180 and this robot's tilt band.
+    // The reply is the clamped angles, rounded, so a sender sees a limit bite. `HOLD OFF` starts the
+    // announced release; NECK says `hold=releasing` until the head is free.
+    if (!strncmp(cmd, "HOLD", 4) && (cmd[4] == 0 || cmd[4] == ' ')) {
+        if (!g_servoPresent) { snprintf(out, n, "ERR hold no pan/tilt fitted"); return; }
+        const char* a = cmd + 4;
+        while (*a == ' ') a++;
+        if (!strcmp(a, "OFF")) {
+            if (neck::holdRelease(g_hold, millis())) line("hold: released over the network, announced");
+            snprintf(out, n, "OK hold off");
+            return;
+        }
+        float p = g_pt.pan, t = g_pt.tilt;
+        char extra = 0;
+        if (*a && strcmp(a, "HERE") && sscanf(a, "%f %f %c", &p, &t, &extra) != 2) {
+            snprintf(out, n, "ERR hold [HERE | <pan> <tilt> | OFF]");
+            return;
+        }
+        p = p < neck::kRcPanMin ? neck::kRcPanMin : (p > neck::kRcPanMax ? neck::kRcPanMax : p);
+        t = t < g_lim.tiltMin ? g_lim.tiltMin : (t > g_lim.tiltMax ? g_lim.tiltMax : t);
+        neck::holdAt(g_hold, p, t, neck::HoldBy::Remote);
+        snprintf(out, n, "OK hold %d %d", (int)lroundf(p), (int)lroundf(t));
+        line(out);
+        return;
+    }
+
+    // TOUCH HOLD [lease_ms] | TOUCH RATE <pan_dps> <tilt_dps> [lease_ms] | TOUCH OFF -- agreed in v1,
+    // built now: the tablet's touch pauses the head while someone works at the screen (the dashboard
+    // renews HOLD while they do, and it lapses shortly after the last touch). Leases cap at 1000 ms.
+    if (!strncmp(cmd, "TOUCH", 5) && (cmd[5] == 0 || cmd[5] == ' ')) {
+        if (!g_servoPresent) { snprintf(out, n, "ERR touch no pan/tilt fitted"); return; }
+        const char* a = cmd + 5;
+        while (*a == ' ') a++;
+        unsigned lease = 0;
+        float rp = 0, rt = 0;
+        if (!strcmp(a, "OFF")) { g_touchMs = 0; snprintf(out, n, "OK touch off"); return; }
+        if (!strncmp(a, "HOLD", 4) && (a[4] == 0 || (a[4] == ' ' && sscanf(a + 4, " %u", &lease) == 1))) {
+            g_touchPan = g_touchTilt = 0;
+        } else if (!strncmp(a, "RATE ", 5) && sscanf(a + 5, "%f %f %u", &rp, &rt, &lease) >= 2) {
+            g_touchPan  = rp < -kTouchRateMax ? -kTouchRateMax : (rp > kTouchRateMax ? kTouchRateMax : rp);
+            g_touchTilt = rt < -kTouchRateMax ? -kTouchRateMax : (rt > kTouchRateMax ? kTouchRateMax : rt);
+        } else {
+            snprintf(out, n, "ERR touch HOLD [lease_ms] | RATE <pan_dps> <tilt_dps> [lease_ms] | OFF");
+            return;
+        }
+        g_touchLease = lease ? lease : neck::kTouchHoldMs;
+        g_touchMs = millis() | 1;            // never 0, which reads as "never touched"
+        if (a[0] == 'H') snprintf(out, n, "OK touch hold");
+        else snprintf(out, n, "OK touch rate %.0f %.0f", g_touchPan, g_touchTilt);
+        return;
+    }
+
+    // BADGE <STATE> <driver> <rrggbb> | BADGE OFF -- head protocol v9: what the screen shows. The
+    // colour crosses the wire, as the chest light's does, so there is one map of state to colour
+    // (the dashboard's) and not a second copy here to disagree with it. No lease: held, as CHEST is,
+    // re-sent every 5 s; the screen greys the ring if it stops.
+    if (!strncmp(cmd, "BADGE", 5) && (cmd[5] == 0 || cmd[5] == ' ')) {
+        const char* a = cmd + 5;
+        while (*a == ' ') a++;
+        if (!strcmp(a, "OFF")) { g_badge.told = false; snprintf(out, n, "OK badge off"); return; }
+        static const char* const kStates[] = {"INIT", "SAFE_IDLE", "MANUAL", "AUTONOMOUS", "DEGRADED", "E_STOP", "CHARGING"};
+        char st[16] = "", dr[12] = "", hex[8] = "", extra = 0;
+        bool good = sscanf(a, "%15s %11s %7s %c", st, dr, hex, &extra) == 3 && strlen(hex) == 6;
+        bool known = false;
+        for (const char* k : kStates) known = known || !strcmp(st, k);
+        for (const char* c = dr; good && *c; ++c) good = (*c >= 'a' && *c <= 'z');
+        for (const char* c = hex; good && *c; ++c) good = isxdigit((unsigned char)*c);
+        if (!good || !known) { snprintf(out, n, "ERR badge <STATE> <driver> <rrggbb> | OFF"); return; }
+        snprintf(g_badge.state, sizeof(g_badge.state), "%s", st);
+        snprintf(g_badge.driver, sizeof(g_badge.driver), "%s", dr);
+        g_badge.rgb = strtoul(hex, nullptr, 16);
+        g_badge.told = true;
+        g_badgeMs = millis();
+        snprintf(out, n, "OK badge %s %s %s", st, dr, hex);
         return;
     }
 
@@ -334,7 +577,7 @@ void handle(const char* cmd, char* out, size_t n) {
     }
 
     if (!strncmp(cmd, "OTA ", 4)) {
-        char reply[128];
+        char reply[160];
         const bool ok = otaPull(cmd + 4, reply, sizeof(reply));
         snprintf(out, n, "%s", reply);
         // RESTART LATER, NOT HERE. Restarting inside the handler kills the board before the caller
@@ -350,6 +593,85 @@ void handle(const char* cmd, char* out, size_t n) {
     // something that will not happen: a show that gets OK and no movement is harder to diagnose
     // than one that is refused.
     snprintf(out, n, "ERR unknown");
+}
+
+// The knob's quadrature on a PCNT unit, both edges of both phases: four counts to a detent. ESP-IDF
+// 5's pulse_cnt driver, as in its own rotary-encoder example, and NOT the legacy driver/pcnt.h,
+// which aborts at boot if anything else in the image links the new one: a crash loop, on a board
+// that normally runs with no cable fitted.
+bool knobBegin() {
+    pcnt_unit_config_t uc = {};
+    uc.high_limit = 1000; uc.low_limit = -1000;      // read and cleared every loop: never near either
+    if (pcnt_new_unit(&uc, &g_enc) != ESP_OK) return false;
+    pcnt_glitch_filter_config_t fc = {};
+    fc.max_glitch_ns = 1000;                         // contact bounce, not a detent
+    pcnt_unit_set_glitch_filter(g_enc, &fc);
+    pcnt_chan_config_t a = {}, b = {};
+    a.edge_gpio_num = kEncA; a.level_gpio_num = kEncB;
+    b.edge_gpio_num = kEncB; b.level_gpio_num = kEncA;
+    pcnt_channel_handle_t ca = nullptr, cb = nullptr;
+    if (pcnt_new_channel(g_enc, &a, &ca) != ESP_OK || pcnt_new_channel(g_enc, &b, &cb) != ESP_OK) return false;
+    pcnt_channel_set_edge_action(ca, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
+    pcnt_channel_set_level_action(ca, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
+    pcnt_channel_set_edge_action(cb, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
+    pcnt_channel_set_level_action(cb, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
+    gpio_pullup_en((gpio_num_t)kEncA); gpio_pullup_en((gpio_num_t)kEncB);
+    return pcnt_unit_enable(g_enc) == ESP_OK && pcnt_unit_clear_count(g_enc) == ESP_OK
+        && pcnt_unit_start(g_enc) == ESP_OK;
+}
+
+int knobRead() {
+    int v = 0;
+    if (pcnt_unit_get_count(g_enc, &v) == ESP_OK && v) pcnt_unit_clear_count(g_enc);
+    return v;
+}
+
+// THE SCREEN'S START, guarded (badge_screen.h): not at all after a crash or a watchdog reset, so a
+// screen that faults costs the screen and never the board; and under the task watchdog, set to
+// reset, so a panel that hangs its start resets the board, which then comes back without it.
+void screenStart() {
+    const esp_reset_reason_t r = esp_reset_reason();
+    if (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT || r == ESP_RST_WDT) {
+        g_screenNote = "off this boot: the last reset was a crash or a watchdog";
+        line("screen: OFF this boot -- the last reset was a crash or a watchdog");
+        return;
+    }
+    // The core's own watchdog settings, put back afterwards (ESP-IDF 5's API).
+    esp_task_wdt_config_t guard = {};
+    guard.timeout_ms = 8000; guard.idle_core_mask = 0; guard.trigger_panic = true;
+    esp_task_wdt_config_t back = {};
+    back.timeout_ms = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
+#ifdef CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    back.idle_core_mask |= 1u << 0;
+#endif
+#ifdef CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+    back.idle_core_mask |= 1u << 1;
+#endif
+#ifdef CONFIG_ESP_TASK_WDT_PANIC
+    back.trigger_panic = true;
+#endif
+    const bool wasUp = esp_task_wdt_reconfigure(&guard) == ESP_OK;
+    if (!wasUp) esp_task_wdt_init(&guard);
+    esp_task_wdt_add(nullptr);
+    const bool ok = badge::begin();
+    esp_task_wdt_delete(nullptr);
+    if (wasUp) esp_task_wdt_reconfigure(&back); else esp_task_wdt_deinit();
+    g_screenNote = ok ? "on" : "failed to start, left off";
+    line(ok ? "screen: on" : "screen: FAILED to start, left off");
+}
+
+void screenUpdate() {
+    badge::View v = g_badge;
+    v.stale = g_badge.told && millis() - g_badgeMs > kBadgeStaleMs;
+    v.wifi = WiFi.isConnected();
+    const char* local = g_hold.phase == neck::HoldPhase::On ? "hold"
+                      : g_hold.phase == neck::HoldPhase::Releasing ? "releasing"
+                      : g_pt.owner == neck::Owner::Rc ? "rc"
+                      : g_pt.owner == neck::Owner::Touch ? "touch" : "";
+    snprintf(v.local, sizeof(v.local), "%s", local);
+    v.tiltLo = g_tiltPending.waiting ? g_tiltPending.lo : -1;
+    v.tiltHi = g_tiltPending.waiting ? g_tiltPending.hi : -1;
+    badge::show(v);
 }
 
 }  // namespace
@@ -375,6 +697,10 @@ void setup() {
     WiFi.mode(WIFI_STA);
     pinMode(kBtnPin, INPUT_PULLUP);        // the TILT confirm button; active low
     WiFi.setHostname(kHostName);
+    g_knobUp = knobBegin();                // a hardware counter: nothing here can block the network
+    // The verifier's known-answer test, once. A failure makes this board report-only and says so
+    // (otaverify=BROKEN), never a board that refuses its own fix.
+    g_otaSelftestOk = otaVerifySelfTest();
 
     if (ssid.length()) {
         WiFi.begin(ssid.c_str(), pass.c_str());
@@ -483,6 +809,23 @@ void loop() {
         }
     }
 
+    // THE KNOB: turned one way, deliberately, it HOLDS the head where it is; the other way RELEASES
+    // it, announced (neck/hold.h). Nothing to hold without a pan/tilt.
+    if (g_knobUp && g_servoPresent) {
+        switch (neck::knobFeed(g_knob, knobRead(), millis())) {
+            case neck::Knob::Hold:
+                neck::holdAt(g_hold, g_pt.pan, g_pt.tilt, neck::HoldBy::Knob);
+                line("hold: by the knob");
+                break;
+            case neck::Knob::Release:
+                if (neck::holdRelease(g_hold, millis())) line("hold: released by the knob, announced");
+                break;
+            case neck::Knob::None:
+                break;
+        }
+    }
+    if (neck::holdTick(g_hold, millis())) line("hold: released, the head is free");
+
     // The control law, every loop. It gates itself to its own 50 Hz period.
     if (g_servoPresent) {
         neck::In in;
@@ -494,6 +837,9 @@ void loop() {
         in.gazeMs = g_gazeMs; in.gazeLease = g_gazeLease;
         // RC outranks a show, in the control law, not here.
         in.rcPan = g_rcPan; in.rcTilt = g_rcTilt; in.rcMs = g_rcMs;
+        in.touchPan = g_touchPan; in.touchTilt = g_touchTilt; in.touchMs = g_touchMs; in.touchLease = g_touchLease;
+        // A hold outranks all of them, in the control law.
+        in.holdOn = neck::holding(g_hold); in.holdPan = g_hold.pan; in.holdTilt = g_hold.tilt;
         if (neck::tick(g_pt, in, g_lim)) {
             servoPulse(kChTilt, degToUs(g_pt.tilt, kTiltReverse));
             servoPulse(kChPan,  degToUs(g_pt.pan,  kPanReverse));
@@ -516,6 +862,12 @@ void loop() {
         case neck::Confirm::None:
             break;
     }
+
+    // THE SCREEN, LAST: started once the socket is listening (or late, with no network), and drawn
+    // only when what it shows changes.
+    static bool screenTried = false;
+    if (!screenTried && (udpUp || millis() > kScreenLateMs)) { screenTried = true; screenStart(); }
+    if (badge::running()) screenUpdate();
 
     if (g_restartAt && (int32_t)(millis() - g_restartAt) >= 0) { delay(50); ESP.restart(); }
 

@@ -30,6 +30,11 @@ joint's change times how far beyond it the arm reaches (JOINT_LEVER_M), plus the
 and the fingers' movement.
 Wherever that bound cannot rule out dipping under the threshold, the interval is halved and
 sampled again, down to MIN_STEP_S. So the minimum is not a sampling accident: it is bounded.
+
+VARIANTS. A show's `can_skip:` parts (cue.py EFFECTORS) are the variants the runner may play without
+them, on the operator's approval. Each variant that changes the motion (a gripper, an arm, the head,
+the lift; never a light) is swept here too and stamped under `clearance.variants`, keyed by its moving
+parts (cue.variant_key): every single one, and with three or fewer, every combination.
 """
 from __future__ import annotations
 
@@ -85,8 +90,7 @@ class Sweeper:
         import clearance
         import sim_preview as P
         smp = P.sample(tl, t)
-        clearance.set_pose(self.m, self.d, P.joints_arg(smp), smp["lift_mm"], smp["head_pan"] - 90,
-                           smp["head_tilt"] - 90)
+        clearance.set_pose(self.m, self.d, P.joints_arg(smp), smp["lift_mm"], *P.head_joint_deg(smp))
         P.apply_grips(self.m, self.d, smp)
         c = clearance.clearances(self.m, self.d, limit_mm=500.0)
         mm, a, b = c[0] if c else (float("inf"), None, None)
@@ -120,32 +124,79 @@ class Sweeper:
                 "samples": n}
 
 
-def stamp_text(text: str, result: dict, mhash: str, sig: str) -> str:
+def _stamp(result: dict, mhash: str, sig: str) -> dict:
+    return {"min_mm": result["min_mm"], "at_s": result["at_s"], "between": " / ".join(map(str, result["pair"])),
+            "checked_for": f"{mhash}@{sig}"}
+
+
+def stamp_text(text: str, result: dict, mhash: str, sig: str, variants: dict | None = None) -> str:
     import yamledit
-    value = {"min_mm": result["min_mm"], "at_s": result["at_s"], "between": " / ".join(map(str, result["pair"])),
-             "checked_for": f"{mhash}@{sig}"}
+    value = _stamp(result, mhash, sig)
+    if variants:
+        value["variants"] = {k: _stamp(r, r["motion"], sig) for k, r in sorted(variants.items())}
     return yamledit.apply(text, [{"op": "top", "key": "clearance", "value": value}])
 
 
+def variant_sets(parts: list) -> list:
+    """The variants stamped for a show's can_skip parts: each one, and every combination of up to three."""
+    from itertools import combinations
+    n = len(parts)
+    return [frozenset(c) for k in (range(1, n + 1) if n <= 3 else (1,)) for c in combinations(sorted(parts), k)]
+
+
+def _current(st, mhash) -> bool:
+    return isinstance(st, dict) and str(st.get("checked_for", "")).split("@")[0] == mhash
+
+
+def _old(st: dict, mhash: str) -> dict:
+    return {"min_mm": float(st.get("min_mm", 0.0)), "at_s": st.get("at_s"),
+            "pair": str(st.get("between", "? / ?")).split(" / ") + ["?"], "samples": 0,
+            "motion": mhash, "current": True}
+
+
 def run(show_path: str, limits_path: str, write: bool, force: bool = False) -> dict:
-    """Sweep a show (and stamp it). A show whose stamp already matches its motion is not swept
-    again unless `force`: saving a face, a light or a note costs nothing."""
+    """Sweep a show (and stamp it), and every variant its can_skip allows. A stamp that already
+    matches its motion is not swept again unless `force`: saving a face, a light or a note costs
+    nothing. Returns the show's result, with the variants' under "variants" ({key: result})."""
     import ik
     show = cue.load_show(show_path)
     limits = cue.load_limits(limits_path)
-    mhash = cue.motion_hash(show.analyse(limits)["events"])
-    st = show.doc.get("clearance")
-    if not force and isinstance(st, dict) and str(st.get("checked_for", "")).split("@")[0] == mhash:
-        return {"min_mm": float(st.get("min_mm", 0.0)), "at_s": st.get("at_s"),
-                "pair": str(st.get("between", "? / ?")).split(" / ") + ["?"], "samples": 0,
-                "motion": mhash, "current": True}
-    tl = show.export(limits, limits_path)
-    res = Sweeper().sweep(tl)
-    res["motion"] = mhash
-    if write:
+    a = show.analyse(limits)
+    mhash = cue.motion_hash(a["events"])
+    st = show.doc.get("clearance") if isinstance(show.doc.get("clearance"), dict) else {}
+    old_vars = st.get("variants") if isinstance(st.get("variants"), dict) else {}
+    sweeper = None
+
+    def sweep(sh):
+        nonlocal sweeper
+        sweeper = sweeper or Sweeper()
+        return sweeper.sweep(sh.export(limits, limits_path))
+
+    if not force and _current(st, mhash):
+        res = _old(st, mhash)
+    else:
+        res = dict(sweep(show), motion=mhash)
+    variants, changed = {}, not res.get("current")
+    moving = sorted({p for p in a["can_skip"] if cue.variant_key([p])})     # a light changes no clearance
+    for sk in variant_sets(moving):
+        v = cue.load_show(show_path)
+        v.skip = sk
+        vh = cue.motion_hash(v.analyse(limits)["events"])
+        if vh == mhash:
+            continue                     # the same motion (a light): the show's own stamp covers it
+        key = cue.variant_key(sk)
+        if not force and _current(old_vars.get(key), vh):
+            variants[key] = _old(old_vars[key], vh)
+        else:
+            variants[key] = dict(sweep(v), motion=vh)
+            changed = True
+    if set(variants) != set(old_vars):
+        changed = True
+    res["variants"] = variants
+    if write and changed:
         with open(show_path, encoding="utf-8") as fh:
             text = fh.read()
-        text = stamp_text(text, res, res["motion"], ik.model_sig())
+        text = stamp_text(text, res, res["motion"], ik.model_sig(), variants)
         tmp = show_path + ".sweep-tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
@@ -163,11 +214,14 @@ def main() -> int:
     import time
     t0 = time.time()
     r = run(a.show, a.limits, a.cmd == "stamp", force=a.cmd == "check")
-    verdict = "OK" if r["min_mm"] >= THRESHOLD_MM else f"TOO CLOSE (under {THRESHOLD_MM:g} mm)"
-    print(f"{os.path.basename(a.show)}: closest {r['min_mm']} mm at {r['at_s']} s ({r['pair'][0]} / {r['pair'][1]}) "
-          f"— {verdict}; {r['samples']} samples in {time.time() - t0:.1f} s"
-          + ("; stamped" if a.cmd == "stamp" else ""))
-    return 0 if r["min_mm"] >= THRESHOLD_MM else 1
+    ok = True
+    for label, x in [("", r)] + [(f" without {k}", v) for k, v in sorted(r["variants"].items())]:
+        verdict = "OK" if x["min_mm"] >= THRESHOLD_MM else f"TOO CLOSE (under {THRESHOLD_MM:g} mm)"
+        ok = ok and x["min_mm"] >= THRESHOLD_MM
+        print(f"{os.path.basename(a.show)}{label}: closest {x['min_mm']} mm at {x['at_s']} s "
+              f"({x['pair'][0]} / {x['pair'][1]}) — {verdict}; {x['samples']} samples")
+    print(f"{time.time() - t0:.1f} s" + ("; stamped" if a.cmd == "stamp" else ""))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

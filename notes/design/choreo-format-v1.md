@@ -232,6 +232,7 @@ else touches this slot for a while". It extends the span; it never shortens it.
 | `LIFT` `up`/`down` | command | `t` | `t + max(secs, hold_s)` | `secs` |
 | `LIFT` `stop` | command | `t` | `t + hold_s` | 0 |
 | `SOUND` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the WAV file's length, else 0.5 s (span sizing only) |
+| `VIDEO` `play` | command | `t` | `t + max(length, hold_s)` | `secs` if given, else the library video's `duration_s` less `from_s`; a following VIDEO cue ends it sooner on the robot |
 | `FACE`, `LIGHT` | command | `t` | `t + hold_s` | 0 — a state change, not a motion |
 
 A cue whose `start` falls before the previous cue on the same slot has ended is refused: "two
@@ -369,6 +370,7 @@ Unchanged from v0 unless marked **new**.
 | `LIGHT` **new** | `do: color`, `rgb: [r, g, b]` (0–255), `br` (0–100, default 100); or `do: release` | ranges; rejected rather than clamped; **no colour that reads as the state light's E-STOP red or DEGRADED amber** — within ±20° of their hue and saturated enough to read as it (plan 1.8; `cue.py describe`) | `LED_COLOR r g b br` parser in `firmware/rc_serial_probe/src/main.cpp` |
 
 | `DEVICE` **new** (2026-10-13) | `do: volume\|brightness`, `level: 0..1`, optional `fade_s` (0–30). Show-level `device: { volume, brightness }` sets both at time 0 | ranges; a fade owns the slot for its length; needs `tab5: true`. **Brightness below 0.15 warns**: the head never dims past its own floor (`bright_min`), so it would come out brighter than written. Every show end hands both back to the head (`VOLUME IDLE`, `BRIGHT IDLE`) | head protocol v5, agreed with the Tablet lane: `VOLUME <0..1> [fade_s]`, `BRIGHT <0..1> [fade_s]`, `VOLUME IDLE`, `BRIGHT IDLE`; the reply carries the level applied. VOLUME is the head's **media volume** — what the show audio plays at — not a gain in the player |
+| `VIDEO` **new** (2026-10-20) | `do: play`, `video: <library id>`, optional `from_s`, `secs`, `end: black\|hold`, `output: cast\|hdmi\|off`; or `do: stop`. Show-level `video: { output, required }` | a library video (kind `video`); one at a time (a collision otherwise); `from_s` inside the file. The span is `secs`, else the file's length from `from_s` | the projector, by Cast or by HDMI — `software/choreo/video_out.py`; the whole design, sync limits and the dashboard contract in [`choreo-video.md`](choreo-video.md) |
 
 `LIGHT`'s second verb is `release`, not `off`, for two reasons. YAML 1.1 reads a bare `off` as
 the boolean `false` (the validator names this trap when it sees it — the first draft of the demo
@@ -396,6 +398,40 @@ target. A face, light or sound edit does not stale it. In the composer a missing
 warning until the save sweeps it; a measured collision is an error everywhere. Cost: about 0.5–2 s
 for the shows in this repository, up to ~10 s for a dense 2½-minute show; an unchanged show is not
 swept again.
+
+### Effectors: what a show needs, and what it can run without
+
+A show's **needs** are the robot's parts its cues use, by name: `arm_left`, `arm_right`,
+`grip_left`, `grip_right`, `lift`, `light` and `neck` (the HEAD slot) — derived from the cues, never
+written by hand (`cue.py EFFECTORS`; the export carries them as `needs`). The dashboard reports each
+part's availability (`effectors`, from the Arms lane's per-part status: `ok` or `down`, with why), and
+the runner's preflight refuses a run when a part it needs is not `ok`, naming the part and the reason.
+A part the show does not use never refuses it.
+
+```yaml
+can_skip: [grip_left, grip_right, light]   # optional: parts this show still works without
+```
+
+A part listed in `can_skip:` turns that refusal into an **offer**: the run is refused with
+`NEEDS_APPROVAL`, the Shows page shows RUN WITHOUT <part>, and only that tap plays the **variant** —
+the show with that part's cues left out (after clips are expanded, so a mirrored clip loses the right
+cues). The runner never picks a variant on its own; only the author can list a part as skippable, and
+a run may skip nothing else.
+
+A variant that changes the motion has its own collision stamp, written by the same sweep under
+`clearance.variants`, keyed by its moving parts (a light changes no clearance and needs none):
+
+```yaml
+clearance: { min_mm: 41.0, …, variants: { grip_left: { min_mm: 40.2, …, checked_for: "…" } } }
+```
+
+`sweep.py stamp` sweeps each single part, and with three or fewer moving `can_skip` parts every
+combination. A skipped part is assumed where the twin leaves an unused one, and the variant is swept
+that way: an arm at rest (the preflight refuses a skipped arm with any joint more than 10° from it, naming the
+joint; a limp arm's roll joints do not settle by themselves, and are turned back by hand), the head
+centred, the lift down, a gripper as the twin draws it. A skipped arm is also left out of the
+start-pose move. An arm with any silent joint is `down` (Arms lane: a silent joint goes limp, so it is
+never run around); a show runs without it only by skipping the whole arm.
 
 ### Valid is not the same as executable
 
@@ -569,7 +605,7 @@ cues:
 | rule | value | kind |
 |---|---|---|
 | moves | `sway rock twist shuffle box`, each a fixed profile that integrates to zero on every axis (re-checked) | library (`cue.py` `DANCE_MOVES`) |
-| speed | `amp` in (0, 1]; 1 = the autonomy ceiling `kAutoMaxUnit` 0.35, then CH8 in a human's hand | firmware constant |
+| speed | `amp` in (0, 0.7], default 0.7; 1 = the show cap, a fraction of full command in AUTO (`cue.SHOW_BASE_CAP`, 0.35 provisional, a software setting the Thor's drive path enforces per robot); a move peaks at no more than 70 % of the cap (`DANCE_PEAK_OF_CAP`), leaving the tracker room to correct; every stroke starts and ends at rest (a windowed-sine swing, or a step); speeds at the cap, provisional: 0.38 m/s forward, 0.25 m/s strafing, 0.52 rad/s | the user's direction, 2026-10-22 |
 | one move | 0.5–4 s, default 2 s | sanity |
 | whole show | ≤ 30 s of base motion | sanity |
 | floor | `floor_radius_m` required, 0.5–10 m; warns if a move may stray past it (with the base's ~0.46 m footprint, arms not counted) | declaration + estimate |
@@ -598,3 +634,56 @@ position**:
 
 It changes `SLOTS` and, when it runs on the robot, the authority model's treatment of the base and
 the runner — both still ahead (plan 5 and 6.6).
+
+## 13. Tools, and a crawling hand — built 2026-10-16, TWIN ONLY
+
+**The tool registry** (`software/choreo/effectors/`, one YAML per tool type; `effectors.py list`). A
+type declares its **channels** (a 0..1 range, or a set of named states, each with how long a full
+stroke takes), **named poses**, finger-dance **patterns**, where it can be fitted (**mounts**: `left`
+and `right` are the arm flanges, `base` is the floor, on a leash tied to the chassis), what it can do there
+(**modes**: `equipped`, `crawl`), its **twin model** (a vendor model loaded from outside the repo, or
+a primitive built from the same channels), and its **driver** (`output`; `null` = none yet, twin
+only). A type may be another one **mirrored** (`mirror_of`): `surge_left` is `surge_right` reflected
+through the hand's own sagittal plane, and a test proves every body and geom lands at its reflection.
+Types today: `openarm_gripper` (the default, with a driver), `surge_right` / `surge_left`, and
+`suction_cup` / `pneumatic_gripper` (registry and primitive twin only, to show the seams).
+
+**What is fitted** is per robot and lives on it: `$OPENDUBS_TOOLS`, else `/etc/opendubs/tools.yaml`
+(`effectors.py template`, `effectors.py check`). No file means today's robot: grippers on both arms.
+
+**In a show:**
+
+```yaml
+tools: { right: surge_right, base: { type: surge_right, mode: crawl } }   # absent: today's grippers
+crawler: { start: [1.16, 0, 0], keep_off_m: 0.25, tether: { anchor: base_front, length_m: 1.8 },
+           area: { x: [0.75, 2.4], y: [-1.1, 1.1] } }
+cues:
+  - { t: 2, slot: GRIP_R, pose: horns }                 # any tool: open / do, or pose, or set
+  - { t: 3, slot: GRIP_R, set: { thumb_rot: 0.2 } }
+  - { t: 1, slot: CRAWL, do: walk, dist_m: 0.3 }        # out, away from the robot
+  - { t: 14, slot: CRAWL, do: turn, by_deg: -45 }        # a pivot
+  - { t: 31, slot: CRAWL, do: dance, pattern: ripple, beats: 8 }
+  - { t: 40, slot: CRAWL, do: walk, dir: back, dist_m: 0.08 }
+```
+
+| rule | value | kind |
+|---|---|---|
+| GRIP on a tool | `open:` / `do:` through the type's `open_map` (a valve: 0 or 1 only); `pose:`; `set:` channels in range; exactly one | registry |
+| tool speed | a target the channels cannot reach before the next cue **warns** (it arrives late), never refuses | registry `full_stroke_s` |
+| fitted | validated against a robot's fitted tools, a show that needs a different tool is refused | per robot |
+| CRAWL walk | `dir: forward\|back` (no sidestep); one of `secs`, `dist_m`, `to: start\|[x, y]`; a `to:` must lie on the hand's line (it walks straight: pivot first); `heading_deg` ramps at ≤ the gait's `steer_deg_s` | sim |
+| CRAWL turn | `by_deg`, a **pivot on the spot** (+ = the hand's left), at the slowest simulated rate | sim |
+| CRAWL dance | a finger pattern while standing; a step the fingers cannot finish at the tempo warns | registry |
+| timing | every leg is held on the timeline for its **slowest** simulated speed; the next CRAWL cue may not start before | sim |
+| leash | from its anchor on the base (moving with a DANCE), the hand stays within `length_m` − 0.15 m slack | declaration |
+| start | the hand stands on the floor at `start` (default ~55 cm in front of the chassis, facing away); it is NOT attached to the base: a DANCE moves the leash's anchor, never the hand | declaration |
+| footprint, area | the hand (its radius plus the path's uncertainty: sim drift and the faster-than-nominal case) keeps `keep_off_m` (default 25 cm) of clear floor from the chassis and stays inside `area` | declaration + estimate |
+| idle | between cues a standing hand plays its type's `idle` pattern on the beat (the Surge: the index tapping), so it never freezes | registry |
+| robot | valid, but **twin only**: the runner refuses a CRAWL show, or one that needs a tool with no driver (`SHOW_TOOL_TWIN_ONLY`) | — |
+
+**Every crawl speed is from simulation, not hardware** (the YAML says where each came from). On a
+trailing leash the hand is slower: simulated for the forward gait (3.5–4.7 cm/s), and scaled from it for
+the back-up gait and the pivots (labelled so). The composer's CRAWL lane shows each leg; its floor plan
+shows the chassis, the leash's reach, the declared area, the predicted path with its uncertainty, the
+hand at the playhead, and every leg's distance and time at the sim speeds. The render draws the hand on
+that path, playing a gait cycle recorded from the physics model (`effectors/<type>.gaits.json`).

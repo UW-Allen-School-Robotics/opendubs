@@ -62,7 +62,23 @@ OPS = {
     # HOLD drives the arm to where it already is. That preempts any running trajectory and leaves
     # it commanded to its present pose -- "stop what you are doing without dropping anything".
     "hold":      (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
+    # One arm's CAN link (openarm-can@arm_<side>). Moves nothing; openarm-up refuses it under an
+    # energized arm, and start_op refuses it while a show runs.
+    "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
 }
+
+RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
+
+
+def _show_running():
+    """The routine the show runner is playing, or None (also when the runner is not up: then no
+    show can be running). Asked only before a link restart."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{RUNNER_URL}/api/palette", timeout=1.5) as r:
+            return (json.loads(r.read() or b"{}") or {}).get("running")
+    except (OSError, ValueError):
+        return None
 
 
 def start_op(name, arm="both"):
@@ -72,6 +88,12 @@ def start_op(name, arm="both"):
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
+    if name == "relink":
+        if arm not in ("left", "right"):
+            return False, "RESTART LINK is per arm: left or right"
+        show = _show_running()
+        if show:
+            return False, f"a show is running ({show}): a link restart waits until it ends"
 
     argv_fn, timeout, _desc = spec
     with _lock:
@@ -141,6 +163,73 @@ def _motor_summary():
     with _lock:
         _motors.update({"at": now, "text": text, "error": err})
         return dict(_motors)
+
+
+_links = {"at": 0.0, "data": None}
+
+
+def _link_words(link):
+    """The link in plain words, to follow "Its CAN link is" -- the same words openarm-up's
+    link_words prints. None when it is healthy (up, ERROR-ACTIVE)."""
+    if link.get("present") != "1":
+        return "missing (the CAN adapter is unplugged, or its driver is not loaded)"
+    if link.get("up") != "1":
+        return "down"
+    st = link.get("state", "UNKNOWN")
+    if st == "ERROR-ACTIVE":
+        return None
+    w = link.get("warn")
+    return f"in error ({st}" + (f"; {w} error-warnings since it came up" if w else "") + ")"
+
+
+def link_status():
+    """{"left": {...}, "right": {...}}: each arm's CAN link from `openarm-motors links` (ip only,
+    nothing sent on the bus), and when it is NOT healthy a message naming the arm, what is wrong and
+    what to check. Unarmed motors reading disabled or unheard are normal and never a message here:
+    only a link that is missing, down or in error is. None if the tool cannot run."""
+    now = time.time()
+    with _lock:
+        if now - _links["at"] < _MOTOR_TTL:
+            return _links["data"]
+    data = None
+    try:
+        r = _run([OPENARM_MOTORS, "links"], 10)
+        if r.returncode == 0:
+            data = {}
+            for line in r.stdout.splitlines():
+                parts = line.split()
+                if not parts or not parts[0].startswith("arm_"):
+                    continue
+                link = dict(t.partition("=")[::2] for t in parts[1:])
+                data[parts[0][4:]] = link
+    except Exception:                                # noqa: BLE001 - shown as "unknown"
+        data = None
+    if data is not None:
+        # which motors went unheard, per arm, from the motor summary's where= word (#465)
+        where = {}
+        for tok in (_motor_summary().get("text") or "").split():
+            if tok.startswith("where="):
+                for part in tok[6:].split(";"):
+                    a, _, ids = part.partition(":")
+                    where[a.removeprefix("arm_")] = [i for i in ids.split(",") if i]
+        for side, link in data.items():
+            words = _link_words(link)
+            link["problem"] = words is not None
+            link["restartable"] = words is not None and link.get("present") == "1"
+            link["code"] = "ARM_LINK_ERROR" if words else None
+            if words is None:
+                link["message"] = None
+                continue
+            A = "Right" if side == "right" else "Left"
+            none = "no motor answers. " if len(where.get(side, [])) >= 7 else ""
+            check = ("check the CAN adapter's USB cable at the robot's computer"
+                     if link.get("present") != "1" else
+                     f"check the {side} arm's CAN cable and power, then press RESTART LINK "
+                     f"{'R' if side == 'right' else 'L'}")
+            link["message"] = f"{A} arm: {none}Its CAN link is {words}: {check}."
+    with _lock:
+        _links.update({"at": now, "data": data})
+    return data
 
 
 def teleop(verb):
@@ -277,6 +366,7 @@ def snapshot():
     return {
         "op": op_status(),
         "motors": counts or None,
+        "links": link_status(),
         "motors_error": m.get("error"),
         # Energized is the honest word: it says the motors are live, which is what matters before
         # anyone puts a hand near the arm. It does NOT mean a controller is commanding them.

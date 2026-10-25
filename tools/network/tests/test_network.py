@@ -53,6 +53,13 @@ class UplinkState(unittest.TestCase):
     def test_no_router(self):
         self.assertEqual(state(None)[1][0], "NO_ROUTER")
 
+    def test_refused_login_says_so(self):
+        s = netmon.summarize(None, ONLINE, None, 1000.0)
+        s["router_refused"] = True
+        st, say = netmon.classify(s, netmon.Streaks())
+        self.assertEqual(st, "NO_ROUTER")
+        self.assertIn("refused", say)
+
     def test_not_associated_is_down(self):
         raw = copy.deepcopy(RAW)
         raw["reg"] = raw["reg"][:2]

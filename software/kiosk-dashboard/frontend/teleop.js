@@ -98,7 +98,12 @@ const ARM_BUTTONS = [
   { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE L" },
   { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE R" },
   { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
+  // Shown only while that arm's CAN link is missing a restart can fix; the backend and openarm-up
+  // refuse it during a show and under an energized arm.
+  { id: "btnArmRelinkL", url: "/api/arms/relink?arm=left",  op: "relink left",  confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK L", side: "left" },
+  { id: "btnArmRelinkR", url: "/api/arms/relink?arm=right", op: "relink right", confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK R", side: "right" },
 ];
+let lastLinks = null;          // /api/arms/status "links": per arm, its CAN link and any message
 let lastOp = null;             // the backend's op, from the last status poll
 let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
 const flash = {};              // id -> { text, until } -- REFUSED / DONE / FAILED, shown briefly
@@ -113,6 +118,12 @@ function paintArmButtons() {
   for (const b of ARM_BUTTONS) {
     const el = $(b.id);
     if (!el || el.classList.contains("armed")) continue;          // mid-confirm: leave it alone
+    if (b.side) {                                                  // RESTART LINK: only while it helps
+      const l = lastLinks && lastLinks[b.side];
+      const show = !!(l && l.restartable) || (running && lastOp.name === b.op);
+      el.hidden = !show;
+      if (!show) continue;
+    }
     const f = flash[b.id];
     const mine = running ? lastOp.name === b.op : !!(requested && requested.id === b.id);
     el.classList.toggle("busy", mine);
@@ -152,7 +163,22 @@ async function onArmResponse(b, r) {
   setTimeout(paintArmButtons, 4100);
 }
 
+function ensureRelinkButtons() {
+  const anchor = $("btnArmDown");
+  if (!anchor) return;
+  for (const b of ARM_BUTTONS) {
+    if (!b.side || $(b.id)) continue;
+    const el = document.createElement("button");
+    el.id = b.id;
+    el.className = "sysbtn";
+    el.textContent = b.label;
+    el.hidden = true;
+    anchor.after(el);
+  }
+}
+
 function wire() {
+  ensureRelinkButtons();
   const cb = window.confirmButton;
   if (typeof cb !== "function") return;
   for (const b of ARM_BUTTONS) {
@@ -210,6 +236,17 @@ function paintStatus(s) {
       d.textContent = `motors ${s.motors.enabled ?? "?"} enabled, ${s.motors.faults ?? 0} faults`;
       r.append(d);
     }
+    // A CAN link in error is named per arm, in plain words. Unarmed motors that read disabled or
+    // unheard are normal and are not shown as a fault; only a link that is missing, down or in error.
+    for (const side of ["left", "right"]) {
+      const l = s.links && s.links[side];
+      if (!l || !l.problem || !l.message) continue;
+      const d = document.createElement("div");
+      d.className = "badx";
+      d.textContent = l.message;
+      r.append(d);
+      if (l.code && typeof window.setHelp === "function") window.setHelp(d, l.code);
+    }
     if (s.op && s.op.running) {
       const d = document.createElement("div");
       d.className = "warnx";
@@ -257,6 +294,7 @@ async function pollStatus() {
       const s = await r.json();
       const prev = lastOp;
       lastOp = s.op || null;
+      lastLinks = s.links || null;
       // An op just finished: say how, on its own button, for a few seconds.
       if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
         const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);

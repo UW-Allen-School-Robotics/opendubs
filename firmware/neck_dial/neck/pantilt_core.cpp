@@ -34,69 +34,79 @@ bool tick(State& s, const In& in, const Limits& lim)
     // "unknown" is "do not move".
     if (!in.motionAllowed) { s.owner = Owner::None; s.moving = false; return true; }
 
-    // ---- ARBITRATION, highest first: touch, then RC, then a show, then the tracker -------------
-    // Touch above RC because the person at the glass is aiming the screen at themselves.
-
-    // Touch and RC use an UNSIGNED age, and that is carried over deliberately rather than copied
-    // carelessly. It was wrong for GAZE and is tolerable here for two reasons the original states:
-    // they integrate a RATE per tick, so losing one frame's ownership costs a fraction of a degree
-    // rather than a destination; and neither zeroes its timestamp on expiry, so a stray frame
-    // cannot destroy the lease.
-    const bool touchOwns = (in.touchMs != 0 && (in.nowMs - in.touchMs) < kTouchHoldMs);
-    if (touchOwns) {
-        s.pan  = clampf(s.pan  + in.touchPan  * dt, kRcPanMin, kRcPanMax);
-        s.tilt = clampf(s.tilt + in.touchTilt * dt, lim.tiltMin, lim.tiltMax);
-        s.panTgt = s.pan; s.tiltTgt = s.tilt;
-        s.owner = Owner::Touch; s.moving = (in.touchPan != 0 || in.touchTilt != 0);
-        return true;
-    }
-
-    // RC: a human on a stick outranks the tracker. A lease, not a latch -- letting go of the stick
-    // hands the head back. No slew on top of a rate the operator is already shaping.
-    if (in.rcMs != 0 && (in.nowMs - in.rcMs) < kRcHoldMs) {
-        s.pan  = clampf(s.pan  + in.rcPan  * dt, kRcPanMin, kRcPanMax);
-        s.tilt = clampf(s.tilt + in.rcTilt * dt, lim.tiltMin, lim.tiltMax);
-        s.panTgt = s.pan; s.tiltTgt = s.tilt;
-        s.owner = Owner::Rc; s.moving = (in.rcPan != 0 || in.rcTilt != 0);
-        return true;
-    }
-
-    // A SHOW. SIGNED AGE, NOT UNSIGNED -- this is the bug that was live on the robot and that no
-    // twin could show. `nowMs` is captured once at the top of a frame, so a GAZE arriving midway
-    // through stamps a LATER time than the frame it is judged against: `nowMs - gazeMs` is a small
-    // NEGATIVE number, which as unsigned is about 4.29 billion and is not < the lease. The freshest
-    // possible command read as the most expired one. Measured before and after: the head sat at 90
-    // with the owner flapping, then moved 90->150 in 0.82 s.
-    const int32_t gazeAge = (int32_t)(in.nowMs - in.gazeMs);
-    const uint32_t lease  = in.gazeLease > kGazeMaxLeaseMs ? kGazeMaxLeaseMs : in.gazeLease;
-    const bool gazeOwns   = (in.gazeMs != 0 && gazeAge >= 0 && gazeAge < (int32_t)lease);
-
+    // ---- A HOLD, above everything ---------------------------------------------------------------
+    // It only ever sets the target: the slew below still decides how fast the head gets there, so
+    // `HOLD <pan> <tilt>` from software is as gentle as a show, and `HOLD` where it is moves nothing.
     bool autonomous = false;
-    if (gazeOwns) {
-        // A show says WHERE to look; the slew below decides how fast the head may get there, and
-        // that stays the firmware's decision rather than a caller's.
-        s.panTgt  = clampf(in.gazePan,  kRcPanMin, kRcPanMax);
-        s.tiltTgt = clampf(in.gazeTilt, lim.tiltMin, lim.tiltMax);
-        s.owner   = Owner::Gaze;
-    } else if (in.haveTarget && in.confidence >= kHeadConfidence) {
-        // CONFIDENCE GATES THE HEAD, not just the amplitude: a head turn is a commitment, and
-        // committing to a false positive is what makes a robot look broken. A weak detection costs
-        // a twitch of the eyes and never a head swing.
-        //
-        // EYES LEAD, HEAD FOLLOWS: an offset inside kEyeOnly is handled by the eyes alone.
-        const float ax = in.nx < 0 ? -in.nx : in.nx;
-        const float ay = in.ny < 0 ? -in.ny : in.ny;
-        if (ax > kEyeOnly || ay > kEyeOnly) {
-            s.panTgt  = clampf(kCentreDeg + in.nx * kPanRangeDeg,  kCentreDeg - kPanRangeDeg,  kCentreDeg + kPanRangeDeg);
-            s.tiltTgt = clampf(kCentreDeg + in.ny * kTiltRangeDeg, lim.tiltMin, lim.tiltMax);
-            s.owner = Owner::Track;
-            autonomous = true;
+    if (in.holdOn) {
+        s.panTgt  = clampf(in.holdPan,  kRcPanMin, kRcPanMax);
+        s.tiltTgt = clampf(in.holdTilt, lim.tiltMin, lim.tiltMax);
+        s.owner   = Owner::Hold;
+    } else {
+        // ---- ARBITRATION, highest first: touch, then RC, then a show, then the tracker -------------
+        // Touch above RC because the person at the glass is aiming the screen at themselves.
+
+        // Touch and RC use an UNSIGNED age, and that is carried over deliberately rather than copied
+        // carelessly. It was wrong for GAZE and is tolerable here for two reasons the original states:
+        // they integrate a RATE per tick, so losing one frame's ownership costs a fraction of a degree
+        // rather than a destination; and neither zeroes its timestamp on expiry, so a stray frame
+        // cannot destroy the lease.
+        const uint32_t touchLease = in.touchLease > kGazeMaxLeaseMs ? kGazeMaxLeaseMs : in.touchLease;
+        const bool touchOwns = (in.touchMs != 0 && (in.nowMs - in.touchMs) < touchLease);
+        if (touchOwns) {
+            s.pan  = clampf(s.pan  + in.touchPan  * dt, kRcPanMin, kRcPanMax);
+            s.tilt = clampf(s.tilt + in.touchTilt * dt, lim.tiltMin, lim.tiltMax);
+            s.panTgt = s.pan; s.tiltTgt = s.tilt;
+            s.owner = Owner::Touch; s.moving = (in.touchPan != 0 || in.touchTilt != 0);
+            return true;
+        }
+
+        // RC: a human on a stick outranks the tracker. A lease, not a latch -- letting go of the stick
+        // hands the head back. No slew on top of a rate the operator is already shaping.
+        if (in.rcMs != 0 && (in.nowMs - in.rcMs) < kRcHoldMs) {
+            s.pan  = clampf(s.pan  + in.rcPan  * dt, kRcPanMin, kRcPanMax);
+            s.tilt = clampf(s.tilt + in.rcTilt * dt, lim.tiltMin, lim.tiltMax);
+            s.panTgt = s.pan; s.tiltTgt = s.tilt;
+            s.owner = Owner::Rc; s.moving = (in.rcPan != 0 || in.rcTilt != 0);
+            return true;
+        }
+
+        // A SHOW. SIGNED AGE, NOT UNSIGNED -- this is the bug that was live on the robot and that no
+        // twin could show. `nowMs` is captured once at the top of a frame, so a GAZE arriving midway
+        // through stamps a LATER time than the frame it is judged against: `nowMs - gazeMs` is a small
+        // NEGATIVE number, which as unsigned is about 4.29 billion and is not < the lease. The freshest
+        // possible command read as the most expired one. Measured before and after: the head sat at 90
+        // with the owner flapping, then moved 90->150 in 0.82 s.
+        const int32_t gazeAge = (int32_t)(in.nowMs - in.gazeMs);
+        const uint32_t lease  = in.gazeLease > kGazeMaxLeaseMs ? kGazeMaxLeaseMs : in.gazeLease;
+        const bool gazeOwns   = (in.gazeMs != 0 && gazeAge >= 0 && gazeAge < (int32_t)lease);
+
+        if (gazeOwns) {
+            // A show says WHERE to look; the slew below decides how fast the head may get there, and
+            // that stays the firmware's decision rather than a caller's.
+            s.panTgt  = clampf(in.gazePan,  kRcPanMin, kRcPanMax);
+            s.tiltTgt = clampf(in.gazeTilt, lim.tiltMin, lim.tiltMax);
+            s.owner   = Owner::Gaze;
+        } else if (in.haveTarget && in.confidence >= kHeadConfidence) {
+            // CONFIDENCE GATES THE HEAD, not just the amplitude: a head turn is a commitment, and
+            // committing to a false positive is what makes a robot look broken. A weak detection costs
+            // a twitch of the eyes and never a head swing.
+            //
+            // EYES LEAD, HEAD FOLLOWS: an offset inside kEyeOnly is handled by the eyes alone.
+            const float ax = in.nx < 0 ? -in.nx : in.nx;
+            const float ay = in.ny < 0 ? -in.ny : in.ny;
+            if (ax > kEyeOnly || ay > kEyeOnly) {
+                s.panTgt  = clampf(kCentreDeg + in.nx * kPanRangeDeg,  kCentreDeg - kPanRangeDeg,  kCentreDeg + kPanRangeDeg);
+                s.tiltTgt = clampf(kCentreDeg + in.ny * kTiltRangeDeg, lim.tiltMin, lim.tiltMax);
+                s.owner = Owner::Track;
+                autonomous = true;
+            } else {
+                s.owner = Owner::None;
+            }
         } else {
             s.owner = Owner::None;
         }
-    } else {
-        s.owner = Owner::None;
-    }
+    }   // not held
 
     // THE ENVELOPE CLAMP KEYS OFF THE OWNER, NOT off "is the tracker running". Keying it off the
     // tracker squeezed a SHOW's targets into the autonomous envelope -- silently, since a show that

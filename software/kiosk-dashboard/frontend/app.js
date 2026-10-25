@@ -55,13 +55,6 @@ setInterval(() => { try { window.OpenDubsKiosk && window.OpenDubsKiosk.alive && 
   window.addEventListener("load", () => { if (v && document.getElementById("view-" + v)) setView(v); });
 })();
 
-if ($("btnAiToggle")) {
-  $("btnAiToggle").addEventListener("click", () => {
-    const isOff = $("btnAiToggle").classList.contains("off");
-    fetch(`/api/tracker/${isOff ? "on" : "off"}`, { method: "POST" }).catch(() => {});
-    $("btnAiToggle").textContent = isOff ? "STARTING..." : "STOPPING...";
-  });
-}
 
 /* ---------- System power controls (confirm-on-tap to avoid accidental taps) ---------- */
 function armButton(id, action, label) {
@@ -219,14 +212,39 @@ const estopCode = (source) => {
 // bridge), never from a laptop that has the dashboard open.
 (function touchHoldsHead() {
   if (!window.OpenDubsKiosk) return;
-  let last = 0, down = 0, downAt = 0, timer = null;
-  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
-  addEventListener("pointerdown", () => {
-    down++; downAt = performance.now(); if (downAt - last > 250) say();
-    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
-    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  // A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24): on the robot's USB power
+  // the tablet registers phantom touches (charger noise), and each paused the head. A touch still pauses
+  // at once, as before; but a pointer with no up or cancel within PHANTOM_MS is a phantom: its renewals
+  // stop, and the robot is told so, with what was seen, to end the pause (unless a real touch is still
+  // holding) and log it. Real taps, and the face's one-second hold, lift well inside the window.
+  const PHANTOM_MS = 2000, PAGE = "dashboard";
+  const downs = new Map();                         // pointerId -> {at, info, timer}
+  let last = -1e9, lastLift = -1e9, renew = null;
+  const beacon = (q) => { try { navigator.sendBeacon("/api/head/touch" + q); } catch (e) {} };
+  const say = () => { last = performance.now(); beacon(""); };
+  const stopRenew = () => { if (!downs.size) { clearInterval(renew); renew = null; } };
+  const phantom = (id) => {
+    const d = downs.get(id); if (!d) return;
+    downs.delete(id);
+    const holding = downs.size > 0 || performance.now() - lastLift < 4000;   // a real touch still counts
+    const q = new URLSearchParams({ phantom: "1", release: holding ? "0" : "1", page: PAGE,
+                                    ms: String(Math.round(performance.now() - d.at)), ...d.info });
+    beacon("?" + q.toString());
+    stopRenew();
+  };
+  addEventListener("pointerdown", (e) => {
+    const now = performance.now();
+    if (now - last > 250) say();
+    downs.set(e.pointerId, { at: now, timer: setTimeout(() => phantom(e.pointerId), PHANTOM_MS),
+      info: { x: String(Math.round(e.clientX)), y: String(Math.round(e.clientY)), type: String(e.pointerType),
+              pressure: String(e.pressure), w: String(Math.round(e.width)), h: String(Math.round(e.height)) } });
+    if (!renew) renew = setInterval(() => { if (downs.size) say(); else stopRenew(); }, 1000);
   }, { capture: true, passive: true });
-  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  const up = (e) => {
+    const d = downs.get(e.pointerId); if (!d) return;
+    clearTimeout(d.timer); downs.delete(e.pointerId); lastLift = performance.now();
+    stopRenew();
+  };
   addEventListener("pointerup", up, { capture: true, passive: true });
   addEventListener("pointercancel", up, { capture: true, passive: true });
 })();
@@ -1010,23 +1028,44 @@ function renderMast(st) {
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function callService(service, args) { send({ op: "call_service", service, args: args || {} }); }
 
+  // ONLY WHAT IS ON SCREEN IS STREAMED (the Network lane's R-1, 2026-10-22). These topics are the
+  // dashboard's heavy traffic over the robot's Wi-Fi: two LaserScans and the arms' joint states, 10 Hz
+  // each, which every open dashboard used to take all the time, whatever page it showed and even in a
+  // background tab. Each is now subscribed while a view that draws it is up and the page is visible,
+  // and unsubscribed otherwise; rosbridge stops sending at once. Throttled at the SUBSCRIPTION, too:
+  // the arm controllers publish at 400 Hz and a display needs about 10, so the rate is asked for here
+  // rather than by adding a decimating node (one publisher, many subscribers, each taking what it uses).
+  const STREAMS = {
+    "/scan":         { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
+    "/scan_rear":    { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
+    "/joint_states": { type: "sensor_msgs/msg/JointState", views: ["teleop"] },   // teleop.js's arm view
+  };
+  const subscribed = new Set();
+  const shown = (name) => { const v = $("view-" + name); return !!v && v.classList.contains("active"); };
+  function syncStreams() {
+    if (!ws || ws.readyState !== 1) return;
+    for (const [topic, t] of Object.entries(STREAMS)) {
+      const want = !document.hidden && t.views.some(shown);
+      if (want && !subscribed.has(topic)) {
+        send({ op: "subscribe", topic, type: t.type, throttle_rate: 100, queue_length: 1 });
+        subscribed.add(topic);
+      } else if (!want && subscribed.has(topic)) {
+        send({ op: "unsubscribe", topic });
+        subscribed.delete(topic);
+      }
+    }
+  }
+  document.addEventListener("visibilitychange", syncStreams);
+  setInterval(syncStreams, 500);                     // a view change: cheap to check, no hook needed
+
   function rosConnect() {
     setRosBadge("…");
     try { ws = new WebSocket(ROS_URL); } catch (e) { setTimeout(rosConnect, 2500); return; }
     ws.onopen = () => {
       wsReady = true; setRosBadge("UP");
-      send({ op: "subscribe", topic: "/scan", type: "sensor_msgs/msg/LaserScan",
-             throttle_rate: 100, queue_length: 1 });
-      send({ op: "subscribe", topic: "/scan_rear", type: "sensor_msgs/msg/LaserScan",
-             throttle_rate: 100, queue_length: 1 });
-      // /joint_states for the TELEOP page's arm view. Throttled hard on purpose: the arm
-      // controllers publish at 400 Hz and a display needs ~10, so the rate is asked for at the
-      // SUBSCRIPTION rather than by adding a decimating node — one publisher, many subscribers,
-      // each taking what it can use.
-      send({ op: "subscribe", topic: "/joint_states", type: "sensor_msgs/msg/JointState",
-             throttle_rate: 100, queue_length: 1 });
+      subscribed.clear(); syncStreams();             // a new connection has no subscriptions yet
     };
-    ws.onclose = () => { wsReady = false; setRosBadge("DOWN"); setTimeout(rosConnect, 2500); };
+    ws.onclose = () => { wsReady = false; subscribed.clear(); setRosBadge("DOWN"); setTimeout(rosConnect, 2500); };
     ws.onerror = () => { try { ws.close(); } catch (e) {} };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -1404,7 +1443,6 @@ function connect() {
       safe(renderMast, s); safe(renderPower, s); safe(renderThermal, s); safe(renderDrive, s);
     }
     if (d.telemetry) { safe(renderRC, d.telemetry); safe(renderNav, d.telemetry); }
-    if (d.state) safe(renderServerState, d.state);
   };
 }
 
@@ -1417,17 +1455,5 @@ function renderRobotName(host) {
   document.title = `${n} · OpenDubs dashboard`;
 }
 
-function renderServerState(st) {
-  const btn = $("btnAiToggle");
-  if (!btn) return;
-  
-  if (st.ai_tracking) {
-    btn.textContent = "AI TRACKING: ON";
-    btn.classList.remove("off");
-  } else {
-    btn.textContent = "AI TRACKING: OFF";
-    btn.classList.add("off");
-  }
-}
 
 connect();

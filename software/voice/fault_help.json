@@ -30,6 +30,15 @@
   "means": "The arm works, but its gripper controller is not running. The teleop bridge needs both grippers' controllers and exits about 30 s after START without them.",
   "title": "An arm's gripper controller would not start"
  },
+ "ARM_LINK_ERROR": {
+  "do": [
+   "Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).",
+   "Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.",
+   "If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer."
+  ],
+  "means": "The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down, or missing. While it is, that arm's motors answer intermittently or not at all, so it won't activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors that read disabled are normal, and are not this fault.",
+  "title": "One arm's CAN link is in error, so its motors can't be reached"
+ },
  "ARM_MOTORS_DISABLED": {
   "do": [
    "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."
@@ -155,10 +164,27 @@
   "means": "E-stop latched. To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard. Someone pressed **E-STOP** on the dashboard, and the controller opened the contactor. A software e-stop [latches](glossary.md#latch): it stays in force until an operator re-arms, and nothing clears it on its own.",
   "title": "A software e-stop is latched"
  },
+ "HEAD_TABLET_HOT": {
+  "do": [
+   "Shade the head from direct sun or stage lights, and make sure nothing covers the back of the tablet.",
+   "If it stays hot with the robot idle, let the screen sleep (Head & face page, SLEEP TABLET) until it cools."
+  ],
+  "means": "The tablet reports a battery temperature of 45 °C or more. Heat ages a lithium battery fastest, and a hot tablet throttles itself, which can make the face stutter. Above 40 °C, while no show runs, the face already dims and draws fewer frames to cool down. 45 °C is a provisional limit, to be revisited against the tablet's datasheet.",
+  "title": "The tablet's battery is hot"
+ },
+ "HEAD_TABLET_NOT_CHARGING": {
+  "do": [
+   "Check the USB-C cable at the tablet and at the mount's charger; reseat both.",
+   "If it persists, check the mount's charger output with a USB power meter, and replace the charger or the cable.",
+   "Until it is fixed, charge the tablet from a wall charger between sessions."
+  ],
+  "means": "The head tablet charges from the robot's power whenever the robot is on and not e-stopped. Its Battery protection stops charging at 80 %, so a healthy tablet on the robot's power reads about 80 % and \"not charging\". This warning means it reads well below that and is still not charging, or it is losing charge while plugged in: its charger supplies too little, or has failed. Left alone, the tablet runs flat and the face goes dark.",
+  "title": "The tablet is plugged in but not charging"
+ },
  "LIFT_NOT_RESPONDING": {
   "do": [
    "Do not move the lift until it reports again; the pinch guard's state is unknown.",
-   "The fault stays shown after the report returns. Restarting the robot clears it."
+   "It clears by itself once the lift reports again."
   ],
   "means": "The StamPLC link is healthy, but its report of the lift — height, motion and the pinch guard's state — has stopped, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
   "title": "The lift is not reporting"
@@ -208,7 +234,7 @@
   "do": [
    "Stop and let the robot cool.",
    "Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.",
-   "The fault stays shown after the temperature falls. Restarting the robot clears it."
+   "The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the temperature is still high."
   ],
   "means": "One of the robot's internal temperature sensors reads 70 °C or more, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
   "title": "Part of the robot is over temperature"
@@ -217,7 +243,7 @@
   "do": [
    "Check the pack's charge on the dashboard.",
    "Check that the hub's input connections are tight.",
-   "The fault stays shown after the voltage recovers. Restarting the robot clears it."
+   "The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the brownout is still reported."
   ],
   "means": "Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh)); a robot built with a fuse block never shows it. The hub saw its input voltage dip too low, and the dashboard marks the robot DEGRADED.",
   "title": "The power distribution hub reported a brownout"

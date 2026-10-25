@@ -96,7 +96,7 @@ repository and leaves its URL and commit blank, so it pins nothing yet.
 | **`openarm`** (teleop bridge, arm factory, V1 IK artifacts) | `EricJGoossen/openarm`, original → **our private copy** | `7fcd3f9` (`0c21ead` merged, deploy pending) | org copy, fetched into the host-mounted checkout by bundle | MIT declared in `pyproject.toml`, **no licence file** | see the next table |
 | `ssik` | `EricJGoossen/ssik`, fork of personalrobotics/ssik: **+1 / −170** (a v3-era base; upstream is **8.1.0 on PyPI**) | unrecorded; a stale branch here pinned upstream `d153492`, *without* the student's fix | path dependency `../ssik`, editable | BSD-3-Clause | the student's fix (a perturbation for a degenerate geometry) patches a solver the teleop never calls — **not needed**; the desk test shows 8.1.0 solves V1 completely |
 | `mujoco_menagerie` | google-deepmind | unrecorded | clone | per model | none |
-| `software/openarm/patches/` | this repo | — | was `docker cp` + script | this repo's | **superseded**: its one patch (the headless viewer) is in the org copy's `1f0f8f1` |
+| `software/openarm/patches/` | this repo | — | was `docker cp` + script | this repo's | **removed 2026-10-22**: its one patch (the headless viewer) is in the org copy's `1f0f8f1` |
 
 ### Our 11 commits on the org copy
 

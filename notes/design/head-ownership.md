@@ -1,103 +1,105 @@
 # Who owns the head
 
-Decided 2026-10-06, after `head-turn-gaze.md` produced a *third* potential owner of pan/tilt and
-nothing reconciled them. **Not built.** Pan/tilt is behind `OPENDUBS_PANTILT`, default `0`, so the
-first IDF flash leaves the head inert — see §6.
+**Current, 2026-10-22.** The head is the Galaxy tablet (the face) on the M5Dial neck
+(`firmware/neck_dial`), which carries the pan and tilt servos. The neck decides who moves it; the
+dashboard asks and shows what the neck reports. First decided 2026-10-06 for the Tab5 head, now
+retired; what carried over is kept below, and the neck's **HOLD** and its **status badge** are new
+(the user's design, 2026-10-22). Built in the neck firmware and the dashboard; **not yet flashed to the
+robot** (that happens with the user there, by `firmware/neck_dial/README.md`'s recipe).
 
-## 1. The owners, and the verified topology
+## 1. Precedence
 
-| owner | path to the head | verified |
-|---|---|---|
-| **On-face touch** (the HMI's pan/tilt pad) | local, on the Tab5 | exists; currently greyed |
-| **RC stick** | **StamPLC → Tab5 DIRECTLY**, UDP 4242, 20 Hz, full stick = 60 °/s, expiring after 600 ms on the head | `rc_serial_probe/src/main.cpp`: `kTab5Port 4242`, `kHeadLocalPort 5007`, `kHeadDps 60.0f`, `kHeadSendMs 50` |
-| **Thor YOLO + D415** | Thor → Tab5, CAN-over-UDP (`CAN_ID_PAN_TILT_CMD` / `_RATE`), from the pinned peer | `tab5_face/src/main.cpp:464` |
-| **Tab5 local tracker** | on-head perception (esp-dl, ~1.1 m) | new, this branch |
+Highest first. The control law (`neck/pantilt_core.cpp`) enforces it, not the senders:
 
-**RC does not go through the Thor.** That was assumed and is wrong: the StamPLC addresses the head
-itself. It matters — an RC latch survives a Thor outage, so the hierarchy below is not all hanging
-off one box.
+    HOLD  >  touch  >  RC stick  >  a show's GAZE  >  the tracker
 
-## 2. Precedence
+| owner | what it is | how it reaches the neck | kind |
+|---|---|---|---|
+| **HOLD** | a person at the knob, the dashboard, or software: the head stays where it is | the knob; `HOLD` over UDP 4242 | **latch** (§3) |
+| **touch** | someone working at the tablet: a brief pause | `TOUCH HOLD`, renewed by the dashboard while touched, lapsing about 4 s after the last touch | lease |
+| **RC** | the operator's stick | the StamPLC's `0x107` rate frames, UDP 4242, 20 Hz | lease (600 ms) |
+| **GAZE** | a show, or the dashboard's tracking (`neck_follow.py`) | `GAZE <pan> <tilt> <lease>` | lease (≤ 1000 ms) |
+| **tracker** | a tracker beside the head | `TRACK` (agreed, not built on the Dial) | lease |
 
-    on-face touch  >  RC stick  >  Thor YOLO  >  Tab5 local tracker
+**On a lease's expiry the head never jumps**: the next live source down takes it at the slew rate, or
+it stays where it is (head-protocol.md §4).
 
-**Touch is highest, above RC.** Not an aesthetic call: the utility of the on-face pad is mostly to
-aim the *screen* at a reader, and the person touching the glass is physically present while the
-stick operator may be across the bay. Nothing should outrank the person who needs to read it.
+## 2. HOLD — the neck's one job for a person
 
-**The Tab5's tracker is lowest** because that is what its ~1.1 m range suits — a close-range,
-always-available fallback and the idle "nobody else wants it" behaviour, not a competitor to the
-D415. The two detectors have genuinely different strengths (the Thor's sees further and classifies
-better; the Tab5's has no network dependency and keeps working while the Thor reboots), which is
-why the answer is precedence rather than picking one.
+**What it is.** A held head **stays where it is**: tracking, shows, touch and the RC stick do not move
+it. It is a **pause, never a motion command**. The one exception is software that needs the head
+somewhere particular (a manipulation task aiming the head-top depth camera): `HOLD <pan> <tilt>`
+slews there at the head's ordinary rate, within its limits, and holds.
 
-## 3. Lease vs latch — the part the old firmware lacked
+**Why it outranks the RC stick** (the user's decision, 2026-10-22): the pan and tilt sticks spring back
+to centre, so the way to leave the head aimed is to aim it with the sticks, turn the knob to HOLD and
+let go, and the stick is then ignored until RELEASE; a software hold with angles does the same for
+research runs in AUTO. Light use is expected, so nothing more is planned.
 
-The Arduino firmware had only leases: `rcOwnsHead()` is `millis() - g_rcCmdMs < kManualHoldMs`
-(600 ms). That is right for nudging but wrong for commitment — **an authority that expires is not
-authority.** So two kinds of ownership:
+**The knob, not the button.** Turned one way, deliberately (**three detents within a second**), it
+holds the head where it is; turned the other way, it releases. A bump or a slow turn does nothing.
+The button is hard to press, above all while the neck moves, and it already has a job: confirming a
+tilt-limit change. While one is pending, the press belongs to that alone, and the screen says
+"press to confirm tilt …".
 
-- **Lease** — a transient input takes the head for a hold window and hands back. This is what makes
-  "nudge the head while YOLO keeps tracking" work with nobody changing modes.
-- **Latch** — an explicit selection that holds until explicitly released. "RC only" means YOLO never
-  takes it back. A latch at any level blocks everything below it indefinitely.
+**Anything releases it**: the knob, the dashboard (Head & face page, RELEASE), software (`HOLD OFF`).
+No idle timeout (§3).
 
-**A latch is released easily, not ceremonially** — from the face and from the dashboard, and *not*
-by an idle timeout. A latch that silently expires is the original problem on a longer fuse. A reboot
-is not required either; requiring one is over-protective for a device that cannot hurt anyone.
+**A release is announced.** For 3 s after a release the head stays held while the neck's screen says
+"releasing hold", the dashboard shows a notice and the face's caption says "The head can move again";
+only then may it move. While held, the caption says "The head is held still", so someone in front of a
+face that has stopped following them does not take it for a broken tracker. (Face & HRI's words. No
+countdown: one caption must stay true for the whole 3 s. A fault's or an e-stop's words come first.)
 
-## 4. The head is the authority; the dashboard asks
+**Always comes back released.** The hold lives in the neck's RAM: a reboot, an OTA or a power cycle
+(an e-stop cuts the neck's power) always starts released.
 
-The latch is shared state, so something has to be the source of truth. **The head.** The dashboard
-*requests* a mode and displays what the head reports. The alternative — dashboard as authority —
-means a stale page or a reload can silently reassign the head, which is the mode confusion this
-design exists to remove.
+**Reported outward.** `NECK` carries `owner=hold`, `hold=on|releasing|off` and `hold_by=knob|remote`;
+the dashboard polls it (`neck_state.py`) for its notice and its controls. The Tab5's lesson stands: the
+head must say who owns it, or a stale page and a busy tracker disagree about it.
 
-**The head must report ownership outward, which it has never done.** `CAN_ID_TRACK_MODE` is
-**inbound only**: the Thor decides `tracking=0` from its own view of RC and tells the head. The head
-says nothing about who owns it, and there is no "nobody owns me" message at all. That one-way flow
-is precisely why mode confusion is possible, and closing it is new work rather than a port.
+## 3. Lease vs latch
 
-Keeping the Thor informed is still worth it: without it the Thor keeps commanding a suppressed
-channel and its own logs claim it is tracking.
+- **Lease**: a transient input takes the head for a hold window and hands it back. Right for nudging,
+  tracking and shows, and why "nudge the head while tracking carries on" needs nobody to change mode.
+- **Latch**: held until explicitly released. **HOLD is the only latch.** An authority that expires is
+  not authority, so a latch is released easily (any of the ways above) and never by a timeout, which
+  would only be the original problem on a longer fuse. Nor does it need a reboot: the head cannot
+  realistically hurt anyone, so over-gating it is paternalistic rather than careful.
 
-## 5. Boot owner: the face
+## 4. The neck is the authority; the dashboard asks
 
-The **Tab5 local tracker** owns the head at boot. The Thor's presence at t=0 is a race, so making it
-the default makes boot behaviour nondeterministic. The local tracker is the only owner guaranteed to
-exist. `OFF` is a valid mode but not the default — a face that tracks people is the friendly
-resting state.
+The hold is shared state, so one thing must be its source of truth: **the neck**. The dashboard
+requests (`POST /api/head/hold`) and shows what the neck reports. A dashboard that kept its own copy
+could be made wrong by a reload, a second browser or a neck that rebooted.
 
-## 6. The authority boundary, and what it changes
+## 5. The status badge
 
-**The head cannot realistically damage people or property**, unlike the base and the arms. That is
-the reasoned boundary: the safety bar here is lower, and over-gating it is paternalistic rather than
-careful.
+The Dial's round screen is a **status badge** and nothing else (the user rejected the knob menus and
+pages of the 2026-10-19 proposal): a ring in the robot state's colour, the state's label, and who
+drives the head. HOLD while held, "releasing hold" during the announcement. No animation. **Blank at
+boot until told.**
 
-The consequence, and it is a correction to what was first built: the StamPLC state gate binds
-**autonomous owners only**. Do not move on your own without knowing whether the base is stopped —
-but never refuse a human standing there pressing a button because a link is down. Slew limits,
-hard bounds and boot-centring stay unconditional; they cost nothing and they are what keep
-autonomous motion legible.
+The dashboard tells it with `BADGE <STATE> <driver> <rrggbb>` (head protocol v9) on a change and every
+5 s, like the chest light. The **colour crosses the wire**, from the same map the PRISM and the chest
+light use (`state_out._MAP`), so there is one map of state to colour and not a second copy in firmware
+to disagree with it. The neck greys the ring when it has heard nothing for 20 s. What the neck knows
+better than the dashboard, it shows itself: HOLD, RC, touch, a pending tilt change.
 
-## 7. Bidirectional flow, and keeping video off the control path
+**The screen never stands between the board and the network.** The neck has no USB cable, so OTA is
+the only way in: the screen starts **last**, after the UDP socket is listening; its start runs under
+the task watchdog, so a hang resets the board; and a board whose last reset was a crash or a watchdog
+comes up **without** the screen. A screen fault costs the screen, never the board. It draws only on a
+change, so the 50 Hz control loop is late by one tick a few times a minute at most.
 
-**In, on 4242:** `STATE` (exists), RC rate from the StamPLC, YOLO commands from the Thor, mode and
-latch requests. All small and latency-sensitive.
+## 6. The authority boundary
 
-**Out:** the current owner and latch state, head angles, `tracking` so the Thor stops shouting at a
-suppressed channel, and the front ToF once it is ported.
+**The head cannot realistically damage people or property**, unlike the base and the arms, so its
+safety bar is lower. What stays unconditional: slew limits, hard bounds (pan 0–180, tilt within this
+robot's commissioned band) and the narrow tilt fallback for an uncommissioned neck; a neck with no
+network does not move on its own. A tilt-limit change needs a person at the button.
 
-**Video gets its own port, over HTTP, and never shares 4242.** MJPEG over HTTP needs no new client
-plumbing — an `<img src>` is the whole dashboard side — and it keeps a stream from starving
-commands. The hardware JPEG encoder is idle (`tab5-platform-not-slow.md`), so the encode is nearly
-free. This is a nice-to-have; it is recorded here so the control channel is not designed in a way
-that later has to carry it.
+## 7. Keeping video off the control path
 
-## 8. A hazard found while verifying this, not yet confirmed on hardware
-
-The Arduino head pins `g_thorIp` to the **first** peer that sends a recognised frame *or* a `STATE `
-message (`tab5_face/src/main.cpp:490`). The StamPLC also talks to port 4242. So whichever speaks
-first becomes "the Thor", and afterwards genuine YOLO commands fail the `from == g_thorIp` check.
-If YOLO head tracking has ever been intermittent without explanation, this is where to look. The
-IDF build must identify peers by **role**, not by arrival order.
+Commands are small and latency-sensitive on UDP 4242. Camera streams take their own path (the tablet
+streams to the Thor over its socket; `tablet_relay.py`) and never share the control port.

@@ -8,7 +8,8 @@ replicate it.
 - **Compute / autonomy:** NVIDIA Jetson AGX Thor (ROS 2 Jazzy)
 - **Base controller:** M5Stack StamPLC (ESP32-S3) — SBUS RC ingest, mecanum drive mixer, safety
   arming + e-stop, power/BMS/CAN telemetry
-- **Front panel:** M5Stack Tab5 (ESP32-P4) — animated face, head pan/tilt servos, speaker
+- **Head:** a Samsung Galaxy Tab A11 tablet — animated face, speaker, and the operator's dashboard
+  when lifted off — on a pan/tilt neck driven by an M5Stack M5Dial (ESP32-S3)
 - **Chassis:** goBILDA / REV structure, mecanum drive, PRISM LED indicators
 - **Manipulation:** bimanual [OpenArm](https://github.com/enactic/openarm), 7 joints per side over
   CAN, riding a 275 mm scissor lift
@@ -56,9 +57,11 @@ questions about clearance and reach and not about force, torque or timing.
 |---|---|
 | `docs/` | The documentation site (MkDocs Material) — build/flash guides, reference, safety |
 | `firmware/rc_serial_probe/` | **StamPLC** ESP32-S3 firmware (PlatformIO) — RC, drive mixer, safety I/O, BMS/PDH, `[TAG]` telemetry over USB **or** Ethernet |
-| `firmware/tab5_idf/` | **Tab5** ESP32-P4 head — face, front control panel and voice (ESP-IDF + LVGL, on M5Stack's factory firmware). Flashed over the network by `ota-from-thor.sh` |
-| `firmware/tab5_face/` | The head's retired Arduino firmware — not flashed; its flash script refuses to run by default |
-| `firmware/tab5_pantilt/` · `tab5_roller/` · `servo_mode_programmer/` | Bring-up tools for the pan/tilt head and its servos — not flashed in normal operation |
+| `firmware/neck_dial/` | **M5Dial** ESP32-S3 neck controller — pan/tilt through its own 8Servo, the head protocol over UDP, updated over the network |
+| `firmware/servo_mode_programmer/` | Reprograms the pan/tilt servos' mode — a bench tool, not flashed in normal operation |
+| `firmware/tab5_idf/` · `tab5_face/` · `tab5_pantilt/` · `tab5_roller/` | Firmware for an M5Stack Tab5 head, which the current robot does not carry |
+| `software/face-web/` | The robot's face as a web page, shown on the head tablet |
+| `software/tablet-kiosk/` | The Android app that runs the tablet as part of the robot: full screen and locked in front |
 | `software/kiosk-dashboard/` | Touchscreen dashboard — FastAPI backend + vanilla-JS frontend + provisioning. Runs on the Thor |
 | `software/ros/` | ROS 2 (Jazzy) bringup — RPLIDAR drivers, rosbridge, foxglove, watchdogs |
 | `software/openarm/` | Arm permanence — CAN driver packaging, udev naming, boot services, `openarm-up` |
@@ -66,7 +69,7 @@ questions about clearance and reach and not about force, torque or timing.
 | `software/teleop/` | Unity VR teleop pipeline |
 | `sim/` | **MuJoCo model of the robot** (geometry, not a planner) — see [Simulation](#simulation) |
 | `hardware/` | `parts.csv` — **the BOM source of truth**, from which every table in the docs is generated — plus `cad/` (Fusion 360 exports) and `renders/` |
-| `access/` | Public keys and the manifest for operator accounts on the robots |
+| `access/` | How SSH accounts on the robots are managed (`tools/access.py`); the roster itself lives in the git-ignored `ops/access/` |
 | `tools/` | Repo utilities |
 | `notes/` | Internal planning / design history — in-repo but not part of the published site |
 | `optional/` | Non-baseline variants kept for possible future use (e.g. a Pixhawk build) — in-repo, off the baseline |
@@ -74,7 +77,8 @@ questions about clearance and reach and not about force, torque or timing.
 
 ## Build a copy
 
-1. **Firmware:** flash the StamPLC (and Tab5) — see [Flash a StamPLC](docs/flashing-stamplc.md).
+1. **Firmware:** flash the StamPLC — see [Flash a StamPLC](docs/flashing-stamplc.md). The neck
+   controller has its own notes in [`firmware/neck_dial/README.md`](firmware/neck_dial/README.md).
    The StamPLC **must be flashed over USB** (esptool needs USB-CDC; Ethernet carries only runtime
    data). It builds/flashes from a Mac (local PlatformIO) or the Thor (`/opt/opendubs/piovenv`).
 2. **Thor:** flash the pinned base (JetPack 7 / L4T R38.4 / Ubuntu 24.04), then from a dev machine

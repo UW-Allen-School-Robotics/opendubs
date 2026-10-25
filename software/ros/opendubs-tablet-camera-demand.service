@@ -6,8 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=emmar
-Environment=HOME=/home/emmar
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
 ExecStart=/opt/opendubs/ros/tablet-camera-demand.sh
 Restart=always
 RestartSec=5

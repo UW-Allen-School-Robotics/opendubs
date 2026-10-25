@@ -61,7 +61,7 @@ exact JetPack build used so units match.
 | **`opendubs-rplidar/rosbridge/foxglove` services** | enabled | ✅ `ros/*.service` | **install is manual** (`software/ros/README.md` shows the cp/enable) |
 | **PlatformIO venv `/opt/opendubs/piovenv`** | installed | ❌ | **manual** |
 | **`99-platformio-udev.rules`** | installed | ❌ | **manual** |
-| **emmar groups** dialout, plugdev (flashing) | set | ❌ | **manual** |
+| **The service user's groups** dialout, plugdev (flashing) | set | ❌ | **manual** |
 | App code `/opt/opendubs/{kiosk-dashboard,ros,rc_serial_probe}` | present | ✅ | rsync deploy |
 
 ## 3. Gaps — CLOSED (2026-06-09)
@@ -85,7 +85,7 @@ All of the previously-manual items now live in provisioning:
 7. ✅ **Top-level `provision-all.sh`** — chains kiosk → ros → firmware.
 8. ✅ **`deploy-all.sh`** — rsyncs the subsystems + `provision-all.sh`, runs
    provisioning. It never overwrites a robot's own files (drive calibration in
-   `rc_serial_probe/src/main.cpp`, `platformio.ini`): the list is `tools/deploy-audit.py`'s
+   `rc_serial_probe/src/robot_config.h`, `platformio.ini`): the list is `tools/deploy-audit.py`'s
    `PER_ROBOT` entries. The dashboard goes through its own `deploy.sh`. Repo `*.sh` are kept +x so `rsync -a` carries the bit (the
    strips-+x footgun from track 6).
 

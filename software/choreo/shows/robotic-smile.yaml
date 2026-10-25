@@ -17,7 +17,7 @@ palette: { label: Robotic smile, order: 5 }
 slots: [ARM_L, ARM_R, HEAD, FACE, SOUND]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 music:
   file: audio/robotic_smile.mp3

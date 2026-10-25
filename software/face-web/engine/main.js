@@ -114,7 +114,7 @@ window.faceStats = stats;                           // read by a harness through
 let last = performance.now();
 const health = { drawnAt: performance.now(), eyesOk: true, lost: false, fullFace: false, frames: 0,
                  errors: 0, lastError: null, refits: 0 };
-let lastAlive = 0;
+let lastAlive = 0, lastDrawn = 0;
 canvas.addEventListener("contextlost", () => { health.lost = true; });
 
 function frame(now) {
@@ -126,6 +126,8 @@ function frame(now) {
   if (innerWidth && (canvas.width !== Math.round(innerWidth * dpr) || canvas.height !== Math.round(innerHeight * dpr))) {
     fit(); health.refits++;
   }
+  if (power.save && now - lastDrawn < SAVE_FRAME_MS) return;     // saving power: every other frame
+  lastDrawn = now;
   try { drawFrame(now); } catch (e) { health.errors++; health.lastError = String(e && e.message || e).slice(0, 160); }
 }
 function drawFrame(now) {
@@ -237,9 +239,11 @@ function applySettings(s) {
     levels.idle("bright", 0.5);
     if (typeof s.volume_idle === "number") levels.idle("volume", 0.5);
   }
-  skins.idle = { skin: s.skin || "default", theme: s.theme || "plain" };   // for SKIN IDLE / THEME IDLE
+  // For SKIN IDLE / THEME IDLE, and EMOTE AUTO when expressions are off (protocol.js).
+  skins.idle = { skin: s.skin || "default", theme: s.theme || "plain", eyes: s.idle_eyes !== false };
   showReticle = s.show_reticle === true;       // the tracker's reticle: live, no reload
-  if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen) skins.select(s.skin);
+  // Not while a show holds the skin ("a show overrides these"): SKIN IDLE at its end applies the new one.
+  if (changed("skin", s.skin) && s.skin && s.skin !== skins.chosen && !skins.showHeld) skins.select(s.skin);
   if (changed("theme", s.theme) && s.theme && s.theme !== face.theme) face.setTheme(s.theme);
   if (typeof face.setMouth === "function") face.setMouth(!!s.mouth);
   if (changed("idle_eyes", s.idle_eyes)) face.setEmote(s.idle_eyes === false ? "NEUTRAL" : "AUTO", performance.now());
@@ -248,11 +252,41 @@ function applySettings(s) {
   const want = s.tracking === "tablet";        // the face's own camera; "d415" is the Thor's tracker
   if (want && !tracking) {
     tracking = true;
-    import("./track.js").then((m) => m.start(face, stats)).catch((e) => { stats.track = "unavailable: " + e.message; });
+    import("./track.js").then((m) => m.start(face, stats))
+      .then(() => { if (power.battery) window.OpenDubsTracking?.pause("battery"); }).catch((e) => { stats.track = "unavailable: " + e.message; });
   } else if (!want && tracking) {
     location.reload();                         // the camera is released with the page
   }
 }
+
+// ---- the tablet's power (notes/design/power-and-shutdown.md §9) ---------------------------------
+// The tablet is powered from the robot's drive bus, so on battery the robot is off or e-stopped. The
+// face saves power at once: half brightness, half the frame rate, camera tracking off. When the screen
+// sleeps is the kiosk app's decision (Power.kt), and so is waking it when power returns. A hot battery
+// (HOT_C and up) while no show holds the levels dims and slows the face the same way (P-5).
+const HOT_C = 40, SAVE_FRAME_MS = 30;
+const power = { battery: false, hot: false, save: false, low: false };
+window.facePower = power;                          // read by a harness through devtools
+// Whether a caption is on the face now: the operator's hint (operator.js) sits in the same strip, so
+// it stays away while one shows rather than drawing over it (Face & HRI's review, 2026-10-22).
+window.faceCaptionShowing = () => !!captionNow(performance.now());
+function pollPower() {
+  const K = window.OpenDubsKiosk;
+  if (!K || typeof K.power !== "function") return;   // a browser, or an app older than 0.5.0
+  let p = null, t = null;
+  try { p = JSON.parse(K.power()); } catch (e) { return; }
+  try { t = JSON.parse(K.thermal()); } catch (e) { /* no reading */ }
+  const battery = p.battery_mode === true;
+  if (battery !== power.battery) {
+    const T = window.OpenDubsTracking;
+    if (T) { if (battery) T.pause("battery"); else T.resume("battery").catch(() => {}); }
+  }
+  power.battery = battery; power.low = p.low === true;
+  power.hot = !!(t && typeof t.battery_c === "number" && t.battery_c >= HOT_C && !levels.touched);
+  power.save = power.battery || power.hot;
+  levels.setScale(power.save ? 0.5 : 1);
+}
+setInterval(pollPower, 2000); pollPower();
 
 // ---- picking up a deploy by itself ---------------------------------------------------------------
 // The kiosk has no reload control, and turning tracking on only adds a module to the page already
@@ -301,14 +335,39 @@ function applySettings(s) {
 // bridge), never from a laptop that has this page open.
 (function touchHoldsHead() {
   if (!window.OpenDubsKiosk) return;
-  let last = 0, down = 0, downAt = 0, timer = null;
-  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
-  addEventListener("pointerdown", () => {
-    down++; downAt = performance.now(); if (downAt - last > 250) say();
-    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
-    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  // A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24): on the robot's USB power
+  // the tablet registers phantom touches (charger noise), and each paused the head. A touch still pauses
+  // at once, as before; but a pointer with no up or cancel within PHANTOM_MS is a phantom: its renewals
+  // stop, and the robot is told so, with what was seen, to end the pause (unless a real touch is still
+  // holding) and log it. Real taps, and the face's one-second hold, lift well inside the window.
+  const PHANTOM_MS = 2000, PAGE = "face";
+  const downs = new Map();                         // pointerId -> {at, info, timer}
+  let last = -1e9, lastLift = -1e9, renew = null;
+  const beacon = (q) => { try { navigator.sendBeacon("/api/head/touch" + q); } catch (e) {} };
+  const say = () => { last = performance.now(); beacon(""); };
+  const stopRenew = () => { if (!downs.size) { clearInterval(renew); renew = null; } };
+  const phantom = (id) => {
+    const d = downs.get(id); if (!d) return;
+    downs.delete(id);
+    const holding = downs.size > 0 || performance.now() - lastLift < 4000;   // a real touch still counts
+    const q = new URLSearchParams({ phantom: "1", release: holding ? "0" : "1", page: PAGE,
+                                    ms: String(Math.round(performance.now() - d.at)), ...d.info });
+    beacon("?" + q.toString());
+    stopRenew();
+  };
+  addEventListener("pointerdown", (e) => {
+    const now = performance.now();
+    if (now - last > 250) say();
+    downs.set(e.pointerId, { at: now, timer: setTimeout(() => phantom(e.pointerId), PHANTOM_MS),
+      info: { x: String(Math.round(e.clientX)), y: String(Math.round(e.clientY)), type: String(e.pointerType),
+              pressure: String(e.pressure), w: String(Math.round(e.width)), h: String(Math.round(e.height)) } });
+    if (!renew) renew = setInterval(() => { if (downs.size) say(); else stopRenew(); }, 1000);
   }, { capture: true, passive: true });
-  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  const up = (e) => {
+    const d = downs.get(e.pointerId); if (!d) return;
+    clearTimeout(d.timer); downs.delete(e.pointerId); lastLift = performance.now();
+    stopRenew();
+  };
   addEventListener("pointerup", up, { capture: true, passive: true });
   addEventListener("pointercancel", up, { capture: true, passive: true });
 })();

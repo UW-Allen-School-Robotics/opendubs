@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=209dcef9" />
+  <link rel="stylesheet" href="style.css?v=9f38be46" />
 </head>
 <body>
   <div id="app">
@@ -27,7 +27,6 @@
       <span id="opState" class="op-state">—</span>
       <span id="opDead" class="op-state dim" title="The RC deadman. Shows and driving need it held.">DEADMAN —</span>
       <span class="spacer"></span>
-      <button id="btnAiToggle" class="op-ai off">AI TRACKING: OFF</button>
       <span id="host" class="op-meta">—</span>
       <span id="clock" class="op-meta">--:--:--</span>
       <span id="opBatt" class="op-batt" title="The robot's battery (its 52 V pack)">—</span>
@@ -35,6 +34,7 @@
       <button class="op-ham" id="opFs" title="fullscreen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="op-estop" id="opEstop"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/></svg> E-STOP</button>
       <button class="op-rearm" id="opRearm" title="Hold to re-arm"><span class="op-rearmfill"></span><span class="op-rearmtxt">HOLD TO RE-ARM</span></button>
+      <button class="op-clearfault" id="opClearFault" title="Clear the latched fault, if its cause has gone">CLEAR FAULT</button>
     </header>
     <!-- OPERATE — driving front door -->
     <main id="view-operate" class="view active operateview">
@@ -539,12 +539,13 @@
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=b08ad933"></script>
-  <script src="operate.js?v=1c63abb5"></script>
-  <script type="module" src="teleop.js?v=d344359f"></script>
-  <script src="show_audio.js?v=dc5bc029"></script>
-  <script src="choreo.js?v=4e394e27"></script>
-  <script src="headface.js"></script>
+  <script src="app.js?v=48740d1e"></script>
+  <script src="operate.js?v=5de49b13"></script>
+  <script type="module" src="teleop.js?v=88924ca4"></script>
+  <script src="show_audio.js?v=b2f6a4e4"></script>
+  <script src="choreo.js?v=e4aa7cbc"></script>
+  <script src="headface.js?v=ea3f18f3"></script>
+  <script src="projector.js"></script>
   <script src="tablet_sensors.js"></script>
 </body>
 </html>

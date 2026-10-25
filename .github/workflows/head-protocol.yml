@@ -6,19 +6,11 @@ name: head-protocol
 # added to the firmware but not to the spec (or the other way round) fails here, on the PR that
 # makes the change. Pure Python, standard library only; no robot, no head.
 
+# CI cost (the maintainers, 2026-10-21): no run for a draft PR or a push to main, which the PR already
+# ran; mark the PR ready to run it, or start it by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/head-protocol/**"
-      - "firmware/tab5_idf/app_face/net_cmd.cpp"
-      - "firmware/tab5_idf/app_face/app_face.cpp"
-      - "software/face-web/engine/vocab.js"
-      - "software/face-web/engine/skins/index.js"
-      - "software/face-web/engine/protocol.js"
-      - "software/face-web/engine/face.js"
-      - ".github/workflows/head-protocol.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/head-protocol/**"
       - "firmware/tab5_idf/app_face/net_cmd.cpp"
@@ -28,12 +20,15 @@ on:
       - "software/face-web/engine/protocol.js"
       - "software/face-web/engine/face.js"
       - ".github/workflows/head-protocol.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   test:
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

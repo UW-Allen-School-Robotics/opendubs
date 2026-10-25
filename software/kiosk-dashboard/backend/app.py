@@ -40,24 +40,8 @@ import origin_guard  # noqa: E402
 origin_guard.install(app)
 
 # Server-side state for non-safety soft controls.
-STATE = {"last_action": None, "ai_tracking": False}
+STATE = {"last_action": None}
 
-TRACKER_UNIT = "opendubs-yolo-tracker"
-
-
-def _tracker_active() -> bool:
-    """Is the face tracker running? Asked of systemd, not remembered.
-
-    This used to be a flag the dashboard set when it spawned the tracker itself, which went
-    wrong in both directions: the flag survived a crash, and an instance started any other way
-    was invisible. systemd already knows, and it is the only thing that does.
-    """
-    try:
-        r = subprocess.run(["systemctl", "is-active", TRACKER_UNIT],
-                           capture_output=True, text=True, timeout=3)
-        return r.stdout.strip() == "active"
-    except Exception:
-        return False
 
 
 @app.on_event("startup")
@@ -124,71 +108,12 @@ def frontend_version() -> dict:
 
 @app.get("/api/snapshot")
 def snapshot() -> JSONResponse:
-    # Report what systemd says, so the button cannot claim the tracker is running after it has
-    # died — or claim it is stopped while it happily tracks.
-    STATE["ai_tracking"] = _tracker_active()
-
     return JSONResponse({
         "system": metrics.collect(), "telemetry": telemetry.collect(),
         "status": status_mod.collect(), "state": STATE,
     })
 
 
-@app.on_event("startup")
-async def _reconcile_tracker() -> None:
-    """The RealSense tracker's service runs exactly when the Head & face setting says d415."""
-    import head_settings
-    err = await asyncio.get_running_loop().run_in_executor(None, head_settings.reconcile_tracker)
-    if err:
-        print(f"TRACKER: could not match the setting: {err}")
-
-
-@app.post("/api/tracker/{state}")
-async def tracker_control(state: str) -> JSONResponse:
-    """Start or stop the AI face tracker.
-
-    This drives the systemd unit. It used to `subprocess.Popen` the script itself with the Tab5's
-    address hardcoded, which was wrong three ways: a second copy fought the service for the
-    camera and lost (a RealSense admits one client), the hardcoded IP broke whenever DHCP moved
-    the head, and a tracker started by systemd at boot was invisible to the button.
-    """
-    target = state.lower()
-    if target not in ("on", "off"):
-        return JSONResponse({"ok": False, "error": "use on|off"}, status_code=400)
-    # One truth: this button writes the Head & face `tracking` setting, which the service follows.
-    import head_settings
-    import face_door
-    if target == "on" and not head_settings.realsense_present():
-        return JSONResponse({"ok": False, "error": "no RealSense camera is connected to the robot"}, status_code=409)
-    s = head_settings.load()
-    if target == "on" or s.get("tracking") == "d415":
-        s["tracking"] = "d415" if target == "on" else "off"
-        try:
-            head_settings.save(s)
-            await face_door.broadcast({"settings": s})
-        except OSError:
-            pass                                  # the service still follows the button
-
-    verb = "start" if target == "on" else "stop"
-    try:
-        r = await asyncio.to_thread(subprocess.run, ["sudo", "-n", "systemctl", verb, TRACKER_UNIT],
-                                    capture_output=True, text=True, timeout=15)
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"systemctl {verb} failed: {e}"},
-                            status_code=503)
-    if r.returncode != 0:
-        # Almost always a missing sudoers rule — say so rather than failing silently, which is
-        # how this button came to be described as "doesn't work".
-        return JSONResponse({"ok": False,
-                             "error": (r.stderr.strip() or f"systemctl {verb} returned "
-                                       f"{r.returncode}"),
-                             "hint": f"needs a sudoers rule for: systemctl {verb} {TRACKER_UNIT}"},
-                            status_code=503)
-
-    # Nothing to ask the head. A tracker that sends owns the head whenever nothing above it does
-    # (head-protocol.md §4); the old tracking-mode frame is retired (§8).
-    STATE["ai_tracking"] = _tracker_active()
-    return JSONResponse({"ok": True, "ai_tracking": STATE["ai_tracking"]})
 
 
 @app.get("/api/arms/status")
@@ -348,11 +273,21 @@ def estop_clear() -> JSONResponse:
 
 @app.post("/api/fault/clear")
 def fault_clear() -> JSONResponse:
-    """Clear a latched DEGRADED fault (review R4). Guarded by the supervisor on the
-    next frame: only non-fatal faults whose condition is absent clear, and only once
-    telemetry is ready. Fatal faults (welded contactor, PDH hardware) need service."""
-    status_mod.request_fault_clear()
-    return JSONResponse({"ok": True})
+    """Clear a latched DEGRADED fault (review R4; CLEAR FAULT on Operate). Guarded by the
+    supervisor: only non-fatal faults whose condition is absent clear, and only once
+    telemetry is ready. Fatal faults (welded contactor, PDH hardware) need service.
+    Whatever it can't clear it names, with why, and the first one's troubleshooting code."""
+    r = status_mod.clear_faults()
+    if not r["kept"]:
+        return JSONResponse({"ok": True, "cleared": r["cleared"]})
+    k = r["kept"][0]
+    if k["why"] == "not ready":
+        return refuse("LINK_NOT_READY", "not cleared: the robot is not ready yet (no fresh telemetry "
+                      "and RC link)", **r)
+    why = {"needs service": "it needs service before it can be cleared",
+           "still present": "its condition is still present"}
+    text = "not cleared: " + "; ".join(f"{x['cause']}: {why[x['why']]}" for x in r["kept"])
+    return refuse(k["code"] or "LINK_NOT_READY", text, **r)
 
 
 @app.post("/api/i2c/scan")
@@ -487,12 +422,6 @@ async def ws(socket: WebSocket) -> None:
                 # fast path isn't stalled; cache the slow status between refreshes.
                 payload["system"] = await loop.run_in_executor(None, metrics.collect)
                 slow = await loop.run_in_executor(None, status_mod.collect_slow)
-                # The AI TRACKING button's label lives in `state`, and the DASHBOARD IS DRIVEN BY
-                # THIS WEBSOCKET, not by /api/snapshot. Refreshing it only in the snapshot handler
-                # is why the button appeared to do nothing: the POST worked, the service started,
-                # and the live feed kept sending a stale flag. 1 Hz, off-thread — `systemctl
-                # is-active` is a subprocess and has no business on the fast path.
-                STATE["ai_tracking"] = await loop.run_in_executor(None, _tracker_active)
             if tick % FAST_EVERY == 0:
                 # cheap (reader snapshots only) → safe to run inline at 10 Hz.
                 payload["status"] = {**status_mod.collect_fast(), **slow, "client_ip": peer}
@@ -578,6 +507,10 @@ from face_door import router as _face_door_router  # noqa: E402
 app.include_router(_face_door_router)
 from head_settings import router as _head_settings_router  # noqa: E402
 app.include_router(_head_settings_router)
+# The face looks this robot has, and the content folder's looks for the face (face_looks.py). Before the
+# /face static mount below, which would otherwise answer /face/content itself.
+from face_looks import router as _face_looks_router  # noqa: E402
+app.include_router(_face_looks_router)
 
 # The face page's microphone stream, relayed to the voice service on loopback (voice_proxy.py, the
 # Voice lane's). Before the static mounts, which would otherwise take the WebSocket's path.
@@ -593,12 +526,19 @@ app.include_router(_airplay_router)
 # The robot tablet's sensors into ROS as /tablet/*: light, battery, GNSS (tablet_relay.py).
 from tablet_relay import router as _tablet_relay_router  # noqa: E402
 app.include_router(_tablet_relay_router)
+# The neck's HOLD, shown and released from the dashboard (neck_state.py; head protocol v9).
+from neck_state import router as _neck_hold_router  # noqa: E402
+app.include_router(_neck_hold_router)
 # The kiosk app's next build, signed on the Thor, which the tablet installs itself (kiosk_update.py).
 from kiosk_update import router as _kiosk_update_router  # noqa: E402
 app.include_router(_kiosk_update_router)
 # What the voice may say about the robot: what the dashboard shows, in its words (spoken_status.py).
 from spoken_status import router as _spoken_router  # noqa: E402
 app.include_router(_spoken_router)
+# The stage page's live skeletons (stage.py, Choreography's): the relay's frames in (localhost only), the
+# projector's page out. The page itself is static: frontend/stage/.
+from stage import router as _stage_router  # noqa: E402
+app.include_router(_stage_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")

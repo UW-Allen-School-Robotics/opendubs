@@ -123,16 +123,30 @@ def mix(show, tl: dict, t0: float, t1: float, notes: list) -> np.ndarray:
 
 # ---- the robot --------------------------------------------------------------------------------------
 class Robot:
-    def __init__(self, width: int, height: int, assets=None):
+    def __init__(self, width: int, height: int, assets=None, crawler: str | None = None, tools: dict | None = None):
         sys.path.insert(0, os.path.join(REPO, "sim"))
         import mujoco
         import scene
         self.mj, self.clearance = mujoco, __import__("clearance")
-        self.model = scene.build(assets, face_screen=True)
+        extra = {}
+        if crawler or tools:                          # a show with a crawling hand or flange tools (effectors.py)
+            import effectors
+            reg = effectors.registry()
+            if crawler:
+                extra["crawler"] = reg[crawler]
+            flange = {s: reg[f["type"]] for s, f in (tools or {}).items()
+                      if s in ("left", "right") and f.get("mode") == "equipped" and f["type"] != "openarm_gripper"}
+            if flange:
+                extra["tools"] = flange
+        self.model = scene.build(assets, face_screen=True, projection=True, **extra)
+        self.scene = scene
         self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth, width)
         self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, height)
-        self.model.vis.headlight.ambient[:] = [0.55] * 3     # the lighting of sim/scene.py --render
-        self.model.vis.headlight.diffuse[:] = [0.8] * 3
+        # a softer light than sim/scene.py --render (0.55 / 0.8 flattened white parts to a cartoon glare):
+        # less ambient, so surfaces keep their shading
+        self.model.vis.headlight.ambient[:] = [0.25] * 3
+        self.model.vis.headlight.diffuse[:] = [0.6] * 3
+        self.model.vis.headlight.specular[:] = [0.3] * 3
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, height, width)
         self.size = (width, height)
@@ -145,13 +159,20 @@ class Robot:
                         and m.geom_group[i] < 3 and m.geom_rgba[i][3] > 0]
         self.face_tex = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TEXTURE, scene.FACE_TEXTURE)
         self.face_wh = (scene.FACE_TEX_W, scene.FACE_TEX_H)
+        # the projection screen behind the robot (hidden until a show with video): its texture, and
+        # which picture is on it, so a picture is uploaded only when it changes
+        self.proj_tex = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TEXTURE, scene.PROJ_TEXTURE)
+        self.proj_key = None
 
     def pose(self, s: dict) -> None:
         m, d = self.model, self.data
-        self.clearance.set_pose(m, d, P.joints_arg(s), s["lift_mm"], s["head_pan"] - P.HEAD_CENTRE_DEG,
-                                s["head_tilt"] - P.HEAD_CENTRE_DEG)
+        self.clearance.set_pose(m, d, P.joints_arg(s), s["lift_mm"], *P.head_joint_deg(s))
         P.apply_base(m, d, s["base"])
         P.apply_grips(m, d, s)
+        if "crawler" in s:
+            P.apply_crawler(m, d, s)
+        if "tools" in s:
+            P.apply_tools(m, d, s)
 
     def axes(self) -> tuple:
         """The camera's forward, right and up, at the twin's angle."""
@@ -190,11 +211,17 @@ class Robot:
             look = look + right * (u.max() + u.min()) / 2 * dist + up * (v.max() + v.min()) / 2 * dist
         self.cam.lookat[:], self.cam.distance = look, dist
 
-    def frame(self, s: dict, face_rgb: np.ndarray | None = None) -> np.ndarray:
+    def frame(self, s: dict, face_rgb: np.ndarray | None = None, proj=None) -> np.ndarray:
         """One RGB frame (h, w, 3) of the robot in sample `s`; `face_rgb` (FACE_TEX_H, FACE_TEX_W, 3)
-        goes on the head's screen, as the live twin shows the face twin's picture."""
+        goes on the head's screen, as the live twin shows the face twin's picture; `proj` (key, rgb)
+        on the projection screen behind the robot."""
         m, d = self.model, self.data
         self.pose(s)
+        if proj is not None and self.proj_tex >= 0 and proj[0] != self.proj_key:
+            adr, n = m.tex_adr[self.proj_tex], self.scene.PROJ_TEX_W * self.scene.PROJ_TEX_H * 3
+            m.tex_data[adr:adr + n] = proj[1].reshape(-1)
+            self.mj.mjr_uploadTexture(m, self.renderer._mjr_context, self.proj_tex)
+            self.proj_key = proj[0]
         if face_rgb is not None and self.face_tex >= 0:
             adr, n = m.tex_adr[self.face_tex], self.face_wh[0] * self.face_wh[1] * 3
             m.tex_data[adr:adr + n] = face_rgb.reshape(-1)
@@ -375,11 +402,26 @@ def render(show_path: str, out: str, layout="c", fps=30.0, size=(1280, 720), lim
              "-movflags", "+faststart", out],
             stdin=subprocess.PIPE)
         rw, rh = lay["robot"][:2]
-        robot = Robot(rw, rh)
+        robot = Robot(rw, rh, crawler=(tl.get("crawler") or {}).get("tool"), tools=tl.get("tools"))
+        if tl.get("crawler"):
+            import hand
+            log(f"render: the crawling hand ({tl['crawler']['tool']}) is drawn from "
+                + ("the vendor model at " + hand.surge_dir() if hand.surge_dir() else
+                   "the PRIMITIVE stand-in ($OPENDUBS_SURGE_DIR is not set)") + " — twin only; its path uses sim speeds")
         pts = []
         for t in np.arange(t_from, t_from + n / fps + 1e-9, 0.2):   # the robot's outline over the whole span
             robot.pose(P.sample(tl, float(t)))
             pts.append(robot.outline())
+        proj = None
+        if (tl.get("tracks") or {}).get("VIDEO"):     # the show's video on the screen behind the robot
+            import library
+            import projection
+            sc = robot.scene
+            proj = projection.Projection(tl["tracks"], library.root(), sc.PROJ_TEX_W, sc.PROJ_TEX_H, sc.PROJ_FPS)
+            proj.wait()
+            notes.extend(proj.notes)
+            sc.set_projection_visible(robot.model, True)
+            pts.append(np.asarray(sc.projection_corners(), float))   # the audience sees the robot in front of it
         robot.fit(np.concatenate(pts))
         log(f"render: framed the span's outline: camera {robot.cam.distance:.2f} m from "
             f"{np.round(robot.cam.lookat, 2).tolist()}")
@@ -408,7 +450,8 @@ def render(show_path: str, out: str, layout="c", fps=30.0, size=(1280, 720), lim
                     if lay["face"] is not None:
                         face_rgb = to_rgb(px, lay["face"][:2])
                     head_rgb = to_rgb(px, robot.face_wh)
-                img = compose(lay, w, h, robot.frame(P.sample(tl, t), head_rgb), face_rgb)
+                img = compose(lay, w, h, robot.frame(P.sample(tl, t), head_rgb,
+                                                     proj.picture(t) if proj is not None else None), face_rgb)
                 if not tl["valid"]:
                     img = stamp_invalid(img)
                 buf = np.ascontiguousarray(img, dtype=np.uint8).tobytes()

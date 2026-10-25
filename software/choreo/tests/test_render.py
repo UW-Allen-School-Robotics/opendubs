@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 import render  # noqa: E402
 
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
-SHOW = os.path.join(HERE, "..", "shows", "reach.yaml")
+SHOW = os.path.join(HERE, "fixtures", "shows", "reach.yaml")
 FAILS = []
 
 

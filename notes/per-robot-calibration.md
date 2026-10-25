@@ -3,15 +3,14 @@
 **This file is a BACKUP, not a source.** These values belong to one physical robot and must never
 be copied into another, nor flashed at a robot without verifying them on that robot.
 
-The values live as `static constexpr` in the robot's own copy of `rc_serial_probe/src/main.cpp`,
-which is not the repo's copy. `deploy-all.sh` never writes that file: it is on
-`tools/deploy-audit.py`'s `PER_ROBOT` list, which the deploy reads. They can still be lost by a hand
-copy, by flashing a repo checkout over USB, or by reflashing the Thor. This file is the copy to restore
-from.
+The drive values live in **`rc_serial_probe/src/robot_config.h` on the robot**: the per-robot header
+`main.cpp` includes, made from the committed `src/robot_config.h.example`. It is never committed and
+never deployed (`tools/deploy-audit.py` lists it as `PER_ROBOT`, which the deploy reads), and
+`main.cpp` is an ordinary deployed file. Until 2026-10 the values sat inline in each robot's own
+`main.cpp`, and `tools/make_robot_config.py` moves them from such a file. The header can still be lost
+by reflashing the Thor, so this file is the copy to restore from.
 
-The real fix is to move them out of committed source into NVS. The firmware already does this for
-one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`), set by the
-`RCCAL` host command. That is the template.
+Further still, the values could move into NVS, as the RC map has (`rccfg`, set by `RCCAL`).
 
 ---
 
@@ -20,7 +19,7 @@ one thing: the RC map lives in NVS under the `rccfg` namespace (`rc_config.cpp`)
 Read from `/opt/opendubs/rc_serial_probe/src/main.cpp` on 2026-10-01, after recovering the drive
 signs and verifying them by driving.
 
-### Drive — `main.cpp` (a per-robot file; deploys skip it)
+### Drive — `src/robot_config.h` (per robot; deploys skip it)
 
 | Constant | Value | Notes |
 |---|---|---|
@@ -57,6 +56,59 @@ From `RCCAL SHOW`. Columns are min/centre/max.
 Note `MAST` is reversed and `DEAD` reads 200 at rest — both per-transmitter, both already safe in
 NVS rather than in source.
 
+### Pinpoint odometry — in the StamPLC's NVS (`ppcfg`), survives a flash
+
+Commissioned 2026-10-21 by goBILDA's own setup steps (3110-0002-0001 User Guide), at the robot.
+The Pinpoint forgets its configuration at every power cycle; the firmware re-applies these from NVS
+(`ppcfg.cpp`). They are lost if the StamPLC is **replaced**, or its NVS erased; restore them with
+the commands below, then `PPCAL SAVE`.
+
+| Setting | Value | Restore with | How it was established |
+|---|---|---|---|
+| Pod type | **4-bar, 19.894 ticks/mm** | `PPCAL POD 4BAR` | The pods are goBILDA 4-bar pods (seen at the robot). It had been set to swing-arm (13.263), which read 39% long |
+| X pod direction | **REVERSED** | `PPCAL DIRX REV` | Driving forward made X fall (−968 mm for about 1 m) |
+| Y pod direction | forward | `PPCAL DIRY FWD` | Driving left made Y rise |
+| X pod offset | **48.0 mm** (left +) | `PPCAL OFFSETS 48 -396` | X pod sits left of the centre line (seen at the robot). The value was already set; a one-turn spin confirmed its sign |
+| Y pod offset | **−396.0 mm** (fwd +) | (same command) | Y pod sits about 40 cm behind the centre (seen at the robot). A flipped sign would have shown as a ~1.6 m loop in the spin; it did not |
+
+Both offsets are measured from `base_link`, the centre of the wheel rectangle (workplan-thor-stack L.1).
+
+**Results, for comparison after a restore:**
+
+- Stationary heading drift after `PPCAL RESET` (robot still): about 0.25°/min. Before it, 150°/min.
+  If heading turns while the robot is still, `PPCAL RESET` with the robot untouched.
+- 48 in (1219 mm) on the tape read 1173 mm and, in another run, 1126 mm: 4-8% short, varying run to run.
+- Out-and-back loops closed 286 mm short over 4.7 m and 377 mm over 6.6 m (about 6%). No setting
+  closes both (gyro scale, either pod's scale, forward-only or reverse-only scale were all fitted),
+  so the pods lose counts while driving. Accepted for use as-is on 2026-10-21; check pod contact if it worsens.
+
+### Base speed and the software cap — `/etc/opendubs/base.env`
+
+Read by `opendubs-drive-bridge` and `opendubs-dance-tracker` (`software/ros/drive_scale.py`). Software
+(AUTO) motion only; RC driving in MANUAL is not capped by it. To change a value: edit the line, then
+`sudo systemctl restart opendubs-drive-bridge opendubs-dance-tracker`.
+
+Every value below was set on opendubs2's mitre-gear drive, which is worn and strafes unevenly. Re-measure all of them after the drivetrain changes (belts).
+
+| Setting | Value | How it was set |
+|---|---|---|
+| `OPENDUBS_AUTO_CAP` | **0.35** (of full command, on any wheel) | First 0.25. At 0.25 a 3 s sway peaking at the cap felt underpowered (the feed-forward alone used the whole cap, leaving the tracker nothing to correct with), so it was raised on 2026-10-22 to 0.35, the firmware's own AUTO ceiling. That was a little better; the drive's left/right unevenness then dominated |
+| `OPENDUBS_MAX_LIN` | **0.38** m/s | forward speed at the cap. **Estimated:** 0.27 m/s was measured at the 0.25 cap (a 1.5 s burst, from `/odom`, 2026-10-22) and scaled by 0.35 / 0.25 |
+| `OPENDUBS_MAX_STRAFE` | **0.25** m/s | strafe speed at the cap. **Estimated** the same way, from 0.18 m/s left and right at 0.25. At 0.35 the drive strafed further right than left (a ±5.6 cm sway reached +4.2 / −8.9 cm) |
+| `OPENDUBS_MAX_ANG` | **0.52** rad/s | turn rate at the cap. **Estimated** the same way, from 0.37 rad/s at 0.25 (0.36 CCW, 0.38 CW) |
+| `OPENDUBS_STRAFE_YAW_BLEED_RIGHT` | **0** (off) | strafing RIGHT at 0.18 m/s yawed **−0.262 rad/s** (clockwise, 16.5° in one burst), so k = 1.46. Set to 1.46, the first sway turned 8° the OTHER way: the trim is applied to the commanded strafe, and the base's actual strafe lags it, so the trim overcorrected. Off, the loop held heading within ±2.3°. To come back only if it is rebuilt on the strafe measured from `/odom`. The yaw itself is probably mechanical on one side; worth a look |
+| other strafe trims (`_YAW_BLEED_LEFT`, `_FWD_BLEED_*`) | 0 (unset) | strafing left yawed under 2°/s; the forward creep was 4% left, 9% right. All under the point where the loop's lag matters (about 2 cm or 3° over a 2 s sway) |
+| `OPENDUBS_MIN_LIN`, `OPENDUBS_MIN_ANG` | **0.10** m/s, **0.15** rad/s | the dance tracker's least correction while settling after a move, beyond 1.5 cm or 1.5° (0 = off). Without it a 3 s sway ended 2.9 cm and 2.6° off home; 0.07 m/s and 0.10 rad/s were still too little to beat static friction. At these values the sway ended 0.4 cm and 0.3° off, 2026-10-22, on the worn mitre-gear drive: re-measure after any drivetrain change |
+| `OPENDUBS_K_LIN`, `OPENDUBS_K_ANG` | 1.5 (unset) | the dance tracker's gains, 1/s |
+
+### Robot-side state that turns features on (per robot, not in the repo)
+
+| Path | What it does |
+|---|---|
+| `/etc/opendubs/drive-bridge.enabled` | Lets `opendubs-drive-bridge` start (`/odom`, and `/cmd_vel` → `DRIVE`). Created 2026-10-21 once the Pinpoint was commissioned |
+| `/etc/opendubs/slam.enabled` | Lets `opendubs-slam` start |
+| `/var/lib/opendubs/maps/` | Saved SLAM maps, the building plan's rooms and `site.yaml` (which map to localize on, and its fit to the plan). **Site data: never in the repo.** Back it up off the robot; regenerating needs a new mapping drive and `software/ros/floorplan.py fit` against the plan |
+
 ### Neck-follow signs — in `/etc/opendubs/robot.env`
 
 | Setting | Value | How it was measured |
@@ -75,13 +127,9 @@ NVS rather than in source.
 
 ## Restoring after an accidental overwrite
 
-```sh
-# on the robot, patching rather than copying — the repo's main.cpp has neither value
-sudo sed -i 's/kDriveInvert\[4\]   = {1, 1, 1, -1}/kDriveInvert[4]   = {-1, -1, 1, -1}/' \
-  /opt/opendubs/rc_serial_probe/src/main.cpp
-# kStrafeInvert does not exist in the repo at all — re-add it and apply it in driveMix()
-sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh
-```
+Recreate `/opt/opendubs/rc_serial_probe/src/robot_config.h` from `src/robot_config.h.example`, with
+the values in the tables above (all of them: the example's values are not this robot's), then
+`sudo /opt/opendubs/rc_serial_probe/ota-from-thor.sh`. A robot without the file refuses to build.
 
 Then **verify by driving** rather than trusting this file: forward, rotate, and strafe in *both*
 directions, wheels clear of the floor. A sign error that happens to look right one way is the one

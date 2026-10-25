@@ -69,6 +69,7 @@
     <div class="pane" id="previewPane">
       <h2>At the playhead <span class="dim" id="previewT"></span></h2>
       <div id="preview"></div>
+      <div id="floor"></div>
     </div>
     <div class="pane" id="inspectorPane">
       <h2>Cue</h2>
@@ -103,6 +104,10 @@
         <label>BPM <input id="mBpm" inputmode="decimal" size="6"></label>
         <label>beat 1 at <input id="mOff" inputmode="decimal" size="7"> s</label>
         <button id="mSet" title="Write the tempo and where beat 1 falls into the show (tap and beat 1 ⇤ in the toolbar do the same by ear)">set</button>
+      </div>
+      <div class="row2">
+        <label title="Dialogue always plays from the tablet. Music plays from the projector's speaker when a projector is ready (the tablet otherwise, and if the projector drops out). A track with any speech in it is dialogue.">plays as
+          <select id="mRole"><option value="dialogue">dialogue — always the tablet</option><option value="music">music — the projector, when one is ready</option></select></label>
       </div>
     </section>
     <section>

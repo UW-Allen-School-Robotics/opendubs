@@ -73,7 +73,9 @@ systemctl enable opendubs-dash.service
 systemctl enable opendubs-stamplc-hb.service
 # Not enabled at boot: the dashboard starts it when the Head & face setting says `d415` (the RealSense
 # tracker), and stops it otherwise (head_settings.reconcile_tracker).
-systemctl disable opendubs-yolo-tracker.service 2>/dev/null || true
+# Nothing starts the RealSense tracker any more (its dashboard controls were removed 2026-10-22: it
+# sent a frame the neck Dial refuses). --now also stops one still running from before.
+systemctl disable --now opendubs-yolo-tracker.service 2>/dev/null || true
 systemctl restart opendubs-dash.service
 systemctl restart opendubs-stamplc-hb.service
 

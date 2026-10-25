@@ -41,6 +41,8 @@
       <div class="hf-row"><label for="hfIdle">Expressions change by themselves</label><input type="checkbox" id="hfIdle"></div>
       <div class="hf-row"><label for="hfSkin">Look (skin)</label><select id="hfSkin"></select></div>
       <div class="hf-row"><label for="hfTheme">Colours (theme)</label><select id="hfTheme"><option value="plain">plain</option><option value="halloween">halloween</option></select></div>
+      <div class="hf-note" id="hfLooksNote"></div>
+      <div class="hf-note">A problem or an emergency stop replaces the look with the plain eyes, so a problem looks the same on every robot and in every show, and the face says in words what is wrong. The chosen look comes back by itself when it clears. With the state in words turned off, the face shows the plain eyes and explains nothing. Halloween recolours the calm states (starting up, ready, manual, automatic); charging, a problem and an emergency stop keep their own colours.</div>
       <div class="hf-note" id="hfLookNote"></div>
       <div class="hf-row"><label for="hfMouth">Mouth</label><input type="checkbox" id="hfMouth">
         <span class="hf-note">Off by default. It moves while the robot speaks a reply; otherwise it is still.</span></div>
@@ -57,24 +59,35 @@
         <select id="hfTrack">
           <option value="off">off</option>
           <option value="tablet">the face's own camera</option>
-          <option value="d415">the RealSense camera (on the robot)</option>
         </select></div>
       <div class="hf-row"><label for="hfReticle">Show tracking reticle</label><input type="checkbox" id="hfReticle">
         <span class="hf-note">A box on the face where it thinks the person is: amber for motion, cyan for a person or face. For checking the tracking; off by default.</span></div>
       <div class="hf-note" id="hfTrackNote"></div>
       <div class="hf-note" id="hfTrackLive"></div>
       <div class="hf-note" id="hfNeckNote"></div>
+      <div class="hf-row"><label>Hold the head</label>
+        <button class="iobtn" id="hfHold">HOLD HERE</button><button class="iobtn" id="hfRelease">RELEASE</button></div>
+      <div class="hf-note" id="hfHoldNote">A held head stays where it is: tracking, shows, touch and the RC stick don't move it until it is released. Turning the neck's knob one way holds it; the other way releases it.</div>
       <div class="hf-note">Turning toward a sound: not available. The tablet can't tell which direction a sound comes from.</div>
 
       <h2 class="mt">TABLET</h2>
       <div class="hf-row"><label>Kiosk app</label><span id="hfApp">…</span></div>
       <div class="hf-note" id="hfAppNote">The tablet updates its app from the robot by itself, over Wi-Fi, when no show is loaded.</div>
+      <div class="hf-row"><label>Power</label>
+        <button class="iobtn" id="hfSleep">SLEEP TABLET</button><button class="iobtn" id="hfRestart">RESTART TABLET</button></div>
+      <div class="hf-note" id="hfPowerNote"></div>
+      <div class="hf-row"><label for="hfCallLink">Call (Zoom)</label>
+        <input id="hfCallLink" type="url" placeholder="https://zoom.us/j/…" style="min-width:18em">
+        <button class="iobtn" id="hfCallStart">START CALL</button><button class="iobtn" id="hfCallEnd">END CALL</button></div>
+      <div class="hf-note" id="hfCallNote">The tablet joins the meeting in the Zoom app: the face, the head's tracking and the robot's voice stop until END CALL brings the face back. Not during a show. Zoom must be installed and signed in on the tablet.</div>
+      <div class="hf-note">On the robot's power the tablet stays awake. When the robot is switched off or e-stopped it runs on its own battery: the face dims at once, and the screen goes off after 2 minutes (robot off) or 10 minutes (e-stopped). It wakes by itself when the robot's power returns, or with the side key. Hold the side key for Power off or Restart.</div>
 
       <h2 class="mt">SOUND</h2>
       <div class="hf-row"><label for="hfAirplay">AirPlay</label><input type="checkbox" id="hfAirplay">
         <span class="hf-note" id="hfAirplayNote"></span></div>
       <div class="hf-row"><label for="hfVol">Volume</label><input type="checkbox" id="hfVolSet" title="Set it here, or leave the tablet's own volume alone"><input type="range" id="hfVol" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolV"></span></div>
-      <div class="hf-row"><label for="hfVolMax">Never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span></div>
+      <div class="hf-row"><label for="hfVolMax">Shows never louder than</label><input type="range" id="hfVolMax" min="0" max="1" step="0.05"><span class="hf-val" id="hfVolMaxV"></span>
+        <span class="hf-note">Caps a show's volume and the volume set above. The tablet's own buttons, AirPlay and sounds sent from a phone are not held to it.</span></div>
 
       <div class="hf-note">Anyone on the robot's Wi-Fi can send it a sound from their phone: open <b id="hfPlayUrl"></b> in the phone's browser.</div>
 
@@ -139,15 +152,9 @@
     el("hfNeckNote").textContent = s.neck === "none"
       ? "No neck is fitted on this robot (OPENDUBS_HEAD_NECK_HOST=none): the head doesn't turn, so the eyes follow people but the head stays still."
       : (s.neck ? `Neck: ${s.neck}` : "");
-    const rs = el("hfTrack").querySelector('option[value="d415"]');
-    if (rs) {
-      rs.disabled = !s.realsense && s.tracking !== "d415";
-      rs.textContent = s.realsense ? "the RealSense camera (on the robot)" : "the RealSense camera (not connected)";
-    }
     el("hfTrackNote").textContent = {
       off: "",
       tablet: "The face's own camera: the eyes follow people, and the head turns toward them when a neck is fitted.",
-      d415: "The robot's RealSense tracker (the same as AI TRACKING on Operate). It aims the neck only; the face's eyes don't follow it.",
     }[s.tracking];
   }
 
@@ -162,7 +169,23 @@
   }
 
   async function loadSkins() {
-    // The code skins, read from the face engine itself so this list can't drift from it.
+    // WHAT THIS ROBOT HAS: the head protocol's discovery (GET /api/head/looks: the core's looks, the
+    // content folder's, and the library's image and video skins), so a look installed with the show
+    // content appears here with no change to this page. Before that endpoint existed (an older robot),
+    // the code skins were read from the face engine's own list, as they still are here as a fallback.
+    let looks = null;
+    try { looks = await getJSON("/api/head/looks"); } catch (e) { /* an older robot */ }
+    if (looks) {
+      const opt = (x) => `<option value="${x.id}">${x.label || x.id}</option>`;
+      const group = (title, xs) => xs.length ? `<optgroup label="${title}">${xs.map(opt).join("")}</optgroup>` : "";
+      const by = (src) => looks.skins.filter((x) => x.source === src);
+      el("hfSkin").innerHTML = by("builtin").map(opt).join("") + group("show content", by("content")) + group("library", by("library"));
+      el("hfTheme").innerHTML = looks.themes.map(opt).join("");
+      el("hfLooksNote").textContent = (looks.problems || []).length
+        ? `Some looks in the content folder were left out: ${looks.problems.join("; ")}` : "";
+      if (s) { el("hfSkin").value = s.skin; el("hfTheme").value = s.theme; }
+      return;
+    }
     let code = ["default", "ring"];
     try {
       const js = await (await fetch("/face/engine/skins/index.js", { cache: "no-store" })).text();
@@ -170,7 +193,9 @@
       if (line) code = [...line.split("=")[1].matchAll(/(\w+)\s*(?::\s*[\w.]+)?\s*[,}]/g)].map((m) => m[1]);
     } catch (e) {}
     let lib = [];
-    try { lib = (await getJSON("/api/library/index")).filter((e) => e.kind === "skin").map((e) => e.id); } catch (e) {}
+    // Only the kinds of skin the face can draw (face-web engine/skins/index.js ASSET_TYPES): any other
+    // falls back to the default eyes on the face, which here looked like a choice that did nothing.
+    try { lib = (await getJSON("/api/library/index")).filter((e) => e.kind === "skin" && ["image", "video"].includes(e.type)).map((e) => e.id); } catch (e) {}
     el("hfSkin").innerHTML = code.map((n) => `<option value="${n}">${n}</option>`).join("") +
       (lib.length ? `<optgroup label="library">${lib.map((n) => `<option value="${n}">${n}</option>`).join("")}</optgroup>` : "");
   }
@@ -192,6 +217,29 @@
     el("hfTrackLive").textContent = line + (f && f.why ? ` Head: ${f.why}.` : "");
   }
   setInterval(() => { if (view.classList.contains("active")) loadTracker(); }, 3000);
+  setInterval(async () => {
+    if (!view.classList.contains("active")) return;
+    try { const t = await getJSON("/api/tablet/sensors"); renderPower(t.power); renderCall(t.call); } catch (e) { /* no relay */ }
+  }, 5000);
+
+  // The neck's HOLD (head protocol v9): what it is now, and the dashboard's way to set or release it.
+  const HOLD_WORDS = { on: "Held", releasing: "Releasing: it may move again in a moment", off: "Not held" };
+  async function loadHold() {
+    let h = null;
+    try { h = await getJSON("/api/head/hold"); } catch (e) { /* an older robot */ }
+    const w = h && h.hold ? HOLD_WORDS[h.hold] : null;
+    el("hfHoldNote").textContent = !h || !h.hold ? "The neck hasn't reported a hold (no neck, or an older neck)."
+      : `${w}${h.hold === "on" && h.by === "knob" ? " (by the knob)" : h.hold === "on" ? " (from the network)" : ""}.` +
+        " A held head stays where it is: tracking, shows, touch and the RC stick don't move it until it is released.";
+  }
+  async function setHold(op) {
+    try { await getJSON("/api/head/hold", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op }) }); }
+    catch (e) { el("hfHoldNote").textContent = `Not done: ${e.message}`; return; }
+    loadHold();
+  }
+  el("hfHold").addEventListener("click", () => setHold("here"));
+  el("hfRelease").addEventListener("click", () => setHold("off"));
+  setInterval(() => { if (view.classList.contains("active")) loadHold(); }, 1000);
 
   async function load() {
     loadTracker();
@@ -205,6 +253,7 @@
     let t = null, served = null;
     try { t = await getJSON("/api/tablet/sensors"); } catch (e) { /* no relay */ }
     try { served = await getJSON("/api/kiosk/latest"); } catch (e) { /* this robot serves no build */ }
+    renderPower(t && t.power);
     const a = t && t.app;
     const runs = a ? `the tablet runs ${a.version}` : "the tablet hasn't reported (an app older than 0.3.0, or not connected)";
     const serves = served ? `; the robot serves ${served.versionName || served.versionCode}` : "; the robot serves no build";
@@ -214,16 +263,77 @@
       (u.at ? `, ${Math.max(0, Math.round((Date.now() - u.at) / 60000))} min ago` : "");
   }
 
+  // The tablet's power (notes/design/power-and-shutdown.md §9): its battery and what is wrong with it,
+  // and two levers. Restart asks twice, and the robot refuses it during a show.
+  let noteHeld = 0;                                  // a command's answer stays up for a moment
+  function renderPower(p) {
+    if (Date.now() < noteHeld) return;
+    const n = el("hfPowerNote");
+    const w = (p && p.warnings) || [];
+    n.style.color = w.length ? "var(--warn)" : "";
+    n.textContent = !p || p.level == null ? "The tablet hasn't reported its battery (asleep, or not connected)."
+      : w.length ? w.map((x) => x.text).join(" ")
+      : `${p.plugged ? "On the robot's power" : "On its own battery"}, ${Math.round(p.level)} %` +
+        (p.charging ? ", charging." : p.plugged ? " (charging stops at 80 % to spare the battery)." : ".");
+    setHelp(n, w.length ? w[0].code : null);
+  }
+  async function tabletCommand(cmd) {
+    try {
+      noteHeld = Date.now() + 8000;
+      await getJSON("/api/tablet/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd }) });
+      el("hfPowerNote").textContent = cmd === "sleep" ? "The tablet's screen goes off within 5 s. The side key wakes it."
+        : "The tablet restarts within 5 s and comes back to the face in about a minute.";
+    } catch (e) { el("hfPowerNote").textContent = `Not done: ${e.message}`; }
+  }
+  // CALL MODE (tablet_relay.py; the kiosk app's Call.kt): the real Zoom app, started and ended from here.
+  let callNoteHeld = 0;
+  function renderCall(c) {
+    if (!c || Date.now() < callNoteHeld) return;
+    el("hfCallNote").textContent = c.active
+      ? `In a call since ${new Date(c.since * 1000).toLocaleTimeString()}: the face is hidden until END CALL.`
+      : "The tablet joins the meeting in the Zoom app: the face, the head's tracking and the robot's voice stop until END CALL brings the face back. Not during a show. Zoom must be installed and signed in on the tablet.";
+  }
+  async function callCommand(body) {
+    callNoteHeld = Date.now() + 8000;
+    try {
+      await getJSON("/api/tablet/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      el("hfCallNote").textContent = body.cmd === "call" ? "Starting the call: the tablet opens Zoom within 5 s."
+        : "Ending the call: the face comes back within 5 s.";
+    } catch (e) { el("hfCallNote").textContent = `Not done: ${e.message}`; }
+  }
+  el("hfCallStart").addEventListener("click", () => callCommand({ cmd: "call", link: el("hfCallLink").value.trim() }));
+  el("hfCallEnd").addEventListener("click", () => callCommand({ cmd: "endcall" }));
+
+  let restartArmed = null;
+  el("hfSleep").addEventListener("click", () => tabletCommand("sleep"));
+  el("hfRestart").addEventListener("click", () => {
+    const b = el("hfRestart");
+    if (!restartArmed) {
+      b.textContent = "PRESS AGAIN TO RESTART";
+      restartArmed = setTimeout(() => { restartArmed = null; b.textContent = "RESTART TABLET"; }, 4000);
+      return;
+    }
+    clearTimeout(restartArmed); restartArmed = null; b.textContent = "RESTART TABLET";
+    tabletCommand("restart");
+  });
+
   // ---- ambient music (the show-audio lane's API) ------------------------------------------------
   let amb = null;
   async function ambient(op) {
+    if (op && op.op === "play" && op.songs && !op.songs.length) {
+      el("hfAmbient").textContent = "Tick at least one song, then press PLAY.";
+      return;
+    }
     try {
       amb = await getJSON("/api/choreo/ambient", op ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(op) } : undefined);
     } catch (e) {
-      el("hfAmbient").textContent = `Ambient music isn't available on this robot yet (${e.message}).`;
-      ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = true; });
+      // Only a robot without the feature disables the buttons; a refused PLAY or STOP says why and
+      // leaves them usable (an empty pick used to lock all three until the page was reloaded).
+      el("hfAmbient").textContent = op ? `Not done: ${e.message}` : `Ambient music isn't available on this robot yet (${e.message}).`;
+      if (!op) ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = true; });
       return;
     }
+    ["hfPlay", "hfNext", "hfStop"].forEach((id) => { el(id).disabled = false; });
     const st = amb.state || {};
     el("hfAmbient").textContent = amb.show_active ? "A show is running: ambient music waits for it to end."
       : st.playing ? `Playing: ${st.now_playing || "—"}` : "Stopped.";

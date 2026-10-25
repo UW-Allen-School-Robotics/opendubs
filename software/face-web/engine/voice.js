@@ -137,7 +137,7 @@ export function start({ face }) {
         st.ready = true; st.fail = null; st.on = !!(m.voice && m.voice.on); st.why = m.voice && m.voice.why;
         if (m.max_utterance_s) st.maxMs = m.max_utterance_s * 1000;
         st.wake = m.wake && m.wake.keyword ? m.wake : null;   // only a service that offers it gets `wake`
-        if (st.wake) startSpotter();
+        if (st.wake) startSpotter(); else stopSpotter();
         break;
       case "voice": st.on = !!m.on; st.why = m.why; if (!st.on) { release(); stopPlayback(); } break;
       case "state":
@@ -340,6 +340,17 @@ export function start({ face }) {
   };
 
   // ---- the wake word ------------------------------------------------------------------------------
+  // THE SPOTTER OFF, all of it: the worker, a retry waiting, and a self-test under way. A `ready` without
+  // `wake` means the robot has the wake word off. A spotter still loading there kept failing and reloading
+  // every minute, and on the tablet that starved the face's own tracker, which never got past "loading"
+  // (2026-10-23, found at the robot; tracking ran within a minute of the wake word going off).
+  function stopSpotter() {
+    clearTimeout(st.kwsTimer); clearTimeout(st.kwsRetry);
+    if (st.kws) st.kws.terminate();
+    st.kws = null; st.kwsReady = false; st.kwsStats = null; st.kwsTries = 0; st.wakeError = null;
+    if (st.selftestStop) st.selftestStop();
+  }
+
   function startSpotter() {
     if (st.kws) return;
     const attempt = st.kwsTries = (st.kwsTries || 0) + 1;
@@ -351,7 +362,7 @@ export function start({ face }) {
       if (st.kws !== w) return;
       w.terminate(); st.kws = null; st.kwsStats = null;
       st.kwsRetryWhy = `try ${attempt}: ${why}`.slice(0, 160);
-      if (attempt < SPOTTER_TRIES) setTimeout(() => { if (st.wake) startSpotter(); }, SPOTTER_RETRY_MS);
+      if (attempt < SPOTTER_TRIES) st.kwsRetry = setTimeout(() => { if (st.wake) startSpotter(); }, SPOTTER_RETRY_MS);
       else st.wakeError = `not ready after ${attempt} tries (${why})`;
     };
     st.kwsTimer = setTimeout(() => retry(`not ready after ${SPOTTER_READY_MS / 1000} s`), SPOTTER_READY_MS);
@@ -375,9 +386,11 @@ export function start({ face }) {
     if (st.selftest) return;
     st.selftest = "running";
     let w = null;
-    const done = (v) => { st.selftest = v; if (w) w.terminate(); w = null; };
+    const done = (v) => { st.selftest = v; if (w) w.terminate(); w = null; st.selftestStop = null; };
+    st.selftestStop = () => { if (w) w.terminate(); w = null; st.selftest = null; st.selftestStop = null; };
     try {
       const buf = await (await fetch(SELFTEST_WAV)).arrayBuffer();
+      if (st.selftest !== "running") return;                  // the spotter was stopped meanwhile
       const v = new DataView(buf);
       let at = 12;                                             // the RIFF chunks, to "data"
       while (at + 8 <= buf.byteLength && v.getUint32(at, false) !== 0x64617461) at += 8 + v.getUint32(at + 4, true);

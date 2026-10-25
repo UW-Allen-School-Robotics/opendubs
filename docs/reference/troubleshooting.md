@@ -280,6 +280,62 @@ Something asked the dashboard to change the robot's state — clear an e-stop, m
 1. Use the robot's dashboard itself, at its own address, rather than another page or tool in a browser.
 2. If a page on another address must control the robot on purpose, add its origin to `OPENDUBS_DASH_ALLOWED_ORIGINS` in the robot's `/etc/opendubs/robot.env` and restart the dashboard.
 
+## The head is dark or offline {#head-dark}
+
+The head is the tablet on the robot's neck, running on its own battery, and the M5Dial that moves the neck.
+
+Check in this order:
+
+1. [The tablet is plugged in but not charging](#head-tablet-not-charging)
+2. [The tablet's battery is hot](#head-tablet-hot)
+3. [The tablet won't restart during a show](#head-restart-show)
+4. [A call won't start during a show](#head-call-show)
+
+### The tablet is plugged in but not charging {#head-tablet-not-charging}
+
+`HEAD_TABLET_NOT_CHARGING` · Warning · seen on the dashboard
+
+The head tablet charges from the robot's power whenever the robot is on and not e-stopped. Its Battery protection stops charging at 80 %, so a healthy tablet on the robot's power reads about 80 % and "not charging". This warning means it reads well below that and is still not charging, or it is losing charge while plugged in: its charger supplies too little, or has failed. Left alone, the tablet runs flat and the face goes dark.
+
+**What to do**
+
+1. Check the USB-C cable at the tablet and at the mount's charger; reseat both.
+2. If it persists, check the mount's charger output with a USB power meter, and replace the charger or the cable.
+3. Until it is fixed, charge the tablet from a wall charger between sessions.
+
+### The tablet's battery is hot {#head-tablet-hot}
+
+`HEAD_TABLET_HOT` · Warning · seen on the dashboard
+
+The tablet reports a battery temperature of 45 °C or more. Heat ages a lithium battery fastest, and a hot tablet throttles itself, which can make the face stutter. Above 40 °C, while no show runs, the face already dims and draws fewer frames to cool down. 45 °C is a provisional limit, to be revisited against the tablet's datasheet.
+
+**What to do**
+
+1. Shade the head from direct sun or stage lights, and make sure nothing covers the back of the tablet.
+2. If it stays hot with the robot idle, let the screen sleep (Head & face page, SLEEP TABLET) until it cools.
+
+### The tablet won't restart during a show {#head-restart-show}
+
+`HEAD_RESTART_SHOW` · Refused action · seen on the dashboard
+
+The dashboard's RESTART TABLET is refused while a show is loaded or running, because the tablet is the face and the show's speaker: a restart would take both away for about a minute.
+
+**What to do**
+
+1. Stop the show (Shows page, or STOP SHOW on the face), then press RESTART TABLET again.
+2. To restart it by hand at any time, hold the tablet's side key and choose Restart.
+
+### A call won't start during a show {#head-call-show}
+
+`HEAD_CALL_SHOW` · Refused action · seen on the dashboard
+
+START CALL on the Head & face page is refused while a show is loaded or running. A call puts the Zoom app in front of the face, and the show's music and the face both play from the face page. For the same reason RESTART TABLET is refused during a call.
+
+**What to do**
+
+1. Stop the show (Shows page, or STOP SHOW on the face), then press START CALL again.
+2. To end a call, press END CALL on the Head & face page; the face comes back within a few seconds.
+
 ## The lift won't move {#lift-wont-move}
 
 The lift answers to the same safety gate as the drive, plus its own pinch guard near the bottom of its travel.
@@ -331,7 +387,7 @@ The StamPLC link is healthy, but its report of the lift — height, motion and t
 **What to do**
 
 1. Do not move the lift until it reports again; the pinch guard's state is unknown.
-2. The fault stays shown after the report returns. Restarting the robot clears it.
+2. It clears by itself once the lift reports again.
 
 **See also:** [Scissor Lift Module](../build/scissor-lift.md)
 
@@ -356,17 +412,18 @@ Check in this order:
 3. [Another arm action is running](#arm-op-running)
 4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
 5. [The arms' CAN links are not ready](#arm-can-not-ready)
-6. [The arm stack did not start](#arm-stack-start-failed)
-7. [Some arm motors do not answer](#arm-motors-silent)
-8. [An arm motor reports a fault](#arm-motor-fault)
-9. [The arm's motors answer but are disabled](#arm-motors-disabled)
-10. [The arm could not be reset after a power loss](#arm-reset-failed)
-11. [Only some of an arm's motors enabled](#arm-partial-enable)
-12. [An arm's controller would not start](#arm-controller-inactive)
-13. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
-14. [The arm stack is dead](#arm-stack-dead)
-15. [An arm came up active by itself](#arm-came-up-active)
-16. [An arm action timed out](#arm-op-timeout)
+6. [One arm's CAN link is in error, so its motors can't be reached](#arm-link-error)
+7. [The arm stack did not start](#arm-stack-start-failed)
+8. [Some arm motors do not answer](#arm-motors-silent)
+9. [An arm motor reports a fault](#arm-motor-fault)
+10. [The arm's motors answer but are disabled](#arm-motors-disabled)
+11. [The arm could not be reset after a power loss](#arm-reset-failed)
+12. [Only some of an arm's motors enabled](#arm-partial-enable)
+13. [An arm's controller would not start](#arm-controller-inactive)
+14. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
+15. [The arm stack is dead](#arm-stack-dead)
+16. [An arm came up active by itself](#arm-came-up-active)
+17. [An arm action timed out](#arm-op-timeout)
 
 ### ACTIVATE recovered the arm after a power loss {#arm-power-restored}
 
@@ -417,6 +474,20 @@ The arms' two CAN interfaces are missing or down, so the arm stack cannot reach 
 3. Check that each link reports `ERROR-ACTIVE`; restart a link that does not.
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-can-not-ready) · [Troubleshooting](troubleshooting.md#contactor-open) · [OpenArm setup](../openarm-setup.md#troubleshooting)
+
+### One arm's CAN link is in error, so its motors can't be reached {#arm-link-error}
+
+`ARM_LINK_ERROR` · Fault · seen on the dashboard
+
+The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down, or missing. While it is, that arm's motors answer intermittently or not at all, so it won't activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors that read disabled are normal, and are not this fault.
+
+**What to do**
+
+1. Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).
+2. Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.
+3. If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer.
+
+**See also:** [OpenArm setup](../openarm-setup.md#troubleshooting)
 
 ### The arm stack did not start {#arm-stack-start-failed}
 
@@ -731,6 +802,61 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 **See also:** [Arm controls on the tablet](../arm-dashboard.md#arm-joint-data-missing)
 
+## A show won't start, or stops {#show-wont-start}
+
+Check in this order:
+
+1. [A show won't start because the head tablet isn't showing its face](#show-head-not-up)
+2. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+3. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+4. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+
+### A show won't start because the head tablet isn't showing its face {#show-head-not-up}
+
+`SHOW_HEAD_NOT_UP` · Refused action · seen on the dashboard
+
+The show uses the head (its face, its neck or its volume and brightness), and the head tablet is not ready for it: the face page is not showing on the tablet, or a video call is holding the tablet. The face and the show's sound could not play there, so the show was refused rather than run without them.
+
+**What to do**
+
+1. If a video call is up on the tablet, end it.
+2. Make sure the head tablet is on and showing the face page, then start the show again.
+
+### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
+
+`SHOW_VIDEO_NOT_READY` · Refused action · seen on the dashboard
+
+This show plays video on the projector and says it must not run without it. The output it uses (casting over Wi-Fi, or the HDMI cable) wasn't ready, so the show was refused before anything moved. The sentence after the code says why, in the words the projector card on the Shows page uses. A show that doesn't insist on its video runs without it instead, saying so.
+
+**What to do**
+
+1. Look at the projector card on the Shows page; it shows each output and what is missing.
+2. For casting, check the projector is on, awake and joined to the robot's Wi-Fi.
+3. For HDMI, check the cable and that the projector is on and set to its HDMI input.
+4. Or choose the other output (or off) on the projector card, then start the show again.
+
+### The projector output couldn't be changed because a show is playing {#show-video-busy}
+
+`SHOW_VIDEO_BUSY` · Refused action · seen on the dashboard
+
+The video output (casting, HDMI or off) was changed while a show was running. A running show's videos are already on their output, so the change was refused rather than switching mid-show.
+
+**What to do**
+
+1. Change the output before starting the show, or stop the show first.
+
+### A show with dance steps was refused because the base tracker isn't ready {#show-base-not-ready}
+
+`SHOW_BASE_NOT_READY` · Refused action · seen on the dashboard
+
+This show moves the robot's base in small dance steps and says it must not run without them. The base tracker (the program on the robot that follows those steps using the base's own odometry, and stops the base when a person is in the way) wasn't ready, so the show was refused before anything moved. The sentence after the code says why. A show that doesn't insist on its dance steps runs without them instead, saying so.
+
+**What to do**
+
+1. Check that the robot's odometry and both LIDARs are running (the dashboard's robot status).
+2. Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the LIDARs see through glass.
+3. Start the show again once the tracker reports ready.
+
 ## The robot won't play a sound {#no-sound}
 
 A sound sent to the robot plays on its own speaker. It is refused while a show has the speaker, and when no speaker is connected; the entries below say which.
@@ -859,7 +985,7 @@ One of the robot's internal temperature sensors reads 70 °C or more, so the das
 
 1. Stop and let the robot cool.
 2. Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.
-3. The fault stays shown after the temperature falls. Restarting the robot clears it.
+3. The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the temperature is still high.
 
 **See also:** [8 · Cooling Fan Integration](../build/cooling-fan.md)
 
@@ -873,7 +999,7 @@ Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh
 
 1. Check the pack's charge on the dashboard.
 2. Check that the hub's input connections are tight.
-3. The fault stays shown after the voltage recovers. Restarting the robot clears it.
+3. The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the brownout is still reported.
 
 **See also:** [6 · Power Bay](../build/power-bay.md)
 

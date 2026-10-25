@@ -16,6 +16,8 @@ on:
       - "tools/faults.py"
       - ".github/workflows/docs.yml"
   pull_request:
+    # A draft runs nothing: CI starts when the PR is marked ready, and re-runs on its pushes.
+    types: [opened, synchronize, reopened, ready_for_review]
     # Keep this list in step with the push filter above.
     paths:
       - "docs/**"
@@ -24,7 +26,7 @@ on:
       - "tools/bom.py"
       - "tools/faults.py"
       - ".github/workflows/docs.yml"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 # Least privilege by default; only the deploy job asks for more.
 permissions:
@@ -32,13 +34,18 @@ permissions:
 
 concurrency:
   # A pull request cancels its own superseded runs. A deploy on main never cancels
-  # mid-flight, so a half-published site can't be left behind.
-  group: docs-${{ github.ref }}
+  # mid-flight, so a half-published site can't be left behind. The draft flag keeps a late
+  # draft-time run from cancelling the real run that `gh pr ready` starts; on a push to main
+  # it is empty, so the deploy keeps one group.
+  group: docs-${{ github.ref }}-${{ github.event.pull_request.draft }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
-    name: Validate
+    # A draft's skipped run gets its own name, so it never hides the real Validate row on the
+    # same commit after `gh pr ready`.
+    name: "${{ github.event.pull_request.draft && 'Validate (draft, skipped)' || 'Validate' }}"
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

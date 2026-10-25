@@ -18,7 +18,13 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 import runner as R  # noqa: E402
 R.REQUIRE_SWEEP = False      # these tests' throwaway shows are not about collisions (test_sweep.py is)
 
-SHOWS = os.path.join(HERE, "..", "shows")
+# The palette's test folder: the repository's example shows plus the test-data copies of shows that are
+# content (tests/fixtures/shows), assembled once, so the tests never depend on content that moves out.
+SHOWS = tempfile.mkdtemp()
+for _d in (os.path.join(HERE, "..", "shows"), os.path.join(HERE, "fixtures", "shows")):
+    for _n in os.listdir(_d):
+        if _n.endswith(".yaml") and not os.path.exists(os.path.join(SHOWS, _n)):
+            shutil.copy(os.path.join(_d, _n), SHOWS)
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
 fails = []
 
@@ -485,6 +491,12 @@ os.environ["OPENDUBS_HEAD_NECK_HOST"] = ""
 os.environ["OPENDUBS_HEAD_FACE_HOST"] = "127.0.0.1"
 check("an empty neck keeps its old meaning: the face's box", FB.head_neck_host() == "127.0.0.1", FB.head_neck_host())
 del os.environ["OPENDUBS_HEAD_NECK_HOST"], os.environ["OPENDUBS_HEAD_FACE_HOST"]
+_was_tab5 = os.environ.pop("OPENDUBS_TAB5_HOST", None)
+check("with nothing set, the face and the neck stay on this machine (a laptop never reaches a real head)",
+      FB.head_face_host() == "127.0.0.1" and FB.head_neck_host() == "127.0.0.1",
+      (FB.head_face_host(), FB.head_neck_host()))
+if _was_tab5 is not None:
+    os.environ["OPENDUBS_TAB5_HOST"] = _was_tab5
 
 robot, plog = R.FakeRobotState(), io.StringIO()
 sc = SimClock(robot)
@@ -591,6 +603,46 @@ def run_grips(show_text_cues, grips=CAL, results=None, flip_after=None, change=N
                  arms=arms, live=True, grips=grips)
     end = r.run()
     return end, arms, [json.loads(x) for x in log.getvalue().splitlines()]
+
+
+print("\neffectors: a show runs on the parts it needs, and without a can_skip part only on approval")
+
+
+def run_eff(head, cues, effectors, skip=()):
+    robot = R.FakeRobotState(effectors=effectors)
+    sc = SimClock(robot, None, None)
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+    tmp.write(head + "requires: {arms: active, rc_authority: AUTO}\ncues:\n" + "".join(f"  - {c}\n" for c in cues))
+    tmp.close()
+    arms = AO.FakeArms()
+    r = R.Runner(tmp.name, LIMITS, robot, log=io.StringIO(), clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                 arms=arms, live=True, grips=CAL, skip=skip)
+    return r.run(), r, arms
+
+
+GL_DOWN = {"grip_left": {"state": "down", "why": "excluded by the operator"}, "arm_left": {"state": "ok"},
+           "arm_right": {"state": "ok"}, "grip_right": {"state": "ok"}}
+ECUES = ["{ t: 1.0, slot: GRIP_L, do: open }", "{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 2.0, slot: ARM_R, pose: rest }"]
+end, r, arms = run_eff("id: e\nslots: [ARM_R, GRIP_R]\n", ECUES[1:], GL_DOWN)
+check("a part that is down does not refuse a show that does not use it (the left gripper, 2026-10-17)",
+      end[0] == "COMPLETED", end)
+end, r, arms = run_eff("id: e\nslots: [ARM_R, GRIP_L, GRIP_R]\n", ECUES, GL_DOWN)
+check("a part the show needs and cannot skip refuses it, naming the part and why, before anything moves",
+      end[:2] == ("REFUSED", "EFFECTOR_UNAVAILABLE") and "grip_left" in end[2] and "excluded" in end[2]
+      and not arms.sent and not r.offer, end)
+CAN = "id: e\nslots: [ARM_R, GRIP_L, GRIP_R]\ncan_skip: [grip_left]\n"
+end, r, arms = run_eff(CAN, ECUES, GL_DOWN)
+check("... one it can skip is refused too, OFFERING the variant for the operator to approve",
+      end[:2] == ("REFUSED", "NEEDS_APPROVAL") and r.offer == ["grip_left"] and not arms.sent, (end, r.offer))
+end, r, arms = run_eff(CAN, ECUES, GL_DOWN, skip=["grip_left"])
+check("... and approved, the variant runs: no cue goes to the skipped part",
+      end[0] == "COMPLETED" and [g for g in arms.grips if g[0] == "GRIP_L"] == [] and arms.grips, (end, arms.grips))
+AL = {**GL_DOWN, "grip_left": {"state": "ok"},
+      "arm_left": {"state": "down", "why": "J4 silent", "pose_deg": [0, 0, 0, 40, 0, 0, 0]}}
+end, r, arms = run_eff("id: e\nslots: [ARM_L, ARM_R]\ncan_skip: [arm_left]\n",
+                       ["{ t: 2.0, slot: ARM_L, pose: rest }", "{ t: 2.0, slot: ARM_R, pose: rest }"], AL, skip=["arm_left"])
+check("a skipped arm away from rest refuses the run: its variant was checked with it at rest",
+      end[:2] == ("REFUSED", "PRECONDITION_FAILED") and "arm_left" in end[2] and not arms.sent, end)
 
 
 cues = ["{ t: 1.0, slot: GRIP_R, do: open }", "{ t: 2.0, slot: GRIP_R, open: 0.5 }",
@@ -740,13 +792,14 @@ class ArmedFace:
         self.said.append(what)
 
 
-def run_start(start, robot=None, changes=(), stop_in=None, countdown_s=None, show="hello.yaml", face=None, arms=None):
+def run_start(start, robot=None, changes=(), stop_in=None, countdown_s=None, show="hello.yaml", face=None, arms=None,
+              audio=None):
     robot = robot or R.FakeRobotState()
     sc = Script(robot, changes, stop_in)
     log = io.StringIO()
     r = R.Runner(os.path.join(SHOWS, show) if not os.path.isabs(show) else show, LIMITS, robot, log=log,
                  clock=sc.clock, sleep=sc.sleep, start_lead=0.5, start=start, countdown_s=countdown_s,
-                 face=face, arms=arms, live=arms is not None)
+                 face=face, arms=arms, live=arms is not None, **({"audio": audio} if audio else {}))
     sc.r = r
     end = r.run()
     lines = [json.loads(x) for x in log.getvalue().splitlines()]
@@ -766,6 +819,87 @@ check("... the countdown is 5 s by default, and nothing is sent before the GO",
 check("... the face says ARMED WAIT (re-sent each second), the seconds at the GO, OFF as it starts",
       face.said[0] == "WAIT" and face.said.count("WAIT") >= 3 and face.said[-2:] == ["5", "OFF"]
       and face.said.count("OFF") == 1, face.said)
+
+class ReadyAt(R.NullAudio):
+    """A show-audio device that is ready only from `at` seconds into the run (the tablet's face page
+    reconnecting and loading the song after a start from the tablet)."""
+
+    def __init__(self, sc, at):
+        super().__init__(holder="tablet", ready=False)
+        self.sc, self.at = sc, at
+
+    def state(self):
+        self.is_ready = self.sc.now >= 1000.0 + self.at
+        return super().state()
+
+
+au = ReadyAt(None, 4.0)
+robot = R.FakeRobotState(deadman=False)
+r, end, lines, st, sc = None, None, None, None, None
+_sc = Script(robot, [(1.0, {"deadman": True}), (2.0, {"deadman": False}), (6.0, {"deadman": True})])
+au.sc = _sc
+log = io.StringIO()
+r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=_sc.clock, sleep=_sc.sleep, start_lead=0.5, start="deadman",
+             audio=au)
+_sc.r = r
+end = r.run()
+lines = [json.loads(x) for x in log.getvalue().splitlines()]
+go_at = next((i for i, x in enumerate(lines) if x["kind"] == "go"), None)
+ready_at = next((i for i, x in enumerate(lines) if x["kind"] == "audio_note" and "ready" in x["note"]), None)
+check("armed, a run waits for the show audio before it takes the GO: a press before it is ready is not a GO, "
+      "and the operator never holds through the audio wait (found at the robot 2026-10-16)",
+      end[0] == "COMPLETED" and ready_at is not None and go_at is not None and ready_at < go_at
+      and any(x["kind"] == "deadman" and "not a GO" in x.get("note", "") for x in lines[:go_at])
+      and [c["op"] for c in au.calls] == ["load", "start", "stop"], (end, au.calls, lines[go_at - 3:go_at + 1] if go_at else lines[-5:]))
+
+class SlowMedia:
+    """A projector or stage output (video_out.ShowVideo / StageShow) whose first load lands `at`
+    seconds into the run."""
+
+    def __init__(self, sc, at, output):
+        self.sc, self.at, self.output, self.calls = sc, at, output, []
+
+    def begin(self):
+        self.calls.append("begin")
+
+    def ready(self):
+        return self.sc.now >= 1000.0 + self.at
+
+    def go(self, clock):
+        self.calls.append("go")
+
+    def end(self, status):
+        self.calls.append("end")
+
+    def state(self):
+        return {"output": self.output}
+
+
+for output in ("cast", "stage"):
+    au = ReadyAt(None, 1.0)                       # the tablet is ready early; the projector is not
+    robot = R.FakeRobotState(deadman=False)
+    _sc = Script(robot, [(2.0, {"deadman": True}), (3.0, {"deadman": False}), (7.0, {"deadman": True})])
+    au.sc = _sc
+    media = SlowMedia(_sc, 5.0, output)
+    log = io.StringIO()
+    r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=log, clock=_sc.clock, sleep=_sc.sleep, start_lead=0.5,
+                 start="deadman", audio=au)
+    pre = r._video_preflight
+
+    def with_media(show, tl, r=r, pre=pre, media=media):
+        out = pre(show, tl)
+        r.music.append(media)                     # music held for the projector, or the stage pages
+        return out
+    r._video_preflight = with_media
+    _sc.r = r
+    end = r.run()
+    lines = [json.loads(x) for x in log.getvalue().splitlines()]
+    go_at = next((i for i, x in enumerate(lines) if x["kind"] == "go"), None)
+    early = [x for x in lines[:go_at or len(lines)] if x["kind"] == "deadman" and "not a GO" in x.get("note", "")]
+    check(f"... and for the {output} output too: it loads while armed, and a press before it has loaded is "
+          "not a GO", end[0] == "COMPLETED" and go_at is not None and early and media.calls[:2] == ["begin", "go"],
+          (end, media.calls, [x for x in lines if x["kind"] in ("go", "deadman", "audio_note")]))
+
 
 r, end, lines, st, sc = run_start("deadman", changes=[(2.0, {"deadman": False}), (4.0, {"deadman": True})])
 seen = [x["held"] if x["kind"] == "deadman" else "GO" for x in lines if x["kind"] in ("deadman", "go")]
@@ -794,6 +928,10 @@ check("armed past the dashboard's 10 s probe age: the preflight's answer stands,
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(4.0, {"arms": "inactive"}), (15.0, {"deadman": True})])
 check("... but an arms answer that SAYS inactive still disarms it", end[:2] == ("ABORTED", "ARMS"), end)
+OK_PARTS = {p: {"state": "ok"} for p in ("arm_left", "arm_right", "grip_left", "grip_right")}
+r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, effectors=OK_PARTS),
+                                  changes=[(12.0, {"effectors": None}), (15.0, {"deadman": True})])
+check("... the per-part answer (effectors) ages out the same way, and stands the same way", end[0] == "COMPLETED", end)
 
 face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),

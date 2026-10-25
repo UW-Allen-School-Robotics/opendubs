@@ -230,24 +230,173 @@ the user's word and a person there (lane rule 1). Nothing is applied from a desk
 | D-7 | Robot AP to 20 MHz on channel 1, 6 or 11 (E-3) | **Yes**, at the robot |
 | D-8 | Build order for `tools/network/` | **The logical order, all of it now**: the REST client and poller, `netdiag`, then `netjoin`. Not waiting for travel |
 
-### Next at-robot session (the Network lane's list)
+### At the robot (the Network lane's list)
 
-Each step still needs the user's word on the day.
+Each step still needs the user's word on the day, with a person there.
 
-1. **H-0**: a binary backup and an `/export`, both kept off the robot and out of the repository.
-   A sanitized copy of the export goes in `notes/design/` after checking it for secrets.
-2. **H-1**: turn off telnet, FTP and the plain API.
-3. **E-3**: set the robot AP to 20 MHz on a fixed channel 1, 6 or 11. Pick the quietest from a scan.
-4. **A-1**: create the read-only `netmon` account the poller needs for D-1
-   ([`design/network-router-api.md`](design/network-router-api.md) §2).
-   - It is the only route to the uplink's signal; nothing else on the robot can see it.
-   - The router change has no lockout risk: `admin` is not touched.
-   - The user types the account's password into `/etc/opendubs/network.env`.
-   - Options: REST over the HTTP page that D-4 keeps, or `www-ssl` turned on alongside it. HTTPS
-     is recommended, since the read password would otherwise cross the robot Wi-Fi in clear. The
-     page stays either way.
-5. **J-1 and J-2**, using `netjoin init` and `netjoin wired-first`: turn the uplink into a saved,
-   ordered list of networks, and make a cable win over Wi-Fi. No LAN-side change.
+**Done on 2026-10-20**, with the user at the robot:
+- **H-0**, as a plain `/export` only. The user chose to skip the binary backup. The export is kept
+  off the robot and out of the repository; a sanitized copy for `notes/design/` is still to do.
+- **H-1**: telnet, FTP and the plain API are off. SSH, Winbox, `www` and `api-ssl` stay on.
+- **A-1, the router side**: a self-signed certificate (`netmon-https`), `www-ssl` on alongside the
+  kept HTTP page, and the `netread` group (`read` and `rest-api` only). On the Thor,
+  `/etc/opendubs/network.env` holds the URL, the user name and the certificate's fingerprint.
+- `opendubs-netmon` is installed (Thor lane, #396). Until the next step it reports NO_ROUTER,
+  because the router refuses the login.
+
+**Still to do:**
+1. **The `netmon` user.** RouterOS 7.20 won't create a user without a password, so the user types
+   it: `/user add name=netmon group=netread address=10.42.2.10/32 password=…`, then the same
+   password on `ROUTER_PASS=` in `/etc/opendubs/network.env` on the Thor. Then check that the
+   dashboard's uplink tile shows a state other than UNKNOWN.
+2. **E-3 (D-7)**: the robot AP to 20 MHz on **channel 1**. Channel 1 was the quietest of 1, 6 and
+   11 from the Thor's scan on 2026-10-20; the AP was on channel 7 at 20/40 MHz. Every Wi-Fi client
+   drops for a few seconds. Do it under a scheduled automatic revert, cancelled once the tablet
+   is back.
+3. **DHCP reservations** for devices on the robot Wi-Fi, each by its real MAC (randomized
+   per-network MAC turned off on the device first):
+   - the **show projector** (Choreography; it casts from the Thor, `notes/design/choreo-video.md`);
+   - the **stage Pi**, `opendubs2-stage` (one per robot, `opendubs<N>-stage`): a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
+     robot and carried off to drive a projector or a building video wall.
+4. Optional, only if the user asks: **J-1 and J-2** (`netjoin init`, `netjoin wired-first`).
+
+### Names, not addresses (approved 2026-10-24 for the next robot visit)
+
+The rule: robot devices are reached by **name**, or by an address **reserved** on the router.
+Never by a dynamic address written into code or config. The neck has already changed address
+between sessions.
+
+**Today** (read 2026-10-20 and 2026-10-22):
+- Reserved:
+  - the Thor `.10`;
+  - the StamPLC `.20`;
+  - the retired Tab5 `.14`, a stale entry.
+- Everything else is dynamic: the neck `.16`, the stage Pi `.19`, the tablets, the projector.
+- The router is the LAN's DNS server, but its only name is a default `router.lan` pointing at the
+  wrong subnet (192.168.88.1). No DHCP domain is set, and lease host names aren't published.
+  Names therefore rely on mDNS (`.local`), which Android apps and WebView resolve unreliably.
+
+**The scheme:**
+- A DHCP reservation for every robot device, at its current address (no renumbering).
+- Router DNS A records under one domain per robot, `<role>.opendubs2.internal`: `thor`,
+  `stamplc`, `neck`, `head`, `stage`, `projector`. The DHCP network hands out that domain.
+  `.internal` is reserved for private use; `.lan` works but isn't.
+- `.local` stays as a fallback for laptops and for devices that also live off the robot.
+
+**Check with the Thor lane:** the Thor is also on the campus Wi-Fi directly. With the DHCP domain
+set, its resolver should send `*.opendubs2.internal` to the wired link's DNS. Confirm once.
+
+**Then each lane swaps its addresses for names:**
+- the stage Pi's fallback URL (Tablet lane);
+- the robot-local `robot.env` and the kiosk's dashboard URL (Tablet and Thor lanes). If the tablet
+  moves to a name over HTTPS, the dashboard's certificate must list that name;
+- the Quest teleop clients (Arms lane).
+
+**Change list at the robot** (about 10 minutes, no lockout risk):
+1. Reservations: the neck → `.16`; the stage Pi → `.19`; the head tablet once its MAC is
+   confirmed (it uses a per-network private MAC, stable for Opendubs2 unless the network is
+   forgotten); the projector once identified.
+2. Remove the stale Tab5 reservation.
+3. DNS: `router.lan` → 10.42.2.1, the six A records, and the DHCP network domain.
+
+#### The runbook (prepared for review; run at the robot with the user present)
+
+**Before the visit, identify two devices.** The user can simply look:
+- **The head tablet:** on the tablet, Settings → Connections → Wi-Fi → Opendubs2 (gear icon).
+  Read the MAC shown there, and set "MAC address type" to the phone's own MAC, or leave the
+  per-network private one, which stays stable unless the network is forgotten. Alternatively, the
+  address holding the kiosk's `:8443` connections on the Thor is the head tablet's.
+- **The projector:** read its MAC under Settings → Network, with randomized MAC turned off.
+
+**1. Back up (from the Mac on Opendubs2), outside the repository:**
+
+```sh
+ssh opendubs2-router '/export terse' > /Users/emmaromig/Documents/dev/opendubs-router-backups/opendubs2-router-$(date +%F)-before-names.rsc
+```
+
+**2. Apply.** One RouterOS script, run over `ssh opendubs2-router`.
+- Fill `HEAD_MAC`/`HEAD_IP` and `PROJ_MAC`/`PROJ_IP` first, at their current addresses, or delete
+  those two lines.
+- Every new entry is tagged `opendubs-names`, so the rollback finds exactly these.
+- The Thor's and the StamPLC's existing reservations are not touched.
+
+```
+:local res do={
+  :local l [/ip dhcp-server lease find where mac-address=$mac]
+  :if ([:len $l] > 0) do={
+    :if ([/ip dhcp-server lease get ($l->0) dynamic]) do={ /ip dhcp-server lease make-static ($l->0) }
+    /ip dhcp-server lease set ($l->0) address=$ip comment=("$c opendubs-names")
+  } else={
+    /ip dhcp-server lease add server=defconf mac-address=$mac address=$ip comment=("$c opendubs-names")
+  }
+}
+$res mac=B0:81:84:97:7D:F0 ip=10.42.2.16 c="neck"
+$res mac=DC:A6:32:CD:30:68 ip=10.42.2.19 c="stage-pi"
+$res mac=HEAD_MAC ip=HEAD_IP c="head-tablet"
+$res mac=PROJ_MAC ip=PROJ_IP c="projector"
+/ip dhcp-server lease remove [find where mac-address=B4:3A:45:90:BF:94]
+/ip dns static set [find where name=router.lan] address=10.42.2.1
+:foreach n,ip in={"router"="10.42.2.1";"thor"="10.42.2.10";"stamplc"="10.42.2.20";"neck"="10.42.2.16";"stage"="10.42.2.19";"head"="HEAD_IP";"projector"="PROJ_IP"} do={
+  /ip dns static add name=("$n.opendubs2.internal") address=$ip comment=opendubs-names
+}
+/ip dhcp-server network set [find where address=10.42.2.0/24] domain=opendubs2.internal
+```
+
+**3. Check** (read-only):
+
+```sh
+for n in router thor stamplc neck stage head projector; do printf '%s ' $n; dig @10.42.2.1 +short $n.opendubs2.internal; done
+```
+
+```sh
+ssh opendubs2-router '/ip dhcp-server lease print terse where comment~"opendubs-names"'
+```
+
+Devices pick up the domain at their next DHCP renewal, within 30 minutes; a Wi-Fi reconnect does
+it at once. The user can open `http://thor.opendubs2.internal:8080` on the tablet and look.
+
+**4. Roll back** (only if needed; the robot LAN keeps working either way):
+
+```
+/ip dns static remove [find where comment=opendubs-names]
+/ip dns static set [find where name=router.lan] address=192.168.88.1
+/ip dhcp-server network set [find where address=10.42.2.0/24] domain=""
+/ip dhcp-server lease remove [find where comment~"opendubs-names"]
+```
+
+The devices fall back to dynamic leases, normally at the same addresses. The retired Tab5's
+reservation is not restored: nothing uses it.
+
+**5. After it's applied, send each lane its name swaps:**
+- **Tablet:** the stage Pi's `ROBOT_FALLBACK` → `thor.opendubs2.internal`.
+- **Tablet and Thor:** `robot.env` hosts, and the kiosk's dashboard URL. The TLS certificate in
+  `/etc/opendubs/tls` must list `thor.opendubs2.internal` before the kiosk uses it over HTTPS.
+- **Arms:** the Quest clients' Thor address.
+
+### How far the robot's Wi-Fi reaches (for the stage Pi and the projector)
+
+The robot's Wi-Fi is 2.4 GHz only: the router's 5 GHz radio is the campus uplink. Nothing here has
+been measured. It's a rule of thumb for planning, and the device's signal in `netdiag` settles
+it on the day.
+
+| Where the device is | What to expect |
+|---|---|
+| A few metres from the robot, same room | Solid. Video streams of 8–10 Mbit/s and control traffic are fine |
+| 10–25 m with a clear line of sight (a hall, an atrium) | Usually fine for one video stream. Aim for −70 dBm or better at the device |
+| Through one or two walls, or 25–40 m in the open | Marginal. Expect drops and stutters; a stream may stall |
+| Another floor, several walls, or beyond ~40 m | Don't plan on it |
+
+What shortens the range:
+- Metal close to the router (the robot's frame) shields its internal 2.4 GHz antennas.
+- The device's own radio matters as much: a Raspberry Pi's built-in antenna is small, and a USB
+  Wi-Fi adapter with an external antenna helps.
+- A crowd absorbs 2.4 GHz.
+- Campus 2.4 GHz is busy.
+- After E-3 the AP runs at 20 MHz, which halves the peak rate but not the reach.
+
+If a venue's wall display is further than this:
+- the Pi can be wired to a free LAN port on the robot's router with a long Ethernet cable (up to 100 m);
+- or it plays the content from its own storage and needs the robot only for cues.
 
 ### D-5 explored: restricting where `admin` can log in from
 

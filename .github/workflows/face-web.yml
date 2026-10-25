@@ -5,24 +5,26 @@ name: face-web
 # conformance suite with --active --motion against both. No browser; nothing is drawn — what is
 # checked is that the face answers every message as notes/design/head-protocol.md says.
 
+# CI cost (the maintainers, 2026-10-21): no run for a draft PR or a push to main, which the PR already
+# ran; mark the PR ready to run it, or start it by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "software/face-web/**"
-      - "software/head-protocol/**"
-      - ".github/workflows/face-web.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/face-web/**"
+      - "!software/face-web/**/*.md"
       - "software/head-protocol/**"
+      - "!software/head-protocol/**/*.md"
       - ".github/workflows/face-web.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   conformance:
+    name: "${{ github.event.pull_request.draft && 'conformance (draft, skipped)' || 'conformance' }}"
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -103,3 +103,6 @@ figure.amap { margin: 1em 0; border: 1px solid var(--md-default-fg-color--lighte
   box-shadow: 0 0 0 3px rgba(255, 109, 63, 0.5), 0 2px 8px rgba(0, 0, 0, 0.55);
   z-index: 3;
 }
+
+/* Step icons on the composer quickstart: monochrome, one size, in the heading's own ink. */
+.md-typeset h2 .twemoji { height: 1.1em; width: 1.1em; vertical-align: -0.15em; margin-right: 0.35em; color: var(--md-default-fg-color--light); }

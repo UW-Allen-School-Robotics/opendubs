@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -39,14 +41,17 @@ PER_ROBOT = "per-robot"  # expected to differ; report, never auto-sync
 # files the REPO has — a robot-only file is reported separately rather than deleted.
 MAP = [
     ("firmware/rc_serial_probe/src",            "/opt/opendubs/rc_serial_probe/src",            SYNC),
-    ("firmware/rc_serial_probe/src/main.cpp",   "/opt/opendubs/rc_serial_probe/src/main.cpp",   PER_ROBOT),
+    ("firmware/common",                         "/opt/opendubs/common",                         SYNC),  # deploy-all.sh; the shared signed-update check
+    ("firmware/rc_serial_probe/src/robot_config.h", "/opt/opendubs/rc_serial_probe/src/robot_config.h", PER_ROBOT),  # never in the repo
     ("firmware/rc_serial_probe/platformio.ini", "/opt/opendubs/rc_serial_probe/platformio.ini", PER_ROBOT),
     ("software/kiosk-dashboard/backend",        "/opt/opendubs/kiosk-dashboard/backend",        SYNC),
     ("software/kiosk-dashboard/frontend",       "/opt/opendubs/kiosk-dashboard/frontend",       SYNC),
     ("software/ros",                            "/opt/opendubs/ros",                            SYNC),
+    ("description/opendubs",                    "/opt/opendubs/description",                    SYNC),  # deploy-all.sh; opendubs.urdf
     ("software/stack",                          "/opt/opendubs/stack",                          SYNC),
     ("software/face-web",                       "/opt/opendubs/face-web",                       SYNC),  # deploy.sh, /face/
     ("software/voice",                          "/opt/opendubs/voice",                          SYNC),  # deploy-all.sh; run by stack/voice
+    ("software/head-protocol",                  "/opt/opendubs/head-protocol",                  SYNC),  # deploy-all.sh; the dashboard and the runner import it
     ("tools/network",                           "/opt/opendubs/network",                        SYNC),  # deploy-all.sh; opendubs-netmon
     ("software/openarm",                        "/opt/opendubs/openarm",                        SYNC),
 ]
@@ -191,6 +196,22 @@ def main():
         print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")
     else:
         print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
+    # The tablet's kiosk app is not a deployed file but a signed build (deploy-all.sh's deploy_kiosk):
+    # compare the version the robot serves with the one this checkout's source says.
+    gradle = (ROOT / "software/tablet-kiosk/app/build.gradle.kts").read_text()
+    want = re.search(r"^\s*versionCode\s*=\s*(\d+)", gradle, re.M)
+    wname = re.search(r'^\s*versionName\s*=\s*"([^"]*)"', gradle, re.M)
+    served = subprocess.run(["ssh", a.robot, "cat /var/lib/opendubs/kiosk/latest.json 2>/dev/null"],
+                            capture_output=True, text=True).stdout
+    try:
+        sv = json.loads(served)
+        scode, sname = int(sv["versionCode"]), sv.get("versionName", "?")
+    except (ValueError, KeyError, TypeError):
+        scode, sname = 0, "nothing"
+    if want:
+        behind = "  <-- BEHIND: the tablet will not update until a build is published" if scode < int(want.group(1)) else ""
+        print(f"  kiosk app: robot serves {sname} ({scode}), this checkout is "
+              f"{wname.group(1) if wname else '?'} ({want.group(1)}){behind}\n")
     if drift:
         print("  DRIFTED — repo and robot disagree, and they should not:")
         for rel, _ in drift:

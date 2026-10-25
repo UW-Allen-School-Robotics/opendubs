@@ -70,6 +70,30 @@ check("in the composer while editing, a missing stamp is a WARNING (saving sweep
 w = analyse(too_close, required="warn")
 check("... but a measured collision is a problem even there", any("within 12 mm" in q.msg for q in w["problems"]))
 
+
+# can_skip variants: a variant that changes the motion needs its OWN stamp; one that does not (a
+# light) is covered by the show's
+VAR = (CLEAR.replace("{id}", "v").replace("[ARM_L, ARM_R, FACE]", "[ARM_L, ARM_R, GRIP_L, FACE, LIGHT]")
+       .replace("cues:", "can_skip: [grip_left, light]\ncues:")
+       + "  - { t: 3.0, slot: GRIP_L, do: open }\n  - { t: 3.5, slot: LIGHT, do: color, rgb: [0, 0, 255] }\n")
+
+
+def variant(text, skip, required=True):
+    show = cue.show_from_text(text, "x")
+    show.require_sweep, show.skip = required, frozenset(skip)
+    return show.analyse(LIMITS)
+
+
+hv = cue.motion_hash(variant(VAR, (), required=False)["events"])
+vstamped = VAR.replace("cues:", f'clearance: {{ min_mm: 41.0, at_s: 0.0, checked_for: "{hv}@test" }}\ncues:')
+check("a variant without a part that MOVES (a gripper) is refused until its own stamp is there",
+      any("without grip_left has not been swept" in q.msg for q in variant(vstamped, ["grip_left"])["problems"]),
+      [q.msg for q in variant(vstamped, ["grip_left"])["problems"]])
+check("... a variant without the light is covered by the show's own stamp (the motion is the same)",
+      not variant(vstamped, ["light"])["problems"], [q.msg for q in variant(vstamped, ["light"])["problems"]])
+check("... and a run may skip only what the show lists in can_skip:",
+      any("does not list in can_skip" in q.msg for q in variant(vstamped, ["arm_right"])["problems"]))
+
 print("\nsweep: on the twin (MuJoCo)")
 try:
     import mujoco  # noqa: F401
@@ -78,6 +102,17 @@ except ImportError:
 else:
     import yaml
     import sweep
+    import clearance
+    import scene
+    _m = scene.build(None)
+    _n = lambda g: mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_GEOM, g)  # noqa: E731
+    _r, _l, _b = clearance._geom_sets(_m)
+    _pairs = {(_n(a), _n(b)) for a, b in clearance.pairs_of_interest(_m)}
+    _mount = {_n(g) for g in clearance._mounts(_m, _r + _l)}
+    check("an arm's fixed mount (link0) is not measured against the structure, which no joint moves it "
+          "relative to, but is against the other arm's moving links",
+          len(_mount) == 2 and not any(a in _mount and b in {_n(g) for g in _b} for a, b in _pairs)
+          and ("oa_openarm_right_link0_collision", "oa_openarm_left_link4_collision") in _pairs, _mount)
     tmp = tempfile.mkdtemp()
     try:
         bad, good = os.path.join(tmp, "bad.yaml"), os.path.join(tmp, "good.yaml")
@@ -98,6 +133,14 @@ else:
               and not g.analyse(LIMITS)["problems"] and "clearance" in yaml.safe_load(open(good)), r)
         r2 = sweep.run(good, LIMITS_PATH, write=True)
         check("sweeping again with the motion unchanged is skipped (its stamp stands)", r2.get("current") is True)
+        vp = os.path.join(tmp, "v.yaml")
+        open(vp, "w").write(VAR)
+        rv = sweep.run(vp, LIMITS_PATH, write=True)
+        sv = cue.load_show(vp)
+        sv.require_sweep, sv.skip = True, frozenset(["grip_left"])
+        check("stamping sweeps each can_skip variant that moves, and that variant then passes the robot gate",
+              list(rv["variants"]) == ["grip_left"] and "grip_left" in yaml.safe_load(open(vp))["clearance"]["variants"]
+              and not sv.analyse(LIMITS)["problems"], (rv.get("variants"), [q.msg for q in sv.analyse(LIMITS)["problems"]]))
         # the composer: a save sweeps and stamps; the runner: refuses an arm show without a stamp
         from api import Composer
         comp = Composer(tmp, LIMITS_PATH)

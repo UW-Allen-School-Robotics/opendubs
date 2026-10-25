@@ -28,7 +28,9 @@ PY
 ```
 
 `PING` · `NECK` · `GAZE <pan> <tilt> [lease_ms]` / `GAZE OFF` · `TILT <min> <max>` ·
-`CHEST <us>` / `CHEST OFF` · `OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
+`CHEST <us>` / `CHEST OFF` · `HOLD` / `HOLD HERE` / `HOLD <pan> <tilt>` / `HOLD OFF` ·
+`BADGE <STATE> <driver> <rrggbb>` / `BADGE OFF` · `TOUCH HOLD [lease_ms]` / `TOUCH RATE …` / `TOUCH OFF` ·
+`OTA <url>` · `REBOOT` · `TOF` (refused: not fitted).
 Anything else answers `ERR unknown`.
 
 ### Which way is which
@@ -62,14 +64,16 @@ firmware/neck_dial/build.sh image
 # 2. put the APP image on the Thor, outside the repo
 scp firmware/neck_dial/.pio/build/neck_dial/firmware.bin opendubs2:/tmp/neck.bin
 
-# 3. on the Thor: serve it on a free port, send OTA, stop the server
+# 3. on the Thor: SIGN it for the neck (writes /tmp/neck.bin.sig), serve both on a free port,
+#    send OTA, stop the server. The neck fetches neck.bin.sig beside neck.bin.
 ssh opendubs2
+sudo /opt/opendubs/stack/firmware-signing/sign-firmware.sh neck /tmp/neck.bin
 cd /tmp && python3 -m http.server 8781 --bind 10.42.2.10 &
 python3 - <<'PY'
 import socket
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(120)
 s.sendto(b"OTA http://10.42.2.10:8781/neck.bin", ("10.42.2.12", 4242))
-print(s.recv(512).decode().strip())      # OK ota <bytes> bytes, rebooting
+print(s.recv(512).decode().strip())      # OK ota <bytes> bytes, rebooting key=<id>
 PY
 kill %1
 ```
@@ -83,9 +87,66 @@ kill %1
   whoever is standing there before you send the OTA.
 - Verify with `PING` — the reply carries the build's commit sha.
 
+### Signed updates
+
+The neck installs an image only if its signature, made on the Thor **for board `neck`**, verifies
+against a key compiled into it (`lib/ota_verify`, linked to `firmware/common/ota_verify`; the design is
+`notes/design/firmware-signing.md`). Otherwise it answers `ERR ota rejected: <why>` (or
+`ERR ota no signature`), and **the firmware it runs stays the one that boots**. `PING` says how it
+stands: `otasig=enforce|report otaverify=ok|BROKEN otakeys=<id>[,<id>]`.
+
+Two cases install anyway and say so, `OK ota … WARN would reject: <why>`, because a check that
+strands the neck costs a visit to fit a USB cable (it takes one, but none is routinely fitted):
+- a **report-only** build (`build.sh image-report-only`), which is the bootstrap image only;
+- a build whose own **self-test fails** on the board (`otaverify=BROKEN`).
+
+An enforcing build with no trusted key does not compile.
+
+**The bootstrap, once per neck, with someone at the robot.** Never put the enforcing image on a neck
+whose report-only image has not passed steps 2 and 3:
+
+1. Install the **report-only** image (`build.sh image-report-only`) by today's path. `PING` should then
+   say `otasig=report otaverify=ok otakeys=<the robot's key id>`.
+2. A **signed** update to that same image: the reply should end `key=<id>`.
+3. The same update with a **corrupted** `.sig` (flip one byte): `WARN would reject: …`, and it still
+   installs. That is harmless, because it is the same firmware.
+4. Only then the **enforcing** image (`build.sh image`), signed. `PING`: `otasig=enforce`.
+5. On it, a corrupted `.sig` is **rejected**, and `PING`'s `fw=` is unchanged.
+
 A virgin or bricked board needs USB and `tools/flash.py` (app-only at `0x10000`; a merged image at
 `0x0` erases the NVS and takes the Wi-Fi credentials with it). Flashing over USB is CLAUDE.md's
 rote M5Stack procedure; do not improvise around it.
+
+## The knob and the screen: HOLD and the status badge
+
+The Dial has one job for a person: **HOLD** (`neck/hold.h`; the design is `notes/design/head-ownership.md`).
+
+- **Turn the knob one way**, three detents within about a second: the head is **held** where it is.
+  Tracking, shows, touch and the RC stick no longer move it. **Turn it the other way** the same: it is
+  released, but only after **3 s** in which the screen says "releasing hold" and the dashboard shows a
+  notice. A bump or a slow turn does nothing.
+- The dashboard (Head & face: HOLD HERE / RELEASE) and software (`HOLD …` above) set and release the
+  same hold. `NECK` reports it: `owner=hold hold=on|releasing|off hold_by=knob|remote`.
+- **A reboot always comes back released**: the hold is in RAM only.
+- **The button is unchanged**: it only confirms a pending tilt change, and the screen says so.
+
+The **screen** is a status badge: a ring in the robot state's colour, the state's label, and who drives
+the head (from the dashboard's `BADGE`, every 5 s), or what the neck knows itself: HOLD, "releasing
+hold", RC, TOUCH, "press to confirm tilt …". Blank until the dashboard first sends a badge; the ring
+goes grey after 20 s without one.
+
+**The screen can never cost the board** (`src/badge_screen.h`): it starts last, after the UDP socket
+is listening; its start runs under the task watchdog, so a hang resets the board; and after a crash or
+watchdog reset the board comes up **without** the screen. The serial report and `screen=` in the
+10 s report line say which. It is LovyanGFX configured by hand, with no touch controller, so nothing
+touches Port A's I2C.
+
+**To check at the Dial, the first time** (by eye, with the user there):
+
+1. **The knob's direction.** Clockwise should hold. If the screen says RELEASE (or nothing while held),
+   flip `kKnobUpHolds` in `neck/hold.h`.
+2. **A detent is four counts.** If three detents do nothing and six do, set `kKnobCountsPerDetent` to 2.
+3. **The screen's colours.** If the ring's red reads as blue, the panel wants `rgb_order = true` in `src/badge_screen.cpp`.
 
 ## The chest light
 

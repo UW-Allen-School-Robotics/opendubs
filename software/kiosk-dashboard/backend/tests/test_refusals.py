@@ -67,3 +67,28 @@ def test_rearm_while_the_board_is_latched_reads_ch5_itself(monkeypatch):
         assert status.try_estop_clear()["ok"] is ok, ch5
     rc["live"] = False                                             # no RC frames
     assert status.try_estop_clear()["codes"] == ["ESTOP_REARM_CH5"]
+
+
+def test_fault_clear_keeps_a_present_or_fatal_fault_and_names_its_code(monkeypatch):
+    """CLEAR FAULT on Operate: a fault whose cause has gone clears; a present or a fatal one stays,
+    and the refusal carries its code (a welded contactor must never be cleared from the screen)."""
+    s = supervisor_mod.Supervisor()
+    monkeypatch.setattr(status, "supervisor", s)
+    s.step(raw_estop_sources=[], raw_faults=["OVERTEMP", "CONTACTOR WELDED", "PDH brownout"],
+           fresh=True, control_ok=True, uptime=60)
+    s.step(raw_estop_sources=[], raw_faults=["CONTACTOR WELDED", "PDH brownout"],   # cooled down
+           fresh=True, control_ok=True, uptime=61)
+    out = status.clear_faults()
+    assert out["cleared"] == ["OVERTEMP"]
+    assert [(k["code"], k["why"]) for k in out["kept"]] == [("CONTACTOR_WELDED", "needs service"),
+                                                            ("POWER_PDH_BROWNOUT", "still present")]
+    assert s.fault_latched == ["CONTACTOR WELDED", "PDH brownout"]
+
+
+def test_fault_clear_waits_for_ready(monkeypatch):
+    s = supervisor_mod.Supervisor()
+    monkeypatch.setattr(status, "supervisor", s)
+    s.step(raw_estop_sources=[], raw_faults=["OVERTEMP"], fresh=False, control_ok=False, uptime=5)
+    s.step(raw_estop_sources=[], raw_faults=[], fresh=False, control_ok=False, uptime=6)
+    assert [k["why"] for k in status.clear_faults()["kept"]] == ["not ready"]
+    assert s.fault_latched == ["OVERTEMP"]

@@ -51,19 +51,35 @@ deploy_sub() {  # $1=repo path  $2=flat dest
 # delete docs-site/), and ships the show runner. Provisioning runs once, below, via provision-all.sh.
 OPENDUBS_SKIP_PROVISION=1 "$REPO/software/kiosk-dashboard/deploy/deploy.sh" "$HOST"
 deploy_sub software/ros             ros
+deploy_sub description/opendubs     description   # opendubs.urdf, read by opendubs-robot-state-publisher
 deploy_sub software/stack           stack     # version pins + the AirPlay receiver; provision with stack/airplay/provision-airplay.sh
 deploy_sub software/voice           voice     # the voice service's scripts; built and run below, on robots that opt in
+deploy_sub software/head-protocol   head-protocol  # the head's protocol and looks.py, read by the dashboard and the show runner
 # The network lane's router health monitor and diagnostics (tools/network/README.md); its unit is
 # installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
+deploy_sub firmware/common         common    # shared firmware code; rc_serial_probe/lib/ota_verify links here
+# main.cpp used to carry each robot's calibration inline, and deploys skipped it; now it is an
+# ordinary deployed file and the values are in the robot's src/robot_config.h. Before the first such
+# deploy replaces a robot's old main.cpp (one that still defines the values inline), keep that copy,
+# once, so its values can still be moved
+# (firmware/rc_serial_probe/tools/make_robot_config.py). The .pre- name keeps it out of deploys and audits.
+ssh "$HOST" 'd=/opt/opendubs/rc_serial_probe/src
+  if [ -f "$d/main.cpp" ] && grep -q "kDriveInvert\[4\] *=" "$d/main.cpp" \
+     && [ ! -f "$d/robot_config.h" ] && [ ! -f "$d/main.cpp.pre-robot-config" ]; then
+    cp -p "$d/main.cpp" "$d/main.cpp.pre-robot-config" && echo "-- kept the robot s own main.cpp as $d/main.cpp.pre-robot-config"
+  fi'
 deploy_sub firmware/rc_serial_probe rc_serial_probe
 rsync -az "$REPO/provision-all.sh" "$HOST:$DEST/provision-all.sh"
 
-# The tablet's kiosk app, when one has been built: signed ON THE ROBOT with the project key and served
-# at the dashboard's /api/kiosk/latest (software/stack/kiosk-signing). The unsigned APK and its
-# kiosk-version.json come from the Mac's build, which is not in git, so OPENDUBS_KIOSK_APK can point
-# at a build in another checkout. Absent: skipped quietly; not every deploy changes the app.
+# The tablet's kiosk app: signed ON THE ROBOT with the project key and served at the dashboard's
+# /api/kiosk/latest (software/stack/kiosk-signing). The unsigned APK and its kiosk-version.json come
+# from a build on the Mac (software/tablet-kiosk: ./gradlew assembleRelease), which is not in git, so
+# OPENDUBS_KIOSK_APK can point at a build in another checkout. The version this checkout's source says
+# (app/build.gradle.kts) is compared with what the robot serves: a robot already on it is left alone; a
+# robot behind it with no build here is reported LOUDLY (a quiet skip once left the tablet three
+# versions behind for days); a build of a different version than the source is refused as stale.
 KIOSK_APK="${OPENDUBS_KIOSK_APK:-$REPO/software/tablet-kiosk/app/build/outputs/apk/release/app-release-unsigned.apk}"
 KIOSK_VER="$(dirname "$KIOSK_APK")/kiosk-version.json"
 # The voice service and the local language model, on a robot whose robot.env sets
@@ -91,8 +107,33 @@ deploy_voice() {
 }
 
 deploy_kiosk() {
-  [ -f "$KIOSK_APK" ] && [ -f "$KIOSK_VER" ] || return 0
-  echo "== signing and publishing the kiosk app on $HOST =="
+  local want wname served sname have
+  want=$(sed -n 's/^ *versionCode *= *\([0-9][0-9]*\).*/\1/p' "$REPO/software/tablet-kiosk/app/build.gradle.kts" | head -1)
+  wname=$(sed -n 's/^ *versionName *= *"\([^"]*\)".*/\1/p' "$REPO/software/tablet-kiosk/app/build.gradle.kts" | head -1)
+  [ -n "$want" ] || { echo "!! kiosk: no versionCode in software/tablet-kiosk/app/build.gradle.kts; kiosk step skipped"; return 0; }
+  read -r served sname < <(ssh "$HOST" "cat /var/lib/opendubs/kiosk/latest.json 2>/dev/null" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin); print(int(d["versionCode"]), d.get("versionName", "?"))
+except Exception:
+    print(0, "nothing")') || { served=0; sname=nothing; }
+  if [ "$served" -ge "$want" ]; then
+    echo "== kiosk: $HOST already serves $sname ($served); this checkout is $wname ($want), nothing to publish =="
+    return 0
+  fi
+  if ! { [ -f "$KIOSK_APK" ] && [ -f "$KIOSK_VER" ]; }; then
+    echo "!! kiosk NOT published: $HOST serves $sname ($served), this checkout is $wname ($want), and there is"
+    echo "!!   no build at $KIOSK_APK. The tablet stays on $sname. Build it"
+    echo "!!   (cd software/tablet-kiosk && ./gradlew assembleRelease) or set OPENDUBS_KIOSK_APK, and deploy again."
+    return 0
+  fi
+  have=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["versionCode"]))' "$KIOSK_VER" 2>/dev/null || echo 0)
+  if [ "$have" != "$want" ]; then
+    echo "!! kiosk NOT published: the build at $KIOSK_APK is versionCode $have, this checkout is $wname ($want):"
+    echo "!!   a stale build. Rebuild it (cd software/tablet-kiosk && ./gradlew assembleRelease) and deploy again."
+    return 0
+  fi
+  echo "== signing and publishing the kiosk app on $HOST: $sname ($served) -> $wname ($want) =="
   local tmp; tmp=$(ssh "$HOST" mktemp -d)
   rsync -az "$KIOSK_APK" "$KIOSK_VER" "$HOST:$tmp/"
   ssh -t "$HOST" "sudo $DEST/stack/kiosk-signing/sign-kiosk.sh $tmp/$(basename "$KIOSK_APK") $tmp/kiosk-version.json" \

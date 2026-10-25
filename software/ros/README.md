@@ -15,17 +15,21 @@ Slamtec RPLIDAR A1 on USB (CP2102 bridge → `/dev/ttyUSB0`, stable by-id path i
 
 - **`rplidar.sh`** — launch wrapper (sources ROS, runs `rplidar.launch.py` on the
   by-id port). Env override: `OPENDUBS_LIDAR_DEV`.
-- **`opendubs-rplidar.service`** — systemd unit (User=emmar, Restart=always).
+- **`opendubs-rplidar.service`** — systemd unit (runs as the robot's service user, Restart=always).
 
 Publishes `sensor_msgs/LaserScan` on **`/scan`** (frame `laser`, ~7 Hz, 720
 pts/rev, 0.5°, 0.15–12 m).
 
 ### Deploy
 
+`./deploy-all.sh <host>` ships this folder and runs `provision-ros.sh`, which installs every unit.
+Don't copy a `.service` file into `/etc/systemd/system/` by hand: the units name their account as
+`@OPENDUBS_USER@` / `@OPENDUBS_HOME@`, which `provision-ros.sh` fills in from the robot
+(`OPENDUBS_SERVICE_USER` in `/etc/opendubs/robot.env`, or else the owner of `/opt/opendubs`). An
+unrendered unit refuses to start.
+
 ```bash
-rsync -az ros/ thor:/opt/opendubs/ros/
-ssh thor 'sudo cp /opt/opendubs/ros/opendubs-rplidar.service /etc/systemd/system/ \
-  && sudo systemctl daemon-reload && sudo systemctl enable --now opendubs-rplidar'
+ssh thor 'sudo /opt/opendubs/ros/provision-ros.sh'
 ```
 
 ### Verify
@@ -120,7 +124,7 @@ Interim bridge — the long-term clean path is **micro-ROS on the ESP32-S3** (se
 Verify: `ros2 topic echo /diagnostics --once` · `ros2 service call
 /robot/i2c_scan std_srvs/srv/Trigger`.
 
-## Drive bridge (/cmd_vel → DRIVE, [ODO] → /odom)
+## Drive bridge (base commands → DRIVE, [ODO] → /odom)
 
 `drive_bridge.py` (`opendubs-drive-bridge.service`) speaks the StamPLC's UDP 5005 directly. It
 sends motion commands, so it is strict about **who the StamPLC is** (`plc_peer.py`, tests in
@@ -158,8 +162,36 @@ sudo systemctl daemon-reload
 
 `systemctl status opendubs-drive-bridge` then reads *start condition unmet*, and provisioning still
 enables and "restarts" it cleanly. To turn it on: `sudo touch /etc/opendubs/drive-bridge.enabled &&
-sudo systemctl restart opendubs-drive-bridge`. Nothing on the robot consumes `/odom` or publishes
-`/cmd_vel` yet, so holding it costs nothing; the dashboard's odometry card reads `[ODO]` directly.
+sudo systemctl restart opendubs-drive-bridge`. The dashboard's odometry card reads `[ODO]`
+directly, so holding the bridge off costs nothing but `/odom` and ROS motion.
+
+`OPENDUBS_ODOM_TF=false` in a drop-in stops the bridge publishing TF `odom → base_link` (for a
+stack that fuses its own); `/odom` keeps publishing.
+
+## Base ownership (who drives in AUTO)
+
+The base has one software owner at a time. `base_selector.py` (`opendubs-base-selector.service`)
+holds the lease: an owner claims on `/base/claim`, renews within its `ttl_s` (at most 5 s), sends
+`Twist` on `/base/<owner>/cmd_vel`, and releases on `/base/release`; `/base/owner` says who holds it.
+Only the holder's commands are forwarded, to `/opendubs/drive/cmd_vel`, and `drive_bridge` refuses all
+motion if anything but the selector publishes there. A claim never takes the base from a live holder;
+a dead one frees it when its lease runs out, and `{"owner": "*"}` on `/base/release` is the operator's
+release. The dance tracker (`dance_tracker.py`) is the owner `show`.
+
+Before any command reaches the StamPLC, `drive_bridge`'s people guard (`people_guard.py`) refuses motion
+toward anything within 0.5 m of the robot's outline, from both LIDARs, and refuses everything when a
+scan is stale. The firmware gates (AUTO, a held deadman, the 0.35 ceiling) still apply on top.
+
+**The software speed cap** (`drive_scale.py`): AUTO motion is limited to `OPENDUBS_AUTO_CAP` of full
+command (0.25 to start) on every **wheel**, so no mix of forward, strafe and turn exceeds it. It's per
+robot, in `/etc/opendubs/base.env`, which both `opendubs-drive-bridge` and `opendubs-dance-tracker` read,
+together with the speeds at the cap (`OPENDUBS_MAX_LIN`, `_STRAFE`, `_ANG`) and the optional strafe trim
+(`OPENDUBS_STRAFE_YAW_BLEED_LEFT`/`_RIGHT` and `OPENDUBS_STRAFE_FWD_BLEED_LEFT`/`_RIGHT`, per direction,
+because a strafe can bleed differently each way). Changing any of them is a one-line edit and
+`sudo systemctl restart opendubs-drive-bridge opendubs-dance-tracker`. MANUAL (RC) driving isn't affected.
+
+The public contract for students and other stacks is the docs page
+[Navigation interface](../../docs/interfaces/navigation.md); keep the two in step.
 
 ## /scan watchdog
 
@@ -191,6 +223,55 @@ for a few seconds as false, so a camera never keeps streaming because this node 
 
 To make the rear camera stream from a shell, subscribe to it:
 `ros2 topic hz /tablet/camera/rear/image_raw/compressed`.
+
+## Skeleton feed relay
+
+**`opendubs-skeleton-relay.service`** (`skeleton-relay.sh` → `skeleton_relay.py`) carries the live
+skeleton feed from the Femto Bolt tracker (issue #450) to the stage page. It subscribes to the
+tracker's topic, turns each message into the stage page's frame with the choreography lane's adapter
+(`software/choreo/skeleton_feed.py`, deployed to `/opt/opendubs/choreo`), and sends it as JSON to the
+dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
+
+- **Only skeleton points pass.** The relay subscribes to exactly the adapter's `MSG_TYPE` and refuses
+  to start if that is an image, depth or point-cloud type. Nothing is recorded.
+- **Newest frame only.** A slow socket drops older frames rather than queueing them. An empty frame
+  goes out after 1 s with no message, marked `"status": "stale"`, so the page can tell "nobody there"
+  from a stopped feed.
+- While the adapter's `MSG_TYPE` is `None` (the tracker's type not known yet) it idles and says so once.
+- It idles until the adapter is deployed (`ConditionPathExists`), runs on UDP-only DDS, and reconnects
+  across dashboard restarts.
+
+## SLAM and the building floor plan
+
+`opendubs-robot-state-publisher` publishes the robot's frames from `description/opendubs/opendubs.urdf`
+(in the `/opendubs` namespace, so it never touches the arms' `/robot_description`). `opendubs-slam` runs
+slam_toolbox on the front scan, after `scan_body_filter.py` drops the robot's own returns. It is off
+unless `/etc/opendubs/slam.enabled` exists.
+
+Everything site-specific lives on the robot in `/var/lib/opendubs/maps/`, never in the repo:
+
+| file | written by | holds |
+|---|---|---|
+| `<name>.posegraph`, `<name>.data` | slam_toolbox's `serialize_map` service | a saved map, for localization |
+| `<name>.pgm`, `<name>.yaml` | a map_server-format save of `/map` | the same map as an image, for the fit |
+| `<floor>.plan.yaml` | `floorplan.py fit` | the floor frame's rooms: `{label: [x, y]}` in metres |
+| `site.yaml` | `floorplan.py fit` | which map to localize on, its start pose, and `map_in_floor` |
+
+With no `site.yaml` (or one naming a map that is not there), SLAM **maps**: a fresh map from wherever
+the robot starts. With one, SLAM **localizes** on the named map from its `start_pose`, which is where
+the mapping drive began, and `opendubs-floor-frames` publishes `<floor> -> map` and the room labels on
+`/floor/rooms`. A robot that boots elsewhere is corrected with `/initialpose`.
+
+To fit a map to a floor plan (a vector PDF with a scale bar), on a laptop:
+
+```bash
+uv run --with pymupdf --with numpy --with scipy --with pyyaml python3 software/ros/floorplan.py fit \
+    PLAN.pdf MAP.yaml --frame bldg_f2 --seed-room 204 --start X Y YAW -o OUT_DIR
+```
+
+Check `OUT_DIR/<map>.overlay.png` (the plan in grey, the map's walls in red), then copy
+`<frame>.plan.yaml` and `site.yaml` to the robot's `/var/lib/opendubs/maps/` and restart
+`opendubs-slam` and `opendubs-floor-frames`.
 
 ## Notes / next
 

@@ -8,8 +8,21 @@
 #include "mast.h"
 #include "tof.h"
 #include "ppcfg.h"    // task watchdog — auto-reset if the loop hangs
+// THIS ROBOT's calibration and wiring (drive channels and signs, ESC shaping, lift relays). Per
+// robot, never committed or deployed: create it from src/robot_config.h.example.
+#if defined(__has_include)
+#  if !__has_include("robot_config.h")
+#    error "src/robot_config.h is missing: this robot's calibration. Copy src/robot_config.h.example and set this robot's values (or tools/make_robot_config.py from its older main.cpp). Never guess them."
+#  endif
+#endif
+#include "robot_config.h"
 #include <stdarg.h>          // tprintf() telemetry tee
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
+#include "ota_verify.h"      // signed OTA: the shared check (firmware/common/ota_verify, firmware-signing.md)
+#include "ota_keys.h"        // the signing keys this build trusts (generated from that library's keys/)
+static constexpr const char* kOtaBoard = "stamplc";   // what our signatures must name
+static bool ota_selftest_ok = false;   // set in setup(); a broken check accepts nothing (there is USB)
+static char ota_key_ids[40] = "none";  // "id" or "id,id" during a rotation
 
 // ---- Telemetry tee (USB Serial + PoE UDP) -------------------------------------------------
 // Mirror a telemetry line to USB Serial AND, when the PoE link is up, out over UDP so the SAME
@@ -85,9 +98,7 @@ static constexpr uint32_t kServo8Hz          = 400000; // 8Servo bus speed
 #define DRIVE_ENABLE 1   // ENABLED 2026-08-19: RC/ROS drive writes the ESCs (bench-verified map below)
 #endif
 
-// 8Servo pins for the 4 ESCs, indexed [FL, FR, RL, RR] to match driveMix's w[]. Bench-mapped
-// 2026-08-19 (wheels off): FL=ch1, FR=ch3, RL=ch0, RR=ch2. PRISM is on I2C now (not ch0).
-static constexpr uint8_t  kDriveCh[4]       = {1, 3, 0, 2};
+// The 8Servo channel map, wheel signs, ESC shaping and lift relays are per robot: robot_config.h.
 // ---- RC pan/tilt: the stick, straight to the head ---------------------------------
 // Sent DIRECTLY to the Tab5 rather than relayed via the Thor: fewer hops, and the head keeps
 // answering the sticks if the dashboard stops. The Thor supplies the address once (TAB5IP)
@@ -143,9 +154,6 @@ static int8_t   g_mirrorSrc  = -1;    // wheel index 0..3 (FL,FR,RL,RR); -1 = of
 static uint8_t  g_mirrorPin  = 4;     // spare 8Servo channel with the indicator light
 static uint32_t g_mirrorFail = 0;
 
-// Per-wheel ESC direction sign. RR (ch2) is wired reversed vs the others → invert it so a
-// forward command drives all four wheels robot-forward. Indexed [FL, FR, RL, RR].
-static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
 // AUTONOMOUS IS DELIBERATELY RESTRICTED until autonomy has been watched enough to trust it. Both
 // limits live here so relaxing them is one edit in one place.
 //
@@ -160,14 +168,11 @@ static constexpr int8_t   kDriveInvert[4]   = {1, 1, 1, -1};
 static constexpr bool     kAutoRequiresDeadman = true;
 static constexpr float    kAutoMaxUnit         = 0.35f;   // ceiling on |command| under AUTO
 
-static constexpr uint16_t kEscNeutralUs     = 1500;   // 2x80A neutral == arm-zone center
-static constexpr uint16_t kEscSpanUs        = 150;    // ±span → 1350..1650 (gentle re-test band; widen toward 400 once ESCs hold)
+// kEscNeutralUs, kEscSpanUs, kEscSlewUs and kEscRevDwellTicks are per robot: robot_config.h.
 static constexpr uint16_t kEscDeadzoneUs    = 6;      // treat |cmd|<this as 0 (matches the ESC ±10µs deadzone)
 static constexpr uint32_t kArmHoldMs        = 2000;   // hold neutral this long, gate satisfied, to ARM the ESCs
-static constexpr uint16_t kEscSlewUs        = 12;     // max µs step per 20ms tick — the decel/accel ramp (mass!)
-static constexpr uint8_t  kEscRevDwellTicks = 10;     // on a direction flip: brake to neutral, then hold this many
-                                                      // ticks (×20ms) at neutral before reversing. Spreads regen so
-                                                      // the bus clamp can absorb it — a full FWD→REV slam tripped the ESCs.
+// (kEscRevDwellTicks spreads regen on a direction flip so the bus clamp can absorb it: a full
+// FWD→REV slam tripped the ESCs.)
 static constexpr uint32_t kDriveTickMs      = 20;     // 50 Hz output (matches the 2x80A's expected RC rate)
 static constexpr uint32_t kRosCmdTimeoutMs  = 250;    // autonomous heartbeat: a stale Thor/ROS cmd → neutral
 // Build identity. An OTA that silently does not land is worse than one that fails: it leaves
@@ -1205,8 +1210,7 @@ static void tofProbe()
 // Silk is 1-indexed and code is 0-indexed -- that offset cost us a debugging cycle, so
 // both are written out here. Re-discover on any new build; it depends only on which of
 // two wires was landed.
-static constexpr uint8_t kRelayMastUp   = 2;   // silk R3
-static constexpr uint8_t kRelayMastDown = 1;   // silk R2
+// kRelayMastUp / kRelayMastDown: robot_config.h.
 // Height source: the ToF on PaHub ch3. Returns false until the sensor is BOTH answering and
 // calibrated (TOFCAL ZERO at the bottom limit), which leaves the lift open-loop but working
 // -- enough for relay bring-up. Belief correction and the pinch guard switch themselves on
@@ -2159,6 +2163,7 @@ static float sbusAxis(uint16_t raw)
 static void driveMix(float fwd, float rot, float str, DriveMode mode, float w[4])
 {
     if (mode == DM_MECANUM) {
+        str *= (float)kStrafeInvert;   // per robot: the rollers' handedness (robot_config.h)
         w[0] = fwd + str + rot;   // FL
         w[1] = fwd - str - rot;   // FR
         w[2] = fwd - str + rot;   // RL
@@ -2882,6 +2887,20 @@ void setup()
             Serial.println("[FIX] AW9523 re-begin FAILED (internal bus still dead)");
         }
     }
+
+    // Signed updates: run the check's known-answer self-test once, here, before the loop (three
+    // ECDSA verifies: tens of ms, which the drive loop must not absorb), and note the trusted keys.
+    ota_selftest_ok = otaVerifySelfTest();
+    if (OTA_KEY_COUNT > 0) {
+        ota_key_ids[0] = '\0';
+        for (size_t k = 0; k < OTA_KEY_COUNT; k++) {
+            char kid[17]; otaKeyId(OTA_KEYS[k], kid, sizeof(kid));
+            if (k) strncat(ota_key_ids, ",", sizeof(ota_key_ids) - strlen(ota_key_ids) - 1);
+            strncat(ota_key_ids, kid, sizeof(ota_key_ids) - strlen(ota_key_ids) - 1);
+        }
+    }
+    tprintf("[OTA] signed updates: trusts key %s, check self-test %s\n", ota_key_ids,
+            ota_selftest_ok ? "ok" : "FAILED (no update will be accepted)");
 }
 
 // Broadcast a compact JSON snapshot over UDP for Thor / the dashboard to consume.
@@ -2948,9 +2967,10 @@ static void netMaintain()
     static unsigned long last_net_stat = 0;       // periodic health line (link / re-inits / heartbeat age)
     if (millis() - last_net_stat > 5000) {
         last_net_stat = millis();
-        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s\n",
+        tprintf("[NET] link=%d ip=%s reinit=%u hb_age=%lu build=%s otakeys=%s otaverify=%s\n",
                 (int)Ethernet.linkStatus(), eth_ip_str, eth_reinit_count,
-                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId);
+                hb_seen ? (unsigned long)(millis() - last_hb_rx_ms) : 0UL, kBuildId,
+                ota_key_ids, ota_selftest_ok ? "ok" : "BROKEN");
     }
 
     if (!eth_up) {                                // never up, or torn down → retry (rate-limited)
@@ -3035,11 +3055,66 @@ static void pollNetCommands()
 // into it. Triggered by `OTA http://<host>:<port>/<path>` over serial OR UDP — the whole point is
 // reflashing with USB unplugged. Plain HTTP only (no TLS over the W5500). We drop the drive
 // contactor first (no motion during a reflash), and on ANY failure we abort and stay on the
-// current firmware. A truncated/corrupt image is caught by Update.end(); a complete-but-buggy
-// image still needs USB recovery, so keep a USB port reachable. Needs a dual-OTA table (default.csv).
+// current firmware. Needs a dual-OTA table (default.csv).
+//
+// SIGNED UPDATES ONLY (notes/design/firmware-signing.md). The command is unauthenticated, so the
+// image must carry a signature: `<path>.sig`, ECDSA P-256 over the image's SHA-256, made on the
+// Thor by ota-from-thor.sh. It is fetched first, the image is hashed as it streams into flash, and
+// the signature is checked against the compiled-in public key BEFORE Update.end() marks the new
+// image bootable. Bad, missing or keyless = Update.abort(): the new partition is never selected and
+// the current firmware keeps running. Like any failed OTA, the drive bus stays off until cleared.
+
+// Connect, send GET, read the status line and headers. Returns the Content-Length on HTTP 200,
+// or -1 having said why.
+static long otaHttpOpen(EthernetClient& client, const char* host, int port, const char* path)
+{
+    client.setConnectionTimeout(5000);
+    IPAddress ip; bool ok;
+    if (ip.fromString(host)) ok = client.connect(ip, (uint16_t)port);   // dotted-quad: skip DNS
+    else                     ok = client.connect(host, (uint16_t)port); // hostname: needs DNS
+    if (!ok) { tprintf("[OTA] abort: connect failed (%s)\n", path); return -1; }
+
+    char req[192];
+    int rn = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: opendubs-stamplc\r\nConnection: close\r\n\r\n",
+        path, host);
+    client.write((const uint8_t*)req, rn);
+
+    long content_len = -1; int status = 0;
+    char line[160]; uint32_t t0 = millis(); bool first = true, headers_done = false;
+    while (!headers_done) {
+        int li = 0;
+        for (;;) {
+            int c = client.read();
+            if (c < 0) {
+                if (!client.connected() && client.available() == 0) { headers_done = true; break; }
+                if (millis() - t0 > 8000) { client.stop(); tprintf("[OTA] abort: header timeout (%s)\n", path); return -1; }
+                esp_task_wdt_reset(); delay(1); continue;
+            }
+            t0 = millis();
+            if (c == '\r') continue;
+            if (c == '\n') break;
+            if (li < (int)sizeof(line) - 1) line[li++] = (char)c;
+        }
+        if (headers_done) break;
+        line[li] = '\0';
+        if (first) { first = false; sscanf(line, "HTTP/%*s %d", &status); }
+        else if (li == 0) headers_done = true;
+        else if (strncasecmp(line, "Content-Length:", 15) == 0) content_len = atol(line + 15);
+    }
+    if (status != 200) { client.stop(); tprintf("[OTA] abort: HTTP status %d (%s)\n", status, path); return -1; }
+    if (content_len <= 0) { client.stop(); tprintf("[OTA] abort: no/zero Content-Length (%s)\n", path); return -1; }
+    return content_len;
+}
+
 static void otaHttpPull(const char* url)
 {
     if (!eth_up) { Serial.println("[OTA] abort: Ethernet down"); return; }
+
+    // A build with no key, or whose check failed its boot self-test, accepts nothing: refuse before
+    // touching anything, the drive bus included. (The StamPLC has USB, so refusing is safe here.)
+    if (OTA_KEY_COUNT == 0) { tprintf("[OTA] REJECTED: %s\n", otaVerifyReason(OTA_SIG_NO_KEY)); return; }
+    if (!ota_selftest_ok) { tprintf("[OTA] REJECTED: this build's signature check failed its self-test; reflash over USB\n"); return; }
 
     // Free the head socket first: with MAX_SOCK_NUM 2 the HTTP client cannot open while it
     // is held, and the fetch would fail AFTER we had already dropped the bus.
@@ -3058,73 +3133,73 @@ static void otaHttpPull(const char* url)
     if (*pp == ':') { port = atoi(pp + 1); while (*pp && *pp != '/') pp++; }
     snprintf(path, sizeof(path), "%s", (*pp == '/') ? pp : "/");
     if (hi == 0 || port <= 0) { Serial.println("[OTA] abort: bad URL (want http://host[:port]/path)"); return; }
-    tprintf("[OTA] fetching http://%s:%d%s\n", host, port, path);
 
-    EthernetClient client;
-    client.setConnectionTimeout(5000);
-    IPAddress ip; bool ok;
-    if (ip.fromString(host)) ok = client.connect(ip, (uint16_t)port);   // dotted-quad: skip DNS
-    else                     ok = client.connect(host, (uint16_t)port); // hostname: needs DNS
-    if (!ok) { Serial.println("[OTA] abort: connect failed"); return; }
-
-    char req[192];
-    int rn = snprintf(req, sizeof(req),
-        "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: opendubs-stamplc\r\nConnection: close\r\n\r\n",
-        path, host);
-    client.write((const uint8_t*)req, rn);
-
-    // ---- status line + headers ----
-    long content_len = -1; int status = 0;
-    char line[160]; uint32_t t0 = millis(); bool first = true, headers_done = false;
-    while (!headers_done) {
-        int li = 0;
-        for (;;) {
-            int c = client.read();
-            if (c < 0) {
-                if (!client.connected() && client.available() == 0) { headers_done = true; break; }
-                if (millis() - t0 > 8000) { client.stop(); Serial.println("[OTA] abort: header timeout"); return; }
-                esp_task_wdt_reset(); delay(1); continue;
-            }
-            t0 = millis();
-            if (c == '\r') continue;
-            if (c == '\n') break;
-            if (li < (int)sizeof(line) - 1) line[li++] = (char)c;
+    // ---- the signature: a small detached file beside the image ----
+    char sigpath[104]; snprintf(sigpath, sizeof(sigpath), "%s.sig", path);
+    uint8_t sig[160]; size_t sig_len = 0;
+    {
+        EthernetClient sc;
+        long sl = otaHttpOpen(sc, host, port, sigpath);
+        if (sl <= 0 || sl > (long)sizeof(sig)) {
+            sc.stop();
+            tprintf("[OTA] REJECTED: no usable signature at %s (%ld bytes); staying on the current firmware\n", sigpath, sl);
+            return;
         }
-        if (headers_done) break;
-        line[li] = '\0';
-        if (first) { first = false; sscanf(line, "HTTP/%*s %d", &status); }
-        else if (li == 0) headers_done = true;
-        else if (strncasecmp(line, "Content-Length:", 15) == 0) content_len = atol(line + 15);
+        uint32_t ts = millis();
+        while (sig_len < (size_t)sl && millis() - ts < 8000) {
+            int n = sc.read(sig + sig_len, (size_t)sl - sig_len);
+            if (n > 0) { sig_len += n; ts = millis(); }
+            else { if (!sc.connected() && sc.available() == 0) break; esp_task_wdt_reset(); delay(1); }
+        }
+        sc.stop();
+        if (sig_len != (size_t)sl) { tprintf("[OTA] REJECTED: short signature read %u/%ld\n", (unsigned)sig_len, sl); return; }
     }
-    if (status != 200) { client.stop(); Serial.printf("[OTA] abort: HTTP status %d\n", status); return; }
-    if (content_len <= 0) { client.stop(); Serial.println("[OTA] abort: no/zero Content-Length"); return; }
+
+    tprintf("[OTA] fetching http://%s:%d%s (signed)\n", host, port, path);
+    EthernetClient client;
+    long content_len = otaHttpOpen(client, host, port, path);
+    if (content_len <= 0) return;
     tprintf("[OTA] status=200 len=%ld — writing…\n", content_len);
 
+    OtaVerify v;
+    if (!otaVerifyBegin(v, kOtaBoard)) { client.stop(); Serial.println("[OTA] abort: cannot hash the image"); return; }
     if (!Update.begin((size_t)content_len)) {
         Serial.printf("[OTA] abort: Update.begin failed: %s\n", Update.errorString());
-        client.stop(); return;
+        otaVerifyAbort(v); client.stop(); return;
     }
 
-    // ---- stream body → flash ----
+    // ---- stream body → flash, hashing as it goes ----
     size_t written = 0; uint8_t buf[1024]; uint32_t tlast = millis();
     while (written < (size_t)content_len) {
         int avail = client.available();
         if (avail <= 0) {
             if (!client.connected()) break;
-            if (millis() - tlast > 8000) { Update.abort(); client.stop(); Serial.println("[OTA] abort: body timeout"); return; }
+            if (millis() - tlast > 8000) { Update.abort(); otaVerifyAbort(v); client.stop(); Serial.println("[OTA] abort: body timeout"); return; }
             esp_task_wdt_reset(); delay(1); continue;
         }
         int toread = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
         int n = client.read(buf, toread);
         if (n <= 0) continue;
-        if (Update.write(buf, n) != (size_t)n) { Update.abort(); client.stop(); Serial.printf("[OTA] abort: flash write failed: %s\n", Update.errorString()); return; }
+        if (Update.write(buf, n) != (size_t)n) { Update.abort(); otaVerifyAbort(v); client.stop(); Serial.printf("[OTA] abort: flash write failed: %s\n", Update.errorString()); return; }
+        otaVerifyUpdate(v, buf, n);
         written += n; tlast = millis();
         esp_task_wdt_reset();                                  // multi-second write — keep the WDT fed
         if ((written & 0x1FFFF) == 0) tprintf("[OTA] %u/%ld\n", (unsigned)written, content_len);
     }
     client.stop();
 
-    if (written != (size_t)content_len) { Update.abort(); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
+    if (written != (size_t)content_len) { Update.abort(); otaVerifyAbort(v); tprintf("[OTA] abort: short read %u/%ld\n", (unsigned)written, content_len); return; }
+
+    // The check that makes it ours. Nothing above has made the new image bootable yet.
+    int which = -1;
+    OtaVerifyResult r = otaVerifyFinish(v, sig, sig_len, OTA_KEYS, OTA_KEY_COUNT, &which);
+    if (r != OTA_SIG_OK) {
+        Update.abort();
+        tprintf("[OTA] REJECTED: %s; staying on the current firmware\n", otaVerifyReason(r));
+        return;
+    }
+    char kid[17]; otaKeyId(OTA_KEYS[which], kid, sizeof(kid));
+    tprintf("[OTA] signature valid (key %s)\n", kid);
     if (!Update.end(true)) { Serial.printf("[OTA] abort: Update.end failed: %s\n", Update.errorString()); return; }
 
     tprintf("[OTA] OK %u bytes — rebooting into new firmware\n", (unsigned)written);

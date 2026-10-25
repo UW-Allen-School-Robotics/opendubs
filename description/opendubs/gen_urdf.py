@@ -7,8 +7,8 @@ Run after editing the ROS FRAMES section (or any geometry it reads):
     uv run --with pyyaml python3 description/opendubs/gen_urdf.py          # write opendubs.urdf
     uv run --with pyyaml python3 description/opendubs/gen_urdf.py --check  # fail if it is stale
 
-Frames whose position is TODO_CAD are left OUT and listed in the URDF's header: a consumer that
-needs one fails loudly instead of fusing against a guess.
+Frames whose position is TODO_CAD (or TODO_MEASURE) are left OUT and listed in the URDF's header:
+a consumer that needs one fails loudly instead of fusing against a guess.
 
 Movable joints (zaxis, head_pan, head_tilt) need a joint_states source, or robot_state_publisher
 publishes nothing below them. Their names match the MJCF.
@@ -55,12 +55,14 @@ class Urdf:
         self.parts, self.missing, self.links = [], [], set()
 
     def link(self, name, visual=None):
+        """visual: one visual's inner XML, or a list of them."""
         assert name not in self.links, f"duplicate link {name}"
         self.links.add(name)
         if visual is None:
             self.parts.append(f'  <link name="{name}"/>')
-        else:
-            self.parts.append(f'  <link name="{name}">\n    <visual>\n{visual}\n    </visual>\n  </link>')
+            return
+        vis = "".join(f"    <visual>\n{v}\n    </visual>\n" for v in ([visual] if isinstance(visual, str) else visual))
+        self.parts.append(f'  <link name="{name}">\n{vis}  </link>')
 
     def joint(self, name, kind, parent, child, origin=(0, 0, 0), rot=(0, 0, 0), axis=None, limit=None):
         body = [f'    <parent link="{parent}"/>', f'    <child link="{child}"/>',
@@ -89,14 +91,6 @@ def box(span, color):
     return (f'      <origin xyz="{xyz(c)}" rpy="0 0 0"/>\n'
             f'      <geometry><box size="{xyz(s)}"/></geometry>\n'
             f'      <material name="{color}"/>')
-
-
-def placed(extent, pivot_x):
-    """Head part extents are exported at pan=180 (head.export_pose); yaw them forward about the pan
-    axis, which is on the centreline: x -> 2*pivot - x, y -> -y."""
-    return {"x": sorted(2 * pivot_x - v for v in extent["x"]),
-            "y": sorted(-v for v in extent["y"]),
-            "z": list(extent["z"])}
 
 
 def build(d):
@@ -140,22 +134,19 @@ def build(d):
 
     ha = d["head_assembly"]
     fitted = ha["fitted"]
-    if fitted == "tab5_pantilt":
-        tab5_head(u, d, ha[fitted])
-    elif fitted == "galaxy_tablet":
-        tablet_head(u, d, ha[fitted])
-    else:
+    if fitted != "galaxy_tablet":
         sys.exit(f"head_assembly.fitted = {fitted!r}: no such assembly")
+    tablet_head(u, d, ha, ha[fitted])
     return u, fitted
 
 
-def pan_tilt(u, h, tilt_visual=None):
+def pan_tilt(u, h, pan_visual=None, tilt_visual=None):
     """The neck's two joints, from a `head:`-style geometry block; returns the pivot (CAD mm).
     Joint names match the MJCF (head_pan, head_tilt) whichever head rides on them."""
     pivot = h["pan_axis_xyz_mm"]
     assert h["tilt_axis_xyz_mm"] == pivot, "pan and tilt axes no longer meet; revisit the head joints"
     lo, hi = h["pan_range_deg"]
-    u.link("head_pan_link")
+    u.link("head_pan_link", pan_visual)
     u.joint("head_pan", "revolute", "lift_platform", "head_pan_link", pivot,
             axis=h["pan_axis"], limit=(rad(lo), rad(hi)))
     # Positive tilt is DOWN, as in the MJCF: about +y, +x swings toward -z.
@@ -166,15 +157,58 @@ def pan_tilt(u, h, tilt_visual=None):
     return pivot
 
 
-def tablet_head(u, d, asm):
-    """A tablet on the neck: the same joints, and only the frames that have been measured. Its
-    mounting is unmeasured, so it has no visual box: a guessed one would mislead clearance."""
-    pivot = pan_tilt(u, d[asm["geometry"]])
+def tablet_head(u, d, ha, asm):
+    """The tablet on the neck: the two joints, box visuals from the meshes' extents, and the frames
+    that are located. The meshes are exported in the head's own frame (head.export), which a pure
+    translation puts on the robot, so every export number moves by the same offset."""
+    h = d[asm["geometry"]]
+    ex = h["export"]
+    shift = ex["to_robot_mm"]
+    pp = [p + o for p, o in zip(ex["pan_tilt_point_mm"], shift)]
+    assert pp == h["pan_axis_xyz_mm"], (
+        f"head.export puts the pan/tilt point at {pp}, not at the measured {h['pan_axis_xyz_mm']}")
+
+    def rel_span(span):
+        """An export extent, in the frame of the pan/tilt point."""
+        return {a: [v - ex["pan_tilt_point_mm"][i] for v in span[a]] for i, a in enumerate("xyz")}
+
+    ext = ex["extents_export_mm"]
+    pivot = pan_tilt(u, h, box(rel_span(ext["neck"]), "frame"), box(rel_span(ext["face"]), "plate"))
+    marks = {k: [v + o for v, o in zip(p, shift)] for k, p in ex["landmarks_export_mm"].items()}
     for frame, spec in (asm.get("frames") or {}).items():
-        u.fixed_sensor("head_tilt_link", frame, spec.get("xyz_mm"), spec.get("rpy_deg"), pivot,
-                       "galaxy_tablet")
+        pos = marks[spec["at"]] if "at" in spec else spec.get("xyz_mm")
+        u.fixed_sensor("head_tilt_link", frame, pos, spec.get("rpy_deg"), pivot, "galaxy_tablet")
         if spec.get("optical"):
             optical_frame(u, frame)
+
+    # The Femto Bolt: a fixed attach frame on the face, then the module that rides on it. Its
+    # frames are placed relative to the attach frame (both in robot CAD coordinates at rest).
+    fm = asm.get("femto_mount")
+    if fm:
+        at = marks[fm["at"]] if "at" in fm else fm.get("xyz_mm")
+        mod = (ha.get("modules") or {}).get(fm["module"], {})
+        if known(at) and known(fm.get("rpy_deg")):
+            assert fm["rpy_deg"] == [0, 0, 0], "the module's frames assume an unrotated mount frame"
+            rel_mount = lambda span: {a: [v - at[i] for v in span[a]] for i, a in enumerate("xyz")}
+            moved = lambda key: {a: [v + shift[i] for v in ext[key][a]] for i, a in enumerate("xyz")}
+            vis = [box(rel_mount(moved(k)), c) for k, c in (("femto_mount", "frame"), ("femto_bolt", "rubber"))
+                   if mod.get("fitted") and k in ext]
+            u.link(fm["frame"], vis or None)
+            u.joint(f"{fm['frame']}_joint", "fixed", fm["parent"], fm["frame"],
+                    [p - o for p, o in zip(at, pivot)], fm["rpy_deg"])
+        else:
+            u.missing.append(f"{fm['frame']} (the Femto mount)")
+        if mod.get("fitted") and fm["frame"] in u.links:
+            for frame, spec in (mod.get("frames") or {}).items():
+                if spec.get("urdf") is False:
+                    continue
+                pos = marks[spec["at"]] if "at" in spec else spec.get("xyz_mm")
+                if known(pos) and known(spec.get("rpy_deg")):
+                    u.link(frame)
+                    u.joint(f"{frame}_joint", "fixed", fm["frame"], frame,
+                            [p - o for p, o in zip(pos, at)], spec["rpy_deg"])
+                else:
+                    u.missing.append(f"{frame} ({fm['module']})")
 
 
 def optical_frame(u, parent):
@@ -186,27 +220,6 @@ def optical_frame(u, parent):
         return
     u.link(name)
     u.joint(f"{name}_joint", "fixed", parent, name, (0, 0, 0), (-90, 0, -90))
-
-
-def tab5_head(u, d, asm):
-    h = d[asm["geometry"]]
-    pivot = h["pan_axis_xyz_mm"]
-    assert h["export_pose"] == "yawed_180", "head parts are no longer exported at pan=180"
-    ext = {k: placed(v, pivot[0]) for k, v in h["extents_cad_mm"].items()}
-
-    def rel_span(span):
-        return {a: [v - pivot[i] for v in span[a]] for i, a in enumerate("xyz")}
-
-    pan_tilt(u, h, box(rel_span(ext["pt_tilt_body"]), "frame"))
-
-    def face(span):
-        """Centre of a part's forward (+x) face, in CAD coordinates at pan = tilt = 0."""
-        return [span["x"][1], sum(span["y"]) / 2, sum(span["z"]) / 2]
-
-    named = {"d415_face": face(ext["d415"]), "screen_face": face(ext["pt_screen_cover"])}
-    for frame, spec in asm["frames"].items():
-        pos = named[spec["at"]] if "at" in spec else spec.get("xyz_mm")
-        u.fixed_sensor("head_tilt_link", frame, pos, spec.get("rpy_deg"), pivot, "tab5_pantilt")
 
 
 def validate(text):
@@ -228,7 +241,7 @@ def render(u, fitted):
             "     base_link: centre of the wheel rectangle, axle height (workplan-thor-stack L.1).",
             "     Movable joints zaxis / head_pan / head_tilt need a joint_states source."]
     if u.missing:
-        head.append("     LEFT OUT (no CAD position in the repo yet):")
+        head.append("     LEFT OUT (no CAD or measured position in the repo yet):")
         head += [f"       - {x}" for x in u.missing]
     head[-1] += " -->"
     mats = ['  <material name="frame"><color rgba="0.55 0.57 0.6 1"/></material>',

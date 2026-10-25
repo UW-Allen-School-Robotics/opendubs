@@ -229,6 +229,26 @@ host. It has no network input today, by design.*
   (muted, outside the repo); report time, size and any ERR / video-skin warnings. Tablet was asked to drop the
   face page's idle caption in render mode (or add `caption=0`).
 
+### Tools and the crawling hand — built 2026-10-16, twin only
+
+- **The tool registry** (`effectors.py`, `software/choreo/effectors/`): tool types with channels, poses,
+  finger dances, mounts, modes, twin models and drivers; the fitted tools are per robot. GRIP_L / GRIP_R
+  mean "the tool on that side", and every show written before still validates and exports byte for byte
+  (proven over every show in the repo and the local shows, against the test and the robot's limits, plus
+  render frame hashes).
+- **CRAWL**: a hand on the floor in front of the robot, on a leash anchored to the base, walks, backs up,
+  pivots and finger-dances, and taps the beat between cues; validated against its floor area, the slack
+  leash, a clear distance from the chassis and its timing at the slowest simulated speed (format spec 13).
+  Not attached to the base, and no "getting back" requirement (the user's call, 2026-10-16). Twin only:
+  the runner refuses it.
+- **The Surge hand** (sim, not hardware): the vendor URDF from `$OPENDUBS_SURGE_DIR`, never committed;
+  the left hand mirrored and proven; gaits from the Surge Hand investigation, plus a back-up gait and
+  both pivots found here (sim: −3.8 cm/s; +3.0–3.8 and −9.0–11.8 °/s), and the walking-turn limit (a
+  ramped heading at ≤ 1.5 °/s; a step turns the wrong way).
+- **Next**: a driver (output) for the Surge, when the hand is fitted; measure traction and speed on the
+  real floor and replace the sim numbers; equipped Surge in the twin's clearance sweep (today the sweep
+  uses the arm model's own gripper geometry).
+
 ## Phase 6 — on the robot
 
 *The hardware session. Experiments as specified in
@@ -242,7 +262,7 @@ robot before any of them; flashing is per `CLAUDE.md`, never re-derived.*
 | 6.3 | **Teach by capture from teleop (DEC-3)** — the real joint source replaces the fake one. | A taught pose replays where it was taught, within the controller's settling error. |
 | 6.4 | **Music sync S1–S3** on the robot's own network (the bench is not a latency test). **S1 and S3 DONE on opendubs2, 2026-10-08** (tablet on the robot's Wi-Fi, laptop-side recorder in the page): **S1** — clock error ±2.5 ms typical, ±3.7 ms worst over 19 minutes docked (0 of 231 bursts over 20 ms); handheld across the room the same, with one ±85 ms burst while walking ~15 m away. **S3** — the Thor's and the tablet's clocks agree within 0.1–1 ppm: no drift correction needed. But the tablet's AUDIO clock can stall when it is handled (USB unplugged, picked up): 10–70 ms per event; docked and untouched, one 8 ms stall in ~14 minutes. Hence the in-play correction in 4.2. **S2 dropped (DEC-16):** the reported output latency (37 ms) is accepted; sync is judged by ear and eye. | 4.2's tolerance met on the robot. |
 | 6.5 | **Audio-role experiments C1–C5** (teach-and-sync note). | Each answered against its kill criterion. |
-| 6.6 | **Dance floor test (DEC-2):** first open-loop dance on the robot, floor space marked, CH8 in a human hand. | Net displacement and time limits hold. |
+| 6.6 | **Dance floor test (DEC-2) — READY TO RUN, 2026-10-22.** DANCE moves the real base on a live run through the Thor's base tracker, closed loop on `/odom` (#473, merged). The user's numbers: a show's base motion is capped at 0.35 of full command (opendubs2's `base.env`), each move peaks at no more than 70 % of the cap, and every move starts and ends at rest (#515: the smooth profiles, the 70 % peak and the speeds at the cap; merged, deployed at the next robot session before the first run). **On opendubs2, pushed 2026-10-22:** `base_one_sway` (one 3 s sway), `monster_mash_base` (the show's 12 DANCE steps alone, with the song) and `monster_mash` (with its video), all validated against the robot's own limits; the video is in the robot's library and on the stage box. Those copies dance at amp 0.5, which the robot's code allowed then. **The local copies now dance at amp 0.7** (70 % of the cap, the user's choice because 50 % shuddered: a sway at about 0.175 m/s and ±5.4 cm, a twist at about 21 °/s and ±3.7°), validated against `main` with #515. They are pushed again on the user's word at the next session, after the #515 deploy; the robot's current code refuses 0.7. Run order, the user at the robot each time: `base_one_sway`, then `monster_mash_base`, then `monster_mash`, deadman held, 1.5 m clear, no glass inside it. **The base numbers are provisional:** measured before the drivetrain gets its belts, and re-measured after. | Each move returns home within the tracker's settle; no shudder at the turn-arounds; the full show runs with the deadman held. |
 | 6.7 | **The lift mid-travel rocks the robot — FOUND 2026-10-15** (the user, running a fast dance show on opendubs2): the Z-axis is much stiffer fully up or fully down; with it part-way up, fast arm moves rocked the robot. That show now runs without the lift. Authoring rule until a check exists: the lift sits at an end of its travel whenever the arms move fast. **PROPOSED, not built:** a validator WARNING for fast shoulder moves while the lift may be mid-travel ([`design/choreo-authoring.md`](design/choreo-authoring.md), "The lift and the arms"). Needs two measurements first: the lift's full-travel time, up and down, and the shoulder speed that rocks it mid-travel. | The two numbers measured at the robot; the warning built and fires on a show that moves the arms fast with the lift part-way up. |
 
 ## Phase 7 — capture and growth

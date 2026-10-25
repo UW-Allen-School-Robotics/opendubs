@@ -200,7 +200,9 @@ class RosArms:
             return self._js_at, pos, vel, eff
 
     def measured(self):
-        """{"ARM_L": [7 signed degrees], "ARM_R": [...]} — or None if /joint_states is stale."""
+        """{"ARM_L": [7 signed degrees], "ARM_R": [...]} — or None if /joint_states is stale. An arm
+        /joint_states does not carry all seven joints of is left out (it may be down, and a run may
+        skip it); the runner refuses a run that needs an arm missing here."""
         with self.lock:
             if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S:
                 return None
@@ -208,9 +210,8 @@ class RosArms:
         out = {}
         for slot, side in ARM_SIDES.items():
             names = joint_names(side)
-            if not all(n in js for n in names):
-                return None
-            out[slot] = [math.degrees(js[n]) for n in names]
+            if all(n in js for n in names):
+                out[slot] = [math.degrees(js[n]) for n in names]
         return out
 
     def send(self, slot, points):

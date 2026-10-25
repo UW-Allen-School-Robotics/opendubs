@@ -52,6 +52,10 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
+  # Material's bundled icons as inline monochrome SVG (:octicons-play-24: and the like).
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.superfences:
       # Mermaid. Material ships the renderer; this fence stops superfences from treating the
       # block as source and highlighting it instead of drawing it.
@@ -70,6 +74,9 @@ nav:
   - System overview: system-overview.md
   - Operating the robot: operating.md
   - Playing sound: playing-sound.md
+  - Composer:
+      - Quickstart: composer/quickstart.md
+      - Making a show: composer/making-a-show.md
   - Troubleshooting: reference/troubleshooting.md
   - Educators: educators.md
   - Design & Interfaces:
@@ -79,6 +86,7 @@ nav:
       - Power & data: interfaces/power-data.md
       - Command & telemetry: interfaces/command-telemetry.md
       - Payload communications: interfaces/payload-comms.md
+      - Navigation (for your own stack): interfaces/navigation.md
   - Assembly Guide:
       - Lower Frame Assembly (overview): build/lower-frame.md
       - 1 · Base Frame: build/base-frame.md
@@ -101,8 +109,10 @@ nav:
       - Payload Modules (in development):
           - Scissor Lift Module: build/scissor-lift.md
           - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
+          - Depth Camera Mount (Femto Bolt): build/depth-camera.md
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md
+      - Stage Display Box (for shows): build/stage-display.md
   - Build & Flash:
       - Flash a StamPLC: flashing-stamplc.md
       - Drive bring-up (channel → ESC → wheel): drive-bringup.md

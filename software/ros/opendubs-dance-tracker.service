@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenDubs dance tracker (a show's DANCE targets + /odom -> /cmd_vel, closed loop)
+After=network.target opendubs-drive-bridge.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+# UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10).
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+# The software speed cap and the speeds at it, per robot, SHARED with opendubs-drive-bridge so the two
+# cannot disagree (drive_scale.py). Optional: without it, the scripts' defaults apply.
+EnvironmentFile=-/etc/opendubs/base.env
+ExecStart=/opt/opendubs/ros/dance-tracker.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+#!/bin/bash
+# stage-conf KEY [default]: one value from the boot partition's stage.conf. Parsed, never sourced: the
+# file is editable from any computer, so nothing in it is ever run.
+CONF=${STAGE_CONF:-/boot/firmware/stage.conf}
+key=$1
+v=$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$CONF" 2>/dev/null | tail -n 1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+printf '%s\n' "${v:-${2:-}}"

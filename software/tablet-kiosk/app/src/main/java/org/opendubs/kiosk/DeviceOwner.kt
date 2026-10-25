@@ -44,9 +44,13 @@ object DeviceOwner {
         }
         val admin = ComponentName(activity, KioskAdminReceiver::class.java)
 
-        // Lock task: no status bar, no notifications, no Home or Overview. Nothing re-enabled.
-        dpm.setLockTaskPackages(admin, arrayOf(activity.packageName))
-        dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE)
+        // Lock task: no status bar, no notifications, no Home or Overview. One thing re-enabled: the
+        // power menu (P-1, power-and-shutdown.md §9), so holding the side key offers Power off and
+        // Restart. With NONE the long press did nothing at all. Holding it opens the menu only once
+        // the setup step `power_button_long_press 1` is done (README, step 5); the keyguard stays off.
+        // And Zoom, the one other app let in front: call mode (Call.kt), started and ended from the dashboard.
+        dpm.setLockTaskPackages(admin, arrayOf(activity.packageName, Call.ZOOM))
+        dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS)
 
         // Updates never install or prompt on their own: postpone (30 days per update — Android's
         // limit). Updates are taken deliberately, between shows.

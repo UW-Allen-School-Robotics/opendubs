@@ -6,13 +6,18 @@ A head has two halves:
   - the NECK: what moves. It takes pan/tilt (the YOLO tracker's frames, the StamPLC's RC aiming),
     and the StamPLC is told where it is (TAB5IP).
 
-With the Tab5 fitted they are the same box, so both default to the same address and nothing
-changes. With the tablet as the face, the neck is a separate controller (plan DT-7).
+The head today is the Galaxy tablet (the face: a page this dashboard serves, reached through its
+face door on this machine, face_door.py, UDP 127.0.0.1:4242) on the M5Dial neck (its own box,
+opendubs-neck.local). The retired Tab5 was both halves in one box; a robot still set up that way
+(one host named for the face, or the old OPENDUBS_TAB5_HOST) keeps both halves at that host.
 
 Per-robot settings, kept on the robot in /etc/opendubs/robot.env, never in the repo:
 
-  OPENDUBS_HEAD_FACE_HOST   default: OPENDUBS_TAB5_HOST if set (the old name), else opendubs-tab5.local
-  OPENDUBS_HEAD_NECK_HOST   default: the face's host. `none` (or `off`): NO NECK is fitted — nothing
+  OPENDUBS_HEAD_FACE_HOST   default: OPENDUBS_TAB5_HOST if set (the old name), else 127.0.0.1, the
+                            face door on this machine
+  OPENDUBS_HEAD_NECK_HOST   default: the face's host (a one-box head; and with nothing set, the door
+                            here, so a local run never reaches the real neck). A robot with the
+                            M5Dial sets it: opendubs-neck.local. `none` (or `off`): NO NECK is fitted — nothing
                             is told where a neck is (no TAB5IP to the StamPLC) and nothing aims one.
                             The M5Dial neck is on the e-stop branch, so a robot may run without it.
 """
@@ -21,7 +26,7 @@ from __future__ import annotations
 import os
 import sys
 
-DEFAULT_HOST = "opendubs-tab5.local"
+DEFAULT_HOST = "127.0.0.1"                  # the face door (face_door.py): the face page behind it
 _OLD_NAME = "OPENDUBS_TAB5_HOST"
 _warned = False
 
@@ -53,4 +58,8 @@ def neck_host(env=os.environ):
     v = _setting(env, "OPENDUBS_HEAD_NECK_HOST")
     if v.lower() in NO_NECK:
         return None
+    # Unset, the neck follows the face, as it always has: a one-box head (the retired Tab5) is both,
+    # and it is what KEEPS A LOCAL DASHBOARD RUN OFF THE ROBOT. With nothing set, the face is the door
+    # here (127.0.0.1), so a run that forgot robot.env sends the real neck nothing. A robot names its
+    # neck (OPENDUBS_HEAD_NECK_HOST=opendubs-neck.local).
     return v or face_host(env)

@@ -129,3 +129,19 @@ def test_an_estop_says_how_to_get_out_of_it():
         assert len(r[1]) <= sw.MAX_LEN
     assert sw.recovery(_rs(estop_sources=["SOFTWARE"]))[0] == (
         "To re-enable: switch CH5 (mode) to OFF, then re-arm from the dashboard.")
+
+
+def test_a_held_head_says_so_but_never_over_a_fault_or_an_e_stop(monkeypatch):
+    """The neck's hold on the face (Face & HRI's words): a bystander must not read a held head as a broken
+    tracker, and a release says the head can move again. A fault's or an e-stop's own words come first."""
+    import head_settings
+    import neck_state
+    hold = {"hold": "on"}
+    monkeypatch.setattr(neck_state, "hold_status", lambda: hold)
+    monkeypatch.setattr(head_settings, "load", lambda: dict(head_settings.DEFAULTS, state_words="always"))
+    assert so.caption_line("SAFE_IDLE", _rs(), _Status) == "CAPTION The head is held still"
+    hold["hold"] = "releasing"
+    assert so.caption_line("SAFE_IDLE", _rs(), _Status) == "CAPTION The head can move again"
+    assert so.caption_line("E_STOP_LATCH", _rs(estop_sources=["button"]), _Status) == "CAPTION Emergency stop"
+    hold["hold"] = "off"
+    assert so.caption_line("SAFE_IDLE", _rs(), _Status) == "CAPTION Ready"

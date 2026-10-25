@@ -9,7 +9,7 @@ name: Hello wave
 slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND]
 requires:
   arms: active          # both arms powered and their controllers running
-  tab5: true            # head and sound
+  head: true            # head and sound
   rc_authority: AUTO    # the lift needs it; the arms do not
 notes: >
   The lift rises while the arms are mid-sequence rather than after them. Its descent is expected
