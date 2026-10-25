@@ -13,6 +13,8 @@ STATES (the design doc's interaction flow):
     ARMED         "trick or treat" with the deadman held  -> RUNNING
     RUNNING       done, refused, or the deadman released  -> ARMED
                   a check fails                          -> CHECK_FAILED, the robot says why
+                                                            (ARMED again with a fixed program, --agent
+                                                            program: a correction cannot change it)
     CHECK_FAILED  a spoken correction                    -> GENERATING
     any state     "stop"                                 -> IDLE
 
@@ -180,7 +182,8 @@ class DemoRunner:
     service and the dashboard page; `speak` and `deadman_held` reach the robot."""
 
     def __init__(self, agent, make_namespace, speak, deadman_held, clock=time.monotonic,
-                 log=None, background=True, primitives=api.PRIMITIVE_NAMES, publish=None):
+                 log=None, background=True, primitives=api.PRIMITIVE_NAMES, publish=None,
+                 rearm_on_failure=False):
         """`publish`, when given, is called with each approved Program instead of arming it for
         "trick or treat": the show path, where the Shows page runs it (show_backend.publish). It
         returns what to report (a dict), or raises ValueError, and the program is not approved."""
@@ -190,6 +193,9 @@ class DemoRunner:
         self.failed: Program | None = None        # a program whose show could not be made
         self.speak, self.deadman_held, self.clock = speak, deadman_held, clock
         self.background = background
+        #: A failed run goes back to ARMED, not CHECK_FAILED: for a fixed program, which a spoken
+        #: correction cannot change, so the next "trick or treat" simply tries again.
+        self.rearm_on_failure = rearm_on_failure
         self.lock = threading.RLock()
         self.state = IDLE
         self.offered: Program | None = None       # awaiting approval
@@ -396,6 +402,9 @@ class DemoRunner:
             if outcome["result"] in ("done", "refused"):
                 self.runs += outcome["result"] == "done"
                 self._to(ARMED, "run_ended", **{k: v for k, v in outcome.items() if k != "trace"})
+            elif self.rearm_on_failure:              # the error is in the log and on the page, not said aloud
+                self._to(ARMED, "run_failed", error=outcome["error"], rearmed=True)
+                self._say("Oops, that didn't work. Say trick or treat to try again.")
             else:
                 self._to(CHECK_FAILED, "run_failed", error=outcome["error"])
                 self._say("Something went wrong: " + str(outcome["error"]).split(": ", 1)[-1][:SAID_MAX])
@@ -573,7 +582,7 @@ def main(argv=None) -> int:
         (namespace["say"] if "say" in namespace else lambda t: log({"said": t}))(text)
 
     runner = DemoRunner(agent, lambda: namespace, speak, deadman_held, log=log,
-                        primitives=primitives, publish=publish)
+                        primitives=primitives, publish=publish, rearm_on_failure=a.agent == "program")
 
     def ticks():
         while True:

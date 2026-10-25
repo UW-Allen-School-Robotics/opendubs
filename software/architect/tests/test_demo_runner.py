@@ -152,6 +152,20 @@ class Runs(unittest.TestCase):
         self.assertIsNone(r.armed)
 
 
+    def test_a_fixed_program_is_armed_again_after_a_failure(self):
+        """On the robot a failed run left a fixed program in CHECK_FAILED, and no later "trick or
+        treat" could start it again (2026-10-24)."""
+        r, robot, said, _, _ = armed()
+        r.rearm_on_failure = True
+        robot.fail["move_arm_to_named_pose"] = RuntimeError("did not reply within 60 s")
+        r.trigger()
+        self.assertEqual((r.state, r.last["result"]), (dr.ARMED, "failed"))
+        self.assertNotIn("60 s", said[-1])                         # the error is not read out to visitors
+        del robot.fail["move_arm_to_named_pose"]
+        self.assertTrue(r.trigger())
+        self.assertEqual((r.state, r.runs), (dr.ARMED, 1))
+
+
 class DeskCheck(unittest.TestCase):
     def test_rejected_programs(self):
         bad = {
