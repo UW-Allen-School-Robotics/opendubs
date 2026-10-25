@@ -10,8 +10,9 @@ when the device's own differ (the Jabra SPEAK 510 plays 48 kHz stereo; it captur
 exactly what the KWS and Parakeet take). No Python package and no alsa-utils: libasound is the
 system's own (LGPL-2.1, linked dynamically and unmodified), and alsa-utils is GPL.
 
-The card is found by its name in /proc/asound/cards at each open, because a USB card's number can
-change when it is plugged in again; the Jabra's ALSA id is just "USB".
+The card is found by its name at each open, because a USB card's number can change when it is
+plugged in again; the Jabra's ALSA id is just "USB". The names come from /proc/asound/cards, or,
+where Docker hides /proc/asound (in every container), from libasound itself through /dev/snd.
 """
 from __future__ import annotations
 
@@ -36,19 +37,30 @@ class DeviceError(RuntimeError):
     pass
 
 
+def _cards_from_lib() -> str:
+    """The cards as /proc/asound/cards would list them, from libasound's control devices."""
+    lib, card, lines = _asound(), ctypes.c_int(-1), []
+    while lib.snd_card_next(ctypes.byref(card)) == 0 and card.value >= 0:
+        name, long = ctypes.c_char_p(), ctypes.c_char_p()
+        if lib.snd_card_get_name(card, ctypes.byref(name)) == 0 and \
+                lib.snd_card_get_longname(card, ctypes.byref(long)) == 0:
+            lines.append(f"{card.value} [{name.value.decode()}]: {long.value.decode()}")
+    return "\n".join(lines)
+
+
 def find_card(match: str, cards_text: str | None = None) -> str:
     """The plughw name of the first card whose id or description contains `match` (any case)."""
     if cards_text is None:
         try:
             with open(CARDS, encoding="utf-8") as f:
                 cards_text = f.read()
-        except OSError as e:
-            raise DeviceError(f"cannot read {CARDS}: {e}") from None
+        except OSError:
+            cards_text = _cards_from_lib()
     for line in cards_text.splitlines():
         m = _CARD_LINE.match(line)
         if m and match.lower() in (m.group(2) + " " + m.group(3)).lower():
             return f"plughw:{m.group(1)},0"
-    raise DeviceError(f"no sound card matching {match!r} in {CARDS}")
+    raise DeviceError(f"no sound card matching {match!r} (cards: {cards_text.strip() or 'none'})")
 
 
 _lib = None
@@ -72,6 +84,8 @@ def _asound():
         lib.snd_pcm_recover.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
         for f in ("snd_pcm_drain", "snd_pcm_close", "snd_pcm_prepare", "snd_pcm_start"):
             getattr(lib, f).argtypes = [ctypes.c_void_p]
+        lib.snd_card_next.argtypes = [ctypes.POINTER(ctypes.c_int)]
+        lib.snd_card_get_name.argtypes = lib.snd_card_get_longname.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_char_p)]
         lib.snd_strerror.argtypes = [ctypes.c_int]
         lib.snd_strerror.restype = ctypes.c_char_p
         _lib = lib

@@ -33,7 +33,7 @@ handout triggered by "trick or treat".
 | `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode`), identical to perception's |
 | `opendubs_architect/perception.py`, `camera_frames.py` | The perception services as `detect_objects` and `locate_object`, their answers in the chassis frame |
 | `skills/*.md` | What the model is told about this robot: motion, grasping, verification, camera questions, handoff, navigation |
-| `image/`, `tools/dev.sh` | The `archit-architect` image (the perception image's base and layout) and how it runs on opendubs2 |
+| `image/`, `tools/dev.sh` | The `archit-architect` image (built on `archit-perception:dev`, with the listener's speech layer; `speech_no_gpl.py` checks that layer) and how it and the listener run on opendubs2 |
 | `tools/workspace_box.py` | Proposes each arm's workspace box from the twin, and checks the moves inside it |
 | `examples/arms_wave.py` | An arms-only program for the first runs: no model needed |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
@@ -91,12 +91,17 @@ a reply of three words or fewer is heard without the wake phrase; while a progra
 "stop". It reuses the voice service's modules (`wakeword.py`, `vad.py`, `speech.py`) without
 changing them, and it is not part of the voice service, which never reaches motion.
 
+It runs in the `archit-architect` image, which `dev.sh build` now builds FROM
+`archit-perception:dev` (Kokoro uses perception's PyTorch; perception's PyTorch stack is held where
+it is) with a speech layer installed the way the voice image installs it. The listener is its own
+container, `archit-architect-listener`, with the Jabra (`/dev/snd`, the audio group), the voice
+service's models read-only, and the spotter's model in `~/architect-data/models`:
+
 ```bash
-# once per robot: the spotter's model, beside the voice service's (verified against its pins)
-sudo python3 -m opendubs_architect.kws fetch /var/lib/opendubs/models
-# the runner speaks through the listener; the listener needs the audio group and the voice image's packages
-python3 -m opendubs_architect.demo_runner --agent program --program handout.py --dry-run --say-url http://127.0.0.1:8099/api/say
-python3 -m opendubs_architect.listener          # --stt fake --tts fake: the Jabra without the models
+software/architect/tools/dev.sh build             # needs archit-perception:dev on the robot
+software/architect/tools/dev.sh kws               # once: the spotter's model, verified against its pins
+software/architect/tools/dev.sh listen            # Kokoro on the GPU (TTS_DEVICE=cpu: about 2 s a line)
+LISTEN=1 software/architect/tools/dev.sh dry      # the runner, speaking through the listener
 ```
 
 **The robot talks back** (`chat.py`), from the robot's own language model: Qwen3-30B-A3B on vLLM,
@@ -136,7 +141,8 @@ triggered by the music or the talk. Over music the spotter missed most wake phra
 instruction needs the music down**.
 
 Not yet done: an hour of show music with nobody saying either phrase (one minute is not a false
-trigger rate), and a container for the listener (the voice image plus `--device /dev/snd`).
+trigger rate); and `dev.sh` runs the runner on the show path only, where "trick or treat" is
+ignored, so the live arm backend for the night still needs its own `dev.sh` command.
 
 `--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
 camera questions while writing, but every motion refuses until a program is approved.

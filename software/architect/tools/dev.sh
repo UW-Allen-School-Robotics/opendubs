@@ -8,6 +8,8 @@
 #   dev.sh build                   build archit-architect:dev from this checkout
 #   dev.sh dry                     the runner with a fixed program (examples/arms_wave.py), no model
 #   dev.sh up                      the runner with ARCHITECT writing programs (needs architect.env)
+#   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
+#   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner
 #   dev.sh logs                    follow the runner log
 #   dev.sh shows                   the shows written so far
 #   dev.sh down                    stop and remove the container
@@ -18,6 +20,9 @@
 # its opendubs branch, default ~/ssa), DATA (default ~/architect-data), LIMITS (the arm stack's
 # joint_limits.yaml, mounted read-only; by default found where the show runner's drop-in binds it from,
 # as show_sync.py finds it; without one the test fixture is used and the push re-checks),
+# BASE_IMAGE (default archit-perception:dev: Kokoro uses its PyTorch), MODELS (the voice service's
+# models, mounted read-only, default /var/lib/opendubs/models), LISTEN=1 (the runner speaks through
+# the listener), TTS_DEVICE (cuda, the default: Kokoro on the GPU, 0.14 s a line; or cpu, about 2 s),
 # PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker), PROFILE (arms,
 # the default, or arms_see: the program may look with the perception services, which a recorded show
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
@@ -36,6 +41,9 @@ SSA="${SSA:-$HOME/ssa}"
 DATA="${DATA:-$HOME/architect-data}"
 PORT=8098
 DOCKER="${DOCKER:-sudo -n docker}"
+BASE_IMAGE="${BASE_IMAGE:-archit-perception:dev}"
+MODELS="${MODELS:-/var/lib/opendubs/models}"
+LISTENER=archit-architect-listener
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
 # arm stack's hw_validation/ directory to /etc/opendubs/arm-limits (provision-runner.sh). Read in
@@ -61,6 +69,8 @@ run() {  # $@: the runner's arguments
       || { echo "dev.sh: ${DATA}/architect.env must be mode 600 (it holds an API key): chmod 600 ${DATA}/architect.env" >&2; exit 1; }
     env+=(--env-file "${DATA}/architect.env")
   fi
+  local say=""
+  [ "${LISTEN:-0}" = 1 ] && say="--say-url http://127.0.0.1:8099/api/say"
   local profile="${PROFILE:-arms}" domain=77
   case "${profile}" in
     arms) ;;
@@ -75,14 +85,41 @@ run() {  # $@: the runner's arguments
     "${env[@]}" "${args[@]}" \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" -v "${SSA}:/ssa:ro" \
     "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_runner --port ${PORT} --publish /data/shows \
-      --log /data/runner.jsonl $* 2>&1 | tee /data/runner.log"
+      --log /data/runner.jsonl ${say} $* 2>&1 | tee /data/runner.log"
   echo "started ${NAME} on 127.0.0.1:${PORT}; 'dev.sh logs' to follow"
+}
+
+listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
+  local gid tts=() ; gid=$(getent group audio | cut -d: -f3)
+  [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
+  if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
+    echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1
+  fi
+  [ "${TTS_DEVICE:-cuda}" = cuda ] && tts=(--runtime nvidia -e VOICE_TTS_DEVICE=cuda)
+  ${DOCKER} run -d --rm --name "${LISTENER}" --network host \
+    --device /dev/snd --group-add "${gid}" "${tts[@]}" \
+    -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
+    -e OPENDUBS_VOICE_MODELS=/models -e HF_HUB_OFFLINE=1 -e HF_HOME=/tmp/hf \
+    -e HF_HUB_CACHE=/models/hf/hub -e HUGGINGFACE_HUB_CACHE=/models/hf/hub -e TRANSFORMERS_CACHE=/models/hf/hub \
+    -v "${DATA}:/data" -v "${REPO}:/work:ro" -v "${MODELS}:/models:ro" \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.listener --models /models --kws-models /data/models \
+      2>&1 | tee /data/listener.log"
+  echo "started ${LISTENER}: the Jabra, say on 127.0.0.1:8099; start the runner with LISTEN=1"
 }
 
 case "${1:-}" in
   build)
     ${DOCKER} build -f "${REPO}/software/architect/image/Dockerfile" -t "${IMAGE}" \
-      ${BASE_IMAGE:+--build-arg BASE_IMAGE="${BASE_IMAGE}"} "${REPO}/software/architect"
+      --build-arg BASE_IMAGE="${BASE_IMAGE}" --build-context voice="${REPO}/software/voice" \
+      "${REPO}/software/architect"
+    ;;
+  kws)
+    mkdir -p "${DATA}/models"
+    ${DOCKER} run --rm -v "${DATA}:/data" -v "${REPO}:/work:ro" -e PYTHONPATH=/work/software/architect \
+      "${IMAGE}" python3 -m opendubs_architect.kws fetch /data/models
+    ;;
+  listen)
+    listen
     ;;
   dry)
     run --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
@@ -98,10 +135,11 @@ case "${1:-}" in
     ls -l "${DATA}/shows"
     ;;
   down)
-    ${DOCKER} stop -t 5 "${NAME}" >/dev/null && echo "stopped ${NAME}"
+    ${DOCKER} stop -t 5 "${NAME}" >/dev/null 2>&1 && echo "stopped ${NAME}"
+    ${DOCKER} stop -t 5 "${LISTENER}" >/dev/null 2>&1 && echo "stopped ${LISTENER}"
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,25p' "$0"; exit 1
+    sed -n '2,31p' "$0"; exit 1
     ;;
 esac

@@ -309,6 +309,7 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int, default=8099, help="POST /api/say {text}: the robot speaks it")
     ap.add_argument("--card", default="Jabra", help="the sound card, by a word of its name")
     ap.add_argument("--models", default=os.environ.get("OPENDUBS_VOICE_MODELS", "/var/lib/opendubs/models"))
+    ap.add_argument("--kws-models", help="where kws.py fetched the spotter's model (default: --models)")
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
     ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
     ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
@@ -324,7 +325,7 @@ def main(argv=None) -> int:
     stt, tts = speech.make_stt(a.stt), speech.make_tts(a.tts)
     runner = Runner(a.runner)
     lines: queue.Queue = queue.Queue()
-    listener = Listener(kws.Spotter(a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
+    listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
                         chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]))
 

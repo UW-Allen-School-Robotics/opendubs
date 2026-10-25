@@ -5,3 +5,9 @@ mujoco==3.17.0
 numpy<2
 # colcon-core (ROS 2's build tool) requires setuptools < 80.
 setuptools<80
+# spaCy's compiled helpers at the versions the voice image runs (2026-10-24): with preshed 3.0.14,
+# cymem 2.0.16 and murmurhash 1.0.16, spaCy's English tokenizer fails to load (OverflowError in
+# Tokenizer._flush_specials), so Kokoro cannot speak.
+preshed==3.0.13
+cymem==2.0.13
+murmurhash==1.0.15
