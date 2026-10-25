@@ -148,6 +148,7 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
 listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
   local gid tts=() show="" ; gid=$(getent group audio | cut -d: -f3)
   [ -n "${SHOW:-}" ] && show="--show ${SHOW} --start ${START:-deadman}"
+  [ "${LOG_HEARD:-0}" = 1 ] && show="${show} --log-heard"     # tuning: what Parakeet wrote for a refused hit
   [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
     echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1

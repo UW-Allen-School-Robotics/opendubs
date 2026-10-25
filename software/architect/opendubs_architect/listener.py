@@ -149,11 +149,12 @@ class Listener:
     runner's new state) reach the models and the runner."""
 
     def __init__(self, spotter, transcribe, post, make_vad=vad.make_vad, clock=time.monotonic,
-                 log=None, background=True, chat=None, say=None):
+                 log=None, background=True, chat=None, say=None, log_heard=False):
         """`chat` (chat.Chat) and `say(text)`, when given, let the robot greet each visitor and answer
         questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
         self.chat, self.say = chat, say
+        self.log_heard = log_heard              # tuning only: what Parakeet wrote for a refused hit
         self._held_at, self._held_line = -1e9, None
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
         self.state: str | None = None         # the runner's, None while it cannot be read
@@ -291,7 +292,7 @@ class Listener:
                 self._log("dropped", state=self.state, why=_not_armed(self.state))
                 self._hold_on()
             else:
-                self._log("not_confirmed", keyword=kws.TRICK)
+                self._log("not_confirmed", keyword=kws.TRICK, **({"heard": text} if self.log_heard else {}))
         else:
             # the phrase does not count as words of the reply: "Hey OpenDubs, yes" over music, which the
             # spotter missed, is still a yes
@@ -442,6 +443,8 @@ def main(argv=None) -> int:
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
     ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
     ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
+    ap.add_argument("--log-heard", action="store_true", help="tuning: log what Parakeet wrote when it does not "
+                    "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
     a = ap.parse_args(argv)
     os.environ["OPENDUBS_VOICE_MODELS"] = a.models      # speech.py and vad.py read it
 
@@ -460,7 +463,8 @@ def main(argv=None) -> int:
     lines: queue.Queue = queue.Queue()
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
-                        chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]))
+                        chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]),
+                        log_heard=a.log_heard)
 
     async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
         out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))
