@@ -8,6 +8,10 @@
 #   dev.sh build                   build archit-architect:dev from this checkout
 #   dev.sh dry                     the runner with a fixed program (examples/arms_wave.py), no model
 #   dev.sh up                      the runner with ARCHITECT writing programs (needs architect.env)
+#   dev.sh live                    the runner on the LIVE arm backend (no show): a fixed program (PROGRAM),
+#                                  armed by voice, run on each "trick or treat" through the arm service
+#                                  (archit-architect-arms, robot_node.py). FAKE ARMS by default: nothing
+#                                  moves. ARMS=ros for the real arms (see below)
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner
 #   dev.sh logs                    follow the runner log
@@ -28,6 +32,12 @@
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
 # says a caller must, with FASTDDS_BUILTIN_TRANSPORTS=UDPv4).
 #
+# ARMS (live only): fake, the default (every goal followed in memory, a fake deadman held in AUTO; the
+# runner still needs the REAL deadman to start a run), or ros: goals to the arm controllers on ROS domain
+# 0, the gates read from the dashboard. live_arms.py says why this is not yet allowed on the robot: no
+# arm lease, so the show runner and this service must never both send goals. ARMS=ros refuses while
+# opendubs-runner is active, and the Arms and Choreography lanes sign off before it is used.
+#
 # $DATA/architect.env holds ssa's API settings (the variables ssa's own .env has), owned by you
 # and mode 600, or `up` refuses. It is passed to the container as its environment, never baked in.
 # $DATA/architect-arms.yaml is this robot's arm config (live_arms.CONFIG_TEMPLATE); without it the
@@ -44,6 +54,7 @@ DOCKER="${DOCKER:-sudo -n docker}"
 BASE_IMAGE="${BASE_IMAGE:-archit-perception:dev}"
 MODELS="${MODELS:-/var/lib/opendubs/models}"
 LISTENER=archit-architect-listener
+ARMS_NAME=archit-architect-arms
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
 # arm stack's hw_validation/ directory to /etc/opendubs/arm-limits (provision-runner.sh). Read in
@@ -55,8 +66,12 @@ find_limits() {
   [ -n "${src}" ] && sudo -n test -f "${src}/joint_limits.yaml" && echo "${src}/joint_limits.yaml"
 }
 
-run() {  # $@: the runner's arguments
+run() {  # $1: show or live; then the runner's arguments
+  local backend="$1"; shift
   local args=() env=()
+  # Docker would create a missing mount point as an empty, root-owned folder, and the runner would then
+  # fail on its first import (config.py needs ssa, even for a fixed program).
+  [ -d "${SSA}/ssa" ] || { echo "dev.sh: no ssa checkout at ${SSA} (its opendubs branch; set SSA)" >&2; exit 1; }
   mkdir -p "${DATA}/shows" "${DATA}/home"
   LIMITS="${LIMITS:-$(find_limits || true)}"
   if [ -n "${LIMITS}" ]; then echo "joint limits: ${LIMITS} (read-only)"
@@ -77,16 +92,50 @@ run() {  # $@: the runner's arguments
     arms_see) domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
     *) echo "dev.sh: PROFILE must be arms or arms_see, not ${profile}" >&2; exit 1 ;;
   esac
+  local publish="--publish /data/shows"
+  if [ "${backend}" = live ]; then
+    publish=""
+    [ "${ARMS:-fake}" = ros ] && { domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4); }
+  fi
+  DOMAIN="${domain}"
   ${DOCKER} run -d --rm --name "${NAME}" --network host \
     -e ROS_DOMAIN_ID="${domain}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
     -e HOME=/data/home -w /data/home \
-    -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND=show -e OPENDUBS_ARCHITECT_DATA=/data \
+    -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND="${backend}" -e OPENDUBS_ARCHITECT_DATA=/data \
     -e PYTHONPATH=/work/software/architect:/ssa -e SSA_ROOT=/ssa \
     "${env[@]}" "${args[@]}" \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" -v "${SSA}:/ssa:ro" \
-    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_runner --port ${PORT} --publish /data/shows \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_runner --port ${PORT} ${publish} \
       --log /data/runner.jsonl ${say} $* 2>&1 | tee /data/runner.log"
   echo "started ${NAME} on 127.0.0.1:${PORT}; 'dev.sh logs' to follow"
+}
+
+arms() {  # the arm service for the live backend, on the runner's ROS domain ($DOMAIN, set by run's caller)
+  local mode="${ARMS:-fake}" args=(--arms fake --robot fake) env=() vols=()
+  case "${mode}" in
+    fake) ;;
+    ros)
+      if systemctl is-active --quiet opendubs-runner; then
+        echo "dev.sh: opendubs-runner is active. With no arm lease, two motion sources must never run at once" >&2
+        echo "        (live_arms.py). Stop the show runner first, with whoever runs it, or use ARMS=fake." >&2
+        exit 1
+      fi
+      args=(--arms ros --robot dashboard); env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
+    *) echo "dev.sh: ARMS must be fake or ros, not ${mode}" >&2; exit 1 ;;
+  esac
+  LIMITS="${LIMITS:-$(find_limits || true)}"
+  [ -n "${LIMITS}" ] && vols+=(-v "${LIMITS}:/limits/joint_limits.yaml:ro") && args+=(--limits /limits/joint_limits.yaml)
+  [ "${mode}" = ros ] && [ -z "${LIMITS}" ] && { echo "dev.sh: ARMS=ros needs the arm stack's joint limits" >&2; exit 1; }
+  [ -f "${DATA}/architect-arms.yaml" ] && args+=(--config /data/architect-arms.yaml)
+  if ${DOCKER} inspect "${ARMS_NAME}" >/dev/null 2>&1; then
+    echo "dev.sh: ${ARMS_NAME} is already running; 'dev.sh down' first" >&2; exit 1
+  fi
+  ${DOCKER} run -d --rm --name "${ARMS_NAME}" --network host \
+    -e ROS_DOMAIN_ID="${DOMAIN}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST "${env[@]}" \
+    -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
+    -v "${DATA}:/data" -v "${REPO}:/work:ro" "${vols[@]}" \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.robot_node ${args[*]} 2>&1 | tee /data/arms.log"
+  echo "started ${ARMS_NAME} (ARMS=${mode}, ROS domain ${DOMAIN})"
 }
 
 listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
@@ -121,12 +170,17 @@ case "${1:-}" in
   listen)
     listen
     ;;
+  live)
+    [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
+    run live --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
+    arms
+    ;;
   dry)
-    run --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
+    run show --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
     ;;
   up)
     [ -f "${DATA}/architect.env" ] || { echo "dev.sh: no ${DATA}/architect.env (ssa's API settings)" >&2; exit 1; }
-    run --agent ssa
+    run show --agent ssa
     ;;
   logs)
     ${DOCKER} logs -f "${NAME}"
@@ -136,10 +190,11 @@ case "${1:-}" in
     ;;
   down)
     ${DOCKER} stop -t 5 "${NAME}" >/dev/null 2>&1 && echo "stopped ${NAME}"
+    ${DOCKER} stop -t 5 "${ARMS_NAME}" >/dev/null 2>&1 && echo "stopped ${ARMS_NAME}"
     ${DOCKER} stop -t 5 "${LISTENER}" >/dev/null 2>&1 && echo "stopped ${LISTENER}"
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,31p' "$0"; exit 1
+    sed -n '2,42p' "$0"; exit 1
     ;;
 esac

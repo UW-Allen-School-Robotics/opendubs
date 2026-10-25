@@ -5,6 +5,7 @@ own voice is never heard.
 
     python3 software/architect/tests/test_listener.py      # stdlib only
 """
+import math
 import os
 import sys
 import unittest
@@ -195,6 +196,15 @@ class OpenWindow(Case):
         li = self.make("Yes.", "ARMED")
         self.feed(li, QUIET[:20] + SPEECH + QUIET)
         self.assertEqual(self.posted, [])
+
+
+class Loudness(unittest.TestCase):
+    def test_a_quiet_line_is_brought_up(self):
+        """Kokoro's lines, peaking near -19 dBFS, were not heard through the Jabra."""
+        quiet = audio.tone(300, 500, 24000, amp=0.11)
+        peak = max(abs(x) for x in audio.samples(ls.loud(quiet)))
+        self.assertAlmostEqual(20 * math.log10(peak / 32767), ls.PEAK_DBFS, delta=0.2)
+        self.assertEqual(ls.loud(audio.silence(100, 24000)), audio.silence(100, 24000))   # silence stays silent
 
 
 class OwnVoice(Case):

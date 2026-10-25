@@ -69,6 +69,8 @@ OPEN_END_SILENCE_MS = 800
 OPEN_MAX_MS = 6000
 TAIL_S = 0.6                # deaf after the robot speaks: the room's echo of it
 YES_MAX_WORDS = 3
+PEAK_DBFS = -3.0            # each spoken line is brought up to this: Kokoro's own peaks near -19 dBFS
+MAX_GAIN = 8.0              # were not heard through the Jabra at its volume 6 of 11 (2026-10-24)
 OPEN_STATES = ("AWAITING_YES", "RUNNING")
 _WORD = re.compile(r"[A-Za-z']+")
 _STOP = re.compile(r"\bstop\b", re.I)
@@ -92,6 +94,20 @@ def wake_rest(text: str) -> str | None:
     if m and len(_WORD.findall(text[:m.start()])) < wakeword.WINDOW:
         return re.sub(r"^'s\b[\s,.]*", "", text[m.end():]).strip()    # "I opened up's wave hello."
     return None
+
+
+def loud(pcm: bytes) -> bytes:
+    """A spoken line with its peak at PEAK_DBFS, raised by at most MAX_GAIN, never lowered."""
+    import array
+    a = array.array("h")
+    a.frombytes(pcm[:len(pcm) - len(pcm) % 2])
+    peak = max((abs(x) for x in a), default=0)
+    if not peak:
+        return pcm
+    g = min(MAX_GAIN, 32767 * 10 ** (PEAK_DBFS / 20) / peak)
+    if g <= 1.0:
+        return pcm
+    return array.array("h", (max(-32768, min(32767, int(x * g))) for x in a)).tobytes()
 
 
 def is_trick_or_treat(text: str) -> bool:
@@ -329,9 +345,8 @@ def main(argv=None) -> int:
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
                         chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]))
 
-    async def play(out, text):
-        async for chunk in tts.speak(text):
-            out.write(chunk)
+    async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
+        out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))
 
     def speaker():
         out = None
