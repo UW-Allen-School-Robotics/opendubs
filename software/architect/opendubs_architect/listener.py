@@ -128,6 +128,11 @@ def is_trick_or_treat(text: str) -> bool:
     return False
 
 
+def _not_armed(state) -> str:
+    return "trick or treat while a run is under way" if state == "RUNNING" else \
+        f"trick or treat while nothing is armed ({state})"
+
+
 class Listener:
     """Transport-free: `frame` for each 20 ms of capture, `state` set from the runner, `speaking`
     while the robot talks. `transcribe(pcm) -> str` and `post(kind, text) -> str | None` (the
@@ -260,7 +265,7 @@ class Listener:
                 if self.state == "ARMED":
                     self._send("trigger", "trick or treat")
                 else:
-                    self._log("dropped", state=self.state, why="trick or treat while nothing is armed")
+                    self._log("dropped", state=self.state, why=_not_armed(self.state))
             elif self.state == "ARMED" and self.chat and self.say and not _STOP.search(rest):
                 answer = self.chat.reply(rest)      # a question while armed: the runner ignores it anyway
                 self.say(answer)
@@ -277,7 +282,7 @@ class Listener:
             # spotter missed, is still a yes
             words = [w.lower() for w in _WORD.findall(wake_rest(text) or text)]
             if is_trick_or_treat(text):             # an open window is never ARMED
-                self._log("dropped", state=state, why="trick or treat while nothing is armed")
+                self._log("dropped", state=state, why=_not_armed(state))
             elif state == "AWAITING_YES" and 0 < len(words) <= YES_MAX_WORDS:
                 self._send("speech", text)
             elif state == "RUNNING" and "stop" in words:

@@ -95,11 +95,15 @@ run() {  # $1: show or live; then the runner's arguments
   local publish="--publish /data/shows"
   if [ "${backend}" = live ]; then
     publish=""
-    [ "${ARMS:-fake}" = ros ] && { domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4); }
+    [ "${ARMS:-fake}" = ros ] && domain=0
   fi
   DOMAIN="${domain}"
-  ${DOCKER} run -d --rm --name "${NAME}" --network host \
-    -e ROS_DOMAIN_ID="${domain}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+  # The runner and the arm service share one IPC namespace (--ipc shareable here, container:NAME there).
+  # With localhost-only discovery, Fast DDS still hands a reply over by shared memory, so across two
+  # private IPC namespaces a call finds the service and never hears back, even with UDPv4 only: a run
+  # waited 60 s on reset_robot (2026-10-24). UDPv4 as software/perception/API.md asks of every caller.
+  ${DOCKER} run -d --rm --name "${NAME}" --network host --ipc shareable \
+    -e ROS_DOMAIN_ID="${domain}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     -e HOME=/data/home -w /data/home \
     -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND="${backend}" -e OPENDUBS_ARCHITECT_DATA=/data \
     -e PYTHONPATH=/work/software/architect:/ssa -e SSA_ROOT=/ssa \
@@ -111,7 +115,7 @@ run() {  # $1: show or live; then the runner's arguments
 }
 
 arms() {  # the arm service for the live backend, on the runner's ROS domain ($DOMAIN, set by run's caller)
-  local mode="${ARMS:-fake}" args=(--arms fake --robot fake) env=() vols=()
+  local mode="${ARMS:-fake}" args=(--arms fake --robot fake) vols=()
   case "${mode}" in
     fake) ;;
     ros)
@@ -120,7 +124,7 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
         echo "        (live_arms.py). Stop the show runner first, with whoever runs it, or use ARMS=fake." >&2
         exit 1
       fi
-      args=(--arms ros --robot dashboard); env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
+      args=(--arms ros --robot dashboard) ;;
     *) echo "dev.sh: ARMS must be fake or ros, not ${mode}" >&2; exit 1 ;;
   esac
   LIMITS="${LIMITS:-$(find_limits || true)}"
@@ -130,8 +134,8 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
   if ${DOCKER} inspect "${ARMS_NAME}" >/dev/null 2>&1; then
     echo "dev.sh: ${ARMS_NAME} is already running; 'dev.sh down' first" >&2; exit 1
   fi
-  ${DOCKER} run -d --rm --name "${ARMS_NAME}" --network host \
-    -e ROS_DOMAIN_ID="${DOMAIN}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST "${env[@]}" \
+  ${DOCKER} run -d --rm --name "${ARMS_NAME}" --network host --ipc "container:${NAME}" \
+    -e ROS_DOMAIN_ID="${DOMAIN}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
     -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" "${vols[@]}" \
     "${IMAGE}" bash -c "python3 -u -m opendubs_architect.robot_node ${args[*]} 2>&1 | tee /data/arms.log"
