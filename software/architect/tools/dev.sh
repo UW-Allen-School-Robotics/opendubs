@@ -13,7 +13,10 @@
 #                                  (archit-architect-arms, robot_node.py). FAKE ARMS by default: nothing
 #                                  moves. ARMS=ros for the real arms (see below)
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
-#   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner
+#   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
+#                                  SHOW=<routine>: "trick or treat" plays that show-palette routine through
+#                                  the dashboard instead (the Shows page's gates; START=deadman, the default,
+#                                  makes the supervisor's fresh deadman press the go; or countdown)
 #   dev.sh logs                    follow the runner log
 #   dev.sh shows                   the shows written so far
 #   dev.sh down                    stop and remove the container
@@ -143,7 +146,8 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
 }
 
 listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
-  local gid tts=() ; gid=$(getent group audio | cut -d: -f3)
+  local gid tts=() show="" ; gid=$(getent group audio | cut -d: -f3)
+  [ -n "${SHOW:-}" ] && show="--show ${SHOW} --start ${START:-deadman}"
   [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
     echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1
@@ -155,9 +159,10 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
     -e OPENDUBS_VOICE_MODELS=/models -e HF_HUB_OFFLINE=1 -e HF_HOME=/tmp/hf \
     -e HF_HUB_CACHE=/models/hf/hub -e HUGGINGFACE_HUB_CACHE=/models/hf/hub -e TRANSFORMERS_CACHE=/models/hf/hub \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" -v "${MODELS}:/models:ro" \
-    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.listener --models /models --kws-models /data/models \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.listener --models /models --kws-models /data/models ${show} \
       2>&1 | tee /data/listener.log"
-  echo "started ${LISTENER}: the Jabra, say on 127.0.0.1:8099; start the runner with LISTEN=1"
+  if [ -n "${SHOW:-}" ]; then echo "started ${LISTENER}: the Jabra; trick or treat plays ${SHOW} (start ${START:-deadman})"
+  else echo "started ${LISTENER}: the Jabra, say on 127.0.0.1:8099; start the runner with LISTEN=1"; fi
 }
 
 case "${1:-}" in

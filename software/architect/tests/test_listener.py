@@ -213,6 +213,48 @@ class OpenWindow(Case):
         self.assertEqual(self.posted, [])
 
 
+class Shows(unittest.TestCase):
+    """--show: "trick or treat" plays a routine through the dashboard, with the Shows page's gates."""
+
+    def shows(self, replies):
+        self.calls = []
+
+        def call(method, path, body):
+            self.calls.append((method, path, body))
+            return replies.get(path, (404, None))
+        return ls.Shows("http://dash", "monster_mash", log=lambda ev: None, call=call)
+
+    def test_a_trigger_arms_the_show_for_the_deadman(self):
+        sh = self.shows({"/api/choreo/run/monster_mash": (200, {"started": "monster_mash", "live": True})})
+        self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")
+        self.assertEqual(self.calls[-1], ("POST", "/api/choreo/run/monster_mash", {"start": "deadman"}))
+
+    def test_a_refusal_is_ready_again_and_nothing_else_is_posted(self):
+        sh = self.shows({"/api/choreo/run/monster_mash": (409, {"error": "'reach' is still running"}),
+                         "/api/choreo/stop": (200, {"stopped": True})})
+        self.assertEqual(sh.post("trigger", "trick or treat"), "ARMED")     # the listener says HOLD_ON
+        self.assertEqual(sh.post("speech", "stop!"), "ARMED")
+        self.assertEqual(self.calls[-1][1], "/api/choreo/stop")
+        n = len(self.calls)
+        self.assertIsNone(sh.post("instruction", "hand out candy"))         # no program, no prompt
+        self.assertIsNone(sh.post("speech", "yes"))
+        self.assertEqual(len(self.calls), n)
+
+    def test_state_follows_the_palette_and_unknown_is_none(self):
+        sh = self.shows({"/api/choreo/palette": (200, {"running": "monster_mash"})})
+        self.assertEqual(sh.state(), "RUNNING")
+        sh = self.shows({"/api/choreo/palette": (200, {"running": None})})
+        self.assertEqual(sh.state(), "ARMED")
+        sh = self.shows({})
+        self.assertIsNone(sh.state())
+
+    def test_an_unknown_or_invalid_routine_refuses_to_start(self):
+        with self.assertRaises(SystemExit):
+            self.shows({"/api/choreo/routines": (200, [{"id": "reach", "valid": True}])}).check()
+        with self.assertRaises(SystemExit):
+            self.shows({"/api/choreo/routines": (200, [{"id": "monster_mash", "valid": False}])}).check()
+
+
 class Loudness(unittest.TestCase):
     def test_a_quiet_line_is_brought_up(self):
         """Kokoro's lines, peaking near -19 dBFS, were not heard through the Jabra."""

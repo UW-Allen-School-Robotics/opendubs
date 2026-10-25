@@ -4,7 +4,9 @@
     python3 -m opendubs_architect.listener --stt fake --tts fake # a desk with the Jabra and no models
 
 It hears through the Jabra, spots keywords on the Thor (kws.py), and posts what it heard to the demo
-runner's `POST /api/heard`. It speaks for the runner: `demo_runner --say-url
+runner's `POST /api/heard`. With `--show ROUTINE` it drives the show runner instead (Shows, below):
+"trick or treat" plays one routine from the robot's show palette, through the dashboard, with the
+Shows page's own gates; no ARCHITECT program, no approval, the supervisor's deadman press the go. It speaks for the runner: `demo_runner --say-url
 http://127.0.0.1:8099/api/say` sends each line here, and Kokoro plays it on the Jabra, whose own echo
 canceller has the playback to subtract.
 
@@ -51,6 +53,7 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -348,9 +351,89 @@ class Runner:
             return None
 
 
+class Shows:
+    """The show runner instead of ARCHITECT's: "trick or treat" plays ONE routine from the dashboard's
+    show palette, through the same call the Shows page's button makes (POST /api/choreo/run/<id>, in
+    software/kiosk-dashboard/backend/choreo_proxy.py). The runner keeps every gate it has for that
+    button: the show validated and clearance-checked, CH5 in AUTO, the arms active and the deadman.
+
+    START. `deadman`, the robot's default (agreed with the Orchestrator, 2026-10-13): "trick or treat"
+    ARMS the run (nothing moves, the music loads) and the supervisor's FRESH press of the deadman is
+    the go, so a child alone never starts motion and a deadman held down never starts a show.
+    `countdown` starts at once while the deadman is held: hands-free, without the fresh-press rule.
+
+    The listener sees the same two calls it makes of the demo runner: state() is RUNNING while a show
+    runs (a "trick or treat" then gets a HOLD_ON line) and ARMED otherwise; a refused run comes back
+    ARMED, with the runner's own words in the log. "Stop" stops the show; nothing else is posted.
+    `call(method, path, body) -> (status, json)` is a seam for the tests."""
+
+    def __init__(self, dashboard: str, routine: str, start: str = "deadman", countdown_s=None, log=None, call=None):
+        self.url, self.routine, self.start, self.countdown_s = dashboard.rstrip("/"), routine, start, countdown_s
+        self._log_fn, self.call = log, call or self._call
+
+    def _call(self, method: str, path: str, body=None):
+        data = json.dumps(body).encode() if body is not None else (b"" if method == "POST" else None)
+        req = urllib.request.Request(self.url + path, data=data, method=method,
+                                     headers={"Content-Type": "application/json"} if data else {})
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as r:
+                return r.status, json.loads(r.read() or b"null")
+        except urllib.error.HTTPError as e:              # the runner's refusal, in its own words
+            try:
+                return e.code, json.loads(e.read() or b"null")
+            except ValueError:
+                return e.code, None
+        except (OSError, ValueError):
+            return 503, None
+
+    def _log(self, event: str, **kw) -> None:
+        if self._log_fn:
+            self._log_fn({"t": round(time.time(), 3), "event": event, **kw})
+
+    def check(self) -> None:
+        """Refuse to start on a routine the robot does not have, or one that does not validate."""
+        code, routines = self.call("GET", "/api/choreo/routines", None)
+        if code != 200 or not isinstance(routines, list):
+            raise SystemExit(f"listener: the dashboard's show palette cannot be read at {self.url} ({code})")
+        r = next((x for x in routines if x.get("id") == self.routine), None)
+        if r is None:
+            raise SystemExit(f"listener: no routine {self.routine!r}; the robot has "
+                             + ", ".join(x.get("id", "?") for x in routines))
+        if not r.get("valid"):
+            raise SystemExit(f"listener: {self.routine!r} does not validate: {'; '.join(r.get('problems') or [])}")
+
+    def state(self) -> str | None:
+        code, st = self.call("GET", "/api/choreo/palette", None)
+        if code != 200 or not isinstance(st, dict):
+            return None
+        return "RUNNING" if st.get("running") else "ARMED"
+
+    def post(self, kind: str, text: str) -> str | None:
+        if kind == "trigger":
+            body = {"start": self.start, **({"countdown_s": self.countdown_s} if self.countdown_s is not None else {})}
+            code, got = self.call("POST", f"/api/choreo/run/{self.routine}", body)
+            if code == 200:
+                self._log("show_started", routine=self.routine, start=self.start, reply=got)
+                return "RUNNING"
+            self._log("show_refused", routine=self.routine, status=code,
+                      why=(got or {}).get("error") if isinstance(got, dict) else None)
+            return "ARMED"
+        if kind == "speech" and _STOP.search(text or ""):
+            code, _ = self.call("POST", "/api/choreo/stop", None)
+            self._log("show_stopped", status=code)
+            return "ARMED"
+        return None                                     # nothing else reaches a show
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--runner", default="http://127.0.0.1:8098", help="the demo runner")
+    ap.add_argument("--show", metavar="ROUTINE", help="trick or treat plays this show-palette routine "
+                    "through the dashboard (Shows), instead of the demo runner's program")
+    ap.add_argument("--dashboard", default="http://127.0.0.1:8080")
+    ap.add_argument("--start", choices=("deadman", "countdown"), default="deadman",
+                    help="deadman (the default): the supervisor's fresh deadman press is the go")
+    ap.add_argument("--countdown-s", type=float, default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8099, help="POST /api/say {text}: the robot speaks it")
     ap.add_argument("--card", default="Jabra", help="the sound card, by a word of its name")
@@ -369,7 +452,11 @@ def main(argv=None) -> int:
         print(json.dumps(ev), flush=True)
 
     stt, tts = speech.make_stt(a.stt), speech.make_tts(a.tts)
-    runner = Runner(a.runner)
+    if a.show:
+        runner = Shows(a.dashboard, a.show, a.start, a.countdown_s, log=log)
+        runner.check()
+    else:
+        runner = Runner(a.runner)
     lines: queue.Queue = queue.Queue()
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
@@ -437,7 +524,8 @@ def main(argv=None) -> int:
         sys.exit(f"listener: port {a.port} is taken ({e}); another listener may be running. Leave it, or pick --port")
     for fn in (speaker, poll, capture):
         threading.Thread(target=fn, daemon=True).start()
-    log({"t": round(time.time(), 3), "event": "listening", "say": f"http://{a.host}:{a.port}/api/say", "runner": a.runner})
+    log({"t": round(time.time(), 3), "event": "listening", "say": f"http://{a.host}:{a.port}/api/say",
+         **({"show": a.show, "start": a.start, "dashboard": a.dashboard} if a.show else {"runner": a.runner})})
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
