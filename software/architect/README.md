@@ -141,8 +141,24 @@ triggered by the music or the talk. Over music the spotter missed most wake phra
 instruction needs the music down**.
 
 Not yet done: an hour of show music with nobody saying either phrase (one minute is not a false
-trigger rate); and `dev.sh` runs the runner on the show path only, where "trick or treat" is
-ignored, so the live arm backend for the night still needs its own `dev.sh` command.
+trigger rate).
+
+**[TODO] An ARCHITECT page on the dashboard**, with its own menu item: the program being run, so
+the operator sees on the dashboard what "trick or treat" will run, without a second browser tab.
+- **What it shows:** the runner's state (IDLE, AWAITING_YES, ARMED, RUNNING, CHECK_FAILED), the armed
+  program's summary, its full code and its hash, the run count and the last run's outcome, and the
+  recent events (who triggered, refused and why). All of it is already in the runner's
+  `GET /api/state` (`demo_runner.DemoRunner.status`).
+- **How:** the Shows page's pattern. A backend proxy (`backend/architect_proxy.py`, after
+  `choreo_proxy.py`) forwards a small fixed set of the runner's calls on 127.0.0.1:8098 under
+  `/api/architect/`, so the page talks to one origin; a page script (`frontend/architect.js`); the
+  menu item and the page's section in `frontend/index.html` and `frontend/app.js`.
+- **Read-only first.** No Yes, Run or approve buttons: approval stays spoken, and a run starts only
+  by "trick or treat" with the deadman held. A Stop button may follow, since stopping only disarms.
+  With the runner down, the page says so; it never shows a stale program as armed.
+- **Owners.** `frontend/app.js`, `frontend/index.html` and `backend/app.py` are shared paths (small,
+  scoped edits, said in the PR); the two new files have no lane yet, so the orchestrator is asked
+  first. The runner's own page (`GET /` on 8098) stays as the desk view.
 
 `--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
 camera questions while writing, but every motion refuses until a program is approved.
