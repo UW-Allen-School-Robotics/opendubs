@@ -217,7 +217,8 @@ beside the lab's original and takes the same request.
 | The action and its node | `perception_tasks/`, `perception_msgs/action/GraspObject.action`, `msg/Grasp.msg` |
 | Workstation server | `anygrasp_server/server.py`, `README.md` |
 | Checks without the robot: a synthetic mug, or a saved query | `tools/anygrasp_probe.py` |
-| On the robot | `ANYGRASP_URL=ws://HOST:8768/grasp dev.sh up`, then `dev.sh grasp mug --camera femto` (`tools/grasp_client.py`: overlay with the grasp's axes, `result.json`) |
+| On the robot, grasping only | `tools/grasp_stack.sh up` starts the camera, the server with navigation off (`config/perception_manip.yaml`) and the tasks node, and waits until they are ready (13 s with engines built); `grasp_stack.sh grasp bottle`, `status`, `logs`, `down`. The workstation's address: `ANYGRASP_URL`, or `~/perception-data/anygrasp_url` |
+| On the robot, with navigation | `ANYGRASP_URL=ws://HOST:8768/grasp dev.sh up`, then `dev.sh grasp mug --camera femto` (`tools/grasp_client.py`: overlay with the grasp's axes, `result.json`) |
 | Geometry tests (crop keeps every point, erosion, quaternion) | `tests/test_anygrasp_client.py` |
 
 Findings against the lab's original server (port 8767), from a laptop on the workstation's network:
