@@ -283,6 +283,22 @@ shared memory, so it must start after the camera and restart with it, which a un
 
 | **Reboot** (the user allowed this one, 2026-10-24; ask every time) | Booted 17:21:28; both units active and both containers up about 30 s after boot, beside the robot's own; camera at 30 Hz. First query 1 min after boot: chair grasped, 1.6 s (first query of the label); pose only next: 465 ms. The robot's own containers all up; still only `nv-graphics` failed |
 
+## Phase 6: the perception API (2026-10-24, archit@opendubs2)
+
+ROS 2 services with JSON payloads, for the robot's own code: `/perception/detect`, `segment`,
+`locate`, `grasp_object` (`robot_api_interfaces/srv/RobotCommand`) and `status` (`RobotQuery`),
+in `perception_tasks/api.py`. The interfaces are the user's reference definitions, with
+`NOT_FOUND = 5` added to `ResultCode`. The actions became `segment_action` and
+`grasp_object_action`. **How to run and call it, for other developers: `software/perception/README.md`.**
+
+| Check, from a terminal on the Thor host | Result |
+|---|---|
+| All five services | `status` 51 ms; `locate` 130-250 ms; `detect`/`segment` 150-900 ms; `grasp_object` 0.3-1.4 s |
+| Error cases | an unknown label `NOT_FOUND`; bad JSON, a wrong field, an unknown camera or source `INVALID_INPUT`, each with its reason |
+| Masks | `segment` with masks: ~5 kB per mask (base64 PNG); 10 kB for two chairs |
+| Fresh clients | One call in 20 once lost its reply (the server answered in 157 ms): a client that calls the moment it sees the service is not yet matched for the reply. `perception_call.py` waits 0.5 s and resends; then 40 of 40 answered. The README tells callers to keep one client |
+| The README's Python example | Run as written on the host: a grasp pose |
+
 ### Next
 
 | Phase | Work | Done when |
