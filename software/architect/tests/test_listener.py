@@ -132,10 +132,10 @@ class Trick(Case):
 
     def test_how_parakeet_writes_it(self):
         for text in ("Trick or treat!", "trick-or-treat", "Trick r treat", "trick a treat", "Trik or treats",
-                     "check or cheat.", "Trigger treat."):
+                     "check or cheat.", "Trigger treat.", "or treat."):
             self.assertTrue(ls.is_trick_or_treat(text), text)
         for text in ("treat or trick", "the trick is", "treat yourself", "trick or tree house is", "Yeah.",
-                     "pick or choose", "pull the trigger"):
+                     "pick or choose", "pull the trigger", "a treat", "here's a treat", "more treats"):
             self.assertFalse(ls.is_trick_or_treat(text), text)
 
 

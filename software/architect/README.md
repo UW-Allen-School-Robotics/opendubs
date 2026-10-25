@@ -201,6 +201,29 @@ and checks every move inside the box it proposes. Run it with the robot's own li
 `dev.sh up` has ARCHITECT write the program instead of the fixed example. It needs
 `~/architect-data/architect.env` (mode 600) with ssa's API settings.
 
+## The candy-bucket hand-off (2026-10-24)
+
+`examples/bucket_offer.py` ran on the robot from a spoken "trick or treat" (show mode, the
+supervisor's deadman press): the right arm lifts clear, comes over the rim of a 9 in bucket in front
+of the arm column, goes straight down to the candy, lifts it out, swings out to the right and forward,
+and lets go. 17.4 s, swept at 38.9 mm. What it took, learned at the robot:
+
+- **The chassis frame faces +x** (head screen and camera at x 0.51); the shoulders are at x 0.423. A
+  target behind that line is behind the chest: the robot went exactly where the twin said, and a
+  scratch workspace box that reached back to x 0.25 let the wrong target through. Keep a box in front
+  of the arm column.
+- **Heights:** the twin's floor is at chassis z -0.094, the base's top at 0.356. In front of the torso
+  the right hand reaches no lower than about z 0.46 (x 0.48 to 0.56, right of centre) or 0.50 at x 0.60.
+- **The IK keeps to the arm's current posture**, so the same target can solve cleanly from rest and
+  fold the wrist into the arm column from a nearby pose (17.7 mm). A lift to a NAMED pose (joint
+  angles, no IK) before the reach gave a clean approach.
+- **The twin knows only the robot.** Neither the sweep nor CBiRRT knows the bucket: a straight move
+  from rest passed 3 to 4.6 cm outside its wall below the rim. The program keeps clear of it by
+  design, and it was checked by sampling the hand along every move against a cylinder for the bucket
+  (to be made a tool if obstacles become routine).
+- **Every move in it is straight.** CBiRRT routes a move the straight-line planner refuses (below); the
+  hand-off needed a hand-designed route instead.
+
 ## Routing around the body (the show path)
 
 `live_arms.Planner` moves an arm in a smoothed straight line in joint space and refuses a move that

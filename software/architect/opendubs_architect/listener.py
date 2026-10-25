@@ -66,7 +66,8 @@ import wakeword  # noqa: E402
 from opendubs_architect import kws  # noqa: E402
 
 FRAME_MS = 20
-PRE_ROLL_MS = 1500          # kept before a hit: the phrase itself, for Parakeet's check
+PRE_ROLL_MS = 2500          # kept before a hit: the phrase itself, for Parakeet's check. 1.5 s lost the
+                            # "trick" of a slow "trick ... or treat" on the robot: Parakeet heard "or treat."
 TRICK_TAIL_MS = 400         # after a "trick or treat" hit, so the last word is whole in the clip
 PHRASE_MS = 1000            # "Hey OpenDubs" ends about this long before the spotter fires
 OPEN_LEAD_MS = 800          # kept before Silero says speech has begun: it says so late, and a 300 ms
@@ -121,8 +122,12 @@ def loud(pcm: bytes) -> bytes:
 
 
 def is_trick_or_treat(text: str) -> bool:
-    """Parakeet's agreement: "trick or treat", in any of the ways it writes it."""
+    """Parakeet's agreement: "trick or treat", in any of the ways it writes it. Asked only after the
+    spotter has matched the whole phrase, so the phrase's own end is enough: "or treat" (a clip that
+    began on its second word), but never "a treat", which is everyday speech."""
     w = [x.lower() for x in _WORD.findall(text or "")]
+    if len(w) >= 2 and w[0] == "or" and wakeword._near(w[1], ("treat", "treats")):
+        return True
     for i in range(len(w) - 2):
         if w[i + 1] in _OR and _TRICK_LIKE.match(w[i]) and _TREAT_LIKE.match(w[i + 2]):
             return True                                   # the same rhyme: "check or cheat"
