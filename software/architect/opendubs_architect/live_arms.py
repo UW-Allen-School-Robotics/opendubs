@@ -62,6 +62,9 @@ ARM_ACK_S = runner.ARM_ACK_S
 #: PLACEHOLDER: half the measured caps, with children in front of the robot. A show may use all of them.
 LIVE_SPEED_FRACTION = 0.5
 MIN_MOVE_S = 0.5
+#: A routed waypoint is kept this much further inside the margin than the validator asks: its cue is
+#: written to one decimal, and rounding must not take it back out.
+ROUND_DEG = 0.1
 #: PLACEHOLDER: how far from its goal an arm may be measured once its goal reports success.
 ARRIVAL_TOL_DEG = 3.0
 #: How long after its planned end a move's goal may take to report.
@@ -155,8 +158,14 @@ class Move:
     goal: list
     seconds: float
     clearance_mm: float
+    #: A routed move (routing.Router): the waypoints it passes on the way, in signed degrees, and the
+    #: seconds of each leg (one more than the waypoints). Empty for a straight move.
+    via: list = field(default_factory=list)
+    legs: list = field(default_factory=list)
 
     def points(self) -> list:
+        if self.via:                            # a routed move is recorded as a show, never sent live
+            raise RuntimeError("a routed move is for a recorded show only; the live service sends straight moves")
         kf = {"start": 0.0, "t": self.seconds, "pose_signed": {str(j): self.goal[j - 1] for j in range(1, 8)}}
         return arm_output.track_points([kf], 0.0, self.start)
 
@@ -164,9 +173,11 @@ class Move:
 class Planner:
     """The twin, posed as the robot is, solving and checking one move at a time."""
 
-    def __init__(self, limits: dict, config: ArmConfig):
+    def __init__(self, limits: dict, config: ArmConfig, router=None):
+        """`router` (routing.Router), for a recorded show only: a move refused as TOO_CLOSE is
+        planned around the body instead, and every leg of the route checked as a straight move is."""
         import ik  # MuJoCo: imported here so the rest of this module loads without it
-        self.ik, self.limits, self.config = ik, limits, config
+        self.ik, self.limits, self.config, self.router = ik, limits, config, router
         self.kin = ik.Kin(limits)
 
     def _pose(self, pose: dict, head) -> None:
@@ -211,18 +222,58 @@ class Planner:
             goal_signed = to_signed(side, [sol[j] for j in range(1, 8)])
         goal = [round(float(v), 2) for v in goal_signed]
         self._usable(side, goal, margin_deg)
+        worst = self._worst(side, pose, start, goal)
+        if worst[0] >= self.ik.CLEAR_MIN_MM:
+            return Move(side, start, goal, self._leg_seconds(start, goal), round(float(worst[0]), 1))
+        refused = Refused("TOO_CLOSE", f"the move would bring the {side} arm within {worst[0]:.1f} mm "
+                                       f"({worst[1]} / {worst[2]}); at least {self.ik.CLEAR_MIN_MM:.0f} mm")
+        if self.router is None:
+            raise refused
+        via = self.router(side, start, goal)
+        if not via:
+            why = getattr(self.router, "last_error", None)
+            raise Refused("TOO_CLOSE", f"{refused.reason}, and the planner found no way around"
+                                       + (f" ({why})" if why else ""))
+        # A waypoint is an ordinary cue to the validator, held cue.MARGIN_DEG inside every joint's limits
+        # even on a move to rest (which alone it takes exactly): kept there, as the composer's bridge
+        # keeps its own (on the twin a route back to rest passed J4 at +7.4 against a usable +7.9).
+        chain = [start] + [self._inside(side, w) for w in via] + [goal]
+        legs, closest = [], float("inf")
+        for a, b in zip(chain, chain[1:]):
+            self._usable(side, b, margin_deg if b is goal else cue.MARGIN_DEG)
+            c = self._worst(side, pose, a, b)
+            if c[0] < self.ik.CLEAR_MIN_MM:      # the route is held to the same check as a straight move
+                raise Refused("TOO_CLOSE", f"{refused.reason}; the planner's route also comes within "
+                                           f"{c[0]:.1f} mm ({c[1]} / {c[2]})")
+            legs.append(self._leg_seconds(a, b))
+            closest = min(closest, c[0])
+        return Move(side, start, goal, round(sum(legs), 2), round(float(closest), 1),
+                    via=[[round(v, 2) for v in w] for w in chain[1:-1]], legs=legs)
+
+    def _worst(self, side: str, pose: dict, a: list, b: list) -> tuple:
+        """The closest approach of `side` moving straight from `a` to `b`, over the config's head poses."""
+        np = self.kin.np
         worst = (float("inf"), None, None)
         for head in self.config.head:
             self._pose(pose, head)
-            c = self.kin.clearance_along(side, np.radians(start), np.radians(goal))
+            c = self.kin.clearance_along(side, np.radians(a), np.radians(b))
             if c[0] < worst[0]:
                 worst = c
-        if worst[0] < self.ik.CLEAR_MIN_MM:
-            raise Refused("TOO_CLOSE", f"the move would bring the {side} arm within {worst[0]:.1f} mm "
-                                       f"({worst[1]} / {worst[2]}); at least {self.ik.CLEAR_MIN_MM:.0f} mm")
-        need = max(abs(goal[j - 1] - start[j - 1]) / cue.SPEED_CAP_DEG_S[j] for j in range(1, 8))
-        seconds = max(MIN_MOVE_S, need * cue.PEAK_FACTOR / LIVE_SPEED_FRACTION)
-        return Move(side, start, goal, round(seconds, 2), round(float(worst[0]), 1))
+        return worst
+
+    def _inside(self, side: str, signed: list) -> list:
+        """A waypoint moved inside each joint's usable range: cue.MARGIN_DEG in from the limits, and
+        ROUND_DEG more, so the cue's one decimal cannot round it back out."""
+        out, m = [], cue.MARGIN_DEG + ROUND_DEG
+        for j, v in enumerate(signed, 1):
+            lo, hi = self.limits[f"openarm_{side}_joint{j}"]
+            out.append(min(math.degrees(hi) - m, max(math.degrees(lo) + m, float(v))))
+        return out
+
+    @staticmethod
+    def _leg_seconds(a: list, b: list) -> float:
+        need = max(abs(b[j - 1] - a[j - 1]) / cue.SPEED_CAP_DEG_S[j] for j in range(1, 8))
+        return round(max(MIN_MOVE_S, need * cue.PEAK_FACTOR / LIVE_SPEED_FRACTION), 2)
 
 
 def _check_side(side: str) -> str:
@@ -472,8 +523,12 @@ class ShowRecorder(_Arms):
         return {k: list(v) for k, v in self.pose.items()}
 
     def _execute(self, move: Move) -> None:
-        self.t = round(self.t + move.seconds, 2)
         slot = ARM_SLOT[move.side]
+        for waypoint, leg in zip(move.via, move.legs):     # a routed move: each waypoint a cue of its own
+            self.t = round(self.t + leg, 2)
+            self.cues.append({"t": self.t, "slot": slot,
+                              "joints": {j: round(v, 1) for j, v in enumerate(to_outward(move.side, waypoint), 1)}})
+        self.t = round(self.t + (move.legs[-1] if move.via else move.seconds), 2)
         self.cues.append({"t": self.t, "slot": slot,
                           "joints": {j: round(v, 1) for j, v in enumerate(to_outward(move.side, move.goal), 1)}})
         self.pose[slot] = list(move.goal)

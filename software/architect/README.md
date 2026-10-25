@@ -23,6 +23,7 @@ handout triggered by "trick or treat".
 | `opendubs_architect/dryrun.py` | The dry-run robot: the client's signatures and argument checks, plausible replies |
 | `opendubs_architect/config.py` | `OpenDubsConfig`, the `RobotConfig` ssa loads, and the backend switch |
 | `opendubs_architect/live_arms.py` | The arm service: each move planned on the twin, checked, and sent behind the runner's gates; `ShowRecorder` for the fallback |
+| `opendubs_architect/routing.py` | For a recorded show: a move the straight-line planner refuses as too close is routed around the body by the arm motion planner (CBiRRT, `sim/planner` on `feat/arm-motion-planner-ui`); every leg is checked as a straight move is |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
 | `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "Hey OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
@@ -199,6 +200,28 @@ and checks every move inside the box it proposes. Run it with the robot's own li
 
 `dev.sh up` has ARCHITECT write the program instead of the fixed example. It needs
 `~/architect-data/architect.env` (mode 600) with ssa's API settings.
+
+## Routing around the body (the show path)
+
+`live_arms.Planner` moves an arm in a smoothed straight line in joint space and refuses a move that
+would pass within 30 mm of the body. On the twin a reach to the middle of the chest
+(`[0.3, -0.05, 1.1]`) is refused that way, passing 17.5 mm from the arm column, though the pose at
+its end is clear. With `PLANNER=cbirrt` (and `PLANNER_ROOT`, a checkout of
+`feat/arm-motion-planner-ui`), such a move goes to the arm motion planner's CBiRRT, and its path
+comes back as four waypoints. Each leg between them is checked as a straight move is, for every head
+pose in the config; the waypoints are kept inside the validator's joint margin; and they are
+recorded as arm cues, so the publish-time sweep and validator check the show as the runner plays it.
+
+```bash
+PLANNER=cbirrt PLANNER_ROOT=<checkout of feat/arm-motion-planner-ui> software/architect/tools/dev.sh dry
+```
+
+On the twin (2026-10-24), a program offering a candy in front of the chest, refused without it,
+published in 7.4 to 8.1 s in 8 runs of 8, as a 12 to 14 s show swept at 33.7 to 38.9 mm. CBiRRT
+samples at random, so one call in eight found no path; the router tries twice. Routing is for a
+recorded show only: the live arm service gets no router, and a routed move refuses to become live
+points. cuRobo (`PLANNER=curobo`) builds on the Thor with patches but has no collision spheres for
+the OpenArm yet, so it is not a router yet.
 
 ## Two backends for the arms
 

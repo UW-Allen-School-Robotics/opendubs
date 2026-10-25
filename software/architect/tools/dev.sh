@@ -35,6 +35,9 @@
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
 # says a caller must, with FASTDDS_BUILTIN_TRANSPORTS=UDPv4).
 #
+# PLANNER (show path: dry, up): cbirrt routes a move the straight-line planner refuses as too close
+# around the body (routing.py), with PLANNER_ROOT a checkout of feat/arm-motion-planner-ui, mounted
+# read-only; every leg is still checked, and the published show swept, as without it.
 # ARMS (live only): fake, the default (every goal followed in memory, a fake deadman held in AUTO; the
 # runner still needs the REAL deadman to start a run), or ros: goals to the arm controllers on ROS domain
 # 0, the gates read from the dashboard. live_arms.py says why this is not yet allowed on the robot: no
@@ -95,6 +98,12 @@ run() {  # $1: show or live; then the runner's arguments
     arms_see) domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
     *) echo "dev.sh: PROFILE must be arms or arms_see, not ${profile}" >&2; exit 1 ;;
   esac
+  if [ -n "${PLANNER:-}" ]; then
+    [ -d "${PLANNER_ROOT:-}/sim/planner" ] || { echo "dev.sh: PLANNER needs PLANNER_ROOT, a checkout of feat/arm-motion-planner-ui" >&2; exit 1; }
+    [ "${backend}" = show ] || { echo "dev.sh: PLANNER routes a recorded show only, not the live backend" >&2; exit 1; }
+    env+=(-e OPENDUBS_ARCHITECT_PLANNER="${PLANNER}" -e OPENDUBS_PLANNER_ROOT=/planner)
+    args+=(-v "${PLANNER_ROOT}:/planner:ro")
+  fi
   local publish="--publish /data/shows"
   if [ "${backend}" = live ]; then
     publish=""

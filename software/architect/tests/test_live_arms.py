@@ -5,6 +5,7 @@
 
 Needs numpy and PyYAML; the twin tests also need mujoco, and skip without it.
 """
+import math
 import os
 import sys
 import unittest
@@ -119,6 +120,78 @@ class Gates(unittest.TestCase):
         a = live(runner.FakeRobotState(), arms=Short())
         with self.assertRaises(la.MoveFailed):
             a.move_to_named("right", "stow")
+
+
+# A reach to the middle of the chest that a straight move takes through the body (17.5 mm, and
+# worse with the test limits), and the route CBiRRT found around it on the twin (2026-10-24,
+# routing.Router("cbirrt")): four waypoints and the goal, right arm, signed degrees.
+CHEST = [0.3, -0.05, 1.1]
+CHEST_ROUTE = [[-1.2, 4.5, -1.3, 12.7, -1.6, 1.7, 0.6], [-28.6, 33.1, -31.8, 60.9, -14.2, 17.5, 26.5],
+               [-47.1, 52.1, -52.6, 92.7, -22.5, 28.1, 44.1], [-60.4, 60.9, -66.6, 112.6, -26.1, 34.8, 58.4]]
+CHEST_GOAL = [-71.2, 62.9, -77.0, 128.3, -26.4, 39.5, 72.2]
+CHEST_BACK = [[-62.8, 55.3, -73.5, 122.8, -21.1, 35.7, 61.7], [-46.5, 44.4, -49.1, 87.2, -8.1, 26.6, 40.0],
+              [-35.8, 36.0, -34.9, 65.2, -2.5, 20.5, 28.0], [-9.2, 9.3, -8.9, 18.9, -0.6, 5.3, 7.2]]  # and back to rest
+
+
+class FixedRouter:
+    def __init__(self, via):
+        self.via, self.calls = via, 0
+
+    def __call__(self, side, start, goal):
+        self.calls += 1
+        return self.via
+
+
+@unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")
+class Routing(unittest.TestCase):
+    """A move refused as too close may be routed around the body, for a recorded show only, and the
+    route is held to the same clearance check as a straight move."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.limits = cue.load_limits(LIMITS_PATH)
+        cls.config = la.ArmConfig(workspace={"right": {"x": [0.25, 0.8], "y": [-0.45, 0.15], "z": [0.75, 1.2]}})
+
+    def test_a_route_around_the_body_where_a_straight_move_is_refused(self):
+        with self.assertRaises(la.Refused):
+            la.Planner(self.limits, self.config).plan("right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        move = la.Planner(self.limits, self.config, FixedRouter(CHEST_ROUTE)).plan(
+            "right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        self.assertEqual(len(move.via), 4)
+        self.assertGreaterEqual(move.clearance_mm, 30.0)
+        with self.assertRaises(RuntimeError):
+            move.points()                       # never sent live: the live service gets no router
+
+    def test_a_route_that_is_itself_too_close_is_refused(self):
+        midway = [(a + b) / 2 for a, b in zip([0.0] * 7, CHEST_GOAL)]       # where the straight move hits
+        with self.assertRaises(la.Refused) as e:
+            la.Planner(self.limits, self.config, FixedRouter([midway])).plan(
+                "right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        self.assertIn("route also comes within", e.exception.reason)
+
+    def test_a_waypoint_is_kept_inside_the_validators_margin_on_the_way_to_rest(self):
+        """On the twin a route back to rest passed J4 at +7.4 deg; the validator wants +7.9 for a cue."""
+        lo = math.degrees(self.limits["openarm_right_joint4"][0])
+        back = [w[:] for w in CHEST_BACK]
+        back[-1][3] = lo + 0.5                                              # the last waypoint at the limit
+        pose = dict(ZERO, ARM_R=CHEST_GOAL)
+        rest = cue.rest_pose(self.limits, "right")
+        move = la.Planner(self.limits, self.config, FixedRouter(back)).plan(   # to rest, which takes no margin
+            "right", pose, goal_signed=la.to_signed("right", [rest[j] for j in range(1, 8)]), margin_deg=0)
+        self.assertGreaterEqual(move.via[-1][3], lo + cue.MARGIN_DEG - 1e-6)
+
+    def test_the_route_is_recorded_as_cues_of_a_valid_show(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "architect.yaml")
+            r = la.ShowRecorder(la.Planner(self.limits, self.config, FixedRouter(CHEST_ROUTE)),
+                                self.config, self.limits, path)
+            r.move_to_point("right", CHEST)
+            arm_cues = [c for c in r.cues if c["slot"] == "ARM_R"]
+            tl = cue.load_show(path).export(self.limits, LIMITS_PATH)
+        self.assertEqual(len(arm_cues), 5)                                   # four waypoints, then the goal
+        self.assertEqual([c["t"] for c in arm_cues], sorted(c["t"] for c in arm_cues))
+        self.assertTrue(tl["valid"], tl["problems"])
 
 
 @unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")

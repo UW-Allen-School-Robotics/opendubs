@@ -42,6 +42,13 @@ RUN pip list --format=freeze 2>/dev/null | cut -d= -f1 > /opt/speech/before.txt 
  && pip install --no-deps -r /opt/speech/requirements-speech-nodeps.txt \
  && python3 -I /opt/speech/speech_no_gpl.py /opt/speech/before.txt
 
+# CBiRRT for routing a recorded show's moves around the body (opendubs_architect/routing.py; the arm
+# motion planner, sim/planner on feat/arm-motion-planner-ui, is mounted at run time): sscbirrt (MIT),
+# sstsr (BSD-2-Clause), toppra (MIT). sscbirrt ships no aarch64 wheel, and its source build asks for
+# mujoco==3.14.0, so it is BUILT without the image's pins and installed --no-deps: the twin keeps the
+# mujoco it was tested with (constraints.txt), and numpy stays below 2.
+RUN PIP_CONSTRAINT= pip install --no-deps sscbirrt==3.13.0 && pip install sstsr==3.5.0 toppra==0.6.3
+
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # The /robot/ service types, for the live backend's client and the arm node.
 COPY ros/robot_api_interfaces /opt/architect_ws/src/robot_api_interfaces

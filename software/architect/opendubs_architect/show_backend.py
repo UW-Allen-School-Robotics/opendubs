@@ -35,12 +35,17 @@ def _limits_path() -> str:
     return fixture
 
 
-def make_recorder(path: str | None = None, limits_path: str | None = None) -> live_arms.ShowRecorder:
+def make_recorder(path: str | None = None, limits_path: str | None = None, router=None) -> live_arms.ShowRecorder:
+    """`router`, or OPENDUBS_ARCHITECT_PLANNER=cbirrt|curobo: a move the straight-line planner refuses
+    as too close is routed around the body by the arm motion planner (routing.py)."""
     import cue
     limits = cue.load_limits(limits_path or _limits_path())
     config = live_arms.ArmConfig.load()
     path = path or os.environ.get("OPENDUBS_ARCHITECT_SHOW") or DEFAULT_SHOW
-    return live_arms.ShowRecorder(live_arms.Planner(limits, config), config, limits, path)
+    if router is None and os.environ.get("OPENDUBS_ARCHITECT_PLANNER"):
+        from opendubs_architect.routing import Router
+        router = Router(os.environ["OPENDUBS_ARCHITECT_PLANNER"])
+    return live_arms.ShowRecorder(live_arms.Planner(limits, config, router), config, limits, path)
 
 
 class Publisher:
