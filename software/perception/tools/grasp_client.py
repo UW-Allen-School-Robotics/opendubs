@@ -56,9 +56,20 @@ def main():
     if args.up:
         goal.up_cam.x, goal.up_cam.y, goal.up_cam.z = args.up
     t0 = time.perf_counter()
-    fut = client.send_goal_async(goal)
-    rclpy.spin_until_future_complete(node, fut, timeout_sec=args.timeout)
-    res_fut = fut.result().get_result_async()
+    # Just after the server restarts, its killed copy stays in discovery for its lease (~20 s) and a
+    # goal sent to it is never answered: wait briefly for acceptance, and send again.
+    handle = None
+    for attempt in range(1, 4):
+        fut = client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(node, fut, timeout_sec=5.0)
+        handle = fut.result()
+        if handle is not None:
+            break
+        print(f"no answer from grasp_object (attempt {attempt} of 3); a restarted server's old copy "
+              "may linger in discovery, sending again", file=sys.stderr)
+    if handle is None or not handle.accepted:
+        raise SystemExit("grasp_object did not accept the goal")
+    res_fut = handle.get_result_async()
     rclpy.spin_until_future_complete(node, res_fut, timeout_sec=args.timeout)
     rt_ms = (time.perf_counter() - t0) * 1000.0
     res = res_fut.result().result
