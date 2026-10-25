@@ -122,9 +122,10 @@ class Gates(unittest.TestCase):
             a.move_to_named("right", "stow")
 
 
-# A reach to the middle of the chest that a straight move takes through the body (17.5 mm, and
-# worse with the test limits), and the route CBiRRT found around it on the twin (2026-10-24,
-# routing.Router("cbirrt")): four waypoints and the goal, right arm, signed degrees.
+# A reach BEHIND the shoulder line (x 0.3 against the arms' x 0.423: on the robot the hand went
+# behind the chest) that a straight move takes through the arm column (17.5 mm, and worse with the
+# test limits), and the route CBiRRT found around it on the twin (2026-10-24, routing.Router("cbirrt")):
+# four waypoints and the goal, right arm, signed degrees. A test of routing, not a target to use.
 CHEST = [0.3, -0.05, 1.1]
 CHEST_ROUTE = [[-1.2, 4.5, -1.3, 12.7, -1.6, 1.7, 0.6], [-28.6, 33.1, -31.8, 60.9, -14.2, 17.5, 26.5],
                [-47.1, 52.1, -52.6, 92.7, -22.5, 28.1, 44.1], [-60.4, 60.9, -66.6, 112.6, -26.1, 34.8, 58.4]]
