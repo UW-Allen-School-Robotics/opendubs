@@ -43,13 +43,14 @@ run_grasp() {
   local mode="$1" URL
   URL="$(url)"
   [[ -n "${URL}" ]] || { echo "no AnyGrasp address: set ANYGRASP_URL or write it to ${DATA}/anygrasp_url" >&2; exit 1; }
+  # First, so `up` never reads the last run's "up" lines as this one's.
+  mkdir -p "${DATA}/results"
+  rm -f "${DATA}/results/server.log" "${DATA}/results/tasks.log"
   # The server joins the camera container's shared memory, so the camera must exist first.
   local i
   for ((i = 0; i < 60; i++)); do running "${CAMERA}" && break; sleep 1; done
   running "${CAMERA}" || { echo "${CAMERA} is not running" >&2; exit 1; }
   ${DOCKER} rm -f "${NAME}" >/dev/null 2>&1 || true
-  mkdir -p "${DATA}/results"
-  rm -f "${DATA}/results/server.log" "${DATA}/results/tasks.log"
   local detach=()
   [[ "${mode}" == detached ]] && detach=(-d)
   ${DOCKER} run "${detach[@]}" --rm --name "${NAME}" --runtime nvidia --network host --ipc "container:${CAMERA}" \
@@ -84,6 +85,8 @@ case "${1:-}" in
       if running "${CAMERA}"; then echo "camera: already running"; else "${HERE}/camera.sh" up; fi
       if running "${NAME}"; then echo "grasp: already running"; else run_grasp detached >/dev/null; echo "grasp: starting"; fi
     fi
+    for ((i = 0; i < 120; i++)); do running "${NAME}" && break; sleep 1; done
+    running "${NAME}" || { echo "${NAME} did not start; see '$0 logs'" >&2; exit 1; }
     wait_for server.log "perception server up" 240 "server"
     wait_for tasks.log "perception tasks up" 60 "tasks"
     URL="$(url)"
