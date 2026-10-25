@@ -281,7 +281,7 @@ shared memory, so it must start after the camera and restart with it, which a un
 | Camera unit restarted | The grasp unit restarted with it (`BindsTo`); chair grasped |
 | The robot's own | `opendubs-voice`, `opendubs-llm`, `openarm`, `opendubs-airplay` untouched; `/opt/opendubs` still `main @ 7bad01d8ae6d`; the one failed unit, `nv-graphics`, failed at boot, before this test |
 
-Still to check: a reboot.
+| **Reboot** (the user allowed this one, 2026-10-24; ask every time) | Booted 17:21:28; both units active and both containers up about 30 s after boot, beside the robot's own; camera at 30 Hz. First query 1 min after boot: chair grasped, 1.6 s (first query of the label); pose only next: 465 ms. The robot's own containers all up; still only `nv-graphics` failed |
 
 ### Next
 
