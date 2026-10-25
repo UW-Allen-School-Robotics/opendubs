@@ -1,38 +1,66 @@
 #!/usr/bin/env bash
 # The grasp pipeline on opendubs2 under the archit account, in one command
-# (notes/workplan-perception.md, Phase 4): a label in, a grasp in the camera frame out.
+# (notes/workplan-perception.md, Phases 4 and 5): a label in, a grasp in the camera frame out.
 #
-#   camera   archit-perception-camera   the Femto Bolt driver (tools/camera.sh), /camera/... on domain 0
-#   server   archit-perception-server   YOLO-World, NanoSAM and CLIPSeg; the segment action; no navigation
-#   tasks    (in the server container)  the grasp_object action and the AnyGrasp client
+#   camera   archit-perception-camera   the Femto Bolt driver (tools/camera.sh), /camera/...
+#   grasp    archit-perception-grasp    the perception server (YOLO-World, NanoSAM, CLIPSeg; no
+#                                       navigation) and the grasp_object node (tools/serve_grasp.sh)
 #
-# AnyGrasp itself runs on the workstation (anygrasp_server/). Its address comes from ANYGRASP_URL,
-# else from ~/perception-data/anygrasp_url (one line, e.g. ws://HOST:8768/grasp), so it stays out
-# of the repo.
+# Both on the robot's ROS domain 0; everything this publishes is under /perception
+# (/perception/segment, /perception/grasp_object). AnyGrasp runs on the workstation
+# (anygrasp_server/); its address comes from ANYGRASP_URL, else ~/perception-data/anygrasp_url.
 #
-#   grasp_stack.sh up            start whatever is not running, wait until it is ready
-#   grasp_stack.sh grasp bottle  one grasp_object; results in ~/perception-data/results/grasp-<time>
-#   grasp_stack.sh status        what runs, camera rates, the workstation's health
-#   grasp_stack.sh logs          follow the server and tasks logs
-#   grasp_stack.sh down          stop the server and the camera
+#   grasp_stack.sh up             start whatever is not running, wait until it is ready
+#   grasp_stack.sh grasp bottle   one grasp_object; results in ~/perception-data/results/grasp-<time>
+#   grasp_stack.sh status | logs | down
+#   grasp_stack.sh install        TEST: two systemd units (deploy/archit-perception*.service) so it
+#                                 runs from boot; up/down/logs then go through systemd
+#   grasp_stack.sh uninstall      remove them again
+#   grasp_stack.sh serve          the grasp container in the foreground (the unit's ExecStart)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-NAME=archit-perception-server
+NAME=archit-perception-grasp
 CAMERA=archit-perception-camera
 IMAGE=archit-perception:dev
+UNITS=(archit-perception-camera.service archit-perception.service)
 REPO="${REPO:-$HOME/opendubs-perception}"
 DATA="${DATA:-$HOME/perception-data}"
-CONFIG=/work/software/perception/config/perception_manip.yaml
-TASKS_CONFIG=/work/software/perception/config/perception_tasks.yaml
 DOCKER="sudo -n docker"
+NS=(--ros-args -r __ns:=/perception)
 in_ctr() { local opts=(); while [[ "$1" == -* ]]; do opts+=("$1"); shift; done; ${DOCKER} exec "${opts[@]}" "$1" /opt/perception/entrypoint.sh "${@:2}"; }
 running() { ${DOCKER} inspect -f '{{.State.Running}}' "$1" 2>/dev/null | grep -q true; }
+installed() { [[ -f /etc/systemd/system/archit-perception.service ]]; }
 url() {
   if [[ -n "${ANYGRASP_URL:-}" ]]; then echo "${ANYGRASP_URL}"
   elif [[ -s "${DATA}/anygrasp_url" ]]; then head -n1 "${DATA}/anygrasp_url"
   fi
 }
+health() { curl -s -m 5 "$(echo "$1" | sed -E 's#^ws(s?)://#http\1://#; s#/[^/]*$#/health#')"; }
+
+# The grasp container: detached for `up`, in the foreground for the unit.
+run_grasp() {
+  local mode="$1" URL
+  URL="$(url)"
+  [[ -n "${URL}" ]] || { echo "no AnyGrasp address: set ANYGRASP_URL or write it to ${DATA}/anygrasp_url" >&2; exit 1; }
+  # The server joins the camera container's shared memory, so the camera must exist first.
+  local i
+  for ((i = 0; i < 60; i++)); do running "${CAMERA}" && break; sleep 1; done
+  running "${CAMERA}" || { echo "${CAMERA} is not running" >&2; exit 1; }
+  ${DOCKER} rm -f "${NAME}" >/dev/null 2>&1 || true
+  mkdir -p "${DATA}/results"
+  rm -f "${DATA}/results/server.log" "${DATA}/results/tasks.log"
+  local detach=()
+  [[ "${mode}" == detached ]] && detach=(-d)
+  ${DOCKER} run "${detach[@]}" --rm --name "${NAME}" --runtime nvidia --network host --ipc "container:${CAMERA}" \
+    -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
+    -e HOME=/data/home -w /data/home -e HF_HOME=/data/models/hf -e HF_HUB_OFFLINE=1 \
+    -e ANYGRASP_URL="${URL}" \
+    -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \
+    -v "${DATA}:/data" -v "${REPO}:/work:ro" \
+    "${IMAGE}" bash /work/software/perception/tools/serve_grasp.sh
+}
+
 # Wait for a line in a log under DATA/results: wait_for <file> <pattern> <seconds> <what>
 wait_for() {
   local i
@@ -45,34 +73,22 @@ wait_for() {
 }
 
 case "${1:-}" in
+  serve)
+    run_grasp foreground
+    ;;
   up)
-    URL="$(url)"
-    [[ -n "${URL}" ]] || { echo "no AnyGrasp address: set ANYGRASP_URL or write it to ${DATA}/anygrasp_url" >&2; exit 1; }
-    if running "${CAMERA}"; then echo "camera: already running"; else "${HERE}/camera.sh" up; fi
-    if running "${NAME}"; then
-      echo "server: already running (stop it with 'grasp_stack.sh down' to change its config)"
+    if installed; then
+      sudo -n systemctl start "${UNITS[@]}"
+      echo "started ${UNITS[*]}"
     else
-      mkdir -p "${DATA}/results"
-      rm -f "${DATA}/results/server.log" "${DATA}/results/tasks.log"
-      ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host --ipc "container:${CAMERA}" \
-        -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
-        -e HOME=/data/home -w /data/home -e HF_HOME=/data/models/hf -e HF_HUB_OFFLINE=1 \
-        -e ANYGRASP_URL="${URL}" \
-        -e PYTHONPATH=/work/software/perception:/opt/nanosam:/opt/perception_models \
-        -v "${DATA}:/data" -v "${REPO}:/work:ro" \
-        "${IMAGE}" bash -c "python3 -u -m perception_server.server --config ${CONFIG} 2>&1 | tee /data/results/server.log" >/dev/null
-      echo "server: starting (the models take about a minute)"
-    fi
-    if in_ctr "${NAME}" pgrep -f perception_tasks.node >/dev/null 2>&1; then
-      echo "tasks: already running"
-    else
-      in_ctr -d "${NAME}" bash -c "python3 -u -m perception_tasks.node --config ${TASKS_CONFIG} > /data/results/tasks.log 2>&1"
+      if running "${CAMERA}"; then echo "camera: already running"; else "${HERE}/camera.sh" up; fi
+      if running "${NAME}"; then echo "grasp: already running"; else run_grasp detached >/dev/null; echo "grasp: starting"; fi
     fi
     wait_for server.log "perception server up" 240 "server"
-    wait_for tasks.log "perception tasks up" 30 "tasks"
-    curl -s -m 5 "$(echo "${URL}" | sed -E 's#^ws(s?)://#http\1://#; s#/[^/]*$#/health#')" >/dev/null \
-      || echo "warning: the AnyGrasp workstation at ${URL} does not answer /health" >&2
-    echo "ready: grasp_object on domain 77, AnyGrasp at ${URL}"
+    wait_for tasks.log "perception tasks up" 60 "tasks"
+    URL="$(url)"
+    health "${URL}" >/dev/null || echo "warning: the AnyGrasp workstation at ${URL} does not answer /health" >&2
+    echo "ready: /perception/grasp_object on domain 0, AnyGrasp at ${URL}"
     echo "try:   $0 grasp bottle"
     ;;
   grasp)
@@ -80,31 +96,56 @@ case "${1:-}" in
     [[ $# -ge 1 ]] || { echo "usage: $0 grasp <label> [grasp_client.py options]" >&2; exit 1; }
     label="$1"; shift
     out="/data/results/grasp-$(date +%H%M%S)"
-    in_ctr "${NAME}" python3 /work/software/perception/tools/grasp_client.py --label "${label}" --camera femto --out "${out}" "$@"
+    in_ctr "${NAME}" python3 /work/software/perception/tools/grasp_client.py --label "${label}" --camera femto \
+      --out "${out}" "$@" "${NS[@]}"
     echo "saved to ${DATA}/results/$(basename "${out}")"
     ;;
   status)
+    if installed; then
+      for u in "${UNITS[@]}"; do echo "${u}: $(systemctl is-active "${u}") ($(systemctl is-enabled "${u}") at boot)"; done
+    fi
     for c in "${CAMERA}" "${NAME}"; do
       if running "$c"; then echo "$c: running"; else echo "$c: stopped"; fi
     done
-    if running "${NAME}"; then
-      in_ctr "${NAME}" pgrep -f perception_tasks.node >/dev/null 2>&1 && echo "tasks: running" || echo "tasks: stopped"
-    fi
     running "${CAMERA}" && "${HERE}/camera.sh" status 2>/dev/null | grep -E "average rate" || true
     URL="$(url)"
-    if [[ -n "${URL}" ]]; then
-      echo "anygrasp ${URL}: $(curl -s -m 5 "$(echo "${URL}" | sed -E 's#^ws(s?)://#http\1://#; s#/[^/]*$#/health#')" || echo unreachable)"
-    fi
+    if [[ -n "${URL}" ]]; then echo "anygrasp ${URL}: $(health "${URL}" || echo unreachable)"; fi
     ;;
   logs)
-    tail -F "${DATA}/results/server.log" "${DATA}/results/tasks.log"
+    if installed; then
+      sudo -n journalctl -f -u archit-perception-camera -u archit-perception
+    else
+      tail -F "${DATA}/results/server.log" "${DATA}/results/tasks.log"
+    fi
     ;;
   down)
-    if running "${NAME}"; then ${DOCKER} stop -t 5 "${NAME}" >/dev/null && echo "stopped ${NAME}"; fi
-    if running "${CAMERA}"; then "${HERE}/camera.sh" down; fi
+    if installed; then
+      sudo -n systemctl stop "${UNITS[@]}"
+      echo "stopped ${UNITS[*]} (still enabled at boot; 'uninstall' removes them)"
+    else
+      if running "${NAME}"; then ${DOCKER} stop -t 10 "${NAME}" >/dev/null && echo "stopped ${NAME}"; fi
+      if running "${CAMERA}"; then "${HERE}/camera.sh" down; fi
+    fi
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}"
     ;;
+  install)
+    # Stop copies started by hand, so the units own the containers from here on.
+    if running "${NAME}"; then ${DOCKER} stop -t 10 "${NAME}" >/dev/null; fi
+    if running "${CAMERA}"; then ${DOCKER} stop -t 5 "${CAMERA}" >/dev/null; fi
+    for u in "${UNITS[@]}"; do
+      sudo -n install -m 0644 "${REPO}/software/perception/deploy/${u}" "/etc/systemd/system/${u}"
+    done
+    sudo -n systemctl daemon-reload
+    sudo -n systemctl enable --now "${UNITS[@]}"
+    echo "installed and started ${UNITS[*]}; they start at every boot ('uninstall' removes them)"
+    ;;
+  uninstall)
+    sudo -n systemctl disable --now "${UNITS[@]}" 2>/dev/null || true
+    for u in "${UNITS[@]}"; do sudo -n rm -f "/etc/systemd/system/${u}"; done
+    sudo -n systemctl daemon-reload
+    echo "removed ${UNITS[*]}"
+    ;;
   *)
-    sed -n '2,18p' "$0"; exit 1
+    sed -n '2,21p' "$0"; exit 1
     ;;
 esac

@@ -8,6 +8,7 @@
 # Reading it from another user's node:  export FASTDDS_BUILTIN_TRANSPORTS=UDPv4  (see below)
 #
 #   camera.sh up        start the driver
+#   camera.sh run       the same in the foreground, for a supervisor (archit-perception-camera.service)
 #   camera.sh status    rates of colour and aligned depth, and the colour calibration
 #   camera.sh logs      follow the driver log
 #   camera.sh down      stop and remove the container
@@ -24,7 +25,12 @@ REPO="${REPO:-$HOME/opendubs-perception}"
 LAUNCH_ARGS=(depth_registration:=true align_mode:=SW enable_color_undistortion:=true)
 
 case "${1:-}" in
-  up)
+  up|run)
+    detach=(-d)
+    if [[ "$1" == run ]]; then
+      detach=()
+      ${DOCKER} rm -f "${NAME}" >/dev/null 2>&1 || true  # a copy left by a crash or a hard stop
+    fi
     # USB devices are character major 189; the container runs as root, so no host udev rules.
     # The Femto Bolt computes depth on the host in an OpenGL depth engine: without the NVIDIA
     # runtime it falls back to Mesa's software renderer and takes ~9 cores (130 % with the GPU).
@@ -36,14 +42,14 @@ case "${1:-}" in
     # nothing (Fast DDS sees the same host and insists on shared memory it cannot open).
     # image/fastdds_camera.xml gives the driver a 128 MB shared-memory segment (the default 512 KB
     # let one slow reader cut every reader to ~7 frames a second); --shm-size holds it.
-    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia \
+    ${DOCKER} run "${detach[@]}" --rm --name "${NAME}" --runtime nvidia \
       -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all --network host --ipc shareable \
       --shm-size 1g -v "${REPO}/software/perception/image/fastdds_camera.xml:/opt/camera/fastdds.xml:ro" \
       -e FASTRTPS_DEFAULT_PROFILES_FILE=/opt/camera/fastdds.xml \
       -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
       -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET \
       "${IMAGE}" ros2 launch orbbec_camera femto_bolt.launch.py "${LAUNCH_ARGS[@]}" ${CAMERA_ARGS:-}
-    echo "started ${NAME}; 'camera.sh logs' to follow"
+    if [[ "$1" == up ]]; then echo "started ${NAME}; 'camera.sh logs' to follow"; fi
     ;;
   status)
     ${DOCKER} exec "${NAME}" /opt/camera/entrypoint.sh bash -c \
@@ -59,6 +65,6 @@ case "${1:-}" in
     ${DOCKER} stop -t 5 "${NAME}" >/dev/null && echo "stopped ${NAME}"
     ;;
   *)
-    sed -n '2,13p' "$0"; exit 1
+    sed -n '2,14p' "$0"; exit 1
     ;;
 esac

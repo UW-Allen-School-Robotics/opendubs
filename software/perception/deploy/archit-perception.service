@@ -1,0 +1,24 @@
+[Unit]
+# TEST UNIT for archit@opendubs2 (notes/workplan-perception.md, Phase 5): the perception server
+# (YOLO-World, NanoSAM, CLIPSeg; no navigation) and the grasp_object node, on ROS domain 0 under
+# /perception, from ~archit/opendubs-perception. Not part of the robot's stack: no deploy or
+# provisioner installs or touches it. `grasp_stack.sh install|uninstall` adds and removes it.
+#
+# BindsTo the camera: the server shares the camera container's memory (--ipc container:…), so when
+# the camera restarts this restarts with it.
+Description=archit test: perception server + grasp_object (container archit-perception-grasp)
+After=docker.service archit-perception-camera.service
+Requires=docker.service
+BindsTo=archit-perception-camera.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=REPO=/home/archit/opendubs-perception DATA=/home/archit/perception-data
+ExecStart=/home/archit/opendubs-perception/software/perception/tools/grasp_stack.sh serve
+ExecStop=/usr/bin/docker stop -t 10 archit-perception-grasp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

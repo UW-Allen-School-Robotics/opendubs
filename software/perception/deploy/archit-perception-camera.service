@@ -1,0 +1,21 @@
+[Unit]
+# TEST UNIT for archit@opendubs2 (notes/workplan-perception.md, Phase 5): the Femto Bolt driver,
+# from ~archit/opendubs-perception, kept alive across reboots. Not part of the robot's stack: no
+# deploy or provisioner installs or touches it. Installed and removed by
+# `software/perception/tools/grasp_stack.sh install|uninstall`.
+Description=archit test: Femto Bolt driver for the grasp pipeline (container archit-perception-camera)
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=REPO=/home/archit/opendubs-perception
+ExecStart=/home/archit/opendubs-perception/software/perception/tools/camera.sh run
+ExecStop=/usr/bin/docker stop -t 5 archit-perception-camera
+# A camera that is not enumerated yet, or unplugged: try again.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

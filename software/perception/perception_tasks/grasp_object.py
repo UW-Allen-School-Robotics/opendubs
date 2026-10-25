@@ -120,6 +120,9 @@ class GraspObjectTask:
             res.grasp = grasp_msg(reply.best)
             res.candidates = [grasp_msg(c) for c in reply.candidates]
             res.mode = reply.mode
+            if not goal.include_images:  # pose only: a few hundred bytes, fine over UDP
+                res.rgb = Image()
+                res.instance.mask = Image()
             res.success = True
             t = reply.best.translation
             res.message = (f"{inst.label} ({inst.score:.2f}, 1 of {len(seg.instances)}): grasp at "

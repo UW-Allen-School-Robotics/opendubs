@@ -41,6 +41,7 @@ def main():
     ap.add_argument("--source", choices=SOURCES, default="auto")
     ap.add_argument("--up", nargs=3, type=float, metavar=("X", "Y", "Z"),
                     help="world up in the camera frame, if known")
+    ap.add_argument("--no-images", action="store_true", help="ask for the pose only (no overlay)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--timeout", type=float, default=60.0)
     args, ros_args = ap.parse_known_args()
@@ -51,7 +52,7 @@ def main():
     if not client.wait_for_server(timeout_sec=args.timeout):
         raise SystemExit("grasp_object action server not found (is perception_tasks running?)")
     goal = GraspObject.Goal(label=args.label, camera=args.camera, min_score=args.min_score,
-                            source=SOURCES[args.source])
+                            source=SOURCES[args.source], include_images=not args.no_images)
     if args.up:
         goal.up_cam.x, goal.up_cam.y, goal.up_cam.z = args.up
     t0 = time.perf_counter()
@@ -69,12 +70,14 @@ def main():
                "segment_ms": round(res.segment_ms, 1), "grasp_ms": round(res.grasp_ms, 1),
                "round_trip_ms": round(rt_ms, 1)}
     if res.success:
+        summary["frame_stamp"] = res.header.stamp.sec + res.header.stamp.nanosec * 1e-9
         summary["grasp"] = {"position": [p.x, p.y, p.z], "orientation_xyzw": [q.x, q.y, q.z, q.w],
                             "width": res.grasp.width, "score": res.grasp.score,
                             "upright_score": res.grasp.upright_score,
                             "tilt_from_floor_deg": res.grasp.tilt_from_floor_deg}
         summary["instance"] = {"label": res.instance.label, "score": res.instance.score,
                                "box": [int(v) for v in res.instance.box]}  # numpy int32 from ROS
+    if res.success and res.rgb.data:
         rgb = image_array(res.rgb).astype(np.float32)
         mask = image_array(res.instance.mask) > 0
         rgb[mask] = 0.5 * rgb[mask] + 0.5 * np.array([0, 200, 255], dtype=np.float32)

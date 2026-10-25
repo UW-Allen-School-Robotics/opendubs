@@ -6,16 +6,17 @@ string camera                # a camera name from perception_server's config
 float32 min_score            # detector score floor; 0 = the server's default
 uint8 source                 # as Segment: AUTO=0, DETECTOR=1, CLIPSEG=2
 geometry_msgs/Vector3 up_cam # world up in the camera frame, if known (minus gravity); zero = unknown
+bool include_images          # return rgb and the instance's mask (~4 MB); false = pose only
 ---
 bool success
 string message
 std_msgs/Header header             # the camera frame and stamp the grasp is in
-Instance instance                  # the object grasped
+Instance instance                  # the object grasped (its mask only with include_images)
 int32 instances_found              # how many instances of the label Segment returned
 Grasp grasp                        # the best grasp
 Grasp[] candidates                 # others, best first (only from servers that return them)
 string mode                        # how the server chose the best grasp
-sensor_msgs/Image rgb              # the colour frame used, for checking the result
+sensor_msgs/Image rgb              # the colour frame used, for checking the result (include_images)
 sensor_msgs/CameraInfo camera_info
 float32 segment_ms
 float32 grasp_ms
