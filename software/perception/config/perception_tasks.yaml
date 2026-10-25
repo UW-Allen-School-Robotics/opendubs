@@ -3,11 +3,16 @@
 # original); `url` below is used only when that is unset.
 
 grasp_object:
-  segment_action: segment
+  segment_action: segment_action   # perception_server's action, relative to the namespace
   segment_timeout_s: 10.0
   anygrasp:
     url: ""
-    timeout_s: 20.0
+    timeout_s: 5.0     # a service call blocks its caller; the workstation answers in 0.1-0.4 s
     erode_px: 2        # drop the mask's edge, where time-of-flight depth mixes object and background
     margin_px: 16      # context kept around the mask's box when cropping
     top_k: 5           # candidates to ask for (anygrasp_server/ only)
+
+api:
+  default_camera: femto
+  camera_info:         # watched for /perception/status
+    femto: /camera/color/camera_info

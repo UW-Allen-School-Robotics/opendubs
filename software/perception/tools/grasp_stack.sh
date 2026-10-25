@@ -6,8 +6,9 @@
 #   grasp    archit-perception-grasp    the perception server (YOLO-World, NanoSAM, CLIPSeg; no
 #                                       navigation) and the grasp_object node (tools/serve_grasp.sh)
 #
-# Both on the robot's ROS domain 0; everything this publishes is under /perception
-# (/perception/segment, /perception/grasp_object). AnyGrasp runs on the workstation
+# Both on the robot's ROS domain 0; everything is under /perception: the JSON services detect,
+# segment, locate, grasp_object and status (call them with tools/perception_call.sh), and the
+# actions segment_action and grasp_object_action. AnyGrasp runs on the workstation
 # (anygrasp_server/); its address comes from ANYGRASP_URL, else ~/perception-data/anygrasp_url.
 #
 #   grasp_stack.sh up             start whatever is not running, wait until it is ready
@@ -91,8 +92,8 @@ case "${1:-}" in
     wait_for tasks.log "perception tasks up" 60 "tasks"
     URL="$(url)"
     health "${URL}" >/dev/null || echo "warning: the AnyGrasp workstation at ${URL} does not answer /health" >&2
-    echo "ready: /perception/grasp_object on domain 0, AnyGrasp at ${URL}"
-    echo "try:   $0 grasp bottle"
+    echo "ready: /perception/{detect,segment,locate,grasp_object,status} on domain 0, AnyGrasp at ${URL}"
+    echo "try:   ${HERE}/perception_call.sh grasp_object '{\"label\": \"bottle\"}'"
     ;;
   grasp)
     shift

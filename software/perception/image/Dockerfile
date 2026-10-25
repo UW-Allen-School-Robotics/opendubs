@@ -54,8 +54,9 @@ ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=all
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
-# The Segment action and Instance message.
+# The Segment and GraspObject actions, and the JSON services' robot_api_interfaces.
 COPY perception_msgs /opt/perception_ws/src/perception_msgs
+COPY robot_api_interfaces /opt/perception_ws/src/robot_api_interfaces
 RUN bash -c "source /opt/ros/jazzy/setup.bash && cd /opt/perception_ws && colcon build --event-handlers console_direct-" \
  && rm -rf /opt/perception_ws/build /opt/perception_ws/log
 COPY image/entrypoint.sh /opt/perception/entrypoint.sh

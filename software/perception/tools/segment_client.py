@@ -49,7 +49,7 @@ def main():
 
     rclpy.init(args=ros_args)
     node = Node("segment_client")
-    client = ActionClient(node, Segment, "segment")
+    client = ActionClient(node, Segment, "segment_action")
     if not client.wait_for_server(timeout_sec=args.timeout):
         raise SystemExit("segment action server not found")
     goal = Segment.Goal(labels=args.labels, camera=args.camera, min_score=args.min_score,

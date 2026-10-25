@@ -95,14 +95,15 @@ class PerceptionServer(Node):
         self._running = True
         self.worker = threading.Thread(target=self._work, daemon=True)
 
-        ActionServer(self, Segment, "segment", execute_callback=self._execute,
+        # "segment_action": /perception/segment is the JSON service (perception_tasks/api.py).
+        ActionServer(self, Segment, "segment_action", execute_callback=self._execute,
                      goal_callback=lambda _g: GoalResponse.ACCEPT,
                      cancel_callback=lambda _g: CancelResponse.REJECT, callback_group=cb)
         self.create_timer(10.0, self._report, callback_group=cb)
         self.worker.start()
         self.get_logger().info(
             f"perception server up: cameras={list(self.cameras)} "
-            f"navigation={'on ' + self.nav_camera if self.nav_enabled else 'off'} action=segment")
+            f"navigation={'on ' + self.nav_camera if self.nav_enabled else 'off'} action=segment_action")
 
     def _reader(self, domain: int) -> Node:
         if domain not in self.readers:

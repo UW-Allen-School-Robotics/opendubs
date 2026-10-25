@@ -48,7 +48,7 @@ def main():
 
     rclpy.init(args=ros_args)
     node = Node("grasp_client")
-    client = ActionClient(node, GraspObject, "grasp_object")
+    client = ActionClient(node, GraspObject, "grasp_object_action")
     if not client.wait_for_server(timeout_sec=args.timeout):
         raise SystemExit("grasp_object action server not found (is perception_tasks running?)")
     goal = GraspObject.Goal(label=args.label, camera=args.camera, min_score=args.min_score,

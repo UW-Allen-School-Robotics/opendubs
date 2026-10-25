@@ -38,7 +38,13 @@ MIN_POINTS = 50  # the servers refuse sparser clouds
 
 
 class GraspError(RuntimeError):
-    """The request could not be answered: bad input, an unreachable server, or no grasp."""
+    """The request could not be answered. `kind` says why:
+    input (the object or its data cannot be used), timeout, unreachable (no connection to the
+    server), server (the server answered with an error, e.g. no grasp)."""
+
+    def __init__(self, message: str, kind: str = "input"):
+        super().__init__(message)
+        self.kind = kind
 
 
 @dataclass
@@ -228,11 +234,11 @@ class AnyGraspClient:
                     return json.loads(self._ws.recv(timeout=self.timeout))
                 except TimeoutError as exc:
                     self._drop()
-                    raise GraspError(f"no reply from {self.url} within {self.timeout:.0f} s") from exc
+                    raise GraspError(f"no reply from {self.url} within {self.timeout:.0f} s", "timeout") from exc
                 except Exception as exc:  # noqa: BLE001 - connection closed, refused, too big …
                     self._drop()
                     if attempt == 1:
-                        raise GraspError(f"{self.url}: {type(exc).__name__}: {exc}") from exc
+                        raise GraspError(f"{self.url}: {type(exc).__name__}: {exc}", "unreachable") from exc
         raise AssertionError("unreachable")
 
     def _drop(self):
@@ -250,7 +256,7 @@ class AnyGraspClient:
         reply = self.request(payload)
         rt = (time.perf_counter() - t0) * 1000.0
         if reply.get("status") != "success":
-            raise GraspError(f"AnyGrasp: {reply.get('message', reply)}")
+            raise GraspError(f"AnyGrasp: {reply.get('message', reply)}", "server")
         return GraspReply(best=parse_grasp(reply["best_grasp"]),
                           candidates=[parse_grasp(c) for c in reply.get("candidates", [])],
                           mode=str(reply.get("mode", "")), points=n,
