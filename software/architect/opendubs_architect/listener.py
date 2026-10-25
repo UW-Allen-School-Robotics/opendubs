@@ -23,6 +23,11 @@ spotter hit alone posts nothing.
                                          someone else talking and is dropped
     a sentence with "stop"    RUNNING    no wake phrase -> "speech" "stop"
 
+WHAT IT SAYS ITSELF (chat.py, the robot's local language model; never posted to the runner):
+
+    a run starts              RUNNING    one varied greeting while the arm hands out the treat
+    "Hey OpenDubs, <words>"   ARMED      a short reply, unless the words hold "stop" (posted as above)
+
 Outside those states, and while the runner cannot be read, only the wake phrase is listened for.
 
 WHILE THE ROBOT SPEAKS nothing is listened to, and for TAIL_S after: its own "trick or treat" in a
@@ -66,6 +71,7 @@ TAIL_S = 0.6                # deaf after the robot speaks: the room's echo of it
 YES_MAX_WORDS = 3
 OPEN_STATES = ("AWAITING_YES", "RUNNING")
 _WORD = re.compile(r"[A-Za-z']+")
+_STOP = re.compile(r"\bstop\b", re.I)
 _OR = {"or", "r", "a", "er", "ah", "and", "n"}
 # How Parakeet wrote a real "Hey OpenDubs" on the Jabra at 1 m (the takes of 2026-10-24), which
 # wakeword.strip refuses: "Hey, opened up", "Hey overdubs", "A open dubs", "They opened up", "I opened
@@ -112,8 +118,11 @@ class Listener:
     runner's new state) reach the models and the runner."""
 
     def __init__(self, spotter, transcribe, post, make_vad=vad.make_vad, clock=time.monotonic,
-                 log=None, background=True):
+                 log=None, background=True, chat=None, say=None):
+        """`chat` (chat.Chat) and `say(text)`, when given, let the robot greet each visitor and answer
+        questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
+        self.chat, self.say = chat, say
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
         self.state: str | None = None         # the runner's, None while it cannot be read
         self.speaking = False
@@ -236,6 +245,10 @@ class Listener:
                     self._send("trigger", "trick or treat")
                 else:
                     self._log("dropped", state=self.state, why="trick or treat while nothing is armed")
+            elif self.state == "ARMED" and self.chat and self.say and not _STOP.search(rest):
+                answer = self.chat.reply(rest)      # a question while armed: the runner ignores it anyway
+                self.say(answer)
+                self._log("replied", text=answer)
             else:
                 self._send("instruction" if self.state == "IDLE" else "speech", rest)
         elif kind == "trick":
@@ -261,6 +274,10 @@ class Listener:
         if got:
             self.state = got
         self._log("posted", kind=kind, text=text, state=got)
+        if kind == "trigger" and got == "RUNNING" and self.chat and self.say:
+            line = self.chat.greeting()             # after the run has started: it never waits on this
+            self.say(line)
+            self._log("greeted", text=line)
 
 
 # ---- the robot side: the Jabra, the models, the runner ------------------------------------------------
@@ -294,10 +311,11 @@ def main(argv=None) -> int:
     ap.add_argument("--models", default=os.environ.get("OPENDUBS_VOICE_MODELS", "/var/lib/opendubs/models"))
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
     ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
+    ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
     a = ap.parse_args(argv)
     os.environ["OPENDUBS_VOICE_MODELS"] = a.models      # speech.py and vad.py read it
 
-    from opendubs_architect import alsa
+    from opendubs_architect import alsa, chat
     import speech
 
     def log(ev):
@@ -305,10 +323,10 @@ def main(argv=None) -> int:
 
     stt, tts = speech.make_stt(a.stt), speech.make_tts(a.tts)
     runner = Runner(a.runner)
-    listener = Listener(kws.Spotter(a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
-                        runner.post, make_vad=lambda: vad.make_vad(a.models), log=log)
-
     lines: queue.Queue = queue.Queue()
+    listener = Listener(kws.Spotter(a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
+                        runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
+                        chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]))
 
     async def play(out, text):
         async for chunk in tts.speak(text):

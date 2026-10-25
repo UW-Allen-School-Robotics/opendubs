@@ -138,6 +138,50 @@ class Trick(Case):
             self.assertFalse(ls.is_trick_or_treat(text), text)
 
 
+class FakeChat:
+    def greeting(self):
+        return "Happy haunting!"
+
+    def reply(self, heard):
+        return f"You asked: {heard}"
+
+
+class Chat(Case):
+    def armed(self, heard, post_state=None):
+        li = self.make(heard, "ARMED")
+        self.said = []
+        li.chat, li.say = FakeChat(), self.said.append
+        li.post = lambda kind, text: (self.posted.append((kind, text)), post_state)[1]
+        self.spotter.fire(kws.HEY)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        return li
+
+    def test_a_question_while_armed_is_answered_and_never_posted(self):
+        self.armed("Hey OpenDubs, what is your name?")
+        self.assertEqual(self.posted, [])
+        self.assertEqual(self.said, ["You asked: what is your name?"])
+
+    def test_stop_still_reaches_the_runner(self):
+        self.armed("Hey OpenDubs, stop!")
+        self.assertEqual((self.posted, self.said), ([("speech", "stop!")], []))
+
+    def test_a_greeting_once_the_run_has_started(self):
+        self.armed("Hey OpenDubs, trick or treat!", post_state="RUNNING")
+        self.assertEqual((self.posted, self.said), ([("trigger", "trick or treat")], ["Happy haunting!"]))
+        self.armed("Hey OpenDubs, trick or treat!", post_state="ARMED")     # refused: the deadman not held
+        self.assertEqual(self.said, [])
+
+    def test_what_the_model_may_say(self):
+        from opendubs_architect import chat
+        c = chat.Chat(profile={"served_name": "x"}, ask=lambda *a: "Sure, let me dance for you! I love Halloween.")
+        self.assertEqual(c.reply("can you dance"), "I can't move on my own; my operator controls that. I love Halloween.")
+        c = chat.Chat(profile={"served_name": "x"}, ask=lambda *a: "Let me hand you a candy! **Boo!**")
+        self.assertEqual(c.greeting(), "Let me hand you a candy!")          # the arm is handing one over
+        c = chat.Chat(profile={"served_name": "x"}, ask=lambda *a: None)    # the model down
+        self.assertIn(c.greeting(), chat.FALLBACK_GREETINGS)
+        self.assertEqual(c.reply("hi"), chat.FALLBACK_REPLY)
+
+
 class OpenWindow(Case):
     def test_a_short_yes_approves_and_a_sentence_does_not(self):
         li = self.make("Yes.", "AWAITING_YES")
