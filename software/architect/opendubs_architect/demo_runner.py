@@ -531,7 +531,9 @@ def main(argv=None) -> int:
     publish = None
     if a.publish:
         from opendubs_architect.show_backend import Publisher
-        publish = Publisher(a.publish, primitives)
+        from opendubs_architect.show_backend import PerceptionDryRun
+        sees = "detect_objects" in primitives            # the arms_see profile: perception at approval
+        publish = Publisher(a.publish, primitives, base=PerceptionDryRun if sees else None)
     if a.dry_run or a.publish:
         namespace = cfg.make_dry_run_namespace(_Quiet())
         deadman_held = lambda: True  # noqa: E731

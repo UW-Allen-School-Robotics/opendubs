@@ -26,6 +26,13 @@ from opendubs_architect import api
 #: Seconds to wait for a service to appear, and for a reply. Motions get their own
 #: budget: the robot finishes or refuses a move within it, or the call is abandoned.
 SERVICE_WAIT_S = 5.0
+#: A client that calls the moment it sees a service sometimes loses the reply (perception's
+#: perception_call.py, about 1 call in 20 on opendubs2): a new client waits this long first, and a
+#: read-only call that gets no answer within READ_TRY_S is sent again, up to READ_TRIES times.
+SETTLE_S = 0.5
+READ_TRY_S = 10.0
+READ_TRIES = 3
+READ_ONLY = frozenset({"detect_objects", "locate_object"})
 QUERY_TIMEOUT_S = 10.0
 COMMAND_TIMEOUT_S = 30.0
 MOTION_TIMEOUT_S = 60.0
@@ -56,6 +63,7 @@ class OpenDubsRobotClient:
         self._node = rclpy.create_node(node_name)
         self._clients: dict[str, object] = {}
         self._services = {name: (service, kind) for name, service, kind in api.PRIMITIVES}
+        self._perception = None
 
     def destroy_node(self) -> None:
         self._node.destroy_node()
@@ -70,14 +78,19 @@ class OpenDubsRobotClient:
         """Call one primitive's service. ``wait_s`` is how long the robot may legitimately take
         on top of its usual reply (a navigation's or a handoff's own timeout)."""
         service, kind = self._services[name]
-        service = "/robot/" + service
+        service = service if service.startswith("/") else "/robot/" + service
         srv = self._types[kind]
         client = self._clients.get(service)
-        if client is None:
+        fresh = client is None
+        if fresh:
             client = self._clients[service] = self._node.create_client(srv, service)
         if not client.wait_for_service(timeout_sec=SERVICE_WAIT_S):
             raise RuntimeError(f"{service} is not running (waited {SERVICE_WAIT_S:.0f} s)")
+        if fresh:
+            self._settle(SETTLE_S)
         req = srv.Request() if kind == "query" else srv.Request(req=json.dumps(payload or {}))
+        if name in READ_ONLY:
+            return self._read(name, service, client, req)
         if name == "navigate_to":
             timeout = NAVIGATION_TIMEOUT_S
         elif name in api.MOTION_PRIMITIVES:
@@ -94,11 +107,39 @@ class OpenDubsRobotClient:
             raise RuntimeError(f"{service} did not reply within {timeout:.0f} s")
         resp = future.result()
         code, message = resp.result_code.result_code, resp.result_code.message
+        return self._reply(name, resp)
+
+    def _reply(self, name: str, resp) -> dict:
+        code, message = resp.result_code.result_code, resp.result_code.message
         if code == api.REFUSED:
             raise MotionRefused(f"{name}: {message}")
+        if code == api.NOT_FOUND:
+            raise RuntimeError(f"{name}: nothing like that in view ({message})")
         if code != api.SUCCESS:
             raise RuntimeError(f"{name}: {message or f'result code {code}'}")
         return json.loads(resp.data) if resp.data else {}
+
+    def _settle(self, seconds: float) -> None:
+        import time
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            self._rclpy.spin_once(self._node, timeout_sec=0.05)
+
+    def _read(self, name: str, service: str, client, req) -> dict:
+        """A read-only call, sent again if it gets no answer: a resend is safe."""
+        for _ in range(READ_TRIES):
+            future = client.call_async(req)
+            self._rclpy.spin_until_future_complete(self._node, future, timeout_sec=READ_TRY_S)
+            if future.result() is not None:
+                return self._reply(name, future.result())
+            client.remove_pending_request(future)
+        raise RuntimeError(f"{service} did not reply after {READ_TRIES} tries of {READ_TRY_S:.0f} s")
+
+    def _frames(self):
+        if self._perception is None:
+            from opendubs_architect.perception import Perception
+            self._perception = Perception.from_arm_config()
+        return self._perception
 
     # ------------------------------------------------------------------
     # Perception
@@ -106,10 +147,13 @@ class OpenDubsRobotClient:
 
     def detect_objects(self, text_prompt: str, camera: str = "head",
                        x_offset: float = 0.0, y_offset: float = 0.0, z_offset: float = 0.0) -> dict:
-        return self._call("detect_objects", {
-            "text_prompt": text_prompt, "camera": api.check_camera(camera),
-            "x_offset": x_offset, "y_offset": y_offset, "z_offset": z_offset,
-        })
+        p = self._frames()
+        data = self._call("detect_objects", p.grasp_request(text_prompt, camera))
+        return p.grasp_reply(data, (x_offset, y_offset, z_offset))
+
+    def locate_object(self, label: str, camera: str = "head") -> dict:
+        p = self._frames()
+        return p.locate_reply(self._call("locate_object", p.locate_request(label, camera)))
 
     def detect_markers(self, camera: str = "head") -> dict:
         return self._call("detect_markers", {"camera": api.check_camera(camera)})

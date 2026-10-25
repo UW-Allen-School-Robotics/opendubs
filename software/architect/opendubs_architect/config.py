@@ -34,7 +34,8 @@ from opendubs_architect.dryrun import DryRunRobot, namespace_for
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 BACKENDS = ("live", "show")
 #: The skill docs each profile loads; None is all of them.
-PROFILE_SKILLS = {"full": None, "arms": ("motion.md", "program.md")}
+PROFILE_SKILLS = {"full": None, "arms": ("motion.md", "program.md"),
+                  "arms_see": ("motion.md", "program.md", "grasping.md")}
 
 
 def profile() -> str:

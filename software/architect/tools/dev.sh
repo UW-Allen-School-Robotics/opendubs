@@ -18,7 +18,10 @@
 # its opendubs branch, default ~/ssa), DATA (default ~/architect-data), LIMITS (the arm stack's
 # joint_limits.yaml, mounted read-only; by default found where the show runner's drop-in binds it from,
 # as show_sync.py finds it; without one the test fixture is used and the push re-checks),
-# PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker).
+# PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker), PROFILE (arms,
+# the default, or arms_see: the program may look with the perception services, which a recorded show
+# then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
+# says a caller must, with FASTDDS_BUILTIN_TRANSPORTS=UDPv4).
 #
 # $DATA/architect.env holds ssa's API settings (the variables ssa's own .env has), owned by you
 # and mode 600, or `up` refuses. It is passed to the container as its environment, never baked in.
@@ -58,10 +61,16 @@ run() {  # $@: the runner's arguments
       || { echo "dev.sh: ${DATA}/architect.env must be mode 600 (it holds an API key): chmod 600 ${DATA}/architect.env" >&2; exit 1; }
     env+=(--env-file "${DATA}/architect.env")
   fi
+  local profile="${PROFILE:-arms}" domain=77
+  case "${profile}" in
+    arms) ;;
+    arms_see) domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
+    *) echo "dev.sh: PROFILE must be arms or arms_see, not ${profile}" >&2; exit 1 ;;
+  esac
   ${DOCKER} run -d --rm --name "${NAME}" --network host \
-    -e ROS_DOMAIN_ID=77 -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
+    -e ROS_DOMAIN_ID="${domain}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST \
     -e HOME=/data/home -w /data/home \
-    -e OPENDUBS_ARCHITECT_PROFILE=arms -e OPENDUBS_ARCHITECT_BACKEND=show -e OPENDUBS_ARCHITECT_DATA=/data \
+    -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND=show -e OPENDUBS_ARCHITECT_DATA=/data \
     -e PYTHONPATH=/work/software/architect:/ssa -e SSA_ROOT=/ssa \
     "${env[@]}" "${args[@]}" \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" -v "${SSA}:/ssa:ro" \

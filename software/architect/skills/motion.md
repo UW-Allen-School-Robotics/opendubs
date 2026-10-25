@@ -5,7 +5,7 @@ description: OpenDubs arm motion: frames, which arm, workspace from the robot, g
 # Arm motion (OpenDubs, two OpenArm arms)
 
 ## Frames and axes
-Every pose is in `base_link`: **x forward, y left, z up**, meters. `move_ee_to_rel_pose(arm, delta)`
+Every pose is in the chassis frame: **x forward, y left, z up**, meters. Perception answers in it too. `move_ee_to_rel_pose(arm, delta)`
 uses the same axes: `{"x": 0.05}` is 5 cm forward, `{"y": 0.05}` is 5 cm to the robot's left,
 `{"z": 0.05}` is 5 cm up.
 

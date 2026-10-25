@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import re
 
-#: Every function a program may call, as (name, ROS 2 service, kind). The
-#: service lives under /robot/; "query" is a RobotQuery (no request fields),
-#: "command" a RobotCommand (a JSON request). Motion services are the ones the
-#: robot gates on CH5, the deadman and the arm lease.
+#: Every function a program may call, as (name, ROS 2 service, kind). A service lives under
+#: /robot/ unless it starts with "/": detect_objects and locate_object are the perception
+#: services (software/perception on archit/perception-grasp, API.md), which answer in the
+#: camera's frame; the client turns that into the chassis frame (camera_frames.py). "query" is
+#: a RobotQuery (no request fields), "command" a RobotCommand (a JSON request). Motion services
+#: are the ones the robot gates on CH5, the deadman and the arm lease.
 PRIMITIVES = (
-    ("detect_objects",            "perception/detect_objects",         "command"),
+    ("detect_objects",            "/perception/grasp_object",          "command"),
+    ("locate_object",             "/perception/locate",                "command"),
     ("detect_markers",            "perception/detect_markers",         "command"),
     ("get_vqa_response",          "perception/get_vqa_response",       "command"),
     ("verify_grasp",              "perception/verify_grasp",           "command"),
@@ -56,9 +59,12 @@ MOTION_PRIMITIVES = frozenset({
     "reset_robot", "place_in_hand", "navigate_to", "move_base_rel",
 })
 
-#: ResultCode values. 0-4 match architect-franka's robot_api_interfaces;
-#: REFUSED is OpenDubs' own: a safety gate said no, which is not a failure to diagnose.
-SUCCESS, FAILURE, INVALID_INPUT, TIMEOUT, SERVICE_NOT_RUNNING, REFUSED = range(6)
+#: ResultCode values: robot_api_interfaces/msg/ResultCode.msg, kept identical to the perception
+#: services' copy (0-4 are architect-franka's; NOT_FOUND is perception's: nothing with that label
+#: in view). REFUSED is OpenDubs' arm services' own, a value outside the message's constants so the
+#: shared message is unchanged: a safety gate said no, which is not a failure to diagnose.
+SUCCESS, FAILURE, INVALID_INPUT, TIMEOUT, SERVICE_NOT_RUNNING, NOT_FOUND = range(6)
+REFUSED = 6
 
 ARMS = ("left", "right")
 
@@ -132,9 +138,10 @@ API_SPEC = """\
 OpenDubs: a mobile robot with two 7-joint OpenArm arms (left and right), a parallel gripper on each,
 a pan/tilt head with an Orbbec RGB-D camera, an animated face on a tablet, and a speaker.
 
-Frames and units: every pose is in the robot's chassis frame, `base_link` (x forward, y left,
-z up), in meters; orientations are quaternions {x, y, z, w}. A gripper's pose is that of its tool
-point, between the fingers. Angles you pass are in degrees unless stated.
+Frames and units: every pose is in the robot's chassis frame (x forward, y left, z up), in
+meters; orientations are quaternions {x, y, z, w}. A gripper's pose is that of its tool point,
+between the fingers. Perception answers in this frame too. Angles you pass are in degrees unless
+stated.
 
 Failure behavior: a primitive that fails raises RuntimeError and the program stops. A motion
 the robot refuses raises MotionRefused, a RuntimeError subclass: the deadman released, the wrong
@@ -146,13 +153,20 @@ next, not the program.
 ## Perception
 
 detect_objects(text_prompt: str, camera: str = "head", x_offset: float = 0.0, y_offset: float = 0.0, z_offset: float = 0.0)
-    Open-vocabulary detection of one object, returning a grasp pose for it.
-    camera: "head" (default), "wrist_left" or "wrist_right" (wrist cameras may not be fitted).
-    Offsets shift the returned grasp position in base_link, in meters.
+    Open-vocabulary detection of one object, returning a grasp pose for it (the best match for
+    `text_prompt`, a short name such as "candy bowl"). camera: "head" (default), "wrist_left" or
+    "wrist_right" (wrist cameras may not be fitted). Offsets shift the returned grasp position,
+    in meters. Raises RuntimeError when nothing with that name is in view, or the object is more
+    than 1.5 m from the camera.
     Returns:
     {"best_grasp": {"translation_wrt_base": [x, y, z],
                     "quaternion_wrt_base": {"x": .., "y": .., "z": .., "w": ..},
                     "score": float}}
+
+locate_object(label: str, camera: str = "head")
+    Where the best match for `label` is: the middle of its visible surface.
+    Returns {"position": {"x": .., "y": .., "z": ..}, "score": float, "instances_found": int}.
+    Raises RuntimeError when nothing with that name is in view.
 
 detect_markers(camera: str = "head")
     Detect ArUco markers. Returns:
@@ -188,7 +202,7 @@ get_current_gripper_width()
 
 get_workspace()
     The box each arm's gripper may move in, as the robot enforces it. Returns
-    {"left": {"x": [min, max], "y": [min, max], "z": [min, max]}, "right": {...}} in base_link meters.
+    {"left": {"x": [min, max], "y": [min, max], "z": [min, max]}, "right": {...}} in the chassis frame meters.
     Read this before computing a target; a target outside it raises MotionRefused.
 
 get_named_poses()
@@ -197,13 +211,13 @@ get_named_poses()
 ## Arm and gripper control
 
 move_ee_to_pose(arm: str, target_pose: dict)
-    Move `arm`'s gripper tool point to target_pose["position"] in base_link, checked by the robot.
+    Move `arm`'s gripper tool point to target_pose["position"] in the chassis frame, checked by the robot.
     target_pose: {"position": {x, y, z}, "orientation": {x, y, z, w}}
     The orientation is not yet controlled: the arm reaches the position in the posture nearest
     its current one. Returns True.
 
 move_ee_to_rel_pose(arm: str, delta: dict)
-    Move `arm`'s gripper tool point by {"x": dx, "y": dy, "z": dz} meters in base_link
+    Move `arm`'s gripper tool point by {"x": dx, "y": dy, "z": dz} meters in the chassis frame
     (x forward, y left, z up), in the posture nearest its current one. Returns True.
 
 move_arm_to_named_pose(arm: str, name: str)
@@ -253,15 +267,20 @@ navigate_to(place: str | None = None, pose: dict | None = None, timeout_s: float
     Both arms must be at "stow" first (call reset_robot()). Returns True on arrival.
 
 move_base_rel(dx: float = 0.0, dy: float = 0.0, dyaw_deg: float = 0.0)
-    Short relative base move in base_link: dx forward, dy left (the base can strafe), meters;
+    Short relative base move in the chassis frame: dx forward, dy left (the base can strafe), meters;
     dyaw_deg counter-clockwise. Both arms must be at "stow". Returns True.
 """
 
 
 #: Which primitives a session offers. "arms" is the first one for the physical robot: no
 #: perception, no handoff, no speech or navigation, only what a recorded show can play.
+#: "arms_see" adds the perception services' detect and locate: a show recorded with it goes where
+#: the camera saw things when it was approved.
 PROFILES = {
     "full": PRIMITIVE_NAMES,
+    "arms_see": ("detect_objects", "locate_object", "get_current_joints", "get_current_ee_pose",
+                 "get_current_gripper_width", "get_workspace", "get_named_poses", "move_ee_to_pose",
+                 "move_ee_to_rel_pose", "move_arm_to_named_pose", "set_gripper_width", "reset_robot"),
     "arms": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
              "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
              "set_gripper_width", "reset_robot"),

@@ -29,7 +29,8 @@ handout triggered by "trick or treat".
 | `opendubs_architect/kws.py`, `alsa.py` | Keyword spotting on the Thor (sherpa-onnx, the face page's pinned model), and the speakerphone through libasound |
 | `opendubs_architect/ssa_agent.py` | ARCHITECT (ssa's session) behind the runner, with library helpers copied into each program |
 | `opendubs_architect/show_backend.py` | The fallback backend: a program's arm calls recorded as a show |
-| `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode` with `REFUSED`) |
+| `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode`), identical to perception's |
+| `opendubs_architect/perception.py`, `camera_frames.py` | The perception services as `detect_objects` and `locate_object`, their answers in the chassis frame |
 | `skills/*.md` | What the model is told about this robot: motion, grasping, verification, camera questions, handoff, navigation |
 | `image/`, `tools/dev.sh` | The `archit-architect` image (the perception image's base and layout) and how it runs on opendubs2 |
 | `tools/workspace_box.py` | Proposes each arm's workspace box from the twin, and checks the moves inside it |
@@ -37,6 +38,7 @@ handout triggered by "trick or treat".
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
 | `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
 | `tests/test_listener.py` | The listener: a hit alone posts nothing, "trick or treat" only while armed and confirmed, a bystander's sentence is no approval, the robot never hears itself |
+| `tests/test_perception.py` | Camera answers land in the chassis frame; the robot description's camera chain matches the twin's |
 | `tests/test_live_arms.py` | The arm service's gates: the deadman, unknown state, the workspace, the twin's clearance check; a recorded program is a valid show |
 
 ## Run it at a desk
@@ -198,20 +200,39 @@ OPENDUBS_ARCHITECT_BACKEND=show python3 scripts/ssa_cli.py --robot opendubs --dr
 - **The head and the lift.** Their positions are not in the robot state the dashboard serves, so the
   clearance check assumes the arm config's `head` poses and `lift_mm`.
 - **Orientation.** The twin's IK places the tool point and does not hold an orientation.
-- **The frame.** The twin's chassis frame is taken to be `base_link`; the Thor stack lane confirms.
+- **The frame.** Settled: the chassis frame is the robot description's `datum` link, not `base_link` (see Perception).
 - **The planner.** A move is a smoothed straight line in joint space, refused if it passes too close.
   CBiRRT from `sim/planner` (on `feat/arm-motion-planner-ui`) could route around instead.
 
 ## The robot side: one ROS 2 service per primitive
 
-Each primitive is a service `/robot/<category>/<name>` (the table is `api.PRIMITIVES`) of the
-JSON-over-ROS types from architect-franka's `robot_api_interfaces`, rebuilt for ROS 2 Jazzy:
+Each primitive is a service `/robot/<category>/<name>` (the table is `api.PRIMITIVES`), or one of
+the perception services below, of the JSON-over-ROS types in `ros/robot_api_interfaces`. Their
+`.msg`/`.srv` files are kept identical to the perception services' copy
+(`software/perception/robot_api_interfaces` on `archit/perception-grasp`), so one build talks to both:
 
 - `RobotQuery`: no request fields; response `ResultCode result_code`, `string data` (JSON).
 - `RobotCommand`: request `string req` (JSON); the same response.
-- `ResultCode`: `SUCCESS=0, FAILURE=1, INVALID_INPUT=2, TIMEOUT=3, SERVICE_NOT_RUNNING=4`, plus
-  OpenDubs' own **`REFUSED=5`**: a safety gate said no. The client raises `MotionRefused`, and the
-  generated program is told never to catch it.
+- `ResultCode`: `SUCCESS=0, FAILURE=1, INVALID_INPUT=2, TIMEOUT=3, SERVICE_NOT_RUNNING=4,
+  NOT_FOUND=5` (nothing with that label in view). The arm services add **`REFUSED=6`**, a value
+  outside the message's constants so the shared message is unchanged: a safety gate said no. The
+  client raises `MotionRefused`, and the generated program is told never to catch it.
+
+## Perception
+
+`detect_objects` and `locate_object` are the perception services of `archit/perception-grasp`
+(`software/perception/API.md`): `/perception/grasp_object` (AnyGrasp's best grasp on the best match
+for a label) and `/perception/locate` (the middle of its visible surface). They answer in the
+colour camera's optical frame; `perception.py` and `camera_frames.py` turn that into the chassis
+frame, the twin's `chassis` body and the robot description's `datum` link (0.324 m behind
+`base_link`). The chain is read from `description/opendubs/opendubs.urdf` and matches the twin's
+to 0.1 mm at every head pose tested. The head's pan and tilt and the lift's height are not published
+yet, so they are taken from the arm config's first `head` pose and `lift_mm`. The camera's own
+camera_link -> colour offset is nominal (the camera's marks) until the driver's /tf_static is read.
+
+`PROFILE=arms_see tools/dev.sh dry|up` offers them to the program, and a show recorded at approval
+goes where the camera saw things then. For those calls the container joins the robot's ROS domain
+0 with `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`, as API.md says a caller must; every call only reads.
 
 **The services, not the program, decide whether anything moves.** A motion service runs only
 with CH5 in AUTO and the deadman held, through the same gate the show runner uses

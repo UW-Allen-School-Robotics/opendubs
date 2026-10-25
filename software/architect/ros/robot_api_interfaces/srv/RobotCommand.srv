@@ -1,3 +1,4 @@
+# A request with input, e.g. /perception/grasp_object.
 string req                                      # JSON-encoded input payload
 ---
 robot_api_interfaces/ResultCode result_code

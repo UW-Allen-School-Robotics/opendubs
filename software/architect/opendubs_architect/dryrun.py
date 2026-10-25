@@ -30,6 +30,10 @@ class DryRunRobot:
         return {"best_grasp": {"translation_wrt_base": [p["x"] + x_offset, p["y"] + y_offset, p["z"] + z_offset],
                                "quaternion_wrt_base": dict(_POSE["orientation"]), "score": 0.9}}
 
+    def locate_object(self, label, camera="head"):
+        self._log("locate_object", label, camera=api.check_camera(camera))
+        return {"position": dict(_POSE["position"]), "score": 0.9, "instances_found": 1}
+
     def detect_markers(self, camera="head"):
         self._log("detect_markers", camera=api.check_camera(camera))
         return {"markers": []}

@@ -9,7 +9,7 @@ description: Grasping on OpenDubs: detect, approach from above, close, lift, ver
   Name the object simply: `"candy"`, `"wrapped candy"`, not a sentence.
 - If the object or its container carries an ArUco marker, `detect_markers()` is more reliable:
   use the marker's `grasp_pose` as the target.
-- Adjust a grasp with the offsets of `detect_objects` (meters, base_link), not by editing the
+- Adjust a grasp with the offsets of `detect_objects` (meters, chassis frame), not by editing the
   returned numbers: "a bit higher" is `detect_objects("candy", z_offset=0.02)`.
 
 ## Converting a detection into a pose

@@ -1,3 +1,4 @@
+# A query without input, e.g. /perception/status.
 ---
 robot_api_interfaces/ResultCode result_code
-string data                                     # JSON-encoded output payload
+string data                                     # JSON-encoded payload

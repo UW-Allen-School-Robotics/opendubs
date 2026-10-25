@@ -51,8 +51,10 @@ class Publisher:
     Arm calls are recorded; anything else goes to the dry-run robot, so a program in the arms
     profile records the same show every time it is approved."""
 
-    def __init__(self, out_dir: str, primitives, limits_path: str | None = None):
-        self.out_dir, self.primitives = out_dir, tuple(primitives)
+    def __init__(self, out_dir: str, primitives, limits_path: str | None = None, base=None):
+        """`base` makes the robot that answers everything but the arm calls while recording
+        (a console -> robot); the dry-run robot by default, PerceptionDryRun to look for real."""
+        self.out_dir, self.primitives, self.base = out_dir, tuple(primitives), base
         self.limits_path = limits_path or _limits_path()
         os.makedirs(out_dir, exist_ok=True)
 
@@ -67,7 +69,7 @@ class Publisher:
         recorder = make_recorder(tmp, self.limits_path)
         recorder.show_id, recorder.name = show_id, f"ARCHITECT: {program.summary}"
         recorder.palette = {"label": f"ARCHITECT {program.sha[:6]}", "order": 90}
-        robot = ShowRobot(DryRunRobot(_Quiet()), recorder)
+        robot = ShowRobot((self.base or DryRunRobot)(_Quiet()), recorder)
         ns = {name: getattr(robot, name) for name in self.primitives}
         try:
             try:
@@ -172,3 +174,28 @@ class ShowRobot:
         self.recorder.move_to_named(arm, OFFER_POSE)
         self.recorder.set_gripper(arm, 1.0)
         return {"released": True, "reason": f"recorded: offered at the fixed {OFFER_POSE!r} pose"}
+
+
+class PerceptionDryRun:
+    """The dry-run robot, except that it looks: detect_objects and locate_object ask the perception
+    services (perception.py), so a show recorded with the arms_see profile goes where the camera
+    saw things when it was approved. Those calls only read; nothing here moves the robot."""
+
+    def __init__(self, console, client=None):
+        from opendubs_architect.dryrun import DryRunRobot
+        self._dry, self._client = DryRunRobot(console), client
+
+    def __getattr__(self, name):
+        return getattr(self._dry, name)
+
+    def _live(self):
+        if self._client is None:
+            from opendubs_architect.client import OpenDubsRobotClient
+            self._client = OpenDubsRobotClient("architect_perception")
+        return self._client
+
+    def detect_objects(self, text_prompt, camera="head", x_offset=0.0, y_offset=0.0, z_offset=0.0):
+        return self._live().detect_objects(text_prompt, camera, x_offset, y_offset, z_offset)
+
+    def locate_object(self, label, camera="head"):
+        return self._live().locate_object(label, camera)
