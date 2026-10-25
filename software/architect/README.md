@@ -25,6 +25,8 @@ handout triggered by "trick or treat".
 | `opendubs_architect/live_arms.py` | The arm service: each move planned on the twin, checked, and sent behind the runner's gates; `ShowRecorder` for the fallback |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
+| `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "Hey OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
+| `opendubs_architect/kws.py`, `alsa.py` | Keyword spotting on the Thor (sherpa-onnx, the face page's pinned model), and the speakerphone through libasound |
 | `opendubs_architect/ssa_agent.py` | ARCHITECT (ssa's session) behind the runner, with library helpers copied into each program |
 | `opendubs_architect/show_backend.py` | The fallback backend: a program's arm calls recorded as a show |
 | `ros/robot_api_interfaces/` | The ROS 2 service types (`RobotQuery`, `RobotCommand`, `ResultCode` with `REFUSED`) |
@@ -34,6 +36,7 @@ handout triggered by "trick or treat".
 | `examples/arms_wave.py` | An arms-only program for the first runs: no model needed |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
 | `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
+| `tests/test_listener.py` | The listener: a hit alone posts nothing, "trick or treat" only while armed and confirmed, a bystander's sentence is no approval, the robot never hears itself |
 | `tests/test_live_arms.py` | The arm service's gates: the deadman, unknown state, the workspace, the twin's clearance check; a recorded program is a valid show |
 
 ## Run it at a desk
@@ -73,6 +76,45 @@ curl -X POST localhost:8098/api/heard -d '{"kind": "instruction", "text": "hand 
 curl -X POST localhost:8098/api/heard -d '{"kind": "speech", "text": "yes"}'
 curl -X POST localhost:8098/api/heard -d '{"kind": "trigger", "text": "trick or treat"}'
 ```
+
+### The voice: a Jabra speakerphone on the Thor
+
+`listener.py` hears through a USB Jabra SPEAK 510 plugged into the Thor and speaks through it, so
+its echo canceller has the robot's voice to subtract. It spots "Hey OpenDubs" and "trick or treat"
+on the Thor (`kws.py`), transcribes each candidate with Parakeet, and posts to `/api/heard` only
+what passes; the rules are in its docstring. "Trick or treat" needs no wake phrase but counts only
+while a program is armed, and the runner still needs the deadman. While the runner waits for a yes,
+a reply of three words or fewer is heard without the wake phrase; while a program runs, so is
+"stop". It reuses the voice service's modules (`wakeword.py`, `vad.py`, `speech.py`) without
+changing them, and it is not part of the voice service, which never reaches motion.
+
+```bash
+# once per robot: the spotter's model, beside the voice service's (verified against its pins)
+sudo python3 -m opendubs_architect.kws fetch /var/lib/opendubs/models
+# the runner speaks through the listener; the listener needs the audio group and the voice image's packages
+python3 -m opendubs_architect.demo_runner --agent program --program handout.py --dry-run --say-url http://127.0.0.1:8099/api/say
+python3 -m opendubs_architect.listener          # --stt fake --tts fake: the Jabra without the models
+```
+
+A spoken "trick or treat" starting an arm run was approved for the Halloween demo on 2026-10-24;
+it is an exception made for this demo, with the deadman and the frozen program as its gates.
+
+**The first Jabra take** (2026-10-24, one speaker, a quiet room, replayed through the whole
+listener): at 1 m the spotter caught 3 of 3 "Hey OpenDubs" and "trick or treat" became a trigger 2
+times of 3; at 3 m one "trick or treat" of one became a trigger; at 2 m nothing was caught. Speech
+from 2 m arrived about 15 dB below speech at 1 m, so **the Jabra must sit within about a metre of
+where the supervisor and the children stand.** Parakeet's spellings on the Jabra ("Hey, opened
+up", "Hey overdubs", "Hey, open dogs", "check or cheat", "trigger treat") are accepted after a spotter hit (`listener.wake_rest`,
+`listener.is_trick_or_treat`).
+
+**The second take** (the same day, 1 m, then music and other people talking nearby): all 4 whole
+instructions reached the runner; every "yes", "no" and "stop", alone or after the wake phrase, reached it
+while it waited for a yes or ran a program, three of them over music; and no "trick or treat" was
+triggered by the music or the talk. Over music the spotter missed most wake phrases, so **a new
+instruction needs the music down**.
+
+Not yet done: an hour of show music with nobody saying either phrase (one minute is not a false
+trigger rate), and a container for the listener (the voice image plus `--device /dev/snd`).
 
 `--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
 camera questions while writing, but every motion refuses until a program is approved.

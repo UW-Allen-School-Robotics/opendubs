@@ -521,6 +521,8 @@ def main(argv=None) -> int:
     ap.add_argument("--publish", metavar="DIR",
                     help="the show path: each approved program is recorded as a stamped show in DIR, for "
                          "show_sync.py and the Shows page; nothing here reaches the robot")
+    ap.add_argument("--say-url", metavar="URL",
+                    help="speak through the listener (listener.py), e.g. http://127.0.0.1:8099/api/say")
     a = ap.parse_args(argv)
 
     from opendubs_architect import config as config_mod
@@ -559,6 +561,13 @@ def main(argv=None) -> int:
             log_fh.flush()
 
     def speak(text):                              # the arms profile has no say(): the page and log show it
+        if a.say_url:                             # queued there, so the runner's lock is not held while it plays
+            import urllib.request
+            req = urllib.request.Request(a.say_url, data=json.dumps({"text": text}).encode(), method="POST",
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=2.0).close()
+            log({"said": text})
+            return
         (namespace["say"] if "say" in namespace else lambda t: log({"said": t}))(text)
 
     runner = DemoRunner(agent, lambda: namespace, speak, deadman_held, log=log,
