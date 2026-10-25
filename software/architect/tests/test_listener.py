@@ -169,8 +169,23 @@ class Chat(Case):
     def test_a_greeting_once_the_run_has_started(self):
         self.armed("Hey OpenDubs, trick or treat!", post_state="RUNNING")
         self.assertEqual((self.posted, self.said), ([("trigger", "trick or treat")], ["Happy haunting!"]))
-        self.armed("Hey OpenDubs, trick or treat!", post_state="ARMED")     # refused: the deadman not held
-        self.assertEqual(self.said, [])
+
+    def test_hold_on_when_no_run_starts(self):
+        """A "trick or treat" during a run, or refused for the deadman, gets a word instead of silence."""
+        li = self.armed("Hey OpenDubs, trick or treat!", post_state="ARMED")     # refused
+        self.assertEqual(len(self.said), 1)
+        self.assertIn(self.said[0], ls.HOLD_ON)
+        li.state, now = "RUNNING", self.t[0]
+        li.clock = lambda: now                                               # a crowd, all at once
+        for _ in range(3):
+            self.spotter.fire(kws.HEY)
+            self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        self.assertEqual(len(self.said), 1)
+        li.clock = lambda: now + ls.HOLD_ON_EVERY_S
+        self.spotter.fire(kws.HEY)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        self.assertEqual(len(self.said), 2)
+        self.assertNotEqual(self.said[0], self.said[1])                      # not the same line twice running
 
     def test_what_the_model_may_say(self):
         from opendubs_architect import chat

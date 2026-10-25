@@ -14,8 +14,8 @@ spotter hit alone posts nothing.
     "Hey OpenDubs, <words>"   any state  the turn runs to the end of speech (vad.Endpointer), and
                                          wake_rest must find the phrase: "instruction" while the
                                          runner is IDLE, "speech" otherwise ("Hey OpenDubs, stop")
-    "trick or treat", in any  not ARMED  dropped: it is never an instruction or a reply, so a child
-     form                                saying it early never becomes a prompt
+    "trick or treat", in any  not ARMED  never an instruction or a reply, so a child saying it early
+     form                                never becomes a prompt; the robot says a HOLD_ON line
     "trick or treat"          ARMED      no wake phrase; the spotter's hit plus Parakeet's agreement
                                          on the same 2 s -> "trigger" (the runner still needs the deadman)
     a short reply             AWAITING_YES  no wake phrase; YES_MAX_WORDS words or fewer -> "speech",
@@ -26,6 +26,8 @@ spotter hit alone posts nothing.
 WHAT IT SAYS ITSELF (chat.py, the robot's local language model; never posted to the runner):
 
     a run starts              RUNNING    one varied greeting while the arm hands out the treat
+    "trick or treat" that     any but    "Hold on, I'm thinking!" and its variations: a run is under
+     starts no run            AWAITING_YES  way, or the runner refused it (the deadman not held)
     "Hey OpenDubs, <words>"   ARMED      a short reply, unless the words hold "stop" (posted as above)
 
 Outside those states, and while the runner cannot be read, only the wake phrase is listened for.
@@ -44,6 +46,7 @@ import collections
 import json
 import os
 import queue
+import random
 import re
 import sys
 import threading
@@ -69,6 +72,10 @@ OPEN_END_SILENCE_MS = 800
 OPEN_MAX_MS = 6000
 TAIL_S = 0.6                # deaf after the robot speaks: the room's echo of it
 YES_MAX_WORDS = 3
+HOLD_ON = ("Hold on, I'm thinking!", "One moment, let me think.", "Hmm, give me a second.",
+           "Just a moment, I'm thinking it over.", "Hang on, my circuits are whirring!",
+           "Wait a second, I'm thinking.", "Hold your horses, I'm thinking!", "Give me a moment to think.")
+HOLD_ON_EVERY_S = 4.0       # a crowd shouting "trick or treat" hears one, not a queue of them
 PEAK_DBFS = -3.0            # each spoken line is brought up to this: Kokoro's own peaks near -19 dBFS
 MAX_GAIN = 8.0              # were not heard through the Jabra at its volume 6 of 11 (2026-10-24)
 OPEN_STATES = ("AWAITING_YES", "RUNNING")
@@ -144,6 +151,7 @@ class Listener:
         questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
         self.chat, self.say = chat, say
+        self._held_at, self._held_line = -1e9, None
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
         self.state: str | None = None         # the runner's, None while it cannot be read
         self.speaking = False
@@ -198,7 +206,7 @@ class Listener:
             return
         if kws.TRICK in hits:
             self._log("spotted", keyword=kws.TRICK, state=self.state)
-            if self.state == "ARMED":
+            if self.state is not None:          # confirmed in any state: a run, or a HOLD_ON line
                 self.turn, self.open = ["trick", list(self.ring), TRICK_TAIL_MS, self.state], None
                 return
         self._open_window(pcm)
@@ -266,6 +274,7 @@ class Listener:
                     self._send("trigger", "trick or treat")
                 else:
                     self._log("dropped", state=self.state, why=_not_armed(self.state))
+                    self._hold_on()
             elif self.state == "ARMED" and self.chat and self.say and not _STOP.search(rest):
                 answer = self.chat.reply(rest)      # a question while armed: the runner ignores it anyway
                 self.say(answer)
@@ -273,8 +282,11 @@ class Listener:
             else:
                 self._send("instruction" if self.state == "IDLE" else "speech", rest)
         elif kind == "trick":
-            if is_trick_or_treat(text):
+            if is_trick_or_treat(text) and self.state == "ARMED":
                 self._send("trigger", "trick or treat")
+            elif is_trick_or_treat(text):
+                self._log("dropped", state=self.state, why=_not_armed(self.state))
+                self._hold_on()
             else:
                 self._log("not_confirmed", keyword=kws.TRICK)
         else:
@@ -283,6 +295,7 @@ class Listener:
             words = [w.lower() for w in _WORD.findall(wake_rest(text) or text)]
             if is_trick_or_treat(text):             # an open window is never ARMED
                 self._log("dropped", state=state, why=_not_armed(state))
+                self._hold_on()
             elif state == "AWAITING_YES" and 0 < len(words) <= YES_MAX_WORDS:
                 self._send("speech", text)
             elif state == "RUNNING" and "stop" in words:
@@ -299,6 +312,18 @@ class Listener:
             line = self.chat.greeting()             # after the run has started: it never waits on this
             self.say(line)
             self._log("greeted", text=line)
+        elif kind == "trigger" and got != "RUNNING":
+            self._hold_on()                         # refused: the deadman not held, or not yet armed
+
+    def _hold_on(self) -> None:
+        """A "trick or treat" that started no run gets a word, not silence, at most every HOLD_ON_EVERY_S.
+        Not while the runner waits for a yes: it would talk over the approval."""
+        if not self.say or self.state == "AWAITING_YES" or self.clock() - self._held_at < HOLD_ON_EVERY_S:
+            return
+        line = random.choice([x for x in HOLD_ON if x != self._held_line])
+        self._held_at, self._held_line = self.clock(), line
+        self.say(line)
+        self._log("held", text=line)
 
 
 # ---- the robot side: the Jabra, the models, the runner ------------------------------------------------
