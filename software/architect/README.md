@@ -96,6 +96,14 @@ python3 -m opendubs_architect.demo_runner --agent program --program handout.py -
 python3 -m opendubs_architect.listener          # --stt fake --tts fake: the Jabra without the models
 ```
 
+**On the night: a pre-selected program, no model calls.** `--agent program --program handout.py`
+offers that file for any instruction, so ARCHITECT and its API are not called at all. Once, at the
+start: "Hey OpenDubs, hand out candy", the robot reads the program's summary, "yes", and it is
+armed. From then on each "trick or treat" runs the same frozen program again, back to ARMED after
+each run; nothing is regenerated. "Stop" disarms it, and the same instruction and "yes" arm it
+again. A "trick or treat" before it is armed is dropped. Run it with the live arm backend, not
+`--publish`: on the show path the Shows page runs the show and "trick or treat" is ignored.
+
 A spoken "trick or treat" starting an arm run was approved for the Halloween demo on 2026-10-24;
 it is an exception made for this demo, with the deadman and the frozen program as its gates.
 

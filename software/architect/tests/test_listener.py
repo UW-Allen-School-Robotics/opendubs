@@ -117,6 +117,18 @@ class Trick(Case):
             self.feed(li, SPEECH + QUIET[:40])
             self.assertEqual([p for p in self.posted if p[0] == "trigger"], want, (state, heard))
 
+    def test_never_an_instruction_or_a_reply(self):
+        """A child's "Hey OpenDubs, trick or treat" before anything is armed never reaches the model."""
+        for state in ("IDLE", "AWAITING_YES", "CHECK_FAILED"):
+            li = self.make("Hey OpenDubs, trick or treat!", state)
+            self.spotter.fire(kws.HEY)
+            self.feed(li, QUIET[:5] + SPEECH + QUIET)
+            self.assertEqual(self.posted, [], state)
+        li = self.make("Hey OpenDubs, trick or treat!", "ARMED")
+        self.spotter.fire(kws.HEY)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        self.assertEqual(self.posted, [("trigger", "trick or treat")])
+
     def test_how_parakeet_writes_it(self):
         for text in ("Trick or treat!", "trick-or-treat", "Trick r treat", "trick a treat", "Trik or treats",
                      "check or cheat.", "Trigger treat."):

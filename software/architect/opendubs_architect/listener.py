@@ -12,8 +12,10 @@ WHAT IT POSTS, and when. Every clip is transcribed by Parakeet before anything i
 spotter hit alone posts nothing.
 
     "Hey OpenDubs, <words>"   any state  the turn runs to the end of speech (vad.Endpointer), and
-                                         wakeword.strip must find the phrase: "instruction" while the
+                                         wake_rest must find the phrase: "instruction" while the
                                          runner is IDLE, "speech" otherwise ("Hey OpenDubs, stop")
+    "trick or treat", in any  not ARMED  dropped: it is never an instruction or a reply, so a child
+     form                                saying it early never becomes a prompt
     "trick or treat"          ARMED      no wake phrase; the spotter's hit plus Parakeet's agreement
                                          on the same 2 s -> "trigger" (the runner still needs the deadman)
     a short reply             AWAITING_YES  no wake phrase; YES_MAX_WORDS words or fewer -> "speech",
@@ -229,8 +231,11 @@ class Listener:
                 self._log("not_addressed", why="no wake phrase in the transcript" if rest is None
                           else "only the wake phrase was said")
                 return
-            if self.state == "ARMED" and is_trick_or_treat(rest):
-                self._send("trigger", "trick or treat")     # "Hey OpenDubs, trick or treat"
+            if is_trick_or_treat(rest):             # never an instruction or a reply: a trigger or nothing
+                if self.state == "ARMED":
+                    self._send("trigger", "trick or treat")
+                else:
+                    self._log("dropped", state=self.state, why="trick or treat while nothing is armed")
             else:
                 self._send("instruction" if self.state == "IDLE" else "speech", rest)
         elif kind == "trick":
@@ -242,7 +247,9 @@ class Listener:
             # the phrase does not count as words of the reply: "Hey OpenDubs, yes" over music, which the
             # spotter missed, is still a yes
             words = [w.lower() for w in _WORD.findall(wake_rest(text) or text)]
-            if state == "AWAITING_YES" and 0 < len(words) <= YES_MAX_WORDS:
+            if is_trick_or_treat(text):             # an open window is never ARMED
+                self._log("dropped", state=state, why="trick or treat while nothing is armed")
+            elif state == "AWAITING_YES" and 0 < len(words) <= YES_MAX_WORDS:
                 self._send("speech", text)
             elif state == "RUNNING" and "stop" in words:
                 self._send("speech", "stop")
