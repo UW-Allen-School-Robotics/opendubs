@@ -415,7 +415,9 @@ SLOT_KEYS = {
 VIDEO_OUTPUTS = ("cast", "hdmi", "stage", "off")   # stage: the stage page (choreo-stage.md)
 DEFAULT_VIDEO_OUTPUT = "cast"           # the user's decision, 2026-10-20: casting first
 VIDEO_ENDS = ("black", "hold")
-VIDEO_KEYS = {"output", "required"}     # the show-level `video:` block
+VIDEO_KEYS = {"output", "required", "skeletons"}     # the show-level `video:` block
+# skeletons: the stage page draws its skeleton layer (the beat's dancer, a live person) over the show's
+# video, as Them Bones does; without it a show's video plays clean on the stage (choreo-stage.md)
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
 # and the head's pan reflects about centre. Arm joints are written in each arm's OWN outward sense,
@@ -890,7 +892,8 @@ class Show:
         vblock = self.doc.get("video")
         if vblock is not None:
             if not isinstance(vblock, dict):
-                P(Problem("video: must be a mapping {output: cast|hdmi|off, required: true|false}"))
+                P(Problem("video: must be a mapping {output: cast|hdmi|stage|off, required: true|false, "
+                          "skeletons: true|false}"))
             else:
                 for k in vblock:
                     if k not in VIDEO_KEYS:
@@ -899,6 +902,8 @@ class Show:
                     P(Problem(f"video: output {vblock['output']!r} is not one of {', '.join(VIDEO_OUTPUTS)}"))
                 if "required" in vblock and not isinstance(vblock["required"], bool):
                     P(Problem("video: required must be true or false"))
+                if "skeletons" in vblock and not isinstance(vblock["skeletons"], bool):
+                    P(Problem("video: skeletons must be true or false"))
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:

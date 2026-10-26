@@ -337,8 +337,11 @@ sh.begin()
 check("load sends the videos (show seconds, the dashboard's URL) and the beat grid — nothing device-specific",
       so.wait_for("load") and so.sent[0]["videos"] == [{"t": 1.0, "end_t": 4.0, "url": "/api/choreo/media/library/clip.mp4",
                                                         "from_s": 2.0, "end": "hold", "id": "clip",
-                                                        "lead_s": 0.0, "audio": False, "sha256": None, "lib": "clip"}]
+                                                        "lead_s": 0.0, "lead_kind": "video", "audio": False,
+                                                        "sha256": None, "lib": "clip"}]
       and so.sent[0]["beat"] == {"offset_s": 0.25, "bpm": 120.0}, so.sent)
+check("... and, by default, no per-output audio leads and no skeleton layer over the video",
+      so.sent[0]["audio_leads_s"] == {} and so.sent[0]["skeletons"] is False, so.sent[0])
 check("... and nothing starts before the show's clock does", [m["op"] for m in so.sent] == ["load"], so.sent)
 sh.go(lambda: -0.5)                          # half a second before the show's t0
 before = time.monotonic()
@@ -386,8 +389,8 @@ check("... in the same 0-3 s range", ok)
 
 class Captured(FakeStage):
     """FakeStage that keeps each StageShow it makes, to read its load."""
-    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None):
-        self.made = super().make_show(items, music, log, on_lost, buffer_s)
+    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None, **kw):
+        self.made = super().make_show(items, music, log, on_lost, buffer_s, **kw)
         return self.made
 
 
@@ -409,6 +412,43 @@ r, end, items, calls = run_audio("music", so, key="stage", lose=True)
 check("... every stage page gone: the tablet takes the music over at the same point (unhold), the show goes on",
       end[0] == "COMPLETED" and any(c.get("op") == "unhold" for c in calls) and r.music_on == "tablet",
       (end, [c.get("op") for c in calls]))
+print("\nvideo: the stage's audio lead PER SOUND OUTPUT, and the skeleton layer only where a show asks (choreo-stage.md)")
+got = V.save_settings({"stage_audio_leads_s": {"bt": 0.2, "usb": 0.02}})
+check("each sound output the box can select keeps its own audio lead, set by ear",
+      got["stage_audio_leads_s"] == {"bt": 0.2, "usb": 0.02}, got)
+got = V.save_settings({"stage_audio_leads_s": {"bt": 0.225}})
+check("... a change to one output MERGES: the others keep theirs",
+      got["stage_audio_leads_s"] == {"bt": 0.225, "usb": 0.02}, got)
+got = V.save_settings({"stage_audio_leads_s": {"usb": None}})
+check("... null removes an output's lead (it goes back to the box's estimate)", got["stage_audio_leads_s"] == {"bt": 0.225}, got)
+for bad in ({"stage_audio_leads_s": {"radio": 0.1}}, {"stage_audio_leads_s": {"bt": 5}}, {"stage_audio_leads_s": 0.2}):
+    try:
+        V.save_settings(bad)
+        ok = False
+    except ValueError:
+        ok = True
+    check(f"... refused: {bad}", ok)
+check("... and the store keeps them across a reload", V.load_settings()["stage_audio_leads_s"] == {"bt": 0.225})
+so = Captured()
+r, end, items, calls = run_audio("music", so, key="stage")
+so.wait_for("load")
+check("the song alone on the stage is HEARD (lead_kind audio), and the load carries the per-output leads",
+      so.sent[0]["videos"][0]["lead_kind"] == "audio" and so.sent[0]["audio_leads_s"] == {"bt": 0.225}, so.sent[:1])
+so = Captured()
+r, end = run_show("", so, override="stage", key="stage")
+so.wait_for("load")
+check("a show's video on the stage plays CLEAN by default: no skeleton layer over it",
+      so.sent[0]["skeletons"] is False and so.sent[0]["videos"][0]["lead_kind"] == "video", so.sent[:1])
+so = Captured()
+r, end = run_show("video: { skeletons: true }\n", so, override="stage", key="stage")
+so.wait_for("load")
+check("... and `video: {skeletons: true}` (Them Bones) draws the stage page's skeletons over it",
+      end[0] == "COMPLETED" and so.sent[0]["skeletons"] is True, (end, so.sent[:1]))
+check("the validator knows video: {skeletons} and wants true or false",
+      "skeletons" in cue.VIDEO_KEYS and any("skeletons must be true or false" in q.msg for q in cue.show_from_text(
+          "id: x\nslots: [VIDEO]\nvideo: { skeletons: maybe }\ncues:\n  - { t: 1, slot: VIDEO, do: play, video: clip }\n",
+          os.path.join(LIB, "x.yaml")).analyse(cue.load_limits(LIMITS))["problems"]))
+V.save_settings({"stage_audio_leads_s": {"bt": None}})
 check("the stage's status carries what its page says of itself (screen, sound, power)",
       FakeStage().status().get("page") is None)
 
