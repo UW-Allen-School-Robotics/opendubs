@@ -30,6 +30,7 @@
     <div class="pj-row pj-wrap"><span class="pj-k">Bluetooth</span><span class="pj-v" id="sbBt">—</span>
       <button class="iobtn" id="sbScan">PAIR SPEAKER</button><button class="iobtn" id="sbForget" hidden>FORGET</button></div>
     <div class="pj-row pj-wrap" id="sbFoundRow" hidden><span class="pj-k"></span><span class="pj-v" id="sbFound"></span></div>
+    <div class="pj-row pj-wrap"><span class="pj-k">Box software</span><span class="pj-v pj-note" id="sbSoft">—</span></div>
     <div class="pj-note" id="sbWhy"></div>`;
   view.appendChild(card);
   const $ = (id) => document.getElementById(id);
@@ -96,6 +97,10 @@
     const found = (on && s.found) || [];
     $("sbFoundRow").hidden = !found.length || !!(bt && found.some((f) => f.addr === bt.addr && bt.connected));
     $("sbFound").innerHTML = found.map((f) => `<button class="iobtn" data-pair="${esc(f.addr)}">PAIR ${esc(f.name)}</button>`).join(" ");
+    // The box's own software (stage_update.py): what it runs, what the robot offers, and why not yet.
+    const sw = b.software;
+    $("sbSoft").textContent = !on || !sw ? "—" : `${sw.installed || "set up by hand"}` +
+      (sw.offered && sw.offered !== sw.installed ? ` · the robot offers ${sw.offered}` : "") + ` · ${sw.state}`;
     // The result of the command sent last, once the box has run it.
     const res = waiting && (b.results || {})[waiting.id];
     if (res) { say(`${waiting.label}: ${res.text}`, res.ok ? null : busy ? "SHOW_STAGE_SOUND_BUSY" : null); waiting = null; }

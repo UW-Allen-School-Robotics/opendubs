@@ -39,6 +39,9 @@ pulls the dashboard's commands: every REPORT_EVERY_S it POSTs its sound report t
 /api/stage/box/report and runs what the answer carries (one at a time, beside the report), so this agent
 still listens on loopback only.
 
+THE UPDATE (stage_update.py): every UPDATE_EVERY_S the agent looks for a newer signed copy of the box's
+software on the robot, and installs it between shows, then reboots.
+
 THE WATCHDOG: once the browser has the page (stage-kiosk writes it), a page that has not checked in for
 SILENT_S is restarted (systemctl restart stage-kiosk), backing off to SILENT_MAX_S.
 
@@ -65,11 +68,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stage_sound  # noqa: E402  (installed beside this file)
+import stage_update  # noqa: E402
 
 PORT = 8095
 RUN = os.environ.get("STAGE_RUN", "/run/stage")
 SOUND_RUN = os.environ.get("STAGE_SOUND_RUN", "/run/stage-sound")    # the agent's own: the kiosk's is wiped on restart
 SOUND_EVERY_S, REPORT_EVERY_S = 3, 2
+UPDATE_EVERY_S = 120
 MEDIA = os.environ.get("STAGE_MEDIA", "/srv/stage-media")
 SILENT_S, SILENT_MAX_S = 30.0, 120.0
 SYNC_EVERY_S = 60
@@ -561,7 +566,7 @@ def worker() -> None:
 def report_once(post=None) -> None:
     """Tell the robot how the sound is, and take any commands its answer carries."""
     body = json.dumps({"name": socket.gethostname(), "sound": sound.report(), "results": results,
-                       "queued": sorted(queued)}).encode()
+                       "queued": sorted(queued), "software": stage_update.status}).encode()
     for o in origins():
         try:
             req = urllib.request.Request(o + "/api/stage/box/report", data=body, method="POST",
@@ -577,6 +582,16 @@ def report_once(post=None) -> None:
         return
 
 
+def updater() -> None:
+    """The box's own update, from the robot (stage_update.py): signed, between shows, then a reboot."""
+    while True:
+        try:
+            stage_update.check_once([o for o in origins() if robot_busy(o) is not None][:1], busy_now)
+        except Exception as e:                              # noqa: BLE001 — keep running what it has
+            stage_update.status.update(state=f"check failed: {e}"[:160])
+        time.sleep(UPDATE_EVERY_S)
+
+
 def reporter() -> None:
     while True:
         report_once()
@@ -589,7 +604,7 @@ def main() -> None:
     sound = stage_sound.Sound(MEDIA, SOUND_RUN, _conf("AUDIO", "auto"), robot_busy=busy_now)
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=syncer, daemon=True).start()
-    for t in (sound_loop, worker, reporter):
+    for t in (sound_loop, worker, reporter, updater):
         threading.Thread(target=t, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
