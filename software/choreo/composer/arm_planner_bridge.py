@@ -214,7 +214,12 @@ def plan_arm_move(
 
     # 2. Find start pose and start time
     q_prev_deg, t_prev = resolve_previous_arm_state(doc, slot, t_goal, limits)
-    q_start_rad = choreo_to_model_rad(side, clamp_to_usable_limits(q_prev_deg, side, limits), fallback_deg=q_prev_deg)
+    rest_deg = cue.rest_pose(limits, side)
+    is_prev_rest = all(abs(float(q_prev_deg.get(str(j), q_prev_deg.get(j, 0.0))) - rest_deg.get(j, 0.0)) < 0.5 for j in range(1, 8))
+    if is_prev_rest:
+        q_start_rad = choreo_to_model_rad(side, q_prev_deg, fallback_deg=q_prev_deg)
+    else:
+        q_start_rad = choreo_to_model_rad(side, clamp_to_usable_limits(q_prev_deg, side, limits), fallback_deg=q_prev_deg)
 
     # 3. Determine goal pose
     kin = None
@@ -434,8 +439,9 @@ def plan_arm_move(
     if all_clamped:
         note_text += f" Clamped to usable joint range: {', '.join(all_clamped)}."
 
+    note_id = f"plan_{int(t_goal * 100)}_{slot.lower()}"
     note = {
-        "id": f"plan_{int(t_goal * 100)}_{slot.lower()}",
+        "id": note_id,
         "at": round(t_prev, 2),
         "to": round(t_goal, 2),
         "slots": [slot],
@@ -443,7 +449,11 @@ def plan_arm_move(
         "status": "done",
         "by": "composer",
     }
-    edits.append({"op": "note_add", "note": note})
+    existing_notes = [n.get("id") for n in (yaml.safe_load(text).get(yamledit.NOTES) or []) if isinstance(n, dict)]
+    if note_id in existing_notes:
+        edits.append({"op": "note_set", "id": note_id, "note": note})
+    else:
+        edits.append({"op": "note_add", "note": note})
 
     new_text = yamledit.apply(text, edits)
 
